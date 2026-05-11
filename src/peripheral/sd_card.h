@@ -45,12 +45,14 @@ public:
         resp_idx_ = 0;
         data_idx_ = 0;
         data_crc_count_ = 0;
+        data_token_received_ = false;
         initialized_ = false;
         app_cmd_ = false;
         multi_block_ = false;
         multi_block_sector_ = 0;
         pending_write_after_r1_ = false;
         persistent_response_byte_ = 0xFF;
+        host_supports_sdhc_ = false;  // V17-DIVMMC-01
     }
 
     /// Returns true if an image is mounted.
@@ -95,10 +97,35 @@ private:
     uint8_t data_block_[512] = {};
     int data_idx_ = 0;
     int data_crc_count_ = 0;  // CRC bytes remaining for CMD24
+    // V12-DIVMMC-06 (Pass-12 reviewer fix, 2026-05-10): explicit
+    // "data token already seen" flag for the CMD24 RECEIVING_DATA
+    // state. Per SD Phys Layer Spec § 7.3.3.2 the card waits for the
+    // 0xFE start-of-block token; pre-token bytes (incl. but not
+    // limited to 0xFF gap bytes) must be ignored. The previous
+    // (Pass-4) implementation reused `data_idx_==0 && data_crc_count_==0`
+    // to detect "before token", which mishandled non-0xFF pre-token
+    // bytes. This explicit flag is reset on every CMD24 dispatch
+    // (process_command), reset(), and deselect().
+    bool data_token_received_ = false;
 
     // SD card state
     bool initialized_ = false;   // After ACMD41 completes
     bool app_cmd_ = false;       // Next command is ACMD (preceded by CMD55)
+
+    // V17-DIVMMC-01 (Pass-17 verify-audit, 2026-05-10): SD Phys Layer
+    // Simplified Spec § 4.2.3 / § 5.1: ACMD41's argument bit 30 is the
+    // Host Capacity Support flag (HCS). When HCS=1 the host indicates it
+    // supports SDHC/SDXC (the card's CCS bit in CMD58's OCR can be 1).
+    // When HCS=0 the host only supports SDSC; an SDHC card must respond
+    // with CCS=0 in OCR (treats card as standard capacity).
+    //
+    // Pre-fix the emulator IGNORED the HCS bit and unconditionally set
+    // CCS=1 in CMD58 — diverging from spec for any host that issues
+    // ACMD41 with HCS=0. TBBlue / NextZXOS / FatFs always set HCS=1
+    // (verified in the firmware boot trace), so the divergence is
+    // class-(c) latent on the boot path. The fix tracks the most-recent
+    // HCS bit and reflects it in the CMD58 OCR's CCS field.
+    bool host_supports_sdhc_ = false;
 
     // CMD18 multi-block read: true between CMD18 and CMD12/CS-deassert.
     // When a block's CRC finishes inside send(), we re-prime data_block_ from

@@ -284,6 +284,117 @@ static int test_step_back_disabled()
     return 0;
 }
 
+// ── Test 6: V16-CPU-01 — load_state re-pushes port_ulap_io_en shadow ─────
+//
+// VHDL oracle:
+//   * zxnext.vhd:2439 — `port_ulap_io_en <= internal_port_enable(24);` — bit
+//     24 is the first bit of nr_85, i.e. NR 0x85 bit 0.
+//   * zxnext.vhd:2685-2686 — `port_bf3b/port_ff3b` are AND-gated by
+//     `port_ulap_io_en`.
+//   * zxnext.vhd:4496 — `port_contend` OR-folds `port_bf3b` and `port_ff3b`.
+//   * zxnext.vhd:1229 — `nr_85_internal_port_enable` resets to all-1.
+//
+// V15-CPU-NIT-03 (Pass-15 reviewer-promoted) wired NR 0x85 bit 0 into a
+// `port_ulap_io_en_` shadow on ContentionModel, with:
+//   - `set_port_ulap_io_en(bool)` setter (contention.h)
+//   - NR 0x85 write-handler push (emulator.cpp ~line 2466)
+//   - init() boot-time push from `nextreg_.cached(0x85) & 0x01`
+//     (emulator.cpp ~line 272)
+//   - 5 contention regression tests (test/contention/contention_test.cpp,
+//     CT-CAT28-V15 group)
+//
+// V16-CPU-01: the load_state re-push was missed. Emulator::load_state
+// rebuilds ContentionModel (which preserves the shadow per
+// `rebuild_for_type`), then explicitly re-pushes `port_7ffd_io_en` from
+// NR 0x82 bit 1 — but NOT `port_ulap_io_en` from NR 0x85 bit 0. Same
+// gap pattern Verify12-memory class-(b) caught for `port_7ffd_io_en`,
+// just for the sibling shadow.
+//
+// Discriminative scenario: take a snapshot with NR 0x85 bit 0 = 1 (default
+// post-init). Force the runtime shadow to FALSE (simulating a state where
+// runtime NR 0x85 was previously toggled to 0 then back to 1, but where
+// the ContentionModel's `port_ulap_io_en_` somehow ended up false at the
+// moment of load_state — easiest reproduction: directly set it false on
+// the live model). Call load_state. Without the V16 fix, the shadow stays
+// false (load_state doesn't push it). With the fix, the shadow is restored
+// to true (matching NR 0x85 bit 0 in the snapshot).
+//
+// We assert post-load `emu.contention().port_ulap_io_en()` matches the
+// NR 0x85 bit 0 value in the snapshot. Pre-fix: false (gap). Post-fix:
+// true (re-push restored).
+//
+// Discriminative-check protocol per
+// doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-CPU-FIX.md:
+//   1. Reproduces the post-fix observable (port_ulap_io_en()==true after
+//      load when NR 0x85 b0 = 1).
+//   2. Reverting emulator.cpp:6523 `set_port_ulap_io_en()` line MUST flip
+//      the assertion to FAIL (post-load shadow stays at the false we
+//      planted).
+//   3. Re-applying the fix returns the test to PASS.
+
+static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
+{
+    printf("\n--- Test 6: V16-CPU-01 load_state re-pushes port_ulap_io_en ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 5);
+
+    // NR 0x85 power-on default is 0x8F (low 4 bits set; bit 7 = reset_type).
+    // After build_emulator's init(), the contention shadow is true (b0=1).
+    bool init_shadow = emu.contention().port_ulap_io_en();
+    CHECK(init_shadow, "post-init shadow == true (NR 0x85 default 0x8F → b0=1)");
+
+    // Save state. The snapshot captures NR 0x85 = 0x8F.
+    StateWriter measure;
+    emu.save_state(measure);
+    size_t snap_size = measure.position();
+    std::vector<uint8_t> buf(snap_size, 0);
+    StateWriter w(buf.data(), snap_size);
+    emu.save_state(w);
+    REQUIRE(w.position() == snap_size, "save_state writes exactly snap_size bytes");
+
+    // Plant the gap: directly set the shadow to FALSE on the live model.
+    // This simulates the state divergence the V16 fix protects against
+    // (e.g. a prior runtime path toggled the shadow but forgot to push
+    // the NR-derived value back, OR a partial state-restore sequence
+    // where another component modified the shadow before this load).
+    emu.contention().set_port_ulap_io_en(false);
+    CHECK(!emu.contention().port_ulap_io_en(),
+          "shadow planted false (pre-load divergence simulation)");
+
+    // Load state. The fix re-pushes NR 0x85 bit 0 → shadow.
+    StateReader r(buf.data(), snap_size);
+    emu.load_state(r);
+
+    // Post-load: shadow MUST match NR 0x85 bit 0 in the snapshot (= 1).
+    // Pre-fix: shadow stays false (gap). Post-fix: shadow is true.
+    bool post_load_shadow = emu.contention().port_ulap_io_en();
+    printf("  Post-load shadow: %s (expect true)\n",
+           post_load_shadow ? "true" : "false");
+    CHECK(post_load_shadow,
+          "V16-CPU-01: load_state re-pushes port_ulap_io_en from NR 0x85 b0");
+
+    // Cross-check: also assert the contention model actually fires for
+    // ULA+ ports post-load. This guards against future refactors that
+    // might keep the shadow accessor-correct but break the gate logic.
+    {
+        // Use a (hc, vc) inside the active raster window per zxula.vhd:
+        // hc=4 (hc_adj=5, hc_adj(3:2)=01 → wait_s=1), vc=100 (visible).
+        const uint8_t stretch = emu.contention().contention_tick(
+            /*mreq_n=*/true, /*iorq_n=*/false,
+            /*rd_n=*/false,  /*wr_n=*/true,
+            /*cpu_a=*/0xBF3B, /*hc=*/4, /*vc=*/100);
+        // 48K is contended at IORQ to BF3B per VHDL when port_ulap_io_en=1.
+        // Pre-fix (no re-push): shadow=false → contention_tick stretch=0.
+        // Post-fix: shadow=true → contention_tick stretch>0.
+        CHECK(stretch > 0,
+              "post-load contention_tick at $BF3B with default param "
+              "fires non-zero stretch (V15-CPU-NIT-03 OR-fold sees true shadow)");
+    }
+
+    return 0;
+}
+
 // ── main ───────────────────────────────────────────────────────────────────
 
 // ── SS-VER (G66) + RB-FRAME (G67) skips ─────────────────────────────────
@@ -322,6 +433,7 @@ int main()
     test_rewind_to_frame();
     test_snapshot_roundtrip();
     test_step_back_disabled();
+    test_v16_cpu_01_load_state_repushes_port_ulap_io_en();
     test_ss_ver_skips();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

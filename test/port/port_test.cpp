@@ -116,6 +116,15 @@ static uint8_t nr_read(Emulator& emu, uint8_t reg) {
     return emu.port().in(0x253B);
 }
 
+// V18-NMP-02/03/04 helper. Enable the DAC via NR 0x08 bit 3 — the bit
+// `nr_08_dac_en` per VHDL zxnext.vhd:5179. Without this gate, every DAC
+// write handler short-circuits (`if (!dac_enabled_) return;`) so the
+// LSB-only mask fix is observable only with DAC enabled.
+static void enable_dac(Emulator& emu) {
+    emu.port().out(0x243B, 0x08);
+    emu.port().out(0x253B, 0x08);
+}
+
 // Count how many distinct handlers in the current dispatcher will claim
 // a given port. Exposed by walking through write() and counting side
 // effects is awkward — instead we use the public in() once and cross-check
@@ -264,6 +273,29 @@ static void test_group_registration() {
               DETAIL("borders=%u,%u,%u expected 2,5,3", b1, b2, b3));
     }
 
+    // REG-01b / V17-NMP-02 — ULA 0xFE matches ANY even address (bit 0 = 0),
+    // not just LSB == 0xFE. VHDL zxnext.vhd:2582 — `port_fe <= '1' when
+    // cpu_a(0) = '0'`. Pre-Pass-17, jnext's handler used mask 0x00FF / val
+    // 0x00FE which required the LSB to equal exactly 0xFE — software using
+    // OUT (0xFC), A or any other even-but-not-FE port would update border
+    // on real hardware (and CSpect / Fuse) but not in jnext. Discriminative
+    // test for the V17-NMP-02 fix; covers the well-known "OUT (0xFC), A"
+    // border trick as well as 0xF8.
+    {
+        emu.port().out(0x00FE, 0x00);           // border = black (baseline)
+        emu.port().out(0x00FC, 0x02);           // border ← green (bit 0 = 0)
+        uint8_t b1 = emu.renderer().ula().get_border();
+        emu.port().out(0x00F8, 0x07);           // border ← white (bit 0 = 0)
+        uint8_t b2 = emu.renderer().ula().get_border();
+        emu.port().out(0x4242, 0x05);           // border ← cyan (any even port)
+        uint8_t b3 = emu.renderer().ula().get_border();
+        check("REG-01b",
+              "0xFE decode covers ANY even port (0xFC / 0xF8 / 0x4242) "
+              "[VHDL :2582 cpu_a(0)='0']",
+              b1 == 2 && b2 == 7 && b3 == 5,
+              DETAIL("borders=%u,%u,%u expected 2,7,5", b1, b2, b3));
+    }
+
     // REG-02: 0xFE does NOT match an odd address. VHDL zxnext.vhd:2582-2583.
     {
         emu.port().out(0x00FE, 0x00);           // border = black
@@ -273,6 +305,26 @@ static void test_group_registration() {
               "Odd port 0x00FF does NOT write ULA border",
               b == 0,
               DETAIL("border=%u expected 0", b));
+    }
+
+    // REG-02b / V17-NMP-03 — Timex screen-mode port 0xFF matches any port
+    // with LSB == 0xFF (high byte irrelevant). VHDL zxnext.vhd:2540-2571 +
+    // 2583 — `port_ff_lsb` from `cpu_a(7:0) = X"FF"`. Pre-Pass-17 the
+    // handler used mask 0xFFFF / val 0x00FF — requiring the FULL 16-bit
+    // address to equal exactly 0x00FF. Software using OUT (0x12FF), A would
+    // update Timex screen-mode register on real hardware but not in jnext.
+    // Discriminative test for the V17-NMP-03 fix.
+    {
+        // Write known byte via low-byte-only address, verify it lands.
+        emu.port().out(0x00FF, 0x00);           // baseline screen_mode = 0
+        const uint8_t baseline = emu.renderer().ula().get_screen_mode_reg();
+        emu.port().out(0x12FF, 0x06);           // bits 2:0 = 6 (hi-res)
+        const uint8_t after_high = emu.renderer().ula().get_screen_mode_reg();
+        check("REG-02b",
+              "Timex 0xFF decode covers ANY port LSB == 0xFF (e.g. 0x12FF) "
+              "[VHDL :2540-2571,:2583 port_ff_lsb LSB-only decode]",
+              baseline == 0 && (after_high & 0x07) == 0x06,
+              DETAIL("baseline=%u after=%u", baseline, after_high));
     }
 
     // REG-03 / REG-04: NextReg select 0x243B + data 0x253B round-trip.
@@ -414,6 +466,41 @@ static void test_group_registration() {
               "OUT 0xE7 updates SPI CS latch",
               cs == 0xFE,
               DETAIL("cs=0x%02x expected 0xFE", cs));
+    }
+
+    // V16-DIVMMC-01 (Pass-16 verify-audit, 2026-05-10): port 0xE7 is
+    // **write-only** in VHDL. zxnext.vhd:614-622 declares
+    //   signal port_e3_rd, port_e3_wr;        -- 0xE3 readable
+    //   signal port_e7_wr;                    -- only WR for 0xE7
+    //   signal port_eb_rd, port_eb_wr;        -- 0xEB readable
+    // No `port_e7_rd` exists. Therefore the `port_internal_rd_response`
+    // OR-tree at zxnext.vhd:2803-2806 does NOT include port 0xE7 — a host
+    // read of 0xE7 falls through to `cpu_di <= X"FF"` at :1877 (no
+    // internal response). Pre-fix `read_cs()` returned the internal CS
+    // latch — leaking host-side SPI master state to firmware that has no
+    // architectural access. Post-fix the read handler is `nullptr`,
+    // falling through to floating bus 0xFF.
+    //
+    // Discriminative shape: write a non-0xFF CS pattern (0xFE — SD0
+    // selected), then read 0xE7. Pre-fix returns 0xFE (the latch).
+    // Post-fix returns 0xFF (no internal response).
+    {
+        // First make sure port_spi_io_en (NR 0x83 bit 3) is enabled.
+        // Reset default: nr_83_internal_port_enable = 0xFF (zxnext.vhd:5055,
+        // 1227), so bit 3 is set. We don't toggle it here.
+        emu.port().out(0x00E7, 0xFE);           // CS: SD0 selected (latched in spi_)
+        // Sanity: latch DID update (REG-12 already proves this; we just
+        // re-confirm via the public accessor).
+        uint8_t latched = emu.spi().read_cs();
+        bool latch_ok = (latched == 0xFE);
+        // The actual read of the port — this is what diverges.
+        uint8_t r = emu.port().in(0x00E7);
+        check("V16-DIVMMC-01",
+              "IN 0xE7 returns 0xFF (port is write-only in VHDL — no "
+              "port_e7_rd signal); pre-fix returned the internal CS latch.",
+              latch_ok && r == 0xFF,
+              DETAIL("latched_cs=0x%02x in_0xE7=0x%02x expected_in=0xFF",
+                     latched, r));
     }
 
     // REG-13: Sprite 0x303B slot-select write + status read. VHDL
@@ -659,6 +746,387 @@ static void test_group_registration() {
               rd != 0xFF,
               DETAIL("ffdf=0x%02x", rd));
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-01: Kempston mouse ports decoded by 12 bits only (A11..A0)
+    //
+    // VHDL zxnext.vhd:2668-2670:
+    //   port_fadf <= '1' when cpu_a(11 downto 8) = X"A" and port_df_lsb = '1'
+    //                                        and port_mouse_io_en = '1'
+    //   port_fbdf <= '1' when cpu_a(11 downto 8) = X"B" and port_df_lsb = '1'
+    //                                        and port_mouse_io_en = '1'
+    //   port_ffdf <= '1' when cpu_a(11 downto 8) = X"F" and port_df_lsb = '1'
+    //                                        and port_mouse_io_en = '1'
+    // A15..A12 are DON'T-CARE. Pre-fix the handlers used mask 0xFFFF so
+    // CPU IN A,(0x2ADF) missed the mouse decode in jnext; on real hardware
+    // it returns the mouse buttons byte (= 0x0F idle when mouse enabled,
+    // NOT the default 0x00 returned by the 0x00DF Specdrum/joystick fall-
+    // through with mouse_io_en gating those off). Same shape as Pass-17
+    // V17-NMP-02 / V17-NMP-03 LSB / even-port fixes.
+    //
+    // Discriminative metric: probe at three differently-aliased MSBs
+    // (0x2ADF, 0x5BDF, 0x9FDF) and at the canonical addresses. Each
+    // pair must return the SAME byte AND the buttons-port pair must be
+    // non-zero (0x0F idle wheel + bit3 + ~buttons[2:0]). Pre-fix the
+    // aliased read at the same LSB but wrong MSB routes via the
+    // `0x00FF / 0x00DF` Specdrum-alias handler whose mouse-enabled gate
+    // forces a 0x00 return — distinct from the mouse handler's 0x0F.
+    {
+        nr_write(emu, 0x83, 0xFF);              // mouse enabled (default)
+        const uint8_t b_canonical = emu.port().in(0xFADF);
+        const uint8_t b_aliased_0 = emu.port().in(0x2ADF);
+        const uint8_t b_aliased_1 = emu.port().in(0x5ADF);
+        const uint8_t b_aliased_2 = emu.port().in(0x9ADF);
+        check("V18-NMP-01",
+              "Mouse buttons 0xFADF == 0x2ADF == 0x5ADF == 0x9ADF "
+              "(VHDL port_fadf — A11..A8=A; A15..A12 don't-care)",
+              b_canonical != 0x00
+                && b_canonical == b_aliased_0
+                && b_canonical == b_aliased_1
+                && b_canonical == b_aliased_2,
+              DETAIL("canon=0x%02x 2ADF=0x%02x 5ADF=0x%02x 9ADF=0x%02x",
+                     b_canonical, b_aliased_0, b_aliased_1, b_aliased_2));
+        // X / Y ports (0xFBDF / 0xFFDF) use the same decode template as
+        // the buttons port (A11..A8 = B / F, port_df_lsb LSB-only). The
+        // identical mask fix (0xFFFF → 0x0FFF) is applied to all three —
+        // V18-NMP-01 covers the discriminative case via the buttons port
+        // because the mouse X / Y default-idle values happen to coincide
+        // with the DF-alias handler's 0x00 return, masking the routing
+        // change at default idle. The fix is structurally identical;
+        // no additional discriminative test is reachable without a
+        // KempstonMouse::set_x / set_y test seam (not in scope).
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-02: Profi-Covox DAC ports 0x003F / 0x005F decoded by LSB only
+    //
+    // VHDL zxnext.vhd:2661 / :2664:
+    //   port_dac_A <= ... or (port_3f_lsb = '1' and
+    //                         port_dac_stereo_AD_3f5f_io_en = '1');
+    //   port_dac_D <= ... or (port_5f_lsb = '1' and
+    //                         port_dac_stereo_AD_3f5f_io_en = '1');
+    // port_3f_lsb / port_5f_lsb decode is LSB-only (zxnext.vhd:2549,:2553);
+    // A15..A8 are DON'T-CARE. Pre-fix the handlers used mask 0xFFFF so
+    // OUT (0x123F), A missed the DAC ch A write; on real hardware it
+    // updates ch A (observable via Dac::pcm_left()).
+    {
+        // Reset DAC channels by a known write through canonical addresses.
+        enable_dac(emu);
+        // NR 0x84 bit 3 = port_dac_stereo_AD_3f5f_io_en (Profi enable).
+        nr_write(emu, 0x84, 0xFF);              // all DAC enables ON
+        // Establish baseline via canonical 0x003F write.
+        emu.port().out(0x003F, 0x40);           // ch A = 0x40 → pcm_left contributes 0x40 + 0x80 = 0xC0
+        const uint16_t baseline_L = emu.dac().pcm_left();
+        // Write via aliased 0x123F (high byte should be IGNORED per VHDL).
+        emu.port().out(0x123F, 0x60);           // ch A = 0x60 expected → pcm_left = 0x60 + 0x80 = 0xE0
+        const uint16_t aliased_L = emu.dac().pcm_left();
+        check("V18-NMP-02a",
+              "Profi DAC ch A write via OUT (0x123F),A reaches Dac (VHDL "
+              ":2661 port_3f_lsb LSB-only, A15..A8 don't-care)",
+              aliased_L != baseline_L && aliased_L == (0x60 + 0x80),
+              DETAIL("baseline_L=0x%04x aliased_L=0x%04x expected=0x%04x",
+                     baseline_L, aliased_L, 0x60 + 0x80));
+        // Same for ch D (0x5F).
+        emu.port().out(0x005F, 0x40);
+        const uint16_t baseline_R = emu.dac().pcm_right();
+        emu.port().out(0x125F, 0x60);
+        const uint16_t aliased_R = emu.dac().pcm_right();
+        check("V18-NMP-02b",
+              "Profi DAC ch D write via OUT (0x125F),A reaches Dac (VHDL "
+              ":2664 port_5f_lsb LSB-only)",
+              aliased_R != baseline_R && aliased_R == (0x80 + 0x60),
+              DETAIL("baseline_R=0x%04x aliased_R=0x%04x expected=0x%04x",
+                     baseline_R, aliased_R, 0x80 + 0x60));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-03: Soundrive Mode 2 DAC ports 0x00F1/F3/F9/FB decoded by LSB only
+    //
+    // VHDL zxnext.vhd:2661-2664 — same pattern as V18-NMP-02. Pre-fix mask
+    // 0xFFFF for all four; fixed to 0x00FF.
+    {
+        enable_dac(emu);
+        // NR 0x84 bit 2 = port_dac_sd2_ABCD_f1f3f9fb_io_en.
+        nr_write(emu, 0x84, 0xFF);              // all DAC enables ON
+        // Baseline via canonical 0x00F1 (ch A).
+        emu.port().out(0x00F1, 0x40);
+        const uint16_t baseline_L = emu.dac().pcm_left();
+        // Aliased via 0x12F1 — high byte ignored per VHDL.
+        emu.port().out(0x12F1, 0x60);
+        const uint16_t aliased_L = emu.dac().pcm_left();
+        check("V18-NMP-03",
+              "SD2 DAC ch A write via OUT (0x12F1),A reaches Dac (VHDL "
+              ":2661 port_f1_lsb LSB-only, A15..A8 don't-care)",
+              aliased_L != baseline_L,
+              DETAIL("baseline_L=0x%04x aliased_L=0x%04x", baseline_L, aliased_L));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-04: GS Covox port 0xB3 decoded by LSB only
+    //
+    // VHDL zxnext.vhd:2659:
+    //   port_dac_mono_BC <= '1' when port_b3_lsb = '1'
+    //                                and port_dac_mono_BC_b3_io_en = '1';
+    // port_b3_lsb is LSB-only (zxnext.vhd:2559). Pre-fix mask 0xFFFF; fixed
+    // to 0x00FF. Writing 0xB3 mono-fans to channels B and C
+    // (VHDL :2662-2663).
+    {
+        enable_dac(emu);
+        // NR 0x84 bit 6 = port_dac_mono_BC_b3_io_en.
+        nr_write(emu, 0x84, 0xFF);              // all DAC enables ON
+        // Baseline via canonical 0x00B3.
+        emu.port().out(0x00B3, 0x40);
+        const uint16_t baseline_L = emu.dac().pcm_left();   // ch A+B
+        const uint16_t baseline_R = emu.dac().pcm_right();  // ch C+D
+        // Aliased via 0x12B3 — high byte ignored per VHDL.
+        emu.port().out(0x12B3, 0x60);
+        const uint16_t aliased_L = emu.dac().pcm_left();
+        const uint16_t aliased_R = emu.dac().pcm_right();
+        check("V18-NMP-04",
+              "GS Covox B/C write via OUT (0x12B3),A reaches Dac (VHDL "
+              ":2659 port_b3_lsb LSB-only, A15..A8 don't-care)",
+              aliased_L != baseline_L && aliased_R != baseline_R,
+              DETAIL("baseline_L=0x%04x R=0x%04x aliased_L=0x%04x R=0x%04x",
+                     baseline_L, baseline_R, aliased_L, aliased_R));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-NIT-01: missing port_*_io_en gates on 10 port handlers
+    //
+    // Cluster (review file
+    // `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY18-NMI-MF-PORT-REVIEW.md`,
+    // section "Missed findings — port-side IO-enable gates"):
+    //
+    //   * Sprite 0x303B (read+write), 0x57 (write), 0x5B (write)
+    //     — gated by port_sprite_io_en = NR 0x83 b6
+    //     (VHDL zxnext.vhd:2423, :2679-2681).
+    //   * Layer 2 0x123B (read+write)
+    //     — gated by port_layer2_io_en = NR 0x83 b7
+    //     (VHDL :2424, :2635).
+    //   * ULA+ 0xBF3B (write) and 0xFF3B (write)
+    //     — gated by port_ulap_io_en = NR 0x85 b0
+    //     (VHDL :2439, :2685-2686).
+    //   * CTC 0x183B..0x1F3B (read+write)
+    //     — gated by port_ctc_io_en = NR 0x85 b3
+    //     (VHDL :2442, :2690).
+    //   * DMA 0x6B (read+write)
+    //     — gated by port_dma_6b_io_en = NR 0x82 b5
+    //     (VHDL :2405, :2643).
+    //   * DMA 0x0B (read+write)
+    //     — gated by port_dma_0b_io_en = NR 0x85 b1
+    //     (VHDL :2440, :2643).
+    //
+    // Each gate defaults to 1 at reset (NR 0x82..0x85 reset values per
+    // VHDL :1226-1230), so the divergence is latent at default boot but
+    // a software write that clears any of the listed bits leaves jnext
+    // responding to ports that real hardware silences. The fix shape is
+    // identical to the established UART / I²C / mouse / SPI / 7FFD
+    // pattern (`effective_internal_port_enable(NR) & bit` test).
+    //
+    // Discriminative metric for each row: clear exactly the relevant
+    // gate bit, drive the port, and assert that the peripheral's
+    // observable state DID NOT change (and, where applicable, that a
+    // read returns the 0xFF floating-bus default rather than the
+    // peripheral's real reply). Each test must FAIL pre-fix and PASS
+    // post-fix; verified via the standard `git stash` sandwich.
+
+    // V18-NMP-NIT-01a — Sprite port 0x303B (NR 0x83 b6).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Reset baseline: NR 0x83 default = 0xFF → gate open. Write a
+        // canonical slot then clear b6 and try to update the slot. The
+        // post-clear write must NOT update the slot (observed via
+        // SpriteEngine::write_attribute's auto-increment behaviour: with
+        // the slot frozen, writing 4 attribute bytes lands them on the
+        // slot that was selected BEFORE the gate-clear, not after).
+        emu_local.port().out(0x303B, 0x03);             // select slot 3
+        nr_write(emu_local, 0x83, 0xFF & ~0x40);        // clear b6
+        emu_local.port().out(0x303B, 0x10);             // try to select slot 0x10 — must be ignored
+        // First 4 attribute bytes also gated off (attribute write gate
+        // shares NR 0x83 b6). After 4 byte writes, slot would normally
+        // auto-increment; with the gate cleared neither the selection
+        // nor the attribute byte should land.
+        // Re-open the gate to drive a single attribute byte that we can
+        // observe at the (still-original) slot 3.
+        nr_write(emu_local, 0x83, 0xFF);                // re-open gate
+        emu_local.port().out(0x0057, 0xAA);             // byte 0 = 0xAA into slot 3
+        // Read back sprite 3 byte 0 — must be 0xAA (slot stayed at 3,
+        // not the post-gate-clear 0x10).
+        uint8_t spr3b0  = emu_local.sprites().read_attr_byte(3, 0);
+        uint8_t spr16b0 = emu_local.sprites().read_attr_byte(0x10, 0);
+        check("V18-NMP-NIT-01a",
+              "NR 0x83 b6=0 silences sprite slot-select port 0x303B "
+              "(VHDL :2423,:2681 port_sprite_io_en)",
+              spr3b0 == 0xAA && spr16b0 == 0x00,
+              DETAIL("spr[3].byte0=0x%02x spr[0x10].byte0=0x%02x",
+                     spr3b0, spr16b0));
+    }
+
+    // V18-NMP-NIT-01b — Sprite attribute port 0x57 (NR 0x83 b6).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Select slot 5 with gate open, then clear gate and try to write
+        // attribute byte 0. SpriteEngine::write_attribute updates
+        // sprites_[slot].byte0 — observable via read_attr_byte(5, 0).
+        emu_local.port().out(0x303B, 0x05);
+        nr_write(emu_local, 0x83, 0xFF & ~0x40);
+        emu_local.port().out(0x0057, 0xBE);             // gated-off write
+        uint8_t b0 = emu_local.sprites().read_attr_byte(5, 0);
+        check("V18-NMP-NIT-01b",
+              "NR 0x83 b6=0 silences sprite-attribute port 0x57 "
+              "(VHDL :2423,:2679-2680 port_sprite_io_en)",
+              b0 == 0x00,
+              DETAIL("spr[5].byte0=0x%02x (expected 0x00)", b0));
+    }
+
+    // V18-NMP-NIT-01c — Sprite pattern port 0x5B (NR 0x83 b6).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // SpriteEngine::write_pattern writes pattern_ram_[pattern_offset_]
+        // and increments. With slot-select untouched, pattern_offset_=0.
+        // A gated-off write must not change pattern RAM nor advance the
+        // offset. We observe by following the gated write with an open
+        // write of a known byte and reading via the sprite renderer — but
+        // pattern RAM has no public accessor. Instead we use the offset
+        // advance as the observable: write twice with the gate cleared,
+        // then re-open and write once with a sentinel; after a subsequent
+        // open write, the second sentinel must land at offset 1 (offset
+        // didn't advance during the gated writes). Pattern RAM is read
+        // by SpriteEngine via render; the simplest neutral observation is
+        // that the open sentinel pair must land at consecutive offsets.
+        //
+        // Approach: open gate, write A; close, write B (must be dropped);
+        // open, write C. With the bug, B advances pattern_offset_ → C
+        // lands at offset 2 (and reading back via a second sequence shows
+        // 0 at offset 1). With the fix, B does nothing → C lands at
+        // offset 1.
+        //
+        // Observation handle: emit a second slot-select to reset
+        // pattern_offset_ to a fresh point (0x303B bit-7=0 keeps low
+        // pattern slot, pattern_offset_ recomputed). Then sequence the
+        // ABC writes and check via re-render that the offset advanced by
+        // exactly 2 (A + C) not 3.
+        //
+        // SpriteEngine has no public pattern_offset accessor, so we
+        // observe through a chained 0x303B re-select after the writes:
+        // a 0x303B write resets pattern_offset_ and attr_byte_ to
+        // anchored values. We instead detect the bug via a different
+        // observable — the sprite attribute side already covers the
+        // write-gating semantics fully (NIT-01b). Skip the pattern row
+        // here (no exposed observable without adding a test seam).
+        skip("V18-NMP-NIT-01c",
+             "pattern_offset_ has no public accessor — NIT-01b covers "
+             "the structurally identical NR 0x83 b6 gate-clear path");
+    }
+
+    // V18-NMP-NIT-01d — Layer 2 port 0x123B (NR 0x83 b7).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Layer2 enable latch: when bit 4 of the write byte is 0 the
+        // handler calls layer2_.set_enabled((val & 0x02) != 0). With the
+        // gate cleared, a write that would normally toggle enabled() to
+        // true must leave enabled() unchanged.
+        bool before = emu_local.layer2().enabled();
+        nr_write(emu_local, 0x83, 0xFF & ~0x80);        // clear b7
+        emu_local.port().out(0x123B, 0x02);             // would enable L2
+        bool after = emu_local.layer2().enabled();
+        check("V18-NMP-NIT-01d",
+              "NR 0x83 b7=0 silences Layer 2 port 0x123B "
+              "(VHDL :2424,:2635 port_layer2_io_en)",
+              before == after && after == false,
+              DETAIL("layer2.enabled before=%d after=%d (expected unchanged)",
+                     (int)before, (int)after));
+    }
+
+    // V18-NMP-NIT-01e — ULA+ register-select port 0xBF3B (NR 0x85 b0).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Port 0xBF3B write updates ulap_mode unconditionally (per the
+        // VHDL :4532 latch). Pre-fix: a gated-off write still updated
+        // ulap_mode in jnext. Discriminative: clear NR 0x85 b0, write
+        // a non-zero mode, observe that ulap_mode stays at the reset
+        // default of 0.
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x01);
+        uint8_t before = emu_local.ula().get_ulap_mode();
+        emu_local.port().out(0xBF3B, 0x40);             // mode would be 01
+        uint8_t after = emu_local.ula().get_ulap_mode();
+        check("V18-NMP-NIT-01e",
+              "NR 0x85 b0=0 silences ULA+ register-select port 0xBF3B "
+              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              before == 0x00 && after == 0x00,
+              DETAIL("ulap_mode before=0x%02x after=0x%02x", before, after));
+    }
+
+    // V18-NMP-NIT-01f — ULA+ data port 0xFF3B (NR 0x85 b0).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Port 0xFF3B write latches ulap_en (VHDL :4548) when ulap_mode
+        // = "01". With ulap_mode pre-set to 01 via 0xBF3B (gate open),
+        // a subsequent 0xFF3B write at gate=1 enables ulap; with the
+        // gate then cleared, a 0xFF3B write that would disable ulap
+        // (cpu_do bit 0 = 0) must be ignored.
+        emu_local.port().out(0xBF3B, 0x40);             // set ulap_mode=01
+        emu_local.port().out(0xFF3B, 0x01);             // enable ulap
+        bool before = emu_local.ula().get_ulap_en();
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x01);
+        emu_local.port().out(0xFF3B, 0x00);             // would disable
+        bool after = emu_local.ula().get_ulap_en();
+        check("V18-NMP-NIT-01f",
+              "NR 0x85 b0=0 silences ULA+ data port 0xFF3B "
+              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              before == true && after == true,
+              DETAIL("ulap_en before=%d after=%d (expected unchanged)",
+                     (int)before, (int)after));
+    }
+
+    // V18-NMP-NIT-01g — CTC ports 0x183B..0x1F3B (NR 0x85 b3).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // CTC channel 0 control word: bit 7 = int enable, bit 0 = 1
+        // (control byte). After write, channel.int_enabled() reflects
+        // bit 7. Clear NR 0x85 b3, write a control byte with bit 7 set,
+        // confirm int_enabled stays false (write was dropped) AND
+        // confirm read returns 0xFF (gated floating-bus default per the
+        // VHDL `port_ctc_io_en = '1'` AND on the read mux).
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x08);
+        emu_local.port().out(0x183B, 0x81);             // control byte: bit7=1, bit0=1
+        bool ch0_int_en = emu_local.ctc().channel(0).int_enabled();
+        uint8_t rd = emu_local.port().in(0x183B);
+        check("V18-NMP-NIT-01g",
+              "NR 0x85 b3=0 silences CTC port 0x183B "
+              "(VHDL :2442,:2690 port_ctc_io_en)",
+              ch0_int_en == false && rd == 0xFF,
+              DETAIL("ctc.ch0.int_enabled=%d rd=0x%02x (expected 0/0xFF)",
+                     (int)ch0_int_en, rd));
+    }
+
+    // V18-NMP-NIT-01h — DMA port 0x6B (NR 0x82 b5).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Idle Dma::read() returns the STATUS byte (0x1A | end-of-block-n
+        // | at-least-one). With gate cleared, read must return 0xFF.
+        uint8_t before = emu_local.port().in(0x006B);
+        nr_write(emu_local, 0x82, nr_read(emu_local, 0x82) & ~0x20);
+        uint8_t after = emu_local.port().in(0x006B);
+        check("V18-NMP-NIT-01h",
+              "NR 0x82 b5=0 silences DMA port 0x6B "
+              "(VHDL :2405,:2643 port_dma_6b_io_en)",
+              before != 0xFF && after == 0xFF,
+              DETAIL("dma.read 6B before=0x%02x after=0x%02x", before, after));
+    }
+
+    // V18-NMP-NIT-01i — DMA port 0x0B (NR 0x85 b1).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        uint8_t before = emu_local.port().in(0x000B);
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x02);
+        uint8_t after = emu_local.port().in(0x000B);
+        check("V18-NMP-NIT-01i",
+              "NR 0x85 b1=0 silences DMA port 0x0B "
+              "(VHDL :2440,:2643 port_dma_0b_io_en)",
+              before != 0xFF && after == 0xFF,
+              DETAIL("dma.read 0B before=0x%02x after=0x%02x", before, after));
+    }
 }
 
 // ── Group C. NR 0x82-0x89 bit-by-bit enable gating ────────────────────
@@ -881,18 +1349,32 @@ static void test_group_nr_gating() {
               DETAIL("NR85=0x%02x after clearing bit %u", rb, r.bit));
     }
 
-    // NR85-03b: CTC top-of-range 0x1F3B. VHDL 2690: cpu_a(15:11)="00011".
-    // 0x1F3B = 0001_1111_0011_1011 → bits 15:11 = 00011 ✓. Handler must
-    // decode. Current C++ only registers 0x183B..0x1B3B (emulator.cpp:715),
-    // so 0x1F3B will hit the 0x00FF/0x003B stub and return 0xFF. FAIL
-    // expected until CTC range is extended.
+    // NR85-03b: CTC alias-of-range 0x1F3B. VHDL 2690 sets port_ctc='1'
+    // for cpu_a(15:11)="00011" (full 0x183B..0x1F3B). But the CTC entity
+    // device/ctc.vhd has NUM_CTC=4 channels and the select process at
+    // :128-137 matches `if I = unsigned(i_port_ctc_sel)` for I in 0..3.
+    // With i_port_ctc_sel = cpu_a(10:8) (zxnext.vhd:4076, 3 bits), an
+    // alias address with A10=1 (= 0x1C3B..0x1F3B) produces sel(0..3)="0000"
+    // — no channel selected — so the output mux at :164-176 returns 0x00
+    // and the iowr fan-out at :141-146 is 0 (writes dropped).
+    //
+    // V21R-NMP-NIT-02 (Pass-21 reviewer fix): the CPU bus still gets
+    // driven by VHDL though — port_ctc_rd = iord AND port_ctc = '1'
+    // (port_ctc='1' for the full 0x183B..0x1F3B range when IO-enable
+    // is on), so port_internal_rd_response='1' and port_rd_dat picks
+    // up port_ctc_rd_dat = ctc_do = 0x00 (the OR-fold of all-zero
+    // terms). Therefore VHDL drives cpu_di = 0x00 (NOT the floating
+    // 0xFF) when CTC IO-enable is on. NR 0x85 bit 3 defaults to 1 on
+    // power-on, so the read returns 0x00.
     {
         Emulator emu; build_next_emulator(emu);
         uint8_t rd = emu.port().in(0x1F3B);
         check("NR85-03b",
-              "CTC 0x1F3B (top of decoded range) has a real handler",
-              rd != 0xFF,
-              DETAIL("ctc_top=0x%02x", rd));
+              "CTC alias 0x1F3B (A10=1) returns 0x00 (VHDL OR-fold of "
+              "ctc.vhd:128-137 sel-zero output, NOT floating bus) when "
+              "CTC IO-enable is on [V21-NMP-02 + V21R-NMP-NIT-02]",
+              rd == 0x00,
+              DETAIL("ctc_top=0x%02x expected 0x00", rd));
     }
 
     // NR85-03c: CTC near-miss 0x203B (bits 15:11=00100). VHDL 2690.
@@ -1298,6 +1780,120 @@ static void test_group_wired_or() {
               DETAIL("read=0x%02x expected != 0x77", rd));
     }
 
+    // V21-NMP-02 — CTC port mask excludes A10=1 alias range.
+    //
+    // VHDL zxnext.vhd:2690: `port_ctc <= '1' when cpu_a(15:11) = "00011"
+    //                                  and port_3b_lsb = '1' and
+    //                                  port_ctc_io_en = '1' else '0';`
+    // The CTC entity at device/ctc.vhd has NUM_CTC=4 channels selected by
+    // `i_port_ctc_sel = cpu_a(10 downto 8)` (zxnext.vhd:4076). The select
+    // process (ctc.vhd:128-137) matches `if I = unsigned(i_port_ctc_sel)`
+    // for I in 0..3 only; A10:8 = "100"..."111" (= 4..7) produce
+    // sel(0..3) = "0000" — no channel decoded. The output mux at
+    // ctc.vhd:164-176 zeros o_cpu_d (each dout(I) AND sel(I) OR-folded),
+    // and the iowr fan-out at :141-146 stays 0 too.
+    //
+    // Pre-V21-NMP-02 the jnext handler used mask 0xF8FF, leaving A10 a
+    // don't-care, and `(p >> 8) & 3` aliased 0x1C3B..0x1F3B onto
+    // channels 0..3 (0x1C/0x1D/0x1E/0x1F & 0x03 = 0/1/2/3). The fix
+    // tightens the mask to 0xFCFF; addresses with A10=1 fall through to
+    // floating-bus, matching VHDL's no-decode behaviour.
+    //
+    // Discriminative (V21R-NMP-NIT-03): the original V21-NMP-02-A
+    // wrote 0x87 to alias 0x1C3B and checked invariance at 0x183B.
+    // But 0x87 is a CTC control word (bit 0 set) and a control write
+    // does NOT mutate `counter_` (see src/peripheral/ctc.cpp:33-72:
+    // control words only update the channel state machine bits, not
+    // the counter), and `CtcChannel::read()` returns `counter_`
+    // (:142-144). So pre_read == post_read == 0 regardless of
+    // whether the alias write reaches channel 0 — the original test
+    // passed pre-fix too, making it non-discriminative.
+    //
+    // Rewritten sequence: first put channel 0 into RESET_TC state
+    // (control word 0x07 = enable+soft_reset+tc_follows on the
+    // non-alias address 0x183B), then write a TC byte value to the
+    // alias 0x1C3B. In CtcChannel::write(), when state is RESET_TC
+    // or RUN_TC the write is taken as a time-constant: `counter_ =
+    // val` (:38-40). Pre-fix the alias 0x1C3B aliases to channel 0
+    // and channel 0 is in RESET_TC, so `counter_` becomes 0x42 and
+    // state advances to RUN; post-fix the alias write is dropped by
+    // V21R-NMP-NIT-02's no-op write handler, so channel 0 stays in
+    // RESET_TC with counter_=0.
+    //
+    // The follow-up read at 0x183B returns `counter_`:
+    //   pre-fix : pre=0x00 (control set state, no TC yet),
+    //             post=0x42 → pre != post → test would FAIL
+    //   post-fix: pre=0x00, post=0x00 → pre == post → test PASSES
+    {
+        Emulator emu; build_next_emulator(emu);
+        // Power-on: NR 0x85 bit 3 = 1 by default → CTC IO open.
+
+        // Step 1: put channel 0 into RESET_TC via a non-alias control
+        // write at 0x183B (= real channel 0). val=0x07 = bits 2:0=111
+        // = control word + soft_reset + tc_follows. Per ctc.cpp:96-107
+        // soft_reset+tc_follows transitions state to RESET_TC.
+        emu.port().out(0x183B, 0x07);
+
+        // Step 2: snapshot channel 0 counter_ BEFORE the alias write.
+        // counter_ is still 0 here (only the state machine moved).
+        const uint8_t pre = emu.port().in(0x183B);
+
+        // Step 3: write a TC byte (0x42) to alias 0x1C3B. Pre-fix the
+        // alias mapped to channel 0 (in RESET_TC) and the write was
+        // taken as the time constant → counter_=0x42, state→RUN.
+        // Post-V21R-NMP-NIT-02 the alias's no-op write handler drops
+        // the byte → channel 0 stays in RESET_TC with counter_=0.
+        emu.port().out(0x1C3B, 0x42);
+
+        // Step 4: re-read channel 0 counter_.
+        //   pre-fix:  post = 0x42  (alias hit channel 0 in RESET_TC)
+        //   post-fix: post = 0x00  (alias write dropped)
+        const uint8_t post = emu.port().in(0x183B);
+        check("V21-NMP-02-A",
+              "TC-write at CTC alias 0x1C3B (A10=1) does NOT mutate "
+              "channel 0 counter_ — pre/post-read at 0x183B equal "
+              "after channel 0 is in RESET_TC [V21R-NMP-NIT-03 "
+              "discriminative; ctc.vhd:128-137 + :141-146 + :164-176]",
+              pre == post,
+              DETAIL("pre=0x%02x post=0x%02x (must be equal; pre-fix "
+                     "would give pre=0x00 post=0x42)", pre, post));
+
+        // Companion read-side check: an IN at 0x1F3B (the highest alias)
+        // must return 0x00 (VHDL ctc_do = OR-fold of sel-zero terms,
+        // driven onto cpu_di because port_ctc_rd='1' when CTC IO-enable
+        // is on; NR 0x85 bit 3 defaults to 1). Pre-V21-NMP-02 the
+        // handler aliased the address to channel 3 and returned the
+        // channel byte; the original V21-NMP-02 fix made the address
+        // float to 0xFF; V21R-NMP-NIT-02 corrects the readback to
+        // 0x00 per the VHDL OR-fold composition.
+        const uint8_t rd_alias = emu.port().in(0x1F3B);
+        check("V21-NMP-02-B",
+              "IN at CTC alias 0x1F3B returns 0x00 (VHDL OR-fold of "
+              "ctc.vhd:128-137 sel-zero output drives cpu_di) when CTC "
+              "IO-enable is on [V21R-NMP-NIT-02]",
+              rd_alias == 0x00,
+              DETAIL("rd_alias=0x%02x expected 0x00", rd_alias));
+
+        // V21R-NMP-NIT-02 sandwich-discriminative: when CTC IO-enable
+        // is cleared (NR 0x85 bit 3 = 0), port_ctc='0' so VHDL stops
+        // driving the bus and the read floats to 0xFF. Verifies the
+        // new handler's IO-enable gate works correctly.
+        {
+            // Clear NR 0x85 bit 3 via the NR write path.
+            uint8_t n85 = nr_read(emu, 0x85);
+            nr_write(emu, 0x85, n85 & ~0x08);
+            const uint8_t rd_gated = emu.port().in(0x1F3B);
+            check("V21R-NMP-NIT-02-A",
+                  "IN at CTC alias 0x1F3B returns 0xFF when CTC "
+                  "IO-enable (NR 0x85 b3) is cleared — port_ctc='0' so "
+                  "VHDL floats the bus [zxnext.vhd:2690, :2442]",
+                  rd_gated == 0xFF,
+                  DETAIL("rd_gated=0x%02x expected 0xFF", rd_gated));
+            // Re-arm NR 0x85 bit 3 for the next test independence.
+            nr_write(emu, 0x85, n85);
+        }
+    }
+
     // BUS-03: SCLD read gated by nr_08_port_ff_rd_en (NR 0x08 bit 2) AND
     // port_ff_io_en AND port_ff_rd. VHDL zxnext.vhd:2813, decl :1118, NR
     // write path :5180. Expected FAIL until NR 0x08 bit 2 gates 0xFF read.
@@ -1316,6 +1912,161 @@ static void test_group_wired_or() {
               "NR 0x08 b2=0 masks Timex SCLD contribution from 0xFF read",
               rd != 0x38,
               DETAIL("read=0x%02x expected != 0x38", rd));
+    }
+}
+
+// ── Group I. D3 follow-up NITs — tim_sel axis (machine_timing_) ───────
+//
+// D3 / D3F-01/02/03 / V24-MEM-01 split the typ_sel (config_.type) and
+// tim_sel (mmu_.machine_timing()) axes wherever the VHDL gates key on
+// `machine_timing_*`. The reviewer of D3F-01/02/03 (HEAD 11d5f537)
+// surfaced two additional adjacent sites in `Emulator`'s 0x7FFD write
+// handler that still keyed on `config_.type` where the VHDL keys on
+// `machine_timing_*`:
+//
+//   1. emulator.cpp:3205 — port 0x7FFD A14 gate, VHDL :2593:
+//      `port_7ffd <= '1' when cpu_a(15)='0' AND (cpu_a(14)='1' OR
+//                    p3_timing_hw_en='0') AND ...`
+//      `p3_timing_hw_en` (:2457) mirrors `machine_timing_p3`.
+//
+//   2. emulator.cpp:3240 — slot-3 contention pattern selector, VHDL :4489-4493:
+//      `mem_contend <= ... when machine_timing_128='1' AND mem_active_page(1)='1' else  -- odd
+//                       ... when machine_timing_p3 ='1' AND mem_active_page(3)='1' else  -- >=4 ...`
+//      Pattern keys on `machine_timing_*` (tim_sel), NOT machine_type
+//      (typ_sel). V24-MEM-01 fixed the canonical `Mmu::mem_contend_for_`
+//      consumer; this is the secondary update in the 0x7FFD write handler.
+//
+// Discriminator pattern (same as FB-D3F-01/02/03 + FIX-CONTEND-NR03-INT-01):
+// init 48K (typ_sel=48K, tim_sel=Timing48), then write
+// `NR 0x03 = 0xB1` (bit7=1 commit, tim_sel=3=+3 timing, typ_sel=1=48K).
+// After `run_frame()` the per-frame `commit_pending_machine_timing()`
+// promotes shadow → effective: machine_timing()==TimingPlus3 while
+// config_.type stays at ZX48K. The two-axis-split path is now hot;
+// observe each handler's gate via the divergent decision.
+static void test_group_d3f_nits() {
+    set_group("Group I — D3 follow-up NITs (tim_sel axis)");
+
+    // D3F-NIT-01-PORT-7FFD-A14 — port 0x7FFD A14 gate keys on
+    // machine_timing_, not config_.type. VHDL zxnext.vhd:2593 / :2457.
+    //
+    // Pre-fix: gate `config_.type == ZX_PLUS3 && A14==0 → reject`.
+    //   With typ_sel=48K (config_.type==ZX48K) and tim_sel=+3, the gate
+    //   is FALSE → port_7ffd write at A14=0 proceeds → port_7ffd latch
+    //   updates with the bank byte.
+    // Post-fix: gate `machine_timing() == TimingPlus3 && A14==0 → reject`.
+    //   With tim_sel=+3 (machine_timing()==TimingPlus3) and A14=0, the
+    //   gate is TRUE → port_7ffd write is rejected → port_7ffd latch
+    //   stays at its initial value.
+    //
+    // Probe port: 0x3FFD (A15=0, A14=0, A13:12=11, A1:0=01). This is in
+    // the `port_xffd` family (A15:14=00) — wait, A15:14 of 0x3FFD is
+    // "00" → that's port_xffd / port_1ffd, NOT port_fd. Need a port with
+    // A15=0, A14=0, A1=0, A0=1 that maps to the 7FFD handler's mask
+    // (0x8003 / 0x0001). The handler's mask only requires A15=0, A1=0,
+    // A0=1; the +3-handler at mask 0xF003 only wins for A15:12=0001
+    // (0x1FFD). So 0x2001 (A15=0, A14=0, A13=1, A12=0, A1=0, A0=1) — or
+    // 0x0001 (all A15:2 zero) — both hit only this handler.
+    // Pick 0x2001: A14=0 to exercise the gate, no collision with
+    // 0x1FFD (+3 handler) or 0x0FFD (port_p3_float).
+    {
+        Emulator emu;
+        build_next_emulator(emu);  // ZXN_ISSUE2: tim_sel default = +3
+
+        // Drive emulator to: tim_sel=+3, typ_sel=48K via NR 0x03 = 0xB1.
+        // We start from Next mode (the only init that admits a free
+        // tim_sel/typ_sel split via post-init NR 0x03 writes without
+        // running through rebuild_for_type at the same time as the
+        // tim_sel commit). Then write NR 0x03 = 0xB1: bit7=1 commit gate,
+        // tim_sel=3 (+3 timing), typ_sel=1 (48K type).
+        emu.nextreg().write(0x03, 0xB1);
+        emu.run_frame();  // commit pending → effective machine_timing.
+
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+        const MachineType       typ_after = emu.mmu().machine_type();
+
+        // Latch pre-state.
+        const uint8_t pre_latch = emu.mmu().port_7ffd();
+
+        // Probe write with A14=0 (port 0x2001). VHDL :2593: under +3
+        // timing, the A14=1 alternative of the OR fails AND
+        // p3_timing_hw_en='1' fails too → port_7ffd inactive → write
+        // must be silently dropped.
+        emu.port().out(0x2001, 0x05);
+
+        const uint8_t post_latch = emu.mmu().port_7ffd();
+
+        // Post-fix: latch unchanged. Pre-fix: latch == 0x05 (write
+        // accepted because gate keyed on config_.type==ZX_PLUS3 which
+        // is false for ZX48K). We assert latch == pre_latch.
+        check("D3F-NIT-01-PORT-7FFD-A14",
+              "port 0x7FFD A14 gate keys on machine_timing_ (tim_sel) "
+              "per VHDL :2593 — NR 0x03 = 0xB1 commits tim_sel=+3 + "
+              "typ_sel=48K → OUT 0x2001 (A14=0) rejected post-fix; "
+              "pre-fix accepted (config_.type==ZX48K skipped the gate)",
+              tim_after == MachineTimingMode::TimingPlus3
+                  && typ_after == MachineType::ZX48K
+                  && post_latch == pre_latch,
+              DETAIL("tim_after=%d (want %d=TimingPlus3) "
+                     "typ_after=%d (want %d=ZX48K) "
+                     "pre=0x%02X post=0x%02X (want equal)",
+                     (int)tim_after, (int)MachineTimingMode::TimingPlus3,
+                     (int)typ_after, (int)MachineType::ZX48K,
+                     pre_latch, post_latch));
+    }
+
+    // D3F-NIT-02-SLOT3-CONTENTION — secondary slot-3 contention update
+    // in the 0x7FFD write handler keys on machine_timing_ (tim_sel),
+    // not config_.type. VHDL zxnext.vhd:4489-4493.
+    //
+    // Pre-fix: `if (config_.type == ZX_PLUS3) slot3 = (bank >= 4); else
+    //           slot3 = (bank & 1) != 0;`
+    //   With typ_sel=48K and tim_sel=+3, bank=4 → pre-fix takes the
+    //   else branch → (4 & 1) = 0 → slot3 NOT contended.
+    // Post-fix: switches on machine_timing(). With tim_sel=+3, bank=4
+    //   → (4 >= 4) → slot3 IS contended.
+    //
+    // Discriminator: bank=4. +3 pattern says contended; 128K odd-only
+    // pattern says not. Use OUT 0x7FFD (A14=1) so the NIT-1 gate above
+    // permits the write under +3 timing.
+    {
+        Emulator emu;
+        build_next_emulator(emu);  // Next mode
+
+        // tim_sel=+3, typ_sel=48K — same as NIT-01 above.
+        emu.nextreg().write(0x03, 0xB1);
+        emu.run_frame();
+
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+        const MachineType       typ_after = emu.mmu().machine_type();
+
+        // Clear slot-3 contention to baseline.
+        emu.mmu().set_slot_contended(3, false);
+
+        // Issue port 0x7FFD write with bank=4. A14=1 in port 0x7FFD
+        // satisfies the NIT-1 gate even under +3 timing.
+        emu.port().out(0x7FFD, 0x04);
+
+        const bool slot3_after = emu.mmu().slot_contended(3);
+
+        // Post-fix: slot3_after == true (since machine_timing_p3 + bank≥4).
+        // Pre-fix: slot3_after == false (since config_.type==ZX48K → else
+        // branch → bank & 1 == 0 → false).
+        check("D3F-NIT-02-SLOT3-CONTENTION",
+              "0x7FFD write-handler slot-3 contention pattern keys on "
+              "machine_timing_ (tim_sel) per VHDL :4489-4493 — NR 0x03 "
+              "= 0xB1 commits tim_sel=+3 + typ_sel=48K → OUT 0x7FFD with "
+              "bank=4 sets slot3 contended (+3 pattern: bank>=4) "
+              "post-fix; pre-fix left slot3 uncontended (else-branch "
+              "128K odd pattern bank & 1 == 0)",
+              tim_after == MachineTimingMode::TimingPlus3
+                  && typ_after == MachineType::ZX48K
+                  && slot3_after == true,
+              DETAIL("tim_after=%d (want %d=TimingPlus3) "
+                     "typ_after=%d (want %d=ZX48K) "
+                     "slot3_after=%d (want 1)",
+                     (int)tim_after, (int)MachineTimingMode::TimingPlus3,
+                     (int)typ_after, (int)MachineType::ZX48K,
+                     (int)slot3_after));
     }
 }
 
@@ -1353,6 +2104,7 @@ int main(int, char**) {
     test_group_iorq();
     test_group_automap();
     test_group_wired_or();
+    test_group_d3f_nits();
 
     print_summary();
     return g_fail ? 1 : 0;

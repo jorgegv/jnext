@@ -313,6 +313,19 @@ public:
     /// Returns 0xFF when outside active display or in Next/Pentagon modes.
     uint8_t floating_bus_read() const;
 
+    /// VHDL-faithful `ula_floating_bus` active-arm helper (zxula.vhd:573).
+    /// Computes the VRAM byte the ULA is fetching at the current raster
+    /// position when `border_active_ula='0' AND floating_bus_en='1'`.
+    /// Returns true and writes the byte into @p out_byte when the active
+    /// arm fires; returns false otherwise (caller picks the fallback —
+    /// `i_p3_floating_bus` for +3, X"FF" for 48K/128K). Verify9-memory
+    /// class-(c) → class-(a) fix (+3 floating-bus active-display path):
+    /// previously the +3 0x0FFD handler unconditionally returned the
+    /// contended-CPU latch (border arm), missing the active-display
+    /// VRAM byte path. This helper exposes the active arm so both port
+    /// 0xFF (48K/128K) and port 0x0FFD (+3) can share the decode.
+    bool ula_floating_bus_active_arm(uint8_t& out_byte) const;
+
     // ══════════════════════════════════════════════════════════════════════
     // === TEST-ONLY ACCESSORS (UI code must NOT call these) ==============
     //
@@ -348,6 +361,18 @@ public:
     /// G163 entry.
     uint64_t line_int_fire_count() const { return line_int_fire_count_; }
     void reset_line_int_fire_count() { line_int_fire_count_ = 0; }
+
+    /// V20R-CPU-NIT-01 — Test accessors for the Pass-20 falling-edge
+    /// shadow used by the pulse-mode CPU /INT poll (emulator.cpp line
+    /// ~5791). Saved/loaded by `Emulator::{save,load}_state` so a
+    /// snapshot taken mid-pulse round-trips faithfully. Used by the
+    /// V20R-CPU-NIT-01-PREV-PULSE-PERSIST regression to assert the
+    /// shadow survives save/load. The setter is test-only: it is the
+    /// minimum interface required to drive `prev_pulse_int_n_` to a
+    /// non-default value without depending on the precise tick window
+    /// where the V20 poll's falling-edge happens to fire mid-frame.
+    bool prev_pulse_int_n_for_test() const { return prev_pulse_int_n_; }
+    void set_prev_pulse_int_n_for_test(bool v) { prev_pulse_int_n_ = v; }
 
     // ══════════════════════════════════════════════════════════════════════
     // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
@@ -401,6 +426,47 @@ public:
     bool nmi_assert_divmmc() const {
         return (test_hotkey_drive_ || test_sw_nmi_dmmc_) && nr_06_button_drive_nmi_en_;
     }
+
+    /// V16-NMP-02 (Pass-16 verify-audit fix): effective `internal_port_enable`
+    /// byte for one of the NR 0x82..0x85 enable registers, AND-masked with
+    /// the corresponding NR 0x86..0x89 bus-port enable when
+    /// `expbus_eff_en = 1` (NR 0x80 bit 7). Mirrors the VHDL formula at
+    /// `zxnext.vhd:2392-2393`:
+    ///   internal_port_enable <= (nr_85 & nr_84 & nr_83 & nr_82) when
+    ///                           expbus_eff_en='0' else
+    ///                           ((nr_89 AND nr_85) & (nr_88 AND nr_84) &
+    ///                            (nr_87 AND nr_83) & (nr_86 AND nr_82));
+    /// `reg` must be one of 0x82, 0x83, 0x84, 0x85; any other value
+    /// returns the raw cached byte unchanged. Pre-fix (and historically),
+    /// every port-decode gate consulted `nextreg_.cached(0x82..0x85)`
+    /// directly, ignoring the bus-port enable AND-mask.
+    uint8_t effective_internal_port_enable(uint8_t reg) const;
+
+    /// V16-NMP-02: re-push the persistent shadow of every effective
+    /// port-decode gate that downstream subsystems hold a copy of
+    /// (Contention's port_7ffd_io_en + port_ulap_io_en, DivMmc's
+    /// port_io_enable, Multiface's enable). Called from NR 0x80,
+    /// NR 0x82-0x85, and NR 0x86-0x89 write handlers so any change to
+    /// the AND-formula's inputs immediately re-propagates.
+    ///
+    /// `override_reg` / `override_val`: when an NR 0x82-0x85 / 0x86-0x89
+    /// write handler runs, the byte being written is NOT yet in
+    /// `nextreg_.cached(reg)` — NextReg::write writes the cache from
+    /// the handler's return value AFTER the handler returns. To let
+    /// the helper see the in-flight write, pass `(reg, val)`; the
+    /// helper substitutes `val` for the cached byte at `reg`. Pass
+    /// `override_reg = 0xFF` (any non-NR-byte) to use the cache verbatim.
+    void propagate_effective_port_enables(uint8_t override_reg = 0xFF,
+                                          uint8_t override_val = 0);
+
+    /// V16-NMP-02: same as `effective_internal_port_enable(reg)` but with
+    /// an in-flight override for the cache at `override_reg`. The
+    /// override applies only when `reg == override_reg` (the
+    /// internal-port byte being written) or `reg+4 == override_reg`
+    /// (the bus-port byte being written).
+    uint8_t effective_internal_port_enable(uint8_t reg,
+                                           uint8_t override_reg,
+                                           uint8_t override_val) const;
 
     // Read-back of NR 0x06 bits 3/4 for tests that want to assert the
     // store-side of the NextReg write path independently of the gate.
@@ -533,6 +599,17 @@ private:
     // Power-on default '0' per VHDL:5107.
     bool nr_d8_io_trap_fdc_en_ = false;
 
+    // VHDL zxnext.vhd:2164 — `nmi_accept_cause = '1' when nmi_state =
+    // S_NMI_IDLE OR nmi_state = S_NMI_FETCH else '0'`.
+    // Pass-3 verify-audit (Task 2) helper: gates iotrap event capture
+    // into `nr_da_iotrap_cause_` (VHDL:3871) and `nr_d9_iotrap_write_`
+    // (VHDL:3892). While the FSM is in HOLD or END, an iotrap event
+    // must NOT update either field.
+    bool nmi_accept_cause_() const {
+        const auto s = nmi_source_.state();
+        return s == NmiSource::State::Idle || s == NmiSource::State::Fetch;
+    }
+
     // NR 0xD9 — `nr_d9_iotrap_write` (VHDL zxnext.vhd:1264, 3887-3898).
     // Captures the CPU write byte that triggered an IO trap on
     // port_3ffd_wr (the VHDL clause `nr_d9_iotrap_write <= cpu_do`
@@ -551,6 +628,19 @@ private:
     // Cleared by NR 0x02 write with bit 4 = 0 (VHDL:3879-3880).
     // Reset value '0' (VHDL:3870).
     uint8_t nr_da_iotrap_cause_ = 0;
+
+    // NR 0x02 bit 7 — `nr_02_bus_reset` (VHDL zxnext.vhd:1095, :5119, :1579).
+    // Captured from NR 0x02 writes verbatim (`nr_02_bus_reset <= nr_wr_dat(7)`)
+    // and surfaced verbatim on NR 0x02 readback bit 7. Drives the FPGA's
+    // `o_RESET_PERIPHERAL` output (line 1579) — peripheral / ESP / expansion-
+    // bus reset signal not modelled in jnext. The signal has NO reset clause
+    // anywhere in zxnext.vhd, so the latch survives both hard and soft reset
+    // — only the signal initializer at line 1095 (FPGA power-on) sets it
+    // to '0'. The C++ member initializer here handles power-on; reset()
+    // intentionally does NOT clear it (mirrors VHDL).
+    // Pass-3 verify-audit (Task 2): added so NR 0x02 readback bit 7 reflects
+    // the last firmware write, not a hard-coded zero.
+    bool    nr_02_bus_reset_ = false;
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
@@ -706,6 +796,21 @@ private:
     // Im2Controller. VHDL: nr_c4_int_en_0_expbus defaults '1' at reset
     // (zxnext.vhd:5096). Stored here for NR 0xC4 readback.
     bool     im2_c4_expbus_      = true;
+
+    // V20-IM2-01 — pulse-mode INT-line edge tracking. Per VHDL
+    // zxnext.vhd:2017-2031 the `pulse_int_n` line drops to '0' for
+    // 32/36 cycles when any peripheral's `o_pulse_en` fires, then
+    // returns to '1' via `pulse_count_end`. The Z80 /INT pin is the
+    // AND of `pulse_int_n AND im2_int_n` (line :1840, default expbus
+    // disabled scenario). To assert CPU INT exactly ONCE per pulse,
+    // we track the previous-tick `pulse_int_n` and call
+    // `cpu_.request_interrupt(0xFF)` only on the falling edge — NOT
+    // on every tick while pulse_int_n stays low (which would re-stamp
+    // `int_requested_at_` each tick, EXTENDING the effective 32/36-
+    // cycle window indefinitely and causing extra INT acceptances
+    // when the CPU exits an ISR via EI within the window). Initial
+    // value true matches `Im2Controller::reset()` default.
+    bool     prev_pulse_int_n_   = true;
 
     // NR 0xC6 raw readback shadow — VHDL read (zxnext.vhd:6245):
     //   port_253b_dat <= '0' & nr_c6_int_en_2_654 & '0' & nr_c6_int_en_2_210

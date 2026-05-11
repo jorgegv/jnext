@@ -67,6 +67,19 @@ public:
     void set_sd_swap(bool v);
     bool sd_swap() const { return sd_swap_; }
 
+    // ── Flash-CS gate (NR 0x03 config_mode / NR 0x02 reset_type bit 2) ─
+    /// VHDL zxnext.vhd:3319 gates the X"7F" Flash-select decode on
+    /// `(nr_03_config_mode='1') OR (nr_02_reset_type(2)='1')`. Outside that
+    /// gate, `cpu_do=X"7F"` is silently rewritten to "all deselected" (port
+    /// _e7_reg => all-ones, line 3322). Producers (Emulator) must feed the
+    /// composite gate via `set_flash_cs_enable` whenever either VHDL signal
+    /// changes. Pass-8 verify-audit (2026-05-09): pre-fix dropped X"7F" to
+    /// 0xFF unconditionally, blocking Flash access in config-mode (the only
+    /// legal entry path the firmware actually uses for FPGA-flash IPL
+    /// operations). Class-(b) → resolved.
+    void set_flash_cs_enable(bool v) { flash_cs_enable_ = v; }
+    bool flash_cs_enable() const { return flash_cs_enable_; }
+
     /// Port 0xEB write — start an SPI transfer.
     /// The byte is exchanged with the currently selected device (if any)
     /// and the received byte is stored for a subsequent read_data() call.
@@ -94,8 +107,24 @@ public:
 
 private:
     uint8_t cs_ = 0xFF;          // CS register — all lines deasserted (active-low)
-    uint8_t rx_data_ = 0xFF;     // last byte received from device
+    // V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10): align first-
+    // boot default with VHDL signal-declaration initial value. VHDL
+    // serial/spi_master.vhd:74 declares
+    //   signal miso_dat : std_logic_vector(7 downto 0) := (others => '0');
+    // which is the FPGA-bitstream-load initial value (0x00) — what real
+    // hardware surfaces on the first port-0xEB read before any SPI transfer
+    // has completed. The synchronous-reset clause at spi_master.vhd:159-168
+    // would set miso_dat to all-ones on `i_reset='1'`, but zxnext.vhd:3285
+    // hardwires `i_reset => '0'` so that clause never fires (see V12-
+    // DIVMMC-01 fix in spi.cpp). Pre-fix member-init was 0xFF — diverged
+    // from VHDL's bitstream-load default whenever a caller read port 0xEB
+    // before issuing any SPI write. Practical impact on the boot path is
+    // nil (firmware always issues a CMD before reading), but VHDL-
+    // faithfulness was the wrong way around. Per the "0 pending of any
+    // class" honest-convergence rule the NIT is now resolved.
+    uint8_t rx_data_ = 0x00;     // last byte received from device (VHDL miso_dat init = 0x00)
     bool    sd_swap_ = false;    // NR 0x0A bit 5 — invert SD0/SD1 mapping
+    bool    flash_cs_enable_ = false;  // VHDL zxnext.vhd:3319 composite gate
 
     std::array<SpiDevice*, kMaxDevices> devices_{};  // attached backends (non-owning)
 

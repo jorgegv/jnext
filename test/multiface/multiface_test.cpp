@@ -699,24 +699,65 @@ static void g_mf_mux()
     // ── MF-MUX-01 — cpu_a(15:12)="0001" → port_1ffd readback ───────────
     // VHDL zxnext.vhd:4312:
     //   when "0001" => mf_port_dat <= "0000" & (NOT port_1ffd_mtr_n) & port_1ffd_reg
-    // port_1ffd_reg is 3 bits = cpu_do(2:0) (zxnext.vhd:879, :3724);
-    // port_1ffd_mtr_n = NOT cpu_do(3) (:3757), so (NOT mtr_n) = cpu_do(3).
-    // jnext stores the verbatim cpu_do byte in Mmu::port_1ffd_, so the MF
-    // readback equals `port_1ffd_ & 0x0F`.
+    // port_1ffd_reg is 3 bits = cpu_do(2:0) (zxnext.vhd:879, :3724).
+    // port_1ffd_mtr_n is a SEPARATE clocked FF (zxnext.vhd:880, :3744-3761):
+    //   * reset → '1'
+    //   * elsif nr_81_expbus_fdc = '0' → '1' (forced every clock — motor off)
+    //   * elsif port_1ffd write → NOT cpu_do(3)
+    //
+    // V14-NMP-01 (Pass-14 verify-audit): pre-fix the C++ returned
+    // `port_1ffd_ & 0x0F` unconditionally, leaking cpu_do(3) into bit 3 of
+    // the readback even with FDC disabled (the jnext default — NR 0x81
+    // power-on = 0x00 per zxnext.vhd:1221-1225, all initial-only zeros).
+    //
+    // This row covers the FDC-disabled case (NR 0x81 = 0): the motor
+    // latch is forced to '1' on every clock, so readback bit 3 = NOT '1'
+    // = '0' regardless of the cpu_do(3) bit just written. Bits 2:0 still
+    // round-trip from cpu_do(2:0) via port_1ffd_reg.
     {
         Emulator emu;
         if (!prep_mf_mux(emu)) {
             check("MF-MUX-01", "Emulator init failed", false, "init returned false");
             return;
         }
-        // Write 0xAB to port 0x1FFD: cpu_do(3:0) = 0xB, cpu_do(7:4) = 0xA.
-        // MF readback (mf_type=00, cpu_a(15:12)=0x1) should be 0x0B.
+        // NR 0x81 default = 0x00 → nr_81_expbus_fdc = '0' → motor forced '1'.
+        // Write 0xAB to port 0x1FFD: cpu_do(3) = 1, cpu_do(2:0) = 011.
+        // VHDL :4312 readback: bit 3 = NOT mtr_n = NOT '1' = '0';
+        //                     bits 2:0 = port_1ffd_reg = "011" = 0x03.
         emu.port().out(0x1FFD, 0xAB);
         const uint8_t got = emu.port().in(0x113F);  // cpu_a(15:12) = 0x1
         check("MF-MUX-01",
-              "MF+3 read 0x1xxx LSB 0x3F: returns port_1ffd & 0x0F (motor + reg(2:0))",
+              "MF+3 read 0x1xxx LSB 0x3F (FDC=0): bit 3 forced 0, bits 2:0 = port_1ffd_reg",
+              got == 0x03,
+              "VHDL zxnext.vhd:4312 (mux), :3724 (port_1ffd_reg), :3751 (FDC=0 motor force)");
+    }
+
+    // ── MF-MUX-01b — discriminative FDC-enabled variant ────────────────
+    // VHDL zxnext.vhd:3744-3761 — when nr_81_expbus_fdc='1' (NR 0x81 b3 = 1),
+    // the motor-N latch is NO LONGER forced to '1'; a port 0x1FFD write at
+    // :3755-3757 sets `port_1ffd_mtr_n <= NOT cpu_do(3)`. The MF+3 readback
+    // at cpu_a(15:12)="0001" then surfaces (NOT mtr_n) = cpu_do(3) in bit 3.
+    //
+    // V14-NMP-01 discriminator: this row passes ONLY when the C++ honours
+    // the FDC gate. Pre-fix it returned cpu_do(3) verbatim, so this row
+    // would also pass — the discrimination comes from the COMPARISON with
+    // MF-MUX-01: the value 0xAB ought to read back 0x0B with FDC enabled
+    // and 0x03 with FDC disabled. Pre-fix BOTH read 0x0B; post-fix the
+    // FDC=0 row is the one that flips.
+    {
+        Emulator emu;
+        if (!prep_mf_mux(emu)) {
+            check("MF-MUX-01b", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        // Enable FDC by writing NR 0x81 with bit 3 set.
+        emu.nextreg().write(0x81, 0x08);
+        emu.port().out(0x1FFD, 0xAB);
+        const uint8_t got = emu.port().in(0x113F);
+        check("MF-MUX-01b",
+              "MF+3 read 0x1xxx LSB 0x3F (FDC=1): bit 3 = cpu_do(3), bits 2:0 = port_1ffd_reg",
               got == 0x0B,
-              "VHDL zxnext.vhd:4312 (mux), :3724 (port_1ffd_reg), :3757 (mtr_n)");
+              "VHDL zxnext.vhd:4312 (mux), :3757 (FDC=1 motor latch from cpu_do(3))");
     }
 
     // ── MF-MUX-02 — cpu_a(15:12)="0111" → port_7ffd readback ───────────

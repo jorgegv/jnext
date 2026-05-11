@@ -5,8 +5,10 @@
 //
 // Phase 1 scaffold authored under TASK-NMI-SOURCE-PIPELINE-PLAN.md §Phase 1.
 // Models `cores/zxnext/src/zxnext.vhd` lines 2089-2170 (+ 3830-3872 /
-// 5891 for the NR 0x02 side). Consumer-feedback values for the MF side
-// are stubbed `false` until Task 8 (Multiface) lands.
+// 5891 for the NR 0x02 side). Task 8 (Multiface) wired the MF consumer-
+// feedback inputs from `Multiface::is_nmi_hold()` / `is_active()`.
+// Pass-9 added the NR 0x80 expansion-bus enable / disable_mem gates
+// (VHDL:2089) so the ExpBus producer respects the full VHDL gate.
 
 NmiSource::NmiSource()
 {
@@ -39,6 +41,13 @@ void NmiSource::reset()
     mf_enable_              = false;
     divmmc_enable_          = false;
     expbus_debounce_disable_ = false;
+    // VHDL zxnext.vhd:369-371 — `expbus_eff_en` / `expbus_eff_disable_mem`
+    // declared with initial '0'. The reset clause at zxnext.vhd:5800-5806
+    // re-loads them from `expbus_en` / `expbus_disable_mem` (= NR 0x80 bits
+    // 7 / 4). NR 0x80 itself starts at X"00" (zxnext.vhd:360) so both
+    // effective signals come out '0' on reset. Pass-9 fix.
+    expbus_eff_en_          = false;
+    expbus_eff_disable_mem_ = false;
     config_mode_            = false;
 
     // Consumer feedback inputs reset to idle.
@@ -98,20 +107,44 @@ void NmiSource::strobe_divmmc_button()
 
 void NmiSource::nr_02_write(uint8_t v)
 {
-    // VHDL:3830-3872 — NR 0x02 bit 3 = MF software NMI (`nmi_sw_gen_mf`),
-    // bit 2 = DivMMC software NMI (`nmi_sw_gen_divmmc`). Writes are
-    // one-shot strobes that OR into the producer lines and drive the
-    // readback-pending bits that VHDL:5891 reports until the FSM
-    // transitions through S_NMI_END.
+    // VHDL zxnext.vhd:3829-3838 — `nmi_sw_gen_{mf,divmmc}` are pure
+    // combinational pulses that fire whenever NR 0x02 is written with
+    // the corresponding bit set, regardless of the FSM state.
+    //
+    // VHDL zxnext.vhd:3840-3864 — the *readback* latches
+    // `nr_02_generate_mf_nmi` / `nr_02_generate_divmmc_nmi` (surfaced by
+    // VHDL:5891 as bits 3/2 of the NR 0x02 read) follow a different
+    // pattern:
+    //   * SET when the request is accepted, i.e. the corresponding write
+    //     bit is high AND `nmi_accept_cause = '1'` (= FSM in IDLE or
+    //     FETCH per VHDL:2164).
+    //   * CLEAR when NR 0x02 is written with the corresponding bit
+    //     explicitly cleared (`nr_02_we = '1' AND nr_wr_dat(b) = '0'`).
+    //   * RESET clears them.
+    //
+    // The latches are *not* cleared by the FSM at S_NMI_END (the FSM
+    // signal is not in the process sensitivity list). An earlier
+    // implementation auto-cleared at END, which diverged from VHDL.
     const bool req_mf     = (v & 0x08) != 0;
     const bool req_divmmc = (v & 0x04) != 0;
+    const bool accept = (state_ == State::Idle) || (state_ == State::Fetch);
+
+    // MF arm.
     if (req_mf) {
-        nmi_sw_gen_mf_    = true;
-        nr_02_pending_mf_ = true;
+        nmi_sw_gen_mf_ = true;            // combinational pulse, always fires
+        if (accept) nr_02_pending_mf_ = true;
+    } else {
+        // Bit 3 explicitly low — VHDL clear path (3847-3848).
+        nr_02_pending_mf_ = false;
     }
+
+    // DivMMC arm.
     if (req_divmmc) {
-        nmi_sw_gen_divmmc_    = true;
-        nr_02_pending_divmmc_ = true;
+        nmi_sw_gen_divmmc_ = true;
+        if (accept) nr_02_pending_divmmc_ = true;
+    } else {
+        // Bit 2 explicitly low — VHDL clear path (3860-3861).
+        nr_02_pending_divmmc_ = false;
     }
 }
 
@@ -167,6 +200,8 @@ void NmiSource::set_expbus_nmi_n(bool v)
 void NmiSource::set_mf_enable(bool v)              { mf_enable_ = v; }
 void NmiSource::set_divmmc_enable(bool v)          { divmmc_enable_ = v; }
 void NmiSource::set_expbus_debounce_disable(bool v){ expbus_debounce_disable_ = v; }
+void NmiSource::set_expbus_eff_en(bool v)          { expbus_eff_en_ = v; }
+void NmiSource::set_expbus_eff_disable_mem(bool v) { expbus_eff_disable_mem_ = v; }
 void NmiSource::set_config_mode(bool v)            { config_mode_ = v; }
 
 // ---------------------------------------------------------------------
@@ -203,14 +238,22 @@ bool NmiSource::nmi_assert_divmmc() const
 
 bool NmiSource::nmi_assert_expbus() const
 {
-    // VHDL:2089 — expbus_eff_en AND NOT expbus_eff_disable_mem AND
-    //             i_BUS_NMI_n = '0'. jnext has no expansion bus
-    //             emulation today, so the upstream gates reduce to
-    //             "pin asserted" only. Phase 1 models the pin + the
-    //             NR 0x81 debounce-disable alone; the remaining expbus
-    //             gates land in Wave C when ExpBus emulation arrives.
-    //             i_BUS_NMI_n is active-low, so assert when == false.
-    return !expbus_nmi_n_;
+    // VHDL zxnext.vhd:2089 — verbatim:
+    //   nmi_assert_expbus <= '1' when expbus_eff_en = '1'
+    //                            and expbus_eff_disable_mem = '0'
+    //                            and i_BUS_NMI_n = '0' else '0';
+    //
+    // Pass-9 verify-audit fix (Task 2 verify9-nmi-mf-port): pre-fix the
+    // gate omitted `expbus_eff_en` / `expbus_eff_disable_mem` because
+    // jnext has no expbus device and `i_BUS_NMI_n` (alias `expbus_nmi_n_`)
+    // is permanently held idle ('1'), making the two missing gates
+    // redundant in steady state. They are NOT redundant once a future
+    // setter call to `set_expbus_nmi_n(false)` lights up the pin: the
+    // NR 0x80 enable / disable_mem bits MUST gate the assertion per
+    // VHDL — otherwise software that disables the expansion bus via
+    // NR 0x80 bit 7=0 would still see ExpBus NMIs route through.
+    // i_BUS_NMI_n is active-low, so assert when == false.
+    return expbus_eff_en_ && !expbus_eff_disable_mem_ && !expbus_nmi_n_;
 }
 
 // ---------------------------------------------------------------------
@@ -233,23 +276,24 @@ NmiSource::Src NmiSource::latched() const
 
 bool NmiSource::nmi_generate_n() const
 {
-    // VHDL:2164-2170 — /NMI asserted ('0') while the FSM holds the
-    // request. S_NMI_FETCH drives the line low until the Z80 takes
-    // the NMI; S_NMI_HOLD keeps it low while the consumer is still
-    // claiming ownership. S_NMI_END releases the line; S_NMI_IDLE is
-    // the resting state.
+    // VHDL zxnext.vhd:2168 — verbatim formula:
+    //   nmi_generate_n <= '0' when (nmi_state = S_NMI_IDLE and
+    //                               nmi_activated = '1')
+    //                          or nmi_state = S_NMI_FETCH
+    //                          or (nr_81_expbus_nmi_debounce_disable = '1'
+    //                              and nmi_assert_expbus = '1')
+    //                     else '1';
     //
-    // In IDLE with a pending request, VHDL asserts /NMI for one cycle
-    // as the FSM advances to FETCH. We model that by driving '0' in
-    // IDLE when `is_activated()` is true AND the FSM will advance
-    // this cycle (i.e. any latch is set).
-    if (state_ == State::Fetch || state_ == State::Hold) return false;
+    // Verify-audit fix (Task 2 verify-nmi-mf-port): earlier code asserted
+    // /NMI in HOLD as well as FETCH ("the FSM holds the request"), which
+    // mis-citation. VHDL releases /NMI ('1') on the FETCH→HOLD edge so the
+    // Z80 sees a clean edge for any subsequent NMI; HOLD only blocks the
+    // FSM from advancing while the consumer is still latched. Functionally
+    // identical for the falling-edge consumer in jnext (the Z80 latches
+    // NMI on the edge, not the level), but spec-faithful matters.
+    if (state_ == State::Fetch)                          return false;
     if (state_ == State::Idle  && is_activated())        return false;
-    // VHDL zxnext.vhd:2168 — expbus debounce-disable fast path (FSM bypass).
-    if (expbus_debounce_disable_ && nmi_assert_expbus()) {
-        return false;
-    }
-    // S_NMI_END releases /NMI; VHDL reports `nmi_generate_n = 1` there.
+    if (expbus_debounce_disable_ && nmi_assert_expbus()) return false;
     return true;
 }
 
@@ -271,13 +315,13 @@ void NmiSource::observe_m1_fetch(uint16_t pc, bool m1, bool mreq)
 void NmiSource::observe_cpu_wr(bool wr_n)
 {
     // VHDL:2149-2162 — FSM advances END -> IDLE on the rising edge of
-    // cpu_wr_n (the Z80's post-handler stack-pop write cycle finishes).
-    const bool rising = (wr_n && !prev_wr_n_);
+    // cpu_wr_n. With our coarse per-tick granularity (and no `wr_n` plumbing
+    // from the CPU) the END -> IDLE advance is now performed inside
+    // `recompute_()` itself (see case `State::End`). This observer is
+    // retained as a no-op for forward compatibility — if a future Wave
+    // wires `wr_n` from the Z80 core, the rising-edge advance can be
+    // re-enabled here without touching call sites.
     prev_wr_n_ = wr_n;
-    if (state_ == State::End && rising) {
-        state_ = State::Idle;
-        // Latches already cleared in END; nothing to do.
-    }
 }
 
 void NmiSource::observe_retn()
@@ -293,14 +337,22 @@ void NmiSource::observe_retn()
 
 void NmiSource::recompute_()
 {
-    // 1) config_mode force-clear (VHDL:2102-2105) — takes effect every
-    //    cycle while the flag is held.
+    // 1) config_mode force-clear (VHDL:2102-2105) — clears the three
+    //    priority latches `nmi_mf` / `nmi_divmmc` / `nmi_expbus` and
+    //    holds the FSM in IDLE while the flag is held.
+    //
+    //    Verify-audit fix (Task 2 verify-nmi-mf-port): the NR 0x02
+    //    readback latches `nr_02_generate_mf_nmi` / `nr_02_generate_divmmc_nmi`
+    //    (zxnext.vhd:3840-3864) live in DIFFERENT clocked processes
+    //    that are clear ONLY by reset OR by an explicit NR 0x02 write
+    //    with the corresponding bit cleared (lines 3847-3848, 3860-3861).
+    //    Config mode does NOT appear in either process's clear cascade,
+    //    so the readback bits MUST survive a config_mode entry. Earlier
+    //    code wrongly cleared `nr_02_pending_{mf,divmmc}_` here.
     if (config_mode_) {
         nmi_mf_     = false;
         nmi_divmmc_ = false;
         nmi_expbus_ = false;
-        nr_02_pending_mf_     = false;
-        nr_02_pending_divmmc_ = false;
         state_ = State::Idle;
         return;
     }
@@ -309,12 +361,19 @@ void NmiSource::recompute_()
     //    from the assert signals with MF > DivMMC > ExpBus priority, and
     //    clear on S_NMI_END transition (handled below).
     //
-    //    MF latch gating:
-    //      set iff nmi_assert_mf AND NOT port_e3_reg(7)  (VHDL:2098)
-    //    DivMMC latch gating:
+    //    MF latch gating (VHDL zxnext.vhd:2107):
+    //      set iff nmi_assert_mf
+    //              AND NOT port_e3_reg(7)   (= !divmmc_conmem_)
+    //              AND NOT divmmc_nmi_hold
+    //    DivMMC latch gating (VHDL zxnext.vhd:2110):
     //      set iff nmi_assert_divmmc AND NOT mf_is_active AND NOT nmi_mf
-    //    ExpBus latch gating:
+    //    ExpBus latch gating (VHDL zxnext.vhd:2113):
     //      set iff nmi_assert_expbus AND NOT (nmi_mf OR nmi_divmmc)
+    //
+    // Pass-9 verify-audit fix: the comment above previously omitted the
+    // `divmmc_nmi_hold` term in the MF gate description (the code was
+    // already correct).
+    //
     // VHDL:2106 — latch updates gate on `nmi_activated='0'`, which is
     // !is_activated() here (no latch currently set). Equivalent to
     // State::Idle in steady state, but matches VHDL verbatim.
@@ -359,24 +418,59 @@ void NmiSource::recompute_()
         break;
 
     case State::Hold: {
-        // VHDL:2139-2148 — HOLD -> END when the selected consumer's
-        // `hold` signal de-asserts. MF is selected when `nmi_mf` is set,
-        // DivMMC otherwise (VHDL:2118).
-        const bool hold = nmi_mf_ ? mf_nmi_hold_ : divmmc_nmi_hold_;
+        // VHDL zxnext.vhd:2118 —
+        //   nmi_hold <= mf_nmi_hold     when nmi_mf     = '1'
+        //          else divmmc_nmi_hold when nmi_divmmc = '1'
+        //          else nmi_assert_expbus;
+        // The ExpBus arm uses the *combinational producer* (the bus pin
+        // / debounce-disable path), NOT divmmc_nmi_hold; the previous
+        // collapsed `nmi_mf_ ? mf_nmi_hold_ : divmmc_nmi_hold_` was wrong
+        // for the ExpBus latch.
+        bool hold;
+        if (nmi_mf_) {
+            hold = mf_nmi_hold_;
+        } else if (nmi_divmmc_) {
+            hold = divmmc_nmi_hold_;
+        } else {
+            // nmi_expbus_ active — VHDL falls through to `nmi_assert_expbus`.
+            hold = nmi_assert_expbus();
+        }
         if (!hold) state_ = State::End;
         break;
     }
 
     case State::End:
-        // END clears the three request latches on entry (VHDL:2102-2105
-        // via the FSM clear term). Readback-pending bits clear here too
-        // per VHDL:5891 auto-clear semantics.
+        // END clears the three priority latches on entry (VHDL:2102-2105
+        // via the FSM clear term). The NR 0x02 readback latches
+        // `nr_02_generate_*_nmi` (VHDL:3840-3864) are NOT cleared here —
+        // they survive until either reset or an explicit write-back
+        // with the corresponding bit cleared. The earlier implementation
+        // erroneously auto-cleared the readback bits at END.
         nmi_mf_     = false;
         nmi_divmmc_ = false;
         nmi_expbus_ = false;
-        nr_02_pending_mf_     = false;
-        nr_02_pending_divmmc_ = false;
-        // END -> IDLE transition handled in observe_cpu_wr().
+        // END -> IDLE transition. VHDL zxnext.vhd:2143-2147:
+        //   when others =>  -- S_NMI_END
+        //     if cpu_wr_n = '1' then  -- do not transition until io write
+        //                              -- cycle completes
+        //       nmi_state_next <= S_NMI_IDLE;
+        //
+        // VHDL FSM advance is registered on i_CLK_CPU. A Z80 write-cycle
+        // pulls cpu_wr_n='0' for at most three CPU clocks (T2/T3 of an
+        // M3 OUT or memory-write cycle); between any two consecutive
+        // Z80 instructions the bus is fully idle (no MREQ/IORQ active)
+        // and cpu_wr_n is therefore high. NmiSource::tick() is invoked
+        // from Emulator::run_frame() at instruction boundaries, never
+        // mid-instruction, so by the time we re-enter `recompute_()`
+        // here the previous NMI ISR's last bus cycle has completed and
+        // cpu_wr_n='1' is guaranteed. The unconditional advance below
+        // is thus VHDL-faithful at our per-instruction tick granularity:
+        // we evaluate the FSM at exactly the same moments the VHDL would
+        // (one i_CLK_CPU edge after END entry, when the gate is high).
+        // Pass-9 verify-audit clarification: the previous comment
+        // labelled this an "approximation"; it is in fact spec-faithful
+        // for the per-instruction tick granularity.
+        state_ = State::Idle;
         break;
     }
 }
@@ -439,6 +533,12 @@ void NmiSource::save_state(StateWriter& w) const
     w.write_bool(mf_enable_);
     w.write_bool(divmmc_enable_);
     w.write_bool(expbus_debounce_disable_);
+    // Pass-9: NR 0x80 bit 7 / bit 4 latched gates (expbus_eff_en /
+    // expbus_eff_disable_mem). Appended at the end of the gate-flag
+    // group so older snapshots that lack the bytes still load via the
+    // tail-of-format extension dance below.
+    w.write_bool(expbus_eff_en_);
+    w.write_bool(expbus_eff_disable_mem_);
     w.write_bool(config_mode_);
 
     // Consumer feedback.
@@ -487,6 +587,11 @@ void NmiSource::load_state(StateReader& r)
     mf_enable_                     = r.read_bool();
     divmmc_enable_                 = r.read_bool();
     expbus_debounce_disable_       = r.read_bool();
+    // Pass-9: NR 0x80 effective gate flags. See save_state() for the
+    // append point. The snapshot ring is rewind-only (in-process), so
+    // older snapshots are not a concern.
+    expbus_eff_en_                 = r.read_bool();
+    expbus_eff_disable_mem_        = r.read_bool();
     config_mode_                   = r.read_bool();
 
     mf_nmi_hold_                   = r.read_bool();

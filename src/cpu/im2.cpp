@@ -76,6 +76,69 @@ void Im2Controller::tick(uint32_t /*master_cycles*/) {
     // step_devices() so it observes this tick's device states + this tick's
     // decoder-sourced dma_delay_ctrl_ pulse.
     step_dma_delay();
+    // V19-IM2-03 fix: int_unq is a ONE-CYCLE pulse from nr_20_we per VHDL
+    // zxnext.vhd:1946-1947 — `im2_int_unq[i] <= nr_20_we and nr_wr_dat(N)`
+    // and `nr_20_we` is a one-cycle write pulse. Pre-fix step_pulse() only
+    // cleared dev_[].int_unq when a pulse-mode pulse terminated; in IM2
+    // mode the pulse fabric never fires for non-exception devices, so a
+    // raise_unq() left int_unq=true permanently. After isr_serviced cleared
+    // im2_int_req at S_ISR→S_0 (Phase 2 of step_devices), the NEXT tick
+    // would re-set im2_int_req from the still-true int_unq → S_0→S_REQ →
+    // phantom re-trigger of the same interrupt forever. VHDL has no such
+    // re-trigger because i_int_unq returns to 0 after one cycle. Clear all
+    // int_unq one-shots at end of tick — matches VHDL semantic.
+    for (int k = 0; k < N; ++k) dev_[k].int_unq = false;
+
+    // V19R-CPU-01 fix (Pass-19 reviewer): synthesize VHDL's 1-cycle-pulse
+    // semantic for `i_int_req`.
+    //
+    // VHDL im2_peripheral.vhd:90-101 — `int_req` (local edge) is
+    //   `i_int_req AND NOT int_req_d`
+    // where `int_req_d <= i_int_req` registered on rising CLK_28. The
+    // upstream sources feeding `i_int_req` (zxnext.vhd:1941: ula_int_pulse,
+    // line_int_pulse, ctc_zc_to, uart{0,1}_{rx,tx}_*_int) are all
+    // ONE-CYCLE PULSES that return to '0' after one cycle. The edge
+    // detector therefore fires once per pulse and the latched im2_int_req
+    // is held in S_REQ until isr_serviced clears it.
+    //
+    // jnext models `i_int_req` as a LEVEL via `raise_req()` (im2.cpp:307).
+    // NO production caller (ULA scheduler at emulator.cpp:5390, LINE at
+    // :6600, CTC `on_interrupt` at :4620, UART at :4665/:4683) pairs the
+    // raise with a deferred `clear_req()`. Pre-fix consequence: after
+    // frame 1's edge fires, `int_req_d` settles to `true`; subsequent
+    // `raise_req()` calls (frame 2 onwards) produce no new edge because
+    // `edge = int_req && !int_req_d = true && !true = false` —
+    // ULA/LINE/CTC INT effectively fires **once per emulator session in
+    // IM2 mode**. VHDL fires every frame.
+    //
+    // Fix: at end of tick(), after step_devices() Phase 1 has captured
+    // any edge into `int_req_d` (line :849 `d.int_req_d = d.int_req`)
+    // AND step_pulse() has already consumed `int_req_edge` for the
+    // pulse-mode path (line :1002), clear `int_req` across all devices.
+    // This makes the level signal set by `raise_req()` behave as a
+    // 1-cycle pulse from `tick()`'s perspective:
+    //   - Tick N:    raise_req() before tick → int_req=true, int_req_d=false.
+    //                step_pulse + step_devices fire on edge.
+    //                End of tick: int_req=false (clear), int_req_d=true.
+    //   - Tick N+1:  no raise → no edge. int_req_d settles to false.
+    //   - Tick N+2:  raise_req() → int_req=true, int_req_d=false →
+    //                edge fires again.
+    // Multi-tick gap between consecutive raises is the norm in production
+    // (frame-rate raises versus per-instruction ticks), so this matches
+    // the VHDL fire-every-cycle-pulse semantic exactly.
+    //
+    // Pulse-mode (im2_mode_=false) is preserved: step_pulse() consumes
+    // the edge before this clear, and dev_[].im2_int_req is held at 0
+    // by V17-CPU-01's `im2_reset_n` gate regardless.
+    //
+    // V18R-CPU-02 raise(Im2Level::DMA/DIVMMC/MULTIFACE) early-return
+    // path: those calls don't touch int_req at all, so the clear is a
+    // harmless no-op for those slots.
+    //
+    // Save/load: int_req is per-tick and re-derived from peripheral
+    // behaviour on each tick — auto-clear at end of tick does not
+    // perturb persisted state any more than the existing int_unq clear.
+    for (int k = 0; k < N; ++k) dev_[k].int_req = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -126,20 +189,50 @@ Im2Controller::DevIdx Im2Controller::to_devidx(Im2Level lvl) const {
 // the ORIGINAL Im2Level index, then mask via legacy_mask_ / vector = 2*i.
 // -----------------------------------------------------------------------------
 void Im2Controller::raise(Im2Level level) {
-    // Record on both sides:
-    //   - legacy view: dev_ at the Im2Level index for has_pending/get_vector
-    //   - new view:    raise_req on the mapped DevIdx for int_req propagation
+    // V18R-CPU-02 (Pass-18 reviewer): the legacy raise() must NOT pollute
+    // daisy-chain devices via raw-int collision. Im2Level::DMA=10 collides
+    // with DevIdx::CTC7=10; Im2Level::DIVMMC=11 with DevIdx::ULA=11;
+    // Im2Level::MULTIFACE=13 with DevIdx::UART1_TX=13. Pre-fix this
+    // function set `dev_[static_cast<int>(level)].int_req=true` which (a)
+    // raised CTC7's int_req on every DMA call (CTC7's i_int_req is
+    // hardwired to '0' in VHDL zxnext.vhd:4092, so this is observably
+    // wrong) and (b) would falsely raise ULA/UART1_TX for the other
+    // aliases.
     //
-    // NOTE: dev_[] is sized N = DevIdx::COUNT == Im2Level::COUNT == 14, so we
-    // can index it with either enum's raw int safely for the legacy side.
-    int i = static_cast<int>(level);
+    // None of the priority-chain peripherals routes through this legacy
+    // API any more — the modern path is raise_req(DevIdx). The non-IM2
+    // "victim" sources (DMA/DIVMMC/MULTIFACE) have no daisy-chain slot at
+    // all, so they MUST be no-ops here. The remaining Im2Level entries
+    // (FRAME_IRQ, LINE_IRQ, CTC_*, UART_*, ULA_EXTRA) route via to_devidx()
+    // to their proper DevIdx slot.
+    switch (level) {
+        case Im2Level::DMA:
+        case Im2Level::DIVMMC:
+        case Im2Level::MULTIFACE:
+            // Non-IM2 sources — no daisy-chain slot per VHDL.
+            return;
+        default:
+            break;
+    }
+    const DevIdx dev = to_devidx(level);
+    const int i = static_cast<int>(dev);
     if (i >= 0 && i < N) {
         dev_[i].int_req = true;
     }
 }
 
 void Im2Controller::clear(Im2Level level) {
-    int i = static_cast<int>(level);
+    // V18R-CPU-02: same routing fix as raise(); see the comment there.
+    switch (level) {
+        case Im2Level::DMA:
+        case Im2Level::DIVMMC:
+        case Im2Level::MULTIFACE:
+            return;
+        default:
+            break;
+    }
+    const DevIdx dev = to_devidx(level);
+    const int i = static_cast<int>(dev);
     if (i >= 0 && i < N) {
         dev_[i].int_req = false;
     }
@@ -186,10 +279,37 @@ void Im2Controller::on_reti() {
     // im2_.on_reti() directly — keeping both paths converges on the same
     // end state.
     if (!im2_mode_) return;   // device SM is reset-held in pulse mode
+    // V21-IM2-01 fix: VHDL im2_device.vhd:123-128 S_ISR→S_0 transition
+    // gates on `i_im2_mode='1'` (= `z80_im_mode(1)`). The legacy
+    // on_reti() entry point must apply the same gate; pre-fix it cleared
+    // S_ISR on any RETI regardless of Z80 IM mode, dropping a device
+    // that VHDL would keep latched when the Z80 had transiently dropped
+    // out of IM=2. See step_state_machine_with_iei S_ISR branch for the
+    // parallel fix on the modern path.
+    if (im_mode_ != 2) return;
+    // Pass-10 fix: VHDL im2_control.vhd:233-234 — `o_reti_decode = (state ==
+    // S_ED_T4)` AND `o_reti_seen = (state_next == S_ED4D_T4)`. At the T4
+    // event of the 0x4D fetch, state IS S_ED_T4 (clock edge hasn't fired
+    // yet) AND state_next IS S_ED4D_T4 — both signals are simultaneously
+    // high.  The IEI chain in upstream S_REQ devices uses
+    //     o_ieo = i_iei AND i_reti_decode
+    // (im2_device.vhd:142). If i_reti_decode were 0 at the moment reti_seen
+    // pulses (as our model would have, since dec_state_ has just advanced
+    // past S_ED_T4 by the time on_reti() is called), every upstream S_REQ
+    // would force IEO=0 and prevent any lower-priority S_ISR clear — a
+    // correctness bug for nested IM2 handlers where a higher-priority
+    // request comes in while running a lower-priority ISR.
+    //
+    // Fix: when reti_seen_pulse_ is true, treat reti_decode as logically
+    // true for the IEI snapshot — that's the VHDL combinational state at
+    // T4 of the 4D fetch.  reti_decode_ alone (which reflects post-edge
+    // state) is preserved for external observability.
+    //
     // Snapshot IEI across all devices BEFORE any transition so that clearing
     // a higher-priority S_ISR device does NOT cascade into the next device
     // in the same RETI (matches VHDL simultaneous-update semantic; only one
     // device clears per RETI).
+    const bool iei_reti_decode = reti_decode_ || reti_seen_pulse_;
     bool iei_snap[N];
     {
         bool iei = true;  // device 0's hard-wired IEI
@@ -198,9 +318,9 @@ void Im2Controller::on_reti() {
             const Device& d = dev_[k];
             bool ieo;
             switch (d.state) {
-                case DevState::S_0:   ieo = iei;                  break;
-                case DevState::S_REQ: ieo = iei && reti_decode_;  break;
-                default:              ieo = false;                break;
+                case DevState::S_0:   ieo = iei;                       break;
+                case DevState::S_REQ: ieo = iei && iei_reti_decode;    break;
+                default:              ieo = false;                     break;
             }
             iei = ieo;
         }
@@ -208,6 +328,25 @@ void Im2Controller::on_reti() {
     for (int i = 0; i < N; ++i) {
         if (dev_[i].state == DevState::S_ISR && iei_snap[i]) {
             dev_[i].state = DevState::S_0;
+            // V22-IM2-01 fix: must ALSO clear the im2_int_req latch on
+            // S_ISR→S_0, matching VHDL im2_peripheral.vhd:175
+            // (`im2_int_req <= im2_int_req AND NOT im2_isr_serviced`) and
+            // the parallel clear in step_state_machine_with_iei's S_ISR
+            // branch (im2.cpp:1058-1063). Pre-fix the legacy on_reti()
+            // entry point — which is the production path called by the
+            // emulator's on_m1_cycle lambda (emulator.cpp:663-665) — only
+            // cleared the state, leaving im2_int_req latched. The next
+            // tick's step_devices() Phase 2 saw state=S_0 with
+            // `im2_int_req=true` and re-transitioned S_0→S_REQ
+            // (im2.cpp:1007-1009), spuriously re-firing the SAME interrupt
+            // immediately after RETI returned from the ISR. The
+            // step_state_machine_with_iei path correctly clears both
+            // state and latch inline (V21-IM2-01 history), but on_reti()
+            // had been omitting the latch-clear since the Phase 1
+            // scaffold. VHDL never re-triggers because im2_isr_serviced
+            // is generated by the S_ISR→S_0 edge itself
+            // (im2_peripheral.vhd:148) and immediately clears the latch.
+            dev_[i].im2_int_req = false;
         }
     }
 }
@@ -490,7 +629,28 @@ bool Im2Controller::int_line_asserted() const {
     //     o_int_n <= int_n(1) and int_n(2) ... and int_n(14)
     // Equivalent: the aggregate line is low (asserted) iff ANY device drives
     // its local o_int_n low — i.e., is in S_REQ with IEI high in IM2 mode.
-    if (!im2_mode_) return false;
+    //
+    // V21-IM2-01 fix: VHDL `i_im2_mode` is wired to `z80_im_mode(1)` at
+    // zxnext.vhd:1974 — i.e. it is HIGH only when the Z80 is itself in
+    // IM=2 (the im2_control decoder sets `im_mode = "10"` only on
+    // execution of ED 5E / ED 7E). Pre-fix the gate read only
+    // `im2_mode_` (= `nr_c0_int_mode_pulse_0_im2_1`, the NR 0xC0 mode
+    // selector). When NR 0xC0 b0 = 1 but the Z80 is still in IM=0 or
+    // IM=1 (boot-realistic window before the first ED 5E/7E executes,
+    // or any transitional path where the supervisor flips NR 0xC0 b0
+    // before IM=2 instructions run), pre-fix jnext could falsely assert
+    // the Z80 /INT line and let request_interrupt fire with vector
+    // 0xFE on the next iff1=1 boundary — the CPU then services via its
+    // CURRENT IM mode (IM=0 / IM=1 → RST $38) which real hardware
+    // never reaches because the VHDL `im2_int_n` stays HIGH while
+    // `z80_im_mode(1)='0'`.
+    //
+    // Note that the device state machine is held in S_0 (via
+    // `im2_reset_n='0'` per :105) ONLY in pulse mode; the FSM does run
+    // in IM2-fabric mode regardless of `z80_im_mode`, but `o_int_n`
+    // stays high until `i_im2_mode` rises.
+    if (!im2_mode_)      return false;   // device SM held reset in pulse mode
+    if (im_mode_ != 2)   return false;   // VHDL :150 i_im2_mode gate
     for (int i = 0; i < N; ++i) {
         if (dev_[i].state != DevState::S_REQ) continue;
         bool iei = (i == 0) ? true : device_ieo(i - 1);
@@ -517,7 +677,18 @@ uint8_t Im2Controller::ack_vector() {
     // Vector: im2_device.vhd:155 drives o_vec = i_vec while state = S_ACK or
     // state_next = S_ACK. We compose at read time; the caller (CPU) latches
     // the byte immediately.
-    if (!im2_mode_) return 0xFF;  // pulse mode: legacy int_vector_ drives
+    //
+    // V21-IM2-01 fix: VHDL S_REQ→S_ACK at :112 gates on `i_im2_mode='1'`
+    // (= `z80_im_mode(1)`). In jnext that maps to `im_mode_ == 2`. The
+    // pre-fix gate only checked `im2_mode_` (= NR 0xC0 mode select);
+    // in IM2-fabric mode with the Z80 in IM=0/1, ack_vector would
+    // advance a device to S_ACK and return a composed vector that real
+    // hardware would never deliver (because `o_int_n` stays HIGH per
+    // the V21-IM2-01 `int_line_asserted` fix above, and even if /INT
+    // were somehow asserted the S_REQ→S_ACK transition itself gates on
+    // `i_im2_mode`).
+    if (!im2_mode_)    return 0xFF;  // pulse mode: legacy int_vector_ drives
+    if (im_mode_ != 2) return 0xFF;  // VHDL :112 i_im2_mode gate
     for (int i = 0; i < N; ++i) {
         if (dev_[i].state != DevState::S_REQ) continue;
         bool iei = (i == 0) ? true : device_ieo(i - 1);
@@ -554,6 +725,18 @@ void Im2Controller::on_m1_cycle(uint16_t /*pc*/, uint8_t opcode) {
     advance_decoder(opcode);
 
     // Latch the flat signals off the *new* dec_state_ — see VHDL 233/238.
+    //
+    // Pass-10 note: VHDL has both `o_reti_decode = (state==S_ED_T4)` and
+    // `o_reti_seen = (state_next==S_ED4D_T4)` simultaneously high at the T4
+    // event where ED is followed by 0x4D — they are combinational signals
+    // derived from the same pre-edge view of the FSM. Our model collapses
+    // T4-event-state with post-edge-state into the single dec_state_ update,
+    // so reti_decode_ flips to false when we transition to S_ED4D_T4 even
+    // though VHDL shows reti_decode='1' at the very tick reti_seen pulses.
+    // The downstream effect — IEI chain in on_reti() and the device state
+    // machine — must compensate by treating "reti_seen pulse present" as
+    // implying "reti_decode='1' for IEI propagation". See the IEI
+    // computation lambda used by on_reti() and step_state_machine_with_iei().
     reti_decode_    = (dec_state_ == DecState::S_ED_T4);
     dma_delay_ctrl_ = (dec_state_ == DecState::S_ED_T4)
                    || (dec_state_ == DecState::S_ED4D_T4)
@@ -674,14 +857,30 @@ void Im2Controller::advance_decoder(uint8_t opcode) {
             break;
 
         // vhdl:199-206 — DD/FD prefix chain: DD/FD keeps us in S_DDFD_T4
-        // (so DD FD DD ... stays here), an ED starts the RETI/RETN
-        // lookahead, anything else returns to S_0.
+        // (so DD FD DD ... stays here), anything else (including ED!)
+        // returns to S_0.
+        //
+        // V11-CPU-01 fix: VHDL line 200-203 falls through to S_0 on any
+        // non-DDFD opcode (the elsif at :202 is `ifetch_fe_t3='1'`, no
+        // ED special-case). This means a `DD ED 4D` byte sequence on the
+        // bus does NOT register as RETI in the IM2 fabric — even though
+        // FUSE's z80_ddfd.c default re-dispatches it as ED 4D = RETI
+        // semantically. The IM2 control block keys on the *physical bus
+        // pattern*, not the CPU's internal re-dispatch behaviour.
+        //
+        // Pre-fix: jnext routed ED after DDFD into S_ED_T4, which would
+        // emit a spurious reti_seen pulse on `DD ED 4D` and clear
+        // S_ISR daisy-chain devices that VHDL would leave standing. No
+        // sane software writes DD ED 4D as RETI (the assembler uses bare
+        // ED 4D), but the VHDL-faithful posture is to mirror the FPGA
+        // exactly so the fabric matches real hardware byte-for-byte.
         case DecState::S_DDFD_T4:
             if      (opcode == 0xDD || opcode == 0xFD) {
                 // stay
-            } else if (opcode == 0xED) {
-                dec_state_ = DecState::S_ED_T4;
             } else {
+                // Per VHDL: ED, CB, or any other opcode after DDFD all
+                // return to S_0. RETI/RETN decoding requires a fresh ED
+                // from S_0, not via the DDFD chain.
                 dec_state_ = DecState::S_0;
             }
             break;
@@ -709,24 +908,47 @@ void Im2Controller::step_devices() {
     // int_unq bypasses i_int_en in both the status register (UNQ-05) and the
     // im2 latch (UNQ-04). raise_unq() also sets these fields directly so
     // combinational collapse is observationally equivalent.
+    //
+    // V17-CPU-01: VHDL im2_peripheral.vhd:105 +:170-171 — `im2_reset_n` is
+    // gated on `i_mode_pulse_0_im2_1 AND NOT i_reset`, and the `im2_int_req`
+    // latch process at :167-178 holds the latch at '0' whenever
+    // `im2_reset_n = '0'` (i.e. in pulse mode). Pre-fix jnext set
+    // `im2_int_req=true` on any qualifying edge or `int_unq` regardless of
+    // `im2_mode_`, so a device that fired in pulse mode left a stale latch.
+    // On a subsequent NR 0xC0 mode transition pulse → IM2, that stale latch
+    // would push the device straight from S_0 to S_REQ in the next tick
+    // even though VHDL's latch was held at 0 the whole time — phantom
+    // IM2 interrupt. Fix: enforce `im2_int_req=false` when in pulse mode,
+    // matching the VHDL `im2_reset_n='0'` reset path.
+    const bool im2_reset_n = im2_mode_;   // not gated on a host-side reset
+                                          // pulse — controller reset() runs
+                                          // separately and clears all state.
     for (int i = 0; i < N; ++i) {
         Device& d = dev_[i];
         const bool edge = d.int_req && !d.int_req_d;
 
         // Set int_status on any edge (vhdl:160 — gated by neither int_en
         // nor int_unq; the edge pulse itself is what the VHDL equation
-        // uses).
+        // uses). int_status is NOT held by im2_reset_n (vhdl:154-162) — it
+        // persists across mode switches.
         if (edge) {
             d.int_status = true;
         }
 
         // Set im2_int_req latch: edge qualified by int_en, OR unqualified
-        // (int_unq, which bypasses int_en per vhdl:172).
-        if (edge && d.int_en) {
-            d.im2_int_req = true;
+        // (int_unq, which bypasses int_en per vhdl:172). Held at 0 in
+        // pulse mode (V17-CPU-01).
+        if (!im2_reset_n) {
+            d.im2_int_req = false;
+        } else {
+            if (edge && d.int_en) {
+                d.im2_int_req = true;
+            }
+            if (d.int_unq) {
+                d.im2_int_req = true;      // bypass int_en
+            }
         }
         if (d.int_unq) {
-            d.im2_int_req = true;      // bypass int_en
             d.int_status  = true;      // vhdl:160 — unq also feeds int_status
             // int_unq is one-shot; cleared by the pulse fabric (Agent C,
             // Wave 2) after the pulse fires. Do NOT clear here.
@@ -742,6 +964,15 @@ void Im2Controller::step_devices() {
     // — preserves VHDL synchronous-update semantic: clearing a higher-
     // priority S_ISR device must NOT cascade into the next device in the
     // same tick.
+    //
+    // Pass-10 fix: at the same tick where reti_seen_pulse_ is high, VHDL has
+    // i_reti_decode='1' too (im2_control.vhd:233-234 simultaneity — see
+    // on_reti() comment for full derivation). The IEI snapshot must reflect
+    // that combined state so that S_REQ devices propagate IEI through during
+    // the RETI decode window — necessary for the S_ISR→S_0 transition gate
+    // (im2_device.vhd:124) to fire on a lower-priority device when a
+    // higher-priority S_REQ is pending.
+    const bool iei_reti_decode = reti_decode_ || reti_seen_pulse_;
     bool iei_snap[N];
     {
         bool iei = true;  // device 0's hard-wired IEI (zxnext.vhd:1984)
@@ -750,9 +981,9 @@ void Im2Controller::step_devices() {
             const Device& d = dev_[k];
             bool ieo;
             switch (d.state) {
-                case DevState::S_0:   ieo = iei;                  break;
-                case DevState::S_REQ: ieo = iei && reti_decode_;  break;
-                default:              ieo = false;                break;  // S_ACK / S_ISR
+                case DevState::S_0:   ieo = iei;                       break;
+                case DevState::S_REQ: ieo = iei && iei_reti_decode;    break;
+                default:              ieo = false;                     break;  // S_ACK / S_ISR
             }
             iei = ieo;
         }
@@ -830,7 +1061,20 @@ void Im2Controller::step_state_machine_with_iei(int i, bool iei) {
             // Agent A owns reti_seen_pulse_; we consume it here.
             // (The legacy on_reti() entry point also triggers the same
             //  walk, so both RETI propagation paths converge.)
-            if (reti_seen_pulse_ && iei) {
+            //
+            // V21-IM2-01 fix: gate also on `i_im2_mode` (= im_mode_==2).
+            // The S_REQ→S_ACK→S_ISR pipeline only reaches S_ISR when
+            // i_im2_mode was high at the ACK boundary, but a subsequent
+            // IM 0 / IM 1 instruction could drop im_mode_ before RETI
+            // executes — VHDL would then HOLD the device in S_ISR until
+            // either (a) reset, or (b) the Z80 returns to IM=2 and a
+            // RETI fires. Pre-fix jnext cleared S_ISR unconditionally
+            // on `reti_seen && iei`, dropping a device that VHDL would
+            // keep latched. Concretely: NEXTREG-controlled ISR that
+            // briefly switches IM modes mid-handler and RETIs from
+            // IM=1 territory would observe the daisy chain clear in
+            // jnext but stay latched on real hardware.
+            if (reti_seen_pulse_ && iei && im_mode_ == 2) {
                 d.state = DevState::S_0;
                 // Clear the im2_int_req latch inline — VHDL
                 // im2_peripheral.vhd:175 (clear via im2_isr_serviced).

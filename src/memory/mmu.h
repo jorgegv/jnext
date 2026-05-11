@@ -240,33 +240,73 @@ public:
         // Layer 2 read-over: redirect reads to L2 RAM banks. VHDL arbiter
         // at zxnext.vhd:3100 puts Layer 2 above config_mode, altrom, MMU,
         // and ROMCS (and below DivMMC ROM/RAM). Mirrors the write-side
-        // block below: same segment check, same (l2_bank_+segment)*2
-        // page computation, same to_sram_page() shift, same offset
-        // arithmetic — both come from the shared layer2_active_page
-        // formula at zxnext.vhd:2969.
-        if (l2_read_enable_ && addr < 0xC000) {
-            int segment = addr / 0x4000;  // 0, 1, or 2
-            if (l2_segment_mask_ & (1 << segment)) {
-                // VHDL zxnext.vhd:2966-2969:
-                //   bank        = nr_13 if map_shadow else nr_12     (G144)
-                //   offset_pre  = cpu_a(15:14) when seg=11 else seg
-                //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
-                //   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
-                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
-                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
-                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
-                uint16_t offset = addr % 0x4000;
-                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
-                const uint8_t* p = ram_.page_ptr(phys_page);
-                uint8_t val = p ? p[offset & 0x1FFF] : 0xFF;
+        // block below: same per-half override gate (VHDL :3043,:3050,
+        // :3057,:3065), same offset_pre computation (:2966), same shared
+        // layer2_active_page formula (:2969).
+        //
+        // Verify8-memory class-(a) fix: the per-half gate matches VHDL
+        // exactly — for 0x0000-0x3FFF (low half), Layer 2 is enabled in
+        // the non-MF cases (override(1)='1' at lines 3043, 3050, 3057);
+        // for 0x4000-0xBFFF (high half), Layer 2 is enabled only when
+        // seg='11' (line 3065 — `((not cpu_a(15)) or (not cpu_a(14)))
+        // and seg(1) and seg(0)`); for 0xC000+, Layer 2 is disabled. The
+        // pre-fix C++ used a bitmask seg=00→0x01, seg=01→0x02, seg=10→0x04,
+        // seg=11→0x07 — which routed L2 to seg-only-segment in the high
+        // half (e.g. seg=01 enabled L2 only at 0x4000-0x7FFF) but did NOT
+        // enable L2 in the low half for seg!="00". VHDL routes L2 to the
+        // low half regardless of seg (in non-MF cases) and the seg field
+        // shifts the bank-offset (offset_pre = seg when seg != "11"); the
+        // C++ pre-fix also conflated offset_pre with the cpu_a(15:14)
+        // segment, breaking the bank-offset arithmetic for seg != "11".
+        if (l2_read_enable_ && l2_overlay_active_for(addr)) {
+            // VHDL zxnext.vhd:2966-2969:
+            //   bank        = nr_13 if map_shadow else nr_12     (G144)
+            //   offset_pre  = cpu_a(15:14) when seg=11 else seg  (:2966)
+            //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
+            //   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
+            const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+            const uint8_t off_pre = l2_offset_pre_for(addr);
+            const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
+            // VHDL zxnext.vhd:2971 + :3101-3102 — the L2 mmu_A21_A13(8) gate
+            // fires when layer2_active_page(7:5) = "111" (i.e. sum[6:4]=111
+            // when sum = bank + bofs). The arbiter sets sram_active = NOT
+            // layer2_A21_A13(8), so when the gate fires the SRAM is INACTIVE
+            // (read returns floating bus, write dropped). Verify10-memory
+            // class-(c) fix: previously jnext computed `phys_page = to_sram_page(...)`
+            // unconditionally, which for high sums (≥0x70) wrapped through
+            // `+0x20` arithmetic into the ROM-in-SRAM region (pages 0..7) —
+            // a read/write would alias bytes in the ROM area instead of
+            // returning floating-bus / dropping. Real software never sets
+            // L2 banks high enough to reach this corner, but the gate is
+            // VHDL-faithful so we honour it.
+            const uint8_t sum = static_cast<uint8_t>(bank + bofs);
+            if ((sum & 0x70) == 0x70) {
+                // L2 inactive — read returns floating bus (0xFF). Mirror the
+                // floating-bus latch pattern below: contended-cycle latch is
+                // not updated for inactive L2 (VHDL :4498-4509 keys on
+                // mem_contend AND cpu_mreq_n='0', which still applies, but
+                // since the ULA wouldn't have driven valid data on this
+                // cycle, the latched byte is the prior CPU-bus value — not
+                // currently modelled at this granularity).
                 if (debug_state_ && debug_state_->active() &&
                     debug_state_->breakpoints().has_any_watchpoints() &&
                     debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                     debug_state_->set_data_bp_hit(true);
                     debug_state_->set_data_bp_addr(addr);
                 }
-                return val;
+                return 0xFF;
             }
+            uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
+            uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
+            const uint8_t* p = ram_.page_ptr(phys_page);
+            uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
+            if (debug_state_ && debug_state_->active() &&
+                debug_state_->breakpoints().has_any_watchpoints() &&
+                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                debug_state_->set_data_bp_hit(true);
+                debug_state_->set_data_bp_addr(addr);
+            }
+            return val;
         }
         int slot = addr >> 13;
         // Alt-ROM read override (VHDL zxnext.vhd:3021, 3078, 3116-3123).
@@ -308,10 +348,19 @@ public:
         if (!ptr) return 0xFF;
         uint8_t val = ptr[addr & 0x1FFF];
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_di
-        // on every contended memory read. Approximated here via the
-        // per-16K-slot contended flag (slot_contended_[]) pushed by the
-        // Emulator alongside ContentionModel::set_contended_slot().
-        if (slot_contended_[addr >> 14]) {
+        // on every contended memory read where mem_contend='1' AND
+        // cpu_mreq_n='0'. Verify9-memory class-(c) → class-(a) fix:
+        // gate via a per-page mem_contend decode (zxnext.vhd:4489-4493)
+        // instead of the legacy per-16K-slot mirror. The MMU register
+        // (`nr_mmu_[addr>>13]` = mem_active_page) directly drives the
+        // gate so contention follows the VHDL combinational decode
+        // exactly (high pages 0x10..0xFF never contend; low pages
+        // contend per machine type via odd-bank / bank-5 / +3 banks-≥-4
+        // rules). Pre-fix `slot_contended_[]` was set externally only on
+        // 7FFD / +3-special-paging writes — NR $50/$51 RAM-mapping in
+        // slot 0/1 (e.g. NR $51,$05 mapping bank 5 hi) silently missed
+        // the bank-5 contended-memory latch update.
+        if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
         // Check data breakpoints (only when debugger is active with watchpoints)
@@ -353,25 +402,38 @@ public:
         }
         // Layer 2 write-over: redirect writes to L2 RAM banks. Arbiter line
         // 3100 places Layer 2 above the config_mode path too.
-        if (l2_write_enable_ && addr < 0xC000) {
-            int segment = addr / 0x4000;  // 0, 1, or 2
-            if (l2_segment_mask_ & (1 << segment)) {
-                // Write to L2 RAM: each segment is 16K = 2 pages.
-                // VHDL zxnext.vhd:2966-2969 (mirrors the read path above):
-                //   bank        = nr_13 if map_shadow else nr_12     (G144)
-                //   bank_offset = segment + port_123b_layer2_offset  (G92)
-                // Next mode: apply VHDL mmu_A21_A13 shift via to_sram_page so
-                // L2 write-over lands on the same SRAM region Layer 2's
-                // compute_ram_addr fetches from (both shift +0x20 in Next).
-                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
-                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
-                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
-                uint16_t offset = addr % 0x4000;
-                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
-                uint8_t* p = ram_.page_ptr(phys_page);
-                if (p) p[offset & 0x1FFF] = val;
-                return;
+        //
+        // Verify8-memory class-(a) fix: see read() above for the
+        // per-half override gate rationale. Same logic mirrored here.
+        if (l2_write_enable_ && l2_overlay_active_for(addr)) {
+            // VHDL zxnext.vhd:2966-2969 (mirrors the read path above):
+            //   bank        = nr_13 if map_shadow else nr_12     (G144)
+            //   offset_pre  = cpu_a(15:14) when seg=11 else seg  (:2966)
+            //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
+            // Next mode: apply VHDL mmu_A21_A13 shift via to_sram_page so
+            // L2 write-over lands on the same SRAM region Layer 2's
+            // compute_ram_addr fetches from (both shift +0x20 in Next).
+            const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+            const uint8_t off_pre = l2_offset_pre_for(addr);
+            const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
+            // Verify10-memory class-(c) fix: mirror the read path's
+            // layer2_A21_A13(8) gate (VHDL :2971 + :3101-3102 sram_active
+            // = NOT layer2_A21_A13(8)). When (bank + bofs) bits[6:4]=111,
+            // layer2_A21_A13(8)='1' and SRAM is INACTIVE — the write must
+            // be silently dropped. Pre-fix the C++ wrote to the wrap-around
+            // SRAM page (e.g. sum=0x70 → phys_page = to_sram_page(0xE0) =
+            // 0x00, corrupting ROM-in-SRAM bank 0). Real firmware never
+            // sets L2 banks high enough to hit this corner, but the gate
+            // is VHDL-faithful and cheap.
+            const uint8_t sum = static_cast<uint8_t>(bank + bofs);
+            if ((sum & 0x70) == 0x70) {
+                return;  // SRAM inactive — write dropped per VHDL :3102
             }
+            uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
+            uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
+            uint8_t* p = ram_.page_ptr(phys_page);
+            if (p) p[addr & 0x1FFF] = val;
+            return;
         }
         int slot = addr >> 13;
         // Alt-ROM write override (VHDL zxnext.vhd:3056, 3078, 3116-3123).
@@ -403,9 +465,11 @@ public:
         if (!ptr) return;
         ptr[addr & 0x1FFF] = val;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
-        // on every contended memory write. Approximated via per-16K-slot
-        // contended flag (see read() for the mirror update on reads).
-        if (slot_contended_[addr >> 14]) {
+        // on every contended memory write. Verify9-memory class-(c) →
+        // class-(a) fix: gate via per-page mem_contend decode (see read()
+        // above for rationale). Same VHDL gate, mirrored on the write
+        // path.
+        if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
     }
@@ -563,11 +627,19 @@ public:
     // Clear the 128K paging lock. VHDL zxnext.vhd:3654-3656 — a write to
     // NR 0x08 with bit 7 set clears port_7ffd_reg(5), which in turn drops
     // port_7ffd_locked (derived at zxnext.vhd:3769) to '0'. Our emulator
-    // mirrors this by clearing paging_locked_ directly; the gate inside
-    // map_128k_bank / map_plus3_bank then allows subsequent port_7FFD /
-    // port_1FFD writes to take effect again. Driven by the NR 0x08 write
-    // handler in Emulator::install_port_handlers (src/core/emulator.cpp).
-    void unlock_paging() { paging_locked_ = false; }
+    // mirrors this by clearing paging_locked_ directly AND clearing bit 5
+    // of port_7ffd_ so the readback (e.g. MF+3 0x7xxx mux at zxnext.vhd:
+    // 4318) and Pentagon-1024 bank composition (zxnext.vhd:3765) both
+    // reflect the cleared bit. Driven by the NR 0x08 write handler in
+    // Emulator::install_port_handlers (src/core/emulator.cpp).
+    //
+    // Verify3-memory class-(a) fix: previously only paging_locked_ was
+    // cleared; port_7ffd_ retained bit 5, so subsequent MF+3 readbacks at
+    // 0x7xxx and Pentagon-1024 bank-5 composition saw the stale bit.
+    void unlock_paging() {
+        paging_locked_ = false;
+        port_7ffd_ = static_cast<uint8_t>(port_7ffd_ & ~0x20);
+    }
     // Observable on the 7FFD lock state (used by NR 0x08 read to compose
     // bit 7 = NOT port_7ffd_locked per zxnext.vhd:5906).
     bool paging_locked() const { return paging_locked_; }
@@ -603,7 +675,21 @@ public:
     // writes there (the en+rw=1 read still falls through to the live
     // ROM/sram_pre path per VHDL:3078 fourth clause — the canonical
     // "write-over" semantics).
-    void    set_nr_8c(uint8_t v) { nr_8c_reg_ = v; }
+    // VHDL zxnext.vhd:2256-2265 stores nr_8c_altrom verbatim from
+    // nr_wr_dat. The altrom_lock_rom1/rom0 bits feed into sram_rom and
+    // sram_rom3 via the COMBINATIONAL process at zxnext.vhd:2981-3008
+    // — any change is immediately visible to the next CPU memory cycle
+    // through `sram_pre_A21_A13 <= "000000" & sram_rom & cpu_a(13)` at
+    // :3052. jnext caches the slot 0/1 read pointer based on the
+    // current sram_rom value, so a NR 0x8C write that flips lock_rom1
+    // or lock_rom0 must rebuild slots 0/1 even though no
+    // port_memory_change_dly trigger fired in VHDL. Without this
+    // refresh, firmware that toggles altrom locks (e.g. to switch ROM
+    // banks on +3 mode without writing 0x1FFD) would read stale ROM
+    // bytes from `read_ptr_[0..1]` until the next paging port write
+    // reseeds them. See finding 1 in
+    // doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-MEMORY.md.
+    void    set_nr_8c(uint8_t v);
     uint8_t get_nr_8c() const { return nr_8c_reg_; }
     bool    nr_8c_altrom_en()        const { return (nr_8c_reg_ & 0x80) != 0; }
     bool    nr_8c_altrom_rw()        const { return (nr_8c_reg_ & 0x40) != 0; }
@@ -623,19 +709,23 @@ public:
     // the latch lives here and is updated from read()/write() when the
     // current 16K slot is flagged contended.
     //
-    // Branch B scope (Phase 2): plumbing only. The set_slot_contended()
-    // mirror is pushed by Emulator alongside the existing
-    // ContentionModel::set_contended_slot() calls; runtime mem_contend
-    // gating (mem_active_page high-bits, cpu_speed, contention_disable)
-    // is approximated by the per-slot flag (matches the same simplification
-    // used by the existing FUSE Z80 contention path).
+    // Verify9-memory class-(c) → class-(a) fix: the per-cycle floating-
+    // bus latch in read()/write() now consults `mem_contend_for_(addr)`
+    // (a per-page VHDL :4489-4493 decode driven by `nr_mmu_[]` and
+    // `machine_type_`) instead of the legacy `slot_contended_[]` mirror.
+    // The mirror is retained here for backwards-compatibility with the
+    // save-state schema and for any external observer that still expects
+    // the per-16K view, but the read/write hot paths no longer consume
+    // it. Emulator may continue to push updates through
+    // `set_slot_contended()` without changing the latch behaviour.
     void    set_p3_floating_bus_dat(uint8_t v) { p3_floating_bus_dat_ = v; }
     uint8_t p3_floating_bus_dat() const { return p3_floating_bus_dat_; }
 
-    // Per-16K-slot contention mirror — pushed by Emulator at every site
-    // that already updates ContentionModel::set_contended_slot(). Used
-    // by read()/write() to decide whether to update p3_floating_bus_dat_.
-    // Slot index is addr>>14 (0=0x0000, 1=0x4000, 2=0x8000, 3=0xC000).
+    // Per-16K-slot contention mirror — legacy plumbing retained for
+    // save-state compatibility (see comment above). The hot-path latch
+    // gate has been re-homed onto `mem_contend_for_(addr)` for VHDL
+    // fidelity. Slot index is addr>>14 (0=0x0000, 1=0x4000, 2=0x8000,
+    // 3=0xC000).
     void set_slot_contended(int slot, bool v) {
         if (slot >= 0 && slot < 4) slot_contended_[slot] = v;
     }
@@ -675,22 +765,19 @@ public:
     // Apply +3 special paging: port 0x1FFD
     void map_plus3_bank(uint8_t port_1ffd);
 
-    // Currently selected ROM bank 0..3 (VHDL sram_rom signal, derived from
-    // port_1ffd bit 2 << 1 | port_7ffd bit 4). Used by Task 7 ROM3-conditional
-    // automap gating (zxnext.vhd:3052,3138 — sram_pre_rom3 feeder).
-    //
-    // Known gaps (Task 7 Branch B scope does not cover — revisit if needed):
-    //   * 48K-mode: VHDL zxnext.vhd:2985 hardwires sram_rom3='1' when
-    //     machine_type_48='1'. Our implementation reports bank 0 regardless
-    //     of machine type. Impact is nil in practice — DivMMC tests target
-    //     Next mode, and 48K-mode automap is not a tested path.
-    //   * altrom (NR 0x8C): VHDL zxnext.vhd:3138 factors altrom enable into
-    //     sram_divmmc_automap_rom3_en. We ignore it — an altrom-masked ROM
-    //     bank would still report by its underlying sram_rom bits.
-    //   * Next-mode port_1ffd bit 2 is normally gated by NR 0x82 bit 3; a
-    //     direct write to port_1ffd on Next mode could make this function
-    //     return a ROM3 claim when VHDL would not. Safe in the configured
-    //     boot path; fragile if firmware goes off-script.
+    // VHDL `port_1ffd_rom` signal (zxnext.vhd:3772):
+    //   port_1ffd_rom = port_1ffd_reg(2) & port_7ffd_reg(4)
+    // This is the raw 2-bit port-derived selector consumed by the
+    // `sram_rom` decode at zxnext.vhd:2981-3008. The post-machine-type
+    // `sram_rom` value (which differs from `port_1ffd_rom` on 48K, where
+    // sram_rom is hardwired to "00", and under altrom locks) is exposed
+    // by `current_sram_rom()` below; the +3 sram_rom3 gate is exposed by
+    // `sram_rom3()`. Verify9-memory: this accessor is intentionally the
+    // raw port-derived value — its callers (`current_sram_rom`,
+    // `sram_rom3`, debug logging in Emulator) already handle the
+    // machine-type / altrom-lock decode at the call site, so there is
+    // no VHDL divergence here. The pre-Verify9 "Known gaps" comment
+    // misclassified the accessor's intent and has been removed.
     uint8_t current_rom_bank() const {
         return static_cast<uint8_t>(((port_1ffd_ >> 2) & 1) << 1 |
                                     ((port_7ffd_ >> 4) & 1));
@@ -718,9 +805,89 @@ public:
             return;
         }
         machine_type_ = t;
-        apply_legacy_rom_slots_();
+        // VHDL zxnext.vhd:2981-3008 derives sram_rom combinationally from
+        // machine_type_48/p3 + port_1ffd_rom + altrom locks. The SRAM
+        // arbiter consumes sram_rom only on the legacy-ROM branch
+        // (zxnext.vhd:3052 sram_pre_A21_A13 = ... sram_rom ...) — i.e.
+        // when port_1ffd_special='0'. While in +3 special paging mode
+        // the special-paging table at VHDL:4625-4632 fully replaces
+        // MMU0..7 from port_1ffd_reg(2:1) alone, INDEPENDENT of
+        // sram_rom; rebuilding slots 0/1 from sram_rom in that case
+        // would clobber the special-mode mapping.
+        //
+        // Verify5-memory class-(a) fix: pre-pass-5 this unconditionally
+        // called apply_legacy_rom_slots_(), which during +3 special
+        // paging would force slots 0/1 to the legacy-ROM mapping
+        // derived from the (now stale) sram_rom — diverging from
+        // VHDL where the special-paging table holds.
+        if ((port_1ffd_ & 0x01) != 0) {
+            // In +3 special paging: machine_type change does not affect
+            // the special-mode MMU image. Cache stays in sync because
+            // the special-paging table is independent of sram_rom.
+            return;
+        }
+        // Verify7-memory class-(a) fix: only refresh slots that are
+        // currently in legacy ROM mode (read_only_=true). Slots
+        // explicitly mapped to RAM via NR 0x50/0x51 with v < 0xE0 must
+        // stay routed to that RAM page — VHDL leaves MMU<i> alone on a
+        // machine_type change (no port_memory_change_dly pulse, per
+        // :3813). The previous unconditional apply_legacy_rom_slots_()
+        // clobbered nr_mmu_[0]/[1] to 0xFF and forced both slots back
+        // to ROM, contradicting VHDL where sram_rom only feeds the
+        // SRAM arbiter combinationally — it does NOT trigger an MMU<i>
+        // register rewrite. Slots in legacy ROM mode (read_only_=true)
+        // do consume sram_rom for the read-pointer cache, so they need
+        // a refresh to track machine-type-driven sram_rom changes.
+        // Verify12-memory class-(b) fix: VHDL leaves MMU<i> untouched on
+        // a machine_type change (no nr_mmu_we, no port_memory_change_dly
+        // — see VHDL :3813 / :4607). Pass `set_nr_sentinel=false` so any
+        // verbatim 0xE0..0xFE NR 0x50/0x51 value (or the 0x00/0x01
+        // EFF7(3)=1-derived value) is preserved for the NR read-back.
+        if (read_only_[0]) engage_legacy_rom_paging_slot(0, /*set_nr_sentinel=*/false);
+        if (read_only_[1]) engage_legacy_rom_paging_slot(1, /*set_nr_sentinel=*/false);
     }
     MachineType machine_type() const { return machine_type_; }
+
+    // ── V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split ─────
+    // VHDL anchor: zxnext.vhd:5761-5777 (decode of
+    // `eff_nr_03_machine_timing` into one-hot `machine_timing_*`);
+    // :6694-6703 (per-frame latch); :4490-4492 (mem_contend per-machine
+    // page decode). The `mem_contend_for_(addr)` accessor below feeds
+    // the floating-bus latch process (`p3_floating_bus_dat_`, VHDL
+    // :4498-4509) and must key on `machine_timing_` (tim_sel axis), not
+    // on `machine_type_` (typ_sel axis).
+    //
+    // Same shadow + effective pattern as ContentionModel:
+    //   pending_machine_timing_  ← shadow (NR 0x03 bits 6:4 immediate)
+    //   machine_timing_          ← effective (video-frame-latched)
+    // Emulator's per-frame seam calls commit_pending_machine_timing()
+    // at the video-frame edge.
+    void set_machine_timing(MachineTimingMode m) {
+        machine_timing_         = m;
+        pending_machine_timing_ = m;
+    }
+    void set_pending_machine_timing(MachineTimingMode m) {
+        pending_machine_timing_ = m;
+    }
+    void commit_pending_machine_timing() {
+        machine_timing_ = pending_machine_timing_;
+    }
+    MachineTimingMode machine_timing()         const { return machine_timing_; }
+    MachineTimingMode pending_machine_timing() const { return pending_machine_timing_; }
+
+    // V24-MEM-NIT-01 (Pass-25 reviewer follow-up): transient load-time
+    // signal. Set true by load_state iff BOTH schema slots
+    // (machine_timing_, pending_machine_timing_) were present and read
+    // from the snapshot stream. Set false on old-format saves where the
+    // !r.eof() guard fell through. NOT serialised — it is a one-shot
+    // indicator for Emulator::load_state's post-Mmu re-sync step so it
+    // can choose between (a) trusting the schema-restored deferred-commit
+    // pair, or (b) re-deriving both fields from the NextReg cached byte
+    // (old-format fallback). Cleared back to false at the start of each
+    // load_state() call so a fresh decision is taken every load.
+    bool machine_timing_loaded_from_schema() const {
+        return machine_timing_loaded_from_schema_;
+    }
 
     // Compute the VHDL sram_rom value (0..3) that the SRAM arbiter would
     // feed into the ROM address (zxnext.vhd:3052 sram_pre_A21_A13 =
@@ -741,16 +908,29 @@ public:
         switch (machine_type_) {
             case MachineType::ZX48K:
                 return 0;
-            case MachineType::ZX128K:
-                return static_cast<uint8_t>((port_7ffd_ >> 4) & 1);
             case MachineType::ZX_PLUS3:
                 if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
                     return static_cast<uint8_t>((nr_8c_altrom_lock_rom1() ? 2 : 0) |
                                                 (nr_8c_altrom_lock_rom0() ? 1 : 0));
                 }
                 return current_rom_bank();
+            case MachineType::ZX128K:
             case MachineType::ZXN_ISSUE2:
             default:
+                // VHDL zxnext.vhd:2997-3007 — the else branch covers BOTH
+                // 128K AND Next/Pentagon (everything that isn't 48K and
+                // isn't +3). Both share altrom-lock semantics from
+                // VHDL :2998-3001:
+                //     sram_rom <= '0' & nr_8c_altrom_lock_rom1
+                //                 (when any lock bit set)
+                //                 else '0' & port_1ffd_rom(0)
+                // Verify8-memory class-(a) fix: pre-fix the ZX128K case
+                // had its own branch that returned `(port_7ffd_ >> 4) & 1`
+                // unconditionally — bypassing the altrom-lock override.
+                // VHDL routes 128K through the same else branch as Next,
+                // so altrom-lock applies symmetrically. Mirrors the
+                // sram_rom3() composition above which already handles
+                // ZX128K + ZXN_ISSUE2 together.
                 if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
                     return static_cast<uint8_t>(nr_8c_altrom_lock_rom1() ? 1 : 0);
                 }
@@ -815,6 +995,32 @@ public:
     void engage_legacy_rom_paging() { apply_legacy_rom_slots_(); }
     void engage_legacy_ram_paging() { apply_legacy_ram_slots_(); }
 
+    // Per-slot legacy ROM re-engagement for slot 0 OR slot 1 only —
+    // matches VHDL zxnext.vhd:4686-4696 explicit `nr_mmu_we` semantics:
+    // an NR 0x50/0x51 write touches ONLY MMU<i>, NOT both slots. The
+    // slot's cached read_ptr_ is repointed to the current sram_rom-derived
+    // ROM page so subsequent CPU accesses match VHDL :3052 routing
+    // (`"000000" & sram_rom & cpu_a(13)`); the SRAM arbiter's dynamic
+    // config_mode override at :3044-3050 is honored on the read fast path
+    // (mmu.h ::read), so this initialisation is safe regardless of
+    // config_mode state. Use this for `NR $50,$FF` / `NR $51,$FF`
+    // dispatch instead of `engage_legacy_rom_paging()`, which clobbers
+    // both halves and breaks the case where the *other* slot was
+    // explicitly mapped to RAM via a prior NR 0x50/0x51 write.
+    //
+    // Verify12-memory class-(b) fix: the helper now takes a
+    // `set_nr_sentinel` flag to decide whether to overwrite `nr_mmu_[slot]`
+    // with the 0xFF sentinel. The NR $50/$51=$FF dispatcher passes
+    // `true` (matching VHDL nr_mmu_we storing 0xFF verbatim). The
+    // NR 0x8C and machine-type-change refresh paths pass `false`:
+    // VHDL leaves MMU<i> untouched on those triggers (no nr_mmu_we
+    // pulse, no port_memory_change_dly pulse — see VHDL :3813 / :4607),
+    // so any previously-stored verbatim NR 0x50/0x51 value in
+    // 0xE0..0xFE — and the EFF7(3)=1 verbatim 0x00/0x01 value applied
+    // by an earlier paging trigger — must be preserved for the NR-port
+    // read-back at VHDL :6075-6082.
+    void engage_legacy_rom_paging_slot(int slot, bool set_nr_sentinel = true);
+
     // ---------------------------------------------------------------
     // Layer 2 read/write-over control (driven by port 0x123B)
     // ---------------------------------------------------------------
@@ -822,7 +1028,19 @@ public:
     /// Configure Layer 2 read + write mapping from port 0x123B value.
     ///   bit 0: write-map enable (l2_write_enable_)
     ///   bit 2: read-map  enable (l2_read_enable_)
-    ///   bits 7:6: segment select (00=0x0000, 01=0x4000, 10=0x8000, 11=all — SHARED)
+    ///   bit 3: map_shadow (CPU map uses NR 0x13 shadow bank)
+    ///   bits 7:6: segment select (raw 2-bit field, drives both the
+    ///             enable gate AND the bank-offset arithmetic per VHDL
+    ///             zxnext.vhd:2966 / :3037-3066). See l2_overlay_active_for()
+    ///             and l2_offset_pre_for() in this header for the gate
+    ///             and offset semantics — the seg field does NOT mean
+    ///             "which 16K window to map L2 into" (the legacy C++
+    ///             interpretation pre-Verify8-memory); for the low half
+    ///             (0x0000-0x3FFF) L2 is enabled regardless of seg, and
+    ///             for the high half (0x4000-0xBFFF) L2 is enabled only
+    ///             when seg="11". 0xC000+ is never L2-mapped. The seg
+    ///             field also drives the bank-offset (offset_pre = seg
+    ///             when seg!="11", else cpu_a(15:14) per VHDL :2966).
     /// VHDL zxnext.vhd:905-912 (signals), 3904-3928 (handler), 3077 (arbiter gate).
     /// Read and write share a single segment register (port_123b_layer2_map_segment
     /// is one 2-bit signal, not two).
@@ -849,6 +1067,35 @@ public:
     // the Mmu having to depend on the Layer2 object.
     void set_l2_shadow_bank(uint8_t bank) { l2_shadow_bank_ = bank & 0x7F; }
     uint8_t l2_shadow_bank() const { return l2_shadow_bank_; }
+
+    // Verify4-memory class-(a) fix — NR 0x12 writes must refresh the
+    // active-bank cache used by the CPU L2 read/write-over path. VHDL
+    // zxnext.vhd:2968 makes `layer2_active_bank` combinational from
+    // nr_12_layer2_active_bank when port_123b_layer2_map_shadow='0'.
+    // The set_l2_port() helper also refreshes l2_bank_ on each 0x123B
+    // write, so the two seams (NR $12 + 0x123B) keep the cache in sync.
+    void set_l2_active_bank(uint8_t bank) { l2_bank_ = bank & 0x7F; }
+    // Read-only observable for the active-bank cache. Used by integration
+    // tests to verify that the NR 0x12 / port 0x123B dispatchers
+    // propagated the new bank through `set_l2_active_bank` (regression
+    // guard for testcov-memory finding FIX-NR12-PROP-INT-01).
+    uint8_t l2_bank() const { return l2_bank_; }
+
+    // V13-MEM-01 fix — NR 0x69 bit 7 fans out into VHDL
+    // `port_123b_layer2_en` per zxnext.vhd:3924-3925, which is the SAME
+    // FF that port 0x123B bit 1 latches at :3916. The port-0x123B
+    // read-back at :3933 surfaces this FF as bit 1 of port_123b_dat.
+    // Pre-fix the NR 0x69 write handler updated only Layer2's `enabled_`
+    // shadow but NOT Mmu's `l2_enable_` mirror, so a subsequent IN A,(123B)
+    // returned bit 1 = 0 even after `NEXTREG $69,$80` set
+    // port_123b_layer2_en to 1. Add an explicit setter so the NR 0x69
+    // handler can keep the two mirrors in sync without depending on
+    // Layer2's accessor (matches the existing `set_l2_active_bank` /
+    // `set_l2_shadow_bank` cross-subsystem-mirror pattern).
+    void set_l2_enable(bool en) { l2_enable_ = en; }
+    // Observable on the latched display-enable bit (used by tests +
+    // V13-MEM-01 regression guard to assert the NR 0x69 fan-out lands).
+    bool l2_enable() const { return l2_enable_; }
 
     // VHDL zxnext.vhd:3933 — port_123b_dat composition (read-back). Bit
     // 4 (offset-mode select) and bit 5 always read 0; offset register is
@@ -891,6 +1138,54 @@ public:
     }
 
 private:
+    // ───────── Layer 2 overlay gate / offset helpers (Verify8 fix) ─────────
+    //
+    // VHDL zxnext.vhd:3037-3066 sram_pre_override(1) — Layer 2 priority
+    // bit. Asserted (and thus eligible for `sram_layer2_map_en` at :3077)
+    // in two cases per address half:
+    //
+    //   * Low half (cpu_a(15:14) = "00"):
+    //       — MF active        → "000" → L2 disabled (line 3036)
+    //       — RAM-mapped slot  → "110" → L2 enabled  (line 3043)
+    //       — config_mode      → "110" → L2 enabled  (line 3050)
+    //       — normal ROM       → "111" → L2 enabled  (line 3057)
+    //     Net: L2 enabled iff NOT mf_overlay_active. Independent of the
+    //     port_123b segment field.
+    //
+    //   * High half (cpu_a(15:14) ≠ "00"), line 3065:
+    //       sram_pre_override(1) = ((not cpu_a(15)) or (not cpu_a(14)))
+    //                              AND seg(1) AND seg(0)
+    //     i.e. enabled iff addr ∈ [0x4000, 0xBFFF] AND seg = "11".
+    //     0xC000+ is always disabled.
+    //
+    // The returned boolean does NOT factor in `l2_read_enable_` /
+    // `l2_write_enable_` (caller checks those at the call site to match
+    // the VHDL `(rd_en AND NOT cpu_rd_n) OR (wr_en AND cpu_rd_n)` mux at
+    // line 3077).
+    inline bool l2_overlay_active_for(uint16_t addr) const {
+        if (addr < 0x4000) {
+            // Low half: L2 enabled in non-MF cases. mf_overlay_active_()
+            // is checked above the L2 block in read()/write(), so by the
+            // time we reach the L2 block any MF overlay would already have
+            // returned. Tolerate a redundant check here for robustness.
+            if (multiface_ && mf_overlay_active_()) return false;
+            return true;
+        }
+        if (addr >= 0xC000) return false;       // VHDL :3065 cpu_a(15:14)="11" gate
+        return l2_segment_raw_ == 0x03;         // seg = "11"
+    }
+
+    // VHDL zxnext.vhd:2966 — `layer2_active_bank_offset_pre`:
+    //   = cpu_a(15:14) when seg = "11" else seg
+    // Returns 0..3 (the 2-bit pre-offset value before adding
+    // `port_123b_layer2_offset`).
+    inline uint8_t l2_offset_pre_for(uint16_t addr) const {
+        if (l2_segment_raw_ == 0x03) {
+            return static_cast<uint8_t>((addr >> 14) & 0x03);
+        }
+        return l2_segment_raw_;
+    }
+
     // Compute the 8K SRAM page index for an alt-ROM access at `addr`
     // (addr in [0x0000, 0x3FFF]). VHDL zxnext.vhd:3117:
     //   sram_A21_A13 = "0000011" & sram_pre_alt_128_n & sram_pre_A21_A13(0)
@@ -907,6 +1202,52 @@ private:
     //   ZXN/  : with any lock → alt_128_n = lock_rom1; else port_1ffd_rom(0)
     // port_1ffd_rom(0) is bit 0 of the 2-bit ROM bank, derived from
     // port_1ffd(2)<<1 | port_7ffd(4) → equivalently (port_7ffd_ >> 4) & 1.
+    // VHDL zxnext.vhd:4489-4493 — per-page mem_contend decode for the
+    // p3_floating_bus_dat latch and any other future per-cycle memory-
+    // contention consumer. Inputs:
+    //   * mem_active_page = nr_mmu_[addr >> 13] — the live MMU register
+    //     value for the addressed 8K slot (matches VHDL :2949-2956).
+    //   * machine_type_  — drives the per-machine bank decode.
+    // Returns true iff `mem_contend='1'` per VHDL rules:
+    //   * mem_active_page(7:4) = "0000" (low pages 0..15 only); AND
+    //   * 48K  → page(3:1) = "101" (bank 5 only)
+    //   * 128K → page(1) = '1' (odd banks)
+    //   * +3   → page(3) = '1' (banks ≥ 4)
+    //   * Pentagon / ZXN_ISSUE2 → false (no timing line for them in this
+    //     decode; the runtime contention gate at zxnext.vhd:4481 also
+    //     factors machine_timing_pentagon='0' for our currently supported
+    //     machines).
+    //
+    // VHDL also gates on the high-level `i_contention_en` signal
+    // (cpu_speed=0 AND NOT contention_disabled) at :4481, but that gate
+    // applies to the contention-stretch path (`o_cpu_contend` /
+    // `o_cpu_wait_n`), NOT to the floating-bus latch process at
+    // :4498-4509. The latch process keys ONLY on `mem_contend = '1' AND
+    // cpu_mreq_n = '0'`; cpu_speed and contention_disable are NOT in the
+    // sensitivity list. So this helper deliberately does NOT consult the
+    // ContentionModel's gate inputs — VHDL captures the latch even when
+    // contention is disabled or the CPU is overclocked.
+    // V24-MEM-01 / V25-MEM-01 fix — per-page mem_contend decode is
+    // keyed on `machine_timing_*` (zxnext.vhd:4490-4492), the tim_sel
+    // axis. Pre-fix this switched on `machine_type_` (typ_sel axis),
+    // diverging when a user wrote NR 0x03 with bits 6:4 != bits 2:0.
+    inline bool mem_contend_for_(uint16_t addr) const {
+        const uint8_t page = nr_mmu_[(addr >> 13) & 7];
+        if ((page & 0xF0) != 0) return false;       // high pages don't contend
+        const uint8_t low = page & 0x0F;
+        switch (machine_timing_) {
+            case MachineTimingMode::Timing48:
+                return ((low >> 1) & 0x07) == 0x05; // bank 5 only
+            case MachineTimingMode::Timing128:
+                return (low & 0x02) != 0;           // odd banks
+            case MachineTimingMode::TimingPlus3:
+                return (low & 0x08) != 0;           // banks ≥ 4
+            case MachineTimingMode::TimingPentagon:
+            default:
+                return false;
+        }
+    }
+
     inline uint8_t altrom_sram_page_(uint16_t addr) const {
         const bool lk1 = nr_8c_altrom_lock_rom1();
         const bool lk0 = nr_8c_altrom_lock_rom0();
@@ -958,6 +1299,38 @@ private:
     // NR 0x8E has its own path in write_nr_8e that calls the halves
     // independently so the bit-3=0 suppression can be honoured.
     void apply_legacy_paging_();
+    // VHDL zxnext.vhd:4623-4632 — when `port_1ffd_special='1'` AND a
+    // paging trigger fires, MMU0..MMU7 are ALL rewritten to the +3
+    // special-paging table (one of four bank configurations selected by
+    // port_1ffd_reg(2:1)). Used by every paging-trigger entry point
+    // (map_128k_bank, map_plus3_bank special branch, write_port_dffd,
+    // write_port_eff7, write_nr_8e, write_nr_8f) so the special-paging
+    // MMU image stays current as long as the special bit is high. The
+    // table layout matches VHDL :4625-4632 (banks {0,1,2,3} / {4,5,6,7}
+    // / {4,5,6,3} / {4,7,6,3} for the four configurations).
+    void apply_plus3_special_paging_();
+    // VHDL zxnext.vhd:4653-4670 — when `port_1ffd_special_old='1'` AND
+    // the new `port_1ffd_special='0'` (i.e. we just exited special
+    // paging mode), MMU2/3 revert to {0x0A, 0x0B} (bank 5) and MMU4/5
+    // revert to {0x04, 0x05} (bank 2). Without this, the special-mode
+    // bank pages stick around and the supervisor sees stale RAM in
+    // those slots. Called by every paging-trigger entry point that
+    // detects the 1→0 transition before falling through to
+    // apply_legacy_paging_().
+    void revert_slots_2_to_5_post_special_();
+    // Apply the appropriate paging update for the current
+    // port_1ffd_special / port_1ffd_special_old_ pair, matching VHDL
+    // zxnext.vhd:4623-4684. Three cases:
+    //   * port_1ffd_special=1 → +3 special table (apply_plus3_special_paging_)
+    //   * port_1ffd_special_old=1 (transition out of special mode) →
+    //     revert slots 2-5 then legacy paging
+    //   * else → legacy paging
+    // After application, port_1ffd_special_old_ is updated to match the
+    // current port_1ffd_special (mirroring VHDL :3729's capture-on-
+    // memory-change-dly-low semantics with our coarser per-write model).
+    // Used by every paging-trigger except write_nr_8e (which has its
+    // own path so it can suppress the MMU6/7 update on bit3=0).
+    void apply_paging_update_();
     // Compose the 7-bit port_7ffd_bank per VHDL zxnext.vhd:3763-3766,
     // branching on pentagon_en() / pentagon_1024_en().
     uint8_t compose_bank_() const;
@@ -992,8 +1365,29 @@ private:
     // machine type. Default ZXN_ISSUE2 matches Emulator's default Next
     // config; non-Next machines push via set_machine_type().
     MachineType    machine_type_ = MachineType::ZXN_ISSUE2;
+    // V24-MEM-01 / V25-MEM-01 — machine_timing axis split (mirror of
+    // VHDL eff_nr_03_machine_timing / nr_03_machine_timing). VHDL :1099
+    // / :1377 default = "011" (+3 timing). Emulator::init pushes
+    // tim_sel-matching-CLI-MachineType, so this default only matters
+    // for unit-test fixtures that bypass Emulator.
+    MachineTimingMode machine_timing_         = MachineTimingMode::TimingPlus3;
+    MachineTimingMode pending_machine_timing_ = MachineTimingMode::TimingPlus3;
+    // V24-MEM-NIT-01: transient load-time flag — true iff load_state
+    // successfully read both schema slots for the timing pair above.
+    // Not serialised; reset on entry to every load_state() call.
+    bool           machine_timing_loaded_from_schema_ = false;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
+    // VHDL zxnext.vhd:882, 3716, 3721, 3729, 3738 — port_1ffd_special_old
+    // captures the PREVIOUS value of port_1ffd_special (= port_1ffd_reg(0))
+    // so the MMU update process at :4623-4684 can detect the
+    // 1→0 transition (exit from +3 special paging) and revert slots 2-5
+    // to defaults (:4655-4658 / :4667-4670). Reset to 0 with the rest of
+    // the paging registers (VHDL :3716). jnext updates this immediately
+    // before each paging-trigger entry point updates port_1ffd_, then
+    // calls apply_paging_update_() which consults BOTH the new
+    // port_1ffd_special and this old-value.
+    bool           port_1ffd_special_old_ = false;
 
     // VHDL port_dffd_reg (zxnext.vhd:3688, 5 bits cpu_do(4:0)). Feeds the
     // port_7ffd_bank composition at VHDL:3764-3766. Bit 4 is the Profi

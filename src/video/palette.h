@@ -90,6 +90,45 @@ public:
     void write_9bit(uint8_t val);
 
     // -----------------------------------------------------------------
+    // NextREG 0x44 — Palette Value (9-bit read)
+    // -----------------------------------------------------------------
+    // VHDL zxnext.vhd:6047-6048:
+    //   port_253b_dat <= nr_palette_dat(10 downto 9) & "00000" & nr_palette_dat(0);
+    // i.e. bits 7:6 = stored 2-bit priority (only set for Layer 2 by NR 0x44
+    // 2nd write per :4920; "00" elsewhere), bits 5:1 = constant zero, bit 0 =
+    // stored blue LSB (the 9th colour bit at the currently selected target +
+    // index). Pure read — does NOT mutate index, sub_idx, or priority state.
+    // VERIFY4 / pass-4 — added because VHDL composes a non-trivial readback
+    // (priority bits in bits 7:6, blue-LSB in bit 0) that the bare regs_[] echo
+    // could not reproduce.
+    uint8_t read_9bit() const;
+
+    // -----------------------------------------------------------------
+    // VHDL `nr_stored_palette_value` accessor — exposed via NR 0x28 read.
+    // -----------------------------------------------------------------
+    // VHDL zxnext.vhd:1190 declares the FF, :5398-5399 latches it from
+    // `nr_wr_dat` on the FIRST half of an NR 0x44 9-bit write
+    // (`nr_palette_sub_idx = '0'`), and :6004 surfaces it on the NR 0x28
+    // read mux: `port_253b_dat <= nr_stored_palette_value;`. The
+    // `nine_bit_first_byte_` shadow inside PaletteManager mirrors the
+    // same FF (write_9bit at palette.cpp:332). Read-only; does not mutate
+    // any palette state. V14-NMP-02 (Pass-14 verify-audit) — added so the
+    // NR 0x28 read handler in Emulator can return the live VHDL signal
+    // instead of the stale cached NR 0x28 last-write byte.
+    uint8_t nine_bit_first_byte() const { return nine_bit_first_byte_; }
+
+    // V21-NMP-01 (Pass-21 verify-audit): `nr_palette_sub_idx` exposure.
+    // VHDL zxnext.vhd:1182 declares the single-bit FF. Reset / NR 0x40 /
+    // NR 0x41 / NR 0x43 / NR 0x28 writes drive it to '0' (zxnext.vhd:5000,
+    // 5376, 5382, 5395); NR 0x44 writes toggle it (zxnext.vhd:5403).
+    // The same FF is surfaced as bit 7 of the NR 0x03 read mux
+    // (zxnext.vhd:5894): `port_253b_dat <= nr_palette_sub_idx & ...`.
+    // PaletteManager's `nine_bit_first_written_` shadow follows the
+    // same lifecycle (palette.cpp:330-351 toggles, palette.cpp:220 etc.
+    // reset paths) so it is the natural source for the NR 0x03 readback.
+    bool nine_bit_first_written() const { return nine_bit_first_written_; }
+
+    // -----------------------------------------------------------------
     // NR 0xFF — ULA+ palette poke side-channel (zxnext.vhd:6957-6958)
     // -----------------------------------------------------------------
     //
@@ -342,9 +381,19 @@ private:
     std::array<uint16_t, FULL_SIZE> tilemap_rgb333_[2];
 
     // 2-bit palette priority slots (VHDL zxnext.vhd:4920, 7025, 7050).
-    // L2 palette only — sprite/tilemap rgb333 storage doesn't expose a
-    // priority slot in the dpram word the renderer reads.
+    // L2 palette is the only one whose priority bits are CONSUMED by the
+    // renderer (zxnext.vhd:7039 routes l2s_prgb(15) into layer2_priority_2),
+    // but per VHDL the dpram word stores priority in bits 15:14 for ALL
+    // palette types (palette_utm at :6972, palette_l2s at :7025), so a
+    // read of NR 0x44 (zxnext.vhd:6048 returns nr_palette_dat(10:9)) sees
+    // the priority field on every target — including ULA / sprite / tilemap
+    // entries whose priority is otherwise unused. VERIFY4 / pass-4 added
+    // ula_priority_ / sprite_priority_ / tilemap_priority_ to surface the
+    // stored priority field on read_9bit().
+    std::array<uint8_t,  FULL_SIZE> ula_priority_[2]{};
     std::array<uint8_t,  FULL_SIZE> layer2_priority_[2]{};
+    std::array<uint8_t,  FULL_SIZE> sprite_priority_[2]{};
+    std::array<uint8_t,  FULL_SIZE> tilemap_priority_[2]{};
 
     // NR 0xFF / ULA+ palette poke storage — VHDL zxnext.vhd:6957-6958.
     // 64 entries × 2 banks; each entry is the 9-bit RGB333 value latched

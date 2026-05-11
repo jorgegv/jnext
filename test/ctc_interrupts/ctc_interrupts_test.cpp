@@ -20,9 +20,11 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -154,13 +156,13 @@ static void test_ula_int_integration(Emulator& emu) {
     // BEFORE run_frame must prevent the scheduler from arming the ULA
     // interrupt (emulator.cpp:1989 gate), so NR 0xC8 bit 0 stays clear.
     //
-    // DIRECT `OUT 0xFF` TO DISABLE: jnext wires port 0xFF only to the
-    // Timex screen-mode write (emulator.cpp:1103-1108); port_ff_reg bit 6
-    // is NOT fed back through the port path, so an `OUT 0xFF,0x40`
-    // cannot currently set port_ff_interrupt_disable. This is a latent
-    // subsystem gap — VHDL drives bit 6 from port 0xFF writes too. Out
-    // of scope for Phase 3c; this row exercises the NR-22 mirror, which
-    // is the VHDL-equivalent observable.
+    // V12-NMP-02 closure: the previous "DIRECT `OUT 0xFF` TO DISABLE
+    // is a latent gap" note here is now stale — Pass-12 fix-of-reviewer
+    // wired port-0xFF write fan-out into `ula_int_disabled_` +
+    // `video_timing_.set_interrupt_enable(...)` so all three writers to
+    // `port_ff_reg(6)` (port-FF, NR 0x22, NR 0xC4) keep parity with the
+    // VHDL-canonical store. The new row ULA-INT-V12-NMP-02 below
+    // exercises the direct port-0xFF path end-to-end.
     {
         fresh(emu);
         // Set NR 0x22 bit 2 → ula_int_disabled_ = true.
@@ -275,6 +277,519 @@ static void test_ula_int_integration(Emulator& emu) {
               (c8 & 0x02) != 0,
               "NR 0xC8=" + hex2(c8) + " (expected bit 1 LINE set)");
     }
+
+    // ULA-INT-V12-NMP-02 — direct OUT (0xFF),A bit 6 must fan out into
+    // ula_int_disabled_ shadow + video_timing scheduler gate.
+    //
+    // VHDL: zxnext.vhd:3614-3616 (port_ff_wr branch latches the entire
+    // CPU byte into port_ff_reg, INCLUDING bit 6); :3635
+    // (port_ff_interrupt_disable <= port_ff_reg(6)); :6711 (ula_int_en
+    // bit 0 = NOT port_ff_interrupt_disable). VHDL has THREE writers
+    // feeding port_ff_reg(6): port-FF (full byte), NR 0x22 b2, NR 0xC4
+    // b0 NOT. NR 0x22 + NR 0xC4 paths already mirrored the new value
+    // into ula_int_disabled_ + video_timing_.set_interrupt_enable(); the
+    // direct port-0xFF write was the missing third writer. Pre-V12-NMP-02
+    // an `OUT (0xFF),0x40` set port_ff_reg_(6)=1 but left
+    // ula_int_disabled_=false — NR 0xC4 read bit 0 was the stale shadow
+    // (1, "enabled") instead of the live store (0, "disabled").
+    //
+    // Discriminative scenario:
+    //   1. fresh(emu): ula_int_disabled_=false, port_ff_reg_(6)=0,
+    //      NR 0xC4 read bit 0 = 1 (enabled).
+    //   2. OUT (0xFF),0x40: port_ff_reg_(6)<=1, ula_int_disabled_<=true.
+    //      NR 0xC4 read bit 0 must now be 0 (disabled).
+    //   3. OUT (0xFF),0x00: port_ff_reg_(6)<=0, ula_int_disabled_<=false.
+    //      NR 0xC4 read bit 0 must be 1 (re-enabled).
+    //
+    // Pre-fix step 2 returns bit 0 = 1 (stale shadow); step 3 returns
+    // bit 0 = 1 also (shadow never moved). Post-fix the readback follows
+    // the VHDL contract.
+    {
+        fresh(emu);
+        const uint8_t c4_initial = nr_read(emu, 0xC4);
+        emu.port().out(0x00FF, 0x40);            // disable via direct port write
+        const uint8_t c4_after_dis = nr_read(emu, 0xC4);
+        emu.port().out(0x00FF, 0x00);            // re-enable via direct port write
+        const uint8_t c4_after_en  = nr_read(emu, 0xC4);
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "initial=0x%02X after_OUT_FF_40=0x%02X after_OUT_FF_00=0x%02X "
+                      "(bit 0 should follow 1,0,1)",
+                      c4_initial, c4_after_dis, c4_after_en);
+        check("ULA-INT-V12-NMP-02",
+              "OUT (0xFF) bit 6 fans into ula_int_disabled_ shadow / scheduler — "
+              "NR 0xC4 read bit 0 follows live port_ff_reg(6) for direct port-0xFF "
+              "writes [zxnext.vhd:3614-3616, :3635, :6711, :6239]",
+              (c4_initial & 0x01) != 0
+                && (c4_after_dis & 0x01) == 0
+                && (c4_after_en & 0x01) != 0,
+              detail);
+    }
+
+    // ULA-INT-V12-NMP-02b — direct OUT (0xFF),A bit 6 must suppress the
+    // scheduled ULA interrupt for the upcoming frame (the ula_int_disabled_
+    // shadow is consumed by run_frame()'s ULA-INT scheduling gate at
+    // emulator.cpp:1989 — same observable as ULA-INT-02 but exercising the
+    // direct port-0xFF write path rather than the NR-22 mirror).
+    {
+        fresh(emu);
+        emu.port().out(0x00FF, 0x40);            // bit 6 set → disable ULA INT
+        emu.run_frame();
+        const uint8_t c8 = nr_read(emu, 0xC8);
+        check("ULA-INT-V12-NMP-02b",
+              "OUT (0xFF),0x40 suppresses scheduled ULA INT — NR 0xC8 bit 0 stays clear "
+              "[zxnext.vhd:3614-3616, :6711; emulator.cpp:1989 gate]",
+              (c8 & 0x01) == 0,
+              "NR 0xC8=" + hex2(c8) + " (expected bit 0 clear after OUT FF,40)");
+    }
+
+    // ULA-INT-V19-IM2-01 — NR 0x22 bit 1 must propagate to IM2 fabric LINE
+    // int_en, not just to the line-int generation gate.
+    //
+    // VHDL: zxnext.vhd:5297 — `nr_22_we and nr_22 bit 1 → nr_22_line_interrupt_en`.
+    // Same flip-flop is also written by NR 0xC4 bit 1 (line :5610). The
+    // flip-flop feeds `im2_int_en[0]` (= LINE i_int_en, line :1949-1950 +
+    // :6711 ula_int_en(1)). Pre-V19 jnext only updated
+    // `video_timing_.set_line_interrupt_enable()` (the line-int generation
+    // gate), but the IM2 fabric's `dev_[DevIdx::LINE].int_en` stayed false
+    // — so in IM2 mode a LINE raise_req() set int_status but NOT
+    // im2_int_req (required edge AND int_en); state stayed S_0; the IM2
+    // daisy chain never asserted /INT to the Z80.
+    //
+    // Discriminative check: enter IM2 mode, write NR 0x22 bit 1 = 1 (the
+    // ONLY enabler — do NOT touch NR 0xC4), raise_req(LINE), tick. The
+    // device must reach S_REQ. Pre-fix: stays at S_0; int_line_asserted=false.
+    //
+    // Note: do NOT call emu.im2().reset() — fresh(emu) → init() already
+    // initialises the fabric (V19-IM2-01/02 init sets ULA int_en=1, LINE
+    // int_en=0). A bare im2().reset() would wipe that.
+    {
+        fresh(emu);
+        emu.im2().set_mode(true);   // IM2 mode (NR 0xC0 bit 0)
+        // V21-IM2-01 — feed ED 5E (IM 2) to the IM2-control decoder so
+        // `im_mode_` becomes 2 (= VHDL `i_im2_mode='1'`). Pre-V21 the
+        // int_line_asserted gate only checked `im2_mode_` (NR 0xC0 b0);
+        // post-V21 the gate also requires `im_mode_ == 2` per VHDL
+        // im2_device.vhd:150 (`o_int_n` gates on `i_im2_mode`).
+        emu.im2().on_m1_cycle(0x0000, 0xED);
+        emu.im2().on_m1_cycle(0x0001, 0x5E);
+        // Write NR 0x22 with bit 1 = 1. This is the ONLY path enabling
+        // LINE int_en in this scenario; NR 0xC4 is left at reset default.
+        nr_write(emu, 0x22, 0x02);
+        emu.im2().raise_req(Im2Controller::DevIdx::LINE);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st = emu.im2().state(Im2Controller::DevIdx::LINE);
+        const bool int_line = emu.im2().int_line_asserted();
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "after NR 0x22<-0x02 + raise_req(LINE) + tick: state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0); int_line=%d "
+                      "(post-fix 1; pre-fix 0)",
+                      static_cast<int>(st), int_line ? 1 : 0);
+        check("ULA-INT-V19-IM2-01",
+              "NR 0x22 bit 1 propagates to IM2 fabric dev_[LINE].int_en "
+              "[zxnext.vhd:5297, :1950, :6711]",
+              st == Im2Controller::DevState::S_REQ && int_line, detail);
+    }
+
+    // ULA-INT-V19-IM2-02 — port_ff_reg(6) must propagate to IM2 fabric ULA
+    // int_en across all THREE writers (port-FF, NR 0x22 b2, NR 0xC4 b0-NOT).
+    //
+    // VHDL: zxnext.vhd:6711 — `ula_int_en(0) = NOT port_ff_interrupt_disable`,
+    // = NOT port_ff_reg(6) (line :3635). That bit feeds `im2_int_en[11]`
+    // (= ULA i_int_en, line :1949). At reset port_ff_reg(6)=0 so ULA
+    // int_en should be 1. Pre-V19 jnext NEVER updated dev_[ULA].int_en
+    // anywhere — every FRAME-INT raise_req(ULA) in IM2 mode set int_status
+    // but NOT im2_int_req → daisy chain stayed in S_0 → /INT never asserted.
+    //
+    // Three sub-checks: a) reset state ULA int_en should be true via
+    // raise_req+tick reaching S_REQ; b) NR 0x22 bit 2 = 1 disables ULA
+    // int_en, raise_req+tick stays at S_0 (or drops back); c) NR 0xC4
+    // bit 0 = 1 (NOT polarity) re-enables, raise_req+tick reaches S_REQ.
+    {
+        fresh(emu);
+        emu.im2().set_mode(true);   // IM2 mode
+        // (a) Reset default: port_ff_reg(6)=0, so ULA int_en=1. Verify
+        // by raising ULA req and ticking — must reach S_REQ. Pre-fix:
+        // dev_[ULA].int_en was never initialised to true (always false),
+        // so the device stays S_0.
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState a_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        // (b) Disable via NR 0x22 bit 2.
+        fresh(emu);
+        emu.im2().set_mode(true);
+        nr_write(emu, 0x22, 0x04);  // port_ff_reg(6) ← 1, ULA int_en = 0
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState b_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        // (c) Re-enable via NR 0xC4 bit 0 (NOT polarity: 1=enable).
+        // Note: in this scenario start with NR 0x22 bit 2 = 1 (disabled),
+        // then NR 0xC4 bit 0 = 1 to clear port_ff_reg(6) back to 0
+        // (re-enable). Verify ULA reaches S_REQ.
+        fresh(emu);
+        emu.im2().set_mode(true);
+        nr_write(emu, 0x22, 0x04);  // disable
+        nr_write(emu, 0xC4, 0x01);  // bit 0 = 1 → port_ff_reg(6) = NOT 1 = 0 → enable
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState c_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        char detail[280];
+        std::snprintf(detail, sizeof(detail),
+                      "(a) reset+raise+tick: state=%d (post-fix S_REQ=1; pre-fix S_0=0); "
+                      "(b) NR0x22<-0x04+raise+tick: state=%d (must be S_0=0); "
+                      "(c) NR0x22<-0x04;NR0xC4<-0x01+raise+tick: state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0)",
+                      static_cast<int>(a_st), static_cast<int>(b_st),
+                      static_cast<int>(c_st));
+        check("ULA-INT-V19-IM2-02",
+              "port_ff_reg(6) propagates to IM2 fabric dev_[ULA].int_en across "
+              "all 3 writers (port-FF, NR 0x22 b2, NR 0xC4 b0 NOT) "
+              "[zxnext.vhd:3614-3622, :3635, :6711, :1949]",
+              a_st == Im2Controller::DevState::S_REQ
+                  && b_st == Im2Controller::DevState::S_0
+                  && c_st == Im2Controller::DevState::S_REQ,
+              detail);
+    }
+
+    // ULA-INT-V19-IM2-02-PORTFF — direct OUT (0xFF),A path also fans into
+    // IM2 fabric ULA int_en. Same VHDL writer set (zxnext.vhd:3614-3616
+    // port_ff_wr branch latches the entire byte, so bit 6 maps directly).
+    {
+        fresh(emu);
+        emu.im2().set_mode(true);
+        // Verify reset state: ULA int_en is enabled (bit 6 = 0).
+        emu.port().out(0x00FF, 0x40);  // disable ULA INT via direct port-FF
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st_dis =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        fresh(emu);
+        emu.im2().set_mode(true);
+        emu.port().out(0x00FF, 0x40);  // disable
+        emu.port().out(0x00FF, 0x00);  // re-enable
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st_en =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        char detail[180];
+        std::snprintf(detail, sizeof(detail),
+                      "after OUT 0xFF,0x40 (disable): state=%d (must be S_0=0); "
+                      "after OUT 0xFF,0x40 then 0xFF,0x00 (re-enable): state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0)",
+                      static_cast<int>(st_dis), static_cast<int>(st_en));
+        check("ULA-INT-V19-IM2-02-PORTFF",
+              "Direct OUT (0xFF),A bit 6 fans into IM2 fabric dev_[ULA].int_en "
+              "[zxnext.vhd:3614-3616, :3635, :6711, :1949]",
+              st_dis == Im2Controller::DevState::S_0
+                  && st_en == Im2Controller::DevState::S_REQ,
+              detail);
+    }
+
+    // CTC-INT-V20-IM2-01 — Pulse-mode CTC INT must drive CPU /INT.
+    //
+    // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND im2_int_n)
+    // OR NOT expbus_disable_int) AND ...`. In the default scenario
+    // (expbus_disable_int='1'), this reduces to `pulse_int_n AND
+    // im2_int_n`. When CTC ZC/TO fires in pulse mode (NR 0xC0 bit 0=0,
+    // the power-on default), the IM2 fabric drops pulse_int_n via
+    // im2_peripheral.vhd:186-194's o_pulse_en for non-exception
+    // devices. The Z80 /INT pin should be asserted.
+    //
+    // Pre-V20-IM2-01 jnext only called `cpu_.request_interrupt(0xFF)`
+    // from the ULA frame-INT and LINE-INT scheduler callbacks
+    // (emulator.cpp:5445, 6655). CTC's `on_interrupt` (line 4668) and
+    // UART's TX/RX hooks (4717/4722) ONLY routed through
+    // `im2_.raise_req(DevIdx)` — the fabric's pulse_int_n correctly
+    // dropped, but NO code notified the CPU. Result: in pulse mode
+    // (the default!), CTC ZC/TO and UART interrupts were SILENTLY
+    // DROPPED — the daisy chain advanced in the fabric, but the Z80
+    // /INT pin was never asserted, so the CPU never serviced the ISR.
+    //
+    // Discriminative test: pulse mode (don't write NR 0xC0; default
+    // is im2_mode=0), enable CTC0 int_en via NR 0xC5 bit 0, IFF1=1 +
+    // IM=1, fire CTC0 via emu.im2().raise_req(CTC0) bypassing the
+    // CTC peripheral timing (simulates a ZC/TO at frame start). Run a
+    // few instructions. Pre-fix: PC stays at the parked address.
+    // Post-fix: pulse_int_n drops → poll fires request_interrupt →
+    // CPU accepts → IM1 vector → PC=0x0038.
+    {
+        fresh(emu);
+        // Pulse mode is the default (NR 0xC0 bit 0 = 0).
+        // DISABLE ULA frame INT so it doesn't trigger /INT independently
+        // of our CTC fixture — that's the existing legacy path and would
+        // mask the discriminative observation. NR 0x22 bit 2 = 1 sets
+        // port_ff_reg(6) = 1 (port_ff_interrupt_disable=1), suppressing
+        // the ULA INT scheduler arm (emulator.cpp:5439 `ula_int_disabled_`
+        // gate). LINE int is OFF by default.
+        nr_write(emu, 0x22, 0x04);
+        // Enable CTC0 int_en via NR 0xC5 bit 0.
+        nr_write(emu, 0xC5, 0x01);
+        // Configure CPU: IFF1=1, IM=1 (accept INT, jump to 0x0038).
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 1;
+        regs.PC = 0x8000;  // park PC in user RAM (NOPs)
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        // Snapshot pulse_int_n state BEFORE the raise — it must be high
+        // (idle), otherwise the test setup is wrong.
+        const bool pulse_before = emu.im2().pulse_int_n();
+        // Fire CTC0 via the fabric (simulates CTC peripheral on_interrupt
+        // callback). This is the SAME entry point ctc_.on_interrupt
+        // would use; the fix is whether subsequent run_frame notifies
+        // the CPU.
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        emu.run_frame();
+        // Post-fix: at some point during the frame, the pulse_int_n
+        // poll fires request_interrupt(0xFF); the CPU accepts in IM=1
+        // and jumps to 0x0038. PC ends up in low-mem ROM territory.
+        // Pre-fix: PC stays in the 0x8000..0xFFFE range executing NOPs,
+        // never reaching 0x0038 — because no code wires CTC's
+        // raise_req → cpu_.request_interrupt in pulse mode.
+        const auto post_regs = emu.cpu().get_registers();
+        // Strict discriminative threshold: post-fix PC must be in ROM
+        // (< 0x4000). Pre-fix PC stays at 0x8000+ (RAM NOP territory).
+        const bool int_was_accepted = (post_regs.PC < 0x4000);
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "pulse_before_raise=%d (must be 1); "
+                      "post-run_frame PC=0x%04X (post-fix: PC < 0x4000 "
+                      "after IM1 vector at 0x0038; pre-fix: PC stays "
+                      "in 0x8000+ RAM, CTC INT never reached CPU "
+                      "in pulse mode)",
+                      pulse_before ? 1 : 0, post_regs.PC);
+        check("CTC-INT-V20-IM2-01",
+              "Pulse-mode CTC INT drives CPU /INT via pulse_int_n poll "
+              "[zxnext.vhd:1840 z80_int_n composition; "
+              "im2_peripheral.vhd:186 o_pulse_en for non-exception devices]",
+              pulse_before && int_was_accepted, detail);
+    }
+
+    // V20R-CPU-NIT-01-PREV-PULSE-PERSIST — `prev_pulse_int_n_` (the
+    // Pass-20 falling-edge shadow at `emulator.cpp` line ~5791) must
+    // round-trip through `Emulator::save_state()` / `load_state()`.
+    //
+    // Reviewer's class-(c) diagnosis: pre-fix the shadow was net-new
+    // Pass-20 state and was not added to the save/load schema.
+    // Im2Controller::save_state() already persists `pulse_int_n_`;
+    // without the matching companion slot for the Emulator-level
+    // shadow, a snapshot taken mid-pulse (cur=0) restored fresh would
+    // leave the shadow at its `init()` / `reset()` default `true`.
+    // The next-tick V20 poll would then see `!cur && prev` = falling
+    // edge and fire a SPURIOUS `cpu_.request_interrupt(0xFF)` —
+    // harmless in practice (the 32/36T drop arm in Z80Cpu::execute()
+    // cleans up the phantom INT within one pulse window) but a
+    // class-(c) divergence of the V20 fix's "exactly ONCE per pulse"
+    // invariant. Filed as V20R-CPU-NIT-01.
+    //
+    // Discriminative test:
+    //   1) Build emulator A. Drive `prev_pulse_int_n_` to FALSE via
+    //      the test-only setter (so we don't depend on the precise
+    //      tick window where the V20 poll happens to fire mid-frame).
+    //   2) Save_state. The append-only V20R-CPU-NIT-01 slot writes the
+    //      shadow (false) at the end of the stream.
+    //   3) Build emulator B (fresh init → `prev_pulse_int_n_=true`,
+    //      matching the reset default).
+    //   4) Load_state into B.
+    //   5) Sandwich-verify: B's accessor must return FALSE — meaning
+    //      the slot round-tripped. Pre-fix (no slot in save/load):
+    //      B's accessor stays TRUE (the reset default), and the test
+    //      FAILs (we never wrote the slot so we never read it back).
+    {
+        Emulator emu_save;
+        if (!build_next_emulator(emu_save)) {
+            check("V20R-CPU-NIT-01-PREV-PULSE-PERSIST",
+                  "emu_save construction failed",
+                  false, "");
+        } else {
+            // Drive the shadow to a non-default value.
+            emu_save.set_prev_pulse_int_n_for_test(false);
+            // Sanity: the setter took effect.
+            const bool pre_save_shadow = emu_save.prev_pulse_int_n_for_test();
+
+            // Measure snapshot size and serialise.
+            StateWriter measure;
+            emu_save.save_state(measure);
+            const size_t snap_size = measure.position();
+            std::vector<uint8_t> buf(snap_size, 0);
+            StateWriter w(buf.data(), snap_size);
+            emu_save.save_state(w);
+
+            // Fresh emulator → shadow is the reset default (true).
+            Emulator emu_load;
+            (void)build_next_emulator(emu_load);
+            const bool pre_load_shadow = emu_load.prev_pulse_int_n_for_test();
+
+            // Load. The append-only V20R-CPU-NIT-01 slot (after
+            // `nr_02_bus_reset_`) restores the shadow.
+            StateReader r(buf.data(), snap_size);
+            emu_load.load_state(r);
+            const bool post_load_shadow = emu_load.prev_pulse_int_n_for_test();
+
+            char detail[240];
+            std::snprintf(detail, sizeof(detail),
+                          "emu_save pre-save shadow=%d (must be 0 after setter); "
+                          "emu_load pre-load shadow=%d (must be 1 = reset default); "
+                          "emu_load post-load shadow=%d "
+                          "(post-fix: 0 — slot round-trips; "
+                          "pre-fix: 1 — slot absent, accessor still reset default)",
+                          pre_save_shadow ? 1 : 0,
+                          pre_load_shadow ? 1 : 0,
+                          post_load_shadow ? 1 : 0);
+            check("V20R-CPU-NIT-01-PREV-PULSE-PERSIST",
+                  "Emulator::prev_pulse_int_n_ round-trips through save_state/load_state "
+                  "[reviewer V20R-CPU-NIT-01; pre-fix slot absent → load restores "
+                  "to reset default `true` and the next-tick V20 poll spuriously fires]",
+                  pre_save_shadow == false
+                      && pre_load_shadow == true
+                      && post_load_shadow == false,
+                  detail);
+        }
+    }
+
+    // V20R-CPU-NIT-02-NO-DOUBLE-STAMP — exactly ONE
+    // `cpu_.request_interrupt(0xFF)` per ULA frame-INT pulse.
+    //
+    // Reviewer's class-(c) finding: the legacy scheduler-callback
+    // `cpu_.request_interrupt(0xFF)` (at the FRAME-INT scheduler
+    // emulator.cpp:5443+ and the LINE-INT scheduler
+    // `reschedule_line_interrupt()` ~:6716) AND the V20 falling-edge
+    // poll (~:5791) BOTH stamped the same pulse → `int_requested_at_`
+    // was re-stamped at a LATER tstate than the original callback fire.
+    // Harmless for boot-realistic ISRs (32/36-cycle window expires
+    // before any EI), but a latent double-INT trap if an ISR did fast
+    // EI within the re-stamped window. Filed as V20R-CPU-NIT-02.
+    //
+    // Option A fix (reviewer recommended): drop the legacy
+    // scheduler-callback `cpu_.request_interrupt(0xFF)` and let the
+    // V20 falling-edge poll be the sole driver of pulse-mode /INT —
+    // VHDL-faithful and symmetric with the V19 IM2-mode poll.
+    //
+    // Discriminative test: fresh emulator + pulse mode (NR 0xC0 b0=0
+    // default) + ULA INT enabled (port_ff_reg(6)=0 default) + IFF1=1 +
+    // IM=1 + PC parked in RAM. Reset request_interrupt counter.
+    // Run one frame. The FRAME-INT scheduler fires once → raise_req(ULA)
+    // → next instruction's im2_.tick step_pulse drops pulse_int_n=false
+    // → V20 poll fires falling-edge → exactly ONE
+    // request_interrupt(0xFF). The pulse window expires at +32/+36T
+    // and prev_pulse_int_n_ tracks back to true; no re-fire until next
+    // frame. So `request_interrupt_count()` MUST be exactly 1.
+    //
+    // Post-fix: count == 1.
+    // Pre-fix Option A (callback re-added): count == 2 (callback + poll).
+    {
+        fresh(emu);
+        // Configure CPU: IFF1=1, IM=1, PC in NOP RAM.
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 1;
+        regs.PC = 0x8000;
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        // Disable LINE INT so only the ULA FRAME-INT fires (otherwise
+        // both raise + their respective poll would each contribute,
+        // muddying the count). Default NR 0x22 has line_interrupt_en=0,
+        // so this is implicit — we explicitly write 0x00 for clarity.
+        nr_write(emu, 0x22, 0x00);
+        // Reset the request_interrupt counter AFTER setting up the
+        // emulator (init may have called request_interrupt during
+        // boot-state setup; we only care about the frame we're about
+        // to run).
+        emu.cpu().reset_request_interrupt_count();
+        emu.run_frame();
+        const uint32_t cnt = emu.cpu().request_interrupt_count();
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "request_interrupt_count after 1 frame "
+                      "(pulse mode + ULA INT enabled) = %u "
+                      "(post-fix: 1 — V20 poll is sole driver; "
+                      "pre-fix: 2 — legacy callback + V20 poll BOTH "
+                      "stamp the same pulse)",
+                      cnt);
+        check("V20R-CPU-NIT-02-NO-DOUBLE-STAMP",
+              "Exactly one CPU /INT stamp per pulse-mode ULA frame-INT pulse "
+              "[reviewer V20R-CPU-NIT-02; pre-fix legacy scheduler callback "
+              "+ V20 falling-edge poll both stamped → latent fast-EI double-INT]",
+              cnt == 1, detail);
+    }
+
+    // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the
+    // CPU /INT pin in IM2 mode.
+    //
+    // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND im2_int_n)
+    // OR NOT expbus_disable_int) AND ...`. Either pulse_int_n OR im2_int_n
+    // pulled low asserts /INT. Pre-V19 jnext only called
+    // cpu_.request_interrupt(0xFF) for the legacy pulse-mode path; in
+    // IM2 mode the comment at the FRAME-INT scheduler said the fabric's
+    // int_line_asserted() would drive the Z80 INT, but no code ever READ
+    // it. Result in IM2 mode: the daisy chain reached S_REQ but the CPU
+    // never saw the request — int_pending_ stayed false, on_int_ack was
+    // never invoked, the IM2 priority chain remained latched forever.
+    //
+    // Discriminative test: configure IM2 mode + IFF1=1 + IM=2; run_frame.
+    // The frame-int scheduler raises ULA. With the V19-IM2-04 polling
+    // hook (after im2_.tick), int_pending_ is set; on the next CPU
+    // instruction the interrupt is accepted via on_int_ack →
+    // ack_vector(), advancing ULA from S_REQ → S_ACK. The next tick
+    // advances S_ACK → S_ISR. So ULA's state should be >= 2 (S_ACK or
+    // S_ISR) after run_frame. Pre-fix: ULA stays at S_REQ (state=1)
+    // forever because the CPU never sees /INT.
+    {
+        fresh(emu);
+        // Set IM2 mode via NR 0xC0 bit 0.
+        nr_write(emu, 0xC0, 0x01);
+        // V21-IM2-01 — pre-feed the IM2-control decoder with an ED 5E
+        // (IM 2) so its `im_mode_` shadow becomes 2 (= VHDL
+        // `i_im2_mode='1'`). The Z80 register `regs.IM=2` below is the
+        // FUSE-side bit; the IM2 controller's separate decoder is
+        // driven by on_m1_cycle from the CPU's M1 callback. In a real
+        // boot the supervisor executes ED 5E itself which updates both
+        // sides; this test bypasses the FUSE Z80 to keep the setup
+        // minimal, so feed the decoder directly.
+        emu.im2().on_m1_cycle(0x0000, 0xED);
+        emu.im2().on_m1_cycle(0x0001, 0x5E);
+        // Set IFF1=1 + IM=2 so the CPU will accept interrupts in IM2.
+        // (Z80Cpu reset clears IFF1; this is the minimal setup to make
+        // the test exercise the IntAck path without requiring EI/IM2
+        // instructions in RAM.)
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 2;
+        regs.PC = 0x8000;  // park PC in user RAM (NOPs)
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        // After run_frame, the ULA device should have progressed past
+        // S_REQ (state=1) — at minimum to S_ACK (state=2) or S_ISR
+        // (state=3). The frame-INT scheduler raises ULA early in the
+        // frame, the polling fires request_interrupt, and the next
+        // instruction does the IntAck.
+        // Pre-fix: ULA stuck at S_REQ (state=1).
+        // Post-fix: state >= 2.
+        const Im2Controller::DevState ula_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "ULA state after run_frame in IM2 mode + IFF1=1+IM=2: %d "
+                      "(post-fix: >= 2 [S_ACK=2 or S_ISR=3]; "
+                      "pre-fix: 1 [S_REQ stuck])",
+                      static_cast<int>(ula_st));
+        check("ULA-INT-V19-IM2-04",
+              "IM2 fabric int_line_asserted() drives CPU /INT in IM2 mode "
+              "[zxnext.vhd:1840 z80_int_n composition]",
+              static_cast<int>(ula_st) >= 2, detail);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -343,17 +858,32 @@ static void test_nr_c0_c4_c6(Emulator& emu) {
     // VHDL: zxnext.vhd:6239 — port_253b_dat <= nr_c4_int_en_0_expbus & "00000"
     //                         & nr_22_line_interrupt_en & (NOT port_ff_interrupt_disable).
     //
-    // Exercise: write expbus=1 (bit 7) + line=1 (bit 1). ULA-INT bit 0 is
-    // driven by !ula_int_disabled_ (=true at reset). Ensure bits 6:2 read 0.
+    // Pass-12 V12-NMP-01 update (2026-05-10): pre-fix the C++ NR 0xC4 write
+    // updated `port_ff_reg_(6)` but NOT the `ula_int_disabled_` shadow that
+    // the read handler (emulator.cpp:2417) consults for bit 0. The VHDL
+    // chain is: NR 0xC4 b0 → port_ff_reg(6) <= NOT b0 → port_ff_interrupt_disable
+    // <= port_ff_reg(6) → ula_int_en(0) <= NOT port_ff_interrupt_disable. So
+    // a write of NR 0xC4 = 0x82 (b0=0) puts port_ff_reg(6)=1 →
+    // port_ff_interrupt_disable=1 → ula_int_en(0)=0. The readback bit 0
+    // MUST be 0, giving 0x82 — NOT 0x83. The pre-fix test expected 0x83
+    // because the buggy C++ left `ula_int_disabled_` at its default false
+    // (set during reset_machine), making readback bit 0 = !false = 1.
+    // V12-NMP-01 syncs the shadow on every NR 0xC4 write and the readback
+    // now correctly returns 0x82.
+    //
+    // Exercise: write expbus=1 (bit 7) + line=1 (bit 1) + ULA disable
+    // (bit 0=0). Ensure readback returns the VHDL-faithful 0x82.
     {
         fresh(emu);
-        nr_write(emu, 0xC4, 0x82);              // expbus=1 + line=1
+        nr_write(emu, 0xC4, 0x82);              // expbus=1 + line=1 + ula b0=0
         const uint8_t got = nr_read(emu, 0xC4);
-        // Expected: E_00000_UU with E=1, UU={line,ula}={1,1}=11 → 0x83.
+        // VHDL-faithful expected: E_00000_UU = 1_00000_10 = 0x82.
+        // (line=1 bit 1, ula=0 bit 0 because b0=0 → port_ff_reg(6)=1
+        //  → port_ff_interrupt_disable=1 → ula_int_en(0)=0.)
         check("NR-C4-03",
               "NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) "
-              "[zxnext.vhd:6239; emulator.cpp:796-804]",
-              got == 0x83, detail_eq(got, 0x83));
+              "[zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804]",
+              got == 0x82, detail_eq(got, 0x82));
     }
 
     // NR-C6-02 — NR 0xC6 readback format 0_654_0_210.

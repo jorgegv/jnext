@@ -107,6 +107,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     copper_.reset();
     cpu_.reset();
     im2_.reset();
+    // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
+    prev_pulse_int_n_ = true;
     keyboard_.reset();
     // Input subsystem Phase 1 scaffold (Task 3). See src/input/*.
     joystick_.reset();
@@ -165,17 +167,49 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     psg_accum_ = 0;
     sample_accum_ = 0;
     dac_enabled_ = false;
-    // VHDL zxnext.vhd:1115-1120 reset defaults for NR 0x08 stored bits.
-    // nr_08_psg_stereo_mode, nr_08_dac_en, nr_08_port_ff_rd_en,
-    // nr_08_psg_turbosound_en, nr_08_keyboard_issue2 all default '0';
-    // nr_08_internal_speaker_en defaults '1' (bit 4).
-    nr_08_stored_low_ = 0x10;
+    // PASS-7 NR 0x08 reset preservation. Same shape as NR 0x06 / NR 0x05 /
+    // NR 0x09. VHDL zxnext.vhd:1115-1120 declares six NR 0x08 sub-signals:
+    //   nr_08_contention_disable     [b6] init '0'   (RESET to '0' at :4935 —
+    //                                                 NOT held in nr_08_stored_low_;
+    //                                                 owned by mmu_.set_contention_disabled())
+    //   nr_08_psg_stereo_mode        [b5] init '0'
+    //   nr_08_internal_speaker_en    [b4] init '1'
+    //   nr_08_dac_en                 [b3] init '0'
+    //   nr_08_port_ff_rd_en          [b2] init '0'
+    //   nr_08_psg_turbosound_en      [b1] init '0'
+    //   nr_08_keyboard_issue2        [b0] init '0'
+    // ONLY nr_08_contention_disable is in the reset block (line 4935); all
+    // bits in `nr_08_stored_low_` (b5..b0) survive reset.  Pre-pass-7
+    // jnext unconditionally re-applied 0x10 here on every soft reset,
+    // wiping any user-set NR 0x08 b5/b4/b3/b2/b1/b0 (e.g. internal-speaker,
+    // DAC enable, TurboSound enable).  Preserve the byte across soft reset
+    // (preserve_memory=true == NR 0x02 ← 0x01); on hard reset / first boot
+    // restore the power-on default 0x10 (b4=1 = internal_speaker_en).
+    if (!preserve_memory) {
+        nr_08_stored_low_ = 0x10;
+    }
+    // Note: `dac_enabled_` was unconditionally set false above. That is also
+    // a same-shape divergence (nr_08_dac_en survives reset). Restore it from
+    // the preserved nr_08_stored_low_ shadow so the DAC stays enabled across
+    // soft reset if the user previously set b3.
+    dac_enabled_ = (nr_08_stored_low_ & 0x08) != 0;
 
     // Reset clip window write indices.
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
 
-    // G56: NR 0x10 coreid reset to VHDL default "00001" (zxnext.vhd:1133).
-    nr_10_coreid_ = 0x01;
+    // G56: NR 0x10 coreid — VHDL zxnext.vhd:1133 declares
+    //   `signal nr_10_coreid : std_logic_vector(4 downto 0) := "00001";`
+    // The `:= "00001"` is a power-on (initial-value) assignment; the
+    // process at zxnext.vhd:5677-5687 has NO reset clause, so coreid
+    // SURVIVES both hard and soft reset. Pre-V16-NMP-01 this code
+    // unconditionally re-applied 0x01 here, which differed from VHDL but
+    // was masked because the readback came from the canonical write-time
+    // cache byte (regs_[0x10]) — and NextReg::reset preserves regs_[0x10]
+    // (PASS-8 path at nextreg.cpp:187 + 261). With V16-NMP-01 the read
+    // mux now recomposes from the live `nr_10_coreid_` field, so this
+    // line would clobber the user-set coreid on every reset. Removed to
+    // honour VHDL initial-only semantics; the constructor's
+    // `nr_10_coreid_{0x01}` default delivers the power-on byte once.
 
     // G112: NR 0x2D I2S sample latch (VHDL signal nr_2d_i2s_sample,
     // zxnext.vhd:1176). Stored pre-shifted into bits [7:6]; bits [5:0]
@@ -208,6 +242,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_int_status_[2] = 0;
     im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
     nr_c6_uart_int_en_ = 0;
+    // V19-IM2-02 init: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+    // NOT port_ff_interrupt_disable` = NOT port_ff_reg(6). With
+    // port_ff_reg=0 at reset, ULA int_en=1. Fan this initial value
+    // into the IM2 fabric so dev_[ULA].int_en starts at true. Pre-fix
+    // im2_.reset() left dev_[ULA].int_en=false (default), and no
+    // subsequent code wrote it — meaning every FRAME-INT raise_req(ULA)
+    // in IM2 mode silently dropped because the wrapper's edge-detect
+    // would not latch im2_int_req without int_en. The runtime writers
+    // (port-FF / NR 0x22 b2 / NR 0xC4 b0) now also fan into IM2 fabric
+    // (V19-IM2-02 fix), so this init brings them into a coherent state
+    // before the first software access.
+    im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                    (port_ff_reg_ & 0x40) == 0);
+    // V19-IM2-01 init: NR 0x22 bit 1 + NR 0xC4 bit 1 share the
+    // nr_22_line_interrupt_en flip-flop (VHDL :5297, :5610), which feeds
+    // dev_[LINE].int_en (line :1950). The flip-flop default is 0 (line
+    // :4983). Honour that explicitly so the IM2 fabric's LINE int_en
+    // matches both the line-int generation gate and the VHDL boot state.
+    im2_.set_int_en(Im2Controller::DevIdx::LINE, false);
     // G135 — NR 0xA0 Pi peripheral enable byte resets to 0x00 per VHDL
     // zxnext.vhd:5080 (nr_a0_pi_peripheral_en <= (others => '0')).
     nr_a0_pi_peripheral_en_ = 0;
@@ -228,6 +281,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // contention.cpp::is_contended_access() comment for the rationale.
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
+    // Verify9-memory class-(c) → class-(a) fix: seed
+    // ContentionModel's port_7ffd_io_en gate from NR 0x82 bit 1
+    // (VHDL zxnext.vhd:2399). Power-on default is 0xFF (all bits set,
+    // see nextreg.cpp:40 + VHDL :1226), so port_7ffd_io_en starts
+    // enabled. The NR 0x82 write handler at install_port_handlers()
+    // refreshes this on every subsequent write. ContentionModel::build()
+    // resets the gate to false; we re-seed it here to match the VHDL
+    // power-on default after build().
+    contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
+    // V15-CPU-NIT-03 (reviewer-promoted): seed
+    // ContentionModel's port_ulap_io_en gate from NR 0x85 bit 0
+    // (VHDL zxnext.vhd:2439 — port_ulap_io_en <= internal_port_enable(24);
+    // bit 24 = first bit of nr_85). Power-on default is 0x0F (low 4 bits
+    // set per VHDL :1229 — `nr_85_internal_port_enable` resets to all-1
+    // and the register is 4 bits wide, so reset value = 0x0F). The
+    // NR 0x85 write handler installed at install_port_handlers()
+    // refreshes the shadow on every subsequent write. The CPU-side
+    // bus callbacks (fuse_z80_readport / fuse_z80_writeport) consult
+    // the shadow internally via contention_tick() — no parameter
+    // needed (matches the port_7ffd_io_en_ pattern).
+    contention_.set_port_ulap_io_en((nextreg_.cached(0x85) & 0x01) != 0);
 
     // VideoTiming — production-wired raster counter used by the
     // contention tick path (Phase-2 wiring 2026-04-26). Mirrors VHDL
@@ -275,11 +349,56 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case MachineType::ZXN_ISSUE2: typ_sel = 0x04; break;
         }
         nextreg_.set_nr_03_machine_type(typ_sel);
+
+        // V24-MEM-01 / V25-MEM-01 fix — also seed nr_03_machine_timing
+        // (tim_sel axis) coherently with the CLI machine type. The
+        // canonical NextZXOS boot path always writes NR 0x03 with
+        // matching tim_sel == typ_sel, so init aligns both axes from a
+        // single CLI choice. Without this, NextReg's
+        // nr_03_machine_timing stays at the VHDL :1099 default 0x03
+        // (+3 timing) regardless of cfg.type — a divergence that
+        // pre-V24-MEM-01 was silently masked because the contention
+        // surfaces consumed typ_sel-derived MachineType. Now that
+        // contention consumes the tim_sel axis, this push keeps the
+        // two axes coherent at boot.
+        uint8_t tim_sel = 0x03;  // ZXN_ISSUE2 default → +3 (VHDL :1099)
+        switch (cfg.type) {
+            case MachineType::ZX48K:      tim_sel = 0x01; break;
+            case MachineType::ZX128K:     tim_sel = 0x02; break;
+            case MachineType::ZX_PLUS3:   tim_sel = 0x03; break;
+            case MachineType::ZXN_ISSUE2: tim_sel = 0x03; break;  // Next → +3 timing (VHDL default)
+        }
+        nextreg_.set_nr_03_machine_timing(tim_sel);
     }
+
+    // V24-MEM-01 / V25-MEM-01 fix — seed both ContentionModel and Mmu
+    // machine_timing fields from the canonical NextReg cached value.
+    // Re-derive from `nr_03_machine_timing` (just-set above) rather
+    // than from cfg.type so the typ_sel/tim_sel pairing stays
+    // single-sourced through NextReg even on soft reset
+    // (preserve_memory=true), where the NR 0x03 fields are
+    // intentionally NOT re-derived from cfg.type (matching the
+    // machine_type preservation semantics at :333-352 above).
+    //
+    // After init, the two axes evolve independently via NR 0x03's two
+    // gated commit paths (zxnext.vhd:5124-5135 for tim_sel vs
+    // :5137-5145 for typ_sel). A user that writes NR 0x03 with
+    // bits 6:4 != bits 2:0 will see them diverge at the next
+    // video-frame edge — observably faithful to VHDL.
+    const MachineTimingMode init_tim_mode =
+        decode_nr_03_machine_timing(nextreg_.nr_03_machine_timing());
+    contention_.set_machine_timing(init_tim_mode);
+    mmu_.set_machine_timing(init_tim_mode);
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
-    im2_.set_machine_timing_48_or_p3(cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+    // Fan out to BOTH the IM2 fabric (which models the FPGA pulse counter)
+    // AND Z80Cpu (which uses the same width to expire a pending /INT that
+    // was never acknowledged, e.g. inside an ISR with iff1=0). Same VHDL
+    // line, two consumers — must stay in lock-step.
+    const bool is_48_or_p3_at_reset = (cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+    im2_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
+    cpu_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
 
     // Wire ContentionModel into the FUSE memory/IO callbacks (Phase-2
     // contention plan, 2026-04-26). After this call, every Z80 memory
@@ -409,8 +528,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
             const uint8_t a_high = static_cast<uint8_t>((cpu_a >> 12) & 0x0F);
             switch (a_high) {
-                case 0x1:  // 0x1xxx — port_1ffd readback (motor + reg(2:0))
-                    return static_cast<uint8_t>(mmu_.port_1ffd() & 0x0F);
+                case 0x1: {
+                    // 0x1xxx — port_1ffd readback (motor + reg(2:0)).
+                    // VHDL zxnext.vhd:4312:
+                    //   when "0001" => mf_port_dat <=
+                    //     "0000" & (NOT port_1ffd_mtr_n) & port_1ffd_reg;
+                    // VHDL zxnext.vhd:3744-3761 — the motor-N flip-flop is
+                    // forced to '1' (motor off) on every clock while
+                    // `nr_81_expbus_fdc = '0'` (the priority-2 elsif at
+                    // :3751-3753), regardless of the most recent port 0x1FFD
+                    // bit-3 write. Only when `nr_81_expbus_fdc = '1'` is the
+                    // motor latch updated to `NOT cpu_do(3)` on the port
+                    // 0x1FFD write at :3755-3757. Therefore:
+                    //   nr_81_expbus_fdc = '1' (NR 0x81 bit 3 = 1):
+                    //     readback bit 3 = NOT motor_n = cpu_do(3)
+                    //   nr_81_expbus_fdc = '0' (default; FDC disabled):
+                    //     readback bit 3 = NOT '1' = '0'
+                    // V14-NMP-01 (Pass-14 verify-audit fix): pre-fix returned
+                    // `port_1ffd_ & 0x0F` unconditionally, leaking the user's
+                    // last cpu_do(3) write through bit 3 even when FDC was
+                    // disabled (the jnext default — NR 0x81 power-on = 0x00).
+                    // jnext doesn't model the FDC pin per se, but the motor
+                    // latch is observable through this MF+3 readback path.
+                    const uint8_t reg_lo3 = static_cast<uint8_t>(mmu_.port_1ffd() & 0x07);
+                    const bool fdc_en = (nr_81_ & 0x08) != 0;
+                    const uint8_t mtr_bit = fdc_en ? static_cast<uint8_t>(mmu_.port_1ffd() & 0x08)
+                                                   : static_cast<uint8_t>(0x00);
+                    return static_cast<uint8_t>(mtr_bit | reg_lo3);
+                }
                 case 0x7:  // 0x7xxx — port_7ffd readback (full 8-bit reg)
                     return mmu_.port_7ffd();
                 case 0xD: { // 0xDxxx — port_dffd readback (with bit 6)
@@ -660,20 +805,65 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:5902-5903:
     //   port_253b_dat <= "00" & cpu_speed & "00" & nr_07_cpu_speed;
     // i.e. bits[5:4] = actual cpu_speed, bits[1:0] = requested nr_07_cpu_speed.
-    // JNEXT does not model the expbus speed override (VHDL zxnext.vhd:5816-5820
-    // assigns cpu_speed <= nr_07_cpu_speed when expbus_en = '0'), so the
-    // effective actual speed tracks the requested value directly (the
-    // write handler above drives both clock_ and contention_ from the
-    // low 2 bits of the last write, which live in regs_[0x07]).
+    // VHDL zxnext.vhd:5816-5820 sets the actual cpu_speed via:
+    //   if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
+    //   else                    cpu_speed <= expbus_speed;
+    // (latched on bus-idle, :5809). VHDL zxnext.vhd:5496 hard-wires
+    // `nr_81_expbus_speed <= "00"` (the writable arm is commented out),
+    // so the expbus-active path always reports actual speed = "00".
+    //
+    // V21-NMP-03 (Pass-21 verify-audit fix): pre-fix `act = req` was
+    // unconditional, ignoring expbus_en. When NR 0x80 bit 7 = 1
+    // (expbus_eff_en after the bus-idle latch) AND nr_07_cpu_speed != 0,
+    // VHDL would surface act = 0 (= expbus_speed hard-wired) while jnext
+    // surfaced act = req. Class-(c) inert divergence (jnext has no expbus
+    // device wired, so the steady-state observable is unchanged for any
+    // boot path that respects the default NR 0x80 = 0x00), but the
+    // readback contract is part of the VHDL surface.
+    //
+    // The bus-idle latch (VHDL :5809) is collapsed into NR 0x80 write
+    // and NmiSource::expbus_eff_en()/expbus_eff_disable_mem() as the
+    // commit point — same approximation used at Pass-9 verify-audit for
+    // `expbus_eff_en` propagation into the NMI gates. Re-use that here
+    // so we don't introduce yet another latch shadow.
     nextreg_.set_read_handler(0x07, [this]() -> uint8_t {
         const uint8_t req = nextreg_.cached(0x07) & 0x03;
-        const uint8_t act = req;  // expbus not modelled — actual follows requested
+        // VHDL :5816-5820: actual cpu_speed = nr_07_cpu_speed when
+        // expbus_en = '0', else expbus_speed (hard-wired "00").
+        const uint8_t act = nmi_source_.expbus_eff_en() ? 0x00 : req;
         return static_cast<uint8_t>((act << 4) | req);
     });
 
-    // Register 0x12: Layer 2 active RAM bank
+    // NR 0x82 — Internal port enable (low 8 bits of the 32-bit
+    // internal_port_enable signal at zxnext.vhd:2392). VHDL :2399 ties
+    // bit 1 to `port_7ffd_io_en`, which feeds the `port_7ffd_active` OR-
+    // term in `port_contend` (zxnext.vhd:4496 + 2594). Verify9-memory
+    // class-(c) → class-(a) fix: pre-fix the contention model dropped
+    // this term (port 0x7FFD writes on 128K/+3 missed contention).
+    // Push the new bit-1 state into ContentionModel on every NR 0x82
+    // write so the runtime contention gate stays in sync. NextReg's
+    // bare `write()` already stores the byte into regs_[0x82] before
+    // calling the handler, so other consumers reading via
+    // `nextreg_.cached(0x82)` are unaffected.
+    nextreg_.set_write_handler(0x82, [this](uint8_t v) -> uint8_t {
+        // V16-NMP-02: when expbus_eff_en=1, port_7ffd_io_en must AND in
+        // NR 0x86 b1 (zxnext.vhd:2392-2393). NextReg::write commits the
+        // returned byte into regs_[0x82] AFTER this handler returns, so
+        // we pass `v` to the propagate helper as an in-flight override.
+        propagate_effective_port_enables(/*override_reg=*/0x82, v);
+        return v;
+    });
     nextreg_.set_write_handler(0x12, [this](uint8_t v) -> uint8_t {
         layer2_.set_active_bank(v);
+        // Verify4-memory class-(a) fix: VHDL zxnext.vhd:2968 makes
+        // layer2_active_bank combinational from nr_12_layer2_active_bank
+        // when port_123b_layer2_map_shadow=0. The Mmu's CPU L2 read/
+        // write-over path caches the bank in `l2_bank_`, refreshed by
+        // set_l2_port() on every 0x123B write. NR $12 writes between
+        // two 0x123B writes were not propagated, leaving the cached
+        // bank stale. NR $13 has the analogous propagation via
+        // mmu_.set_l2_shadow_bank() — NR $12 was the missing seam.
+        mmu_.set_l2_active_bank(layer2_.active_bank());
         return v;
     });
     // VHDL zxnext.vhd:5930 — port_253b_dat <= '0' & nr_12_layer2_active_bank;
@@ -683,6 +873,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL-spec 0x45. Pull directly from Layer2 where the masked value lives.
     nextreg_.set_read_handler(0x12, [this]() -> uint8_t {
         return layer2_.active_bank() & 0x7F;
+    });
+
+    // Register 0x11: Video timing (frame-rate / line count select).
+    // VHDL zxnext.vhd:5208-5217 — write is gated on `nr_03_config_mode='1'`,
+    // and on Issue-2 boards (`g_video_inc = "10"`, see
+    // zxnext_top_issue2.vhd:40 — jnext defaults to ZXN_ISSUE2) only bit 0
+    // is captured: nr_11_video_timing <= "00" & nr_wr_dat(0). The "111"
+    // shortcut at :5210 normalises to "000". Read at zxnext.vhd:5926-5927:
+    //   port_253b_dat <= "00000" & nr_11_video_timing;
+    // bits 7:3 always read back as zero. VERIFY4 / pass-4 — pre-fix the
+    // bare regs_[0x11] echoed the full 8-bit write and ignored the
+    // config_mode gate, so firmware writes outside config_mode (and any
+    // upper-bit writes) leaked into the read path.
+    nextreg_.set_write_handler(0x11, [this](uint8_t v) -> uint8_t {
+        if (!nextreg_.nr_03_config_mode()) {
+            // Outside config_mode the latch holds — return the canonical
+            // current readback so the regs_[] shadow does not drift.
+            return static_cast<uint8_t>(nextreg_.cached(0x11) & 0x07);
+        }
+        uint8_t stored;
+        if ((v & 0x07) == 0x07) {
+            stored = 0x00;                           // VHDL :5210-5211
+        } else {
+            // Issue 2 board ("g_video_inc = 10"): only bit 0 captured.
+            stored = static_cast<uint8_t>(v & 0x01);
+        }
+        return stored;  // bits 7:3 = 0 implicit (mask 0x07).
     });
 
     // Register 0x13: Layer 2 shadow RAM bank
@@ -777,6 +994,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         palette_.write_9bit(v);
         return v;
     });
+    // VHDL zxnext.vhd:6047-6048 — NR 0x44 read:
+    //   port_253b_dat <= nr_palette_dat(10:9) & "00000" & nr_palette_dat(0);
+    // i.e. priority [7:6], constants [5:1]=0, blue-LSB [0]. VERIFY4 / pass-4:
+    // bare regs_[0x44] would echo the last-written byte (the second NR 0x44
+    // write byte verbatim), which mismatches the VHDL composition for ULA /
+    // sprite / tilemap targets where priority is forced "00", and for any
+    // target where the read drops the upper-8 colour bits.
+    nextreg_.set_read_handler(0x44, [this]() -> uint8_t {
+        return palette_.read_9bit();
+    });
 
     // Register 0xFF: ULA+ palette poke side-channel — VHDL zxnext.vhd:6957-6958.
     // NR 0xFF writes commit a single palette entry into the ULA palette region
@@ -791,7 +1018,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         const bool bank_second = (palette_.read_control() & 0x40) != 0;
         const uint8_t bf3b_index = renderer_.ula().get_ulap_index();
         palette_.nr_ff_poke(bank_second, bf3b_index, v);
-        return v;
+        // V15-NMP-02 (Pass-15 verify-audit fix): VHDL zxnext.vhd:5878-6289
+        // has NO read mux entry for NR 0xFF (write-only ULA+ palette poke,
+        // routed via `nr_ff_we` at :4906 / :4919 / :6957-6958 to the palette
+        // dpram). Unmapped reads fall through the case statement to the
+        // `when others => port_253b_dat <= (others => '0')` default at
+        // :6286-6287, returning 0x00. Pre-fix the write_handler returned
+        // `v`, leaving the cache holding the last-write byte — a subsequent
+        // NR 0xFF read returned that byte instead of 0x00. Same shape as
+        // the existing G149 (NR 0x60), V14-NMP-03 (NR 0x2B), V14-NMP-04
+        // (NR 0x2A), and V15-NMP-01 (NR 0x63) canonicalisations.
+        return 0;
     });
 
     // Register 0x4B: Sprite transparency index
@@ -874,9 +1111,35 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:3308-3322 (port_e7 decode uses nr_0a_sd_swap).
     // VHDL zxnext.vhd:5191-5198: bits 7:6 (mf_type) and bit 5 (sd_swap) only
     // commit when nr_03_config_mode='1'. Bits 4/3/1:0 commit unconditionally.
+    // PASS-8 NR 0x0A reset propagation. NextReg::reset() preserves
+    // `regs_[0x0A]` across reset (VHDL :1124-1128 initial-value-only
+    // signals — no `reset` clause); KempstonMouse::reset() preserves the
+    // mouse subsystem state. The Multiface / DivMMC / SpiMaster owners
+    // already preserved their NR 0x0A-derived bits on their own reset
+    // paths (mf_type_, nr_0a_4_enable_, sd_swap_ are not reset). The
+    // mouse used to clobber `button_reverse_` / `dpi_` in pre-pass-8 —
+    // even with that fix, fan out the preserved cached NR 0x0A byte here
+    // to all four owners so they pick up any pre-write-to-init() state
+    // change (e.g. snapshot reload, soft-reset code path that clears
+    // mouse). Mirrors the NR 0x05 / NR 0x06 / NR 0x09 fan-out pattern.
+    {
+        const uint8_t cached_0a = nextreg_.cached(0x0A);
+        // Bits 7:6 (mf_type) only commit while config_mode='1' in VHDL —
+        // but here we are fanning out the *preserved* cached byte, which
+        // only contains values that were committed under config_mode at
+        // their original write time. Re-applying them is therefore safe
+        // regardless of the current config_mode flag.
+        spi_.set_sd_swap((cached_0a & 0x20) != 0);
+        multiface_.set_mode(static_cast<uint8_t>((cached_0a >> 6) & 0x03));
+        divmmc_.set_nr_0a_4_enable((cached_0a & 0x10) != 0);
+        mouse_.set_button_reverse((cached_0a & 0x08) != 0);
+        mouse_.set_dpi(static_cast<uint8_t>(cached_0a & 0x03));
+    }
+
     nextreg_.set_write_handler(0x0A, [this](uint8_t v) -> uint8_t {
         // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
-        if (nextreg_.nr_03_config_mode()) {
+        const bool cfg = nextreg_.nr_03_config_mode();
+        if (cfg) {
             spi_.set_sd_swap((v & 0x20) != 0);
             // Wave 1 B1 — bits 7:6 forward as `mf_mode_i` to the Multiface
             // (multiface.vhd:67-68, zxnext.vhd:5191). Set inside the
@@ -889,18 +1152,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         divmmc_.set_nr_0a_4_enable((v & 0x10) != 0);
         mouse_.set_button_reverse((v & 0x08) != 0);
         mouse_.set_dpi(v & 0x03);
-        return v;
+        // V11-NMP-02 (Pass-11 verify-audit fix): VHDL zxnext.vhd:5191-5198
+        // gates the latches `nr_0a_mf_type` (bits 7:6) and `nr_0a_sd_swap`
+        // (bit 5) behind `nr_03_config_mode = '1'`. When the gate is closed
+        // the underlying signals retain their previous values. Pre-fix the
+        // C++ stored the raw `v` byte verbatim in `regs_[0x0A]`, so the
+        // cache could leak bits 7:5 written outside config_mode. The
+        // observable consequence was the init/reset fan-out at lines 985-996
+        // which reads `cached(0x0A)` and forwards bits 7:6 to
+        // `multiface_.set_mode()` — a soft reset after a "cache-poisoning"
+        // out-of-config_mode write would commit a Multiface mode the VHDL
+        // never latched. Canonicalise the stored byte: bits 7:5 inherit the
+        // pre-write cached value when config_mode is closed; bits 4:0 are
+        // always written (those signals have no config_mode gate).
+        if (cfg) {
+            return v;
+        }
+        const uint8_t prev = nextreg_.cached(0x0A);
+        return static_cast<uint8_t>((v & 0x1F) | (prev & 0xE0));
     });
     // VHDL zxnext.vhd:5912 — NR 0x0A read composes:
     //   nr_0a_mf_type [7:6] & nr_0a_sd_swap [5]
     //     & nr_0a_divmmc_automap_en [4] & nr_0a_mouse_button_reverse [3]
     //     & '0' [2] & nr_0a_mouse_dpi [1:0]
-    // Bit 2 always reads 0. mf_type [7:6] is unmodelled (G132) — sourced
-    // from cached last-write byte; gating divergence is a separate issue
-    // tracked there, not G56. Other fields use authoritative subsystem
+    // Bit 2 always reads 0. All fields use authoritative subsystem
     // accessors. G56.
+    //
+    // Pass-3 verify-audit (Task 2): bits 7:6 (mf_type) MUST come from
+    // the authoritative Multiface subsystem state, NOT from the cached
+    // last-write byte. VHDL :5191-5198 gates `nr_0a_mf_type` writes on
+    // `nr_03_config_mode='1'`, but the C++ NextReg::write stores the
+    // raw byte in regs_[] regardless. Reading `cached(0x0A) & 0xC0`
+    // would therefore return whatever was last written to NR 0x0A,
+    // ignoring the gate — diverging from VHDL when firmware writes
+    // NR 0x0A bits 7:6 outside config_mode (which the write handler
+    // correctly ignores via `multiface_.set_mode()` being inside the
+    // `if (nr_03_config_mode())` block above).
     nextreg_.set_read_handler(0x0A, [this]() -> uint8_t {
-        uint8_t v = static_cast<uint8_t>(nextreg_.cached(0x0A) & 0xC0); // mf_type
+        // Pass-3 verify-audit fix — mf_type from authoritative state.
+        uint8_t v = static_cast<uint8_t>((multiface_.mf_type() & 0x03) << 6);
         if (spi_.sd_swap())          v = static_cast<uint8_t>(v | 0x20);
         if (divmmc_.nr_0a_4_enable()) v = static_cast<uint8_t>(v | 0x10);
         if (mouse_.button_reverse()) v = static_cast<uint8_t>(v | 0x08);
@@ -909,11 +1199,63 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return v;
     });
 
+    // PASS-8 NR 0x05 reset propagation. Pass-7 fixed NextReg::reset() to
+    // preserve `regs_[0x05]` across reset (VHDL :1105-1106, :1302-1303
+    // initial-value-only signals — no `reset` clause). Pass-8 fixed
+    // Joystick::reset() to also preserve `joy0_mode_` / `joy1_mode_`
+    // (the authoritative owner of the bits surfaced by the NR 0x05 read
+    // handler). Re-fan-out the preserved cached byte to the joystick
+    // subsystem here so that any path which calls Joystick::reset() at
+    // the top of init() (pre-pass-8 it cleared the modes) is restored
+    // from the cache. With both fixes in place this is now a no-op
+    // round-trip; the explicit fan-out documents intent and shields
+    // against future joystick-reset regressions.
+    {
+        const uint8_t cached_05 = nextreg_.cached(0x05);
+        if (cached_05 != joystick_.nr_05_raw()) {
+            joystick_.set_nr_05(cached_05);
+        }
+    }
+
     // Register 0x05: Joystick mode decoder — VHDL zxnext.vhd:5157-5158.
     // Phase 1 scaffold: Joystick::set_nr_05() is a stub that records the
     // raw byte; Agent A (Phase 2) implements the real bit-extraction.
+    //
+    // V13-NMP-01 (Pass-13 verify-audit fix): VHDL zxnext.vhd:5832-5841
+    // forces `nr_05_5060 <= '0'` continuously every clock when
+    // `nr_03_machine_timing(2) = '1'` (Pentagon mode). The IF branch is
+    // priority-1, so even an explicit NR 0x05 write with bit 2 = 1 gets
+    // overwritten on the very next clock edge — the FF never latches a
+    // '1' value while Pentagon is active.
+    //
+    // Pre-fix the C++ stored the raw `v` byte in `regs_[0x05]`, so bit 2
+    // could leak through the cache when Pentagon is on. The NR 0x05
+    // read_handler at line ~1117 already masks bit 2 to 0 while
+    // Pentagon is active (Pass-10 fix TC-NR05-PENTAGON), but if the
+    // sequence is "write bit 2 = 1 while Pentagon ON" then "exit
+    // Pentagon mode" then "read NR 0x05", VHDL would return bit 2 = 0
+    // (the underlying FF is still 0 — only a fresh NR 0x05 write or F3
+    // can flip it post-Pentagon-exit), but jnext returns bit 2 = 1
+    // because the read mask only triggers while Pentagon is active —
+    // post-exit the cached bit 2 = 1 surfaces verbatim.
+    //
+    // Same shape as V11-NMP-02 (NR 0x0A bits 7:5 config_mode gate) and
+    // V11-NMP-03 (NR 0x06 bit 2 ps2_mode config_mode gate): canonicalise
+    // the stored byte at write time so the cache never leaks a value
+    // the VHDL latch could not have stored. Mask bit 2 to 0 in the
+    // returned canonical byte when Pentagon timing is active; bits
+    // 7:3 and 1:0 are always written verbatim (those signals have no
+    // Pentagon gate per VHDL :5157-5158, :5848-5852).
     nextreg_.set_write_handler(0x05, [this](uint8_t v) -> uint8_t {
         joystick_.set_nr_05(v);
+        const bool pentagon =
+            (nextreg_.nr_03_machine_timing() & 0x04) != 0;
+        if (pentagon) {
+            // VHDL :5836 forces `nr_05_5060 <= '0'` while Pentagon is
+            // active; the bit-2 write is silently dropped. Force the
+            // stored byte's bit 2 to 0 to mirror the FF state.
+            return static_cast<uint8_t>(v & ~0x04);
+        }
         return v;
     });
     // VHDL zxnext.vhd:5897 — read formula:
@@ -931,17 +1273,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // through `nextreg_.write(0x05, ...)`, and `eff_nr_*` are simply
     // frame-sync-latched copies (irrelevant at unit-test scope, where
     // there is no video-frame edge between writes and reads).
+    //
+    // PASS-10 verify-audit fix (Task 2 verify10-nmi-mf-port): VHDL
+    // zxnext.vhd:5832-5841 forces `nr_05_5060 <= '0'` continuously
+    // every cycle when `nr_03_machine_timing(2) = '1'` (Pentagon mode).
+    // This is the IF branch (highest priority), not an ELSIF, so even
+    // explicit NR 0x05 writes with bit 2 = 1 get overwritten on the
+    // very next clock edge. The frame-sync latch at :6701 then
+    // propagates that '0' into `eff_nr_05_5060`, and the NR 0x05 read
+    // mux at :5897 surfaces it. Pre-fix the C++ surfaced `cached & 0x04`
+    // unconditionally, leaking the user's pre-Pentagon write through.
+    // The F3 callback at line 3508-3514 already gates the toggle on
+    // Pentagon, but it's not the only writer (firmware can write NR
+    // 0x05 directly). Mask bit 2 to '0' at read time when Pentagon is
+    // active. Same shape as the existing `nr_06_ps2_mode_` config_mode
+    // handling — read composes from gated state when the gate is
+    // active.
     nextreg_.set_read_handler(0x05, [this]() -> uint8_t {
         const auto m0 = static_cast<uint8_t>(joystick_.mode_left());   // 3 bits
         const auto m1 = static_cast<uint8_t>(joystick_.mode_right());  // 3 bits
         const uint8_t cached = nextreg_.cached(0x05);
+        const bool pentagon =
+            (nextreg_.nr_03_machine_timing() & 0x04) != 0;
         uint8_t v = 0;
         v |= static_cast<uint8_t>(((m0 >> 1) & 1u) << 7);  // joy0[1] → bit 7
         v |= static_cast<uint8_t>(((m0 >> 0) & 1u) << 6);  // joy0[0] → bit 6
         v |= static_cast<uint8_t>(((m1 >> 1) & 1u) << 5);  // joy1[1] → bit 5
         v |= static_cast<uint8_t>(((m1 >> 0) & 1u) << 4);  // joy1[0] → bit 4
         v |= static_cast<uint8_t>(((m0 >> 2) & 1u) << 3);  // joy0[2] → bit 3
-        v |= static_cast<uint8_t>(cached & 0x04);          // eff_5060 (bit 2)
+        // bit 2 = eff_nr_05_5060. Pentagon (machine_timing(2)='1') forces
+        // the underlying `nr_05_5060` FF to '0' every clock per VHDL
+        // :5835-5836; otherwise mirror the cached byte's bit 2.
+        if (!pentagon) v |= static_cast<uint8_t>(cached & 0x04);
         v |= static_cast<uint8_t>(((m1 >> 2) & 1u) << 1);  // joy1[2] → bit 1
         v |= static_cast<uint8_t>(cached & 0x01);          // eff_scandouble (bit 0)
         return v;
@@ -970,24 +1333,46 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   end if;
     // Read mux at zxnext.vhd:5924:
     //   '0' [7] & nr_10_coreid [6:2] & i_SPKEY_BUTTONS(1:0) [1:0]
-    // jnext does not model SPKEY_BUTTONS (the M1+Drive front-panel buttons)
-    // — they read as 0 (idle). nr_10_flashboot is not exposed on the read
-    // path. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
+    // Per VHDL entity port at zxnext.vhd:70 and `zxnext_top_issue2.vhd:2281`,
+    //   `i_SPKEY_BUTTONS = (NOT btn_drive_divmmc_n) & (NOT btn_m1_multiface_n);`
+    // i.e. ACTIVE-HIGH combinational held-state of the F9 (M1, bit 0) and
+    // F10 (Drive, bit 1) front-panel buttons, sampled live on every NR 0x10
+    // read. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
     // on writes per VHDL Issue 2/3 path. Reset default 0x01 ("00001"),
     // VHDL zxnext.vhd:1133. G56.
-    // G56 Phase 2 (option b): write_handler returns the canonical readback
-    // byte (bit 7 = 0, bits 6:2 = coreid, bits 1:0 = SPKEY_BUTTONS = 0
-    // unmodelled). config_mode-gated coreid update applied first; the
-    // returned canonical byte stored in regs_[0x10] always matches what a
-    // synthesised read_handler would have returned. nr_10_flashboot
-    // (write bit 7) is not exposed on the read path. No separate
-    // read_handler is needed.
+    //
+    // V16-NMP-01 (Pass-16 verify-audit fix): pre-fix the write_handler
+    // hardcoded bits 1:0 to 0 because jnext had no live SPKEY_BUTTONS
+    // input. Fix wires the read mux through `test_hotkey_m1_` /
+    // `test_hotkey_drive_` (the same active-high held-state booleans
+    // already consumed by `nmi_assert_mf()` / `nmi_assert_divmmc()` at
+    // emulator.h:411-416). Production sets these via the same
+    // inject_hotkey_m1/drive setters the test harness uses; the GUI
+    // F9/F10 path strobes them on press and clears them on release in a
+    // follow-up wire-up patch (the strobe semantics for one-shot NMI
+    // dispatch via `on_hotkey_f9_mf_nmi`/`on_hotkey_f10_divmmc_nmi` are
+    // unchanged). The write_handler keeps its config_mode-gated coreid
+    // update; the returned cache byte stores the static portion only —
+    // bits 1:0 are recomposed on every read by the read_handler.
     nextreg_.set_write_handler(0x10, [this](uint8_t v) -> uint8_t {
         if (nextreg_.nr_03_config_mode()) {
             nr_10_coreid_ = static_cast<uint8_t>(v & 0x1F);
         }
-        // Canonical NR 0x10 readback — VHDL zxnext.vhd:5924.
+        // Cache stores the static (button-less) portion. Read-handler
+        // recomposes bits 1:0 live from i_SPKEY_BUTTONS at read time
+        // (VHDL is purely combinational on those bits).
         return static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
+    });
+    nextreg_.set_read_handler(0x10, [this]() -> uint8_t {
+        // VHDL zxnext.vhd:5924 — bits 7:2 are static (bit 7 = '0', bits
+        // 6:2 = nr_10_coreid). Bits 1:0 are i_SPKEY_BUTTONS combinational
+        // from the live host F9/F10 held-state.
+        const uint8_t coreid_bits =
+            static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
+        const uint8_t spkey_bits =
+            static_cast<uint8_t>((test_hotkey_m1_    ? 0x01 : 0x00) |
+                                 (test_hotkey_drive_ ? 0x02 : 0x00));
+        return static_cast<uint8_t>(coreid_bits | spkey_bits);
     });
 
     // Registers 0x28 / 0x29 / 0x2B — PS/2 keymap + joystick keymap (UDK)
@@ -1005,6 +1390,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         membrane_stick_.write_nr_28(v);
         return v;
     });
+    // V14-NMP-02 (Pass-14 verify-audit fix): VHDL zxnext.vhd:6003-6004 —
+    //   when X"28" =>  port_253b_dat <= nr_stored_palette_value;
+    // The NR 0x28 read mux returns the VHDL signal `nr_stored_palette_value`
+    // (zxnext.vhd:1190), which is latched on the FIRST half of every NR 0x44
+    // 9-bit palette write (zxnext.vhd:5398-5399), NOT the byte last written
+    // to NR 0x28. NR 0x28 writes only update `nr_keymap_sel` /
+    // `nr_keymap_addr(8)` per VHDL :6301-6303 — the stored byte is NOT
+    // surfaced on any read mux entry.
+    //
+    // Pre-fix the C++ NR 0x28 write_handler stored the raw byte in
+    // `regs_[0x28]` and there was no read_handler, so a NR 0x28 read echoed
+    // the last NR 0x28 write byte. PaletteManager's `nine_bit_first_byte_`
+    // shadow already mirrors `nr_stored_palette_value`; route the read
+    // through it.
+    nextreg_.set_read_handler(0x28, [this]() -> uint8_t {
+        return palette_.nine_bit_first_byte();
+    });
     nextreg_.set_write_handler(0x29, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_29(v);
         // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x29
@@ -1013,9 +1415,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // canonical regs_[0x29] stores 0 and reads return 0.
         return 0;
     });
+    // V14-NMP-03 (Pass-14 verify-audit fix): VHDL zxnext.vhd:5878-6289 has
+    // NO read mux entry for NR 0x2B (write-only keymap data — see VHDL
+    // :6306-6307 where the only effect of `nr_2b_we` is the auto-increment
+    // of `nr_keymap_addr`). Unmapped reads fall through the case statement
+    // to the `when others => port_253b_dat <= (others => '0')` default at
+    // VHDL :6286-6287, returning 0x00. Pre-fix the write_handler returned
+    // `v`, leaving the cache holding the last-write byte — a subsequent
+    // NR 0x2B read returned that byte instead of 0x00. Same shape as the
+    // existing NR 0x29 canonicalisation directly above.
     nextreg_.set_write_handler(0x2B, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_2b(v);
-        return v;
+        return 0;
+    });
+    // V14-NMP-04 (Pass-14 reviewer-promoted from deferred class-c):
+    // NR 0x2A is a fully dead register in VHDL — the write strobe is
+    // commented out at zxnext.vhd:4850 (`-- when X"2A" => nr_2a_we ...`),
+    // the write-side process at :6312-6319 is also commented out, and
+    // there is NO read-mux entry in the case statement at :5878-6289.
+    // Therefore real hardware:
+    //   * Writes to NR 0x2A: ignored, no flip-flop state changes.
+    //   * Reads of NR 0x2A: return 0x00 via the `when others =>
+    //     (others => '0')` fall-through at :6286-6287.
+    // Pre-fix the C++ NR 0x2A had NO write_handler and NO read_handler:
+    // a write went raw to `regs_[0x2A]` (NextReg::write at nextreg.cpp:454)
+    // and a read returned that cached byte (NextReg::read :411). Same
+    // cache-leak shape as V14-NMP-03 (NR 0x2B), so the same canonicalisation
+    // pattern applies — install a write_handler that drops the byte and
+    // canonicalises the cache to 0. No subsystem dispatch, since real
+    // hardware does nothing with the byte either.
+    nextreg_.set_write_handler(0x2A, [](uint8_t /*v*/) -> uint8_t {
+        return 0;
     });
 
     // Registers 0xB0 / 0xB1 / 0xB2 — extended keyboard matrix + MD6 extras.
@@ -1205,17 +1635,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // fires per write (zxnext.vhd:4916). sprites.vhd:603-605 increments
     // mirror_sprite_q's lower 7 bits and reloads bit 7 from
     // pattern_index(7).
+    //
+    // PASS-5 FIX: write-only — VHDL zxnext.vhd:5878-6289 read mux has no
+    // entry for NR 0x75-0x79 (fall-through `(others => '0')`). Previously
+    // the handler returned `v`, leaking the just-written byte through the
+    // cached `regs_[]` read path. Match VHDL by returning 0 and aligning
+    // with the NR 0x35-0x39 no-inc handler convention above.
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x75 + i),
             [this, i](uint8_t v) -> uint8_t {
                 sprites_.write_attr_byte_nr_per_byte_inc(
                     static_cast<uint8_t>(i), v);
-                    return v;
+                return 0;
             });
     }
 
     // Register 0x2F: Tilemap X scroll MSB (bits 1:0)
-    nextreg_.set_write_handler(0x2F, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_x_msb(v); return v; });
+    // VHDL zxnext.vhd:5330-5331 — `nr_30_tm_scrollx(9:8) <= nr_wr_dat(1:0)`:
+    // only bits 1:0 are stored. Read at zxnext.vhd:6017-6018:
+    //   port_253b_dat <= "000000" & nr_30_tm_scrollx(9:8);
+    // bits 7:2 always read back as zero. VERIFY4 / pass-4 — pre-fix the bare
+    // regs_[0x2F] echoed the full 8-bit write, so reads diverged from VHDL
+    // whenever firmware wrote upper bits.
+    nextreg_.set_write_handler(0x2F, [this](uint8_t v) -> uint8_t {
+        tilemap_.set_scroll_x_msb(v);
+        return static_cast<uint8_t>(v & 0x03);
+    });
 
     // Register 0x30: Tilemap X scroll LSB
     nextreg_.set_write_handler(0x30, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_x_lsb(v); return v; });
@@ -1323,7 +1768,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return 0; });
     nextreg_.set_write_handler(0x61, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x61(v); return v; });
     nextreg_.set_write_handler(0x62, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x62(v); return v; });
-    nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return v; });
+    // V15-NMP-01 (Pass-15 verify-audit fix): VHDL zxnext.vhd:5878-6289 has
+    // NO read mux entry for NR 0x63 (write-only Copper data byte; the only
+    // observable effect is the auto-increment of `nr_copper_addr` and the
+    // optional latch into `nr_copper_data_stored` when `nr_copper_addr(0)='0'`
+    // per zxnext.vhd:5433-5439). Unmapped reads fall through the case
+    // statement to the `when others => port_253b_dat <= (others => '0')`
+    // default at :6286-6287, returning 0x00. Pre-fix the C++ write_handler
+    // returned `v`, leaving the cache holding the last-write byte — a
+    // subsequent NR 0x63 read returned that byte instead of 0x00. Same
+    // shape as the existing G149 (NR 0x60), V14-NMP-03 (NR 0x2B), and
+    // V14-NMP-04 (NR 0x2A) canonicalisations.
+    nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return 0; });
 
     // NR 0x61 / 0x62 read-back. VHDL zxnext.vhd:6083-6087 returns
     //   0x61 -> nr_copper_addr(7..0)
@@ -1374,15 +1830,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             [this, i](uint8_t v) -> uint8_t {
                 if (v == 0xFF) {
                     if (i == 0 || i == 1) {
-                        // Slots 0/1: legacy ROM auto-paging
-                        mmu_.engage_legacy_rom_paging();
-                    } else if (i == 6 || i == 7) {
-                        // Slots 6/7: legacy RAM auto-paging
-                        mmu_.engage_legacy_ram_paging();
+                        // VHDL zxnext.vhd:4611-4612, :3052 — value 0xFF on
+                        // slots 0/1 re-engages legacy ROM auto-paging
+                        // (sram_rom-derived ROM page). Use the per-slot
+                        // helper so the OTHER slot's prior NR 0x50/0x51
+                        // mapping is preserved (VHDL nr_mmu_we writes only
+                        // MMU<i>, NOT both slots).
+                        mmu_.engage_legacy_rom_paging_slot(i);
                     } else {
-                        // Slots 2-5: keep prior fallback behavior
-                        // (no legacy auto-paging for these in 128K).
-                        mmu_.map_rom(i, 0);
+                        // Slots 2-7 with v=0xFF: VHDL zxnext.vhd:4686-4696
+                        // stores 0xFF in MMU<i>; the SRAM arbiter at :3061
+                        // then sees mmu_A21_A13(8)='1' and emits
+                        // sram_pre_active='0' — slot becomes inactive
+                        // (reads return floating-bus 0xFF, writes dropped).
+                        // set_page(i, 0xFF) achieves that: nr_mmu_=0xFF,
+                        // slots_=0xFF, read_only_=false → rebuild_ptr
+                        // nullifies read/write pointers. The prior
+                        // engage_legacy_ram_paging() (slots 6/7) and
+                        // map_rom(i,0) (slots 2-5) both diverged from VHDL
+                        // by forcing a non-0xFF mapping. Inert in current
+                        // boot but VHDL-faithful.
+                        mmu_.set_page(i, 0xFF);
                     }
                 } else {
                     mmu_.set_page(i, v);
@@ -1442,6 +1910,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         ula_int_disabled_ = (v & 0x04) != 0;
         video_timing_.set_interrupt_enable(!ula_int_disabled_);
         video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
+        // V19-IM2-01 fix: VHDL zxnext.vhd:5297 — NR 0x22 bit 1 also writes
+        // the `nr_22_line_interrupt_en` flip-flop, which feeds
+        // `im2_int_en[0]` (= LINE device int_en) per :1950 + :6711. Pre-fix
+        // jnext only updated `video_timing_.set_line_interrupt_enable()`
+        // (the line-int generation gate), but the IM2 fabric's
+        // `dev_[DevIdx::LINE].int_en` was NOT updated. Result: in IM2 mode,
+        // a NR 0x22 ← bit1=1 enabled line-int generation, but the IM2
+        // wrapper edge-detect would NOT latch im2_int_req (because int_en
+        // stayed 0), so the daisy-chain S_REQ never asserted — the CPU
+        // never received the interrupt. NR 0xC4 bit 1 is a hardware mirror
+        // (writes the SAME flip-flop, VHDL :5610) and DOES update IM2's
+        // LINE int_en — so jnext was already self-inconsistent.
+        // Discriminative: write NR 0x22 ← 0x02; verify
+        // im2_.dev_[LINE].int_en == true via raise_req+tick observability.
+        im2_.set_int_en(Im2Controller::DevIdx::LINE, (v & 0x02) != 0);
         const uint16_t cur = video_timing_.line_interrupt_target();
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0xFF) | ((v & 0x01) << 8)));
@@ -1449,6 +1932,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // value into `port_ff_reg(6)` (the ULA-int-disable bit).
         port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
                                           | ((v & 0x04) << 4));
+        // V19-IM2-02 fix: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+        // NOT port_ff_interrupt_disable` (= NOT port_ff_reg(6)). That bit
+        // feeds `im2_int_en[11]` (= ULA device int_en) per :1949. Pre-fix
+        // jnext maintained `ula_int_disabled_` + `video_timing_.set_interrupt_enable`
+        // shadows but the IM2 fabric's `dev_[DevIdx::ULA].int_en` was
+        // NEVER updated — meaning every FRAME-INT raised via raise_req(ULA)
+        // in IM2 mode would set int_status but NOT im2_int_req (int_en=0),
+        // so the daisy-chain stayed in S_0 and no INT line was ever
+        // asserted to the Z80 in IM2 mode. Mirror the port_ff_reg(6) →
+        // ULA int_en propagation here so all three writers (port-FF,
+        // NR 0x22 b2, NR 0xC4 b0-NOT) keep IM2 fabric in sync.
+        im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                        (port_ff_reg_ & 0x40) == 0);
         // G108 — propagate the updated port_ff_reg into Ula::screen_mode_reg_
         // so the renderer sees the change. Bits 2:0 (mode) + 5:3 (paper
         // colour) are preserved from the previous port_ff_reg state; only
@@ -1530,6 +2026,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NmiSource::nr_02_write).
         nmi_source_.nr_02_write(v);
 
+        // VHDL zxnext.vhd:5119 — `nr_02_bus_reset <= nr_wr_dat(7)`.
+        // Captured verbatim on every NR 0x02 write. Surfaced on the
+        // NR 0x02 readback bit 7 (VHDL:5891) and routed to
+        // `o_RESET_PERIPHERAL` (VHDL:1579) — peripheral / ESP /
+        // expansion-bus reset pin not modelled in jnext. The signal
+        // has no reset clause anywhere in zxnext.vhd, so the latch
+        // survives both hard and soft reset.
+        // Pass-3 verify-audit (Task 2): pre-fix this bit was hard-
+        // coded zero on readback.
+        nr_02_bus_reset_ = (v & 0x80) != 0;
+
         // VHDL zxnext.vhd:3879-3880 — NR 0xDA `nr_da_iotrap_cause`
         // clears when NR 0x02 is written with bit 4 = 0 (the
         // `nr_02_iotrap` ack/clear path). VHDL:3885 also gates the
@@ -1567,6 +2074,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             soft_reset();
         }
         // bit 7 alone (RESET_ESPBUS) is intentionally ignored — no ESP.
+
+        // Pass-8 verify-audit fix (2026-05-09): VHDL zxnext.vhd:3319 gates
+        // the X"7F" Flash-CS decode on `(nr_03_config_mode='1') OR
+        // (nr_02_reset_type(2)='1')`. After a soft-reset strobe (bit 0)
+        // the reset_type FSM advances and may transition the bit-2 latch,
+        // changing the gate. Re-fan-out to SpiMaster so a Flash-select
+        // write on port 0xE7 immediately observes the post-strobe gate.
+        spi_.set_flash_cs_enable(
+            nextreg_.nr_03_config_mode()
+            || ((nmi_source_.reset_type() & 0x04) != 0));
         return v;
     });
 
@@ -1585,7 +2102,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // scope we surface them as zero rather than inventing state that
     // wouldn't match the VHDL shift-register / latch semantics.
     nextreg_.set_read_handler(0x02, [this]() -> uint8_t {
-        return nmi_source_.nr_02_read();
+        // VHDL zxnext.vhd:5891 layout:
+        //   bit 7   = nr_02_bus_reset
+        //   bits 6:5 = "00"
+        //   bit 4   = nr_02_iotrap = nr_da_iotrap_cause(1) OR (0)  (VHDL:3885)
+        //   bit 3   = nr_02_generate_mf_nmi
+        //   bit 2   = nr_02_generate_divmmc_nmi
+        //   bits 1:0 = nr_02_reset_type(1:0)
+        //
+        // NmiSource owns bits 3, 2, 1, 0 (FSM-derived). Bit 4 is composed
+        // here from the iotrap-cause shadow (`nr_da_iotrap_cause_`) so a
+        // poll-loop watching NR 0x02 can see "any trap pending". Bit 7
+        // (bus_reset) is composed from `nr_02_bus_reset_` (the latch
+        // captured on every NR 0x02 write per VHDL:5119) — Pass-3 verify-
+        // audit fix; pre-fix this bit was hard-coded zero.
+        uint8_t v = nmi_source_.nr_02_read();
+        if ((nr_da_iotrap_cause_ & 0x03) != 0) v |= 0x10;
+        if (nr_02_bus_reset_)                  v |= 0x80;
+        return v;
     });
 
     // NR 0xD8 — IO trap enable (VHDL zxnext.vhd:1263, 5640, 6266).
@@ -1642,6 +2176,96 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return static_cast<uint8_t>(nr_da_iotrap_cause_ & 0x03);
     });
 
+    // V19R-NMP-NIT-03 — NR 0xF0 XADC composed-read stub.
+    //
+    // VHDL zxnext.vhd:6273-6274 read mux:
+    //   when X"F0" => port_253b_dat <= nr_f0_xdev_cmd;
+    //
+    // The driver of `nr_f0_xdev_cmd` is board-issue dependent:
+    //   • Issue 2/3 (g_board_issue <= 1, zxnext.vhd:7420-7436):
+    //     nr_f0_xdev_cmd is hard-wired to (others => '0') — always 0x00,
+    //     irrespective of writes to NR 0xF0.
+    //   • Issue 4/5 (g_board_issue >= 2, zxnext.vhd:7438-7484):
+    //     `nr_f0_xdev_cmd` composes from XADC live state (`i_XADC_BUSY`,
+    //     `nr_f0_xadc_eoc`, `nr_f0_xadc_eos`) when xadc/xdna are enabled.
+    //
+    // jnext seeds NR 0x0F (= g_board_issue) to 0x00 (Issue 2; see
+    // src/port/nextreg.cpp). The Issue 2 VHDL path therefore applies,
+    // and the VHDL-faithful readback is a constant 0x00. The XADC and
+    // XDNA blocks are not modeled in jnext — there is no boot path nor
+    // any NextZXOS code that depends on the XADC temperature/voltage
+    // monitor, so this stub is conservative.
+    //
+    // Pre-V19R the read fell through to `regs_[0xF0]` which leaked the
+    // raw last-written byte (Class-(c) inert divergence). The stub
+    // returns the VHDL-correct constant regardless of writes.
+    nextreg_.set_read_handler(0xF0, []() -> uint8_t {
+        return 0x00;
+    });
+
+    // V19R-NMP-NIT-04 — NR 0xF8 XADC-daddr readback bit-7 mask.
+    //
+    // VHDL zxnext.vhd:6277-6278 read mux:
+    //   when X"F8" => port_253b_dat <= '0' & nr_f8_xadc_daddr;
+    // Bit 7 is hard-wired to '0' on read regardless of board issue.
+    //
+    // VHDL write path zxnext.vhd:7553-7558 (Issue 4/5):
+    //   nr_f8_xadc_dwe   <= nr_wr_dat(7);     -- bit 7 stored elsewhere
+    //   nr_f8_xadc_daddr <= nr_wr_dat(6:0);   -- only 7 bits land in daddr
+    // For Issue 2/3 path zxnext.vhd:7425, nr_f8_xadc_daddr is (others=>'0')
+    // — writes don't update it at all; the readback is therefore always 0.
+    //
+    // jnext is Issue 2 per NR 0x0F = 0x00, so the strictest VHDL-faithful
+    // stub would return 0x00 always. The conservative-but-Issue-4/5-aware
+    // stub is `regs_[0xF8] & 0x7F` — that drops the bit-7 leak and matches
+    // VHDL for any board issue (jnext could conceivably be retargeted to
+    // Issue 4/5 in the future).
+    //
+    // Pre-V19R the bare cache stored the full byte, leaking bit 7 on
+    // readback (Class-(c) inert divergence). The XADC is not modeled and
+    // never exercised by NextZXOS boot, so this is non-functional, but the
+    // strict VHDL-faithfulness rule requires the mask.
+    nextreg_.set_read_handler(0xF8, [this]() -> uint8_t {
+        return static_cast<uint8_t>(nextreg_.cached(0xF8) & 0x7F);
+    });
+
+    // V20-NMP-XADC — NR 0xF9 / NR 0xFA XADC d0/d1 composed-read stubs.
+    //
+    // VHDL zxnext.vhd:6280-6284 read mux:
+    //   when X"F9" => port_253b_dat <= nr_f9_xadc_d0;
+    //   when X"FA" => port_253b_dat <= nr_fa_xadc_d1;
+    //
+    // The drivers of these signals are board-issue dependent:
+    //   • Issue 2/3 (g_board_issue <= 1, zxnext.vhd:7420-7436):
+    //     `nr_f9_xadc_d0` and `nr_fa_xadc_d1` are hard-wired to
+    //     (others => '0') (lines 7428-7429), irrespective of writes to
+    //     NR 0xF9/0xFA. The NR-write decoder still strobes `nr_f9_we` /
+    //     `nr_fa_we` (lines 4823-4824, 4904-4905), but the register
+    //     signals themselves are never updated on the Issue 2/3 path.
+    //   • Issue 4/5 (g_board_issue >= 2, zxnext.vhd:7438+):
+    //     The clocked processes around line 7570+ latch `nr_wr_dat` into
+    //     `nr_f9_xadc_d0` / `nr_fa_xadc_d1` on `nr_f9_we` / `nr_fa_we`.
+    //     The 16-bit XADC `o_XADC_DI` output (line 1719) concatenates
+    //     them as `nr_fa_xadc_d1 & nr_f9_xadc_d0`.
+    //
+    // jnext seeds NR 0x0F (= g_board_issue) to 0x00 (Issue 2; see
+    // src/port/nextreg.cpp). The Issue 2 VHDL path therefore applies,
+    // and the VHDL-faithful readback is a constant 0x00 for both NR 0xF9
+    // and NR 0xFA. The XADC block is not modeled in jnext — no NextZXOS
+    // boot path nor any application is known to depend on the XADC
+    // temperature/voltage monitor, so this stub is conservative.
+    //
+    // Pre-V20 the reads fell through to `regs_[0xF9]` / `regs_[0xFA]`
+    // which leaked the raw last-written byte (Class-(c) inert
+    // divergence). The stubs return the VHDL-correct constant
+    // regardless of writes. Same shape as V19R-NMP-NIT-03 for NR 0xF0.
+    nextreg_.set_read_handler(0xF9, []() -> uint8_t {
+        return 0x00;
+    });
+    nextreg_.set_read_handler(0xFA, []() -> uint8_t {
+        return 0x00;
+    });
+
     // Register 0x03: Machine type + config_mode transitions.
     // - Writing to this register disables the boot ROM overlay
     //   (VHDL: bootrom_en <= '0' on any write to nr_03).
@@ -1684,6 +2308,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
             nextreg_.set_nr_03_machine_timing(new_timing);
 
+            // V13-NMP-01 (Pass-13 verify-audit fix): VHDL zxnext.vhd:5832-
+            // 5841 forces `nr_05_5060 <= '0'` continuously every clock
+            // when `nr_03_machine_timing(2) = '1'` (Pentagon). The IF
+            // branch fires on EVERY clock edge — so the moment a NR 0x03
+            // write commits a Pentagon timing, the FF is cleared on the
+            // very next clock. The C++ `regs_[0x05]` cache tracks the
+            // last write through NextReg; without an explicit clear here,
+            // a pre-Pentagon NR 0x05 write with bit 2 = 1 would leak
+            // through the cache once Pentagon is later exited (the read
+            // mask at line 1166 only fires while Pentagon is live).
+            // Mirror the FF behaviour by clearing cached bit 2 on the
+            // timing→Pentagon transition. Same shape as the V11-NMP-02 /
+            // V11-NMP-03 cache-canonicalisation pattern, applied here on
+            // the gating-state-change edge instead of the gated-write
+            // edge. Bits 7:3 / 1:0 are unaffected.
+            if ((new_timing & 0x04) != 0) {
+                const uint8_t cached_05 =
+                    static_cast<uint8_t>(nextreg_.cached(0x05) & ~0x04);
+                // Re-write the canonicalised value through NextReg::write,
+                // which routes through the NR 0x05 write_handler (see
+                // `nextreg.cpp:451-452`) and hence fans out to Joystick.
+                // That is benign here — joy0/joy1 are encoded in bits 7:5
+                // and 4:3 respectively; only bit 2 is being cleared, so
+                // Joystick's mode selectors are unaffected and the call is
+                // idempotent for the cache-canonicalisation purpose.
+                nextreg_.write(0x05, cached_05);
+            }
+
             // G121: VHDL zxnext.vhd:2033 — pulse_count_end gates on
             // `machine_timing_48 OR machine_timing_p3`, both decoded from
             // nr_03_machine_timing. When NR 0x03 changes the timing post-boot,
@@ -1694,6 +2346,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // timing change.
             const bool is_48_or_p3 = (new_timing == 0x01) || (new_timing == 0x03);
             im2_.set_machine_timing_48_or_p3(is_48_or_p3);
+            // Mirror to Z80Cpu's /INT pulse-window gate (zxnext.vhd:2033).
+            // Same logic as im2_, distinct consumer: cpu_ uses the width to
+            // discard a pending interrupt the CPU never acknowledged.
+            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+
+            // V24-MEM-01 / V25-MEM-01 fix — push the decoded
+            // MachineTimingMode (tim_sel axis) into the SHADOW field of
+            // ContentionModel and Mmu. VHDL :5121-5135 writes
+            // `nr_03_machine_timing` immediately on the gated NR 0x03
+            // write; the latch `eff_nr_03_machine_timing` then commits
+            // on the next video-frame edge (:6694-6703 —
+            // `video_frame_sync='1'`). jnext models the same two-step
+            // commit via set_pending_machine_timing() (immediate
+            // shadow) + commit_pending_machine_timing() (frame-edge
+            // promotion, called from run_frame()).
+            //
+            // Note: this is the SOLE consumer of the new
+            // MachineTimingMode axis at the NR 0x03 write seam — IM2 /
+            // CPU pulse-width above (the is_48_or_p3 fan-out) is the
+            // VHDL `pulse_count_end` term at :2033, which keys on
+            // `eff_nr_03_machine_timing` directly (no video-frame
+            // latch), so it commits combinationally. Our `is_48_or_p3`
+            // therefore stays immediate; the new contention/MMU axis
+            // is deferred.
+            const MachineTimingMode tim_mode = decode_nr_03_machine_timing(new_timing);
+            contention_.set_pending_machine_timing(tim_mode);
+            mmu_.set_pending_machine_timing(tim_mode);
         }
 
         // dt_lock XOR-toggle (VHDL :5135) — unconditional XOR with bit 3.
@@ -1738,6 +2417,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     static_cast<int>(mmu_.machine_type()),
                     static_cast<int>(new_mt), typ_sel);
                 mmu_.set_machine_type(new_mt);
+                // Verify7-memory class-(a) fix: VHDL `sram_rom3`
+                // (zxnext.vhd:2981-3008) is per-machine-type — switching
+                // to/from 48K (which hardwires sram_rom3='1') or +3 (which
+                // requires both port_1ffd_rom bits) flips the signal even
+                // when ports are unchanged. Repush the new value to
+                // DivMmc so the ROM3-conditional auto-map gate
+                // (zxnext.vhd:3138) tracks the machine-type change.
+                divmmc_.set_rom3_active(mmu_.sram_rom3());
+                // Verify9-memory class-(c) → class-(a) fix: VHDL
+                // mem_contend (:4490-4492) and the wait_s window
+                // (zxula.vhd:582-583, +3-only `hc_adj[3:1]=000` corner)
+                // are per-machine-type — a NR 0x03 commit must rebuild
+                // ContentionModel's LUT + per-machine bank decode.
+                // Pre-fix the LUT stayed pinned to the boot-time CLI
+                // type; a Next-mode firmware that committed +3 via
+                // typ_sel=$03 would miss the +3-specific corner of
+                // wait_s, and Next→48K/128K transitions would miss the
+                // bank-decode change. `rebuild_for_type` preserves
+                // dynamic gate state (cpu_speed / contention_disable /
+                // mem_active_page / shadows) so this commit doesn't
+                // unwind paging.
+                contention_.rebuild_for_type(new_mt);
             }
         }
 
@@ -1747,6 +2448,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // Mirror config_mode into Mmu so the fast-path read/write routing
         // (VHDL zxnext.vhd:3044-3050) tracks the NextReg state.
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
+        // Pass-8 verify-audit fix (2026-05-09): VHDL zxnext.vhd:3319 gates
+        // the X"7F" Flash-CS decode on `nr_03_config_mode='1'` (OR
+        // reset_type(2)='1'). Re-fan-out to SpiMaster so a Flash-select
+        // write on port 0xE7 immediately observes the new gate.
+        spi_.set_flash_cs_enable(
+            nextreg_.nr_03_config_mode()
+            || ((nmi_source_.reset_type() & 0x04) != 0));
         Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
         return v;
@@ -1755,17 +2463,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x03 read: composed per VHDL zxnext.vhd:5894 —
     //   port_253b_dat <= nr_palette_sub_idx & nr_03_machine_timing(2:0) &
     //                    nr_03_user_dt_lock & nr_03_machine_type(2:0)
-    // JNEXT does not model nr_palette_sub_idx (palette-aux selector used
-    // only by the NR 0x44 / NR 0x41 sub-index toggle), so bit 7 reads 0
-    // until that FSM lands. All other bits come from the state fields on
-    // NextReg, which track the VHDL signals faithfully.
+    //
+    // V21-NMP-01 (Pass-21 verify-audit fix): bit 7 surfaces VHDL
+    // `nr_palette_sub_idx` (zxnext.vhd:1182), the same FF the NR 0x44
+    // 9-bit-palette-write toggle drives (:5403) and the NR 0x40 / 0x41 /
+    // 0x43 writes reset to '0' (:5376 / :5382 / :5395); the global
+    // reset block (:5000) also clears it. NR 0x28 was previously
+    // mis-cited as a resetter — it is the keymap-select write
+    // (:6301-6303, drives nr_keymap_sel / nr_keymap_addr), unrelated
+    // to nr_palette_sub_idx [V21R-NMP-NIT-01 doc fix].
+    // PaletteManager owns the identical `nine_bit_first_written_` shadow
+    // (palette.cpp:330-351 toggles; palette.cpp:220, palette.cpp:209,
+    // palette.cpp:86 / etc. reset paths). Pre-fix bit 7 was hard-wired
+    // to 0, so a poll-loop checking "second 9-bit write phase armed?"
+    // via NR 0x03 read would observe a stuck-low bit while VHDL would
+    // toggle it. Class-(c) inert divergence (no jnext boot path polls
+    // NR 0x03 bit 7 today, but the readback contract is part of the
+    // VHDL surface and a NR 0x44 + NR 0x03 sequence in any future
+    // firmware would observe the bug).
     nextreg_.set_read_handler(0x03, [this]() -> uint8_t {
         const uint8_t timing = static_cast<uint8_t>(nextreg_.nr_03_machine_timing() & 0x07);
         const uint8_t mtype  = static_cast<uint8_t>(nextreg_.nr_03_machine_type()   & 0x07);
         const uint8_t dtlock = nextreg_.nr_03_user_dt_lock() ? 1 : 0;
-        // palette_sub_idx not modeled → 0. bits[7]=0, [6:4]=timing, [3]=dtlock,
-        // [2:0]=machine_type.
-        return static_cast<uint8_t>((0u << 7) | (timing << 4) | (dtlock << 3) | mtype);
+        const uint8_t sub_idx = palette_.nine_bit_first_written() ? 1 : 0;
+        return static_cast<uint8_t>((sub_idx << 7) | (timing << 4) | (dtlock << 3) | mtype);
     });
 
     // Register 0x04: ROM/RAM bank select used by tbblue.fw's load_roms() to
@@ -1773,9 +2494,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:1104,5716-5732 — we take all 8 bits (Issue-5 behaviour);
     // out-of-range banks fall back to 0xFF reads via Ram::page_ptr()==nullptr.
     nextreg_.set_write_handler(0x04, [this](uint8_t v) -> uint8_t {
-        nextreg_.set_nr_04_romram_bank(v);
-        mmu_.set_nr_04_romram_bank(v);
-        Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
+        // VHDL zxnext.vhd:5709-5722 (gen_romram_234, board issue ≤ 2):
+        //   nr_04_romram_bank <= '0' & nr_wr_dat(6 downto 0);
+        // i.e. bit 7 is forced to zero on Issue 2/3/4 boards (jnext defaults
+        // to ZXN_ISSUE2 — see emulator_config.h:67). Issue 5 stores the full
+        // 8 bits (gen_romram_5, :5724-5736). VERIFY4 / pass-4: prior code
+        // forwarded the raw byte verbatim to the SRAM address compose, so a
+        // firmware write of NR 0x04 with bit 7 set would route slot 0/1
+        // page index `(0xFF << 1) | slot` = page 0x1FE/0x1FF, out of the
+        // emulated 1 MiB SRAM range (256 × 8 KiB pages = pages 0..0xFF).
+        const uint8_t bank = static_cast<uint8_t>(v & 0x7F);
+        nextreg_.set_nr_04_romram_bank(bank);
+        mmu_.set_nr_04_romram_bank(bank);
+        Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank, masked to {:#04x})", v, bank);
         // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x04
         // (write-only ROM/RAM bank latch; only consumed by the SRAM
         // address-composition path). Fall-through is (others => '0'); return
@@ -1838,9 +2569,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // `port_ff3b_ulap_en` rather than from a stored copy. Port 0xFF3B writes
     // mutate ulap_en_ without touching regs_[0x68], so the cached snapshot
     // diverges. Compose bit 3 from the live state at read time.
+    //
+    // V20-NMP-02 (Pass-20 verify-audit fix): VHDL zxnext.vhd:6093 read mux
+    // composes NR 0x68 as
+    //   (not nr_68_ula_en) & nr_68_blend_mode & nr_68_cancel_extended_keys
+    //                      & port_ff3b_ulap_en & nr_68_ula_fine_scroll_x
+    //                      & '0' & nr_68_ula_stencil_mode
+    // — bit 1 is a LITERAL '0', irrespective of writes. The NR 0x68 write
+    // decoder at :5444-5450 has NO `nr_68_*(1)` storage (the entire bit-1
+    // field is absent from the write case). Pre-fix the C++ stored the
+    // raw written byte in `regs_[0x68]` and the read mask `cached & 0xF7`
+    // preserved bit 1 verbatim, leaking the last-written bit-1 value on
+    // readback. Add bit 1 to the read mask: `cached & 0xF5` (= 1111 0101)
+    // clears bit 1 AND bit 3 (bit 3 is recomposed from live ulap_en
+    // immediately below). Class-(c) inert divergence.
     nextreg_.set_read_handler(0x68, [this]() -> uint8_t {
         uint8_t v = nextreg_.cached(0x68);
-        v = (v & 0xF7) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
+        v = (v & 0xF5) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
         return v;
     });
 
@@ -1851,6 +2596,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 3:0 = reserved
     nextreg_.set_write_handler(0x69, [this](uint8_t v) -> uint8_t {
         layer2_.set_enabled((v & 0x80) != 0);
+        // V13-MEM-01 fix — VHDL zxnext.vhd:3924-3925 fans NR 0x69 bit 7
+        // (`nr_wr_dat(7)`) into `port_123b_layer2_en` (the SAME FF that
+        // port 0x123B bit 1 latches at :3916). The port 0x123B readback
+        // at :3933 surfaces this FF as bit 1 of port_123b_dat, so a
+        // subsequent IN A,(123B) after a `NEXTREG $69,$80` write must
+        // see bit 1 = 1. Pre-fix Layer2's enabled_ shadow was updated
+        // (used by the NR 0x69 read handler) but Mmu's l2_enable_
+        // mirror was NOT — port 0x123B readback lagged Layer2 until the
+        // next port 0x123B write. Mirror the same bit into Mmu so both
+        // surfaces stay in sync.
+        mmu_.set_l2_enable((v & 0x80) != 0);
         // VHDL zxnext.vhd:3658-3660 — `nr_69_we` drives
         // `port_7ffd_reg(3) <= nr_wr_dat(6)` regardless of port_7ffd_locked
         // (the lock gates only the full-byte branch at :3650). Bit 3 is
@@ -1888,12 +2644,90 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return v;
     });
 
-    // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
+    // Register 0x8A: Bus-port propagate (low 6 bits only).
+    // VHDL zxnext.vhd:5524-5525 — `nr_8a_bus_port_propagate <= nr_wr_dat(5:0)`
+    // (bits 7:6 of write are dropped). VHDL zxnext.vhd:6152-6153 read:
+    //   port_253b_dat <= "00" & nr_8a_bus_port_propagate;
+    // VERIFY4 / pass-4 — pre-fix the bare regs_[0x8A] echoed the full byte;
+    // canonicalise on the write side so the readback matches VHDL.
+    nextreg_.set_write_handler(0x8A, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x3F);
+    });
 
+    // Registers 0x90 / 0x93 — Pi GPIO output enable (bit-mask gating).
+    // VHDL zxnext.vhd:5537 — NR 0x90: `nr_90_pi_gpio_o_en <= nr_wr_dat(7:2) & "00"`
+    //   i.e. bits 1:0 are forced 0 (jnext does not enable output on GPIO 1:0).
+    // VHDL zxnext.vhd:5546 — NR 0x93: `nr_93_pi_gpio_o_en <= nr_wr_dat(3:0)`.
+    // Read mux at zxnext.vhd:6164-6174 returns the stored byte verbatim
+    // (with NR 0x93 prefixed by "0000"). VERIFY4 / pass-4 — pre-fix the
+    // bare regs_[0x90 / 0x93] echoed the full write byte. Pi GPIO is not
+    // boot-relevant but the readback contract is part of the VHDL surface.
+    nextreg_.set_write_handler(0x90, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0xFC);
+    });
+    nextreg_.set_write_handler(0x93, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x0F);
+    });
+
+    // Registers 0x98 / 0x99 / 0x9A / 0x9B — Pi GPIO INPUT readback.
+    // VHDL zxnext.vhd:6176-6186 — reads return `i_GPIO(...)` (the live Pi
+    // GPIO INPUT pins), NOT the corresponding nr_9*_pi_gpio_o write shadow.
+    // Reads decode as:
+    //   NR 0x98 → i_GPIO(7:0)
+    //   NR 0x99 → i_GPIO(15:8)
+    //   NR 0x9A → i_GPIO(23:16)
+    //   NR 0x9B → "0000" & i_GPIO(27:24)
+    // jnext does not model the Pi GPIO bus. Returning 0 matches the VHDL
+    // contract for "no Pi attached" better than the default last-written-byte
+    // shadow (which leaks the `nr_9*_pi_gpio_o` output state into the input
+    // read path). VERIFY4 / pass-4.
+    nextreg_.set_read_handler(0x98, []() -> uint8_t { return 0x00; });
+    nextreg_.set_read_handler(0x99, []() -> uint8_t { return 0x00; });
+    nextreg_.set_read_handler(0x9A, []() -> uint8_t { return 0x00; });
+    nextreg_.set_read_handler(0x9B, []() -> uint8_t { return 0x00; });
+
+    // Register 0xA8 — ESP GPIO0 output enable (bit 0 only).
+    // VHDL zxnext.vhd:5570 — `nr_a8_esp_gpio0_en <= nr_wr_dat(0)`.
+    // Read at zxnext.vhd:6197-6198: `"0000000" & nr_a8_esp_gpio0_en` (mask 0x01).
+    nextreg_.set_write_handler(0xA8, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x01);
+    });
+
+    // Register 0xA9 — ESP GPIO0 input value.
+    // VHDL zxnext.vhd:6200-6201:
+    //   port_253b_dat <= "00000" & i_ESP_GPIO_20(2) & '0' & i_ESP_GPIO_20(0);
+    // Read returns ESP-side GPIO INPUT bits 2 and 0 (with bit 1 forced to 0),
+    // NOT the nr_a9_esp_gpio0 output shadow. jnext does not model the ESP
+    // GPIO; return 0 (no ESP attached) instead of the last-written shadow
+    // to avoid leaking the output state into the input read.
+    nextreg_.set_read_handler(0xA9, []() -> uint8_t { return 0x00; });
+
+    // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
+    //
+    // V17-NMP-01 (Pass-17 verify-audit fix): VHDL zxnext.vhd:5087-5090 reset
+    // these registers to 0x83/0x01/0x00/0xCD respectively (the master reset
+    // block at :4928-5100 fires unconditionally on `i_reset`). The DivMmc
+    // subsystem stores the same values in `entry_points_0_`/`entry_valid_0_`/
+    // `entry_timing_0_`/`entry_points_1_` (divmmc.h:342-345 + divmmc.cpp:43-46).
+    // Pre-fix the NR 0xB8-0xBB readback path fell through to `regs_[reg]`
+    // (NextReg::read at :408-414), which `regs_.fill(0)` in NextReg::reset()
+    // had cleared to 0x00 — so a Z80 IN A,(0x253B) at NR 0xB8/0xB9/0xBA/0xBB
+    // returned 0x00/0x00/0x00/0x00 instead of the VHDL-spec 0x83/0x01/0x00/0xCD.
+    // Software that polls these registers (e.g. firmware verifying the
+    // automap entry-point configuration after reset) sees stale defaults.
+    //
+    // Fix: register read_handlers that pull live from the DivMmc subsystem,
+    // mirroring the same accessor pattern used for NR 0x12/NR 0x13 (which
+    // also have authoritative subsystem state — Layer2). Read mux per
+    // VHDL zxnext.vhd:6217-6227 returns each storage byte verbatim.
     nextreg_.set_write_handler(0xB8, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_points_0(v); return v; });
     nextreg_.set_write_handler(0xB9, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_valid_0(v); return v; });
     nextreg_.set_write_handler(0xBA, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_timing_0(v); return v; });
     nextreg_.set_write_handler(0xBB, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_points_1(v); return v; });
+    nextreg_.set_read_handler(0xB8, [this]() -> uint8_t { return divmmc_.entry_points_0(); });
+    nextreg_.set_read_handler(0xB9, [this]() -> uint8_t { return divmmc_.entry_valid_0(); });
+    nextreg_.set_read_handler(0xBA, [this]() -> uint8_t { return divmmc_.entry_timing_0(); });
+    nextreg_.set_read_handler(0xBB, [this]() -> uint8_t { return divmmc_.entry_points_1(); });
 
     // Register 0x83: Internal port-enable register 2.
     // VHDL zxnext.vhd:1227, 2392, 2412 — bit 0 of NR 0x83 drives
@@ -1908,11 +2742,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // here we only need to forward bit 0 to DivMmc as a state setter.
     // G124.
     nextreg_.set_write_handler(0x83, [this](uint8_t v) -> uint8_t {
-        divmmc_.set_port_io_enable((v & 0x01) != 0);
-        // Wave 1 B1 — bit 1 = port_multiface_io_en (VHDL zxnext.vhd:2415-2416,
-        // `internal_port_enable(9)`), gating the Multiface (multiface.vhd:64
-        // `enable_i`). When low, all four FFs are held in reset.
-        multiface_.set_enabled((v & 0x02) != 0);
+        // V16-NMP-02: route both DivMMC (b0) and Multiface (b1, VHDL
+        // zxnext.vhd:2415-2416 `internal_port_enable(9)`, gates
+        // multiface.vhd:64 `enable_i`) gates through
+        // propagate_effective_port_enables so expbus_eff_en=1 correctly
+        // ANDs in NR 0x87. The cache for NR 0x83 is committed AFTER
+        // this handler returns, so pass `v` as an in-flight override.
+        propagate_effective_port_enables(/*override_reg=*/0x83, v);
         return v;
     });
 
@@ -1921,6 +2757,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 6:4 always read back as zero.
     nextreg_.set_read_handler(0x85, [this]() -> uint8_t {
         return nextreg_.cached(0x85) & 0x8F;
+    });
+    // V15-CPU-NIT-03 (reviewer-promoted): NR 0x85 bit 0 ("port_ulap_io_en")
+    // gates the `port_bf3b`/`port_ff3b` ULA+ contention OR-terms
+    // (VHDL zxnext.vhd:2439 + 2685-2686 + 4496). The CPU-side
+    // I/O bus callbacks (fuse_z80_readport / fuse_z80_writeport in
+    // src/cpu/z80_cpu.cpp) don't have access to NextReg state, so
+    // we mirror the bit into ContentionModel via a shadow setter
+    // (mirroring the Verify9-memory `port_7ffd_io_en_` pattern).
+    // ContentionModel::contention_tick() OR-folds the shadow with
+    // its parameter so the bit is consulted regardless of caller.
+    nextreg_.set_write_handler(0x85, [this](uint8_t v) -> uint8_t {
+        // V16-NMP-02: route through propagate_effective_port_enables so
+        // expbus_eff_en=1 ANDs in NR 0x89 b0 per VHDL :2392-2393. Cache
+        // for NR 0x85 is committed AFTER this handler returns, so pass
+        // `v` as an in-flight override.
+        propagate_effective_port_enables(/*override_reg=*/0x85, v);
+        return v;
     });
 
     // Register 0x89: Bus port-enable register 4 — read packing. (G154)
@@ -1931,6 +2784,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 6:4 always read back as zero. Same pack-mask shape as NR 0x85.
     nextreg_.set_read_handler(0x89, [this]() -> uint8_t {
         return nextreg_.cached(0x89) & 0x8F;
+    });
+
+    // V16-NMP-02 (Pass-16 verify-audit fix): NR 0x86-0x89 are the
+    // `nr_8X_bus_port_enable` AND-mask group. Per VHDL zxnext.vhd:2392-2393,
+    // when `expbus_eff_en=1` the effective `internal_port_enable` formula
+    // ANDs each NR 0x86-0x89 byte with the corresponding NR 0x82-0x85.
+    // Pre-fix, jnext stored writes in regs_[0x86..0x89] but never
+    // recomputed the downstream port-decode shadows on a NR 0x86-0x89
+    // change — so a write that should have gated a port off (with
+    // expbus_eff_en=1) was inert. Wire each write through
+    // propagate_effective_port_enables(). The bare NextReg::write stores
+    // `v` in regs_[reg] before the handler runs, so the helper sees the
+    // fresh byte.
+    nextreg_.set_write_handler(0x86, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x86, v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x87, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x87, v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x88, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x88, v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x89, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x89, v);
+        return v;
     });
 
     // Register 0x8C: Alternate ROM control
@@ -1946,6 +2827,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x8C, [this](uint8_t v) -> uint8_t {
         mmu_.set_nr_8c(v);
         rom_.set_alt_rom_config(v);
+        // Verify7-memory class-(a) fix: VHDL `sram_rom3` (zxnext.vhd:2990,
+        // 3000) factors NR 0x8C altrom lock bits per machine type. An NR
+        // 0x8C write that flips lock_rom1/lock_rom0 must repush sram_rom3
+        // to DivMmc so the ROM3-conditional auto-map gate (zxnext.vhd:3138)
+        // tracks the new lock state — VHDL drives it combinationally; we
+        // need an explicit refresh because DivMmc caches the bit.
+        divmmc_.set_rom3_active(mmu_.sram_rom3());
         return v;
     });
     nextreg_.set_read_handler(0x8C, [this]() -> uint8_t {
@@ -2043,6 +2931,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // per-scanline change-log stays symmetric with port-FF / NR 0x22
         // by routing every fan-out through Ula::set_screen_mode).
         renderer_.ula().set_screen_mode(port_ff_reg_);
+        // V12-NMP-01 (Pass-12 verify-audit fix): VHDL zxnext.vhd:3635 ties
+        // `port_ff_interrupt_disable <= port_ff_reg(6)` combinationally —
+        // both the NR 0x22 b2 fan-out (:3620) AND the NR 0xC4 b0 (NOT)
+        // fan-out (:3622) feed the same flip-flop. VHDL :6711 then drives
+        // `ula_int_en <= ... & (not port_ff_interrupt_disable)` into the
+        // ULA-INT comparator. jnext maintains a separate `ula_int_disabled_`
+        // shadow which the NR 0x22 write_handler at emulator.cpp:1657 sets
+        // from `(v & 0x04) != 0`, but the NR 0xC4 write_handler did NOT
+        // mirror that fan-out. Symptom: software writing NR 0xC4 ← 0x01 to
+        // ENABLE the ULA INT correctly clears `port_ff_reg_(6)`, but the
+        // C++ `ula_int_disabled_` shadow + `video_timing_.interrupt_enable()`
+        // gate stay stuck at the previous state — the scheduler keeps the
+        // ULA INT off, AND the NR 0xC4 read at line 2417 returns the stale
+        // shadow instead of the live `port_ff_reg(6)` state. Both NR 0x22
+        // and NR 0xC4 must update the same shadows; mirror the NR 0x22
+        // pattern (write_handler + video_timing_ fan-out).
+        ula_int_disabled_ = (port_ff_reg_ & 0x40) != 0;
+        video_timing_.set_interrupt_enable(!ula_int_disabled_);
+        // V19-IM2-02 fix: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+        // NOT port_ff_interrupt_disable` feeds `dev_[ULA].int_en` of the
+        // IM2 fabric (line :1949 bit 11). NR 0xC4 bit 0 (NOT) writes
+        // port_ff_reg(6); update the IM2 fabric's ULA int_en too so that
+        // a "ULA INT enable" via NR 0xC4 ← 0x01 actually allows the IM2
+        // wrapper to latch im2_int_req on raise_req(ULA) for IM2-mode
+        // FRAME interrupts. See V19-IM2-02 in NR 0x22 + port-FF for the
+        // mirror writers.
+        im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                        (port_ff_reg_ & 0x40) == 0);
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
         return v;
@@ -2241,12 +3157,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Read returns port_123b_dat (VHDL :3933): segment | "00" | shadow | rd_en
     // | enable | wr_en (bit 4 always reads 0; offset register not exposed) —
     // G145.
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2635 gates port_123b on
+    // `port_layer2_io_en = '1'`, where
+    // `port_layer2_io_en <= internal_port_enable(15)` = NR 0x83 bit 7
+    // (VHDL :2424). When cleared, the port is silenced.
     port_.register_handler(0xFFFF, 0x123B,
         [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x83) & 0x80) == 0) return 0xFF;
             // VHDL zxnext.vhd:3933 read-back composition (G145).
             return mmu_.l2_port_readback();
         },
         [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x80) == 0) return;  // NR 0x83 b7 gate
             // The bit-4 / non-bit-4 dispatch lives inside Mmu::set_l2_port;
             // here we just forward the byte plus the current NR 0x12/NR 0x13
             // bank values (the shadow bank is plumbed through the NR 0x13
@@ -2279,10 +3201,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x8003, 0x0001,
         nullptr,
         [this](uint16_t port, uint8_t v) {
-            // VHDL 2593: on +3 timing, require A14=1
-            if (config_.type == MachineType::ZX_PLUS3 && (port & 0x4000) == 0) return;
+            // VHDL :2593 (port_7ffd):
+            //   cpu_a(15)='0' AND (cpu_a(14)='1' OR p3_timing_hw_en='0') AND ...
+            // p3_timing_hw_en (VHDL :2457) one-hot mirrors `machine_timing_p3`
+            // — tim_sel axis, NOT typ_sel. D3F-NIT-01 (follow-up to D3F-01):
+            // route through `mmu_.machine_timing()` so a user-written
+            // NR 0x03 with `tim_sel != typ_sel` toggles the A14 gate via
+            // the same tim_sel axis the VHDL keys on.
+            if (mmu_.machine_timing() == MachineTimingMode::TimingPlus3
+                && (port & 0x4000) == 0) return;
             // VHDL 2399: port_7ffd_io_en <= internal_port_enable(1) = NR 0x82 bit 1
-            if ((nextreg_.cached(0x82) & 0x02) == 0) return;
+            // V16-NMP-02: route through effective_internal_port_enable so
+            // expbus_eff_en=1 ANDs in NR 0x86 b1 per VHDL :2392-2393.
+            if ((effective_internal_port_enable(0x82) & 0x02) == 0) return;
 
             mmu_.map_128k_bank(v);
             // VHDL zxnext.vhd:4453 — port_7ffd_reg(3) drives i_ula_shadow_en
@@ -2293,19 +3224,40 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             renderer_.ula().set_shadow_screen_en(mmu_.shadow_screen_en());
             // Push the new ROM3 state into DivMmc. VHDL zxnext.vhd:3138
             // composites sram_divmmc_automap_rom3_en from sram_pre_rom3
-            // (derived from sram_rom == "11"); Task 7 Branch B exposes the
-            // ROM-selection signal to DivMmc so entry points with NR 0xB9
-            // bit=0 gate correctly on ROM3 (EP1..EP7 path).
-            divmmc_.set_rom3_active(mmu_.rom3_selected());
-            // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
-            //   128K: odd banks (1,3,5,7) are contended
-            //   +3:   banks >= 4 (4,5,6,7) are contended
+            // (derived from VHDL `sram_rom3` at zxnext.vhd:2981-3008). The
+            // VHDL signal is per-machine-type and factors in NR 0x8C altrom
+            // locks: 48K hardwires '1', +3 is `port_1ffd_rom(1) AND port_1ffd_rom(0)`,
+            // ZXN/128K is `port_1ffd_rom(0)` (= port_7ffd(4)).
+            //
+            // Verify7-memory class-(a) fix: the legacy `rom3_selected()`
+            // observer returned `current_rom_bank() == 3` — only correct
+            // for +3 with no altrom lock. On Next mode, VHDL says ROM3 is
+            // active whenever `port_7ffd(4)=1` (1-bit sram_rom), but
+            // `rom3_selected()` required BOTH `port_1ffd(2)` AND
+            // `port_7ffd(4)`, under-reporting ROM3-active in the standard
+            // Next-mode boot path and silently suppressing DivMMC's
+            // ROM3-conditional auto-map. Switch to the VHDL-faithful
+            // `sram_rom3()` accessor.
+            divmmc_.set_rom3_active(mmu_.sram_rom3());
+            // Update 0xC000 contention based on machine timing (VHDL zxnext.vhd:4489-4493):
+            //   mem_contend <= ... when machine_timing_128='1' and mem_active_page(1)='1' else  -- odd
+            //                  ... when machine_timing_p3 ='1' and mem_active_page(3)='1' else  -- >=4
+            // The pattern selector keys on `machine_timing_*` (tim_sel axis),
+            // NOT `machine_type_` (typ_sel axis). Same family as
+            // V24-MEM-01 (canonical `Mmu::mem_contend_for_` consumer) and
+            // D3F-01/02/03 (port-handler gates). D3F-NIT-02 (follow-up):
+            // route through `mmu_.machine_timing()` so a user-written
+            // NR 0x03 with `tim_sel != typ_sel` selects the correct
+            // pattern via the same tim_sel axis the VHDL keys on.
             uint8_t bank = v & 0x07;
             bool slot3_contended;
-            if (config_.type == MachineType::ZX_PLUS3)
+            const MachineTimingMode tim = mmu_.machine_timing();
+            if (tim == MachineTimingMode::TimingPlus3)
                 slot3_contended = (bank >= 4);
-            else
+            else if (tim == MachineTimingMode::Timing128)
                 slot3_contended = (bank & 1) != 0;
+            else
+                slot3_contended = false;  // 48K / Pentagon: bank-switched slot 3 not contended
             contention_.set_contended_slot(3, slot3_contended);
             // Mirror per-16K-slot contention into Mmu so the
             // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509)
@@ -2332,6 +3284,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // The MF NMI path itself remains gated on NR 0x06 bit 3 (handled
     // inside `NmiSource::nmi_assert_mf()`).
     //
+    // Pass-3 verify-audit (Task 2): both NR 0xDA cause and NR 0xD9
+    // captured-write fields update only when `nmi_accept_cause = '1'`
+    // per VHDL :3871 and :3892. `nmi_accept_cause` (VHDL :2164) is
+    // `nmi_state = S_NMI_IDLE OR S_NMI_FETCH`. While the FSM is in
+    // HOLD or END, an iotrap event must NOT update either field —
+    // pre-fix the C++ updated them unconditionally on every trapped
+    // port access.
+    //
     // (G162 closure — MF-G162-02 in nmi_test plan.)
     port_.register_handler(0xF003, 0x2001,
         [this](uint16_t port) -> uint8_t {
@@ -2343,8 +3303,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // surface the floating-bus value via Mmu::floating_bus_read.
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
-                // VHDL zxnext.vhd:3871-3873 — port_2ffd_rd → cause "01".
-                nr_da_iotrap_cause_ = 0x01;
+                // VHDL zxnext.vhd:3871-3873 — port_2ffd_rd → cause "01"
+                // ONLY when nmi_accept_cause (FSM in IDLE or FETCH).
+                if (nmi_accept_cause_()) {
+                    nr_da_iotrap_cause_ = 0x01;
+                }
                 return 0xFF;  // FDC data port — open bus, FDC unmodelled.
             }
             return floating_bus_read();
@@ -2355,8 +3318,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // 0x3FFD READ — trap (VHDL:3835 port_3ffd_rd term).
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
-                // VHDL zxnext.vhd:3874-3875 — port_3ffd_rd → cause "10".
-                nr_da_iotrap_cause_ = 0x02;
+                // VHDL zxnext.vhd:3874-3875 — port_3ffd_rd → cause "10"
+                // ONLY when nmi_accept_cause (FSM in IDLE or FETCH).
+                if (nmi_accept_cause_()) {
+                    nr_da_iotrap_cause_ = 0x02;
+                }
                 return 0xFF;
             }
             return floating_bus_read();
@@ -2365,13 +3331,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // 0x3FFD WRITE — trap (VHDL:3835 port_3ffd_wr term).
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
-                // VHDL zxnext.vhd:3876-3878 — port_3ffd_wr → cause "11".
-                nr_da_iotrap_cause_ = 0x03;
+                // VHDL zxnext.vhd:3876-3878 — port_3ffd_wr → cause "11"
+                // ONLY when nmi_accept_cause (FSM in IDLE or FETCH).
                 // VHDL zxnext.vhd:3892-3893 — `nr_d9_iotrap_write <= cpu_do`
-                // when port_3ffd_wr AND nmi_accept_cause. The accept gate
-                // is the same condition that drives nr_da set, so we
-                // capture in the same conditional.
-                nr_d9_iotrap_write_ = v;
+                // when port_3ffd_wr AND nmi_accept_cause. Same gate.
+                if (nmi_accept_cause_()) {
+                    nr_da_iotrap_cause_ = 0x03;
+                    nr_d9_iotrap_write_ = v;
+                }
             }
         });
 
@@ -2382,10 +3349,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr,
         [this](uint16_t, uint8_t v) {
             // VHDL zxnext.vhd:2599: gated by port_1ffd_io_en (NR 0x82 bit 3).
-            if ((nextreg_.cached(0x82) & 0x08) == 0) return;
+            if ((effective_internal_port_enable(0x82) & 0x08) == 0) return;
             mmu_.map_plus3_bank(v);
             // Push the new ROM3 state to DivMmc (Task 7 Branch B).
-            divmmc_.set_rom3_active(mmu_.rom3_selected());
+            // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
+            // zxnext.vhd:2981-3008 / :3138, NOT the legacy
+            // `rom3_selected()` (== current_rom_bank == 3) observer.
+            divmmc_.set_rom3_active(mmu_.sram_rom3());
             // Update per-slot contention for +3 (VHDL: banks >= 4 are contended).
             bool special_mode = (v & 0x01) != 0;
             if (special_mode) {
@@ -2454,7 +3424,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                                                 approximated at steady
     //                                                 state).
     // Write: bits 2-0 = border colour; bit 4 = EAR; bit 3 = MIC.
-    port_.register_handler(0x00FF, 0x00FE,
+    //
+    // V17-NMP-02 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2582 decodes
+    // `port_fe <= '1' when cpu_a(0) = '0'` — the ULA matches ANY port with
+    // bit 0 = 0 (the standard Spectrum 48K decode). The TBBlue real hardware
+    // and every real Spectrum follow this rule. Pre-fix the handler mask
+    // was 0x00FF/0x00FE, requiring the LSB to be exactly 0xFE. Software
+    // using the well-known "OUT (0xFC), A" border trick (or any other even
+    // port) would update border/ear/mic on real hardware but not in jnext.
+    // Mask 0x0001/0x0000 = "any port with bit 0 = 0", matching VHDL :2582.
+    // Most-specific-wins dispatch keeps the more-specific 0x00FE handler
+    // (none exist — REG-01 in port_test simply tests several even-LSB
+    // addresses) from being shadowed by this one. The other "even-LSB"
+    // handlers (e.g. NMI/MF dispatch observer) fire via a separate
+    // io_observer path that is independent of this handler.
+    port_.register_handler(0x0001, 0x0000,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
             uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
@@ -2496,15 +3480,49 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                   border_clr_tmx <= "01" & ~port_ff(5:3) & port_ff(5:3)).
     // Read is not implemented on real hardware; omit read handler.
     // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0) = NR 0x82 bit 0.
-    port_.register_handler(0xFFFF, 0x00FF,
+    //
+    // V17-NMP-03 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2540-2571 +
+    // 2583 decode `port_ff_lsb` from `cpu_a(7:0) = X"FF"` (LSB-only). Pre-fix
+    // the handler used mask 0xFFFF / val 0x00FF — which required the FULL
+    // 16-bit address to equal exactly 0x00FF. Software using OUT (0x12FF), A
+    // would update Timex screen-mode register on real hardware but not in
+    // jnext. Fix: change mask to 0x00FF / val 0x00FF (LSB-only match).
+    port_.register_handler(0x00FF, 0x00FF,
         nullptr,
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x82) & 0x01) == 0) return;
+            if ((effective_internal_port_enable(0x82) & 0x01) == 0) return;
             // VHDL zxnext.vhd:3615-3616 — port_ff_wr branch latches
             // the entire byte into port_ff_reg, beating any NR-side
             // partial fan-out from NR 0x69 / 0x22 / 0xC4 (G108).
             port_ff_reg_ = val;
             renderer_.ula().set_screen_mode(val);
+            // V12-NMP-02 (Pass-12 fix-of-reviewer): VHDL zxnext.vhd:3614-3616
+            // shows three writers feeding `port_ff_reg(6)` (the canonical
+            // store for `port_ff_interrupt_disable`, :3635): port-FF write
+            // (full byte, :3615-3616), NR 0x22 b2 (:3619-3620), NR 0xC4 b0
+            // NOT (:3621-3622). VHDL :6711 then drives
+            // `ula_int_en <= ... & (not port_ff_interrupt_disable)` into
+            // the ULA-INT comparator. The NR 0x22 + NR 0xC4 paths both
+            // mirror the change into the C++ `ula_int_disabled_` shadow
+            // and call `video_timing_.set_interrupt_enable(...)`, but the
+            // direct port-0xFF write was missing the same fan-out — a
+            // direct `OUT (0xFF),A` with bit 6 set could not disable the
+            // ULA INT (latent gap previously documented in
+            // ctc_interrupts_test.cpp ULA-INT-02 and the V12-NMP-01 path).
+            // Mirror the NR 0x22 / NR 0xC4 pattern here so all three
+            // writers keep the shadow + scheduler gate in sync.
+            ula_int_disabled_ = (port_ff_reg_ & 0x40) != 0;
+            video_timing_.set_interrupt_enable(!ula_int_disabled_);
+            // V19-IM2-02 fix: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+            // NOT port_ff_interrupt_disable` (= NOT port_ff_reg(6)).
+            // That bit feeds `dev_[ULA].int_en` of the IM2 fabric
+            // (line :1949 bit 11). port-FF writes the entire byte, so
+            // bit 6 here is the port_ff_interrupt_disable polarity.
+            // Update the IM2 fabric ULA int_en in lockstep so a direct
+            // OUT (0xFF),A propagates correctly to the daisy chain in
+            // IM2 mode (consistent with NR 0x22 / NR 0xC4 mirrors).
+            im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                            (port_ff_reg_ & 0x40) == 0);
         });
 
     // +3 floating-bus surface — port 0x0FFD.
@@ -2514,49 +3532,105 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // → 0x0001. The 0x7FFD handler (mask 0x8003) overlaps but is less
     // specific; most-specific-match-wins dispatch routes 0x0FFD here.
     //
-    // Read mux:
+    // Read mux (zxnext.vhd:4517 + zxula.vhd:573):
+    //   port_p3_floating_bus_dat <= ula_floating_bus when port_7ffd_locked='0'
+    //                          else X"FF";
+    //   o_ula_floating_bus       <= (floating_bus_r(7:1) & (floating_bus_r(0) or i_timing_p3))
+    //                                 when (border_active_ula='0' and floating_bus_en='1')
+    //                          else i_p3_floating_bus when i_timing_p3='1'
+    //                          else X"FF";
+    //
+    // Cases consumed by this handler:
     //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') →
     //     port_p3_float_rd_dat = X"00" (zxnext.vhd:2814).
     //   - port_p3_floating_bus_io_en=0 (NR 0x82 bit 4 cleared,
     //     zxnext.vhd:2403): decode blocked → 0x00.
-    //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517
-    //     port_p3_floating_bus_dat <= ... else X"FF").
-    //   - +3 + io_en=1 + port_7ffd_locked='0': p3_floating_bus_dat with
-    //     bit 0 forced high (zxula.vhd:573 OR i_timing_p3 in the active
-    //     arm; the border arm passes the latch through unchanged but
-    //     the bit-0 force is also applied combinationally on +3).
-    //     Branch B simplification: returns the latched byte | 0x01;
-    //     the per-raster-phase distinction (active VRAM byte vs border
-    //     latch fallback) is Branch C's fixture work.
+    //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517).
+    //   - +3 + io_en=1 + port_7ffd_locked='0': ula_floating_bus, with
+    //     two sub-arms:
+    //       * Active display (border_active_ula='0' AND floating_bus_en='1'):
+    //         floating_bus_r (last VRAM byte the ULA fetched) with bit 0
+    //         OR'd with i_timing_p3 — i.e. bit 0 forced high on +3.
+    //       * Border / non-active: i_p3_floating_bus = the contended-CPU
+    //         latch (Mmu::p3_floating_bus_dat()) — bit 0 also OR'd with
+    //         i_timing_p3 on +3 by the same expression.
+    //
+    // Verify9-memory class-(c) → class-(a) fix: pre-fix the handler
+    // unconditionally returned the contended-CPU latch (border arm).
+    // The active-display arm is now wired via
+    // `Emulator::ula_floating_bus_active_arm()`, which mirrors the
+    // 48K/128K port 0xFF VRAM-byte computation. The +3 latch is only
+    // returned when the active arm is silent (border / outside the
+    // ULA's 8-T-state fetch slots).
+    //
     // Write-only on real hardware in this slot — we intentionally drop
     // writes (no decoded write semantic per VHDL).
     port_.register_handler(0xF003, 0x0001,
         [this](uint16_t) -> uint8_t {
             // VHDL zxnext.vhd:2589 — p3_timing_hw_en gate.
-            if (config_.type != MachineType::ZX_PLUS3) return 0x00;
+            // D3F-01 fix: gate on `machine_timing_` (tim_sel axis) per VHDL
+            // :2589 `p3_timing_hw_en = '1'`. `p3_timing_hw_en` is the
+            // one-hot mirror of `machine_timing_p3` (VHDL :1283); using
+            // `config_.type` would silently mis-decode when NR 0x03 is
+            // written with `tim_sel != typ_sel`.
+            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0x00;
             // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
-            if ((nextreg_.cached(0x82) & 0x10) == 0) return 0x00;
-            // VHDL zxnext.vhd:4517 — port_7ffd_locked='1' forces 0xFF.
-            if (mmu_.paging_locked()) return 0xFF;
-            // VHDL zxula.vhd:573 — bit 0 OR i_timing_p3 (always 1 on +3).
+            if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0x00;
+            // VHDL zxnext.vhd:4517 — gates on `port_7ffd_locked` (the
+            // EFFECTIVE lock signal at VHDL :3769), not the raw
+            // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11
+            // AND EFF7(2)=0) drops port_7ffd_locked to '0' even when
+            // bit 5 is set; jnext's `paging_locked()` accessor exposes
+            // only the raw bit-5 mirror. Verify8-memory class-(a) fix:
+            // use `effective_paging_locked()` which composes the full
+            // VHDL :3769 expression.
+            if (mmu_.effective_paging_locked()) return 0xFF;
+            // VHDL zxula.vhd:573 active arm — return the VRAM byte the
+            // ULA is currently fetching during display, with bit 0 forced
+            // high (i_timing_p3='1' on +3).
+            uint8_t active_byte;
+            if (ula_floating_bus_active_arm(active_byte)) {
+                return static_cast<uint8_t>(active_byte | 0x01);
+            }
+            // Border / non-active: i_p3_floating_bus arm (the contended
+            // CPU r/w latch, Mmu::p3_floating_bus_dat()), bit 0 forced.
             return static_cast<uint8_t>(mmu_.p3_floating_bus_dat() | 0x01);
         },
         nullptr);
 
     // Sprite slot select and status — port 0x303B (full 16-bit match).
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2679-2681 gates port_303b /
+    // port_57 / port_5b on `port_sprite_io_en = '1'`, where
+    // `port_sprite_io_en <= internal_port_enable(14)` = NR 0x83 bit 6
+    // (VHDL :2423). When the gate is cleared the ports are silenced
+    // (read returns the floating-bus default, writes are dropped).
+    // Default at reset is 1 so all current boot paths leave the gate
+    // open; software-controlled silencing was broken pre-fix.
     port_.register_handler(0xFFFF, 0x303B,
-        [this](uint16_t) -> uint8_t { return sprites_.read_status(); },
-        [this](uint16_t, uint8_t val) { sprites_.write_slot_select(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return 0xFF;
+            return sprites_.read_status();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return;
+            sprites_.write_slot_select(val);
+        });
 
     // Sprite attributes — port 0x57 (low byte match).
     port_.register_handler(0x00FF, 0x0057,
         nullptr,
-        [this](uint16_t, uint8_t val) { sprites_.write_attribute(val); });
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return;  // NR 0x83 b6 gate
+            sprites_.write_attribute(val);
+        });
 
     // Sprite pattern data — port 0x5B (low byte match).
     port_.register_handler(0x00FF, 0x005B,
         nullptr,
-        [this](uint16_t, uint8_t val) { sprites_.write_pattern(val); });
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return;  // NR 0x83 b6 gate
+            sprites_.write_pattern(val);
+        });
 
     // Port 0xDFFD — Profi/Next extended paging. VHDL zxnext.vhd:2596.
     // Decode: A15:12="1101", port_fd (A1:0="01") → mask 0xF003/0xD001.
@@ -2570,7 +3644,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF003, 0xD001,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((nextreg_.cached(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
+            if ((effective_internal_port_enable(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
             mmu_.write_port_dffd(v);
         });
 
@@ -2593,7 +3667,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF0FF, 0xE0F7,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((nextreg_.cached(0x85) & 0x04) == 0) return;  // NR 0x85 b2 gate
+            if ((effective_internal_port_enable(0x85) & 0x04) == 0) return;  // NR 0x85 b2 gate
             mmu_.write_port_eff7(v);
         });
 
@@ -2610,11 +3684,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // falls through to the floating bus default.
     port_.register_handler(0xC007, 0xC005,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(false);
         },
         [this](uint16_t port, uint8_t val) {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             // VHDL 2772: NOT port_dffd gate is handled by exclusive dispatch —
             // Pentagon handler (mask 0xF003, 6 bits) is more specific than
             // this AY handler (mask 0xC007, 5 bits), so Pentagon wins for
@@ -2632,12 +3706,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // reads are not decoded and return the floating-bus default.
     port_.register_handler(0xC007, 0x8005,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
-            if (config_.type != MachineType::ZX_PLUS3) return 0xFF;  // +3 alias only
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            // D3F-02 fix: gate on `machine_timing_` (tim_sel axis) per VHDL
+            // :2771 `port_bffd and machine_timing_p3`; previously keyed on
+            // `config_.type` and silently mis-decoded when NR 0x03 was
+            // written with `tim_sel != typ_sel`.
+            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0xFF;  // +3 alias only
             return turbosound_.reg_read(false);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             turbosound_.reg_write(val);
         });
 
@@ -2656,11 +3734,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Decode: A15:14="10", A3=0, A2=1, A1:0="01" → mask 0xC00F / val 0x8005.
     port_.register_handler(0xC00F, 0x8005,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(true);   // reg_mode = true
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             turbosound_.reg_write(val);
         });
 
@@ -2679,21 +3757,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x001F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x02) == 0) return;   // SD1 b1 gate
+            if ((effective_internal_port_enable(0x84) & 0x02) == 0) return;   // SD1 b1 gate
             dac_.write_channel(0, val);
         });
     port_.register_handler(0x00FF, 0x000F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x0F: SD1 ch B (b1) OR Covox ch B (b4).
-            if ((nextreg_.cached(0x84) & 0x12) == 0) return;   // b1 | b4
+            if ((effective_internal_port_enable(0x84) & 0x12) == 0) return;   // b1 | b4
             dac_.write_channel(1, val);
         });
     port_.register_handler(0x00FF, 0x004F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x4F: SD1 ch C (b1) OR Covox ch C (b4).
-            if ((nextreg_.cached(0x84) & 0x12) == 0) return;   // b1 | b4
+            if ((effective_internal_port_enable(0x84) & 0x12) == 0) return;   // b1 | b4
             dac_.write_channel(2, val);
         });
 
@@ -2706,17 +3784,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // wiring on that concern).
     //
     // 0x3F: Profi-only (b3). 0x5F: SD1 ch D (b1) OR Profi ch D (b3).
-    port_.register_handler(0xFFFF, 0x003F, nullptr,
+    // V18-NMP-02 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2661, :2664 decode
+    // the Profi-Covox channel A (0x3F) / channel D (0x5F) writes using ONLY
+    // the LSB — they OR-fold with `port_3f_lsb` / `port_5f_lsb` which the
+    // LSB decoder at :2549, :2553 sets when `cpu_a(7:0) = X"3F"` / `X"5F"`
+    // (A15..A8 are DON'T-CARE). Pre-fix the handlers used mask 0xFFFF / val
+    // 0x003F (etc.) requiring the full 16-bit address to match exactly —
+    // software using e.g. OUT (0x123F), A would write the Profi DAC ch A on
+    // real hardware but not in jnext. Fix: change masks to 0x00FF / val 0x003F
+    // (etc.). This makes them equally-specific (8 bits) to the MF+3 readback
+    // handler at LSB 0x3F (read-only, registered earlier), so the dispatcher
+    // routes reads to the MF readback and writes to the DAC — both as VHDL
+    // intends since both decodes are parallel in hardware.
+    port_.register_handler(0x00FF, 0x003F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x08) == 0) return;   // Profi b3 gate
+            if ((effective_internal_port_enable(0x84) & 0x08) == 0) return;   // Profi b3 gate
             dac_.write_channel(0, val);
         });
-    port_.register_handler(0xFFFF, 0x005F, nullptr,
+    port_.register_handler(0x00FF, 0x005F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
-            if ((nextreg_.cached(0x84) & 0x0A) == 0) return;   // b1 | b3
+            if ((effective_internal_port_enable(0x84) & 0x0A) == 0) return;   // b1 | b3
             dac_.write_channel(3, val);
         });
 
@@ -2726,32 +3816,41 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // when port_dac_mono_AD_fb_io_en is effective, so the 0xFB handler
     // below honours the VHDL gate composition instead of unconditionally
     // routing to ch D.
-    port_.register_handler(0xFFFF, 0x00F1, nullptr,
+    //
+    // V18-NMP-03 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2661-2664 fold
+    // these into `port_dac_A/B/C/D` via `port_f1_lsb / port_f3_lsb / port_f9_lsb
+    // / port_fb_lsb` — LSB-only decode (A15..A8 don't-care). Pre-fix the
+    // handlers used mask 0xFFFF, requiring full 16-bit match; software writing
+    // to e.g. 0x12F1 would update DAC ch A on real hardware but not in jnext.
+    // Fix: change all four to mask 0x00FF.
+    port_.register_handler(0x00FF, 0x00F1, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(0, val);
         });
-    port_.register_handler(0xFFFF, 0x00F3, nullptr,
+    port_.register_handler(0x00FF, 0x00F3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(1, val);
         });
-    port_.register_handler(0xFFFF, 0x00F9, nullptr,
+    port_.register_handler(0x00FF, 0x00F9, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(2, val);
         });
-    port_.register_handler(0xFFFF, 0x00FB, nullptr,
+    port_.register_handler(0x00FF, 0x00FB, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // VHDL zxnext.vhd:2664 — port_dac_D fires on 0xFB when either
             // SD2 mode (NR 0x84 bit 2) OR mono_AD_fb effective is set;
             // :2661 — port_dac_A fires on 0xFB only via mono_AD fan-out.
             // mono_AD_fb_eff = NR 0x84 bit 5 AND NOT bit 2 (vhd:2433).
-            const uint8_t nr84 = nextreg_.cached(0x84);
+            // V16-NMP-02: route through the effective gate so expbus_eff_en=1
+            // ANDs in NR 0x88 per VHDL :2392-2393.
+            const uint8_t nr84 = effective_internal_port_enable(0x84);
             const bool sd2_en  = (nr84 & 0x04) != 0;         // bit 2
             const bool mono_ad = (nr84 & 0x20) && !sd2_en;   // bit 5 AND NOT bit 2
             if (sd2_en || mono_ad) dac_.write_channel(3, val);
@@ -2763,10 +3862,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // and port_dac_mono_BC_b3_io_en='1' else '0'`, routed to channels B
     // and C via the port_dac_B/port_dac_C fan-in at :2662-2663. NR 0x84
     // bit 6 (G114) gates this fan-out.
-    port_.register_handler(0xFFFF, 0x00B3, nullptr,
+    //
+    // V18-NMP-04 (Pass-18 verify-audit fix): VHDL `port_b3_lsb` is LSB-only
+    // (A15..A8 don't-care, per the LSB decoder at zxnext.vhd:2559). Pre-fix
+    // mask 0xFFFF required full 16-bit match — software writing to e.g.
+    // 0x12B3 would update GS Covox B/C on real hardware but not in jnext.
+    // Fix: change to mask 0x00FF.
+    port_.register_handler(0x00FF, 0x00B3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x40) == 0) return;   // GS Covox b6
+            if ((effective_internal_port_enable(0x84) & 0x40) == 0) return;   // GS Covox b6
             dac_.write_channel(1, val);
             dac_.write_channel(2, val);
         });
@@ -2799,11 +3904,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x00DF,
         [this](uint16_t) -> uint8_t {
             // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
-            if ((nextreg_.cached(0x84) & 0x80) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0x00;
             // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
-            if ((nextreg_.cached(0x83) & 0x20) != 0) return 0x00;
+            if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0x00;
             // NR 0x82 bit 6 — port_1f_io_en gate.
-            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0x00;
             // port_1f_hw_en: at least one connector in Kempston1 or
             // MD3-Left (joyL_1f_en / joyR_1f_en live). VHDL zxnext.vhd:2454.
             if (!joystick_.port_1f_hw_en()) return 0x00;
@@ -2815,7 +3920,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // gate is clear the SpecDrum DAC port is not decoded and the
             // write is silently dropped.
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x80) == 0) return;
+            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return;
             dac_.write_channel(0, val);
             dac_.write_channel(3, val);
         });
@@ -2836,13 +3941,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (declared in emulator.h). Single-fanout pattern preserved — this
     // is still the only NR 0x06 write handler.
     //
-    // VHDL signal default '0' (zxnext.vhd:1109-1110) — re-clear on every
-    // init() so reset() (and soft_reset(), which both reach init()) puts
-    // them back to power-on state. Tests rely on this explicit clear.
-    nr_06_button_m1_nmi_en_       = false;
-    nr_06_button_drive_nmi_en_    = false;
-    nr_06_internal_speaker_beep_  = false;
-    nr_06_ps2_mode_               = false;  // VHDL :1111 default '0' (G56)
+    // PASS-6 NR 0x06 reset preservation (VHDL zxnext.vhd:1109-1113 are
+    // initial-value-only signals — NOT in the reset block at zxnext.vhd:4932-
+    // 4933, which only re-asserts bits 7 and 5). NextReg::reset() now
+    // preserves bits 6/4/3/2/1/0 of NR 0x06 across reset; derive the
+    // Emulator-side state shadows from the preserved cached value rather
+    // than unconditionally clearing them. On power-on (constructor's
+    // value-init of regs_[]), cached(0x06) post-reset is 0xA0, so all four
+    // shadows start at false — matching the pre-pass-6 power-on behaviour.
+    // After any subsequent NR 0x06 write + soft reset, the user-written
+    // bits 6/4/3/2/1/0 survive per VHDL.
+    {
+        const uint8_t cached_06 = nextreg_.cached(0x06);
+        nr_06_button_m1_nmi_en_      = (cached_06 & 0x08) != 0;
+        nr_06_button_drive_nmi_en_   = (cached_06 & 0x10) != 0;
+        nr_06_internal_speaker_beep_ = (cached_06 & 0x40) != 0;
+        nr_06_ps2_mode_              = (cached_06 & 0x04) != 0;
+        // Forward the preserved NMI-button enables to NmiSource so the
+        // gate at NmiSource::nmi_assert_mf / _divmmc reflects the live
+        // VHDL state immediately after reset, before any subsequent
+        // NR 0x06 write would otherwise re-arm them.
+        nmi_source_.set_mf_enable(nr_06_button_m1_nmi_en_);
+        nmi_source_.set_divmmc_enable(nr_06_button_drive_nmi_en_);
+    }
     // G110 — refresh Mixer's exc_i now that the NR 0x06 b6 shadow has been
     // cleared (and `nr_08_stored_low_ = 0x10` earlier in init() set the b4
     // power-on default). beep_spkr_excl is the AND of the two; both bits
@@ -2884,7 +4005,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // while config_mode is asserted. Outside config_mode the previous
         // ps2_mode is sticky. G56 cluster A — required so the NR 0x06
         // read handler returns the VHDL-faithful value at line 5900.
-        if (nextreg_.nr_03_config_mode()) {
+        const bool cfg = nextreg_.nr_03_config_mode();
+        if (cfg) {
             nr_06_ps2_mode_ = ((v >> 2) & 1) != 0;
         }
 
@@ -2908,7 +4030,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // inputs to beep_spkr_excl (VHDL zxnext.vhd:6504); audio_mixer.vhd:
         // 80-81 silences EAR/MIC when exc_i='1'.
         mixer_.set_exc_i(beep_spkr_excl());
+        // V11-NMP-03 (Pass-11 fix-of-reviewer): VHDL zxnext.vhd:5167-5169
+        // gates the `nr_06_ps2_mode` latch (bit 2) behind `nr_03_config_mode
+        // = '1'`. When the gate is closed the underlying signal retains its
+        // previous value. Pre-fix the C++ stored the raw `v` byte in
+        // `regs_[0x06]`, so the cache could leak bit 2 written outside
+        // config_mode. The observable consequence is the init/reset
+        // fan-out at lines 3272-3276 which seeds `nr_06_ps2_mode_` from
+        // `cached(0x06) & 0x04` — a hard reset after a "cache-poisoning"
+        // out-of-config_mode write to bit 2 would clobber the live
+        // `nr_06_ps2_mode_` shadow even though the VHDL latch was never
+        // updated. Canonicalise the stored byte: bit 2 inherits the
+        // pre-write cached value when config_mode is closed; bits 7:3 and
+        // 1:0 are always written (those signals have no config_mode gate
+        // per VHDL :5162-5166 and :5170). Mirrors the V11-NMP-02 pattern
+        // applied to NR 0x0A bits 7:5.
+        if (cfg) {
             return v;
+        }
+        const uint8_t prev = nextreg_.cached(0x06);
+        return static_cast<uint8_t>((v & 0xFB) | (prev & 0x04));
     });
 
     // VHDL zxnext.vhd:5900 — read formula:
@@ -3005,14 +4146,41 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // KEEP the read_handler — bit 7 is a runtime hardware-input signal
     // (not a static mask of the cached byte) and the cold-init read must
     // return 0x80 even with no prior write (regs_[0x81] starts at 0).
-    nr_81_ = 0;
+    // PASS-7 NR 0x81 reset preservation. Same shape as NR 0x06 / NR 0x05 /
+    // NR 0x09. VHDL zxnext.vhd:1221-1225 declare nr_81_expbus_ula_override,
+    // nr_81_expbus_nmi_debounce_disable, nr_81_expbus_clken,
+    // nr_81_expbus_fdc, nr_81_expbus_speed all as initial-value-only
+    // signals.  None of them appear in any reset block — confirm by
+    // scanning zxnext.vhd for `nr_81_` writes outside the NR 0x81 write
+    // handler at :5491-5496.  The bits survive both hard and soft reset.
+    // Pre-pass-7 jnext unconditionally re-applied 0x00 here on every reset,
+    // wiping the user-set ExpBus NMI-debounce-disable bit on every NR 0x02
+    // ← 0x01 soft reset.  Preserve across soft reset; on hard reset /
+    // first boot restore the power-on default 0x00.  Re-propagate to
+    // NmiSource so the ExpBus NMI gate reflects the live VHDL state
+    // immediately after reset, before any subsequent NR 0x81 write would
+    // otherwise re-arm it.
+    if (!preserve_memory) {
+        nr_81_ = 0;
+    }
+    nmi_source_.set_expbus_debounce_disable((nr_81_ & 0x20) != 0);
     nextreg_.set_write_handler(0x81, [this](uint8_t v) -> uint8_t {
         nr_81_ = v;
         nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
         return v;
     });
+    // V11-NMP-01 (Pass-11 verify-audit fix): VHDL zxnext.vhd:5496 hardwires
+    // `nr_81_expbus_speed <= "00"` on every NR 0x81 write — the original
+    // `nr_wr_dat(1 downto 0)` source is explicitly commented out. The read
+    // mux at zxnext.vhd:6126 places `nr_81_expbus_speed` in bits 1:0, so
+    // those bits ALWAYS read back as "00" regardless of what was written.
+    // Pre-fix the read mask was `0x7B = 0b01111011` which preserved bits
+    // 1:0 from the last write (e.g. write 0xFF would read 0xFB instead of
+    // the VHDL-correct 0xF8). Mask 0x78 keeps only bits 6, 5, 4, 3 (the
+    // four `nr_81_expbus_*` storage signals); bit 7 is forced to '1' as
+    // before to model `i_BUS_ROMCS_n` idle (no expbus device wired).
     nextreg_.set_read_handler(0x81, [this]() -> uint8_t {
-        return static_cast<uint8_t>(0x80 | (nr_81_ & 0x7B));
+        return static_cast<uint8_t>(0x80 | (nr_81_ & 0x78));
     });
 
     // Register 0x80: Expansion bus configuration — VHDL zxnext.vhd:6122
@@ -3021,6 +4189,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // emulation), so the byte is purely write-storage and round-trips
     // unchanged.  G56 Phase 2 (cluster E): no handler at all — NextReg
     // falls through to the raw stored byte, which IS the VHDL formula.
+    //
+    // Pass-9 verify-audit fix (Task 2 verify9-nmi-mf-port): even though
+    // jnext has no expbus device, NR 0x80 bit 7 (`expbus_en`, VHDL:2197)
+    // and bit 4 (`expbus_disable_mem`, VHDL:2200) are part of the VHDL
+    // `nmi_assert_expbus` gate at zxnext.vhd:2089. Fan them out to
+    // NmiSource so a future setter call to `set_expbus_nmi_n(false)`
+    // properly respects the enable/disable_mem mask. The VHDL latches
+    // (`expbus_eff_en` / `expbus_eff_disable_mem`) commit on bus-idle
+    // (zxnext.vhd:5800-5813); jnext collapses that to "commit
+    // immediately on the NR 0x80 write" — same shape as the existing
+    // `eff_nr_08_contention_disable` handling, which is also gated on
+    // `hc(8)='1'` in VHDL but committed synchronously in jnext.
+    nmi_source_.set_expbus_eff_en(((nextreg_.cached(0x80) >> 7) & 1) != 0);
+    nmi_source_.set_expbus_eff_disable_mem(((nextreg_.cached(0x80) >> 4) & 1) != 0);
+    nextreg_.set_write_handler(0x80, [this](uint8_t v) -> uint8_t {
+        nmi_source_.set_expbus_eff_en((v & 0x80) != 0);
+        nmi_source_.set_expbus_eff_disable_mem((v & 0x10) != 0);
+        // V16-NMP-02: bit 7 (`expbus_eff_en`) is one of the inputs to the
+        // VHDL `internal_port_enable` formula at zxnext.vhd:2392-2393.
+        // Toggling it changes whether NR 0x86-0x89 AND in. NR 0x80's
+        // post-write state lives in `nmi_source_.expbus_eff_en()` (set
+        // above), so the helper sees the fresh state when consulted —
+        // no override needed for NR 0x80 itself.
+        propagate_effective_port_enables();
+        return v;
+    });
 
     // Register 0x08: Peripheral 3
     //   bit 7 = unlock 128K paging (one-shot: write 1 clears port_7ffd_reg(5))
@@ -3033,6 +4227,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bit 7 is the write-strobe only; it is not stored (read-back at
     // zxnext.vhd:5906 shows bit 7 = NOT port_7ffd_locked, not the bit
     // just written). Bit 6 IS stored (read back via eff_nr_08_contention_disable).
+    //
+    // PASS-7 NR 0x08 reset propagation. After init() resets each subsystem
+    // (turbosound_, dac_, mixer_, ...) to their power-on defaults, fan out
+    // the *preserved* `nr_08_stored_low_` shadow so the NMI/MF/Port-adjacent
+    // subsystems whose state mirrors NR 0x08 b5/b3/b1 stay in sync with the
+    // VHDL signals that survived reset.  Bit 4 (internal_speaker_en) is read
+    // direct from `nr_08_stored_low_` by `beep_spkr_excl()` so no extra
+    // propagation is needed for it.  Mirrors the analogous NR 0x06 fan-out
+    // block earlier in init().  Bit 6 / bit 7 are dynamic (per-instruction
+    // contention shadow / paging lock) — both correctly reset by their own
+    // subsystems and not part of `nr_08_stored_low_`.
+    turbosound_.set_stereo_mode((nr_08_stored_low_ >> 5) & 1);
+    turbosound_.set_enabled((nr_08_stored_low_ >> 1) & 1);
+    mixer_.set_exc_i(beep_spkr_excl());
     nextreg_.set_write_handler(0x08, [this](uint8_t v) -> uint8_t {
         if (v & 0x80) mmu_.unlock_paging();
         mmu_.set_contention_disabled((v >> 6) & 1);
@@ -3087,19 +4295,63 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 5..0 are served from the last-write mirror nr_08_stored_low_.
     nextreg_.set_read_handler(0x08, [this]() -> uint8_t {
         uint8_t v = 0;
-        if (!mmu_.paging_locked())        v |= 0x80;
-        if (mmu_.contention_disabled())   v |= 0x40;
+        // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+        // `(not port_7ffd_locked)` — the EFFECTIVE lock signal from
+        // VHDL :3769, NOT the raw port_7ffd_reg(5) mirror. Pentagon-1024
+        // mode (NR 0x8F=11 AND EFF7(2)=0) drops port_7ffd_locked to '0'
+        // even when bit 5 is set; jnext's `paging_locked()` accessor
+        // exposes only the raw bit-5 mirror. Use `effective_paging_locked()`
+        // which composes the full VHDL :3769 expression so bit 7 reflects
+        // the same gate the SRAM arbiter / 128K bank-write path consults.
+        if (!mmu_.effective_paging_locked())             v |= 0x80;
+        // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+        // `eff_nr_08_contention_disable` (the EFFECTIVE/committed gate),
+        // NOT the immediate shadow `nr_08_contention_disable`. The shadow
+        // is updated synchronously on the NR 0x08 write, but the effective
+        // gate only commits on the bus-idle / hc(8)='1' edge per
+        // zxnext.vhd:5800-5823. Mid-line readbacks therefore return the
+        // last committed value, not the freshly-written shadow. mmu_'s
+        // `contention_disabled_` mirrors the shadow (immediate write) —
+        // contention_'s `contention_disable_` is the effective field
+        // (gated commit). Read the effective one to match VHDL :5906.
+        if (contention_.contention_disable())            v |= 0x40;
         v |= nr_08_stored_low_ & 0x3F;
         return v;
     });
 
-    // Register 0x09: Peripheral 4
-    //   bits 7:5 = per-chip mono mode (bit 7=AY#2, 6=AY#1, 5=AY#0)
-    //   bit 3 = sprites over border + DivMMC mapram-latch clear
-    //           (VHDL zxnext.vhd:4184-4185 — writes bit 3=1 force
-    //            port_e3_reg(6) := '0')
+    // Register 0x09: Peripheral 4 (VHDL zxnext.vhd:5186-5189, 5909)
+    //   bits 7:5 = nr_09_psg_mono (bit 7=AY#2, 6=AY#1, 5=AY#0)
+    //   bit 4    = nr_09_sprite_tie (VHDL :5187)
+    //   bit 3    = write-only DivMMC mapram-latch clear (VHDL :4184-4186 —
+    //              `nr_09_we='1' and nr_wr_dat(3)='1'` forces
+    //              port_e3_reg(6) := '0'). Read-back returns '0' for this
+    //              bit (VHDL :5909). NOT sprites-over-border.
+    //   bit 2    = nr_09_hdmi_audio_en (inverted on write, VHDL :5188)
+    //   bits 1:0 = nr_09_scanlines (handled in $F7 increment helper)
+    // PASS-5 FIX: previously this handler called sprites_.set_over_border
+    // here too. That is wrong — sprite-over-border lives in NR $15 bit 1
+    // (handled in the NR 0x15 write handler above). Removing the spurious
+    // wiring restores VHDL faithfulness; software that writes bit 3 to
+    // clear DivMMC mapram no longer collaterally toggles sprite drawing
+    // over the border.
+    //
+    // PASS-7 NR 0x09 reset propagation. After init() resets each subsystem,
+    // fan out the *preserved* `regs_[0x09]` (NextReg::reset() now keeps
+    // bits 7:5 / 3 / 2 / 1:0 across reset; only bit 4 sprite_tie is forced
+    // to 0 per VHDL :4937) so subsystem state stays in sync with the VHDL
+    // signals that survived reset.
+    //   bits 7:5 = psg_mono → turbosound_.set_mono_mode (VHDL :5186, :6398)
+    //   bit  4   = sprite_tie reset to 0 → sprites_.set_mirror_tie(false)
+    {
+        const uint8_t cached_09 = nextreg_.cached(0x09);
+        sprites_.set_mirror_tie((cached_09 & 0x10) != 0);
+        uint8_t mono = 0;
+        if (cached_09 & 0x20) mono |= 0x01;  // AY#0
+        if (cached_09 & 0x40) mono |= 0x02;  // AY#1
+        if (cached_09 & 0x80) mono |= 0x04;  // AY#2
+        turbosound_.set_mono_mode(mono);
+    }
     nextreg_.set_write_handler(0x09, [this](uint8_t v) -> uint8_t {
-        sprites_.set_over_border((v & 0x08) != 0);
         // G95: bit 4 wires nr_09_sprite_tie into the sprite mirror unit
         // (VHDL zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612).
         sprites_.set_mirror_tie((v & 0x10) != 0);
@@ -3219,40 +4471,176 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // CTC channels 0-3: VHDL zxnext.vhd:2690 — cpu_a(15:11)="00011"
     // plus LSB = 0x3B. Covers 0x183B..0x1F3B; channel from bits 9:8.
-    port_.register_handler(0xF8FF, 0x183B,
+    // V18-NMP-NIT-01: VHDL :2690 gates port_ctc on
+    // `port_ctc_io_en = '1'`, where
+    // `port_ctc_io_en <= internal_port_enable(27)` = NR 0x85 bit 3
+    // (VHDL :2442). When cleared, the port is silenced.
+    //
+    // V21-NMP-02 (Pass-21 verify-audit fix): the CTC entity at
+    // device/ctc.vhd:101-146 instantiates NUM_CTC=4 channels selected
+    // by `i_port_ctc_sel = cpu_a(10 downto 8)` (zxnext.vhd:4076 — the
+    // ZXN entity instance overrides NUM_CTC_LOG2 to 3). The select
+    // process at ctc.vhd:128-137 matches `if I = unsigned(i_port_ctc_sel)`
+    // for I in 0..3 only, so addresses with A10=1 (= 0x1C3B..0x1F3B)
+    // produce sel(0..3) = "0000" — no channel selected. The output
+    // mux at ctc.vhd:164-176 zeroes o_cpu_d when no sel bit is set
+    // (each dout(I) AND sel(I), then OR-fold across I in 0..3); the
+    // iowr fan-out at :141-146 stays 0 too, so writes are dropped.
+    //
+    // Pre-fix the C++ port handler used mask 0xF8FF, leaving A10 a
+    // don't-care bit. `(p >> 8) & 3` then aliased 0x1C3B..0x1F3B to
+    // channels 0..3 (because the high-nibble 0x1C/0x1D/0x1E/0x1F give
+    // (0xC/0xD/0xE/0xF) & 0x03 = 0/1/2/3). Reads returned channel 0..3
+    // data instead of VHDL's 0x00 (no decode); writes hit channels
+    // instead of being silently dropped.
+    //
+    // Fix: tighten the mask to 0xFCFF — A10:8 now mask in too. The
+    // value 0x183B already has A10:8 = "000", so the matched range is
+    // 0x183B (channel 0), 0x193B (channel 1), 0x1A3B (channel 2),
+    // 0x1B3B (channel 3) only. Addresses 0x1C3B..0x1F3B no longer match
+    // this handler and fall through to the floating-bus default
+    // (mirroring VHDL's no-decode behaviour).
+    //
+    // Note: VHDL port_ctc='1' for the full 0x183B..0x1F3B range (the
+    // decode is wider than the actual channel count), but the CTC
+    // entity zeroes its output when A10:8 ≥ 4 (= A10=1 here). The CPU
+    // bus path for IN at 0x1C3B..0x1F3B with port_ctc_io_en='1' is
+    // therefore:
+    //   port_ctc_rd = iord AND port_ctc = '1'
+    //   port_internal_rd_response = ... OR port_ctc_rd = '1'
+    //   port_ctc_rd_dat = ctc_do = 0x00 (OR-fold of zeros)
+    //   port_rd_dat = ... OR port_ctc_rd_dat = 0x00
+    //   cpu_di = port_rd_dat = 0x00
+    // i.e. VHDL drives 0x00, NOT the floating-bus 0xFF, for the A10=1
+    // alias range when CTC IO-enable is on. When CTC IO-enable is off,
+    // port_ctc='0' so port_internal_rd_response stays 0 and the bus
+    // floats to 0xFF.
+    // Class-(c) inert divergence in practice (no software writes
+    // 0x1C3B-0x1F3B), but the readback / write-drop contract is part
+    // of the VHDL surface.
+    port_.register_handler(0xFCFF, 0x183B,
         [this](uint16_t p) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
             return ctc_.read((p >> 8) & 3);
         },
         [this](uint16_t p, uint8_t val) {
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;  // NR 0x85 b3 gate
             ctc_.write((p >> 8) & 3, val);
+        });
+
+    // V21R-NMP-NIT-02 (Pass-21 reviewer fix): complementary handler for
+    // the CTC alias range 0x1C3B..0x1F3B (A10=1). Per VHDL bus
+    // composition above, an IN with port_ctc_io_en='1' drives 0x00 on
+    // cpu_di via the OR-fold of (dout(I) AND sel(I)) — not 0xFF.
+    // Without this handler the reads fall through to the floating-bus
+    // default 0xFF, enshrining a class-(c) divergence flagged by the
+    // Pass-21 reviewer. The IO-enable gate stays identical (NR 0x85
+    // bit 3); when cleared the bus floats. Writes are silently dropped
+    // (VHDL iowr(I) = port_ctc_wr AND sel(I), and sel(0..3)=0 for
+    // A10=1, so iowr stays 0 — no channel mutated).
+    // Mask 0xFCFF with value 0x1C3B selects exactly the four addresses
+    // 0x1C3B / 0x1D3B / 0x1E3B / 0x1F3B (A9:8 are masked in but the
+    // four channels behave identically — all dropped on write, all
+    // read as 0x00). Same specificity (10 bits set) as the channel
+    // handler, but disjoint match conditions (A10=0 vs A10=1) so the
+    // most-specific-wins dispatch routes correctly.
+    port_.register_handler(0xFCFF, 0x1C3B,
+        [this](uint16_t /*p*/) -> uint8_t {
+            // CTC IO-enable gate: NR 0x85 bit 3 (= port_ctc_io_en,
+            // VHDL :2442 internal_port_enable(27)). When cleared
+            // port_ctc='0' → port_internal_rd_response=0 → floating
+            // bus. When set, the OR-fold zeros the byte.
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
+            return 0x00;
+        },
+        [this](uint16_t /*p*/, uint8_t /*val*/) {
+            // Writes are dropped per VHDL ctc.vhd:141-146 (iowr(I) = 0
+            // when sel(I)=0; sel(0..3)=0 for A10=1). No-op even with
+            // IO-enable on. The IO-enable check is kept for symmetry,
+            // though functionally it doesn't matter here.
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;
+            // Silently dropped (no channel mutated).
         });
 
     // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat).
     // VHDL zxnext.vhd: port_dma_rd/wr <= port_dma_rd_raw/wr_raw AND NOT
     // dma_holds_bus — the DMA port is gated at the dispatcher layer while
     // the DMA controller holds the bus.  Matches DMA plan row 15.8.
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2643 also gates each port on the
+    // matching `port_dma_*_io_en` enable:
+    //   * port 0x6B → port_dma_6b_io_en = internal_port_enable(5)
+    //                = NR 0x82 bit 5 (VHDL :2405).
+    //   * port 0x0B → port_dma_0b_io_en = internal_port_enable(25)
+    //                = NR 0x85 bit 1 (VHDL :2440).
+    // When the enable bit is cleared, the port is silenced; this is
+    // independent of (and ANDed alongside) the dma_holds_bus check.
     port_.register_handler(0x00FF, 0x006B,
         [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x82) & 0x20) == 0) return 0xFF;
             return dma_.dma_holds_bus() ? 0xFF : dma_.read();
         },
         [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x82) & 0x20) == 0) return;  // NR 0x82 b5 gate
             if (!dma_.dma_holds_bus()) dma_.write(val, false);
         });
     port_.register_handler(0x00FF, 0x000B,
         [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x02) == 0) return 0xFF;
             return dma_.dma_holds_bus() ? 0xFF : dma_.read();
         },
         [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x85) & 0x02) == 0) return;  // NR 0x85 b1 gate
             if (!dma_.dma_holds_bus()) dma_.write(val, true);
         });
 
     // SPI chip select (0xE7) and data (0xEB)
+    // VHDL zxnext.vhd:2419: port_spi_io_en <= internal_port_enable(11) =
+    // NR 0x83 bit 3. zxnext.vhd:2620-2621 gates BOTH port_e7 and port_eb on
+    // port_spi_io_en. When NR 0x83 bit 3 is cleared, port reads return the
+    // floating-bus value (0xFF in jnext) and writes are silently dropped —
+    // mirroring the same pattern jnext applies to port 0xE3 above (DivMMC
+    // bit 0) and the 0x103B/0x113B I2C / 0x133B-163B UART ports below.
+    //
+    // V16-DIVMMC-01 (Pass-16 verify-audit, 2026-05-10): port 0xE7 is
+    // **write-only** in VHDL. Compare zxnext.vhd:614-622:
+    //   signal port_e3_rd : std_logic;     -- (0xE3 readable)
+    //   signal port_e3_wr : std_logic;
+    //   signal port_e7_wr : std_logic;     -- only WR exists for 0xE7
+    //   signal port_eb_rd : std_logic;     -- (0xEB readable)
+    //   signal port_eb_wr : std_logic;
+    // There is NO `port_e7_rd` signal anywhere in the core. Confirming:
+    // zxnext.vhd:2803-2806 (`port_internal_rd_response` OR-tree) lists
+    // `port_e3_rd`, `port_eb_rd`, `port_103b_rd`, `port_113b_rd`, ... but
+    // NOT `port_e7_rd`. zxnext.vhd:2837-2840 (`port_rd_dat` OR-tree) lists
+    // `port_e3_rd_dat`, `port_eb_rd_dat`, ... but NOT `port_e7_rd_dat`.
+    // Pre-fix `read_cs()` returned the internal CS register state — info
+    // the firmware has no architectural way to access on real hardware.
+    // A read of 0xE7 on real Next falls through to `cpu_di <= X"FF"` at
+    // zxnext.vhd:1877 (no internal response, expansion bus disabled) or
+    // to `i_BUS_DI` at :1875 (expansion bus path). Class-(c) latent —
+    // TBBlue/NextZXOS firmware never reads port 0xE7 on the boot path
+    // (the CS register is purely host-side state, not firmware-visible),
+    // but the divergence leaks an internal SPI-master register state to
+    // any caller that reads the port, breaking the strict write-only
+    // contract. Fix: pass `nullptr` for the read callback, mirroring the
+    // pattern used for port 0x001F / 0x0037 (Kempston joystick — read-only,
+    // unused-write nullptr) but inverted (write-only, unused-read nullptr).
+    // Falls through to `default_read_` (floating bus 0xFF in jnext).
     port_.register_handler(0x00FF, 0x00E7,
-        [this](uint16_t) -> uint8_t { return spi_.read_cs(); },
-        [this](uint16_t, uint8_t val) { spi_.write_cs(val); });
+        nullptr,
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return;
+            spi_.write_cs(val);
+        });
     port_.register_handler(0x00FF, 0x00EB,
-        [this](uint16_t) -> uint8_t { return spi_.read_data(); },
-        [this](uint16_t, uint8_t val) { spi_.write_data(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return 0xFF;
+            return spi_.read_data();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return;
+            spi_.write_data(val);
+        });
 
     // I2C SCL (0x103B) and SDA (0x113B)
     // VHDL zxnext.vhd:2418: port_i2c_io_en <= internal_port_enable(10).
@@ -3262,20 +4650,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // and writes are silently dropped.
     port_.register_handler(0xFFFF, 0x103B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return 0xFF;
             return i2c_.read_scl();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return;
             i2c_.write_scl(val);
         });
     port_.register_handler(0xFFFF, 0x113B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return 0xFF;
             return i2c_.read_sda();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return;
             i2c_.write_sda(val);
         });
 
@@ -3285,38 +4673,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // concat at zxnext.vhd:2392. Same gate pattern as I2C/DivMMC.
     port_.register_handler(0xFFFF, 0x133B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(3);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(3, val);
         });
     port_.register_handler(0xFFFF, 0x143B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(0);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(0, val);
         });
     port_.register_handler(0xFFFF, 0x153B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(1);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(1, val);
         });
     port_.register_handler(0xFFFF, 0x163B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(2);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(2, val);
         });
 
@@ -3324,11 +4712,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:2412: port_divmmc_io_en <= internal_port_enable(8) = NR 0x83 bit 0.
     port_.register_handler(0x00FF, 0x00E3,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x01) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x01) == 0) return 0xFF;
             return divmmc_.read_control();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x01) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x01) == 0) return;
             divmmc_.write_control(val);
         });
 
@@ -3354,7 +4742,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // floating-bus 0xFF even if NR 0x82 b6 is set.
     port_.register_handler(0x00FF, 0x001F,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0xFF;
             if (!joystick_.port_1f_hw_en())            return 0xFF;
             return joystick_.read_port_1f();
         },
@@ -3372,7 +4760,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     floating-bus 0xFF.
     port_.register_handler(0x00FF, 0x0037,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x82) & 0x80) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x82) & 0x80) == 0) return 0xFF;
             if (!joystick_.port_37_hw_en())            return 0xFF;
             return joystick_.read_port_37();
         },
@@ -3390,21 +4778,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // power-on. When firmware clears bit 5 (OUT NR 0x83, 0xDF), the ports
     // decode as unhandled and the floating-bus default (0xFF) is returned.
     // Mirror of the NR 0x82 bit-6 / port-0x001F gate above.
-    port_.register_handler(0xFFFF, 0xFADF,
+    // V18-NMP-01 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2668-2670 decode
+    // the Kempston mouse ports using ONLY 12 address-line bits — A11..A8 must
+    // be 0xA / 0xB / 0xF (port_fadf / port_fbdf / port_ffdf respectively) AND
+    // A7..A0 must equal 0xDF (port_df_lsb). A15..A12 are DON'T-CARE. Pre-fix
+    // the handlers used mask 0xFFFF / val 0xFADF (etc.), requiring the FULL
+    // 16-bit address to match exactly — software using e.g. OUT (0x2ADF), A
+    // followed by IN A,(0x2ADF) would access Kempston mouse buttons on real
+    // hardware but not in jnext. Fix: change masks to 0x0FFF / val 0x0ADF
+    // (etc.) so the high nibble of cpu_a is ignored, matching VHDL :2668.
+    port_.register_handler(0x0FFF, 0x0ADF,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fadf();
         },
         nullptr);
-    port_.register_handler(0xFFFF, 0xFBDF,
+    port_.register_handler(0x0FFF, 0x0BDF,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fbdf();
         },
         nullptr);
-    port_.register_handler(0xFFFF, 0xFFDF,
+    port_.register_handler(0x0FFF, 0x0FDF,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_ffdf();
         },
         nullptr);
@@ -3431,9 +4828,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 0xFF3B read remains a stub (the VHDL read path at zxnext.vhd:4556-4569
     // is write-only-latch plus palette-readback; no current consumer needs
     // read semantics).
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2685-2686 gates port_bf3b /
+    // port_ff3b on `port_ulap_io_en = '1'`, where
+    // `port_ulap_io_en <= internal_port_enable(24)` = NR 0x85 bit 0
+    // (VHDL :2439). When cleared, the ports are silenced.
     port_.register_handler(0xFFFF, 0xBF3B,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
+            return 0x00;
+        },
         [this](uint16_t, uint8_t v) {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // VHDL zxnext.vhd:4532 — port_bf3b_ulap_mode <= cpu_do(7:6)
             // is unconditional on every bf3b write.
             renderer_.ula().set_ulap_mode(static_cast<uint8_t>((v >> 6) & 0x03));
@@ -3446,8 +4851,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         });
     port_.register_handler(0xFFFF, 0xFF3B,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
+            return 0x00;
+        },
         [this](uint16_t, uint8_t v) {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // Gate on ulap_mode = "01" per VHDL zxnext.vhd:4548.
             if (renderer_.ula().get_ulap_mode() == 0x01) {
                 renderer_.ula().set_ulap_en((v & 0x01) != 0);
@@ -3531,14 +4940,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // a priority-chain source. Wave 3 Agent F: NR 0xCC/CD/CE now drive
     // Im2Controller::set_dma_int_en_mask (see the NR handlers above), and
     // dma_int_pending()/dma_delay() feed the per-frame hook in run_frame()
-    // below. The legacy raise(Im2Level::DMA) is left in place as a vestigial
-    // save/load-schema artifact — Im2Level::DMA maps to DevIdx::ULA via
-    // to_devidx() (harmless because the legacy API path uses its own pending
-    // view keyed by Im2Level index) and the legacy mask bit is unused by any
-    // live code path. Candidate for removal in a future cleanup once every
-    // save-state reader is rebuilt.
+    // below.
+    //
+    // V18R-CPU-02 (Pass-18 reviewer): the on_interrupt hook is a no-op.
+    // Previously this called `im2_.raise(Im2Level::DMA)` as a "vestigial
+    // save/load-schema artifact", but that was buggy: raise() indexes
+    // dev_[] directly by the Im2Level value (im2.cpp:135). Im2Level::DMA=10
+    // collides with DevIdx::CTC7=10, so the call set dev_[10].int_req=true
+    // which is CTC7's int_req in the DevIdx mapping. Phase-1 of
+    // step_devices() then promoted CTC7's int_status — observable as bit 7
+    // of NR 0xC9 returning 1 after every DMA completion even though the
+    // VHDL hardwires CTC7's i_int_req to '0' (zxnext.vhd:4092). Worst case,
+    // if software enabled CTC7 via NR 0xC5 bit 7 the spurious int_status
+    // would chain into S_REQ → pulse_int_n_/im2_int_req → a phantom CTC7
+    // interrupt dispatch. Net VHDL truth: CTC7 cannot light up from any
+    // peripheral activity. Fix: drop the raise() call entirely.
     dma_.on_interrupt = [this]() {
-        im2_.raise(Im2Level::DMA);
+        // No-op (V18R-CPU-02). DMA's INT path runs through the dedicated
+        // im2_dma_delay latch (vhdl:2003-2010) which Emulator drives via
+        // dma_int_pending() / dma_delay() in run_frame(); the daisy-chain
+        // dev_[] slots have no place for DMA.
+        (void)this;
     };
 
     uart_.on_tx_interrupt = [this](int channel) {
@@ -3574,7 +4996,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
-    spi_.attach_device(0, &sd_card_);  // SD card on CS0
+    // Pass-9 verify-audit fix (2026-05-09): wire the single physical SD
+    // card to BOTH CS0 and CS1. Per VHDL zxnext.vhd:3280:
+    //     i_SPI_SD_MISO when spi_ss_sd1_n = '0' or spi_ss_sd0_n = '0'
+    // the same `i_SPI_SD_MISO` net is the MISO source for both SD0 and SD1
+    // selects. The TBBlue board has a single SD slot wired to both CS lines,
+    // and the firmware uses NR 0x0A bit 5 (`sd_swap`) to flip which CS the
+    // host writes to reach the same card. Pre-fix: only CS0 was hooked, so
+    // any `sd_swap=1` write_cs("10") that decoded to 0xFD (CS1 low / CS0
+    // high) found `devices_[1] == nullptr` and the card became unreachable.
+    // Boot path uses the default sd_swap=0 (cleared at NR 0x0A reset, see
+    // VHDL :1125), so the prior bug was latent — class-(a) → corrected for
+    // VHDL fidelity. The SpiMaster's `active_device()` finds the first CS-
+    // low slot and returns its device; routing both to the same backend
+    // mirrors the wiring rather than running two SD cards.
+    spi_.attach_device(0, &sd_card_);  // SD card on CS0 (sd_swap=0)
+    spi_.attach_device(1, &sd_card_);  // SD card on CS1 (sd_swap=1)
+
+    // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
+    // composite Flash-CS gate from the post-power-on / post-init state.
+    // Power-on defaults: nr_03_config_mode='1' (zxnext.vhd:1102) AND
+    // reset_type='100' (zxnext.vhd:1306) — both factors true, so the
+    // Flash-CS decode is enabled at boot. Subsequent NR 0x02 / NR 0x03
+    // writes re-fan-out via the handlers above.
+    spi_.set_flash_cs_enable(
+        nextreg_.nr_03_config_mode()
+        || ((nmi_source_.reset_type() & 0x04) != 0));
 
     // --- ROM loading ---
 
@@ -3728,7 +5175,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // MMU resets port_7ffd/port_1ffd to 0, so rom3 is false. On soft reset
     // the port state is also zeroed by mmu_.reset() — subsequent port
     // writes will re-push. Kept here so DivMmc::rom3_active_ starts in sync.
-    divmmc_.set_rom3_active(mmu_.rom3_selected());
+    //
+    // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
+    // zxnext.vhd:2981-3008 / :3138 (the actual signal that feeds
+    // `sram_divmmc_automap_rom3_en`), NOT the simpler `rom3_selected()`
+    // observer that ignores machine-type and altrom-lock state.
+    // 48K mode hardwires sram_rom3='1' at boot — must be reflected.
+    divmmc_.set_rom3_active(mmu_.sram_rom3());
 
     // DivMMC ROM loading.
     //
@@ -3870,6 +5323,39 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);
         }
     }
+
+    // Pass-6 verify-audit fix (Task 2 verify6-divmmc-sd-spi, 2026-05-09):
+    // sync NR 0x83 bits 0:1 into DivMmc / Multiface after the NextReg reset
+    // and handler-registration sequence. NextReg::reset() reloads regs_[0x83]
+    // to 0xFF when reset_type_1=true (NR 0x85 bit 7 = 1, the FPGA power-on
+    // default per VHDL zxnext.vhd:1230) or preserves the prior value when
+    // reset_type_1=false (zxnext.vhd:5052-5057). Either way, the registered
+    // NR 0x83 write_handler at line 2099 is NOT fired by the reset path —
+    // so DivMmc::port_io_enable_ and Multiface::enabled_ keep their stale
+    // pre-reset values until the next explicit `nextreg_.write(0x83, ...)`.
+    //
+    // VHDL zxnext.vhd:2412 defines `port_divmmc_io_en <= internal_port_enable(8)`
+    // (= NR 0x83 bit 0) combinationally, and divmmc.vhd:107-114 latches
+    // `button_nmi`, automap_hold/held against `i_automap_reset` derived from
+    // `port_divmmc_io_en` (zxnext.vhd:4112). Without the post-reset sync, a
+    // soft reset that follows a firmware sequence like "NR 0x83 ← 0xFE"
+    // would leave jnext's DivMMC disabled where the VHDL would re-enable it
+    // (reset_type_1=true reloads 0xFF). Symmetric for Multiface bit 1.
+    //
+    // Soft-reset path matters most: the explicit `divmmc_.set_enabled(true)`
+    // call inside the SD-ROM-extract block above is gated on `!preserve_memory`
+    // (= hard reset only), so it doesn't run on soft reset. Hard reset still
+    // works correctly here since NextReg::reset() with reset_type_1=true
+    // reloads regs_[0x83]=0xFF and our sync sees bit 0/1 = 1/1 → both gates
+    // open, matching the explicit set_enabled(true) above.
+    // V16-NMP-02: route NR 0x83 b0/b1 (port_divmmc_io_en /
+    // port_multiface_io_en, VHDL :2412 + :2415) through
+    // effective_internal_port_enable so expbus_eff_en=1 ANDs in NR 0x87
+    // (VHDL :2392-2393).
+    divmmc_.set_port_io_enable(
+        (effective_internal_port_enable(0x83) & 0x01) != 0);
+    multiface_.set_enabled(
+        (effective_internal_port_enable(0x83) & 0x02) != 0);
 
     // Wire palette manager and RAM into ULA for enhanced palette and
     // hardware-accurate VRAM access (ULA reads directly from physical bank 5,
@@ -4170,6 +5656,21 @@ void Emulator::run_frame()
 
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
+    // V24-MEM-01 / V25-MEM-01 fix — video-frame-edge commit of the
+    // NR 0x03 machine_timing latch per VHDL zxnext.vhd:6694-6703:
+    //   if video_frame_sync = '1' then
+    //     eff_nr_03_machine_timing <= nr_03_machine_timing;
+    //   end if;
+    // jnext's per-frame seam is the top of run_frame() (one commit per
+    // logical video frame). Pre-fix the contention surfaces keyed on
+    // `MachineType` (typ_sel axis), which silently aligned on the
+    // canonical NextZXOS boot path (tim_sel == typ_sel) but diverged
+    // when a user wrote NR 0x03 with bits 6:4 != bits 2:0. The
+    // shadow→effective commit happens here so contention sees the new
+    // tim_sel value starting at the next frame, matching VHDL.
+    contention_.commit_pending_machine_timing();
+    mmu_.commit_pending_machine_timing();
+
     // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
     // z80_cpu.cpp computes (hc, vc) directly from `tstates % tstates_per_frame`,
     // so the FUSE counter must be frame-relative for ContentionModel::
@@ -4204,9 +5705,17 @@ void Emulator::run_frame()
         scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
             [this]() {
                 im2_.raise_req(Im2Controller::DevIdx::ULA);
-                if (!im2_.is_im2_mode()) {
-                    cpu_.request_interrupt(0xFF);
-                }
+                // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
+                // by the post-im2_.tick() falling-edge poll at line ~5791.
+                // The legacy `cpu_.request_interrupt(0xFF)` here was a
+                // redundant second stamp for the same logical pulse and
+                // a latent double-INT trap if the ISR did `EI` within
+                // the 32/36-cycle re-stamp window. The V20 poll captures
+                // the same edge VHDL-faithfully one tick later (via
+                // im2_peripheral.vhd:186-194 `o_pulse_en` → pulse_int_n
+                // FSM → poll at zxnext.vhd:1840 z80_int_n composition).
+                // Symmetric with the LINE-INT scheduler in
+                // `reschedule_line_interrupt()` (also dropped).
                 im2_int_status_[0] |= 0x01;  // ULA interrupt status
             });
     }
@@ -4455,6 +5964,114 @@ void Emulator::run_frame()
             im2_.set_nmi_activated(nmi_source_.is_activated());
             im2_.tick(master_cycles);
 
+            // V19-IM2-04 fix: poll IM2 fabric INT line and assert CPU
+            // /INT request when an IM2 daisy-chain device has reached
+            // S_REQ with IEI=1.
+            //
+            // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+            // im2_int_n) OR NOT expbus_disable_int) AND ...` — the Z80
+            // /INT pin is the AND of pulse_int_n (legacy pulse mode) and
+            // im2_int_n (IM2 hardware-priority mode). Either pulled low
+            // asserts the interrupt.
+            //
+            // Pre-fix jnext only called cpu_.request_interrupt(0xFF) for
+            // the legacy pulse-mode path (see FRAME / LINE / CTC scheduler
+            // callbacks). In IM2 mode (NR 0xC0 bit 0 = 1) the comment said
+            // the fabric's `int_line_asserted()` would drive the Z80 INT,
+            // but no code ever READ it. Result: in IM2 mode raise_req()
+            // entered the daisy chain correctly (im2_int_req latched →
+            // S_0 → S_REQ → int_line_asserted=true), but the CPU never
+            // saw the request — int_pending_ stayed false, on_int_ack was
+            // never called, and the IM2 priority chain remained latched
+            // forever (no RETI ever cleared S_REQ).
+            //
+            // Poll AFTER im2_.tick() so the wrapper edge-detect + state
+            // machine has had a chance to advance from S_0 → S_REQ since
+            // the most recent raise_req(). Idempotent: when int_pending_
+            // is already set, request_interrupt() simply re-stamps the
+            // pulse start time + vector — no double-fire.
+            //
+            // The vector returned at IntAck time is computed by
+            // im2_.ack_vector() via the on_int_ack callback (Emulator::init
+            // line 716), so the placeholder 0xFE here is a don't-care:
+            // ack_vector walks the priority chain, advances winning device
+            // S_REQ → S_ACK, and returns the composed VHDL vector
+            // `nr_c0_im2_vector & im2_vec & '0'` (zxnext.vhd:1999).
+            if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
+                cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
+            }
+
+            // V20-IM2-01 fix: pulse-mode CPU /INT polling.
+            //
+            // VHDL zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+            // im2_int_n) OR NOT expbus_disable_int) AND ...`. In the
+            // default scenario (expbus_disable_int='1', the power-on
+            // value with no expansion bus), this simplifies to
+            // `z80_int_n <= pulse_int_n AND im2_int_n`. So when
+            // pulse_int_n drops low (any device's pulse_en fires via
+            // im2_peripheral.vhd:186-194), the Z80 /INT pin is asserted
+            // and the CPU should accept on the next instruction
+            // boundary (subject to iff1).
+            //
+            // Pre-fix jnext only called `cpu_.request_interrupt(0xFF)`
+            // from the ULA frame-INT scheduler callback (line 5443) and
+            // the LINE-INT scheduler callback (line 6655) — and only in
+            // pulse mode. CTC ZC/TO (ctc_.on_interrupt at line 4668),
+            // UART TX-empty (uart_.on_tx_interrupt at 4717), and UART
+            // RX-avail/near-full (uart_.on_rx_interrupt at 4722) all
+            // routed solely through `im2_.raise_req(DevIdx)`, which
+            // drives the fabric's pulse_int_n latch correctly via
+            // step_pulse() but never notified the CPU. Result: in pulse
+            // mode (the power-on default for NextZXOS / 48K / 128K boot
+            // ROMs), CTC and UART interrupts were SILENTLY DROPPED —
+            // the IM2 fabric's pulse_int_n dropped to 0 for 32/36
+            // cycles per VHDL, but the Z80 /INT pin was never wired.
+            //
+            // Fix: poll pulse_int_n() in pulse mode and request the CPU
+            // INT each tick the line is asserted. The 32/36-cycle
+            // window self-expires via Im2Controller::step_pulse()'s
+            // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
+            //
+            // Symmetric with the IM2-mode poll above. After
+            // V20R-CPU-NIT-02 (reviewer-recommended cleanup) the
+            // legacy `cpu_.request_interrupt(0xFF)` calls in the ULA
+            // FRAME-INT scheduler (line ~5443) and LINE-INT scheduler
+            // (`reschedule_line_interrupt()` at line ~6716) have been
+            // removed; this poll is now the SOLE driver of pulse-mode
+            // /INT — symmetric with the V19 IM2-mode poll above. That
+            // eliminates the latent double-INT trap where the legacy
+            // callback stamped `int_requested_at_=T0` at end of instr
+            // N, and this poll re-stamped `=T1` at end of instr N+1
+            // (T1 > T0 by tstates(N+1)); an ISR that did fast `EI`
+            // within the re-stamped window could accept a second INT
+            // that real hardware would not.
+            //
+            // The vector 0xFF is the standard pulse-mode bus-floating
+            // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
+            // mode vector) to the data bus during IntAck; for pulse-
+            // mode the bus is floating and the CPU reads 0xFF
+            // canonically. Real hardware behavior may differ (TBD per
+            // observed silicon), but 0xFF matches the existing
+            // ULA/LINE callback convention and is what real 48K boot
+            // ROMs expect.
+            //
+            // Edge detection on pulse_int_n: assert CPU /INT exactly
+            // ONCE per pulse, on the falling edge. Calling
+            // `request_interrupt` every tick during the pulse window
+            // would re-stamp `int_requested_at_` to the current
+            // tstates each tick, extending the effective 32/36-cycle
+            // window indefinitely and producing extra INT acceptances
+            // (observable by the contention regression test which
+            // depends on precise interrupt timing). The 32/36-cycle
+            // expiry in `Z80Cpu::execute()` then naturally drops the
+            // pending request — matching VHDL's pulse_count_end gate.
+            const bool cur_pulse_int_n = im2_.pulse_int_n();
+            if (!im2_.is_im2_mode()
+                && !cur_pulse_int_n && prev_pulse_int_n_) {
+                cpu_.request_interrupt(0xFF);
+            }
+            prev_pulse_int_n_ = cur_pulse_int_n;
+
             // Count instructions for RZX recording.
             if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
 
@@ -4593,8 +6210,29 @@ void Emulator::run_frame()
         // turn re-feeds into `divmmc_nmi_hold` next tick (plus gates
         // automap_nmi_instant_on at divmmc.vhd:120). The strobe is
         // one-tick, cleared by NmiSource on its next `tick()` entry.
-        if (nmi_source_.divmmc_button_strobe()) {
+        //
+        // Verify3-Audit fix (2026-05-09): VHDL divmmc.vhd:107-114 gates
+        // the FF set on `i_reset='0' AND i_automap_reset='0' AND
+        // i_retn_seen='0'`. NmiSource doesn't gate on
+        // `nr_0a_divmmc_automap_en` (= the second factor of
+        // divmmc_automap_reset, zxnext.vhd:4112), so the strobe can fire
+        // even when the divmmc module would suppress the latch. Mirror
+        // the VHDL gate here by checking `divmmc_.is_enabled()` (the
+        // composite of port_io AND nr_0a_4 — exactly what VHDL's
+        // `divmmc_automap_reset='0'` requires).
+        if (nmi_source_.divmmc_button_strobe() && divmmc_.is_enabled()) {
             divmmc_.set_button_nmi(true);
+        }
+
+        // Verify-audit fix — VHDL:2169 `nmi_mf_button` arbitration-strobe
+        // producer (companion to :2170). VHDL line 4290 wires the
+        // Multiface entity's `button_i` to `nmi_mf_button` (= `nmi_mf AND
+        // nmi_state=S_NMI_IDLE`), so the Multiface only sees the press
+        // AFTER NmiSource has arbitrated the request through NR 0x06 bit
+        // 3, port_e3_reg(7) (CONMEM), divmmc_nmi_hold, and
+        // nr_03_config_mode. We mirror that contract here.
+        if (nmi_source_.mf_button_strobe()) {
+            multiface_.button_press();
         }
 
         // Edge-driven Z80 /NMI assertion. The NmiSource FSM drives
@@ -4798,8 +6436,17 @@ int Emulator::execute_single_instruction()
     nmi_source_.set_mf_is_active(multiface_.is_active());
     nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold());
     nmi_source_.tick(static_cast<uint32_t>(master_cycles));
-    if (nmi_source_.divmmc_button_strobe()) {
+    // Verify3-Audit fix (2026-05-09): mirror the primary cluster's
+    // VHDL divmmc_automap_reset gate (zxnext.vhd:4112 + divmmc.vhd:107-114).
+    // NmiSource doesn't observe nr_0a_divmmc_automap_en; the divmmc.vhd
+    // FF holds button_nmi at '0' while i_automap_reset='1'.
+    if (nmi_source_.divmmc_button_strobe() && divmmc_.is_enabled()) {
         divmmc_.set_button_nmi(true);
+    }
+    // Verify-audit fix — VHDL:2169 `nmi_mf_button` consumer; mirrors the
+    // primary tick cluster above. See full rationale there.
+    if (nmi_source_.mf_button_strobe()) {
+        multiface_.button_press();
     }
     {
         const bool nmi_n = nmi_source_.nmi_generate_n();
@@ -4839,6 +6486,15 @@ void Emulator::reset()
     const uint8_t save_82 = nextreg_.cached(0x82);
     const uint8_t save_83 = nextreg_.cached(0x83);
     const uint8_t save_84 = nextreg_.cached(0x84);
+    // PASS-5: VHDL zxnext.vhd:5061-5067 — NR 0x86/0x87/0x88/0x89 reload to
+    // power-on defaults only when nr_89_bus_port_reset_type='0' (the
+    // INVERSE polarity vs nr_85). Mirror the same save/restore pattern
+    // used for 0x82-0x84.
+    const bool bus_reset_type_0 = (nextreg_.cached(0x89) & 0x80) == 0;
+    const uint8_t save_86 = nextreg_.cached(0x86);
+    const uint8_t save_87 = nextreg_.cached(0x87);
+    const uint8_t save_88 = nextreg_.cached(0x88);
+    const uint8_t save_89 = nextreg_.cached(0x89);
 
     clock_.reset();
     scheduler_.reset();
@@ -4851,6 +6507,8 @@ void Emulator::reset()
     nextreg_.reset();
     cpu_.reset();
     im2_.reset();
+    // V20-IM2-01 — reset pulse-mode edge-detect shadow.
+    prev_pulse_int_n_ = true;
     keyboard_.reset();
     // Input subsystem Phase 1 scaffold (Task 3).
     joystick_.reset();
@@ -4874,6 +6532,14 @@ void Emulator::reset()
         nextreg_.write(0x83, save_83);
         nextreg_.write(0x84, save_84);
     }
+    // PASS-5: bus-port enable group survives reset when nr_89 bit 7 = 1
+    // (bus_reset_type_0 = false). The default nr_89 power-on bit 7 = 1.
+    if (!bus_reset_type_0) {
+        nextreg_.write(0x86, save_86);
+        nextreg_.write(0x87, save_87);
+        nextreg_.write(0x88, save_88);
+        nextreg_.write(0x89, save_89);
+    }
 }
 
 void Emulator::soft_reset()
@@ -4895,21 +6561,31 @@ void Emulator::soft_reset()
     const uint8_t save_82 = nextreg_.cached(0x82);
     const uint8_t save_83 = nextreg_.cached(0x83);
     const uint8_t save_84 = nextreg_.cached(0x84);
+    // PASS-5: NR 0x86/0x87/0x88/0x89 (bus-port enable group). VHDL
+    // zxnext.vhd:5061-5067 gates reset on nr_89 bit 7 = '0' (inverse
+    // polarity vs nr_85). Save/restore parallels the 0x82-0x84 path.
+    const bool bus_reset_type_0 = (nextreg_.cached(0x89) & 0x80) == 0;
+    const uint8_t save_86 = nextreg_.cached(0x86);
+    const uint8_t save_87 = nextreg_.cached(0x87);
+    const uint8_t save_88 = nextreg_.cached(0x88);
+    const uint8_t save_89 = nextreg_.cached(0x89);
 
     // VHDL bootrom_en (zxnext.vhd:1101, reset logic at :5109-5111, cleared
     // by NR 0x03 write at :5122). The reset block for bootrom_en runs on
     // BOTH hard and soft reset (the `reset` signal is `reset_hard OR
-    // reset_soft`) but is guarded by `if nr_03_config_mode = '1'`. Since
-    // nr_03_config_mode has no reset branch itself, it holds across reset.
-    // Net effect: once firmware has written NR 0x03 with bits[2:0]
-    // ∈ {001..110} to clear config_mode, a subsequent soft reset leaves
-    // bootrom_en at its cleared value. Our Mmu::reset() unconditionally
-    // re-enables when a boot_rom_ pointer is present, so we capture and
-    // restore the pre-reset value explicitly.
-    const bool prev_boot_rom_en = mmu_.boot_rom_enabled();
+    // reset_soft`) and is guarded by `if nr_03_config_mode = '1'`:
+    //   * config_mode=1 → bootrom_en <= '1' (re-enabled)
+    //   * config_mode=0 → bootrom_en preserved (current FF value held)
+    // nr_03_config_mode has no reset branch itself, so it holds across
+    // reset. Verify5-memory pass-5 fix: this VHDL gate is now modelled
+    // inside Mmu::reset() itself (mmu.cpp:131-150 reads its preserved
+    // config_mode_ mirror). The earlier capture-and-restore workaround
+    // here was only correct for the config_mode=0 case — for the
+    // config_mode=1 case it incorrectly preserved a previously cleared
+    // bootrom_en where VHDL would have re-enabled it. With Mmu::reset()
+    // VHDL-faithful, no host-side capture is required.
 
-    Log::emulator()->info("Soft reset (NR 0x02 bit 0): preserving SRAM + boot_rom_en={}",
-                          prev_boot_rom_en);
+    Log::emulator()->info("Soft reset (NR 0x02 bit 0): preserving SRAM");
 
     // Clear framebuffer to black (not part of emulated state).
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
@@ -4921,14 +6597,18 @@ void Emulator::soft_reset()
     // reset dance needed.
     init(config_, /*preserve_memory=*/true);
 
-    // Restore bootrom_en (see comment above for VHDL mechanism).
-    mmu_.set_boot_rom_enabled(prev_boot_rom_en);
-
     // Restore port-enable registers per reset_type semantics.
     if (!reset_type_1) {
         nextreg_.write(0x82, save_82);
         nextreg_.write(0x83, save_83);
         nextreg_.write(0x84, save_84);
+    }
+    // PASS-5: bus-port group (0x86-0x89) survives reset when nr_89 bit 7 = 1.
+    if (!bus_reset_type_0) {
+        nextreg_.write(0x86, save_86);
+        nextreg_.write(0x87, save_87);
+        nextreg_.write(0x88, save_88);
+        nextreg_.write(0x89, save_89);
     }
 }
 
@@ -4948,13 +6628,20 @@ void Emulator::on_hotkey_f9_mf_nmi()
     // `nmi_assert_mf()`.
     nmi_source_.strobe_mf_button();
 
-    // Wave 1 B1 — also drive the Multiface FSM directly. VHDL
-    // zxnext.vhd:4274-4310 instantiates multiface_mod with `button_i`
-    // pulled from the same source. button_press() takes effect only
-    // when NMI_ACTIVE='0' (multiface.vhd:135 `button_pulse <= button_i
-    // AND NOT nmi_active`); subsequent presses while a Multiface NMI
-    // is in flight are no-ops, exactly as on real hardware.
-    multiface_.button_press();
+    // Verify-audit fix (Task 2 verify-nmi-mf-port): the Multiface FSM
+    // does NOT receive `hotkey_m1` directly. Per zxnext.vhd:4290 the
+    // Multiface entity's `button_i` port is wired to `nmi_mf_button`
+    // (= `nmi_mf AND nmi_state=S_NMI_IDLE`, line 2169) — i.e. the
+    // arbiter-elected MF strobe, not the raw F9 edge. That signal is
+    // gated by NR 0x06 bit 3, port_e3_reg(7) (CONMEM), divmmc_nmi_hold,
+    // nr_03_config_mode (line 2107 + line 2102) before reaching the
+    // Multiface. The previous direct call to `multiface_.button_press()`
+    // here bypassed all four gates, so a CONMEM-blocked or
+    // config-mode-blocked F9 press would still arm the Multiface FSM.
+    // The corresponding consumer code in `tick_peripheral_subsystems()`
+    // / `simulate_master_cycles()` now drives `multiface_.button_press()`
+    // off `NmiSource::mf_button_strobe()` once the arbiter latches the
+    // MF priority bit — matching VHDL exactly.
 }
 
 void Emulator::on_hotkey_f10_divmmc_nmi()
@@ -5018,6 +6705,91 @@ void Emulator::schedule_frame_events()
         [this]() { on_vsync(); });
 }
 
+uint8_t Emulator::effective_internal_port_enable(uint8_t reg) const
+{
+    return effective_internal_port_enable(reg, /*override_reg=*/0xFF, 0);
+}
+
+uint8_t Emulator::effective_internal_port_enable(uint8_t reg,
+                                                 uint8_t override_reg,
+                                                 uint8_t override_val) const
+{
+    // VHDL zxnext.vhd:2392-2393:
+    //   internal_port_enable <= (nr_85 & nr_84 & nr_83 & nr_82) when
+    //                           expbus_eff_en='0' else
+    //                           ((nr_89 AND nr_85) & (nr_88 AND nr_84) &
+    //                            (nr_87 AND nr_83) & (nr_86 AND nr_82));
+    // The four NR 0x82-0x85 bytes form the low 32 bits of the
+    // `internal_port_enable` vector. When `expbus_eff_en` (NR 0x80 b7)
+    // is '1', each bit is the AND of the corresponding NR 0x82-0x85
+    // and NR 0x86-0x89 bit. We expose the per-byte effective gate so
+    // every port-decode site can read it the same way it reads the
+    // raw cache today.
+    if (reg < 0x82 || reg > 0x85) {
+        return (reg == override_reg) ? override_val : nextreg_.cached(reg);
+    }
+    auto cache_or_override = [&](uint8_t r) -> uint8_t {
+        return (r == override_reg) ? override_val : nextreg_.cached(r);
+    };
+    const uint8_t base = cache_or_override(reg);
+    // nmi_source_ owns the `expbus_eff_en` shadow; mirrors NR 0x80 b7
+    // (zxnext.vhd:2197 + 5800-5813). When expbus is disabled the bus-
+    // port enable group has no effect. NB: NR 0x80's effect on the
+    // shadow is committed in the NR 0x80 write handler BEFORE the
+    // propagate helper is invoked, so the `expbus_eff_en()` accessor
+    // here always reflects the post-write state.
+    if (!nmi_source_.expbus_eff_en()) {
+        return base;
+    }
+    // Pair-up: 0x82↔0x86, 0x83↔0x87, 0x84↔0x88, 0x85↔0x89.
+    // VHDL widths (zxnext.vhd:1226-1234): NR 0x82/0x83/0x84/0x86/0x87/0x88
+    // are 8 bits; NR 0x85 / 0x89 are 4 bits each (`bus_port_enable` /
+    // `internal_port_enable` low nibble) plus bit 7 = reset_type. The
+    // formula at :2392-2393 only uses the enable nibble for the 0x85↔0x89
+    // pair, so mask the high nibble out of the bus-port mask to avoid
+    // ANDing reset_type into bit 7 of the effective gate (no current
+    // consumer reads bit 7 of NR 0x85 as a port-enable, but be precise).
+    const uint8_t paired_reg = static_cast<uint8_t>(reg + 4);
+    uint8_t mask = cache_or_override(paired_reg);
+    if (paired_reg == 0x89) {
+        mask = static_cast<uint8_t>(mask & 0x0F);
+        // Preserve high nibble of `base` (reset_type at bit 7) so callers
+        // that read NR 0x85 bit 7 outside the port-enable formula are
+        // unaffected. Only the enable nibble (bits 3:0) participates in
+        // the AND.
+        const uint8_t high_nibble = static_cast<uint8_t>(base & 0xF0);
+        const uint8_t and_low     = static_cast<uint8_t>((base & 0x0F) & mask);
+        return static_cast<uint8_t>(high_nibble | and_low);
+    }
+    return static_cast<uint8_t>(base & mask);
+}
+
+void Emulator::propagate_effective_port_enables(uint8_t override_reg,
+                                                uint8_t override_val)
+{
+    // V16-NMP-02 (Pass-16): re-push every shadow held outside NextReg
+    // that mirrors a bit of the effective `internal_port_enable` vector
+    // (zxnext.vhd:2392-2393). When any of NR 0x80 b7 (`expbus_eff_en`),
+    // NR 0x82-0x85 (`internal_port_enable` low 32 bits), or NR 0x86-0x89
+    // (`bus_port_enable` AND-mask) changes, every consumer gets the
+    // freshly-computed effective gate.
+    //
+    // ContentionModel holds two such shadows:
+    //   - port_7ffd_io_en  ← effective NR 0x82 bit 1  (VHDL :2399).
+    //   - port_ulap_io_en  ← effective NR 0x85 bit 0  (VHDL :2439).
+    contention_.set_port_7ffd_io_en(
+        (effective_internal_port_enable(0x82, override_reg, override_val) & 0x02) != 0);
+    contention_.set_port_ulap_io_en(
+        (effective_internal_port_enable(0x85, override_reg, override_val) & 0x01) != 0);
+    // DivMmc and Multiface gate themselves on NR 0x83 bit 0 / bit 1
+    // (VHDL :2412 / :2415). When their gate falls low the FSM goes
+    // inert (port-decode no longer reaches them).
+    divmmc_.set_port_io_enable(
+        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
+    multiface_.set_enabled(
+        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
+}
+
 uint8_t Emulator::floating_bus_read() const
 {
     // Port 0xFF read mux per VHDL zxnext.vhd:2813:
@@ -5056,7 +6828,10 @@ uint8_t Emulator::floating_bus_read() const
     // `port_ff_reg` (bits 5:0 / bit 6); we don't propagate those into
     // `screen_mode_reg_` yet. Port-0xFF writes are the dominant source.
     const uint8_t nr_08 = nr_08_stored_low_;
-    const uint8_t nr_82 = nextreg_.cached(0x82);
+    // V16-NMP-02: port_ff_io_en is internal_port_enable(0); when
+    // expbus_eff_en=1 NR 0x82 b0 must be AND'd with NR 0x86 b0 per
+    // VHDL :2392-2393.
+    const uint8_t nr_82 = effective_internal_port_enable(0x82);
     const bool port_ff_rd_en = (nr_08 & 0x04) != 0;   // NR 0x08 b2
     const bool port_ff_io_en = (nr_82 & 0x01) != 0;   // NR 0x82 b0
     if (port_ff_rd_en && port_ff_io_en) {
@@ -5073,15 +6848,39 @@ uint8_t Emulator::floating_bus_read() const
     // Only 48K and 128K timings deliver the ULA floating bus. +3 keeps
     // 0xFF on this path (its floating-bus surface is port 0x0FFD, which
     // Branch B handles separately). Pentagon and the Next default also
-    // collapse to 0xFF here — for Next the runtime `nr_03_machine_timing`
-    // could in principle re-enable 48K/128K timing, but Branch A follows
-    // the prompt's simplification (Next → 0xFF) and leaves the runtime
-    // re-classification to a follow-up if the test plan demands it.
-    if (config_.type != MachineType::ZX48K && config_.type != MachineType::ZX128K) {
-        return 0xFF;
+    // collapse to 0xFF here.
+    //
+    // D3F-03 fix: gate on `machine_timing_` (tim_sel axis) per VHDL :4513
+    // `machine_timing_48 = '1' or machine_timing_128 = '1'`. The earlier
+    // version keyed on `config_.type`, which silently mis-decoded when NR
+    // 0x03 was written with `tim_sel != typ_sel` (the Next runtime path
+    // flagged as the prior follow-up note). With the V24-MEM-01 split,
+    // `mmu_.machine_timing()` is the authoritative tim_sel mirror.
+    {
+        const MachineTimingMode tim = mmu_.machine_timing();
+        if (tim != MachineTimingMode::Timing48 && tim != MachineTimingMode::Timing128) {
+            return 0xFF;
+        }
     }
 
     // ---- 3. ULA floating-bus content (48K/128K only) ----
+    uint8_t b;
+    if (ula_floating_bus_active_arm(b)) {
+        return b;
+    }
+    return 0xFF;
+}
+
+bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
+{
+    // VHDL zxula.vhd:573 — the "active arm" of `o_ula_floating_bus` fires
+    // when `border_active_ula='0' AND floating_bus_en='1'`. Inside the
+    // active display the ULA is reading pixel + attribute bytes from
+    // bank 5 (legacy 128K bank 5 / Next page 0x0A-0x0B = SRAM 0x14000+).
+    // This helper returns true and writes the byte the ULA would have
+    // latched at the current T-state position; otherwise returns false
+    // (caller selects the appropriate fallback — i_p3_floating_bus on
+    // +3, X"FF" elsewhere).
     //
     // Compute current position within the frame. Master clock is 28 MHz;
     // T-states at 3.5 MHz = master_cycles / 8.
@@ -5098,7 +6897,7 @@ uint8_t Emulator::floating_bus_read() const
 
     // Outside active display area: border, bus is idle
     if (line < 64 || line >= 256 || tstate_in_line >= 128)
-        return 0xFF;
+        return false;
 
     // Within active display: ULA fetches in 8-T-state cycles.
     // Each 8T cycle: T+0=bitmap, T+1=attr, T+2=bitmap+1, T+3=attr+1, T+4..7=idle
@@ -5120,11 +6919,11 @@ uint8_t Emulator::floating_bus_read() const
     uint16_t attr_addr = 0x5800 + (y / 8) * 32 + char_col * 2;
 
     switch (tstate_in_line % 8) {
-        case 2: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000);       // pixel byte
-        case 3: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000);       // attribute byte
-        case 4: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1);   // pixel byte +1
-        case 5: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1);   // attribute byte +1
-        default: return 0xFF;  // idle T-states within the 8T cycle
+        case 2: out_byte = ram_.read(pixel_addr - 0x4000 + 10 * 0x2000);     return true;
+        case 3: out_byte = ram_.read(attr_addr  - 0x4000 + 10 * 0x2000);     return true;
+        case 4: out_byte = ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1); return true;
+        case 5: out_byte = ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1); return true;
+        default: return false;  // idle T-states within the 8T cycle
     }
 }
 
@@ -5204,9 +7003,11 @@ void Emulator::reschedule_line_interrupt()
         [this, my_gen]() {
             if (my_gen != line_int_schedule_gen_) return;  // superseded
             im2_.raise_req(Im2Controller::DevIdx::LINE);
-            if (!im2_.is_im2_mode()) {
-                cpu_.request_interrupt(0xFF);
-            }
+            // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
+            // by the post-im2_.tick() falling-edge poll at line ~5791.
+            // Symmetric with the FRAME-INT scheduler at line ~5443
+            // (also dropped). See the V20R-CPU-NIT-02 comment there
+            // for the full rationale.
             im2_int_status_[0] |= 0x02;  // Line interrupt status
             ++line_int_fire_count_;       // G163 test-observable
         });
@@ -5475,6 +7276,26 @@ void Emulator::save_state(StateWriter& w) const
     // its constructor-init defaults (reset() called from constructor).
     w.write_u8(0x01);
     multiface_.save_state(w);
+
+    // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
+    // VHDL zxnext.vhd:1095 has no reset clause for this signal, so the
+    // value persists across resets and must round-trip via save/load.
+    // Appended at the very end for backwards-compat (load tolerates EOF).
+    w.write_bool(nr_02_bus_reset_);
+
+    // V20R-CPU-NIT-01 — persist `prev_pulse_int_n_` (the falling-edge
+    // shadow used by the pulse-mode CPU /INT poll at line 5791+). The
+    // shadow is net-new Pass-20 state. Im2Controller::save_state()
+    // already persists `pulse_int_n_`; without this companion slot a
+    // load_state taken mid-pulse (cur=0) would restore the shadow to
+    // its construction default `true`, so the next tick would see
+    // `!cur && prev` = falling edge and fire a spurious
+    // request_interrupt(0xFF). The 32/36-cycle drop arm in
+    // Z80Cpu::execute() would clean up the phantom INT within one
+    // pulse window — but the V20 fix's "exactly ONCE per pulse"
+    // invariant is locally violated. End-of-stream append + eof()
+    // tolerance so prior snapshots load with the reset default.
+    w.write_bool(prev_pulse_int_n_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -5485,6 +7306,17 @@ void Emulator::load_state(StateReader& r)
     mmu_.load_state(r);
     nextreg_.load_state(r);
     cpu_.load_state(r);
+    // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
+    // (zxnext.vhd:2033). The flag is intentionally not serialised in
+    // Z80Cpu::save_state (would shift all later subsystem blocks and
+    // break older saves); we re-derive it here from the just-loaded
+    // NextReg state. Im2Controller::load_state restores its own copy
+    // from the snapshot, so we don't touch im2_ here.
+    {
+        const uint8_t loaded_timing = nextreg_.nr_03_machine_timing();
+        const bool    is_48_or_p3   = (loaded_timing == 0x01) || (loaded_timing == 0x03);
+        cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+    }
     im2_.load_state(r);
 
     // Video subsystems.
@@ -5506,6 +7338,119 @@ void Emulator::load_state(StateReader& r)
     rtc_.load_state(r);
     uart_.load_state(r);
     divmmc_.load_state(r);
+    // Pass-10 verify-audit fix (2026-05-09): re-sync DivMmc::rom3_active_
+    // from the canonical loaded MMU state. The flag is a feeder shadow of
+    // VHDL `sram_pre_rom3` (zxnext.vhd:2981-3008,:3138) and is NOT
+    // persisted by DivMmc::save_state — it is only refreshed at port-write
+    // / NR-commit / machine-type-change sites that fan-out from MMU. Pre-fix
+    // a load_state restoring a snapshot taken with sram_rom=3 selected
+    // (e.g. ROM3 active during a CMD18 boot stream) would leave rom3_active_
+    // at its constructor default `false`, breaking the ROM3-conditional
+    // automap gate (sram_divmmc_automap_rom3_en, divmmc.vhd:130,148) until
+    // the next MMU port write. Mirrors the i2c_.set_pi_i2c1_en /
+    // spi_.set_flash_cs_enable re-sync pattern used elsewhere in
+    // load_state. Class-(a) → resolved.
+    divmmc_.set_rom3_active(mmu_.sram_rom3());
+
+    // Verify12-memory class-(b) fix: re-push ContentionModel gate inputs
+    // from canonical loaded state. ContentionModel itself is intentionally
+    // NOT serialised — it owns derived-from-NextReg state (cpu_speed
+    // shadow/effective, contention_disable shadow/effective, port_7ffd_io_en
+    // gate, mem_active_page latch). Pre-fix a load_state restored snapshot
+    // would leave these gates at their constructor defaults (cpu_speed=0
+    // / contention_disable=false / port_7ffd_io_en=false) until the next
+    // NR 0x07 / NR 0x08 / NR 0x82 write — diverging from VHDL
+    // zxnext.vhd:5800-5828 where the eff_nr_08_contention_disable and
+    // cpu_speed flip-flops persist across any non-reset edge. Mirrors
+    // the divmmc_.set_rom3_active / spi_.set_flash_cs_enable re-sync
+    // pattern used elsewhere in load_state.
+    //
+    // VHDL line refs:
+    //   NR 0x07 cpu_speed (zxnext.vhd:5786-5828): bits[1:0] feed both
+    //     pending shadow (line 5789) and effective (line 5817 commit on
+    //     bus-idle). Saved in NextReg.regs_[0x07]; re-push both fields.
+    //   NR 0x08 bit 6 nr_08_contention_disable (zxnext.vhd:5176, 5800-5823):
+    //     Mmu's contention_disabled_ mirrors the shadow (immediate write).
+    //     Re-push it as both shadow and effective for the post-load read
+    //     surface (NR 0x08 read at zxnext.vhd:5906) to match VHDL.
+    //   NR 0x82 bit 1 port_7ffd_io_en (zxnext.vhd:2399): Saved in
+    //     NextReg.regs_[0x82]; re-push the bit-1 gate.
+    //   NR 0x85 bit 0 port_ulap_io_en (zxnext.vhd:2439): Saved in
+    //     NextReg.regs_[0x85]; re-push the bit-0 gate. (V16-CPU-01 — the
+    //     V15-CPU-NIT-03 reviewer-promoted fix added the shadow + setter
+    //     + NR 0x85 write handler + init() re-push, but missed the
+    //     load_state re-push. After load, the shadow stays at whatever
+    //     prior value the model held until the next NR 0x85 write —
+    //     so a snapshot with NR 0x85 b0=1 restored on top of a runtime
+    //     where the shadow was previously pulled to 0 leaves ULA+ port
+    //     contention silent at $BF3B/$FF3B until the next NR 0x85 write.
+    //     Same Verify12-memory class-(b) gap pattern; one-line completion.)
+    {
+        // Rebuild ContentionModel's LUT + per-machine bank decode if the
+        // saved machine_type differs from what build() set up (the snapshot
+        // may have been taken after an NR 0x03 commit changed the type).
+        // rebuild_for_type preserves dynamic gate state, so the subsequent
+        // gate re-push isn't clobbered.
+        contention_.rebuild_for_type(mmu_.machine_type());
+
+        const uint8_t cs07 = static_cast<uint8_t>(nextreg_.cached(0x07) & 0x03);
+        contention_.set_cpu_speed(cs07);
+        contention_.set_pending_cpu_speed(cs07);
+        contention_.set_contention_disable(mmu_.contention_disabled());
+        // V16-NMP-02: re-seed shadows through the effective gate so
+        // restored snapshots with expbus_eff_en=1 honour the AND-mask.
+        // V16-CPU-01: also re-push the ULA+ shadow (NR 0x85 b0) to mirror
+        // the NR 0x85 write handler / init() path; missed pre-fix.
+        contention_.set_port_7ffd_io_en(
+            (effective_internal_port_enable(0x82) & 0x02) != 0);
+        contention_.set_port_ulap_io_en(
+            (effective_internal_port_enable(0x85) & 0x01) != 0);
+
+        // V24-MEM-01 / V25-MEM-01 fix + V24-MEM-NIT-01 (reviewer
+        // follow-up): re-sync the machine_timing axis. Two paths:
+        //
+        // (1) NEW-FORMAT save (Mmu schema slot present): trust the
+        //     restored (effective, pending) pair. This preserves a
+        //     `pending != effective` deferred-commit state captured by
+        //     a snapshot taken between an NR 0x03 bits-6:4 write and
+        //     the next video-frame edge (VHDL :6694-6703). Push the
+        //     pair into the ContentionModel so its (effective, pending)
+        //     mirrors the Mmu's. The Mmu side is already correct from
+        //     load_state. Sequence: set_pending(effective) +
+        //     commit_pending() promotes effective; then
+        //     set_pending(pending) leaves pending != effective intact.
+        //
+        // (2) OLD-FORMAT save (Mmu schema slot absent, load fell
+        //     through the !r.eof() guard): re-derive both fields from
+        //     the NR 0x03 cached byte (forward compatibility with
+        //     pre-V24 snapshots). Both shadow and effective are seeded
+        //     to the tim_sel-derived MachineTimingMode — mirroring the
+        //     VHDL power-on state where nr_03_machine_timing and
+        //     eff_nr_03_machine_timing start equal and only diverge
+        //     between an NR 0x03 write and the next frame edge (which
+        //     could never have been captured by a pre-V24 save anyway).
+        //
+        // Mirrors the `set_cpu_speed` / `set_contention_disable` /
+        // `set_port_7ffd_io_en` re-push pattern above for the
+        // ContentionModel side.
+        if (mmu_.machine_timing_loaded_from_schema()) {
+            // Path (1): schema-restored pair is canonical.
+            const MachineTimingMode eff_tim  = mmu_.machine_timing();
+            const MachineTimingMode pend_tim = mmu_.pending_machine_timing();
+            // Seed ContentionModel's (effective, pending) = (eff_tim,
+            // pend_tim) without disturbing Mmu (already correct).
+            contention_.set_pending_machine_timing(eff_tim);
+            contention_.commit_pending_machine_timing();
+            contention_.set_pending_machine_timing(pend_tim);
+        } else {
+            // Path (2): old-format fallback — re-derive from NextReg.
+            const uint8_t nr_03_tim = nextreg_.nr_03_machine_timing();
+            const MachineTimingMode tim_mode =
+                decode_nr_03_machine_timing(nr_03_tim);
+            contention_.set_machine_timing(tim_mode);
+            mmu_.set_machine_timing(tim_mode);
+        }
+    }
 
     // Audio subsystems.
     beeper_.load_state(r);
@@ -5622,6 +7567,37 @@ void Emulator::load_state(StateReader& r)
             multiface_.load_state(r);
         }
     }
+
+    // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
+    // Saves predating this slot leave the field at its constructor default
+    // of false (matching VHDL power-on signal initializer at :1095).
+    if (!r.eof()) {
+        nr_02_bus_reset_ = r.read_bool();
+    }
+
+    // V20R-CPU-NIT-01 — `prev_pulse_int_n_` (Pass-20 falling-edge shadow
+    // for the pulse-mode CPU /INT poll at line 5791+). Pairs with the
+    // matching save_state append above. Saves predating Pass-20 leave
+    // the shadow at its reset default `true` (matches
+    // Im2Controller::reset() default pulse_int_n_=true; if the loaded
+    // im2_ state actually has pulse_int_n_=false the next-tick poll
+    // would fire a spurious request_interrupt(0xFF) — harmless since
+    // Z80Cpu::execute()'s 32/36T drop arm cleans it up, but the V20
+    // "exactly ONCE per pulse" invariant is locally violated. New
+    // saves persist the shadow exactly so a save-during-pulse +
+    // load round-trips faithfully.
+    if (!r.eof()) {
+        prev_pulse_int_n_ = r.read_bool();
+    }
+
+    // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
+    // composite gate from the canonical loaded state (nr_03_config_mode +
+    // reset_type bit 2). The gate itself is NOT persisted — it's a
+    // derived field — so older snapshots and current snapshots both
+    // recompute it here. Mirrors the i2c_.set_pi_i2c1_en re-sync above.
+    spi_.set_flash_cs_enable(
+        nextreg_.nr_03_config_mode()
+        || ((nmi_source_.reset_type() & 0x04) != 0));
 }
 
 // ---------------------------------------------------------------------------

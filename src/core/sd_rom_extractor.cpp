@@ -240,6 +240,22 @@ bool read_cluster(std::ifstream& f, const Fat32Geom& g, uint32_t cluster,
 // and file_size_out with the matched entry's data and sets is_dir_out.
 // Returns true on match, false otherwise (also false on I/O errors —
 // caller treats both equivalently for "not found").
+//
+// V16-DIVMMC-02 (Pass-16 verify-audit, 2026-05-10): bound the cluster
+// chain walk by the total number of clusters representable in the FAT.
+// Previously this loop only checked `cluster < FAT32_BAD_MARK` and
+// terminated on EOC / read failure / end-of-directory. A malformed or
+// hostile FAT image with a CYCLE in a directory's cluster chain (e.g.
+// cluster A → cluster B → cluster A) would never hit any of those exit
+// conditions and would loop indefinitely, hanging the host process.
+// The file-data read path (extract_sd_rom main loop) already had a
+// `max_chain_len = (file_size / bytes_per_cluster) + 2` bound, but
+// directory traversal had no equivalent guard. Class-(c) defensive —
+// the canonical TBBlue distribution image is well-formed, but a forensic
+// or user-supplied image could trigger the hang. Fix: use the total
+// number of valid clusters in the partition (= fat_size_sectors *
+// bytes_per_sector / 4, the number of FAT entries representable) as a
+// hard upper bound — well-formed cluster chains can never exceed this.
 bool find_in_directory(std::ifstream& f, const Fat32Geom& g,
                        uint32_t start_cluster,
                        const std::array<char, 11>& key,
@@ -248,7 +264,20 @@ bool find_in_directory(std::ifstream& f, const Fat32Geom& g,
                        bool& is_dir_out) {
     uint32_t cluster = start_cluster;
     std::vector<uint8_t> buf;
+    // Hard upper bound on chain walk: the FAT is sized to hold one entry
+    // per data cluster, so any chain longer than the total cluster count
+    // is a cycle. `fat_size_sectors` is validated > 0 in parse_bpb.
+    const uint64_t max_chain_len =
+        (static_cast<uint64_t>(g.fat_size_sectors) * g.bytes_per_sector) / 4;
+    uint64_t steps = 0;
     while (cluster >= 2 && cluster < FAT32_BAD_MARK) {
+        if (++steps > max_chain_len) {
+            Log::emulator()->error(
+                "sd_rom_extractor: directory cluster chain longer than "
+                "total FAT entries ({} > {}) — malformed/cyclic FAT",
+                steps, max_chain_len);
+            return false;
+        }
         if (!read_cluster(f, g, cluster, buf)) return false;
         for (uint32_t off = 0; off + 32 <= buf.size(); off += 32) {
             const uint8_t* e = buf.data() + off;

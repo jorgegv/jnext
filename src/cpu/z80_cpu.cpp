@@ -86,13 +86,32 @@ inline HcVc derive_hc_vc(uint32_t tstates) {
     return {static_cast<uint16_t>(hc), static_cast<uint16_t>(line)};
 }
 
-/// VHDL `mem_active_page` — the SRAM page underlying a memory cycle's
-/// 16-bit Z80 address. Mmu::get_effective_page() returns the mapped
-/// page for an 8K slot; 0xFF means no SRAM (ROM/peripheral).
+/// VHDL `mem_active_page` — the MMU<i> register value for the 8K slot
+/// the CPU bus is currently addressing. Per zxnext.vhd:2949-2956,
+///   mem_active_page <= MMU0 when cpu_a(15:13) = "000" else
+///                      MMU1 when cpu_a(15:13) = "001" else
+///                      ... ;
+/// i.e. the SRAM page resolution uses the LIVE MMU<i> register value
+/// (= NR 0x50..0x57 visible value, mirrored into Mmu::nr_mmu_[]). For
+/// slots in legacy-ROM auto-paging (NR $50/$51 = 0xFF sentinel) the
+/// register holds 0xFF, NOT the sram_rom-derived physical ROM page —
+/// this is what the contention gate at zxnext.vhd:4489
+///   mem_contend = '0' when mem_active_page(7:4) /= "0000"
+/// keys on, so a legacy-ROM slot 0/1 access never contends regardless
+/// of which physical ROM page is selected.
+///
+/// Verify6-memory class-(a) fix: previously this used
+/// `Mmu::get_effective_page` which falls through to `slots_[slot]` (the
+/// physical SRAM page) when nr_mmu_[slot]==0xFF. For 128K with
+/// sram_rom=1 (slot 0 → physical ROM page 2) or +3 with sram_rom>=2
+/// (slot 0/1 → pages 4..7), the resulting low nibble carried bit-1
+/// (128K) or bit-3 (+3) set, causing the contention model to falsely
+/// fire on slot-0/1 ROM accesses. VHDL keys mem_active_page on MMU<i>,
+/// so the 0xFF sentinel suppresses contention as expected.
 inline uint8_t mem_active_page_for(uint16_t address) {
     if (!s_contention_mmu) return 0xFF;
     int slot = address >> 13;
-    return s_contention_mmu->get_effective_page(slot);
+    return s_contention_mmu->get_page(slot);
 }
 
 } // anonymous namespace
@@ -377,6 +396,12 @@ void Z80Cpu::reset() {
     int_vector_  = 0xFF;
 
     sync_regs_from_fuse(regs_);
+    // Pass-9 fix: VHDL t80n.vhd does not have an explicit IncDecZ reset
+    // value (the latch is unwritten until first DJNZ or BC-decrementing
+    // block transfer); we deterministically clear it here so that
+    // observers reading regs_.IncDecZ before any such instruction see a
+    // stable 0 (matches "no I_BT/DJNZ has fired yet — P override = 0").
+    regs_.IncDecZ = 0;
 }
 
 int Z80Cpu::execute() {
@@ -415,36 +440,90 @@ int Z80Cpu::execute() {
     // interrupt persists indefinitely and fires the moment EI/RETI re-enables
     // interrupts — even frames later — breaking programs that call
     // waitForScanline() inside their ISR.
-    static constexpr uint32_t INT_PULSE_TSTATES = 32;
+    //
+    // VHDL zxnext.vhd:2033 (pulse_count_end formula):
+    //   pulse_count_end <= pulse_count(5) and (machine_timing_48 or
+    //                       machine_timing_p3 or pulse_count(2));
+    // → 48K/+3 release /INT after 32 cycles (bit 5 alone fires the gate);
+    //   128K/Pentagon/Next-default need bit 5 AND bit 2 → 36 cycles.
+    // machine_48_or_p3_ is set by Emulator from the active MachineType and
+    // is also re-fanned-out from runtime NR 0x03 machine_timing writes.
+    const uint32_t int_pulse_tstates = machine_48_or_p3_ ? 32u : 36u;
     if (int_pending_) {
-        if (tstates - int_requested_at_ > INT_PULSE_TSTATES && !z80.iff1) {
-            // Pulse expired while interrupts were disabled — missed.
+        // V18R-CPU-01 fix: the drop arm must be UNCONDITIONAL on IFF1.
+        // VHDL zxnext.vhd:2017-2033 — `pulse_int_n` returns to '1' as soon
+        // as `pulse_count_end='1'` (the count gate), independent of IFF1
+        // and of any CPU-side signal. Once the pulse line has gone high,
+        // the Z80 /INT pin sampled at the rising edge of the last clock of
+        // M1 sees a HIGH level and the INT is not accepted.
+        //
+        // Pre-fix the gate read `> int_pulse_tstates && !z80.iff1` — this
+        // missed the EI/RETI window edge: ISR runs with DI (IFF1=0), the
+        // pulse expires at T=32 (or 36), then EI re-enables IFF1=1 at
+        // T=33+; the drop arm short-circuits because IFF1=1 now and the
+        // accept arm fires, dispatching a spurious INT that real hardware
+        // would have already dropped. Boot-realistic in NextZXOS supervisor
+        // paths that bracket bank-flip sections with DI/EI.
+        if (tstates - int_requested_at_ > int_pulse_tstates) {
+            // Pulse expired — /INT line went high in hardware; drop the
+            // pending request regardless of IFF1.
             int_pending_ = false;
         } else if (z80.iff1) {
-            // Resolve the vector byte for this IntAck cycle.
+            // Pass-8 fix: gate EI-grace BEFORE invoking on_int_ack().
             //
-            // Opt-in IM2 daisy-chain path: when on_int_ack is installed
-            // (Im2Controller wiring in the emulator), call it at the
-            // IntAck M1 cycle and use its returned byte as the vector.
-            // This mirrors VHDL im2_device.vhd:155 driving o_vec during
-            // S_ACK, OR-reduced by peripherals.vhd:134-144, captured at
-            // the CPU IntAck cycle per zxnext.vhd:1999.
+            // FUSE's fuse_z80_interrupt() rejects the interrupt if
+            //   tstates == interrupts_enabled_at
+            // (the EI-grace one-instruction window). Pre-fix, jnext called
+            // on_int_ack() unconditionally before this check, which advances
+            // the IM2 daisy-chain device from S_REQ to S_ACK in
+            // Im2Controller::ack_vector(). When fuse_z80_interrupt then
+            // rejected the cycle, the device sat in S_ACK without the
+            // CPU ever asserting IORQ_M1 — a state the VHDL never reaches
+            // because im2_device.vhd:111-116 only transitions S_REQ→S_ACK
+            // on (i_m1_n='0' and i_iorq_n='0' and i_iei='1' and
+            // i_im2_mode='1'); EI-grace prevents IORQ_M1 entirely (VHDL
+            // t80n.vhd:1768 — "Prefix='00' and SetEI='0'" gate). Next tick
+            // step_devices() then advanced S_ACK→S_ISR (vhdl:117 on
+            // i_m1_n='1' implicit), leaving the fabric stuck in S_ISR with
+            // no actual ISR ever invoked — phantom interrupt acceptance.
             //
-            // When not installed, fall back to the legacy int_vector_
-            // member (set via request_interrupt()). FUSE Z80 tests never
-            // install this callback, preserving 1356/1356 compliance.
-            uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
-            Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
-            libspectrum_dword before = tstates;
-            int accepted = fuse_z80_interrupt(vector);
-            sync_regs_from_fuse(regs_);
-            if (accepted) {
-                int_pending_ = false;
-                return (int)(tstates - before);
+            // Fix: replicate FUSE's gate locally and skip the on_int_ack()
+            // call when EI-grace would block. int_pending_ stays true so
+            // the next execute() retries; the IM2 fabric correctly observes
+            // no IntAck cycle this tick.
+            const bool ei_grace =
+                static_cast<libspectrum_signed_dword>(tstates)
+                    == z80.interrupts_enabled_at;
+            if (!ei_grace) {
+                // Resolve the vector byte for this IntAck cycle.
+                //
+                // Opt-in IM2 daisy-chain path: when on_int_ack is installed
+                // (Im2Controller wiring in the emulator), call it at the
+                // IntAck M1 cycle and use its returned byte as the vector.
+                // This mirrors VHDL im2_device.vhd:155 driving o_vec during
+                // S_ACK, OR-reduced by peripherals.vhd:134-144, captured at
+                // the CPU IntAck cycle per zxnext.vhd:1999.
+                //
+                // When not installed, fall back to the legacy int_vector_
+                // member (set via request_interrupt()). FUSE Z80 tests never
+                // install this callback, preserving 1356/1356 compliance.
+                uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
+                Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
+                libspectrum_dword before = tstates;
+                int accepted = fuse_z80_interrupt(vector);
+                sync_regs_from_fuse(regs_);
+                if (accepted) {
+                    int_pending_ = false;
+                    return (int)(tstates - before);
+                }
+                // Defensive: fuse_z80_interrupt may still return 0 for
+                // reasons other than EI-grace (we've already filtered that
+                // above). Keep int_pending_ true so the interrupt is retried
+                // next cycle. Fall through to execute one instruction first.
             }
-            // If not accepted (e.g. interrupts_enabled_at == tstates), keep
-            // int_pending_ true so the interrupt is retried next cycle.
-            // Fall through to execute one instruction first.
+            // EI-grace branch: do NOT call on_int_ack(). The IM2 fabric
+            // stays in S_REQ; next tick the EI-grace expires and the retry
+            // path above lands the IntAck cycle correctly.
         }
     }
 
@@ -480,17 +559,113 @@ int Z80Cpu::execute() {
             if (on_m1_cycle) on_m1_cycle(pc, opcode);
             if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
 
+            // Pass-5 fix: VHDL-faithful M1 contention for Z80N opcodes.
+            // Mirrors FUSE's `contend_read(PC, 4)` per M1 fetch (see
+            // opcodes_base.c:1075 for ED prefix; the inner 0xed switch then
+            // does the same for the ext byte). Each contend_read() adds the
+            // VHDL contention stretch keyed on (hc, vc) at the current
+            // tstates position, then advances tstates by 4 (the M1 length).
+            // Without this, every Z80N opcode bypassed the M1 contention
+            // window — the supervisor uses NEXTREG/MUL/ADD HL/DE/BC,A
+            // constantly, so contended pages running during the active raster
+            // window would skip 6/5/4/3/2/1 T-states per Z80N instruction.
+            // Class-(a) per pass-5 quantification (boot supervisor cycles
+            // ~2.4M Z80N opcodes per second; even 1 missed cycle on 10 % of
+            // those is 240 K T-states/s, ≈3.4 % timing drift).
+            //
+            // The two contend_read() calls also bake the M1 contention into
+            // the FUSE `tstates` clock so subsequent fuse_z80_readbyte() /
+            // contend_read() calls (post-Z80N) derive (hc, vc) from a
+            // contention-correct frame position.
+            //
+            // Note: the per-call 4 T-states subsume what was previously
+            // supplied by `tstates += t` (where t already included the 8 T
+            // baseline). We therefore subtract 8 from the post-instruction
+            // tstates increment below. Pass-6 routed all Z80N operand
+            // accesses (TEST_N, ADD_*_NN, NEXTREG_NN, NEXTREG_A, PUSH_NN)
+            // through fuse_z80_readbyte / fuse_z80_writebyte / fuse_z80_*port
+            // (each adds +3 T + contention stretch), so operand contention
+            // is now fully modelled — class-(b) flag retired (Pass-9).
+            //
+            // Snapshot tstates BEFORE the contend_read pair so we can return
+            // the FULL elapsed delta (including any contention stretch) at
+            // the bottom of the branch — matching FUSE's
+            // fuse_z80_execute_one() return shape (line 213).
+            libspectrum_dword start_ts = tstates;
+            contend_read(pc, 4);
+            contend_read(static_cast<uint16_t>((pc + 1) & 0xFFFF), 4);
+
             // Advance PC past ED + ext byte; execute_z80n reads any operands
             z80.pc.w = (pc + 2) & 0xFFFF;
             // Increment R by 2: one for ED prefix M1, one for ext byte M1
             z80.r = (z80.r + 2) & 0x7F;
+            // Pass-4 fix: mirror fuse_z80_execute_one() pre-dispatch state
+            // hygiene — Q=0 and iff2_read=0 at the start of every opcode.
+            //
+            // Q semantics (FUSE convention, used by SCF/CCF X/Y composition):
+            // every opcode begins with Q=0; F-writing opcodes set Q=F at end.
+            // The very next SCF/CCF reads `last_Q = Q` from this trail and
+            // computes X/Y as (last_Q ^ F) | A.
+            //
+            // F-writing Z80N opcodes (set Q=F at end via execute_z80n):
+            //   TEST_N, ADD_HL_A, ADD_DE_A, ADD_BC_A,
+            //   LDIX, LDWS, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE
+            //   (LDPIRX joined this group at Pass-10 — VHDL I_BT block-transfer
+            //    flag composition at t80n.vhd:1277-1289 fires for LDPIRX too.)
+            //
+            // Non-F-writing Z80N opcodes (MUST leave Q=0 so the next SCF/CCF
+            // behaves like it's coming after a non-F-writing standard opcode
+            // — LD r,r' / JP / etc.):
+            //   SWAPNIB, MIRROR_A, MUL_DE, BSLA/BSRA/BSRL/BSRF/BRLC_DE_B,
+            //   ADD_HL_NN, ADD_DE_NN, ADD_BC_NN, PUSH_NN, OUTINB,
+            //   NEXTREG_NN, NEXTREG_A, PIXELDN, PIXELAD, SETAE, JP_C, LOOP.
+            //
+            // Pre-fix: Q persisted from the prior FUSE opcode, poisoning
+            // SCF/CCF X/Y bits across any Z80N → SCF sequence.
+            //
+            // iff2_read semantics (NMOS LD A,I / LD A,R quirk): if INT is
+            // accepted on the very next instruction boundary after LD A,I/R
+            // and IFF2 was 1, the P flag (which the LD just stored) gets
+            // cleared to model the well-known race condition. FUSE clears
+            // iff2_read=0 at the top of every opcode. A Z80N opcode in
+            // between LD A,I and an INT acceptance is a non-immediate
+            // boundary, so iff2_read MUST be cleared too — otherwise jnext
+            // fires the NMOS quirk wrongly.
+            z80.q = 0;
+            z80.iff2_read = 0;
             sync_regs_from_fuse(regs_);
 
             int t = execute_z80n(ext, *this);
             if (t < 0) t = 8;
 
+            // VHDL-faithful timekeeping: Z80N opcodes bypass FUSE's
+            // fuse_z80_execute_one() entirely (FUSE doesn't decode them).
+            //
+            // Pass-5: the two contend_read(pc, 4) / contend_read(pc+1, 4)
+            // calls above add 8 T-states for the M1 fetches AND any
+            // contention stretch the (hc, vc) window emits.
+            //
+            // Pass-6: execute_z80n() now self-manages the FULL post-M1
+            // tstates advance — operand/data reads via fuse_z80_readbyte
+            // and writes via fuse_z80_writebyte (each adds 3 T + contention
+            // stretch); real port I/O (OUTINB, JP_C) via
+            // fuse_z80_writeport / fuse_z80_readport (each 4 T + contention);
+            // and any leftover internal idle cycles via raw `tstates +=`.
+            // The wrapper therefore does NOT add (t - 8) — that would
+            // double-count the post-M1 portion, since execute_z80n() has
+            // already advanced tstates by the data-access + internal time.
+            //
+            // The returned `t` value is now purely informational — it is
+            // the spec-total instruction T-state count (8 M1 + post-M1).
+            // We still snapshot start_ts before the contend_read pair so
+            // the wrapper returns the FULL elapsed delta (8 M1 + M1
+            // contention + data-access T + data-access contention +
+            // internal idle), matching FUSE's fuse_z80_execute_one()
+            // return shape.
+            (void)t;  // value unused after Pass-6 — self-managed inside
+
             sync_fuse_from_regs(regs_);
-            return t;
+            return static_cast<int>(tstates - start_ts);
         }
 
         // G87: non-Z80N ED instruction (RETI = ED 4D, RETN = ED 45, IM 0/1/2,
@@ -499,15 +674,23 @@ int Z80Cpu::execute() {
         // decoder FSM gets the ED + ext byte sequence it needs to detect
         // RETI/RETN and surface reti_seen / retn_seen pulses.
         //
-        // Out of scope for this wave: DD/FD prefix and CB prefix paths still
-        // deliver only the prefix byte to on_m1_cycle. The im2 FSM has
-        // S_DDFD_T4 and S_CB_T4 states that would benefit from per-byte
-        // delivery here too, but the SKIP rows targeted by G87 are RETI/RETN
-        // only — DD/FD/CB tracking remains a follow-up.
+        // Pass-9 (CPU verify-9): DD/FD/CB chained-prefix M1 delivery now
+        // handled in the normal-instruction branch below via a walking
+        // loop. The ED branch is correct as-is (ED is always 2 M1 bytes).
         if (on_m1_cycle) on_m1_cycle(pc, opcode);
         if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
         int cycles_ed = fuse_z80_execute_one();
         sync_regs_from_fuse(regs_);
+        // Pass-9 fix: VHDL t80n.vhd:1361-1367 — BC-decrementing block
+        // transfer instructions latch IncDecZ from the BC-dec result.
+        //   ED A0/A8/B0/B8 = LDI/LDD/LDIR/LDDR
+        //   ED A1/A9/B1/B9 = CPI/CPD/CPIR/CPDR
+        // Match by (ext & 0xF7) == 0xA0 / 0xA1 / 0xB0 / 0xB1.
+        // After exec regs_.BC has the post-decrement value; IncDecZ = (BC != 0).
+        if ((ext == 0xA0) || (ext == 0xA8) || (ext == 0xB0) || (ext == 0xB8) ||
+            (ext == 0xA1) || (ext == 0xA9) || (ext == 0xB1) || (ext == 0xB9)) {
+            regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
+        }
         return (cycles_ed > 0) ? cycles_ed : 4;
     }
 
@@ -525,11 +708,217 @@ int Z80Cpu::execute() {
     }
 
     // ── Normal Z80 instruction ─────────────────────────────────────────
-    if (on_m1_cycle) on_m1_cycle(pc, opcode);
+    // Pass-9 fix: deliver M1 callbacks for EVERY prefix byte in chained
+    // sequences (e.g. DD DD <op>, DD FD <op>, DD ED <op>, DD DD ED 4D,
+    // FD DD CB d <op>, etc.).
+    //
+    // VHDL oracle (t80n.vhd + im2_control.vhd:158-209): every prefix
+    // byte (DD / FD / ED / CB) is its own M1 cycle in real hardware. The
+    // im2_control FSM advances on each ifetch_fe_t3 — so the IM2 RETI
+    // decoder needs to see ALL prefix bytes plus the final inner opcode.
+    //
+    // Pass-8 delivered only PC and PC+1 (correct for 2-byte prefix
+    // sequences like DD <op>, CB <op>, DD CB d <op>, FD CB d <op>) but
+    // missed the third+ byte for chains like DD DD <op>, DD FD <op>,
+    // DD ED <op>, etc. FUSE Z80 (opcodes_base.c:958-978) handles these
+    // chains via PC backup + goto end_opcode + main switch re-dispatch
+    // — each pass through case 0xdd/0xfd/0xed adds another contend_read
+    // M1 cycle. We mirror that here by walking the prefix chain.
+    //
+    // Walk rules:
+    //   1. If first byte is DD or FD: each subsequent DD/FD adds an M1.
+    //      When we hit something else:
+    //        - ED:  fire M1 for ED, then fire M1 for the ED inner byte.
+    //        - CB:  fire M1 for CB. Displacement and op are NOT M1
+    //               (z80_ddfd.c case 0xcb: contend_read(PC, 3) — 3T data
+    //               cycles, not 4T M1).
+    //        - else fire M1 for that byte (the actual instruction).
+    //   2. If first byte is ED: fire M1 for ED, then fire M1 for inner.
+    //      (Already handled above for Z80N + non-Z80N ED branches.)
+    //   3. If first byte is CB: fire M1 for CB, then fire M1 for inner.
+    //   4. Else: fire M1 only for the opcode byte.
+    //
+    // Edge case: DD CB d op / FD CB d op — the d byte is at PC+2 and
+    // is fetched as DATA (not M1). Only DD and CB are M1. We correctly
+    // stop after CB.
+    if (on_m1_cycle) {
+        on_m1_cycle(pc, opcode);
+        if (opcode == 0xDD || opcode == 0xFD) {
+            // Walk the prefix chain. Limit to a sanity cap to avoid
+            // pathological infinite loops (real hardware has no cap, but
+            // a chain longer than 64 prefix bytes in 64KB is essentially
+            // a tight DD/FD loop — and INT/NMI would interrupt it long
+            // before we got here in practice).
+            uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
+            for (int hop = 0; hop < 64; ++hop) {
+                uint8_t b = mem_.read(walk_pc);
+                on_m1_cycle(walk_pc, b);
+                if (b == 0xDD || b == 0xFD) {
+                    walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
+                    continue;
+                }
+                if (b == 0xED) {
+                    // ED inner byte is also an M1 cycle (case 0xed in
+                    // FUSE main switch does contend_read(PC, 4)).
+                    uint16_t ed_inner_pc =
+                        static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
+                    uint8_t ed_inner = mem_.read(ed_inner_pc);
+                    on_m1_cycle(ed_inner_pc, ed_inner);
+                }
+                // CB inside DD/FD chain: only the CB itself is M1; the
+                // displacement and op byte are data reads. Do nothing
+                // more.
+                // Other bytes: that's the final M1, nothing more.
+                break;
+            }
+        } else if (opcode == 0xCB) {
+            // Plain CB <op>: inner byte is M1.
+            uint8_t inner = mem_.read(static_cast<uint16_t>((pc + 1) & 0xFFFF));
+            on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), inner);
+        }
+    }
+
+    // Pass-9 fix: capture opcode for post-execute IncDecZ shadow update.
+    // VHDL t80n.vhd:1358-1360 — DJNZ latches IncDecZ from F_Out(Flag_Z)
+    // of B-1. ED-prefix block transfers handled in the ED branch above;
+    // Z80N block-transfer variants update IncDecZ inline in z80n_ext.cpp.
+    //
+    // Edge case: DD ED <op> / FD ED <op> chains. FUSE backs up via
+    // z80_ddfd.c default and re-enters main switch case 0xed for the
+    // inner ED. We must catch the ED-block-transfer when it's reached
+    // through a DD/FD prefix chain. Walk the prefix chain to find the
+    // first non-prefix byte and check if it's an ED-block-transfer ext.
+    //
+    // V14-CPU-01: VHDL t80n.vhd:1361-1367 latches IncDecZ on every BC
+    // 16-bit inc/dec — i.e. ALSO on plain INC BC (0x03) and DEC BC (0x0B),
+    // not only on the BC-decrementing block transfers (LDI/LDD/CPI/CPD/
+    // …) and DJNZ. The mcode (t80n_mcode.vhd:927-936) sets
+    //   INC ss : IncDec_16 <= "01" & DPair
+    //   DEC ss : IncDec_16 <= "11" & DPair
+    // and the latch fires on `IncDec_16(2 downto 0) = "100"` — i.e. only
+    // when DPair = "00" (= BC). For DE/HL/SP DPair the low three bits
+    // become "101"/"110"/"111" and the latch is silent. Result of the
+    // 16-bit ALU on inc/dec is on the `ID16` bus; `IncDecZ <= '0'` when
+    // `ID16 = 0`, `'1'` otherwise. So:
+    //   INC BC: post-inc BC == 0 → IncDecZ=0; nonzero → IncDecZ=1.
+    //   DEC BC: post-dec BC == 0 → IncDecZ=0; nonzero → IncDecZ=1.
+    //
+    // V14-CPU-NIT-01: DD/FD-prefixed INC BC / DEC BC / DJNZ execute the
+    // SAME mcode path. Per VHDL `t80n.vhd:513-531`, after a DD/FD prefix
+    // the ISet stays at "00" (only XY_State is updated to "01"/"10");
+    // the parametric mcode dispatch keys on `IRB` (= the inner opcode),
+    // and `DPair := IR(5 downto 4)` (line 228). For inner opcode 0x03
+    // (INC BC) / 0x0B (DEC BC), DPair="00" → IncDec_16="0100"/"1100" →
+    // low-3="100" → latch fires. For inner opcode 0x10 (DJNZ), the
+    // DJNZ latch at line 1358-1360 also fires (no XY_State gating
+    // there). Same family pattern as Pass-13's V13-CPU-01 DD/FD-prefix
+    // gap on DJNZ. Solution: walk the DD/FD/DD-DD-… prefix chain to
+    // discover the inner opcode and use it for ALL three classifications
+    // (DJNZ, INC BC, DEC BC) plus the existing ED-block-transfer
+    // detection.
+    //
+    // FUSE Z80 (`z80_ddfd.c:556-565` default branch) backs up PC and
+    // re-enters the main switch on any non-IX/IY opcode — so DD 03
+    // mutates BC just like plain 0x03, DD 10 mutates B and (when taken)
+    // PC just like plain 0x10. We can therefore observe the post-state
+    // identically and apply the same IncDecZ polarity.
+    //
+    // Pre-fix: jnext only updated IncDecZ on plain DJNZ + plain INC BC /
+    // DEC BC + plain ED-block-xfers + DD/FD-prefixed ED-block-xfers. A
+    // program with `DD INC BC; ED A5` (LDWS) or `FD DEC BC; ED A5`
+    // observed a STALE IncDecZ.
+    //
+    // Class-(a) discriminative: write tests that do `DD INC BC` (or
+    // `FD DEC BC`, etc.) followed by `LDWS` and check F.P composes from
+    // the new IncDecZ value. See test_v14_cpu_nit_01_*.
+    uint8_t inner_opcode = opcode;
+    bool ed_block_xfer = false;
+    if (opcode == 0xDD || opcode == 0xFD) {
+        uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
+        for (int hop = 0; hop < 64; ++hop) {
+            uint8_t b = mem_.read(walk_pc);
+            if (b == 0xDD || b == 0xFD) {
+                walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
+                continue;
+            }
+            // Found the inner (non-prefix) opcode.
+            inner_opcode = b;
+            if (b == 0xED) {
+                uint8_t ext = mem_.read(
+                    static_cast<uint16_t>((walk_pc + 1) & 0xFFFF));
+                if ((ext == 0xA0) || (ext == 0xA8) || (ext == 0xB0) ||
+                    (ext == 0xB8) || (ext == 0xA1) || (ext == 0xA9) ||
+                    (ext == 0xB1) || (ext == 0xB9)) {
+                    ed_block_xfer = true;
+                }
+            }
+            break;
+        }
+    }
+    const bool is_djnz   = (inner_opcode == 0x10);
+    const bool is_inc_bc = (inner_opcode == 0x03);
+    const bool is_dec_bc = (inner_opcode == 0x0B);
 
     int cycles = fuse_z80_execute_one();
 
     sync_regs_from_fuse(regs_);
+
+    if (is_djnz) {
+        // V13-CPU-01 fix (+ V14-CPU-NIT-01 prefix-walk): VHDL t80n.vhd:
+        // 1358-1360 latches IncDecZ from F_Out(Flag_Z) of the SUB-1 ALU
+        // result on B (DJNZ ALU_Op="0010" SUB at MCycle 1, BusA=B(000),
+        // BusB="00000001"; t80n_mcode.vhd:1140-1144). F_Out(Flag_Z) is
+        // set when result is zero — i.e. when (B-1) == 0 i.e. B was 1
+        // entering DJNZ. `is_djnz` is keyed on the inner opcode of any
+        // DD/FD-prefix chain (V14-CPU-NIT-01) so DD 10 / FD 10 / DD DD
+        // 10 also latch correctly. FUSE backs DD/FD-prefixed DJNZ
+        // through the z80_ddfd.c default branch (PC--; goto end_opcode),
+        // so B has been decremented and PC may have been jumped exactly
+        // as for plain DJNZ.
+        //
+        // After exec, regs_.BC high byte = post-decrement B. The mapping is:
+        //   B == 0 (post-dec)  →  ALU result was zero  →  F.Z=1  →  IncDecZ=1
+        //   B != 0 (post-dec)  →  ALU result nonzero   →  F.Z=0  →  IncDecZ=0
+        //
+        // PRE-FIX (Pass-9..Pass-12) wrote `(B != 0) ? 1 : 0` — the OPPOSITE
+        // polarity! The comment ("F_Out(Flag_Z) of B-1") was right but the
+        // code matched the BC-block-transfer convention (where IncDecZ=1
+        // means "BC nonzero, P/V set" per spec). VHDL has the two latch
+        // sites with INVERTED meanings:
+        //   t80n.vhd:1359 (DJNZ)         : IncDecZ <= F_Out(Flag_Z)  (zero)
+        //   t80n.vhd:1361-1366 (BC dec)  : IncDecZ <= '1' if ID16/=0 (nonzero)
+        // Both feed F.P via t80n.vhd:1284 `F(Flag_P) <= IncDecZ` for I_BC
+        // or I_BT instructions (LDI/LDIR/LDIX/LDIRX/.../LDWS).
+        //
+        // Discriminative impact: an LDWS following DJNZ-taken-branch
+        // composed F.P from the wrong polarity. With B=2 entering DJNZ:
+        //   pre-fix:  IncDecZ=1 (B=1 != 0) → LDWS F.P=1
+        //   post-fix: IncDecZ=0 (B=1 ≠ 0 → F.Z=0) → LDWS F.P=0  (matches VHDL)
+        regs_.IncDecZ = (((regs_.BC >> 8) & 0xFF) == 0) ? 1u : 0u;
+    }
+    if (ed_block_xfer) {
+        // DD-prefixed ED block transfer (DD ED A0 etc.). The DD prefix
+        // is discarded by FUSE's z80_ddfd.c default re-dispatch path,
+        // and the ED block transfer runs normally — BC has been
+        // decremented. IncDecZ = (BC != 0).
+        regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
+    }
+    if (is_inc_bc || is_dec_bc) {
+        // V14-CPU-01 fix (+ V14-CPU-NIT-01 prefix-walk) — see large
+        // comment block above the pre-execute classification. After
+        // fuse_z80_execute_one(), regs_.BC holds the post-inc/dec value
+        // (= ID16 in VHDL). VHDL emits IncDecZ='0' when ID16=0 and '1'
+        // otherwise (line 1362-1366). DD/FD-prefixed variants (DD 03,
+        // FD 03, DD 0B, FD 0B) reach this branch via the inner-opcode
+        // walk (NIT-01); FUSE backs them through the z80_ddfd.c default
+        // path, so plain BC++/BC-- happens normally. Note this polarity
+        // is the SAME as the BC-block-transfer latch (line 1361-1366
+        // covers both — the I_BT block transfers
+        // assert their own IncDec_16="1100" and reach this same gate),
+        // and OPPOSITE to the DJNZ latch (line 1359, F_Out(Flag_Z) which
+        // is set when result==0).
+        regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
+    }
     return (cycles > 0) ? cycles : 4;
 }
 
@@ -537,6 +926,9 @@ void Z80Cpu::request_interrupt(uint8_t vector) {
     int_pending_ = true;
     int_vector_  = vector;
     int_requested_at_ = *fuse_z80_tstates_ptr();
+    // V20R-CPU-NIT-02 test observable — monotonic counter; not
+    // persisted in save/load (would shift schema layout).
+    ++request_interrupt_count_;
 }
 
 void Z80Cpu::request_nmi() {
@@ -556,6 +948,39 @@ void Z80Cpu::save_state(StateWriter& w) const
     w.write_u8(regs_.IFF1); w.write_u8(regs_.IFF2);
     w.write_u8(regs_.IM);
     w.write_bool(regs_.halted);
+    // Pass-3 fix: include the hidden WZ/MEMPTR register and the F-assembly
+    // shadow Q. Without these, save/load loses the undocumented X/Y flag
+    // composition state used by BIT (HL)/(IX+d)/(IY+d) and by SCF/CCF
+    // (FUSE consults `last_Q = z80.q` at the start of every opcode and
+    // BIT_MEMPTR uses `z80.memptr.b.h` for X/Y composition). Both fields
+    // are already present in Z80Registers and synced by sync_*regs.
+    w.write_u16(regs_.MEMPTR);
+    w.write_u8(regs_.Q);
+    // Pass-9 note: IncDecZ shadow (Z80Registers::IncDecZ) is intentionally
+    // NOT persisted here. Adding bytes mid-stream would shift all
+    // subsequent subsystem reads (im2_, palette_, layer2_, ...) and break
+    // backwards compatibility with existing rewind/snapshot buffers. The
+    // worst-case effect of dropping IncDecZ at save/load boundary is a
+    // single LDWS instruction reading P=0 instead of its actual prior
+    // value, which is then immediately resynced by the next BC-dec block
+    // transfer or DJNZ. Trading observably-undetectable bug for snapshot
+    // format compatibility is the right call here.
+    // Pass-4 fix: persist FUSE-internal interrupt-related state that lives
+    // ONLY in the global `z80` struct and is not mirrored into Z80Registers.
+    //   - interrupts_enabled_at: signed_dword tstate stamp set by EI; gates
+    //     fuse_z80_interrupt() on the immediately-following instruction
+    //     (VHDL t80n.vhd EI semantics — IFF1 takes effect AFTER the next
+    //     opcode boundary, mirroring real-hardware NMI/INT acceptance
+    //     window). Without persisting this across save/load, a snapshot
+    //     taken on the cycle immediately after EI would let an INT fire
+    //     one instruction earlier than spec when restored.
+    //   - iff2_read: NMOS LD A,I / LD A,R quirk flag — if INT is accepted
+    //     on the next instruction boundary, the P flag (which holds IFF2
+    //     stored by the LD) gets cleared. Without persistence, a snapshot
+    //     taken between LD A,I and an immediately-pending INT would skip
+    //     the quirk on restore.
+    w.write_i32(z80.interrupts_enabled_at);
+    w.write_u8(static_cast<uint8_t>(z80.iff2_read ? 1 : 0));
     // Interrupt state
     w.write_bool(nmi_pending_);
     w.write_bool(int_pending_);
@@ -575,6 +1000,14 @@ void Z80Cpu::load_state(StateReader& r)
     regs_.IFF1 = r.read_u8(); regs_.IFF2 = r.read_u8();
     regs_.IM  = r.read_u8();
     regs_.halted = r.read_bool();
+    // Pass-3 fix: restore MEMPTR + Q (see save_state comment).
+    regs_.MEMPTR = r.read_u16();
+    regs_.Q      = r.read_u8();
+    // Pass-4 fix: restore FUSE-internal interrupts_enabled_at + iff2_read.
+    // Push directly into the global z80 struct; sync_fuse_from_regs() does
+    // NOT touch these fields (they have no Z80Registers mirror).
+    z80.interrupts_enabled_at = static_cast<libspectrum_signed_dword>(r.read_i32());
+    z80.iff2_read = (r.read_u8() != 0) ? 1 : 0;
     nmi_pending_ = r.read_bool();
     int_pending_ = r.read_bool();
     int_vector_  = r.read_u8();

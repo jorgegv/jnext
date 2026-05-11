@@ -18,6 +18,9 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "input/joystick.h"
+#include "input/mouse.h"
+#include "peripheral/nmi_source.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -307,6 +310,33 @@ static void test_reset_defaults(Emulator& emu) {
               "NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 "
               "[zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults]",
               got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // RST-13 / V17-NMP-01 — NR 0xB8/0xB9/0xBA/0xBB DivMMC automap entry-point
+    // configuration registers. VHDL zxnext.vhd:5087-5090 reset these to
+    // 0x83/0x01/0x00/0xCD respectively (master reset block; unconditional
+    // on `i_reset`). Read mux at zxnext.vhd:6217-6227 returns each storage
+    // byte verbatim. Pre-Pass-17, jnext only registered write_handlers
+    // (emulator.cpp:2461-2464) — readback fell through to `regs_[reg]`
+    // (zeroed by `regs_.fill(0)` in NextReg::reset) and returned 0x00 for
+    // all four. Discriminative test for the V17-NMP-01 fix.
+    {
+        const uint8_t expected[4] = {0x83, 0x01, 0x00, 0xCD};
+        bool all_ok = true;
+        std::string worst;
+        for (int i = 0; i < 4; ++i) {
+            uint8_t reg = static_cast<uint8_t>(0xB8 + i);
+            uint8_t got = nr_read(emu, reg);
+            if (got != expected[i]) {
+                all_ok = false;
+                worst = "NR " + hex2(reg) + " " +
+                        detail_eq(got, expected[i]);
+            }
+        }
+        check("RST-13",
+              "NR 0xB8/0xB9/0xBA/0xBB DivMMC automap EP reset "
+              "= 0x83/0x01/0x00/0xCD [zxnext.vhd:5087-5090]",
+              all_ok, worst);
     }
 }
 
@@ -1551,6 +1581,13 @@ static void test_rw_asymmetric(Emulator& emu) {
         //      write is not re-issuing the unlock strobe (harmless either
         //      way, but clearer without).
         nr_write(emu, 0x08, 0x40);
+        // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+        // `eff_nr_08_contention_disable` (effective), not the immediate
+        // shadow. Per :5822-5823 the effective gate latches from the
+        // shadow only on the bus-idle + hc(8)='1' edge. Without running
+        // any instructions in this harness, poke the commit explicitly
+        // so the read-back observes the committed value.
+        emu.contention().commit_contention_disable_on_hc(300);  // hc(8)=1
         uint8_t cd_on = nr_read(emu, 0x08);
         bool bit6_set = (cd_on & 0x40) != 0;
         bool bit7_still_set = (cd_on & 0x80) != 0;
@@ -1564,6 +1601,248 @@ static void test_rw_asymmetric(Emulator& emu) {
               "locked_read=" + hex2(locked) +
               " unlocked_read=" + hex2(unlocked) +
               " cd_on_read=" + hex2(cd_on));
+    }
+}
+
+// ── Cat27 testcov-memory regression rows ─────────────────────────────
+//
+// Per-fix regression coverage for memory-subsystem fixes that depend on
+// the full Emulator integration (NR-write path / port-dispatch / cross-
+// subsystem state). See doc/issues/nextzxos-boot/
+// NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-MEMORY.md.
+
+static void test_cat27_verify8_nr08_effective(Emulator& emu) {
+    set_group("Cat27-NR08-Effective");
+
+    // FIX-NR08-EFFLOCK-01 — commit b6b42dd verify8 A3: NR 0x08 bit 7
+    // readback uses effective_paging_locked (VHDL :3769), not the raw
+    // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11 AND EFF7(2)=0)
+    // drops port_7ffd_locked to '0' even when bit 5 is set; pre-fix the
+    // readback returned NOT raw_bit_5 = 0, post-fix returns NOT eff = 1.
+    //
+    // This row is on a Next emulator (ZXN_ISSUE2 default). Sequence:
+    //   1. Lock paging via port_7FFD bit 5 (raw lock asserted).
+    //   2. Read NR 0x08 — bit 7 = 0 (raw lock; both pre- and post-fix).
+    //   3. Enable Pentagon-1024: NR 0x8F = 0b11 (mapping_mode = "11").
+    //   4. Make sure EFF7(2)=0 (default at reset).
+    //   5. Read NR 0x08 — bit 7 should be 1 (effective_paging_locked=0
+    //      because Pentagon-1024 override). Pre-fix: 0.
+    {
+        // Make sure Mmu is at reset for this test (fresh paging state).
+        emu.mmu().reset(true);
+        emu.contention().rebuild_for_type(MachineType::ZXN_ISSUE2);
+        // Ensure EFF7(2) is cleared (Pentagon-1024 enable not disabled).
+        emu.mmu().write_port_eff7(0x00);
+        // 1. Lock paging via direct Mmu (the port-dispatch handler is the
+        //    integration path; we already exercised that in RW-02).
+        emu.mmu().map_128k_bank(0x20);  // bit 5 → raw lock asserted
+        const uint8_t nr08_raw_lock = nr_read(emu, 0x08);
+        const bool bit7_raw = (nr08_raw_lock & 0x80) != 0;
+        // 2. Enable Pentagon-1024 mode via NR 0x8F.
+        emu.mmu().write_nr_8f(0x03);
+        // 3. Sanity: effective_paging_locked() should now be false.
+        const bool eff_locked = emu.mmu().effective_paging_locked();
+        // 4. Read NR 0x08 — bit 7 should be 1 (=NOT effective_paging_locked).
+        const uint8_t nr08_pent = nr_read(emu, 0x08);
+        const bool bit7_pent = (nr08_pent & 0x80) != 0;
+        check("FIX-NR08-EFFLOCK-01",
+              "NR 0x08 bit 7 read returns NOT effective_paging_locked "
+              "(Pentagon-1024 overrides the raw lock) — VHDL :5906/:3769; "
+              "commit b6b42dd",
+              !bit7_raw && !eff_locked && bit7_pent,
+              "raw_lock_b7=" + std::to_string(bit7_raw) +
+              " eff_locked=" + std::to_string(eff_locked) +
+              " pent_b7=" + std::to_string(bit7_pent) +
+              " (exp 0/0/1)");
+    }
+}
+
+// Cat27 testcov-memory follow-up — emulator-handler integration rows.
+//
+// The base testcov-memory pass (af29460) verified the per-API contract for
+// these fixes via direct Mmu/ContentionModel calls. The reviewer flagged
+// (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-MEMORY-REVIEW.md, "Coverage gaps") that
+// a regression in the **emulator NR-write dispatcher** itself (the seam
+// between the NR-port write and the Mmu API) would not be caught: a
+// future refactor that reverts the dispatcher to a buggy call would slip
+// silently through the API-only tests. These rows close the gap by
+// driving every fix through the production NR-write path
+// (`nr_write(emu, reg, val)` → port 0x253B → NextReg::write → fix
+// callback → Mmu API) and observing the public side-effect.
+static void test_cat27_emu_handler_integration() {
+    set_group("Cat27-Emu-Handler-Integration");
+
+    // ── FIX-NR5xFF-INT-01 — emulator NR $51,$FF dispatcher routes to the
+    //    per-slot helper (slot 1 only), preserving the explicit slot-0
+    //    mapping. Pre-fix dispatcher path called the both-slot
+    //    engage_legacy_rom_paging() helper which clobbered slot 0.
+    //    Reviewer finding: bypass risk for FIX-NR5xFF-01 unit row. VHDL
+    //    zxnext.vhd:4686-4696 nr_mmu_we per-slot.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR5xFF-INT-01",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Step 1: explicitly map slot 0 to a RAM page via NR $50,RAM.
+            nr_write(emu, 0x50, 0x05);
+            const uint8_t pre_slot0 = nr_read(emu, 0x50);
+            // Step 2: NR $51,$FF — must affect ONLY slot 1 (per-slot helper).
+            nr_write(emu, 0x51, 0xFF);
+            const uint8_t post_slot0 = nr_read(emu, 0x50);
+            const uint8_t post_slot1 = nr_read(emu, 0x51);
+            check("FIX-NR5xFF-INT-01",
+                  "NR $51,$FF dispatcher uses per-slot helper — slot 0 "
+                  "explicit RAM mapping preserved (VHDL :4686-4696; "
+                  "commit f832f38)",
+                  pre_slot0 == 0x05 && post_slot0 == 0x05 && post_slot1 == 0xFF,
+                  "pre_s0=" + hex2(pre_slot0) + " post_s0=" + hex2(post_slot0) +
+                  " post_s1=" + hex2(post_slot1) + " (exp 0x05/0x05/0xFF)");
+        }
+    }
+
+    // ── FIX-NR5xFF-INT-02 — emulator NR $52,$FF dispatcher leaves slot 2
+    //    inactive (read 0xFF), NOT mapped to ROM page 0. Pre-fix called
+    //    `mmu_.map_rom(2, 0)` which served ROM-page-0 bytes from the slot.
+    //    Discriminative observation: the NR-port readback returns 0xFF
+    //    only when nr_mmu_[2]=0xFF (= the post-fix sentinel-stored path).
+    //    Pre-fix dispatcher set the slot to a non-0xFF value via map_rom,
+    //    which would NOT update nr_mmu_ but would change the read pointer.
+    //    Combined check: NR readback = 0xFF AND a CPU read from 0x4000
+    //    returns 0xFF (= floating-bus / inactive slot per VHDL :3061).
+    //
+    //    Discriminative seed (fix-reviewer NIT, 2026-05-10): pre-fix
+    //    `map_rom(2, 0)` would point slot 2 at `ram_.page_ptr(0)` (because
+    //    Next mode has `rom_in_sram_=true` and Emulator::init copies
+    //    rom→ram pages 0..7). Without seeding, `ram[0][0]` happens to be
+    //    0xFF (because `Rom::Rom()` fills with 0xFF and that gets copied
+    //    into ram[0][0]) — so pre-fix `cpu_rd` would coincidentally also
+    //    read 0xFF and the row would pass regardless of fix presence.
+    //    Seed ram[0][0] = 0x42 BEFORE the NR write to force a discriminative
+    //    pre-fix read: post-fix slot is inactive → cpu_rd=0xFF; pre-fix
+    //    map_rom(2,0) → cpu_rd=0x42.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR5xFF-INT-02",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Seed page 0 byte 0 with a non-0xFF sentinel so a pre-fix
+            // map_rom(2, 0) would yield 0x42 (RAM-backed in Next mode),
+            // not the post-fix-required 0xFF (inactive slot).
+            emu.ram().page_ptr(0)[0] = 0x42;
+            nr_write(emu, 0x52, 0xFF);
+            const uint8_t nr_rb = nr_read(emu, 0x52);
+            const uint8_t cpu_rd = emu.mmu().read(0x4000);
+            check("FIX-NR5xFF-INT-02",
+                  "NR $52,$FF dispatcher → slot 2 inactive (CPU read 0xFF) "
+                  "AND nr_mmu_[2]=0xFF (VHDL :3061 sram_pre_active=0; "
+                  "commit f832f38)",
+                  nr_rb == 0xFF && cpu_rd == 0xFF,
+                  "nr_rb=" + hex2(nr_rb) + " cpu_rd=" + hex2(cpu_rd) +
+                  " (exp 0xFF/0xFF; ram[0][0]=0x42 seed)");
+        }
+    }
+
+    // ── FIX-NR5xFF-INT-03 — emulator NR $56,$FF dispatcher leaves slot 6
+    //    inactive (NOT legacy RAM auto-paged). Pre-fix called
+    //    `mmu_.engage_legacy_ram_paging()` which forced bank-0 mapping.
+    //    Discriminative: read 0xC000 returns 0xFF (inactive) AND NR $56
+    //    readback = 0xFF (verbatim sentinel).
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR5xFF-INT-03",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            nr_write(emu, 0x56, 0xFF);
+            const uint8_t nr_rb = nr_read(emu, 0x56);
+            const uint8_t cpu_rd = emu.mmu().read(0xC000);
+            check("FIX-NR5xFF-INT-03",
+                  "NR $56,$FF dispatcher → slot 6 inactive (NOT legacy RAM "
+                  "auto-paged; CPU read 0xFF, NR readback 0xFF) — VHDL "
+                  ":3061; commit f832f38",
+                  nr_rb == 0xFF && cpu_rd == 0xFF,
+                  "nr_rb=" + hex2(nr_rb) + " cpu_rd=" + hex2(cpu_rd) +
+                  " (exp 0xFF/0xFF)");
+        }
+    }
+
+    // ── FIX-EFF7-FF-INT-01 — emulator NR $50,$FF dispatcher under EFF7(3)=1
+    //    must (a) leave nr_mmu_[0] at 0xFF (verbatim) and (b) NOT mirror
+    //    EFF7's RAM-at-0x0000 override on the NR-write cycle. Pre-fix
+    //    dispatcher called engage_legacy_rom_paging() (both slots) instead
+    //    of the per-slot helper, and (per the original EFF7-FF-01 fix)
+    //    the per-slot helper must not honour the eff7 override on the
+    //    NR-write cycle.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-EFF7-FF-INT-01",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Activate eff7(3) RAM-at-0x0000.
+            emu.mmu().write_port_eff7(0x08);
+            const bool baseline_ro0 = emu.mmu().is_slot_rom(0);
+            // Now NR $50,$FF via the dispatcher.
+            nr_write(emu, 0x50, 0xFF);
+            const uint8_t nr_rb = nr_read(emu, 0x50);  // verbatim sentinel
+            const bool   rom0  = emu.mmu().is_slot_rom(0);
+            check("FIX-EFF7-FF-INT-01",
+                  "Emulator NR $50,$FF dispatcher under EFF7(3)=1: nr_mmu_[0]="
+                  "0xFF verbatim, slot 0 → legacy ROM (NOT eff7 RAM override) "
+                  "— VHDL :4686-4696; commits 31d1786 + 560cb18",
+                  !baseline_ro0 && nr_rb == 0xFF && rom0,
+                  "baseline_ro0=" + std::to_string(baseline_ro0) +
+                  " nr_rb=" + hex2(nr_rb) +
+                  " rom0=" + std::to_string(rom0) +
+                  " (exp 0/0xFF/1)");
+        }
+    }
+
+    // ── FIX-NR12-PROP-INT-01 — emulator NR 0x12 dispatcher propagates
+    //    the new bank to Mmu::l2_bank_ via mmu_.set_l2_active_bank().
+    //    Pre-fix the dispatcher only called layer2_.set_active_bank()
+    //    and the Mmu's cached `l2_bank_` stayed stale until the next
+    //    port 0x123B write. VHDL zxnext.vhd:2968 makes layer2_active_bank
+    //    combinational. Discriminative observable: Mmu::l2_bank()
+    //    accessor returns the Mmu's cached bank (verify4 fix wires NR 0x12
+    //    → mmu_.set_l2_active_bank, so post-fix Mmu::l2_bank() tracks
+    //    NR 0x12 writes immediately).
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR12-PROP-INT-01",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Mmu reset re-zeros l2_bank_ to its default 8 (matching
+            // Layer2's reset pattern via the NR 0x12 reset value 0x08
+            // pushed at NR-init).
+            const uint8_t pre_mmu_l2_bank = emu.mmu().l2_bank();
+            // Drive NR 0x12 = 16 via the production NR-write port path.
+            nr_write(emu, 0x12, 16);
+            const uint8_t post_mmu_l2_bank = emu.mmu().l2_bank();
+            const uint8_t post_nr12_rb    = nr_read(emu, 0x12);
+            check("FIX-NR12-PROP-INT-01",
+                  "Emulator NR 0x12 dispatcher propagates new bank to "
+                  "Mmu::l2_bank_ via mmu_.set_l2_active_bank() — VHDL :2968; "
+                  "commit 560cb18",
+                  post_mmu_l2_bank == 16 && post_nr12_rb == 16,
+                  "pre_mmu_l2_bank=" + std::to_string(pre_mmu_l2_bank) +
+                  " post_mmu_l2_bank=" + std::to_string(post_mmu_l2_bank) +
+                  " (exp post=16) post_nr12_rb=" +
+                  std::to_string(post_nr12_rb) + " (exp 16)");
+        }
     }
 }
 
@@ -2232,21 +2511,38 @@ static void test_nr_05_composed_read(Emulator& emu) {
 static void test_nr_06_composed_read(Emulator& emu) {
     set_group("G56-CR-NR06");
 
-    // Re-init to clear state; reset default for NR 0x06 = 0xA0 (VHDL
-    // :1107-1108 — hotkey_cpu_speed_en + hotkey_5060_en both '1', all
-    // other fields '0'). ps2_mode default '0' (VHDL :1111).
+    // Re-init to clear state; PASS-6 — VHDL zxnext.vhd:4932-4933 only resets
+    // NR 0x06 bits 7 and 5 (hotkey_cpu_speed_en, hotkey_5060_en) to '1'.
+    // Bits 6, 4, 3, 2, 1, 0 are NOT in the reset block: they have only
+    // initial-value declarations (zxnext.vhd:1109-1113) and survive both
+    // hard and soft reset. To deterministically test the "reset default"
+    // shape (= power-on read of 0xA0) regardless of what earlier groups
+    // wrote, write NR 0x06 ← 0x00 first then re-init: post-init bits 7,5
+    // re-assert to '1' and the user-cleared bits stay '0', yielding 0xA0.
     {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
     }
-
     // G62: nr_03_config_mode has NO reset clause in VHDL (zxnext.vhd:1102 +
     // :5147-5151), so NextReg::reset() preserves whatever state earlier
     // groups left it in. Explicitly re-enter config_mode here (NR 0x03 =
     // 0x07 → bits[2:0]=111) so the gated NR 0x06 bit-2 writes below latch
     // deterministically. Same pattern as CFG-09-INT and CFG-08-INT.
+    nr_write(emu, 0x03, 0x07);
+    // PASS-6 explicitly clear the preserved-on-reset bits before testing
+    // the post-reset readback, so this test does not depend on the order
+    // of earlier groups in the run. After the second init(), bits 7 and 5
+    // re-assert to '1' (VHDL zxnext.vhd:4932-4933), bit 2 (ps2_mode) was
+    // just cleared above, and the remaining preserved-on-reset bits are '0'.
+    nr_write(emu, 0x06, 0x00);
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+    }
     nr_write(emu, 0x03, 0x07);
 
     // Reset default read formula (VHDL :5900):
@@ -2313,6 +2609,52 @@ static void test_nr_06_composed_read(Emulator& emu) {
         check("G56-CR-NR06-05",
               "config_mode=0: write 0xFB still has ps2_mode=1 (sticky); "
               "other bits track write [VHDL :5162-5166, :5170 ungated]",
+              got == 0xFF, detail_eq(got, uint8_t{0xFF}));
+    }
+
+    // PASS-6 — NR 0x06 reset preservation. VHDL zxnext.vhd:1109-1113 are
+    // initial-value-only signals; the reset block at zxnext.vhd:4932-4933
+    // touches ONLY bits 7 and 5 (hotkey_cpu_speed_en + hotkey_5060_en),
+    // re-asserting them to '1'. Bits 6, 4, 3, 2, 1, 0 (internal_speaker_beep,
+    // button_drive_nmi_en, button_m1_nmi_en, ps2_mode, psg_mode[1:0]) survive
+    // both hard and soft reset. Concretely:
+    //   * Bits 4 and 3 (the DivMMC and Multiface NMI button enables, VHDL
+    //     :2090-2091) MUST survive — software that arms NMI dispatch then
+    //     issues NR 0x02 ← 0x01 (soft reset) expects the gate to remain
+    //     armed across the reset boundary, exactly as on real hardware.
+    //   * Bit 2 (ps2_mode) is config-mode-gated on write (VHDL :5167-5169)
+    //     but otherwise sticky — already covered by G56-CR-NR06-04.
+    //   * Bits 7 and 5 are forced back to '1' on every reset.
+    //
+    // Pre-pass-6 jnext re-applied 0xA0 verbatim on every NextReg::reset(),
+    // clobbering bits 4/3/2/1/0 — observable as the NMI gate going dead
+    // immediately after a deliberate soft reset.
+    {
+        // Re-init to reach a known starting state, then drive config_mode=1
+        // so the gated bit-2 path is open.
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        nr_write(emu, 0x03, 0x07);
+        // Set every preserved-on-reset bit + clear bits 7,5 (which the
+        // reset block re-asserts). The post-write byte is 0x5F:
+        //   bits 7,5 = 0 (cleared, will be re-set by reset)
+        //   bit 6    = 1 (internal_speaker_beep, preserved)
+        //   bit 4    = 1 (button_drive_nmi_en, preserved)
+        //   bit 3    = 1 (button_m1_nmi_en, preserved)
+        //   bit 2    = 1 (ps2_mode, preserved — config_mode=1 lets it commit)
+        //   bits 1:0 = 11 (psg_mode "11" = AY+reset, preserved)
+        nr_write(emu, 0x06, 0x5F);
+        // Trigger an emulator reset (= calls init() → NextReg::reset()).
+        emu.init(cfg);
+        // Per VHDL: bits 7 and 5 are now '1'; bits 6,4,3,2,1,0 survive at '1'.
+        // Expected readback: 0xA0 | 0x5F = 0xFF.
+        const uint8_t got = nr_read(emu, 0x06);
+        check("G56-CR-NR06-RESET-PRESERVE",
+              "PASS-6: NR 0x06 bits 6,4,3,2,1,0 survive reset; bits 7,5 re-assert "
+              "to '1' [VHDL zxnext.vhd:4932-4933 reset clause covers ONLY "
+              "hotkey_cpu_speed_en/hotkey_5060_en]",
               got == 0xFF, detail_eq(got, uint8_t{0xFF}));
     }
 
@@ -2435,6 +2777,125 @@ static void test_g56_cluster_b(Emulator& emu) {
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
 
+    // V11-NMP-02 discriminative — VHDL zxnext.vhd:5191-5198 gates the
+    // latches `nr_0a_mf_type` (bits 7:6) and `nr_0a_sd_swap` (bit 5)
+    // behind `nr_03_config_mode = '1'`. When the gate is closed, the
+    // underlying signals retain their previous values. Pre-fix the C++
+    // wrote the raw byte `v` into `regs_[0x0A]` regardless of the gate,
+    // poisoning the cache. The observable consequence flows through the
+    // init/reset fan-out at emulator.cpp:985-996, which reads
+    // `cached(0x0A)` and forwards bits 7:6 to `multiface_.set_mode()`.
+    // The discriminative chain: (a) commit bits 7:6 = 11 in config_mode,
+    // (b) exit config_mode, (c) attempt to clear bits 7:6 via NR 0x0A
+    // write — VHDL ignores that, jnext pre-fix corrupted the cache,
+    // (d) trigger RESET_HARD via NR 0x02 = 0x02 — the cache is
+    // re-applied via the fan-out and the post-reset NR 0x0A read should
+    // still surface bits 7:6 = 11.  Pre-fix this read is 0x00 (= bug
+    // present, cache leaked the rejected write); post-fix it is 0xC0
+    // (multiface mode_48 preserved per VHDL).
+    {
+        // (a) Ensure config_mode = 1 and write mf_type = 11 (mode_48).
+        nr_write(emu, 0x03, 0x07);              // bits[2:0]=111 → cfg_mode=1
+        nr_write(emu, 0x0A, 0xC0);              // bits 7:6 = 11
+        const uint8_t after_commit = nr_read(emu, 0x0A);
+        // (b) Exit config_mode.
+        nr_write(emu, 0x03, 0x01);              // bits[2:0]=001 → cfg_mode=0
+        // (c) Try to clear bits 7:6 outside config_mode — VHDL latches
+        //     should retain the previous value.
+        nr_write(emu, 0x0A, 0x00);
+        const uint8_t after_reject = nr_read(emu, 0x0A);
+        // (d) Hard reset — re-enters cache-driven fan-out at init().
+        //     NextReg::reset() preserves regs_[0x0A] (no reset clause in
+        //     VHDL :1124-1128), so the canonicalised cache survives.
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        const uint8_t after_reset = nr_read(emu, 0x0A);
+        char d[128];
+        std::snprintf(d, sizeof(d),
+                      "after_commit=0x%02X after_reject=0x%02X "
+                      "after_reset=0x%02X (want each top-2-bits 11)",
+                      after_commit, after_reject, after_reset);
+        const bool committed_ok  = ((after_commit  & 0xC0) == 0xC0);
+        const bool rejected_ok   = ((after_reject  & 0xC0) == 0xC0);
+        const bool post_reset_ok = ((after_reset   & 0xC0) == 0xC0);
+        check("V11-NMP-02",
+              "NR 0x0A bits 7:6 (mf_type) survive an out-of-config_mode "
+              "attempted clear AND a subsequent hard reset — VHDL :5191 "
+              "gates the latch on config_mode='1'; pre-fix the C++ cache "
+              "leaked the rejected write into the post-reset fan-out",
+              committed_ok && rejected_ok && post_reset_ok, d);
+        // Restore config_mode = 1 and clear the mf_type so downstream
+        // tests see a clean baseline (the hard reset above zeroed RAM
+        // but preserved cached(0x0A) which now has bits 7:6 = 11).
+        nr_write(emu, 0x03, 0x07);              // re-enter config_mode
+        nr_write(emu, 0x0A, 0x01);              // mouse_dpi power-on default
+    }
+
+    // V11-NMP-03 discriminative — VHDL zxnext.vhd:5167-5169 gates the
+    // latch `nr_06_ps2_mode` (bit 2) behind `nr_03_config_mode = '1'`.
+    // When the gate is closed, the underlying signal retains its previous
+    // value. Pre-fix the C++ wrote the raw byte `v` into `regs_[0x06]`
+    // regardless of the gate (the read handler masked bit 2 from the live
+    // `nr_06_ps2_mode_` shadow, but the cache itself absorbed the rejected
+    // bit). The observable consequence flows through the init/reset
+    // fan-out at emulator.cpp:3272-3276, which seeds `nr_06_ps2_mode_`
+    // from `cached(0x06) & 0x04` after every reset. The discriminative
+    // chain mirrors V11-NMP-02 exactly: (a) commit ps2_mode = 1 in
+    // config_mode, (b) exit config_mode, (c) attempt to clear bit 2 via
+    // NR 0x06 write — VHDL ignores that, jnext pre-fix corrupted the
+    // cache, (d) trigger RESET_HARD via NR 0x02 = 0x02 — the cache is
+    // re-applied via the init fan-out and the post-reset NR 0x06 read
+    // should still surface bit 2 = 1. Pre-fix this read is 0xA0 (= bug
+    // present, cache leaked the rejected write; only bits 7,5 from the
+    // VHDL reset clause remain set); post-fix it is 0xA4 (ps2_mode
+    // preserved per VHDL).
+    {
+        // (a) Ensure config_mode = 1 and commit ps2_mode = 1. Clear all
+        //     other preserved-on-reset bits so post-reset readback is
+        //     unambiguous (only the reset-asserted bits 7,5 + the gated
+        //     bit 2 will be set).
+        nr_write(emu, 0x03, 0x07);              // bits[2:0]=111 → cfg_mode=1
+        nr_write(emu, 0x06, 0x04);              // bit 2 = 1, all else = 0
+        const uint8_t after_commit = nr_read(emu, 0x06);
+        // (b) Exit config_mode.
+        nr_write(emu, 0x03, 0x01);              // bits[2:0]=001 → cfg_mode=0
+        // (c) Try to clear bit 2 outside config_mode — VHDL latch should
+        //     retain the previous value (ps2_mode = 1).
+        nr_write(emu, 0x06, 0x00);
+        const uint8_t after_reject = nr_read(emu, 0x06);
+        // (d) Hard reset — re-enters cache-driven fan-out at init().
+        //     NextReg::reset() preserves the lower bits of regs_[0x06]
+        //     (no reset clause for them in VHDL :1109-1113); only bits
+        //     7 and 5 are re-asserted. The init fan-out at lines 3272-
+        //     3276 then seeds `nr_06_ps2_mode_` from `cached(0x06) & 0x04`.
+        //     Pre-fix the cached byte had bit 2 = 0 (cache leaked the
+        //     rejected write), so post-reset ps2_mode_ became false and
+        //     the read returned 0xA0 (bits 7,5 only). Post-fix the cache
+        //     was canonicalised so bit 2 = 1 in both cache and shadow,
+        //     and the read returns 0xA4.
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        const uint8_t after_reset = nr_read(emu, 0x06);
+        char d[160];
+        std::snprintf(d, sizeof(d),
+                      "after_commit=0x%02X after_reject=0x%02X "
+                      "after_reset=0x%02X (want bit 2 set in each)",
+                      after_commit, after_reject, after_reset);
+        const bool committed_ok  = ((after_commit  & 0x04) == 0x04);
+        const bool rejected_ok   = ((after_reject  & 0x04) == 0x04);
+        const bool post_reset_ok = ((after_reset   & 0x04) == 0x04);
+        check("V11-NMP-03",
+              "NR 0x06 bit 2 (ps2_mode) survives an out-of-config_mode "
+              "attempted clear AND a subsequent hard reset — VHDL :5167-"
+              "5169 gates the latch on config_mode='1'; pre-fix the C++ "
+              "cache leaked the rejected write into the post-reset "
+              "init/reset fan-out at emulator.cpp:3272-3276",
+              committed_ok && rejected_ok && post_reset_ok, d);
+        // Restore config_mode = 1 and clean baseline so downstream tests
+        // see consistent state (NR 0x06 cache still has bit 2 = 1 from
+        // the preserved-on-reset path; clear it explicitly).
+        nr_write(emu, 0x03, 0x07);              // re-enter config_mode
+        nr_write(emu, 0x06, 0xA0);              // back to power-on default
+    }
+
     // ── NR 0x0B — Joystick I/O mode ──────────────────────────────────
     // VHDL zxnext.vhd:5915:
     //   port_253b_dat <= nr_0b_joy_iomode_en [7] & '0' [6]
@@ -2514,14 +2975,22 @@ static void test_g56_cluster_b(Emulator& emu) {
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
     {
-        // SPKEY_BUTTONS [1:0] dynamic path: jnext models them as 0
-        // (no front-panel button input wired). Verify read returns 0
-        // for the bottom 2 bits regardless of write.
-        nr_write(emu, 0x10, 0x03);  // tries to set buttons in cache
+        // V16-NMP-01: SPKEY_BUTTONS [1:0] live held-state path. Per
+        // VHDL zxnext.vhd:5924 + zxnext_top_issue2.vhd:2281,
+        //   bit 0 = NOT btn_m1_multiface_n        (F9 held = 1)
+        //   bit 1 = NOT btn_drive_divmmc_n        (F10 held = 1)
+        // Bits 1:0 are sampled COMBINATIONALLY on every NR 0x10 read —
+        // they are NOT cache-write-driven. Pre-fix: write bits 1:0 leaked
+        // into the cache and the read returned 0 (because the write
+        // handler hardcoded them to 0). Post-fix: write of 0x03 still
+        // does NOT propagate to bits 1:0 (idle buttons → 0); the read
+        // now consults the live held-state. Idle baseline:
+        nr_write(emu, 0x10, 0x03);  // tries to set buttons via write
         uint8_t got = nr_read(emu, 0x10);
         check("G56-10-04",
               "NR 0x10 write=0x03 → read bits 1:0 = 0 "
-              "(SPKEY_BUTTONS unmodelled, idle) [zxnext.vhd:5924]",
+              "(buttons idle; bits 1:0 only respond to live SPKEY_BUTTONS) "
+              "[zxnext.vhd:5924]",
               (got & 0x03) == 0, detail_eq(got, uint8_t{0x00}));
     }
     // Restore reset coreid so downstream tests see VHDL default.
@@ -3182,20 +3651,26 @@ static void test_g56_cluster_e(Emulator& emu) {
         nr_write(emu, 0x80, 0x00);
     }
 
-    // NR 0x81 — VHDL zxnext.vhd:6125
+    // NR 0x81 — VHDL zxnext.vhd:6126
     //   port_253b_dat <= i_BUS_ROMCS_n & nr_81_expbus_ula_override &
     //                    nr_81_expbus_nmi_debounce_disable & nr_81_expbus_clken &
     //                    nr_81_expbus_fdc & '0' & nr_81_expbus_speed.
     // Bit 7 = i_BUS_ROMCS_n (no expbus device wired -> constant '1', G45);
-    // bit 2 = constant '0'; bits 6:3 + 1:0 stored from the last NR 0x81 write.
+    // bit 2 = constant '0'; bits 6:3 stored from the last NR 0x81 write.
+    // bits 1:0 = nr_81_expbus_speed, hardwired to "00" by VHDL :5496
+    //          (`nr_81_expbus_speed <= "00"` — the user data source
+    //           `nr_wr_dat(1 downto 0)` is explicitly commented out).
+    // V11-NMP-01 Pass-11 fix: pre-fix the C++ read mask was 0x7B which
+    // preserved bits 1:0 of the written byte; corrected to 0x78 so bits
+    // 1:0 always read as 0 per VHDL :5496.
     {
         nr_write(emu, 0x81, 0xFF);
         const uint8_t got = nr_read(emu, 0x81);
-        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xFB", got);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xF8", got);
         check("G56-CR-81-MASK",
-              "NR 0x81 read masks bit 2 + forces bit 7=1 "
-              "(write 0xFF -> read 0xFB) [zxnext.vhd:6125, G45 expbus inert]",
-              got == 0xFB, d);
+              "NR 0x81 read masks bits 2 + 1:0 + forces bit 7=1 "
+              "(write 0xFF -> read 0xF8) [zxnext.vhd:5496+6126, G45 expbus inert]",
+              got == 0xF8, d);
     }
     {
         nr_write(emu, 0x81, 0x00);
@@ -3203,18 +3678,46 @@ static void test_g56_cluster_e(Emulator& emu) {
         char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x80", got);
         check("G56-CR-81-RESET",
               "NR 0x81 write 0x00 reads 0x80 (only bit 7 ROMCS_n forced) "
-              "[zxnext.vhd:6125]",
+              "[zxnext.vhd:6126]",
               got == 0x80, d);
     }
     {
         nr_write(emu, 0x81, 0x6B);  // bits 6,5,3,1,0; bit 2 = 0 already
         const uint8_t got = nr_read(emu, 0x81);
-        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xEB", got);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xE8", got);
         check("G56-CR-81-RT",
-              "NR 0x81 round-trip stored bits + ROMCS_n force "
-              "(write 0x6B -> read 0xEB) [zxnext.vhd:6125]",
-              got == 0xEB, d);
+              "NR 0x81 round-trip stored bits 6:3 + ROMCS_n force "
+              "(write 0x6B -> read 0xE8; bits 1:0 always 0 per :5496) "
+              "[zxnext.vhd:5496+6126]",
+              got == 0xE8, d);
         // Restore reset baseline.
+        nr_write(emu, 0x81, 0x00);
+    }
+    // V11-NMP-01 discriminative — bits 1:0 are hardwired to "00" in
+    // VHDL (line 5496 explicitly drops `nr_wr_dat(1 downto 0)`). A
+    // write that toggles ONLY bits 1:0 must produce read=0x80 (bits
+    // 1:0 = 0; bit 7 forced; everything else 0). Pre-fix this would
+    // return 0x83 because the cache stored bits 1:0 verbatim and the
+    // read mask 0x7B preserved them.
+    {
+        nr_write(emu, 0x81, 0x03);
+        const uint8_t got = nr_read(emu, 0x81);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x80", got);
+        check("V11-NMP-01-LO2",
+              "NR 0x81 write 0x03 (bits 1:0 only) reads 0x80 — VHDL :5496 "
+              "hardwires nr_81_expbus_speed to \"00\" so bits 1:0 always read 0",
+              got == 0x80, d);
+        nr_write(emu, 0x81, 0x00);
+    }
+    {
+        // Mixed: bits 6 and 0. Bit 6 should survive; bit 0 must drop.
+        nr_write(emu, 0x81, 0x41);
+        const uint8_t got = nr_read(emu, 0x81);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xC0", got);
+        check("V11-NMP-01-MIXED",
+              "NR 0x81 write 0x41 reads 0xC0 — bit 6 (ula_override) "
+              "preserved, bit 0 (expbus_speed[0]) dropped per :5496",
+              got == 0xC0, d);
         nr_write(emu, 0x81, 0x00);
     }
 }
@@ -3289,6 +3792,187 @@ static void test_write_only_read_zero(Emulator& emu) {
               "NR 0x60 write-only — read returns 0 (no leak of copper data) "
               "[zxnext.vhd:5878-6289 others=>'0']",
               got == 0x00, d);
+    }
+
+    // V14-NMP-03 (Pass-14 verify-audit fix): NR 0x2B keymap data write.
+    // VHDL zxnext.vhd:6306-6307 — `nr_2b_we = '1'` triggers the auto-increment
+    // of `nr_keymap_addr`; the byte is also routed to the keymap dpram via
+    // `nr_keymap_dat` (:6324) gated by `nr_keymap_we`/`nr_joymap_we` (:6321-
+    // 6322). NO read-mux entry exists for NR 0x2B in the case statement at
+    // :5878-6289, so reads fall through to `when others => (others => '0')`
+    // at :6286-6287 and return 0x00.
+    //
+    // Pre-fix the C++ NR 0x2B write_handler returned `v` raw, so the cache
+    // held the last-write byte and a subsequent NR 0x2B read echoed it
+    // verbatim — leaking the keymap data byte through a register that real
+    // hardware never reads back.
+    {
+        nr_write(emu, 0x2B, 0xAA);
+        const uint8_t got = nr_read(emu, 0x2B);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-2B",
+              "NR 0x2B write-only — read returns 0 (no leak of keymap data) "
+              "[zxnext.vhd:5878-6289 others=>'0', :6306-6307 nr_2b_we]",
+              got == 0x00, d);
+    }
+
+    // V14-NMP-04 (Pass-14 reviewer-promoted from deferred class-c):
+    // NR 0x2A is dead in VHDL. Write strobe at zxnext.vhd:4850 is
+    // commented out (`-- when X"2A" => nr_2a_we <= '1';`), the write-side
+    // process at :6312-6319 is commented out, and there is NO read-mux
+    // entry in the case statement at :5878-6289. Reads must fall through
+    // to `when others => (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix C++ NR 0x2A had no write_handler and no read_handler, so
+    // a write went raw to regs_[0x2A] and a subsequent read echoed it.
+    // Reviewer-promoted: this is functionally identical in shape to
+    // NR 0x2B (V14-NMP-03), so the canonical fix is also identical —
+    // install a write_handler that returns 0.
+    {
+        nr_write(emu, 0x2A, 0xCC);
+        const uint8_t got = nr_read(emu, 0x2A);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xCC got=0x%02X want=0x00", got);
+        check("WO-INT-2A",
+              "NR 0x2A dead-register — read returns 0 (no leak of cached "
+              "write byte) [zxnext.vhd:4850 commented, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // V15-NMP-01 (Pass-15 verify-audit fix): NR 0x63 Copper data byte is
+    // write-only. VHDL zxnext.vhd:4887 strobes `nr_copper_we <= '1'`; the
+    // write side at :5433-5439 latches `nr_copper_data_stored` when
+    // `nr_copper_addr(0)='0'` and unconditionally advances `nr_copper_addr`.
+    // There is NO read-mux entry in the case statement at :5878-6289 — NR
+    // 0x61 (low addr byte) and NR 0x62 (mode + high addr) ARE readable
+    // but NR 0x63 is not. Reads must therefore fall through to `when others
+    // => (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix the C++ write_handler returned `v` (line 1634), so the cache
+    // held the last-write byte and a subsequent NR 0x63 read returned it
+    // instead of 0x00. Same shape as G149 (NR 0x60), V14-NMP-03 (NR 0x2B),
+    // V14-NMP-04 (NR 0x2A) — install a write_handler that returns 0.
+    //
+    // Discriminative: the read MUST be 0x00 regardless of the byte we wrote
+    // (this row tries 0x55, an arbitrary non-zero pattern). Pre-fix would
+    // return 0x55. Crucially, the WRITE side-effect (`copper_.write_reg_0x63`)
+    // still fires — only the cache-leak read is fixed.
+    {
+        nr_write(emu, 0x63, 0x55);
+        const uint8_t got = nr_read(emu, 0x63);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0x55 got=0x%02X want=0x00", got);
+        check("WO-INT-63",
+              "NR 0x63 write-only Copper data — read returns 0 (no leak of "
+              "cached write byte) [zxnext.vhd:4887 nr_copper_we, "
+              ":5433-5439 write side, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // V15-NMP-02 (Pass-15 verify-audit fix): NR 0xFF ULA+ palette poke is
+    // write-only. VHDL zxnext.vhd:4906 strobes `nr_ff_we <= '1'`; the byte
+    // is composed into `nr_palette_value` at :4919 (with the ulap palette
+    // index from port 0xBF3B per :6958) and routed to the ULA-TM palette
+    // dpram via :6957. There is NO read-mux entry in the case statement
+    // at :5878-6289. Reads must fall through to `when others =>
+    // (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix the C++ write_handler returned `v` (line 916), so the cache
+    // held the last-write byte and a subsequent NR 0xFF read returned it
+    // instead of 0x00. Same shape as V15-NMP-01.
+    //
+    // Discriminative: the read MUST be 0x00 regardless of the byte we
+    // wrote. The write side-effect (`palette_.nr_ff_poke`) still fires —
+    // only the cache-leak read is fixed.
+    {
+        nr_write(emu, 0xFF, 0xA5);
+        const uint8_t got = nr_read(emu, 0xFF);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xA5 got=0x%02X want=0x00", got);
+        check("WO-INT-FF",
+              "NR 0xFF write-only ULA+ palette poke — read returns 0 (no "
+              "leak of cached write byte) [zxnext.vhd:4906 nr_ff_we, "
+              ":4919 nr_palette_value, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+}
+
+// ── NR 0x28 ↔ nr_stored_palette_value read-mux (V14-NMP-02) ───────────
+//
+// VHDL zxnext.vhd:
+//   :1190 — `signal nr_stored_palette_value : std_logic_vector(7 downto 0);`
+//   :5398-5399 — first half of NR 0x44 9-bit palette write latches
+//                `nr_stored_palette_value <= nr_wr_dat;` when
+//                `nr_palette_sub_idx = '0'`.
+//   :6003-6004 — NR 0x28 read mux:
+//                `when X"28" => port_253b_dat <= nr_stored_palette_value;`
+//
+// I.e. NR 0x28 is a *read-only* surface for the upper byte of a 9-bit
+// palette write currently in progress. NR 0x28 *writes* mutate
+// `nr_keymap_sel` / `nr_keymap_addr(8)` (VHDL :6301-6303) — they do NOT
+// touch the palette signal. Pre-fix the C++ NR 0x28 write_handler stored
+// the raw written byte in the regs_[] cache, and the absence of a
+// read_handler made NR 0x28 reads echo that byte instead of the live
+// palette signal.
+static void test_v14_nmp_02_nr_28_read(Emulator& emu) {
+    set_group("V14-NMP-02-NR28");
+
+    // Setup: select NR 0x44 target and prime the 9-bit FSM.
+    // The PaletteManager's `nine_bit_first_byte_` shadow is reset to 0
+    // on construction (palette.cpp:87), so a fresh emulator should read
+    // NR 0x28 = 0x00.
+    emu.reset();
+    {
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x00", got);
+        check("V14-NMP-02-NR28-01",
+              "NR 0x28 read at reset — `nr_stored_palette_value` default 0x00 "
+              "[zxnext.vhd:1190, :5011, :6004]",
+              got == 0x00, d);
+    }
+
+    // Write a sentinel byte to NR 0x28 — this should NOT influence the
+    // NR 0x28 read mux, which reads `nr_stored_palette_value` (the
+    // PaletteManager shadow), NOT the cached NR 0x28 last-write byte.
+    {
+        nr_write(emu, 0x28, 0xA5);
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "after NR 0x28<-0xA5: got=0x%02X want=0x00", got);
+        check("V14-NMP-02-NR28-02",
+              "NR 0x28 write does NOT affect NR 0x28 read (palette signal, "
+              "not regs_[] cache) [zxnext.vhd:6004, :6301-6303]",
+              got == 0x00, d);
+    }
+
+    // First half of an NR 0x44 9-bit palette write — VHDL :5398-5399
+    // latches `nr_stored_palette_value <= nr_wr_dat` when sub_idx = 0.
+    // NR 0x28 read should then surface the just-stored byte.
+    {
+        nr_write(emu, 0x44, 0xC3);  // first half: stores 0xC3 in nr_stored_palette_value
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "after NR 0x44<-0xC3 (first half): got=0x%02X want=0xC3", got);
+        check("V14-NMP-02-NR28-03",
+              "NR 0x28 read returns nr_stored_palette_value latched on the "
+              "first half of NR 0x44 9-bit write [zxnext.vhd:5398-5399, :6004]",
+              got == 0xC3, d);
+    }
+
+    // Second half of the NR 0x44 9-bit write does NOT update
+    // nr_stored_palette_value (VHDL :5400 ELSIF branch only auto-increments
+    // the palette index). NR 0x28 read should still return the previously
+    // latched first byte.
+    {
+        nr_write(emu, 0x44, 0x01);  // second half: blue LSB latched
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "after NR 0x44<-0x01 (second half): got=0x%02X want=0xC3", got);
+        check("V14-NMP-02-NR28-04",
+              "NR 0x28 read unchanged across NR 0x44 second-half write "
+              "[zxnext.vhd:5400 ELSIF, :6004]",
+              got == 0xC3, d);
     }
 }
 
@@ -3445,6 +4129,1656 @@ static void test_ft_iotrap_integration(Emulator& emu) {
     emu.reset();
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// TestCov-NMI-MF-Port — Regression tests for NMI/MF/Port/NextREG fixes
+// applied across verify passes 1-10 (commits c1d7998..6051f01).
+//
+// Mandate (Task 2 testcov audit, 2026-05-09): every fix must have its own
+// regression test. Each row below cites the VHDL line + the fix commit
+// that motivated the test.
+//
+// VHDL oracle: cores/zxnext/src/zxnext.vhd
+// ─────────────────────────────────────────────────────────────────────────
+static void test_testcov_nmi_mf_port(Emulator& emu) {
+    set_group("TestCov-NMI-MF-Port");
+
+    // ── TC-NR05-PRESERVE — NR 0x05 reset preservation (Pass-7, 18dba39)
+    //   VHDL :1105-1106, :1302-1303, :5832-5854 — `nr_05_*` signals have
+    //   NO reset clauses. Pre-pass-7 regs_.fill(0) clobbered them.
+    //   Pass-7 fix: NextReg::reset() preserves regs_[0x05].
+    {
+        emu.reset();
+        // Force config_mode=0 for predictable joystick mode commit
+        // semantics. Write a non-default canonical value.
+        nr_write(emu, 0x03, 0x00);          // NR 0x03 b3=0 → config off
+        // Set bits 7:6=10 (joy0 hi), 5:4=11 (joy1 hi), 3=1 (joy0 lo), 1=1
+        // (joy1 lo), 0=1 (scandouble). Bit 2 (5060) intentionally =0.
+        nr_write(emu, 0x05, 0xBB);
+        const uint8_t before = nr_read(emu, 0x05);
+        emu.reset();                        // hard reset
+        const uint8_t after  = nr_read(emu, 0x05);
+        check("TC-NR05-PRESERVE",
+              "NR 0x05 survives hard reset (no VHDL reset clause) "
+              "[zxnext.vhd:1105-1106 / 1302-1303]",
+              before == 0xBB && after == 0xBB,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // ── TC-NR05-PENTAGON — NR 0x05 bit 2 Pentagon force-zero (Pass-10, 6051f01)
+    //   VHDL :5832-5841 forces nr_05_5060 <= '0' continuously when
+    //   nr_03_machine_timing(2)='1' (Pentagon). The frame-sync latch at
+    //   :6701 propagates that '0' into eff_nr_05_5060.  Pre-pass-10 the
+    //   read mux returned the cached bit 2 unconditionally, leaking the
+    //   user's pre-Pentagon write through.
+    {
+        emu.reset();
+        // 1. With non-Pentagon timing, bit 2 round-trips.
+        nr_write(emu, 0x03, 0x00);          // bits[2:0]=000 (Config Mode commit;
+                                            //   non-Pentagon)
+        nr_write(emu, 0x05, 0x04);          // bit 2 = 1 (5060)
+        const uint8_t got_nopen = nr_read(emu, 0x05);
+        // 2. Switch to Pentagon (machine_timing[2]=1).
+        emu.nextreg().set_nr_03_machine_timing(0x04);
+        const uint8_t got_pen = nr_read(emu, 0x05);
+        check("TC-NR05-PENTAGON",
+              "NR 0x05 read masks bit 2 to 0 when Pentagon timing active "
+              "[zxnext.vhd:5832-5841 / :6701 / :5897]",
+              (got_nopen & 0x04) == 0x04 && (got_pen & 0x04) == 0x00,
+              "nopen=" + hex2(got_nopen) + " pen=" + hex2(got_pen));
+        // Restore default timing
+        emu.nextreg().set_nr_03_machine_timing(0x03);
+        emu.reset();
+    }
+
+    // ── TC-NR02-CFGMODE-NO-CLEAR — NR 0x02 bits 3/2 NOT cleared on
+    //   config_mode (Verify1, 78f5f1c). VHDL :3840-3864 — readback latches
+    //   live in independent processes whose clear cascade is reset OR
+    //   explicit-bit write only. config_mode is NOT in either cascade.
+    //
+    //   Discriminative-fix (review follow-up): the original test called
+    //   `emu.nmi_source().tick(1)` directly, bypassing the per-tick
+    //   `tick_peripheral_subsystems` wiring that propagates
+    //   `nextreg_.nr_03_config_mode()` to `NmiSource::set_config_mode()`.
+    //   That left `NmiSource::config_mode_` at false through the test,
+    //   so the `if (config_mode_) { nmi_mf_=false; ... }` clear branch in
+    //   `recompute_()` (nmi_source.cpp:352) was never entered — pre-fix
+    //   or post-fix. We now mirror the per-tick fan-out by driving
+    //   `set_config_mode(true)` directly before `tick(1)`. This makes
+    //   the test discriminative against the actual fix at
+    //   nmi_source.cpp:352-358 where the pre-fix code wrongly cleared
+    //   `nr_02_pending_{mf,divmmc}_` alongside the FSM latches.
+    {
+        emu.reset();
+        // Set NR 0x02 bit 3 (mf NMI pending) via NR 0x02 write.
+        // This goes through NmiSource::nr_02_write() which sets the
+        // readback latches per VHDL :3840-3864.
+        nr_write(emu, 0x02, 0x08);          // bit 3 = 1 (generate MF NMI)
+        // Engage NR 0x03 config_mode (bits[2:0]=111 with bit 3 set is
+        // not the canonical entry; per VHDL :2102-2105 + NextReg::
+        // apply_nr_03_config_mode_transition the encoding "111" is the
+        // recognized config_mode trigger).
+        nr_write(emu, 0x03, 0x07);
+        // Sanity: NextReg side accepted the config_mode change.
+        const bool nr_cfg = emu.nextreg().nr_03_config_mode();
+        // Mirror the per-tick `tick_peripheral_subsystems` fan-out
+        // (emulator.cpp:5163) that propagates config_mode to NmiSource.
+        // Without this call, NmiSource::config_mode_ stays false and the
+        // recompute_() clear-branch never runs, so the test passes
+        // regardless of whether the fix is in place.
+        emu.nmi_source().set_config_mode(true);
+        // Tick the FSM/clear path. Pre-fix the clear branch wrongly
+        // cleared `nr_02_pending_mf_`; post-fix the readback bit
+        // survives.
+        emu.nmi_source().tick(1);
+        const uint8_t got = nr_read(emu, 0x02) & 0x08;  // readback bit 3
+        check("TC-NR02-CFGMODE-NO-CLEAR",
+              "NR 0x02 readback bit 3 NOT cleared by config_mode "
+              "[zxnext.vhd:3840-3864 / nmi_source.cpp:352-358]",
+              nr_cfg && got == 0x08,
+              "nr_cfg=" + std::to_string(nr_cfg) +
+              " NR02b3=" + hex2(got));
+        // Restore: drop config_mode on NmiSource and NextReg.
+        emu.nmi_source().set_config_mode(false);
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        emu.reset();
+    }
+
+    // ── TC-NR02-BUS-RESET — NR 0x02 bit 7 (bus_reset) readback (Verify3, d841887)
+    //   VHDL :5119 captures bit 7 verbatim on every NR 0x02 write; :5891
+    //   surfaces it as bit 7 of NR 0x02 readback.  Pre-fix: hard-coded 0.
+    {
+        emu.reset();
+        nr_write(emu, 0x02, 0x80);          // bit 7 = 1 (RESET_PERIPHERAL)
+        const uint8_t got = nr_read(emu, 0x02) & 0x80;
+        check("TC-NR02-BUS-RESET",
+              "NR 0x02 bit 7 (bus_reset) read-back from latch "
+              "[zxnext.vhd:5119 + :5891 + :1579]",
+              got == 0x80,
+              "NR02b7=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-NR0A-MFTYPE-GATED — NR 0x0A bits 7:6 mf_type config_mode-gated
+    //   readback (Verify3, d841887). VHDL :5191-5198 only commits mf_type
+    //   writes when nr_03_config_mode='1'. Pre-fix: read used cached(0x0A)
+    //   directly, bypassing the gate.
+    {
+        emu.reset();
+        // (1) With config_mode=0, write bits 7:6 — should NOT commit to
+        //     authoritative mf_type, so read should still reflect prior.
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        const uint8_t initial_mf_type = nr_read(emu, 0x0A) & 0xC0;
+        nr_write(emu, 0x0A, 0xC0);          // bits 7:6 = 11
+        const uint8_t after_no_cfg = nr_read(emu, 0x0A) & 0xC0;
+        // (2) Now enable config_mode and write bits 7:6 again — commits.
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        nr_write(emu, 0x0A, 0x40);          // bits 7:6 = 01 (MF128)
+        const uint8_t after_cfg = nr_read(emu, 0x0A) & 0xC0;
+        check("TC-NR0A-MFTYPE-GATED",
+              "NR 0x0A bits 7:6 mf_type sourced from gated state, not cache "
+              "[zxnext.vhd:5191-5198 / :5912]",
+              after_no_cfg == initial_mf_type && after_cfg == 0x40,
+              "init=" + hex2(initial_mf_type) +
+              " no_cfg=" + hex2(after_no_cfg) + " cfg=" + hex2(after_cfg));
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        emu.reset();
+    }
+
+    // ── TC-NR04-MASK7F — NR 0x04 write returns v & 0x7F for Issue-2
+    //   board (Verify4, 4f25708). VHDL :5717 gen_romram_234 stores 7 bits.
+    //   NR 0x04 is write-only; the read-mux returns 0 (others=>'0'). Verify
+    //   the internal latched bank via the public accessor.
+    {
+        emu.reset();
+        nr_write(emu, 0x04, 0xFF);
+        const uint8_t bank = emu.nextreg().nr_04_romram_bank();
+        check("TC-NR04-MASK7F",
+              "NR 0x04 internal bank latched as v & 0x7F (Issue-2) "
+              "[zxnext.vhd:5717 gen_romram_234]",
+              bank == 0x7F,
+              "bank=" + hex2(bank));
+        emu.reset();
+    }
+
+    // ── TC-NR11-MASK07 — NR 0x11 write read-mask 0x07 (Verify4, 4f25708)
+    //   VHDL :5208-5217 — Issue-2 video timing with config_mode-gated
+    //   bit-0-only capture. Read mask 0x07.
+    {
+        emu.reset();
+        // Need config_mode=1 for write to commit
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        nr_write(emu, 0x11, 0xFF);
+        const uint8_t got = nr_read(emu, 0x11);
+        check("TC-NR11-MASK07",
+              "NR 0x11 read masked to bits 2:0 "
+              "[zxnext.vhd:5208-5217 + read mux]",
+              (got & 0xF8) == 0x00,
+              "got=" + hex2(got));
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        emu.reset();
+    }
+
+    // ── TC-NR2F-MASK03 — NR 0x2F write returns v & 0x03 (Verify4, 4f25708)
+    //   VHDL :5331 stores 2 bits.
+    {
+        emu.reset();
+        nr_write(emu, 0x2F, 0xFF);
+        const uint8_t cached = emu.nextreg().cached(0x2F);
+        check("TC-NR2F-MASK03",
+              "NR 0x2F write masks to bits 1:0 "
+              "[zxnext.vhd:5331]",
+              (cached & 0xFC) == 0x00,
+              "cached=" + hex2(cached));
+        emu.reset();
+    }
+
+    // ── TC-NR8A-MASK3F — NR 0x8A write returns v & 0x3F (Verify4, 4f25708)
+    //   VHDL :5525 — low 6 bits stored.
+    {
+        emu.reset();
+        // NR 0x8A is preserved across reset (PASS-8) so write & read.
+        nr_write(emu, 0x8A, 0xFF);
+        const uint8_t got = nr_read(emu, 0x8A);
+        check("TC-NR8A-MASK3F",
+              "NR 0x8A read masked to bits 5:0 "
+              "[zxnext.vhd:5525 + :5970 read prefix '00']",
+              (got & 0xC0) == 0x00,
+              "got=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-NR90-MASKFC — NR 0x90 write returns v & 0xFC (Verify4, 4f25708)
+    //   VHDL :5537 forces bits 1:0 = 0.
+    {
+        emu.reset();
+        nr_write(emu, 0x90, 0xFF);
+        const uint8_t cached = emu.nextreg().cached(0x90);
+        check("TC-NR90-MASKFC",
+              "NR 0x90 write forces bits 1:0 = 0 "
+              "[zxnext.vhd:5537]",
+              (cached & 0x03) == 0x00,
+              "cached=" + hex2(cached));
+        emu.reset();
+    }
+
+    // ── TC-NR93-MASK0F — NR 0x93 write returns v & 0x0F (Verify4, 4f25708)
+    //   VHDL :5546 stores low nibble only.
+    {
+        emu.reset();
+        nr_write(emu, 0x93, 0xFF);
+        const uint8_t cached = emu.nextreg().cached(0x93);
+        check("TC-NR93-MASK0F",
+              "NR 0x93 write masks to low nibble "
+              "[zxnext.vhd:5546]",
+              (cached & 0xF0) == 0x00,
+              "cached=" + hex2(cached));
+        emu.reset();
+    }
+
+    // ── TC-NR98-9B-READZERO — NR 0x98/99/9A/9B read returns 0 (Verify4)
+    //   VHDL :6176-6186 reads i_GPIO inputs, NOT write shadow; jnext
+    //   does not model Pi GPIO so reads must be 0 regardless of writes.
+    {
+        emu.reset();
+        nr_write(emu, 0x98, 0xAA);
+        nr_write(emu, 0x99, 0xBB);
+        nr_write(emu, 0x9A, 0xCC);
+        nr_write(emu, 0x9B, 0xDD);
+        const uint8_t r98 = nr_read(emu, 0x98);
+        const uint8_t r99 = nr_read(emu, 0x99);
+        const uint8_t r9a = nr_read(emu, 0x9A);
+        const uint8_t r9b = nr_read(emu, 0x9B);
+        check("TC-NR98-9B-READZERO",
+              "NR 0x98..0x9B read returns 0 (i_GPIO unmodelled) "
+              "[zxnext.vhd:6176-6186]",
+              r98 == 0 && r99 == 0 && r9a == 0 && r9b == 0,
+              "r98=" + hex2(r98) + " r99=" + hex2(r99) +
+              " r9a=" + hex2(r9a) + " r9b=" + hex2(r9b));
+        emu.reset();
+    }
+
+    // ── TC-NRA8-MASK01 — NR 0xA8 write returns v & 0x01 (Verify4, 4f25708)
+    //   VHDL :5570 stores bit 0 only.
+    {
+        emu.reset();
+        nr_write(emu, 0xA8, 0xFF);
+        const uint8_t cached = emu.nextreg().cached(0xA8);
+        check("TC-NRA8-MASK01",
+              "NR 0xA8 write masks to bit 0 only "
+              "[zxnext.vhd:5570]",
+              cached == 0x01,
+              "cached=" + hex2(cached));
+        emu.reset();
+    }
+
+    // ── TC-NRA9-READZERO — NR 0xA9 read returns 0 (Verify4)
+    //   VHDL :6200-6201 reads i_ESP_GPIO_20 inputs, NOT write shadow;
+    //   jnext does not model ESP GPIO.
+    {
+        emu.reset();
+        nr_write(emu, 0xA9, 0xAA);
+        const uint8_t got = nr_read(emu, 0xA9);
+        check("TC-NRA9-READZERO",
+              "NR 0xA9 read returns 0 (i_ESP_GPIO unmodelled) "
+              "[zxnext.vhd:6200-6201]",
+              got == 0,
+              "got=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-NR75-79-WRITEZERO — NR 0x75-0x79 write returns 0
+    //   (Verify5, d92c6ec). VHDL :5878-6289 has no read entry — read
+    //   falls through to (others => '0'). Pre-fix wrote v through the
+    //   regs_[] cache, leaking into subsequent reads.
+    {
+        emu.reset();
+        for (uint8_t reg = 0x75; reg <= 0x79; ++reg) {
+            nr_write(emu, reg, 0xFF);
+            const uint8_t got = nr_read(emu, reg);
+            char d[64]; std::snprintf(d, sizeof(d),
+                "NR %02X read=0x%02X want=0x00", reg, got);
+            check("TC-NR75-79-WRITEZERO",
+                  "NR 0x75-0x79 write-only mirror reads 0 "
+                  "[zxnext.vhd:5878-6289 others=>'0']",
+                  got == 0, d);
+        }
+        emu.reset();
+    }
+
+    // ── TC-NR09-BIT3-NOT-SPRITES — NR 0x09 bit 3 is DivMMC mapram-clear
+    //   trigger, NOT sprite over_border (Verify5, d92c6ec). VHDL
+    //   :4184-4186 / :5909 — bit 3 is sw-write-strobe; reads back as '0'.
+    //   Sprite over-border is NR 0x15 bit 1 (separate signal).
+    //
+    //   Discriminative-fix (review follow-up): the original test only
+    //   asserted `nr_read(0x09) & 0x08 == 0`. But the read-handler mask
+    //   `& 0xE7` (emulator.cpp:959) was already in place pre-fix and
+    //   stripped bit 3 unconditionally — so the assertion passed even
+    //   with the actual write-side bug present. The Pass-5 fix removed
+    //   `sprites_.set_over_border((v & 0x08) != 0);` from the NR 0x09
+    //   write handler (emulator.cpp:3616-3632). To exercise the wiring
+    //   fix we now verify (a) writing NR 0x09 bit 3 does NOT set
+    //   `sprites_.over_border()`, and (b) NR 0x15 bit 1 — the correct
+    //   VHDL signal `nr_15_sprite_over_border_en` — DOES set it
+    //   (emulator.cpp:1209). This catches a regression where bit 3 of
+    //   NR 0x09 is wrongly re-wired to over_border.
+    {
+        emu.reset();
+        // Pre-condition: over_border defaults to false at reset.
+        const bool ob_initial = emu.sprites().over_border();
+        // (a) NR 0x09 bit 3 must NOT set over_border (Pass-5 fix).
+        nr_write(emu, 0x09, 0x08);          // bit 3 = 1
+        const bool ob_after_nr09 = emu.sprites().over_border();
+        // Read-side: bit 3 of NR 0x09 still reads back as 0 (read mask
+        // 0xE7) — preserved as a documented invariant.
+        const uint8_t got09 = nr_read(emu, 0x09) & 0x08;
+        // (b) NR 0x15 bit 1 (sprite_over_border_en) DOES set over_border.
+        nr_write(emu, 0x15, 0x02);
+        const bool ob_after_nr15 = emu.sprites().over_border();
+        check("TC-NR09-BIT3-READS-ZERO",
+              "NR 0x09 bit 3 does not affect sprites.over_border; "
+              "NR 0x15 bit 1 is the authoritative wiring "
+              "[zxnext.vhd:4184-4186 / :5909 / emulator.cpp:3616-3632 / :1209]",
+              !ob_initial && !ob_after_nr09 && got09 == 0 && ob_after_nr15,
+              "ob0=" + std::to_string(ob_initial) +
+              " ob_nr09=" + std::to_string(ob_after_nr09) +
+              " NR09b3=" + hex2(got09) +
+              " ob_nr15=" + std::to_string(ob_after_nr15));
+        emu.reset();
+    }
+
+    // ── TC-NR7F-PRESERVE — NR 0x7F preserved across reset (Verify5)
+    //   VHDL :1216 declares power-on default 0xFF; no reset clause.
+    {
+        emu.reset();
+        nr_write(emu, 0x7F, 0x55);
+        const uint8_t before = nr_read(emu, 0x7F);
+        emu.reset();
+        const uint8_t after = nr_read(emu, 0x7F);
+        check("TC-NR7F-PRESERVE",
+              "NR 0x7F survives reset (VHDL has no reset clause) "
+              "[zxnext.vhd:1216]",
+              before == 0x55 && after == 0x55,
+              "before=" + hex2(before) + " after=" + hex2(after));
+        emu.reset();
+    }
+
+    // ── TC-NR80-LOHI-FOLD — NR 0x80 lo→hi nibble fold on reset
+    //   (Verify5, d92c6ec). VHDL :2185-2186 — on reset,
+    //   nr_80_expbus(7:4) <= nr_80_expbus(3:0). Bits 3:0 survive; bits 7:4
+    //   are recomputed from bits 3:0.
+    {
+        emu.reset();
+        // Write a discriminating pattern: lo nibble = 5, hi = A (mismatched)
+        nr_write(emu, 0x80, 0xA5);          // hi=A, lo=5
+        emu.reset();                        // hard reset → fold
+        const uint8_t got = nr_read(emu, 0x80);
+        check("TC-NR80-LOHI-FOLD",
+              "NR 0x80 reset folds bits 3:0 into bits 7:4 "
+              "[zxnext.vhd:2185-2186]",
+              got == 0x55,
+              "got=" + hex2(got) + " want=0x55");
+        emu.reset();
+    }
+
+    // ── TC-NR06-MIDFLIGHT-PRESERVE — NR 0x06 preserves bits 6,4,3,2,1,0
+    //   across reset (Verify6, 9953ed1).  Independent test from existing
+    //   G56-CR-NR06-RESET-PRESERVE — uses a fully discriminating pattern.
+    {
+        emu.reset();
+        // Set NR 0x06 b3=1 (M1 NMI enable), via config_mode commit cycle.
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        nr_write(emu, 0x06, 0x5C);          // b6=1 b4=1 b3=1 b2=1 b0/1=00
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        emu.reset();
+        // After reset: bits 7,5 forced to 1; bits 6,4,3,2,1,0 preserved.
+        const uint8_t got = nr_read(emu, 0x06);
+        check("TC-NR06-PRESERVE-MIXED",
+              "NR 0x06 reset preserves bits 6,4,3,2,1,0; forces 7,5=1 "
+              "[zxnext.vhd:4932-4933 / :1109-1113]",
+              got == 0xFC,                  // 11 (forced) + 5C (preserved)
+              "got=" + hex2(got) + " want=0xFC");
+        emu.reset();
+    }
+
+    // ── TC-NR09-PRESERVE — NR 0x09 reset preserves all but bit 4 (Pass-7)
+    //   VHDL :4937 — only nr_09_sprite_tie='0' is asserted; bits 7:5
+    //   (psg_mono), bit 2 (hdmi_audio_en), bits 1:0 (scanlines) survive.
+    //   Bit 3 reads back as '0' (sw-write-strobe — Verify5 fix).
+    {
+        emu.reset();
+        nr_write(emu, 0x09, 0xEF);          // all bits except bit 4
+        const uint8_t before = nr_read(emu, 0x09);  // bit 3 reads as 0
+        emu.reset();
+        const uint8_t after = nr_read(emu, 0x09);
+        // Mask bit 4 (sprite_tie always 0) and bit 3 (read-back 0) from
+        // both — what remains (bits 7:5,2,1:0) must be preserved.
+        const uint8_t pre_pres = static_cast<uint8_t>(before & 0xE7);
+        const uint8_t post_pres = static_cast<uint8_t>(after & 0xE7);
+        check("TC-NR09-PRESERVE",
+              "NR 0x09 reset preserves bits 7:5,2,1:0 (sprite_tie cleared) "
+              "[zxnext.vhd:4937 / :1115-1118]",
+              pre_pres == 0xE7 && post_pres == 0xE7,
+              "pre_pres=" + hex2(pre_pres) + " post_pres=" + hex2(post_pres));
+        emu.reset();
+    }
+
+    // ── TC-NR81-PRESERVE-SOFT — NR 0x81 preserved across soft reset
+    //   (Pass-7).  VHDL — no reset clause anywhere; pre-pass-7 jnext
+    //   unconditionally cleared nr_81_ on every reset (soft + hard),
+    //   wiping the user-set ExpBus NMI-debounce-disable bit (bit 5)
+    //   on every NR 0x02 ← 0x01 soft reset.  Fix: preserve across soft
+    //   reset (preserve_memory=true); hard reset still restores 0x00
+    //   (matches the cold-boot power-on path; the only practical
+    //   "init" path that re-runs without preserve_memory is fixture
+    //   construction).
+    //
+    //   Read mask: 0x80 | (nr_81_ & 0x78); bit 7 is a constant hw input,
+    //   bit 2 reads back as 0, bits 1:0 are the hardwired-"00" expbus
+    //   speed (V11-NMP-01 fix). Write 0x33 → expect read 0xB0 (0x33 &
+    //   0x78 = 0x30, OR 0x80 = 0xB0); after soft reset must still read
+    //   0xB0.
+    {
+        emu.reset();
+        nr_write(emu, 0x81, 0x33);
+        const uint8_t before = nr_read(emu, 0x81);
+        emu.soft_reset();                   // preserve_memory=true path
+        const uint8_t after = nr_read(emu, 0x81);
+        check("TC-NR81-PRESERVE-SOFT",
+              "NR 0x81 survives soft reset (no VHDL reset clause; preserve "
+              "across NR 0x02 b0 soft reset) [zxnext.vhd:1221-1225]",
+              before == 0xB0 && after == 0xB0,
+              "before=" + hex2(before) + " after=" + hex2(after));
+        emu.reset();
+    }
+
+    // ── TC-NR0A-PRESERVE — NR 0x0A preserved across reset (Pass-8, 69ec3f6)
+    //   VHDL :1124-1128 declare initial-only signals.
+    //
+    //   Note: bits 7:6 (mf_type) commit only when config_mode=1.
+    {
+        emu.reset();
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        nr_write(emu, 0x0A, 0x4A);          // bits 7:6=01, bit 3=1, bit 1=1
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        const uint8_t before = nr_read(emu, 0x0A) & 0xC0;
+        emu.reset();
+        const uint8_t after = nr_read(emu, 0x0A) & 0xC0;
+        check("TC-NR0A-PRESERVE",
+              "NR 0x0A bits 7:6 mf_type survive reset "
+              "[zxnext.vhd:1124-1128]",
+              before == 0x40 && after == 0x40,
+              "before=" + hex2(before) + " after=" + hex2(after));
+        emu.reset();
+    }
+
+    // ── TC-NR10-PRESERVE — NR 0x10 preserved across reset (Pass-8)
+    //   VHDL :1132-1133 declare initial-only signals (coreid).
+    //   Note: coreid commits with config_mode=1 only.  Read returns
+    //   composed (coreid << 2) | spkey. spkey unmodelled → 0.
+    {
+        emu.reset();
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        nr_write(emu, 0x10, 0x07);          // coreid = 0x07
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        const uint8_t before = nr_read(emu, 0x10);
+        emu.reset();
+        const uint8_t after = nr_read(emu, 0x10);
+        check("TC-NR10-PRESERVE",
+              "NR 0x10 coreid survives reset (composed read = coreid<<2) "
+              "[zxnext.vhd:1132-1133 / :5924]",
+              before == 0x1C && after == 0x1C,
+              "before=" + hex2(before) + " after=" + hex2(after));
+        emu.reset();
+    }
+
+    // ── TC-NR11-PRESERVE — NR 0x11 preserved across reset (Pass-8)
+    //   VHDL :1134 initial-only video timing signal.
+    //   Issue-2 board only captures bit 0 of write (VHDL :5215; jnext
+    //   defaults to ZXN_ISSUE2). Power-on default is 0x03 ("011"), so
+    //   to discriminate we write bit 0=0 and verify the new value
+    //   survives reset.
+    {
+        emu.reset();
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        nr_write(emu, 0x11, 0x00);          // capture bit 0 = 0
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        const uint8_t before = nr_read(emu, 0x11);
+        emu.reset();
+        const uint8_t after = nr_read(emu, 0x11);
+        check("TC-NR11-PRESERVE",
+              "NR 0x11 survives reset (no VHDL reset clause) "
+              "[zxnext.vhd:1134]",
+              before == 0x00 && after == 0x00,
+              "before=" + hex2(before) + " after=" + hex2(after));
+        emu.reset();
+    }
+
+    // ── TC-NR8A-PRESERVE — NR 0x8A preserved across reset (Pass-8)
+    //   VHDL :1236 declares initial-only signal.
+    {
+        emu.reset();
+        nr_write(emu, 0x8A, 0x2A);
+        const uint8_t before = nr_read(emu, 0x8A);
+        emu.reset();
+        const uint8_t after = nr_read(emu, 0x8A);
+        check("TC-NR8A-PRESERVE",
+              "NR 0x8A survives reset (no VHDL reset clause) "
+              "[zxnext.vhd:1236]",
+              before == 0x2A && after == 0x2A,
+              "before=" + hex2(before) + " after=" + hex2(after));
+        emu.reset();
+    }
+
+    // ── TC-NR14-RESET-DEFAULT — NR 0x14 reset to 0xE3 (Pass-8)
+    //   VHDL master-reset-block default.
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x14);
+        check("TC-NR14-RESET-DEFAULT",
+              "NR 0x14 reset default = 0xE3 "
+              "[zxnext.vhd master reset block]",
+              got == 0xE3,
+              "got=" + hex2(got));
+    }
+
+    // ── TC-NR4A-RESET-DEFAULT — NR 0x4A reset to 0xE3 (Pass-8)
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x4A);
+        check("TC-NR4A-RESET-DEFAULT",
+              "NR 0x4A reset default = 0xE3 "
+              "[zxnext.vhd master reset block]",
+              got == 0xE3,
+              "got=" + hex2(got));
+    }
+
+    // ── TC-NR4B-RESET-DEFAULT — NR 0x4B reset to 0xE3 (Pass-8)
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x4B);
+        check("TC-NR4B-RESET-DEFAULT",
+              "NR 0x4B reset default = 0xE3 "
+              "[zxnext.vhd master reset block]",
+              got == 0xE3,
+              "got=" + hex2(got));
+    }
+
+    // ── TC-NR4C-RESET-DEFAULT — NR 0x4C reset to 0x0F (Pass-8)
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x4C);
+        check("TC-NR4C-RESET-DEFAULT",
+              "NR 0x4C reset default = 0x0F "
+              "[zxnext.vhd master reset block]",
+              got == 0x0F,
+              "got=" + hex2(got));
+    }
+
+    // ── TC-NR01-RO — NR 0x01 read-only (Pass-8, RO-guard)
+    //   VHDL has no write strobe; pre-fix jnext stored writes verbatim.
+    {
+        emu.reset();
+        const uint8_t before = nr_read(emu, 0x01);
+        nr_write(emu, 0x01, 0xAA);          // attempt to overwrite
+        const uint8_t after = nr_read(emu, 0x01);
+        check("TC-NR01-RO",
+              "NR 0x01 RO — write must not change cached value "
+              "[zxnext.vhd no write strobe]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // ── TC-NR0E-RO — NR 0x0E read-only (Pass-8)
+    {
+        emu.reset();
+        const uint8_t before = nr_read(emu, 0x0E);
+        nr_write(emu, 0x0E, 0xAA);
+        const uint8_t after = nr_read(emu, 0x0E);
+        check("TC-NR0E-RO",
+              "NR 0x0E RO — write must not change cached value",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // ── TC-NR0F-RO — NR 0x0F read-only (Pass-8)
+    {
+        emu.reset();
+        const uint8_t before = nr_read(emu, 0x0F);
+        nr_write(emu, 0x0F, 0xAA);
+        const uint8_t after = nr_read(emu, 0x0F);
+        check("TC-NR0F-RO",
+              "NR 0x0F RO — write must not change cached value",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // ── TC-MOUSE-RESET-PRESERVE — KempstonMouse::reset preserves shadows
+    //   (Pass-8). Pre-fix clobbered button_reverse_/dpi_ on every reset;
+    //   NR 0x0A read sources those bits from the subsystem.
+    {
+        emu.reset();
+        // Configure mouse via NR 0x0A bit 3 (button_reverse) + bits 1:0 (dpi)
+        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
+        // bits: 7:6 = mf_type (preserve), 3 = button_reverse, 1:0 = dpi
+        // dpi=10 (256 dpi), button_reverse=1 → 0x0A
+        nr_write(emu, 0x0A, 0x0A);
+        nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
+        const bool br_before = emu.mouse().button_reverse();
+        const uint8_t dpi_before = emu.mouse().dpi();
+        emu.reset();
+        const bool br_after = emu.mouse().button_reverse();
+        const uint8_t dpi_after = emu.mouse().dpi();
+        check("TC-MOUSE-RESET-PRESERVE",
+              "KempstonMouse shadows survive reset (NR 0x0A preserved) "
+              "[zxnext.vhd:1124-1128 / :5197 / :5191-5198]",
+              br_before == br_after && dpi_before == dpi_after &&
+              br_before == true && dpi_before == 0x02,
+              "br_b=" + std::to_string(br_before) +
+              " dpi_b=" + hex2(dpi_before) +
+              " br_a=" + std::to_string(br_after) +
+              " dpi_a=" + hex2(dpi_after));
+        emu.reset();
+    }
+
+    // ── TC-JOYSTICK-RESET-PRESERVE — Joystick::reset preserves modes
+    //   (Pass-8). Pre-fix cleared joy0_mode_/joy1_mode_ on every reset.
+    {
+        emu.reset();
+        // Default joy0=Kempston1, joy1=Sinclair2. Set to non-defaults.
+        // NR 0x05 bit-mux: 7,6 = joy0[1:0], 5,4 = joy1[1:0], 3 = joy0[2],
+        //   1 = joy1[2].  Set joy0=Kempston2 ("100" → 100 in joy0) and
+        //   joy1=Cursor ("010" → 010 in joy1).  Set bits 7,6=00, 5,4=01,
+        //   3=1, 1=0 = 0x18 + bit 3
+        nr_write(emu, 0x05, 0x18);
+        const Joystick::Mode mode_l_before = emu.joystick().mode_left();
+        const Joystick::Mode mode_r_before = emu.joystick().mode_right();
+        emu.reset();
+        const Joystick::Mode mode_l_after = emu.joystick().mode_left();
+        const Joystick::Mode mode_r_after = emu.joystick().mode_right();
+        check("TC-JOYSTICK-RESET-PRESERVE",
+              "Joystick mode shadows survive reset (NR 0x05 preserved) "
+              "[zxnext.vhd:1105-1106 / :1302-1303]",
+              mode_l_before == mode_l_after &&
+              mode_r_before == mode_r_after,
+              std::string{"l_b="} +
+              std::to_string(static_cast<int>(mode_l_before)) +
+              " r_b=" +
+              std::to_string(static_cast<int>(mode_r_before)) +
+              " l_a=" +
+              std::to_string(static_cast<int>(mode_l_after)) +
+              " r_a=" +
+              std::to_string(static_cast<int>(mode_r_after)));
+        emu.reset();
+    }
+
+    // ── TC-NR52-FF — NR 0x52 with v=0xFF stores 0xFF verbatim (Initial NR-2)
+    //   VHDL :4686-4696 — slots 2-7 with v=0xFF store 0xFF (slot becomes
+    //   inactive). Pre-fix called map_rom(2, 0) silently remapping slot
+    //   to physical page 0.
+    {
+        emu.reset();
+        nr_write(emu, 0x52, 0xFF);
+        const uint8_t got = nr_read(emu, 0x52);
+        check("TC-NR52-FF",
+              "NR 0x52 with v=0xFF stores 0xFF verbatim (slot inactive) "
+              "[zxnext.vhd:4686-4696]",
+              got == 0xFF,
+              "got=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-NR53-FF — NR 0x53 with v=0xFF stores 0xFF verbatim
+    {
+        emu.reset();
+        nr_write(emu, 0x53, 0xFF);
+        const uint8_t got = nr_read(emu, 0x53);
+        check("TC-NR53-FF",
+              "NR 0x53 with v=0xFF stores 0xFF verbatim (slot inactive) "
+              "[zxnext.vhd:4686-4696]",
+              got == 0xFF,
+              "got=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-NR54-FF — NR 0x54 with v=0xFF stores 0xFF verbatim
+    {
+        emu.reset();
+        nr_write(emu, 0x54, 0xFF);
+        const uint8_t got = nr_read(emu, 0x54);
+        check("TC-NR54-FF",
+              "NR 0x54 with v=0xFF stores 0xFF verbatim (slot inactive) "
+              "[zxnext.vhd:4686-4696]",
+              got == 0xFF,
+              "got=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-NR55-FF — NR 0x55 with v=0xFF stores 0xFF verbatim
+    {
+        emu.reset();
+        nr_write(emu, 0x55, 0xFF);
+        const uint8_t got = nr_read(emu, 0x55);
+        check("TC-NR55-FF",
+              "NR 0x55 with v=0xFF stores 0xFF verbatim (slot inactive) "
+              "[zxnext.vhd:4686-4696]",
+              got == 0xFF,
+              "got=" + hex2(got));
+        emu.reset();
+    }
+
+    // ── TC-IOTRAP-IDLE-GATE — NR 0xDA / NR 0xD9 captured when FSM in IDLE
+    //   (Verify3, d841887). VHDL :3871, :3892 gate both captures on
+    //   `nmi_accept_cause`='1' (FSM in IDLE or FETCH). Companion to
+    //   FT-INT-DA-01a/b/c (which all run in IDLE).
+    //
+    //   Discriminative-fix (review follow-up): the original test ran
+    //   entirely in IDLE (post-reset), where the gate
+    //   `nmi_accept_cause` is true. It verified that capture WORKS in
+    //   IDLE — but the bug was that capture happened in HOLD/END (where
+    //   it shouldn't). To exercise the Pass-3 gate fix at
+    //   emulator.cpp:2710 / :2725 / :2740 we now also drive the FSM
+    //   into HOLD via the MF producer path, trigger an iotrap-eligible
+    //   port event, and verify NR 0xDA / NR 0xD9 are NOT updated. The
+    //   positive-axis IDLE check (kept) plus the negative-axis HOLD
+    //   check make the row discriminative against either gate clause
+    //   being reverted.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        // ── Positive axis: capture WORKS in IDLE.
+        const bool pre_idle =
+            (emu.nmi_source().state() == NmiSource::State::Idle);
+        emu.port().out(0x3FFD, 0xCC);
+        const uint8_t cause_idle = nr_read(emu, 0xDA);
+        const uint8_t write_byte_idle = nr_read(emu, 0xD9);
+
+        // ── Negative axis: capture BLOCKED while FSM is in HOLD.
+        // Drive the FSM through the MF producer:
+        //   IDLE -> FETCH (tick after MF strobe with MF enabled and
+        //                  CONMEM=0 / divmmc_nmi_hold=0)
+        //   FETCH -> HOLD (observe_m1_fetch at $0066 with mreq+m1)
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        // Re-acquire NmiSource ref each step in case the integration test
+        // shares state with other groups; emu.reset() above re-inits.
+        emu.nmi_source().set_mf_enable(true);
+        emu.nmi_source().strobe_mf_button();
+        emu.nmi_source().tick(1);
+        const bool reached_fetch =
+            (emu.nmi_source().state() == NmiSource::State::Fetch);
+        emu.nmi_source().observe_m1_fetch(0x0066, /*m1=*/true, /*mreq=*/true);
+        const bool reached_hold =
+            (emu.nmi_source().state() == NmiSource::State::Hold);
+        // Now strobe a port-3FFD WRITE iotrap — the gate must reject
+        // both NR 0xDA and NR 0xD9 captures because nmi_accept_cause is
+        // false in HOLD per VHDL :2164 / emulator.h:555.
+        emu.port().out(0x3FFD, 0x55);
+        const uint8_t cause_hold = nr_read(emu, 0xDA);
+        const uint8_t write_byte_hold = nr_read(emu, 0xD9);
+
+        check("TC-IOTRAP-IDLE-GATE",
+              "NR 0xDA/D9 captured ONLY when nmi_accept_cause='1' "
+              "(IDLE/FETCH); blocked in HOLD "
+              "[zxnext.vhd:3871 / :3892 / emulator.cpp:2710,2725,2740]",
+              pre_idle && cause_idle == 0x03 && write_byte_idle == 0xCC &&
+              reached_fetch && reached_hold &&
+              cause_hold == 0x00 && write_byte_hold == 0x00,
+              "idle=" + std::to_string(pre_idle) +
+              " c_idle=" + hex2(cause_idle) +
+              " w_idle=" + hex2(write_byte_idle) +
+              " fetch=" + std::to_string(reached_fetch) +
+              " hold=" + std::to_string(reached_hold) +
+              " c_hold=" + hex2(cause_hold) +
+              " w_hold=" + hex2(write_byte_hold));
+        // Restore: drop MF enable so subsequent tests start clean.
+        emu.nmi_source().set_mf_enable(false);
+        emu.reset();
+    }
+
+    // ── V12-NMP-01 — NR 0xC4 b0 ULA-INT-disable shadow fan-out (Pass-12)
+    //   VHDL zxnext.vhd:3621-3622 — `nr_c4_we` writes `port_ff_reg(6) <=
+    //   not nr_wr_dat(0)`. VHDL :3635 then ties `port_ff_interrupt_disable
+    //   <= port_ff_reg(6)` combinationally; VHDL :6711 feeds that into the
+    //   ULA-INT enable signal `ula_int_en`. Pre-fix the C++ NR 0xC4 write
+    //   updated `port_ff_reg_` bit 6 but NOT the `ula_int_disabled_`
+    //   shadow nor `video_timing_.interrupt_enable()`. Symptom: software
+    //   that writes NR 0xC4 ← 0x01 (enable ULA INT) saw the read-back at
+    //   line 2417 (`!ula_int_disabled_ → bit 0`) keep returning '0'
+    //   because the shadow stayed stuck at the prior state. The
+    //   discriminative shape: write NR 0xC4 = 0x00 first to set both
+    //   shadows to "disabled"; then write NR 0xC4 = 0x01 and observe the
+    //   readback flip to bit 0 = '1'. Pre-fix the readback would NOT
+    //   flip because `ula_int_disabled_` would still be false (set by
+    //   the NR 0xC4=0x00 path which did update port_ff_reg_(6)=1, but
+    //   reading bit 0 = !ula_int_disabled_ would have stayed at the
+    //   default-init false → bit 0 = '1' even after writing 0x00). To
+    //   force a real divergence, we ALSO write NR 0x22 = 0x04 first to
+    //   set ula_int_disabled_=true (via the NR 0x22 path that DOES
+    //   update both shadows). Then write NR 0xC4 = 0x01 — pre-fix this
+    //   leaves ula_int_disabled_=true (NR 0x22 path set it; NR 0xC4
+    //   path didn't clear it), so NR 0xC4 readback bit 0 = '0'. Post-fix
+    //   NR 0xC4 = 0x01 syncs ula_int_disabled_=false from
+    //   port_ff_reg_(6)=0, so readback bit 0 = '1'.
+    {
+        emu.reset();
+        // Step 1: write NR 0x22 = 0x04 → bit 2 of NR 0x22 fans into
+        // port_ff_reg_(6)=1 AND sets ula_int_disabled_=true via the
+        // existing fan-out at emulator.cpp:1657-1658. Confirm via NR
+        // 0xC4 read bit 0: should be 0 (disabled).
+        nr_write(emu, 0x22, 0x04);
+        const uint8_t after_22 = nr_read(emu, 0xC4);
+        // Step 2: write NR 0xC4 = 0x01 → port_ff_reg_(6)=0; the V12-NMP-01
+        // fix MUST also sync ula_int_disabled_=false. NR 0xC4 read bit 0
+        // should now be 1 (enabled).
+        nr_write(emu, 0xC4, 0x01);
+        const uint8_t after_c4_enable = nr_read(emu, 0xC4);
+        // Step 3: write NR 0xC4 = 0x00 → port_ff_reg_(6)=1; the V12-NMP-01
+        // fix MUST also sync ula_int_disabled_=true. NR 0xC4 read bit 0
+        // should be 0 again.
+        nr_write(emu, 0xC4, 0x00);
+        const uint8_t after_c4_disable = nr_read(emu, 0xC4);
+        check("V12-NMP-01",
+              "NR 0xC4 b0 write fans into ula_int_disabled_ shadow + "
+              "video_timing_ INT-enable gate (mirroring NR 0x22 b2 path) "
+              "[zxnext.vhd:3621-3622 / :3635 / :6711]",
+              (after_22 & 0x01) == 0x00 &&
+              (after_c4_enable & 0x01) == 0x01 &&
+              (after_c4_disable & 0x01) == 0x00,
+              "after_22=" + hex2(after_22) +
+              " after_c4_enable=" + hex2(after_c4_enable) +
+              " after_c4_disable=" + hex2(after_c4_disable));
+        emu.reset();
+    }
+
+    // ── V13-NMP-01 — NR 0x05 bit 2 Pentagon-mode cache canonicalisation
+    //   (Pass-13). VHDL zxnext.vhd:5832-5841 forces `nr_05_5060 <= '0'`
+    //   continuously every clock when `nr_03_machine_timing(2) = '1'`
+    //   (Pentagon mode) — the IF branch is priority-1 over the
+    //   `nr_05_we`/hotkey branches, so even an explicit NR 0x05 write
+    //   with bit 2 = 1 gets overwritten on the very next clock edge.
+    //   Pass-10 added the READ-side mask (TC-NR05-PENTAGON) but the
+    //   underlying cache still leaked bit 2 = 1: when Pentagon is later
+    //   exited, the read mask stops firing and the leaked bit surfaces
+    //   verbatim — diverging from the VHDL FF (which stays '0' until a
+    //   fresh write or F3 toggle).
+    //
+    //   Two discriminators in a single check:
+    //     A. Write-while-Pentagon: Activate Pentagon, write NR 0x05 with
+    //        bit 2 = 1, exit Pentagon, read. Expect bit 2 = 0 (VHDL FF
+    //        held at 0 throughout the write attempt). Pre-fix: cached
+    //        bit 2 = 1 from the write; read returns 1.
+    //     B. Pentagon-edge-clear: Non-Pentagon, write NR 0x05 with bit
+    //        2 = 1 (FF latches 1), activate Pentagon (FF forced to 0
+    //        next clock; the NR 0x03 fan-out must clear cached bit 2),
+    //        exit Pentagon, read. Expect bit 2 = 0 (FF held at 0 once
+    //        Pentagon engaged; no fresh write to set it). Pre-fix the
+    //        NR 0x03 timing→Pentagon edge does not clear cached(0x05)
+    //        bit 2; read returns 1.
+    //
+    //   Same shape as V11-NMP-02 (NR 0x0A bits 7:5 config_mode gate)
+    //   and V11-NMP-03 (NR 0x06 bit 2 ps2_mode config_mode gate),
+    //   applied here on the Pentagon-timing gate.
+    {
+        emu.reset();
+        // Discriminator A — write while Pentagon is active.
+        // Activate Pentagon via NR 0x03 (bit 7 = 1, dt_lock = 0,
+        // bit 3 = 0, tim_sel = "100" → Pentagon timing 0x04).
+        nr_write(emu, 0x03, 0x80 | (0x04 << 4));     // 0xC0
+        // Confirm Pentagon engaged.
+        const uint8_t timing_a = emu.nextreg().nr_03_machine_timing();
+        // Write bit 2 = 1 (5060) — VHDL silently drops; FF held at 0.
+        nr_write(emu, 0x05, 0x04);
+        // Exit Pentagon (timing → 0x03 +3).
+        nr_write(emu, 0x03, 0x80 | (0x03 << 4));     // 0xB0
+        const uint8_t got_a = nr_read(emu, 0x05);
+
+        emu.reset();
+        // Discriminator B — Pentagon edge clears prior bit-2 latch.
+        // Non-Pentagon (default boot timing = 0x03 +3). Write bit 2 = 1
+        // (FF latches 1; cached bit 2 = 1).
+        nr_write(emu, 0x05, 0x04);
+        const uint8_t got_b_pre = nr_read(emu, 0x05);
+        // Activate Pentagon (FF forced to 0 next clock — NR 0x03 fan-out
+        // must clear cached bit 2 to mirror the FF state).
+        nr_write(emu, 0x03, 0x80 | (0x04 << 4));     // 0xC0
+        const uint8_t timing_b = emu.nextreg().nr_03_machine_timing();
+        // Exit Pentagon (FF stays at 0 — no fresh NR 0x05 write or F3).
+        nr_write(emu, 0x03, 0x80 | (0x03 << 4));     // 0xB0
+        const uint8_t got_b = nr_read(emu, 0x05);
+
+        check("V13-NMP-01",
+              "NR 0x05 bit 2 Pentagon-mode cache canonicalisation: "
+              "(a) write-while-Pentagon does not leak; "
+              "(b) Pentagon-engagement clears prior bit-2 latch "
+              "[zxnext.vhd:5832-5841 / :5897 / :6701]",
+              (timing_a == 0x04) &&
+              (got_a == 0x00) &&
+              ((got_b_pre & 0x04) == 0x04) &&
+              (timing_b == 0x04) &&
+              (got_b == 0x00),
+              "timing_a=" + hex2(timing_a) +
+              " got_a=" + hex2(got_a) +
+              " got_b_pre=" + hex2(got_b_pre) +
+              " timing_b=" + hex2(timing_b) +
+              " got_b=" + hex2(got_b));
+        emu.reset();
+    }
+
+    emu.reset();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V16-NMP-01 — NR 0x10 readback bits 1:0 reflect F9/F10 (M1/Drive)
+// button held-state per VHDL zxnext.vhd:5924 + zxnext_top_issue2.vhd:2281.
+//
+// Pre-fix: the NR 0x10 write_handler at emulator.cpp:1255-1261 hardcoded
+// bits 1:0 to 0 (regs_[0x10] = (coreid<<2) on write, no read_handler).
+// Reads always returned 0 in those bits regardless of front-panel
+// button state.
+//
+// Post-fix: a read_handler at emulator.cpp:1278-1287 recomposes
+//   ((coreid & 0x1F) << 2) | (test_hotkey_m1_ ? 1 : 0) |
+//                            (test_hotkey_drive_ ? 2 : 0)
+// on every read. Bits 1:0 are sourced live from the same active-high
+// SPKEY_BUTTONS shadow already consumed by `nmi_assert_mf` /
+// `nmi_assert_divmmc` (emulator.h:411-416), settable via
+// `inject_hotkey_m1` / `inject_hotkey_drive`.
+//
+// Discriminative: pre-fix any combination of the test_hotkey_* setters
+// returns 0 in NR 0x10 bits 1:0; post-fix bit 0 echoes M1 and bit 1
+// echoes Drive. Reverting the read_handler installation in
+// emulator.cpp restores pre-fix behaviour and these rows FAIL.
+// ─────────────────────────────────────────────────────────────────────
+
+static void test_v16_nmp_01_nr10_spkey_buttons(Emulator& emu) {
+    set_group("V16-NMP-01-NR10-SPKEY");
+
+    // Baseline: at construction both held-state flags are false. Bits 1:0
+    // must read 0. (Mirrors the existing G56-10-04 row; included here so
+    // the V16 group is self-contained and discriminative even if older
+    // rows are reordered.)
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-IDLE",
+              "NR 0x10 bits 1:0 = 0 when both F9/F10 buttons released "
+              "[zxnext.vhd:5924]",
+              (got & 0x03) == 0x00,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x00}));
+    }
+
+    // M1 held only: bit 0 = 1, bit 1 = 0. coreid bits unchanged.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(false);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-M1",
+              "NR 0x10 bit 0 = 1 when F9 (M1 button) held; bit 1 = 0 "
+              "[zxnext.vhd:5924 / top_issue2.vhd:2281]",
+              (got & 0x03) == 0x01,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x01}));
+        emu.inject_hotkey_m1(false);
+    }
+
+    // Drive held only: bit 1 = 1, bit 0 = 0.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-DRIVE",
+              "NR 0x10 bit 1 = 1 when F10 (Drive button) held; bit 0 = 0 "
+              "[zxnext.vhd:5924 / top_issue2.vhd:2281]",
+              (got & 0x03) == 0x02,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x02}));
+        emu.inject_hotkey_drive(false);
+    }
+
+    // Both held: bits 1:0 = 11.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(true);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-BOTH",
+              "NR 0x10 bits 1:0 = 11 when both F9 + F10 held "
+              "[zxnext.vhd:5924]",
+              (got & 0x03) == 0x03,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x03}));
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+    }
+
+    // Coreid composability: coreid bits 6:2 must remain coreid-driven
+    // while buttons are held — discriminative against a regression that
+    // accidentally stomps the upper bits with the held-state value.
+    {
+        emu.reset();
+        nr_write(emu, 0x03, 0x07);   // config_mode=1
+        nr_write(emu, 0x10, 0x0A);   // coreid = 0x0A → bits 6:2 = 01010
+        nr_write(emu, 0x03, 0x00);
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(true);
+        const uint8_t got = nr_read(emu, 0x10);
+        // Expected: (0x0A << 2) | 0x03 = 0x28 | 0x03 = 0x2B.
+        check("V16-NMP-01-COMPOSE",
+              "NR 0x10 = (coreid<<2) | spkey_buttons composed; coreid "
+              "bits 6:2 not stomped by held-state path "
+              "[zxnext.vhd:5924]",
+              got == 0x2B,
+              detail_eq(got, uint8_t{0x2B}));
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+    }
+
+    // Live combinational read: change held-state without re-writing the
+    // register and verify a subsequent read picks up the new state.
+    // VHDL signal is purely combinational — no flop, no commit.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        const uint8_t got_idle = nr_read(emu, 0x10);
+        emu.inject_hotkey_m1(true);
+        const uint8_t got_press = nr_read(emu, 0x10);
+        emu.inject_hotkey_m1(false);
+        const uint8_t got_release = nr_read(emu, 0x10);
+        check("V16-NMP-01-LIVE",
+              "NR 0x10 bit 0 tracks F9 hold transitions live "
+              "(combinational; no NR 0x10 write needed) "
+              "[zxnext.vhd:5924]",
+              (got_idle    & 0x01) == 0 &&
+              (got_press   & 0x01) == 1 &&
+              (got_release & 0x01) == 0,
+              "idle="    + hex2(static_cast<uint8_t>(got_idle    & 0x03)) +
+              " press="   + hex2(static_cast<uint8_t>(got_press   & 0x03)) +
+              " release=" + hex2(static_cast<uint8_t>(got_release & 0x03)));
+    }
+
+    emu.reset();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V16-NMP-02 — `internal_port_enable` AND-mask: NR 0x86-0x89 must
+// gate NR 0x82-0x85 when expbus_eff_en=1, per VHDL zxnext.vhd:2392-2393.
+//
+// Pre-fix: every port-decode handler consulted `nextreg_.cached(0x82..0x85)`
+// directly, ignoring NR 0x86-0x89 entirely. Setting expbus_eff_en=1
+// (NR 0x80 b7) then clearing a bit of NR 0x86-0x89 had no effect on
+// port decoding.
+//
+// Post-fix: `Emulator::effective_internal_port_enable(reg)` AND-masks
+// the cached NR 0x82-0x85 byte with the corresponding NR 0x86-0x89
+// byte when `expbus_eff_en=1`. All port-decode gates and the persistent
+// shadows held by ContentionModel / DivMmc / Multiface route through
+// the helper. Write handlers for NR 0x80, 0x82, 0x83, 0x85, 0x86,
+// 0x87, 0x88, 0x89 call `propagate_effective_port_enables()` so any
+// change to a formula input refreshes the shadows.
+//
+// Discriminative observable: NR 0x82 b1 → port_7ffd_io_en (VHDL :2399).
+// When expbus_eff_en=1 and NR 0x86 b1=0, OUT 0x7FFD must be silenced
+// even with NR 0x82 b1=1. Reverting the helper restores pre-fix
+// behaviour and these rows FAIL.
+// ─────────────────────────────────────────────────────────────────────
+
+static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
+    set_group("V16-NMP-02-Expbus-AND-Mask");
+
+    // Sanity baseline: with expbus_eff_en=0 (default), NR 0x86 has no
+    // effect — clearing NR 0x86 b1 must NOT silence port 0x7FFD.
+    // Mirrors the BUS-86-01 row in port_test (which is now upgraded
+    // from "does not corrupt NR 0x82" to "does not gate the port").
+    {
+        emu.reset();
+        // NR 0x80 b7 = 0 → expbus_eff_en = 0 (power-on default).
+        nr_write(emu, 0x80, 0x00);
+        // NR 0x82 b1 = 1 (default 0xFF), NR 0x86 b1 = 0.
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFD);          // clear bit 1
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-OFF",
+              "NR 0x86 b1=0 has NO effect on port 0x7FFD when "
+              "expbus_eff_en=0 (default; NR 0x86-0x89 inert) "
+              "[zxnext.vhd:2392-2393]",
+              before != after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Discriminative core: expbus_eff_en=1, NR 0x82 b1 = 1, NR 0x86 b1 = 0
+    // → effective port_7ffd_io_en = 0 → OUT 0x7FFD silenced.
+    // Pre-fix this row FAILED (NR 0x86 ignored). Post-fix it PASSES.
+    {
+        emu.reset();
+        // 1. Engage expbus_eff_en (NR 0x80 b7 = 1).
+        nr_write(emu, 0x80, 0x80);
+        // 2. NR 0x82 b1 = 1 (default), but mask NR 0x86 b1 = 0.
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFD);          // clear bit 1
+        // 3. OUT 0x7FFD must be silenced. Observable: Mmu's port_7ffd()
+        //    register stays unchanged after the OUT.
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-ON-MASK",
+              "NR 0x86 b1=0 silences OUT 0x7FFD when expbus_eff_en=1 "
+              "(effective port_7ffd_io_en = NR 0x82 b1 AND NR 0x86 b1 = 0) "
+              "[zxnext.vhd:2392-2393 / :2399]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Symmetric: expbus_eff_en=1, NR 0x86 b1 = 1 → AND term is 1 and the
+    // port still decodes. Confirms the AND is bit-AND (not always-zero).
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFF);          // bit 1 = 1
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-ON-PASS",
+              "NR 0x86 b1=1 leaves port 0x7FFD live with expbus_eff_en=1 "
+              "[zxnext.vhd:2392-2393 / :2399]",
+              before != after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // NR 0x80 toggle propagation: with NR 0x86 b1=0 throughout, the gate
+    // must transition LIVE on the NR 0x80 b7 write — not require a
+    // subsequent NR 0x82 / NR 0x86 write to refresh.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x00);          // expbus_eff_en = 0
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFD);          // bit 1 = 0
+        // Engage expbus.
+        nr_write(emu, 0x80, 0x80);
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-TOGGLE",
+              "NR 0x80 b7 toggle live-refreshes port_7ffd_io_en shadow "
+              "(propagate_effective_port_enables on NR 0x80 write) "
+              "[zxnext.vhd:2392-2393]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // NR 0x83 b0 / DivMMC port_io_enable propagation — exercises the
+    // `multiface_/divmmc_` shadow refresh path. With expbus_eff_en=1
+    // and NR 0x83 b0=1 but NR 0x87 b0=0, divmmc_.port_io_enable() must
+    // be false. The Emulator::effective_internal_port_enable propagation
+    // happens on NR 0x87 write.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x83, 0xFF);          // NR 0x83 all enables on
+        nr_write(emu, 0x87, 0xFE);          // NR 0x87 b0 = 0 (mask off DivMMC)
+        check("V16-NMP-02-DIVMMC-MASK",
+              "DivMmc::port_io_enable=false when expbus_eff_en=1 + "
+              "NR 0x83 b0=1 + NR 0x87 b0=0 (effective AND = 0) "
+              "[zxnext.vhd:2392-2393 / :2412]",
+              !emu.divmmc().port_io_enable(),
+              "port_io_enable=" + std::to_string(emu.divmmc().port_io_enable()));
+    }
+
+    // Multiface enable: NR 0x83 b1 AND NR 0x87 b1 when expbus_eff_en=1.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x83, 0xFF);
+        nr_write(emu, 0x87, 0xFD);          // NR 0x87 b1 = 0
+        check("V16-NMP-02-MF-MASK",
+              "Multiface::is_enabled=false when expbus_eff_en=1 + NR 0x83 "
+              "b1=1 + NR 0x87 b1=0 (effective AND = 0) "
+              "[zxnext.vhd:2392-2393 / :2415]",
+              !emu.multiface().is_enabled(),
+              "is_enabled=" + std::to_string(emu.multiface().is_enabled()));
+    }
+
+    // NR 0x85 / NR 0x89 low-nibble pair: ULA+ port (NR 0x85 b0). Bits
+    // 6:4 of NR 0x89 are read-zero per VHDL :6149-6150 + write semantics
+    // :5521 (only bits 3:0 + bit 7 stored). Test the b0 case.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x85, 0x0F);          // NR 0x85 enable nibble = 1111
+        nr_write(emu, 0x89, 0x0E);          // NR 0x89 enable nibble = 1110 → b0=0
+        // Effective NR 0x85 b0 = 1 AND 0 = 0 → port_ulap_io_en = false.
+        // Observable: ContentionModel's port_ulap_io_en shadow.
+        check("V16-NMP-02-NR85-NR89-B0",
+              "NR 0x89 b0=0 masks NR 0x85 b0 (port_ulap_io_en) when "
+              "expbus_eff_en=1 [zxnext.vhd:2392-2393 / :2439]",
+              !emu.contention().port_ulap_io_en(),
+              "port_ulap_io_en=" +
+                  std::to_string(emu.contention().port_ulap_io_en()));
+    }
+
+    // Restore baseline: NR 0x80=0, NR 0x82-0x89 = power-on defaults.
+    nr_write(emu, 0x80, 0x00);
+    nr_write(emu, 0x82, 0xFF);
+    nr_write(emu, 0x83, 0xFF);
+    nr_write(emu, 0x84, 0xFF);
+    nr_write(emu, 0x85, 0x0F);
+    nr_write(emu, 0x86, 0xFF);
+    nr_write(emu, 0x87, 0xFF);
+    nr_write(emu, 0x88, 0xFF);
+    nr_write(emu, 0x89, 0x0F);
+    emu.reset();
+}
+
+// ── V19R-NMP-NIT-03/04 — XADC composed-read stubs ────────────────────
+//
+// Pass-19 reviewer NITs 03 and 04 documented Class-(c) inert divergences
+// in NR 0xF0 / NR 0xF8 (XADC composed reads). The fix installed minimal
+// VHDL-faithful stubs in emulator.cpp:
+//   • NR 0xF0 read = 0x00 always (g_board_issue=0 path,
+//     zxnext.vhd:7423: nr_f0_xdev_cmd <= (others => '0')).
+//   • NR 0xF8 read masks bit 7 (zxnext.vhd:6278: '0' & nr_f8_xadc_daddr).
+//
+// Discriminative: write a non-zero byte (with bit 7 set for 0xF8) and
+// verify the read returns the VHDL-faithful value, not the raw cache.
+
+static void test_v19r_nmp_xadc_read_stubs(Emulator& emu) {
+    set_group("V19R-NMP-XADC-Read-Stubs");
+
+    // V19R-NMP-NIT-03 — NR 0xF0 XADC stub returns 0x00 regardless of write.
+    //
+    // VHDL zxnext.vhd:6273-6274: when X"F0" => port_253b_dat <= nr_f0_xdev_cmd;
+    // For Issue 2/3 (g_board_issue<=1, zxnext.vhd:7423), `nr_f0_xdev_cmd`
+    // is hard-wired to (others=>'0'). jnext seeds NR 0x0F = 0x00 (Issue 2),
+    // so the VHDL-faithful readback is 0x00 always.
+    //
+    // Pre-V19R the bare cache returned the raw last-written byte.
+    // Discriminative: write 0xAA, then read; raw cache would return 0xAA,
+    // stub returns 0x00.
+    {
+        emu.reset();
+        nr_write(emu, 0xF0, 0xAA);
+        const uint8_t got = nr_read(emu, 0xF0);
+        check("V19R-NMP-NIT-03",
+              "NR 0xF0 XADC composed-read stub returns 0x00 even after "
+              "0xAA write (Issue 2 path: nr_f0_xdev_cmd hard-wired to 0) "
+              "[zxnext.vhd:6273-6274, :7423]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // V19R-NMP-NIT-04 — NR 0xF8 read masks bit 7.
+    //
+    // VHDL zxnext.vhd:6277-6278: when X"F8" => port_253b_dat <= '0' & nr_f8_xadc_daddr;
+    // Bit 7 is always '0' on read, irrespective of board issue. The write
+    // path at :7553-7558 (Issue 4/5) splits bit 7 to nr_f8_xadc_dwe and
+    // bits 6:0 to nr_f8_xadc_daddr — bit 7 never makes it back through
+    // the read mux. For Issue 2/3 (:7425) nr_f8_xadc_daddr is constant 0,
+    // so the strict Issue-2 read would be 0x00; the conservative stub
+    // `cached & 0x7F` accommodates both paths.
+    //
+    // Pre-V19R the bare cache stored the full byte verbatim, leaking bit 7
+    // on readback. Discriminative: write 0xC5 (bit 7 = 1, bits 6:0 = 0x45)
+    // and verify the read returns 0x45 (bit 7 cleared), not 0xC5.
+    {
+        emu.reset();
+        nr_write(emu, 0xF8, 0xC5);
+        const uint8_t got = nr_read(emu, 0xF8);
+        check("V19R-NMP-NIT-04",
+              "NR 0xF8 read masks bit 7: write 0xC5 reads back 0x45 "
+              "(VHDL '0' & nr_f8_xadc_daddr) [zxnext.vhd:6277-6278, :7555]",
+              got == 0x45, detail_eq(got, uint8_t{0x45}));
+    }
+
+    // V20-NMP-XADC — NR 0xF9 / NR 0xFA XADC d0/d1 composed-read stubs.
+    //
+    // VHDL zxnext.vhd:6280-6284 read mux:
+    //   when X"F9" => port_253b_dat <= nr_f9_xadc_d0;
+    //   when X"FA" => port_253b_dat <= nr_fa_xadc_d1;
+    //
+    // For Issue 2/3 (g_board_issue<=1, zxnext.vhd:7428-7429),
+    // `nr_f9_xadc_d0` and `nr_fa_xadc_d1` are hard-wired to
+    // (others=>'0'). jnext seeds NR 0x0F = 0x00 (Issue 2), so the
+    // VHDL-faithful readback is 0x00 always for BOTH registers.
+    //
+    // Pre-V20 the bare cache stored the full written byte verbatim,
+    // making the readback leak the last-written value (Class-(c) inert
+    // divergence). Discriminative: write a non-zero byte and verify the
+    // read returns 0x00, not the raw cache. Same shape as V19R-NMP-NIT-03.
+    {
+        emu.reset();
+        nr_write(emu, 0xF9, 0x5A);
+        const uint8_t got = nr_read(emu, 0xF9);
+        check("V20-NMP-XADC-F9",
+              "NR 0xF9 XADC d0 composed-read stub returns 0x00 even after "
+              "0x5A write (Issue 2 path: nr_f9_xadc_d0 hard-wired to 0) "
+              "[zxnext.vhd:6280-6281, :7428]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        emu.reset();
+        nr_write(emu, 0xFA, 0xA5);
+        const uint8_t got = nr_read(emu, 0xFA);
+        check("V20-NMP-XADC-FA",
+              "NR 0xFA XADC d1 composed-read stub returns 0x00 even after "
+              "0xA5 write (Issue 2 path: nr_fa_xadc_d1 hard-wired to 0) "
+              "[zxnext.vhd:6283-6284, :7429]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // V20-NMP-02 — NR 0x68 read mask: bit 1 must read back as '0'.
+    //
+    // VHDL zxnext.vhd:6092-6093 read mux composes NR 0x68 as
+    //   (not nr_68_ula_en) & nr_68_blend_mode & nr_68_cancel_extended_keys
+    //                      & port_ff3b_ulap_en & nr_68_ula_fine_scroll_x
+    //                      & '0' & nr_68_ula_stencil_mode
+    // — bit 1 is a literal '0'. The write decoder at zxnext.vhd:5444-5450
+    // has NO bit-1 storage signal: the field is silently dropped on every
+    // write. Discriminative: write 0xFF (all bits set), then read; bit 1
+    // must be 0. Pre-fix the cache stored bit 1 verbatim and the read
+    // mask `& 0xF7` preserved it, leaking bit 1 on readback.
+    {
+        emu.reset();
+        nr_write(emu, 0x68, 0xFF);
+        const uint8_t got = nr_read(emu, 0x68);
+        check("V20-NMP-02",
+              "NR 0x68 read bit 1 reads back as '0' regardless of writes "
+              "(VHDL :6093 literal '0' bit; :5444-5450 has no bit-1 store) "
+              "[zxnext.vhd:6092-6093, :5444-5450]",
+              (got & 0x02) == 0,
+              detail_eq(static_cast<uint8_t>(got & 0x02), uint8_t{0x00}));
+    }
+}
+
+// ── V21-NMP-01 — NR 0x03 b7 palette_sub_idx readback ──────────────────
+//
+// VHDL zxnext.vhd:5894 read mux composes NR 0x03 as
+//   nr_palette_sub_idx & nr_03_machine_timing(2:0) & nr_03_user_dt_lock
+//                      & nr_03_machine_type(2:0)
+// — bit 7 surfaces VHDL `nr_palette_sub_idx` (zxnext.vhd:1182). The FF
+// is driven to '0' by reset / NR 0x40 / NR 0x41 / NR 0x43 / NR 0x28
+// writes (:5000 / :5376 / :5382 / :5395) and TOGGLED on every NR 0x44
+// write (:5403 `nr_palette_sub_idx <= not nr_palette_sub_idx`).
+//
+// PaletteManager's `nine_bit_first_written_` (palette.cpp:330-351)
+// follows the identical lifecycle: set true on the FIRST NR 0x44 write,
+// cleared on the SECOND, and reset to false by set_index() (NR 0x40
+// write path).
+//
+// Pre-fix the NR 0x03 read handler hard-wired bit 7 = 0; a NR 0x44
+// write followed by a NR 0x03 read returned bit 7 = 0 instead of the
+// VHDL-toggle '1'. Class-(c) inert divergence (no jnext boot path
+// polls bit 7), but the readback contract is part of the VHDL surface.
+
+static void test_v21_nmp_01_nr_03_palette_sub_idx(Emulator& emu) {
+    set_group("V21-NMP-01-NR03-PaletteSubIdx");
+
+    auto bit7 = [](uint8_t v) { return static_cast<uint8_t>((v >> 7) & 0x01); };
+
+    // Discriminative #1: power-on / post-reset → bit 7 = 0.
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-A",
+              "NR 0x03 bit 7 = 0 at reset (nr_palette_sub_idx default '0', "
+              "VHDL :1182, :5000) [zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #2: single NR 0x44 write toggles bit 7 to '1'.
+    // VHDL :5403 `nr_palette_sub_idx <= not nr_palette_sub_idx` after
+    // every NR 0x44 write. Starting from '0', one write yields '1'.
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-B",
+              "NR 0x03 bit 7 = 1 after a single NR 0x44 write "
+              "(VHDL :5403 toggle: 0 -> 1) [zxnext.vhd:5894]",
+              bit7(got) == 1, detail_eq(bit7(got), uint8_t{0x01}));
+    }
+
+    // Discriminative #3: second NR 0x44 write toggles bit 7 back to '0'.
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);
+        nr_write(emu, 0x44, 0xAA);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-C",
+              "NR 0x03 bit 7 = 0 after two NR 0x44 writes "
+              "(VHDL :5403 toggle: 0 -> 1 -> 0) [zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #4: NR 0x40 write resets sub_idx to '0' even after
+    // a NR 0x44 toggle. VHDL :5376 `nr_palette_sub_idx <= '0'` on every
+    // NR 0x40 write (palette-index reset).
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);          // sub_idx = '1'
+        nr_write(emu, 0x40, 0x00);          // sub_idx -> '0'
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-D",
+              "NR 0x03 bit 7 = 0 after NR 0x44 + NR 0x40 sequence "
+              "(VHDL :5376 NR 0x40 write resets nr_palette_sub_idx) "
+              "[zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #5: bit 7 is independent of bits 6:0. Write NR 0x03
+    // to set machine_timing + dt_lock + machine_type, then verify a
+    // subsequent NR 0x44 toggle flips bit 7 without disturbing the
+    // lower fields. NR 0x03 writes do NOT touch nr_palette_sub_idx
+    // (VHDL :5121-5151 does not assign to it).
+    {
+        emu.reset();
+        // Enter config_mode so NR 0x03 bits 2:0 latch (VHDL :5137-5145).
+        nr_write(emu, 0x03, 0x07);          // config_mode = 1 (bits[2:0]=111)
+        // machine_timing = "011" (bit 7 = 1, bits 6:4 = "011"), dt_lock toggle off,
+        // machine_type = "010". `nr_wr_dat = 1011 0010 = 0xB2`. config_mode
+        // exit (bits 2:0 = "010" ≠ "000" and ≠ "111").
+        nr_write(emu, 0x03, 0xB2);
+        const uint8_t pre_44 = nr_read(emu, 0x03);
+        nr_write(emu, 0x44, 0x55);          // toggle sub_idx
+        const uint8_t post_44 = nr_read(emu, 0x03);
+        // The lower 7 bits should be identical pre/post NR 0x44 write.
+        const uint8_t lower_pre  = static_cast<uint8_t>(pre_44  & 0x7F);
+        const uint8_t lower_post = static_cast<uint8_t>(post_44 & 0x7F);
+        check("V21-NMP-01-E",
+              "NR 0x03 bits 6:0 unchanged by NR 0x44 toggle "
+              "(only bit 7 / sub_idx flips) [zxnext.vhd:5894]",
+              lower_pre == lower_post,
+              detail_eq(lower_post, lower_pre));
+        // And bit 7 must have toggled. Expected post-toggle value = NOT pre.
+        const uint8_t expected_post7 =
+            static_cast<uint8_t>(bit7(pre_44) ^ 0x01);
+        check("V21-NMP-01-F",
+              "NR 0x03 bit 7 toggles independently from lower fields",
+              bit7(post_44) == expected_post7,
+              detail_eq(bit7(post_44), expected_post7));
+    }
+}
+
+// ── V21-NMP-03 — NR 0x07 read `act` field gated on expbus_eff_en ──────
+//
+// VHDL zxnext.vhd:5902-5903 read mux composes NR 0x07 as
+//   "00" & cpu_speed & "00" & nr_07_cpu_speed
+// where the actual `cpu_speed` (bits 5:4) latches as
+//   if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
+//   else                    cpu_speed <= expbus_speed;  (:5816-5820)
+// and `nr_81_expbus_speed` is hard-wired "00" (:5496 — the writable
+// arm is commented out), so the expbus-active path always surfaces
+// actual cpu_speed = 0.
+//
+// Pre-V21-NMP-03 the jnext NR 0x07 read returned act = req
+// unconditionally. With NR 0x80 b7 = 1 (expbus_eff_en) AND
+// nr_07_cpu_speed != 0, VHDL surfaces act = 0 / jnext surfaced act = req.
+
+static void test_v21_nmp_03_nr_07_expbus_speed(Emulator& emu) {
+    set_group("V21-NMP-03-NR07-ExpbusSpeed");
+
+    // Discriminative #1: power-on / NR 0x80 = 0x00 → act = req. Verify
+    // the no-expbus baseline still rounds-trips (regression guard).
+    {
+        emu.reset();
+        // NR 0x80 default is 0x00 (no expbus), so expbus_eff_en = 0.
+        // Pick a non-zero CPU speed so the divergence axis is visible.
+        nr_write(emu, 0x07, 0x02);   // 14 MHz
+        const uint8_t got = nr_read(emu, 0x07);
+        // Bits 5:4 = act = req = 0x02; bits 1:0 = req = 0x02.
+        // Expected byte = (2 << 4) | 2 = 0x22.
+        check("V21-NMP-03-A",
+              "NR 0x07 read with expbus_eff_en=0 → act = req "
+              "(VHDL :5817 `cpu_speed <= nr_07_cpu_speed`) [zxnext.vhd:5902-5903]",
+              got == 0x22, detail_eq(got, uint8_t{0x22}));
+    }
+
+    // Discriminative #2: NR 0x80 b7 = 1 (expbus_eff_en) → act = 0
+    // regardless of nr_07_cpu_speed. This is the V21-NMP-03 fix axis.
+    {
+        emu.reset();
+        // Set expbus_en (NR 0x80 bit 7) via NR 0x80 write. The C++
+        // write handler commits expbus_eff_en immediately via
+        // NmiSource::set_expbus_eff_en (same pattern as Pass-9 fix).
+        nr_write(emu, 0x80, 0x80);   // expbus_en = 1
+        nr_write(emu, 0x07, 0x03);   // nr_07_cpu_speed = 28 MHz
+        const uint8_t got = nr_read(emu, 0x07);
+        // Bits 5:4 = act = 0 (expbus_speed hard-wired "00", :5496);
+        // bits 1:0 = req = 0x03. Expected byte = (0 << 4) | 3 = 0x03.
+        check("V21-NMP-03-B",
+              "NR 0x07 read with expbus_eff_en=1 → act = 0 even when "
+              "req = 0x03 (VHDL :5819 `cpu_speed <= expbus_speed`, "
+              ":5496 expbus_speed hard-wired \"00\") [zxnext.vhd:5816-5820]",
+              got == 0x03, detail_eq(got, uint8_t{0x03}));
+    }
+
+    // Discriminative #3: clear expbus_en after a req write → act
+    // tracks req again on the next read. Confirms the gate is dynamic.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);   // expbus_en = 1
+        nr_write(emu, 0x07, 0x02);
+        const uint8_t got_pre  = nr_read(emu, 0x07);
+        nr_write(emu, 0x80, 0x00);   // expbus_en = 0
+        const uint8_t got_post = nr_read(emu, 0x07);
+        check("V21-NMP-03-C-pre",
+              "expbus_eff_en=1 pre-clear → act = 0 "
+              "(req=2 → readback=0x02)",
+              got_pre == 0x02, detail_eq(got_pre, uint8_t{0x02}));
+        check("V21-NMP-03-C-post",
+              "expbus_eff_en=0 post-clear → act = req "
+              "(req=2 → readback=0x22)",
+              got_post == 0x22, detail_eq(got_post, uint8_t{0x22}));
+    }
+}
+
+// ── V22-NMP-01 — NR 0xC2 / NR 0xC3 NextReg-port writes latch (and ──────
+//                  NMIACK pathway co-writes the same latches)
+//
+// History: Pass-22 audit initially proposed treating NR 0xC2/0xC3 as
+// NextReg-port-RO (analogous to NR 0x01/0x0E/0x0F). The independent
+// reviewer REJECTED that reading — the commented-out
+// `nr_c2_we`/`nr_c3_we` at zxnext.vhd:5601-5605 are vestigial duplicates
+// inside a SECOND (clocked) decoder process; the ACTIVE strobe
+// assignments live in the FIRST (combinatorial) decoder process at
+// :4894-4895 and are NOT commented out. The elsif arms at :2064-2067 in
+// the latch process ARE reachable from NextReg-port writes, and the read
+// mux at :6232-6236 returns the latched value. The tests here therefore
+// assert the spec-correct VHDL-faithful contract:
+//   - NR 0xC2/0xC3 NextReg-port writes DO update the latch (per
+//     :4894-4895 + :2064-2067).
+//   - NMIACK_LSB/MSB pathway ALSO writes the latch (per :2060-2063);
+//     priority in the if/elsif chain (NMIACK wins when simultaneous)
+//     doesn't change steady-state observable behavior — software writes
+//     work in absence of an in-flight NMIACK cycle.
+//   - Post-NMIACK NextReg writes OVERWRITE the latch (the latest writer
+//     wins; both pathways feed the same storage register).
+static void test_v22_nmp_01_nr_c2_c3_writable(Emulator& emu) {
+    set_group("V22-NMP-01-NRC2-C3-Writable");
+
+    // Discriminative #1: NR 0xC2 — write 0xAA via NextReg port; the
+    // read-back MUST reflect the written byte (the combinatorial decoder
+    // at :4894 asserts nr_c2_we → :2064-2065 elsif latches nr_wr_dat).
+    {
+        emu.reset();
+        nr_write(emu, 0xC2, 0xAA);          // NextReg-port write
+        const uint8_t after = nr_read(emu, 0xC2);
+        check("V22-NMP-01-A",
+              "NR 0xC2 writable via NextReg port — write 0xAA must "
+              "update the latch [VHDL :4894 nr_c2_we asserted in "
+              "process A → :2064-2065 elsif latches nr_wr_dat → "
+              ":6232-6233 read mux returns nr_c2_retn_address_lsb]",
+              after == 0xAA,
+              "after=" + hex2(after) + " expected=0xAA");
+    }
+
+    // Discriminative #2: NR 0xC3 — symmetric to NR 0xC2.
+    {
+        emu.reset();
+        nr_write(emu, 0xC3, 0x55);
+        const uint8_t after = nr_read(emu, 0xC3);
+        check("V22-NMP-01-B",
+              "NR 0xC3 writable via NextReg port — write 0x55 must "
+              "update the latch [VHDL :4895 nr_c3_we asserted in "
+              "process A → :2066-2067 elsif latches nr_wr_dat → "
+              ":6235-6236 read mux returns nr_c3_retn_address_msb]",
+              after == 0x55,
+              "after=" + hex2(after) + " expected=0x55");
+    }
+
+    // Discriminative #3: the NMI servicing pathway also writes the
+    // latches (via `set_nmi_return_address`). NMIACK pathway and the
+    // NextReg-port pathway both feed the same physical register; the
+    // NMIACK path bypasses NextReg::write but stores into the same
+    // regs_[] slot (per VHDL :2060-2063 priority arms).
+    {
+        emu.reset();
+        emu.nextreg().set_nmi_return_address(0xABCD);
+        const uint8_t lsb = nr_read(emu, 0xC2);
+        const uint8_t msb = nr_read(emu, 0xC3);
+        check("V22-NMP-01-C-LSB",
+              "NMIACK pathway via set_nmi_return_address() writes NR "
+              "0xC2 latch (NMIACK_LSB path per VHDL :2060-2061)",
+              lsb == 0xCD,
+              "lsb=" + hex2(lsb) + " expected=0xCD");
+        check("V22-NMP-01-C-MSB",
+              "NMIACK pathway via set_nmi_return_address() writes NR "
+              "0xC3 latch (NMIACK_MSB path per VHDL :2062-2063)",
+              msb == 0xAB,
+              "msb=" + hex2(msb) + " expected=0xAB");
+    }
+
+    // Discriminative #4: after NMIACK writes the latches, a NextReg
+    // port-path write OVERWRITES the latch (the NextReg-port arm in
+    // process A fires nr_c2_we / nr_c3_we, and the elsif chain in the
+    // latch process at :2064-2067 commits nr_wr_dat). The latest writer
+    // wins in steady state.
+    {
+        emu.reset();
+        emu.nextreg().set_nmi_return_address(0x1234);
+        // Cached after NMIACK: NR 0xC2 = 0x34, NR 0xC3 = 0x12.
+        nr_write(emu, 0xC2, 0xFF);
+        nr_write(emu, 0xC3, 0xFF);
+        const uint8_t lsb = nr_read(emu, 0xC2);
+        const uint8_t msb = nr_read(emu, 0xC3);
+        check("V22-NMP-01-D-LSB",
+              "Post-NMIACK NextReg port write to NR 0xC2 overwrites "
+              "the latch [VHDL :2064-2065 elsif fires when no NMIACK "
+              "is active]",
+              lsb == 0xFF,
+              "lsb=" + hex2(lsb) + " expected=0xFF");
+        check("V22-NMP-01-D-MSB",
+              "Post-NMIACK NextReg port write to NR 0xC3 overwrites "
+              "the latch [VHDL :2066-2067 elsif fires when no NMIACK "
+              "is active]",
+              msb == 0xFF,
+              "msb=" + hex2(msb) + " expected=0xFF");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -3484,6 +5818,15 @@ int main() {
 
     test_rw_asymmetric(emu);
     std::printf("  Group: RW-Asymmetric — done\n");
+
+    test_cat27_verify8_nr08_effective(emu);
+    std::printf("  Group: Cat27-NR08-Effective — done\n");
+
+    // Emulator-handler integration rows (no shared `emu` — each row
+    // builds a fresh emulator to avoid cross-row state pollution; the
+    // partial-tier review finding requested per-row hermeticity).
+    test_cat27_emu_handler_integration();
+    std::printf("  Group: Cat27-Emu-Handler-Integration — done\n");
 
     test_cfg_integration(emu);
     std::printf("  Group: Machine-Cfg — done\n");
@@ -3530,8 +5873,32 @@ int main() {
     test_write_only_read_zero(emu);
     std::printf("  Group: WO-Integration — done\n");
 
+    test_v14_nmp_02_nr_28_read(emu);
+    std::printf("  Group: V14-NMP-02-NR28 — done\n");
+
     test_ft_iotrap_integration(emu);
     std::printf("  Group: FT-Integration — done\n");
+
+    test_testcov_nmi_mf_port(emu);
+    std::printf("  Group: TestCov-NMI-MF-Port — done\n");
+
+    test_v16_nmp_01_nr10_spkey_buttons(emu);
+    std::printf("  Group: V16-NMP-01-NR10-SPKEY — done\n");
+
+    test_v16_nmp_02_expbus_and_mask(emu);
+    std::printf("  Group: V16-NMP-02-Expbus-AND-Mask — done\n");
+
+    test_v19r_nmp_xadc_read_stubs(emu);
+    std::printf("  Group: V19R-NMP-XADC-Read-Stubs — done\n");
+
+    test_v21_nmp_01_nr_03_palette_sub_idx(emu);
+    std::printf("  Group: V21-NMP-01-NR03-PaletteSubIdx — done\n");
+
+    test_v21_nmp_03_nr_07_expbus_speed(emu);
+    std::printf("  Group: V21-NMP-03-NR07-ExpbusSpeed — done\n");
+
+    test_v22_nmp_01_nr_c2_c3_writable(emu);
+    std::printf("  Group: V22-NMP-01-NRC2-C3-Writable — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

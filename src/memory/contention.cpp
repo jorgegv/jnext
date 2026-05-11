@@ -1,22 +1,43 @@
 #include "contention.h"
 
 void ContentionModel::build(MachineType type) {
+    // Full reset (init-time only): clear LUT + gate state + slot mirror.
     type_ = type;
     for (auto& row : lut_) row.fill(0);
     for (int i = 0; i < 4; ++i) contended_slot_[i] = false;
 
     // Reset VHDL-faithful gate inputs to their power-on defaults.
-    //
-    // NOTE: this clears all three contention gate inputs (mem_active_page,
-    // cpu_speed, contention_disable) — safe today because build() is only
-    // called from Emulator::init(). If ever hot-called at runtime to switch
-    // machine types, re-seed cpu_speed from NR 0x07 and contention_disable
-    // from NR 0x08 after the build() call.
     mem_active_page_           = 0;
     cpu_speed_                 = 0;
     pending_cpu_speed_         = 0;
     contention_disable_        = false;
     contention_disable_shadow_ = false;
+    port_7ffd_io_en_           = false;
+
+    // V24-MEM-01 / V25-MEM-01 fix — seed the machine_timing axis
+    // (NR 0x03 bits 6:4 / VHDL eff_nr_03_machine_timing → one-hot
+    // machine_timing_*) from the supplied MachineType. This matches
+    // the canonical NextZXOS boot path where tim_sel == typ_sel; the
+    // two axes evolve independently after init via NR 0x03's gated
+    // writes (zxnext.vhd:5124-5135 vs :5137-5145). Both shadow and
+    // effective fields are seeded so the build()-time gate is live
+    // before the first per-frame commit edge fires.
+    machine_timing_         = default_machine_timing_for(type);
+    pending_machine_timing_ = machine_timing_;
+
+    rebuild_for_type(type);
+}
+
+void ContentionModel::rebuild_for_type(MachineType type) {
+    // Hot-rebuild path: update `type_` + recompute LUT. Slot mirror
+    // (contended_slot_[]) is also re-seeded with the per-machine default
+    // (slot 1 = bank 5 contended on 48K/128K/+3). Dynamic gate state
+    // (mem_active_page / cpu_speed / pending / contention_disable / shadow)
+    // is preserved so a runtime NR 0x03 commit doesn't unwind paging or
+    // contention-disable state.
+    type_ = type;
+    for (auto& row : lut_) row.fill(0);
+    for (int i = 0; i < 4; ++i) contended_slot_[i] = false;
 
     if (type == MachineType::ZXN_ISSUE2) return;
 
@@ -36,8 +57,18 @@ void ContentionModel::build(MachineType type) {
     // 48K/128K: contention when hc_adj[3:2] != 0  (hc_adj in {4..15})
     // +3:       also when hc_adj[3:1] == 0         (hc_adj in {0,1})
     // Note hc_adj is 4-bit so hc(3:0)=15 → hc_adj=0 (wraps): no contention.
+    //
+    // V24-MEM-01 / V25-MEM-01 fix — the `+3-only` corner of wait_s is
+    // gated on VHDL `i_timing_p3 = machine_timing_p3` (zxnext.vhd:4449),
+    // the tim_sel axis — NOT on `machine_type_p3`. Use the
+    // effective `machine_timing_` field here. (The rebuild_for_type
+    // entry-point still takes a `MachineType` for backwards
+    // compatibility with NR 0x03 typ_sel-commit callers; those
+    // callers must also push the matching `set_machine_timing()` if
+    // they want both axes aligned — which is exactly what the
+    // canonical NextZXOS boot path does.)
     static const uint8_t pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
-    const bool is_p3 = (type == MachineType::ZX_PLUS3);
+    const bool is_p3 = (machine_timing_ == MachineTimingMode::TimingPlus3);
 
     for (int vc = 0; vc <= 191; ++vc) {
         // hc(8)=0 ⇒ hc in [0, 255] — the inner 256 ticks of each line.
@@ -73,14 +104,14 @@ bool ContentionModel::is_contended_access() const {
     // AND (not cpu_speed(1)) AND (not cpu_speed(0)).
     // Any non-zero cpu_speed disables contention.
     //
-    // The `machine_timing_pentagon` term is gated by NR 0x03 timing-mode
-    // bit 2 inside the Next FPGA. jnext does not currently wire that
-    // signal into the contention model — the standalone Pentagon machine
-    // type was dropped (Wave 0.3 follow-up, 2026-05-04), and the NR 0x03
-    // Pentagon timing-mode commit path does not yet feed
-    // ContentionModel. Equivalent to treating the term as always-true
-    // (i.e. machine_timing_pentagon='0'), which is correct for every
-    // currently supported machine.
+    // V24-MEM-01 / V25-MEM-01 fix — the `machine_timing_pentagon` term
+    // is now sourced from `machine_timing_` (tim_sel axis, NR 0x03
+    // bits 6:4 via the video-frame-latched eff_nr_03_machine_timing).
+    // Pre-fix the term was treated as always-'0' since the standalone
+    // Pentagon MachineType was retired (Wave 0.3 follow-up). VHDL keys
+    // it on `machine_timing_pentagon`, which is independent from
+    // `machine_type_*`: a user-supplied NR 0x03 with bit-4-of-tim_sel=1
+    // disables contention regardless of typ_sel.
     //
     // WONT — expansion-bus override (zxnext.vhd:5816-5820):
     //     if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
@@ -94,23 +125,29 @@ bool ContentionModel::is_contended_access() const {
     // ever added.
     if (contention_disable_) return false;
     if (cpu_speed_ != 0)     return false;
+    if (machine_timing_ == MachineTimingMode::TimingPentagon) return false;
 
     // VHDL zxnext.vhd:4489 — mem_contend = '0' when mem_active_page(7:4) /= "0000".
     if ((mem_active_page_ & 0xF0) != 0) return false;
 
+    // V24-MEM-01 / V25-MEM-01 fix — the per-machine mem_contend decode
+    // is keyed on `machine_timing_*` (zxnext.vhd:4490-4492), the
+    // tim_sel axis. Pre-fix this switched on `type_` (MachineType,
+    // typ_sel axis), diverging when a user wrote NR 0x03 with bits 6:4
+    // != bits 2:0.
     const uint8_t low = mem_active_page_ & 0x0F;
-    switch (type_) {
-        case MachineType::ZX48K:
+    switch (machine_timing_) {
+        case MachineTimingMode::Timing48:
             // VHDL zxnext.vhd:4490 — 48K: contend iff mem_active_page(3:1) = "101".
             return ((low >> 1) & 0x07) == 0x05;
-        case MachineType::ZX128K:
+        case MachineTimingMode::Timing128:
             // VHDL zxnext.vhd:4491 — 128K: contend iff mem_active_page(1) = '1' (odd banks).
             return (low & 0x02) != 0;
-        case MachineType::ZX_PLUS3:
+        case MachineTimingMode::TimingPlus3:
             // VHDL zxnext.vhd:4492 — +3: contend iff mem_active_page(3) = '1' (banks >= 4).
             return (low & 0x08) != 0;
-        case MachineType::ZXN_ISSUE2:
-            // ZXN_ISSUE2 has no timing-mode line here.
+        case MachineTimingMode::TimingPentagon:
+            // Already handled by the i_contention_en gate above.
             return false;
     }
     return false;
@@ -130,7 +167,7 @@ bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
     //     port_bf3b <= port_bfxx_msb and port_3b_lsb and port_ulap_io_en;
     //     port_ff3b <= port_ffxx_msb and port_3b_lsb and port_ulap_io_en;
     // i.e. asserted iff the full 16-bit address is exactly 0xBF3B / 0xFF3B
-    // AND `port_ulap_io_en` (NR 0x82 bit 8 → internal_port_enable(24),
+    // AND `port_ulap_io_en` (NR 0x85 bit 0 → internal_port_enable(24),
     // zxnext.vhd:2439) is set. The ULA+ ports are odd (low byte 0x3B),
     // so without this OR-term the even-port test above would already
     // have rejected them.
@@ -143,14 +180,34 @@ bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
     //                              and (s128_timing_hw_en = '1'
     //                                or p3_timing_hw_en = '1')
     //                         else '0';
-    // PHASE-B: not driven by the bare class. The full Emulator owns the
-    // 128K/+3 machine-timing select AND the `port_7ffd_io_en`
-    // (NR 0x82 bit 1) gate AND the `port_7ffd` address-decode rules
-    // (cpu_a(15)='0' AND (cpu_a(14)='1' OR not p3_timing) AND port_fd
-    // AND not port_1ffd). Phase B rows CT-IO-05/06 will exercise this
-    // term via a full-Emulator harness; the bare-class accessor
-    // intentionally drops it. See doc/testing/CONTENTION-TEST-PLAN-DESIGN.md
-    // §8 row notes.
+    // port_7ffd address decode (zxnext.vhd:2593):
+    //     port_7ffd <= cpu_a(15)='0' AND (cpu_a(14)='1' OR NOT p3_timing)
+    //                  AND port_fd (cpu_a(1:0)="01")
+    //                  AND NOT port_1ffd (cpu_a(13:12) /= "01")
+    //                  AND port_7ffd_io_en (NR 0x82 bit 1).
+    //
+    // Verify9-memory class-(c) → class-(a) fix: pre-fix the bare-class
+    // accessor dropped this term, so port 0x7FFD writes on 128K/+3
+    // missed contention. The gate inputs (`port_7ffd_io_en_` shadow +
+    // `type_`) are now state on the ContentionModel, pushed by the
+    // runtime caller (Emulator) on every NR 0x82 write.
+    // V24-MEM-01 / V25-MEM-01 fix — `port_7ffd_active` gating
+    // (zxnext.vhd:2594) consults `s128_timing_hw_en OR p3_timing_hw_en`,
+    // which are direct mirrors of `machine_timing_128 / machine_timing_p3`
+    // (zxnext.vhd:2457-2458 — assigned inside the per-cycle FSM block).
+    // The address-decode gate at :2593 also consults `p3_timing_hw_en`
+    // (the `cpu_a(14)='1' OR NOT p3_timing` clause). Both must key on
+    // the tim_sel axis (`machine_timing_`), not on `type_` (typ_sel).
+    const bool tim_128 = (machine_timing_ == MachineTimingMode::Timing128);
+    const bool tim_p3  = (machine_timing_ == MachineTimingMode::TimingPlus3);
+    if (port_7ffd_io_en_ &&
+        (tim_128 || tim_p3) &&
+        (cpu_a & 0x8000) == 0 &&                        // cpu_a(15)='0'
+        (cpu_a & 0x0003) == 0x0001 &&                   // port_fd: A1:0="01"
+        (cpu_a & 0x3000) != 0x1000 &&                   // NOT port_1ffd: A13:12 != "01"
+        (!tim_p3 || (cpu_a & 0x4000) != 0)) {           // +3 timing: also require A14='1'
+        return true;
+    }
 
     return false;
 }
@@ -177,11 +234,13 @@ uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
     // i_contention_en = (not eff_nr_08_contention_disable)
     //               AND (not machine_timing_pentagon)
     //               AND (not cpu_speed(1)) AND (not cpu_speed(0))
-    // (`machine_timing_pentagon` always treated as '0' here — see
-    // is_contended_access() comment for the standalone-Pentagon-removal
-    // note.)
+    //
+    // V24-MEM-01 / V25-MEM-01 fix — the Pentagon-disables-contention
+    // term is now sourced from `machine_timing_` (tim_sel axis). See
+    // is_contended_access() comment.
     if (contention_disable_) return 0;
     if (cpu_speed_ != 0)     return 0;
+    if (machine_timing_ == MachineTimingMode::TimingPentagon) return 0;
 
     // --- Window gate (zxula.vhd:582-583) ------------------------------
     // wait_s = '1' iff:
@@ -190,47 +249,65 @@ uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
     //
     // hc_adj is 4-bit, so the +1 wraps at 16. hc(3:0)=15 → hc_adj=0,
     // hc(3:0)=0..14 → hc_adj=1..15.
+    //
+    // V24-MEM-01 / V25-MEM-01 fix — `i_timing_p3` per zxnext.vhd:4449 is
+    // `machine_timing_p3` (tim_sel axis). Use machine_timing_ here.
     if ((hc & 0x100) != 0) return 0;                  // hc(8)=1 → border
     // border_active_v = vc(8) | (vc(7) & vc(6)) = vc>=192 OR vc>=256.
     if ((vc & 0x100) != 0) return 0;
     if ((vc & 0xC0) == 0xC0) return 0;
     const int hc_adj = ((hc & 0x0F) + 1) & 0x0F;       // 4-bit wrap
-    const bool is_p3 = (type_ == MachineType::ZX_PLUS3);
+    const bool is_p3 = (machine_timing_ == MachineTimingMode::TimingPlus3);
     bool wait_s = (hc_adj & 0xC) != 0;                 // hc_adj(3:2) != 0
     if (is_p3) wait_s |= (hc_adj & 0xE) == 0;          // hc_adj(3:1) = 000
     if (!wait_s) return 0;
 
     // --- mem_contend (zxnext.vhd:4489-4493) ---------------------------
-    // mem_contend evaluated against current mem_active_page/type.
+    // mem_contend evaluated against current mem_active_page + machine_timing_.
     //   '0' when page(7:4) /= "0000"
-    //   '1' for 48K  & page(3:1)=101  (bank 5 only)
-    //   '1' for 128K & page(1)=1      (odd banks)
-    //   '1' for +3   & page(3)=1      (banks >= 4)
+    //   '1' for tim_48  & page(3:1)=101  (bank 5 only)
+    //   '1' for tim_128 & page(1)=1      (odd banks)
+    //   '1' for tim_p3  & page(3)=1      (banks >= 4)
+    //
+    // V24-MEM-01 / V25-MEM-01 fix — switch on `machine_timing_` (tim_sel
+    // axis) not on `type_` (typ_sel axis). VHDL :4490-4492 keys on
+    // `machine_timing_*`. Pentagon timing has no entry here — its
+    // `i_contention_en` term above already returned 0.
     bool mem_c = false;
     if ((mem_active_page_ & 0xF0) == 0) {
         const uint8_t low = mem_active_page_ & 0x0F;
-        switch (type_) {
-            case MachineType::ZX48K:
+        switch (machine_timing_) {
+            case MachineTimingMode::Timing48:
                 mem_c = ((low >> 1) & 0x07) == 0x05;
                 break;
-            case MachineType::ZX128K:
+            case MachineTimingMode::Timing128:
                 mem_c = (low & 0x02) != 0;
                 break;
-            case MachineType::ZX_PLUS3:
+            case MachineTimingMode::TimingPlus3:
                 mem_c = (low & 0x08) != 0;
                 break;
-            case MachineType::ZXN_ISSUE2:
+            case MachineTimingMode::TimingPentagon:
                 mem_c = false;
                 break;
         }
     }
 
     // --- port_contend (zxnext.vhd:4496) -------------------------------
-    // The runtime caller passes `port_ulap_io_en` for the ULA+ ports.
     // The bare-class `port_contend()` accessor handles even-port + ULA+
     // OR-terms; the `port_7ffd_active` term is driven separately at
     // higher levels and OR-ed in by callers when appropriate.
-    const bool port_c = (iorq_n == false) && port_contend(cpu_a, port_ulap_io_en);
+    //
+    // V15-CPU-NIT-03 (reviewer-promoted): the CPU-side callers (e.g.
+    // `fuse_z80_readport`/`fuse_z80_writeport` in src/cpu/z80_cpu.cpp)
+    // do not have access to NR 0x85 bit 0, so they fall back to the
+    // default `port_ulap_io_en=false` parameter. We therefore OR the
+    // parameter with the model's `port_ulap_io_en_` shadow (mirror of
+    // NR 0x85 bit 0, set by Emulator's NR 0x85 write handler) so the
+    // ULA+ contention term fires correctly regardless of which seam
+    // calls us. This mirrors the `port_7ffd_io_en_` shadow pattern
+    // (Verify9-memory class-(a) fix) one-to-one.
+    const bool ulap_eff = port_ulap_io_en || port_ulap_io_en_;
+    const bool port_c = (iorq_n == false) && port_contend(cpu_a, ulap_eff);
 
     // --- Active path ------------------------------------------------
     // 48K/128K (`o_cpu_contend`, zxula.vhd:587-595):

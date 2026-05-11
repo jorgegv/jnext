@@ -37,6 +37,7 @@
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "port/nextreg.h"
+#include "core/saveable.h"  // StateWriter/StateReader for DA-09 round-trip
 // G46(a) DM-RETN-PROPER-01/02: drive DivMmc::on_m1_retn_delay() through
 // the real Im2Controller FSM (im2_control.vhd:158-209) so the canonical
 // ED 45 vs alias-byte distinction is exercised end-to-end.
@@ -305,6 +306,48 @@ void group_e3() {
               "(VHDL zxnext.vhd:4190)",
               got == 0x00,
               fmt("got=%02x exp=00", got));
+    }
+
+    // E3-V19-NIT-01: F19-DIVMMC-NIT-01 (Pass-19 verify-audit).
+    // VHDL `zxnext.vhd:4180-4183` only assigns bits 7, 6, and 3:0 of
+    // port_e3_reg from cpu_do during a port-E3 write. Bits 5:4 are reset to
+    // '00' at hardware reset (`zxnext.vhd:4177`) and NEVER touched again, so
+    // they are invariantly '00' on real hardware. The masked read at
+    // `zxnext.vhd:4190` (port_e3_dat <= reg(7:6) & "00" & reg(3:0)) hides
+    // any divergence from external observers, but the underlying STORAGE
+    // INVARIANT itself ("port_e3_reg(5:4) is always 00") is what real VHDL
+    // upholds — and what `control_reg_` should mirror so save_state /
+    // load_state round-trips don't smuggle in non-zero bits 5:4.
+    //
+    // Pre-fix: `write_control(val)` stored `(val & ~0x40) | (mapram_ ? ...)`,
+    // which preserved input bits 5:4 verbatim in `control_reg_`. The masked
+    // public read hid this from the surface. The fix tightens the mask to
+    // `val & 0x8F` so the stored byte itself enforces the VHDL invariant.
+    //
+    // Discriminative shape: write 0xFF and inspect the RAW `control_reg_`
+    // byte (via the new `control_reg_raw()` accessor exposed for this test).
+    // Pre-fix the raw byte = 0xBF (mapram bit 6 latched + bits 5:4 from
+    // input + bits 3:0 from input → 1011_1111). Post-fix the raw byte =
+    // 0x8F (1000_1111) — bits 5:4 forced to 0 at write time per VHDL
+    // contract. The public read_control() (E3-08 above) already covers the
+    // observable mask; this test pins the underlying storage invariant so
+    // a future refactor that replaces the public mask with a direct
+    // `control_reg_` access can't silently resurrect the divergence.
+    {
+        DivMmc d = make_divmmc();
+        d.write_control(0xFF);   // all bits set in input
+        uint8_t raw = d.control_reg_raw();
+        // VHDL contract: stored byte has bits 5:4 = 00 always. With all
+        // input bits set (incl. bit 6 OR-latch and bit 7 conmem and bits
+        // 3:0 = bank 15), the stored byte is 0x8F = 1000_1111. After the
+        // V18 / V12 / etc. fan-out the OR-latched bit 6 is reflected by
+        // `mapram_=true`, so the post-fold byte is 0x8F | 0x40 = 0xCF.
+        check("E3-V19-NIT-01",
+              "Stored control_reg_ raw byte preserves VHDL invariant "
+              "port_e3_reg(5:4) = '00' even when input bits 5:4 are set "
+              "(F19-DIVMMC-NIT-01, VHDL zxnext.vhd:4177-4183)",
+              raw == 0xCF,
+              fmt("raw=%02x exp=CF", raw));
     }
 }
 
@@ -827,41 +870,160 @@ void group_nr() {
     }
 
     // NR-06: BB[7]=1 (default): M1 at any 0x3Dxx -> rom3_instant_on.
-    // VHDL: zxnext.vhd:2908. C++ DivMmc does not implement 0x3Dxx at all
-    // — leave failing. Expected (VHDL): NOT activated without ROM3.
-    // Since C++ does nothing at 0x3Dxx, this passes vacuously.
+    // VHDL zxnext.vhd:2898-2899. Without rom3_active=1 the
+    // sram_divmmc_automap_rom3_en gate at zxnext.vhd:3138 is low and the
+    // trap path is suppressed — so this stays NOT activated.
     {
         DivMmc d = make_divmmc();
         d.check_automap(0x3D00, true);
         check("NR-06",
               "M1 at 0x3D00 with BB[7]=1 and no ROM3: automap must NOT "
-              "activate (VHDL zxnext.vhd:2908)",
+              "activate (VHDL zxnext.vhd:2898-2899,3138)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
 
     // NR-07: M1 at 0x3DFF with BB[7]=1 and no ROM3: no activation.
-    // VHDL: zxnext.vhd:2908 — range any 0x3Dxx.
+    // VHDL: zxnext.vhd:2898-2899 — port_3dxx_msb decodes any cpu_a(15:8)=$3D.
     {
         DivMmc d = make_divmmc();
         d.check_automap(0x3DFF, true);
         check("NR-07",
               "M1 at 0x3DFF with BB[7]=1 and no ROM3: no automap "
-              "(VHDL zxnext.vhd:2908)",
+              "(VHDL zxnext.vhd:2898-2899)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-08: Disable BB[7]=0, M1 at 0x3D00: no trigger.
-    // VHDL: zxnext.vhd:2908. C++ DivMmc does not handle 0x3Dxx, so this
-    // passes vacuously — but the observable contract still holds.
+    // NR-08: Disable BB[7]=0, M1 at 0x3D00: no trigger even with ROM3.
     {
         DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
         d.set_entry_points_1(0xCD & ~0x80);  // clear bit 7
         d.check_automap(0x3D00, true);
         check("NR-08",
               "M1 at 0x3D00 with BB[7]=0: no automap "
-              "(VHDL zxnext.vhd:2908)",
+              "(VHDL zxnext.vhd:2898-2899)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-09: BB[7]=1 with rom3_active=1: M1 at 0x3D00 fires
+    // rom3_instant_on (= same-cycle automap=1). VHDL zxnext.vhd:2898-2899.
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
+        d.check_automap(0x3D00, true);
+        check("NR-09",
+              "M1 at 0x3D00 with BB[7]=1 + rom3_active=1: rom3_instant_on "
+              "fires automap (VHDL zxnext.vhd:2898-2899)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-10: BB[7]=1 with rom3_active=1: M1 at any address $3Dxx
+    // (e.g. $3D7F mid-range) fires rom3_instant_on. Confirms wildcard.
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
+        d.check_automap(0x3D7F, true);
+        check("NR-10",
+              "M1 at 0x3D7F (mid wildcard) with BB[7]=1 + rom3_active=1: "
+              "rom3_instant_on fires (VHDL zxnext.vhd:2898-2899)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-11: BB[7]=1 with rom3_active=1 AND layer2_map_read=1: rom3 path
+    // is suppressed (sram_divmmc_automap_rom3_en factor `NOT
+    // sram_layer2_map_en` at zxnext.vhd:3138).
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
+        d.set_layer2_map_read(true);
+        d.check_automap(0x3D00, true);
+        check("NR-11",
+              "M1 at 0x3D00 with BB[7]=1 + rom3=1 + L2_read=1: rom3 path "
+              "suppressed (VHDL zxnext.vhd:3138)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-12: 0x0066 NMI delayed (BB[0]=1) — VHDL zxnext.vhd:2908 +
+    // divmmc.vhd:121,131. With button_nmi=1 the delayed bit feeds
+    // automap_hold but NOT same-cycle automap (line 148 only includes
+    // nmi_instant_on). Held promotes on next M1 → automap=1 there.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0x01);          // ONLY bit 0 (delayed) set
+        d.set_button_nmi(true);
+        d.check_automap(0x0066, true);
+        // Same-cycle: delayed alone shouldn't fire combinational automap.
+        // (VHDL: automap = held OR (active AND nmi_instant_on); with only
+        // bit 0, nmi_instant_on=0 and held=0 → automap=0.)
+        check("NR-12a",
+              "M1 at 0x0066 + BB[0]=1 + button_nmi=1 (delayed alone): "
+              "automap NOT fired same-cycle (VHDL divmmc.vhd:148)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+        // Next M1: held promotes from hold (which had delayed bit set).
+        d.check_automap(0x0070, true);  // arbitrary non-trigger PC
+        check("NR-12b",
+              "M1 after 0x0066 + BB[0]=1 + button_nmi=1: held promotes "
+              "(VHDL divmmc.vhd:128-141)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-13: 0x0066 NMI delayed (BB[0]=1) WITHOUT button_nmi: no trigger.
+    // VHDL divmmc.vhd:121 gates nmi_delayed_on on button_nmi.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0x01);    // BB[0]=1, BB[1]=0
+        // button_nmi defaults to false
+        d.check_automap(0x0066, true);
+        d.check_automap(0x0070, true);
+        check("NR-13",
+              "M1 at 0x0066 + BB[0]=1 + button_nmi=0: no trigger "
+              "(VHDL divmmc.vhd:121)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-14 (CONTRACT-PIN; TASK2-VERIFY1/2 commit 399c9ae): the $3Dxx
+    // wildcard is ROM3-conditional. With NR $BB bit 7 set BUT
+    // rom3_active=0, an M1 at $3D00..$3DFF must NOT fire instant_on. VHDL
+    // zxnext.vhd:2898-2899 requires rom3_active=1 (= sram_pre_override(2)+
+    // (0) AND !layer2_map composite, divmmc.vhd:130) for the rom3_*_on
+    // path to match.
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.3 / §4.2): pre-fix the wildcard branch did not exist
+    // at all, so rom3=0 also yielded automap=false (trivially). This
+    // test cannot fail pre-fix — it is a CONTRACT-PIN guarding a future
+    // regression where the && rom3_path_eligible gate is removed,
+    // re-enabling the wildcard for rom3=0 (which would be a new bug).
+    // Useful as a negative-companion to NR-09/NR-10 (which cover the
+    // positive rom3=1 case) and as a guard against future churn that
+    // touches the rom3 gating in zxnext.vhd:2898-2899 / divmmc.vhd:130.
+    //
+    // Commit attribution corrected (was: ff84d3e — that commit only
+    // touched emulator.cpp and sd_card.cpp; the actual fix that
+    // introduced the $3Dxx wildcard branch is 399c9ae per the report's
+    // table row 1b).
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0x80);    // BB[7]=1, all others 0
+        d.set_rom3_active(false);      // ROM3 NOT active
+        d.check_automap(0x3D42, true); // mid-wildcard, M1
+        check("NR-14",
+              "CONTRACT-PIN: M1 at $3D42 with BB[7]=1 + rom3_active=0: "
+              "rom3_instant_on stays gated; automap not active "
+              "(VHDL zxnext.vhd:2898-2899, divmmc.vhd:130). NOT a "
+              "discriminative regression sentinel for 399c9ae — pre-fix "
+              "the wildcard branch did not exist; this row guards against "
+              "future regressions that remove the && rom3_path_eligible "
+              "gate.",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
@@ -987,6 +1149,61 @@ void group_da() {
               "(VHDL divmmc.vhd:126)",
               before && !d.automap_active(),
               fmt("before=%d after=%d", before, d.automap_active()));
+    }
+
+    // DA-09 (CONTRACT-PIN; TASK2-PASS10 commit 770f78d): DivMmc::save_state
+    // must NOT persist `rom3_active_`. The flag is a feeder shadow of VHDL
+    // sram_pre_rom3 (zxnext.vhd:2981-3008,:3138) refreshed by the
+    // Emulator at port-write / NR-commit / machine-type-change sites. A
+    // snapshot taken with sram_rom=3 selected (e.g. during a CMD18 boot
+    // stream) MUST come back with rom3_active_=false (constructor
+    // default), forcing the load-time external sync that the pass-10
+    // fix added at Emulator::load_state (`divmmc_.set_rom3_active(
+    // mmu_.sram_rom3())`).
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.2 / §2 row DA-09): this is a CONTRACT-PIN, not a
+    // discriminative regression sentinel for the 770f78d fix itself.
+    // Reverting Emulator::load_state's set_rom3_active() does NOT make
+    // this test fail — the test only verifies the pre-condition that the
+    // external re-sync is necessary (i.e., that DivMmc::save_state does
+    // not persist the field). The actual fix is in Emulator-tier and
+    // requires an integration test (full Emulator + Mmu + StateReader)
+    // to exercise. This row pins the contract so a future change that
+    // starts persisting rom3_active_ inside DivMmc::save/load_state
+    // can't silently land without re-evaluating the external sync's
+    // double-write hazards.
+    {
+        DivMmc d_src = make_divmmc();
+        d_src.set_rom3_active(true);            // simulate ROM3 selected
+        const bool src_rom3 = d_src.rom3_active();
+
+        // Round-trip via the same StateWriter/StateReader pair the
+        // emulator uses (saveable.h). Use measure mode to size the
+        // buffer first, then write+read.
+        StateWriter measure;
+        d_src.save_state(measure);
+        std::vector<uint8_t> buf(measure.position(), 0);
+        StateWriter w(buf.data(), buf.size());
+        d_src.save_state(w);
+        StateReader r(buf.data(), buf.size());
+
+        DivMmc d_dst;            // fresh, rom3_active_ = false (constructor)
+        d_dst.load_state(r);
+        const bool dst_rom3 = d_dst.rom3_active();
+
+        check("DA-09",
+              "CONTRACT-PIN: DivMmc::save_state does NOT persist "
+              "rom3_active_; load_state yields constructor default (false). "
+              "Pre-condition for the external Emulator::load_state "
+              "set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder "
+              "shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT "
+              "a discriminative sentinel for 770f78d — reverting the "
+              "Emulator-tier fix does not fail this test (integration-"
+              "tier coverage required for the actual fix path).",
+              src_rom3 && !dst_rom3,
+              fmt("src_rom3=%d dst_rom3=%d (expected 1, 0)",
+                  src_rom3, dst_rom3));
     }
 }
 
@@ -1427,9 +1644,57 @@ void group_nm() {
                   post_btn, post_held));
     }
 
-    // NM-08 — o_disable_nmi = automap_held OR button_nmi
-    // (VHDL divmmc.vhd:150). Exercise the truth table via
-    // `DivMmc::is_nmi_hold()`:  {00, 01, 10, 11}.
+    // NM-09 (TASK2-VERIFY8 commit 6ebfd2b): continuous-while-held button_nmi
+    // clear. VHDL divmmc.vhd:112-113:
+    //   elsif automap_held = '1' then button_nmi <= '0'
+    // re-clears the latch every clock while `automap_held` is high. The
+    // pre-fix model used a 0->1 rising-edge one-shot, so a button_nmi
+    // strobe arriving AFTER held already became 1 was kept asserted until
+    // the next held 0->1 edge. NM-07 above only exercises the rising-edge
+    // case — this row covers the after-the-fact set: prime held=1 first,
+    // THEN inject button_nmi=true and verify the next check_automap call
+    // drops it. Without the pass-8 fix this would fail (button_nmi stays
+    // 1 across an arbitrary number of further M1s while held remains 1).
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);    // RST 0x00 enabled
+        d.set_entry_valid_0(0x01);     // main path valid
+        d.set_entry_timing_0(0x01);    // instant for RST 0x00
+
+        // Prime the two-stage pipeline: first M1 sets hold; second M1
+        // promotes hold->held. After this, automap_held_ is steady at 1.
+        d.check_automap(0x0000, true);
+        d.check_automap(0x0100, true);
+        const bool held_steady = d.automap_held();
+
+        // Now set button_nmi AFTER held has risen — this is the case the
+        // rising-edge pre-fix could not handle.
+        d.set_button_nmi(true);
+        const bool btn_set = d.button_nmi();
+
+        // The next check_automap call (any address — the clear is gated
+        // on held=1, not on PC) must drop button_nmi to 0 immediately.
+        d.check_automap(0x0200, true);
+        const bool btn_cleared_after = !d.button_nmi();
+        const bool held_still = d.automap_held();
+
+        check("NM-09",
+              "button_nmi set while automap_held=1 is cleared on the "
+              "next check_automap call (continuous-while-held semantics) "
+              "(VHDL divmmc.vhd:112-113)",
+              held_steady && btn_set && btn_cleared_after && held_still,
+              fmt("held_steady=%d btn_set=%d btn_cleared=%d held_still=%d",
+                  held_steady, btn_set, btn_cleared_after, held_still));
+    }
+
+    // NM-08 — o_disable_nmi = automap OR button_nmi  (VHDL divmmc.vhd:148+150)
+    // Exercise the steady-state truth table via `DivMmc::is_nmi_hold()`:
+    // {00, 01, 10, 11}. Two `check_automap` calls drive the (held=1)
+    // legs so the pipeline reaches steady state — i.e. `automap_held_`
+    // has caught up to `automap_hold_` and the combinational `automap`
+    // (= held OR instant_match this cycle) collapses to `held` after the
+    // entry-point M1 has gone by. NM-10 covers the discriminative
+    // first-M1-instant-on case where active != held.
     {
         DivMmc d1;                                      // (0, 0)
         const bool s00 = !d1.is_nmi_hold();
@@ -1458,10 +1723,63 @@ void group_nm() {
                          && d4.button_nmi();
 
         check("NM-08",
-              "is_nmi_hold() = automap_held OR button_nmi across all 4 "
-              "input combinations (VHDL divmmc.vhd:150 o_disable_nmi)",
+              "is_nmi_hold() steady-state = automap OR button_nmi across "
+              "all 4 input combinations after held has caught up to hold "
+              "(VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative "
+              "first-M1 active-vs-held case is in NM-10.",
               s00 && s01 && s10 && s11,
               fmt("s00=%d s01=%d s10=%d s11=%d", s00, s01, s10, s11));
+    }
+
+    // NM-10 (TASK2-VERIFY11 V11-DIVMMC-02): is_nmi_hold() must follow
+    // VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`
+    // where `automap` (line 148) is the COMBINATIONAL signal:
+    //
+    //   automap <= (NOT i_automap_reset) AND
+    //              (held OR (active AND instant_on this cycle) OR ...);
+    //
+    // Pre-fix `is_nmi_hold` used the registered `automap_held_` directly,
+    // so on the very first M1 fetch where an instant-on entry-point
+    // matched, `is_nmi_hold` returned false even though VHDL would assert
+    // `o_disable_nmi` immediately. The divergence drops back to zero on
+    // the next M1 (when held catches up to hold), so NM-08's two-fetch
+    // setup misses it — NM-10 pins the first-fetch case directly.
+    //
+    // Discriminative stimulus: configure RST 0x00 as instant-on, main
+    // path. Issue ONE `check_automap(0x0000, true)`. Post-fix, the M1
+    // call leaves held=0 (just promoted from prior 0) and active=1
+    // (held(0) || instant_match(1)). Pre-fix returned false; post-fix
+    // returns true. NM-08's `s10`/`s11` legs DO call check_automap
+    // twice, so the steady-state held-OR-button reading still passes
+    // unchanged — both implementations agree once held has caught up.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);    // RST 0x00 enabled
+        d.set_entry_valid_0(0x01);     // main path valid (NR 0xB9 bit 0)
+        d.set_entry_timing_0(0x01);    // instant timing (NR 0xBA bit 0)
+
+        // Single M1 fetch at the entry point — held is still 0 right
+        // after this call (it only catches up on the NEXT M1 cycle's
+        // step-1 promotion), but the combinational automap is 1 because
+        // instant_match this cycle is 1.
+        d.check_automap(0x0000, true);
+
+        const bool held_zero    = !d.automap_held();
+        const bool active_one   = d.automap_active();
+        const bool nmi_hold_one = d.is_nmi_hold();
+
+        check("NM-10",
+              "First-M1 instant-on entry-point: is_nmi_hold() reflects "
+              "the COMBINATIONAL automap (held(0) OR instant_match(1) = "
+              "1) immediately, not the registered held bit (still 0 "
+              "until the next M1 promotes hold→held). VHDL "
+              "divmmc.vhd:148+150 — `o_disable_nmi <= automap or "
+              "button_nmi`, where `automap` is line 148 combinational.",
+              held_zero && active_one && nmi_hold_one,
+              fmt("held=%d (exp 0) active=%d (exp 1) is_nmi_hold=%d "
+                  "(exp 1)",
+                  d.automap_held(), d.automap_active(),
+                  d.is_nmi_hold()));
     }
 
     // DM-RETN-PROPER-01 — G46(a): canonical ED 45 RETN clears
@@ -1888,6 +2206,88 @@ void group_na() {
                   committed_in_cm, blocked_outside_cm,
                   unblocked_after_cm));
     }
+
+    // NA-09 (CONTRACT-PIN; TASK2-VERIFY6 commit c54192d): NR 0x83 reset
+    // propagation gap. NextReg::reset() reloads regs_[0x83] to 0xFF on
+    // the reset_type_1=true path (VHDL zxnext.vhd:5052-5057), but the
+    // registered NR 0x83 write_handler is NOT fired by the reset path —
+    // so consumer shadows DivMmc::port_io_enable_ and Multiface::enabled_
+    // keep their stale pre-reset values until the next explicit
+    // `nextreg_.write(0x83, ...)`. The pass-6 Emulator::init fix added an
+    // explicit sync at end-of-init from `cached(0x83)` into both DivMmc
+    // and Multiface bits 0:1.
+    //
+    // This row pins the contract jointly:
+    //   (1) NextReg::reset() reloads regs_[0x83] to 0xFF (cached() = 0xFF)
+    //   (2) The registered write_handler is NOT invoked by reset()
+    //       (handler-call counter does not increment)
+    //   (3) Applying the explicit `cached(0x83)` sync brings DivMmc and
+    //       Multiface back into agreement (bits 0:1 → enables).
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.2 / §2 row NA-09): this is a CONTRACT-PIN, not a
+    // discriminative regression sentinel for the c54192d fix itself.
+    // Reverting Emulator::init's explicit cached(0x83) sync does NOT
+    // make this test fail — the test only verifies the gap pattern
+    // (NextReg::reset doesn't fire write_handlers; explicit cached-sync
+    // recovers the consumer). The actual fix is in Emulator-tier and
+    // requires an integration test (full Emulator::init path) to
+    // exercise. Without the fix, an emulator that wrote NR 0x83 ← 0xFE
+    // before a soft reset would still observe the divmmc disabled /
+    // multiface enabled afterward (handler never re-runs), even though
+    // VHDL's reset_type_1=true reload restores the default 0xFF — but
+    // that observation requires the full Emulator instance.
+    {
+        NextReg nr;
+        DivMmc d; d.reset();
+        // We don't need a real Multiface — just validate the same
+        // DivMmc.port_io_enable_ shadow path via NR 0x83 bit 0.
+        int handler_calls_total = 0;
+        nr.set_write_handler(0x83, [&](uint8_t v) -> uint8_t {
+            ++handler_calls_total;
+            d.set_port_io_enable((v & 0x01) != 0);
+            return v;
+        });
+
+        // Drive NR 0x83 ← 0xFE (clear bit 0 → divmmc port_io disabled).
+        nr.write(0x83, 0xFE);
+        const int after_first_write = handler_calls_total;
+        const bool divmmc_after_clear = !d.port_io_enable();
+
+        // Reset NextReg. With NR 0x85 power-on default 0x80 (reset_type_1
+        // = true, VHDL zxnext.vhd:1230), reset() reloads regs_[0x83] to
+        // 0xFF.
+        nr.reset();
+        const uint8_t cached_after_reset = nr.cached(0x83);
+        const int handler_calls_after_reset = handler_calls_total;
+        // DivMmc shadow stays stale until an external sync runs.
+        const bool divmmc_stale = !d.port_io_enable();
+
+        // Apply the Emulator::init pass-6 fix: explicit sync from
+        // cached(0x83) bit 0 into the DivMmc shadow.
+        d.set_port_io_enable((nr.cached(0x83) & 0x01) != 0);
+        const bool divmmc_after_sync = d.port_io_enable();
+
+        check("NA-09",
+              "CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without "
+              "firing the registered write_handler; explicit Emulator::"
+              "init sync from cached(0x83) bit 0 brings DivMmc::"
+              "port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-"
+              "5057 reload; handler not on reset path). NOT a "
+              "discriminative sentinel for c54192d — reverting the "
+              "Emulator-tier fix does not fail this test (integration-"
+              "tier coverage required for the actual fix path).",
+              after_first_write == 1
+                  && divmmc_after_clear
+                  && cached_after_reset == 0xFF
+                  && handler_calls_after_reset == 1   // unchanged
+                  && divmmc_stale                     // still stale before sync
+                  && divmmc_after_sync,
+              fmt("calls(write/post-reset)=%d/%d cached=%02x "
+                  "stale=%d after_sync=%d",
+                  after_first_write, handler_calls_after_reset,
+                  cached_after_reset, divmmc_stale, divmmc_after_sync));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2215,6 +2615,300 @@ void group_ss() {
               m.read_cs() == 0xFF,
               fmt("got=%02x exp=FF", m.read_cs()));
     }
+
+    // SS-12 (PASS-7): SpiMaster::reset() must NOT clear attached device
+    // bindings. The devices_[] array models the physical wires from the
+    // SPI master to its slaves (SD card on CS0). VHDL has no equivalent
+    // notion — the spi_ss_*_n outputs are wired permanently and reset
+    // only clears the port_e7_reg FF state (zxnext.vhd:3308-3322), never
+    // the connectivity itself. Pre-fix `SpiMaster::reset()` did
+    // `devices_.fill(nullptr)`, which silently unhooked the SD card on
+    // every soft/hard reset; production code masked this only because
+    // `Emulator::init()` re-runs `attach_device()` after `reset()` —
+    // a future caller (save-state restore, runtime SD swap, future test
+    // fixture) that called reset() without re-attaching would silently
+    // disconnect the bus.
+    //
+    // This row pins the post-fix behaviour: after reset(), the previously
+    // attached device must still receive an `exchange()` round-trip and
+    // its returned byte must propagate back through the master's MISO
+    // pipeline. Without the fix, write_data() would route to a nullptr
+    // active_device, force rx_data_=0xFF, and the host would never see
+    // the device's response byte (0x42 below).
+    {
+        SpiMaster m;
+        MockSpiDevice dev;
+        dev.next_response = 0x42;
+        m.attach_device(0, &dev);  // physical "wire" attached
+        m.reset();                  // reset must NOT unhook
+
+        // After reset() the device should still be attached. Exercise the
+        // round-trip: select CS0, send/recv one byte, observe the device's
+        // response byte (0x42) on the next read.
+        m.write_cs(0xFE);           // bit 0 low → select device 0
+        m.write_data(0xA5);
+        const uint8_t got = m.read_data();
+        check("SS-12",
+              "SpiMaster::reset() preserves device bindings — wires are "
+              "not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 "
+              "only resets port_e7_reg FF, not connectivity)",
+              got == 0x42 && dev.exchange_count >= 1,
+              fmt("rx=%02x exp=42 dev_count=%d (must be >=1)",
+                  got, dev.exchange_count));
+    }
+
+    // SS-13 (TASK2-VERIFY8 commit 6ebfd2b): write_cs(0x7F) Flash-CS decode
+    // is gated by the composite VHDL signal:
+    //   (nr_03_config_mode='1') OR (nr_02_reset_type(2)='1')
+    // (zxnext.vhd:3319). The pass-7 emulator dropped X"7F" to 0xFF
+    // unconditionally, blocking the firmware's Flash-IPL path; pass-8
+    // routed the gate via SpiMaster::set_flash_cs_enable. This row is the
+    // discriminative pair to the existing SS-09 (gate closed -> 0xFF):
+    // when the gate is OPEN, write_cs(0x7F) must preserve 0x7F so the
+    // SPI Flash select propagates. SS-09 + SS-13 together pin both legs
+    // of VHDL line 3319 + 3326. Class-(b) -> resolved.
+    {
+        // Gate-OPEN sub-case: flash_cs_enable=true keeps 0x7F.
+        SpiMaster mA; mA.reset();
+        mA.set_flash_cs_enable(true);
+        mA.write_cs(0x7F);
+        const uint8_t open_v = mA.read_cs();
+
+        // Gate-CLOSED sub-case (regression sentinel for SS-09):
+        // flash_cs_enable defaults false -> 0x7F drops to 0xFF.
+        SpiMaster mB; mB.reset();
+        // NB: do NOT call set_flash_cs_enable -> default false.
+        mB.write_cs(0x7F);
+        const uint8_t closed_v = mB.read_cs();
+
+        check("SS-13",
+              "Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; "
+              "gate CLOSED falls through to 0xFF "
+              "(VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::"
+              "set_flash_cs_enable feeds nr_03_config_mode | "
+              "nr_02_reset_type(2))",
+              open_v == 0x7F && closed_v == 0xFF,
+              fmt("open=%02x exp=7F closed=%02x exp=FF",
+                  open_v, closed_v));
+    }
+
+    // SS-14 (CONTRACT-PIN; TASK2-VERIFY9 commit ff84d3e): the same physical
+    // SD card is reachable on BOTH CS0 and CS1, mirroring the VHDL net at
+    // zxnext.vhd:3280:
+    //   spi_miso <= i_SPI_SD_MISO when spi_ss_sd1_n='0' or spi_ss_sd0_n='0'
+    // (single i_SPI_SD_MISO source for both selects). The TBBlue board has
+    // a single SD slot wired to both CS lines, and NR 0x0A bit 5 (sd_swap)
+    // flips which CS the firmware writes. Pre-fix attached only on CS0,
+    // so a sd_swap=1 write_cs(0xFE) -> swapped 0xFD -> CS1 found
+    // devices_[1]==nullptr and the card became unreachable.
+    //
+    // This test attaches the SAME mock device to BOTH CS0 and CS1 (the
+    // production wiring at emulator.cpp:4007-4023 after the pass-9 fix),
+    // toggles sd_swap, and verifies a round-trip exchange surfaces the
+    // device's response in both swap orientations.
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.2 / §2 row SS-14): this is a CONTRACT-PIN, not a
+    // discriminative regression sentinel for the ff84d3e fix itself.
+    // The test directly attaches dev to BOTH CS0 and CS1, bypassing
+    // Emulator::init (where the actual fix lives). Reverting the
+    // Emulator-tier change does NOT make this test fail. What this row
+    // verifies is the SpiMaster-tier contract: when the same device is
+    // bound to both CS lines, the CS-decode + sd_swap routing both
+    // surface the device. The actual fix is in Emulator-tier and
+    // requires an integration test (full Emulator + SD attach) to
+    // exercise the regression.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x99;
+        m.attach_device(0, &dev);   // CS0 wiring
+        m.attach_device(1, &dev);   // CS1 wiring (same physical card)
+
+        // Sub-case A: sd_swap=0, write 0xFE -> SD0 selected -> dev.
+        m.set_sd_swap(false);
+        m.write_cs(0xFE);
+        m.write_data(0xA1);
+        const uint8_t rx_swap0 = m.read_data();
+        const int     cnt_swap0 = dev.exchange_count;
+
+        // Sub-case B: sd_swap=1, write 0xFE -> swap maps to SD1 -> dev.
+        // Reset the mock counter to count just this leg.
+        dev.exchange_count = 0;
+        m.set_sd_swap(true);
+        m.write_cs(0xFF);   // deselect first to avoid mid-leg confusion
+        m.write_cs(0xFE);   // host writes 0xFE; sd_swap=1 -> 0xFD (CS1)
+        m.write_data(0xA2);
+        const uint8_t rx_swap1 = m.read_data();
+        const int     cnt_swap1 = dev.exchange_count;
+
+        check("SS-14",
+              "CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) "
+              "and CS1 (sd_swap=1): round-trip surfaces device byte in "
+              "either orientation (VHDL zxnext.vhd:3280 single "
+              "i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on "
+              "both CS). NOT a discriminative sentinel for ff84d3e — "
+              "test attaches dev directly to both CS lines, bypassing "
+              "Emulator::init. Reverting the Emulator-tier fix does not "
+              "fail this test (integration-tier coverage required).",
+              rx_swap0 == 0x99 && cnt_swap0 >= 1
+                  && rx_swap1 == 0x99 && cnt_swap1 >= 1,
+              fmt("swap0 rx=%02x cnt=%d  swap1 rx=%02x cnt=%d",
+                  rx_swap0, cnt_swap0, rx_swap1, cnt_swap1));
+    }
+
+    // SS-15 (TASK2-VERIFY11 V11-DIVMMC-01): SpiMaster::reset() must pulse
+    // `deselect()` on every currently-selected device before clearing the
+    // CS register, mirroring VHDL zxnext.vhd:3308-3309 (`port_e7_reg <=
+    // (others => '1')` on `reset='1'`). The CS rising edge from any
+    // already-asserted slot is what prompts a connected SD card to abort
+    // an in-flight transaction (CMD17 SENDING_DATA, CMD18 multi-block,
+    // CMD24 RECEIVING_DATA, etc.) and return its protocol-state FFs to
+    // IDLE.
+    //
+    // Pre-fix, `reset()` set `cs_=0xFF` directly without the deselect()
+    // callback, so a slave selected at the moment of reset retained its
+    // pre-reset state until the next firmware-driven CS write. The SD
+    // backend's `receive()` default branch papers over this on the write
+    // path (any 0x40-0x7F byte starts a new command) but `send()` keeps
+    // streaming the prior block until the firmware writes — divergence
+    // becomes observable for any caller that reads first (test
+    // fixtures, save-state replay, host bug).
+    //
+    // Discriminative shape: attach a MockSpiDevice on CS0, select it via
+    // write_cs(0xFE), then call reset(). The mock's `was_deselected`
+    // flag must be true after reset (post-fix) and `cs_` must be 0xFF.
+    // Pre-fix the flag stays false. SS-12 (the device-bindings-survive
+    // test) is unaffected because it never selects the device before
+    // calling reset() — `cs_` was already 0xFF when reset() ran, so no
+    // deselect() was ever needed in either direction.
+    {
+        SpiMaster m;
+        MockSpiDevice dev;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);                 // select SD0 (CS0 active-low)
+        const bool selected_before = (m.read_cs() == 0xFE);
+        const bool desel_before    = dev.was_deselected;
+        m.reset();
+        const bool desel_after  = dev.was_deselected;
+        const uint8_t cs_after  = m.read_cs();
+
+        check("SS-15",
+              "SpiMaster::reset() pulses deselect() on every currently-"
+              "selected device before clearing cs_=0xFF (VHDL "
+              "zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, "
+              "physical CS rising edge resets connected SPI slaves' "
+              "protocol state). Pre-fix dropped this notification; SD "
+              "card protocol-state FFs survived reset until the next "
+              "firmware-driven CS write.",
+              selected_before && !desel_before
+                  && desel_after && cs_after == 0xFF,
+              fmt("sel_before=%d desel_before=%d desel_after=%d "
+                  "cs_after=%02x",
+                  selected_before, desel_before, desel_after,
+                  cs_after));
+    }
+
+    // SS-16 (TASK2-VERIFY12 V12-DIVMMC-01): SpiMaster::reset() must NOT
+    // clobber `rx_data_` (the previous-transfer MISO byte).
+    //
+    // VHDL anchor: zxnext.vhd:3282-3298 instantiates `spi_master_mod` with
+    //   `i_reset => '0'`     (line 3285, comment "hard reset done through
+    //                         core load")
+    // The internal `miso_dat` register at spi_master.vhd:159-168 has a
+    //   `if i_reset = '1' then miso_dat <= (others => '1')`
+    // clause, but with `i_reset` HARDWIRED to '0' that clause never fires.
+    // miso_dat therefore retains its last latched value across every
+    // system reset (only FPGA bitstream load can reset it). Pre-fix
+    // SpiMaster::reset() set `rx_data_=0xFF` unconditionally — diverging
+    // from VHDL whenever firmware reads port 0xEB after a soft reset
+    // (NR 0x02 ← 0x01) before issuing a new SPI write.
+    //
+    // Discriminative shape: prime `rx_data_` to a non-FF byte via a
+    // write_data() with an attached MockSpiDevice that returns 0x42, then
+    // reset() and observe that the FIRST read_data() returns 0x42 (post-
+    // fix: rx_data_ preserved). Pre-fix this would return 0xFF (rx_data_
+    // clobbered). MX-04 / ML-05 still pass with this fix because their
+    // reset → first-read sequences observe 0xFF either way (member-init
+    // 0xFF + no prior priming = 0xFF whether reset() touches rx_data_ or
+    // not).
+    {
+        SpiMaster m;
+        MockSpiDevice dev;
+        dev.next_response = 0x42;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);                  // select SD0
+        m.write_data(0xA5);                // exchange → rx_data_=0x42
+        // Prove the priming worked: first read sees 0x42.
+        // (This is the standard pipeline behaviour; SX-01 covers it.)
+        const uint8_t primed = m.read_data();   // returns prev=0x42
+        // After read_data(), rx_data_ is now refreshed from dev->send()
+        // (also 0x42 since MockSpiDevice keeps next_response). Reset.
+        m.reset();
+        // After reset(), `rx_data_` must still be 0x42 (VHDL miso_dat is
+        // never reset). Read once: returns prev=0x42. Pre-fix would
+        // return 0xFF here.
+        // Note: read_data() with no active device (cs_=0xFF post-reset)
+        // sets new rx_data_=0xFF, but the RETURNED value is the
+        // pre-read snapshot.
+        const uint8_t after_reset = m.read_data();
+
+        check("SS-16",
+              "SpiMaster::reset() preserves rx_data_ across system reset "
+              "(VHDL spi_master.vhd:159-168 miso_dat register has no "
+              "effective reset because zxnext.vhd:3285 hardwires "
+              "i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, "
+              "diverging from VHDL whenever firmware reads port 0xEB "
+              "after a soft reset before issuing a new SPI write.",
+              primed == 0x42 && after_reset == 0x42,
+              fmt("primed=%02x after_reset=%02x",
+                  primed, after_reset));
+    }
+
+    // SS-17 (TASK2-VERIFY12 V12-DIVMMC-01-NIT, Pass-12 fix-of-reviewer):
+    // first-boot default of `rx_data_` must match the VHDL miso_dat signal-
+    // declaration initial value (0x00), not 0xFF.
+    //
+    // VHDL anchor: spi_master.vhd:74 declares
+    //     signal miso_dat : std_logic_vector(7 downto 0) := (others => '0');
+    // — i.e., the FPGA-bitstream initial value is **0x00**. With
+    // zxnext.vhd:3285 hardwiring `i_reset => '0'` (V12-DIVMMC-01 anchor),
+    // the synchronous-reset clause at spi_master.vhd:159-168 (which would
+    // force `miso_dat <= (others => '1')`) NEVER fires. Real hardware
+    // therefore surfaces 0x00 on the first port-0xEB read before any SPI
+    // transfer has completed. Pre-fix C++ member-init was 0xFF — diverged
+    // from VHDL whenever a caller read port 0xEB before issuing any SPI
+    // write. Practical impact on the boot path is nil (firmware always
+    // issues a CMD before reading), but VHDL-faithfulness was the wrong
+    // way around. Reviewer raised this as a NIT; per the "0 pending of
+    // any class" honest-convergence rule, fix it for real.
+    //
+    // Discriminative shape: instantiate a fresh `SpiMaster` with NO
+    // attached device and NO prior write_data(). Read port 0xEB. With
+    // no active device, `read_data()` returns the pre-existing rx_data_
+    // (= the member-init value) and then refreshes rx_data_ to 0xFF for
+    // the next read. Post-fix the first read returns 0x00; pre-fix it
+    // returned 0xFF.
+    //
+    // Note: this exercises the constructor-default path explicitly. The
+    // SpiMaster constructor calls reset(), and reset() does NOT touch
+    // rx_data_ (V12-DIVMMC-01 fix), so member-init is the only source of
+    // the post-construction value.
+    {
+        SpiMaster m;             // no devices attached, no transfers
+        // No reset() needed beyond ctor's; no write_data(); read directly.
+        const uint8_t first_read = m.read_data();
+        check("SS-17",
+              "Fresh SpiMaster surfaces VHDL miso_dat power-on default "
+              "0x00 on first port-0xEB read (VHDL spi_master.vhd:74 "
+              "signal-init `(others => '0')` — i_reset hardwired '0' at "
+              "zxnext.vhd:3285 means the synchronous-reset clause never "
+              "fires). Pre-fix the C++ member-init was 0xFF, diverging "
+              "from the FPGA bitstream-load default whenever a caller "
+              "read port 0xEB before any SPI transfer.",
+              first_read == 0x00,
+              fmt("first_read=%02x exp=00", first_read));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2273,35 +2967,56 @@ void group_sx() {
     // transfer, one-cycle state_last_d delay. The C++ SpiMaster has no
     // pipeline delay: read_data() returns the freshly-exchanged byte.
     // Expected (VHDL): the byte returned by a read is the result of the
-    // PREVIOUS exchange (or the reset value for the very first read).
+    // PREVIOUS exchange (or the signal-init value 0x00 for the very
+    // first read with no transfer yet — see V12-DIVMMC-01-NIT).
+    //
+    // Pre-V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10) this
+    // row asserted `first == 0xFF` claiming miso_dat reset = all-ones
+    // per spi_master.vhd:162. That synchronous-reset clause never
+    // fires (zxnext.vhd:3285 hardwires `i_reset => '0'` — same root
+    // cause as V12-DIVMMC-01). The actual VHDL first-boot value is
+    // 0x00 from the signal-init at spi_master.vhd:74.
     {
         SpiMaster m; m.reset();
         MockSpiDevice dev;
         dev.next_response = 0x11;
         m.attach_device(0, &dev);
         m.write_cs(0xFE);
-        // First read: pipeline says "result of previous" — i.e. reset
-        // value 0xFF — NOT 0x11.
+        // First read: pipeline says "result of previous" — i.e. the
+        // signal-init value 0x00 — NOT 0x11.
         uint8_t first = m.read_data();
         check("SX-03",
               "First read after select returns previous-cycle result "
-              "(VHDL spi_master.vhd:162-166)",
-              first == 0xFF,
-              fmt("got=%02x exp=FF (pipeline delay not modelled)",
+              "(VHDL spi_master.vhd:162-166); with no prior transfer "
+              "the value is the miso_dat signal-init 0x00 "
+              "(spi_master.vhd:74)",
+              first == 0x00,
+              fmt("got=%02x exp=00 (pipeline delay; first read = "
+                  "signal-init)",
                   first));
     }
 
-    // SX-04: First read after reset returns 0xFF.
-    // VHDL: spi_master.vhd:162-163 — miso_dat reset to all 1s.
-    // With no device attached this is trivially satisfied.
+    // SX-04: First read after reset returns the miso_dat signal-init
+    // value 0x00.
+    // VHDL: spi_master.vhd:74 declares `miso_dat ... := (others => '0')`
+    // — the FPGA-bitstream initial value. zxnext.vhd:3285 hardwires
+    // `i_reset => '0'` so the synchronous-reset clause at
+    // spi_master.vhd:162-163 (which would force `miso_dat <= (others
+    // => '1')` on `i_reset='1'`) never fires.
+    //
+    // Pre-V12-DIVMMC-01-NIT this row claimed `v == 0xFF`. That was the
+    // synchronous-reset clause's value — but that clause never fires.
+    // Updated to 0x00 to match VHDL signal-init (same root cause as
+    // V12-DIVMMC-01 + V12-DIVMMC-01-NIT).
     {
         SpiMaster m; m.reset();
         uint8_t v = m.read_data();
         check("SX-04",
-              "First read after reset (no device) returns 0xFF "
-              "(VHDL spi_master.vhd:162)",
-              v == 0xFF,
-              fmt("got=%02x", v));
+              "First read after reset (no device) returns miso_dat "
+              "signal-init 0x00 (VHDL spi_master.vhd:74; i_reset "
+              "hardwired '0' at zxnext.vhd:3285)",
+              v == 0x00,
+              fmt("got=%02x exp=00", v));
     }
 
     // SX-05: Write 0xAA then read: read returns MISO from the write
@@ -2323,6 +3038,81 @@ void group_sx() {
               "(VHDL spi_master.vhd:164-165)",
               v == 0xC3,
               fmt("got=%02x exp=C3 (independent write/read paths)", v));
+    }
+
+    // SX-11 (TASK2-VERIFY3 commit d54a053): write_data with no active
+    // device must capture 0xFF (not leave a previously-selected slave's
+    // stale byte hanging in rx_data_). VHDL zxnext.vhd:3278-3280 forces
+    //   spi_miso <= '1'
+    // when no spi_ss_*_n line is asserted; the spi_master entity still
+    // runs the transfer (i_spi_wr=1 regardless of CS state) and miso_dat
+    // captures all-ones. Pre-fix the C++ left rx_data_ unchanged, leaking
+    // the previous slave's stale byte through subsequent reads with CS
+    // deasserted. This row exercises the leak path: device returns 0x42,
+    // host deselects, host issues another write_data — the next read
+    // must see 0xFF (NOT 0x42).
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x42;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);            // select dev0
+        m.write_data(0xA5);          // exchange -> rx_data_=0x42
+        const uint8_t leaked_baseline = m.read_data();  // primes pipeline -> 0x42
+
+        // Now deselect and issue another write while NO slave is selected.
+        // Pre-fix: rx_data_ stays 0x42; post-fix: forced to 0xFF.
+        m.write_cs(0xFF);            // all deselected
+        m.write_data(0x55);          // no active device
+        const uint8_t after_no_slave_write = m.read_data();
+
+        check("SX-11",
+              "write_data with no slave forces rx_data_=0xFF (no stale-"
+              "byte leak from previously-selected slave) "
+              "(VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1')",
+              leaked_baseline == 0x42 && after_no_slave_write == 0xFF,
+              fmt("baseline=%02x exp=42  after=%02x exp=FF",
+                  leaked_baseline, after_no_slave_write));
+    }
+
+    // SX-12 (TASK2-VERIFY3 commit d54a053): symmetric to SX-11 but for
+    // read_data. With no slave selected, read_data must update rx_data_
+    // to 0xFF (the byte returned to the CALLER reflects the previous
+    // pipeline value — which after the prior leg below is itself 0xFF;
+    // we observe the post-state by issuing one more read and checking
+    // the output is still 0xFF). VHDL zxnext.vhd:3278-3280.
+    //
+    // Discriminative shape: prime rx_data_ with a non-FF byte via a
+    // selected exchange, deselect, then drive read_data twice. The
+    // FIRST post-deselect read returns the primed byte (one-cycle
+    // pipeline) BUT MUST also rewrite rx_data_ to 0xFF; the SECOND
+    // post-deselect read therefore returns 0xFF.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x77;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        m.write_data(0x33);         // primes rx_data_=0x77
+        const uint8_t primed = m.read_data();   // returns 0x77, latches 0x77 next
+        // Pipeline after that primed read: rx_data_=0x77 (re-latched
+        // from another send()). One more read with active device to
+        // settle pipeline cleanly:
+        const uint8_t resettle = m.read_data(); // returns 0x77
+
+        // Now deselect and call read_data twice. Post-fix: each read
+        // rewrites rx_data_ to 0xFF.
+        m.write_cs(0xFF);
+        const uint8_t r1 = m.read_data();  // returns previous (0x77 if pre-fix; 0x77 if post-fix)
+        const uint8_t r2 = m.read_data();  // returns the rx_data_ updated above
+
+        check("SX-12",
+              "read_data with no slave forces rx_data_=0xFF on subsequent "
+              "reads (post-deselect pipeline drains to 0xFF, no stale "
+              "leak) (VHDL zxnext.vhd:3278-3280 default-else)",
+              primed == 0x77 && resettle == 0x77 && r2 == 0xFF,
+              fmt("primed=%02x resettle=%02x r1=%02x r2=%02x exp r2=FF",
+                  primed, resettle, r1, r2));
     }
 
     // SX-06..SX-10 — category B (VHDL-internal pipeline signals).
@@ -2443,9 +3233,24 @@ void group_ml() {
     // vs :119-157) is not observable at the byte-level C++ API — both
     // paths collapse to synchronous byte exchanges in `SpiMaster`.
 
-    // ML-05: Reset sets ishift_r to all 1s.
-    // VHDL: spi_master.vhd:151-152. The observable proxy is that the
-    // first read after reset (before any exchange) returns 0xFF.
+    // ML-05: First read after construction reflects miso_dat power-on
+    // initial value 0x00 (VHDL spi_master.vhd:74 signal-init).
+    //
+    // Pre-V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10) this
+    // row claimed `ishift_r reset to 0xFF` per spi_master.vhd:151-152
+    // (the synchronous-reset clause `if i_reset='1' then ishift_r <=
+    // (others => '1')`). That claim was WRONG because zxnext.vhd:3285
+    // hardwires `i_reset => '0'` — the synchronous-reset clauses never
+    // fire (same root cause as V12-DIVMMC-01). The actual VHDL
+    // first-boot behaviour is governed by the signal-declaration init
+    // at spi_master.vhd:74 (`miso_dat ... := (others => '0')`),
+    // which surfaces as 0x00 on the first port-0xEB read before any
+    // SPI transfer.
+    //
+    // Discriminative shape: fresh SpiMaster with NO transfer should
+    // surface 0x00. (With the V12-DIVMMC-01 fix, reset() does not
+    // touch rx_data_, so the read returns the member-init value
+    // directly.)
     {
         SpiMaster m; m.reset();
         MockSpiDevice dev;
@@ -2453,12 +3258,14 @@ void group_ml() {
         m.attach_device(0, &dev);
         m.write_cs(0xFE);
         uint8_t v = m.read_data();
-        // VHDL: pipeline delay means first read returns reset value 0xFF.
         check("ML-05",
-              "First read after reset reflects ishift_r reset to 0xFF "
-              "(VHDL spi_master.vhd:151-152)",
-              v == 0xFF,
-              fmt("got=%02x exp=FF", v));
+              "First read after reset reflects miso_dat power-on "
+              "initial value 0x00 (VHDL spi_master.vhd:74 signal-init "
+              "`(others => '0')`; i_reset hardwired '0' at "
+              "zxnext.vhd:3285 means the synchronous-reset clause "
+              "spi_master.vhd:151-152 never fires)",
+              v == 0x00,
+              fmt("got=%02x exp=00", v));
     }
 
     // ML-06 — category B (VHDL-internal pipeline signal).
@@ -2506,14 +3313,30 @@ void group_mx() {
     }
 
     // MX-04: No device selected -> MISO = 1 (pull-up).
-    // VHDL: zxnext.vhd:3280 default branch.
+    // VHDL: zxnext.vhd:3280 default branch (`spi_miso <= '1'` when no
+    // SS asserted) propagates through ishift_r and miso_dat at the next
+    // state_last_d.
+    //
+    // Pre-V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10) this
+    // row read `read_data()` ONCE without priming the pipeline, and
+    // relied on the C++ short-circuit (no-active-device branch in
+    // `read_data()` returns the prior `rx_data_` and refreshes to
+    // 0xFF). It happened to pass because the constructor's `rx_data_`
+    // member-init was 0xFF — but with the NIT fix that init is 0x00 to
+    // match VHDL's miso_dat signal-declaration initial value at
+    // spi_master.vhd:74. The proper VHDL-faithful shape is to prime the
+    // pipeline (first read triggers a "transfer" that latches 0xFF into
+    // miso_dat per zxnext.vhd:3280), then read again to observe the
+    // post-state_last_d latched value.
     {
         SpiMaster m; m.reset();
         // All CS bits high (reset default) = no selection.
+        (void)m.read_data();            // prime — latches 0xFF into miso_dat
         uint8_t v = m.read_data();
         check("MX-04",
-              "No device selected: MISO reads as 0xFF "
-              "(VHDL zxnext.vhd:3280)",
+              "No device selected: MISO reads as 0xFF after pipeline "
+              "prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= "
+              "'1'` propagates to miso_dat at next state_last_d)",
               v == 0xFF,
               fmt("got=%02x", v));
     }

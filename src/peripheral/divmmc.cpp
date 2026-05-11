@@ -106,7 +106,20 @@ void DivMmc::write_control(uint8_t val) {
     conmem_ = (val & 0x80) != 0;
     mapram_ = mapram_ || ((val & 0x40) != 0);  // OR-latch per VHDL zxnext.vhd:4182-4183
     bank_   = val & 0x0F;
-    control_reg_ = (val & ~0x40) | (mapram_ ? 0x40 : 0x00);  // reflect latched bit 6
+    // F19-DIVMMC-NIT-01 (Pass-19 verify-audit fix, 2026-05-10): VHDL
+    // `zxnext.vhd:4180-4183` only assigns bits 7, 6, and 3:0 of port_e3_reg
+    // from cpu_do during a port-E3 write. Bits 5:4 are reset to 0 at hardware
+    // reset (`zxnext.vhd:4177`) and never touched again, so they are
+    // INVARIANTLY '00' on real hardware. Pre-fix `control_reg_` stored input
+    // bits 5:4 verbatim; the divergence was hidden by `read_control()`'s
+    // `& 0xCF` mask (which mirrored the VHDL `port_e3_dat` zero-substitution
+    // at `:4190`), but a save-state round-trip — which serialises
+    // `control_reg_` raw at `save_state` line 543 — would faithfully
+    // round-trip non-zero bits 5:4, diverging from VHDL's "always 0"
+    // invariant on snapshot inspection. Mask `val & 0x8F` (drop bits 6 and
+    // 5:4 from raw input) before re-folding the OR-latched bit 6, so the
+    // stored byte always reflects the VHDL contract. Class-(c) latent.
+    control_reg_ = (val & 0x8F) | (mapram_ ? 0x40 : 0x00);  // reflect latched bit 6
 
     divmmc_log()->debug("write control={:#04x} conmem={} mapram={} bank={}",
                         val, conmem_, mapram_, bank_);
@@ -277,15 +290,23 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     // `elsif automap_held = '1' then button_nmi <= '0'` clause re-clears
     // the latch every cycle while `automap_held` is high (subject to the
     // higher-priority i_reset / i_automap_reset / i_retn_seen clears and
-    // the i_divmmc_button set above them). Functionally this means once
-    // `automap_held` goes high, any lingering `button_nmi` is dropped.
-    // We model this with a rising-edge one-shot clear: on the 0→1
-    // transition of automap_held_, zero button_nmi_. Steady-state
-    // semantics match the VHDL "cleared while held=1" behaviour since
-    // the only re-setter (i_divmmc_button) is not driven in this path.
-    if (!prev_held && automap_held_ && button_nmi_) {
+    // the i_divmmc_button set above them).
+    //
+    // Pass-8 verify-audit fix (2026-05-09): pre-fix used a 0→1 rising-edge
+    // one-shot clear on automap_held_, which diverged from VHDL whenever a
+    // new `i_divmmc_button` strobe arrived AFTER held=1 had been latched
+    // (e.g. user double-presses Drive button while overlay is held). VHDL
+    // would clear it every subsequent clock; pre-fix kept it true until the
+    // next held 0→1 edge or RETN. Practical impact: NmiSource consumes
+    // `is_nmi_hold() = held OR button_nmi`, so the held=true masking
+    // hid the divergence except on the falling edge of held — at which
+    // point jnext kept the NMI hold asserted while VHDL released it.
+    // Class-(b) → resolved by clearing button_nmi every check_automap call
+    // when held remains 1, matching VHDL's continuous-while-held semantics.
+    (void)prev_held;
+    if (automap_held_ && button_nmi_) {
         divmmc_log()->debug(
-            "button_nmi cleared by automap_held rising edge "
+            "button_nmi cleared while automap_held=1 "
             "(VHDL divmmc.vhd:112-113)");
         button_nmi_ = false;
     }
@@ -351,32 +372,54 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     }
 
     // Non-RST entry points from NR 0xBB (entry_points_1_). VHDL timing is
-    // documented in zxnext.vhd around :2892-2905. NMI@0x0066 uses
-    // automap_nmi_instant_on (Task 8 scope, main path). Tape traps at
-    // 0x04C6/0x0562/0x04D7/0x056A use rom3_delayed_on (ROM3 only).
-    if ((entry_points_1_ & 0x02) && pc == 0x0066 && button_nmi_ && main_path_eligible) {
-        // NMI instant-on. VHDL divmmc.vhd:120 gates automap_nmi_instant_on
-        // on the latched `button_nmi` signal — the automap only fires on
-        // a PC=0x0066 fetch when the NMI-button has actually been pressed.
-        // We track this via button_nmi_, which stays false until a future
-        // Multiface / NMI-button source sets it via set_button_nmi(). With
-        // no button consumer wired yet, this branch is effectively off —
-        // matching VHDL behaviour on a quiescent core and preventing a
-        // spurious automap activation on any ordinary control-flow path
-        // that happens to reach 0x0066 (e.g. enNextZX.rom subroutines).
+    // documented in zxnext.vhd around :2892-2908. NMI@0x0066 uses
+    // automap_nmi_instant_on (bit 1) AND automap_nmi_delayed_on (bit 0) —
+    // BOTH bits fire on the same M1 in VHDL when both are set (default NR
+    // 0xBB=$CD includes bit 0). Tape traps at 0x04C6/0x0562/0x04D7/0x056A
+    // use rom3_delayed_on (ROM3-only). $3Dxx wildcard (bit 7) is rom3
+    // instant_on. The clauses below are independent (not else-if) so
+    // multiple bit-paths can fire on the same fetch — VHDL's `_on` signals
+    // are independently OR'd into `automap_hold` (line 129) and `automap`
+    // (line 148), so jnext mirrors that by accumulating into instant_match
+    // / delayed_match.
+    if (pc == 0x0066 && button_nmi_ && main_path_eligible) {
+        // NMI@$0066 — VHDL divmmc.vhd:120-121 + zxnext.vhd:2907-2908.
+        // Both nmi_instant_on (bit 1) and nmi_delayed_on (bit 0) gate on
+        // button_nmi. They feed automap_hold (line 129) independently.
+        // `automap` (combinational, line 148) only includes
+        // automap_nmi_instant_on (via i_automap_active gate); the delayed
+        // bit produces automap=1 only on the NEXT M1 via held promotion.
+        if (entry_points_1_ & 0x02) instant_match = true;
+        if (entry_points_1_ & 0x01) delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_path_eligible) {
+        // ROM3-only tape trap — VHDL zxnext.vhd:2902-2905 gates on the
+        // full sram_divmmc_automap_rom3_en composite (pre_override(2)+(0)
+        // + !layer2_map + ROM3 selector).
+        delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_path_eligible) {
+        delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_path_eligible) {
+        delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_path_eligible) {
+        delayed_match = true;
+    }
+    // $3Dxx wildcard (NR 0xBB bit 7) — VHDL zxnext.vhd:2898-2899:
+    //   divmmc_automap_rom3_instant_on <= ... or (port_3dxx_msb and
+    //                                              nr_bb_divmmc_ep_1(7));
+    // port_3dxx_msb decodes cpu_a(15:8) = $3D, so any PC with high byte
+    // $3D fires when bit 7 of NR $BB is set AND the ROM3 path is eligible.
+    // This is the +3DOS RAM-disk trap entry. Default NR $BB = $CD has
+    // bit 7 set, so this is on by default in ROM3 mode. Pre-fix jnext
+    // missed this entirely. Fires `instant_match` (NOT delayed) per VHDL
+    // line 2898, so it activates `automap` same-cycle when rom3_active=1.
+    if ((entry_points_1_ & 0x80) && (pc & 0xFF00) == 0x3D00 && rom3_path_eligible) {
         instant_match = true;
-    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_path_eligible) {
-        // ROM3-only tape trap — VHDL zxnext.vhd:3138 gates on the full
-        // sram_divmmc_automap_rom3_en composite (pre_override(2)+(0) +
-        // !layer2_map + ROM3 selector).
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_path_eligible) {
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_path_eligible) {
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_path_eligible) {
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
+    }
+    if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
                && main_path_eligible) {
         // Auto-unmap range (divmmc.vhd:131, automap_delayed_off factor).
         // VHDL line 131:

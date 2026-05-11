@@ -869,10 +869,15 @@ static void test_nr_mixer(Emulator& emu) {
     // scaled ×4, so the EAR contribution is 512×4 = 2048 of int16 swing.
     // Closes G110.
     {
-        // Baseline: exc_i=0. NR 0x06 b6=0 (default) AND NR 0x08 b4=1
-        // (power-on default 0x10) ⇒ beep_spkr_excl=0. Set EAR=1 and read
-        // the resulting sample.
+        // Baseline: exc_i=0. PASS-6 — NR 0x06 b6 (internal_speaker_beep)
+        // SURVIVES reset per VHDL zxnext.vhd:1113 (initial-value-only
+        // signal, no reset clause), so we cannot rely on `fresh()` to
+        // clear it after an earlier group set it. Explicitly drive
+        // NR 0x06 ← 0x00 here. NR 0x08 b4=1 (power-on default 0x10) leaves
+        // beep_spkr_excl=0 with bit 6 cleared. Set EAR=1 and read the
+        // resulting sample.
         fresh(emu);
+        nr_write(emu, 0x06, 0x00);   // PASS-6: clear internal_speaker_beep explicitly
         // Drain any latent samples first so we read the one we generate.
         {
             int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};

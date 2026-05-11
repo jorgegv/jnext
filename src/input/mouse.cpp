@@ -33,17 +33,32 @@
 
 void KempstonMouse::reset()
 {
-    // VHDL zxnext.vhd:1127-1128 reset defaults:
-    //   nr_0a_mouse_button_reverse = '0'
-    //   nr_0a_mouse_dpi            = "01"
-    // X, Y, buttons, wheel are driven by external inputs in VHDL; in the
-    // emulator we reset them to 0 (no movement, no buttons pressed).
-    x_              = 0;
-    y_              = 0;
-    buttons_        = 0;
-    wheel_          = 0;
-    button_reverse_ = false;
-    dpi_            = 0x01;
+    // PASS-8 NR 0x0A reset preservation. VHDL zxnext.vhd:1127-1128 declare
+    // `nr_0a_mouse_button_reverse` and `nr_0a_mouse_dpi` as initial-value-
+    // only signals (defaults '0' / "01"). They DO NOT appear in the master
+    // reset block at zxnext.vhd:4930+; the only mutator is the NR 0x0A
+    // write handler at zxnext.vhd:5197-5198. The values therefore SURVIVE
+    // both hard and soft reset.
+    //
+    // The NR 0x0A read handler in emulator.cpp sources these bits from
+    // mouse_.button_reverse() / mouse_.dpi() (authoritative state, not the
+    // regs_[] cache), so clobbering them here directly leaks to the NR
+    // 0x0A read after every soft reset — diverging from VHDL.
+    //
+    // PASS-8 fix: do NOT clobber `button_reverse_` / `dpi_` here. Member
+    // defaults supply the FPGA power-on values on first construction
+    // (button_reverse_=false, dpi_=0x01); every subsequent reset
+    // preserves whatever value was last latched by `set_button_reverse()`
+    // / `set_dpi()`.
+    //
+    // Host-side input state (X, Y, buttons, wheel) is NOT a Next NR state —
+    // it tracks the live mouse position / button mask which in real
+    // hardware is driven by the PS/2 mouse controller. Clearing on reset
+    // is fine.
+    x_       = 0;
+    y_       = 0;
+    buttons_ = 0;
+    wheel_   = 0;
 }
 
 void KempstonMouse::inject_delta(int dx, int dy)

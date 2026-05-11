@@ -176,6 +176,14 @@ public:
     bool mapram() const { return mapram_; }
     uint8_t bank() const { return bank_; }
     bool automap_active() const { return automap_active_; }
+    // F19-DIVMMC-NIT-01 (Pass-19): raw stored control register byte. Exists
+    // for the discriminative regression test that pins the VHDL invariant
+    // `port_e3_reg(5:4) = "00"` always — the public `read_control()` already
+    // masks bits 5:4 via `& 0xCF`, so it cannot distinguish a stored 0x30
+    // from a stored 0x00. This accessor exposes the underlying storage so
+    // tests can verify that `write_control` itself preserves the invariant,
+    // not just the read path.
+    uint8_t control_reg_raw() const { return control_reg_; }
 
     // Two-stage automap latch accessors (VHDL divmmc.vhd:123-148).
     // automap_hold_ is set on M1+MREQ-low at an entry-point PC (line 128);
@@ -204,15 +212,55 @@ public:
     /// this latch. Until a button source is wired (Task 8, Multiface),
     /// this stays false — which keeps the 0x0066 instant-on path gated
     /// off in the emulator, matching VHDL behaviour on a quiescent core.
+    ///
+    /// Note: this is a low-level setter that mirrors the VHDL FF state
+    /// directly. It does NOT model the `i_automap_reset` gate (= when
+    /// `port_divmmc_io_en=0 OR nr_0a_divmmc_automap_en=0`, the FF at
+    /// divmmc.vhd:107-114 is held at '0'). Production callers
+    /// (Emulator's NmiSource consumer) must gate on the equivalent
+    /// `enabled_` flag before invoking. The Verify3-Audit added that
+    /// gate at the Emulator call site (see emulator.cpp set_button_nmi
+    /// strobe forwarding).
     void set_button_nmi(bool v) { button_nmi_ = v; }
     bool button_nmi() const { return button_nmi_; }
 
     // NmiSource consumer-feedback accessors — const-only hooks consumed
     // by `NmiSource` when arbitrating the `divmmc_nmi_hold` gate at
     // VHDL:2118 / 2107 and the MF-vs-DivMMC priority mask at VHDL:2098.
-    // VHDL `o_disable_nmi = automap_held OR button_nmi` at
-    // divmmc.vhd:150 — true while the DivMMC is still claiming the NMI.
-    bool is_nmi_hold() const { return automap_held_ || button_nmi_; }
+    //
+    // VHDL `o_disable_nmi <= automap or button_nmi` at divmmc.vhd:150,
+    // where `automap` is the **combinational** signal at line 148:
+    //
+    //   automap <= (NOT i_automap_reset) AND
+    //              (automap_held OR
+    //               (i_automap_active AND (i_automap_instant_on OR
+    //                                       automap_nmi_instant_on)) OR
+    //               (i_automap_rom3_active AND i_automap_rom3_instant_on));
+    //
+    // i.e. `automap` includes the "instant_on this cycle" term in addition
+    // to the registered `automap_held` value.
+    //
+    // Pass-11 verify-audit fix (2026-05-10): pre-fix used `automap_held_ ||
+    // button_nmi_`, which dropped the same-cycle instant_on contribution.
+    // On the M1 fetch where an instant-on entry-point matched (e.g. PC =
+    // 0x0066 with button_nmi_=1 and NR 0xBB bit 1 set, or any RST entry
+    // configured instant-on via NR 0xBA), VHDL would assert `o_disable_nmi`
+    // immediately — gating the MF latch (zxnext.vhd:2107) and feeding the
+    // DivMMC NMI-hold path (zxnext.vhd:2118) on the same M1. Pre-fix
+    // `is_nmi_hold` waited until the NEXT M1 (when held caught up to hold)
+    // before reflecting the assertion, so the MF latch could spuriously
+    // arm during that one-M1 window.
+    //
+    // Post-fix uses `automap_active_`, which `check_automap` computes per
+    // step 4 as `automap_held_ || instant_match` — precisely VHDL line 148.
+    // The boot path doesn't exercise this exact race (the MF integration
+    // gates fire later in the priority arbiter), but the divergence is a
+    // real VHDL-faithfulness gap and the corrected accessor lets the
+    // discriminative regression test (NM-10 in divmmc_test.cpp) pin the
+    // post-fix shape without disturbing existing NM-08 (which uses two
+    // M1 fetches before sampling, so held has already caught up to active
+    // in the steady state).
+    bool is_nmi_hold() const { return automap_active_ || button_nmi_; }
     // VHDL port 0xE3 bit 7 is the CONMEM force-map flag; exposed here
     // for `NmiSource::set_divmmc_conmem()` arbitration at VHDL:2098.
     bool is_conmem() const { return conmem_; }

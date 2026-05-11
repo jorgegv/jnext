@@ -121,7 +121,18 @@ uint8_t cw(bool int_en, bool counter, bool prescale256,
 }
 
 void fresh(Ctc& ctc) { ctc.reset(); }
-void fresh(Im2Controller& im2) { im2.reset(); }
+void fresh(Im2Controller& im2) {
+    im2.reset();
+    // V21-IM2-01 — drive the IM2 controller's `im_mode_` shadow to 2
+    // (= VHDL i_im2_mode='1'), the precondition for `o_int_n` to drive
+    // low and for the device state machine to transition S_REQ→S_ACK
+    // (im2_device.vhd:112, :150). Real boot achieves this by executing
+    // an `ED 5E` (IM 2) instruction before any IM2 fabric activity; we
+    // feed those bytes to the on_m1_cycle decoder directly so unit
+    // tests don't need a full FUSE Z80 fixture just for this gate.
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x5E);
+}
 
 // Shortcut alias to avoid repeating the enum tag everywhere in IM2-related
 // sections. Kept inside the anonymous namespace so it doesn't leak into
@@ -1561,9 +1572,16 @@ void section10_pulse_mode() {
     //
     // BUG FLAG NOTE: im2.cpp step_pulse() gates ULA exception with
     // "!im2_mode_ || (im_mode_ != 2)" — i.e. always fires unless CPU is
-    // in IM=2. We honour that gate here (leave im_mode as 0 = IM 0).
+    // in IM=2. The shared fresh() helper drives im_mode_=2 by default
+    // (V21-IM2-01 precondition for the daisy-chain tests); here we
+    // OVERRIDE that by feeding ED 46 (IM 0) so the exception-pulse
+    // gate's "im_mode_ != 2" arm is exercised.
     {
         fresh(im2);
+        // Override fresh()'s IM 2 with IM 0 — PULSE-03 specifically
+        // tests the "CPU not in IM=2" branch of the EXCEPTION gate.
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x46);
         im2.set_machine_timing_48_or_p3(true);
         im2.set_mode(true);          // IM2 mode (for non-exception path)
         im2.set_int_en(Dev::ULA, true);
@@ -1919,6 +1937,18 @@ void section11_im2_peripheral() {
     // AND NOT i_reset. In pulse mode (i_mode_pulse_0_im2_1='0') the state
     // machine is held at S_0 regardless of int_req. Flipping into IM2 mode
     // allows transitions again.
+    //
+    // V17-CPU-01 update: pre-fix this test raised int_req in pulse mode,
+    // ticked, switched to IM2, ticked, and asserted state=S_REQ. That
+    // exposed an emulator bug — the `im2_int_req` latch was incorrectly
+    // set during the pulse-mode tick (per VHDL :170-171 it should have
+    // been held at 0 by `im2_reset_n='0'`). The latch carried into IM2
+    // mode and pushed the device to S_REQ in the next tick. Per VHDL,
+    // the int_req EDGE was consumed during the pulse-mode tick (int_req_d
+    // captured the level), so without a fresh edge in IM2 mode the
+    // device stays at S_0. To verify the "released" semantic we now
+    // drop+re-raise int_req across the mode switch — that fresh edge
+    // produces the S_REQ transition that the test name implies.
     {
         fresh(im2);
         im2.set_mode(false);  // pulse mode → reset held
@@ -1926,7 +1956,11 @@ void section11_im2_peripheral() {
         im2.raise_req(Dev::CTC0);
         im2.tick(1);
         bool held = (im2.state(Dev::CTC0) == DevState::S_0);
+        // Drop the int_req level so a fresh edge can fire in IM2 mode.
+        im2.clear_req(Dev::CTC0);
+        im2.tick(1);  // settles int_req_d=0 across the wrapper edge detect
         im2.set_mode(true);  // IM2 mode → reset released
+        im2.raise_req(Dev::CTC0);
         im2.tick(1);
         bool released = (im2.state(Dev::CTC0) == DevState::S_REQ);
         check("IM2W-07", held && released,
@@ -2072,8 +2106,13 @@ void section12_ula_line_int() {
     // only for ULA. EXCEPTION devices fire a pulse even in IM2 mode
     // (provided CPU is not in IM=2). Non-EXCEPTION devices do not. Compare
     // ULA vs CTC0 in IM2 mode with CPU in IM 0 (default after reset).
+    //
+    // V21-IM2-01 — fresh() drives im_mode_=2 by default; this test
+    // needs IM 0, so override with ED 46.
     {
         fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x46);   // IM 0
         im2.set_machine_timing_48_or_p3(true);
         im2.set_mode(true);  // IM2 fabric mode
         // Case 1: ULA (EXCEPTION=1) fires a pulse.
@@ -2083,6 +2122,8 @@ void section12_ula_line_int() {
         bool ula_pulsed = !im2.pulse_int_n();
         // Reset and test non-EXCEPTION device.
         fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x46);   // IM 0
         im2.set_machine_timing_48_or_p3(true);
         im2.set_mode(true);
         im2.set_int_en(Dev::CTC0, true);
@@ -2601,6 +2642,10 @@ void section15_dma_int() {
     // every tick, and NR 0xCC bit 7 into set_nr_cc_dma_int_en_0_7(). Drive
     // NmiSource to is_activated()=1 via the ExpBus pin (no consumer-feedback
     // dependency) and assert the NMI contribution to im2_dma_delay.
+    //
+    // Pass-9 verify-audit: `nmi_assert_expbus` is now gated on
+    // `expbus_eff_en` (= NR 0x80 bit 7) per VHDL zxnext.vhd:2089. Set the
+    // gate first so the pin assertion still latches.
     {
         NmiSource nmi;
         nmi.reset();
@@ -2611,6 +2656,7 @@ void section15_dma_int() {
         im2.set_nr_cc_dma_int_en_0_7(true);            // NR 0xCC bit 7 = 1
         const bool before = im2.dma_delay();
 
+        nmi.set_expbus_eff_en(true);                   // NR 0x80 bit 7 = 1
         nmi.set_expbus_nmi_n(false);                   // i_BUS_NMI_n='0'
         nmi.tick(1);                                   // latch nmi_expbus,
                                                        // is_activated()=1

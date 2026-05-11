@@ -248,38 +248,47 @@ static void g_nr02_sw_nmi()
     }
 
     // ------------------------------------------------------------------
-    // NR02-05 — Readback bits 3/2 auto-clear when the FSM reaches
-    // `S_NMI_END`. VHDL zxnext.vhd:5891 (readback term), :2149-2162
-    // (FSM End-state latch clear). Walk the FSM Idle → Fetch → Hold →
-    // End via the Phase-1 scaffold's observer API: observe_m1_fetch at
-    // PC 0x0066 advances Fetch→Hold, then `mf_nmi_hold` defaulting to
-    // false advances Hold→End on the next tick. End-state clears the
-    // latch AND `nr_02_pending_mf`, so the next read returns 0.
+    // NR02-05 — Readback bits 3/2 are NOT auto-cleared by the FSM.
+    // They follow the VHDL clear path at zxnext.vhd:3847-3848,3860-3861:
+    // a write to NR 0x02 with the corresponding bit explicitly low
+    // clears the readback latch. Walking the FSM through S_NMI_END
+    // (which DOES clear the priority latches per VHDL:2102-2105) leaves
+    // the readback bits untouched — they survive until either reset or
+    // an explicit write-back with the bit cleared.
     // ------------------------------------------------------------------
     {
         NmiSource nmi;
         nmi.set_mf_enable(true);
         nmi.nr_02_write(0x08);
         nmi.tick(1);   // Idle → Fetch (is_activated == true)
-        // Pre-END sanity: readback should still show bit 3 set while
-        // the FSM holds the request in Fetch/Hold.
+        // Pre-END sanity: readback shows bit 3 set while the FSM holds
+        // the request.
         const uint8_t pre = nmi.nr_02_read();
 
         // Fetch → Hold on M1 fetch at 0x0066 (VHDL:2135-2138).
         nmi.observe_m1_fetch(0x0066, /*m1=*/true, /*mreq=*/true);
         nmi.tick(1);
 
-        // Hold → End — mf_nmi_hold defaults false, so `!hold` is true
-        // and the next recompute_ advances to End, which clears the
-        // latches + readback-pending bits (VHDL:2149-2162 + 5891).
+        // Hold → End: mf_nmi_hold defaults false, so the FSM reaches END,
+        // which clears the priority latch (`nmi_mf`) but NOT the readback
+        // bit (`nr_02_generate_mf_nmi`).
         nmi.tick(1);
+        const uint8_t after_end = nmi.nr_02_read();
 
-        const uint8_t post = nmi.nr_02_read();
+        // Now write NR 0x02 with bit 3 = 0 — the VHDL clear path.
+        nmi.nr_02_write(0x00);
+        const uint8_t after_clear_write = nmi.nr_02_read();
+
         check("NR02-05",
-              "NR 0x02 readback bits 3/2 auto-clear at FSM S_NMI_END "
-              "[zxnext.vhd:5891, 2149-2162]",
-              (pre & 0x08) != 0 && (post & 0x0C) == 0,
-              "pre=" + std::to_string(pre) + " post=" + std::to_string(post));
+              "NR 0x02 readback bit 3 survives FSM END; clears on a "
+              "subsequent NR 0x02 write with bit 3 = 0 "
+              "[zxnext.vhd:3847-3848, 3860-3861]",
+              (pre & 0x08) != 0
+                  && (after_end & 0x08) != 0
+                  && (after_clear_write & 0x0C) == 0,
+              "pre=" + std::to_string(pre)
+                  + " after_end=" + std::to_string(after_end)
+                  + " after_clear=" + std::to_string(after_clear_write));
     }
 
     // ------------------------------------------------------------------
@@ -575,7 +584,14 @@ static void g_hotkey()
         Emulator emu;
         build_next_emulator(emu);
         emu.nmi_source().set_divmmc_enable(true);
-        // port_io_enable defaults to false post-reset (NR 0x83 bit 0=0).
+        // Pass-6 verify-audit fix (Task 2 verify6-divmmc-sd-spi): post-reset
+        // VHDL default is `port_divmmc_io_en=1` (NR 0x83 bit 0 = 1, regs_[0x83]
+        // reloads to 0xFF when reset_type_1=true per zxnext.vhd:5052-5057), so
+        // we must EXPLICITLY clear it to exercise the gate-off path. Pre-fix
+        // the test relied on a stale "default-false" invariant that diverged
+        // from the VHDL — corrected here as part of the same pass-6 sweep
+        // that introduced the post-reset DivMmc/Multiface NR 0x83 sync.
+        emu.divmmc().set_port_io_enable(false);
         emu.on_hotkey_f10_divmmc_nmi();
         emu.nmi_source().tick(1);
         check("HK-07b",
@@ -1608,6 +1624,8 @@ static void g_gate_registers()
     // GATE-08 — power-on gate flags all false.
     //   VHDL zxnext.vhd:1109-1110 — nr_06_button_*_nmi_en power-on '0'.
     //   VHDL zxnext.vhd:1222 — nr_81_expbus_nmi_debounce_disable power-on '0'.
+    //   VHDL zxnext.vhd:369-371 — expbus_eff_en / expbus_eff_disable_mem
+    //                              power-on '0' (Pass-9 fix).
     //   RST-01 bundles this; here we isolate the gate-flag defaults into
     //   a dedicated row so Wave C owns the gate-register reset contract.
     {
@@ -1616,10 +1634,74 @@ static void g_gate_registers()
         const bool divmmc_off   = !nmi.divmmc_enable();
         const bool expbus_off   = !nmi.expbus_debounce_disable();
         const bool cfg_mode_off = !nmi.config_mode();
+        const bool expbus_eff_en_off          = !nmi.expbus_eff_en();
+        const bool expbus_eff_disable_mem_off = !nmi.expbus_eff_disable_mem();
         check("GATE-08",
-              "power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, config_mode) all false",
-              mf_off && divmmc_off && expbus_off && cfg_mode_off,
-              "zxnext.vhd:1109-1110 / 1222 / NR 0x03 reset-to-config semantics");
+              "power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false",
+              mf_off && divmmc_off && expbus_off && cfg_mode_off &&
+              expbus_eff_en_off && expbus_eff_disable_mem_off,
+              "zxnext.vhd:1109-1110 / 1222 / 369-371 / NR 0x03 reset-to-config semantics");
+    }
+
+    // GATE-09 — NR 0x80 bit 7 (`expbus_eff_en`) gates `nmi_assert_expbus`.
+    //   VHDL zxnext.vhd:2089 — nmi_assert_expbus <= '1' when
+    //     expbus_eff_en = '1' AND expbus_eff_disable_mem = '0' AND
+    //     i_BUS_NMI_n = '0' else '0'. With expbus_eff_en='0', driving the
+    //     pin active must NOT raise the producer (and so the latch stays
+    //     clear). Pass-9 verify-audit row.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        // expbus_eff_en defaults to false.
+        nmi.set_expbus_nmi_n(false);   // assert /BUS_NMI (active-low)
+        nmi.tick(1);
+        const bool producer_off = !nmi.nmi_assert_expbus();
+        const bool latch_off    = !nmi.nmi_expbus();
+        const bool fsm_idle     = nmi.state() == NmiSource::State::Idle;
+        check("GATE-09",
+              "expbus_eff_en=0 blocks nmi_assert_expbus even with /BUS_NMI low",
+              producer_off && latch_off && fsm_idle,
+              "zxnext.vhd:2089 expbus_eff_en AND gate on nmi_assert_expbus");
+    }
+
+    // GATE-10 — NR 0x80 bit 4 (`expbus_eff_disable_mem`) blocks
+    //   `nmi_assert_expbus`. With expbus_eff_en=1, expbus_eff_disable_mem=1
+    //   and the pin active, the producer must NOT fire (VHDL gate AND NOT).
+    //   Pass-9 verify-audit row.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(true);
+        nmi.set_expbus_nmi_n(false);   // assert /BUS_NMI (active-low)
+        nmi.tick(1);
+        const bool producer_off = !nmi.nmi_assert_expbus();
+        const bool latch_off    = !nmi.nmi_expbus();
+        const bool fsm_idle     = nmi.state() == NmiSource::State::Idle;
+        check("GATE-10",
+              "expbus_eff_disable_mem=1 blocks nmi_assert_expbus",
+              producer_off && latch_off && fsm_idle,
+              "zxnext.vhd:2089 NOT expbus_eff_disable_mem AND gate on nmi_assert_expbus");
+    }
+
+    // GATE-11 — full ExpBus path: enable, no disable_mem, pin asserted →
+    //   producer + latch fire. Confirms the Pass-9 gate refactor still
+    //   admits the legitimate path that the previous (under-gated) code
+    //   admitted.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(false);
+        nmi.set_expbus_nmi_n(false);   // assert /BUS_NMI (active-low)
+        nmi.tick(1);
+        const bool producer_on = nmi.nmi_assert_expbus();
+        const bool latch_on    = nmi.nmi_expbus();
+        const bool fsm_fetch   = nmi.state() == NmiSource::State::Fetch;
+        check("GATE-11",
+              "expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch",
+              producer_on && latch_on && fsm_fetch,
+              "zxnext.vhd:2089 ExpBus full-path producer assertion");
     }
 }
 
@@ -1650,6 +1732,12 @@ static void g_dma_group()
         nmi.reset();
 
         const bool before = nmi.is_activated();
+        // Pass-9 verify-audit: `nmi_assert_expbus` is now properly gated
+        // on NR 0x80 bit 7 (`expbus_eff_en`) per VHDL zxnext.vhd:2089.
+        // Power-on default of NR 0x80 is X"00" → expbus_eff_en='0' so the
+        // pin assertion alone no longer latches. Enable expbus first to
+        // model a software-configured expansion bus.
+        nmi.set_expbus_eff_en(true);
         nmi.set_expbus_nmi_n(false);       // assert /BUS_NMI (active-low)
         nmi.tick(1);                       // recompute_: latch expbus, FSM IDLE→FETCH
         const bool after_latch = nmi.nmi_expbus();
@@ -1717,6 +1805,99 @@ static void g_dma_group()
 }
 
 // =====================================================================
+// Group TestCov — Regression rows for NMI/MF/Port/NextREG verify-pass
+// fixes (commits c1d7998..6051f01) that lack a dedicated unit-tier test.
+// Each row cites VHDL line + fix commit. See report:
+//   doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-NMI-MF-PORT.md
+// =====================================================================
+
+static void g_testcov_nmi_regressions()
+{
+    set_group("TestCov");
+
+    // TC-NMI3-END-IDLE — Subsequent NMIs work after the first
+    //   (Initial NMI-3, c1d7998). Pre-fix the FSM stuck in `End` forever
+    //   because `observe_cpu_wr()` was defined but never called from the
+    //   Emulator. Fix: case End now advances to Idle on the same pass
+    //   that clears the priority latches. This row drives a full IDLE →
+    //   FETCH → HOLD → END cycle, then triggers a second MF NMI and
+    //   confirms the FSM re-enters Fetch (not End-stuck).
+    //   VHDL :2149-2162 (S_NMI_END), :2102-2105 (latch clear).
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+
+        // First NMI cycle.
+        nmi.strobe_mf_button();
+        nmi.tick(1);                      // IDLE → FETCH
+        const bool reached_fetch_1 = nmi.state() == NmiSource::State::Fetch;
+        nmi.observe_m1_fetch(0x0066, true, true);  // FETCH → HOLD (direct)
+        // Tick once with mf_nmi_hold defaulting false: HOLD → END.
+        nmi.tick(1);
+        const bool reached_end = nmi.state() == NmiSource::State::End;
+        // NMI-3 fix: End advances to Idle on the next tick (otherwise
+        // the FSM would stick in End and no second NMI could fire).
+        nmi.tick(1);
+        const bool back_to_idle = nmi.state() == NmiSource::State::Idle;
+
+        // Second NMI cycle — must fire if End→Idle works.
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool reached_fetch_2 = nmi.state() == NmiSource::State::Fetch;
+
+        check("TC-NMI3-END-IDLE",
+              "FSM advances End → Idle so subsequent NMIs fire "
+              "[zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998]",
+              reached_fetch_1 && reached_end && back_to_idle &&
+              reached_fetch_2,
+              std::string{"f1="} + std::to_string(reached_fetch_1) +
+              " end=" + std::to_string(reached_end) +
+              " idle=" + std::to_string(back_to_idle) +
+              " f2=" + std::to_string(reached_fetch_2));
+    }
+
+    // TC-NMI-HOLD-LINE-HIGH — /NMI line is HIGH (deasserted) during HOLD
+    //   (Verify1, 78f5f1c). VHDL :2168 — /NMI is asserted only in
+    //   IDLE+activated, FETCH, or expbus debounce. NOT in HOLD.
+    //   Pre-fix `nmi_generate_n` was '0' through HOLD (functionally
+    //   invisible because Z80 latches on falling edge, but spec violation).
+    //
+    //   We use the MF producer for clarity and rely on `mf_nmi_hold_`
+    //   sticky-set so the FSM stays in HOLD long enough to observe.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.set_mf_nmi_hold(true);        // hold sticky: HOLD stays in HOLD
+
+        // Drive FSM IDLE → FETCH via MF producer.
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool fetch = nmi.state() == NmiSource::State::Fetch;
+        // /NMI must be LOW (asserted) in FETCH per VHDL :2168.
+        const bool nmi_low_in_fetch = !nmi.nmi_generate_n();
+
+        // FETCH → HOLD on M1 fetch at 0x0066.
+        nmi.observe_m1_fetch(0x0066, true, true);
+        const bool hold = nmi.state() == NmiSource::State::Hold;
+        // /NMI must be HIGH (deasserted) in HOLD per VHDL :2168.
+        // (The FSM is in HOLD now even before the next tick, since
+        // observe_m1_fetch sets state directly.)
+        const bool nmi_high_in_hold = nmi.nmi_generate_n();
+
+        check("TC-NMI-HOLD-LINE-HIGH",
+              "/NMI deasserted (HIGH) during HOLD state "
+              "[zxnext.vhd:2168 / Verify1 78f5f1c]",
+              fetch && nmi_low_in_fetch && hold && nmi_high_in_hold,
+              std::string{"fetch="} + std::to_string(fetch) +
+              " low_fetch=" + std::to_string(nmi_low_in_fetch) +
+              " hold=" + std::to_string(hold) +
+              " high_hold=" + std::to_string(nmi_high_in_hold));
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
@@ -1732,6 +1913,7 @@ int main() {
     g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
     g_gate_registers();    std::printf("  GATE gate registers   -- done\n");
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
+    g_testcov_nmi_regressions(); std::printf("  TC   verify-pass regressions -- done\n");
     g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- RE-HOMED to CTC plan (G88)\n");
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
     g_mf_int_wiring();     std::printf("  MF-INT F-gate live wiring -- done\n");
