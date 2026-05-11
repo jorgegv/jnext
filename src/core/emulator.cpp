@@ -766,14 +766,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:5902-5903:
     //   port_253b_dat <= "00" & cpu_speed & "00" & nr_07_cpu_speed;
     // i.e. bits[5:4] = actual cpu_speed, bits[1:0] = requested nr_07_cpu_speed.
-    // JNEXT does not model the expbus speed override (VHDL zxnext.vhd:5816-5820
-    // assigns cpu_speed <= nr_07_cpu_speed when expbus_en = '0'), so the
-    // effective actual speed tracks the requested value directly (the
-    // write handler above drives both clock_ and contention_ from the
-    // low 2 bits of the last write, which live in regs_[0x07]).
+    // VHDL zxnext.vhd:5816-5820 sets the actual cpu_speed via:
+    //   if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
+    //   else                    cpu_speed <= expbus_speed;
+    // (latched on bus-idle, :5809). VHDL zxnext.vhd:5496 hard-wires
+    // `nr_81_expbus_speed <= "00"` (the writable arm is commented out),
+    // so the expbus-active path always reports actual speed = "00".
+    //
+    // V21-NMP-03 (Pass-21 verify-audit fix): pre-fix `act = req` was
+    // unconditional, ignoring expbus_en. When NR 0x80 bit 7 = 1
+    // (expbus_eff_en after the bus-idle latch) AND nr_07_cpu_speed != 0,
+    // VHDL would surface act = 0 (= expbus_speed hard-wired) while jnext
+    // surfaced act = req. Class-(c) inert divergence (jnext has no expbus
+    // device wired, so the steady-state observable is unchanged for any
+    // boot path that respects the default NR 0x80 = 0x00), but the
+    // readback contract is part of the VHDL surface.
+    //
+    // The bus-idle latch (VHDL :5809) is collapsed into NR 0x80 write
+    // and NmiSource::expbus_eff_en()/expbus_eff_disable_mem() as the
+    // commit point — same approximation used at Pass-9 verify-audit for
+    // `expbus_eff_en` propagation into the NMI gates. Re-use that here
+    // so we don't introduce yet another latch shadow.
     nextreg_.set_read_handler(0x07, [this]() -> uint8_t {
         const uint8_t req = nextreg_.cached(0x07) & 0x03;
-        const uint8_t act = req;  // expbus not modelled — actual follows requested
+        // VHDL :5816-5820: actual cpu_speed = nr_07_cpu_speed when
+        // expbus_en = '0', else expbus_speed (hard-wired "00").
+        const uint8_t act = nmi_source_.expbus_eff_en() ? 0x00 : req;
         return static_cast<uint8_t>((act << 4) | req);
     });
 
@@ -2383,17 +2401,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x03 read: composed per VHDL zxnext.vhd:5894 —
     //   port_253b_dat <= nr_palette_sub_idx & nr_03_machine_timing(2:0) &
     //                    nr_03_user_dt_lock & nr_03_machine_type(2:0)
-    // JNEXT does not model nr_palette_sub_idx (palette-aux selector used
-    // only by the NR 0x44 / NR 0x41 sub-index toggle), so bit 7 reads 0
-    // until that FSM lands. All other bits come from the state fields on
-    // NextReg, which track the VHDL signals faithfully.
+    //
+    // V21-NMP-01 (Pass-21 verify-audit fix): bit 7 surfaces VHDL
+    // `nr_palette_sub_idx` (zxnext.vhd:1182), the same FF the NR 0x44
+    // 9-bit-palette-write toggle drives (:5403) and the NR 0x40 / 0x41 /
+    // 0x43 writes reset to '0' (:5376 / :5382 / :5395); the global
+    // reset block (:5000) also clears it. NR 0x28 was previously
+    // mis-cited as a resetter — it is the keymap-select write
+    // (:6301-6303, drives nr_keymap_sel / nr_keymap_addr), unrelated
+    // to nr_palette_sub_idx [V21R-NMP-NIT-01 doc fix].
+    // PaletteManager owns the identical `nine_bit_first_written_` shadow
+    // (palette.cpp:330-351 toggles; palette.cpp:220, palette.cpp:209,
+    // palette.cpp:86 / etc. reset paths). Pre-fix bit 7 was hard-wired
+    // to 0, so a poll-loop checking "second 9-bit write phase armed?"
+    // via NR 0x03 read would observe a stuck-low bit while VHDL would
+    // toggle it. Class-(c) inert divergence (no jnext boot path polls
+    // NR 0x03 bit 7 today, but the readback contract is part of the
+    // VHDL surface and a NR 0x44 + NR 0x03 sequence in any future
+    // firmware would observe the bug).
     nextreg_.set_read_handler(0x03, [this]() -> uint8_t {
         const uint8_t timing = static_cast<uint8_t>(nextreg_.nr_03_machine_timing() & 0x07);
         const uint8_t mtype  = static_cast<uint8_t>(nextreg_.nr_03_machine_type()   & 0x07);
         const uint8_t dtlock = nextreg_.nr_03_user_dt_lock() ? 1 : 0;
-        // palette_sub_idx not modeled → 0. bits[7]=0, [6:4]=timing, [3]=dtlock,
-        // [2:0]=machine_type.
-        return static_cast<uint8_t>((0u << 7) | (timing << 4) | (dtlock << 3) | mtype);
+        const uint8_t sub_idx = palette_.nine_bit_first_written() ? 1 : 0;
+        return static_cast<uint8_t>((sub_idx << 7) | (timing << 4) | (dtlock << 3) | mtype);
     });
 
     // Register 0x04: ROM/RAM bank select used by tbblue.fw's load_roms() to
@@ -4356,7 +4387,50 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // `port_ctc_io_en = '1'`, where
     // `port_ctc_io_en <= internal_port_enable(27)` = NR 0x85 bit 3
     // (VHDL :2442). When cleared, the port is silenced.
-    port_.register_handler(0xF8FF, 0x183B,
+    //
+    // V21-NMP-02 (Pass-21 verify-audit fix): the CTC entity at
+    // device/ctc.vhd:101-146 instantiates NUM_CTC=4 channels selected
+    // by `i_port_ctc_sel = cpu_a(10 downto 8)` (zxnext.vhd:4076 — the
+    // ZXN entity instance overrides NUM_CTC_LOG2 to 3). The select
+    // process at ctc.vhd:128-137 matches `if I = unsigned(i_port_ctc_sel)`
+    // for I in 0..3 only, so addresses with A10=1 (= 0x1C3B..0x1F3B)
+    // produce sel(0..3) = "0000" — no channel selected. The output
+    // mux at ctc.vhd:164-176 zeroes o_cpu_d when no sel bit is set
+    // (each dout(I) AND sel(I), then OR-fold across I in 0..3); the
+    // iowr fan-out at :141-146 stays 0 too, so writes are dropped.
+    //
+    // Pre-fix the C++ port handler used mask 0xF8FF, leaving A10 a
+    // don't-care bit. `(p >> 8) & 3` then aliased 0x1C3B..0x1F3B to
+    // channels 0..3 (because the high-nibble 0x1C/0x1D/0x1E/0x1F give
+    // (0xC/0xD/0xE/0xF) & 0x03 = 0/1/2/3). Reads returned channel 0..3
+    // data instead of VHDL's 0x00 (no decode); writes hit channels
+    // instead of being silently dropped.
+    //
+    // Fix: tighten the mask to 0xFCFF — A10:8 now mask in too. The
+    // value 0x183B already has A10:8 = "000", so the matched range is
+    // 0x183B (channel 0), 0x193B (channel 1), 0x1A3B (channel 2),
+    // 0x1B3B (channel 3) only. Addresses 0x1C3B..0x1F3B no longer match
+    // this handler and fall through to the floating-bus default
+    // (mirroring VHDL's no-decode behaviour).
+    //
+    // Note: VHDL port_ctc='1' for the full 0x183B..0x1F3B range (the
+    // decode is wider than the actual channel count), but the CTC
+    // entity zeroes its output when A10:8 ≥ 4 (= A10=1 here). The CPU
+    // bus path for IN at 0x1C3B..0x1F3B with port_ctc_io_en='1' is
+    // therefore:
+    //   port_ctc_rd = iord AND port_ctc = '1'
+    //   port_internal_rd_response = ... OR port_ctc_rd = '1'
+    //   port_ctc_rd_dat = ctc_do = 0x00 (OR-fold of zeros)
+    //   port_rd_dat = ... OR port_ctc_rd_dat = 0x00
+    //   cpu_di = port_rd_dat = 0x00
+    // i.e. VHDL drives 0x00, NOT the floating-bus 0xFF, for the A10=1
+    // alias range when CTC IO-enable is on. When CTC IO-enable is off,
+    // port_ctc='0' so port_internal_rd_response stays 0 and the bus
+    // floats to 0xFF.
+    // Class-(c) inert divergence in practice (no software writes
+    // 0x1C3B-0x1F3B), but the readback / write-drop contract is part
+    // of the VHDL surface.
+    port_.register_handler(0xFCFF, 0x183B,
         [this](uint16_t p) -> uint8_t {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
             return ctc_.read((p >> 8) & 3);
@@ -4364,6 +4438,40 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t p, uint8_t val) {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;  // NR 0x85 b3 gate
             ctc_.write((p >> 8) & 3, val);
+        });
+
+    // V21R-NMP-NIT-02 (Pass-21 reviewer fix): complementary handler for
+    // the CTC alias range 0x1C3B..0x1F3B (A10=1). Per VHDL bus
+    // composition above, an IN with port_ctc_io_en='1' drives 0x00 on
+    // cpu_di via the OR-fold of (dout(I) AND sel(I)) — not 0xFF.
+    // Without this handler the reads fall through to the floating-bus
+    // default 0xFF, enshrining a class-(c) divergence flagged by the
+    // Pass-21 reviewer. The IO-enable gate stays identical (NR 0x85
+    // bit 3); when cleared the bus floats. Writes are silently dropped
+    // (VHDL iowr(I) = port_ctc_wr AND sel(I), and sel(0..3)=0 for
+    // A10=1, so iowr stays 0 — no channel mutated).
+    // Mask 0xFCFF with value 0x1C3B selects exactly the four addresses
+    // 0x1C3B / 0x1D3B / 0x1E3B / 0x1F3B (A9:8 are masked in but the
+    // four channels behave identically — all dropped on write, all
+    // read as 0x00). Same specificity (10 bits set) as the channel
+    // handler, but disjoint match conditions (A10=0 vs A10=1) so the
+    // most-specific-wins dispatch routes correctly.
+    port_.register_handler(0xFCFF, 0x1C3B,
+        [this](uint16_t /*p*/) -> uint8_t {
+            // CTC IO-enable gate: NR 0x85 bit 3 (= port_ctc_io_en,
+            // VHDL :2442 internal_port_enable(27)). When cleared
+            // port_ctc='0' → port_internal_rd_response=0 → floating
+            // bus. When set, the OR-fold zeros the byte.
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
+            return 0x00;
+        },
+        [this](uint16_t /*p*/, uint8_t /*val*/) {
+            // Writes are dropped per VHDL ctc.vhd:141-146 (iowr(I) = 0
+            // when sel(I)=0; sel(0..3)=0 for A10=1). No-op even with
+            // IO-enable on. The IO-enable check is kept for symmetry,
+            // though functionally it doesn't matter here.
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;
+            // Silently dropped (no channel mutated).
         });
 
     // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat).

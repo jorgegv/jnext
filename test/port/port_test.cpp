@@ -1349,18 +1349,32 @@ static void test_group_nr_gating() {
               DETAIL("NR85=0x%02x after clearing bit %u", rb, r.bit));
     }
 
-    // NR85-03b: CTC top-of-range 0x1F3B. VHDL 2690: cpu_a(15:11)="00011".
-    // 0x1F3B = 0001_1111_0011_1011 → bits 15:11 = 00011 ✓. Handler must
-    // decode. Current C++ only registers 0x183B..0x1B3B (emulator.cpp:715),
-    // so 0x1F3B will hit the 0x00FF/0x003B stub and return 0xFF. FAIL
-    // expected until CTC range is extended.
+    // NR85-03b: CTC alias-of-range 0x1F3B. VHDL 2690 sets port_ctc='1'
+    // for cpu_a(15:11)="00011" (full 0x183B..0x1F3B). But the CTC entity
+    // device/ctc.vhd has NUM_CTC=4 channels and the select process at
+    // :128-137 matches `if I = unsigned(i_port_ctc_sel)` for I in 0..3.
+    // With i_port_ctc_sel = cpu_a(10:8) (zxnext.vhd:4076, 3 bits), an
+    // alias address with A10=1 (= 0x1C3B..0x1F3B) produces sel(0..3)="0000"
+    // — no channel selected — so the output mux at :164-176 returns 0x00
+    // and the iowr fan-out at :141-146 is 0 (writes dropped).
+    //
+    // V21R-NMP-NIT-02 (Pass-21 reviewer fix): the CPU bus still gets
+    // driven by VHDL though — port_ctc_rd = iord AND port_ctc = '1'
+    // (port_ctc='1' for the full 0x183B..0x1F3B range when IO-enable
+    // is on), so port_internal_rd_response='1' and port_rd_dat picks
+    // up port_ctc_rd_dat = ctc_do = 0x00 (the OR-fold of all-zero
+    // terms). Therefore VHDL drives cpu_di = 0x00 (NOT the floating
+    // 0xFF) when CTC IO-enable is on. NR 0x85 bit 3 defaults to 1 on
+    // power-on, so the read returns 0x00.
     {
         Emulator emu; build_next_emulator(emu);
         uint8_t rd = emu.port().in(0x1F3B);
         check("NR85-03b",
-              "CTC 0x1F3B (top of decoded range) has a real handler",
-              rd != 0xFF,
-              DETAIL("ctc_top=0x%02x", rd));
+              "CTC alias 0x1F3B (A10=1) returns 0x00 (VHDL OR-fold of "
+              "ctc.vhd:128-137 sel-zero output, NOT floating bus) when "
+              "CTC IO-enable is on [V21-NMP-02 + V21R-NMP-NIT-02]",
+              rd == 0x00,
+              DETAIL("ctc_top=0x%02x expected 0x00", rd));
     }
 
     // NR85-03c: CTC near-miss 0x203B (bits 15:11=00100). VHDL 2690.
@@ -1764,6 +1778,120 @@ static void test_group_wired_or() {
               "Gated AY 0xFFFD read returns floating byte (not 0x77)",
               rd != 0x77,
               DETAIL("read=0x%02x expected != 0x77", rd));
+    }
+
+    // V21-NMP-02 — CTC port mask excludes A10=1 alias range.
+    //
+    // VHDL zxnext.vhd:2690: `port_ctc <= '1' when cpu_a(15:11) = "00011"
+    //                                  and port_3b_lsb = '1' and
+    //                                  port_ctc_io_en = '1' else '0';`
+    // The CTC entity at device/ctc.vhd has NUM_CTC=4 channels selected by
+    // `i_port_ctc_sel = cpu_a(10 downto 8)` (zxnext.vhd:4076). The select
+    // process (ctc.vhd:128-137) matches `if I = unsigned(i_port_ctc_sel)`
+    // for I in 0..3 only; A10:8 = "100"..."111" (= 4..7) produce
+    // sel(0..3) = "0000" — no channel decoded. The output mux at
+    // ctc.vhd:164-176 zeros o_cpu_d (each dout(I) AND sel(I) OR-folded),
+    // and the iowr fan-out at :141-146 stays 0 too.
+    //
+    // Pre-V21-NMP-02 the jnext handler used mask 0xF8FF, leaving A10 a
+    // don't-care, and `(p >> 8) & 3` aliased 0x1C3B..0x1F3B onto
+    // channels 0..3 (0x1C/0x1D/0x1E/0x1F & 0x03 = 0/1/2/3). The fix
+    // tightens the mask to 0xFCFF; addresses with A10=1 fall through to
+    // floating-bus, matching VHDL's no-decode behaviour.
+    //
+    // Discriminative (V21R-NMP-NIT-03): the original V21-NMP-02-A
+    // wrote 0x87 to alias 0x1C3B and checked invariance at 0x183B.
+    // But 0x87 is a CTC control word (bit 0 set) and a control write
+    // does NOT mutate `counter_` (see src/peripheral/ctc.cpp:33-72:
+    // control words only update the channel state machine bits, not
+    // the counter), and `CtcChannel::read()` returns `counter_`
+    // (:142-144). So pre_read == post_read == 0 regardless of
+    // whether the alias write reaches channel 0 — the original test
+    // passed pre-fix too, making it non-discriminative.
+    //
+    // Rewritten sequence: first put channel 0 into RESET_TC state
+    // (control word 0x07 = enable+soft_reset+tc_follows on the
+    // non-alias address 0x183B), then write a TC byte value to the
+    // alias 0x1C3B. In CtcChannel::write(), when state is RESET_TC
+    // or RUN_TC the write is taken as a time-constant: `counter_ =
+    // val` (:38-40). Pre-fix the alias 0x1C3B aliases to channel 0
+    // and channel 0 is in RESET_TC, so `counter_` becomes 0x42 and
+    // state advances to RUN; post-fix the alias write is dropped by
+    // V21R-NMP-NIT-02's no-op write handler, so channel 0 stays in
+    // RESET_TC with counter_=0.
+    //
+    // The follow-up read at 0x183B returns `counter_`:
+    //   pre-fix : pre=0x00 (control set state, no TC yet),
+    //             post=0x42 → pre != post → test would FAIL
+    //   post-fix: pre=0x00, post=0x00 → pre == post → test PASSES
+    {
+        Emulator emu; build_next_emulator(emu);
+        // Power-on: NR 0x85 bit 3 = 1 by default → CTC IO open.
+
+        // Step 1: put channel 0 into RESET_TC via a non-alias control
+        // write at 0x183B (= real channel 0). val=0x07 = bits 2:0=111
+        // = control word + soft_reset + tc_follows. Per ctc.cpp:96-107
+        // soft_reset+tc_follows transitions state to RESET_TC.
+        emu.port().out(0x183B, 0x07);
+
+        // Step 2: snapshot channel 0 counter_ BEFORE the alias write.
+        // counter_ is still 0 here (only the state machine moved).
+        const uint8_t pre = emu.port().in(0x183B);
+
+        // Step 3: write a TC byte (0x42) to alias 0x1C3B. Pre-fix the
+        // alias mapped to channel 0 (in RESET_TC) and the write was
+        // taken as the time constant → counter_=0x42, state→RUN.
+        // Post-V21R-NMP-NIT-02 the alias's no-op write handler drops
+        // the byte → channel 0 stays in RESET_TC with counter_=0.
+        emu.port().out(0x1C3B, 0x42);
+
+        // Step 4: re-read channel 0 counter_.
+        //   pre-fix:  post = 0x42  (alias hit channel 0 in RESET_TC)
+        //   post-fix: post = 0x00  (alias write dropped)
+        const uint8_t post = emu.port().in(0x183B);
+        check("V21-NMP-02-A",
+              "TC-write at CTC alias 0x1C3B (A10=1) does NOT mutate "
+              "channel 0 counter_ — pre/post-read at 0x183B equal "
+              "after channel 0 is in RESET_TC [V21R-NMP-NIT-03 "
+              "discriminative; ctc.vhd:128-137 + :141-146 + :164-176]",
+              pre == post,
+              DETAIL("pre=0x%02x post=0x%02x (must be equal; pre-fix "
+                     "would give pre=0x00 post=0x42)", pre, post));
+
+        // Companion read-side check: an IN at 0x1F3B (the highest alias)
+        // must return 0x00 (VHDL ctc_do = OR-fold of sel-zero terms,
+        // driven onto cpu_di because port_ctc_rd='1' when CTC IO-enable
+        // is on; NR 0x85 bit 3 defaults to 1). Pre-V21-NMP-02 the
+        // handler aliased the address to channel 3 and returned the
+        // channel byte; the original V21-NMP-02 fix made the address
+        // float to 0xFF; V21R-NMP-NIT-02 corrects the readback to
+        // 0x00 per the VHDL OR-fold composition.
+        const uint8_t rd_alias = emu.port().in(0x1F3B);
+        check("V21-NMP-02-B",
+              "IN at CTC alias 0x1F3B returns 0x00 (VHDL OR-fold of "
+              "ctc.vhd:128-137 sel-zero output drives cpu_di) when CTC "
+              "IO-enable is on [V21R-NMP-NIT-02]",
+              rd_alias == 0x00,
+              DETAIL("rd_alias=0x%02x expected 0x00", rd_alias));
+
+        // V21R-NMP-NIT-02 sandwich-discriminative: when CTC IO-enable
+        // is cleared (NR 0x85 bit 3 = 0), port_ctc='0' so VHDL stops
+        // driving the bus and the read floats to 0xFF. Verifies the
+        // new handler's IO-enable gate works correctly.
+        {
+            // Clear NR 0x85 bit 3 via the NR write path.
+            uint8_t n85 = nr_read(emu, 0x85);
+            nr_write(emu, 0x85, n85 & ~0x08);
+            const uint8_t rd_gated = emu.port().in(0x1F3B);
+            check("V21R-NMP-NIT-02-A",
+                  "IN at CTC alias 0x1F3B returns 0xFF when CTC "
+                  "IO-enable (NR 0x85 b3) is cleared — port_ctc='0' so "
+                  "VHDL floats the bus [zxnext.vhd:2690, :2442]",
+                  rd_gated == 0xFF,
+                  DETAIL("rd_gated=0x%02x expected 0xFF", rd_gated));
+            // Re-arm NR 0x85 bit 3 for the next test independence.
+            nr_write(emu, 0x85, n85);
+        }
     }
 
     // BUS-03: SCLD read gated by nr_08_port_ff_rd_en (NR 0x08 bit 2) AND

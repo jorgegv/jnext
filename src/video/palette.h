@@ -117,6 +117,17 @@ public:
     // instead of the stale cached NR 0x28 last-write byte.
     uint8_t nine_bit_first_byte() const { return nine_bit_first_byte_; }
 
+    // V21-NMP-01 (Pass-21 verify-audit): `nr_palette_sub_idx` exposure.
+    // VHDL zxnext.vhd:1182 declares the single-bit FF. Reset / NR 0x40 /
+    // NR 0x41 / NR 0x43 / NR 0x28 writes drive it to '0' (zxnext.vhd:5000,
+    // 5376, 5382, 5395); NR 0x44 writes toggle it (zxnext.vhd:5403).
+    // The same FF is surfaced as bit 7 of the NR 0x03 read mux
+    // (zxnext.vhd:5894): `port_253b_dat <= nr_palette_sub_idx & ...`.
+    // PaletteManager's `nine_bit_first_written_` shadow follows the
+    // same lifecycle (palette.cpp:330-351 toggles, palette.cpp:220 etc.
+    // reset paths) so it is the natural source for the NR 0x03 readback.
+    bool nine_bit_first_written() const { return nine_bit_first_written_; }
+
     // -----------------------------------------------------------------
     // NR 0xFF — ULA+ palette poke side-channel (zxnext.vhd:6957-6958)
     // -----------------------------------------------------------------

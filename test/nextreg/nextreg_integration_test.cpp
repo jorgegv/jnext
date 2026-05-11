@@ -5493,6 +5493,188 @@ static void test_v19r_nmp_xadc_read_stubs(Emulator& emu) {
     }
 }
 
+// ── V21-NMP-01 — NR 0x03 b7 palette_sub_idx readback ──────────────────
+//
+// VHDL zxnext.vhd:5894 read mux composes NR 0x03 as
+//   nr_palette_sub_idx & nr_03_machine_timing(2:0) & nr_03_user_dt_lock
+//                      & nr_03_machine_type(2:0)
+// — bit 7 surfaces VHDL `nr_palette_sub_idx` (zxnext.vhd:1182). The FF
+// is driven to '0' by reset / NR 0x40 / NR 0x41 / NR 0x43 / NR 0x28
+// writes (:5000 / :5376 / :5382 / :5395) and TOGGLED on every NR 0x44
+// write (:5403 `nr_palette_sub_idx <= not nr_palette_sub_idx`).
+//
+// PaletteManager's `nine_bit_first_written_` (palette.cpp:330-351)
+// follows the identical lifecycle: set true on the FIRST NR 0x44 write,
+// cleared on the SECOND, and reset to false by set_index() (NR 0x40
+// write path).
+//
+// Pre-fix the NR 0x03 read handler hard-wired bit 7 = 0; a NR 0x44
+// write followed by a NR 0x03 read returned bit 7 = 0 instead of the
+// VHDL-toggle '1'. Class-(c) inert divergence (no jnext boot path
+// polls bit 7), but the readback contract is part of the VHDL surface.
+
+static void test_v21_nmp_01_nr_03_palette_sub_idx(Emulator& emu) {
+    set_group("V21-NMP-01-NR03-PaletteSubIdx");
+
+    auto bit7 = [](uint8_t v) { return static_cast<uint8_t>((v >> 7) & 0x01); };
+
+    // Discriminative #1: power-on / post-reset → bit 7 = 0.
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-A",
+              "NR 0x03 bit 7 = 0 at reset (nr_palette_sub_idx default '0', "
+              "VHDL :1182, :5000) [zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #2: single NR 0x44 write toggles bit 7 to '1'.
+    // VHDL :5403 `nr_palette_sub_idx <= not nr_palette_sub_idx` after
+    // every NR 0x44 write. Starting from '0', one write yields '1'.
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-B",
+              "NR 0x03 bit 7 = 1 after a single NR 0x44 write "
+              "(VHDL :5403 toggle: 0 -> 1) [zxnext.vhd:5894]",
+              bit7(got) == 1, detail_eq(bit7(got), uint8_t{0x01}));
+    }
+
+    // Discriminative #3: second NR 0x44 write toggles bit 7 back to '0'.
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);
+        nr_write(emu, 0x44, 0xAA);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-C",
+              "NR 0x03 bit 7 = 0 after two NR 0x44 writes "
+              "(VHDL :5403 toggle: 0 -> 1 -> 0) [zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #4: NR 0x40 write resets sub_idx to '0' even after
+    // a NR 0x44 toggle. VHDL :5376 `nr_palette_sub_idx <= '0'` on every
+    // NR 0x40 write (palette-index reset).
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);          // sub_idx = '1'
+        nr_write(emu, 0x40, 0x00);          // sub_idx -> '0'
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-D",
+              "NR 0x03 bit 7 = 0 after NR 0x44 + NR 0x40 sequence "
+              "(VHDL :5376 NR 0x40 write resets nr_palette_sub_idx) "
+              "[zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #5: bit 7 is independent of bits 6:0. Write NR 0x03
+    // to set machine_timing + dt_lock + machine_type, then verify a
+    // subsequent NR 0x44 toggle flips bit 7 without disturbing the
+    // lower fields. NR 0x03 writes do NOT touch nr_palette_sub_idx
+    // (VHDL :5121-5151 does not assign to it).
+    {
+        emu.reset();
+        // Enter config_mode so NR 0x03 bits 2:0 latch (VHDL :5137-5145).
+        nr_write(emu, 0x03, 0x07);          // config_mode = 1 (bits[2:0]=111)
+        // machine_timing = "011" (bit 7 = 1, bits 6:4 = "011"), dt_lock toggle off,
+        // machine_type = "010". `nr_wr_dat = 1011 0010 = 0xB2`. config_mode
+        // exit (bits 2:0 = "010" ≠ "000" and ≠ "111").
+        nr_write(emu, 0x03, 0xB2);
+        const uint8_t pre_44 = nr_read(emu, 0x03);
+        nr_write(emu, 0x44, 0x55);          // toggle sub_idx
+        const uint8_t post_44 = nr_read(emu, 0x03);
+        // The lower 7 bits should be identical pre/post NR 0x44 write.
+        const uint8_t lower_pre  = static_cast<uint8_t>(pre_44  & 0x7F);
+        const uint8_t lower_post = static_cast<uint8_t>(post_44 & 0x7F);
+        check("V21-NMP-01-E",
+              "NR 0x03 bits 6:0 unchanged by NR 0x44 toggle "
+              "(only bit 7 / sub_idx flips) [zxnext.vhd:5894]",
+              lower_pre == lower_post,
+              detail_eq(lower_post, lower_pre));
+        // And bit 7 must have toggled. Expected post-toggle value = NOT pre.
+        const uint8_t expected_post7 =
+            static_cast<uint8_t>(bit7(pre_44) ^ 0x01);
+        check("V21-NMP-01-F",
+              "NR 0x03 bit 7 toggles independently from lower fields",
+              bit7(post_44) == expected_post7,
+              detail_eq(bit7(post_44), expected_post7));
+    }
+}
+
+// ── V21-NMP-03 — NR 0x07 read `act` field gated on expbus_eff_en ──────
+//
+// VHDL zxnext.vhd:5902-5903 read mux composes NR 0x07 as
+//   "00" & cpu_speed & "00" & nr_07_cpu_speed
+// where the actual `cpu_speed` (bits 5:4) latches as
+//   if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
+//   else                    cpu_speed <= expbus_speed;  (:5816-5820)
+// and `nr_81_expbus_speed` is hard-wired "00" (:5496 — the writable
+// arm is commented out), so the expbus-active path always surfaces
+// actual cpu_speed = 0.
+//
+// Pre-V21-NMP-03 the jnext NR 0x07 read returned act = req
+// unconditionally. With NR 0x80 b7 = 1 (expbus_eff_en) AND
+// nr_07_cpu_speed != 0, VHDL surfaces act = 0 / jnext surfaced act = req.
+
+static void test_v21_nmp_03_nr_07_expbus_speed(Emulator& emu) {
+    set_group("V21-NMP-03-NR07-ExpbusSpeed");
+
+    // Discriminative #1: power-on / NR 0x80 = 0x00 → act = req. Verify
+    // the no-expbus baseline still rounds-trips (regression guard).
+    {
+        emu.reset();
+        // NR 0x80 default is 0x00 (no expbus), so expbus_eff_en = 0.
+        // Pick a non-zero CPU speed so the divergence axis is visible.
+        nr_write(emu, 0x07, 0x02);   // 14 MHz
+        const uint8_t got = nr_read(emu, 0x07);
+        // Bits 5:4 = act = req = 0x02; bits 1:0 = req = 0x02.
+        // Expected byte = (2 << 4) | 2 = 0x22.
+        check("V21-NMP-03-A",
+              "NR 0x07 read with expbus_eff_en=0 → act = req "
+              "(VHDL :5817 `cpu_speed <= nr_07_cpu_speed`) [zxnext.vhd:5902-5903]",
+              got == 0x22, detail_eq(got, uint8_t{0x22}));
+    }
+
+    // Discriminative #2: NR 0x80 b7 = 1 (expbus_eff_en) → act = 0
+    // regardless of nr_07_cpu_speed. This is the V21-NMP-03 fix axis.
+    {
+        emu.reset();
+        // Set expbus_en (NR 0x80 bit 7) via NR 0x80 write. The C++
+        // write handler commits expbus_eff_en immediately via
+        // NmiSource::set_expbus_eff_en (same pattern as Pass-9 fix).
+        nr_write(emu, 0x80, 0x80);   // expbus_en = 1
+        nr_write(emu, 0x07, 0x03);   // nr_07_cpu_speed = 28 MHz
+        const uint8_t got = nr_read(emu, 0x07);
+        // Bits 5:4 = act = 0 (expbus_speed hard-wired "00", :5496);
+        // bits 1:0 = req = 0x03. Expected byte = (0 << 4) | 3 = 0x03.
+        check("V21-NMP-03-B",
+              "NR 0x07 read with expbus_eff_en=1 → act = 0 even when "
+              "req = 0x03 (VHDL :5819 `cpu_speed <= expbus_speed`, "
+              ":5496 expbus_speed hard-wired \"00\") [zxnext.vhd:5816-5820]",
+              got == 0x03, detail_eq(got, uint8_t{0x03}));
+    }
+
+    // Discriminative #3: clear expbus_en after a req write → act
+    // tracks req again on the next read. Confirms the gate is dynamic.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);   // expbus_en = 1
+        nr_write(emu, 0x07, 0x02);
+        const uint8_t got_pre  = nr_read(emu, 0x07);
+        nr_write(emu, 0x80, 0x00);   // expbus_en = 0
+        const uint8_t got_post = nr_read(emu, 0x07);
+        check("V21-NMP-03-C-pre",
+              "expbus_eff_en=1 pre-clear → act = 0 "
+              "(req=2 → readback=0x02)",
+              got_pre == 0x02, detail_eq(got_pre, uint8_t{0x02}));
+        check("V21-NMP-03-C-post",
+              "expbus_eff_en=0 post-clear → act = req "
+              "(req=2 → readback=0x22)",
+              got_post == 0x22, detail_eq(got_post, uint8_t{0x22}));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -5604,6 +5786,12 @@ int main() {
 
     test_v19r_nmp_xadc_read_stubs(emu);
     std::printf("  Group: V19R-NMP-XADC-Read-Stubs — done\n");
+
+    test_v21_nmp_01_nr_03_palette_sub_idx(emu);
+    std::printf("  Group: V21-NMP-01-NR03-PaletteSubIdx — done\n");
+
+    test_v21_nmp_03_nr_07_expbus_speed(emu);
+    std::printf("  Group: V21-NMP-03-NR07-ExpbusSpeed — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
