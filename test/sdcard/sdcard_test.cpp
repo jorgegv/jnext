@@ -1836,6 +1836,85 @@ static void test_sd_32_cmd55_acmd41_app_cmd_bit() {
           " r1_acmd41=" + std::to_string(r1_acmd41));
 }
 
+static void test_sd_33_cmd10_cid_mdt_year() {
+    // SD-33 (V24-DIVMMC-01, Pass-24 convergence pressure-test, 2026-05-11):
+    // per SD Physical Layer Simplified Spec v6.00 § 5.2 Table 5-1, the
+    // Manufacturing Date (MDT) field is 12 bits at CID bits [19:8] in format
+    // `year_offset[11:4] | month[3:0]`. Year offset is from 2000.
+    //
+    // The CID returned by cmd10_send_cid has its block comment stating
+    // "year=2026, month=05". For that intent:
+    //   year_offset = 26 = 0x1A; MDT = (0x1A << 4) | 0x5 = 0x1A5
+    //   CID[13] (bits [23:16]) = `reserved[3:0] | MDT[11:8]` = 0x00 | 0x1 = 0x01
+    //   CID[14] (bits [15:8])  = MDT[7:0] = 0xA5
+    //
+    // Pre-fix CID[14] was 0x65 -> MDT[7:0] = `0110 0101` -> year_low_nibble =
+    // 0x6, month = 0x5. Combined: year_offset = (0x1 << 4) | 0x6 = 0x16 = 22
+    // -> encoded year 2022 (off by 4 from intent). Class-(c) cosmetic latent
+    // (TBBlue/FatFs do not inspect MDT, but a forensic firmware / mmls-style
+    // tool that decodes the CID would log the wrong manufacturing date).
+    //
+    // Test shape: issue CMD10 SEND_CID and decode the CID response payload.
+    // Expected post-fix: CID[14] == 0xA5; year_offset decoded from MDT[11:4]
+    // must equal 26 (= 0x1A); month decoded from MDT[3:0] must equal 5.
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    if (!sd.mount(img)) {
+        check("SD-33-MOUNT", "image mount", false);
+        std::remove(img.c_str());
+        return;
+    }
+
+    // Initialize the card so cmd10_send_cid doesn't short-circuit on
+    // `if (!initialized_) queue_r1(0x01); return;`.
+    (void)send_cmd_r1(sd, 0, 0);            // CMD0 GO_IDLE
+    (void)send_cmd_r1(sd, 8, 0x1AA);        // CMD8
+    (void)send_cmd_r1(sd, 55, 0);
+    (void)send_cmd_r1(sd, 41, 0x40000000);  // ACMD41 -> initialized_=true
+
+    // CMD10 SEND_CID — response is NCR + R1(0x00) + 0xFE + 16 CID bytes +
+    // 2 CRC bytes (20 bytes total).
+    uint8_t r1 = send_cmd_r1(sd, 10, 0);
+    uint8_t token = spi_read(sd);  // 0xFE start-of-data token
+    uint8_t cid_bytes[16];
+    for (int i = 0; i < 16; ++i) {
+        cid_bytes[i] = spi_read(sd);
+    }
+    (void)spi_read(sd);  // CRC high
+    (void)spi_read(sd);  // CRC low
+
+    sd.deselect();
+    sd.unmount();
+    std::remove(img.c_str());
+
+    // Decode MDT per SD spec § 5.2:
+    //   MDT[11:8] = CID[13] bits [3:0]
+    //   MDT[7:0]  = CID[14]
+    // year_offset = MDT[11:4] (8 bits), month = MDT[3:0] (4 bits).
+    const uint16_t mdt = ((cid_bytes[13] & 0x0F) << 8) | cid_bytes[14];
+    const uint8_t year_offset = static_cast<uint8_t>((mdt >> 4) & 0xFF);
+    const uint8_t month       = static_cast<uint8_t>(mdt & 0x0F);
+    const int year_full = 2000 + year_offset;
+
+    const bool r1_ok        = (r1 == 0x00);
+    const bool token_ok     = (token == 0xFE);
+    const bool cid14_ok     = (cid_bytes[14] == 0xA5);   // discriminative byte
+    const bool year_ok      = (year_full == 2026);
+    const bool month_ok     = (month == 0x05);
+
+    check("SD-33",
+          "CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD "
+          "Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] "
+          "was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix "
+          "CID[14] = 0xA5 encoding year_offset=0x1A = 2026.",
+          r1_ok && token_ok && cid14_ok && year_ok && month_ok,
+          "r1=" + std::to_string(r1) +
+          " token=" + std::to_string(token) +
+          " cid[14]=" + std::to_string(cid_bytes[14]) +
+          " year=" + std::to_string(year_full) +
+          " month=" + std::to_string(month));
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -1886,6 +1965,7 @@ int main() {
     test_sd_30_full_duplex_stream_advance();     // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
     test_sd_31_full_duplex_responding_state();   // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
     test_sd_32_cmd55_acmd41_app_cmd_bit();       // V20-DIVMMC-01 (pass-20 verify-audit)
+    test_sd_33_cmd10_cid_mdt_year();             // V24-DIVMMC-01 (pass-24 convergence pressure-test)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
