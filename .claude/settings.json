@@ -3,70 +3,84 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(grep:*)",
-      "WebFetch",
+      "Bash(rg:*)",
       "Bash(find:*)",
-      "Bash(mkdir:*)",
-      "Bash(git:*)",
-      "Bash(cmake:*)",
-      "Bash(timeout:*)",
-      "Bash(./build/jnext:*)",
-      "Bash(./build/test/dma_test)",
-      "Bash(./build/test/dma_test:*)",
-      "Bash(./build/test/audio_test)",
-      "Bash(./build/test/audio_test:*)",
-      "Bash(./build/test/uart_test)",
-      "Bash(./build/test/uart_test:*)",
-      "Bash(./build/test/ula_test)",
-      "Bash(./build/test/ula_test:*)",
-      "Bash(./build/test/mmu_test)",
-      "Bash(./build/test/mmu_test:*)",
-      "Bash(./build/test/nextreg_test)",
-      "Bash(./build/test/nextreg_test:*)",
-      "Bash(./build/test/tilemap_test)",
-      "Bash(./build/test/tilemap_test:*)",
-      "Bash(./build/test/ctc_test)",
-      "Bash(./build/test/ctc_test:*)",
-      "Bash(./build/test/divmmc_test)",
-      "Bash(./build/test/divmmc_test:*)",
-      "Bash(./build/test/sprites_test)",
-      "Bash(./build/test/sprites_test:*)",
-      "Bash(./build/test/layer2_test)",
-      "Bash(./build/test/layer2_test:*)",
-      "Bash(./build/test/copper_test)",
-      "Bash(./build/test/copper_test:*)",
-      "Bash(./build/test/compositor_test)",
-      "Bash(./build/test/compositor_test:*)",
-      "Bash(./build/test/input_test)",
-      "Bash(./build/test/input_test:*)",
-      "Bash(./build/test/port_test)",
-      "Bash(./build/test/port_test:*)",
-      "Bash(./build/test/rewind_test)",
-      "Bash(./build/test/rewind_test:*)",
-      "Bash(./build/test/z80n_test)",
-      "Bash(./build/test/z80n_test:*)",
-      "Bash(./build/test/fuse_z80_test)",
-      "Bash(./build/test/fuse_z80_test:*)",
-      "Bash(bash test/regression.sh)",
-      "Bash(bash test/regression.sh:*)",
-      "Bash(bash:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(perl:*)",
+      "Bash(xxd:*)",
       "Bash(tail:*)",
+      "Bash(head:*)",
       "Bash(tee:*)",
-      "Write",
-      "Bash(./build/test/nextreg_integration_test)",
-      "Bash(./build/test/nextreg_integration_test:*)",
-      "Bash(awk '/^class Mmu/,/^};/' /home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-a562cf38/src/memory/mmu.h)",
-      "Bash(chmod +x /home/jorgegv/src/spectrum/jnext/test/refresh-subsystem-status.sh)",
-      "Bash(perl test/refresh-traceability-matrix.pl)",
-      "Bash(make unit-test-dashboard *)",
-      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/build/test/input_test)",
-      "Bash(make -C build help)",
-      "Bash(LANG=C make -C build test)",
-      "Bash(JNEXT_TEST_JOBS=1 LANG=C bash test/regression.sh)",
-      "Bash(JNEXT_TEST_JOBS=1 LANG=C bash test/regression.sh dapr-tilemap_00)",
-      "Bash(compare -metric AE /tmp/dapr-main.png test/img/dapr-l2empty-reference.png /dev/null)"
+      "Bash(file:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(comm:*)",
+      "Bash(diff:*)",
+      "Bash(mkdir:*)",
+      "Bash(chmod:*)",
+      "Bash(xargs:*)",
+      "Bash(shuf:*)",
+      "Bash(basename:*)",
+      "Bash(dirname:*)",
+
+      "Bash(git:*)",
+      "Bash(git -C *:*)",
+      "Bash(GIT_EDITOR=true git:*)",
+      "Bash(GIT_EDITOR=true git -C *:*)",
+
+      "Bash(cmake:*)",
+      "Bash(make:*)",
+      "Bash(make -C *:*)",
+      "Bash(LANG=C make:*)",
+      "Bash(LANG=C make -C *:*)",
+      "Bash(JNEXT_TEST_JOBS=*:*)",
+
+      "Bash(timeout:*)",
+      "Bash(bash:*)",
+      "Bash(bash test/*:*)",
+      "Bash(./test/*:*)",
+
+      "Bash(./build/jnext:*)",
+      "Bash(./build/gui-release/jnext:*)",
+      "Bash(./build/test/*:*)",
+      "Bash(LANG=C ./build/test/*:*)",
+      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/build/jnext:*)",
+      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/build/test/*:*)",
+      "Bash(/home/jorgegv/src/spectrum/jnext/build/test/*:*)",
+      "Bash(/home/jorgegv/src/spectrum/jnext/.claude/worktrees/*:*)",
+      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/.claude/worktrees/*:*)",
+
+      "Bash(compare:*)",
+      "Bash(python3 tools/cspect_dzrp/*:*)",
+      "Bash(mono *:*)",
+
+      "WebFetch",
+      "Write"
     ],
     "additionalDirectories": [
       "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/block-push.sh" },
+          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/block-amend.sh" },
+          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/block-main-write.sh" },
+          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/warn-cd-git.sh" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/session-start.sh" }
+        ]
+      }
     ]
   }
 }
