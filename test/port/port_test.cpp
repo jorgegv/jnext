@@ -1799,34 +1799,64 @@ static void test_group_wired_or() {
     // tightens the mask to 0xFCFF; addresses with A10=1 fall through to
     // floating-bus, matching VHDL's no-decode behaviour.
     //
-    // Discriminative: write a sentinel control byte to 0x1C3B (would-be
-    // channel 0 alias) and confirm a subsequent read at 0x183B (real
-    // channel 0) does NOT observe the alias write. Pre-fix the alias
-    // hit channel 0 and the read returned the corresponding state;
-    // post-fix the alias is dropped and channel 0 stays at its
-    // power-on / pre-write state.
+    // Discriminative (V21R-NMP-NIT-03): the original V21-NMP-02-A
+    // wrote 0x87 to alias 0x1C3B and checked invariance at 0x183B.
+    // But 0x87 is a CTC control word (bit 0 set) and a control write
+    // does NOT mutate `counter_` (see src/peripheral/ctc.cpp:33-72:
+    // control words only update the channel state machine bits, not
+    // the counter), and `CtcChannel::read()` returns `counter_`
+    // (:142-144). So pre_read == post_read == 0 regardless of
+    // whether the alias write reaches channel 0 — the original test
+    // passed pre-fix too, making it non-discriminative.
+    //
+    // Rewritten sequence: first put channel 0 into RESET_TC state
+    // (control word 0x07 = enable+soft_reset+tc_follows on the
+    // non-alias address 0x183B), then write a TC byte value to the
+    // alias 0x1C3B. In CtcChannel::write(), when state is RESET_TC
+    // or RUN_TC the write is taken as a time-constant: `counter_ =
+    // val` (:38-40). Pre-fix the alias 0x1C3B aliases to channel 0
+    // and channel 0 is in RESET_TC, so `counter_` becomes 0x42 and
+    // state advances to RUN; post-fix the alias write is dropped by
+    // V21R-NMP-NIT-02's no-op write handler, so channel 0 stays in
+    // RESET_TC with counter_=0.
+    //
+    // The follow-up read at 0x183B returns `counter_`:
+    //   pre-fix : pre=0x00 (control set state, no TC yet),
+    //             post=0x42 → pre != post → test would FAIL
+    //   post-fix: pre=0x00, post=0x00 → pre == post → test PASSES
     {
         Emulator emu; build_next_emulator(emu);
-        // Power-on: NR 0x85 bit 3 = 1 by default, so the CTC port is
-        // open. NR 0xC5 bit 0 needs to be set for int_en path; not
-        // required here (we're testing the address-decode gate).
+        // Power-on: NR 0x85 bit 3 = 1 by default → CTC IO open.
 
-        // Probe sequence: read real channel 0 at 0x183B before any
-        // alias-port write, then write to alias 0x1C3B, then read
-        // channel 0 again. If the alias hits channel 0 (pre-fix),
-        // the two reads will likely differ (channel 0 mutated by
-        // the alias write). Post-fix, the alias is dropped and the
-        // two reads observe the same channel-0 state.
-        emu.port().in(0x183B);   // settle / read once
-        const uint8_t pre  = emu.port().in(0x183B);
-        emu.port().out(0x1C3B, 0x87);  // alias to ch0 pre-fix; dropped post-fix
+        // Step 1: put channel 0 into RESET_TC via a non-alias control
+        // write at 0x183B (= real channel 0). val=0x07 = bits 2:0=111
+        // = control word + soft_reset + tc_follows. Per ctc.cpp:96-107
+        // soft_reset+tc_follows transitions state to RESET_TC.
+        emu.port().out(0x183B, 0x07);
+
+        // Step 2: snapshot channel 0 counter_ BEFORE the alias write.
+        // counter_ is still 0 here (only the state machine moved).
+        const uint8_t pre = emu.port().in(0x183B);
+
+        // Step 3: write a TC byte (0x42) to alias 0x1C3B. Pre-fix the
+        // alias mapped to channel 0 (in RESET_TC) and the write was
+        // taken as the time constant → counter_=0x42, state→RUN.
+        // Post-V21R-NMP-NIT-02 the alias's no-op write handler drops
+        // the byte → channel 0 stays in RESET_TC with counter_=0.
+        emu.port().out(0x1C3B, 0x42);
+
+        // Step 4: re-read channel 0 counter_.
+        //   pre-fix:  post = 0x42  (alias hit channel 0 in RESET_TC)
+        //   post-fix: post = 0x00  (alias write dropped)
         const uint8_t post = emu.port().in(0x183B);
         check("V21-NMP-02-A",
-              "CTC alias address 0x1C3B (A10=1) does NOT reach channel 0 "
-              "— VHDL ctc.vhd:128-137 only decodes sel for I in 0..3 "
-              "[zxnext.vhd:2690, ctc.vhd:128-137, :164-176]",
+              "TC-write at CTC alias 0x1C3B (A10=1) does NOT mutate "
+              "channel 0 counter_ — pre/post-read at 0x183B equal "
+              "after channel 0 is in RESET_TC [V21R-NMP-NIT-03 "
+              "discriminative; ctc.vhd:128-137 + :141-146 + :164-176]",
               pre == post,
-              DETAIL("pre=0x%02x post=0x%02x (must be equal)", pre, post));
+              DETAIL("pre=0x%02x post=0x%02x (must be equal; pre-fix "
+                     "would give pre=0x00 post=0x42)", pre, post));
 
         // Companion read-side check: an IN at 0x1F3B (the highest alias)
         // must return 0x00 (VHDL ctc_do = OR-fold of sel-zero terms,
