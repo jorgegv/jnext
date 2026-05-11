@@ -353,6 +353,11 @@ A final sweep across the cross-cutting families flagged in earlier passes:
 - **Reviewer reclassification (P24)**: re-examined and class-(d) classification UPHELD on architectural-scope grounds (5+ surfaces, save-state schema bump, video-frame deferred-commit seam).
 - **Convergence-stability statement**: Memory subsystem is convergence-stable across THREE verification windows (P14 initial convergence, P24 explicit re-walk, P25 pressure test). The single outstanding class-(d) finding has been carried in its current form since P24 and the audit verdict has not shifted.
 
-## Test results (Pass-25 final)
+## Test results (Pass-25 final, Release build, HEAD `7414784`)
 
-Recorded at conclusion of pass — see final summary.
+- `ctest --test-dir build -j$(nproc)` → **38/38 PASS** (0 failed). Total time 0.70 s.
+- `./build/test/fuse_z80_test build/test/fuse` → **1356 / 1356 PASS** (0 fail / 0 skip).
+- `bash test/00regression/regression.sh` → **33 Pass / 0 Fail / 0 Skip** (full audio/screenshot/functional matrix).
+- Rewind unit tests (run inside regression suite) → 22/22 pass.
+
+All baselines met. No regression introduced (and none would be possible — the audit produced no source changes).
