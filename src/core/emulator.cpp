@@ -7373,25 +7373,50 @@ void Emulator::load_state(StateReader& r)
         contention_.set_port_ulap_io_en(
             (effective_internal_port_enable(0x85) & 0x01) != 0);
 
-        // V24-MEM-01 / V25-MEM-01 fix — re-sync the machine_timing
-        // axis from the canonical NR 0x03 bits 6:4 cached value.
-        // Mmu::load_state already restored both fields from the
-        // appended schema slot, but for forward compatibility with
-        // older snapshots that predate the slot (or whose load fell
-        // through the !r.eof() guard), we additionally re-derive
-        // from the now-canonical NextReg state. This mirrors the
-        // `set_cpu_speed` / `set_contention_disable` /
-        // `set_port_7ffd_io_en` re-push pattern above.
+        // V24-MEM-01 / V25-MEM-01 fix + V24-MEM-NIT-01 (reviewer
+        // follow-up): re-sync the machine_timing axis. Two paths:
         //
-        // Both shadow and effective fields are re-seeded to the
-        // tim_sel-derived MachineTimingMode (mirroring the VHDL
-        // power-on state where both `nr_03_machine_timing` and
-        // `eff_nr_03_machine_timing` are equal until the first
-        // gated NR 0x03 bits-6:4 write hits between save points).
-        const uint8_t nr_03_tim = nextreg_.nr_03_machine_timing();
-        const MachineTimingMode tim_mode = decode_nr_03_machine_timing(nr_03_tim);
-        contention_.set_machine_timing(tim_mode);
-        mmu_.set_machine_timing(tim_mode);
+        // (1) NEW-FORMAT save (Mmu schema slot present): trust the
+        //     restored (effective, pending) pair. This preserves a
+        //     `pending != effective` deferred-commit state captured by
+        //     a snapshot taken between an NR 0x03 bits-6:4 write and
+        //     the next video-frame edge (VHDL :6694-6703). Push the
+        //     pair into the ContentionModel so its (effective, pending)
+        //     mirrors the Mmu's. The Mmu side is already correct from
+        //     load_state. Sequence: set_pending(effective) +
+        //     commit_pending() promotes effective; then
+        //     set_pending(pending) leaves pending != effective intact.
+        //
+        // (2) OLD-FORMAT save (Mmu schema slot absent, load fell
+        //     through the !r.eof() guard): re-derive both fields from
+        //     the NR 0x03 cached byte (forward compatibility with
+        //     pre-V24 snapshots). Both shadow and effective are seeded
+        //     to the tim_sel-derived MachineTimingMode — mirroring the
+        //     VHDL power-on state where nr_03_machine_timing and
+        //     eff_nr_03_machine_timing start equal and only diverge
+        //     between an NR 0x03 write and the next frame edge (which
+        //     could never have been captured by a pre-V24 save anyway).
+        //
+        // Mirrors the `set_cpu_speed` / `set_contention_disable` /
+        // `set_port_7ffd_io_en` re-push pattern above for the
+        // ContentionModel side.
+        if (mmu_.machine_timing_loaded_from_schema()) {
+            // Path (1): schema-restored pair is canonical.
+            const MachineTimingMode eff_tim  = mmu_.machine_timing();
+            const MachineTimingMode pend_tim = mmu_.pending_machine_timing();
+            // Seed ContentionModel's (effective, pending) = (eff_tim,
+            // pend_tim) without disturbing Mmu (already correct).
+            contention_.set_pending_machine_timing(eff_tim);
+            contention_.commit_pending_machine_timing();
+            contention_.set_pending_machine_timing(pend_tim);
+        } else {
+            // Path (2): old-format fallback — re-derive from NextReg.
+            const uint8_t nr_03_tim = nextreg_.nr_03_machine_timing();
+            const MachineTimingMode tim_mode =
+                decode_nr_03_machine_timing(nr_03_tim);
+            contention_.set_machine_timing(tim_mode);
+            mmu_.set_machine_timing(tim_mode);
+        }
     }
 
     // Audio subsystems.

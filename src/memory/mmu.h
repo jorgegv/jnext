@@ -875,6 +875,20 @@ public:
     MachineTimingMode machine_timing()         const { return machine_timing_; }
     MachineTimingMode pending_machine_timing() const { return pending_machine_timing_; }
 
+    // V24-MEM-NIT-01 (Pass-25 reviewer follow-up): transient load-time
+    // signal. Set true by load_state iff BOTH schema slots
+    // (machine_timing_, pending_machine_timing_) were present and read
+    // from the snapshot stream. Set false on old-format saves where the
+    // !r.eof() guard fell through. NOT serialised — it is a one-shot
+    // indicator for Emulator::load_state's post-Mmu re-sync step so it
+    // can choose between (a) trusting the schema-restored deferred-commit
+    // pair, or (b) re-deriving both fields from the NextReg cached byte
+    // (old-format fallback). Cleared back to false at the start of each
+    // load_state() call so a fresh decision is taken every load.
+    bool machine_timing_loaded_from_schema() const {
+        return machine_timing_loaded_from_schema_;
+    }
+
     // Compute the VHDL sram_rom value (0..3) that the SRAM arbiter would
     // feed into the ROM address (zxnext.vhd:3052 sram_pre_A21_A13 =
     // "000000" & sram_rom & cpu_a(13)) for the currently configured
@@ -1358,6 +1372,10 @@ private:
     // for unit-test fixtures that bypass Emulator.
     MachineTimingMode machine_timing_         = MachineTimingMode::TimingPlus3;
     MachineTimingMode pending_machine_timing_ = MachineTimingMode::TimingPlus3;
+    // V24-MEM-NIT-01: transient load-time flag — true iff load_state
+    // successfully read both schema slots for the timing pair above.
+    // Not serialised; reset on entry to every load_state() call.
+    bool           machine_timing_loaded_from_schema_ = false;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
     // VHDL zxnext.vhd:882, 3716, 3721, 3729, 3738 — port_1ffd_special_old

@@ -36,6 +36,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include "memory/contention.h"
 #include "memory/mmu.h"
 #include "core/clock.h"
@@ -2870,6 +2871,158 @@ static void test_cat29_v24_mem_01() {
               pre && !post,
               std::string("pre 48-tim=") + std::to_string(pre) +
               " post Pent-tim=" + std::to_string(post) + " (exp 1/0)");
+    }
+
+    // D3-CONTENTION-NIT-01 — V24-MEM-NIT-01 (reviewer follow-up):
+    // Emulator::load_state must PRESERVE the schema-restored
+    // (effective, pending) machine_timing pair when both Mmu schema
+    // slots are present in the save stream. Pre-fix the re-sync at
+    // emulator.cpp:7376-7395 unconditionally called set_machine_timing()
+    // on BOTH ContentionModel and Mmu, collapsing pending into effective
+    // — a one-frame round-trip imperfection for snapshots taken between
+    // an NR 0x03 bits-6:4 write and the next video-frame edge (VHDL
+    // :6694-6703 deferred-commit window).
+    //
+    // Discriminative setup:
+    //   1. Init Emulator as ZX48K → both axes = Timing48
+    //   2. Write NR 0x03 = 0xA0 (bit7=1 gate, bits 6:4 = 010 = tim_sel
+    //      128) — shadow=Timing128, effective=Timing48 (no run_frame).
+    //   3. Save state. The Mmu schema serialises BOTH (effective=
+    //      Timing48, pending=Timing128).
+    //   4. Construct a SECOND Emulator at ZX48K (same init defaults).
+    //   5. Plant a divergence on the second Emulator's ContentionModel
+    //      pending field (e.g. set_pending_machine_timing(Timing48)) so
+    //      we can detect whether load_state restores the pending=128
+    //      state from the schema or clobbers it.
+    //   6. Load the state. Pre-fix: ContentionModel's pending becomes
+    //      Timing48 (the effective NR-03-derived value clobbers it).
+    //      Post-fix: ContentionModel's pending stays Timing128 (the
+    //      schema-restored value).
+    //   7. Verify the (effective, pending) pair on Mmu AND ContentionModel
+    //      both reflect (Timing48, Timing128).
+    //   8. Run a frame — pending commits → effective; verify both
+    //      converge to Timing128.
+    {
+        Emulator emu1;
+        const bool ok1 = make_emu(emu1, MachineType::ZX48K);
+        if (!ok1) {
+            check("D3-CONTENTION-NIT-01",
+                  "Emulator::init(ZX48K) failed — would verify "
+                  "load_state preserves machine_timing pair from Mmu "
+                  "schema",
+                  false, "Emulator::init returned false");
+        } else {
+            // Post-init both axes = Timing48 (ZX48K default).
+            // Write NR 0x03 = 0xA0: bit7=1 (gate timing-commit),
+            // bits 6:4 = 010 (tim_sel = Timing128), bit 3 = 0,
+            // bits 2:0 = 000 (typ_sel = 0; typ commit gated by
+            // config_mode which is off — typ_sel axis stays).
+            emu1.nextreg().write(0x03, 0xA0);
+
+            // Confirm the pre-save state: effective stays Timing48,
+            // pending advances to Timing128 (deferred-commit window).
+            const MachineTimingMode src_mmu_eff  = emu1.mmu().machine_timing();
+            const MachineTimingMode src_mmu_pend = emu1.mmu().pending_machine_timing();
+            const MachineTimingMode src_cm_eff   = emu1.contention().machine_timing();
+            const MachineTimingMode src_cm_pend  = emu1.contention().pending_machine_timing();
+            const bool src_state_correct =
+                src_mmu_eff  == MachineTimingMode::Timing48 &&
+                src_mmu_pend == MachineTimingMode::Timing128 &&
+                src_cm_eff   == MachineTimingMode::Timing48 &&
+                src_cm_pend  == MachineTimingMode::Timing128;
+
+            // Save state.
+            StateWriter measure;
+            emu1.save_state(measure);
+            const size_t snap_size = measure.position();
+            std::vector<uint8_t> buf(snap_size, 0);
+            StateWriter w(buf.data(), snap_size);
+            emu1.save_state(w);
+            const bool save_size_match = (w.position() == snap_size);
+
+            // Construct a fresh Emulator at the same machine type. Post-
+            // init defaults: all axes = Timing48 / Timing48 (both
+            // effective and pending). Plant a divergence on the
+            // ContentionModel pending to verify load_state actually
+            // re-pushes the schema-restored pending value rather than
+            // leaving it untouched.
+            Emulator emu2;
+            const bool ok2 = make_emu(emu2, MachineType::ZX48K);
+            if (!ok2) {
+                check("D3-CONTENTION-NIT-01",
+                      "Emulator::init(ZX48K) #2 failed",
+                      false, "second Emulator::init returned false");
+            } else {
+                // Plant divergence on second Emulator's ContentionModel
+                // pending field (mirrors how V16-CPU-01 test seeds a
+                // pre-load divergence).
+                emu2.contention().set_pending_machine_timing(
+                    MachineTimingMode::TimingPlus3);
+                const MachineTimingMode planted_cm_pend =
+                    emu2.contention().pending_machine_timing();
+
+                // Load state.
+                StateReader r(buf.data(), snap_size);
+                emu2.load_state(r);
+
+                // Post-load assertions:
+                // (a) Mmu effective and pending restored from schema.
+                const MachineTimingMode l_mmu_eff  = emu2.mmu().machine_timing();
+                const MachineTimingMode l_mmu_pend = emu2.mmu().pending_machine_timing();
+                // (b) ContentionModel mirrors the schema-restored pair —
+                //     the V24-MEM-NIT-01 fix re-pushes pending into the
+                //     ContentionModel rather than collapsing it.
+                const MachineTimingMode l_cm_eff   = emu2.contention().machine_timing();
+                const MachineTimingMode l_cm_pend  = emu2.contention().pending_machine_timing();
+                // (c) Schema-loaded flag should be true (new-format save).
+                const bool flag = emu2.mmu().machine_timing_loaded_from_schema();
+
+                const bool post_load_correct =
+                    l_mmu_eff  == MachineTimingMode::Timing48  &&
+                    l_mmu_pend == MachineTimingMode::Timing128 &&
+                    l_cm_eff   == MachineTimingMode::Timing48  &&
+                    l_cm_pend  == MachineTimingMode::Timing128 &&
+                    flag;
+
+                // (d) Run a frame — the per-frame seam at run_frame()
+                //     top calls commit_pending_machine_timing() on
+                //     BOTH Mmu and ContentionModel, promoting Timing128
+                //     into effective.
+                emu2.run_frame();
+                const MachineTimingMode f_mmu_eff = emu2.mmu().machine_timing();
+                const MachineTimingMode f_cm_eff  = emu2.contention().machine_timing();
+                const bool post_frame_correct =
+                    f_mmu_eff == MachineTimingMode::Timing128 &&
+                    f_cm_eff  == MachineTimingMode::Timing128;
+
+                check("D3-CONTENTION-NIT-01",
+                      "Emulator::load_state PRESERVES the schema-"
+                      "restored machine_timing (effective, pending) pair "
+                      "from the Mmu schema slot; ContentionModel mirrors "
+                      "the pair; commit_pending at next run_frame() "
+                      "promotes pending→effective (V24-MEM-NIT-01 fix; "
+                      "VHDL :6694-6703 deferred-commit window)",
+                      src_state_correct && save_size_match &&
+                      planted_cm_pend == MachineTimingMode::TimingPlus3 &&
+                      post_load_correct && post_frame_correct,
+                      std::string("src(mmu_eff,mmu_pend,cm_eff,cm_pend)=(") +
+                      std::to_string(static_cast<int>(src_mmu_eff))  + "," +
+                      std::to_string(static_cast<int>(src_mmu_pend)) + "," +
+                      std::to_string(static_cast<int>(src_cm_eff))   + "," +
+                      std::to_string(static_cast<int>(src_cm_pend))  +
+                      ") expected(0,1,0,1); load(mmu_eff,mmu_pend,cm_eff,cm_pend)=(" +
+                      std::to_string(static_cast<int>(l_mmu_eff))  + "," +
+                      std::to_string(static_cast<int>(l_mmu_pend)) + "," +
+                      std::to_string(static_cast<int>(l_cm_eff))   + "," +
+                      std::to_string(static_cast<int>(l_cm_pend))  +
+                      ") expected(0,1,0,1); schema_flag=" +
+                      std::to_string(flag) +
+                      "; post-frame(mmu_eff,cm_eff)=(" +
+                      std::to_string(static_cast<int>(f_mmu_eff)) + "," +
+                      std::to_string(static_cast<int>(f_cm_eff))  +
+                      ") expected(1,1)");
+            }
+        }
     }
 }
 
