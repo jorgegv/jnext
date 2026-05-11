@@ -878,10 +878,24 @@ void Mmu::save_state(StateWriter& w) const
     // collapsed back to the 0xFF sentinel because read_only_=true).
     // Persisting the array round-trips the NR read-back faithfully.
     w.write_bytes(nr_mmu_, 8);
+    // V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split. Both
+    // shadow (pending) and effective (latched) fields are persisted so
+    // a snapshot taken between an NR 0x03 bits-6:4 write and the next
+    // video-frame edge round-trips faithfully. Schema bump: appended at
+    // tail, matched by the `!r.eof()`-tolerant reader (per V20R-CPU-
+    // NIT-01 precedent). Older saves fall through with the constructor
+    // default (+3 timing per VHDL :1099/:1377), which Emulator::
+    // load_state re-syncs from the canonical NR 0x03 cached byte
+    // (matching the same machine_type-from-NextReg pattern at :7283).
+    w.write_u8(static_cast<uint8_t>(machine_timing_));
+    w.write_u8(static_cast<uint8_t>(pending_machine_timing_));
 }
 
 void Mmu::load_state(StateReader& r)
 {
+    // V24-MEM-NIT-01: reset the load-time machine_timing schema flag at
+    // entry. Will be set true below iff BOTH timing slots are present.
+    machine_timing_loaded_from_schema_ = false;
     r.read_bytes(slots_, 8);
     for (int i = 0; i < 8; ++i) read_only_[i] = r.read_bool();
     paging_locked_   = r.read_bool();
@@ -935,6 +949,32 @@ void Mmu::load_state(StateReader& r)
     // predate this addition still round-trip via the lossy fallback
     // recovered below (StateReader's bounds check flags short reads).
     r.read_bytes(nr_mmu_, 8);
+    // V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split. Older
+    // saves fall through with the constructor default (TimingPlus3 per
+    // VHDL :1099/:1377). Emulator::load_state subsequently re-syncs
+    // both fields from the canonical NR 0x03 cached byte when the
+    // schema slot was absent, so the round-trip is robust against
+    // schema-version mismatch.
+    //
+    // V24-MEM-NIT-01 (reviewer follow-up): track whether BOTH slots
+    // were successfully read. The Emulator::load_state re-sync uses
+    // this signal to decide between trusting the schema-restored pair
+    // (preserves a `pending != effective` deferred-commit state taken
+    // between an NR 0x03 bits-6:4 write and the next video-frame edge)
+    // OR re-deriving from NextReg (old-format fallback). Pre-fix the
+    // re-sync clobbered the pair unconditionally — see
+    // emulator.cpp:7376-7395.
+    bool got_machine_timing = false;
+    bool got_pending        = false;
+    if (!r.eof()) {
+        machine_timing_ = static_cast<MachineTimingMode>(r.read_u8());
+        got_machine_timing = true;
+    }
+    if (!r.eof()) {
+        pending_machine_timing_ = static_cast<MachineTimingMode>(r.read_u8());
+        got_pending = true;
+    }
+    machine_timing_loaded_from_schema_ = got_machine_timing && got_pending;
 }
 
 // ---------------------------------------------------------------------------

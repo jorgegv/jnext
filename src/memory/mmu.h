@@ -848,6 +848,47 @@ public:
     }
     MachineType machine_type() const { return machine_type_; }
 
+    // ── V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split ─────
+    // VHDL anchor: zxnext.vhd:5761-5777 (decode of
+    // `eff_nr_03_machine_timing` into one-hot `machine_timing_*`);
+    // :6694-6703 (per-frame latch); :4490-4492 (mem_contend per-machine
+    // page decode). The `mem_contend_for_(addr)` accessor below feeds
+    // the floating-bus latch process (`p3_floating_bus_dat_`, VHDL
+    // :4498-4509) and must key on `machine_timing_` (tim_sel axis), not
+    // on `machine_type_` (typ_sel axis).
+    //
+    // Same shadow + effective pattern as ContentionModel:
+    //   pending_machine_timing_  ← shadow (NR 0x03 bits 6:4 immediate)
+    //   machine_timing_          ← effective (video-frame-latched)
+    // Emulator's per-frame seam calls commit_pending_machine_timing()
+    // at the video-frame edge.
+    void set_machine_timing(MachineTimingMode m) {
+        machine_timing_         = m;
+        pending_machine_timing_ = m;
+    }
+    void set_pending_machine_timing(MachineTimingMode m) {
+        pending_machine_timing_ = m;
+    }
+    void commit_pending_machine_timing() {
+        machine_timing_ = pending_machine_timing_;
+    }
+    MachineTimingMode machine_timing()         const { return machine_timing_; }
+    MachineTimingMode pending_machine_timing() const { return pending_machine_timing_; }
+
+    // V24-MEM-NIT-01 (Pass-25 reviewer follow-up): transient load-time
+    // signal. Set true by load_state iff BOTH schema slots
+    // (machine_timing_, pending_machine_timing_) were present and read
+    // from the snapshot stream. Set false on old-format saves where the
+    // !r.eof() guard fell through. NOT serialised — it is a one-shot
+    // indicator for Emulator::load_state's post-Mmu re-sync step so it
+    // can choose between (a) trusting the schema-restored deferred-commit
+    // pair, or (b) re-deriving both fields from the NextReg cached byte
+    // (old-format fallback). Cleared back to false at the start of each
+    // load_state() call so a fresh decision is taken every load.
+    bool machine_timing_loaded_from_schema() const {
+        return machine_timing_loaded_from_schema_;
+    }
+
     // Compute the VHDL sram_rom value (0..3) that the SRAM arbiter would
     // feed into the ROM address (zxnext.vhd:3052 sram_pre_A21_A13 =
     // "000000" & sram_rom & cpu_a(13)) for the currently configured
@@ -1186,18 +1227,22 @@ private:
     // sensitivity list. So this helper deliberately does NOT consult the
     // ContentionModel's gate inputs — VHDL captures the latch even when
     // contention is disabled or the CPU is overclocked.
+    // V24-MEM-01 / V25-MEM-01 fix — per-page mem_contend decode is
+    // keyed on `machine_timing_*` (zxnext.vhd:4490-4492), the tim_sel
+    // axis. Pre-fix this switched on `machine_type_` (typ_sel axis),
+    // diverging when a user wrote NR 0x03 with bits 6:4 != bits 2:0.
     inline bool mem_contend_for_(uint16_t addr) const {
         const uint8_t page = nr_mmu_[(addr >> 13) & 7];
         if ((page & 0xF0) != 0) return false;       // high pages don't contend
         const uint8_t low = page & 0x0F;
-        switch (machine_type_) {
-            case MachineType::ZX48K:
+        switch (machine_timing_) {
+            case MachineTimingMode::Timing48:
                 return ((low >> 1) & 0x07) == 0x05; // bank 5 only
-            case MachineType::ZX128K:
+            case MachineTimingMode::Timing128:
                 return (low & 0x02) != 0;           // odd banks
-            case MachineType::ZX_PLUS3:
+            case MachineTimingMode::TimingPlus3:
                 return (low & 0x08) != 0;           // banks ≥ 4
-            case MachineType::ZXN_ISSUE2:
+            case MachineTimingMode::TimingPentagon:
             default:
                 return false;
         }
@@ -1320,6 +1365,17 @@ private:
     // machine type. Default ZXN_ISSUE2 matches Emulator's default Next
     // config; non-Next machines push via set_machine_type().
     MachineType    machine_type_ = MachineType::ZXN_ISSUE2;
+    // V24-MEM-01 / V25-MEM-01 — machine_timing axis split (mirror of
+    // VHDL eff_nr_03_machine_timing / nr_03_machine_timing). VHDL :1099
+    // / :1377 default = "011" (+3 timing). Emulator::init pushes
+    // tim_sel-matching-CLI-MachineType, so this default only matters
+    // for unit-test fixtures that bypass Emulator.
+    MachineTimingMode machine_timing_         = MachineTimingMode::TimingPlus3;
+    MachineTimingMode pending_machine_timing_ = MachineTimingMode::TimingPlus3;
+    // V24-MEM-NIT-01: transient load-time flag — true iff load_state
+    // successfully read both schema slots for the timing pair above.
+    // Not serialised; reset on entry to every load_state() call.
+    bool           machine_timing_loaded_from_schema_ = false;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
     // VHDL zxnext.vhd:882, 3716, 3721, 3729, 3738 — port_1ffd_special_old

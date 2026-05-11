@@ -36,6 +36,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include "memory/contention.h"
 #include "memory/mmu.h"
 #include "core/clock.h"
@@ -190,16 +191,33 @@ static void test_gate_enable() {
     }
 
     // CT-GATE-08: default-constructed ContentionModel — no build() call.
-    // type_ defaults to MachineType::ZXN_ISSUE2 (contention.h:56), and
-    // the switch fallthrough at contention.cpp:87-90 returns false.
-    // Exercises the ZXN_ISSUE2 branch.
+    //
+    // V24-MEM-01 / V25-MEM-01 fix update: pre-fix this row asserted
+    // ZXN_ISSUE2 fallthrough (no contention). Post-fix the gate keys
+    // on `machine_timing_` whose constructor default is
+    // `TimingPlus3` (matching VHDL :1099 `nr_03_machine_timing :=
+    // "011"` and :1377 `eff_nr_03_machine_timing := "011"`). So a
+    // default-constructed model now decodes the page using the +3
+    // bank-decode (mem_active_page(3)='1'). The new row asserts that:
+    //   * page=0x02 (low nibble bit3=0) → false (+3: bit3 clear)
+    //   * page=0x0A (low nibble bit3=1) → true (+3: bit3 set, bank>=4)
+    // Matches the new VHDL-faithful default. (Pre-fix legacy
+    // `type_=ZXN_ISSUE2` is still the default for the typ_sel axis;
+    // build() will re-seed both axes coherently.)
     {
         ContentionModel cm;
+        cm.set_mem_active_page(0x02);
+        const bool p02 = cm.is_contended_access();
         cm.set_mem_active_page(0x0A);
+        const bool p0a = cm.is_contended_access();
         check("CT-GATE-08",
-              "Default-constructed model (no build()), page=0x0A → false "
-              "[src/memory/contention.h:56; contention.cpp:87-90]",
-              !cm.is_contended_access());
+              "Default-constructed model (no build()) honours VHDL "
+              ":1099/:1377 power-on TimingPlus3 default — page=0x02 "
+              "(bit3=0) → false; page=0x0A (bit3=1) → true "
+              "[V24-MEM-01 fix; zxnext.vhd:4492,5761-5777]",
+              !p02 && p0a,
+              std::string("p02=") + std::to_string(p02) +
+              " p0a=" + std::to_string(p0a) + " (exp 0/1)");
     }
 }
 
@@ -2152,6 +2170,17 @@ static void test_cat27_verify9_regressions() {
         // the gate-disabling fields don't perturb the is_contended_access
         // signal. cpu_speed=0 + contention_disable=0 leaves only the
         // per-machine bank decode at :4490-4492 driving the result.
+        //
+        // V24-MEM-01 / V25-MEM-01 fix update: post-fix the
+        // per-machine mem_contend decode is keyed on `machine_timing_`
+        // (tim_sel axis), NOT on `type_` (typ_sel axis). To exercise
+        // the +3 bank decode, both axes must be aligned — `build()`
+        // seeds them coherently, and `rebuild_for_type` is the
+        // typ_sel-side rebuild only. The production NR 0x03
+        // dispatcher pushes the matching `set_pending_machine_timing()`
+        // separately (immediate set_machine_timing in tests since we
+        // don't model the video-frame seam here). Drive both axes to
+        // reflect the canonical NextZXOS NR 0x03 path.
         ContentionModel cm2;
         cm2.build(MachineType::ZX48K);
         cm2.set_mem_active_page(8);   // bank 4 lo (= bank 4 page 8 on +3)
@@ -2159,6 +2188,7 @@ static void test_cat27_verify9_regressions() {
         cm2.set_mem_active_page(10);
         const bool pre_p10 = cm2.is_contended_access();   // 48K: true
         cm2.rebuild_for_type(MachineType::ZX_PLUS3);
+        cm2.set_machine_timing(MachineTimingMode::TimingPlus3);  // tim_sel co-commit
         cm2.set_mem_active_page(8);
         const bool post_p8  = cm2.is_contended_access();  // +3: true
         cm2.set_mem_active_page(10);
@@ -2196,49 +2226,52 @@ static void test_cat27_verify9_regressions() {
     // and observes that the contention model's `type_` (via the LUT
     // is_contended_access decode) tracked the change.
     {
-        Emulator emu;
-        const bool ok = make_emu(emu, MachineType::ZXN_ISSUE2);
+        // V24-MEM-01 / V25-MEM-01 fix update: pre-fix this row asserted
+        // ZXN_ISSUE2 → no contention (typ_sel-driven switch returned
+        // false for the ZXN branch). Post-fix the contention decode is
+        // keyed on `machine_timing_` (tim_sel axis), and Next boot's
+        // canonical nr_03_machine_timing is "011" (+3 timing, VHDL
+        // :1099) — so ZXN_ISSUE2 already runs +3 contention rules. To
+        // keep the row discriminative, start from 48K timing and
+        // drive a 48K → +3 NR 0x03 commit. 48K mem_contend at
+        // page=0x08 is false ((low>>1)&7 = 4 != 5); +3's is true
+        // ((low&8)!=0). The pre→post pivot remains the same observable
+        // contract: NR 0x03 commit changes the contention decode.
+        Emulator emu48;
+        const bool ok = make_emu(emu48, MachineType::ZX48K);
         if (!ok) {
             check("FIX-CONTEND-NR03-INT-01",
-                  "Emulator::init failed — would verify NR 0x03 dispatcher "
-                  "invokes ContentionModel::rebuild_for_type",
+                  "Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher "
+                  "drives both axes",
                   false, "Emulator::init returned false");
         } else {
-            // Probe pre-state: ZXN_ISSUE2 returns false on
-            // is_contended_access() regardless of mem_active_page (per
-            // VHDL :4493 — Next/Pentagon timing-mode line absent).
-            emu.contention().set_mem_active_page(0x0A);  // bank-5 lo
-            const bool pre_contend = emu.contention().is_contended_access();
-            // Drive NR 0x03 = 0x83 (enter config_mode then commit
-            // typ_sel=$03 = +3). The emulator dispatcher's NR 0x03
-            // handler runs the machine-type commit gated on previous
-            // config_mode.
-            //
-            // VHDL zxnext.vhd:5137 commits machine_type ONLY when
-            // PREVIOUS config_mode='1'. Our production sequence:
-            //   1. Enter config_mode: NR 0x03 = 0x07 (typ_sel=111 →
-            //      config_mode=1, no commit since current cm was 1
-            //      before — at reset cm starts as cfg.type-derived per
-            //      Emulator::init).
-            //   2. Then write typ_sel=$03 with bit 7=1 → commits +3.
-            //
-            // Simpler: Next initial config_mode=true (per Emulator::init
-            // boot-time push), so a single NR 0x03=$03 commits +3. Drive
-            // through nextreg().write() to invoke the write_handler.
-            emu.nextreg().write(0x03, 0x03);
-            // Probe post-state: with type=ZX_PLUS3, page 0x0A (= bank 5
-            // lo, page 10 in low nibble: 1010 → bit 3=1) is contended
-            // per VHDL :4492 (+3: low nibble bit 3 = 1).
-            emu.contention().set_mem_active_page(0x0A);
-            const bool post_contend = emu.contention().is_contended_access();
+            // Pre-state: 48K timing, page=0x08 — 48K mem_contend's
+            // (page(3:1)=101) bank-5 decode is false here.
+            emu48.contention().set_mem_active_page(0x08);
+            const bool pre_contend = emu48.contention().is_contended_access();
+            // Drive NR 0x03 = 0xB3 — bit 7=1 (gate the timing commit
+            // path at VHDL :5124), bits 6:4 = 011 (tim_sel=+3 timing),
+            // bits 2:0 = 011 (typ_sel=ZX_PLUS3). Both axes committed in
+            // one write, matching the canonical NextZXOS boot path.
+            // Then run a frame so the deferred timing latch promotes
+            // shadow → effective at the video-frame edge (VHDL
+            // :6694-6703).
+            emu48.nextreg().write(0x03, 0xB3);
+            emu48.run_frame();
+            // Post-state: page=0x08 now hits +3's (low&8)!=0 → contend.
+            emu48.contention().set_mem_active_page(0x08);
+            const bool post_contend = emu48.contention().is_contended_access();
             check("FIX-CONTEND-NR03-INT-01",
-                  "Emulator NR 0x03 dispatcher invokes rebuild_for_type — "
-                  "post-write, ContentionModel decode tracks +3 timing "
-                  "(VHDL :5137-5145 + :4489-4493; commit f5ec6d8)",
+                  "Emulator NR 0x03 dispatcher drives BOTH axes "
+                  "(rebuild_for_type for typ_sel + "
+                  "set_pending_machine_timing for tim_sel + per-frame "
+                  "commit_pending_machine_timing) — page=0x08 contends "
+                  "only post-+3 commit (VHDL :4489-4493 + :5761-5777 + "
+                  ":6694-6703; commit f5ec6d8 + V24-MEM-01)",
                   !pre_contend && post_contend,
-                  std::string("pre Next contend(0x0A)=") +
+                  std::string("pre 48K contend(0x08)=") +
                   std::to_string(pre_contend) +
-                  " post +3 contend(0x0A)=" + std::to_string(post_contend) +
+                  " post +3 contend(0x08)=" + std::to_string(post_contend) +
                   " (exp 0/1)");
         }
     }
@@ -2566,6 +2599,433 @@ static void test_cat28_v15_cpu_nit_03() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Cat 29: V24-MEM-01 / V25-MEM-01 — contention timing axis split.
+// Discriminative tests for the machine_timing_ (tim_sel axis, NR 0x03
+// bits 6:4) vs MachineType (typ_sel axis, NR 0x03 bits 2:0) split.
+//
+// VHDL anchors:
+//   * zxnext.vhd:5761-5777 — combinational decode of
+//     eff_nr_03_machine_timing into one-hot machine_timing_*.
+//   * zxnext.vhd:6694-6703 — eff_nr_03_machine_timing latches
+//     nr_03_machine_timing on video_frame_sync='1' (per-frame edge).
+//   * zxnext.vhd:4490-4492 — mem_contend per-machine bank decode
+//     keyed on machine_timing_*.
+//   * zxnext.vhd:5121-5135 — NR 0x03 bits 6:4 commit path (immediate
+//     write to nr_03_machine_timing, gated on bit 7=1 + user_dt_lock=0
+//     + bit 3=0).
+//
+// Pre-fix scope: the contention surfaces (is_contended_access,
+// contention_tick, port_contend, Mmu::mem_contend_for_) keyed on
+// `MachineType` (typ_sel axis). Pre-fix a user-written NR 0x03 with
+// `tim_sel != typ_sel` would silently mis-decode contention. Post-fix
+// the two axes are independent.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_cat29_v24_mem_01() {
+    set_group("CT-CAT29-V24");
+
+    // D3-CONTENTION-01 — Bare-class ContentionModel: independent axis
+    // commit. Drive machine_timing_=Timing128 with type_=ZX48K. The
+    // mem_contend decode must follow tim_sel (Timing128 → odd-banks);
+    // pre-fix it followed typ_sel (ZX48K → bank-5 only) and would
+    // mis-classify page=0x02 (bank 1 lo, odd bank).
+    //
+    // Discriminative: page=0x02 (low nibble = 2):
+    //   * Timing48 (bank-5 only):  (low>>1)&7 = 1 != 5 → false
+    //   * Timing128 (odd banks):   low&2 = 2 → true
+    //   * TimingPlus3 (banks >= 4): low&8 = 0 → false
+    // Build with type_=ZX48K (sets machine_timing_=Timing48 via init);
+    // then override machine_timing_=Timing128 via set_machine_timing().
+    // Pre-fix the bare accessor switched on type_ → returned false.
+    // Post-fix it switches on machine_timing_ → returns true.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);                 // both axes = 48
+        cm.set_mem_active_page(0x02);                  // bank 1 lo (odd)
+        const bool pre  = cm.is_contended_access();    // 48: bank-5 decode → false
+        cm.set_machine_timing(MachineTimingMode::Timing128);
+        const bool post = cm.is_contended_access();    // 128: odd-banks → true
+        check("D3-CONTENTION-01",
+              "tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows "
+              "typ_sel (48: bank-5 only → false); post-fix follows "
+              "tim_sel (128: odd banks → true) per VHDL "
+              "zxnext.vhd:4491,5761-5777",
+              !pre && post,
+              std::string("pre 48-typ=") + std::to_string(pre) +
+              " post 128-tim=" + std::to_string(post) + " (exp 0/1)");
+    }
+
+    // D3-CONTENTION-02 — opposite direction: typ_sel=ZX128K but
+    // tim_sel=Plus3. Discriminate at page=0x08 (low nibble bit 3 = 1):
+    //   * Timing128 (odd banks):    low&2 = 0 → false
+    //   * TimingPlus3 (banks >= 4): low&8 = 8 → true
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);                // both axes = 128
+        cm.set_mem_active_page(0x08);                 // bank 4 lo (even, banks>=4)
+        const bool pre  = cm.is_contended_access();   // 128: odd-banks → false
+        cm.set_machine_timing(MachineTimingMode::TimingPlus3);
+        const bool post = cm.is_contended_access();   // +3: banks>=4 → true
+        check("D3-CONTENTION-02",
+              "tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows "
+              "typ_sel (128: odd banks → false); post-fix follows "
+              "tim_sel (+3: banks>=4 → true) per VHDL "
+              "zxnext.vhd:4492,5761-5777",
+              !pre && post,
+              std::string("pre 128-typ=") + std::to_string(pre) +
+              " post +3-tim=" + std::to_string(post) + " (exp 0/1)");
+    }
+
+    // D3-CONTENTION-03 — video-frame deferred-commit latch behaviour
+    // per VHDL zxnext.vhd:6694-6703:
+    //   if video_frame_sync = '1' then
+    //     eff_nr_03_machine_timing <= nr_03_machine_timing;
+    //   end if;
+    // The shadow (`pending_machine_timing_`, mirror of
+    // `nr_03_machine_timing`) updates immediately on the gated NR 0x03
+    // write; the effective field (`machine_timing_`, mirror of
+    // `eff_nr_03_machine_timing`) only commits at the next video-frame
+    // edge. Discriminative test: push a pending change AND probe the
+    // contention decode BEFORE commit (must still see old value); then
+    // commit and re-probe (must see new value).
+    //
+    // Setup: build for 48K, page=0x02 (48: false, 128: true). Push
+    // pending=Timing128 — contention still uses Timing48 (effective).
+    // Commit — contention now sees Timing128.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x02);
+        const bool pre = cm.is_contended_access();   // 48: false
+        cm.set_pending_machine_timing(MachineTimingMode::Timing128);
+        // Pre-commit: effective still Timing48 → still false.
+        const bool mid = cm.is_contended_access();
+        // Commit at frame edge → effective = Timing128 → now true.
+        cm.commit_pending_machine_timing();
+        const bool post = cm.is_contended_access();
+        check("D3-CONTENTION-03",
+              "video-frame deferred-commit latch — set_pending defers "
+              "the new tim_sel until commit_pending_machine_timing() at "
+              "the frame edge; pre-commit retains old effective value "
+              "(VHDL zxnext.vhd:6694-6703)",
+              !pre && !mid && post,
+              std::string("pre=") + std::to_string(pre) +
+              " mid(pending=128, eff=48)=" + std::to_string(mid) +
+              " post-commit=" + std::to_string(post) +
+              " (exp 0/0/1)");
+    }
+
+    // D3-CONTENTION-04 — Emulator integration: NR 0x03 with tim_sel !=
+    // typ_sel exercises the deferred-commit path through the production
+    // NR 0x03 write_handler + run_frame() seam. This is the
+    // discriminative end-to-end row: pre-fix the contention model
+    // followed typ_sel only, so a NR 0x03 write with tim_sel=+3 +
+    // typ_sel=128 would mis-classify page=0x08.
+    //
+    // Pivot at page=0x08: 128 timing → false (odd-banks); +3 timing
+    // → true (banks>=4). Drive NR 0x03 = 0xB2:
+    //   bit 7=1 (gate timing-commit)
+    //   bits 6:4 = 011 (tim_sel = +3 timing)
+    //   bit 3=0 (don't toggle dt_lock)
+    //   bits 2:0 = 010 (typ_sel = 128 type — DIFFERENT from tim_sel!)
+    // Pre-write: 128K machine, page=0x08 → 128 mem_contend false.
+    // Post-write (after run_frame to commit the frame-edge latch):
+    //   typ_sel commit → MachineType=ZX128K (unchanged, since 128K was
+    //                    the boot type).
+    //   tim_sel commit → machine_timing_=TimingPlus3 (CHANGED, now
+    //                    different from typ_sel).
+    //   page=0x08 → +3 mem_contend true.
+    //
+    // Test passes iff post-write contention follows the tim_sel axis,
+    // proving the axes are independent (the V24-MEM-01 fix).
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX128K);
+        if (!ok) {
+            check("D3-CONTENTION-04",
+                  "Emulator::init(ZX128K) failed",
+                  false, "Emulator::init returned false");
+        } else {
+            emu.contention().set_mem_active_page(0x08);
+            const bool pre = emu.contention().is_contended_access();
+            // Confirm pre-write: 128 mem_contend is false at page=0x08.
+
+            // Write NR 0x03 = 0xB2 = bit7=1 | tim_sel=3<<4 | typ_sel=2.
+            // Different tim_sel and typ_sel — the V24 discriminative
+            // condition.
+            emu.nextreg().write(0x03, 0xB2);
+
+            // Immediately after the write (before frame edge), the
+            // tim_sel commit is in pending only — contention should
+            // still see the OLD effective (Timing128 → page=0x08 false).
+            emu.contention().set_mem_active_page(0x08);
+            const bool mid = emu.contention().is_contended_access();
+
+            // Run a frame — the per-frame seam commits the latch
+            // (run_frame() top calls commit_pending_machine_timing()).
+            emu.run_frame();
+            emu.contention().set_mem_active_page(0x08);
+            const bool post = emu.contention().is_contended_access();
+
+            // Also confirm the typ_sel commit independently: NR 0x03
+            // read should now compose typ_sel=2 (ZX128K = unchanged
+            // since emulator was already 128K) AND tim_sel=3 (+3
+            // timing — the divergent axis).
+            const uint8_t nr_03_after = emu.nextreg().nr_03_machine_timing();
+            const MachineType type_after = emu.mmu().machine_type();
+            const bool typ_unchanged = (type_after == MachineType::ZX128K);
+            const bool tim_committed = (nr_03_after == 0x03);
+
+            check("D3-CONTENTION-04",
+                  "Emulator NR 0x03 with tim_sel != typ_sel: pre-write "
+                  "128 mem_contend(0x08)=false; mid (pending only)=false; "
+                  "post-run_frame +3 mem_contend(0x08)=true; typ_sel "
+                  "axis unchanged (still 128) — V24-MEM-01 axis "
+                  "independence (VHDL zxnext.vhd:4490-4492 + 5121-5135 + "
+                  "5761-5777 + 6694-6703)",
+                  !pre && !mid && post && typ_unchanged && tim_committed,
+                  std::string("pre=") + std::to_string(pre) +
+                  " mid=" + std::to_string(mid) +
+                  " post=" + std::to_string(post) +
+                  " typ_unchanged=" + std::to_string(typ_unchanged) +
+                  " tim_committed(nr_03_tim=0x" +
+                  std::to_string(nr_03_after) + ")=" +
+                  std::to_string(tim_committed) +
+                  " (exp 0/0/1/1/1)");
+        }
+    }
+
+    // D3-CONTENTION-05 — Mmu::machine_timing_ axis storage + commit
+    // primitives. Probes the Mmu-side mirror through the production
+    // Emulator init path. The Mmu's `machine_timing_` feeds the
+    // `mem_contend_for_(addr)` per-page decode (VHDL :4490-4492) used
+    // by the floating-bus latch at :4498-4509. Mmu's setters mirror
+    // the ContentionModel API one-for-one.
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX128K);
+        if (!ok) {
+            check("D3-CONTENTION-05",
+                  "Emulator::init(ZX128K) failed — Mmu::machine_timing_ "
+                  "axis storage + commit probe",
+                  false, "Emulator::init returned false");
+        } else {
+            // Post-init, Mmu's tim_sel matches the CLI 128K → Timing128.
+            const MachineTimingMode init_tim = emu.mmu().machine_timing();
+
+            // Drive pending → effective via the deferred-commit path
+            // (mirrors what the NR 0x03 handler + run_frame() do in
+            // production). Drive Mmu directly to keep this row scoped
+            // to the Mmu axis storage (D3-CONTENTION-04 covers the
+            // end-to-end Emulator path).
+            emu.mmu().set_pending_machine_timing(MachineTimingMode::TimingPlus3);
+            const MachineTimingMode pre_eff  = emu.mmu().machine_timing();
+            const MachineTimingMode pre_pend = emu.mmu().pending_machine_timing();
+            emu.mmu().commit_pending_machine_timing();
+            const MachineTimingMode post_eff = emu.mmu().machine_timing();
+
+            // Verify the immediate-commit setter too (mirrors the
+            // init-time push and the load_state re-sync push).
+            emu.mmu().set_machine_timing(MachineTimingMode::Timing48);
+            const MachineTimingMode imm_eff  = emu.mmu().machine_timing();
+            const MachineTimingMode imm_pend = emu.mmu().pending_machine_timing();
+
+            check("D3-CONTENTION-05",
+                  "Mmu::machine_timing_ axis storage + deferred-commit "
+                  "primitives: init (128K) → Timing128; "
+                  "set_pending(+3) → effective still Timing128; commit "
+                  "→ TimingPlus3; set_machine_timing(48) immediate-pair "
+                  "(VHDL :6694-6703 + V24-MEM-01)",
+                  init_tim == MachineTimingMode::Timing128 &&
+                  pre_eff  == MachineTimingMode::Timing128 &&
+                  pre_pend == MachineTimingMode::TimingPlus3 &&
+                  post_eff == MachineTimingMode::TimingPlus3 &&
+                  imm_eff  == MachineTimingMode::Timing48 &&
+                  imm_pend == MachineTimingMode::Timing48);
+        }
+    }
+
+    // D3-CONTENTION-06 — Pentagon timing-axis disables contention
+    // independent of MachineType. VHDL zxnext.vhd:4481 gates
+    // `i_contention_en` on `(not machine_timing_pentagon)`, the
+    // tim_sel axis. Pre-fix the term was hard-coded to '0' (the
+    // standalone Pentagon MachineType was retired). Post-fix a user
+    // who writes NR 0x03 with tim_sel=Pentagon (e.g. bits 6:4=100)
+    // disables contention even if typ_sel is something else.
+    //
+    // Discriminative: 48K-typ + Pentagon-tim + page=0x0A (bank 5 lo).
+    // Timing48 → bank-5 contends (true). Pentagon → gate disabled
+    // (false).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);                 // tim=48, typ=48
+        cm.set_mem_active_page(0x0A);
+        const bool pre  = cm.is_contended_access();   // 48: true
+        cm.set_machine_timing(MachineTimingMode::TimingPentagon);
+        const bool post = cm.is_contended_access();   // Pentagon: gate off → false
+        check("D3-CONTENTION-06",
+              "tim_sel=Pentagon disables contention regardless of "
+              "typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on "
+              "NOT machine_timing_pentagon)",
+              pre && !post,
+              std::string("pre 48-tim=") + std::to_string(pre) +
+              " post Pent-tim=" + std::to_string(post) + " (exp 1/0)");
+    }
+
+    // D3-CONTENTION-NIT-01 — V24-MEM-NIT-01 (reviewer follow-up):
+    // Emulator::load_state must PRESERVE the schema-restored
+    // (effective, pending) machine_timing pair when both Mmu schema
+    // slots are present in the save stream. Pre-fix the re-sync at
+    // emulator.cpp:7376-7395 unconditionally called set_machine_timing()
+    // on BOTH ContentionModel and Mmu, collapsing pending into effective
+    // — a one-frame round-trip imperfection for snapshots taken between
+    // an NR 0x03 bits-6:4 write and the next video-frame edge (VHDL
+    // :6694-6703 deferred-commit window).
+    //
+    // Discriminative setup:
+    //   1. Init Emulator as ZX48K → both axes = Timing48
+    //   2. Write NR 0x03 = 0xA0 (bit7=1 gate, bits 6:4 = 010 = tim_sel
+    //      128) — shadow=Timing128, effective=Timing48 (no run_frame).
+    //   3. Save state. The Mmu schema serialises BOTH (effective=
+    //      Timing48, pending=Timing128).
+    //   4. Construct a SECOND Emulator at ZX48K (same init defaults).
+    //   5. Plant a divergence on the second Emulator's ContentionModel
+    //      pending field (e.g. set_pending_machine_timing(Timing48)) so
+    //      we can detect whether load_state restores the pending=128
+    //      state from the schema or clobbers it.
+    //   6. Load the state. Pre-fix: ContentionModel's pending becomes
+    //      Timing48 (the effective NR-03-derived value clobbers it).
+    //      Post-fix: ContentionModel's pending stays Timing128 (the
+    //      schema-restored value).
+    //   7. Verify the (effective, pending) pair on Mmu AND ContentionModel
+    //      both reflect (Timing48, Timing128).
+    //   8. Run a frame — pending commits → effective; verify both
+    //      converge to Timing128.
+    {
+        Emulator emu1;
+        const bool ok1 = make_emu(emu1, MachineType::ZX48K);
+        if (!ok1) {
+            check("D3-CONTENTION-NIT-01",
+                  "Emulator::init(ZX48K) failed — would verify "
+                  "load_state preserves machine_timing pair from Mmu "
+                  "schema",
+                  false, "Emulator::init returned false");
+        } else {
+            // Post-init both axes = Timing48 (ZX48K default).
+            // Write NR 0x03 = 0xA0: bit7=1 (gate timing-commit),
+            // bits 6:4 = 010 (tim_sel = Timing128), bit 3 = 0,
+            // bits 2:0 = 000 (typ_sel = 0; typ commit gated by
+            // config_mode which is off — typ_sel axis stays).
+            emu1.nextreg().write(0x03, 0xA0);
+
+            // Confirm the pre-save state: effective stays Timing48,
+            // pending advances to Timing128 (deferred-commit window).
+            const MachineTimingMode src_mmu_eff  = emu1.mmu().machine_timing();
+            const MachineTimingMode src_mmu_pend = emu1.mmu().pending_machine_timing();
+            const MachineTimingMode src_cm_eff   = emu1.contention().machine_timing();
+            const MachineTimingMode src_cm_pend  = emu1.contention().pending_machine_timing();
+            const bool src_state_correct =
+                src_mmu_eff  == MachineTimingMode::Timing48 &&
+                src_mmu_pend == MachineTimingMode::Timing128 &&
+                src_cm_eff   == MachineTimingMode::Timing48 &&
+                src_cm_pend  == MachineTimingMode::Timing128;
+
+            // Save state.
+            StateWriter measure;
+            emu1.save_state(measure);
+            const size_t snap_size = measure.position();
+            std::vector<uint8_t> buf(snap_size, 0);
+            StateWriter w(buf.data(), snap_size);
+            emu1.save_state(w);
+            const bool save_size_match = (w.position() == snap_size);
+
+            // Construct a fresh Emulator at the same machine type. Post-
+            // init defaults: all axes = Timing48 / Timing48 (both
+            // effective and pending). Plant a divergence on the
+            // ContentionModel pending to verify load_state actually
+            // re-pushes the schema-restored pending value rather than
+            // leaving it untouched.
+            Emulator emu2;
+            const bool ok2 = make_emu(emu2, MachineType::ZX48K);
+            if (!ok2) {
+                check("D3-CONTENTION-NIT-01",
+                      "Emulator::init(ZX48K) #2 failed",
+                      false, "second Emulator::init returned false");
+            } else {
+                // Plant divergence on second Emulator's ContentionModel
+                // pending field (mirrors how V16-CPU-01 test seeds a
+                // pre-load divergence).
+                emu2.contention().set_pending_machine_timing(
+                    MachineTimingMode::TimingPlus3);
+                const MachineTimingMode planted_cm_pend =
+                    emu2.contention().pending_machine_timing();
+
+                // Load state.
+                StateReader r(buf.data(), snap_size);
+                emu2.load_state(r);
+
+                // Post-load assertions:
+                // (a) Mmu effective and pending restored from schema.
+                const MachineTimingMode l_mmu_eff  = emu2.mmu().machine_timing();
+                const MachineTimingMode l_mmu_pend = emu2.mmu().pending_machine_timing();
+                // (b) ContentionModel mirrors the schema-restored pair —
+                //     the V24-MEM-NIT-01 fix re-pushes pending into the
+                //     ContentionModel rather than collapsing it.
+                const MachineTimingMode l_cm_eff   = emu2.contention().machine_timing();
+                const MachineTimingMode l_cm_pend  = emu2.contention().pending_machine_timing();
+                // (c) Schema-loaded flag should be true (new-format save).
+                const bool flag = emu2.mmu().machine_timing_loaded_from_schema();
+
+                const bool post_load_correct =
+                    l_mmu_eff  == MachineTimingMode::Timing48  &&
+                    l_mmu_pend == MachineTimingMode::Timing128 &&
+                    l_cm_eff   == MachineTimingMode::Timing48  &&
+                    l_cm_pend  == MachineTimingMode::Timing128 &&
+                    flag;
+
+                // (d) Run a frame — the per-frame seam at run_frame()
+                //     top calls commit_pending_machine_timing() on
+                //     BOTH Mmu and ContentionModel, promoting Timing128
+                //     into effective.
+                emu2.run_frame();
+                const MachineTimingMode f_mmu_eff = emu2.mmu().machine_timing();
+                const MachineTimingMode f_cm_eff  = emu2.contention().machine_timing();
+                const bool post_frame_correct =
+                    f_mmu_eff == MachineTimingMode::Timing128 &&
+                    f_cm_eff  == MachineTimingMode::Timing128;
+
+                check("D3-CONTENTION-NIT-01",
+                      "Emulator::load_state PRESERVES the schema-"
+                      "restored machine_timing (effective, pending) pair "
+                      "from the Mmu schema slot; ContentionModel mirrors "
+                      "the pair; commit_pending at next run_frame() "
+                      "promotes pending→effective (V24-MEM-NIT-01 fix; "
+                      "VHDL :6694-6703 deferred-commit window)",
+                      src_state_correct && save_size_match &&
+                      planted_cm_pend == MachineTimingMode::TimingPlus3 &&
+                      post_load_correct && post_frame_correct,
+                      std::string("src(mmu_eff,mmu_pend,cm_eff,cm_pend)=(") +
+                      std::to_string(static_cast<int>(src_mmu_eff))  + "," +
+                      std::to_string(static_cast<int>(src_mmu_pend)) + "," +
+                      std::to_string(static_cast<int>(src_cm_eff))   + "," +
+                      std::to_string(static_cast<int>(src_cm_pend))  +
+                      ") expected(0,1,0,1); load(mmu_eff,mmu_pend,cm_eff,cm_pend)=(" +
+                      std::to_string(static_cast<int>(l_mmu_eff))  + "," +
+                      std::to_string(static_cast<int>(l_mmu_pend)) + "," +
+                      std::to_string(static_cast<int>(l_cm_eff))   + "," +
+                      std::to_string(static_cast<int>(l_cm_pend))  +
+                      ") expected(0,1,0,1); schema_flag=" +
+                      std::to_string(flag) +
+                      "; post-frame(mmu_eff,cm_eff)=(" +
+                      std::to_string(static_cast<int>(f_mmu_eff)) + "," +
+                      std::to_string(static_cast<int>(f_cm_eff))  +
+                      ") expected(1,1)");
+            }
+        }
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2629,6 +3089,13 @@ int main() {
     // doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY15-CPU-REVIEW.md
     test_cat28_v15_cpu_nit_03();
     std::printf("  Group: CT-CAT28-V15   — done\n");
+
+    // Cat 29: V24-MEM-01 / V25-MEM-01 — contention timing axis split
+    // (machine_timing_ vs MachineType). VHDL anchors :4490-4492 +
+    // :5761-5777 + :6694-6703. See doc/issues/nextzxos-boot/
+    // NEXTZXOS-BOOT-SUBSYSTEM-VERIFY24-MEMORY.md + VERIFY25-MEMORY.md.
+    test_cat29_v24_mem_01();
+    std::printf("  Group: CT-CAT29-V24   — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
