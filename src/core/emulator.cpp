@@ -4415,9 +4415,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // Note: VHDL port_ctc='1' for the full 0x183B..0x1F3B range (the
     // decode is wider than the actual channel count), but the CTC
-    // entity zeroes its output when A10:8 ≥ 4. The functional behaviour
-    // observed on the CPU bus is identical to "no decode + floating
-    // bus 0xFF" for the A10=1 range when no other handler matches.
+    // entity zeroes its output when A10:8 ≥ 4 (= A10=1 here). The CPU
+    // bus path for IN at 0x1C3B..0x1F3B with port_ctc_io_en='1' is
+    // therefore:
+    //   port_ctc_rd = iord AND port_ctc = '1'
+    //   port_internal_rd_response = ... OR port_ctc_rd = '1'
+    //   port_ctc_rd_dat = ctc_do = 0x00 (OR-fold of zeros)
+    //   port_rd_dat = ... OR port_ctc_rd_dat = 0x00
+    //   cpu_di = port_rd_dat = 0x00
+    // i.e. VHDL drives 0x00, NOT the floating-bus 0xFF, for the A10=1
+    // alias range when CTC IO-enable is on. When CTC IO-enable is off,
+    // port_ctc='0' so port_internal_rd_response stays 0 and the bus
+    // floats to 0xFF.
     // Class-(c) inert divergence in practice (no software writes
     // 0x1C3B-0x1F3B), but the readback / write-drop contract is part
     // of the VHDL surface.
@@ -4429,6 +4438,40 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t p, uint8_t val) {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;  // NR 0x85 b3 gate
             ctc_.write((p >> 8) & 3, val);
+        });
+
+    // V21R-NMP-NIT-02 (Pass-21 reviewer fix): complementary handler for
+    // the CTC alias range 0x1C3B..0x1F3B (A10=1). Per VHDL bus
+    // composition above, an IN with port_ctc_io_en='1' drives 0x00 on
+    // cpu_di via the OR-fold of (dout(I) AND sel(I)) — not 0xFF.
+    // Without this handler the reads fall through to the floating-bus
+    // default 0xFF, enshrining a class-(c) divergence flagged by the
+    // Pass-21 reviewer. The IO-enable gate stays identical (NR 0x85
+    // bit 3); when cleared the bus floats. Writes are silently dropped
+    // (VHDL iowr(I) = port_ctc_wr AND sel(I), and sel(0..3)=0 for
+    // A10=1, so iowr stays 0 — no channel mutated).
+    // Mask 0xFCFF with value 0x1C3B selects exactly the four addresses
+    // 0x1C3B / 0x1D3B / 0x1E3B / 0x1F3B (A9:8 are masked in but the
+    // four channels behave identically — all dropped on write, all
+    // read as 0x00). Same specificity (10 bits set) as the channel
+    // handler, but disjoint match conditions (A10=0 vs A10=1) so the
+    // most-specific-wins dispatch routes correctly.
+    port_.register_handler(0xFCFF, 0x1C3B,
+        [this](uint16_t /*p*/) -> uint8_t {
+            // CTC IO-enable gate: NR 0x85 bit 3 (= port_ctc_io_en,
+            // VHDL :2442 internal_port_enable(27)). When cleared
+            // port_ctc='0' → port_internal_rd_response=0 → floating
+            // bus. When set, the OR-fold zeros the byte.
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
+            return 0x00;
+        },
+        [this](uint16_t /*p*/, uint8_t /*val*/) {
+            // Writes are dropped per VHDL ctc.vhd:141-146 (iowr(I) = 0
+            // when sel(I)=0; sel(0..3)=0 for A10=1). No-op even with
+            // IO-enable on. The IO-enable check is kept for symmetry,
+            // though functionally it doesn't matter here.
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;
+            // Silently dropped (no channel mutated).
         });
 
     // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat).

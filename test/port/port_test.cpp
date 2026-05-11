@@ -1356,18 +1356,25 @@ static void test_group_nr_gating() {
     // With i_port_ctc_sel = cpu_a(10:8) (zxnext.vhd:4076, 3 bits), an
     // alias address with A10=1 (= 0x1C3B..0x1F3B) produces sel(0..3)="0000"
     // — no channel selected — so the output mux at :164-176 returns 0x00
-    // and the iowr fan-out at :141-146 is 0 (writes dropped). On the CPU
-    // bus this is observationally identical to no-decode: the read
-    // returns the floating-bus default. (V21-NMP-02 fix — previous test
-    // wrongly expected 0x1F3B to decode to a CTC channel.)
+    // and the iowr fan-out at :141-146 is 0 (writes dropped).
+    //
+    // V21R-NMP-NIT-02 (Pass-21 reviewer fix): the CPU bus still gets
+    // driven by VHDL though — port_ctc_rd = iord AND port_ctc = '1'
+    // (port_ctc='1' for the full 0x183B..0x1F3B range when IO-enable
+    // is on), so port_internal_rd_response='1' and port_rd_dat picks
+    // up port_ctc_rd_dat = ctc_do = 0x00 (the OR-fold of all-zero
+    // terms). Therefore VHDL drives cpu_di = 0x00 (NOT the floating
+    // 0xFF) when CTC IO-enable is on. NR 0x85 bit 3 defaults to 1 on
+    // power-on, so the read returns 0x00.
     {
         Emulator emu; build_next_emulator(emu);
         uint8_t rd = emu.port().in(0x1F3B);
         check("NR85-03b",
-              "CTC alias 0x1F3B (A10=1) returns floating-bus 0xFF — "
-              "ctc.vhd:128-137 sel does not match for I in 0..3 [V21-NMP-02]",
-              rd == 0xFF,
-              DETAIL("ctc_top=0x%02x expected 0xFF", rd));
+              "CTC alias 0x1F3B (A10=1) returns 0x00 (VHDL OR-fold of "
+              "ctc.vhd:128-137 sel-zero output, NOT floating bus) when "
+              "CTC IO-enable is on [V21-NMP-02 + V21R-NMP-NIT-02]",
+              rd == 0x00,
+              DETAIL("ctc_top=0x%02x expected 0x00", rd));
     }
 
     // NR85-03c: CTC near-miss 0x203B (bits 15:11=00100). VHDL 2690.
@@ -1822,14 +1829,39 @@ static void test_group_wired_or() {
               DETAIL("pre=0x%02x post=0x%02x (must be equal)", pre, post));
 
         // Companion read-side check: an IN at 0x1F3B (the highest alias)
-        // must return the floating-bus default (0xFF), NOT channel-3
-        // contents. Pre-fix the handler aliased it to channel 3.
+        // must return 0x00 (VHDL ctc_do = OR-fold of sel-zero terms,
+        // driven onto cpu_di because port_ctc_rd='1' when CTC IO-enable
+        // is on; NR 0x85 bit 3 defaults to 1). Pre-V21-NMP-02 the
+        // handler aliased the address to channel 3 and returned the
+        // channel byte; the original V21-NMP-02 fix made the address
+        // float to 0xFF; V21R-NMP-NIT-02 corrects the readback to
+        // 0x00 per the VHDL OR-fold composition.
         const uint8_t rd_alias = emu.port().in(0x1F3B);
         check("V21-NMP-02-B",
-              "IN at CTC alias 0x1F3B returns floating-bus 0xFF "
-              "(VHDL no-decode for A10=1)",
-              rd_alias == 0xFF,
-              DETAIL("rd_alias=0x%02x expected 0xFF", rd_alias));
+              "IN at CTC alias 0x1F3B returns 0x00 (VHDL OR-fold of "
+              "ctc.vhd:128-137 sel-zero output drives cpu_di) when CTC "
+              "IO-enable is on [V21R-NMP-NIT-02]",
+              rd_alias == 0x00,
+              DETAIL("rd_alias=0x%02x expected 0x00", rd_alias));
+
+        // V21R-NMP-NIT-02 sandwich-discriminative: when CTC IO-enable
+        // is cleared (NR 0x85 bit 3 = 0), port_ctc='0' so VHDL stops
+        // driving the bus and the read floats to 0xFF. Verifies the
+        // new handler's IO-enable gate works correctly.
+        {
+            // Clear NR 0x85 bit 3 via the NR write path.
+            uint8_t n85 = nr_read(emu, 0x85);
+            nr_write(emu, 0x85, n85 & ~0x08);
+            const uint8_t rd_gated = emu.port().in(0x1F3B);
+            check("V21R-NMP-NIT-02-A",
+                  "IN at CTC alias 0x1F3B returns 0xFF when CTC "
+                  "IO-enable (NR 0x85 b3) is cleared — port_ctc='0' so "
+                  "VHDL floats the bus [zxnext.vhd:2690, :2442]",
+                  rd_gated == 0xFF,
+                  DETAIL("rd_gated=0x%02x expected 0xFF", rd_gated));
+            // Re-arm NR 0x85 bit 3 for the next test independence.
+            nr_write(emu, 0x85, n85);
+        }
     }
 
     // BUS-03: SCLD read gated by nr_08_port_ff_rd_en (NR 0x08 bit 2) AND
