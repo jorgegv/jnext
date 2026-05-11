@@ -5675,6 +5675,110 @@ static void test_v21_nmp_03_nr_07_expbus_speed(Emulator& emu) {
     }
 }
 
+// ── V22-NMP-01 — NR 0xC2 / NR 0xC3 NextReg-port writes latch (and ──────
+//                  NMIACK pathway co-writes the same latches)
+//
+// History: Pass-22 audit initially proposed treating NR 0xC2/0xC3 as
+// NextReg-port-RO (analogous to NR 0x01/0x0E/0x0F). The independent
+// reviewer REJECTED that reading — the commented-out
+// `nr_c2_we`/`nr_c3_we` at zxnext.vhd:5601-5605 are vestigial duplicates
+// inside a SECOND (clocked) decoder process; the ACTIVE strobe
+// assignments live in the FIRST (combinatorial) decoder process at
+// :4894-4895 and are NOT commented out. The elsif arms at :2064-2067 in
+// the latch process ARE reachable from NextReg-port writes, and the read
+// mux at :6232-6236 returns the latched value. The tests here therefore
+// assert the spec-correct VHDL-faithful contract:
+//   - NR 0xC2/0xC3 NextReg-port writes DO update the latch (per
+//     :4894-4895 + :2064-2067).
+//   - NMIACK_LSB/MSB pathway ALSO writes the latch (per :2060-2063);
+//     priority in the if/elsif chain (NMIACK wins when simultaneous)
+//     doesn't change steady-state observable behavior — software writes
+//     work in absence of an in-flight NMIACK cycle.
+//   - Post-NMIACK NextReg writes OVERWRITE the latch (the latest writer
+//     wins; both pathways feed the same storage register).
+static void test_v22_nmp_01_nr_c2_c3_writable(Emulator& emu) {
+    set_group("V22-NMP-01-NRC2-C3-Writable");
+
+    // Discriminative #1: NR 0xC2 — write 0xAA via NextReg port; the
+    // read-back MUST reflect the written byte (the combinatorial decoder
+    // at :4894 asserts nr_c2_we → :2064-2065 elsif latches nr_wr_dat).
+    {
+        emu.reset();
+        nr_write(emu, 0xC2, 0xAA);          // NextReg-port write
+        const uint8_t after = nr_read(emu, 0xC2);
+        check("V22-NMP-01-A",
+              "NR 0xC2 writable via NextReg port — write 0xAA must "
+              "update the latch [VHDL :4894 nr_c2_we asserted in "
+              "process A → :2064-2065 elsif latches nr_wr_dat → "
+              ":6232-6233 read mux returns nr_c2_retn_address_lsb]",
+              after == 0xAA,
+              "after=" + hex2(after) + " expected=0xAA");
+    }
+
+    // Discriminative #2: NR 0xC3 — symmetric to NR 0xC2.
+    {
+        emu.reset();
+        nr_write(emu, 0xC3, 0x55);
+        const uint8_t after = nr_read(emu, 0xC3);
+        check("V22-NMP-01-B",
+              "NR 0xC3 writable via NextReg port — write 0x55 must "
+              "update the latch [VHDL :4895 nr_c3_we asserted in "
+              "process A → :2066-2067 elsif latches nr_wr_dat → "
+              ":6235-6236 read mux returns nr_c3_retn_address_msb]",
+              after == 0x55,
+              "after=" + hex2(after) + " expected=0x55");
+    }
+
+    // Discriminative #3: the NMI servicing pathway also writes the
+    // latches (via `set_nmi_return_address`). NMIACK pathway and the
+    // NextReg-port pathway both feed the same physical register; the
+    // NMIACK path bypasses NextReg::write but stores into the same
+    // regs_[] slot (per VHDL :2060-2063 priority arms).
+    {
+        emu.reset();
+        emu.nextreg().set_nmi_return_address(0xABCD);
+        const uint8_t lsb = nr_read(emu, 0xC2);
+        const uint8_t msb = nr_read(emu, 0xC3);
+        check("V22-NMP-01-C-LSB",
+              "NMIACK pathway via set_nmi_return_address() writes NR "
+              "0xC2 latch (NMIACK_LSB path per VHDL :2060-2061)",
+              lsb == 0xCD,
+              "lsb=" + hex2(lsb) + " expected=0xCD");
+        check("V22-NMP-01-C-MSB",
+              "NMIACK pathway via set_nmi_return_address() writes NR "
+              "0xC3 latch (NMIACK_MSB path per VHDL :2062-2063)",
+              msb == 0xAB,
+              "msb=" + hex2(msb) + " expected=0xAB");
+    }
+
+    // Discriminative #4: after NMIACK writes the latches, a NextReg
+    // port-path write OVERWRITES the latch (the NextReg-port arm in
+    // process A fires nr_c2_we / nr_c3_we, and the elsif chain in the
+    // latch process at :2064-2067 commits nr_wr_dat). The latest writer
+    // wins in steady state.
+    {
+        emu.reset();
+        emu.nextreg().set_nmi_return_address(0x1234);
+        // Cached after NMIACK: NR 0xC2 = 0x34, NR 0xC3 = 0x12.
+        nr_write(emu, 0xC2, 0xFF);
+        nr_write(emu, 0xC3, 0xFF);
+        const uint8_t lsb = nr_read(emu, 0xC2);
+        const uint8_t msb = nr_read(emu, 0xC3);
+        check("V22-NMP-01-D-LSB",
+              "Post-NMIACK NextReg port write to NR 0xC2 overwrites "
+              "the latch [VHDL :2064-2065 elsif fires when no NMIACK "
+              "is active]",
+              lsb == 0xFF,
+              "lsb=" + hex2(lsb) + " expected=0xFF");
+        check("V22-NMP-01-D-MSB",
+              "Post-NMIACK NextReg port write to NR 0xC3 overwrites "
+              "the latch [VHDL :2066-2067 elsif fires when no NMIACK "
+              "is active]",
+              msb == 0xFF,
+              "msb=" + hex2(msb) + " expected=0xFF");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -5792,6 +5896,9 @@ int main() {
 
     test_v21_nmp_03_nr_07_expbus_speed(emu);
     std::printf("  Group: V21-NMP-03-NR07-ExpbusSpeed — done\n");
+
+    test_v22_nmp_01_nr_c2_c3_writable(emu);
+    std::printf("  Group: V22-NMP-01-NRC2-C3-Writable — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

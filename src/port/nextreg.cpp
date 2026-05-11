@@ -429,6 +429,19 @@ void NextReg::write(uint8_t reg, uint8_t val) {
     // values from reset() (regs_[0x01]=0x32, regs_[0x0E]=0x03,
     // regs_[0x0F]=0x00) become the read-back source of truth.
     //
+    // V22-NMP-01 (Pass-22) — REJECTED by independent reviewer. The
+    // commented-out `nr_c2_we`/`nr_c3_we` at zxnext.vhd:5601-5605 are
+    // vestigial duplicates inside a second clocked decoder process; the
+    // ACTIVE strobe assignments are in the combinatorial decoder process
+    // at :4894-4895 (NOT commented out). The latch elsif arms at
+    // :2064-2067 ARE reachable from NextReg-port writes, and the read
+    // mux at :6232-6236 returns the latched value. Pre-fix jnext was
+    // VHDL-faithful via the `regs_[reg]=val` fall-through; adding 0xC2/
+    // 0xC3 to the RO-guard would introduce a NEW divergence. NR 0xC2/
+    // 0xC3 are STRUCTURALLY DIFFERENT from NR 0x01/0x0E/0x0F (which
+    // have no `nr_XX_we` signal at all). The guard is correctly bounded
+    // at NR 0x01/0x0E/0x0F only.
+    //
     // Other RO-shaped registers (NR 0x00, NR 0x10, NR 0x14, NR 0x42) are
     // NOT guarded here:
     //   - NR 0x00 has its own read_handler that returns the static 0x08
