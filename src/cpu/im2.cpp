@@ -63,7 +63,24 @@ void Im2Controller::reset() {
 // We treat each tick() as one "CLK_CPU rising edge" — VHDL im2_device.vhd:91
 // drives state<=state_next on rising edge.
 // -----------------------------------------------------------------------------
-void Im2Controller::tick(uint32_t /*master_cycles*/) {
+void Im2Controller::tick(uint32_t tstates_for_pulse) {
+    // EOD-30c (2026-05-14): the parameter is the number of CPU T-states
+    // (= CPU-clock rising edges) the just-completed Z80 instruction
+    // consumed at the active CPU speed. Per VHDL zxnext.vhd:2037-2044,
+    // `pulse_count` increments on each `rising_edge(i_CLK_CPU)` — one tick
+    // per T-state at the current CPU speed (3.5/7/14/28 MHz). The legacy
+    // name `master_cycles` in the public header is a misnomer; the caller
+    // (Emulator::run_frame inner loop, post-V18R-CPU-01 / EOD-30c fix) now
+    // passes `tstates`, not `tstates × cpu_divisor`. Tests calling
+    // `tick(1)` continue to mean "advance one CPU clock edge", matching
+    // the legacy semantic — only the production caller changed.
+    //
+    // Stash for step_pulse(), which is the only consumer that needs the
+    // T-state granularity (state-machine transitions in step_devices()
+    // remain one-per-instruction by design; VHDL state changes are tied to
+    // M1 transitions which step_devices() approximates per Z80 instruction).
+    pulse_count_advance_ = tstates_for_pulse;
+
     // Pulse fabric runs BEFORE the wrapper/state-machine step because it
     // needs to observe the rising edge of int_req, which is defined (VHDL
     // im2_peripheral.vhd:101) as `int_req AND NOT int_req_d`. step_devices()
@@ -1151,7 +1168,9 @@ void Im2Controller::step_pulse() {
                                 // while pulse_int_n='1', increments otherwise).
         }
     } else {
-        // INT low — count up; terminate at machine-specific width.
+        // INT low — count up by `pulse_count_advance_` CPU clock edges
+        // (one per T-state at active CPU speed, set by tick()); terminate
+        // at machine-specific width.
         // VHDL:
         //   pulse_count_end = pulse_count(5) AND (machine_timing_48 OR
         //                                         machine_timing_p3 OR
@@ -1161,12 +1180,33 @@ void Im2Controller::step_pulse() {
         //   - 128K / Pentagon / Next-default : needs bit5 AND bit2 → count == 36.
         // VHDL's process (line 2035-2044) increments pulse_count ONLY while
         // pulse_count_end='0'; after terminate the count freezes until the
-        // next "pulse_int_n='1'" cycle resets it. We mirror exactly.
-        const bool bit5 = (pulse_count_ & 0x20) != 0;
-        const bool bit2 = (pulse_count_ & 0x04) != 0;
-        const bool pulse_count_end = bit5 && (machine_48_or_p3_ || bit2);
+        // next "pulse_int_n='1'" cycle resets it.
+        //
+        // EOD-30c (2026-05-14): switch from the bit5/bit2 check to a direct
+        // `count >= terminal` comparison. The original check was exact under
+        // monotonic-increment-by-1 (the count hits exactly 32 or 36 once);
+        // increment-by-`pulse_count_advance_` (4..23 per Z80 instruction)
+        // can skip the exact terminal and overshoot to values where bit5
+        // is set but bit2 is not (e.g. count 40 = 101000 in Next mode →
+        // bit5=1, bit2=0 → not terminated by the bit formula). The direct
+        // comparison terminates at the first count >= terminal regardless
+        // of increment granularity. Mathematically equivalent to the VHDL
+        // formula for the monotonic-increment-by-1 case it was designed
+        // for, and a faithful generalisation to coarser per-instruction
+        // ticks. Pre-fix (advance-by-1 per Z80 instruction) made the pulse
+        // last up to 36 × ~23 T-states ≈ 828 T-states (vs VHDL spec 32/36),
+        // causing the supervisor's $3F48 EI / $3F49 POP AF / $3F4A POP HL
+        // / $3F4B RET dispatcher-exit to accept a nested IM 1 INT at the
+        // $3F4A boundary and leak ~18 bytes of stack per fire (EOD-30b).
+        const uint8_t terminal = machine_48_or_p3_ ? 32u : 36u;
+        const uint32_t advanced =
+            static_cast<uint32_t>(pulse_count_)
+            + (pulse_count_advance_ ? pulse_count_advance_ : 1u);
+        // Saturate to avoid uint8_t wrap when adding to a count close to
+        // 0xFF (defensive — termination always fires well below).
+        pulse_count_ = static_cast<uint8_t>(advanced > 0xFFu ? 0xFFu : advanced);
 
-        if (pulse_count_end) {
+        if (pulse_count_ >= terminal) {
             pulse_int_n_ = true;
             // Counter reset happens naturally on the next tick (via the
             // pulse_int_n=='1' branch above) — mirrors VHDL line 2038.
@@ -1174,10 +1214,6 @@ void Im2Controller::step_pulse() {
             // pulse has now fired and must not re-trigger. Wrapper-maintained
             // latches (int_status, im2_int_req) stay as they are.
             for (int k = 0; k < N; ++k) dev_[k].int_unq = false;
-        } else {
-            // Increment. uint8_t wrap is fine — termination gates at 32/36
-            // which are well inside 0..255.
-            pulse_count_ = static_cast<uint8_t>(pulse_count_ + 1);
         }
     }
 }

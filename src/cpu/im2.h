@@ -189,9 +189,15 @@ private:
     uint32_t retn_seen_count_ = 0;       // G87 — test observability counter
 
     // Pulse fabric state (vhdl:2017-2044).
-    bool    pulse_int_n_      = true;
-    uint8_t pulse_count_      = 0;
-    bool    machine_48_or_p3_ = false;
+    bool     pulse_int_n_         = true;
+    uint8_t  pulse_count_         = 0;
+    // EOD-30c — per-tick advance for pulse_count_, set by tick() from the
+    // T-states (CPU-clock edges) consumed by the just-completed Z80
+    // instruction. step_pulse() reads this to advance pulse_count_ by the
+    // correct number of CPU cycles. Default 1 preserves the legacy
+    // per-tick-call semantic used by ctc/nmi tests that pass tick(1).
+    uint32_t pulse_count_advance_ = 1;
+    bool     machine_48_or_p3_    = false;
 
     // NR 0xC0 state.
     uint8_t vector_base_msb3_ = 0;
