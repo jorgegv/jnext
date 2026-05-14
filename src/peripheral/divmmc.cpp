@@ -1,6 +1,8 @@
 #include "peripheral/divmmc.h"
 #include "core/log.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include "core/saveable.h"
@@ -418,6 +420,47 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     // line 2898, so it activates `automap` same-cycle when rom3_active=1.
     if ((entry_points_1_ & 0x80) && (pc & 0xFF00) == 0x3D00 && rom3_path_eligible) {
         instant_match = true;
+    }
+    // JNEXT_G46B_AUTOMAP_3DXX_TRACE=1 — log every $3Dxx PC eval with the
+    // gate inputs. EOD-28 candidate: the $3Dxx wildcard automap trap may
+    // fire in jnext during the supervisor's post-NEXTREG-$8E,$03 NOP-sled
+    // at $3D00, overlaying slot 0/1 with DivMMC RAM and diverting the
+    // CPU's execution. CSpect's gate composite at the same PC may NOT
+    // fire automap there (per EOD-26 P4 Candidate C). Capture inputs so
+    // the divergence is observable without source instrumentation in
+    // CSpect.
+    {
+        static const char* env_3dxx = std::getenv("JNEXT_G46B_AUTOMAP_3DXX_TRACE");
+        if (env_3dxx && (pc & 0xFF00) == 0x3D00) {
+            static uint64_t hits = 0;
+            ++hits;
+            if (hits <= 8) {
+                std::fprintf(stderr,
+                    "G46B-v2 AUTOMAP_3DXX pc=%04x hit=%llu "
+                    "ep1=%02x bit7=%d "
+                    "pre_ovr2=%d pre_ovr0=%d layer2_map=%d rom3_active=%d "
+                    "main_eligible=%d rom3_eligible=%d "
+                    "instant_match=%d delayed_match=%d off_match=%d "
+                    "automap_active_before=%d automap_hold_before=%d "
+                    "conmem=%d port_io_en=%d enabled=%d\n",
+                    pc, (unsigned long long)hits,
+                    entry_points_1_, (entry_points_1_ >> 7) & 1,
+                    sram_pre_override_2 ? 1 : 0,
+                    sram_pre_override_0 ? 1 : 0,
+                    layer2_map_read_ ? 1 : 0,
+                    rom3_active_ ? 1 : 0,
+                    main_path_eligible ? 1 : 0,
+                    rom3_path_eligible ? 1 : 0,
+                    instant_match ? 1 : 0,
+                    delayed_match ? 1 : 0,
+                    off_match ? 1 : 0,
+                    automap_active_ ? 1 : 0,
+                    automap_hold_ ? 1 : 0,
+                    conmem_ ? 1 : 0,
+                    port_io_enable_ ? 1 : 0,
+                    enabled_ ? 1 : 0);
+            }
+        }
     }
     if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
                && main_path_eligible) {

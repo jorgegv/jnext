@@ -20,6 +20,7 @@
 #include "core/saveable.h"
 #include "input/joystick.h"
 #include "input/mouse.h"
+#include "peripheral/divmmc.h"
 #include "peripheral/nmi_source.h"
 
 #include <cstdio>
@@ -2108,6 +2109,52 @@ static void test_n8e_ram_gate(Emulator& emu) {
               "NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank "
               "[zxnext.vhd:3814, :4677]",
               before == 0x20 && after == 0x00, detail);
+    }
+
+    // N8E-DIVMMC-ROM3-REFRESH — G46(b)-v2 EOD-29 regression. NR 0x8E
+    // writes update port_7ffd / port_1ffd internally (VHDL :3662-3734);
+    // VHDL drives `sram_rom3` combinationally from those ports
+    // (zxnext.vhd:2981-3008) and feeds it to the DivMMC automap gate at
+    // zxnext.vhd:3138. jnext caches the bit in `DivMmc::rom3_active_`,
+    // so the NR 0x8E write handler must re-push `mmu_.sram_rom3()` to
+    // DivMmc — same pattern as the OUT ($7FFD)/($1FFD) handlers at
+    // emulator.cpp:3282/3399 and the NR 0x8C handler at :2877.
+    //
+    // Without this refresh, the supervisor's NEXTREG $8E,$03 bank-flip
+    // at $3CFC leaves DivMmc's ROM3 gate stale, the $3Dxx wildcard
+    // overlay (entry_points_1 bit 7) doesn't fire on the post-flip
+    // $3D00 fetch, and the supervisor diverges from the CSpect path
+    // through font-data garbage into the soft-reset loop tracked as
+    // G46(b)-v2.
+    {
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        // Reset clears port_7ffd / port_1ffd. ZXN_ISSUE2 `sram_rom3()`
+        // reduces to `port_7ffd(4)` (no altrom lock) — must be false
+        // immediately after reset.
+        const bool initial = emu.divmmc().rom3_active();
+
+        // NR $8E = $03 — same value the NextZXOS supervisor writes at
+        // $3CFC during boot. Sets:
+        //   port_7ffd(4) <- 1   (bit 0 of v, since bit 2 of v = 0)
+        //   port_1ffd(2) <- 1   (bit 1 of v)
+        //   port_1ffd(1) <- 1   (bit 0 of v)
+        // → sram_rom3() returns true (port_7ffd(4) set in ZXN mode).
+        nr_write(emu, 0x8E, 0x03);
+        const bool after_write = emu.divmmc().rom3_active();
+        const uint8_t p7ffd = emu.mmu().port_7ffd();
+
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "initial=%d after_write=%d port_7ffd=0x%02X sram_rom3=%d",
+                      initial ? 1 : 0,
+                      after_write ? 1 : 0,
+                      p7ffd,
+                      emu.mmu().sram_rom3() ? 1 : 0);
+        check("N8E-DIVMMC-ROM3-REFRESH",
+              "NR 0x8E write refreshes DivMMC.rom3_active_ from sram_rom3() "
+              "[zxnext.vhd:2981-3008, :3138; mirrors OUT ($1FFD) at "
+              "emulator.cpp:3399; G46(b)-v2 EOD-29]",
+              !initial && after_write, detail);
     }
 }
 
