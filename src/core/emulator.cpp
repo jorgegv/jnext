@@ -2850,18 +2850,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // G46(b)-v2 / EOD-29 fix: NR $8E writes update port_7ffd /
         // port_1ffd internally (per VHDL :3662-3734), which changes the
         // sram_rom selector. The VHDL drives `sram_rom3` combinationally
-        // from those ports; emulator-side, DivMmc caches the value, so
-        // we must re-push it after every NR $8E write — same pattern as
-        // the OUT ($1FFD),A handler at emulator.cpp:3399. Without this,
-        // the supervisor's NEXTREG $8E,$03 boot-time bank-flip (at
-        // $3CFC during NextZXOS dispatcher cycles) doesn't refresh
-        // DivMmc's ROM3 gate, so the $3Dxx wildcard automap entry-point
-        // gate (zxnext.vhd:2898-2899) stays cold in jnext while it
-        // fires in CSpect — diverting jnext's M1 fetch at $3D00 into
-        // block-3 font data while CSpect's M1 fetch at $3D00 routes
-        // through the DivMMC overlay (which RETs immediately, popping
-        // $0448 from the stack). Regression test: N8E-DIVMMC-ROM3-REFRESH
-        // in test/nextreg/nextreg_integration_test.cpp.
+        // from those ports (zxnext.vhd:2981-3008); emulator-side, DivMmc
+        // caches the value, so we must re-push it after every NR $8E
+        // write — same pattern as the OUT ($1FFD),A handler at
+        // emulator.cpp:3399. Without this, the supervisor's
+        // NEXTREG $8E,$03 boot-time bank-flip (at $3CFC during NextZXOS
+        // dispatcher cycles) doesn't refresh DivMmc's ROM3 gate, so the
+        // $3Dxx wildcard automap fires neither its trigger
+        // (`divmmc_automap_rom3_instant_on` at zxnext.vhd:2898-2899) nor
+        // its enable gate (`sram_divmmc_automap_rom3_en` at zxnext.vhd:3138)
+        // in jnext while they both fire in CSpect — diverting jnext's M1
+        // fetch at $3D00 into block-3 font data while CSpect's M1 fetch at
+        // $3D00 routes through the DivMMC overlay (which RETs immediately,
+        // popping $0448 from the stack). Regression test:
+        // N8E-DIVMMC-ROM3-REFRESH in test/nextreg/nextreg_integration_test.cpp.
         divmmc_.set_rom3_active(mmu_.sram_rom3());
         return v;
     });
