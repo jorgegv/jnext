@@ -15,6 +15,7 @@ demo/*.reloc
 test/**/*-diff.png
 
 .claude/*.lock
+.claude/last-test-triplet.txt
 zesarux_*.idx
 
 # Python cache for tools/
