@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
     int         rewind_buffer_frames = 500;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
-    struct DelayedKeyArg { int delay_frames; char key; };
+    struct DelayedKeyArg { int delay; char key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
 
     // Parse command-line arguments.
@@ -173,8 +173,9 @@ int main(int argc, char* argv[]) {
             if (speed_percent > 1000) speed_percent = 1000;
         } else if ((arg == "--delayed-keypress" || arg == "--delayed-keypress-frames")
                    && i + 2 < argc) {
-            // SECS form (50 fps assumed) vs explicit FRAMES form. Both
-            // share the same KEY parsing.
+            // SECS form: stored as-is; HeadlessApp converts to frames at
+            // run() start using the active machine's framerate.
+            // FRAMES form: stored as frames directly.
             const bool in_frames = (arg == "--delayed-keypress-frames");
             int dk_n = std::stoi(argv[++i]);
             std::string dk_key = argv[++i];
@@ -186,8 +187,7 @@ int main(int argc, char* argv[]) {
                 if (upper == "ENTER" || upper == "RETURN") k = '\n';
                 else if (upper == "SPACE") k = ' ';
                 else k = static_cast<char>(std::tolower(static_cast<unsigned char>(dk_key[0])));
-                int frames = in_frames ? dk_n : dk_n * 50;
-                delayed_keys.push_back({frames, k});
+                delayed_keys.push_back({dk_n, k, in_frames});
             }
         } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
             rewind_buffer_frames = std::stoi(argv[++i]);
@@ -329,7 +329,8 @@ int main(int argc, char* argv[]) {
     if (headless) {
         HeadlessApp app;
         for (auto& dk : delayed_keys) {
-            app.set_delayed_keypress(dk.key, dk.delay_frames);
+            if (dk.in_frames) app.set_delayed_keypress(dk.key, dk.delay);
+            else              app.set_delayed_keypress_seconds(dk.key, dk.delay);
         }
         result = configure_and_run(app);
     } else {

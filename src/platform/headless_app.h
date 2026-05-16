@@ -29,8 +29,15 @@ public:
 
     /// Schedule a keypress after a delay (for menu-driven tests in headless mode).
     /// key is a character like '0'-'9', 'a'-'z', or '\n' / ' ' for ENTER / SPACE.
-    /// delay_frames is in emulated frames (50 fps on 50 Hz machines, 60 fps on NTSC).
+    /// delay_frames is in emulated frames.
     void set_delayed_keypress(char key, int delay_frames);
+
+    /// Same as set_delayed_keypress, but in emulated seconds. Conversion to
+    /// frames is deferred to run() so the actual machine framerate
+    /// (50 Hz PAL vs 60 Hz NTSC, per video_timing().refresh_60hz()) is
+    /// used. Headless runs at max speed, so wallclock is irrelevant —
+    /// "seconds" here means emulated-machine seconds.
+    void set_delayed_keypress_seconds(char key, int delay_seconds);
 
 private:
     Emulator emulator_;
@@ -65,6 +72,13 @@ private:
         int countdown;  // in frames
     };
     std::vector<DelayedKey> delayed_keys_;
+
+    // Pending seconds-form keys awaiting framerate-aware conversion in run().
+    struct PendingSecondsKey {
+        char key;
+        int  delay_seconds;
+    };
+    std::vector<PendingSecondsKey> pending_seconds_keys_;
 
     // In-memory framebuffer size (canonical 640×256 post-G104). Headless
     // never opens a window; these constants are declarative for symmetry

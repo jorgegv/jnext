@@ -114,7 +114,26 @@ void HeadlessApp::set_delayed_keypress(char key, int delay_frames) {
                            key, delay_frames);
 }
 
+void HeadlessApp::set_delayed_keypress_seconds(char key, int delay_seconds) {
+    pending_seconds_keys_.push_back({key, delay_seconds});
+    Log::platform()->info("delayed-keypress: will press '{}' after {} emulated second(s)",
+                           key, delay_seconds);
+}
+
 void HeadlessApp::run() {
+    // Convert any seconds-form delayed keypresses to frames now that the
+    // emulator is fully initialized and the machine framerate is known.
+    if (!pending_seconds_keys_.empty()) {
+        const int fps = emulator_.video_timing().refresh_60hz() ? 60 : 50;
+        for (const auto& pk : pending_seconds_keys_) {
+            const int frames = pk.delay_seconds * fps;
+            delayed_keys_.push_back({pk.key, frames});
+            Log::platform()->info("delayed-keypress: '{}' scheduled at frame {} ({} s × {} fps)",
+                                   pk.key, frames, pk.delay_seconds, fps);
+        }
+        pending_seconds_keys_.clear();
+    }
+
     // Apply RZX play/record at startup.
     if (!rzx_play_file_.empty()) {
         if (!emulator_.load_rzx(rzx_play_file_)) {
