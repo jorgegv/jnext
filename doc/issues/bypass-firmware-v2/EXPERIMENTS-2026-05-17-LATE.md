@@ -41,6 +41,29 @@ NR values.
 
 **Verdict**: reverted. Code clean.
 
+## Experiment 3 — Issue NR 0x02=0x01 (RESET_SOFT) at end of bypass
+
+**Hypothesis**: tbblue.fw's `boot.c:587-596` issues a literal
+RESET_SOFT (NR 0x02 ← 0x01) as its FINAL step before NextZXOS runs.
+Without that signal, NextZXOS may detect "no firmware did a soft reset
+before me" and take a different boot path. Try adding the NR 0x02
+write to our bypass block.
+
+**Implementation note**: the NR 0x02 handler calls `soft_reset()`
+which re-enters `init(cfg, preserve_memory=true)`. The bypass block is
+gated on `!preserve_memory` so it skips on re-entry — no infinite
+recursion. SRAM is preserved across the soft reset.
+
+**Result**: NEGATIVE. The soft reset DID trigger (log: "Soft reset
+triggered via NextREG 0x02 (0x01) PC=0x0000"), but post-boot state at
+frame 600 was BYTE-IDENTICAL to the no-soft-reset run: same MMU slots
+[FF FF 0A 0B 04 05 0E 0F], same NR $8E=$02, same blank pixels, same
+$5800=$38 attributes. NextZXOS reaches the same idle state regardless
+of whether RESET_SOFT was issued.
+
+**Verdict**: reverted. The RESET_SOFT-at-end-of-firmware contract is
+not the missing piece either.
+
 ## Why these experiments failed (analysis)
 
 The CSpect post-boot capture caught CSpect's NextZXOS at PC=$0C90,
