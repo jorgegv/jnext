@@ -2249,7 +2249,16 @@ static void test_mouse() {
     // MOUSE-13 — G43: SDL motion event → KempstonMouse::inject_delta.
     // Verifies that a host motion delta lands at port 0xFBDF (X) / 0xFFDF (Y)
     // per zxnext.vhd:3546, 3553. Two-step inject exercises the modulo-256
-    // accumulator (0x40 + 0xC0 = 0x100 → 0x00 mod 256 on X).
+    // accumulator on both axes.
+    //
+    // **Y axis convention (Kempston Cartesian-Y):** per specnext.dev wiki
+    // and real-hardware behaviour, port 0xFFDF INCREMENTS when the mouse
+    // moves UP. SDL `e.motion.yrel` and Qt `QPoint::y()` increments are
+    // positive when the mouse moves DOWN (screen-Y), so MouseDispatcher
+    // negates `dy` before forwarding to `inject_delta`. Discriminative
+    // assertion: a positive host `dy=+0x20` (mouse moved DOWN) lands as
+    // y_ = -0x20 mod 256 = 0xE0; a host `dy=-0x01` (mouse moved UP)
+    // brings y_ up to 0xE0 + 1 = 0xE1.
     {
         KempstonMouse m;
         MouseDispatcher d(m);
@@ -2260,12 +2269,13 @@ static void test_mouse() {
         uint8_t fbdf2 = m.read_port_fbdf();
         uint8_t ffdf2 = m.read_port_ffdf();
         check("MOUSE-13",
-              "SDL motion → inject_delta → 0xFBDF/0xFFDF (G43)",
-              fbdf1 == 0x10 && ffdf1 == 0x20 &&
-              fbdf2 == 0x15 && ffdf2 == 0x1F,
+              "SDL motion → inject_delta → 0xFBDF/0xFFDF; Y axis is "
+              "negated (Kempston Cartesian-Y: UP increments Y register) (G43)",
+              fbdf1 == 0x10 && ffdf1 == 0xE0 &&
+              fbdf2 == 0x15 && ffdf2 == 0xE1,
               DETAIL("after (0x10,0x20): fbdf=0x%02X ffdf=0x%02X "
-                     "(want 0x10/0x20); after (+5,-1): fbdf=0x%02X ffdf=0x%02X "
-                     "(want 0x15/0x1F)",
+                     "(want 0x10/0xE0); after (+5,-1): fbdf=0x%02X ffdf=0x%02X "
+                     "(want 0x15/0xE1)",
                      fbdf1, ffdf1, fbdf2, ffdf2));
     }
 
@@ -2371,14 +2381,17 @@ static void test_mouse() {
         const uint8_t fbdf = m.read_port_fbdf();
         const uint8_t ffdf = m.read_port_ffdf();
         const uint8_t fadf = m.read_port_fadf();
+        // Y is negated by MouseDispatcher to convert host screen-Y to
+        // Kempston Cartesian-Y: yrel=+0x44 (mouse moved DOWN) lands as
+        // y_ = -0x44 mod 256 = 0xBC. See MOUSE-13 above for the rationale.
         check("MOUSE-13/14/15-SDL",
               "handle_sdl_event routes motion/button/wheel; ignores other",
               consumed_mot && consumed_bdn && consumed_whl && !consumed_other &&
-              fbdf == 0x33 && ffdf == 0x44 &&
+              fbdf == 0x33 && ffdf == 0xBC &&
               (fadf & 0x02) == 0 &&            // L pressed → bit 1 = 0
               ((fadf >> 4) & 0x0F) == 0x03,    // wheel = 3
               DETAIL("consumed mot=%d bdn=%d whl=%d other=%d | "
-                     "fbdf=0x%02X (0x33) ffdf=0x%02X (0x44) "
+                     "fbdf=0x%02X (0x33) ffdf=0x%02X (0xBC = -0x44 mod 256) "
                      "fadf=0x%02X (bit1 clear, hi nib 0x3)",
                      consumed_mot, consumed_bdn, consumed_whl, consumed_other,
                      fbdf, ffdf, fadf));

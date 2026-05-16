@@ -29,10 +29,20 @@ void MouseDispatcher::reset()
 
 void MouseDispatcher::handle_motion(int dx, int dy)
 {
-    // Forward verbatim. KempstonMouse::inject_delta does the modulo-256
-    // wrap-around per zxnext.vhd:3546 / 3553 (the X/Y registers are raw
-    // 8-bit fields).
-    mouse_.inject_delta(dx, dy);
+    // Kempston mouse Y register convention (per specnext.dev wiki and real
+    // hardware): the Y counter INCREMENTS when the mouse moves UP — i.e. a
+    // Cartesian "math-Y" axis. SDL `e.motion.yrel` and Qt `QPoint::y()`
+    // increments are positive when the mouse moves DOWN (screen-Y), so we
+    // negate `dy` here to convert host screen-Y into Kempston Cartesian-Y.
+    //
+    // Kempston-mouse games typically invert again in software (e.g.
+    // trainyard's `dif_y = prw_y - raw_y` with a `// Y axis inversion`
+    // comment) to recover screen-Y for cursor rendering — the round-trip
+    // is what real hardware delivers.
+    //
+    // KempstonMouse::inject_delta does the modulo-256 wrap-around per
+    // zxnext.vhd:3546 / 3553 (the X/Y registers are raw 8-bit fields).
+    mouse_.inject_delta(dx, -dy);
 }
 
 void MouseDispatcher::handle_button(uint8_t sdl_button, bool pressed)
