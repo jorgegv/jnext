@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**26 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**30 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 ---
 
@@ -167,6 +167,32 @@ nexlib test10 — tilemapper editor mode 0.
 nexlib test10 — tilemapper editor mode 1.
 
 <img src="../test/00regression/img/dapr-tilemapper_01-reference.png" width="384" alt="dapr-tilemapper_01 reference"/>
+
+---
+
+## Game smoke tests
+
+Synthetic keypresses drive each game past its splash/menu screens so the screenshot captures a meaningful post-intro frame. Catch end-to-end regressions of the full Z80 + memory + video pipeline against real-world ZX Spectrum Next titles.
+
+### `celeste`
+Celeste Classic — synthetic `Z` keypress at frame 100 starts the game; captures the first playable scene.
+
+<img src="../test/00regression/img/celeste-reference.png" width="384" alt="celeste reference"/>
+
+### `beanbros`
+Bean Bros — three `ENTER` keypresses (frames 50/100/150) drive past the menu/intro; captures the first level intro frame.
+
+<img src="../test/00regression/img/beanbros-reference.png" width="384" alt="beanbros reference"/>
+
+### `shift`
+Shift — two `SPACE` keypresses (frames 50/100) skip the intro; captures the Test 01 prompt.
+
+<img src="../test/00regression/img/shift-reference.png" width="384" alt="shift reference"/>
+
+### `odemo`
+odemo — five `SPACE` keypresses (frames 50/250/350/450/550) drive past five intro screens; captures the in-game castle level at frame 700. **Functional regression for the Layer 2 320×256 bank-stride +16 fix** (NR $12 = 14 exercises sub_banks 2-4, which would render as animated noise if the `compute_ram_addr` shift is broken).
+
+<img src="../test/00regression/img/odemo-reference.png" width="384" alt="odemo reference"/>
 
 ---
 
