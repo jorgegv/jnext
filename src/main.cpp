@@ -60,6 +60,7 @@ static void print_usage(const char* prog) {
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
         "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
+        "                               KEY: single char, or symbolic ENTER / RETURN / SPACE (case-insensitive)\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
         "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
         "  --version               Print version and exit\n",
@@ -173,7 +174,13 @@ int main(int argc, char* argv[]) {
             int dk_delay = std::stoi(argv[++i]);
             std::string dk_key = argv[++i];
             if (!dk_key.empty()) {
-                char k = static_cast<char>(std::tolower(static_cast<unsigned char>(dk_key[0])));
+                std::string upper;
+                upper.reserve(dk_key.size());
+                for (char c : dk_key) upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+                char k;
+                if (upper == "ENTER" || upper == "RETURN") k = '\n';
+                else if (upper == "SPACE") k = ' ';
+                else k = static_cast<char>(std::tolower(static_cast<unsigned char>(dk_key[0])));
                 delayed_keys.push_back({dk_delay, k});
             }
         } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
