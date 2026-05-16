@@ -445,6 +445,16 @@ target_include_directories(task18_bypass_state_test PRIVATE ${CMAKE_SOURCE_DIR}/
 add_test(NAME task18_bypass_state COMMAND task18_bypass_state_test
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# Task 18 post-boot probe (SCRATCH; not registered with CTest). Runs
+# 600 frames in headless mode and dumps screen-related state — used to
+# diagnose the "screen stays gray" issue.
+add_executable(task18_bypass_post_boot_probe task18_baseline/bypass_post_boot_probe.cpp)
+target_link_libraries(task18_bypass_post_boot_probe PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(task18_bypass_post_boot_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
