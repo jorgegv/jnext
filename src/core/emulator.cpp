@@ -5248,6 +5248,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // firmware to drive NR 0x03, so keeping config_mode=0 here lets ROM reads
     // fall through to the normal slot path. NR 0x03 writes keep mirroring
     // config_mode_ into the Mmu live thereafter.
+    //
+    // Task 18 (bypass-tbblue-fw): mmu_.boot_rom_enabled() is FALSE in bypass
+    // mode because the overlay was never installed (the gate above at
+    // :5198-5212 short-circuits the embed). The bypass branch deliberately
+    // SKIPS this block — there is no firmware to use config_mode, and the
+    // NR 0x03=0xB3 write at end of init() (see line ~5500) then does the
+    // canonical post-firmware config_mode=0 commit via the handler at
+    // :2497, so Mmu's mirror catches up before the Z80 runs.
     if (cfg.type == MachineType::ZXN_ISSUE2 && mmu_.boot_rom_enabled()) {
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
         mmu_.set_nr_04_romram_bank(nextreg_.nr_04_romram_bank());
@@ -5477,6 +5485,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // Reference: doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md §2.5 and
     // doc/issues/bypass-firmware-v2/PLAN-AUDIT.md §2-3 (Branch 3).
+    //
+    // Why NR 0x07 is NOT written here (FUTURE plan §2.4 / §3 mentions
+    // NR 0x07=$03 = 28 MHz for "boot-rate speed", and the empirical
+    // CSpect post-boot capture has NR 0x07=$33 = 28 MHz running): the
+    // 28 MHz speed is tbblue.fw's PRIVATE acceleration for firmware
+    // execution. The handoff contract from firmware to NextZXOS does
+    // NOT require 28 MHz — NextZXOS writes NR 0x07=$03 itself within
+    // the first ~50 instructions of its boot path (verified empirically
+    // in the bypass-mode trace at PC=$00EF: `ED 91 07 03 ...`). The
+    // NextReg cold-reset default of 0x00 (3.5 MHz) is therefore the
+    // correct post-firmware handoff value — no explicit write needed.
     //
     // Skipped on soft reset: a soft reset must preserve whatever the
     // post-init state was; re-running this write would re-disable the

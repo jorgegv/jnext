@@ -430,6 +430,21 @@ target_link_libraries(task18_cold_reset_probe PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(task18_cold_reset_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# Task 18 discriminative bypass state test (REGISTERED with CTest —
+# fails if any of the three bypass gates in Emulator::init() regresses).
+# See test/task18_baseline/bypass_state_test.cpp +
+# doc/issues/bypass-firmware-v2/REVIEW-REBUTTAL.md (Finding 3).
+add_executable(task18_bypass_state_test task18_baseline/bypass_state_test.cpp)
+target_link_libraries(task18_bypass_state_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(task18_bypass_state_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# CTest registration: test only runs if the canonical SD image is present
+# (skipped silently on hermetic build environments where it isn't).
+add_test(NAME task18_bypass_state COMMAND task18_bypass_state_test
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
