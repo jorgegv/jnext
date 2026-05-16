@@ -418,6 +418,18 @@ target_link_libraries(contention_test PRIVATE
 target_include_directories(contention_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME contention_tests COMMAND contention_test)
 
+# Task 18 cold-reset baseline probe (SCRATCH; not registered with CTest).
+# Builds a single Emulator with the canonical Next boot config, dumps
+# post-init state to stdout for the bypass-firmware-v2 investigation.
+# See test/task18_baseline/cold_reset_probe.cpp and
+# doc/issues/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md.
+add_executable(task18_cold_reset_probe task18_baseline/cold_reset_probe.cpp)
+target_link_libraries(task18_cold_reset_probe PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(task18_cold_reset_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
