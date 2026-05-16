@@ -156,6 +156,12 @@ MainWindow::MainWindow(QWidget* parent)
     setMouseTracking(true);
     if (emulator_widget_) {
         emulator_widget_->setMouseTracking(true);
+        // Hide the host cursor when it's over the emulator viewport. The
+        // emulator-rendered Kempston-mouse cursor (e.g. trainyard, Art
+        // Studio Next) doubles up with the host cursor otherwise. Qt
+        // restores the normal cursor automatically as soon as the mouse
+        // leaves the widget (so menus / toolbars stay clickable).
+        emulator_widget_->setCursor(Qt::BlankCursor);
     }
 
     // When the emulator widget detects the real DPR on its first frame,
