@@ -196,6 +196,8 @@ bool TraceLog::enabled() const
 
 void TraceLog::record(const TraceEntry& entry)
 {
+    if (no_wrap_ && count_ >= capacity_)
+        return;  // freeze when full — preserves earliest entries
     buffer_[head_] = entry;
     head_ = (head_ + 1) % capacity_;
     if (count_ < capacity_)
@@ -204,6 +206,14 @@ void TraceLog::record(const TraceEntry& entry)
 
 void TraceLog::clear()
 {
+    head_ = 0;
+    count_ = 0;
+}
+
+void TraceLog::resize(size_t new_capacity)
+{
+    buffer_.assign(new_capacity, TraceEntry{});
+    capacity_ = new_capacity;
     head_ = 0;
     count_ = 0;
 }

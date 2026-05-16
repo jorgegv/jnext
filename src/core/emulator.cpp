@@ -7,6 +7,7 @@
 #include "core/sna_saver.h"
 #include "core/saveable.h"
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -38,6 +39,30 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
     // not own the I2s; lifetime is the Emulator's. See
     // audio_mixer.vhd:89-90,99-100 for the 13-bit sum term.
     mixer_.set_i2s_source(&i2s_);
+}
+
+// ---------------------------------------------------------------------------
+// Destructor — handles JNEXT_TRACE_DUMP_AT_EXIT env-gate (G46(b) trace infra).
+// Reads the env var at destruction time only; zero overhead when unset.
+// ---------------------------------------------------------------------------
+Emulator::~Emulator()
+{
+    // G46(b) EOD-30i+29: JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
+    //   If set, export the full trace-log ring buffer to a text file at
+    //   emulator shutdown. Allows post-mortem grep/awk walks when combined
+    //   with JNEXT_TRACE_FORCE_ENABLE + JNEXT_TRACE_CAPACITY.
+    //   Zero cost when env var unset (single getenv check at teardown).
+    if (const char* dump_path = std::getenv("JNEXT_TRACE_DUMP_AT_EXIT")) {
+        if (trace_log_.size() > 0) {
+            bool ok = trace_log_.export_to_file(dump_path);
+            std::fprintf(stderr, "[trace] exported %zu entries to %s%s\n",
+                         trace_log_.size(), dump_path,
+                         ok ? "" : " (WRITE ERROR)");
+        } else {
+            std::fprintf(stderr, "[trace] JNEXT_TRACE_DUMP_AT_EXIT set but trace is empty"
+                                 " (enable with JNEXT_TRACE_FORCE_ENABLE=1)\n");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5526,6 +5551,49 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         rewind_buffer_.reset();
         rewind_enabled_ = false;
         Log::emulator()->debug("Rewind buffer: disabled");
+    }
+
+    // -----------------------------------------------------------------------
+    // G46(b) EOD-30i+29: JNEXT_TRACE_* env-gates for large trace capture.
+    // All four have zero cost when the respective env var is unset.
+    //
+    // JNEXT_TRACE_CAPACITY=N
+    //   Resize the trace ring buffer to N entries at init time.
+    //   Clamped to [1024, 16777216] to avoid trivially small or OOM cases.
+    //   Each TraceEntry is ~56 bytes; 1M entries ≈ 56 MB.
+    //
+    // JNEXT_TRACE_FORCE_ENABLE=1
+    //   Force-enable trace recording unconditionally (default: only enabled
+    //   when rewind buffer is active).
+    //
+    // JNEXT_TRACE_NO_WRAP=1
+    //   Stop recording once the buffer is full (preserves earliest entries).
+    //   Without this, the ring buffer overwrites oldest with newest.
+    //   Use with JNEXT_TRACE_CAPACITY to capture early-boot instructions.
+    //
+    // JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
+    //   Handled in ~Emulator() — exported at emulator shutdown.
+    // -----------------------------------------------------------------------
+    if (const char* cap_env = std::getenv("JNEXT_TRACE_CAPACITY")) {
+        char* end = nullptr;
+        unsigned long long cap_val = std::strtoull(cap_env, &end, 10);
+        constexpr size_t kMinCap =       1024ULL;
+        constexpr size_t kMaxCap = 16777216ULL;  // 16 M entries ≈ 896 MB
+        if (cap_val < kMinCap) cap_val = kMinCap;
+        if (cap_val > kMaxCap) cap_val = kMaxCap;
+        trace_log_.resize(static_cast<size_t>(cap_val));
+        Log::emulator()->info("[G46b] JNEXT_TRACE_CAPACITY: trace buffer resized to {} entries (~{} MB)",
+            cap_val, (cap_val * 56 + 524288) / 1048576);
+    }
+
+    if (std::getenv("JNEXT_TRACE_FORCE_ENABLE")) {
+        trace_log_.set_enabled(true);
+        Log::emulator()->info("[G46b] JNEXT_TRACE_FORCE_ENABLE: trace recording forced on");
+    }
+
+    if (std::getenv("JNEXT_TRACE_NO_WRAP")) {
+        trace_log_.set_no_wrap(true);
+        Log::emulator()->info("[G46b] JNEXT_TRACE_NO_WRAP: trace will stop recording when full (preserves earliest entries)");
     }
 
     return true;

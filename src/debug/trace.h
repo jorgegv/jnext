@@ -33,6 +33,14 @@ public:
     /// Clear all recorded entries.
     void clear();
 
+    /// Resize the ring buffer to a new capacity and clear all entries.
+    /// Useful for large G46(b) trace captures; zero cost when not called.
+    void resize(size_t new_capacity);
+
+    /// When set, the buffer stops recording once full (no overwrite).
+    /// Default false (ring buffer: newest entry overwrites oldest).
+    void set_no_wrap(bool v) { no_wrap_ = v; }
+
     /// Number of entries currently stored.
     size_t size() const;
 
@@ -49,4 +57,5 @@ private:
     size_t head_ = 0;   // next write position
     size_t count_ = 0;  // entries stored
     bool enabled_ = false;
+    bool no_wrap_ = false;  // stop recording when full instead of overwriting
 };

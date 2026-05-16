@@ -70,6 +70,7 @@
 class Emulator {
 public:
     Emulator();
+    ~Emulator();
 
     // Non-copyable, non-movable (owns large state).
     Emulator(const Emulator&)            = delete;
