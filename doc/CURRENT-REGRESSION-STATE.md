@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**31 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**32 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 ---
 
@@ -178,6 +178,11 @@ Synthetic keypresses drive each game past its splash/menu screens so the screens
 Celeste Classic — original NEX with `--esxdos-stub`. Synthetic `Z` keypress at frame 100 starts the game; captures the first playable scene.
 
 <img src="../test/00regression/img/celeste-reference.png" width="384" alt="celeste reference"/>
+
+### `celeste2`
+Celeste Classic — second build of the same engine, original NEX with `--esxdos-stub`. Same params as `celeste` (Z keypress at frame 100, screenshot at frame 150); the level layout differs from celeste1 so this is a separate end-to-end coverage point.
+
+<img src="../test/00regression/img/celeste2-reference.png" width="384" alt="celeste2 reference"/>
 
 ### `beanbros`
 Bean Bros — original NEX with `--esxdos-stub` (defensive; the game makes no esxdos calls). Three `ENTER` keypresses (frames 50/100/150) drive past the menu/intro; captures the first level intro frame.
