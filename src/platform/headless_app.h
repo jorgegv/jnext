@@ -28,8 +28,9 @@ public:
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
     /// Schedule a keypress after a delay (for menu-driven tests in headless mode).
-    /// key is a character like '0'-'9', 'a'-'z', or special names.
-    void set_delayed_keypress(char key, int delay_seconds);
+    /// key is a character like '0'-'9', 'a'-'z', or '\n' / ' ' for ENTER / SPACE.
+    /// delay_frames is in emulated frames (50 fps on 50 Hz machines, 60 fps on NTSC).
+    void set_delayed_keypress(char key, int delay_frames);
 
 private:
     Emulator emulator_;

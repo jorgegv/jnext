@@ -108,10 +108,10 @@ static bool char_to_matrix(char key, int& row, int& col) {
     }
 }
 
-void HeadlessApp::set_delayed_keypress(char key, int delay_seconds) {
-    delayed_keys_.push_back({key, delay_seconds * 50});
-    Log::platform()->info("--delayed-keypress: will press '{}' after {} second(s)",
-                           key, delay_seconds);
+void HeadlessApp::set_delayed_keypress(char key, int delay_frames) {
+    delayed_keys_.push_back({key, delay_frames});
+    Log::platform()->info("delayed-keypress: will press '{}' after {} frame(s)",
+                           key, delay_frames);
 }
 
 void HeadlessApp::run() {

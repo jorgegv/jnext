@@ -60,6 +60,7 @@ static void print_usage(const char* prog) {
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
         "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
+        "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (overrides SECS form)\n"
         "                               KEY: single char, or symbolic ENTER / RETURN / SPACE (case-insensitive)\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
         "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
@@ -106,7 +107,7 @@ int main(int argc, char* argv[]) {
     int         rewind_buffer_frames = 500;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
-    struct DelayedKeyArg { int delay; char key; };
+    struct DelayedKeyArg { int delay_frames; char key; };
     std::vector<DelayedKeyArg> delayed_keys;
 
     // Parse command-line arguments.
@@ -170,8 +171,12 @@ int main(int argc, char* argv[]) {
             speed_percent = std::stoi(argv[++i]);
             if (speed_percent < 10) speed_percent = 10;
             if (speed_percent > 1000) speed_percent = 1000;
-        } else if (arg == "--delayed-keypress" && i + 2 < argc) {
-            int dk_delay = std::stoi(argv[++i]);
+        } else if ((arg == "--delayed-keypress" || arg == "--delayed-keypress-frames")
+                   && i + 2 < argc) {
+            // SECS form (50 fps assumed) vs explicit FRAMES form. Both
+            // share the same KEY parsing.
+            const bool in_frames = (arg == "--delayed-keypress-frames");
+            int dk_n = std::stoi(argv[++i]);
             std::string dk_key = argv[++i];
             if (!dk_key.empty()) {
                 std::string upper;
@@ -181,7 +186,8 @@ int main(int argc, char* argv[]) {
                 if (upper == "ENTER" || upper == "RETURN") k = '\n';
                 else if (upper == "SPACE") k = ' ';
                 else k = static_cast<char>(std::tolower(static_cast<unsigned char>(dk_key[0])));
-                delayed_keys.push_back({dk_delay, k});
+                int frames = in_frames ? dk_n : dk_n * 50;
+                delayed_keys.push_back({frames, k});
             }
         } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
             rewind_buffer_frames = std::stoi(argv[++i]);
@@ -323,7 +329,7 @@ int main(int argc, char* argv[]) {
     if (headless) {
         HeadlessApp app;
         for (auto& dk : delayed_keys) {
-            app.set_delayed_keypress(dk.key, dk.delay);
+            app.set_delayed_keypress(dk.key, dk.delay_frames);
         }
         result = configure_and_run(app);
     } else {
