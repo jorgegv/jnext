@@ -5153,7 +5153,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
             case MachineType::ZXN_ISSUE2:
             default:
-                load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
+                if (cfg.bypass_tbblue_fw) {
+                    // Task 18 firmware-bypass route: load NextZXOS directly
+                    // into SRAM pages 0..7 (RAMPAGE_ROMSPECCY), replacing the
+                    // 48K fallback that the firmware-boot path uses as a seed
+                    // before tbblue.fw `load_roms()` overwrites it. 64 KB =
+                    // 4 banks × 16 KB → SRAM pages 0x00..0x07 via the seed
+                    // loop at :5208-5215. This is what `boot.c` would have
+                    // populated after parsing menu.def's default entry
+                    // (`menu=ZX Spectrum Next (standard),2,8,enNextZX.rom,...`).
+                    load_machine_rom("/MACHINES/NEXT/enNextZX.rom", 4, 0x10000,
+                                     "NextZXOS (bypass-tbblue-fw)");
+                } else {
+                    load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
+                }
                 break;
         }
         Log::emulator()->info("Machine type: {} (ROMs from SD '{}')",
@@ -5185,7 +5198,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (!preserve_memory) {
         if (cfg.type == MachineType::ZXN_ISSUE2 &&
             !cfg.sd_card_image.empty() &&
-            cfg.load_file.empty()) {
+            cfg.load_file.empty() &&
+            !cfg.bypass_tbblue_fw) {
+            // Task 18: in bypass mode we never install the FPGA boot-ROM
+            // overlay. The Z80's first fetch at PC=0 must hit the NextZXOS
+            // ROM we seeded into SRAM page 0 above, not the firmware IPL.
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
             boot_rom_.assign(embedded_data, embedded_data + embedded_size);
@@ -5435,6 +5452,43 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --compositor-trace / --compositor-trace-frame). Empty path disables.
     renderer_.set_compositor_trace(cfg.compositor_trace_path,
                                    cfg.compositor_trace_frame);
+
+    // Task 18 firmware-bypass route — post-firmware state commit.
+    //
+    // On hard reset only (preserve_memory=false): with SRAM pages 0..7
+    // populated above with enNextZX.rom (64 KB) and the boot-ROM overlay
+    // intentionally NOT installed, the remaining gap vs. what tbblue.fw
+    // would have set is the machine-type commit + boot-ROM-disable +
+    // config_mode clear. All three happen on a single NR 0x03 write
+    // through the registered handler at line ~2333:
+    //   bits[2:0]=011 ($B3 & 7 = 3) → typ_sel=ZX_PLUS3, committed
+    //     because the current `nr_03_config_mode` is the VHDL power-on
+    //     '1' default that survives reset (per `nextreg.cpp:355` +
+    //     VHDL zxnext.vhd:1102).
+    //   bits[6:4]=011 ($B3 >> 4 = $0B & 7 = 3) AND bit7=1 AND bit3=0 →
+    //     +3 machine_timing (28 MHz unchanged).
+    //   apply_nr_03_config_mode_transition($B3 & 7 = 011) clears
+    //     config_mode → 0 (VHDL :5147-5151).
+    //   mmu_.set_boot_rom_enabled(false) (handler line 2335) — boot ROM
+    //     overlay was never installed in bypass mode, but we still run
+    //     the handler so the Mmu's mirror flag is canonical.
+    //   mmu_.set_config_mode(false) (handler line 2497) — paging routes
+    //     through the normal slot path, not config_mode SRAM routing.
+    //
+    // Reference: doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md §2.5 and
+    // doc/issues/bypass-firmware-v2/PLAN-AUDIT.md §2-3 (Branch 3).
+    //
+    // Skipped on soft reset: a soft reset must preserve whatever the
+    // post-init state was; re-running this write would re-disable the
+    // boot ROM (already disabled), re-commit machine type (already +3),
+    // and re-clear config_mode (already 0), so the soft-reset path
+    // would be idempotent — but the explicit handler-driven log lines
+    // would spam on every soft reset, so we gate strictly on hard reset.
+    if (cfg.bypass_tbblue_fw && !preserve_memory &&
+        cfg.type == MachineType::ZXN_ISSUE2) {
+        Log::emulator()->info("Task 18: firmware bypass — committing post-firmware NextREG state");
+        nextreg_.write(0x03, 0xB3);
+    }
 
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).

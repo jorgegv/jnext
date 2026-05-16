@@ -99,6 +99,16 @@ struct EmulatorConfig {
     // NextZXOS, so the real esxdos firmware isn't in DivMMC SRAM).
     bool esxdos_stub = false;
 
+    // Task 18 firmware-bypass route. When true, jnext skips loading the
+    // FPGA boot ROM overlay (tbblue.fw IPL) and instead populates SRAM
+    // pages 0..7 directly from `/MACHINES/NEXT/enNextZX.rom` on the SD
+    // image, then commits +3 machine type via NR 0x03=0xB3 — replicating
+    // what `boot.c` would have done after parsing menu.def's default
+    // entry. Z80 starts at PC=0x0000 with the NextZXOS ROM already in
+    // place. Sidesteps the layer-7 wrong-roms/nextboot.rom issue and the
+    // SPACEBAR menu UX. Implementation in src/core/emulator.cpp::init().
+    bool bypass_tbblue_fw = false;
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)
