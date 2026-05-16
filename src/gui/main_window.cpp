@@ -1168,19 +1168,51 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
 
-    // Qt6: position() is QPointF in widget-local coords (event source widget).
-    // We use globalPosition() so child widgets (EmulatorWidget) and the
-    // window itself produce the same delta stream — there's no jump when
-    // the cursor crosses widget boundaries inside the window.
-    const QPoint cur = event->globalPosition().toPoint();
-    if (have_last_mouse_pos_) {
-        const int dx = cur.x() - last_mouse_pos_.x();
-        const int dy = cur.y() - last_mouse_pos_.y();
+    // Map the host cursor's global position to the EmulatorWidget viewport
+    // and then to a "ZX cursor space" of 320×256 (the Kempston-mouse visible
+    // range used by most wide-Next-mode games, e.g. trainyard which clamps
+    // to 0..319/0..255 in software). We forward a delta from the previous
+    // mapped position to the current one, instead of raw host-pixel deltas,
+    // so:
+    //   - cursor visual speed matches the host cursor 1:1 regardless of
+    //     window scale (320 ZX-px stretched to N widget-px → 1 host-px of
+    //     motion = N/320 widget-px of motion = the visible cursor distance);
+    //   - when the host cursor leaves at one viewport edge and re-enters at
+    //     another, the first new mouse-move event produces a large delta
+    //     that pulls the ZX cursor toward the new entry point — boundary
+    //     transitions stay "mostly continuous". (The Kempston counter is
+    //     8-bit, so very large warps are softened by signed-8-bit wrap in
+    //     KempstonMouse::inject_delta; small motions are exact.)
+    static constexpr int ZX_CURSOR_W = 320;
+    static constexpr int ZX_CURSOR_H = 256;
+
+    const QPoint global = event->globalPosition().toPoint();
+    const int ww = emulator_widget_ ? emulator_widget_->width()  : 0;
+    const int wh = emulator_widget_ ? emulator_widget_->height() : 0;
+    if (emulator_widget_ && ww > 0 && wh > 0) {
+        const QPoint local = emulator_widget_->mapFromGlobal(global);
+        const int zx_x = static_cast<int>(
+            static_cast<long long>(local.x()) * ZX_CURSOR_W / ww);
+        const int zx_y = static_cast<int>(
+            static_cast<long long>(local.y()) * ZX_CURSOR_H / wh);
+        if (have_last_mouse_pos_) {
+            const int dx = zx_x - last_zx_x_;
+            const int dy = zx_y - last_zx_y_;
+            if (dx != 0 || dy != 0) {
+                mouse_dispatcher_->handle_motion(dx, dy);
+            }
+        }
+        last_zx_x_ = zx_x;
+        last_zx_y_ = zx_y;
+    } else if (have_last_mouse_pos_) {
+        // Fallback: emulator widget not ready — forward verbatim host deltas.
+        const int dx = global.x() - last_mouse_pos_.x();
+        const int dy = global.y() - last_mouse_pos_.y();
         if (dx != 0 || dy != 0) {
             mouse_dispatcher_->handle_motion(dx, dy);
         }
     }
-    last_mouse_pos_ = cur;
+    last_mouse_pos_ = global;
     have_last_mouse_pos_ = true;
     event->accept();
 }
@@ -1192,9 +1224,23 @@ void MainWindow::mousePressEvent(QMouseEvent* event) {
     }
     // Make sure the next motion event computes a delta from the press
     // location, not from a stale cursor position from before the user
-    // alt-tabbed away.
-    last_mouse_pos_ = event->globalPosition().toPoint();
+    // alt-tabbed away. Also seed last_zx_x_/y_ so the position-mapped
+    // delta path stays consistent (mouseMoveEvent uses ZX-space deltas
+    // rather than raw host deltas).
+    const QPoint global = event->globalPosition().toPoint();
+    last_mouse_pos_ = global;
     have_last_mouse_pos_ = true;
+    if (emulator_widget_) {
+        const int ww = emulator_widget_->width();
+        const int wh = emulator_widget_->height();
+        if (ww > 0 && wh > 0) {
+            const QPoint local = emulator_widget_->mapFromGlobal(global);
+            last_zx_x_ = static_cast<int>(
+                static_cast<long long>(local.x()) * 320 / ww);
+            last_zx_y_ = static_cast<int>(
+                static_cast<long long>(local.y()) * 256 / wh);
+        }
+    }
 
     const uint8_t sdl_btn = qt_button_to_sdl(event->button());
     if (sdl_btn) {

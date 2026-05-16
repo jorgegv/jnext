@@ -140,8 +140,10 @@ private:
     // owned here because MainWindow is the GUI's host event source. Created
     // in set_emulator() once Emulator::mouse() is bound.
     std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
-    QPoint last_mouse_pos_;        ///< Previous mouse position for delta calc.
+    QPoint last_mouse_pos_;        ///< Previous mouse position (global, for fallback).
     bool   have_last_mouse_pos_ = false;
+    int    last_zx_x_ = 0;         ///< Previous host pos mapped to ZX cursor space.
+    int    last_zx_y_ = 0;
 
     bool is_fullscreen_ = false;
     int current_scale_ = 1;  ///< Default 1× scale (640×512 viewport — post-G104, was 2× / 1280×1024 pre-G104).
