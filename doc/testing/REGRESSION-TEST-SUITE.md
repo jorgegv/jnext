@@ -3,6 +3,8 @@
 Automated testing infrastructure for the JNEXT emulator. Runs FUSE Z80 opcode
 tests and screenshot-based visual regression tests in headless mode.
 
+See also: [TEST-TAXONOMY.md](TEST-TAXONOMY.md) — every screenshot row belongs to one of three layers (full-OS SD boot / NEX autoload / z88dk probe). Use the taxonomy to map a failing test back to the subsystem layer most likely to harbour the bug.
+
 ## Prerequisites
 
 - Built emulator (`cmake --build build`)
