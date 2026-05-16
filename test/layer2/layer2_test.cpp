@@ -1208,6 +1208,70 @@ static void test_group7_bank_transform() {
               got == 0x49,
               DETAIL("readback=0x%02X expected=0x49", got));
     }
+
+    // ---------- G7-20: bank-stride +16 applies to ALL sub-banks (not just <16) ----------
+    //
+    // VHDL layer2.vhd:172 applies `bank_eff = active_bank + 16` UNCONDITIONALLY
+    // on every pixel fetch. A previous form of compute_ram_addr gated the +16
+    // with `final_bank < 16`, so for NR $12 ≥ 12 the high sub-banks
+    // (sub_bank 2..4 in 320×256 mode, since 12+4=16 fails the guard) stayed
+    // at physical SRAM banks 16..18 instead of 32..34 — landing on ZX RAM
+    // banks 0..2 (CPU code/heap) instead of the L2 buffer. The visible
+    // symptom was animated noise on the right half of any 320×256 demo
+    // that defaulted NR $12 to a value ≥ 11 (e.g. `odemo.nex` using bank 14).
+    //
+    // This test passes pixel data at the VHDL-correct address ONLY (no
+    // write to the pre-fix `cpp_ram_addr` location), and uses `rom_in_sram=true`
+    // to exercise the same code path Next-mode boots take.
+    {
+        Ram ram_g720; PaletteManager pal_g720;
+        Layer2 l2_g720;
+        uint32_t buf_g720[BUF_WIDTH];
+        l2_g720.reset(); l2_g720.set_enabled(true);
+        pal_g720.reset();
+        pal_g720.set_global_transparency(0xFE);
+        set_l2_palette_8bit(pal_g720, 0x42, 0x1C);
+        set_l2_palette_8bit(pal_g720, 0x43, 0x9C);
+        set_l2_palette_8bit(pal_g720, 0x44, 0x5C);
+        l2_g720.set_control(0x10);          // resolution = 01 (320×256)
+        l2_g720.set_clip_y2(0xFF);
+        l2_g720.set_active_bank(14);        // NR $12 = 14 (matches odemo.nex)
+        // For each sub_bank 2/3/4, place a distinct palette index ONLY at
+        // the VHDL-mapped physical address — NOT at the pre-fix cpp_ram_addr.
+        // If the renderer reads from the pre-fix location it will see zero
+        // (or whatever happens to be in RAM bank 0/1/2 at that offset).
+        auto write_subbank_probe = [&](int sub_bank, uint8_t val) {
+            int src_x = sub_bank * 64;        // first column in this sub_bank
+            int src_y = 50;                   // mid-bank row
+            uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256u + src_y;
+            ram_g720.write(vhdl_ram_addr(14, l2_addr), val);
+        };
+        write_subbank_probe(2, 0x42);
+        write_subbank_probe(3, 0x43);
+        write_subbank_probe(4, 0x44);
+
+        // Render row 50 with rom_in_sram=true (Next-mode SRAM layout).
+        memset(buf_g720, 0, sizeof(buf_g720));
+        l2_g720.render_scanline(buf_g720, 50, ram_g720, pal_g720, /*rom_in_sram=*/true);
+
+        // sub_bank 2 → src_x=128 → buf[256] (pixel-doubled).
+        // sub_bank 3 → src_x=192 → buf[384].
+        // sub_bank 4 → src_x=256 → buf[512].
+        const uint32_t got_sb2 = buf_g720[2 * 128];
+        const uint32_t got_sb3 = buf_g720[2 * 192];
+        const uint32_t got_sb4 = buf_g720[2 * 256];
+        const uint32_t want_sb2 = pal_g720.layer2_colour(0x42);
+        const uint32_t want_sb3 = pal_g720.layer2_colour(0x43);
+        const uint32_t want_sb4 = pal_g720.layer2_colour(0x44);
+        check("G7-20",
+              "320×256 sub_banks 2/3/4 fetch from VHDL-shifted SRAM bank (NR$12=14, "
+              "+16 unconditional per layer2.vhd:172; pre-fix the < 16 guard left them "
+              "reading ZX RAM banks 0..2 instead of the L2 buffer)",
+              got_sb2 == want_sb2 && got_sb3 == want_sb3 && got_sb4 == want_sb4,
+              DETAIL("sb2 got=0x%08X want=0x%08X, sb3 got=0x%08X want=0x%08X, "
+                     "sb4 got=0x%08X want=0x%08X",
+                     got_sb2, want_sb2, got_sb3, want_sb3, got_sb4, want_sb4));
+    }
 }
 
 // =========================================================================

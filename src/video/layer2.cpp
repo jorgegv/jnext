@@ -321,28 +321,27 @@ void Layer2::set_control(uint8_t val)
 static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr,
                                         bool rom_in_sram)
 {
-    // VHDL layer2.vhd:172 applies a +1 bank transform to skip ROM banks
-    // in the shared physical SRAM. In the emulator, RAM and ROM are separate
-    // objects, and the MMU also uses raw page numbers without the +1. Both
-    // paths must agree, so we use the raw bank number here too.
+    // VHDL layer2.vhd:172 applies an UNCONDITIONAL `bank_eff = active_bank + 16`
+    // (encoded as `+1` in the high nibble of layer2_bank_eff). This is the
+    // fixed SRAM-layout offset for ZX RAM (which starts at SRAM 0x040000 =
+    // 16K-bank 16). The transform fires combinatorially on EVERY pixel
+    // fetch with no guard, no enable, no exception. The 5 contiguous 16K
+    // pages for 320×256 mode then live at SRAM banks {N+16, N+17, N+18,
+    // N+19, N+20} for any NR $12 value N.
     //
-    // Next mode (rom_in_sram=true): the effective SRAM page per VHDL
-    // zxnext.vhd:2964 mmu_A21_A13 formula adds +0x20 in 8K-page units,
-    // i.e. +16 in 16K-bank units. The Mmu does the same in to_sram_page
-    // for RAM slot reads, so firmware MMU writes to bank N land at the
-    // same SRAM location that Layer 2 fetches here (N+16).
+    // Bug history: a previous form gated the +16 with `final_bank < 16`
+    // (and added bank-5 / bank-7-lower exceptions that are CPU-port
+    // concerns and don't apply to the pixel-fetch path). For NR $12 ≥ 11
+    // (e.g. demo defaults to bank 14), sub-banks 2..4 produce
+    // pre-shift `final_bank ≥ 16`, failing the guard, leaving them at
+    // physical SRAM banks 16..18 = ZX RAM banks 0..2 (CPU code/heap) →
+    // animated-noise corruption on right half of 320×256 / 640×256.
+    // Found via odemo.nex column-128-boundary symptom, 2026-05-16.
     int bank_16k = active_bank;
     int sub_bank = static_cast<int>(l2_addr >> 14);      // which 16K chunk (0-4)
     int offset   = static_cast<int>(l2_addr & 0x3FFF);   // offset within 16K
     int final_bank = bank_16k + sub_bank;
-    if (rom_in_sram && final_bank < 16) {
-        // Bank 5 / bank 7-lower dual-port VRAM exception (Mmu::to_sram_page).
-        // Layer 2 wouldn't normally use bank 5 or bank 7 as its data banks,
-        // but guard anyway so the shift matches Mmu's rule byte-for-byte.
-        bool is_bank5_page = (final_bank == 5);                 // pages 0x0A, 0x0B
-        bool is_bank7_lower = (final_bank * 2) == 0x0E;         // page 0x0E (bank 7 low)
-        if (!is_bank5_page && !is_bank7_lower) final_bank += 16;
-    }
+    if (rom_in_sram) final_bank += 16;                   // VHDL layer2.vhd:172
     return static_cast<uint32_t>(final_bank * 16384 + offset);
 }
 
