@@ -530,6 +530,30 @@ int Z80Cpu::execute() {
     // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
 
+    // esxdos shim interception. The RST $08 instruction has already
+    // pushed the return address (= byte after the RST opcode = address
+    // of the DEFB esxdos function code). We pop it, read the DEFB, and
+    // let the shim fake a result; PC and SP are then updated to land at
+    // the byte after the DEFB. See on_esxdos_call doc in z80_cpu.h.
+    if (pc == 0x0008 && on_esxdos_call) {
+        uint16_t sp = z80.sp.w;
+        uint16_t ret_addr = static_cast<uint16_t>(
+            mem_.read(sp) | (mem_.read(static_cast<uint16_t>(sp + 1)) << 8));
+        uint8_t defb = mem_.read(ret_addr);
+        sync_regs_from_fuse(regs_);
+        Z80Registers r = regs_;
+        if (on_esxdos_call(defb, r)) {
+            r.PC = static_cast<uint16_t>(ret_addr + 1);
+            r.SP = static_cast<uint16_t>(sp + 2);
+            regs_ = r;
+            sync_fuse_from_regs(regs_);
+            // Approximate timing: RST $08 (11 T-states) + the body the
+            // shim is replacing. Use 50 as a coarse average so frame
+            // pacing isn't wildly disturbed by intercepted calls.
+            return 50;
+        }
+    }
+
     // DivMMC automap (and any other memory overlay) must activate BEFORE
     // the opcode read, matching real hardware combinatorial decode.
     if (on_m1_prefetch) on_m1_prefetch(pc);

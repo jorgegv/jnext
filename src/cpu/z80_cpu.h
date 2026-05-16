@@ -120,6 +120,23 @@ public:
     // If set and returns true, CPU should break to debugger.
     std::function<bool(uint16_t pc)> on_magic_breakpoint;
 
+    // esxdos shim hook. Fired when PC reaches $0008 (RST $08 destination).
+    // Z80Cpu reads the DEFB byte at the caller's return address (the
+    // esxdos function code, e.g. $9A = F_OPEN) and passes it to the
+    // callback along with a mutable copy of the current registers. If the
+    // callback returns true, the call is intercepted: PC is set to
+    // (return_addr + 1) to skip the DEFB, SP is bumped past the pushed
+    // return addr (the RST $08 push is rolled back), and the callback's
+    // updated registers are committed. If false, $0008 executes normally.
+    //
+    // Use case: jnext loads NEX files without booting NextZXOS, so the
+    // real esxdos firmware (DivMMC AUTOMAP RST $08 handler) is not in
+    // memory. z88dk-built NEX games that call esxdos_f_open etc. would
+    // otherwise jump into 48K BASIC's ERROR handler and stall. With this
+    // shim enabled (via --esxdos-stub), every esxdos call returns a
+    // benign error so games' "no esxdos" fallback path is taken.
+    std::function<bool(uint8_t defb_code, Z80Registers& regs)> on_esxdos_call;
+
     // Callback fired when an NMI is being serviced by the CPU. Receives the
     // PC value that will be pushed to stack as the NMI return address (i.e.
     // the post-HALT-fix PC, before fuse_z80_nmi() rewrites it to 0x0066).

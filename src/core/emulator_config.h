@@ -92,6 +92,13 @@ struct EmulatorConfig {
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 
+    // esxdos shim. When true, jnext intercepts RST $08 (esxdos entry) at
+    // PC=$0008 and returns benign errors for known function codes (F_OPEN
+    // returns ENOENT, F_CLOSE returns success, etc.). Lets z88dk-built
+    // NEX games that depend on esxdos boot under --load (which bypasses
+    // NextZXOS, so the real esxdos firmware isn't in DivMMC SRAM).
+    bool esxdos_stub = false;
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)

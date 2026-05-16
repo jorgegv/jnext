@@ -768,6 +768,53 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         };
     }
 
+    // esxdos shim. When enabled, RST $08 calls are intercepted and the
+    // known function codes get benign error results so z88dk-built NEX
+    // games boot through their "no esxdos" / "file not found" branches.
+    //
+    // Function codes (per z88dk libsrc + esxdos spec):
+    //   $88 M_DOSVERSION : fail with HL=-1, A=14 (ENXIO) → wrapper takes
+    //                      the "esxdos<=0.8.6" branch; many games' high-level
+    //                      check use this to disable persistence.
+    //   $9A F_OPEN       : fail with carry set, A=5 (ENOENT).
+    //   $9B F_CLOSE      : succeed (carry clear).
+    //   $9D F_READ       : fail with carry set, A=5 (ENOENT).
+    //   $9E F_WRITE      : fail with carry set, A=5 (ENOENT).
+    //   $9F F_SEEK       : fail with carry set, A=5 (ENOENT).
+    //   default          : not handled — RST $08 runs normal $0008 code.
+    //
+    // Helper: set/clear the carry flag (bit 0 of F).
+    if (cfg.esxdos_stub) {
+        cpu_.on_esxdos_call = [](uint8_t defb, Z80Registers& r) -> bool {
+            auto set_a_and_carry = [&](uint8_t a, bool carry_set) {
+                uint8_t f = static_cast<uint8_t>(r.AF & 0xFF);
+                if (carry_set) f |= 0x01; else f &= 0xFE;
+                r.AF = static_cast<uint16_t>((static_cast<uint16_t>(a) << 8) | f);
+            };
+            switch (defb) {
+                case 0x88:  // M_DOSVERSION
+                    r.HL = 0xFFFF;
+                    set_a_and_carry(0x0E, true);  // A=14 (ENXIO)
+                    return true;
+                case 0x9A:  // F_OPEN
+                    r.HL = 0xFFFF;
+                    set_a_and_carry(0x05, true);  // A=5 (ENOENT)
+                    return true;
+                case 0x9B:  // F_CLOSE
+                    set_a_and_carry(0x00, false); // success
+                    return true;
+                case 0x9D:  // F_READ
+                case 0x9E:  // F_WRITE
+                case 0x9F:  // F_SEEK
+                    set_a_and_carry(0x05, true);  // A=5 (ENOENT)
+                    return true;
+                default:
+                    return false;  // not handled — fall through to $0008 code
+            }
+        };
+        Log::emulator()->info("esxdos shim enabled (--esxdos-stub)");
+    }
+
     // --- NextREG write handlers ---
 
     // Register 0x00: Machine ID (read-only).

@@ -52,6 +52,8 @@ static void print_usage(const char* prog) {
         "  --headless               Run without display/audio (for automated testing)\n"
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
+        "  --esxdos-stub            Intercept RST $08 calls; let NEX games without\n"
+        "                           NextZXOS-loaded esxdos boot through stubbed file I/O\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
@@ -97,6 +99,7 @@ int main(int argc, char* argv[]) {
     bool        headless = false;
     bool        tape_realtime = false;
     bool        magic_breakpoint = false;
+    bool        esxdos_stub = false;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -150,6 +153,8 @@ int main(int argc, char* argv[]) {
             tape_realtime = true;
         } else if (arg == "--magic-breakpoint") {
             magic_breakpoint = true;
+        } else if (arg == "--esxdos-stub") {
+            esxdos_stub = true;
         } else if (arg == "--magic-port" && i + 1 < argc) {
             magic_port_enabled = true;
             magic_port_address = static_cast<uint16_t>(std::stoul(argv[++i], nullptr, 0));
@@ -242,6 +247,7 @@ int main(int argc, char* argv[]) {
         // get the firmware overlay.
         cfg.load_file = load_file;
         cfg.magic_breakpoint = magic_breakpoint;
+        cfg.esxdos_stub = esxdos_stub;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;
