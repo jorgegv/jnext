@@ -200,7 +200,7 @@ Trainyard Express — original NEX with `--esxdos-stub`. Boots through the splas
 <img src="../test/00regression/img/trainyard-reference.png" width="384" alt="trainyard reference"/>
 
 ### `santaspressie`
-Santa's Pressie — NEX extracted from `/games/Next/Santa's Pressie/` on the NextZXOS SD image. Wait 250 frames through the developer splash, send synthetic ENTER, screenshot at frame 280 captures the "GET READY!" first-level prompt with full HUD (presents-delivered counter, mountain backdrop, houses, gift sprites).
+Santa's Pressie — NEX extracted from `/games/Next/Santa's Pressie/` on the NextZXOS SD image. Wait 250 frames through the developer splash, send synthetic ENTER, screenshot at frame 400 captures the first level with Santa's sleigh entering from the left, chimneys lined up below, full HUD (presents-delivered / wasted counters, mountain backdrop, gift sprites).
 
 <img src="../test/00regression/img/santaspressie-reference.png" width="384" alt="santaspressie reference"/>
 
