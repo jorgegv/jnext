@@ -175,8 +175,20 @@ void SdlApp::run() {
 
         emulator_.run_frame();
 
-        // Push audio samples accumulated during this frame to SDL.
-        audio_.push_from_mixer(emulator_.mixer());
+        // Task 19 fastload follow-up — when the phantom typist is
+        // armed or a fast-load tape is in flight, skip pushing audio
+        // samples to SDL. The emulator still synthesizes audio into
+        // the mixer ring buffer (we drain it below by NOT pushing,
+        // letting the buffer self-regulate via the `max_queued` cap
+        // in SdlAudio::push_from_mixer); pushing samples while
+        // running at 10× wall-clock would either back-pressure the
+        // emulator or produce stuttering audio chunks. Mirrors
+        // FUSE's `sound_pause()`/`sound_unpause()` around
+        // fastloading windows (timer/timer.c).
+        const bool fastload = emulator_.fastload_active();
+        if (!fastload) {
+            audio_.push_from_mixer(emulator_.mixer());
+        }
 
         const uint32_t* fb = emulator_.get_framebuffer();
         const int fb_w = emulator_.get_framebuffer_width();
@@ -200,9 +212,18 @@ void SdlApp::run() {
             --exit_countdown_;
         }
 
-        // Frame pacing: target 50 Hz
-        uint32_t elapsed = SDL_GetTicks() - frame_start;
-        if (elapsed < FRAME_MS) SDL_Delay(FRAME_MS - elapsed);
+        // Frame pacing: target 50 Hz EXCEPT during fastload — when the
+        // phantom typist is armed or a fast-load tape is delivering
+        // data, skip the per-frame sleep and immediately run the next
+        // frame. Mirrors FUSE timer/timer.c:216 `timer_frame()`
+        // fast-path (no `sound_buffer_wait`, no `timer_check`).
+        // The moment fastload_active() flips back to false (typist
+        // fired AND tape at end), we re-engage 50 Hz pacing on the
+        // very next iteration.
+        if (!fastload) {
+            uint32_t elapsed = SDL_GetTicks() - frame_start;
+            if (elapsed < FRAME_MS) SDL_Delay(FRAME_MS - elapsed);
+        }
     }
 }
 

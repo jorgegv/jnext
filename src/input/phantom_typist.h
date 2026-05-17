@@ -154,19 +154,16 @@ private:
     ///   (state_info[LOAD].delay_before_state = 8) that defer the
     ///   first injection by 8 frames after entering the LOAD state.
     ///
-    ///   jnext doesn't have a fastloading timer (we already load
-    ///   tape data via the LD-BYTES trap, so emulation speed is
-    ///   already maximal in fast-load mode). We replace FUSE's
-    ///   per-state delay with a single POST_DELAY of 40 frames after
-    ///   the first full scan — empirically enough for 48K BASIC to
-    ///   finish copyright print and enter ED-EDIT before the J key
-    ///   is pressed. The 128K MENU is reached almost immediately
-    ///   after the first full scan, so 40 frames is also fine there.
-    ///
-    ///   40 frames at 50 Hz = 800 ms. That's well below the
-    ///   user-perceptible "instant" threshold compared to the
-    ///   pre-Task-19 100-frame fixed delay (2 s), but still gives
-    ///   the ROM ample slack across machine modes.
-    static constexpr uint8_t POST_TRIGGER_DELAY_FRAMES = 40;
+    ///   jnext implements BOTH FUSE-style mechanisms now (Task 19
+    ///   fastload follow-up): a fastload pacing bypass in the
+    ///   platform layer (see `Emulator::fastload_active()`) skips
+    ///   the 20 ms-per-frame `SDL_Delay`/`QTimer` wait while the
+    ///   typist is armed or fast-load tape data is in flight, AND
+    ///   the per-trigger countdown below is now POST_DELAY = 8
+    ///   frames matching FUSE's `state_info[LOAD].delay_before_state`.
+    ///   The combination makes the entire ROM-boot → LOAD"" → first
+    ///   data-byte path complete in well under 100 ms wall-clock on a
+    ///   modern host — visually "instant" like FUSE.
+    static constexpr uint8_t POST_TRIGGER_DELAY_FRAMES = 8;
     uint8_t  post_delay_frames_ = 0;
 };

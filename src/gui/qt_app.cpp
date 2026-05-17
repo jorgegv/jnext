@@ -200,8 +200,33 @@ void QtApp::on_frame_tick() {
         emulator_.run_frame();
         ++frame_count_;
 
-        // Push audio samples to SDL.
-        if (audio_) {
+        // Task 19 fastload follow-up — when the phantom typist is
+        // armed or a fast-load tape is delivering data, sprint
+        // through additional emulated frames inside this single Qt
+        // timer tick. The 20 ms QTimer interval normally caps the
+        // emulator at 50 Hz; during fastload we want flat-out
+        // execution like FUSE. We bound the per-tick burst (so the
+        // GUI thread still services repaints / events between
+        // bursts) and re-check `fastload_active()` each iteration
+        // so the loop exits the moment the typist fires + the tape
+        // hits `at_end()`. With BURST_LIMIT=200, a typical 48K TAP
+        // loads in a single Qt tick (~4 s of emulated time per
+        // 20 ms wall-clock, > 200× real-time on a modern host).
+        constexpr int FASTLOAD_BURST_LIMIT = 200;
+        int burst = 0;
+        while (emulator_.fastload_active() &&
+               burst < FASTLOAD_BURST_LIMIT &&
+               !emulator_.debug_state().paused()) {
+            emulator_.run_frame();
+            ++frame_count_;
+            ++burst;
+        }
+
+        // Push audio samples to SDL — but skip during fastload to
+        // avoid feeding the audio device huge sample chunks
+        // generated at >>1× real-time. FUSE does the same via
+        // `sound_pause()/sound_unpause()` around fastloading.
+        if (audio_ && !emulator_.fastload_active()) {
             audio_->push_from_mixer(emulator_.mixer());
         }
     }

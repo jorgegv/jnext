@@ -209,6 +209,32 @@ public:
     /// waits for the ROM's first full keyboard scan, then queues a
     /// per-machine LOAD"" sequence. See src/input/phantom_typist.h.
     PhantomTypist&  phantom_typist() { return phantom_typist_; }
+
+    /// Task 19 fastload follow-up — true when the emulator should
+    /// run uncapped (no frame-pacing sleep, audio paused) to make
+    /// TAP loading visually "instant" like FUSE. Mirrors FUSE's
+    /// `timer_fastloading_active()` (timer/timer.c:178): asserted
+    /// while EITHER the phantom typist is armed/firing OR a
+    /// fast-load tape (TAP or TZX) is loaded and not yet at end —
+    /// the load itself races through the ROM trap so a brief
+    /// `tape_is_playing()` window also benefits from uncapped pacing.
+    /// The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
+    /// this and skips its frame-rate delay while true; once both
+    /// signals clear the platform re-engages normal 50 Hz pacing
+    /// (and re-resumes audio output).
+    bool fastload_active() const {
+        // Phantom-typist armed/firing OR fast-load tape with data
+        // still to deliver. The tape side uses `is_loaded() &&
+        // fast_load() && !at_end()` to mirror FUSE's signal — a
+        // fast-load TAP/TZX trap fires at ROM-load address and
+        // empties at most a few KB per second of wall-clock time
+        // when frame pacing is uncapped, so this window is brief
+        // (sub-second in practice).
+        if (phantom_typist_.is_active()) return true;
+        if (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end())     return true;
+        if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) return true;
+        return false;
+    }
     Joystick&       joystick()       { return joystick_; }
     KempstonMouse&  mouse()          { return mouse_; }
     Md6ConnectorX2& md6()            { return md6_; }
