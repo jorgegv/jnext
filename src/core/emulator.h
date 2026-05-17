@@ -232,6 +232,10 @@ public:
         // (sub-second in practice).
         if (phantom_typist_.is_active()) return true;
         if (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end())     return true;
+        // TZX path note: load_tzx() does NOT arm the phantom typist (Task
+        // 19 scope is .tap only). For TZX the tape-side condition is the
+        // sole signal, true from the moment load_tzx() runs (covers the
+        // legacy ~26-frame auto-type window too).
         if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) return true;
         return false;
     }

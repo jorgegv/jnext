@@ -240,6 +240,13 @@ void QtApp::on_frame_tick() {
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the
     // emitted PNG is 640×512 (square pixels, G104 Phase 7).
+    //
+    // Note: screenshot/exit countdowns decrement once per QTimer tick
+    // (not once per emulator frame), so during a fastload burst the
+    // countdowns still tick at 50 Hz wall-clock. Regression screenshots
+    // are taken in headless mode (SDL path), which is unaffected; in
+    // GUI use the imprecision is on the order of the burst length
+    // (sub-second) and not user-visible.
     if (screenshot_countdown_ == 0) {
         save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
                             emulator_.get_framebuffer_width(),

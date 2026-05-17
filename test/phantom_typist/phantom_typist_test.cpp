@@ -200,9 +200,8 @@ static void test_pt_09_post_delay_countdown_and_fire() {
     pt.arm(MachineType::ZX48K);
     simulate_full_scan_to_post_delay(pt);
     // Tick the typist enough frames to expire the post-delay. The
-    // exact constant is 40 (POST_TRIGGER_DELAY_FRAMES); after 39 more
-    // tick_frame()s the typist should be on the brink, and the 40th
-    // call fires.
+    // exact constant is POST_TRIGGER_DELAY_FRAMES (currently 8, matching
+    // FUSE's state_info[PHANTOM_TYPIST_STATE_LOAD].delay_before_state).
     // We bound by 60 to avoid making the test brittle to small future
     // tuning changes; the assertion is "fires within reasonable margin".
     int frames_until_fire = -1;
