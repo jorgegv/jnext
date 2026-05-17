@@ -25,9 +25,9 @@ rendering pipeline isn't painting (BASIC prompt / NextZXOS menu).
 ### Investigation (`1da146c9`)
 
 Three parallel agents established the empirical groundwork. Doc set:
-- `doc/issues/bypass-firmware-v2/CSPECT-STATE-CAPTURE.md` — CSpect cold-reset and post-boot DZRP captures (confirms NR $03=$33 cold-reset is CSpect's VHDL deviation; jnext is VHDL-correct).
-- `doc/issues/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md` — full NR-sweep / MMU-slot / Z80-reg / SRAM baseline of jnext init().
-- `doc/issues/bypass-firmware-v2/PLAN-AUDIT.md` — re-audit of the prior `doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` plan; Q1/Q2/Q3 RESOLVED, Branch 1/2/3/4 sized at ~5/50-100/30-50/100-150 LOC.
+- `doc/issues/nextzxos-boot/bypass-firmware-v2/CSPECT-STATE-CAPTURE.md` — CSpect cold-reset and post-boot DZRP captures (confirms NR $03=$33 cold-reset is CSpect's VHDL deviation; jnext is VHDL-correct).
+- `doc/issues/nextzxos-boot/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md` — full NR-sweep / MMU-slot / Z80-reg / SRAM baseline of jnext init().
+- `doc/issues/nextzxos-boot/bypass-firmware-v2/PLAN-AUDIT.md` — re-audit of the prior `doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` plan; Q1/Q2/Q3 RESOLVED, Branch 1/2/3/4 sized at ~5/50-100/30-50/100-150 LOC.
 
 ### Implementation (`c0a0ff1b`)
 
@@ -41,8 +41,8 @@ Three parallel agents established the empirical groundwork. Doc set:
 
 ### Review + nit-fixes (`12103396`)
 
-- `doc/issues/bypass-firmware-v2/REVIEW.md` — independent reviewer's verdict APPROVE-WITH-NITS modulo Finding 2.
-- `doc/issues/bypass-firmware-v2/REVIEW-REBUTTAL.md` — empirical rebuttal of Finding 2 (`enNextZX.rom` exists at cluster 10321, 65 536 bytes; load runtime log + Z80 trace confirm).
+- `doc/issues/nextzxos-boot/bypass-firmware-v2/REVIEW.md` — independent reviewer's verdict APPROVE-WITH-NITS modulo Finding 2.
+- `doc/issues/nextzxos-boot/bypass-firmware-v2/REVIEW-REBUTTAL.md` — empirical rebuttal of Finding 2 (`enNextZX.rom` exists at cluster 10321, 65 536 bytes; load runtime log + Z80 trace confirm).
 - Comment clarifications for accepted Findings 1, 4.
 - `test/task18_baseline/bypass_state_test.cpp` — 5-assertion discriminative regression test (registered with CTest as `task18_bypass_state`).
 
@@ -107,12 +107,12 @@ src/main.cpp                                       |  9 ++
 test/CMakeLists.txt                                | 27 ++++++
 test/task18_baseline/bypass_state_test.cpp         | 92 ++++++++++++++++++++
 test/task18_baseline/cold_reset_probe.cpp          | 158 ++++++++++++++++++++++
-doc/issues/bypass-firmware-v2/CSPECT-STATE-CAPTURE.md     | 282 ++++++++
-doc/issues/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md   | 311 ++++++
-doc/issues/bypass-firmware-v2/PLAN-AUDIT.md               | 398 ++++++++
-doc/issues/bypass-firmware-v2/REVIEW.md                   | 116 ++
-doc/issues/bypass-firmware-v2/REVIEW-REBUTTAL.md          | 110 ++
-doc/issues/bypass-firmware-v2/SESSION-HANDOVER-2026-05-17.md | (this file)
+doc/issues/nextzxos-boot/bypass-firmware-v2/CSPECT-STATE-CAPTURE.md     | 282 ++++++++
+doc/issues/nextzxos-boot/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md   | 311 ++++++
+doc/issues/nextzxos-boot/bypass-firmware-v2/PLAN-AUDIT.md               | 398 ++++++++
+doc/issues/nextzxos-boot/bypass-firmware-v2/REVIEW.md                   | 116 ++
+doc/issues/nextzxos-boot/bypass-firmware-v2/REVIEW-REBUTTAL.md          | 110 ++
+doc/issues/nextzxos-boot/bypass-firmware-v2/SESSION-HANDOVER-2026-05-17.md | (this file)
 tools/cspect_dzrp/task18_*.py (5 files)            | 409 ++++++++
 ```
 

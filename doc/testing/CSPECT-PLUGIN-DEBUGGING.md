@@ -61,7 +61,7 @@ Mono is required on Linux (CSpect itself runs under Mono). The build is independ
 
 ## Evidence the approach works
 
-From the G46(b) session handovers (`project_session_handover_2026-05-15*.md`) and `doc/issues/g46b-v2/EOD-30i-real-hardware-test.md`:
+From the G46(b) session handovers (`project_session_handover_2026-05-15*.md`) and `doc/issues/nextzxos-boot/g46b-v2/EOD-30i-real-hardware-test.md`:
 
 - **18 795 port-write events captured in ~15 s of real-time CSpect boot**, with zero CPU perturbation. The plugin observed CSpect's full SD-via-$E3 traffic at full speed.
 - **Decisive root-cause finding (G46(b)-v2 EOD-30i+6)**: the plugin's per-event `PeekPhysical` of all 16 DivMMC SRAM banks at every $E3 write proved that CSpect's $2331 maps to main RAM while jnext's maps to DivMMC SRAM bank 0 — a discovery that DZRP BPs had repeatedly failed to make because the BP-induced timing skew masked it (the EOD-30i+5 "BP-perturbation finding"). See the handover series indexed in [MEMORY.md](file:///home/jorgegv/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/MEMORY.md) for the per-EOD breakdown; `EOD-30i-real-hardware-test.md:56-58` explicitly credits the plugin as the "most decisive measurement" of that work.

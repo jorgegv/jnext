@@ -217,5 +217,5 @@ canonical signature of a missing memory-overlay activation in jnext.
   bit pattern the NextZXOS supervisor writes at $3CFC). Confirmed
   discriminative: fails without the fix (`port_7ffd=0x10 sram_rom3=1`
   but `rom3_active=0`), passes with the fix.
-- `doc/issues/g46b-v2/EOD-29-nr8e-write-misses-rom3-active-refresh.md`
+- `doc/issues/nextzxos-boot/g46b-v2/EOD-29-nr8e-write-misses-rom3-active-refresh.md`
   (this doc).
