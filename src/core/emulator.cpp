@@ -5561,6 +5561,78 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nextreg_.write(0x06, 0x05);
 
         nextreg_.write(0x03, 0xB3);
+
+        // Task 18 brute-force snapshot loader (diagnostic / experimental).
+        // JNEXT_BYPASS_LOAD_SNAPSHOT=/path/to/file applies a full state
+        // snapshot captured from CSpect at PC=$00EF (256 NextREG bytes +
+        // 28-byte Z80 state + 2 MiB SRAM = 2,097,436 bytes total). Used
+        // to test whether matching CSpect's bypass entry state
+        // byte-for-byte gets jnext past the banner-draw cascade.
+        // Generated via tools/cspect_dzrp/task18_snapshot_at_00EF.py.
+        if (const char* snap_path = std::getenv("JNEXT_BYPASS_LOAD_SNAPSHOT")) {
+            std::ifstream snap(snap_path, std::ios::binary);
+            if (snap) {
+                uint8_t header[284];
+                snap.read(reinterpret_cast<char*>(header), sizeof(header));
+                if (snap.gcount() == sizeof(header)) {
+                    // Apply 256 NextREGs in numerical order (handlers fire).
+                    for (int r = 0; r < 256; ++r) {
+                        nextreg_.write(static_cast<uint8_t>(r), header[r]);
+                    }
+                    // SRAM: 2 MiB. Copy ALL 256 snapshot pages into ram_,
+                    // INCLUDING pages 0x00..0x07. CSpect's snapshot has
+                    // physical-SRAM bytes at all 256 pages; pages 0..7 hold
+                    // CSpect's actual physical RAM (NOT the FPGA-emulated
+                    // ROM that legacy paging reads from).
+                    //
+                    // To avoid the dual-purpose conflict where jnext's
+                    // sram_rom resolution would read CSpect's "RAM page 0"
+                    // bytes as NextZXOS code, the loader BELOW disables
+                    // `rom_in_sram` so legacy ROM reads route through the
+                    // `rom_` buffer (which still holds enNextZX.rom from
+                    // the load_machine_rom call above).
+                    for (int p = 0; p < 256; ++p) {
+                        uint8_t* dst = ram_.page_ptr(static_cast<uint16_t>(p));
+                        if (dst) snap.read(reinterpret_cast<char*>(dst), 0x2000);
+                    }
+                    // Route legacy ROM reads through rom_ (= enNextZX.rom)
+                    // so the supervisor's code path at $00EF reads correct
+                    // NextZXOS bytes while NR $56-mapped slots can read the
+                    // snapshot's RAM-page bytes from ram_.
+                    mmu_.set_rom_in_sram(false);
+                    // Z80 state at header offset 0x100..0x11B.
+                    auto u16 = [&](int off) {
+                        return static_cast<uint16_t>(header[off] | (header[off+1] << 8));
+                    };
+                    Z80Registers z = cpu_.get_registers();
+                    z.PC   = u16(0x100);
+                    z.SP   = u16(0x102);
+                    z.AF   = u16(0x104);
+                    z.BC   = u16(0x106);
+                    z.DE   = u16(0x108);
+                    z.HL   = u16(0x10A);
+                    z.IX   = u16(0x10C);
+                    z.IY   = u16(0x10E);
+                    z.AF2  = u16(0x110);
+                    z.BC2  = u16(0x112);
+                    z.DE2  = u16(0x114);
+                    z.HL2  = u16(0x116);
+                    z.I    = header[0x118];
+                    z.R    = header[0x119];
+                    z.IM   = header[0x11A];
+                    cpu_.set_registers(z);
+                    Log::emulator()->info("Task 18: loaded CSpect snapshot from '{}' — "
+                                          "PC=${:04X} SP=${:04X} AF=${:04X}",
+                                          snap_path, z.PC, z.SP, z.AF);
+                } else {
+                    Log::emulator()->warn("Task 18: snapshot '{}' header short "
+                                          "({} bytes read)", snap_path,
+                                          static_cast<int>(snap.gcount()));
+                }
+            } else {
+                Log::emulator()->warn("Task 18: snapshot file '{}' not found", snap_path);
+            }
+        }
     }
 
     // Initialise rewind buffer.
