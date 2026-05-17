@@ -5268,6 +5268,44 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 uint8_t*       dst = ram_.page_ptr(static_cast<uint16_t>(p));
                 if (src && dst) std::memcpy(dst, src, 0x2000);
             }
+            // Task 20: when --load short-circuits the firmware boot path
+            // (no tbblue.fw `load_roms()` to populate SRAM pages 2..7 with
+            // the rest of the ROM image), the seed loop above only fills
+            // pages 0,1 from rom_ bank 0 (= 48K BASIC, the standard
+            // fallback). Any 128K-class game that selects "ROM 1" via
+            // `out (0x7FFD), <bit4=1>` would then read from SRAM pages 2,3
+            // — which are still 0xFF — instead of the 48K BASIC ROM. The
+            // VHDL Next/128K decode at zxnext.vhd:2981-3008 + :3003
+            // (`sram_rom <= '0' & port_1ffd_rom(0)`) makes ROM 1 the only
+            // selectable BASIC alternative in Next mode, so 128K-class
+            // games (Cesare, RAGE1-engine games, anything calling ROM
+            // routines or relying on the char set at $3D00 via SP1) get
+            // garbage 0xFF bytes back. Symptom: cells painted with SPACE
+            // (default SP1 tile) come out as 0xFF (cyan stripe + room
+            // interior corruption visible in Cesare).
+            //
+            // Mirror the 48K BASIC content (pages 0,1) into every
+            // following ROM-bank pair (pages 2,3 / 4,5 / 6,7) so the 1-bit
+            // sram_rom decode always lands on the 48K BASIC ROM regardless
+            // of port_7ffd bit 4 / port_1ffd. This is firmware-faithful in
+            // the sense that real tbblue.fw `load_roms()` would have
+            // populated all four banks (from a multi-bank ROM image) by
+            // the time the Z80 reaches a Spectrum-compatible BASIC; the
+            // mirror is the minimum-cost way to keep direct --load fast
+            // paths working without booting through the FPGA boot ROM.
+            // Skipped in bypass mode (enNextZX.rom already filled all 8
+            // pages from rom_ banks 0..3 above) and when no --load was
+            // requested (the boot ROM overlay engages instead).
+            if (!cfg.load_file.empty() && !cfg.bypass_tbblue_fw) {
+                const uint8_t* page0 = ram_.page_ptr(0);
+                const uint8_t* page1 = ram_.page_ptr(1);
+                for (int rom_bank = 1; rom_bank < 4; ++rom_bank) {
+                    uint8_t* dst0 = ram_.page_ptr(static_cast<uint16_t>(rom_bank * 2));
+                    uint8_t* dst1 = ram_.page_ptr(static_cast<uint16_t>(rom_bank * 2 + 1));
+                    if (page0 && dst0) std::memcpy(dst0, page0, 0x2000);
+                    if (page1 && dst1) std::memcpy(dst1, page1, 0x2000);
+                }
+            }
         }
         mmu_.set_rom_in_sram(true);
         // Task 12 fix: force 128K bank mapping refresh so slots 6/7 land
