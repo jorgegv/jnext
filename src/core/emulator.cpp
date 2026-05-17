@@ -5801,16 +5801,15 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     // Mode selection mirrors FUSE's table:
     //   48K          → KEYWORD: J + SS+P + SS+P + ENTER  (LOAD "")
     //   128K / +3    → MENU:    ENTER  (default menu entry = tape loader)
-    //   ZXN_ISSUE2   → caller's responsibility (no Next BASIC). We skip
-    //                  the phantom typist for Next mode entirely.
-    //                  The classic LD-BYTES trap still works if NextZXOS
-    //                  presents a 48K BASIC submenu and the user types
-    //                  LOAD"" themselves; we just don't auto-trigger.
-    if (config_.type != MachineType::ZXN_ISSUE2) {
-        phantom_typist_.arm(config_.type, /*needs_code=*/false);
-    } else {
-        Log::emulator()->info("TAP: phantom typist disabled (--machine next)");
-    }
+    //   ZXN_ISSUE2   → MENU too: NextZXOS routes tape LOAD through the
+    //                  +3 BASIC submenu (real Next behaviour — the Next
+    //                  is a Spectrum superset and tape LOAD uses the
+    //                  classic LD-BYTES trap in +3 BASIC ROM). The
+    //                  trigger condition is the same (ROM full keyboard
+    //                  scan), so the typist only fires once BASIC is
+    //                  ready — tbblue.fw's targeted SPACEBAR-row poll
+    //                  does NOT trip it.
+    phantom_typist_.arm(config_.type, /*needs_code=*/false);
 
     // For real-time mode, start tape playback immediately.
     // The leader tone will play while the ROM waits for edge detection.
