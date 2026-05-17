@@ -38,6 +38,7 @@
 #include "input/membrane_stick.h"
 #include "input/iomode.h"
 #include "input/emu_fnkeys.h"
+#include "input/phantom_typist.h"
 #include "debug/trace.h"
 #include "debug/call_stack.h"
 #include "audio/beeper.h"
@@ -204,6 +205,10 @@ public:
     VideoTiming&  video_timing() { return video_timing_; }
     const VideoTiming& video_timing() const { return video_timing_; }
     Keyboard&       keyboard()       { return keyboard_; }
+    /// Task 19 (instant TAP load): the FUSE-style phantom typist that
+    /// waits for the ROM's first full keyboard scan, then queues a
+    /// per-machine LOAD"" sequence. See src/input/phantom_typist.h.
+    PhantomTypist&  phantom_typist() { return phantom_typist_; }
     Joystick&       joystick()       { return joystick_; }
     KempstonMouse&  mouse()          { return mouse_; }
     Md6ConnectorX2& md6()            { return md6_; }
@@ -645,6 +650,9 @@ private:
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
+    // Task 19 (instant TAP load) — FUSE-style phantom typist. Idle by
+    // default; armed by Emulator::load_tap() for 48K/128K/+3 machines.
+    PhantomTypist   phantom_typist_;
     // Input subsystem — Phase 1 scaffold (Task 3). See src/input/*.
     Joystick        joystick_;
     KempstonMouse   mouse_;

@@ -291,8 +291,18 @@ int main(int argc, char* argv[]) {
                 rzx_play_file = load_file;
             } else if (ext == ".nex" || ext == ".sna" || ext == ".szx") {
                 app.set_pending_load(load_file, 0);
-            } else if (ext == ".tap" || ext == ".tzx") {
-                // Tape loading needs BASIC to be ready; delay ~2s (100 frames at 50Hz)
+            } else if (ext == ".tap") {
+                // Task 19: TAP loading uses the phantom typist
+                // (src/input/phantom_typist.h) — no boot-delay needed.
+                // load_tap() arms the typist, which watches for the
+                // first full keyboard scan from the ROM and types
+                // LOAD"" the moment BASIC is ready.
+                app.set_pending_load(load_file, 0);
+                app.set_tape_realtime(tape_realtime);
+            } else if (ext == ".tzx") {
+                // TZX still uses the legacy immediate-keystroke path
+                // (Task 19 scope is .tap only). Keep the 100-frame
+                // delay so BASIC has time to reach its prompt.
                 app.set_pending_load(load_file, 100);
                 app.set_tape_realtime(tape_realtime);
             } else if (ext == ".wav") {

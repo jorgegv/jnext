@@ -39,6 +39,12 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
     // not own the I2s; lifetime is the Emulator's. See
     // audio_mixer.vhd:89-90,99-100 for the 13-bit sum term.
     mixer_.set_i2s_source(&i2s_);
+
+    // Task 19: phantom typist gets a back-pointer to Keyboard so it can
+    // queue the per-machine LOAD"" sequence via the existing auto-type
+    // machinery. Lifetime-bound (both members live as long as the
+    // Emulator); reset() does NOT clear this pointer.
+    phantom_typist_.attach(&keyboard_);
 }
 
 // ---------------------------------------------------------------------------
@@ -3531,6 +3537,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x0001, 0x0000,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
+            // Task 19 (instant TAP load): notify the phantom typist on
+            // every port-0xFE read so it can accumulate which keyboard
+            // half-rows the ROM has polled this frame. Zero-cost when
+            // the typist is INACTIVE (single branch). When WAITING, it
+            // OR-folds the row mask and waits for `0xff` (= all 8 rows
+            // scanned), which is the canonical "ROM is ready for
+            // input" signal — see src/input/phantom_typist.h.
+            phantom_typist_.notice_keyboard_row_read(addr_high);
             uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
             // Default `audio_ear_eff = 1` (idle tape pin pull-up). Tape
             // playback overrides. Issue-2 feedback substitutes MIC.
@@ -5776,19 +5790,27 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     Log::emulator()->info("TAP: tape attached — {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
-    // Auto-type LOAD "" to start tape loading.
-    // In 48K BASIC keyword mode:
-    //   J         = LOAD keyword  (row 6, col 3)
-    //   SYM+P     = "             (row 7, col 1 + row 5, col 0)
-    //   SYM+P     = "             (row 7, col 1 + row 5, col 0)
-    //   ENTER     = execute       (row 6, col 0)
-    std::vector<Keyboard::AutoKey> keys = {
-        {6, 3,  -1, -1, 5},   // J = LOAD
-        {5, 0,   7,  1, 5},   // SYM+P = "
-        {5, 0,   7,  1, 5},   // SYM+P = "
-        {6, 0,  -1, -1, 5},   // ENTER
-    };
-    keyboard_.queue_auto_type(keys);
+    // Task 19 (instant TAP load): instead of immediately queuing the
+    // LOAD"" keypress sequence (which fights a 100-frame ROM-boot
+    // delay in main.cpp / *_app.cpp), arm the FUSE-style phantom
+    // typist. The typist watches port-0xFE reads for the canonical
+    // "ROM is ready for input" signal (all 8 keyboard rows polled in
+    // one frame) and queues the per-machine sequence as soon as it
+    // fires — instantly after BASIC reaches its main input loop.
+    //
+    // Mode selection mirrors FUSE's table:
+    //   48K          → KEYWORD: J + SS+P + SS+P + ENTER  (LOAD "")
+    //   128K / +3    → MENU:    ENTER  (default menu entry = tape loader)
+    //   ZXN_ISSUE2   → caller's responsibility (no Next BASIC). We skip
+    //                  the phantom typist for Next mode entirely.
+    //                  The classic LD-BYTES trap still works if NextZXOS
+    //                  presents a 48K BASIC submenu and the user types
+    //                  LOAD"" themselves; we just don't auto-trigger.
+    if (config_.type != MachineType::ZXN_ISSUE2) {
+        phantom_typist_.arm(config_.type, /*needs_code=*/false);
+    } else {
+        Log::emulator()->info("TAP: phantom typist disabled (--machine next)");
+    }
 
     // For real-time mode, start tape playback immediately.
     // The leader tone will play while the ROM waits for edge detection.
@@ -6614,6 +6636,14 @@ void Emulator::run_frame()
             std::min(rzx_frame_instruction_count_, uint32_t(0xFFFF))));
     }
 
+    // Task 19 (instant TAP load): tick the phantom typist BEFORE the
+    // keyboard auto-type tick. If a full keyboard scan was observed in
+    // this frame, the typist queues its keystrokes here; the very next
+    // tick_auto_type() begins playing them. Frame-aligned for the same
+    // reason as FUSE: the trigger condition is "all 8 rows polled in a
+    // single frame".
+    phantom_typist_.tick_frame();
+
     // Advance auto-type state machine (one step per frame).
     keyboard_.tick_auto_type();
 
@@ -6817,6 +6847,10 @@ void Emulator::reset()
     // V20-IM2-01 — reset pulse-mode edge-detect shadow.
     prev_pulse_int_n_ = true;
     keyboard_.reset();
+    // Task 19: clear phantom-typist state so a hard reset cancels any
+    // pending TAP autostart. Lifetime-bound back-pointer is NOT
+    // cleared (see header & ctor wiring).
+    phantom_typist_.reset();
     // Input subsystem Phase 1 scaffold (Task 3).
     joystick_.reset();
     mouse_.reset();

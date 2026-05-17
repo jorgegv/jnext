@@ -140,6 +140,17 @@ target_link_libraries(input_integration_test PRIVATE
 target_include_directories(input_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME input_integration_tests COMMAND input_integration_test)
 
+# Phantom Typist compliance test (Task 19, instant TAP loading).
+# Exercises src/input/phantom_typist.{h,cpp} — the FUSE-style
+# "wait for ROM to be ready" auto-typer. Pure unit test against the
+# PhantomTypist class; no Emulator surface needed. Uses Keyboard
+# (jnext_input) as a sink to verify queue side effects.
+add_executable(phantom_typist_test phantom_typist/phantom_typist_test.cpp)
+target_link_libraries(phantom_typist_test PRIVATE
+    jnext_input jnext_memory spdlog::spdlog)
+target_include_directories(phantom_typist_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME phantom_typist_tests COMMAND phantom_typist_test)
+
 # CTC compliance test
 add_executable(ctc_test ctc/ctc_test.cpp)
 target_link_libraries(ctc_test PRIVATE jnext_cpu jnext_peripheral jnext_port)
