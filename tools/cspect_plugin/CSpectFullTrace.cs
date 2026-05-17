@@ -56,6 +56,24 @@ namespace JnextG46b
 
         private string out_path = "/tmp/g46b-cspect-fulltrace/cspect_full_trace.txt";
 
+        // Task 18 sync-point gating: skip the tbblue.fw firmware boot and
+        // begin tracing only AFTER the soft reset that hands off to
+        // NextZXOS. We detect this by counting Z80 reset events: the FIRST
+        // reset is the CSpect cold boot (PC=$0000 with SP=$FFFF at start);
+        // the SECOND is the RESET_SOFT issued by tbblue.fw at the end of
+        // its boot. Memory_EXE callbacks see the pre-execution state, so
+        // we look for the transition `last_pc != 0 → pc == 0` with
+        // SP=$FFFF and R≤2 (just-reset registers).
+        //
+        // Set JNEXT_CSPECT_TRACE_SKIP_RESETS=0 to disable gating (trace
+        // from boot start, original G46(b) behaviour). Default = 1 (skip
+        // tbblue.fw, trace only from NextZXOS handoff).
+        private int reset_count = 0;
+        private int skip_resets = 1;  // tracing begins after this many Z80 resets
+        private bool tracing_active = false;
+        private int last_pc = -1;
+        private long total_reads = 0;
+
         // Determine the byte-length of the Z80/Z80N instruction at the
         // given PC, using cspect.Peek() for memory reads. Mirrors the
         // logic in jnext's src/debug/trace.cpp::z80_instruction_length().
@@ -228,6 +246,17 @@ namespace JnextG46b
                     trace_cap = parsedCap;
             }
 
+            // Task 18: skip-resets gating.
+            string envSkip = Environment.GetEnvironmentVariable("JNEXT_CSPECT_TRACE_SKIP_RESETS");
+            if (!string.IsNullOrEmpty(envSkip)) {
+                int parsedSkip;
+                if (int.TryParse(envSkip, out parsedSkip) && parsedSkip >= 0)
+                    skip_resets = parsedSkip;
+            }
+            // If skip_resets == 0, start tracing immediately.
+            if (skip_resets == 0)
+                tracing_active = true;
+
             // Open output file immediately so data flows to disk continuously.
             try {
                 string dir = Path.GetDirectoryName(out_path);
@@ -242,8 +271,9 @@ namespace JnextG46b
             }
 
             Console.WriteLine(string.Format(
-                "CSpectFullTrace: tracing {0} instructions -> {1}",
-                trace_cap, out_path));
+                "CSpectFullTrace: tracing {0} instructions -> {1} (skip {2} resets, gated={3})",
+                trace_cap, out_path, skip_resets, !tracing_active));
+
 
             // Register Memory_EXE at every address 0x0000..0xFFFF.
             // This fires Read() for every M1 cycle (instruction fetch).
@@ -284,14 +314,35 @@ namespace JnextG46b
             if (_type != eAccess.Memory_EXE) return 0;
             if (sw == null) return 0;
 
-            // Already reached cap — ignore silently (stop tracing).
-            if (instr_count >= trace_cap) return 0;
-
             // Capture current Z80 state. GetRegs() returns state BEFORE
             // the instruction executes — matching jnext's TraceLog::record()
             // which also captures pre-execution state.
             Z80Regs r = cspect.GetRegs();
             int pc = r.PC & 0xFFFF;
+
+            // Task 18 sync-point detection: count Z80 resets (transitions
+            // INTO PC=$0000 with reset-state regs). When skip_resets reset
+            // events have been observed, enable tracing.
+            if (!tracing_active) {
+                bool transition_to_zero = (pc == 0 && last_pc != 0);
+                bool reset_state_regs = ((r.SP & 0xFFFF) == 0xFFFF);
+                if (transition_to_zero && reset_state_regs) {
+                    reset_count++;
+                    Console.WriteLine(string.Format(
+                        "CSpectFullTrace: Z80 reset #{0} detected (need {1} to start tracing)",
+                        reset_count, skip_resets));
+                    if (reset_count >= skip_resets) {
+                        tracing_active = true;
+                        Console.WriteLine("CSpectFullTrace: tracing ENABLED — capturing NextZXOS handoff");
+                    }
+                }
+                last_pc = pc;
+                if (!tracing_active) return 0;
+            }
+            last_pc = pc;
+
+            // Already reached cap — ignore silently (stop tracing).
+            if (instr_count >= trace_cap) return 0;
 
             // Determine instruction length and fetch opcode bytes.
             int len = InstrLen(pc);
