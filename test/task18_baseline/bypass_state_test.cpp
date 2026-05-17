@@ -11,6 +11,14 @@
 //   (c) `nextreg.nr_03_config_mode()` = false (config_mode cleared by
 //       the NR 0x03=0xB3 commit at end of init()).
 //   (d) `mmu.machine_type()` = ZX_PLUS3 (committed by the same write).
+//   (e) `nextreg.cached(0x06)` = 0x05 (PERIPH2 = PS/2 keyboard on +
+//       PSGMode 01 AY mode), pre-seeded to match CSpect's empirical
+//       post-tbblue.fw state. The supervisor at PC=$011E reads NR 0x06,
+//       ANDs with $44 (preserves bits 6 + 2), writes back; without
+//       this pre-seed bit 2 (ps2_mode) is lost in the AND with the
+//       VHDL reset value $A0. See memory
+//       `project_task18_divergence_correction_2026-05-17e` for the
+//       trace evidence pinning the divergence at $011E.
 //
 // This is the test that would have caught a regression of any of the
 // three bypass-mode gates in Emulator::init():
@@ -87,6 +95,15 @@ int main() {
 
     // Bonus: rom_in_sram must be on (needed for slot 0/1 to point at SRAM).
     check("mmu.rom_in_sram() == true", emu.mmu().rom_in_sram() == true);
+
+    // (e) NR 0x06 pre-seeded to 0x05 so the supervisor at PC=$011E reads
+    // the CSpect-empirical post-tbblue.fw value rather than the VHDL
+    // reset state $A0. The byte is also visible at port $253B once
+    // selector $243B=0x06, but `cached()` is the canonical store check.
+    const uint8_t nr06 = emu.nextreg().cached(0x06);
+    std::printf("     nextreg.cached(0x06) = 0x%02X (expected 0x05)\n", nr06);
+    check("nextreg.cached(0x06) == 0x05  (PS/2 + PSGMode 01 = tbblue.fw default)",
+          nr06 == 0x05);
 
     std::printf("\n%s\n", fails == 0 ? "ALL PASS" : "FAILURES");
     return fails == 0 ? 0 : 1;

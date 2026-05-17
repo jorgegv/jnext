@@ -5531,6 +5531,35 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (cfg.bypass_tbblue_fw && !preserve_memory &&
         cfg.type == MachineType::ZXN_ISSUE2) {
         Log::emulator()->info("Task 18: firmware bypass — committing post-firmware NextREG state");
+
+        // NR 0x06 (PERIPH2) — tbblue.fw `init_registers()` (boot.c:294-301)
+        // writes this based on SD `config.ini` settings before its
+        // RESET_SOFT handoff to NextZXOS. Empirically observed in CSpect's
+        // own bypass trace: NR 0x06 reads as 0x05 at PC=$011E (the first
+        // post-handoff NextZXOS `IN A,(C)` against $253B with selector
+        // $06). $05 = `bit 2 (PS2) | bit 0 (PSGMode low)` = PS/2 keyboard
+        // enabled + PSGMode 01 (AY chip emulation) — the SD-default
+        // settings tbblue.fw would have computed.
+        //
+        // Without this pre-set, jnext returns the VHDL reset value $A0
+        // (`hotkey_cpu_speed_en=1 & hotkey_5060_en=1`, zxnext.vhd:1107-
+        // 1108 + :5900). NextZXOS at PC=$011E reads NR 0x06, masks with
+        // $44 (preserves bit 6 = beep + bit 2 = ps2_mode), writes back at
+        // PC=$0124. With $A0 pre-state: result = $A0 & $44 = $00 →
+        // ps2_mode CLEARED. With $05 pre-state: result = $05 & $44 = $04
+        // → ps2_mode SET. The ps2_mode bit drives PS/2 keyboard polarity
+        // downstream; clearing it in our bypass leaves NextZXOS reading a
+        // mis-configured keyboard and cascading state through to the
+        // welcome-banner draw path that is the visible Task 18 failure.
+        //
+        // Independent trace analysis 2026-05-17e — see memory
+        // `project_task18_divergence_correction_2026-05-17e`. The prior
+        // session's reverted "full init_registers replication"
+        // (`150075e6`) used `NR 0x06 = $80` (TurboKey-only), which has
+        // bit 2 = 0 — that's why it failed to change boot outcome. The
+        // correct value matches CSpect's empirically-observed $05.
+        nextreg_.write(0x06, 0x05);
+
         nextreg_.write(0x03, 0xB3);
     }
 
