@@ -144,16 +144,17 @@ static void test_write_to_file() {
           lines.size() == 3, fmt("got %zu", lines.size()));
     if (lines.size() != 3) return;
 
-    // Order: ascending by physical key.
-    //   key 0xA000  = bank 5,  pc 0xC000 → line "05c000 c000 1234"
-    //   key 0x14012 = bank 10, pc 0x4012 → line "0a4012 4012 999"
-    //   key 0x14015 = bank 10, pc 0x4015 → line "0a4015 4015 1"
-    check("WRT-LINE-1", "first line == '05c000 c000 1234'",
-          lines[0] == "05c000 c000 1234", lines[0]);
-    check("WRT-LINE-2", "second line == '0a4012 4012 999'",
-          lines[1] == "0a4012 4012 999", lines[1]);
-    check("WRT-LINE-3", "third line == '0a4015 4015 1'",
-          lines[2] == "0a4015 4015 1", lines[2]);
+    // Order: ascending by physical key. Column 1 = real 21-bit
+    // physical address `(page << 13) | (pc & 0x1FFF)`, 6 hex digits.
+    //   key 0xA000  = bank 5,  pc 0xC000 → line "00a000 c000 1234"
+    //   key 0x14012 = bank 10, pc 0x4012 → line "014012 4012 999"
+    //   key 0x14015 = bank 10, pc 0x4015 → line "014015 4015 1"
+    check("WRT-LINE-1", "first line == '00a000 c000 1234'",
+          lines[0] == "00a000 c000 1234", lines[0]);
+    check("WRT-LINE-2", "second line == '014012 4012 999'",
+          lines[1] == "014012 4012 999", lines[1]);
+    check("WRT-LINE-3", "third line == '014015 4015 1'",
+          lines[2] == "014015 4015 1", lines[2]);
 }
 
 static void test_on_instruction_through_mmu() {
@@ -238,11 +239,13 @@ static void test_uint64_counter_precision() {
     check("U64-04", "output file readable", f.good());
     std::string line, found_big3;
     while (std::getline(f, line)) {
-        // Output format is `%02x%04x` → bank=8, pc=0x6000 → "086000".
-        if (line.rfind("086000 ", 0) == 0) { found_big3 = line; break; }
+        // Output format is `%06x` of the physical key. For bank=8 /
+        // pc=0x6000: key = (8 << 13) | (0x6000 & 0x1FFF) = 0x10000.
+        if (line.rfind("010000 ", 0) == 0) { found_big3 = line; break; }
     }
-    check("U64-05", "output contains the bank-8 row", !found_big3.empty(),
-          fmt("scanned but didn't find '086000 …' row"));
+    check("U64-05", "output contains the bank-8 row (phys 010000)",
+          !found_big3.empty(),
+          fmt("scanned but didn't find '010000 …' row"));
     // Last token is the decimal T-states; parse and compare.
     auto last_space = found_big3.find_last_of(' ');
     if (last_space != std::string::npos) {

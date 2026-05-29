@@ -18,10 +18,15 @@
 //
 // Output file: plain text, sorted by physical key ascending. Three columns
 // per line — `<phys_hex_6digit> <log_hex_4digit> <tstates_decimal>` — where
-// phys_hex = bank_byte + (last_logical_pc), e.g. `05c000` = bank 5 / last
-// logical PC = $C000. The post-processing Perl script
-// `tools/get-function-heatmap.pl` joins this on a z88dk .map file to
-// produce a per-function heatmap.
+// phys_hex is the REAL 21-bit physical address into the 2 MB SRAM
+// (`(page << 13) | (pc & 0x1FFF)`), e.g. `00a000` = first byte of bank 5,
+// `00bfff` = last byte of bank 5. The logical column shows the last
+// observed PC the CPU was running from when it hit that physical byte —
+// useful for identifying which slot the bank was paged into.
+// The post-processing Perl script `tools/get-function-heatmap.pl` joins
+// the LOGICAL column against z88dk .map files (which use logical
+// addresses) to produce a per-function heatmap. Physical-address joins
+// are deferred until z88dk `.map` files learn the `bbNNNN` format.
 //
 // Note on the "physical 8K page" lookup: on_instruction() takes the page
 // from `Mmu::get_effective_page(slot)`. That is the same value the

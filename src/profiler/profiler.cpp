@@ -60,20 +60,20 @@ bool Profiler::write_to_file(const std::string& path) const {
     for (uint32_t key = 0; key < kNumEntries; ++key) {
         const Entry& e = entries_[key];
         if (e.tstates == 0) continue;
-        const uint8_t  bank = static_cast<uint8_t>(key >> 13);
         const uint16_t log  = e.last_logical_pc;
-        // Output column 1: bank byte (%02x) concatenated with the last
-        //   observed 16-bit logical PC (%04x), e.g. `05c000` = bank 5 /
-        //   logical PC $C000. NOTE: this is NOT the canonical `bbNNNN`
-        //   bank-offset form some hardware docs use — the spec calls
-        //   for "bank + logical PC" so the post-processor can join on
-        //   the logical column (column 2) against z88dk `.map` files,
-        //   which use logical addresses.
-        // Output column 2: logical PC alone (4 hex digits) — primary
-        //   join key for the v1 Perl post-processor.
+        // Output column 1: real 21-bit physical address (6 hex digits),
+        //   i.e. `(page << 13) | (pc & 0x1FFF)` — the same value as
+        //   the array index `key`. Range 0..0x1FFFFF for the 2 MB Next
+        //   SRAM. E.g. bank 5, intra-page offset $0 → `00a000`; bank
+        //   5, intra-page offset $1FFF → `00bfff`. This is stable per
+        //   physical byte regardless of which slot mapped it.
+        // Output column 2: last observed 16-bit logical PC (4 hex
+        //   digits). Identifies the slot the CPU was executing from.
+        //   Last-wins on aliasing (same physical byte hit from two
+        //   slots) — see the caveat in profiler.h.
         // Output column 3: accumulated T-states (decimal, uint64).
-        std::fprintf(fp, "%02x%04x %04x %llu\n",
-                     bank, log, log,
+        std::fprintf(fp, "%06x %04x %llu\n",
+                     key, log,
                      static_cast<unsigned long long>(e.tstates));
         ++emitted;
     }
