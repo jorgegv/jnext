@@ -120,6 +120,15 @@ struct EmulatorConfig {
     // file. Used for compositor-fidelity investigations (e.g. parallax.nex).
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
+
+    // Task 21 (2026-05-29) — per-physical-address T-state profiler. When
+    // `profile` is true, allocate ~16 MB of mmap'd histogram in
+    // Emulator::init() and accumulate one entry per executed instruction
+    // (gated branch in the CPU hot path: zero cost when profile=false).
+    // On shutdown the histogram is written to `profile_output_path` as a
+    // sorted text file consumable by `tools/get-function-heatmap.pl`.
+    bool        profile             = false;
+    std::string profile_output_path = "profile.dat";
 };
 
 // ---------------------------------------------------------------------------

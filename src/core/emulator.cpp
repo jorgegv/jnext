@@ -69,6 +69,12 @@ Emulator::~Emulator()
                                  " (enable with JNEXT_TRACE_FORCE_ENABLE=1)\n");
         }
     }
+
+    // Task 21 — flush the CPU profile histogram if active. Path comes
+    // from EmulatorConfig::profile_output_path; defaults to "profile.dat".
+    if (profiler_.active()) {
+        profiler_.write_to_file(config_.profile_output_path);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5749,6 +5755,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         Log::emulator()->info("[G46b] JNEXT_TRACE_NO_WRAP: trace will stop recording when full (preserves earliest entries)");
     }
 
+    // Task 21 — allocate the CPU profiler if requested. Skipped on soft
+    // reset so a re-init() within the same session preserves the
+    // accumulated histogram.
+    if (cfg.profile && !preserve_memory && !profiler_.active()) {
+        profiler_.init();
+    }
+
     return true;
 }
 
@@ -6287,8 +6300,18 @@ void Emulator::run_frame()
             // tied edge, CPU held over 1 cycle" behaviour as "CPU writes
             // apply LAST in the instruction window".
             defer_cpu_nr_writes_ = true;
+            // Task 21 — capture the PC of the instruction we're about to
+            // execute so the profiler can attribute the T-state cost to
+            // the right address. Reading regs.PC is O(1) (register-pair
+            // copy from a member array) — the cost is in the noise next
+            // to the surrounding scheduler/IM2/Copper work.
+            const uint16_t pc_pre_exec = cpu_.get_registers().PC;
             int tstates = cpu_.execute();
             defer_cpu_nr_writes_ = false;
+            if (profiler_.active()) {
+                profiler_.on_instruction(mmu_, pc_pre_exec,
+                                         static_cast<uint64_t>(tstates));
+            }
 
             // Advance VideoTiming so test/debug observers see the post-
             // instruction raster position. The contention path itself
@@ -6749,8 +6772,15 @@ int Emulator::execute_single_instruction()
 
         // G65 — see run_frame() primary path for rationale.
         defer_cpu_nr_writes_ = true;
+        // Task 21 — mirror the primary execute path: capture PC pre-exec
+        // for profiler attribution.
+        const uint16_t pc_pre_exec = cpu_.get_registers().PC;
         int tstates = cpu_.execute();
         defer_cpu_nr_writes_ = false;
+        if (profiler_.active()) {
+            profiler_.on_instruction(mmu_, pc_pre_exec,
+                                     static_cast<uint64_t>(tstates));
+        }
 
         // Mirror video_timing_ advance from run_frame() — single-step
         // path needs the same observable to stay in sync.

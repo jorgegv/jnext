@@ -56,6 +56,7 @@
 #include "core/rzx_player.h"
 #include "core/rzx_recorder.h"
 #include "debug/rewind_buffer.h"
+#include "profiler/profiler.h"
 
 /// Top-level machine class.
 ///
@@ -272,6 +273,8 @@ public:
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
     Renderer&     renderer()  { return renderer_; }
+    Profiler&     profiler()  { return profiler_; }
+    const Profiler& profiler() const { return profiler_; }
 
     DebugState& debug_state() { return debug_state_; }
     const DebugState& debug_state() const { return debug_state_; }
@@ -713,6 +716,13 @@ private:
 
     /// Rewind snapshot buffer (null when disabled).
     std::unique_ptr<RewindBuffer> rewind_buffer_;
+
+    /// Task 21 (2026-05-29) — per-physical-address T-state profiler.
+    /// Inactive (no allocation) unless EmulatorConfig::profile is true.
+    /// Hot path: the CPU per-instruction loop in run_frame() checks
+    /// `profiler_.active()` (an `if (!nullptr)` branch). When inactive,
+    /// it's a single always-false predicted branch — zero cost.
+    Profiler profiler_;
 
     /// Logical frame counter — incremented each run_frame(); saved in snapshots.
     uint32_t frame_num_   = 0;

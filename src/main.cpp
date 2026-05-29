@@ -71,6 +71,13 @@ static void print_usage(const char* prog) {
         "                               KEY: single char, or symbolic ENTER / RETURN / SPACE (case-insensitive)\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
         "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
+        "  --profile               Enable the CPU T-state profiler (Task 21).\n"
+        "                          Allocates an mmap'd histogram and accumulates one\n"
+        "                          entry per executed instruction. On exit the histogram\n"
+        "                          is written to --profile-output. Use\n"
+        "                          'tools/get-function-heatmap.pl -m FILE.map' to join\n"
+        "                          the output against a z88dk .map file.\n"
+        "  --profile-output FILE   Output path for --profile (default: profile.dat)\n"
         "  --version               Print version and exit\n",
         prog);
 }
@@ -116,6 +123,8 @@ int main(int argc, char* argv[]) {
     int         rewind_buffer_frames = 500;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
+    bool        profile_enabled = false;
+    std::string profile_output_path = "profile.dat";
     struct DelayedKeyArg { int delay; char key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
 
@@ -209,6 +218,10 @@ int main(int argc, char* argv[]) {
             compositor_trace_path = argv[++i];
         } else if (arg == "--compositor-trace-frame" && i + 1 < argc) {
             compositor_trace_frame = std::stoi(argv[++i]);
+        } else if (arg == "--profile") {
+            profile_enabled = true;
+        } else if (arg == "--profile-output" && i + 1 < argc) {
+            profile_output_path = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -263,6 +276,8 @@ int main(int argc, char* argv[]) {
         cfg.rewind_buffer_frames = rewind_buffer_frames;
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
+        cfg.profile                = profile_enabled;
+        cfg.profile_output_path    = profile_output_path;
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) return 1;

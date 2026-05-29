@@ -456,6 +456,13 @@ target_include_directories(task18_bypass_state_test PRIVATE ${CMAKE_SOURCE_DIR}/
 add_test(NAME task18_bypass_state COMMAND task18_bypass_state_test
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# Task 21 — CPU profiler unit test (Profiler class).
+add_executable(profiler_test profiler/profiler_test.cpp)
+target_link_libraries(profiler_test PRIVATE
+    jnext_profiler jnext_memory jnext_peripheral jnext_port jnext_debug)
+target_include_directories(profiler_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME profiler_tests COMMAND profiler_test)
+
 # Task 18 post-boot probe (SCRATCH; not registered with CTest). Runs
 # 600 frames in headless mode and dumps screen-related state — used to
 # diagnose the "screen stays gray" issue.

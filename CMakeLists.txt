@@ -53,11 +53,15 @@ add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 
 # input and debug must come before core: emulator.h includes input/keyboard.h
 # and debug/debug_state.h; jnext_core explicitly links jnext_input and jnext_debug.
+# Task 21: jnext_profiler is linked by jnext_core (Emulator owns a Profiler),
+# so the profiler target must exist before core's add_subdirectory. The
+# profiler in turn includes memory/mmu.h, so jnext_memory must come first.
 add_subdirectory(src/input)
 add_subdirectory(src/debug)
+add_subdirectory(src/memory)
+add_subdirectory(src/profiler)
 add_subdirectory(src/core)
 add_subdirectory(src/cpu)
-add_subdirectory(src/memory)
 add_subdirectory(src/video)
 add_subdirectory(src/audio)
 add_subdirectory(src/port)
@@ -87,6 +91,7 @@ target_link_libraries(jnext PRIVATE
     jnext_video jnext_audio jnext_port
     jnext_peripheral jnext_input
     jnext_platform jnext_save jnext_debug
+    jnext_profiler
     ${SDL2_LINK_TARGET})
 target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 
