@@ -62,10 +62,16 @@ bool Profiler::write_to_file(const std::string& path) const {
         if (e.tstates == 0) continue;
         const uint8_t  bank = static_cast<uint8_t>(key >> 13);
         const uint16_t log  = e.last_logical_pc;
-        // Output column 1: bank byte + 16-bit logical PC (6 hex digits).
-        // Output column 2: logical PC alone (4 hex digits) — convenient
-        //   for the v1 Perl join path that ignores the bank.
-        // Output column 3: accumulated T-states.
+        // Output column 1: bank byte (%02x) concatenated with the last
+        //   observed 16-bit logical PC (%04x), e.g. `05c000` = bank 5 /
+        //   logical PC $C000. NOTE: this is NOT the canonical `bbNNNN`
+        //   bank-offset form some hardware docs use — the spec calls
+        //   for "bank + logical PC" so the post-processor can join on
+        //   the logical column (column 2) against z88dk `.map` files,
+        //   which use logical addresses.
+        // Output column 2: logical PC alone (4 hex digits) — primary
+        //   join key for the v1 Perl post-processor.
+        // Output column 3: accumulated T-states (decimal, uint64).
         std::fprintf(fp, "%02x%04x %04x %llu\n",
                      bank, log, log,
                      static_cast<unsigned long long>(e.tstates));

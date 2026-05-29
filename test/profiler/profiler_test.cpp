@@ -193,6 +193,69 @@ static void test_on_instruction_through_mmu() {
           fmt("page=0x%02x key=0x%x", s0_page, k0));
 }
 
+static void test_uint64_counter_precision() {
+    // Discriminative coverage for the uint64_t counter type. A naive
+    // 32-bit implementation would truncate values > 0xFFFFFFFF; this
+    // test catches that. Also exercises the write_to_file() format
+    // string (must use %llu / %lu / equivalent for full 64-bit width,
+    // not %u).
+    Profiler p;
+    bool ok = p.init();
+    check("U64-INIT", "init() succeeds", ok);
+    if (!ok) return;
+
+    // Push the counter past UINT32_MAX in two large additions so we
+    // also verify accumulation across the 32-bit boundary.
+    const uint64_t big1 = 0xFFFF'FFFFULL;             // 4,294,967,295
+    const uint64_t big2 = 0x1ULL;                     // crosses boundary
+    p.hit(7, 0x5000, big1);
+    p.hit(7, 0x5000, big2);
+    uint32_t key = Profiler::key_for(7, 0x5000);
+    const uint64_t expected_a = big1 + big2;          // 0x1_0000_0000
+    check("U64-01", "32-bit boundary crossing accumulates correctly",
+          p.entries()[key].tstates == expected_a,
+          fmt("got %llu expected %llu",
+              static_cast<unsigned long long>(p.entries()[key].tstates),
+              static_cast<unsigned long long>(expected_a)));
+
+    // A second pair pushing well above 2^32 to make sure the upper
+    // 32 bits aren't being discarded on every hit.
+    const uint64_t big3 = 0x1234'5678'9ABCULL;        // ≈ 20 trillion
+    p.hit(8, 0x6000, big3);
+    uint32_t k2 = Profiler::key_for(8, 0x6000);
+    check("U64-02", "single hit > 2^32 stored verbatim",
+          p.entries()[k2].tstates == big3,
+          fmt("got %llu",
+              static_cast<unsigned long long>(p.entries()[k2].tstates)));
+
+    // Round-trip through write_to_file() — the format string must
+    // emit the full 64-bit decimal value, not a 32-bit truncation.
+    const char* path = "/tmp/profiler_u64_test.dat";
+    ok = p.write_to_file(path);
+    check("U64-03", "write_to_file() succeeds for large values", ok);
+
+    std::ifstream f(path);
+    check("U64-04", "output file readable", f.good());
+    std::string line, found_big3;
+    while (std::getline(f, line)) {
+        // Output format is `%02x%04x` → bank=8, pc=0x6000 → "086000".
+        if (line.rfind("086000 ", 0) == 0) { found_big3 = line; break; }
+    }
+    check("U64-05", "output contains the bank-8 row", !found_big3.empty(),
+          fmt("scanned but didn't find '086000 …' row"));
+    // Last token is the decimal T-states; parse and compare.
+    auto last_space = found_big3.find_last_of(' ');
+    if (last_space != std::string::npos) {
+        const std::string num = found_big3.substr(last_space + 1);
+        unsigned long long parsed = std::strtoull(num.c_str(), nullptr, 10);
+        check("U64-06", "T-states column round-trips full 64-bit value",
+              parsed == big3,
+              fmt("parsed %llu vs expected %llu", parsed,
+                  static_cast<unsigned long long>(big3)));
+    }
+    std::remove(path);
+}
+
 static void test_inactive_profiler_is_safe() {
     // A non-initialised profiler MUST report active()==false and MUST
     // NOT crash on write_to_file() with no data.
@@ -213,7 +276,8 @@ int main() {
     test_hit_accumulation();    std::printf("  §2 hit accumulation        done\n");
     test_write_to_file();       std::printf("  §3 write_to_file format    done\n");
     test_on_instruction_through_mmu(); std::printf("  §4 on_instruction + MMU    done\n");
-    test_inactive_profiler_is_safe();  std::printf("  §5 inactive profiler safe  done\n");
+    test_uint64_counter_precision();   std::printf("  §5 uint64 counter precision done\n");
+    test_inactive_profiler_is_safe();  std::printf("  §6 inactive profiler safe  done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
