@@ -17,14 +17,18 @@
 # Where <type> is "addr" for real labels and "const" for section
 # anchors (e.g. __code_compiler_head/__code_compiler_size). The
 # <section> field is the section the symbol lives in. We keep ONLY
-# entries where type == "addr" AND section starts with "code" (matches
-# the standard z88dk sections code_compiler, code_crt0, code_user,
-# code_lib_*, code_clib_*, etc.).
+# entries where type == "addr" AND section starts with "code"
+# (matches the standard z88dk sections code_compiler, code_crt0,
+# code_user, code_lib_*, code_clib_*, etc.) AND the symbol name
+# starts with `_` — SDCC's C-callable convention, which catches
+# every C function (extern + static) plus z88dk-asm library exports
+# that follow it, while dropping local asm jr/jp targets. See the
+# inline comment near the filter for the residual-noise caveat.
 #
 # Map-file physical-address support (`bbNNNN` format in the symbol
 # address) is DEFERRED — v1 joins on the LOGICAL column (column 2) of
-# the profile data. Column 1 (the physical bank + logical PC, e.g.
-# `05c000`) is read but ignored for the lookup.
+# the profile data. Column 1 (the real 21-bit physical address) is
+# read but ignored for the lookup.
 #
 # Project convention: core Perl 5, no CPAN.
 
@@ -50,10 +54,18 @@ die "usage: get-function-heatmap.pl -m FILE.map < profile.dat\n"
 # ── 1. Parse the .map file ─────────────────────────────────────────────
 open my $mfh, '<', $map_file or die "cannot open map file '$map_file': $!\n";
 
-# Labels we keep: type=addr AND section name matches a code section.
-# z88dk's standard code sections all start with `code` (or `_CODE` for
-# some legacy targets). Accept either form to be tolerant of older
-# toolchains.
+# Labels we keep:
+#   1. type == 'addr'  — drops `const, …` lines (constants, equates).
+#   2. section starts with `code` (or `_CODE` for some legacy targets).
+#   3. name starts with `_` — the SDCC C-callable convention. ALL
+#      C functions (extern and static) get mangled to `_funcname` so
+#      this catches every C entry plus the z88dk asm-library exports
+#      that follow the C-callable convention. It drops local asm
+#      jr/jp targets that don't follow the convention (e.g. `loop1:`,
+#      `done:`). Residual noise: CRT-internal continuation labels
+#      like `__Restart_2` survive because they start with `__`; they
+#      are few in practice and live next to their parent label, so
+#      attribution noise is minimal.
 my @labels;   # list of [name => logical_addr]
 while (my $line = <$mfh>) {
     chomp $line;
@@ -67,6 +79,7 @@ while (my $line = <$mfh>) {
     my $section = $cols[4];
     next unless defined $type && $type eq 'addr';
     next unless defined $section && $section =~ /^(?:code|_CODE)/i;
+    next unless $name =~ /^_/;  # C-callable convention; drops local asm labels.
     my $addr = hex($hex);
     push @labels, [ $name, $addr ];
 }
