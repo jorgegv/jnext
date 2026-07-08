@@ -2,6 +2,7 @@
 
 #include "memory/mmu.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
