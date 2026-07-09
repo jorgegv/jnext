@@ -1,4 +1,10 @@
-roms/
+# roms/ holds large, user-supplied and/or copyrighted assets (SD images,
+# 48.rom, ...) that must NOT be committed. The one exception is nextboot.rom:
+# the 8 KB FPGA IPL, extracted byte-for-byte from the GPLv3 ZX Spectrum Next
+# FPGA core (cores/zxnext/src/rom/bootrom.vhd). jnext embeds it at link time
+# and cannot build without it. jnext is GPLv3, so shipping it is compatible.
+roms/*
+!roms/nextboot.rom
 build*/
 .claude/worktrees/
 
