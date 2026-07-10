@@ -14,6 +14,11 @@ See the [JNEXT full development plan](doc/design/EMULATOR-DESIGN-PLAN.md) for th
 
 Current status of the screenshot-based regression tests: [CURRENT-REGRESSION-STATE](doc/CURRENT-REGRESSION-STATE.md)
 
+**UPDATE 10/7/26:** NextZXOS boot achieved!
+
+![JNEXT NextZXOS boot screenshot](doc/JNEXT-NEXTZXOS-BOOT.png)
+
+
 ---
 
 ## About this project
