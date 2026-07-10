@@ -1,5 +1,37 @@
 # ChangeLog
 
+## v0.94.0 (2026-07-10)
+
+### User Features
+- NextZXOS boots natively from the SD card image through the authentic FPGA boot chain (welcome screen + main menu)
+- Instant TAP loading via phantom typist, plus FUSE-style fastload mode
+- Pristine z88dk NEX games boot without patching via the esxDOS stub option
+- Host hotkeys for hardware buttons: Multiface NMI, DivMMC NMI, soft and hard reset
+- Per-scanline render-state replay (palette, sprites, tilemap, ULA) enables demo-class raster effects
+- Mouse: host cursor hidden over the emulator window, position scaling fixed
+
+### Developer Features
+- CPU T-state profiler with per-physical-address counters and z88dk map-file heatmap script
+- Headless automation: delayed keypress injection and compositor per-pixel trace dump
+- Env-gated NextZXOS boot diagnostics (instruction trace ring, trap detector, boot probes)
+
+### Bug Fixes
+- Layer 2 320x256 mode no longer shows animated noise on the right half of the screen
+- Inverted ULA attributes in Next mode fixed
+- Kempston mouse Y axis now uses Cartesian convention
+- Bank-7 memory no longer aliases the alt-ROM area (fixed NextZXOS workspace corruption)
+- Standalone 128K/+3 machines keep bank 7 intact after Next machine switches
+- SD card: open multi-block reads survive chip-select release; single card no longer answers both slots
+- Builds cleanly on Debian 12 / GCC 12 from a fresh clone
+
+### Internal JNEXT Development
+- Full-subsystem VHDL-conformance audit waves with enumeration-table mandate; hundreds of fixes landed
+- Unit-test SKIP-reduction: dashboard grew to 4116 cases at 99% pass, zero failures
+- Screenshot regression suite expanded from 30 to 43 cases
+- Symmetric-trace differential debugging against reference emulators (CSpect plugin, zx_go harness)
+- Multiface core subsystem modelled and VHDL-verified
+- Machine ID now reports real-hardware value; soft reset preserves the Z80 register file per VHDL
+
 ## v0.93.0
 
 ### Bug Fixes

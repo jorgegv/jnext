@@ -67,5 +67,28 @@
 |        |      | 27 screenshot references regenerated (pixel-equivalence proven first); GUI scale 1x/2x/3x options    |
 | 3/5    | 10h  | NextREG schema audit (write-handler contract, 9 read_handlers dropped) + SD card protocol cleanup    |
 |        |      | CTC interrupts 2 waves + Audio NR + low-prio tier (5-agent parallel) + DivMMC fix; 22 G-tasks closed |
+| 4/5    | 8h   | Task 8 Multiface plan Wave 0+1 (SD-ROM foundation, MF core class) + Tier A/B SKIP reduction         |
+|        |      | All ROMs now sourced from SD image; nextboot.rom embedded at link time. Dashboard 3850 rows          |
+| 6/5    | 6h   | G46(b) NextZXOS boot investigation: SD protocol traced, bank topology decoded, band-aid proven       |
+|        |      | EOD-5/6/7 chain; TBBLUE logo reached under experiments                                               |
+| 7/5    | 5h   | G46(b): DZRP connector to CSpect + differential debugging methodology established                    |
+| 8/5    | 8h   | G46(b): NR $03 machine_type commit fix + MMU/clock/CMD12 soft-reset fixes (EOD-9..13)                |
+|        |      | Loader-log bisect; soft-reset state preservation audited                                             |
+| 9/5    | 6h   | Task 2 verify-audit passes 1-8: NextREG schema, DivMMC RETN, SPI CS decode waves                     |
+| 10/5   | 7h   | Task 2 verify-audit passes 9-19 (5-agent parallel): enumeration-table mandate established            |
+|        |      | Hundreds of VHDL-conformance fixes with discriminative tests                                         |
+| 11/5   | 5h   | Task 2 audit continuation + convergence rules (zero-findings subsystems skipped)                     |
+| 14/5   | 5h   | Task 14 NextZXOS boot test-strategy analysis; G46(b) EOD-26 sram_rom candidates narrowed             |
+| 15/5   | 9h   | G46(b)-v2 EOD-30i chain (6 handovers): 5-flag boot reaches supervisor RST $20; IPL self-corruption   |
+|        |      | root-caused to config-mode LDIR; CSpect plugin captures established                                  |
+| 16/5   | 8h   | L2 320x256 bank-stride fix + esxDOS stub + Kempston Y fix + GUI cursor; regression 30 → 40           |
+|        |      | Tasks 14/15/16/17 closed; 9 NEX games extracted for testing                                          |
+| 17/5   | 9h   | Task 18 --bypass-tbblue-fw lands: NextZXOS boots to idle loop (banner missing). Symmetric-trace      |
+|        |      | infra (TraceLog + CSpectFullTrace). Task 19 instant TAP + Task 20 inverted-attributes fix            |
+| 29/5   | 5h   | Task 21 CPU T-state profiler: --profile + per-physical-address counters + z88dk heatmap script       |
+| 8/7    | 2h   | Issue #4 build fixes (Debian 12 cstddef, nextboot.rom tracked, noexecstack); github-cli skill        |
+| 9/7    | 4h   | zx_go comparison: refutes G46(b) L6/L7 conclusions; boot verified in zx_go with our image + ROM      |
+| 10/7   | 7h   | **NextZXOS NATIVE BOOT ACHIEVED**: bank-7 BRAM/alt-ROM aliasing root-caused via symmetric trace      |
+|        |      | 3-round independent review (BLOCKER found+fixed); merged to main; v0.94.0                            |
 |        |      |                                                                                                      |
-| TOTAL: | 220h |                                                                                                      |
+| TOTAL: | 314h |                                                                                                      |
