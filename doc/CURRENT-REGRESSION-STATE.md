@@ -2,16 +2,23 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**33 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**35 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 ---
 
 ## NextZXOS native boot — milestone (v0.94.0)
 
-### `nextzxos-boot`
-Native NextZXOS boot to the main menu from the canonical SD image.
+The RTC is pinned with `--rtc` (Task 28) so the menu's date/time row is deterministic.
 
-<img src="nextzxos-boot-menu.png" width="384" alt="NextZXOS boot menu"/>
+### `boot-nextzxos-welcome`
+Native NextZXOS boot to the welcome screen (FPGA boot ROM → tbblue.fw → NextZXOS) from the canonical SD image.
+
+<img src="../test/00regression/img/boot-nextzxos-welcome-reference.png" width="384" alt="boot-nextzxos-welcome reference"/>
+
+### `boot-nextzxos-menu`
+NextZXOS main menu after SPACE skips the welcome tour.
+
+<img src="../test/00regression/img/boot-nextzxos-menu-reference.png" width="384" alt="boot-nextzxos-menu reference"/>
 
 ---
 
