@@ -71,4 +71,5 @@
 - `--rewind-buffer-size`, `--speed`, `--record`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
 - `--log-level` per subsystem (cpu, video, audio, etc.)
+- `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the DS1307 RTC to a fixed date/time (frozen clock; deterministic boot screenshots)
 - `--version`
