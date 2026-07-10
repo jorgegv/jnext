@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**36 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**39 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 ---
 
@@ -121,6 +121,21 @@ Parallax scrolling demo (steady-state animation).
 TAP loader exercise — 48K BASIC auto-load + beeper-driven demo.
 
 <img src="../test/00regression/img/tap-demo-reference.png" width="384" alt="tap-demo reference"/>
+
+### `tap-demo-128k`
+TAP loader in 128K MENU mode — default Tape Loader entry runs `LOAD""` + fast-load trap; beeper-driven demo.
+
+<img src="../test/00regression/img/tap-demo-128k-reference.png" width="384" alt="tap-demo-128k reference"/>
+
+### `tap-demo-plus3`
+TAP loader in +3 ENTER mode — default Loader entry drops to 48K BASIC + `LOAD""` past the disk-probe pause; beeper-driven demo.
+
+<img src="../test/00regression/img/tap-demo-plus3-reference.png" width="384" alt="tap-demo-plus3 reference"/>
+
+### `tap-rom-charset-next`
+Next-mode `--load` TAP with ROM-1 char-set fallback — `out (0x7FFD),0x10` selects ROM 1, then plots the canonical Spectrum font 0..127 (Task 20 SRAM pages 2..7 fallback fix).
+
+<img src="../test/00regression/img/tap-rom-charset-next-reference.png" width="384" alt="tap-rom-charset-next reference"/>
 
 ---
 
