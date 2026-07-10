@@ -11,10 +11,16 @@
 /// mandatory. This module adds a default-location + optional-download flow so
 /// a user can start with just a `.nex` (or nothing) and no `--sd-card`:
 ///
-///   1. `--sd-card FILE` given  → use it verbatim (explicit always wins).
+///   1. `--sd-card FILE` given  → use it verbatim (explicit ALWAYS wins,
+///      unconditionally — even alongside --sdcard-download-force, which is
+///      ignored in that case, since the named file may be any image).
 ///   2. else look in $HOME/.jnext/sdcard/cspect-next-1gb.img → use if present.
 ///   3. else offer to download the canonical distro zip, extract the image,
 ///      and fix it in place (FAT32 recluster) so our strict reader accepts it.
+///
+/// --sdcard-download-force forces the re-download+re-patch in step 3 (to
+/// recover a corrupted default-location image); it never applies to an
+/// explicit --sd-card path.
 ///
 /// The network fetch, the unzip, and the FAT32 patch are separate functions so
 /// each is independently unit-testable offline; the network fetch and the user

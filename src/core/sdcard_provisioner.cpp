@@ -168,6 +168,7 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
     uint16_t method = 0;
     uint32_t comp_size = 0;
     uint32_t local_off = 0;
+    uint32_t stored_crc = 0;
     bool found = false;
     size_t p = 0;
     for (uint32_t i = 0; i < cd_count && p + 46 <= cd.size(); ++i) {
@@ -178,9 +179,11 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
         const uint16_t elen = rd16(cd.data() + p + 30);
         const uint16_t clen = rd16(cd.data() + p + 32);
         const uint32_t loff = rd32(cd.data() + p + 42);
+        const uint32_t crc  = rd32(cd.data() + p + 16);
         std::string name(reinterpret_cast<char*>(cd.data() + p + 46), nlen);
         if (ieq(basename_of(name), entry_basename)) {
-            method = m; comp_size = csz; local_off = loff; found = true;
+            method = m; comp_size = csz; local_off = loff; stored_crc = crc;
+            found = true;
             break;
         }
         p += 46 + nlen + elen + clen;
@@ -200,6 +203,11 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
     if (!of) { err = "cannot create output: " + out_path; return false; }
     zf.seekg(data_off, std::ios::beg);
 
+    // Accumulate the CRC-32 of the extracted (uncompressed) bytes so we can
+    // verify it against the zip's stored CRC — a cheap guard against a
+    // truncated / corrupted download.
+    uLong out_crc = crc32(0L, Z_NULL, 0);
+
     if (method == 0) { // stored
         std::vector<char> buf(1 << 20);
         uint32_t left = comp_size;
@@ -208,9 +216,15 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
             zf.read(buf.data(), n);
             if (zf.gcount() != n) { err = "short read (stored)"; return false; }
             of.write(buf.data(), n);
+            out_crc = crc32(out_crc, reinterpret_cast<const Bytef*>(buf.data()),
+                            static_cast<uInt>(n));
             left -= static_cast<uint32_t>(n);
         }
-        return of.good();
+        if (!of.good()) { err = "write error"; return false; }
+        if (static_cast<uint32_t>(out_crc) != stored_crc) {
+            err = "CRC mismatch (corrupt/truncated download)"; return false;
+        }
+        return true;
     }
     if (method != 8) { err = "unsupported compression method " + std::to_string(method); return false; }
 
@@ -238,11 +252,18 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
             err = "inflate error " + std::to_string(ret); okflag = false; break;
         }
         const size_t have = out.size() - strm.avail_out;
-        if (have) of.write(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(have));
+        if (have) {
+            of.write(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(have));
+            out_crc = crc32(out_crc, out.data(), static_cast<uInt>(have));
+        }
         if (ret == Z_BUF_ERROR && strm.avail_in == 0 && left == 0) break;
     }
     inflateEnd(&strm);
-    return okflag && of.good();
+    if (!okflag || !of.good()) { if (err.empty()) err = "write error"; return false; }
+    if (static_cast<uint32_t>(out_crc) != stored_crc) {
+        err = "CRC mismatch (corrupt/truncated download)"; return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -300,8 +321,17 @@ bool patch_image_fat32(const std::string& image_path, std::string& err) {
 ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     ProvisionResult r;
 
-    // Explicit path always wins, unless a forced re-download was requested.
-    if (!opts.force_download && !opts.explicit_path.empty()) {
+    // An explicit --sd-card path ALWAYS wins, unconditionally. It may name an
+    // arbitrary, unrelated image; --sdcard-download-force must never re-download
+    // over it or ignore it. --sdcard-download-force applies ONLY to the
+    // default-location provisioning flow (recovering a corrupted
+    // ~/.jnext/sdcard/cspect-next-1gb.img).
+    if (!opts.explicit_path.empty()) {
+        if (opts.force_download) {
+            std::fprintf(stderr,
+                "warning: --sdcard-download-force ignored because an explicit "
+                "--sd-card was provided (%s).\n", opts.explicit_path.c_str());
+        }
         r.status = ProvisionStatus::Ok;
         r.path   = opts.explicit_path;
         return r;
@@ -325,7 +355,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     if (!opts.auto_confirm) {
         std::string msg =
             std::string("No SD-card image found at ") + dest +
-            ".\nDownload the ~" + "NextZXOS distribution image from " +
+            ".\nDownload the NextZXOS distribution image from " +
             kDistroUrl + " (large download) and install it there?";
         if (!confirm(msg)) {
             r.status = ProvisionStatus::Declined;

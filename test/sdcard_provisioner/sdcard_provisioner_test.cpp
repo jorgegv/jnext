@@ -187,19 +187,22 @@ int main() {
               !download_called);
     }
 
-    // -- PROV-PREC-03: force ignores explicit + existing default --
+    // -- PROV-PREC-03: an explicit --sd-card ALWAYS wins, even with
+    // --sdcard-download-force. Force applies only to the default-location
+    // flow; it must never re-download over, or discard, an explicit path.
     {
         download_called = false; // default image still present from PREC-02
         sdcard::ProvisionOptions o;
         o.explicit_path = "/some/explicit/path.img";
         o.force_download = true;
-        o.auto_confirm = true; // skip prompt
-        o.download = recording_dl; // fails after being called
+        o.auto_confirm = true; // would skip the prompt IF we reached download
+        o.download = recording_dl; // must NOT be called
         auto r = sdcard::provision_sd_card(o);
-        check("PROV-PREC-03", "force routes to download branch (seam invoked)",
-              download_called);
-        check("PROV-PREC-03", "force + failing download => Failed",
-              r.status == sdcard::ProvisionStatus::Failed);
+        check("PROV-PREC-03", "explicit path returned verbatim despite force",
+              r.status == sdcard::ProvisionStatus::Ok &&
+              r.path == "/some/explicit/path.img", r.path);
+        check("PROV-PREC-03", "download seam never invoked when --sd-card given",
+              !download_called);
     }
 
     // Remove the default image for the confirm tests.
