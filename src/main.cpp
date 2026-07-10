@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "core/sdcard_provisioner.h"
 #include "version.h"
 #include <csignal>
 #include <cctype>
@@ -11,6 +12,7 @@
 #include "platform/headless_app.h"
 #ifdef ENABLE_QT_UI
 #include "gui/qt_app.h"
+#include "gui/sdcard_download_dialog.h"
 #else
 #include "platform/sdl_app.h"
 #endif
@@ -41,9 +43,11 @@ static void print_usage(const char* prog) {
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
         "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav\n"
-        "  --sd-card FILE       Mount SD card image FILE (.img) (REQUIRED)\n"
-        "                       The TBBlue distribution image is the standard reference;\n"
-        "                       see CLAUDE.md for the canonical fixture path.\n"
+        "  --sd-card FILE       Mount SD card image FILE (.img). If omitted, jnext looks\n"
+        "                       in ~/.jnext/sdcard/cspect-next-1gb.img and offers to\n"
+        "                       download + patch the canonical distribution image there.\n"
+        "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
+        "  --sdcard-download-force    Force re-download + re-patch even if a local image exists\n"
         "  --machine TYPE       Machine type: 48k, 128k, plus3, next (default)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
@@ -106,6 +110,8 @@ int main(int argc, char* argv[]) {
     int      inject_delay = 0;
     std::string load_file;
     std::string sd_card_image;
+    bool        sdcard_download_confirm = false;
+    bool        sdcard_download_force   = false;
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
     int         screenshot_delay_frames = -1; // -1 = unset; if set, overrides screenshot_delay
@@ -154,6 +160,10 @@ int main(int argc, char* argv[]) {
             load_file = argv[++i];
         } else if (arg == "--sd-card" && i + 1 < argc) {
             sd_card_image = argv[++i];
+        } else if (arg == "--sdcard-download-confirm") {
+            sdcard_download_confirm = true;
+        } else if (arg == "--sdcard-download-force") {
+            sdcard_download_force = true;
         } else if (arg == "--delayed-screenshot" && i + 1 < argc) {
             screenshot_file = argv[++i];
         } else if (arg == "--delayed-screenshot-time" && i + 1 < argc) {
@@ -257,14 +267,41 @@ int main(int argc, char* argv[]) {
     // directly with their own EmulatorConfig and may legitimately leave
     // sd_card_image empty for hermetic tests; that path remains intact (the
     // check lives only here in main.cpp, not in Emulator::init).
-    if (sd_card_image.empty()) {
-        std::fprintf(stderr,
-            "error: --sd-card FILE is required.\n"
-            "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
-            "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
-            "ROMs (48K, 128K, +3) - same as real hardware. The TBBlue distribution image\n"
-            "is the standard reference; see CLAUDE.md for the canonical fixture path.\n");
-        return 1;
+    // Resolve the SD-card image (Task 27). Precedence:
+    //   1. explicit --sd-card FILE (unless --sdcard-download-force is set)
+    //   2. the default location $HOME/.jnext/sdcard/cspect-next-1gb.img
+    //   3. offer to download + patch the canonical distribution image
+    // Unit-test fixtures construct Emulator directly and never reach this
+    // path. When resolution ultimately fails, fall back to the historical
+    // "--sd-card is required" error so behaviour is unchanged for scripts.
+    {
+        sdcard::ProvisionOptions opts;
+        opts.explicit_path   = sd_card_image;
+        opts.auto_confirm    = sdcard_download_confirm;
+        opts.force_download  = sdcard_download_force;
+        opts.download        = sdcard::default_http_download;
+#ifdef ENABLE_QT_UI
+        if (!headless)
+            opts.confirm = [](const std::string& m) { return sdcard_gui_confirm_download(m); };
+        else
+            opts.confirm = sdcard::cli_confirm;
+#else
+        opts.confirm = sdcard::cli_confirm;
+#endif
+        sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
+        if (res.status == sdcard::ProvisionStatus::Ok) {
+            sd_card_image = res.path;
+        } else {
+            if (!res.error.empty())
+                std::fprintf(stderr, "error: SD-card image: %s\n", res.error.c_str());
+            std::fprintf(stderr,
+                "error: no SD-card image available.\n"
+                "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
+                "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
+                "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sd-card FILE,\n"
+                "or accept the download prompt to install it at ~/.jnext/sdcard/.\n");
+            return 1;
+        }
     }
 
     // Helper lambda: configure and run any app object with the common interface.

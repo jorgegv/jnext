@@ -246,6 +246,21 @@ add_test(NAME sd_rom_extractor_tests
          COMMAND sd_rom_extractor_test
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# FAT32 image read/write + geometry test (Task 27)
+# Native reimplementation of the mtools-based SD-image FAT32 cluster fix.
+# Pure host code; links jnext_core for extract_sd_rom() (SFN-preservation test).
+add_executable(fat32_image_test fat32_image/fat32_image_test.cpp)
+target_link_libraries(fat32_image_test PRIVATE jnext_core)
+target_include_directories(fat32_image_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME fat32_image_tests COMMAND fat32_image_test)
+
+# SD-card provisioner test (Task 27): path resolution, precedence, download
+# seam behaviour (stubbed — never touches the network), and zip extraction.
+add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_test.cpp)
+target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
+target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
