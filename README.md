@@ -23,7 +23,7 @@ Current status of the screenshot-based regression tests: [CURRENT-REGRESSION-STA
 
 ## About this project
 
-JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and supervision. The complete prompt history, design documents, daily task files, and development documentation are available in the repository. This makes JNEXT not just an emulator, but also a practical case study in developing a large, complex piece of software using AI-assisted programming.
+JNEXT is being fully developed by Claude (Anthropic's AI), with human guidance and supervision. The complete prompt history, design documents, daily task files, and development documentation are available in the repository. This makes JNEXT not just an emulator, but also a practical case study in developing a large, complex piece of software using AI-assisted programming.
 
 ---
 
