@@ -135,8 +135,13 @@ int main() {
     //                                                  (page $0A is 8192 bytes; pixels fit entirely)
     //   attr   $5800-$5AFF = bytes 6144..6911 of bank 5 = page $0A offset 6144..6911
 
-    std::printf("\n--- Legacy ULA bank 5 (page $0A) — pixels @ offset 0 ---\n");
-    const uint8_t* p_normal_px = emu.ram().page_ptr(0x0A);
+    // Task 25 (2026-07-10): banks 5 and 7-lower are dedicated dual-port
+    // BRAMs (Mmu::bank5_vram / Mmu::bank7_bram), no longer aliased onto
+    // ram_ pages 0x0A/0x0B/0x0E — read the buffers the ULA actually
+    // fetches from (the ram_ pages now hold unrelated external-SRAM data,
+    // e.g. the firmware's enNextMf.rom copy).
+    std::printf("\n--- Legacy ULA bank 5 (dedicated VRAM) — pixels @ offset 0 ---\n");
+    const uint8_t* p_normal_px = emu.mmu().bank5_vram();
     hex_line("  $4000:", p_normal_px, 32);
     hex_line("  $4100:", p_normal_px ? p_normal_px + 0x100 : nullptr, 32);
 
@@ -144,8 +149,8 @@ int main() {
     hex_line("  $5800:", p_normal_px ? p_normal_px + 0x1800 : nullptr, 32);
     hex_line("  $5900:", p_normal_px ? p_normal_px + 0x1900 : nullptr, 32);
 
-    std::printf("\n--- Shadow ULA bank 7 (page $0E) — pixels @ offset 0 ---\n");
-    const uint8_t* p_shadow_px = emu.ram().page_ptr(0x0E);
+    std::printf("\n--- Shadow ULA bank 7 (dedicated BRAM) — pixels @ offset 0 ---\n");
+    const uint8_t* p_shadow_px = emu.mmu().bank7_bram();
     hex_line("  $4000:", p_shadow_px, 32);
     std::printf("--- Shadow ULA bank 7 — attributes @ offset $1800 ---\n");
     hex_line("  $5800:", p_shadow_px ? p_shadow_px + 0x1800 : nullptr, 32);
