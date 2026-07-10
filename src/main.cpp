@@ -78,6 +78,10 @@ static void print_usage(const char* prog) {
         "                          'tools/get-function-heatmap.pl -m FILE.map' to join\n"
         "                          the output against a z88dk .map file.\n"
         "  --profile-output FILE   Output path for --profile (default: profile.dat)\n"
+        "  --rtc \"YYYY-MM-DD HH:MM:SS\"  Pin the RTC to a fixed date/time (frozen clock)\n"
+        "                          instead of following the host clock. Makes boot\n"
+        "                          screenshots deterministic (regression tests).\n"
+        "                          ISO form YYYY-MM-DDTHH:MM:SS also accepted.\n"
         "  --version               Print version and exit\n",
         prog);
 }
@@ -125,6 +129,8 @@ int main(int argc, char* argv[]) {
     int         compositor_trace_frame = 250;
     bool        profile_enabled = false;
     std::string profile_output_path = "profile.dat";
+    std::string rtc_fixed_arg;
+    std::tm     rtc_fixed_tm{};
     struct DelayedKeyArg { int delay; char key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
 
@@ -222,6 +228,14 @@ int main(int argc, char* argv[]) {
             profile_enabled = true;
         } else if (arg == "--profile-output" && i + 1 < argc) {
             profile_output_path = argv[++i];
+        } else if (arg == "--rtc" && i + 1 < argc) {
+            rtc_fixed_arg = argv[++i];
+            if (!parse_rtc_datetime(rtc_fixed_arg, rtc_fixed_tm)) {
+                fprintf(stderr, "Invalid --rtc value: '%s' (expected \"YYYY-MM-DD HH:MM:SS\" "
+                        "or YYYY-MM-DDTHH:MM:SS)\n",
+                        rtc_fixed_arg.c_str());
+                return 1;
+            }
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -278,6 +292,8 @@ int main(int argc, char* argv[]) {
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;
         cfg.profile_output_path    = profile_output_path;
+        cfg.rtc_fixed              = !rtc_fixed_arg.empty();
+        cfg.rtc_fixed_tm           = rtc_fixed_tm;
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) return 1;

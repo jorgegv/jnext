@@ -376,6 +376,10 @@ transactions targeting the DS1307.
 | RTC-16 | Clock halt bit (seconds register bit 7) | CH=1 stops oscillator; CH=0 resumes |
 | RTC-17 | NVRAM registers 0x08-0x3F (56 bytes) | Read/write general-purpose SRAM |
 | RTC-18 | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 | DS1307 12h mode (`regs_[2]` bit 6 = 1) requires AM/PM bit 5; jnext `i2c.cpp:111` writes `regs_[2] = to_bcd(t->tm_hour)` unconditionally on every snapshot, silently flipping the register back to 24h encoding. skip — 12h preservation missing (see G161) |
+| RTC-19 | Task 28 fixed-time mode (`--rtc`): snapshot encodes pinned datetime | `set_fixed_time()` pins the clock; snapshot_time() writes the pinned std::tm (BCD) to regs 0x00-0x06 instead of the host clock, incl. day-of-week from mktime |
+| RTC-20 | Task 28 fixed-time survives `reset()` | Battery-backed DS1307 semantics; NextZXOS soft-resets mid-boot — post-reset snapshot must still encode the pinned datetime, not fall back to the host clock |
+| RTC-21 | Task 28 fixed-time honours 12h mode | Pinned 15:00 + reg 0x02 bit 6 set → next snapshot encodes 0x63 (mode bit 6 + PM bit 5 + BCD 03) |
+| RTC-22 | Task 28 `parse_rtc_datetime()` contract | Space and ISO-8601 'T' separators equivalent; rejects garbage, out-of-range fields, and mktime roll-over dates (Feb 30) |
 
 ### Group 11: UART IM2 Interrupt Integration
 

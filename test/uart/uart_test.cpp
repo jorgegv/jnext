@@ -35,6 +35,7 @@
 
 #include "peripheral/uart.h"
 #include "peripheral/i2c.h"
+#include "core/emulator_config.h"   // Task 28 — parse_rtc_datetime
 
 #include <cstdarg>
 #include <cstdint>
@@ -2064,6 +2065,115 @@ static void test_group10_rtc() {
                   hr_after,
                   mode_preserved ? 1 : 0,
                   h12));
+    }
+
+    // RTC-19 — Task 28 fixed-time mode (--rtc). set_fixed_time() pins the
+    // clock: snapshot_time() must encode the pinned std::tm into
+    // regs_[0..6] as BCD instead of the host clock. 2026-07-10 is a
+    // Friday → tm_wday=5 → DS1307 day-of-week register = 6.
+    {
+        I2cRtc rtcf;
+        std::tm t{};
+        const bool parsed = parse_rtc_datetime("2026-07-10 12:34:56", t);
+        rtcf.set_fixed_time(t);
+        rtcf.start();                                   // triggers snapshot_time()
+        const bool regs_ok =
+            rtcf.peek_register(0x00) == 0x56 &&         // seconds
+            rtcf.peek_register(0x01) == 0x34 &&         // minutes
+            rtcf.peek_register(0x02) == 0x12 &&         // hours (24h)
+            rtcf.peek_register(0x03) == 0x06 &&         // day-of-week (Fri=6)
+            rtcf.peek_register(0x04) == 0x10 &&         // date
+            rtcf.peek_register(0x05) == 0x07 &&         // month
+            rtcf.peek_register(0x06) == 0x26;           // year
+        check("RTC-19",
+              "Task 28 fixed-time mode — snapshot encodes the pinned datetime as BCD, "
+              "not the host clock (i2c.cpp::snapshot_time fixed_tm_ branch)",
+              parsed && regs_ok,
+              fmt("parsed=%d regs=%02x %02x %02x %02x %02x %02x %02x "
+                  "(want 56 34 12 06 10 07 26)",
+                  parsed ? 1 : 0,
+                  rtcf.peek_register(0x00), rtcf.peek_register(0x01),
+                  rtcf.peek_register(0x02), rtcf.peek_register(0x03),
+                  rtcf.peek_register(0x04), rtcf.peek_register(0x05),
+                  rtcf.peek_register(0x06)));
+    }
+
+    // RTC-20 — Task 28 fixed-time survives reset(). The DS1307 is
+    // battery-backed and NextZXOS soft-resets mid-boot; I2cRtc::reset()
+    // must preserve has_fixed_time_/fixed_tm_ so the post-reset snapshot
+    // still encodes the pinned datetime (not the host clock).
+    {
+        I2cRtc rtcf;
+        std::tm t{};
+        (void)parse_rtc_datetime("2026-07-10 12:34:56", t);
+        rtcf.set_fixed_time(t);
+        rtcf.reset();                                   // soft-reset equivalent
+        const bool still_fixed = rtcf.has_fixed_time();
+        rtcf.start();                                   // re-snapshot after reset
+        const bool regs_ok =
+            rtcf.peek_register(0x00) == 0x56 &&
+            rtcf.peek_register(0x02) == 0x12 &&
+            rtcf.peek_register(0x04) == 0x10 &&
+            rtcf.peek_register(0x06) == 0x26;
+        check("RTC-20",
+              "Task 28 fixed-time survives reset() — battery-backed DS1307; "
+              "NextZXOS mid-boot soft reset must not fall back to host clock",
+              still_fixed && regs_ok,
+              fmt("still_fixed=%d sec=0x%02x hr=0x%02x date=0x%02x yr=0x%02x "
+                  "(want 1, 56, 12, 10, 26)",
+                  still_fixed ? 1 : 0,
+                  rtcf.peek_register(0x00), rtcf.peek_register(0x02),
+                  rtcf.peek_register(0x04), rtcf.peek_register(0x06)));
+    }
+
+    // RTC-21 — Task 28 fixed-time honours 12h mode. With the clock pinned
+    // to 15:00 and mode_12h_ set (reg 0x02 bit 6 via I2C write), the next
+    // snapshot must encode hours as 12h BCD: 3 PM → 0x40|0x20|0x03 = 0x63
+    // (DS1307 datasheet §Hours Register).
+    {
+        I2cRtc rtcf;
+        I2cController i2cf;
+        i2cf.attach_device(0x68, &rtcf);
+        std::tm t{};
+        (void)parse_rtc_datetime("2026-07-10 15:00:00", t);
+        rtcf.set_fixed_time(t);
+        i2c_start(i2cf);
+        (void)i2c_send_byte(i2cf, 0xD0);                // DS1307 write
+        (void)i2c_send_byte(i2cf, 0x02);                // pointer = hours
+        (void)i2c_send_byte(i2cf, 0x40);                // mode=12h
+        i2c_stop(i2cf);
+        rtcf.start();                                   // re-snapshot in 12h mode
+        const uint8_t hr = rtcf.peek_register(0x02);
+        check("RTC-21",
+              "Task 28 fixed-time + 12h mode — pinned 15:00 encodes as 3 PM "
+              "(0x63: mode bit 6 + PM bit 5 + BCD 03)",
+              hr == 0x63,
+              fmt("hr=0x%02x (want 0x63)", hr));
+    }
+
+    // RTC-22 — Task 28 parse_rtc_datetime() contract: accepts both the
+    // space and ISO-8601 'T' separators (identical result), rejects
+    // garbage, out-of-range fields, and roll-over dates that mktime
+    // would silently normalize (Feb 30 → Mar 2).
+    {
+        std::tm a{}, b{}, dummy{};
+        const bool space_ok = parse_rtc_datetime("2026-07-10 12:34:56", a);
+        const bool iso_ok   = parse_rtc_datetime("2026-07-10T12:34:56", b);
+        const bool same =
+            a.tm_year == b.tm_year && a.tm_mon == b.tm_mon &&
+            a.tm_mday == b.tm_mday && a.tm_hour == b.tm_hour &&
+            a.tm_min == b.tm_min && a.tm_sec == b.tm_sec &&
+            a.tm_wday == b.tm_wday;
+        const bool rej_garbage  = !parse_rtc_datetime("bogus", dummy);
+        const bool rej_range    = !parse_rtc_datetime("2026-13-01 00:00:00", dummy);
+        const bool rej_rollover = !parse_rtc_datetime("2026-02-30 10:00:00", dummy);
+        check("RTC-22",
+              "Task 28 parse_rtc_datetime — space and 'T' forms equivalent; "
+              "garbage / out-of-range / Feb-30 roll-over rejected",
+              space_ok && iso_ok && same && rej_garbage && rej_range && rej_rollover,
+              fmt("space=%d iso=%d same=%d rej: garbage=%d range=%d rollover=%d",
+                  space_ok ? 1 : 0, iso_ok ? 1 : 0, same ? 1 : 0,
+                  rej_garbage ? 1 : 0, rej_range ? 1 : 0, rej_rollover ? 1 : 0));
     }
 }
 

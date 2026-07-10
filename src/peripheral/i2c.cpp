@@ -29,6 +29,14 @@ void I2cRtc::reset() {
     mode_12h_ = false;
     use_real_time_ = true;
     regs_.fill(0);
+    // has_fixed_time_ / fixed_tm_ deliberately survive: the DS1307 is
+    // battery-backed, and NextZXOS soft-resets mid-boot (Task 28).
+}
+
+void I2cRtc::set_fixed_time(const std::tm& t) {
+    fixed_tm_ = t;
+    has_fixed_time_ = true;
+    snapshot_time();
 }
 
 void I2cRtc::start() {
@@ -102,9 +110,17 @@ void I2cRtc::snapshot_time() {
         return;
     }
 
-    std::time_t now = std::time(nullptr);
-    std::tm* t = std::localtime(&now);
-    if (!t) return;
+    // Task 28 — fixed-time mode (--rtc): encode the pinned date/time
+    // instead of the host clock. The clock is frozen; every snapshot
+    // yields the same registers, making boot screenshots deterministic.
+    std::tm* t;
+    if (has_fixed_time_) {
+        t = &fixed_tm_;
+    } else {
+        std::time_t now = std::time(nullptr);
+        t = std::localtime(&now);
+        if (!t) return;
+    }
 
     regs_[0] = to_bcd(t->tm_sec);             // 0x00: seconds (BCD, bit 7 = CH = 0)
     regs_[1] = to_bcd(t->tm_min);             // 0x01: minutes

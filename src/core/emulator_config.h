@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
+#include <ctime>
 #include <string>
 
 // MachineType is the canonical shared enum; defined once in contention.h.
@@ -61,6 +63,39 @@ inline bool parse_machine_type(const std::string& s, MachineType& out) {
     if (lower == "+3" || lower == "plus3" || lower == "p3") { out = MachineType::ZX_PLUS3; return true; }
     if (lower == "next" || lower == "zxn")        { out = MachineType::ZXN_ISSUE2; return true; }
     return false;
+}
+
+/// Task 28 — parse a `--rtc` datetime of the form "YYYY-MM-DD HH:MM:SS"
+/// (ISO-8601 "YYYY-MM-DDTHH:MM:SS" also accepted, so the value can be
+/// passed where shell quoting is awkward, e.g. regression_tests.conf)
+/// into a normalized std::tm (tm_wday computed via mktime). Rejects
+/// out-of-range fields and dates that mktime would silently roll over
+/// (e.g. Feb 30). Returns true on success.
+inline bool parse_rtc_datetime(const std::string& s, std::tm& out) {
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, se = 0;
+    if (std::sscanf(s.c_str(), "%d-%d-%d%*1[T ]%d:%d:%d", &y, &mo, &d, &h, &mi, &se) != 6)
+        return false;
+    if (y < 1900 || mo < 1 || mo > 12 || d < 1 || d > 31 ||
+        h < 0 || h > 23 || mi < 0 || mi > 59 || se < 0 || se > 59)
+        return false;
+    std::tm t{};
+    t.tm_year  = y - 1900;
+    t.tm_mon   = mo - 1;
+    t.tm_mday  = d;
+    t.tm_hour  = h;
+    t.tm_min   = mi;
+    t.tm_sec   = se;
+    t.tm_isdst = -1;
+    std::tm norm = t;
+    if (std::mktime(&norm) == static_cast<std::time_t>(-1))
+        return false;
+    // mktime normalizes invalid dates instead of failing — reject any
+    // roll-over so "2026-02-30" doesn't silently become March 2nd.
+    if (norm.tm_year != t.tm_year || norm.tm_mon != t.tm_mon ||
+        norm.tm_mday != t.tm_mday || norm.tm_hour != t.tm_hour)
+        return false;
+    out = norm;
+    return true;
 }
 
 struct EmulatorConfig {
@@ -129,6 +164,13 @@ struct EmulatorConfig {
     // sorted text file consumable by `tools/get-function-heatmap.pl`.
     bool        profile             = false;
     std::string profile_output_path = "profile.dat";
+
+    // Task 28 — fixed RTC (--rtc "YYYY-MM-DD HH:MM:SS"). When rtc_fixed
+    // is true the DS1307 is pinned to rtc_fixed_tm (frozen clock) instead
+    // of following the host clock; the setting survives soft reset. Used
+    // to make boot screenshots deterministic (regression tests).
+    bool    rtc_fixed = false;
+    std::tm rtc_fixed_tm{};
 };
 
 // ---------------------------------------------------------------------------

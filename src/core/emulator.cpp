@@ -5129,6 +5129,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
+    // Task 28 — pin the RTC to the --rtc fixed date/time (frozen clock,
+    // deterministic boot screenshots). Survives the NextZXOS mid-boot
+    // soft reset: I2cRtc::reset() preserves the fixed-time setting.
+    if (config_.rtc_fixed) {
+        rtc_.set_fixed_time(config_.rtc_fixed_tm);
+    }
     // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): attach the
     // single SD card to socket 0 ONLY. The Next board has TWO SD sockets
     // (SD0 internal, SD1 external); VHDL zxnext.vhd:3280's shared-MISO mux

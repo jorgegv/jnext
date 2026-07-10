@@ -55,6 +55,15 @@ public:
     uint8_t transfer(uint8_t data, bool is_read) override;
     void stop() override;
 
+    /// Task 28 — pin the clock to a fixed date/time (--rtc CLI option).
+    /// snapshot_time() then encodes `t` into regs_[0..6] instead of the
+    /// host clock, so every read returns the same deterministic value
+    /// (frozen clock). Like the battery-backed DS1307, the setting
+    /// survives reset() — NextZXOS performs a soft reset mid-boot and
+    /// the fixed time must still be in effect afterwards.
+    void set_fixed_time(const std::tm& t);
+    bool has_fixed_time() const { return has_fixed_time_; }
+
     // ══ === TEST-ONLY ACCESSORS === ═══════════════════════════════════
     //
     // Wave-E of the UART+I2C plan seeds BCD register values directly and
@@ -90,6 +99,9 @@ private:
                                         // time registers are frozen
     bool    mode_12h_ = false;          // reg 0x02 bit 6 — 12-hour mode
     bool    use_real_time_ = true;      // if false, snapshot_time() is a no-op
+    bool    has_fixed_time_ = false;    // Task 28 — snapshot from fixed_tm_
+    std::tm fixed_tm_{};                // instead of the host clock; both
+                                        // survive reset() (battery-backed)
     std::array<uint8_t, 64> regs_{};    // full DS1307 register map + NVRAM (BCD
                                         // time at 0x00..0x06, ctrl at 0x07,
                                         // NVRAM 0x08..0x3F)
