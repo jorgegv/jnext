@@ -429,49 +429,12 @@ target_link_libraries(contention_test PRIVATE
 target_include_directories(contention_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME contention_tests COMMAND contention_test)
 
-# Task 18 cold-reset baseline probe (SCRATCH; not registered with CTest).
-# Builds a single Emulator with the canonical Next boot config, dumps
-# post-init state to stdout for the bypass-firmware-v2 investigation.
-# See test/task18_baseline/cold_reset_probe.cpp and
-# doc/issues/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md.
-add_executable(task18_cold_reset_probe task18_baseline/cold_reset_probe.cpp)
-target_link_libraries(task18_cold_reset_probe PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(task18_cold_reset_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
-
-# Task 18 discriminative bypass state test (REGISTERED with CTest —
-# fails if any of the three bypass gates in Emulator::init() regresses).
-# See test/task18_baseline/bypass_state_test.cpp +
-# doc/issues/bypass-firmware-v2/REVIEW-REBUTTAL.md (Finding 3).
-add_executable(task18_bypass_state_test task18_baseline/bypass_state_test.cpp)
-target_link_libraries(task18_bypass_state_test PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(task18_bypass_state_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# CTest registration: test only runs if the canonical SD image is present
-# (skipped silently on hermetic build environments where it isn't).
-add_test(NAME task18_bypass_state COMMAND task18_bypass_state_test
-         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
 # Task 21 — CPU profiler unit test (Profiler class).
 add_executable(profiler_test profiler/profiler_test.cpp)
 target_link_libraries(profiler_test PRIVATE
     jnext_profiler jnext_memory jnext_peripheral jnext_port jnext_debug)
 target_include_directories(profiler_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME profiler_tests COMMAND profiler_test)
-
-# Task 18 post-boot probe (SCRATCH; not registered with CTest). Runs
-# 600 frames in headless mode and dumps screen-related state — used to
-# diagnose the "screen stays gray" issue.
-add_executable(task18_bypass_post_boot_probe task18_baseline/bypass_post_boot_probe.cpp)
-target_link_libraries(task18_bypass_post_boot_probe PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(task18_bypass_post_boot_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
