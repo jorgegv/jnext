@@ -557,19 +557,26 @@ static void test_tilemap_clip_nr(Emulator& emu) {
 static void test_soft_reset(Emulator& emu) {
     set_group("Soft-Reset");
 
-    // SR-01..05 use Z80 address 0x4000 (slot 2, default page 0x0A). Slot 2
-    // is RAM-mapped at reset so writes land in ram_.page_ptr(0x0A), which
-    // is OUTSIDE the Next ROM-in-SRAM seed window (pages 0..7). That lets
-    // SR-01 observe soft-reset preserves the page, and SR-02 observe
+    // SR-01/02/04/05 use Z80 address 0x8000 (slot 4, default page 0x04 →
+    // external SRAM page 0x24 via the Next-mode to_sram_page shift) —
+    // plain SRAM, OUTSIDE the ROM-in-SRAM seed window (pages 0..7). That
+    // lets SR-01 observe soft-reset preserves the page, and SR-02 observe
     // hard-reset zeroes it without being re-seeded from rom_.
+    //
+    // Task 25 review follow-up (2026-07-10): these rows previously used
+    // 0x4000 (slot 2, page 0x0A). Since the bank-5 dedicated-VRAM fix,
+    // page 0x0A is served from Mmu::bank5_vram_, not generic SRAM — the
+    // tests kept passing (the BRAM shares the same soft-preserve /
+    // hard-zero lifecycle) but no longer exercised the generic SRAM
+    // reset domain they document. Moved to a plain SRAM page.
 
     // SR-01: write a marker byte into SRAM via the Mmu write path, trigger
     // NR 0x02=RESET_SOFT, observe the byte survives.
     {
-        emu.mmu().write(0x4000, 0xA5);
-        const uint8_t before = emu.mmu().read(0x4000);
+        emu.mmu().write(0x8000, 0xA5);
+        const uint8_t before = emu.mmu().read(0x8000);
         nr_write(emu, 0x02, 0x01);              // RESET_SOFT
-        const uint8_t after = emu.mmu().read(0x4000);
+        const uint8_t after = emu.mmu().read(0x8000);
         char detail[128];
         snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
         check("SR-01",
@@ -581,10 +588,10 @@ static void test_soft_reset(Emulator& emu) {
     // SR-02: same marker location, trigger NR 0x02=RESET_HARD, observe
     // SRAM is zeroed. Hard reset returns the emulator to power-on state.
     {
-        emu.mmu().write(0x4000, 0x5A);
-        const uint8_t before = emu.mmu().read(0x4000);
+        emu.mmu().write(0x8000, 0x5A);
+        const uint8_t before = emu.mmu().read(0x8000);
         nr_write(emu, 0x02, 0x02);              // RESET_HARD
-        const uint8_t after = emu.mmu().read(0x4000);
+        const uint8_t after = emu.mmu().read(0x8000);
         char detail[128];
         snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
         check("SR-02",
@@ -625,9 +632,9 @@ static void test_soft_reset(Emulator& emu) {
     // on real HW; in jnext we have no ESP, so it is a no-op. SRAM must not
     // be touched.
     {
-        emu.mmu().write(0x4000, 0x3C);
+        emu.mmu().write(0x8000, 0x3C);
         nr_write(emu, 0x02, 0x80);              // RESET_ESPBUS only
-        const uint8_t after = emu.mmu().read(0x4000);
+        const uint8_t after = emu.mmu().read(0x8000);
         check("SR-04",
               "NR 0x02=0x80 (RESET_ESPBUS alone) is a no-op — SRAM untouched",
               after == 0x3C, detail_eq(after, uint8_t{0x3C}));
@@ -636,9 +643,9 @@ static void test_soft_reset(Emulator& emu) {
     // SR-05: hard-reset wins over soft when both bits are set (bit 1 | bit 0).
     // VHDL SRAM is zeroed on hard reset — verify the hard path is taken.
     {
-        emu.mmu().write(0x4000, 0xC3);
+        emu.mmu().write(0x8000, 0xC3);
         nr_write(emu, 0x02, 0x03);              // RESET_HARD | RESET_SOFT
-        const uint8_t after = emu.mmu().read(0x4000);
+        const uint8_t after = emu.mmu().read(0x8000);
         check("SR-05",
               "NR 0x02=0x03 (RESET_HARD|RESET_SOFT): hard wins, SRAM zeroed",
               after == 0x00, detail_eq(after, uint8_t{0x00}));

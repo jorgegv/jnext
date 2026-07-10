@@ -114,9 +114,11 @@ public:
         constexpr uint16_t SLOT_BASE  = 0xE000;
         constexpr uint16_t PAGE_SIZE  = 0x2000;  // 8 KB per MMU page
         const uint8_t saved = mmu.get_page(TEMP_SLOT);
-        // Pages 10 and 11 are bank 5 (VHDL zxnext.vhd:2961-2962 mark them
-        // as dual-port pages; to_sram_page() bypasses +0x20 shift for
-        // these in Next mode, so logical page 10/11 → physical 10/11).
+        // Pages 10 and 11 are bank 5 — the dedicated 16K dual-port VRAM
+        // (VHDL bank5_ram dpram2, zxnext.vhd:6558; Task 25). Writing via
+        // the MMU slot routes rebuild_ptr()'s bank-5 gate to the
+        // Mmu::bank5_vram_ buffer in Next mode (flat pages 10/11 on
+        // standalone machines).
         for (uint8_t page = 10; page <= 11; ++page) {
             mmu.set_page(TEMP_SLOT, page);
             for (uint16_t off = 0; off < PAGE_SIZE; ++off) {
