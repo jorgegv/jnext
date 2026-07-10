@@ -8,20 +8,10 @@ Visual reference for every screenshot regression test in `test/00regression/`. E
 
 ## NextZXOS native boot — milestone (v0.94.0)
 
-### `nextzxos-boot` *(automated regression test pending — Task 24)*
-Full native NextZXOS boot on the Next machine: FPGA boot ROM → `TBBLUE.FW` IPL → NextZXOS from the canonical SD image (`roms/nextzxos-1gb-fat32fix.img`). SPACE at frame 1300 steps past the welcome screens; frame 1700 captures the NextZXOS main menu (Browser / Command Line / NextBASIC / Calculator / Guide / More…) at 3.5 MHz with 1792K RAM detected. First achieved 2026-07-10 (v0.94.0, bank-7 BRAM aliasing fix). Not yet in the automated suite: the menu carries a live RTC date/time row that must be masked before a reference can be pinned (Task 24).
+### `nextzxos-boot`
+Native NextZXOS boot to the main menu from the canonical SD image.
 
 <img src="nextzxos-boot-menu.png" width="384" alt="NextZXOS boot menu"/>
-
-Capture command:
-
-```bash
-./build/jnext --headless --machine next \
-    --sd-card roms/nextzxos-1gb-fat32fix.img \
-    --delayed-keypress-frames 1300 space \
-    --delayed-screenshot doc/nextzxos-boot-menu.png \
-    --delayed-screenshot-frames 1700 --delayed-automatic-exit 60
-```
 
 ---
 
