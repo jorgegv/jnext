@@ -5340,6 +5340,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // would then corrupt ROM/FATFS. Calling map_128k_bank(0) re-routes
         // slot 6/7 to SRAM pages 0x20/0x21 (RAMPAGE_RAMSPECCY area).
         mmu_.map_128k_bank(0);
+    } else {
+        // Review follow-up (2026-07-10): rom_in_sram_ was never cleared
+        // when re-init()ing the SAME Emulator with a non-Next machine
+        // type (the GUI's live machine-type switch). The stale true made
+        // every to_sram_page() translation — and the bank-7 BRAM gate —
+        // keep behaving as Next mode on a standalone 48K/128K/+3,
+        // splitting bank-7 writes away from where the (correctly
+        // re-wired) ULA/tilemap read. Pre-existing bug; surfaced by the
+        // bank-7 gate now depending on this flag.
+        mmu_.set_rom_in_sram(false);
     }
 
     // Activate Next config-mode SRAM routing only when we're booting through

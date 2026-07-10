@@ -614,6 +614,51 @@ static void test_nr_69_b7_to_port_123b_b1(Emulator& emu) {
 
 // ── Main ─────────────────────────────────────────────────────────────
 
+
+// ── Live machine-type switch: rom_in_sram must clear (review 2026-07-10) ──
+//
+// The GUI's on_machine_type() re-init()s the SAME Emulator object with a
+// different cfg.type. Pre-fix, Emulator::init set mmu_.rom_in_sram(true)
+// for ZXN_ISSUE2 with no else-branch, so a live Next→128K switch left the
+// flag stuck true: every to_sram_page() translation (and the bank-7 BRAM
+// gate, which now depends on the same flag) kept behaving as Next mode on
+// a standalone machine — bank-7 writes were split away from where the
+// (correctly re-wired) ULA/tilemap read. Discriminative: revert the
+// `else { mmu_.set_rom_in_sram(false); }` in Emulator::init → SWITCH-01/02
+// FAIL.
+
+static void test_machine_switch_clears_rom_in_sram() {
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    const bool next_flag = emu.mmu().rom_in_sram();
+
+    // Live switch to a standalone 128K on the SAME object.
+    cfg.type = MachineType::ZX128K;
+    emu.init(cfg);
+    const bool legacy_flag = emu.mmu().rom_in_sram();
+    check("SWITCH-01",
+          "live Next→128K machine switch clears Mmu::rom_in_sram",
+          next_flag && !legacy_flag,
+          fmt("next_flag=%d legacy_flag=%d", next_flag, legacy_flag));
+
+    // Bank-7 content lands in flat RAM pages 0x0E/0x0F, not the BRAM.
+    emu.mmu().map_128k_bank(0x07);
+    emu.mmu().write(0xC000, 0xAB);
+    emu.mmu().write(0xE000, 0xCD);
+    const uint8_t lo   = emu.ram().page_ptr(0x0E)[0];
+    const uint8_t hi   = emu.ram().page_ptr(0x0F)[0];
+    const uint8_t bram = emu.mmu().bank7_bram()[0];
+    check("SWITCH-02",
+          "post-switch standalone bank-7 writes land in flat RAM, not the "
+          "Next-only BRAM buffer",
+          lo == 0xAB && hi == 0xCD && bram != 0xAB,
+          fmt("ram[0x0E][0]=0x%02X ram[0x0F][0]=0x%02X bram[0]=0x%02X",
+              lo, hi, bram));
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -639,6 +684,9 @@ int main() {
 
     test_nr_69_b7_to_port_123b_b1(emu);
     std::printf("  Group: V13-MEM-01-L2EN — done\n");
+
+    test_machine_switch_clears_rom_in_sram();
+    std::printf("  Group: SWITCH (live machine-type re-init) — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",
