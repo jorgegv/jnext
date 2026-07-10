@@ -3706,7 +3706,7 @@ int main() {
     group_r3();  std::printf("  §8  ROM3 conditional     done\n");
     group_nm();  std::printf("  §9  NMI / button         done\n");
     group_na();  std::printf("  §10 NR 0x0A enable       done\n");
-    group_rb();  std::printf("  §11 RAM SRAM backing     done\n");
+    group_rb();  std::printf("  §12 RAM SRAM backing     done\n");
     group_sm();  std::printf("  §11 SRAM mapping         done\n");
     group_ss();  std::printf("  §12 Port 0xE7 CS         done\n");
     group_sx();  std::printf("  §13 Port 0xEB xchg       done\n");

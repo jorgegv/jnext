@@ -265,7 +265,9 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
                            bool sram_pre_override_0) {
     // P0 boot probe: log even when the enable gate rejects the call, so a
     // "$0000 fetch with automap disabled" is visible (env-gated, capped).
-    if (pc <= 0x0038 && is_m1 && !enabled_ && std::getenv("JNEXT_BOOT_PROBE")) {
+    static const bool boot_probe_env =
+        std::getenv("JNEXT_BOOT_PROBE") != nullptr;
+    if (pc <= 0x0038 && is_m1 && !enabled_ && boot_probe_env) {
         static int gate_probe_count = 0;
         if (gate_probe_count < 20) {
             ++gate_probe_count;
@@ -365,7 +367,7 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
     // env-gated, capped; logs automap decision inputs at RST vectors to
     // diagnose the post-soft-reset $0000 trap.
-    if (pc <= 0x0038 && std::getenv("JNEXT_BOOT_PROBE")) {
+    if (pc <= 0x0038 && boot_probe_env) {
         static int probe_count = 0;
         if (probe_count < 60) {
             ++probe_count;

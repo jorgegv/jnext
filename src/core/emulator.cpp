@@ -5554,6 +5554,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // bypassing the MMU, matching the VHDL dual-port RAM architecture).
     renderer_.ula().set_palette(&palette_);
     renderer_.ula().set_ram(&ram_);
+    // Bank-7 lower-half dual-port BRAM (VHDL bank7_ram dpram2,
+    // zxnext.vhd:6670): ULA shadow screen + tilemap bank-7 fetches read
+    // the same dedicated buffer the MMU serves for page 0x0E.
+    renderer_.ula().set_bank7_bram(mmu_.bank7_bram());
+    tilemap_.set_bank7_bram(mmu_.bank7_bram());
 
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);

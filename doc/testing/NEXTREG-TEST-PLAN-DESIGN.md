@@ -91,7 +91,7 @@ that cannot be changed by writing:
 | Test | Scenario | Expected |
 |------|----------|----------|
 | RO-01 | Read NR 0x00 | Machine ID constant (see MID-01 for jnext value + deviation rationale) |
-| MID-01 | Read NR 0x00 after reset | `0x08` (HWID_EMULATORS). **Deliberate deviation from VHDL** (`g_machine_id = X"0A"` in `zxnext_top_issue{2,4,5}.vhd:35`): jnext self-identifies as an emulator per TBBlue firmware convention so NextZXOS takes its emulator-aware boot paths. Reporting 0x0A makes NextZXOS divert into the FPGA-flash/Configuration flow, which fails for emulator-mounted SD images. Verified in `test/nextreg/nextreg_integration_test.cpp`. |
+| MID-01 | Read NR 0x00 after reset | `0x0A` — VHDL-faithful (`g_machine_id = X"0A"` in `zxnext_top_issue{2,4,5}.vhd:35`). NextZXOS-boot fix 2026-07-09: the former deliberate `0x08` (HWID_EMULATORS) deviation was reverted — the zx_go reference emulator documents `0x08` breaking NextZXOS's ROM1 machine-ID check and boots end-to-end with `0x0A`; jnext now does too. Verified in `test/nextreg/nextreg_integration_test.cpp`. |
 | RO-02 | Write NR 0x00, read back | Value unchanged |
 | RO-03 | Read NR 0x01 | Core version constant |
 | RO-04 | Read NR 0x0E | Sub-version constant |

@@ -113,9 +113,10 @@ void skip(const char* id, const char* reason) {
 // VHDL bank 5 physical base (5 * 16K).
 constexpr uint32_t BANK5 = 5u * 16384u;
 // VHDL bank 7 physical base (7 * 16K).
-// Bank-7 BRAM stand-in at SRAM page 0x2E (NextZXOS-boot fix; see
-// Mmu::to_sram_page — the old 7*16384 alias collided with alt-ROM).
-constexpr uint32_t BANK7 = 0x2Eu * 8192u;
+// Standalone Tilemap+Ram fixture (no BRAM wired): Tilemap::vram_read
+// falls back to the legacy page-14 Ram read for bank-7 addresses, so the
+// test seeds bank-7 data at page 14 as before the BRAM split.
+constexpr uint32_t BANK7 = 14u * 8192u;
 // VHDL reset defaults: map=0x2C, def=0x0C  (tilemap.vhd reset — see
 // zxnext.vhd nr_6e/nr_6f reset handlers). Each unit = 256 bytes.
 constexpr uint32_t DEF_MAP_BASE = BANK5 + 0x2C * 256u;   // 0x16C00

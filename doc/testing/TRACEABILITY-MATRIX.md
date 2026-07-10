@@ -2194,7 +2194,7 @@ Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host 
 
 | Test ID            | Plan row title                                                                                   | VHDL file:line                  | Status | Test file:line                                |
 |--------------------|--------------------------------------------------------------------------------------------------|---------------------------------|--------|-----------------------------------------------|
-| MID-01             | NR 0x00 machine ID reset = 0x08 HWID_EMULATORS (deliberate VHDL deviation)                       | zxnext_top_issue2.vhd:35        | pass    | test/nextreg/nextreg_integration_test.cpp:140  |
+| MID-01             | NR 0x00 machine ID reset = 0x0A (VHDL g_machine_id; NextZXOS-boot fix 2026-07-09)                | zxnext_top_issue2.vhd:35        | pass    | test/nextreg/nextreg_integration_test.cpp:140  |
 | RST-01             | NR 0x14 global transparent reset = 0xE3                                                          | zxnext.vhd:4947                 | pass    | test/nextreg/nextreg_integration_test.cpp:150  |
 | RST-02             | NR 0x15 sprite/layer control reset = 0x00                                                        | zxnext.vhd:4948                 | pass    | test/nextreg/nextreg_integration_test.cpp:161  |
 | RST-03             | NR 0x4A fallback RGB reset = 0xE3                                                                | zxnext.vhd:5002                 | pass    | test/nextreg/nextreg_integration_test.cpp:171  |
@@ -2207,8 +2207,8 @@ Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host 
 | RST-11             | NR 0x4B sprite transparent index reset = 0xE3                                                    | zxnext.vhd:5003                 | pass    | test/nextreg/nextreg_integration_test.cpp:269  |
 | RST-12             | NR 0x4C tilemap transparent index reset = 0x0F                                                   | zxnext.vhd:5004                 | pass    | test/nextreg/nextreg_integration_test.cpp:279  |
 | RST-09             | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00                                           | zxnext.vhd:4977-4981, 5971-5977 | pass    | test/nextreg/nextreg_integration_test.cpp:294  |
-| RO-01              | NR 0x00 machine ID reset = 0x08 via port path                                                    | src/port/nextreg.cpp:27         | pass    | test/nextreg/nextreg_integration_test.cpp:658  |
-| RO-02              | NR 0x00 read-only enforcement (write 0x42; read still 0x08)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:674  |
+| RO-01              | NR 0x00 machine ID reset = 0x0A via port path (NextZXOS-boot fix 2026-07-09)                     | src/port/nextreg.cpp:27         | pass    | test/nextreg/nextreg_integration_test.cpp:658  |
+| RO-02              | NR 0x00 read-only enforcement (write 0x42; read still 0x0A)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:674  |
 | RO-03              | NR 0x01 core version reset = 0x32 (core 3.02)                                                    | src/port/nextreg.cpp:28         | pass    | test/nextreg/nextreg_integration_test.cpp:685  |
 | RO-04              | NR 0x0E sub-version reset = 0x03                                                                 | zxnext_top_issue2.vhd:38        | pass    | test/nextreg/nextreg_integration_test.cpp:697  |
 | RO-05              | NR 0x0F board issue reset = 0x00                                                                 | g_board_issue (generic)         | pass    | test/nextreg/nextreg_integration_test.cpp:709  |

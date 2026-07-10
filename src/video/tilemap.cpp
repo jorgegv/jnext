@@ -201,15 +201,25 @@ void Tilemap::flush_remaining_nr6b_changes()
 //
 // VHDL defaults: map base = 44 (0x6C00), tile defs = 12 (0x4C00).
 
+uint8_t Tilemap::vram_read(const Ram& ram, uint32_t addr) const
+{
+    if (addr & kBank7Flag) {
+        const uint32_t off = addr & ~kBank7Flag;
+        if (bank7_bram_) return bank7_bram_[off & 0x1FFF];
+        return ram.read(14u * 8192u + (off & 0x3FFF));
+    }
+    return ram.read(addr);
+}
+
 uint32_t Tilemap::decode_base_addr(uint8_t reg_val)
 {
     bool bank7 = (reg_val & 0x80) != 0;   // bit 7 = bank select
     uint8_t offset = reg_val & 0x3F;       // bits 5:0 = 256-byte offset
 
-    // Bank 7 = the dedicated BRAM; jnext hosts its stand-in at SRAM page
-    // 0x2E (see Mmu::to_sram_page — the old 7*16384 alias collided with
-    // the physical alt-ROM page 0x0E).
-    uint32_t bank_base = bank7 ? (0x2Eu * 8192u) : (5u * 16384u);
+    // Bank 7 lower half = the dedicated BRAM (VHDL bank7_ram dpram2,
+    // zxnext.vhd:6670) — flagged; vram_read() serves it from the wired
+    // buffer (page-14 Ram fallback for standalone unit tests).
+    uint32_t bank_base = bank7 ? kBank7Flag : (5u * 16384u);
     return bank_base + static_cast<uint32_t>(offset) * 256u;
 }
 
@@ -411,14 +421,14 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
 
         // Read tile index from map memory.
         uint32_t map_addr = map_base_addr_ + (map_row_offset + tile_col) * map_entry_size;
-        uint8_t tile_index = ram.read(map_addr);
+        uint8_t tile_index = vram_read(ram, map_addr);
 
         // Read or apply attribute.
         uint8_t attr;
         if (force_attr_) {
             attr = default_attr_;
         } else {
-            attr = ram.read(map_addr + 1);
+            attr = vram_read(ram, map_addr + 1);
         }
 
         // Decode attribute.
@@ -497,7 +507,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             uint32_t def_addr = def_base_addr_
                 + static_cast<uint32_t>(full_tile_index) * 8
                 + eff_py;
-            uint8_t row_byte = ram.read(def_addr);
+            uint8_t row_byte = vram_read(ram, def_addr);
             // VHDL: shift_left by abs_x(2:0), then take bit 7.
             // For 80-col, pixel_x is 0-3; for 40-col, 0-7.
             // The original abs_x(2:0) in VHDL is the raw pixel position.
@@ -513,7 +523,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                 + static_cast<uint32_t>(full_tile_index) * 32
                 + static_cast<uint32_t>(eff_py) * 4
                 + (eff_px >> 1);
-            uint8_t pattern_byte = ram.read(def_addr);
+            uint8_t pattern_byte = vram_read(ram, def_addr);
 
             // VHDL: high nibble when transformed_x(0) == 0, low nibble otherwise.
             if ((eff_px & 1) == 0)

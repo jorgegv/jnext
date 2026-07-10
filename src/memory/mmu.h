@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -1131,17 +1132,12 @@ public:
     //
     // Bank 7 lower (logical page 0x0E) is ALSO a dedicated 8K BRAM on
     // real hardware (zxnext.vhd:2962 mem_active_bank7; :3039-3041/:3061
-    // gate sram_pre_active off for it). NextZXOS-boot fix (2026-07-09,
-    // ZXGO-COMPARISON doc): jnext used to model that BRAM by bypassing
-    // the shift, i.e. at ram_ page 0x0E — but PHYSICAL SRAM page 0x0E is
-    // the alt-ROM upper half (config-mode NR $04=$07 window, NR $8C
-    // write-over, enAltZX.rom seeding), so the two distinct memories
-    // collided: NextZXOS's alt-ROM install clobbered its own MMU-page-14
-    // workspace (the $DA35 saved-SP corruption that killed the native
-    // boot). The BRAM stand-in now lives at SRAM page 0x2E — dead space
-    // on real hardware, because MMU page 0x0E is the only page whose
-    // mmu_A21_A13 computes 0x2E and the BRAM answers instead of SRAM.
-    // The normal +0x20 shift therefore lands logical 0x0E exactly there.
+    // gate sram_pre_active off for it; the BRAM itself is bank7_ram at
+    // zxnext.vhd:6670). It is NOT handled here: rebuild_ptr() points MMU
+    // page 0x0E at the dedicated bank7_bram_ buffer (see bank7_bram()
+    // above). to_sram_page(0x0E) still returns 0x2E, which is what the
+    // OTHER addressing paths (Layer 2, config-mode NR $04) correctly use
+    // — those paths address external SRAM, never the BRAM.
     //
     // Public so Layer 2 / tilemap / sprite renderers can match their SRAM
     // fetches to the MMU-shifted layout (otherwise firmware MMU writes go
@@ -1153,7 +1149,21 @@ public:
         return static_cast<uint8_t>(logical + 0x20);
     }
 
+    /// Bank-7 lower-half dual-port BRAM (VHDL `bank7_ram: entity work.dpram2`,
+    /// zxnext.vhd:6670 — a dedicated 8K memory, NOT a slice of external SRAM).
+    /// Review finding 2026-07-10: the interim "stand-in at SRAM page 0x2E"
+    /// model was refuted — config-mode NR $04 = $17 legally reaches SRAM
+    /// 0x2E/0x2F (zxnext.vhd:3044-3050 forces sram_pre_bank7 <= '0'), so no
+    /// ram_ page is truly dead. rebuild_ptr() serves MMU page 0x0E from this
+    /// buffer; the ULA shadow-screen and tilemap bank-7 fetch paths are wired
+    /// to it by Emulator::init.
+    uint8_t*       bank7_bram()       { return bank7_bram_.data(); }
+    const uint8_t* bank7_bram() const { return bank7_bram_.data(); }
+
 private:
+    // Dedicated bank-7 lower-half BRAM (see bank7_bram() accessor).
+    std::array<uint8_t, 0x2000> bank7_bram_{};
+
     // ───────── Layer 2 overlay gate / offset helpers (Verify8 fix) ─────────
     //
     // VHDL zxnext.vhd:3037-3066 sram_pre_override(1) — Layer 2 priority

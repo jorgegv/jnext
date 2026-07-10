@@ -21,6 +21,12 @@ class PaletteManager;
 /// Derived from VHDL: cores/zxnext/src/video/tilemap.vhd
 class Tilemap {
 public:
+    /// Marker bit for bank-7 addresses produced by decode_base_addr().
+    /// Bank 7 lower half is a dedicated 8K BRAM (VHDL bank7_ram dpram2,
+    /// zxnext.vhd:6670), not external SRAM.
+    static constexpr uint32_t kBank7Flag = 0x8000'0000u;
+
+public:
     Tilemap() = default;
 
     void reset();
@@ -54,6 +60,10 @@ public:
     /// NR 0x6E read-back — VHDL zxnext.vhd:6108 forces bit 6 to '0'
     /// (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`). The raw
     /// stored byte is therefore masked when read back through NR 0x6E.
+    /// Wire the dedicated bank-7 BRAM (Emulator::init, Mmu::bank7_bram()).
+    /// Null = legacy page-14 Ram fallback (standalone unit tests).
+    void set_bank7_bram(const uint8_t* p) { bank7_bram_ = p; }
+
     uint8_t get_map_base_read() const { return map_base_raw_ & 0xBF; }
 
     /// NextREG 0x6F — Tile definitions base address (same encoding as 0x6E).
@@ -261,7 +271,12 @@ public:
     /// worst-case "Copper writes NR 0x6B on every scanline" scenario.
     static constexpr size_t MAX_NR6B_CHANGES_PER_FRAME = 1024;
 
+    /// Fetch through the bank-7 flag: BRAM when wired, page-14 fallback.
+    uint8_t vram_read(const Ram& ram, uint32_t addr) const;
+
 private:
+    const uint8_t* bank7_bram_ = nullptr;  ///< dedicated bank-7 BRAM
+
     // --- Control register state ---
     uint8_t  control_raw_    = 0;
     bool     enabled_        = false;

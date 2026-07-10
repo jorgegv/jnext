@@ -72,13 +72,16 @@ uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
         // addr is in CPU space; we only care about the 14-bit bank offset.
         // Normal screen  : bank 5, starting at physical page 10.
         // Shadow screen  : bank 7 — a dedicated 8K BRAM on real hardware
-        //   (VHDL: ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1').
-        //   jnext hosts that BRAM's stand-in at SRAM page 0x2E (dead space
-        //   on real HW; see Mmu::to_sram_page). The screen data
-        //   (pixels + attrs, ~7KB) fits within the first 8K.
+        //   (VHDL: ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1';
+        //   bank7_ram dpram2 at zxnext.vhd:6670). Served from the Mmu's
+        //   dedicated buffer when wired (Emulator::init); the legacy
+        //   page-14 fallback keeps standalone unit tests working.
         const uint16_t offset = addr & 0x3FFF;
-        const uint32_t page   = vram_use_bank7_ ? 0x2Eu : 10u;
-        return ram_->read(page * 8192u + offset);
+        if (vram_use_bank7_) {
+            if (bank7_bram_) return bank7_bram_[offset & 0x1FFF];
+            return ram_->read(14u * 8192u + offset);
+        }
+        return ram_->read(10u * 8192u + offset);
     }
     // Fallback: read through MMU (used when RAM not wired, e.g. early tests).
     return mmu.read(addr);

@@ -1191,9 +1191,10 @@ static void test_shadow_integration(Emulator& emu) {
         const uint16_t poff = emu_pixel_addr_offset(0, 0);
         emu.ram().write(10u * 8192u + poff,    0xFF);
         emu.ram().write(10u * 8192u + 0x1800u, 0x05);  // bank5 ink=cyan
-        // Bank-7 BRAM stand-in at SRAM page 0x2E (NextZXOS-boot fix).
-        emu.ram().write(0x2Eu * 8192u + poff,    0xFF);
-        emu.ram().write(0x2Eu * 8192u + 0x1800u, 0x02);  // bank7 ink=red
+        // Bank-7 lower half = dedicated BRAM (NextZXOS-boot fix; wired
+        // from Mmu::bank7_bram in Emulator::init).
+        emu.mmu().bank7_bram()[poff]    = 0xFF;
+        emu.mmu().bank7_bram()[0x1800u] = 0x02;  // bank7 ink=red
 
         std::array<uint32_t, Ula::FB_WIDTH> line_off{}, line_on{};
 

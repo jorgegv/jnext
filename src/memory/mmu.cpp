@@ -263,6 +263,16 @@ void Mmu::rebuild_ptr(int slot) {
             }
             return;
         }
+        // Bank-7 lower half (page 0x0E) is a dedicated dual-port BRAM
+        // (VHDL bank7_ram dpram2, zxnext.vhd:6670; mem_active_bank7 gate
+        // at :2962+3039-3041) — served from bank7_bram_, never from
+        // external SRAM. Unconditional across machine personalities,
+        // matching the VHDL (the gate has no machine-type term).
+        if (page == 0x0E) {
+            read_ptr_[slot]  = bank7_bram_.data();
+            write_ptr_[slot] = bank7_bram_.data();
+            return;
+        }
         // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
         uint8_t* p = ram_.page_ptr(to_sram_page(page));
         read_ptr_[slot] = p;
@@ -889,6 +899,10 @@ void Mmu::save_state(StateWriter& w) const
     // (matching the same machine_type-from-NextReg pattern at :7283).
     w.write_u8(static_cast<uint8_t>(machine_timing_));
     w.write_u8(static_cast<uint8_t>(pending_machine_timing_));
+    // 2026-07-10 schema append: dedicated bank-7 lower-half BRAM content
+    // (VHDL bank7_ram dpram2). Appended at end per the established
+    // schema-extension pattern.
+    w.write_bytes(bank7_bram_.data(), bank7_bram_.size());
 }
 
 void Mmu::load_state(StateReader& r)
@@ -975,6 +989,14 @@ void Mmu::load_state(StateReader& r)
         got_pending = true;
     }
     machine_timing_loaded_from_schema_ = got_machine_timing && got_pending;
+    // 2026-07-10 schema append — bank-7 BRAM content. Older saves without
+    // this slot fall through with a zeroed BRAM (StateReader bounds check).
+    if (!r.eof()) {
+        r.read_bytes(bank7_bram_.data(), bank7_bram_.size());
+    }
+    // Re-point the slot ptrs so any slot holding page 0x0E picks up the
+    // freshly-restored BRAM buffer.
+    for (int i = 0; i < 8; ++i) rebuild_ptr(i);
 }
 
 // ---------------------------------------------------------------------------
