@@ -234,7 +234,7 @@ coverage.
 
 # RESOLUTION (2026-07-10) — NextZXOS BOOTS NATIVELY
 
-Implemented on branch `nextzxos-boot-fixes` (commit `f4fd4a83`). jnext now
+Implemented on branch `nextzxos-boot-fixes` (commit `ee2d8910`). jnext now
 cold-boots NextZXOS through the authentic chain — FPGA bootrom → TBBLUE.FW
 → **NextZXOS welcome screen → main menu** (verified by headless screenshots,
 `--delayed-keypress 26 space` reaches the Browser/Command Line/NextBASIC menu
@@ -300,20 +300,20 @@ ULA shadow screen + tilemap bank-7 fetches updated to match
 
 Three-round independent review of the full branch:
 
-1. Round 1 (on f4fd4a83): APPROVE-WITH-NITS + one MAJOR — the "SRAM page
+1. Round 1 (on ee2d8910): APPROVE-WITH-NITS + one MAJOR — the "SRAM page
    0x2E is dead space" claim was refuted (config-mode NR $04=$17 reaches
-   every SRAM page). Fixed properly in 5f7e0b46: dedicated bank7_bram_
+   every SRAM page). Fixed properly in 910102d7: dedicated bank7_bram_
    buffer per the VHDL truth (bank7_ram dpram2, zxnext.vhd:6670), plus
    BANK7-04 exercising the real config-mode path; minor findings (getenv
    caching, stale doc rows, labels) fixed.
-2. Round 2 (on 5f7e0b46): REJECT — BLOCKER: the redirect was unconditional
+2. Round 2 (on 910102d7): REJECT — BLOCKER: the redirect was unconditional
    and broke standalone-128K/+3 bank-7 RAM (reviewer reproduced with a
-   probe against the built library). Fixed in d12e4215 (rom_in_sram gate +
+   probe against the built library). Fixed in 395b81e7 (rom_in_sram gate +
    Next-only ULA/tilemap wiring + BANK7-05).
-3. Round 3 (on d12e4215): APPROVE-WITH-NITS + required follow-up — stale
+3. Round 3 (on 395b81e7): APPROVE-WITH-NITS + required follow-up — stale
    rom_in_sram on live machine-type switch (pre-existing). Fixed in
-   6850b600 (+ SWITCH-01/02).
-4. Final ACK (on 6850b600): **APPROVE, no residual required items.**
+   8148e958 (+ SWITCH-01/02).
+4. Final ACK (on 8148e958): **APPROVE, no residual required items.**
 
 ## Remaining follow-ups (non-blocking)
 
