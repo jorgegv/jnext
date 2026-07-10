@@ -208,6 +208,12 @@ uint8_t Tilemap::vram_read(const Ram& ram, uint32_t addr) const
         if (bank7_bram_) return bank7_bram_[off & 0x1FFF];
         return ram.read(14u * 8192u + (off & 0x3FFF));
     }
+    // Bank 5: dedicated 16K dual-port VRAM on real hardware (VHDL
+    // bank5_ram dpram2 zxnext.vhd:6558-6578; tilemap shares the ULA's
+    // port B — tm_vram_di <= vram_bank5_do1 when tm_mem_bank7='0',
+    // :6663). Served from the wired buffer; physical-page-10 Ram
+    // fallback for standalone unit tests. Task 25.
+    if (bank5_vram_) return bank5_vram_[(addr - 5u * 16384u) & 0x3FFF];
     return ram.read(addr);
 }
 

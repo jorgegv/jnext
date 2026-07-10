@@ -123,6 +123,11 @@ public:
     /// Dedicated bank-7 lower-half BRAM (VHDL bank7_ram dpram2); wired by
     /// Emulator::init from Mmu::bank7_bram(). Null = legacy page-14 fallback.
     void set_bank7_bram(const uint8_t* p) { bank7_bram_ = p; }
+    /// Dedicated bank-5 16K VRAM (VHDL bank5_ram dpram2, zxnext.vhd:6558;
+    /// ULA port-B fetch at :6633-6661). Wired by Emulator::init from
+    /// Mmu::bank5_vram() on Next machines; null = legacy physical-page-10
+    /// fallback (standalone machines, unit tests). Task 25.
+    void set_bank5_vram(const uint8_t* p) { bank5_vram_ = p; }
 
     /// Set the border colour (bits 2:0 from ULA port 0xFE write).
     void set_border(uint8_t colour) { border_colour_ = colour & 0x07; }
@@ -647,6 +652,7 @@ private:
     PaletteManager*  palette_         = nullptr; ///< 256-entry × 2-bank ULA palette (G102)
     Ram*             ram_             = nullptr; ///< Physical RAM for direct VRAM reads
     const uint8_t*   bank7_bram_      = nullptr; ///< Dedicated bank-7 BRAM (see set_bank7_bram)
+    const uint8_t*   bank5_vram_      = nullptr; ///< Dedicated bank-5 16K VRAM (see set_bank5_vram)
     bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
     bool             vram_use_bank7_  = false; ///< When true, vram_read() reads from bank 7 (page 14) not bank 5 (page 10)
     uint8_t          clip_x1_        = 0;

@@ -132,13 +132,14 @@ static void nr_write_port(Emulator& emu, uint8_t reg, uint8_t val) {
     emu.port().out(0x253B, val);
 }
 
-// Poke a byte into physical bank 5 at the CPU-space 0x4000-relative
-// offset — same as ula_integration_test's poke_bank5 (VRAM the ULA
-// reads unconditionally per src/video/ula.cpp:35-51).
+// Poke a byte into bank 5 at the CPU-space 0x4000-relative offset —
+// same as ula_integration_test's poke_bank5: the dedicated 16K VRAM
+// the ULA reads (VHDL bank5_ram dpram2, zxnext.vhd:6558; Task 25
+// replaced the old aliased physical-page-10 model).
 static void poke_bank5(Emulator& emu, uint16_t cpu_addr_4000_based,
                        uint8_t val) {
     const uint32_t offset = cpu_addr_4000_based & 0x3FFFu;
-    emu.ram().write(10u * 8192u + offset, val);
+    emu.mmu().bank5_vram()[offset] = val;
 }
 
 static void fill_pixels(Emulator& emu, uint8_t v) {

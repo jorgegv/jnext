@@ -5582,6 +5582,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     renderer_.ula().set_bank7_bram(next_machine ? mmu_.bank7_bram()
                                                 : nullptr);
     tilemap_.set_bank7_bram(next_machine ? mmu_.bank7_bram() : nullptr);
+    // Bank-5 dedicated 16K dual-port VRAM (VHDL bank5_ram dpram2,
+    // zxnext.vhd:6558-6578): the ULA standard screen and the tilemap
+    // bank-5 fetches read the same buffer the MMU serves for pages
+    // 0x0A/0x0B — Next machine only, same gate rationale as bank 7
+    // above. Task 25 (2026-07-10): pre-fix, tbblue.fw's config-window
+    // NR $04=$05 load of enNextMf.rom painted the visible screen with
+    // garbage (Task 23 mid-boot glitch).
+    renderer_.ula().set_bank5_vram(next_machine ? mmu_.bank5_vram()
+                                                : nullptr);
+    tilemap_.set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
 
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);
@@ -7435,11 +7445,22 @@ bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
     // Attribute address: 0x5800 + (line/8)*32 + col
     uint16_t attr_addr = 0x5800 + (y / 8) * 32 + char_col * 2;
 
+    // Task 25: the floating bus exposes the byte the ULA fetched — on the
+    // Next that comes from the dedicated bank-5 VRAM (bank5_ram dpram2,
+    // zxnext.vhd:6558), the same source Ula::vram_read uses; standalone
+    // machines keep the flat physical-page-10 read. Same machine gate as
+    // the ULA/tilemap wiring in init().
+    const uint8_t* b5 = (config_.type == MachineType::ZXN_ISSUE2)
+                            ? mmu_.bank5_vram() : nullptr;
+    auto bank5_byte = [&](uint16_t cpu_addr) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(cpu_addr - 0x4000);
+        return b5 ? b5[off & 0x3FFF] : ram_.read(off + 10 * 0x2000);
+    };
     switch (tstate_in_line % 8) {
-        case 2: out_byte = ram_.read(pixel_addr - 0x4000 + 10 * 0x2000);     return true;
-        case 3: out_byte = ram_.read(attr_addr  - 0x4000 + 10 * 0x2000);     return true;
-        case 4: out_byte = ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1); return true;
-        case 5: out_byte = ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1); return true;
+        case 2: out_byte = bank5_byte(pixel_addr);     return true;
+        case 3: out_byte = bank5_byte(attr_addr);      return true;
+        case 4: out_byte = bank5_byte(pixel_addr + 1); return true;
+        case 5: out_byte = bank5_byte(attr_addr + 1);  return true;
         default: return false;  // idle T-states within the 8T cycle
     }
 }

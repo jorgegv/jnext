@@ -81,7 +81,17 @@ void Mmu::reset(bool hard) {
     // (`hard` parameter is now unused but kept for ABI parity; if a
     // future register turns out to genuinely be hard-only per VHDL, it
     // would re-introduce the gate.)
-    (void)hard;
+    //
+    // Exception (Task 25, 2026-07-10): the dedicated bank-5/bank-7 BRAM
+    // buffers follow the same lifecycle as external SRAM — no reset
+    // domain at all in the VHDL, but jnext's HARD reset is a full
+    // power-on reinit that zeroes ram_ (Emulator::init →
+    // ram_.reset()), so the BRAMs are zeroed with it. Soft reset
+    // preserves both, matching SRAM/BRAM contents surviving RESET_SOFT.
+    if (hard) {
+        bank5_vram_.fill(0);
+        bank7_bram_.fill(0);
+    }
 
     paging_locked_ = false;
     contention_disabled_ = false;
@@ -277,6 +287,24 @@ void Mmu::rebuild_ptr(int slot) {
         if (rom_in_sram_ && page == 0x0E) {
             read_ptr_[slot]  = bank7_bram_.data();
             write_ptr_[slot] = bank7_bram_.data();
+            return;
+        }
+        // Bank 5 (pages 0x0A/0x0B) is a dedicated 16K dual-port VRAM on
+        // real hardware (VHDL bank5_ram dpram2, zxnext.vhd:6558-6578;
+        // mem_active_bank5 gate at :2961 + :3037-3041/:3059-3063 —
+        // sram_pre_active suppressed exactly like bank 7). Served from
+        // bank5_vram_, never from external SRAM. Same rom_in_sram_ gate
+        // as bank 7: standalone 48K/128K/+3 personalities keep bank 5 in
+        // flat RAM at pages 0x0A/0x0B (the ULA/floating-bus wiring in
+        // Emulator::init follows the same machine gate). Task 25,
+        // 2026-07-10: pre-fix, config-window NR $04=$05 writes (tbblue.fw
+        // loading enNextMf.rom into SRAM bank 5) aliased onto the visible
+        // screen — the NextZXOS mid-boot garbage (Task 23).
+        if (rom_in_sram_ && (page == 0x0A || page == 0x0B)) {
+            uint8_t* half = bank5_vram_.data()
+                            + ((page & 1) ? 0x2000 : 0);
+            read_ptr_[slot]  = half;
+            write_ptr_[slot] = half;
             return;
         }
         // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
@@ -909,6 +937,9 @@ void Mmu::save_state(StateWriter& w) const
     // (VHDL bank7_ram dpram2). Appended at end per the established
     // schema-extension pattern.
     w.write_bytes(bank7_bram_.data(), bank7_bram_.size());
+    // Task 25 (2026-07-10) schema append: dedicated bank-5 16K VRAM
+    // content (VHDL bank5_ram dpram2, zxnext.vhd:6558). Same pattern.
+    w.write_bytes(bank5_vram_.data(), bank5_vram_.size());
 }
 
 void Mmu::load_state(StateReader& r)
@@ -1000,8 +1031,13 @@ void Mmu::load_state(StateReader& r)
     if (!r.eof()) {
         r.read_bytes(bank7_bram_.data(), bank7_bram_.size());
     }
-    // Re-point the slot ptrs so any slot holding page 0x0E picks up the
-    // freshly-restored BRAM buffer.
+    // Task 25 (2026-07-10) schema append — bank-5 VRAM content. Older
+    // saves fall through with a zeroed buffer.
+    if (!r.eof()) {
+        r.read_bytes(bank5_vram_.data(), bank5_vram_.size());
+    }
+    // Re-point the slot ptrs so any slot holding page 0x0A/0x0B/0x0E
+    // picks up the freshly-restored BRAM buffers.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
 }
 

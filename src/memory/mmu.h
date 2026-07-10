@@ -1126,18 +1126,24 @@ public:
     // writes use logical pages; port_7FFD bank 0 yields logical 0 which
     // maps to SRAM 0x20 (RAMPAGE_RAMSPECCY), not page 0 (ROM-in-SRAM).
     //
-    // Exceptions per VHDL zxnext.vhd:2961-2962: bank 5 (pages 0x0A/0x0B)
-    // bypasses the shift — it lives in dedicated dual-port VRAM and our
-    // ULA VRAM fetch reads ram_ pages 0x0A/0x0B for it.
+    // VHDL computes mmu_A21_A13 UNCONDITIONALLY (zxnext.vhd:2964) — the
+    // bank-5 / bank-7 BRAMs are parallel gates, not exceptions in the
+    // formula: mem_active_bank5/bank7 (:2961-2962) suppress the external
+    // SRAM cycle (:3037-3041/:3059-3063 drive sram_pre_active low) and
+    // route the access to the dedicated dual-port BRAMs instead. Both
+    // gates live in rebuild_ptr(), NOT here: MMU page 0x0A/0x0B → the
+    // 16K bank5_vram_ buffer (bank5_ram dpram2, zxnext.vhd:6558-6578);
+    // MMU page 0x0E → the 8K bank7_bram_ buffer (bank7_ram dpram2,
+    // zxnext.vhd:6670).
     //
-    // Bank 7 lower (logical page 0x0E) is ALSO a dedicated 8K BRAM on
-    // real hardware (zxnext.vhd:2962 mem_active_bank7; :3039-3041/:3061
-    // gate sram_pre_active off for it; the BRAM itself is bank7_ram at
-    // zxnext.vhd:6670). It is NOT handled here: rebuild_ptr() points MMU
-    // page 0x0E at the dedicated bank7_bram_ buffer (see bank7_bram()
-    // above). to_sram_page(0x0E) still returns 0x2E, which is what the
-    // OTHER addressing paths (Layer 2, config-mode NR $04) correctly use
-    // — those paths address external SRAM, never the BRAM.
+    // to_sram_page(0x0A/0x0B/0x0E) therefore returns the plain formula
+    // value (0x2A/0x2B/0x2E) — which is what the OTHER addressing paths
+    // correctly use: the CPU Layer 2 window computes layer2_A21_A13 with
+    // the same unconditional formula (zxnext.vhd:2966-2971) and the
+    // arbiter forces sram_bank5/7 low for it (:3100-3107); those paths
+    // address external SRAM, never the BRAMs. (Task 25, 2026-07-10: the
+    // old 0x0A/0x0B bypass here made the CPU L2 window for bank 5 write
+    // the visible screen — VHDL-divergent.)
     //
     // Public so Layer 2 / tilemap / sprite renderers can match their SRAM
     // fetches to the MMU-shifted layout (otherwise firmware MMU writes go
@@ -1145,7 +1151,6 @@ public:
     // Non-Next mode passes the value through unchanged.
     uint8_t to_sram_page(uint8_t logical) const {
         if (!rom_in_sram_) return logical;
-        if (logical == 0x0A || logical == 0x0B) return logical;
         return static_cast<uint8_t>(logical + 0x20);
     }
 
@@ -1160,9 +1165,24 @@ public:
     uint8_t*       bank7_bram()       { return bank7_bram_.data(); }
     const uint8_t* bank7_bram() const { return bank7_bram_.data(); }
 
+    /// Bank-5 dual-port VRAM (VHDL `bank5_ram: entity work.dpram2`,
+    /// zxnext.vhd:6558-6578 — a dedicated 16K memory, NOT a slice of
+    /// external SRAM). Port A: CPU/LoRes; port B: ULA/tilemap fetch.
+    /// Task 25 (2026-07-10): rebuild_ptr() serves MMU pages 0x0A/0x0B
+    /// from this buffer (Next mode); the ULA screen, tilemap bank-5 and
+    /// floating-bus fetch paths are wired to it by Emulator::init. The
+    /// config-mode NR $04 window, the CPU Layer 2 window and the L2
+    /// pixel fetch keep addressing external SRAM (ram_) — on real HW
+    /// those never reach this BRAM (zxnext.vhd:3044-3050, 3100-3107).
+    uint8_t*       bank5_vram()       { return bank5_vram_.data(); }
+    const uint8_t* bank5_vram() const { return bank5_vram_.data(); }
+
 private:
     // Dedicated bank-7 lower-half BRAM (see bank7_bram() accessor).
     std::array<uint8_t, 0x2000> bank7_bram_{};
+
+    // Dedicated bank-5 16K dual-port VRAM (see bank5_vram() accessor).
+    std::array<uint8_t, 0x4000> bank5_vram_{};
 
     // ───────── Layer 2 overlay gate / offset helpers (Verify8 fix) ─────────
     //

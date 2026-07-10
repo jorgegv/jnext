@@ -117,13 +117,14 @@ static uint16_t emu_pixel_addr_offset(int screen_row, int col) {
         | col);
 }
 
-// Write a pixel byte into physical bank 5 (page 10, where the ULA reads
-// VRAM from, per zxula.vhd + src/video/ula.cpp:35-51). CPU address 0x4000
-// → offset 0 inside page 10.
+// Write a pixel byte into bank 5 — the dedicated 16K dual-port VRAM the
+// ULA reads from (VHDL bank5_ram dpram2, zxnext.vhd:6558-6578; Task 25
+// replaced the old aliased physical-page-10 model). CPU address 0x4000
+// → offset 0 inside the buffer.
 static void poke_bank5(Emulator& emu, uint16_t cpu_addr_4000_based,
                        uint8_t val) {
     const uint32_t offset = cpu_addr_4000_based & 0x3FFFu;  // 14-bit bank offset
-    emu.ram().write(10u * 8192u + offset, val);
+    emu.mmu().bank5_vram()[offset] = val;
 }
 
 // Fill every attribute band (0x5800..0x5AFF) with `v` — keeps attr-driven
@@ -1189,8 +1190,10 @@ static void test_shadow_integration(Emulator& emu) {
         emu.nextreg().write(0x43, 0x00);  // ULAnext en = 0 (zxnext.vhd:5394)
 
         const uint16_t poff = emu_pixel_addr_offset(0, 0);
-        emu.ram().write(10u * 8192u + poff,    0xFF);
-        emu.ram().write(10u * 8192u + 0x1800u, 0x05);  // bank5 ink=cyan
+        // Bank 5 = dedicated 16K VRAM (Task 25; wired from
+        // Mmu::bank5_vram in Emulator::init, like bank 7 below).
+        emu.mmu().bank5_vram()[poff]    = 0xFF;
+        emu.mmu().bank5_vram()[0x1800u] = 0x05;  // bank5 ink=cyan
         // Bank-7 lower half = dedicated BRAM (NextZXOS-boot fix; wired
         // from Mmu::bank7_bram in Emulator::init).
         emu.mmu().bank7_bram()[poff]    = 0xFF;

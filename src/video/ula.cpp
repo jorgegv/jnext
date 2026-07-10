@@ -81,6 +81,12 @@ uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
             if (bank7_bram_) return bank7_bram_[offset & 0x1FFF];
             return ram_->read(14u * 8192u + offset);
         }
+        // Normal screen: bank 5 — a dedicated 16K dual-port VRAM on real
+        // hardware (VHDL bank5_ram dpram2 zxnext.vhd:6558-6578; ULA
+        // port-B fetch :6633-6661). Served from the Mmu's buffer when
+        // wired (Next machines); the legacy page-10 fallback keeps
+        // standalone machines and unit tests working. Task 25.
+        if (bank5_vram_) return bank5_vram_[offset];
         return ram_->read(10u * 8192u + offset);
     }
     // Fallback: read through MMU (used when RAM not wired, e.g. early tests).

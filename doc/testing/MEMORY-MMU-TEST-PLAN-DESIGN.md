@@ -648,8 +648,8 @@ Physical address = `mmu_A21_A13 << 13`.
 
 | ID      | Test                              | Setup             | Expected                                      |
 |---------|-----------------------------------|--------------------|-----------------------------------------------|
-| BNK-01  | Page 0x0A → bank5 path           | MMU4 = 0x0A       | sram_bank5=1, sram_active=0                   |
-| BNK-02  | Page 0x0B → bank5 path           | MMU4 = 0x0B       | sram_bank5=1, sram_active=0                   |
+| BNK-01  | Page 0x0A → bank5 path           | MMU4 = 0x0A       | sram_bank5=1, sram_active=0 — write lands in the dedicated bank-5 VRAM buffer, no SRAM page touched (Task 25 rewrite; previously asserted the aliased SRAM-page-0x0A model) |
+| BNK-02  | Page 0x0B → bank5 path           | MMU4 = 0x0B       | sram_bank5=1, sram_active=0 — write lands at VRAM offset 0x2000, no SRAM page touched (Task 25 rewrite) |
 | BNK-03  | Page 0x0E → bank7 path           | MMU6 = 0x0E       | sram_bank7=1, sram_active=0                   |
 | BNK-04  | Page 0x0F → normal SRAM          | MMU6 = 0x0F       | sram_bank7=0, sram_active=1                   |
 | BNK-05  | Bank5 read/write functional       | Write to 0x0A page| Data readable back through bank5 BRAM         |
@@ -820,7 +820,32 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 | BOOT-FDC-02 | uPD765 motor-on / read-id behaviour            | Issue Read-ID command; check status registers                          | ST0/ST1/ST2 and CHRN bytes per uPD765 datasheet. skip — uPD765 unmodelled; P1F-07 = WONT (see G38)        |
 | BOOT-FDC-03 | NR 0x81 b3 (`fdc` clken) gates motor-on        | NR 0x81 ← bit3=1; observe drive-motor LED state via NR introspection   | Motor-on visible; NR 0x81 b3=0 ⇒ motor off. skip — FDC unmodelled; P1F-07 = WONT (see G38)              |
 
-**Total: ~159 test cases across 26 categories.**
+### Category 28: Dedicated bank-5 / bank-7 BRAMs
+
+VHDL gives banks 5 and 7-lower dedicated dual-port BRAMs, physically
+separate from external SRAM: `bank5_ram` (16K dpram2,
+`zxnext.vhd:6558-6578`) and `bank7_ram` (8K dpram2, `zxnext.vhd:6670`).
+`mem_active_bank5/bank7` (`:2961-2962`) suppress the external-SRAM cycle
+(`sram_pre_active`, `:3037-3041/:3059-3063`); the config-mode NR $04
+window (`:3044-3050`), the CPU Layer 2 window (`:3100-3107`) and the L2
+pixel fetch (`layer2.vhd:170-190`) always address external SRAM, even
+when their computed physical page is 0x0A/0x0B/0x0E. The BANK7 rows
+landed with the 2026-07-09 NextZXOS boot fix; the BANK5 rows are Task 25
+(2026-07-10), root cause of the Task 23 mid-boot screen garbage.
+
+| ID       | Test                                                    | Setup                                                          | Expected                                                                              |
+|----------|---------------------------------------------------------|----------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| BANK7-01 | MMU page 0x0E served from dedicated BRAM                | Next mode; MMU slot → 0x0E; write                              | Byte lands in `bank7_bram_`, not SRAM page 0x0E or 0x2E                                 |
+| BANK7-02 | Phys-page-0x0E write invisible through MMU page 0x0E    | Write via MMU page 0x0E; poke `ram_` page 0x0E                 | MMU read returns MMU-written bytes (the $DA35 NextZXOS boot killer)                     |
+| BANK7-03 | MMU page 0x0A served from dedicated bank-5 VRAM         | Next mode; MMU slot → 0x0A; write                              | Byte lands in `bank5_vram_`, not SRAM page 0x0A or 0x2A (rewritten by Task 25 — the row previously asserted the aliased pre-fix model) |
+| BANK7-04 | Config-mode NR $04=$17 window vs bank-7 BRAM isolation  | Seed BRAM via MMU page 0x0E; config window write               | SRAM page 0x2E written; BRAM byte intact                                                |
+| BANK7-05 | Standalone machines keep bank 7 flat                    | rom_in_sram=false; 128K bank-7 paging; write both 8K halves    | Bytes land in `ram_` pages 0x0E/0x0F, not the BRAM                                      |
+| BANK5-01 | Pages 0x0A/0x0B = lower/upper halves of one 16K VRAM    | Next mode; slots → 0x0A + 0x0B; write both                     | Offsets 0x0000/0x2000 of `bank5_vram_`; read-back through MMU intact                    |
+| BANK5-02 | Config-mode NR $04=$05 window vs bank-5 VRAM isolation  | Seed VRAM via MMU page 0x0A; config window write (enNextMf.rom path) | SRAM page 0x0A written; VRAM byte intact (the Task 23 mid-boot-garbage regression) |
+| BANK5-03 | Standalone machines keep bank 5 flat                    | rom_in_sram=false; write 0x4000/0x6000                         | Bytes land in `ram_` pages 0x0A/0x0B, not the VRAM                                      |
+| BANK5-04 | CPU L2 window bank 5 targets SRAM 0x2A (no bypass)      | Next mode; port $123B write-over, bank 5; write 0x0000         | Byte lands in `ram_` page 0x2A (unconditional `layer2_A21_A13`), not 0x0A, not the VRAM |
+
+**Total: ~168 test cases across 28 categories.**
 
 ## Test Approach
 

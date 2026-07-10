@@ -64,6 +64,11 @@ public:
     /// Null = legacy page-14 Ram fallback (standalone unit tests).
     void set_bank7_bram(const uint8_t* p) { bank7_bram_ = p; }
 
+    /// Wire the dedicated bank-5 16K VRAM (Emulator::init,
+    /// Mmu::bank5_vram(); VHDL bank5_ram dpram2, zxnext.vhd:6558).
+    /// Null = legacy physical-page-10 Ram fallback. Task 25.
+    void set_bank5_vram(const uint8_t* p) { bank5_vram_ = p; }
+
     uint8_t get_map_base_read() const { return map_base_raw_ & 0xBF; }
 
     /// NextREG 0x6F — Tile definitions base address (same encoding as 0x6E).
@@ -276,6 +281,7 @@ public:
 
 private:
     const uint8_t* bank7_bram_ = nullptr;  ///< dedicated bank-7 BRAM
+    const uint8_t* bank5_vram_ = nullptr;  ///< dedicated bank-5 16K VRAM (Task 25)
 
     // --- Control register state ---
     uint8_t  control_raw_    = 0;

@@ -2489,14 +2489,17 @@ void test_cat15_bank57() {
     set_group("Cat15 bank5/bank7 pages");
 
     // BNK-01..04: VHDL zxnext.vhd:2961-2962 mark pages 0x0A/0x0B (bank 5)
-    // and 0x0E (bank 7 lower) as dual-port bypass pages that skip the
-    // +0x20 shift in Next mode. JNEXT models this in to_sram_page()
-    // (mmu.h:241-245). The observable is: in Next mode (rom_in_sram_=1)
-    // a slot mapped to page 0x0A writes to SRAM page 0x0A directly — NOT
-    // to the shifted page 0x2A. Compare against a non-bypass page like
-    // 0x0F which DOES shift to 0x2F.
+    // and 0x0E (bank 7 lower) as dedicated dual-port BRAMs: bank5_ram
+    // (16K dpram2, zxnext.vhd:6558-6578) and bank7_ram (8K dpram2,
+    // :6670). mem_active_bank5/7 suppress the external-SRAM cycle
+    // (:3037-3041/:3059-3063), so a slot mapped to page 0x0A/0x0B/0x0E
+    // writes the corresponding BRAM buffer — NEVER any ram_ page.
+    // (Task 25 rewrite, 2026-07-10: the previous BNK-01/02 asserted the
+    // old aliased model — bank-5 writes landing on SRAM page 0x0A/0x0B —
+    // which the Task 23 mid-boot-garbage root cause refuted.) Compare
+    // against a non-BRAM page like 0x0F which shifts to 0x2F.
 
-    // BNK-01 — page 0x0A bypasses the shift in Next mode.
+    // BNK-01 — page 0x0A maps to the dedicated bank-5 VRAM (lower half).
     {
         Fixture f;
         f.fresh();
@@ -2504,18 +2507,18 @@ void test_cat15_bank57() {
         f.mmu.set_rom_in_sram(true);
         f.mmu.set_page(4, 0x0A);             // slot 4 @ 0x8000, logical 0x0A
         f.mmu.write(0x8000, 0x5A);
-        // Bypass means the write lands on physical SRAM page 0x0A (not 0x2A).
+        const uint8_t in_vram = f.mmu.bank5_vram()[0];
         const uint8_t at_0a = f.ram.page_ptr(0x0A)[0];
         const uint8_t at_2a = f.ram.page_ptr(0x2A)[0];
         check("BNK-01",
-              "page 0x0A bypasses +0x20 shift in Next mode (dual-port bank 5) "
-              "— VHDL zxnext.vhd:2961-2962",
-              at_0a == 0x5A && at_2a != 0x5A,
-              fmt("ram[0x0A][0]=0x%02X ram[0x2A][0]=0x%02X (want 0x5A at 0x0A only)",
-                  at_0a, at_2a));
+              "page 0x0A maps to the dedicated bank-5 VRAM buffer, touching "
+              "no SRAM page — VHDL zxnext.vhd:2961+6558",
+              in_vram == 0x5A && at_0a != 0x5A && at_2a != 0x5A,
+              fmt("vram[0]=0x%02X ram[0x0A][0]=0x%02X ram[0x2A][0]=0x%02X",
+                  in_vram, at_0a, at_2a));
     }
 
-    // BNK-02 — page 0x0B bypasses the shift (bank 5 upper half).
+    // BNK-02 — page 0x0B maps to the bank-5 VRAM upper 8K half.
     {
         Fixture f;
         f.fresh();
@@ -2523,14 +2526,15 @@ void test_cat15_bank57() {
         f.mmu.set_rom_in_sram(true);
         f.mmu.set_page(4, 0x0B);
         f.mmu.write(0x8000, 0x5B);
+        const uint8_t in_vram = f.mmu.bank5_vram()[0x2000];
         const uint8_t at_0b = f.ram.page_ptr(0x0B)[0];
         const uint8_t at_2b = f.ram.page_ptr(0x2B)[0];
         check("BNK-02",
-              "page 0x0B bypasses +0x20 shift in Next mode (dual-port bank 5) "
-              "— VHDL zxnext.vhd:2961-2962",
-              at_0b == 0x5B && at_2b != 0x5B,
-              fmt("ram[0x0B][0]=0x%02X ram[0x2B][0]=0x%02X (want 0x5B at 0x0B only)",
-                  at_0b, at_2b));
+              "page 0x0B maps to the bank-5 VRAM upper half (offset 0x2000), "
+              "touching no SRAM page — VHDL zxnext.vhd:2961+6558",
+              in_vram == 0x5B && at_0b != 0x5B && at_2b != 0x5B,
+              fmt("vram[0x2000]=0x%02X ram[0x0B][0]=0x%02X ram[0x2B][0]=0x%02X",
+                  in_vram, at_0b, at_2b));
     }
 
     // BNK-03 — page 0x0E (bank 7 lower half) is a dedicated BRAM on real
@@ -4269,20 +4273,28 @@ void test_cat28_bank7_bram_standin() {
               fmt("read back $DA35=0x%02X $DA36=0x%02X (expected F5 5B)", lo, hi));
     }
 
-    // BANK7-03: bank 5 (pages 0x0A/0x0B) keeps its unshifted dual-port
-    // bypass — unchanged by the bank-7 fix.
+    // BANK7-03 (rewritten, Task 25 2026-07-10): bank 5 (pages 0x0A/0x0B)
+    // is a dedicated 16K dual-port VRAM (VHDL bank5_ram dpram2,
+    // zxnext.vhd:6558-6578; mem_active_bank5 gate :2961 + sram_pre_active
+    // suppression :3037-3041/:3059-3063) — MMU-mapped CPU writes land in
+    // the bank5_vram_ buffer, NOT in external SRAM page 0x0A (the old
+    // aliased model this row previously asserted, refuted by the Task 23
+    // mid-boot-garbage root cause) nor 0x2A (the raw formula value).
     {
         Fixture f;
         f.fresh();
         f.mmu.set_rom_in_sram(true);
         f.mmu.set_page(6, 0x0A);
         f.mmu.write(0xC000, 0x3C);
+        const uint8_t in_vram = f.mmu.bank5_vram()[0];
         const uint8_t at_0a = f.ram.page_ptr(0x0A)[0];
+        const uint8_t at_2a = f.ram.page_ptr(0x2A)[0];
         check("BANK7-03",
-              "bank-5 pages 0x0A/0x0B still bypass the +0x20 shift — VHDL "
-              "zxnext.vhd:2961",
-              at_0a == 0x3C,
-              fmt("ram[0x0A][0]=0x%02X (expected 0x3C)", at_0a));
+              "MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any "
+              "SRAM page — VHDL zxnext.vhd:2961+6558",
+              in_vram == 0x3C && at_0a != 0x3C && at_2a != 0x3C,
+              fmt("vram[0]=0x%02X ram[0x0A][0]=0x%02X ram[0x2A][0]=0x%02X",
+                  in_vram, at_0a, at_2a));
     }
 
     // BANK7-04 (review finding, 2026-07-10): the REAL config-mode NR $04
@@ -4336,6 +4348,110 @@ void test_cat28_bank7_bram_standin() {
               lo == 0xAB && hi == 0xCD && bram != 0xAB,
               fmt("ram[0x0E][0]=0x%02X ram[0x0F][0]=0x%02X bram[0]=0x%02X",
                   lo, hi, bram));
+    }
+
+    // ─── Task 25 (2026-07-10): dedicated bank-5 16K VRAM ──────────────
+    //
+    // VHDL bank5_ram dpram2 (zxnext.vhd:6558-6578), mem_active_bank5
+    // decode (:2961), sram_pre_active suppression (:3037-3041/:3059-3063).
+    // Root cause of the Task 23 NextZXOS mid-boot garbage: pre-fix,
+    // logical bank 5 aliased onto external SRAM pages 0x0A/0x0B, which
+    // the config-mode NR $04=$05 window legally writes (tbblue.fw loading
+    // enNextMf.rom into SRAM bank 5 — the Multiface area hard-wired at
+    // zxnext.vhd:3029-3036) — so the load painted the visible screen.
+
+    // BANK5-01: both 8K halves (pages 0x0A and 0x0B) map into the single
+    // 16K buffer at the right offsets (VHDL addr_width_g => 14 — one
+    // contiguous 16K, page bit 0 = BRAM A13).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(6, 0x0A);
+        f.mmu.set_page(7, 0x0B);
+        f.mmu.write(0xC000, 0x11);                    // page 0x0A → offset 0x0000
+        f.mmu.write(0xE000, 0x22);                    // page 0x0B → offset 0x2000
+        const uint8_t lo = f.mmu.bank5_vram()[0x0000];
+        const uint8_t hi = f.mmu.bank5_vram()[0x2000];
+        const uint8_t rd_lo = f.mmu.read(0xC000);
+        const uint8_t rd_hi = f.mmu.read(0xE000);
+        check("BANK5-01",
+              "pages 0x0A/0x0B are the lower/upper 8K halves of the single "
+              "16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14)",
+              lo == 0x11 && hi == 0x22 && rd_lo == 0x11 && rd_hi == 0x22,
+              fmt("vram[0]=0x%02X vram[0x2000]=0x%02X read=0x%02X/0x%02X",
+                  lo, hi, rd_lo, rd_hi));
+    }
+
+    // BANK5-02 (the Task 23 regression): the config-mode NR $04 = $05
+    // window addresses EXTERNAL SRAM pages 0x0A/0x0B (zxnext.vhd:3044-3050
+    // — sram_pre_bank5 forced '0'). Writes through that window (tbblue.fw
+    // loading enNextMf.rom) must NOT touch the bank-5 VRAM (the visible
+    // screen), and vice versa.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(6, 0x0A);
+        f.mmu.write(0xC456, 0x55);                    // seed screen via MMU page
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x05);
+        f.mmu.write(0x0456, 0x99);                    // config window, slot 0 → SRAM 0x0A
+        const uint8_t sram_0a = f.ram.page_ptr(0x0A)[0x0456];
+        const uint8_t vram    = f.mmu.bank5_vram()[0x0456];
+        const uint8_t via_mmu = f.mmu.read(0xC456);
+        check("BANK5-02",
+              "config-mode NR $04=$05 window writes SRAM page 0x0A without "
+              "touching the bank-5 VRAM (the NextZXOS mid-boot-garbage "
+              "killer) — VHDL zxnext.vhd:3044-3050",
+              sram_0a == 0x99 && vram == 0x55 && via_mmu == 0x55,
+              fmt("sram[0x0A][0x456]=0x%02X vram[0x456]=0x%02X mmu_read=0x%02X",
+                  sram_0a, vram, via_mmu));
+    }
+
+    // BANK5-03: standalone legacy machines (rom_in_sram=false) keep bank 5
+    // as ordinary flat RAM at pages 0x0A/0x0B — mirrors BANK7-05's
+    // REJECT-round lesson. Bank 5 is always CPU-visible at 0x4000-0x7FFF.
+    {
+        Fixture f;
+        f.fresh();                          // rom_in_sram_ = false
+        f.mmu.write(0x4000, 0xAB);          // lower 8K of bank 5
+        f.mmu.write(0x6000, 0xCD);          // upper 8K of bank 5
+        const uint8_t lo   = f.ram.page_ptr(0x0A)[0];
+        const uint8_t hi   = f.ram.page_ptr(0x0B)[0];
+        const uint8_t vram = f.mmu.bank5_vram()[0];
+        check("BANK5-03",
+              "standalone-machine (rom_in_sram=false) bank-5 writes land in "
+              "flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer",
+              lo == 0xAB && hi == 0xCD && vram != 0xAB,
+              fmt("ram[0x0A][0]=0x%02X ram[0x0B][0]=0x%02X vram[0]=0x%02X",
+                  lo, hi, vram));
+    }
+
+    // BANK5-04 (Task 25 bullet 1): the CPU Layer 2 window computes
+    // layer2_A21_A13 with the same UNCONDITIONAL formula as mmu_A21_A13
+    // (zxnext.vhd:2966-2971) and the arbiter forces sram_bank5 low for it
+    // (:3100-3107) — L2 bank 5 addresses external SRAM pages 0x2A/0x2B
+    // (ZX RAM bank 5), never physical 0x0A/0x0B and never the VRAM. The
+    // pre-fix to_sram_page bank-5 bypass routed this write onto the
+    // visible screen.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_l2_port(0x01, 5);         // L2 write-over, seg=00, bank 5
+        f.mmu.write(0x0000, 0x77);          // L2 window low half, sub-page 0
+        f.mmu.set_l2_port(0x00, 5);
+        const uint8_t at_2a  = f.ram.page_ptr(0x2A)[0];
+        const uint8_t at_0a  = f.ram.page_ptr(0x0A)[0];
+        const uint8_t vram   = f.mmu.bank5_vram()[0];
+        check("BANK5-04",
+              "CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional "
+              "layer2_A21_A13 formula), not page 0x0A and not the VRAM — "
+              "VHDL zxnext.vhd:2966-2971 + 3100-3107",
+              at_2a == 0x77 && at_0a != 0x77 && vram != 0x77,
+              fmt("ram[0x2A][0]=0x%02X ram[0x0A][0]=0x%02X vram[0]=0x%02X",
+                  at_2a, at_0a, vram));
     }
 }
 
