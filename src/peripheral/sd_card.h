@@ -98,6 +98,10 @@ private:
     uint8_t data_block_[512] = {};
     int data_idx_ = 0;
     int data_crc_count_ = 0;  // CRC bytes remaining for CMD24
+    // Task 26 item 3 — CRC-16 (CCITT poly 0x1021, init 0x0000) computed
+    // over data_block_ when a read block (CMD9/10/17/18) is loaded; emitted
+    // high-byte-first as the 2 CRC bytes after the 512 (or 16) data bytes.
+    uint16_t data_crc_ = 0;
     // V12-DIVMMC-06 (Pass-12 reviewer fix, 2026-05-10): explicit
     // "data token already seen" flag for the CMD24 RECEIVING_DATA
     // state. Per SD Phys Layer Spec § 7.3.3.2 the card waits for the

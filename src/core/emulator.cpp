@@ -180,6 +180,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // matching real hardware where the FPGA's flash-baked SRAM is not
     // wiped by NR 0x02 ← 0x01.
     multiface_.reset(/*hard=*/!preserve_memory);
+    // Task 26 item 5 — back the Multiface memory window with external SRAM
+    // pages 0x0A (ROM half, read-only) / 0x0B (RAM half) on the Next, per
+    // VHDL zxnext.vhd:3029-3036 (sram_pre_A21_A13 <= "00000101" & cpu_a(13),
+    // sram_pre_bank5 forced '0' → external SRAM, not the bank-5 VRAM). This
+    // unblocked by the Task 25 bank-5 un-aliasing (pages 0x0A/0x0B are now
+    // free plain SRAM). tbblue.fw loads enNextMf.rom into page 0x0A via the
+    // config-mode NR $04=$05 window during boot, so the MF ROM window reads
+    // the firmware-loaded content — exactly as real hardware. Mirrors the
+    // DivMmc set_ram_backing(ram_.page_ptr(16)) precedent. STANDALONE
+    // machines (48k/128k/plus3) modelled a real standalone Multiface with
+    // its OWN RAM/ROM chip → keep the private buffers (backing null), and
+    // clear any stale backing on a live machine-type switch. Idempotent;
+    // set on every init so soft reset preserves it.
+    if (cfg.type == MachineType::ZXN_ISSUE2) {
+        multiface_.set_rom_backing(ram_.page_ptr(0x0A));
+        multiface_.set_ram_backing(ram_.page_ptr(0x0B));
+    } else {
+        multiface_.set_rom_backing(nullptr);
+        multiface_.set_ram_backing(nullptr);
+    }
     nmi_source_.reset();
     // VHDL zxnext.vhd:5107 — `nr_d8_io_trap_fdc_en <= '0'` on i_reset.
     nr_d8_io_trap_fdc_en_ = false;
@@ -380,17 +400,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // nr_03_machine_type field. Otherwise on hard reset Mmu starts at
     // cfg.type but NextReg's field is preserved (per VHDL :1103) — a
     // divergence where NR $03 read-back disagrees with actual routing.
-    // ZXN_ISSUE2 maps to typ_sel=$04 (Pentagon/128K-class else branch
-    // per VHDL :2997-3007); semantically Pentagon, functionally
-    // identical to ZXN under current_sram_rom().
+    //
+    // Task 26 (P3, 2026-07-11): the actual ZX Spectrum Next (ZXN_ISSUE2)
+    // must cold-boot NR $03 machine-type to the VHDL FPGA power-on default
+    // "011" (=+3), NOT a Pentagon/128K-class value. VHDL zxnext.vhd:1103:
+    //   signal nr_03_machine_type : std_logic_vector(2 downto 0) := "011";
+    // This initial value is machine-agnostic silicon state and is NOT
+    // re-asserted by the soft/hard reset block (zxnext.vhd:4926-5111 has no
+    // nr_03_machine_type assignment) — it persists until firmware writes NR
+    // $03 while config_mode=1 (:5137-5145). On real hardware the field
+    // therefore reads "011" until NextZXOS commits the true type; the prior
+    // 0x04 push made jnext's Next read "100" (=128K per the :5741-5757
+    // decode) at cold boot, diverging from silicon. The divergence was
+    // masked on the boot path because NextZXOS explicitly commits a value
+    // early — a "works by luck" gap. The 48k/128k/plus3 cases keep their
+    // matching typ_sel: those are jnext machine abstractions selected at
+    // the CLI, and NR $03 read-back reflecting that choice is intended.
     if (!preserve_memory) {
         mmu_.set_machine_type(cfg.type);
-        uint8_t typ_sel = 0x04;  // ZXN_ISSUE2 default → Pentagon/Next
+        uint8_t typ_sel = 0x03;  // ZXN_ISSUE2 → +3 "011" (VHDL :1103 power-on)
         switch (cfg.type) {
             case MachineType::ZX48K:      typ_sel = 0x01; break;
             case MachineType::ZX128K:     typ_sel = 0x02; break;
             case MachineType::ZX_PLUS3:   typ_sel = 0x03; break;
-            case MachineType::ZXN_ISSUE2: typ_sel = 0x04; break;
+            case MachineType::ZXN_ISSUE2: typ_sel = 0x03; break;  // +3 per VHDL power-on default
         }
         nextreg_.set_nr_03_machine_type(typ_sel);
 

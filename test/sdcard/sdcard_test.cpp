@@ -1884,6 +1884,110 @@ static void test_sd_33_cmd10_cid_mdt_year() {
           " month=" + std::to_string(month));
 }
 
+// ─── Task 26 items 1/2/3 — SPI Ncr, CMD58 no-$FF, real data-block CRC ──
+
+// Independent reference CRC-16 for the test side. Written from scratch
+// (not shared with the production sd_crc16) so the assertion is not
+// circular. Validated against the published catalogue check value
+// CRC-16/XMODEM("123456789") = 0x31C3 in TASK26-CRC-01 below.
+static uint16_t ref_crc16_xmodem(const uint8_t* p, size_t n) {
+    uint16_t c = 0x0000;
+    for (size_t i = 0; i < n; ++i) {
+        c ^= static_cast<uint16_t>(p[i]) << 8;
+        for (int b = 0; b < 8; ++b)
+            c = (c & 0x8000) ? static_cast<uint16_t>((c << 1) ^ 0x1021)
+                             : static_cast<uint16_t>(c << 1);
+    }
+    return c;
+}
+
+// TASK26-NCR-01: exactly 2 leading idle ($FF) bytes precede R1.
+// SD Phys Layer Spec § 7.5.4 (Ncr). Discriminative: pre-fix jnext emitted
+// a single idle byte, so byte[1] was R1 (0x01 for an idle card), not $FF.
+static void test_task26_ncr_two_idle_bytes(SdCardDevice& sd) {
+    sd.reset();
+    // CMD0 GO_IDLE — R1 = 0x01 via queue_r1() (the shared R1 path).
+    spi_write(sd, 0x40 | 0);
+    for (int i = 0; i < 4; ++i) spi_write(sd, 0x00);
+    spi_write(sd, 0x95);
+    const uint8_t b0 = spi_read(sd);
+    const uint8_t b1 = spi_read(sd);
+    const uint8_t b2 = spi_read(sd);
+    sd.deselect();
+    check("TASK26-NCR-01",
+          "CMD0 response has exactly 2 idle ($FF) bytes before R1 "
+          "(SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so "
+          "byte[1] was R1=0x01, not $FF.",
+          b0 == 0xFF && b1 == 0xFF && b2 == 0x01,
+          "b0=" + std::to_string(b0) + " b1=" + std::to_string(b1) +
+          " b2=" + std::to_string(b2));
+}
+
+// TASK26-OCR-01: no OCR payload byte equals the $FF idle sentinel.
+// Discriminative: pre-fix the voltage-window byte [23:16] was 0xFF, which
+// a skip-$FF firmware reader drops → OCR misaligns.
+static void test_task26_cmd58_no_ff_payload(SdCardDevice& sd) {
+    sd.reset();
+    init_card(sd);
+    const uint8_t r1 = send_cmd_r1(sd, 58, 0);   // skips the 2 NCR bytes
+    uint8_t ocr[4];
+    for (int i = 0; i < 4; ++i) ocr[i] = spi_read(sd);
+    sd.deselect();
+    const bool no_ff = ocr[0] != 0xFF && ocr[1] != 0xFF &&
+                       ocr[2] != 0xFF && ocr[3] != 0xFF;
+    // Also confirm OCR semantics intact: power-up (bit31) + CCS (bit30) set
+    // for an SDHC host (init_card sends ACMD41 HCS=1).
+    const bool ccs_ok = (ocr[0] & 0xC0) == 0xC0;
+    check("TASK26-OCR-01",
+          "CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as "
+          "idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF.",
+          r1 == 0x00 && no_ff && ccs_ok,
+          "r1=" + std::to_string(r1) +
+          " ocr=" + std::to_string(ocr[0]) + "," + std::to_string(ocr[1]) +
+          "," + std::to_string(ocr[2]) + "," + std::to_string(ocr[3]));
+}
+
+// TASK26-CRC-01: read-data blocks carry a real CRC-16 (not dummy 0x0000).
+// Discriminative: pre-fix jnext emitted 0x00,0x00 for the 2 CRC bytes.
+static void test_task26_data_block_crc() {
+    // (a) Validate the test-side reference against the published
+    //     CRC-16/XMODEM catalogue check value, so the emitted-CRC
+    //     assertion below rests on a known-correct oracle.
+    const uint8_t chk[] = { '1','2','3','4','5','6','7','8','9' };
+    const uint16_t chk_crc = ref_crc16_xmodem(chk, sizeof(chk));
+    check("TASK26-CRC-00",
+          "reference CRC-16/XMODEM(\"123456789\") == 0x31C3 (SD data-block "
+          "CRC variant: poly 0x1021, init 0x0000)",
+          chk_crc == 0x31C3,
+          "got=0x" + [&]{ char b[8]; std::snprintf(b,sizeof(b),"%04X",chk_crc); return std::string(b); }());
+
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+    const uint8_t r1 = send_cmd_r1(sd, 17, 1);   // read sector 1
+    const bool tok = wait_token(sd);
+    uint8_t data[512];
+    for (int i = 0; i < 512; ++i) data[i] = spi_read(sd);
+    const uint8_t crc_hi = spi_read(sd);
+    const uint8_t crc_lo = spi_read(sd);
+    sd.deselect();
+    sd.unmount();
+    std::remove(img.c_str());
+
+    const uint16_t emitted  = static_cast<uint16_t>((crc_hi << 8) | crc_lo);
+    const uint16_t expected = ref_crc16_xmodem(data, 512);
+    check("TASK26-CRC-01",
+          "CMD17 data block emits the real CRC-16 (poly 0x1021, init "
+          "0x0000) over the 512 data bytes, high byte first. Pre-fix "
+          "emitted dummy 0x0000.",
+          mounted && r1 == 0x00 && tok && expected != 0x0000 &&
+          emitted == expected,
+          "emitted=0x" + [&]{ char b[8]; std::snprintf(b,sizeof(b),"%04X",emitted); return std::string(b); }() +
+          " expected=0x" + [&]{ char b[8]; std::snprintf(b,sizeof(b),"%04X",expected); return std::string(b); }());
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -1935,6 +2039,11 @@ int main() {
     test_sd_30_full_duplex_stream_advance();     // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
     test_sd_31_full_duplex_responding_state();   // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
     test_sd_33_cmd10_cid_mdt_year();             // V24-DIVMMC-01 (pass-24 convergence pressure-test)
+
+    // ─── Task 26 SPI/SD conformance batch (2026-07-11) ────────────────
+    test_task26_ncr_two_idle_bytes(sd);          // item 1 — Ncr = 2 idle bytes
+    test_task26_cmd58_no_ff_payload(sd);         // item 2 — CMD58 no $FF payload
+    test_task26_data_block_crc();                // item 3 — real data-block CRC-16
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
