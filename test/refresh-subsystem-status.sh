@@ -199,10 +199,14 @@ function fmt_notes(cell, fail, skip,   inner, dot) {
     sub(/^[[:space:]]*<span[^>]*>/, "", inner)
     sub(/<\/span>[[:space:]]*$/, "", inner)
     # Strip a previous emoji prefix (red/yellow/green circles) so we
-    # do not stack them on re-runs. Literal-character class (gawk in
-    # multibyte mode treats bracketed UTF-8 sequences as a set of
-    # codepoints).
-    sub(/^[[:space:]]*[🔴🟡🟢][[:space:]]*/, "", inner)
+    # do not stack them on re-runs. Use ALTERNATION of the full UTF-8
+    # sequences, NOT a bracket class: under LANG=C (byte mode) a
+    # bracketed multi-byte class matches a SINGLE byte, stripping only
+    # the emoji lead byte only, leaving orphan continuation bytes
+    # (the historical replacement-char mojibake in this dashboard).
+    sub(/^[[:space:]]*(🔴|🟡|🟢)[[:space:]]*/, "", inner)
+    # Sweep any U+FFFD replacement chars left by the old buggy strip.
+    gsub(/\357\277\275/, "", inner)
     # Trim leading and trailing whitespace inside the cell.
     sub(/^[[:space:]]+/, "", inner)
     sub(/[[:space:]]+$/, "", inner)
