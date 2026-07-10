@@ -1206,11 +1206,6 @@ static void g_boot_skips()
     skip("BOOT-DOT-01",
          "NextZXOS BASIC + dot-command surface is end-to-end (see G47)");
 
-    // BYPASS-CLI-01 — G59: --bypass-tbblue-fw CLI flag + SRAM populate
-    // path absent. Branches 1-3 of FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md.
-    skip("BYPASS-CLI-01",
-         "--bypass-tbblue-fw CLI + SRAM populate missing (see G59)");
-
     // BYPASS-FAT-01 — G59: Host-side FAT32 reader for direct
     // enNextZX.rom load missing.
     skip("BYPASS-FAT-01",
