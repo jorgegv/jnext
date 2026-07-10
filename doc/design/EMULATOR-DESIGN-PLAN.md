@@ -848,7 +848,7 @@ endif()
 - [x] IM2 controller (all 14 levels) — wired with CTC, DMA, UART interrupt callbacks
 - [x] Z80N extension opcodes — all 26 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, ADD rr,nn, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
 - [x] All peripherals integrated into emulator core: port dispatch, IM2 callbacks, DMA bus stall, CTC/UART ticking, DivMMC MMU overlay
-- [ ] **Milestone (DEFERRED to v1.1)**: NextZXOS boots from SD image — root cause analyzed (DivMMC/config page conflict), write-recording approach identified; see `doc/nextzxos-boot-investigation.md`
+- [x] **Milestone (DEFERRED to v1.1)**: NextZXOS boots from SD image ✓ **ACHIEVED 2026-07-10** — native cold boot (FPGA bootrom → TBBLUE.FW → NextZXOS welcome + menu) on branch `nextzxos-boot-fixes`; root cause was bank-7 BRAM/alt-ROM aliasing in `Mmu::to_sram_page`, NOT the earlier DivMMC/config-page-conflict hypothesis. Independently reviewed (APPROVE). See [doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md](../issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md)
 
 ### Phase 6 — Native UI & Usability ✓ COMPLETE
 
@@ -1140,13 +1140,13 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 ### Phase 10 — NextZXOS Boot (v1.1)
 
-- [ ] Evaluate other "shortcut" options: divMMC ROM interception similar to TAP loading (CSpect does this?)
-- [ ] Implement config page write recording + soft_reset replay approach
-- [ ] Reset DivMMC automap state properly during soft_reset
-- [ ] Verify replayed ROM data correctness
-- [ ] Handle ULA screen RAM bank overlap during replay
-- [ ] End-to-end test with screenshot comparison against reference image
-- [ ] **Milestone**: v1.0 release (NextZXOS boots from SD image, NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - Lots of bugs ironed out. 
+- [x] Evaluate other "shortcut" options ✓ (2026-05-17: `--bypass-tbblue-fw` built as the shortcut; 2026-07-10: superseded as a boot path by the working native boot — flag kept, user decision)
+- ~~Implement config page write recording + soft_reset replay approach~~ — obsolete: the native firmware-faithful boot works (2026-07-10), no replay needed
+- [x] Reset DivMMC automap state properly during soft_reset ✓ (soft reset re-arms EPs $83/$01/$00/$CD, preserves NR $0A bit 4 — VHDL-audited during the 2026-07 boot work)
+- ~~Verify replayed ROM data correctness~~ — obsolete (no replay; see above)
+- ~~Handle ULA screen RAM bank overlap during replay~~ — obsolete (no replay); the underlying bank-7 aliasing WAS the real bug and is fixed (dedicated BRAM buffer, 2026-07-10)
+- [ ] End-to-end test with screenshot comparison against reference image — planned as `.prompts/2026-07-10.md` Task 24 (welcome + menu references)
+- [ ] **Milestone**: v1.0 release (NextZXOS boots from SD image ✓ 2026-07-10, NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - Lots of bugs ironed out. 
 
 ### Phase 11 - New functions
 
@@ -1181,7 +1181,7 @@ Complex ones:
 - [ ] Multiface peripheral. Add a `Multiface` class in `src/peripheral/multiface.{h,cpp}` with ROM+RAM at 0x0000-0x1FFF, controlled by NR 0x02 (NMI request), an MF enable/disable NR, and the hardware NMI button. MF takes over on NMI: maps its ROM in, runs its menu, exits via a specific opcode sequence. Wire DivMMC's `button_nmi_` latch to the Multiface NMI input; also wire Copper NR 0x02 writes. Unblocks 8 DivMMC+SPI skips (NM-01..08) and Copper ARB-06. Priority low-medium — snapshot/cheat/monitor utility, not required for running software.
 - [ ] Model cycle-accurate CPU/Copper NR write priority. VHDL `zxnext.vhd:4769,4775-4777` enforces Copper-wins priority on same-28 MHz-cycle NR writes with CPU deferred. JNEXT serializes CPU and Copper NR writes (no shared bus) — priority is implicit in tick-loop order, not emulator-enforced. Current ARB-01/02/03 tests satisfy the VHDL outcome by ordering stimulus manually; they do NOT prove the emulator would enforce priority under a cycle-accurate scheduler. Options: (a) leave priority as a test-harness convention documented as a known modeling limitation, or (b) add cycle-accurate CPU/Copper scheduling so the emulator itself enforces the VHDL priority. Revisit when tackling a cycle-accurate timing refactor.
 - [ ] Per-scanline display state replay — extend the palette change-log + replay pattern (TASK-PER-SCANLINE-PALETTE-PLAN.md, landed for beast.nex sky gradient) to the rest of the render-time state still read live: L2 X/Y scroll (NR 0x16/0x17/0x71 — needed for parallax demos), NR 0x15 sprite/LoRes/priority, NR 0x14/0x4B/0x4C transparency, clip windows, NR 0x68 other bits, NR 0x6B / 0x70, port 0xFF Timex mode, etc. Also Nirvana-class memory-write multiplexers (Ram::write hook for bank 5/7 attribute area) and sprite multiplexing. Driven by demo, not by completeness — full coverage matrix + cost classes in [doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md](PER-SCANLINE-DISPLAY-STATE-AUDIT.md).
-- [ ] Fast NextZXOS boot path bypassing tbblue firmware. Gate behind a `--bypass-tbblue-fw` CLI option: JNEXT performs the work `boot.c::main` does on the Z80 side (SRAM ROM load, NR init, NR 0x03=0xB3 machine commit) directly in C++, then hands off to NextZXOS at PC=0x0000 with the post-RESET_SOFT state pre-established. Skips the "Press SPACEBAR for menu" screen, `config.ini`/`menu.ini` parse, and boot-screen paint. Full design (4 incremental branches, handover modes, SRAM layout) in [doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md](FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md). Keep the stock firmware-faithful boot path on by default.
+- [x] Fast NextZXOS boot path bypassing tbblue firmware ✓ (implemented 2026-05-17, Task 18; 2026-07-10: native boot now works so the bypass is no longer needed for booting — kept as an optional fast path, user decision). Gate behind a `--bypass-tbblue-fw` CLI option: JNEXT performs the work `boot.c::main` does on the Z80 side (SRAM ROM load, NR init, NR 0x03=0xB3 machine commit) directly in C++, then hands off to NextZXOS at PC=0x0000 with the post-RESET_SOFT state pre-established. Skips the "Press SPACEBAR for menu" screen, `config.ini`/`menu.ini` parse, and boot-screen paint. Full design (4 incremental branches, handover modes, SRAM layout) in [doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md](FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md). Keep the stock firmware-faithful boot path on by default.
 - ~~Enhanced performance optimizations (evaluated and deferred indefinitely):~~
   - ~~Idea 1: Multithreaded Z80N CPU emulator~~ — Z80 has near-zero ILP; thread sync overhead exceeds instruction cost; side effects require strict ordering
   - ~~Idea 2: Z80N JIT compiler~~ — 3.5 MHz Z80 is trivially fast to interpret; cycle-accurate contention/interrupts fragment JIT blocks; 6-12 months effort for ~10% overall gain
