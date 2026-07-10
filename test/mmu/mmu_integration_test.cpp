@@ -702,6 +702,96 @@ static void test_nr03_machine_type_cold_boot_default() {
           fmt("nr03_mtype=0x%02X (want 0x03)", p3_mt));
 }
 
+// ── Task 26 item 5: Multiface window backed by external SRAM 0x0A/0x0B ─
+//
+// VHDL zxnext.vhd:3029-3036 hard-wires the MF memory window
+// ($0000-$3FFF when mf_mem_en=1) to external SRAM: ROM half → page 0x0A
+// (read-only), RAM half → page 0x0B, with sram_pre_bank5 forced '0' so it
+// is the external SRAM chip, not the bank-5 VRAM. The Emulator wires the
+// backing Next-only (mirroring DivMmc set_ram_backing); standalone
+// machines keep the private Multiface buffers (a real standalone MF had
+// its own RAM/ROM chip).
+//
+// Helper: force the MF memory overlay active (mf_enable) without a CPU
+// run — enable the peripheral, arm NMI via the button, then present the
+// 0x0066 M1 fetch which latches mf_enable per multiface.vhd:169-176.
+static void mf_activate(Emulator& emu) {
+    emu.multiface().set_enabled(true);
+    emu.multiface().button_press();          // nmi_active=1, invisible=0
+    emu.multiface().on_m1(0x0066, true);      // fetch_66 → mf_enable=1
+    emu.mmu().set_boot_rom_enabled(false);    // lift the higher-priority bootrom
+}
+
+static void test_task26_mf_sram_backing() {
+    // Leg A — Next: MF window reads/writes physical SRAM pages 0x0A/0x0B.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Seed the external SRAM pages the MF window should be wired to.
+        emu.ram().page_ptr(0x0A)[0] = 0xA5;   // ROM half sentinel
+        emu.ram().page_ptr(0x0B)[0] = 0x5A;   // RAM half sentinel
+        mf_activate(emu);
+
+        const bool active   = emu.multiface().is_mem_active();
+        const uint8_t rd_rom = emu.mmu().read(0x0000);   // ROM half → page 0x0A
+        const uint8_t rd_ram = emu.mmu().read(0x2000);   // RAM half → page 0x0B
+
+        // RAM half is writable and lands in page 0x0B.
+        emu.mmu().write(0x2000, 0x77);
+        const uint8_t ram_after = emu.ram().page_ptr(0x0B)[0];
+        // ROM half is read-only (VHDL sram_pre_rdonly = NOT cpu_a(13)) —
+        // a write must NOT reach page 0x0A.
+        emu.mmu().write(0x0000, 0x11);
+        const uint8_t rom_after = emu.ram().page_ptr(0x0A)[0];
+
+        check("MF-SRAM-01",
+              "Next MF window reads external SRAM pages 0x0A (ROM half) / "
+              "0x0B (RAM half) per VHDL :3029-3036",
+              active && rd_rom == 0xA5 && rd_ram == 0x5A,
+              fmt("active=%d rd_rom=0x%02X rd_ram=0x%02X", active, rd_rom, rd_ram));
+        check("MF-SRAM-02",
+              "Next MF RAM half writes reach SRAM page 0x0B; ROM half is "
+              "read-only (page 0x0A unchanged)",
+              ram_after == 0x77 && rom_after == 0xA5,
+              fmt("ram[0x0B][0]=0x%02X rom[0x0A][0]=0x%02X (want 0x77/0xA5)",
+                  ram_after, rom_after));
+    }
+
+    // Leg B — standalone 128K: MF window is NOT backed by SRAM (private
+    // buffers). Writing the SRAM pages must not be visible through the MF
+    // window, and MF RAM writes must not reach the SRAM pages.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        emu.ram().page_ptr(0x0A)[0] = 0xA5;
+        emu.ram().page_ptr(0x0B)[0] = 0x5A;
+        mf_activate(emu);
+
+        const uint8_t rd_rom = emu.mmu().read(0x0000);   // private ROM (0xFF fill)
+        emu.mmu().write(0x2000, 0x77);                    // private RAM, not SRAM
+        const uint8_t sram_0b = emu.ram().page_ptr(0x0B)[0];
+
+        check("MF-SRAM-03",
+              "standalone (128K) MF window is unaffected by SRAM pages "
+              "0x0A/0x0B — reads the private buffer, not page 0x0A",
+              rd_rom != 0xA5,
+              fmt("rd_rom=0x%02X (must NOT be 0xA5)", rd_rom));
+        check("MF-SRAM-04",
+              "standalone (128K) MF RAM write stays in the private buffer, "
+              "does NOT reach SRAM page 0x0B",
+              sram_0b == 0x5A,
+              fmt("sram[0x0B][0]=0x%02X (want 0x5A, unchanged)", sram_0b));
+    }
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -733,6 +823,9 @@ int main() {
 
     test_nr03_machine_type_cold_boot_default();
     std::printf("  Group: MT-DEF (NR $03 cold-boot machine-type) — done\n");
+
+    test_task26_mf_sram_backing();
+    std::printf("  Group: MF-SRAM (Task 26 MF external-SRAM backing) — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",

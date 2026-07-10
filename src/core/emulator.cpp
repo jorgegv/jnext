@@ -180,6 +180,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // matching real hardware where the FPGA's flash-baked SRAM is not
     // wiped by NR 0x02 ← 0x01.
     multiface_.reset(/*hard=*/!preserve_memory);
+    // Task 26 item 5 — back the Multiface memory window with external SRAM
+    // pages 0x0A (ROM half, read-only) / 0x0B (RAM half) on the Next, per
+    // VHDL zxnext.vhd:3029-3036 (sram_pre_A21_A13 <= "00000101" & cpu_a(13),
+    // sram_pre_bank5 forced '0' → external SRAM, not the bank-5 VRAM). This
+    // unblocked by the Task 25 bank-5 un-aliasing (pages 0x0A/0x0B are now
+    // free plain SRAM). tbblue.fw loads enNextMf.rom into page 0x0A via the
+    // config-mode NR $04=$05 window during boot, so the MF ROM window reads
+    // the firmware-loaded content — exactly as real hardware. Mirrors the
+    // DivMmc set_ram_backing(ram_.page_ptr(16)) precedent. STANDALONE
+    // machines (48k/128k/plus3) modelled a real standalone Multiface with
+    // its OWN RAM/ROM chip → keep the private buffers (backing null), and
+    // clear any stale backing on a live machine-type switch. Idempotent;
+    // set on every init so soft reset preserves it.
+    if (cfg.type == MachineType::ZXN_ISSUE2) {
+        multiface_.set_rom_backing(ram_.page_ptr(0x0A));
+        multiface_.set_ram_backing(ram_.page_ptr(0x0B));
+    } else {
+        multiface_.set_rom_backing(nullptr);
+        multiface_.set_ram_backing(nullptr);
+    }
     nmi_source_.reset();
     // VHDL zxnext.vhd:5107 — `nr_d8_io_trap_fdc_en <= '0'` on i_reset.
     nr_d8_io_trap_fdc_en_ = false;

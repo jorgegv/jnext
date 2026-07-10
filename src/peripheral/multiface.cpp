@@ -323,8 +323,6 @@ bool Multiface::load_rom_bytes(const uint8_t* data, size_t size)
         return false;
     }
 
-    rom_.fill(0xFF);
-
     size_t to_copy = size;
     if (size < static_cast<size_t>(kRomSize)) {
         mf_log()->warn("Multiface ROM buffer short ({} bytes, expected {}), padding with 0xFF",
@@ -336,9 +334,19 @@ bool Multiface::load_rom_bytes(const uint8_t* data, size_t size)
         to_copy = kRomSize;
     }
 
-    std::memcpy(rom_.data(), data, to_copy);
+    // Task 26 item 5 — write into the ACTIVE ROM store. When an external
+    // SRAM backing is set (Next: page 0x0A), the MF ROM window reads that
+    // page, so the load must target it too — otherwise rom_data() (external)
+    // and the loaded private buffer would diverge. This seeds external SRAM
+    // page 0x0A with enNextMf.rom at init, matching the real-Next state
+    // after tbblue.fw's NR $04=$05 config-window load. On standalone
+    // machines (backing null) it writes the private buffer as before.
+    uint8_t* dst = rom_ext_ ? rom_ext_ : rom_.data();
+    std::fill(dst, dst + kRomSize, 0xFF);
+    std::memcpy(dst, data, to_copy);
 
-    mf_log()->info("loaded Multiface ROM from byte buffer ({} bytes)", to_copy);
+    mf_log()->info("loaded Multiface ROM from byte buffer ({} bytes, backing={})",
+                   to_copy, rom_ext_ ? "external-SRAM" : "private");
     return true;
 }
 

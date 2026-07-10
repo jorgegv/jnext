@@ -181,11 +181,35 @@ public:
     /// VHDL `invisible_eff = invisible AND NOT mode_48` (multiface.vhd:165).
     bool invisible_eff() const { return invisible_ && !mode_48_; }
 
+    // ── External SRAM backing (Task 26 item 5) ───────────────────────────
+    //
+    // VHDL zxnext.vhd:3029-3036 hard-wires the Multiface memory window
+    // ($0000-$3FFF when mf_mem_en=1) to external SRAM: the ROM half
+    // (cpu_a(13)=0) maps to physical page 0x0A (read-only), the RAM half
+    // (cpu_a(13)=1) maps to page 0x0B. `sram_pre_bank5` is forced '0'
+    // (:3033) so it is the external SRAM chip, NOT the internal bank-5
+    // dual-port VRAM (which shares the numeric page value only). On the
+    // real Next, tbblue.fw loads `enNextMf.rom` into page 0x0A via the
+    // config-mode NR $04=$05 window during boot.
+    //
+    // Emulator wires these Next-only (mirroring the DivMmc
+    // set_ram_backing(ram_.page_ptr(16)) precedent). When set, rom_data()/
+    // ram_data() return the external pages so the MMU overlay reads/writes
+    // physical SRAM 0x0A/0x0B. STANDALONE machines (48k/128k/plus3), where
+    // a real standalone Multiface had its own private RAM/ROM chip, keep
+    // the private buffers (backing left null). save_state() always
+    // serialises the PRIVATE buffer: on Next the live MF RAM lives in page
+    // 0x0B and is round-tripped by the main SRAM snapshot, so serialising
+    // the (unused) private buffer is harmless and schema-stable; on
+    // standalone the private buffer IS the RAM and is saved correctly.
+    void set_rom_backing(uint8_t* base) { rom_ext_ = base; }
+    void set_ram_backing(uint8_t* base) { ram_ext_ = base; }
+
     // ── ROM/RAM buffer access (consumed by Wave 1 E MMU overlay) ─────────
 
-    const uint8_t* rom_data() const { return rom_.data(); }
-    uint8_t*       ram_data()       { return ram_.data(); }
-    const uint8_t* ram_data() const { return ram_.data(); }
+    const uint8_t* rom_data() const { return rom_ext_ ? rom_ext_ : rom_.data(); }
+    uint8_t*       ram_data()       { return ram_ext_ ? ram_ext_ : ram_.data(); }
+    const uint8_t* ram_data() const { return ram_ext_ ? ram_ext_ : ram_.data(); }
 
     /// Load the 8 KB Multiface ROM from a byte buffer (extracted from SD
     /// `/MACHINES/NEXT/enNextMf.rom`). Mirrors `DivMmc::load_rom_bytes`
@@ -232,6 +256,13 @@ private:
 
     std::array<uint8_t, kRomSize> rom_;
     std::array<uint8_t, kRamSize> ram_;
+
+    // External SRAM backing (Task 26 item 5). Non-owning; when non-null the
+    // MMU overlay reads/writes these (physical SRAM pages 0x0A/0x0B on
+    // Next) instead of the private buffers above. Null on standalone
+    // machines. Not serialised (they point into Ram, which owns the state).
+    uint8_t* rom_ext_ = nullptr;
+    uint8_t* ram_ext_ = nullptr;
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
