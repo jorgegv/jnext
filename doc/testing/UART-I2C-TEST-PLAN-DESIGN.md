@@ -379,7 +379,7 @@ transactions targeting the DS1307.
 | RTC-19 | Task 28 fixed-time mode (`--rtc`): snapshot encodes pinned datetime | `set_fixed_time()` pins the clock; snapshot_time() writes the pinned std::tm (BCD) to regs 0x00-0x06 instead of the host clock, incl. day-of-week from mktime |
 | RTC-20 | Task 28 fixed-time survives `reset()` | Battery-backed DS1307 semantics; NextZXOS soft-resets mid-boot — post-reset snapshot must still encode the pinned datetime, not fall back to the host clock |
 | RTC-21 | Task 28 fixed-time honours 12h mode | Pinned 15:00 + reg 0x02 bit 6 set → next snapshot encodes 0x63 (mode bit 6 + PM bit 5 + BCD 03) |
-| RTC-22 | Task 28 `parse_rtc_datetime()` contract | Space and ISO-8601 'T' separators equivalent; rejects garbage, out-of-range fields, and mktime roll-over dates (Feb 30) |
+| RTC-22 | Task 28 `parse_rtc_datetime()` contract | Space and ISO-8601 'T' separators equivalent; timezone/DST-independent (DST-gap datetimes accepted — no mktime); leap years correct; rejects garbage, trailing characters, out-of-range fields, and invalid calendar dates (Feb 30, Feb 29 non-leap) |
 
 ### Group 11: UART IM2 Interrupt Integration
 

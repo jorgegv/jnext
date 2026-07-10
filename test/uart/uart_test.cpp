@@ -2152,11 +2152,15 @@ static void test_group10_rtc() {
     }
 
     // RTC-22 — Task 28 parse_rtc_datetime() contract: accepts both the
-    // space and ISO-8601 'T' separators (identical result), rejects
-    // garbage, out-of-range fields, and roll-over dates that mktime
-    // would silently normalize (Feb 30 → Mar 2).
+    // space and ISO-8601 'T' separators (identical result); rejects
+    // garbage, trailing characters, out-of-range fields, and invalid
+    // calendar dates (Feb 30, Feb 29 on non-leap years); is timezone/
+    // DST-independent (a datetime inside a host DST gap, e.g.
+    // 2026-03-29 02:30 in CET, must parse — review finding, 2026-07-10);
+    // computes tm_wday without mktime (2026-03-29 is a Sunday, Feb 29
+    // 2024 is a Thursday).
     {
-        std::tm a{}, b{}, dummy{};
+        std::tm a{}, b{}, gap{}, leap{}, dummy{};
         const bool space_ok = parse_rtc_datetime("2026-07-10 12:34:56", a);
         const bool iso_ok   = parse_rtc_datetime("2026-07-10T12:34:56", b);
         const bool same =
@@ -2164,16 +2168,31 @@ static void test_group10_rtc() {
             a.tm_mday == b.tm_mday && a.tm_hour == b.tm_hour &&
             a.tm_min == b.tm_min && a.tm_sec == b.tm_sec &&
             a.tm_wday == b.tm_wday;
+        // DST-gap datetime: must parse regardless of the host TZ, with
+        // the correct weekday (Sunday = 0).
+        const bool gap_ok = parse_rtc_datetime("2026-03-29 02:30:00", gap)
+                            && gap.tm_wday == 0;
+        // Leap-year handling: Feb 29 valid in 2024 (Thursday = 4),
+        // invalid in 2026 (and 1900, a non-leap century year).
+        const bool leap_ok = parse_rtc_datetime("2024-02-29 00:00:00", leap)
+                             && leap.tm_wday == 4;
+        const bool rej_nonleap  = !parse_rtc_datetime("2026-02-29 00:00:00", dummy);
         const bool rej_garbage  = !parse_rtc_datetime("bogus", dummy);
+        const bool rej_trailing = !parse_rtc_datetime("2026-07-10 12:34:56garbage", dummy);
         const bool rej_range    = !parse_rtc_datetime("2026-13-01 00:00:00", dummy);
         const bool rej_rollover = !parse_rtc_datetime("2026-02-30 10:00:00", dummy);
         check("RTC-22",
-              "Task 28 parse_rtc_datetime — space and 'T' forms equivalent; "
-              "garbage / out-of-range / Feb-30 roll-over rejected",
-              space_ok && iso_ok && same && rej_garbage && rej_range && rej_rollover,
-              fmt("space=%d iso=%d same=%d rej: garbage=%d range=%d rollover=%d",
+              "Task 28 parse_rtc_datetime — space/'T' forms equivalent; TZ/DST-"
+              "independent (DST-gap datetime accepted); leap years handled; "
+              "garbage / trailing chars / out-of-range / invalid dates rejected",
+              space_ok && iso_ok && same && gap_ok && leap_ok && rej_nonleap &&
+                  rej_garbage && rej_trailing && rej_range && rej_rollover,
+              fmt("space=%d iso=%d same=%d gap=%d(wday=%d) leap=%d(wday=%d) rej: "
+                  "nonleap=%d garbage=%d trailing=%d range=%d rollover=%d",
                   space_ok ? 1 : 0, iso_ok ? 1 : 0, same ? 1 : 0,
-                  rej_garbage ? 1 : 0, rej_range ? 1 : 0, rej_rollover ? 1 : 0));
+                  gap_ok ? 1 : 0, gap.tm_wday, leap_ok ? 1 : 0, leap.tm_wday,
+                  rej_nonleap ? 1 : 0, rej_garbage ? 1 : 0, rej_trailing ? 1 : 0,
+                  rej_range ? 1 : 0, rej_rollover ? 1 : 0));
     }
 }
 

@@ -68,33 +68,43 @@ inline bool parse_machine_type(const std::string& s, MachineType& out) {
 /// Task 28 — parse a `--rtc` datetime of the form "YYYY-MM-DD HH:MM:SS"
 /// (ISO-8601 "YYYY-MM-DDTHH:MM:SS" also accepted, so the value can be
 /// passed where shell quoting is awkward, e.g. regression_tests.conf)
-/// into a normalized std::tm (tm_wday computed via mktime). Rejects
-/// out-of-range fields and dates that mktime would silently roll over
-/// (e.g. Feb 30). Returns true on success.
+/// into a std::tm with tm_wday computed. Fully timezone/DST-independent:
+/// the DS1307 has no timezone concept, and routing through mktime()
+/// (local-time semantics) falsely rejected valid datetimes that fall in
+/// a host DST gap (e.g. "2026-03-29 02:30:00" under TZ=Europe/Madrid).
+/// Calendar validation (incl. leap years) and day-of-week (Sakamoto's
+/// algorithm) are computed directly. Trailing characters after the
+/// seconds field are rejected. Returns true on success.
 inline bool parse_rtc_datetime(const std::string& s, std::tm& out) {
-    int y = 0, mo = 0, d = 0, h = 0, mi = 0, se = 0;
-    if (std::sscanf(s.c_str(), "%d-%d-%d%*1[T ]%d:%d:%d", &y, &mo, &d, &h, &mi, &se) != 6)
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, se = 0, consumed = -1;
+    if (std::sscanf(s.c_str(), "%d-%d-%d%*1[T ]%d:%d:%d%n",
+                    &y, &mo, &d, &h, &mi, &se, &consumed) != 6)
         return false;
-    if (y < 1900 || mo < 1 || mo > 12 || d < 1 || d > 31 ||
+    if (consumed < 0 || s[static_cast<size_t>(consumed)] != '\0')
+        return false;                       // trailing garbage
+    if (y < 1900 || mo < 1 || mo > 12 || d < 1 ||
         h < 0 || h > 23 || mi < 0 || mi > 59 || se < 0 || se > 59)
         return false;
-    std::tm t{};
-    t.tm_year  = y - 1900;
-    t.tm_mon   = mo - 1;
-    t.tm_mday  = d;
-    t.tm_hour  = h;
-    t.tm_min   = mi;
-    t.tm_sec   = se;
-    t.tm_isdst = -1;
-    std::tm norm = t;
-    if (std::mktime(&norm) == static_cast<std::time_t>(-1))
+    // Days-in-month with the Gregorian leap-year rule.
+    static const int mdays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    const bool leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+    const int dim = (mo == 2 && leap) ? 29 : mdays[mo - 1];
+    if (d > dim)
         return false;
-    // mktime normalizes invalid dates instead of failing — reject any
-    // roll-over so "2026-02-30" doesn't silently become March 2nd.
-    if (norm.tm_year != t.tm_year || norm.tm_mon != t.tm_mon ||
-        norm.tm_mday != t.tm_mday || norm.tm_hour != t.tm_hour)
-        return false;
-    out = norm;
+    // Sakamoto's day-of-week algorithm (Gregorian; 0 = Sunday).
+    static const int t[12] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    const int yy = (mo < 3) ? y - 1 : y;
+    const int wday = (yy + yy / 4 - yy / 100 + yy / 400 + t[mo - 1] + d) % 7;
+    std::tm r{};
+    r.tm_year  = y - 1900;
+    r.tm_mon   = mo - 1;
+    r.tm_mday  = d;
+    r.tm_hour  = h;
+    r.tm_min   = mi;
+    r.tm_sec   = se;
+    r.tm_wday  = wday;
+    r.tm_isdst = 0;
+    out = r;
     return true;
 }
 
