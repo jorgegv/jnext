@@ -3706,7 +3706,6 @@ int main() {
     group_r3();  std::printf("  §8  ROM3 conditional     done\n");
     group_nm();  std::printf("  §9  NMI / button         done\n");
     group_na();  std::printf("  §10 NR 0x0A enable       done\n");
-    group_rb();  std::printf("  §12 RAM SRAM backing     done\n");
     group_sm();  std::printf("  §11 SRAM mapping         done\n");
     group_ss();  std::printf("  §12 Port 0xE7 CS         done\n");
     group_sx();  std::printf("  §13 Port 0xEB xchg       done\n");
@@ -3715,6 +3714,7 @@ int main() {
     group_mx();  std::printf("  §16 MISO mux             done\n");
     group_in();  std::printf("  §17 Integration          done\n");
     group_po();  std::printf("  §18 PriOverride G46(b)   done\n");
+    group_rb();  std::printf("  §19 RAM SRAM backing     done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

@@ -5556,9 +5556,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     renderer_.ula().set_ram(&ram_);
     // Bank-7 lower-half dual-port BRAM (VHDL bank7_ram dpram2,
     // zxnext.vhd:6670): ULA shadow screen + tilemap bank-7 fetches read
-    // the same dedicated buffer the MMU serves for page 0x0E.
-    renderer_.ula().set_bank7_bram(mmu_.bank7_bram());
-    tilemap_.set_bank7_bram(mmu_.bank7_bram());
+    // the same dedicated buffer the MMU serves for page 0x0E — Next
+    // machine only, mirroring the rebuild_ptr rom_in_sram_ gate.
+    // Standalone 48K/128K/+3 personalities keep bank 7 in flat RAM, so
+    // the pointer is cleared there (init is re-entrant across machine
+    // switches) and the ULA/tilemap page-14 fallback stays consistent
+    // with where the MMU routes the writes.
+    const bool next_machine = (cfg.type == MachineType::ZXN_ISSUE2);
+    renderer_.ula().set_bank7_bram(next_machine ? mmu_.bank7_bram()
+                                                : nullptr);
+    tilemap_.set_bank7_bram(next_machine ? mmu_.bank7_bram() : nullptr);
 
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);

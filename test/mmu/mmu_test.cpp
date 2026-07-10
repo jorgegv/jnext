@@ -4311,6 +4311,32 @@ void test_cat28_bank7_bram_standin() {
               fmt("sram[0x2E][0x123]=0x%02X bram[0x123]=0x%02X mmu_read=0x%02X",
                   sram_2e, bram, via_mmu));
     }
+
+    // BANK7-05 (review REJECT-round fix, 2026-07-10): standalone legacy
+    // machines (rom_in_sram_=false — the Fixture default) keep bank 7 as
+    // ORDINARY flat RAM at pages 0x0E/0x0F. The first dedicated-buffer
+    // commit redirected page 0x0E unconditionally, silently splitting a
+    // standalone-128K program's 16K bank 7 across two disjoint memories
+    // (lower 8K in the BRAM buffer, upper 8K in real RAM). Discriminative:
+    // write through the real 128K paging port path and assert CONTENT
+    // lands in ram_ page 0x0E (the pre-existing map_128k_bank rows only
+    // asserted get_page(), which is blind to this).
+    {
+        Fixture f;
+        f.fresh();                          // rom_in_sram_ = false
+        f.mmu.map_128k_bank(0x07);          // port 0x7FFD bank 7
+        f.mmu.write(0xC000, 0xAB);          // lower 8K of bank 7
+        f.mmu.write(0xE000, 0xCD);          // upper 8K of bank 7
+        const uint8_t lo   = f.ram.page_ptr(0x0E)[0];
+        const uint8_t hi   = f.ram.page_ptr(0x0F)[0];
+        const uint8_t bram = f.mmu.bank7_bram()[0];
+        check("BANK7-05",
+              "standalone-machine (rom_in_sram=false) bank-7 writes land in "
+              "flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer",
+              lo == 0xAB && hi == 0xCD && bram != 0xAB,
+              fmt("ram[0x0E][0]=0x%02X ram[0x0F][0]=0x%02X bram[0]=0x%02X",
+                  lo, hi, bram));
+    }
 }
 
 int main() {

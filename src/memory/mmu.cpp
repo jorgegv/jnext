@@ -266,9 +266,15 @@ void Mmu::rebuild_ptr(int slot) {
         // Bank-7 lower half (page 0x0E) is a dedicated dual-port BRAM
         // (VHDL bank7_ram dpram2, zxnext.vhd:6670; mem_active_bank7 gate
         // at :2962+3039-3041) — served from bank7_bram_, never from
-        // external SRAM. Unconditional across machine personalities,
-        // matching the VHDL (the gate has no machine-type term).
-        if (page == 0x0E) {
+        // external SRAM. Gated on rom_in_sram_ (= Next machine): the
+        // VHDL gate is unconditional *within the Next core*, but jnext's
+        // standalone 48K/128K/+3 personalities use the flat legacy RAM
+        // model where bank 7 is ordinary RAM at pages 0x0E/0x0F —
+        // review 2026-07-10 (REJECT round): an ungated redirect diverted
+        // standalone-128K bank-7 writes into the isolated 8K buffer,
+        // splitting the 16K bank in half. Mirrors to_sram_page()'s
+        // !rom_in_sram_ early-return.
+        if (rom_in_sram_ && page == 0x0E) {
             read_ptr_[slot]  = bank7_bram_.data();
             write_ptr_[slot] = bank7_bram_.data();
             return;
