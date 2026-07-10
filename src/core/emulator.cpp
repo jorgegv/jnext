@@ -380,17 +380,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // nr_03_machine_type field. Otherwise on hard reset Mmu starts at
     // cfg.type but NextReg's field is preserved (per VHDL :1103) — a
     // divergence where NR $03 read-back disagrees with actual routing.
-    // ZXN_ISSUE2 maps to typ_sel=$04 (Pentagon/128K-class else branch
-    // per VHDL :2997-3007); semantically Pentagon, functionally
-    // identical to ZXN under current_sram_rom().
+    //
+    // Task 26 (P3, 2026-07-11): the actual ZX Spectrum Next (ZXN_ISSUE2)
+    // must cold-boot NR $03 machine-type to the VHDL FPGA power-on default
+    // "011" (=+3), NOT a Pentagon/128K-class value. VHDL zxnext.vhd:1103:
+    //   signal nr_03_machine_type : std_logic_vector(2 downto 0) := "011";
+    // This initial value is machine-agnostic silicon state and is NOT
+    // re-asserted by the soft/hard reset block (zxnext.vhd:4926-5111 has no
+    // nr_03_machine_type assignment) — it persists until firmware writes NR
+    // $03 while config_mode=1 (:5137-5145). On real hardware the field
+    // therefore reads "011" until NextZXOS commits the true type; the prior
+    // 0x04 push made jnext's Next read "100" (=128K per the :5741-5757
+    // decode) at cold boot, diverging from silicon. The divergence was
+    // masked on the boot path because NextZXOS explicitly commits a value
+    // early — a "works by luck" gap. The 48k/128k/plus3 cases keep their
+    // matching typ_sel: those are jnext machine abstractions selected at
+    // the CLI, and NR $03 read-back reflecting that choice is intended.
     if (!preserve_memory) {
         mmu_.set_machine_type(cfg.type);
-        uint8_t typ_sel = 0x04;  // ZXN_ISSUE2 default → Pentagon/Next
+        uint8_t typ_sel = 0x03;  // ZXN_ISSUE2 → +3 "011" (VHDL :1103 power-on)
         switch (cfg.type) {
             case MachineType::ZX48K:      typ_sel = 0x01; break;
             case MachineType::ZX128K:     typ_sel = 0x02; break;
             case MachineType::ZX_PLUS3:   typ_sel = 0x03; break;
-            case MachineType::ZXN_ISSUE2: typ_sel = 0x04; break;
+            case MachineType::ZXN_ISSUE2: typ_sel = 0x03; break;  // +3 per VHDL power-on default
         }
         nextreg_.set_nr_03_machine_type(typ_sel);
 

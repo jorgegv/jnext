@@ -659,6 +659,49 @@ static void test_machine_switch_clears_rom_in_sram() {
               lo, hi, bram));
 }
 
+// ── Task 26 P3: NR $03 machine-type cold-boot default ────────────────
+//
+// VHDL zxnext.vhd:1103 —
+//   signal nr_03_machine_type : std_logic_vector(2 downto 0) := "011";
+// This FPGA power-on value is machine-agnostic and is NOT re-asserted by
+// the soft/hard reset block (zxnext.vhd:4926-5111 contains no
+// nr_03_machine_type assignment), so on real hardware NR $03 machine-type
+// reads "011" (=+3) at cold boot until firmware commits a value while
+// config_mode=1 (:5137-5145). The prior jnext code pushed 0x04 for the
+// Next at hard reset, so NR $03 read-back was "100" (=128K per the
+// :5741-5757 decode) — a "works by luck" divergence masked on the boot
+// path only because NextZXOS commits the real type early.
+//
+// Discriminative: with the pre-fix `ZXN_ISSUE2 → 0x04`, MT-DEF-01 sees
+// mtype==0x04 and FAILS. NR $03 machine-type is read-back-only state
+// (its sole consumer is the NR $03 read handler at emulator.cpp:2584);
+// MMU routing is driven by cfg.type independently, so this changes only
+// the register surface, not memory decode.
+static void test_nr03_machine_type_cold_boot_default() {
+    Emulator next_emu;
+    EmulatorConfig ncfg;
+    ncfg.type = MachineType::ZXN_ISSUE2;
+    ncfg.rewind_buffer_frames = 0;
+    next_emu.init(ncfg);
+    const uint8_t next_mt = nr_read(next_emu, 0x03) & 0x07;
+    check("MT-DEF-01",
+          "Next (ZXN_ISSUE2) cold-boot NR $03 machine-type = 011 (+3) "
+          "per VHDL :1103 power-on default",
+          next_mt == 0x03,
+          fmt("nr03_mtype=0x%02X (want 0x03)", next_mt));
+
+    Emulator p3_emu;
+    EmulatorConfig pcfg;
+    pcfg.type = MachineType::ZX_PLUS3;
+    pcfg.rewind_buffer_frames = 0;
+    p3_emu.init(pcfg);
+    const uint8_t p3_mt = nr_read(p3_emu, 0x03) & 0x07;
+    check("MT-DEF-02",
+          "+3 (ZX_PLUS3) cold-boot NR $03 machine-type = 011 (+3)",
+          p3_mt == 0x03,
+          fmt("nr03_mtype=0x%02X (want 0x03)", p3_mt));
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -687,6 +730,9 @@ int main() {
 
     test_machine_switch_clears_rom_in_sram();
     std::printf("  Group: SWITCH (live machine-type re-init) — done\n");
+
+    test_nr03_machine_type_cold_boot_default();
+    std::printf("  Group: MT-DEF (NR $03 cold-boot machine-type) — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",
