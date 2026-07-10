@@ -6,17 +6,15 @@ Visual reference for every screenshot regression test in `test/00regression/`. E
 
 ---
 
-## NextZXOS native boot — milestone (v0.94.0)
-
-The RTC is pinned with `--rtc` (Task 28) so the menu's date/time row is deterministic.
+## NextZXOS native boot
 
 ### `boot-nextzxos-splash`
-Mid-boot TBBlue splash (frame 260) while tbblue.fw streams ROMs through the config-mode NR $04 window — locks the bank-5 VRAM aliasing fix (pre-fix this frame was colour garbage).
+Mid-boot TBBlue splash with the firmware ROM-loading log.
 
 <img src="../test/00regression/img/boot-nextzxos-splash-reference.png" width="384" alt="boot-nextzxos-splash reference"/>
 
 ### `boot-nextzxos-welcome`
-Native NextZXOS boot to the welcome screen (FPGA boot ROM → tbblue.fw → NextZXOS) from the canonical SD image.
+NextZXOS welcome screen after a full native boot from the canonical SD image.
 
 <img src="../test/00regression/img/boot-nextzxos-welcome-reference.png" width="384" alt="boot-nextzxos-welcome reference"/>
 
