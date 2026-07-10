@@ -296,11 +296,31 @@ ULA shadow screen + tilemap bank-7 fetches updated to match
   sdcard CMD18-05, cpu soft-reset register-file, nextreg MID-01/RO-01/RO-02/
   SEL-03, ula S5.09 constants, tilemap BANK7 constant.
 
-## Follow-ups required
+## Review (completed 2026-07-10) — APPROVED
 
-1. **Independent code review of the whole branch** — MANDATORY per project
-   rules; could not be dispatched in-session (agent spend limit reached).
-2. P3 + P5(a/b/d) + the L2 bank5/7 routing fix, each with tests.
+Three-round independent review of the full branch:
+
+1. Round 1 (on f4fd4a83): APPROVE-WITH-NITS + one MAJOR — the "SRAM page
+   0x2E is dead space" claim was refuted (config-mode NR $04=$17 reaches
+   every SRAM page). Fixed properly in 5f7e0b46: dedicated bank7_bram_
+   buffer per the VHDL truth (bank7_ram dpram2, zxnext.vhd:6670), plus
+   BANK7-04 exercising the real config-mode path; minor findings (getenv
+   caching, stale doc rows, labels) fixed.
+2. Round 2 (on 5f7e0b46): REJECT — BLOCKER: the redirect was unconditional
+   and broke standalone-128K/+3 bank-7 RAM (reviewer reproduced with a
+   probe against the built library). Fixed in d12e4215 (rom_in_sram gate +
+   Next-only ULA/tilemap wiring + BANK7-05).
+3. Round 3 (on d12e4215): APPROVE-WITH-NITS + required follow-up — stale
+   rom_in_sram on live machine-type switch (pre-existing). Fixed in
+   6850b600 (+ SWITCH-01/02).
+4. Final ACK (on 6850b600): **APPROVE, no residual required items.**
+
+## Remaining follow-ups (non-blocking)
+
+1. The mid-boot visual glitch the user observed (parked; suspects: L2
+   bank5/7 routing corner, splash-era rendering).
+2. P3 + P5(a/b/d) + the L2 bank5/7 routing fix, each with tests; plus the
+   bank-5 (pages 0x0A/0x0B) same-class config-window ticket from review.
 3. Boot-to-menu regression test in the screenshot suite (welcome + menu
    references) so the native boot never regresses silently.
 4. Retire `--bypass-tbblue-fw` (zx_go removed their warm-boot equivalent
