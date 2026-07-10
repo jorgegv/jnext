@@ -229,3 +229,79 @@ single fix with the stall**; P2 (register file) and P4 (dual CS) are confirmed b
 fix regardless of what P0 shows; P1 (machine ID) is a deliberate design choice whose
 old justification must be re-tested under the new evidence, with its own regression
 coverage.
+
+---
+
+# RESOLUTION (2026-07-10) — NextZXOS BOOTS NATIVELY
+
+Implemented on branch `nextzxos-boot-fixes` (commit `f4fd4a83`). jnext now
+cold-boots NextZXOS through the authentic chain — FPGA bootrom → TBBLUE.FW
+→ **NextZXOS welcome screen → main menu** (verified by headless screenshots,
+`--delayed-keypress 26 space` reaches the Browser/Command Line/NextBASIC menu
+with live RTC).
+
+## The actual root cause (found via P0 + symmetric zx_go trace)
+
+None of the plan's P1-P5 candidates was the proximate killer. The
+discriminating instrument was the **symmetric instruction-trace diff against
+zx_go booting the same bootrom + the same SD image** (zx_go harness patched
+to serve `nextzxos-1gb-fat32fix.img` verbatim — env `ZX_GO_NEXT_SD_IMAGE`).
+Method: align both traces at the staging soft reset (PC=$6D31), uniq-collapse
+HALT repeats, walk back from jnext's trap to the last common window.
+
+The fork: `LD SP,($DA35)` at $1BEC loaded $5F2F in jnext vs $5BF5 in zx_go —
+a **memory divergence** in NextZXOS's saved-SP variable. The writer hunt
+(env-gated logical + physical byte watches) showed no logical writer:
+**`Mmu::to_sram_page` aliased logical page 0x0E (bank-7 BRAM,
+zxnext.vhd:2962 `mem_active_bank7`, `sram_pre_active` gated off at
+:3039-3041/:3061) onto PHYSICAL SRAM page 0x0E — the alt-ROM upper half.**
+NextZXOS's alt-ROM install (NR $8C=$C0 write-over observed at PC=$0E3B/$007F)
+overwrote its own MMU-page-14 workspace; the corrupted saved SP made a later
+RET pop $0000 → enNextZX bank-2 sentinel (`00 18 FD`) → the observed trap.
+
+Fix: the bank-7 BRAM stand-in now lives at SRAM page **0x2E** — the page's
+natural +0x20 shift target, which is dead space on real hardware (only MMU
+page 0x0E computes address 0x2E and the BRAM answers instead of SRAM).
+ULA shadow screen + tilemap bank-7 fetches updated to match
+(`src/memory/mmu.h`, `src/video/ula.cpp`, `src/video/tilemap.cpp`).
+
+## Shipped alongside (VHDL-conformance, from the plan)
+
+- **P1** NR $00 machine ID → $0A (`emulator.cpp`, `nextreg.cpp`).
+- **P2** Soft reset preserves the Z80 register file (`z80_cpu.{h,cpp}`,
+  `fuse_z80_reset(0)` = exact t80n semantics).
+- **P4** SD card on SPI socket 0 only.
+- **P5(c)** CMD18 stream survives CS deassert (`sd_card.cpp`) — this WAS on
+  the boot path (NextZXOS closes a pre-reset-era stream with CMD12 post-reset).
+- **DivMMC RAM = physical SRAM pages 16-31** (`divmmc.{h,cpp}` ram backing) —
+  makes tbblue.fw's config-window installs visible to the runtime overlay
+  (zx_go gap #1; prerequisite for the $3D00 trampoline dispatch).
+
+## Deliberately deferred
+
+- **P3** (cold NR $03 = "011"): pre-commit fidelity only; entangled with the
+  MachineType enum; needs its own pass.
+- **P5(a/b/d)** (Ncr=2, OCR $00 voltage bytes, real CRC-16): not boot-blocking
+  for this image; still real conformance gaps worth a follow-up batch.
+- L2 write-over uses the bank5/7-bypassing `to_sram_page`, but VHDL
+  `layer2_A21_A13` (zxnext.vhd:2971) never bypasses — L2 banks 5/7 misroute.
+  Rare corner (L2 over BRAM banks); follow-up fix + test.
+
+## Verification
+
+- Boot to welcome: headless screenshot at t=25 s; menu via
+  `--delayed-keypress 26 space`, screenshot at t=33 s. RTC live, 1792K.
+- Triplet: **ctest 41/41 • FUSE 1356/1356 • regression 43/0/0**.
+- New/updated tests: mmu Cat28 BANK7-01..03 + BNK-03, divmmc §11 RB-01..03,
+  sdcard CMD18-05, cpu soft-reset register-file, nextreg MID-01/RO-01/RO-02/
+  SEL-03, ula S5.09 constants, tilemap BANK7 constant.
+
+## Follow-ups required
+
+1. **Independent code review of the whole branch** — MANDATORY per project
+   rules; could not be dispatched in-session (agent spend limit reached).
+2. P3 + P5(a/b/d) + the L2 bank5/7 routing fix, each with tests.
+3. Boot-to-menu regression test in the screenshot suite (welcome + menu
+   references) so the native boot never regresses silently.
+4. Retire `--bypass-tbblue-fw` (zx_go removed their warm-boot equivalent
+   once cold boot worked); keep the diagnostics.
