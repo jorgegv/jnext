@@ -3635,6 +3635,63 @@ void group_po() {
 
 // ── Main ─────────────────────────────────────────────────────────────
 
+
+// ─── §RB — DivMMC RAM physical-SRAM backing (NextZXOS-boot fix 2026-07-10) ──
+//
+// On real hardware DivMMC RAM is physical SRAM pages 16-31 — the SAME
+// pages the config-mode NR $04 window ($08-$0F) routes to (zxnext.vhd:
+// 3044-3050 sram_pre_A21_A13 = nr_04 & cpu_a(13)). tbblue.fw installs
+// firmware modules (e.g. the NextZXOS ROM3 $3D00 dispatch trampoline)
+// through that window; the runtime DivMMC overlay must see them.
+// Emulator::init wires DivMmc::set_ram_backing(ram_.page_ptr(16)); the
+// device's private buffer is only the unit-test fallback.
+
+static void group_rb() {
+    // RB-01: with external backing, a byte written through the backing
+    // (as the config-mode NR $04=$08 window does) is visible through the
+    // DivMMC overlay read of slot 1 bank 0.
+    {
+        MmuDivFixture f;
+        f.dm.set_ram_backing(f.ram.page_ptr(16));
+        f.ram.page_ptr(16)[0x1D00] = 0xC9;            // "trampoline" byte
+        f.dm.write_control(0x80);                      // conmem, bank 0
+        const uint8_t via_overlay = f.dm.read(0x3D00); // slot 1, offset 0x1D00
+        check("RB-01",
+              "config-window write to SRAM page 16 is visible via DivMMC "
+              "overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093)",
+              via_overlay == 0xC9,
+              fmt("read(0x3D00)=0x%02X (expected 0xC9)", via_overlay));
+    }
+
+    // RB-02: overlay writes land in the same physical pages (bank 2 →
+    // SRAM page 18), so the config window sees them symmetrically.
+    {
+        MmuDivFixture f;
+        f.dm.set_ram_backing(f.ram.page_ptr(16));
+        f.dm.write_control(0x80 | 0x02);               // conmem, bank 2
+        f.dm.write(0x2123, 0x5A);
+        const uint8_t phys = f.ram.page_ptr(18)[0x0123];
+        check("RB-02",
+              "DivMMC overlay write (bank 2) lands in physical SRAM page 18",
+              phys == 0x5A,
+              fmt("ram[18][0x123]=0x%02X (expected 0x5A)", phys));
+    }
+
+    // RB-03: without backing (unit-test default), the private buffer is
+    // used and physical SRAM is untouched — fallback intact.
+    {
+        MmuDivFixture f;
+        f.dm.write_control(0x80);
+        f.dm.write(0x2050, 0x77);
+        check("RB-03",
+              "no backing → private buffer serves reads; SRAM page 16 untouched",
+              f.dm.read(0x2050) == 0x77 &&
+                  f.ram.page_ptr(16)[0x0050] != 0x77,
+              fmt("read=0x%02X sram=0x%02X", f.dm.read(0x2050),
+                  f.ram.page_ptr(16)[0x0050]));
+    }
+}
+
 int main() {
     std::printf("DivMMC + SPI Compliance Tests (rewritten Task 1 Wave 2)\n");
     std::printf("======================================================\n\n");
@@ -3649,6 +3706,7 @@ int main() {
     group_r3();  std::printf("  §8  ROM3 conditional     done\n");
     group_nm();  std::printf("  §9  NMI / button         done\n");
     group_na();  std::printf("  §10 NR 0x0A enable       done\n");
+    group_rb();  std::printf("  §11 RAM SRAM backing     done\n");
     group_sm();  std::printf("  §11 SRAM mapping         done\n");
     group_ss();  std::printf("  §12 Port 0xE7 CS         done\n");
     group_sx();  std::printf("  §13 Port 0xEB xchg       done\n");

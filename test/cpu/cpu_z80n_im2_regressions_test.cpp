@@ -3026,6 +3026,65 @@ void test_v21_im2_01_int_line_gated_on_im_mode(Result& res) {
 // strip the int_status side of the OR for the latch readback.)
 //
 // Post-fix: post-tick state = S_0, im2_int_req = false.
+
+// ---------------------------------------------------------------------------
+// NextZXOS-boot fix (2026-07-10): soft reset preserves the Z80 register file
+//
+// VHDL t80n.vhd:429-447 — the /RESET clause resets PC, ACC/F, AF', I, R,
+// SP (= 0xFFFF), IFF1/2, IM. The register-file process at t80n.vhd:
+// 1493-1498 has an EMPTY reset branch: BC/DE/HL/BC'/DE'/HL'/IX/IY are
+// PRESERVED across reset. NextZXOS's staging soft reset relies on this
+// (its post-reset trampoline dereferences (IX+$1F) immediately).
+// jnext's Z80Cpu::reset(hard=false) maps to fuse_z80_reset(0), which
+// implements exactly the t80n subset; reset(true) (power-on) additionally
+// zeroes the register file as a model of power-on-undefined.
+//
+// Discriminative: revert Emulator/Z80Cpu to the pre-fix unconditional
+// fuse_z80_reset(1) → BC/DE/HL/IX/IY come back 0 → FAIL.
+// ---------------------------------------------------------------------------
+void test_soft_reset_preserves_register_file(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.BC = 0x1122; regs.DE = 0x3344; regs.HL = 0x5566;
+    regs.BC2 = 0x7788; regs.DE2 = 0x99AA; regs.HL2 = 0xBBCC;
+    regs.IX = 0xDDEE; regs.IY = 0xF001;
+    regs.AF = 0x2345; regs.PC = 0x8000; regs.SP = 0x7000;
+    regs.I = 0x3F; regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1;
+    cpu.set_registers(regs);
+    // Flush regs_ into the FUSE globals (reset() operates on those; in the
+    // emulator they are always in sync after the last executed instruction).
+    mem.write(0x8000, 0x00);          // NOP at PC
+    cpu.execute();
+
+    cpu.reset(/*hard=*/false);
+    auto out = cpu.get_registers();
+
+    check(res, "soft-reset-preserves-regfile: BC/DE/HL survive",
+          out.BC == 0x1122 && out.DE == 0x3344 && out.HL == 0x5566);
+    check(res, "soft-reset-preserves-regfile: BC'/DE'/HL' survive",
+          out.BC2 == 0x7788 && out.DE2 == 0x99AA && out.HL2 == 0xBBCC);
+    check(res, "soft-reset-preserves-regfile: IX/IY survive",
+          out.IX == 0xDDEE && out.IY == 0xF001);
+    check(res, "soft-reset-preserves-regfile: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 (t80n reset set)",
+          out.PC == 0x0000 && out.SP == 0xFFFF && out.AF == 0xFFFF &&
+          out.I == 0 && out.IFF1 == 0 && out.IFF2 == 0 && out.IM == 0);
+
+    // Hard reset still zeroes the register file (power-on-undefined model).
+    cpu.set_registers(regs);
+    mem.write(0x8000, 0x00);
+    cpu.execute();
+    cpu.reset(/*hard=*/true);
+    auto hard = cpu.get_registers();
+    check(res, "hard-reset-zeroes-regfile (power-on model)",
+          hard.BC == 0 && hard.DE == 0 && hard.HL == 0 &&
+          hard.IX == 0 && hard.IY == 0);
+}
+
 void test_v22_im2_01_on_reti_clears_im2_int_req_latch(Result& res) {
     detach_contention();
 
@@ -3187,6 +3246,7 @@ int main() {
     // AND NOT im2_isr_serviced`). Pre-fix: latch left stale → next tick's
     // S_0 branch re-transitions to S_REQ → spurious re-trigger.
     test_v22_im2_01_on_reti_clears_im2_int_req_latch(res);
+    test_soft_reset_preserves_register_file(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

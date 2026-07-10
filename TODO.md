@@ -1,8 +1,5 @@
 # JNEXT — Pending Features & Known Issues
 
-## NextZXOS Boot (v1.1 milestone)
-- NextZXOS boots from SD card image
-
 ## File Formats
 - Z80 snapshot format loading (`.z80`)
 - DSK disk image loading + FDC emulation (`.dsk`)

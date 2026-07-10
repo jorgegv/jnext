@@ -2529,7 +2529,15 @@ void test_cat15_bank57() {
                   at_0b, at_2b));
     }
 
-    // BNK-03 — page 0x0E bypasses the shift (bank 7 lower half).
+    // BNK-03 — page 0x0E (bank 7 lower half) is a dedicated BRAM on real
+    // hardware (zxnext.vhd:2962 mem_active_bank7, sram_pre_active gated 0
+    // at :3039-3041). jnext hosts its stand-in at SRAM page 0x2E — the
+    // normal +0x20 shift target, which is dead space on real HW — so that
+    // it cannot collide with PHYSICAL page 0x0E (alt-ROM upper half).
+    // NextZXOS-boot fix 2026-07-10: pre-fix this test pinned the bypass to
+    // ram_[0x0E], which is where the alt-ROM install clobbered NextZXOS's
+    // MMU-page-14 workspace ($DA35 saved SP → RET-to-$0000 boot trap).
+    // See Cat28 (BANK7-01..03) for the discriminative collision tests.
     {
         Fixture f;
         f.fresh();
@@ -2540,10 +2548,10 @@ void test_cat15_bank57() {
         const uint8_t at_0e = f.ram.page_ptr(0x0E)[0];
         const uint8_t at_2e = f.ram.page_ptr(0x2E)[0];
         check("BNK-03",
-              "page 0x0E bypasses +0x20 shift in Next mode (dual-port bank 7 lo) "
-              "— VHDL zxnext.vhd:2961-2962",
-              at_0e == 0x7E && at_2e != 0x7E,
-              fmt("ram[0x0E][0]=0x%02X ram[0x2E][0]=0x%02X (want 0x7E at 0x0E only)",
+              "page 0x0E maps to the bank-7 BRAM stand-in at ram_[0x2E], "
+              "leaving alt-ROM phys page 0x0E untouched — VHDL zxnext.vhd:2962+3039",
+              at_2e == 0x7E && at_0e != 0x7E,
+              fmt("ram[0x0E][0]=0x%02X ram[0x2E][0]=0x%02X (want 0x7E at 0x2E only)",
                   at_0e, at_2e));
     }
 
@@ -4195,6 +4203,82 @@ void test_cat27_v11_mem_01_save_load_high_page() {
 
 // ── main ─────────────────────────────────────────────────────────────
 
+
+// ---------------------------------------------------------------------------
+// Cat28 — bank-7 BRAM stand-in relocation (NextZXOS-boot fix, 2026-07-10)
+//
+// VHDL zxnext.vhd:2962 marks MMU page 0x0E (16K bank 7 lower half) as a
+// dedicated dual-port BRAM (mem_active_bank7; sram_pre_active forced 0 at
+// :3039-3041/:3061). Physical SRAM page 0x0E is a DIFFERENT memory — the
+// alt-ROM upper half (config-mode NR $04=$07 window / NR $8C write-over /
+// enAltZX.rom seeding). jnext used to alias both onto ram_ page 0x0E; the
+// alt-ROM install then corrupted NextZXOS's MMU-page-14 workspace (the
+// $DA35 saved-SP clobber that killed the native NextZXOS boot at a RET-to-
+// $0000 sentinel trap). The BRAM stand-in now lives at ram_ page 0x2E,
+// which is dead space on real hardware (only MMU page 0x0E computes SRAM
+// address 0x2E, and the BRAM answers instead — zxnext.vhd:2964+3039).
+// ---------------------------------------------------------------------------
+
+void test_cat28_bank7_bram_standin() {
+    set_group("Cat28 bank-7 BRAM stand-in");
+
+    // BANK7-01: Next mode — MMU page 0x0E routes to the BRAM stand-in at
+    // ram_ page 0x2E, NOT to physical page 0x0E (the alt-ROM area).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(6, 0x0E);
+        f.mmu.write(0xC000, 0xA5);
+        const uint8_t at_2e = f.ram.page_ptr(0x2E)[0];
+        const uint8_t at_0e = f.ram.page_ptr(0x0E)[0];
+        check("BANK7-01",
+              "MMU page 0x0E lands on BRAM stand-in ram_[0x2E], not alt-ROM "
+              "phys page 0x0E — VHDL zxnext.vhd:2962+3039-3041",
+              at_2e == 0xA5 && at_0e != 0xA5,
+              fmt("ram[0x2E][0]=0x%02X ram[0x0E][0]=0x%02X", at_2e, at_0e));
+    }
+
+    // BANK7-02 (the NextZXOS boot regression): a direct write to physical
+    // page 0x0E (as the alt-ROM install path does) must NOT be visible
+    // through an MMU page-0x0E mapping. Pre-fix this exact aliasing
+    // clobbered NextZXOS's saved-SP variable at logical $DA35 (offset
+    // 0x1A35) and the boot died in a RET-to-$0000 sentinel trap.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(6, 0x0E);
+        f.mmu.write(0xDA35, 0xF5);                    // NextZXOS: LD ($DA35),SP lo
+        f.mmu.write(0xDA36, 0x5B);                    //                       hi
+        f.ram.page_ptr(0x0E)[0x1A35] = 0x2F;          // alt-ROM install bytes
+        f.ram.page_ptr(0x0E)[0x1A36] = 0x5F;
+        const uint8_t lo = f.mmu.read(0xDA35);
+        const uint8_t hi = f.mmu.read(0xDA36);
+        check("BANK7-02",
+              "alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E "
+              "workspace (the $DA35 saved-SP NextZXOS boot killer)",
+              lo == 0xF5 && hi == 0x5B,
+              fmt("read back $DA35=0x%02X $DA36=0x%02X (expected F5 5B)", lo, hi));
+    }
+
+    // BANK7-03: bank 5 (pages 0x0A/0x0B) keeps its unshifted dual-port
+    // bypass — unchanged by the bank-7 relocation.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(6, 0x0A);
+        f.mmu.write(0xC000, 0x3C);
+        const uint8_t at_0a = f.ram.page_ptr(0x0A)[0];
+        check("BANK7-03",
+              "bank-5 pages 0x0A/0x0B still bypass the +0x20 shift — VHDL "
+              "zxnext.vhd:2961",
+              at_0a == 0x3C,
+              fmt("ram[0x0A][0]=0x%02X (expected 0x3C)", at_0a));
+    }
+}
+
 int main() {
     std::printf("MMU/Memory Compliance Test Runner (Phase 2 rewrite)\n");
     std::printf("====================================================\n\n");
@@ -4244,6 +4328,7 @@ int main() {
     test_cat27_l2_overlay_lowhalf();
     test_cat27_l2_rom_area_gate();
     test_cat27_v11_mem_01_save_load_high_page();
+    test_cat28_bank7_bram_standin();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

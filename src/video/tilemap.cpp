@@ -206,7 +206,10 @@ uint32_t Tilemap::decode_base_addr(uint8_t reg_val)
     bool bank7 = (reg_val & 0x80) != 0;   // bit 7 = bank select
     uint8_t offset = reg_val & 0x3F;       // bits 5:0 = 256-byte offset
 
-    uint32_t bank_base = bank7 ? (7u * 16384u) : (5u * 16384u);
+    // Bank 7 = the dedicated BRAM; jnext hosts its stand-in at SRAM page
+    // 0x2E (see Mmu::to_sram_page — the old 7*16384 alias collided with
+    // the physical alt-ROM page 0x0E).
+    uint32_t bank_base = bank7 ? (0x2Eu * 8192u) : (5u * 16384u);
     return bank_base + static_cast<uint32_t>(offset) * 256u;
 }
 

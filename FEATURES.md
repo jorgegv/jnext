@@ -2,6 +2,7 @@
 
 ## Machine emulation
 - ZX Spectrum 48K, 128K, +2A/+3, and ZX Spectrum Next machine types
+- **Native NextZXOS cold boot** through the authentic FPGA chain (bootrom → TBBLUE.FW → NextZXOS welcome + main menu) from an SD card image
 - FUSE-based Z80 core with all standard opcodes (100% pass rate on FUSE test suite)
 - All 26 Z80N extended opcodes (NEXTREG, MUL, LDIRX, barrel shifts, etc.)
 - Accurate memory contention for 48K, 128K, and +3 timing models

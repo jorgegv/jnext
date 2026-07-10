@@ -142,21 +142,19 @@ static void test_reset_defaults(Emulator& emu) {
 
     // MID-01 — NR 0x00 machine ID.
     //
-    // DELIBERATE DEVIATION FROM VHDL.  VHDL generic
-    // g_machine_id = X"0A" in zxnext_top_issue{2,4,5}.vhd:35 (ZX Spectrum
-    // Next real-hardware identifier).  jnext returns 0x08 instead — the
-    // TBBlue firmware convention for HWID_EMULATORS.  Reporting 0x0A makes
-    // NextZXOS treat jnext as real hardware and divert into the
-    // FPGA-flash / Configuration flow, which fails for emulator-mounted
-    // SD images (observed 2026-04-18 while diagnosing NextZXOS boot).
-    // Reporting 0x08 lets NextZXOS take its emulator-aware boot paths.
-    // Source: src/port/nextreg.cpp:18 — reset default for NR 0x00.
+    // VHDL-faithful: g_machine_id = X"0A" in
+    // zxnext_top_issue{2,4,5}.vhd:35 (ZX Spectrum Next real-hardware
+    // identifier). NextZXOS-boot fix 2026-07-09 (ZXGO-COMPARISON doc):
+    // jnext used to deviate to 0x08 (HWID_EMULATORS) believing 0x0A
+    // diverted NextZXOS into a failing FPGA-flash flow; the zx_go
+    // reference emulator documents the opposite ($08 broke its NextZXOS
+    // boot at the ROM1 machine-ID check, fixed by $0A) and cold-boots
+    // NextZXOS end-to-end reporting $0A.
     {
         uint8_t got = nr_read(emu, 0x00);
         check("MID-01",
-              "NR 0x00 machine ID reset=0x08 (HWID_EMULATORS; jnext "
-              "deviates from VHDL g_machine_id=X\"0A\" on purpose)",
-              got == 0x08, detail_eq(got, 0x08));
+              "NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X\"0A\")",
+              got == 0x0A, detail_eq(got, 0x0A));
     }
 
     // RST-01 — NR 0x14 global transparent colour.
@@ -693,15 +691,15 @@ static void test_readonly_registers(Emulator& emu) {
     set_group("Read-Only");
 
     // RO-01 — NR 0x00 machine ID.
-    // JNEXT deviates from VHDL (returns 0x08 instead of 0x0A); covered by
-    // MID-01 in the Reset-Integration group. This row asserts the
-    // read-only property itself.
+    // VHDL-faithful $0A since the NextZXOS-boot fix (2026-07-09, see
+    // MID-01 in the Reset-Integration group). This row asserts the value
+    // via the port path.
     {
         uint8_t got = nr_read(emu, 0x00);
         check("RO-01",
-              "NR 0x00 machine ID reset=0x08 via port path "
-              "[src/port/nextreg.cpp:27 — JNEXT deviation from VHDL g_machine_id]",
-              got == 0x08, detail_eq(got, 0x08));
+              "NR 0x00 machine ID reset=0x0A via port path "
+              "[VHDL g_machine_id, zxnext_top_issue{2,4,5}.vhd:35]",
+              got == 0x0A, detail_eq(got, 0x0A));
     }
 
     // RO-02 — NR 0x00 read-only enforcement.
@@ -709,16 +707,16 @@ static void test_readonly_registers(Emulator& emu) {
     // unconditionally to g_machine_id, regardless of any prior write; NR
     // 0x00 has no write handler in the VHDL write dispatch (writes are
     // discarded). JNEXT installs a read_handler in Emulator::init that
-    // always returns 0x08 (HWID_EMULATORS), so a write to NR 0x00 must
+    // always returns 0x0A (VHDL g_machine_id), so a write to NR 0x00 must
     // never be observable via a subsequent read.
     {
         nr_write(emu, 0x00, 0x42);
         uint8_t got = nr_read(emu, 0x00);
         check("RO-02",
-              "NR 0x00 read-only: write 0x42 then read returns 0x08 "
+              "NR 0x00 read-only: write 0x42 then read returns 0x0A "
               "[zxnext.vhd:5884-5885 — read routed to g_machine_id; "
-              "no write handler; JNEXT reports HWID_EMULATORS=0x08]",
-              got == 0x08, detail_eq(got, 0x08));
+              "no write handler]",
+              got == 0x0A, detail_eq(got, 0x0A));
     }
 
     // RO-03 — NR 0x01 core version. VHDL g_version = X"32" (core 3.02).
@@ -781,17 +779,17 @@ static void test_sel_03(Emulator& emu) {
     // SEL-03 — same invariant as RO-02, framed via the selection path:
     // select NR 0x00 (OUT 0x243B,0x00), write via the selected-register
     // port (OUT 0x253B,0x42), read back via the selected-register port
-    // (IN 0x253B). Must still return 0x08.
+    // (IN 0x253B). Must still return 0x0A.
     // VHDL zxnext.vhd:5884-5885 — NR 0x00 read is hard-wired to
     // g_machine_id; writes have no handler and are discarded.
     {
         nr_write(emu, 0x00, 0x42);
         uint8_t got = nr_read(emu, 0x00);
         check("SEL-03",
-              "NR 0x00 via select+write+read path returns 0x08 "
+              "NR 0x00 via select+write+read path returns 0x0A "
               "(selection pathway respects read-only) "
               "[zxnext.vhd:5884-5885]",
-              got == 0x08, detail_eq(got, 0x08));
+              got == 0x0A, detail_eq(got, 0x0A));
     }
 }
 

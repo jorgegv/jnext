@@ -65,7 +65,11 @@ class Z80Cpu {
 public:
     Z80Cpu(MemoryInterface& mem, IoInterface& io);
 
-    void reset();
+    // hard=false = t80n soft-reset semantics (t80n.vhd:429-447 + empty
+    // register-file reset branch at :1493-1498): PC/AF/AF'/I/R/IFF/IM reset,
+    // SP=0xFFFF, BC/DE/HL/BC'/DE'/HL'/IX/IY PRESERVED. hard=true additionally
+    // zeroes the register file (power-on-undefined model).
+    void reset(bool hard = true);
     int  execute();   // execute one instruction; returns T-states used
 
     Z80Registers get_registers() const { return regs_; }

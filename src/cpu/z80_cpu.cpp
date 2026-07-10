@@ -384,11 +384,13 @@ Z80Cpu::Z80Cpu(MemoryInterface& mem, IoInterface& io)
     reset();
 }
 
-void Z80Cpu::reset() {
+void Z80Cpu::reset(bool hard) {
     s_mem = &mem_;
     s_io  = &io_;
 
-    fuse_z80_reset(1); // hard reset
+    fuse_z80_reset(hard ? 1 : 0);  // NextZXOS-boot fix 2026-07-09: soft
+    // reset must preserve the Z80 register file per t80n.vhd:1493-1498
+    // (NextZXOS dereferences (IX+$1F) immediately after its staging reset)
     tstates = 0;
 
     nmi_pending_ = false;

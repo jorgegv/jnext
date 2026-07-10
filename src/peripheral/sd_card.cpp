@@ -82,10 +82,37 @@ void SdCardDevice::unmount() {
 }
 
 void SdCardDevice::deselect() {
-    // Reset SPI protocol state on CS deassert (matches ZesarUX mmc_cs behavior).
-    // The SD card goes back to idle, ready for a new command sequence.
-    // This is critical: without it, after a sector read the SD card can be
-    // stuck in SENDING_DATA state, causing the next command to be lost.
+    // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): an OPEN CMD18
+    // multi-block stream SURVIVES CS deassert. In SPI mode, deasserting CS
+    // pauses the card; the stream is terminated by CMD12 (or a new
+    // command), not by CS. NextZXOS's esxDOS driver keeps one CMD18 stream
+    // open across driver calls: it deselects between blocks and later
+    // reselects and token-polls port $EB for the next block WITHOUT
+    // sending any command. Pre-fix jnext aborted the stream here, so the
+    // resumed poll saw endless $FF → esxDOS timeout (error 2) → boot
+    // aborted to $0000. Symmetric-trace diff vs the zx_go reference
+    // emulator (whose sdcard model preserves multi-read across CS
+    // deassert) pinned this as the first behavioral divergence of the
+    // post-staging-reset boot path.
+    if (multi_block_ && state_ == State::SENDING_DATA) {
+        // Freeze the streaming context (state_, resp/data cursors,
+        // multi-block position). A new command after reselect still works:
+        // cmd_idx_ resets below and receive() accepts commands — CMD12
+        // closes the stream properly.
+        cmd_idx_ = 0;
+        app_cmd_ = false;
+        pending_write_after_r1_ = false;
+        persistent_response_byte_ = 0xFF;
+        sd_log()->debug(
+            "CS deasserted mid-CMD18 — stream paused (next sector={})",
+            multi_block_sector_);
+        return;
+    }
+    // Otherwise: reset SPI protocol state on CS deassert (matches ZesarUX
+    // mmc_cs behavior). The SD card goes back to idle, ready for a new
+    // command sequence. This is critical: without it, after a CMD17 sector
+    // read the SD card can be stuck in SENDING_DATA state, causing the
+    // next command to be lost.
     state_ = State::IDLE;
     cmd_idx_ = 0;
     resp_buf_.clear();
@@ -94,8 +121,6 @@ void SdCardDevice::deselect() {
     data_crc_count_ = 0;
     data_token_received_ = false;  // V12-DIVMMC-06 (Pass-12 reviewer fix)
     app_cmd_ = false;
-    // CMD18 multi-block mode is aborted by CS deassert (real cards terminate
-    // the stream on CS high without needing CMD12 in SPI mode).
     multi_block_        = false;
     multi_block_sector_ = 0;
     // CMD24 R1-bridge flag also clears: a CS deassert mid-CMD24 (after R1

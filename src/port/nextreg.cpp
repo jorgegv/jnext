@@ -212,16 +212,17 @@ void NextReg::reset() {
     regs_[0x7F] = saved_7f;
     regs_[0x8C] = computed_8c;
     // Reset defaults from VHDL / ZX Next documentation
-    // Machine ID: JNEXT DEVIATES from VHDL here on purpose.
-    //   VHDL: g_machine_id = X"0A" (ZX Spectrum Next Issue 2/4/5 top-level
-    //   generic in zxnext_top_issue{2,4,5}.vhd:35).
-    //   jnext: 0x08 (HWID_EMULATORS) — the TBBlue-firmware convention so
-    //   NextZXOS can take its emulator-aware boot paths (e.g. skip
-    //   FPGA-flash-specific behaviour). Reporting 0x0A makes NextZXOS
-    //   treat us as real hardware and dive into the config/flashing
-    //   flow, which fails for emulator-mounted images.
-    //   Covered by test MID-01 in test/nextreg/nextreg_integration_test.cpp.
-    regs_[0x00] = 0x08;
+    // Machine ID: VHDL-faithful 0x0A (g_machine_id generic in
+    // zxnext_top_issue{2,4,5}.vhd:35).
+    // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): jnext used to
+    // deviate to 0x08 (HWID_EMULATORS) on the belief that 0x0A pushes
+    // NextZXOS into an FPGA-flash flow that fails under emulation. The
+    // zx_go reference emulator documents the opposite: 0x08 made
+    // NextZXOS's ROM1 machine-ID check take an emulator branch that broke
+    // its boot, fixed by returning 0x0A — and it boots NextZXOS
+    // end-to-end with 0x0A. Covered by test MID-01 in
+    // test/nextreg/nextreg_integration_test.cpp.
+    regs_[0x00] = 0x0A;
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x03] = 0x00;  // machine type: ZXNext
     // NR 0x05 power-on default: 0x41 per VHDL read formula at zxnext.vhd:5897.

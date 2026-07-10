@@ -766,8 +766,10 @@ static void test_section5_timex() {
         const uint16_t poff = emu_pixel_addr_offset(0, 0);
         const uint32_t bank5_pix = 10u * 8192u + poff;
         const uint32_t bank5_att = 10u * 8192u + 0x1800u;
-        const uint32_t bank7_pix = 14u * 8192u + poff;
-        const uint32_t bank7_att = 14u * 8192u + 0x1800u;
+        // Bank-7 BRAM stand-in lives at SRAM page 0x2E since the
+        // NextZXOS-boot fix (see Mmu::to_sram_page).
+        const uint32_t bank7_pix = 0x2Eu * 8192u + poff;
+        const uint32_t bank7_att = 0x2Eu * 8192u + 0x1800u;
         bed.ram.write(bank5_pix, 0xFF);
         bed.ram.write(bank5_att, 0x05);   // paper black, ink cyan
         bed.ram.write(bank7_pix, 0xFF);
@@ -782,7 +784,7 @@ static void test_section5_timex() {
         const uint32_t cyan = bed_ink_argb(bed.palette, 5);
         const uint32_t red  = bed_ink_argb(bed.palette, 2);
         check("S5.09",
-              "shadow_screen_en=1 must switch ULA to bank 7 (page 14); "
+              "shadow_screen_en=1 must switch ULA to bank 7 (BRAM stand-in page 0x2E); "
               "VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'",
               line_off[Ula::DISP_X] == cyan && line_on[Ula::DISP_X] == red,
               fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",

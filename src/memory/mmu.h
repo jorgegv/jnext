@@ -1,12 +1,15 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 #include "ram.h"
 #include "rom.h"
 #include "cpu/z80_cpu.h"
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
+
 
 class DivMmc;     // forward declaration for overlay
 class Multiface;  // forward declaration for MF memory overlay (Wave 1 E)
@@ -1123,10 +1126,22 @@ public:
     // maps to SRAM 0x20 (RAMPAGE_RAMSPECCY), not page 0 (ROM-in-SRAM).
     //
     // Exceptions per VHDL zxnext.vhd:2961-2962: bank 5 (pages 0x0A/0x0B)
-    // and bank 7 lower (page 0x0E) bypass the shift — they live in
-    // dedicated dual-port VRAM. Our emulator and the ULA VRAM fetch use
-    // physical pages 0x0A/0x0B/0x0E for the dual-port banks; matching
-    // VHDL exactly means keeping those logical values un-shifted.
+    // bypasses the shift — it lives in dedicated dual-port VRAM and our
+    // ULA VRAM fetch reads ram_ pages 0x0A/0x0B for it.
+    //
+    // Bank 7 lower (logical page 0x0E) is ALSO a dedicated 8K BRAM on
+    // real hardware (zxnext.vhd:2962 mem_active_bank7; :3039-3041/:3061
+    // gate sram_pre_active off for it). NextZXOS-boot fix (2026-07-09,
+    // ZXGO-COMPARISON doc): jnext used to model that BRAM by bypassing
+    // the shift, i.e. at ram_ page 0x0E — but PHYSICAL SRAM page 0x0E is
+    // the alt-ROM upper half (config-mode NR $04=$07 window, NR $8C
+    // write-over, enAltZX.rom seeding), so the two distinct memories
+    // collided: NextZXOS's alt-ROM install clobbered its own MMU-page-14
+    // workspace (the $DA35 saved-SP corruption that killed the native
+    // boot). The BRAM stand-in now lives at SRAM page 0x2E — dead space
+    // on real hardware, because MMU page 0x0E is the only page whose
+    // mmu_A21_A13 computes 0x2E and the BRAM answers instead of SRAM.
+    // The normal +0x20 shift therefore lands logical 0x0E exactly there.
     //
     // Public so Layer 2 / tilemap / sprite renderers can match their SRAM
     // fetches to the MMU-shifted layout (otherwise firmware MMU writes go
@@ -1134,7 +1149,7 @@ public:
     // Non-Next mode passes the value through unchanged.
     uint8_t to_sram_page(uint8_t logical) const {
         if (!rom_in_sram_) return logical;
-        if (logical == 0x0A || logical == 0x0B || logical == 0x0E) return logical;
+        if (logical == 0x0A || logical == 0x0B) return logical;
         return static_cast<uint8_t>(logical + 0x20);
     }
 

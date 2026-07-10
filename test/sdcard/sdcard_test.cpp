@@ -10,8 +10,12 @@
 //   CMD18-01 / 02 / 03  — Multi-block read streams consecutive sectors,
 //                         inter-block token is 0xFE, and CMD12 aborts
 //                         the stream cleanly.
-//   CMD18-04            — CS deassert also aborts the stream
-//                         (VHDL-faithful — real cards terminate on CS high).
+//   CMD18-04            — CS deassert mid-block + reset → clean CMD17 after
+//   CMD18-05            — an OPEN CMD18 stream SURVIVES CS deassert/reselect
+//                         (SPI-mode cards pause on CS high; only CMD12 or a
+//                         new command ends the stream. NextZXOS's esxDOS
+//                         driver relies on this across driver calls —
+//                         the 2026-07-10 NextZXOS-boot fix).
 //
 // The fixture writes a small image with distinctive per-sector patterns
 // (sector S has bytes = S*1..S*1+511 mod 256 in its first few positions),
@@ -307,8 +311,9 @@ static void test_cmd18_end_of_image(SdCardDevice& sd) {
 }
 
 static void test_cmd18_cs_deassert_aborts(SdCardDevice& sd) {
-    // CMD18-04: CS deassert (deselect) while streaming terminates the
-    // multi-block state; a fresh CMD17 after re-init works.
+    // CMD18-04: CS deassert mid-stream no longer kills the card state
+    // outright (see CMD18-05), but a full reset + re-init afterwards must
+    // still leave a clean card: a fresh CMD17 works.
     sd.reset();
     init_card(sd);
     (void)send_cmd_r1(sd, 18, 2);
@@ -332,6 +337,40 @@ static void test_cmd18_cs_deassert_aborts(SdCardDevice& sd) {
           "r1=" + std::to_string(r1) +
           " tok=" + (tok ? "1" : "0") +
           " b0=" + std::to_string(b[0]));
+}
+
+static void test_cmd18_stream_survives_deselect(SdCardDevice& sd) {
+    // CMD18-05 (NextZXOS-boot fix, 2026-07-10): an open CMD18 stream is
+    // PAUSED, not aborted, by CS deassert. NextZXOS's esxDOS driver keeps
+    // one CMD18 stream open across driver calls: it reads block N,
+    // deselects, and later reselects + token-polls for block N+1 WITHOUT
+    // sending any command. Pre-fix jnext aborted the stream in deselect(),
+    // so the resumed poll saw endless $FF → esxDOS timeout (error 2) → the
+    // native NextZXOS boot died at a RET-to-$0000 sentinel trap.
+    sd.reset();
+    init_card(sd);
+    (void)send_cmd_r1(sd, 18, 2);
+    (void)wait_token(sd);
+    uint8_t b2[512] = {}; read_block(sd, b2);      // consume block @2 + CRC
+
+    sd.deselect();                                  // driver releases CS
+
+    // Reselect: continue the SAME stream — no command. The card must
+    // deliver the next block (sector 3) after idle filler + 0xFE token.
+    bool tok = wait_token(sd);
+    uint8_t b3[512] = {}; if (tok) read_block(sd, b3);
+
+    // CMD12 closes the stream properly.
+    (void)send_cmd_r1(sd, 12, 0);
+    sd.deselect();
+
+    check("CMD18-05",
+          "open CMD18 stream survives CS deassert; next block streams on "
+          "reselect without a command (esxDOS cross-call streaming)",
+          (b2[0] == 0x02) && tok && (b3[0] == 0x03),
+          std::string("b2_0=") + std::to_string(b2[0]) +
+          " tok=" + (tok ? "1" : "0") +
+          " b3_0=" + std::to_string(b3[0]));
 }
 
 // ─── New: CMD13 SEND_STATUS R2 response ─────────────────────────────────
@@ -1863,6 +1902,7 @@ int main() {
     test_cmd18_stream(sd);
     test_cmd18_end_of_image(sd);
     test_cmd18_cs_deassert_aborts(sd);
+    test_cmd18_stream_survives_deselect(sd);
     test_cmd13_status(sd);
     test_cmd16_set_blocklen(sd);
     test_cmd23_block_count(sd);

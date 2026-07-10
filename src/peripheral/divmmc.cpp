@@ -263,6 +263,19 @@ void DivMmc::on_m1_retn_delay(bool retn_seen) {
 void DivMmc::check_automap(uint16_t pc, bool is_m1,
                            bool sram_pre_override_2,
                            bool sram_pre_override_0) {
+    // P0 boot probe: log even when the enable gate rejects the call, so a
+    // "$0000 fetch with automap disabled" is visible (env-gated, capped).
+    if (pc <= 0x0038 && is_m1 && !enabled_ && std::getenv("JNEXT_BOOT_PROBE")) {
+        static int gate_probe_count = 0;
+        if (gate_probe_count < 20) {
+            ++gate_probe_count;
+            divmmc_log()->info(
+                "BOOT_PROBE check_automap pc={:#06x} REJECTED by enable gate "
+                "(port_io_enable={} nr_0a_4_enable={})",
+                pc, port_io_enable_, nr_0a_4_enable_);
+        }
+    }
+
     if (!is_m1 || !enabled_) return;
 
     // VHDL divmmc.vhd:123-148 two-stage automap pipeline.
@@ -348,6 +361,24 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     const bool rom3_path_eligible =
         sram_pre_override_2 && sram_pre_override_0 &&
         !layer2_map_read_ && rom3_active_;
+
+    // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
+    // env-gated, capped; logs automap decision inputs at RST vectors to
+    // diagnose the post-soft-reset $0000 trap.
+    if (pc <= 0x0038 && std::getenv("JNEXT_BOOT_PROBE")) {
+        static int probe_count = 0;
+        if (probe_count < 60) {
+            ++probe_count;
+            divmmc_log()->info(
+                "BOOT_PROBE check_automap pc={:#06x} enabled={} ov2={} ov0={} "
+                "rom3_active={} B8/B9/BA={:#04x}/{:#04x}/{:#04x} "
+                "hold={} held={} active={} conmem={}",
+                pc, enabled_, sram_pre_override_2, sram_pre_override_0,
+                rom3_active_, entry_points_0_, entry_valid_0_,
+                entry_timing_0_, automap_hold_, automap_held_,
+                automap_active_, conmem_);
+        }
+    }
 
     static constexpr uint16_t rst_addrs[8] = {
         0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038
@@ -542,14 +573,14 @@ uint8_t DivMmc::read(uint16_t addr) const {
     if (page0) {
         if (mapram_) {
             // mapram: read from RAM page 3
-            return ram_[3 * kRamPageSize + (addr & 0x1FFF)];
+            return ram_data()[3 * kRamPageSize + (addr & 0x1FFF)];
         } else {
             // Normal: read from DivMMC ROM
             return rom_[addr & 0x1FFF];
         }
     } else {
         // Slot 1: read from selected RAM bank
-        return ram_[bank_ * kRamPageSize + (addr & 0x1FFF)];
+        return ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)];
     }
 }
 
@@ -579,7 +610,7 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
         return;  // read-only
     }
 
-    ram_[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
+    ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
 }
 
 void DivMmc::save_state(StateWriter& w) const
@@ -614,7 +645,7 @@ void DivMmc::save_state(StateWriter& w) const
     // the stream layout append-only (matches earlier additions); breaks
     // backward compat with pre-G46(a) snapshots by design.
     w.write_bool(retn_pending_clear_);
-    w.write_bytes(ram_.data(), ram_.size());
+    w.write_bytes(ram_data(), kRamSize);
     // VHDL-split enable levers (port_divmmc_io_en, nr_0a_divmmc_automap_en).
     // Saved independently so post-fix snapshots survive a load even when
     // they hold port_io=1 / nr_0a_4=0 (the firmware-reset shape that yields
@@ -656,7 +687,7 @@ void DivMmc::load_state(StateReader& r)
     layer2_map_read_ = r.read_bool();
     // G46(a) — RETN delayed-clear pending flag. Same compat caveat.
     retn_pending_clear_ = r.read_bool();
-    r.read_bytes(ram_.data(), ram_.size());
+    r.read_bytes(ram_data(), kRamSize);
     // VHDL-split enable levers (post-2026-05-04). Same hard-versioned compat
     // caveat as the additions above — pre-fix snapshots cannot be loaded
     // with this schema. The composite-derived defaults at lines 471-472 are

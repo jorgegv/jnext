@@ -142,7 +142,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     sprites_.reset();
     tilemap_.reset();
     copper_.reset();
-    cpu_.reset();
+    cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
     // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
     prev_pulse_int_n_ = true;
@@ -167,6 +167,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2c_.reset();
     uart_.reset();
     divmmc_.reset();
+    // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): DivMMC RAM is
+    // physical SRAM pages 16-31 on real hardware — the same pages the
+    // config-mode NR $04 window ($08-$0F) routes to. Back the DivMMC RAM
+    // view with those pages so tbblue.fw's firmware-module installs
+    // (NextZXOS ROM3 $3D00 dispatch trampoline, IRQ stub) are visible to
+    // the runtime overlay. Idempotent; content survives soft reset.
+    divmmc_.set_ram_backing(ram_.page_ptr(16));
     // G46(b) 2026-05-09 — Multiface RAM is not in the soft-reset domain
     // per VHDL multiface.vhd:103 (only the FFs reset on reset_i).
     // Pass hard=!preserve_memory so soft reset preserves MF RAM contents,
@@ -857,12 +864,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x00: Machine ID (read-only).
     // VHDL zxnext.vhd:5884-5885 — read dispatch routes nr_register=X"00"
     // unconditionally to g_machine_id; writes have no handler in the VHDL
-    // write dispatch, so they are discarded. We install a read_handler that
-    // always returns 0x08 (HWID_EMULATORS), making any stale byte written
-    // into regs_[0] invisible. JNEXT deliberately reports 0x08 instead of
-    // the VHDL g_machine_id=X"0A" so NextZXOS takes its emulator-aware boot
-    // paths — see NextReg::reset() comment at src/port/nextreg.cpp:18.
-    nextreg_.set_read_handler(0x00, []() -> uint8_t { return 0x08; });
+    // write dispatch, so they are discarded. The read_handler makes any
+    // stale byte written into regs_[0] invisible.
+    // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): return the VHDL
+    // g_machine_id = 0x0A (zxnext_top_issue{2,4,5}.vhd:35). The prior 0x08
+    // (HWID_EMULATORS) deviation made NextZXOS take an emulator branch at
+    // its ROM1 machine-ID check; the zx_go reference emulator documents
+    // fixing this exact bug ($08 broke its boot) and boots with $0A.
+    nextreg_.set_read_handler(0x00, []() -> uint8_t { return 0x0A; });
 
     // Register 0x07: CPU speed selector
     //   0 = 3.5 MHz, 1 = 7 MHz, 2 = 14 MHz, 3 = 28 MHz
@@ -1221,6 +1230,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
 
     nextreg_.set_write_handler(0x0A, [this](uint8_t v) -> uint8_t {
+        // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
+        // env-gated, zero cost when unset.
+        if (std::getenv("JNEXT_BOOT_PROBE")) {
+            Log::emulator()->info(
+                "BOOT_PROBE NR 0x0A <= {:#04x} at PC={:#06x} (bit4 automap_en={})",
+                v, cpu_.get_registers().PC, (v & 0x10) != 0);
+        }
         // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
         const bool cfg = nextreg_.nr_03_config_mode();
         if (cfg) {
@@ -2909,6 +2925,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (rom_.set_alt_rom_config) so existing consumers of Rom::alt_rom_*
     // keep working until they migrate to Mmu.
     nextreg_.set_write_handler(0x8C, [this](uint8_t v) -> uint8_t {
+        // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
+        // env-gated, zero cost when unset.
+        if (std::getenv("JNEXT_BOOT_PROBE")) {
+            Log::emulator()->info(
+                "BOOT_PROBE NR 0x8C <= {:#04x} at PC={:#06x}", v,
+                cpu_.get_registers().PC);
+        }
         mmu_.set_nr_8c(v);
         rom_.set_alt_rom_config(v);
         // Verify7-memory class-(a) fix: VHDL `sram_rom3` (zxnext.vhd:2990,
@@ -5106,22 +5129,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
-    // Pass-9 verify-audit fix (2026-05-09): wire the single physical SD
-    // card to BOTH CS0 and CS1. Per VHDL zxnext.vhd:3280:
-    //     i_SPI_SD_MISO when spi_ss_sd1_n = '0' or spi_ss_sd0_n = '0'
-    // the same `i_SPI_SD_MISO` net is the MISO source for both SD0 and SD1
-    // selects. The TBBlue board has a single SD slot wired to both CS lines,
-    // and the firmware uses NR 0x0A bit 5 (`sd_swap`) to flip which CS the
-    // host writes to reach the same card. Pre-fix: only CS0 was hooked, so
-    // any `sd_swap=1` write_cs("10") that decoded to 0xFD (CS1 low / CS0
-    // high) found `devices_[1] == nullptr` and the card became unreachable.
-    // Boot path uses the default sd_swap=0 (cleared at NR 0x0A reset, see
-    // VHDL :1125), so the prior bug was latent — class-(a) → corrected for
-    // VHDL fidelity. The SpiMaster's `active_device()` finds the first CS-
-    // low slot and returns its device; routing both to the same backend
-    // mirrors the wiring rather than running two SD cards.
-    spi_.attach_device(0, &sd_card_);  // SD card on CS0 (sd_swap=0)
-    spi_.attach_device(1, &sd_card_);  // SD card on CS1 (sd_swap=1)
+    // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): attach the
+    // single SD card to socket 0 ONLY. The Next board has TWO SD sockets
+    // (SD0 internal, SD1 external); VHDL zxnext.vhd:3280's shared-MISO mux
+    // only describes the read-side wiring (one select active at a time),
+    // not "one card answers both selects". NR 0x0A bit 5 (sd_swap) is
+    // already applied at CS decode (SpiMaster::write_cs), so it selects
+    // WHICH SOCKET the boot select reaches — with one card in socket 0,
+    // sd_swap=1 correctly finds an empty socket. The prior Pass-9
+    // dual-attach made the same initialized card answer NextZXOS's
+    // slot-1 probe as a phantom second card (the zx_go reference
+    // emulator documents this exact bug causing an infinite mount loop).
+    spi_.attach_device(0, &sd_card_);  // SD card in socket 0; socket 1 empty
 
     // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
     // composite Flash-CS gate from the post-power-on / post-init state.
@@ -6277,6 +6296,29 @@ void Emulator::run_frame()
                     [this](uint16_t a) { return mmu_.read(a); });
                 trace_log_.record(te);
             }
+            // P0 boot probe trap detector: when the CPU enters the
+            // post-soft-reset $0000/$0001 spin, dump the trace ring while
+            // pre-trap history is still in it, then exit. Env-gated.
+            {
+                static const char* trap_dump =
+                    std::getenv("JNEXT_BOOT_PROBE_TRAP_DUMP");
+                if (trap_dump) {
+                    static int pc0_run = 0;
+                    const uint16_t cur_pc = cpu_.get_registers().PC;
+                    if (cur_pc <= 0x0001) {
+                        if (++pc0_run == 200) {
+                            Log::emulator()->info(
+                                "BOOT_PROBE trap detected (200 consecutive "
+                                "PC<=1 instructions); dumping trace to {}",
+                                trap_dump);
+                            trace_log_.export_to_file(trap_dump);
+                            std::exit(0);
+                        }
+                    } else {
+                        pc0_run = 0;
+                    }
+                }
+            }
             // Call stack tracking (debugger only, gated by enabled flag).
             if (call_stack_.enabled()) {
                 auto regs2 = cpu_.get_registers();
@@ -6909,7 +6951,7 @@ void Emulator::reset()
     // reset: reinitialize all subsystems, clear RAM, reload ROM").
     mmu_.reset(/*hard=*/true);
     nextreg_.reset();
-    cpu_.reset();
+    cpu_.reset(/*hard=*/true);
     im2_.reset();
     // V20-IM2-01 — reset pulse-mode edge-detect shadow.
     prev_pulse_int_n_ = true;
@@ -6965,6 +7007,15 @@ void Emulator::soft_reset()
     // init() calls NextReg::reset() twice (once per subsystem reset loop
     // and again inside init()), and the second call reads regs_[0x85]=0x8F
     // set by the first and would clobber 0x82-0x84 to 0xFF.
+    // P0 boot probe: dump the pre-reset ring (the LAST capacity-many
+    // instructions BEFORE this soft reset) — must run before init()
+    // clears the trace ring. Env-gated.
+    if (const char* pre_dump =
+            std::getenv("JNEXT_BOOT_PROBE_DUMP_AT_RESET");
+        pre_dump && trace_log_.enabled()) {
+        trace_log_.export_to_file(pre_dump);
+    }
+
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);
     const uint8_t save_83 = nextreg_.cached(0x83);
@@ -7017,6 +7068,36 @@ void Emulator::soft_reset()
         nextreg_.write(0x87, save_87);
         nextreg_.write(0x88, save_88);
         nextreg_.write(0x89, save_89);
+    }
+
+    // P0 boot probe: dump the pre-reset ring (the LAST capacity-many
+    // instructions before this soft reset) to a file, then optionally
+    // restart capture so the ring holds the FIRST capacity-many
+    // post-reset instructions (combine with JNEXT_TRACE_NO_WRAP) — for
+    // symmetric diff against a reference emulator trace armed at the
+    // same staging reset.
+    if (std::getenv("JNEXT_BOOT_PROBE_TRACE_FROM_RESET") &&
+        trace_log_.enabled()) {
+        trace_log_.clear();
+    }
+
+    // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
+    // dump the state that discriminates the two candidate $0000-trap
+    // mechanisms (A: automap disabled; B: altrom-lock ROM2 residue).
+    // Env-gated, zero cost when unset.
+    if (std::getenv("JNEXT_BOOT_PROBE")) {
+        Log::emulator()->info(
+            "BOOT_PROBE post-soft-reset: nr_0a_4_enable={} "
+            "B8/B9/BA={:#04x}/{:#04x}/{:#04x} "
+            "8C_lock_rom1={} 8C_lock_rom0={} machine_type={} "
+            "sram_rom={} slot0_8k_rom_page={}",
+            divmmc_.nr_0a_4_enable(),
+            divmmc_.entry_points_0(), divmmc_.entry_valid_0(),
+            divmmc_.entry_timing_0(),
+            mmu_.nr_8c_altrom_lock_rom1(), mmu_.nr_8c_altrom_lock_rom0(),
+            static_cast<int>(mmu_.machine_type()),
+            mmu_.current_sram_rom(),
+            mmu_.current_sram_rom() * 2);
     }
 }
 

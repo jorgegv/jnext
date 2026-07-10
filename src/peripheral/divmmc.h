@@ -196,7 +196,24 @@ public:
 
     const uint8_t* rom_data() const { return rom_.data(); }
     const uint8_t* ram_page(int page) const {
-        return ram_.data() + page * kRamPageSize;
+        return ram_data() + page * kRamPageSize;
+    }
+
+    // ── Physical-SRAM backing (NextZXOS-boot fix, 2026-07-09) ───────
+    /// On real hardware there is ONE SRAM: DivMMC RAM is physical 8K
+    /// pages 16-31 of it, and tbblue.fw populates those pages through the
+    /// config-mode NR $04 window ($08-$0F → pages 16-31, zxnext.vhd:
+    /// 3044-3050). jnext's MMU already routes config-mode writes into
+    /// Ram pages (nr_04 << 1)|slot — i.e. pages 16-31 for $08-$0F — so
+    /// DivMMC RAM must be a VIEW of those same pages, not a private
+    /// buffer, or the firmware-installed content (e.g. the NextZXOS
+    /// ROM3 $3D00 dispatch trampoline) is invisible to the overlay.
+    /// Emulator::init passes ram_.page_ptr(16); when unset (unit tests)
+    /// the internal buffer is used.
+    void set_ram_backing(uint8_t* base) { ram_ext_ = base; }
+    uint8_t* ram_data() { return ram_ext_ ? ram_ext_ : ram_.data(); }
+    const uint8_t* ram_data() const {
+        return ram_ext_ ? ram_ext_ : ram_.data();
     }
 
     // ── ROM3 active signal (from MMU / SRAM address generator) ───────
@@ -354,7 +371,8 @@ private:
     uint8_t entry_points_1_ = 0xCD;    // soft reset default
 
     std::vector<uint8_t> rom_;          // 8K DivMMC ROM
-    std::vector<uint8_t> ram_;          // 128K DivMMC RAM (16 × 8K)
+    std::vector<uint8_t> ram_;          // 128K DivMMC RAM (16 × 8K) — fallback
+    uint8_t* ram_ext_ = nullptr;        // external SRAM backing (pages 16-31)
 
     /// Resolve which RAM page is active for the given address.
     int ram_page_for(uint16_t addr) const;
