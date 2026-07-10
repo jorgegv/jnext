@@ -16,6 +16,44 @@ std::shared_ptr<spdlog::logger>& sd_log() {
     return logger;
 }
 
+// Task 26 item 3 — CRC-16 over an SD data block.
+//
+// SD Physical Layer Simplified Spec § 4.5 / § 7.2.4: every SPI-mode data
+// block (start-of-block token, DATA, 16-bit CRC) carries a CRC-16
+// computed with the CCITT generator polynomial
+//   G(x) = x^16 + x^12 + x^5 + 1   (= 0x1021)
+// and an INITIAL VALUE OF 0x0000 (this is the CRC-16/XMODEM catalogue
+// variant — refin=false, refout=false, xorout=0x0000). NB: this differs
+// from "CRC-16/CCITT-FALSE" (init 0xFFFF); real SD cards and any firmware
+// that validates the read-data CRC expect the init-0x0000 form, so that
+// is what we emit. Standard check value CRC16("123456789") = 0x31C3.
+//
+// Pre-fix jnext emitted a dummy 0x0000 CRC on every data block ("works by
+// luck" — FatFs/TBBlue don't validate the read CRC by default, CMD59 is
+// never issued), diverging from every real card.
+uint16_t sd_crc16(const uint8_t* data, size_t len) {
+    uint16_t crc = 0x0000;
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= static_cast<uint16_t>(data[i]) << 8;
+        for (int b = 0; b < 8; ++b) {
+            if (crc & 0x8000) crc = static_cast<uint16_t>((crc << 1) ^ 0x1021);
+            else              crc = static_cast<uint16_t>(crc << 1);
+        }
+    }
+    return crc;
+}
+
+// Task 26 item 1 — SPI Ncr (command→response) idle-byte count.
+//
+// SD Physical Layer Simplified Spec § 7.5.4 (SPI bus timing): Ncr, the
+// number of bytes between a command and its response, is 1..8. jnext emits
+// exactly 2 leading idle ($FF) bytes before every R1 so both poll-based
+// readers (FatFs send_cmd polls for the first non-$FF) and fixed-count
+// firmware readers (which hardcode Ncr=2) latch R1 at a deterministic
+// offset. Pre-fix jnext emitted a single idle byte, which a fixed-count
+// Ncr=2 reader would mis-latch (it would read R1 one byte early).
+constexpr uint8_t kIdle = 0xFF;
+
 }  // namespace
 
 SdCardDevice::SdCardDevice() = default;
@@ -395,8 +433,14 @@ uint8_t SdCardDevice::send() {
                 return data_block_[data_idx_++];
             }
             if (data_crc_count_ < 2) {
+                // Task 26 item 3 — emit the real CRC-16 (computed over the
+                // 512 data bytes when the block was loaded), high byte
+                // first. Pre-fix returned a dummy 0x00 for both bytes.
+                const uint8_t crc_byte = (data_crc_count_ == 0)
+                    ? static_cast<uint8_t>(data_crc_ >> 8)
+                    : static_cast<uint8_t>(data_crc_ & 0xFF);
                 data_crc_count_++;
-                return 0x00;
+                return crc_byte;
             }
             // Block complete.  For CMD18 multi-block mode, load the next
             // sector and re-prime for another 0xFE+data+CRC cycle.  Emit one
@@ -456,6 +500,7 @@ uint8_t SdCardDevice::send() {
                 resp_idx_       = 0;
                 data_idx_       = 0;
                 data_crc_count_ = 0;
+                data_crc_       = sd_crc16(data_block_, 512);  // Task 26 item 3
                 return 0xFF;                   // inter-block filler
             }
             state_ = State::IDLE;
@@ -603,7 +648,8 @@ void SdCardDevice::cmd8_send_if_cond() {
     // host that re-probes CMD8 after init would see misleading idle
     // status. Class-(c) latent → corrected for spec faithfulness.
     const uint8_t r1 = initialized_ ? 0x00 : 0x01;
-    resp_buf_ = { 0xFF, r1, 0x10, 0x00, 0x01, check };  // NCR + R1 + R7 (cmd ver=1)
+    // Task 26 item 1 — 2 NCR idle bytes before R1 (SD Phys Layer § 7.5.4).
+    resp_buf_ = { kIdle, kIdle, r1, 0x10, 0x00, 0x01, check };  // NCR×2 + R1 + R7 (cmd ver=1)
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -642,7 +688,8 @@ void SdCardDevice::cmd13_send_status() {
     // resp_buf_.  R2=0x00 means "no errors / card OK".
     sd_log()->debug("CMD13 SEND_STATUS → R2");
     uint8_t r1 = initialized_ ? 0x00 : 0x01;
-    resp_buf_  = { 0xFF, r1, 0x00 };  // NCR + R1 + R2
+    // Task 26 item 1 — 2 NCR idle bytes before R1 (SD Phys Layer § 7.5.4).
+    resp_buf_  = { kIdle, kIdle, r1, 0x00 };  // NCR×2 + R1 + R2
     resp_idx_  = 0;
     state_     = State::RESPONDING;
 }
@@ -712,11 +759,13 @@ void SdCardDevice::cmd17_read_single_block() {
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     file_.read(reinterpret_cast<char*>(data_block_), 512);
 
-    // Response: NCR + R1 (0x00 = OK), then 0xFE data start token, then 512 bytes
-    resp_buf_ = { 0xFF, 0x00, 0xFE };
+    // Response: NCR×2 + R1 (0x00 = OK), then 0xFE data start token, then 512
+    // bytes. Task 26 item 1 (2 NCR bytes) + item 3 (real CRC computed below).
+    resp_buf_ = { kIdle, kIdle, 0x00, 0xFE };
     resp_idx_ = 0;
     data_idx_ = 0;
     data_crc_count_ = 0;
+    data_crc_ = sd_crc16(data_block_, 512);  // Task 26 item 3
     state_ = State::SENDING_DATA;
 }
 
@@ -754,13 +803,14 @@ void SdCardDevice::cmd18_read_multiple_block() {
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     file_.read(reinterpret_cast<char*>(data_block_), 512);
 
-    // First-block response is the normal CMD17 shape: NCR + R1 + token +
+    // First-block response is the normal CMD17 shape: NCR×2 + R1 + token +
     // 512 + CRC.  Subsequent blocks emitted in send() skip NCR/R1 and
-    // send only token + 512 + CRC.
-    resp_buf_           = { 0xFF, 0x00, 0xFE };
+    // send only token + 512 + CRC. Task 26 item 1 (2 NCR) + item 3 (CRC).
+    resp_buf_           = { kIdle, kIdle, 0x00, 0xFE };
     resp_idx_           = 0;
     data_idx_           = 0;
     data_crc_count_     = 0;
+    data_crc_           = sd_crc16(data_block_, 512);  // Task 26 item 3
     multi_block_        = true;
     multi_block_sector_ = sector + 1;  // next sector to stream
     state_              = State::SENDING_DATA;
@@ -879,14 +929,17 @@ void SdCardDevice::cmd9_send_csd() {
         0x0A, 0x40, 0x00, 0x01
     };
 
-    // Response: NCR(0xFF) + R1(0x00) + token(0xFE) + 16 CSD bytes + 2 CRC bytes.
+    // Response: NCR×2 + R1(0x00) + token(0xFE) + 16 CSD bytes + 2 CRC bytes.
+    // Task 26 item 1 (2 NCR) + item 3 (real CRC-16 over the 16 data bytes).
+    const uint16_t crc = sd_crc16(csd, sizeof(csd));
     resp_buf_.clear();
-    resp_buf_.push_back(0xFF);  // NCR
+    resp_buf_.push_back(kIdle);  // NCR 1
+    resp_buf_.push_back(kIdle);  // NCR 2
     resp_buf_.push_back(0x00);  // R1: ready
     resp_buf_.push_back(0xFE);  // start-of-data token
     for (auto b : csd) resp_buf_.push_back(b);
-    resp_buf_.push_back(0x00);  // CRC16 high (firmware typically ignores)
-    resp_buf_.push_back(0x00);  // CRC16 low
+    resp_buf_.push_back(static_cast<uint8_t>(crc >> 8));   // CRC16 high
+    resp_buf_.push_back(static_cast<uint8_t>(crc & 0xFF)); // CRC16 low
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -931,13 +984,17 @@ void SdCardDevice::cmd10_send_cid() {
         0x78, 0x01, 0xA5, 0x01
     };
 
+    // NCR×2 + R1 + token + 16 CID bytes + 2 CRC bytes. Task 26 item 1 (2
+    // NCR) + item 3 (real CRC-16 over the 16 data bytes).
+    const uint16_t crc = sd_crc16(cid, sizeof(cid));
     resp_buf_.clear();
-    resp_buf_.push_back(0xFF);
+    resp_buf_.push_back(kIdle);  // NCR 1
+    resp_buf_.push_back(kIdle);  // NCR 2
     resp_buf_.push_back(0x00);
     resp_buf_.push_back(0xFE);
     for (auto b : cid) resp_buf_.push_back(b);
-    resp_buf_.push_back(0x00);
-    resp_buf_.push_back(0x00);
+    resp_buf_.push_back(static_cast<uint8_t>(crc >> 8));
+    resp_buf_.push_back(static_cast<uint8_t>(crc & 0xFF));
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -971,8 +1028,19 @@ void SdCardDevice::cmd58_read_ocr() {
         ocr0 = 0x80;  // bit 31 = power-up done
         if (host_supports_sdhc_) ocr0 |= 0x40;  // bit 30 = CCS (SDHC)
     }
-    resp_buf_ = { 0xFF, static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
-                  ocr0, 0xFF, 0x80, 0x00 };  // NCR + R3
+    // Task 26 item 2 — no OCR payload byte may equal the $FF idle sentinel.
+    // tbblue.fw's OCR reader skips $FF as idle (the same primitive it uses
+    // to poll for R1), so an OCR byte of $FF is dropped and the remaining
+    // OCR bytes misalign by one. Pre-fix the voltage-window byte [23:16]
+    // was 0xFF (2.7-3.6 V, all 9 window bits set). We clear bit 23
+    // (3.5-3.6 V) → 0x7F, still a valid, plausible voltage window
+    // (2.7-3.5 V per SD Phys Layer Spec § 5.1 OCR) but no longer $FF.
+    // ocr0/byte2(0x80)/byte3(0x00) and R1 (0x00/0x01) are already non-$FF.
+    // This is a "works by luck" gap — the boot path currently succeeds
+    // because the CCS check reads ocr0 before the misalignment bites.
+    // Task 26 item 1 — 2 NCR idle bytes before R1.
+    resp_buf_ = { kIdle, kIdle, static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
+                  ocr0, 0x7F, 0x80, 0x00 };  // NCR×2 + R1 + 4-byte OCR (no $FF)
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -1002,9 +1070,12 @@ uint32_t SdCardDevice::cmd_arg() const {
 }
 
 void SdCardDevice::queue_r1(uint8_t r1) {
-    // Prepend one NCR byte (0xFF) before R1, matching ZesarUX mmc_read()
-    // behavior where index 0 = 0xFF (busy/NCR) and index 1 = R1.
-    resp_buf_ = { 0xFF, r1 };
+    // Task 26 item 1 — prepend exactly 2 NCR idle bytes (0xFF) before R1
+    // per SD Phys Layer Spec § 7.5.4 (Ncr = 1..8). Pre-fix used a single
+    // idle byte; a fixed-count Ncr=2 firmware reader would then latch the
+    // byte before R1. Poll-based readers (FatFs) skip the extra $FF
+    // transparently. See kIdle note above.
+    resp_buf_ = { kIdle, kIdle, r1 };
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
