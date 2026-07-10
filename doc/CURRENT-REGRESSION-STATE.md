@@ -2,13 +2,18 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**35 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**36 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 ---
 
 ## NextZXOS native boot — milestone (v0.94.0)
 
 The RTC is pinned with `--rtc` (Task 28) so the menu's date/time row is deterministic.
+
+### `boot-nextzxos-splash`
+Mid-boot TBBlue splash (frame 260) while tbblue.fw streams ROMs through the config-mode NR $04 window — locks the bank-5 VRAM aliasing fix (pre-fix this frame was colour garbage).
+
+<img src="../test/00regression/img/boot-nextzxos-splash-reference.png" width="384" alt="boot-nextzxos-splash reference"/>
 
 ### `boot-nextzxos-welcome`
 Native NextZXOS boot to the welcome screen (FPGA boot ROM → tbblue.fw → NextZXOS) from the canonical SD image.
