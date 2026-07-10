@@ -5223,20 +5223,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
             case MachineType::ZXN_ISSUE2:
             default:
-                if (cfg.bypass_tbblue_fw) {
-                    // Task 18 firmware-bypass route: load NextZXOS directly
-                    // into SRAM pages 0..7 (RAMPAGE_ROMSPECCY), replacing the
-                    // 48K fallback that the firmware-boot path uses as a seed
-                    // before tbblue.fw `load_roms()` overwrites it. 64 KB =
-                    // 4 banks × 16 KB → SRAM pages 0x00..0x07 via the seed
-                    // loop at :5208-5215. This is what `boot.c` would have
-                    // populated after parsing menu.def's default entry
-                    // (`menu=ZX Spectrum Next (standard),2,8,enNextZX.rom,...`).
-                    load_machine_rom("/MACHINES/NEXT/enNextZX.rom", 4, 0x10000,
-                                     "NextZXOS (bypass-tbblue-fw)");
-                } else {
-                    load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
-                }
+                load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
                 break;
         }
         Log::emulator()->info("Machine type: {} (ROMs from SD '{}')",
@@ -5268,11 +5255,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (!preserve_memory) {
         if (cfg.type == MachineType::ZXN_ISSUE2 &&
             !cfg.sd_card_image.empty() &&
-            cfg.load_file.empty() &&
-            !cfg.bypass_tbblue_fw) {
-            // Task 18: in bypass mode we never install the FPGA boot-ROM
-            // overlay. The Z80's first fetch at PC=0 must hit the NextZXOS
-            // ROM we seeded into SRAM page 0 above, not the firmware IPL.
+            cfg.load_file.empty()) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
             boot_rom_.assign(embedded_data, embedded_data + embedded_size);
@@ -5324,10 +5307,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // the time the Z80 reaches a Spectrum-compatible BASIC; the
             // mirror is the minimum-cost way to keep direct --load fast
             // paths working without booting through the FPGA boot ROM.
-            // Skipped in bypass mode (enNextZX.rom already filled all 8
-            // pages from rom_ banks 0..3 above) and when no --load was
-            // requested (the boot ROM overlay engages instead).
-            if (!cfg.load_file.empty() && !cfg.bypass_tbblue_fw) {
+            // Skipped when no --load was requested (the boot ROM overlay
+            // engages instead).
+            if (!cfg.load_file.empty()) {
                 const uint8_t* page0 = ram_.page_ptr(0);
                 const uint8_t* page1 = ram_.page_ptr(1);
                 for (int rom_bank = 1; rom_bank < 4; ++rom_bank) {
@@ -5366,14 +5348,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // firmware to drive NR 0x03, so keeping config_mode=0 here lets ROM reads
     // fall through to the normal slot path. NR 0x03 writes keep mirroring
     // config_mode_ into the Mmu live thereafter.
-    //
-    // Task 18 (bypass-tbblue-fw): mmu_.boot_rom_enabled() is FALSE in bypass
-    // mode because the overlay was never installed (the gate above at
-    // :5198-5212 short-circuits the embed). The bypass branch deliberately
-    // SKIPS this block — there is no firmware to use config_mode, and the
-    // NR 0x03=0xB3 write at end of init() (see line ~5500) then does the
-    // canonical post-firmware config_mode=0 commit via the handler at
-    // :2497, so Mmu's mirror catches up before the Z80 runs.
     if (cfg.type == MachineType::ZXN_ISSUE2 && mmu_.boot_rom_enabled()) {
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
         mmu_.set_nr_04_romram_bank(nextreg_.nr_04_romram_bank());
@@ -5600,155 +5574,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --compositor-trace / --compositor-trace-frame). Empty path disables.
     renderer_.set_compositor_trace(cfg.compositor_trace_path,
                                    cfg.compositor_trace_frame);
-
-    // Task 18 firmware-bypass route — post-firmware state commit.
-    //
-    // On hard reset only (preserve_memory=false): with SRAM pages 0..7
-    // populated above with enNextZX.rom (64 KB) and the boot-ROM overlay
-    // intentionally NOT installed, the remaining gap vs. what tbblue.fw
-    // would have set is the machine-type commit + boot-ROM-disable +
-    // config_mode clear. All three happen on a single NR 0x03 write
-    // through the registered handler at line ~2333:
-    //   bits[2:0]=011 ($B3 & 7 = 3) → typ_sel=ZX_PLUS3, committed
-    //     because the current `nr_03_config_mode` is the VHDL power-on
-    //     '1' default that survives reset (per `nextreg.cpp:355` +
-    //     VHDL zxnext.vhd:1102).
-    //   bits[6:4]=011 ($B3 >> 4 = $0B & 7 = 3) AND bit7=1 AND bit3=0 →
-    //     +3 machine_timing (28 MHz unchanged).
-    //   apply_nr_03_config_mode_transition($B3 & 7 = 011) clears
-    //     config_mode → 0 (VHDL :5147-5151).
-    //   mmu_.set_boot_rom_enabled(false) (handler line 2335) — boot ROM
-    //     overlay was never installed in bypass mode, but we still run
-    //     the handler so the Mmu's mirror flag is canonical.
-    //   mmu_.set_config_mode(false) (handler line 2497) — paging routes
-    //     through the normal slot path, not config_mode SRAM routing.
-    //
-    // Reference: doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md §2.5 and
-    // doc/issues/bypass-firmware-v2/PLAN-AUDIT.md §2-3 (Branch 3).
-    //
-    // Why NR 0x07 is NOT written here (FUTURE plan §2.4 / §3 mentions
-    // NR 0x07=$03 = 28 MHz for "boot-rate speed", and the empirical
-    // CSpect post-boot capture has NR 0x07=$33 = 28 MHz running): the
-    // 28 MHz speed is tbblue.fw's PRIVATE acceleration for firmware
-    // execution. The handoff contract from firmware to NextZXOS does
-    // NOT require 28 MHz — NextZXOS writes NR 0x07=$03 itself within
-    // the first ~50 instructions of its boot path (verified empirically
-    // in the bypass-mode trace at PC=$00EF: `ED 91 07 03 ...`). The
-    // NextReg cold-reset default of 0x00 (3.5 MHz) is therefore the
-    // correct post-firmware handoff value — no explicit write needed.
-    //
-    // Skipped on soft reset: a soft reset must preserve whatever the
-    // post-init state was; re-running this write would re-disable the
-    // boot ROM (already disabled), re-commit machine type (already +3),
-    // and re-clear config_mode (already 0), so the soft-reset path
-    // would be idempotent — but the explicit handler-driven log lines
-    // would spam on every soft reset, so we gate strictly on hard reset.
-    if (cfg.bypass_tbblue_fw && !preserve_memory &&
-        cfg.type == MachineType::ZXN_ISSUE2) {
-        Log::emulator()->info("Task 18: firmware bypass — committing post-firmware NextREG state");
-
-        // NR 0x06 (PERIPH2) — tbblue.fw `init_registers()` (boot.c:294-301)
-        // writes this based on SD `config.ini` settings before its
-        // RESET_SOFT handoff to NextZXOS. Empirically observed in CSpect's
-        // own bypass trace: NR 0x06 reads as 0x05 at PC=$011E (the first
-        // post-handoff NextZXOS `IN A,(C)` against $253B with selector
-        // $06). $05 = `bit 2 (PS2) | bit 0 (PSGMode low)` = PS/2 keyboard
-        // enabled + PSGMode 01 (AY chip emulation) — the SD-default
-        // settings tbblue.fw would have computed.
-        //
-        // Without this pre-set, jnext returns the VHDL reset value $A0
-        // (`hotkey_cpu_speed_en=1 & hotkey_5060_en=1`, zxnext.vhd:1107-
-        // 1108 + :5900). NextZXOS at PC=$011E reads NR 0x06, masks with
-        // $44 (preserves bit 6 = beep + bit 2 = ps2_mode), writes back at
-        // PC=$0124. With $A0 pre-state: result = $A0 & $44 = $00 →
-        // ps2_mode CLEARED. With $05 pre-state: result = $05 & $44 = $04
-        // → ps2_mode SET. The ps2_mode bit drives PS/2 keyboard polarity
-        // downstream; clearing it in our bypass leaves NextZXOS reading a
-        // mis-configured keyboard and cascading state through to the
-        // welcome-banner draw path that is the visible Task 18 failure.
-        //
-        // Independent trace analysis 2026-05-17e — see memory
-        // `project_task18_divergence_correction_2026-05-17e`. The prior
-        // session's reverted "full init_registers replication"
-        // (`150075e6`) used `NR 0x06 = $80` (TurboKey-only), which has
-        // bit 2 = 0 — that's why it failed to change boot outcome. The
-        // correct value matches CSpect's empirically-observed $05.
-        nextreg_.write(0x06, 0x05);
-
-        nextreg_.write(0x03, 0xB3);
-
-        // Task 18 brute-force snapshot loader (diagnostic / experimental).
-        // JNEXT_BYPASS_LOAD_SNAPSHOT=/path/to/file applies a full state
-        // snapshot captured from CSpect at PC=$00EF (256 NextREG bytes +
-        // 28-byte Z80 state + 2 MiB SRAM = 2,097,436 bytes total). Used
-        // to test whether matching CSpect's bypass entry state
-        // byte-for-byte gets jnext past the banner-draw cascade.
-        // Generated via tools/cspect_dzrp/task18_snapshot_at_00EF.py.
-        if (const char* snap_path = std::getenv("JNEXT_BYPASS_LOAD_SNAPSHOT")) {
-            std::ifstream snap(snap_path, std::ios::binary);
-            if (snap) {
-                uint8_t header[284];
-                snap.read(reinterpret_cast<char*>(header), sizeof(header));
-                if (snap.gcount() == sizeof(header)) {
-                    // Apply 256 NextREGs in numerical order (handlers fire).
-                    for (int r = 0; r < 256; ++r) {
-                        nextreg_.write(static_cast<uint8_t>(r), header[r]);
-                    }
-                    // SRAM: 2 MiB. Copy ALL 256 snapshot pages into ram_,
-                    // INCLUDING pages 0x00..0x07. CSpect's snapshot has
-                    // physical-SRAM bytes at all 256 pages; pages 0..7 hold
-                    // CSpect's actual physical RAM (NOT the FPGA-emulated
-                    // ROM that legacy paging reads from).
-                    //
-                    // To avoid the dual-purpose conflict where jnext's
-                    // sram_rom resolution would read CSpect's "RAM page 0"
-                    // bytes as NextZXOS code, the loader BELOW disables
-                    // `rom_in_sram` so legacy ROM reads route through the
-                    // `rom_` buffer (which still holds enNextZX.rom from
-                    // the load_machine_rom call above).
-                    for (int p = 0; p < 256; ++p) {
-                        uint8_t* dst = ram_.page_ptr(static_cast<uint16_t>(p));
-                        if (dst) snap.read(reinterpret_cast<char*>(dst), 0x2000);
-                    }
-                    // Route legacy ROM reads through rom_ (= enNextZX.rom)
-                    // so the supervisor's code path at $00EF reads correct
-                    // NextZXOS bytes while NR $56-mapped slots can read the
-                    // snapshot's RAM-page bytes from ram_.
-                    mmu_.set_rom_in_sram(false);
-                    // Z80 state at header offset 0x100..0x11B.
-                    auto u16 = [&](int off) {
-                        return static_cast<uint16_t>(header[off] | (header[off+1] << 8));
-                    };
-                    Z80Registers z = cpu_.get_registers();
-                    z.PC   = u16(0x100);
-                    z.SP   = u16(0x102);
-                    z.AF   = u16(0x104);
-                    z.BC   = u16(0x106);
-                    z.DE   = u16(0x108);
-                    z.HL   = u16(0x10A);
-                    z.IX   = u16(0x10C);
-                    z.IY   = u16(0x10E);
-                    z.AF2  = u16(0x110);
-                    z.BC2  = u16(0x112);
-                    z.DE2  = u16(0x114);
-                    z.HL2  = u16(0x116);
-                    z.I    = header[0x118];
-                    z.R    = header[0x119];
-                    z.IM   = header[0x11A];
-                    cpu_.set_registers(z);
-                    Log::emulator()->info("Task 18: loaded CSpect snapshot from '{}' — "
-                                          "PC=${:04X} SP=${:04X} AF=${:04X}",
-                                          snap_path, z.PC, z.SP, z.AF);
-                } else {
-                    Log::emulator()->warn("Task 18: snapshot '{}' header short "
-                                          "({} bytes read)", snap_path,
-                                          static_cast<int>(snap.gcount()));
-                }
-            } else {
-                Log::emulator()->warn("Task 18: snapshot file '{}' not found", snap_path);
-            }
-        }
-    }
 
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).

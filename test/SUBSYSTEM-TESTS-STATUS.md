@@ -39,8 +39,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI Source Pipeline   |       63 |       57 |      0 |       6 |     90% | 🟡 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 6 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-CLI/FAT/INI (G46/G47/G59/G60). |
+| NMI Source Pipeline   |       62 |       57 |      0 |       5 |     92% | 🟡 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 5 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-FAT/INI (G46/G47/G59/G60). |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4116** | **4077** |  **0** |  **39** | **99%** | 🟡 39 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 6, port dispatch 1); 0 FAILs. |
+| **Total**             | **4115** | **4077** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
