@@ -253,6 +253,16 @@ void QtApp::on_frame_tick() {
         if (audio_ && !emulator_.fastload_active()) {
             audio_->push_from_mixer(emulator_.mixer(), audio_paced);
         }
+    } else if (audio_) {
+        // Paused in the debugger: the emulator produces no samples, so the
+        // device queue would drain and SDL would zero-fill — stepping the
+        // output from its resting level to 0, and back again on resume. Two
+        // clicks per pause. Keep feeding the device instead: the mixer is
+        // empty, so push_from_mixer() only runs its underrun guard, which
+        // holds the last level. A steady level is silent; a step is not.
+        // (The guard's behaviour with zero production is AP-06 in
+        // test/audio/audio_pacing_test.cpp.)
+        audio_->push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/true);
     }
 
     // Update the display widget with the in-memory framebuffer (640×256).

@@ -17,11 +17,13 @@ the clicking over beeper music of Task 23.
 Detection
 ---------
 An underrun is a run of *exactly zero* stereo samples that is entered abruptly
-from a non-trivial signal level. A genuine musical silence cannot look like
-this: the mixer's DC-blocking output stage decays smoothly (…, 3, 2, 1, 0), so
-the sample immediately before a real silence is near zero. An SDL-injected hole
-cuts in from whatever the waveform was doing (…, 972, 971, | 0, 0, 0 … | 970,
-969, …) — the emulator's own stream continues seamlessly across the gap, which
+from a non-trivial signal level. The mixer never produces such a run: its output
+is the VHDL sum, which rests at a steady non-zero level (the DAC's 0x80/0x80 rest
+plus the I2S 0x200 midpoint), so an idle machine sits at a flat DC level and a
+beeper plateau sits at a flat tone level — neither is exactly zero, and neither
+arrives there in one sample. An SDL-injected hole, by contrast, cuts in from
+whatever the waveform was doing (…, 972, 971, | 0, 0, 0 … | 970, 969, …) — and
+the emulator's own stream resumes seamlessly on the far side of the gap, which
 is precisely what proves the zeros are foreign.
 
 So: |sample immediately before the zero-run| >= EDGE and |sample immediately
