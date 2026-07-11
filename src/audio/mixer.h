@@ -72,4 +72,11 @@ private:
 
     // VHDL audio_mixer.vhd:80-81 — when '1', ear/mic muxes feed (others=>'0').
     bool exc_i_{false};
+
+    // DC-blocking (AC-coupling) high-pass filter state, one pole per channel.
+    // Models the real hardware's series output capacitor: any *steady* level
+    // (DAC rest, a held OUT 0xFE bit-4 EAR line, MIC, i2s midpoint) decays to
+    // silence instead of leaking a DC offset into the sound card (issue #7).
+    double hp_x_l_{0.0}, hp_y_l_{0.0};
+    double hp_x_r_{0.0}, hp_y_r_{0.0};
 };

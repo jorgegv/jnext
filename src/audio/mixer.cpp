@@ -15,6 +15,12 @@ void Mixer::reset()
     // b4 cleared at power-on means exc_i='0'. Emulator::reset() restores it
     // via set_exc_i(beep_spkr_excl()) once NR 0x08 has settled to 0x10.
     exc_i_ = false;
+    // Prime the DC-blocking filter's input history to the resting PCM level
+    // (the DAC's 1024 silence level). This makes the first post-reset sample
+    // equal the old `(pcm - 1024) * 4` value exactly — so a source's initial
+    // step is preserved — while any *steady* level still decays to silence.
+    hp_x_l_ = hp_x_r_ = 1024.0;
+    hp_y_l_ = hp_y_r_ = 0.0;
 }
 
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
@@ -68,15 +74,27 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L + i2s_L;
     uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R + i2s_R;
 
-    // Convert to signed 16-bit.  Center at the resting DC level so that
-    // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
-    // all other sources = 0, so resting level is 1024.
-    // The real hardware has AC-coupled output (capacitor blocks DC); we
-    // replicate that by subtracting the resting level instead of the 13-bit
-    // midpoint.  Scale by 4 to use more of the int16 dynamic range.
-    constexpr int32_t DC_REST = 1024;  // DAC silence level in 13-bit space
-    int32_t sL = (static_cast<int32_t>(pcm_L) - DC_REST) * 4;
-    int32_t sR = (static_cast<int32_t>(pcm_R) - DC_REST) * 4;
+    // AC-couple the output exactly like the real hardware's series output
+    // capacitor: a one-pole DC-blocking high-pass filter removes ANY steady
+    // level (the DAC's 1024 rest, a held OUT 0xFE bit-4 EAR line, MIC, the
+    // i2s midpoint) so a constant speaker level is silent instead of a DC
+    // offset that makes the sound card hum/buzz (issue #7). The previous
+    // fixed `- 1024` only cancelled the DAC rest and left, e.g., a stuck
+    // EAR bit (+512 → +2048 out) as a permanent DC offset.
+    //   y[n] = x[n] - x[n-1] + R * y[n-1]
+    // R = 0.999 → ~7 Hz cutoff at 44.1 kHz: passes the whole audio band,
+    // blocks DC. Only sub-cutoff (inaudible) content is removed, so genuine
+    // beeper/AY/DAC audio is unchanged; a *toggling* EAR line still sounds.
+    constexpr double R = 0.999;
+    hp_y_l_ = static_cast<double>(pcm_L) - hp_x_l_ + R * hp_y_l_;
+    hp_x_l_ = static_cast<double>(pcm_L);
+    hp_y_r_ = static_cast<double>(pcm_R) - hp_x_r_ + R * hp_y_r_;
+    hp_x_r_ = static_cast<double>(pcm_R);
+
+    // Scale by 4 to use more of the int16 dynamic range (matches the old gain
+    // for AC content well above the cutoff).
+    int32_t sL = static_cast<int32_t>(hp_y_l_ * 4.0);
+    int32_t sR = static_cast<int32_t>(hp_y_r_ * 4.0);
 
     // Clamp to int16_t range
     sL = std::clamp(sL, static_cast<int32_t>(-32768), static_cast<int32_t>(32767));

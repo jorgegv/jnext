@@ -31,6 +31,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -2351,6 +2352,43 @@ static void g_mixer() {
         check("MX-12", "reset empties ring buffer",
               mx.available() == 0,
               fmt("avail=%d VHDL audio_mixer.vhd:95-97", mx.available()));
+    }
+
+    // MX-DC-01 - AC coupling: a STEADY source level decays to silence.
+    // Models the hardware's series output capacitor (issue #7). A held
+    // OUT 0xFE bit-4 (EAR) line is a constant +512 in the mixer sum; without
+    // DC blocking it left a permanent +2048 output offset that made the sound
+    // card hum. With the one-pole DC-blocking high-pass, the first sample is
+    // the full step (2048, see MX-01) but a *held* level decays toward 0.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bp.set_ear(true);                 // held high the entire time
+        int16_t s[2] = {0, 0};
+        for (int i = 0; i < 4096; ++i) {  // ~93 ms >> the ~23 ms time constant
+            mx.generate_sample(bp, ts, dac);
+            mx.read_samples(s, 1);
+        }
+        check("MX-DC-01", "held EAR-high decays to silence (AC-coupled, issue #7)",
+              std::abs(static_cast<int>(s[0])) < 50 &&
+              std::abs(static_cast<int>(s[1])) < 50,
+              fmt("steady-state L=%d R=%d (pre-fix stuck at +2048)", s[0], s[1]));
+    }
+
+    // MX-DC-02 - AC coupling must NOT mute real audio: a TOGGLING EAR line
+    // (a square wave, i.e. beeper music) still produces sustained output.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        int16_t s[2];
+        double energy = 0.0;
+        for (int i = 0; i < 4096; ++i) {
+            bp.set_ear((i & 1) != 0);     // flip every sample = ~22 kHz square
+            mx.generate_sample(bp, ts, dac);
+            mx.read_samples(s, 1);
+            if (i >= 2048) energy += static_cast<double>(s[0]) * s[0];  // settled half
+        }
+        check("MX-DC-02", "toggling EAR still sounds (AC-coupling passes audio)",
+              energy > 0.0,
+              fmt("settled RMS^2 sum=%.0f (must be > 0)", energy));
     }
 
     // MX-13 - EAR + MIC go to both L and R.
