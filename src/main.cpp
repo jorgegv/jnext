@@ -30,10 +30,10 @@ static void print_usage(const char* prog) {
         "  jnext is a ZX Spectrum Next emulator. The FPGA boot ROM is silicon-baked\n"
         "  (embedded in the jnext binary, mirroring real Next hardware on-FPGA flash).\n"
         "  All other ROMs (DivMMC, NextZXOS, 48K/128K/+3 BASIC, Multiface) are loaded\n"
-        "  from the user-supplied SD-card image at canonical TBBlue paths\n"
-        "  (e.g. /MACHINES/NEXT/48.rom, /MACHINES/NEXT/enNxtmmc.rom). --sd-card is\n"
-        "  therefore required for every invocation, just like real Next hardware\n"
-        "  cannot boot without a populated SD card.\n"
+        "  from an SD-card image at canonical TBBlue paths (e.g. /MACHINES/NEXT/48.rom,\n"
+        "  /MACHINES/NEXT/enNxtmmc.rom). Provide one with --sd-card; if omitted, jnext\n"
+        "  falls back to ~/.jnext/sdcard/cspect-next-1gb.img and offers to download +\n"
+        "  patch the canonical distribution image there.\n"
         "\n"
         "  --log-level SPEC     Set per-subsystem log levels (e.g. cpu=trace,video=warn)\n"
         "  --inject FILE        Load raw binary FILE into RAM (see --inject-org, --inject-pc)\n"
@@ -83,7 +83,8 @@ static void print_usage(const char* prog) {
         "                          instead of following the host clock. Makes boot\n"
         "                          screenshots deterministic (regression tests).\n"
         "                          ISO form YYYY-MM-DDTHH:MM:SS also accepted.\n"
-        "  --version               Print version and exit\n",
+        "  --help, -h              Print this help and exit\n"
+        "  --version, -V           Print version and exit\n",
         prog);
 }
 
