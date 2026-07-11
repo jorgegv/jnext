@@ -584,9 +584,9 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
         if (!opts.auto_confirm) {
             std::string msg =
-                std::string("No SD-card image found at ") + fixed +
-                ".\nDownload the NextZXOS distribution image from " +
-                kDistroUrl + " (large download) and install it there?";
+                "No SD-card image was found at ~/.jnext/.\n\n"
+                "Download the NextZXOS official distribution image and "
+                "install it there?";
             if (!confirm(msg)) {
                 r.status = ProvisionStatus::Declined;
                 r.error  = "download declined by user";

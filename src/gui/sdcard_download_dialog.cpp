@@ -34,7 +34,7 @@ bool SdcardGuiProvisioner::confirm(const std::string& message) {
     QMessageBox box;
     box.setWindowTitle(QStringLiteral("jnext — SD card image"));
     box.setIcon(QMessageBox::Question);
-    box.setText(QStringLiteral("No ZX Spectrum Next SD-card image was found."));
+    box.setText(QStringLiteral("No ZX Spectrum Next SD-card image found"));
     box.setInformativeText(QString::fromStdString(message));
     box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
     box.setDefaultButton(QMessageBox::No);
