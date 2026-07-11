@@ -25,16 +25,9 @@ static void crash_handler(int sig) {
 
 static void print_usage(const char* prog) {
     fprintf(stderr,
-        "Usage: %s [options]\n"
+        "  jnext is a ZX Spectrum Next emulator.\n"
         "\n"
-        "  jnext is a ZX Spectrum Next emulator. The FPGA boot ROM is silicon-baked\n"
-        "  (embedded in the jnext binary, mirroring real Next hardware on-FPGA flash).\n"
-        "  All other ROMs (DivMMC, NextZXOS, 48K/128K/+3 BASIC, Multiface) are loaded\n"
-        "  from an SD-card image at canonical TBBlue paths (e.g. /MACHINES/NEXT/48.rom,\n"
-        "  /MACHINES/NEXT/enNxtmmc.rom). Provide one with --sd-card; if omitted, jnext\n"
-        "  falls back to ~/.jnext/sdcard/cspect-next-1gb-fixed.img and offers to download\n"
-        "  the canonical distribution image (kept as cspect-next-1gb.img) and produce the\n"
-        "  patched cspect-next-1gb-fixed.img there.\n"
+        "  Usage: %s [options]\n"
         "\n"
         "  --log-level SPEC     Set per-subsystem log levels (e.g. cpu=trace,video=warn)\n"
         "  --inject FILE        Load raw binary FILE into RAM (see --inject-org, --inject-pc)\n"
@@ -44,14 +37,12 @@ static void print_usage(const char* prog) {
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
         "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav\n"
-        "  --sd-card FILE       Mount SD card image FILE (.img). If omitted, jnext looks\n"
-        "                       for ~/.jnext/sdcard/cspect-next-1gb-fixed.img and offers to\n"
-        "                       download the canonical distribution image (kept as\n"
-        "                       cspect-next-1gb.img) and produce that patched -fixed.img.\n"
+        "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
+        "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
         "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
         "  --sdcard-download-force    Force re-download + re-patch of the default-location\n"
         "                       image (~/.jnext/sdcard/) to recover a corrupted one. Ignored\n"
-        "                       when --sd-card is given (an explicit path always wins).\n"
+        "                       when --sdcard is given (an explicit path always wins).\n"
         "  --machine TYPE       Machine type: 48k, 128k, plus3, next (default)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
@@ -157,7 +148,9 @@ int main(int argc, char* argv[]) {
             inject_delay = std::stoi(argv[++i]);
         } else if (arg == "--load" && i + 1 < argc) {
             load_file = argv[++i];
-        } else if (arg == "--sd-card" && i + 1 < argc) {
+        } else if ((arg == "--sdcard" || arg == "--sd-card") && i + 1 < argc) {
+            // --sdcard is canonical; --sd-card is a silent (undocumented) alias
+            // kept for backward compatibility. Both consume the FILE argument.
             sd_card_image = argv[++i];
         } else if (arg == "--sdcard-download-confirm") {
             sdcard_download_confirm = true;
@@ -257,7 +250,7 @@ int main(int argc, char* argv[]) {
 
     if (!inject_pc_set) inject_pc = inject_org;
 
-    // --sd-card is mandatory at the CLI level: jnext is a ZX Spectrum Next
+    // --sdcard is mandatory at the CLI level: jnext is a ZX Spectrum Next
     // emulator and the SD-card image is the canonical source for all peripheral
     // ROMs (DivMMC, Multiface, NextZXOS) and machine ROMs (48K, 128K, +3) —
     // same as real Next hardware. Unit-test fixtures construct Emulator
@@ -265,13 +258,13 @@ int main(int argc, char* argv[]) {
     // sd_card_image empty for hermetic tests; that path remains intact (the
     // check lives only here in main.cpp, not in Emulator::init).
     // Resolve the SD-card image (Task 27). Precedence:
-    //   1. explicit --sd-card FILE (unless --sdcard-download-force is set)
+    //   1. explicit --sdcard FILE (unless --sdcard-download-force is set)
     //   2. the default location $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
     //   3. offer to download the canonical distribution image (kept pristine as
     //      cspect-next-1gb.img) and produce the patched cspect-next-1gb-fixed.img
     // Unit-test fixtures construct Emulator directly and never reach this
     // path. When resolution ultimately fails, fall back to the historical
-    // "--sd-card is required" error so behaviour is unchanged for scripts.
+    // "--sdcard is required" error so behaviour is unchanged for scripts.
     {
         sdcard::ProvisionOptions opts;
         opts.explicit_path   = sd_card_image;
@@ -304,7 +297,7 @@ int main(int argc, char* argv[]) {
                 "error: no SD-card image available.\n"
                 "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
                 "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
-                "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sd-card FILE,\n"
+                "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sdcard FILE,\n"
                 "or accept the download prompt to install it at ~/.jnext/sdcard/cspect-next-1gb-fixed.img.\n");
             return 1;
         }
@@ -321,7 +314,7 @@ int main(int argc, char* argv[]) {
         // "direct NEX/TAP launch": when a --load is present, the embedded
         // nextboot.rom default-load is skipped to avoid corrupting the
         // demo's reset vector at 0x0000-0x1FFF (Wave 0.1 follow-up,
-        // 2026-05-04). Pure --sd-card boots leave load_file empty and
+        // 2026-05-04). Pure --sdcard boots leave load_file empty and
         // get the firmware overlay.
         cfg.load_file = load_file;
         cfg.magic_breakpoint = magic_breakpoint;

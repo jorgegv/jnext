@@ -7,11 +7,11 @@
 
 /// SD-card image provisioning (Task 27).
 ///
-/// jnext needs a NextZXOS SD image to boot. Historically `--sd-card FILE` was
+/// jnext needs a NextZXOS SD image to boot. Historically `--sdcard FILE` was
 /// mandatory. This module adds a default-location + optional-download flow so
-/// a user can start with just a `.nex` (or nothing) and no `--sd-card`:
+/// a user can start with just a `.nex` (or nothing) and no `--sdcard`:
 ///
-///   1. `--sd-card FILE` given  → use it verbatim (explicit ALWAYS wins,
+///   1. `--sdcard FILE` given  → use it verbatim (explicit ALWAYS wins,
 ///      unconditionally — even alongside --sdcard-download-force, which is
 ///      ignored in that case, since the named file may be any image).
 ///   2. else look in $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img → use if
@@ -31,7 +31,7 @@
 ///
 /// --sdcard-download-force forces the re-download+re-patch in step 3 (to
 /// recover a corrupted default-location image); it never applies to an
-/// explicit --sd-card path.
+/// explicit --sdcard path.
 ///
 /// The network fetch, the unzip, and the FAT32 patch are separate functions so
 /// each is independently unit-testable offline; the network fetch and the user
@@ -107,7 +107,7 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
 bool patch_image_fat32(const std::string& image_path, std::string& err);
 
 struct ProvisionOptions {
-    std::string explicit_path;      // --sd-card value ("" if not given)
+    std::string explicit_path;      // --sdcard value ("" if not given)
     bool        auto_confirm  = false; // --sdcard-download-confirm
     bool        force_download = false; // --sdcard-download-force
     DownloadFn  download;           // defaults to default_http_download

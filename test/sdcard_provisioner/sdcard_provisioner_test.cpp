@@ -6,7 +6,7 @@
 //
 //   PROV-PATH-01   default_sdcard_dir / (fixed + raw) image_path derive from
 //                  $HOME; the default (used) image is the -fixed.img one.
-//   PROV-PREC-01   Explicit --sd-card wins; download seam is never invoked.
+//   PROV-PREC-01   Explicit --sdcard wins; download seam is never invoked.
 //   PROV-PREC-02   Default-location FIXED image is used when present; no download.
 //   PROV-PREC-03   --sdcard-download-force ignores an explicit path and an
 //                  existing default image (routes to the download branch).
@@ -282,7 +282,7 @@ int main() {
               !download_called);
     }
 
-    // -- PROV-PREC-03: an explicit --sd-card ALWAYS wins, even with
+    // -- PROV-PREC-03: an explicit --sdcard ALWAYS wins, even with
     // --sdcard-download-force. Force applies only to the default-location
     // flow; it must never re-download over, or discard, an explicit path.
     {
@@ -296,7 +296,7 @@ int main() {
         check("PROV-PREC-03", "explicit path returned verbatim despite force",
               r.status == sdcard::ProvisionStatus::Ok &&
               r.path == "/some/explicit/path.img", r.path);
-        check("PROV-PREC-03", "download seam never invoked when --sd-card given",
+        check("PROV-PREC-03", "download seam never invoked when --sdcard given",
               !download_called);
     }
 

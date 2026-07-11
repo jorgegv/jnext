@@ -519,7 +519,7 @@ bool patch_image_fat32(const std::string& image_path, std::string& err) {
 ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     ProvisionResult r;
 
-    // An explicit --sd-card path ALWAYS wins, unconditionally. It may name an
+    // An explicit --sdcard path ALWAYS wins, unconditionally. It may name an
     // arbitrary, unrelated image; --sdcard-download-force must never re-download
     // over it or ignore it. --sdcard-download-force applies ONLY to the
     // default-location provisioning flow (recovering a corrupted
@@ -528,7 +528,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         if (opts.force_download) {
             std::fprintf(stderr,
                 "warning: --sdcard-download-force ignored because an explicit "
-                "--sd-card was provided (%s).\n", opts.explicit_path.c_str());
+                "--sdcard was provided (%s).\n", opts.explicit_path.c_str());
         }
         r.status = ProvisionStatus::Ok;
         r.path   = opts.explicit_path;

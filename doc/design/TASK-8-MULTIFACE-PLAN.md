@@ -29,7 +29,7 @@ The 2026-04-20 plan body below remains the authoritative spec for **Wave 1**
    SD image is the canonical source for all peripheral ROMs (just like real
    hardware). `--boot-rom`, `--divmmc-rom`, and `--roms-directory` are
    removed; `nextboot.rom` is silicon-baked (embedded in the jnext binary,
-   mirroring real-Next on-FPGA flash); `--sd-card` becomes mandatory always.
+   mirroring real-Next on-FPGA flash); `--sdcard` becomes mandatory always.
 4. Plan §9 question on `--multiface-rom` resolved: **NO** flag — load
    `enNextMf.rom` from `/MACHINES/NEXT/enNextMf.rom` on the SD image, same
    path real Next uses.
@@ -72,7 +72,7 @@ firmware (`enNxtmmc.rom` / `enNextMf.rom` / `enNextZX.rom`) come from
   `Mmu::set_boot_rom(data, size)`.
 - `--boot-rom FILE` flag stays as an *override* in this branch — additive
   only, no breakage. Removed in Wave 0.3.
-- Acceptance: `./build/jnext --machine next --sd-card <img>` (no
+- Acceptance: `./build/jnext --machine next --sdcard <img>` (no
   `--boot-rom` flag) boots tbblue.fw to splash + spacebar prompt + ROM
   loader log, identical to today's flagged invocation.
 - License posture: `nextboot.rom` is from the open ZX Spectrum Next FPGA
@@ -488,7 +488,7 @@ behaviour more VHDL-faithful, that's bonus, not goal.
   tests?
 - ~~Do we want a `--multiface-rom FILE` CLI flag (bypass SD load of
   enNextMf.rom for repeatable tests)?~~
-  **RESOLVED 2026-05-04:** NO. Wave 0.3 made `--sd-card` mandatory and
+  **RESOLVED 2026-05-04:** NO. Wave 0.3 made `--sdcard` mandatory and
   removed all the `--*-rom` overrides. The Multiface ROM is loaded via
   `extract_sd_rom(sd, "/MACHINES/NEXT/enNextMf.rom", ...)` at init time,
   same path real Next hardware uses. Tests that need a deterministic

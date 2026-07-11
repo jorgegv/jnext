@@ -127,7 +127,7 @@ The `--headless` option runs without display/audio for automated testing:
 
 ```bash
 ./build/jnext --headless --machine 48k \
-    --sd-card roms/nextzxos-1gb-fat32fix.img \
+    --sdcard roms/nextzxos-1gb-fat32fix.img \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
@@ -135,7 +135,7 @@ The `--headless` option runs without display/audio for automated testing:
 Key options:
 - `--machine TYPE` — `48k`, `128k`, `plus3`, `next` (default)
 - `--headless` — no display, no audio, runs at max speed
-- `--sd-card FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image; offers to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
+- `--sdcard FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image; offers to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
 - `--delayed-screenshot-time N` — delay in seconds (default 10)
 - `--delayed-screenshot-frames N` — delay in frames (overrides `--delayed-screenshot-time`)
@@ -170,7 +170,7 @@ ZX Spectrum Next hardware. There are two parts:
    on-FPGA flash IPL of real Next hardware.
 
 2. **All other ROMs** are extracted from the SD image (supplied via
-   `--sd-card`, or the `~/.jnext/sdcard/` fallback) at canonical TBBlue
+   `--sdcard`, or the `~/.jnext/sdcard/` fallback) at canonical TBBlue
    paths via the host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`:
    - `/MACHINES/NEXT/48.rom` (16 KB) — 48K BASIC
    - `/MACHINES/NEXT/128.rom` (32 KB combined) — 128K BASIC (split into 2 banks)
@@ -185,7 +185,7 @@ image at init time.
 
 ### ZX Spectrum Next boot assets
 
-jnext needs a NextZXOS SD image. Mount one explicitly via `--sd-card`, or omit
+jnext needs a NextZXOS SD image. Mount one explicitly via `--sdcard`, or omit
 it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the
 patched image; offering to download the canonical distribution image, kept as
 `cspect-next-1gb.img`, and produce that FAT32-patched copy — see Task 27).
@@ -204,5 +204,5 @@ boot invocation:
 
 ```bash
 ./build/jnext --machine next \
-    --sd-card roms/nextzxos-1gb-fat32fix.img
+    --sdcard roms/nextzxos-1gb-fat32fix.img
 ```

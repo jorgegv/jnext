@@ -698,7 +698,7 @@ void MainWindow::on_mount_sd() {
         // SD card mounting requires restart; just store and inform user.
         QMessageBox::information(this, tr("SD Card"),
             tr("SD card image selected:\n%1\n\n"
-               "Restart the emulator with --sd-card to use this image.").arg(path));
+               "Restart the emulator with --sdcard to use this image.").arg(path));
         emit sd_card_selected(path);
     }
 }

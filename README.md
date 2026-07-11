@@ -120,9 +120,9 @@ Debugger keyboard shortcuts:
 |-------------------------------|----------------------------------------------------------------------|
 | `--machine TYPE`         | `48k`, `128k`, `plus3`, `next` (default)                             |
 | `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
-| `--sd-card FILE`              | Mount SD card image (.img); canonical source for all ROMs. Optional — if omitted, jnext uses `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image), offering to download the canonical distribution (kept as `cspect-next-1gb.img`) and produce that patched copy |
+| `--sdcard FILE`              | Mount SD card image (.img); canonical source for all ROMs. Optional — if omitted, jnext uses `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image), offering to download the canonical distribution (kept as `cspect-next-1gb.img`) and produce that patched copy |
 | `--sdcard-download-confirm`   | Skip the download prompt and provision the default image automatically |
-| `--sdcard-download-force`     | Force re-download + re-patch of the default-location image (ignored when `--sd-card` is given) |
+| `--sdcard-download-force`     | Force re-download + re-patch of the default-location image (ignored when `--sdcard` is given) |
 | `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
 | `--headless`                  | Run without display or audio, at maximum speed                       |
 | `--tape-realtime`             | Real-time tape loading instead of fast load                          |
@@ -206,7 +206,7 @@ Next hardware:
 - **FPGA boot ROM** (`nextboot.rom`, 8 KB) is silicon-baked: embedded into
   the jnext binary at link time. No flag, no SD lookup.
 - **All other ROMs** (DivMMC, NextZXOS, 48K/128K/+3 BASIC, Multiface) are
-  read from the `--sd-card` image at canonical TBBlue paths
+  read from the `--sdcard` image at canonical TBBlue paths
   (`/MACHINES/NEXT/...`).
 
 The TBBlue distribution image is the standard reference: see
@@ -218,37 +218,37 @@ The TBBlue distribution image is the standard reference: see
 ## Quick start
 
 jnext needs an SD-card image: it is the canonical source for all peripheral
-and machine ROMs (same as real hardware). Point at one with `--sd-card FILE`,
+and machine ROMs (same as real hardware). Point at one with `--sdcard FILE`,
 or omit it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img`
 (the patched image), offering to download the canonical distribution image
 (kept as `cspect-next-1gb.img`) and produce that FAT32-patched copy there.
 
 ```sh
 # Boot NextZXOS / TBBlue firmware (default Next machine)
-./build/gui-release/jnext --sd-card roms/nextzxos-1gb-fat32fix.img
+./build/gui-release/jnext --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Run as ZX Spectrum 48K (uses /MACHINES/NEXT/48.rom from SD)
-./build/gui-release/jnext --machine 48k --sd-card roms/nextzxos-1gb-fat32fix.img
+./build/gui-release/jnext --machine 48k --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Load and run a NEX file (boot-ROM overlay skipped automatically)
-./build/gui-release/jnext --load game.nex --sd-card roms/nextzxos-1gb-fat32fix.img
+./build/gui-release/jnext --load game.nex --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Load a TAP file (will auto-type LOAD "")
-./build/gui-release/jnext --load game.tap --sd-card roms/nextzxos-1gb-fat32fix.img
+./build/gui-release/jnext --load game.tap --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Load a snapshot
-./build/gui-release/jnext --load game.sna --sd-card roms/nextzxos-1gb-fat32fix.img
+./build/gui-release/jnext --load game.sna --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Run at double speed
-./build/gui-release/jnext --speed 200 --sd-card roms/nextzxos-1gb-fat32fix.img
+./build/gui-release/jnext --speed 200 --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Inject a raw binary at address 0x8000 and run
 ./build/gui-release/jnext --inject program.bin --inject-org 8000 \
-    --sd-card roms/nextzxos-1gb-fat32fix.img
+    --sdcard roms/nextzxos-1gb-fat32fix.img
 
 # Headless screenshot for CI testing
 ./build/gui-release/jnext --headless --machine 48k \
-    --sd-card roms/nextzxos-1gb-fat32fix.img \
+    --sdcard roms/nextzxos-1gb-fat32fix.img \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
