@@ -17,8 +17,21 @@
 //   PROV-PROG-02   A progress fn returning false (cancel) → download aborts →
 //                  Failed.
 //   PROV-FIXED-01  Skip-redownload: with a valid raw cspect-next-1gb.img
-//                  present, provision produces cspect-next-1gb-fixed.img
-//                  WITHOUT a download; both files exist afterwards.
+//                  (+ matching .sha256) present, provision produces
+//                  cspect-next-1gb-fixed.img WITHOUT a download; both files
+//                  exist afterwards AND the raw is byte-identical (pristine).
+//   PROV-COPY-FAIL-01  A CopyFn that fails → Failed AND the fixed image is
+//                  removed (no truncated fixed left behind).
+//   PROV-PATCH-FAIL-01 A raw that is not a valid FAT32 image → the copy
+//                  succeeds but patch_image_fat32(fixed) fails → Failed AND
+//                  the fixed image is removed.
+//   SHA256-01      sha256_hex / sha256_file match known NIST digests.
+//   PROV-SHA-MATCH-01    raw + correct .sha256 → skip-redownload taken
+//                  (download seam NOT invoked), fixed produced.
+//   PROV-SHA-MISMATCH-01 raw tampered so it no longer matches .sha256 → skip
+//                  REJECTED, the download seam IS invoked (full cycle).
+//   PROV-SHA-WRITE-01    after a successful (stubbed) download, the .sha256
+//                  sidecar exists and matches the raw's actual hash.
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
@@ -68,6 +81,10 @@ std::vector<uint8_t> read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
                                 std::istreambuf_iterator<char>());
+}
+bool file_exists(const std::string& path) {
+    struct stat st{};
+    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
 void put16(std::vector<uint8_t>& v, uint16_t x) { v.push_back(x & 0xFF); v.push_back(x >> 8); }
@@ -172,6 +189,20 @@ bool make_fat32_source(const std::string& path, uint32_t part_lba,
     return fat32_format_and_populate(path, part_lba, total_sectors, tree, err);
 }
 
+// Write a sha256sum-style sidecar "<hex>  cspect-next-1gb.img\n" next to `raw`.
+void write_sha256_sidecar(const std::string& raw, const std::string& hex) {
+    std::ofstream f(raw + ".sha256", std::ios::trunc);
+    f << hex << "  cspect-next-1gb.img\n";
+}
+
+// Read the first whitespace-delimited token of a text file (the hex digest).
+std::string read_first_token(const std::string& path) {
+    std::ifstream f(path);
+    std::string tok;
+    f >> tok;
+    return tok;
+}
+
 } // namespace
 
 int main() {
@@ -193,6 +224,23 @@ int main() {
               fixed == dir + "/cspect-next-1gb-fixed.img", fixed);
         check("PROV-PATH-01", "raw download image == dir/cspect-next-1gb.img",
               raw == dir + "/cspect-next-1gb.img", raw);
+    }
+
+    // -- SHA256-01: known-answer digests (non-circular NIST vectors) --
+    {
+        check("SHA256-01", "sha256_hex(\"\")",
+              sdcard::sha256_hex({}) ==
+              "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        std::vector<uint8_t> abc = {'a','b','c'};
+        check("SHA256-01", "sha256_hex(\"abc\")",
+              sdcard::sha256_hex(abc) ==
+              "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        write_file(tp("abc.bin"), abc);
+        check("SHA256-01", "sha256_file(\"abc\")",
+              sdcard::sha256_file(tp("abc.bin")) ==
+              "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        check("SHA256-01", "sha256_file(missing) => empty",
+              sdcard::sha256_file(tp("no_such_file.bin")).empty());
     }
 
     // Download seam that records invocation and fails (so no real net op).
@@ -326,21 +374,23 @@ int main() {
               r.status == sdcard::ProvisionStatus::Failed);
     }
 
-    // -- PROV-FIXED-01: skip-redownload produces the fixed image from a raw --
-    {
-        // Place a valid raw cspect-next-1gb.img at the default location; the
-        // fixed image is absent. Provision must produce the fixed image
-        // WITHOUT any download, leaving BOTH files present.
-        ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
-        ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
-        const std::string raw   = sdcard::default_sdcard_raw_image_path();
-        const std::string fixed = sdcard::default_sdcard_image_path();
-        std::remove(fixed.c_str());
+    ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
+    ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
+    const std::string raw       = sdcard::default_sdcard_raw_image_path();
+    const std::string fixed     = sdcard::default_sdcard_image_path();
+    const std::string raw_sha   = raw + ".sha256";
 
+    // -- PROV-FIXED-01 + PROV-SHA-MATCH-01: skip-redownload produces the fixed
+    //    image from a trusted raw (SHA256 matches), no download, raw pristine --
+    {
+        std::remove(fixed.c_str());
         std::string berr;
         // ~600 MB partition at LBA 63 (sparse) → valid 8 KB-cluster FAT32.
         bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
         check("PROV-FIXED-01", "raw FAT32 source built", src_ok, berr);
+
+        const std::string h_before = sdcard::sha256_file(raw);
+        write_sha256_sidecar(raw, h_before); // trusted raw
 
         download_called = false;
         sdcard::ProvisionOptions o;
@@ -351,15 +401,126 @@ int main() {
         check("PROV-FIXED-01", "provision Ok, path is the fixed image",
               src_ok && r.status == sdcard::ProvisionStatus::Ok &&
               r.path == fixed, r.path);
-        check("PROV-FIXED-01", "no download when raw already present",
+        check("PROV-SHA-MATCH-01", "no download when raw SHA256 matches",
               !download_called);
-        struct stat st{};
-        check("PROV-FIXED-01", "raw image kept (pristine)",
-              ::stat(raw.c_str(), &st) == 0);
-        check("PROV-FIXED-01", "fixed image produced",
-              ::stat(fixed.c_str(), &st) == 0);
+        check("PROV-FIXED-01", "fixed image produced", file_exists(fixed));
+        check("PROV-FIXED-01", "raw image kept", file_exists(raw));
+        // Pristine: raw bytes unchanged (would fail if code patched raw).
+        check("PROV-FIXED-01", "raw is byte-identical (pristine)",
+              !h_before.empty() && sdcard::sha256_file(raw) == h_before);
 
         std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+    }
+
+    // -- PROV-COPY-FAIL-01: a CopyFn failure removes the (partial) fixed --
+    {
+        std::remove(fixed.c_str());
+        write_file(raw, {'r','a','w'});           // small trusted raw
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+
+        download_called = false;
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl;                // must NOT be called
+        o.confirm  = [](const std::string&) { return true; };
+        // CopyFn writes a PARTIAL fixed then fails (mimics a truncated copy):
+        // the pre-fix no-remove code would leave this file behind.
+        o.copy = [](const std::string&, const std::string& dst,
+                    std::string& err) {
+            std::ofstream f(dst, std::ios::binary | std::ios::trunc);
+            f << "partial";
+            err = "stub: copy failed"; return false;
+        };
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-COPY-FAIL-01", "copy failure => Failed",
+              r.status == sdcard::ProvisionStatus::Failed);
+        check("PROV-COPY-FAIL-01", "fixed removed after copy failure",
+              !file_exists(fixed));
+        check("PROV-COPY-FAIL-01", "no download (raw trusted)", !download_called);
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+    }
+
+    // -- PROV-PATCH-FAIL-01: a non-FAT32 raw copies OK but patch fails →
+    //    the fixed image is removed --
+    {
+        std::remove(fixed.c_str());
+        std::vector<uint8_t> junk(4096, 0xEE);    // no MBR/FAT32 partition
+        write_file(raw, junk);
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+
+        download_called = false;
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl;                // must NOT be called
+        o.confirm  = [](const std::string&) { return true; };
+        // real default copy runs (fixed = copy of junk); patch then fails.
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-PATCH-FAIL-01", "patch failure => Failed",
+              r.status == sdcard::ProvisionStatus::Failed);
+        check("PROV-PATCH-FAIL-01", "fixed removed after patch failure",
+              !file_exists(fixed));
+        check("PROV-PATCH-FAIL-01", "no download (raw trusted)", !download_called);
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+    }
+
+    // -- PROV-SHA-MISMATCH-01: a raw that no longer matches its .sha256 is
+    //    untrusted → skip REJECTED, the download seam IS invoked --
+    {
+        std::remove(fixed.c_str());
+        write_file(raw, {'t','a','m','p','e','r','e','d'});
+        // Sidecar holds the hash of DIFFERENT bytes → mismatch.
+        write_sha256_sidecar(raw, sdcard::sha256_hex({'o','t','h','e','r'}));
+
+        download_called = false;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;      // skip the prompt; go straight to download
+        o.download = recording_dl;  // MUST be invoked (skip rejected)
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-SHA-MISMATCH-01", "download invoked on SHA256 mismatch",
+              download_called);
+        check("PROV-SHA-MISMATCH-01", "mismatch + failed download => Failed",
+              r.status == sdcard::ProvisionStatus::Failed);
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+    }
+
+    // -- PROV-SHA-WRITE-01: a successful download writes a matching sidecar --
+    {
+        std::remove(fixed.c_str());
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+
+        // Stub download: produce a STORED zip containing the official image
+        // name, so the real unzip lands a raw file at the raw path. Payload is
+        // non-FAT32, so the later patch fails — but the sidecar is written
+        // BEFORE the copy/patch step, which is what we assert here.
+        std::vector<uint8_t> payload;
+        for (int i = 0; i < 2048; ++i) payload.push_back(static_cast<uint8_t>(i));
+        std::vector<uint8_t> zip = make_zip("cspect-next-1gb.img", payload, 0);
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.download = [&](const std::string&, const std::string& dst,
+                         const sdcard::ProgressFn&, std::string&) {
+            write_file(dst, zip); return true; // "downloaded" the zip
+        };
+        auto r = sdcard::provision_sd_card(o);
+        (void)r; // status is Failed (payload isn't FAT32) — not asserted here
+        check("PROV-SHA-WRITE-01", "sidecar written after successful download",
+              file_exists(raw_sha));
+        check("PROV-SHA-WRITE-01", "sidecar matches raw's actual hash",
+              !sdcard::sha256_file(raw).empty() &&
+              read_first_token(raw_sha) == sdcard::sha256_file(raw));
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
         std::remove(fixed.c_str());
     }
 
