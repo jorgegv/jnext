@@ -40,7 +40,7 @@ std::string default_sdcard_image_path();
 std::vector<uint8_t> default_config_ini();
 
 // Download seam: fetch `url` into local file `dest_path`. Returns true on
-// success, else sets `err`. Default impl shells out to curl/wget.
+// success, else sets `err`. Default impl uses libcurl.
 using DownloadFn = std::function<bool(const std::string& url,
                                       const std::string& dest_path,
                                       std::string& err)>;
