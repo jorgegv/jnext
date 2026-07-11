@@ -5,36 +5,31 @@
 #include <string>
 #include <vector>
 
-/// Host-side FAT32 volume read/write + "recluster" support (Task 27).
+/// Host-side FAT32 volume read + "recluster" support (Task 27).
 ///
-/// This module is the native C++ reimplementation of the FAT32 cluster-count
-/// fix that `tools/fix-sdcard-image.sh` performs with mtools. It exists so
-/// jnext can fix a freshly downloaded SD image IN-PROCESS (no external
-/// mtools / bash dependency, works on Windows).
+/// jnext fixes a freshly downloaded SD image IN-PROCESS (no external mtools /
+/// bash dependency, works on Windows). Background: the shipped 1 GB CSpect /
+/// NextZXOS image uses 32 KB clusters (sectors_per_cluster = 64), yielding only
+/// ~32 758 data clusters — below the FAT32 spec minimum of 65 525. A strict
+/// FatFs (like tbblue.fw's) classifies volumes with <= 65 525 clusters as FAT16
+/// and then rejects this one because its BPB is FAT32-shaped (root_entries = 0).
+/// The fix reformats the partition with 8 KB clusters (~131 k clusters, a valid
+/// FAT32) while preserving the whole file tree.
 ///
-/// Background: the shipped 1 GB CSpect / NextZXOS image uses 32 KB clusters
-/// (sectors_per_cluster = 64), yielding only ~32 758 data clusters — below
-/// the FAT32 spec minimum of 65 525. A strict FatFs (like tbblue.fw's, and
-/// like real FAT tooling) classifies volumes with <= 65 525 clusters as
-/// FAT16 and then rejects this one because its BPB is FAT32-shaped
-/// (root_entries = 0). The fix reformats the partition with 8 KB clusters
-/// (sectors_per_cluster = 16, ~130 938 clusters, a valid FAT32) while
-/// preserving the whole file tree.
-///
-/// The three pieces are exposed separately so each is independently unit
-/// testable offline (no network, no external tooling):
-///   1. fat32_compute_geometry() — pure arithmetic (reserved / FAT size /
-///      cluster count / FAT-type classification) for a fresh FAT32 volume.
-///   2. fat32_read_tree()        — recursive read of the whole directory
-///      tree (files + subdirs, long names via VFAT LFN).
-///   3. fat32_write_volume()     — write a fresh FAT32 volume (boot sector,
-///      FSInfo, two FATs, data region with VFAT LFN entries) into an
-///      existing image's partition, in place.
+/// Two pieces:
+///   1. A lenient hand-rolled READER (fat32_find_partition / fat32_read_tree)
+///      slurps the whole tree of the under-clustered source into memory. FatFs
+///      itself cannot read the source (it rejects the sub-65 525-cluster
+///      FAT32-shaped BPB — see fatfs_format.cpp), so the read side stays
+///      hand-rolled.
+///   2. A WRITER (fat32_format_and_populate) that reformats the partition to a
+///      spec-valid FAT32 with 8 KB clusters and re-emits the tree, implemented
+///      on top of the vendored ChaN FatFs (f_mkfs + f_write). This retires the
+///      former hand-rolled VFAT-LFN volume writer.
 ///
 /// Only the FAT32-LBA, MBR-partitioned, 512-byte-sector layout used by the
-/// TBBlue distribution is supported. ASCII file names only (sufficient for
-/// the NextZXOS distribution; non-ASCII LFN code units are stored/emitted
-/// by their low byte).
+/// TBBlue distribution is supported. ASCII file names only (sufficient for the
+/// NextZXOS distribution).
 
 // ---------------------------------------------------------------------------
 // In-memory directory tree
@@ -53,34 +48,7 @@ struct Fat32Tree {
 };
 
 // ---------------------------------------------------------------------------
-// Geometry
-// ---------------------------------------------------------------------------
-
-struct Fat32FormatGeom {
-    uint32_t total_sectors       = 0;  // partition size in sectors (BPB TotSec32)
-    uint16_t bytes_per_sector    = 512;
-    uint8_t  sectors_per_cluster = 0;
-    uint16_t reserved_sectors    = 32;
-    uint8_t  num_fats            = 2;
-    uint32_t fat_size_sectors    = 0;  // per-FAT size (BPB FATSz32)
-    uint32_t cluster_count       = 0;  // count of data clusters
-    bool     valid               = false; // geometry could be satisfied
-    bool     is_fat32            = false; // cluster_count > 65525
-};
-
-/// Compute a fresh-format FAT32 geometry for a partition of `total_sectors`
-/// with the requested `sectors_per_cluster`. Iteratively sizes the FAT so it
-/// can address every data cluster. `is_fat32` is set per the FatFs rule
-/// (cluster_count > 65525). `valid` is false only if the partition is too
-/// small to hold even the reserved + FAT regions.
-Fat32FormatGeom fat32_compute_geometry(uint32_t total_sectors,
-                                       uint8_t  sectors_per_cluster,
-                                       uint16_t bytes_per_sector = 512,
-                                       uint8_t  num_fats         = 2,
-                                       uint16_t reserved_sectors = 32);
-
-// ---------------------------------------------------------------------------
-// Read / write
+// Read (lenient, hand-rolled — the source is under-clustered)
 // ---------------------------------------------------------------------------
 
 /// Locate the first FAT32-LBA partition in the MBR of `image_path`.
@@ -99,12 +67,15 @@ bool fat32_read_tree(const std::string& image_path, uint32_t part_lba,
 void fat32_tree_upsert(Fat32Tree& tree, const std::string& path,
                        const std::vector<uint8_t>& data);
 
-/// Write a fresh FAT32 volume described by `geom` + `tree` into the partition
-/// at `part_lba` of `image_path`, in place. Overwrites the reserved region,
-/// both FATs, and the used data clusters; the file is not resized and unused
-/// clusters are left as-is (marked free in the FAT). `hidden_sectors` is the
-/// number of sectors before the partition (== part_lba for a single-partition
-/// image) and is written to the BPB. Returns true on success, else sets `err`.
-bool fat32_write_volume(const std::string& image_path, uint32_t part_lba,
-                        const Fat32FormatGeom& geom, const Fat32Tree& tree,
-                        std::string& err);
+// ---------------------------------------------------------------------------
+// Write (via vendored ChaN FatFs — implemented in fatfs_format.cpp)
+// ---------------------------------------------------------------------------
+
+/// Reformat the FAT32 partition at `part_lba` (size `total_sectors` sectors)
+/// of `image_path` IN PLACE as a spec-valid FAT32 with 8 KB clusters (via
+/// FatFs f_mkfs), then write the whole `tree` into it (directories + files via
+/// f_mkdir / f_open / f_write). The image's MBR and the partition's start LBA
+/// and size are preserved. Returns true on success, else sets `err`.
+bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
+                               uint32_t total_sectors, const Fat32Tree& tree,
+                               std::string& err);
