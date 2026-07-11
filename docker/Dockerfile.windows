@@ -6,6 +6,8 @@ RUN dnf install -y \
     mingw64-qt6-qtbase \
     mingw64-libpng \
     mingw64-zlib \
+    mingw64-curl \
+    mingw64-openssl \
     cmake \
     make \
     git \

@@ -20,7 +20,7 @@ docker build -f docker/Dockerfile.linux -t jnext-builder .
 
 The image is based on Fedora and installs:
 - GCC C++17, CMake, Make, Ninja, Git
-- SDL2, Qt6, libpng, zlib development libraries
+- SDL2, Qt6, libpng, zlib, libcurl, OpenSSL development libraries
 - FFmpeg (for video recording tests)
 - ImageMagick `compare` (for screenshot regression tests)
 - `fuse-emulator-roms` — ROM files for all supported machines

@@ -711,8 +711,8 @@ endif()
 ```
 
 **Platform dependency setup:**
-- Linux: `apt install libsdl2-dev` (+ `qt6-base-dev libqt6opengl6-dev` for debugger)
-- macOS: `brew install sdl2 qt6`
+- Linux: `apt install libsdl2-dev libcurl4-openssl-dev libssl-dev` (+ `qt6-base-dev libqt6opengl6-dev` for debugger)
+- macOS: `brew install sdl2 qt6 curl openssl`
 - Windows: vcpkg `install sdl2:x64-windows qt6:x64-windows`
 
 ---

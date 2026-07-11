@@ -4,7 +4,7 @@ This document describes how to build jnext for Windows using a Docker container 
 
 ## Approach
 
-A Fedora-based Docker image contains the full MinGW64 toolchain, all packaged dependencies (Qt6, libpng, zlib), and a pre-built SDL2 cross-library. The host source tree is mounted read-only into the container; build output lands in `build-windows/` on the host.
+A Fedora-based Docker image contains the full MinGW64 toolchain, all packaged dependencies (Qt6, libpng, zlib, libcurl, OpenSSL), and a pre-built SDL2 cross-library. The host source tree is mounted read-only into the container; build output lands in `build-windows/` on the host.
 
 ## Prerequisites
 
@@ -29,6 +29,8 @@ RUN dnf install -y \
     mingw64-qt6-qtbase \
     mingw64-libpng \
     mingw64-zlib \
+    mingw64-curl \
+    mingw64-openssl \
     cmake \
     make \
     git \

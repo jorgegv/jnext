@@ -11,6 +11,8 @@ RUN dnf install -y \
     qt6-qtbase-devel \
     libpng-devel \
     zlib-devel \
+    libcurl-devel \
+    openssl-devel \
     ffmpeg-free \
     ImageMagick \
     coreutils \

@@ -156,12 +156,12 @@ Debugger keyboard shortcuts:
 
 **Fedora / RHEL:**
 ```sh
-sudo dnf install SDL2-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel zlib-devel
+sudo dnf install SDL2-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel zlib-devel libcurl-devel openssl-devel
 ```
 
 **Debian / Ubuntu:**
 ```sh
-sudo apt install libsdl2-dev cmake g++ qt6-base-dev libpng-dev zlib1g-dev
+sudo apt install libsdl2-dev cmake g++ qt6-base-dev libpng-dev zlib1g-dev libcurl4-openssl-dev libssl-dev
 ```
 
 _Windows and macOS builds are pending._
@@ -282,6 +282,9 @@ make regression
 |--------------------------------------------|---------|--------------------------------------------------------------------------|
 | [SDL2](https://www.libsdl.org/)            | zlib    | Cross-platform multimedia library (audio + input)                        |
 | [Qt6](https://www.qt.io/)                  | LGPLv3  | GUI framework                                                            |
+| [libcurl](https://curl.se/libcurl/)        | curl    | HTTP(S) download of the NextZXOS distribution SD-card image              |
+| [OpenSSL](https://www.openssl.org/)        | Apache-2.0 | SHA-256 integrity hash of the cached SD-card image (libcrypto)        |
+| [FatFs](http://elm-chan.org/fsw/ff/)       | BSD-1   | Host-side FAT32 formatting of the downloaded SD image (vendored, `third_party/fatfs/`) |
 | [spdlog](https://github.com/gabime/spdlog) | MIT     | Fast C++ logging library (vendored as git submodule)                     |
 | FUSE Z80 core                              | GPLv2   | Z80 CPU core adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator |
 | [ZOT](https://github.com/antirez/zot)      | MIT     | TZX/TAP tape player library by antirez (vendored in `third_party/zot/`)  |
