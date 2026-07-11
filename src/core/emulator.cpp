@@ -6856,6 +6856,11 @@ void Emulator::advance_audio(uint64_t master_cycles)
 
 void Emulator::reset()
 {
+    // NR 0x07 returns to its power-on value (3.5 MHz) across a reset, so the log
+    // change-gate must return with it — otherwise the guest's first write back to
+    // the pre-reset speed would be swallowed as "unchanged" and never logged.
+    last_logged_cpu_speed_ = 0;
+
     // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
     // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
     // they are preserved. Save the port-enable state and reset_type before
