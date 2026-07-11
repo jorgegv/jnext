@@ -173,7 +173,21 @@ void SdlApp::run() {
             --load_countdown_;
         }
 
-        emulator_.run_frame();
+        // Pace emulation against the sound card, not the wall clock: the 20 ms
+        // frame delay runs the emulator at 50.00 frames/s while a 48K frame is
+        // 1/50.08 s, and audio is synthesised on the emulated clock — so we feed
+        // the device ~44030 samples per real second while it consumes 44100. The
+        // deficit empties the audio queue and SDL pads the stream with zeros:
+        // clicks, a few times a second, forever (issue #7 / Task 23). See
+        // audio_pacing.h.
+        {
+            const int frames = emulator_.fastload_active()
+                                   ? 1
+                                   : audio_pacing::frames_for_tick(audio_.queued_ms());
+            for (int i = 0; i < frames; i++) {
+                emulator_.run_frame();
+            }
+        }
 
         // Task 19 fastload follow-up — when the phantom typist is
         // armed or a fast-load tape is in flight, skip pushing audio

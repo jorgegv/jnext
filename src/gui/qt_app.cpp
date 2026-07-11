@@ -197,8 +197,23 @@ void QtApp::on_frame_tick() {
 
     // Run one emulator frame (skip if debugger has paused).
     if (!emulator_.debug_state().paused()) {
-        emulator_.run_frame();
-        ++frame_count_;
+        // Pace emulation against the sound card, not the wall clock. The 20 ms
+        // QTimer runs the emulator at 50.00 frames/s, but a 48K frame is
+        // 1/50.08 s and audio is synthesised on the emulated clock — so we feed
+        // the device ~44030 samples per real second while it consumes 44100.
+        // That permanent deficit empties the audio queue and SDL then pads the
+        // stream with zeros, clicking a few times a second forever (issue #7 /
+        // Task 23). Running an extra frame when the queue is low (or skipping
+        // one when it is high) locks emulation to the audio device's clock.
+        // Only at 1x speed: --speed and fastload deliberately decouple the two.
+        int frames = 1;
+        if (audio_ && speed_multiplier_ == 1.0 && !emulator_.fastload_active()) {
+            frames = audio_pacing::frames_for_tick(audio_->queued_ms());
+        }
+        for (int i = 0; i < frames; i++) {
+            emulator_.run_frame();
+            ++frame_count_;
+        }
 
         // Task 19 fastload follow-up — when the phantom typist is
         // armed or a fast-load tape is delivering data, sprint
