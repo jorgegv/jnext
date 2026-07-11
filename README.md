@@ -120,7 +120,7 @@ Debugger keyboard shortcuts:
 |-------------------------------|----------------------------------------------------------------------|
 | `--machine TYPE`         | `48k`, `128k`, `plus3`, `next` (default)                             |
 | `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
-| `--sd-card FILE`              | Mount SD card image (.img); canonical source for all ROMs. Optional — if omitted, jnext uses `~/.jnext/sdcard/cspect-next-1gb.img`, offering to download + patch it |
+| `--sd-card FILE`              | Mount SD card image (.img); canonical source for all ROMs. Optional — if omitted, jnext uses `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image), offering to download the canonical distribution (kept as `cspect-next-1gb.img`) and produce that patched copy |
 | `--sdcard-download-confirm`   | Skip the download prompt and provision the default image automatically |
 | `--sdcard-download-force`     | Force re-download + re-patch of the default-location image (ignored when `--sd-card` is given) |
 | `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
@@ -219,8 +219,9 @@ The TBBlue distribution image is the standard reference: see
 
 jnext needs an SD-card image: it is the canonical source for all peripheral
 and machine ROMs (same as real hardware). Point at one with `--sd-card FILE`,
-or omit it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb.img`,
-offering to download + patch the canonical distribution image there.
+or omit it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img`
+(the patched image), offering to download the canonical distribution image
+(kept as `cspect-next-1gb.img`) and produce that FAT32-patched copy there.
 
 ```sh
 # Boot NextZXOS / TBBlue firmware (default Next machine)
