@@ -65,8 +65,9 @@
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
 
 ## CLI
-- `--machine`, `--load`, `--headless`
-- `--sd-card` (required; canonical source for all ROMs — DivMMC, NextZXOS, 48K/128K/+3, Multiface — at TBBlue paths under /MACHINES/NEXT/)
+- `--machine`, `--load`, `--headless`, `--tape-realtime`, `--esxdos-stub`
+- `--sd-card` (canonical source for all ROMs — DivMMC, NextZXOS, 48K/128K/+3, Multiface — at TBBlue paths under /MACHINES/NEXT/; optional, falls back to `~/.jnext/sdcard/cspect-next-1gb.img` with a download+patch offer)
+- `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
