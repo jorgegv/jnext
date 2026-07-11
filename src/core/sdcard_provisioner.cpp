@@ -21,6 +21,7 @@ namespace sdcard {
 const char* const kDistroUrl =
     "https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip";
 const char* const kImageFileName = "cspect-next-1gb.img";
+const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -60,12 +61,31 @@ bool ieq(const std::string& a, const std::string& b) {
             return false;
     return true;
 }
+// Byte-copy `src` to `dst` (truncating dst). Streams in 1 MiB chunks so a
+// 1 GB image does not need 1 GB of RAM.
+bool copy_file(const std::string& src, const std::string& dst, std::string& err) {
+    std::ifstream in(src, std::ios::binary);
+    if (!in) { err = "cannot open source image: " + src; return false; }
+    std::ofstream out(dst, std::ios::binary | std::ios::trunc);
+    if (!out) { err = "cannot create image: " + dst; return false; }
+    std::vector<char> buf(1 << 20);
+    while (in) {
+        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        const std::streamsize n = in.gcount();
+        if (n > 0) out.write(buf.data(), n);
+    }
+    if (!out.good()) { err = "write error copying to " + dst; return false; }
+    return true;
+}
 } // namespace
 
 std::string default_sdcard_dir() {
     return home_dir() + "/.jnext/sdcard";
 }
 std::string default_sdcard_image_path() {
+    return default_sdcard_dir() + "/" + kFixedImageFileName;
+}
+std::string default_sdcard_raw_image_path() {
     return default_sdcard_dir() + "/" + kImageFileName;
 }
 
@@ -93,10 +113,29 @@ size_t curl_write_to_file(char* ptr, size_t size, size_t nmemb, void* userdata) 
     FILE* f = static_cast<FILE*>(userdata);
     return std::fwrite(ptr, size, nmemb, f);
 }
+
+// libcurl progress (xferinfo) callback context: wraps the caller's ProgressFn.
+struct CurlProgressCtx {
+    const ProgressFn* fn = nullptr;
+    bool aborted = false;
+};
+// CURLOPT_XFERINFOFUNCTION: forward (dlnow, dltotal) to the ProgressFn.
+// Returning nonzero makes curl abort the transfer with
+// CURLE_ABORTED_BY_CALLBACK, which we surface as a download failure.
+int curl_xferinfo(void* p, curl_off_t dltotal, curl_off_t dlnow,
+                  curl_off_t /*ultotal*/, curl_off_t /*ulnow*/) {
+    auto* ctx = static_cast<CurlProgressCtx*>(p);
+    if (ctx && ctx->fn && *ctx->fn) {
+        const bool keep_going = (*ctx->fn)(static_cast<uint64_t>(dlnow),
+                                           static_cast<uint64_t>(dltotal));
+        if (!keep_going) { ctx->aborted = true; return 1; }
+    }
+    return 0;
+}
 } // namespace
 
 bool default_http_download(const std::string& url, const std::string& dest_path,
-                           std::string& err) {
+                           const ProgressFn& progress, std::string& err) {
     Log::emulator()->info("sdcard: downloading via libcurl: {}", url);
 
     FILE* out = std::fopen(dest_path.c_str(), "wb");
@@ -110,12 +149,21 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
         return false;
     }
 
+    CurlProgressCtx prog_ctx;
+    prog_ctx.fn = progress ? &progress : nullptr;
+
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // follow redirects
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);    // HTTP >= 400 -> error
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_to_file);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+    if (progress) {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curl_xferinfo);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog_ctx);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+    }
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);   // abort if the
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 120L);  // stream stalls
@@ -132,7 +180,10 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
 
     if (rc != CURLE_OK) {
         std::remove(dest_path.c_str());
-        err = std::string("download failed: ") + curl_easy_strerror(rc);
+        if (rc == CURLE_ABORTED_BY_CALLBACK || prog_ctx.aborted)
+            err = "download cancelled by user";
+        else
+            err = std::string("download failed: ") + curl_easy_strerror(rc);
         return false;
     }
     if (!flush_ok) {
@@ -145,6 +196,31 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
         return false;
     }
     return true;
+}
+
+bool cli_progress(uint64_t downloaded, uint64_t total) {
+    // Throttle to whole-percent changes to avoid flooding stderr.
+    static int last_pct = -1;
+    if (total > 0) {
+        const int pct = static_cast<int>((downloaded * 100ULL) / total);
+        if (pct != last_pct) {
+            last_pct = pct;
+            std::fprintf(stderr, "\rDownloading SD-card image: %3d%%", pct);
+            if (pct >= 100) std::fprintf(stderr, "\n");
+            std::fflush(stderr);
+        }
+    } else {
+        // No Content-Length: show accumulated KiB every ~1 MiB.
+        static uint64_t last_mib = 0;
+        const uint64_t mib = downloaded >> 20;
+        if (mib != last_mib) {
+            last_mib = mib;
+            std::fprintf(stderr, "\rDownloading SD-card image: %llu MiB",
+                         static_cast<unsigned long long>(mib));
+            std::fflush(stderr);
+        }
+    }
+    return true; // CLI progress never cancels
 }
 
 bool cli_confirm(const std::string& message) {
@@ -366,63 +442,82 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         return r;
     }
 
-    const std::string dir  = default_sdcard_dir();
-    const std::string dest = default_sdcard_image_path();
+    const std::string dir   = default_sdcard_dir();
+    const std::string raw   = default_sdcard_raw_image_path();   // pristine
+    const std::string fixed = default_sdcard_image_path();       // patched
 
-    if (!opts.force_download && file_exists(dest)) {
+    // The FIXED (patched) image is what jnext boots from. If it is already
+    // present, use it — unless a re-provision is forced.
+    if (!opts.force_download && file_exists(fixed)) {
         r.status = ProvisionStatus::Ok;
-        r.path   = dest;
-        Log::emulator()->info("sdcard: using default image {}", dest);
+        r.path   = fixed;
+        Log::emulator()->info("sdcard: using default image {}", fixed);
         return r;
     }
 
-    // Need to download.
-    ConfirmFn confirm = opts.confirm ? opts.confirm : ConfirmFn(cli_confirm);
-    DownloadFn download = opts.download ? opts.download
-                                        : DownloadFn(default_http_download);
+    std::string err;
 
-    if (!opts.auto_confirm) {
-        std::string msg =
-            std::string("No SD-card image found at ") + dest +
-            ".\nDownload the NextZXOS distribution image from " +
-            kDistroUrl + " (large download) and install it there?";
-        if (!confirm(msg)) {
-            r.status = ProvisionStatus::Declined;
-            r.error  = "download declined by user";
+    // Optimization: if the raw official image is already present (and we are
+    // not force-re-downloading), skip the large download and just (re)produce
+    // the fixed image from the existing raw file — no prompt, no network.
+    const bool have_raw = !opts.force_download && file_exists(raw);
+
+    if (!have_raw) {
+        ConfirmFn confirm = opts.confirm ? opts.confirm : ConfirmFn(cli_confirm);
+        DownloadFn download = opts.download ? opts.download
+                                            : DownloadFn(default_http_download);
+
+        if (!opts.auto_confirm) {
+            std::string msg =
+                std::string("No SD-card image found at ") + fixed +
+                ".\nDownload the NextZXOS distribution image from " +
+                kDistroUrl + " (large download) and install it there?";
+            if (!confirm(msg)) {
+                r.status = ProvisionStatus::Declined;
+                r.error  = "download declined by user";
+                return r;
+            }
+        }
+
+        if (!make_dirs(dir)) {
+            r.status = ProvisionStatus::Failed;
+            r.error  = "cannot create directory " + dir;
             return r;
         }
-    }
 
-    if (!make_dirs(dir)) {
-        r.status = ProvisionStatus::Failed;
-        r.error  = "cannot create directory " + dir;
-        return r;
-    }
+        const std::string zip_tmp = dir + "/sn-emulator.zip.part";
+        if (!download(kDistroUrl, zip_tmp, opts.progress, err)) {
+            r.status = ProvisionStatus::Failed;
+            r.error  = "download failed: " + err;
+            return r;
+        }
 
-    const std::string zip_tmp = dir + "/sn-emulator.zip.part";
-    std::string err;
-    if (!download(kDistroUrl, zip_tmp, err)) {
-        r.status = ProvisionStatus::Failed;
-        r.error  = "download failed: " + err;
-        return r;
-    }
-
-    if (!unzip_entry(zip_tmp, kImageFileName, dest, err)) {
+        // Extract the OFFICIAL image to the raw path and keep it pristine.
+        if (!unzip_entry(zip_tmp, kImageFileName, raw, err)) {
+            std::remove(zip_tmp.c_str());
+            r.status = ProvisionStatus::Failed;
+            r.error  = "unzip failed: " + err;
+            return r;
+        }
         std::remove(zip_tmp.c_str());
+    }
+
+    // Produce the fixed image from the pristine raw one: copy, then FAT32
+    // recluster the COPY in place (the raw official image is left untouched).
+    if (!copy_file(raw, fixed, err)) {
         r.status = ProvisionStatus::Failed;
-        r.error  = "unzip failed: " + err;
+        r.error  = "cannot produce fixed image: " + err;
         return r;
     }
-    std::remove(zip_tmp.c_str());
-
-    if (!patch_image_fat32(dest, err)) {
+    if (!patch_image_fat32(fixed, err)) {
+        std::remove(fixed.c_str()); // do not leave a half-patched fixed image
         r.status = ProvisionStatus::Failed;
         r.error  = "patch failed: " + err;
         return r;
     }
 
     r.status = ProvisionStatus::Ok;
-    r.path   = dest;
+    r.path   = fixed;
     return r;
 }
 
