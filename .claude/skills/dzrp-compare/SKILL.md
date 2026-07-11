@@ -35,7 +35,7 @@ Ask the user (if not specified):
 4. Capture jnext for the same wall-clock window:
    ```bash
    JNEXT_G46B_<PROBE>=1 ./build/jnext --headless --machine next \
-     --sd-card roms/nextzxos-1gb-fat32fix.img \
+     --sdcard roms/nextzxos-1gb-fat32fix.img \
      --delayed-automatic-exit <N> \
      2> /tmp/dzrp-jnext-<PC>.log
    ```

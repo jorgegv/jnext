@@ -68,10 +68,10 @@ Single-bool branch + `[[unlikely]]`. No new allocations, no string formatting un
 cmake --build build -j$(nproc) 2>&1 | tail -5
 
 # Probe off (default):
-./build/jnext --headless --machine next --sd-card roms/nextzxos-1gb-fat32fix.img --delayed-automatic-exit 3
+./build/jnext --headless --machine next --sdcard roms/nextzxos-1gb-fat32fix.img --delayed-automatic-exit 3
 
 # Probe on:
-JNEXT_G46B_<NAME>=1 ./build/jnext --headless --machine next --sd-card roms/nextzxos-1gb-fat32fix.img --delayed-automatic-exit 3 2>/tmp/probe-<name>.log
+JNEXT_G46B_<NAME>=1 ./build/jnext --headless --machine next --sdcard roms/nextzxos-1gb-fat32fix.img --delayed-automatic-exit 3 2>/tmp/probe-<name>.log
 wc -l /tmp/probe-<name>.log
 head -10 /tmp/probe-<name>.log
 ```
