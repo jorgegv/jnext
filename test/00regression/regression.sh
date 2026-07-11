@@ -283,6 +283,53 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# Audio underrun test (GitHub issue #7 / Task 23): verify the emulator's audio
+# clock tracks the sound card's, so the device queue never runs dry.
+#
+# Audio is synthesised on the EMULATED clock (44100 samples per emulated
+# second). A 48K frame is 69888 T @3.5 MHz = 1/50.08 s, so pacing emulation on a
+# 20 ms wall-clock timer (50.00 fps) synthesises only ~44030 samples per REAL
+# second while the sound card consumes 44100. The device queue drains to empty
+# and SDL pads it with ZEROS — a hole punched into a live waveform, i.e. an
+# audible click, a few times a second, for as long as the emulator runs.
+#
+# Captured via SDL's `disk` audio driver (raw S16LE stereo 44100), which writes
+# exactly what jnext hands the sound card. --headless has no audio at all, so
+# this must run the GUI binary under a virtual X server.
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'audio-underrun-func'; then
+    printf "  %-25s " "[audio-underrun-func]"
+    tone_bin="$SCRIPT_DIR/bin/beeper_tone.bin"
+    checker="$SCRIPT_DIR/check-audio-underruns.py"
+    raw_file="$TMP_DIR/audio_underrun.raw"
+    if ! command -v xvfb-run &>/dev/null; then
+        echo -e "${YELLOW}SKIP${RESET} (xvfb-run not available; audio needs a display)"
+        skip=$((skip + 1))
+    elif ! command -v python3 &>/dev/null; then
+        echo -e "${YELLOW}SKIP${RESET} (python3 not available for capture analysis)"
+        skip=$((skip + 1))
+    else
+        rm -f "$raw_file"
+        # A bare 18-byte square-wave loop: sound starts immediately, with none of
+        # the tape-fastload burst that would pre-fill the queue and mask the leak.
+        SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_file" \
+        timeout --foreground --kill-after=5s 40s xvfb-run -a "$JNEXT" \
+            "${SD_CARD_ARGS[@]}" \
+            --machine 48k \
+            --inject "$tone_bin" --inject-org 8000 --inject-pc 8000 --inject-delay 100 \
+            --delayed-automatic-exit 12 &>/dev/null || true
+        if [[ ! -s "$raw_file" ]]; then
+            echo -e "${YELLOW}SKIP${RESET} (no audio captured; no SDL audio backend?)"
+            skip=$((skip + 1))
+        elif underrun_out=$(python3 "$checker" "$raw_file" --skip-secs 3 2>&1); then
+            echo -e "${GREEN}PASS${RESET} (no audio underruns)"
+            pass=$((pass + 1))
+        else
+            echo -e "${RED}FAIL${RESET} ($(echo "$underrun_out" | head -1))"
+            fail=$((fail + 1))
+        fi
+    fi
+fi
+
 # RZX recording test: verify --rzx-record produces a valid RZX file
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-record-func'; then
     printf "  %-25s " "[rzx-record-func]"

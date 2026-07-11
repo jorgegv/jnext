@@ -201,7 +201,9 @@ void SdlApp::run() {
         // fastloading windows (timer/timer.c).
         const bool fastload = emulator_.fastload_active();
         if (!fastload) {
-            audio_.push_from_mixer(emulator_.mixer());
+            // SdlApp has no speed multiplier, so outside fastload it always
+            // paces on the audio clock — the underrun hold is safe to enable.
+            audio_.push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/true);
         }
 
         const uint32_t* fb = emulator_.get_framebuffer();

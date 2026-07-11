@@ -205,9 +205,18 @@ void QtApp::on_frame_tick() {
         // stream with zeros, clicking a few times a second forever (issue #7 /
         // Task 23). Running an extra frame when the queue is low (or skipping
         // one when it is high) locks emulation to the audio device's clock.
-        // Only at 1x speed: --speed and fastload deliberately decouple the two.
+        // Only at 1x speed: --speed and fastload deliberately decouple emulated
+        // time from wall-clock time, so the emulator's sample rate no longer
+        // matches the device's and no pacing band can hold. Audio at speeds
+        // other than 1x stays as it always was (the device over- or under-runs
+        // and SDL papers over it); fixing that needs resampling, which is out
+        // of scope here. The same condition gates the underrun padding below —
+        // unpaced, it would fire every tick instead of acting as a rescue.
+        const bool audio_paced =
+            audio_ && speed_multiplier_ == 1.0 && !emulator_.fastload_active();
+
         int frames = 1;
-        if (audio_ && speed_multiplier_ == 1.0 && !emulator_.fastload_active()) {
+        if (audio_paced) {
             frames = audio_pacing::frames_for_tick(audio_->queued_ms());
         }
         for (int i = 0; i < frames; i++) {
@@ -242,7 +251,7 @@ void QtApp::on_frame_tick() {
         // generated at >>1× real-time. FUSE does the same via
         // `sound_pause()/sound_unpause()` around fastloading.
         if (audio_ && !emulator_.fastload_active()) {
-            audio_->push_from_mixer(emulator_.mixer());
+            audio_->push_from_mixer(emulator_.mixer(), audio_paced);
         }
     }
 

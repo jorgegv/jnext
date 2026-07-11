@@ -48,7 +48,10 @@ uint32_t SdlAudio::ms_to_bytes(int ms)
 int SdlAudio::queued_ms() const
 {
     if (!initialized_) return -1;
-    return static_cast<int>(SDL_GetQueuedAudioSize(device_) / ms_to_bytes(1));
+    // Scale by 1000 first: a bytes-per-ms constant would truncate (44100 x 4 /
+    // 1000 = 176.4 -> 176) and over-report the depth by ~0.23%.
+    const uint32_t bytes_per_sec = Mixer::SAMPLE_RATE * 2 * sizeof(int16_t);
+    return static_cast<int>(SDL_GetQueuedAudioSize(device_) * 1000ull / bytes_per_sec);
 }
 
 void SdlAudio::queue_pcm(const int16_t* pcm, int frames)
@@ -69,7 +72,7 @@ void SdlAudio::queue_pcm(const int16_t* pcm, int frames)
     }
 }
 
-void SdlAudio::push_from_mixer(Mixer& mixer)
+void SdlAudio::push_from_mixer(Mixer& mixer, bool hold_on_underrun)
 {
     if (!initialized_) return;
 
@@ -100,10 +103,17 @@ void SdlAudio::push_from_mixer(Mixer& mixer)
     // several times a second: the click train of issue #7. Hold the last level
     // instead: a DC hold has no discontinuity, so a starved host stutters
     // rather than clicks.
-    const uint32_t floor_bytes = ms_to_bytes(audio_pacing::QUEUE_FLOOR_MS);
-    const uint32_t queued = SDL_GetQueuedAudioSize(device_);
-    if (queued < floor_bytes) {
-        const int pad = static_cast<int>((floor_bytes - queued) / (2 * sizeof(int16_t)));
+    //
+    // `hold_on_underrun` is false whenever the caller is NOT pacing on the audio
+    // clock (the Qt speed multiplier is off 1x). Padding inserts samples the
+    // emulator never produced; without pacing to keep the queue in its band it
+    // would fire on every tick, so it must be a rescue, never a routine.
+    if (!hold_on_underrun) return;
+
+    const int queued_samples =
+        static_cast<int>(SDL_GetQueuedAudioSize(device_) / (2 * sizeof(int16_t)));
+    const int pad = audio_pacing::underrun_pad_samples(queued_samples, Mixer::SAMPLE_RATE);
+    if (pad > 0) {
         std::vector<int16_t> hold(static_cast<size_t>(pad) * 2);
         for (int i = 0; i < pad; i++) {
             hold[i * 2]     = last_l_;

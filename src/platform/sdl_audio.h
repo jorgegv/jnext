@@ -22,9 +22,12 @@ public:
     /// Initialize SDL audio device and stream.
     bool init();
 
-    /// Push stereo samples from the mixer to SDL.
-    /// Called once per frame from the main loop.
-    void push_from_mixer(Mixer& mixer);
+    /// Push stereo samples from the mixer to SDL. Called once per tick from the
+    /// main loop. `hold_on_underrun` enables the last-level padding that keeps
+    /// the device queue off empty on a host too slow to emulate in real time;
+    /// pass false when the caller is not pacing on the audio clock (see
+    /// audio_pacing.h), because padding must never become a routine.
+    void push_from_mixer(Mixer& mixer, bool hold_on_underrun);
 
     /// Current depth of the audio device queue in milliseconds, or -1 when
     /// audio is not running. Frontends feed this to audio_pacing::frames_for_tick().

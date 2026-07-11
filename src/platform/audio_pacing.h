@@ -58,4 +58,21 @@ inline constexpr int frames_for_tick(int queued_ms)
     return 1;
 }
 
+/// Stereo sample pairs that `ms` of playback occupies at `sample_rate`.
+inline constexpr int ms_to_samples(int ms, int sample_rate)
+{
+    return sample_rate * ms / 1000;
+}
+
+/// Stereo sample pairs the underrun guard must append to lift a device queue of
+/// `queued_samples` back to QUEUE_FLOOR_MS — zero when it is already at or above
+/// the floor, which is the case on any host that keeps up (pacing holds the
+/// queue in [QUEUE_LOW_MS, QUEUE_HIGH_MS), well above the floor). The caller
+/// appends this many copies of the last sample it emitted; see SdlAudio.
+inline constexpr int underrun_pad_samples(int queued_samples, int sample_rate)
+{
+    const int floor_samples = ms_to_samples(QUEUE_FLOOR_MS, sample_rate);
+    return queued_samples < floor_samples ? floor_samples - queued_samples : 0;
+}
+
 }  // namespace audio_pacing
