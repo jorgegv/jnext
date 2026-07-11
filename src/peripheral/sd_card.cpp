@@ -85,7 +85,7 @@ bool SdCardDevice::mount(const std::string& path) {
     // cmd_idx_, leaving resp_buf_, resp_idx_, data_idx_, data_crc_count_,
     // multi_block_, multi_block_sector_, persistent_response_byte_,
     // data_block_, cmd_buf_ untouched. A runtime mount swap (e.g. user
-    // changes --sd-card while a CMD18 stream is in flight, or a CMD17
+    // changes --sdcard while a CMD18 stream is in flight, or a CMD17
     // SENDING_DATA is mid-transfer) would let send() continue emitting
     // stale data from the previous image's data_block_ or re-prime
     // multi_block_sector_ as if streaming the old card. Use the same

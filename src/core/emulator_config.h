@@ -128,7 +128,7 @@ struct EmulatorConfig {
     // path is independent and serves Z80 software at runtime. Empty leaves
     // jnext with no peripheral or machine ROMs (legitimate for hermetic
     // unit-test fixtures; not allowed at the CLI level — main.cpp errors
-    // out when --sd-card is missing).
+    // out when --sdcard is missing).
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
 
     // Rewind buffer: number of frame snapshots to keep (0 = disabled)
