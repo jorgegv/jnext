@@ -640,7 +640,7 @@ static void test_sd_15_mount_full_reset() {
     // cleared only state_/initialized_/app_cmd_/cmd_idx_, leaving
     // resp_buf_/resp_idx_/data_idx_/data_crc_count_/multi_block_/
     // multi_block_sector_/persistent_response_byte_/data_block_/cmd_buf_
-    // untouched. A runtime mount swap (e.g. user changes --sd-card while
+    // untouched. A runtime mount swap (e.g. user changes --sdcard while
     // a CMD17 SENDING_DATA is mid-transfer) leaves these fields stale.
     //
     // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-

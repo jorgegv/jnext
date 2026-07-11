@@ -25,14 +25,14 @@ if [[ -z "${JNEXT:-}" ]]; then
     done
     JNEXT="${JNEXT:-$PROJECT_DIR/build/jnext}"
 fi
-# Wave 0.1 follow-up (2026-05-04): jnext now requires --sd-card at the CLI
+# Wave 0.1 follow-up (2026-05-04): jnext now requires --sdcard at the CLI
 # level (mandatory for every invocation, like real Next hardware). All
 # regression invocations therefore include the canonical TBBlue/NextZXOS
 # image as a shared shell array. When the boot-ROM auto-load gate is
 # active (Next + sd_card non-empty + load_file empty), `BOOT` rows
 # exercise the firmware path; rows with --load NEX skip the boot ROM via
 # the cfg.load_file gate (Emulator::init).
-SD_CARD_ARGS=(--sd-card "$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img")
+SD_CARD_ARGS=(--sdcard "$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img")
 # rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON,
 # i.e. via `make unit-test-build`); the rewind functional test below
 # SKIPs gracefully if it is missing.
