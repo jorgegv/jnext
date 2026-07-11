@@ -10,6 +10,7 @@ See also: [TEST-TAXONOMY.md](TEST-TAXONOMY.md) — every screenshot row belongs 
 - Built emulator (`cmake --build build`)
 - ImageMagick (`compare` command) for pixel-level screenshot comparison
 - z88dk toolchain (only if rebuilding demo programs)
+- `xvfb-run` + `python3` (only for `audio-underrun-func`; the test SKIPs without them)
 
 ## Quick Start
 
@@ -147,3 +148,24 @@ make -C demo clean
 | layer2-320x256  | Next     | Layer 2 320x256 8bpp mode             |
 | layer2-640x256  | Next     | Layer 2 640x256 4bpp mode             |
 | sprite-scaling  | Next     | Hardware sprite scaling               |
+
+## Functional test: audio-underrun-func
+
+The only test in the suite that exercises the **audio output path** end to end,
+and the only one that needs a display (audio is disabled in `--headless`).
+
+It runs the GUI binary under `xvfb-run` with SDL's `disk` audio driver, so the
+capture is byte-for-byte what jnext hands the sound card (raw S16LE stereo
+44100). An 18-byte injected Z80 square-wave loop
+(`bin/beeper_tone.bin`) gives an immediate, continuous tone on a 48K machine —
+no tape fastload burst, which would pre-fill the audio queue and mask the leak
+for the first ~15 s. `check-audio-underruns.py` then scans for **zero-runs that
+cut in abruptly from a live signal level**: SDL injects silence when the audio
+device queue runs dry, and the emulator's own sample stream continues seamlessly
+across the hole, which is what proves the zeros are foreign.
+
+Guards GitHub issue #7 / Task 23: audio is synthesised on the *emulated* clock,
+so pacing emulation on a wall-clock timer starves (48K: 50.08 Hz frame vs 50.00
+Hz timer) or floods (128K/Next: 49.36 Hz) the device queue. See
+`src/platform/audio_pacing.h`. On the pre-fix binary this test reports 25
+underruns; the fix reports none.

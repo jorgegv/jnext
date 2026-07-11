@@ -31,20 +31,39 @@ public:
 
     void reset();
 
-    /// Generate one stereo sample from current source states.
-    /// Adds the sample to the ring buffer.
+    /// Integrate the current source levels over `master_cycles` of emulated
+    /// time. Called for every slice of emulated time, NOT once per output
+    /// sample — see emit_sample().
+    void accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                    uint32_t master_cycles);
+
+    /// Emit one stereo output sample: the time-weighted average of everything
+    /// accumulate() has been fed since the previous emit, then reset the
+    /// accumulator. Adds the sample to the ring buffer.
+    ///
+    /// Averaging (a box filter) rather than point-sampling is what makes beeper
+    /// music sound right. An output sample is ~635 master cycles (~79 T-states)
+    /// apart; a 1-bit beeper engine toggles the speaker far faster than that, so
+    /// reading "is EAR high right now?" once per sample DISCARDS most toggles and
+    /// snaps the surviving edges to sample boundaries. The discarded energy does
+    /// not vanish — it folds down into the audible band as an inharmonic whistle
+    /// over the music. Measured against FUSE on the Cesare intro, point-sampling
+    /// put 6.2% of total energy above 6 kHz (3.7% above 10 kHz) where FUSE, which
+    /// integrates the speaker level across each sample period, has 0.5% / 0.0%.
+    ///
+    /// The average is taken at emulated-instruction granularity: the source
+    /// levels are constant between accumulate() calls, so a sample straddling an
+    /// instruction boundary gets each level weighted by how long it actually held.
+    void emit_sample();
+
+    /// Point-sample the current source states into one output sample.
+    /// Equivalent to accumulate(..., 1) + emit_sample(). Retained for the unit
+    /// tests, which assert the mixer's transfer function on steady inputs; the
+    /// emulator uses accumulate()/emit_sample() so that audio is band-limited.
     void generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac);
 
     /// Get the number of samples available in the ring buffer.
     int available() const;
-
-    /// Raw VHDL-faithful 13-bit mixer sum from the most recent
-    /// generate_sample() (audio_mixer.vhd:99-100), BEFORE the analog
-    /// AC-coupling / gain stage. Exposed so the mixer unit tests can assert
-    /// the digital sum directly (a steady contribution is invisible in the
-    /// DC-blocked output, but present in the sum).
-    uint16_t pcm_left()  const { return last_pcm_l_; }
-    uint16_t pcm_right() const { return last_pcm_r_; }
 
     /// Read up to `count` stereo samples into `out` (interleaved L, R, L, R...).
     /// Returns the number of stereo samples actually read.
@@ -68,6 +87,17 @@ public:
     void set_exc_i(bool v) { exc_i_ = v; }
 
 private:
+    /// The VHDL 13-bit unsigned mix (audio_mixer.vhd:99-100) of the current
+    /// source levels. Pure function of the sources — no state, no filtering.
+    void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+             uint16_t& pcm_L, uint16_t& pcm_R) const;
+
+    // Box-filter accumulator: sum of (13-bit mix x master cycles held), and the
+    // total cycles, since the last emit_sample().
+    uint64_t acc_l_ = 0;
+    uint64_t acc_r_ = 0;
+    uint64_t acc_cycles_ = 0;
+
     // Ring buffer: stereo int16_t pairs
     std::vector<int16_t> buffer_;
     int write_pos_ = 0;
@@ -80,17 +110,4 @@ private:
 
     // VHDL audio_mixer.vhd:80-81 — when '1', ear/mic muxes feed (others=>'0').
     bool exc_i_{false};
-
-    // Raw 13-bit VHDL mixer sum from the last generate_sample() (for tests).
-    uint16_t last_pcm_l_{0}, last_pcm_r_{0};
-
-    // DC-blocking (AC-coupling) high-pass filter state, one pole per channel.
-    // Models the real hardware's series output capacitor: any *steady* level
-    // (DAC rest, a held OUT 0xFE bit-4 EAR line, MIC, i2s midpoint) decays to
-    // silence instead of leaking a DC offset into the sound card (issue #7).
-    // `primed_` lazily seeds the input history on the first post-reset sample
-    // with the actual resting sum, so that first sample is exactly silent.
-    bool primed_{false};
-    double hp_x_l_{0.0}, hp_y_l_{0.0};
-    double hp_x_r_{0.0}, hp_y_r_{0.0};
 };

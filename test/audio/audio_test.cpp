@@ -28,10 +28,10 @@
 #include "audio/mixer.h"
 #include "audio/i2s.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -2220,29 +2220,29 @@ static void g_beeper() {
 static void g_mixer() {
     set_group("Mixer");
 
-    // MX-01 - audio_mixer.vhd:63,80 ear_volume=512. EAR alone -> mixer sum
-    // = ear(512) + DAC rest(1024) = 1536 on both channels. (Asserted on the
-    // raw VHDL sum, not the AC-coupled output: a *steady* EAR level is DC
-    // and correctly decays to 0 in the output — see MX-DC-01.)
+    // MX-01 - audio_mixer.vhd:63,80 ear_volume=512. EAR alone -> signed
+    // output = (0+0+0+0+512+1024-1024)*4 = 2048 on both channels.
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         bp.set_ear(true);
         mx.generate_sample(bp, ts, dac);
-        check("MX-01", "EAR -> sum = ear(512) + DAC rest(1024) = 1536",
-              mx.pcm_left() == 1536 && mx.pcm_right() == 1536,
-              fmt("L=%u R=%u VHDL audio_mixer.vhd:63,80",
-                  mx.pcm_left(), mx.pcm_right()));
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-01", "EAR alone -> signed = 512*4 = 2048",
+              s[0] == 2048 && s[1] == 2048,
+              fmt("L=%d R=%d VHDL audio_mixer.vhd:63,80", s[0], s[1]));
     }
 
-    // MX-02 - mic_volume=128. MIC alone -> sum = 128 + DAC rest(1024) = 1152.
+    // MX-02 - mic_volume=128. MIC alone -> 128*4 = 512.
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         bp.set_mic(true);
         mx.generate_sample(bp, ts, dac);
-        check("MX-02", "MIC -> sum = mic(128) + DAC rest(1024) = 1152",
-              mx.pcm_left() == 1152 && mx.pcm_right() == 1152,
-              fmt("L=%u R=%u VHDL audio_mixer.vhd:64,81",
-                  mx.pcm_left(), mx.pcm_right()));
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-02", "MIC alone -> signed = 128*4 = 512",
+              s[0] == 512 && s[1] == 512,
+              fmt("L=%d R=%d VHDL audio_mixer.vhd:64,81", s[0], s[1]));
     }
 
     // RE-HOME: MX-03 — exc_i gating (zxnext.vhd:6504) composes NR 0x06 b6
@@ -2264,22 +2264,26 @@ static void g_mixer() {
         settle(ts);
         uint16_t ay_L_exp = ts.pcm_left();
         mx.generate_sample(bp, ts, dac);
-        uint16_t expected = static_cast<uint16_t>(ay_L_exp + 1024);  // + DAC rest
-        check("MX-04", "AY_L routed verbatim into sum (ay_L + DAC rest)",
-              mx.pcm_left() == expected,
-              fmt("L=%u expected=%u ay_L=%u VHDL audio_mixer.vhd:83-84",
-                  mx.pcm_left(), expected, ay_L_exp));
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        int32_t expected = static_cast<int32_t>(ay_L_exp) * 4;
+        check("MX-04", "AY_L routed verbatim (signed = ay_L*4)",
+              s[0] == static_cast<int16_t>(expected),
+              fmt("L=%d expected=%d ay_L=%u VHDL audio_mixer.vhd:83-84",
+                  s[0], expected, ay_L_exp));
     }
 
-    // MX-05 - DAC x4 scaling. DAC max -> sum = (0xFF+0xFF)<<2 = 2040.
+    // MX-05 - DAC x4 scaling. DAC max -> signed = 4064.
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         dac.write_channel(0, 0xFF);
         dac.write_channel(1, 0xFF);
         mx.generate_sample(bp, ts, dac);
-        check("MX-05", "DAC L max -> sum = 2040 (9-bit x4)",
-              mx.pcm_left() == 2040,
-              fmt("L=%u VHDL audio_mixer.vhd:86-87", mx.pcm_left()));
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-05", "DAC L max -> signed = 4064",
+              s[0] == 4064,
+              fmt("L=%d VHDL audio_mixer.vhd:86-87", s[0]));
     }
 
     // MX-06 - Pi I2S 10-bit zero-extended to 13 bits and added into the
@@ -2300,11 +2304,11 @@ static void g_mixer() {
         i2s.set_sample(1023, 1023);
         mx.set_i2s_source(&i2s);
         mx.generate_sample(bp, ts, dac);
-        // sum = DAC rest(1024) + i2s(1023) = 2047 on both channels.
+        int16_t s[2];
+        mx.read_samples(s, 1);
         check("MX-06", "I2S max (1023,1023) sums into L and R (10->13 zero-extend)",
-              mx.pcm_left() == 2047 && mx.pcm_right() == 2047,
-              fmt("L=%u R=%u VHDL audio_mixer.vhd:89-90,99-100",
-                  mx.pcm_left(), mx.pcm_right()));
+              s[0] == 4092 && s[1] == 4092,
+              fmt("L=%d R=%d VHDL audio_mixer.vhd:89-90,99-100", s[0], s[1]));
     }
 
     // WONT MX-30 — G29: Pi I2S real audio emulation. Today's I2s class is
@@ -2350,77 +2354,21 @@ static void g_mixer() {
               fmt("avail=%d VHDL audio_mixer.vhd:95-97", mx.available()));
     }
 
-    // MX-DC-01 - AC coupling: a STEADY source level decays to silence.
-    // Models the hardware's series output capacitor (issue #7). A held
-    // OUT 0xFE bit-4 (EAR) line is a constant +512 in the mixer sum; without
-    // DC blocking it left a permanent +2048 output offset that made the sound
-    // card hum. The one-pole DC-blocking high-pass (lazy-primed to the
-    // resting sum on the first sample) keeps a *held* level at silence.
-    {
-        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
-        bp.set_ear(true);                 // held high the entire time
-        int16_t s[2] = {0, 0};
-        for (int i = 0; i < 4096; ++i) {  // ~93 ms >> the ~23 ms time constant
-            mx.generate_sample(bp, ts, dac);
-            mx.read_samples(s, 1);
-        }
-        check("MX-DC-01", "held EAR-high stays silent (AC-coupled, issue #7)",
-              std::abs(static_cast<int>(s[0])) < 50 &&
-              std::abs(static_cast<int>(s[1])) < 50,
-              fmt("steady-state L=%d R=%d (pre-fix stuck at +2048)", s[0], s[1]));
-    }
-
-    // MX-DC-02 - AC coupling must NOT mute real audio: a TOGGLING EAR line
-    // (a square wave, i.e. beeper music) still produces sustained output.
-    {
-        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
-        int16_t s[2];
-        double energy = 0.0;
-        for (int i = 0; i < 4096; ++i) {
-            bp.set_ear((i & 1) != 0);     // flip every sample = ~22 kHz square
-            mx.generate_sample(bp, ts, dac);
-            mx.read_samples(s, 1);
-            if (i >= 2048) energy += static_cast<double>(s[0]) * s[0];  // settled half
-        }
-        check("MX-DC-02", "toggling EAR still sounds (AC-coupling passes audio)",
-              energy > 0.0,
-              fmt("settled RMS^2 sum=%.0f (must be > 0)", energy));
-    }
-
-    // MX-DC-03 - no reset click with the I2S source wired (issue #7 review).
-    // Emulator ALWAYS attaches an I2s; when Pi-I2S is disabled it feeds the
-    // 512 (0x200) "silence" midpoint, so the true resting sum is 1536, not
-    // the DAC-only 1024. A fixed DAC-only prime would step +512 -> +2048 out
-    // on every Mixer::reset() (and boot does several soft resets). The lazy
-    // prime seeds from the ACTUAL wired sum, so the first post-reset sample
-    // is exactly silent regardless of what is wired.
-    {
-        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
-        I2s i2s;                          // default = Pi-I2S disabled -> 512 midpoint
-        mx.set_i2s_source(&i2s);
-        mx.reset();                       // re-prime with the I2S source attached
-        mx.generate_sample(bp, ts, dac);
-        int16_t s[2];
-        mx.read_samples(s, 1);
-        check("MX-DC-03", "I2S wired: first post-reset sample is silent (no click)",
-              s[0] == 0 && s[1] == 0,
-              fmt("L=%d R=%d sum=%u (DAC 1024 + i2s 512 = 1536; pre-fix -> 2048)",
-                  s[0], s[1], mx.pcm_left()));
-    }
-
-    // MX-13 - EAR + MIC go to both L and R. sum = 512+128+DAC rest(1024) = 1664.
+    // MX-13 - EAR + MIC go to both L and R.
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         bp.set_ear(true);
         bp.set_mic(true);
         mx.generate_sample(bp, ts, dac);
+        int16_t s[2];
+        mx.read_samples(s, 1);
         check("MX-13", "EAR+MIC contribute equally to L and R",
-              mx.pcm_left() == mx.pcm_right() && mx.pcm_left() == (512 + 128 + 1024),
-              fmt("L=%u R=%u VHDL audio_mixer.vhd:99-100",
-                  mx.pcm_left(), mx.pcm_right()));
+              s[0] == s[1] && s[0] == (512 + 128) * 4,
+              fmt("L=%d R=%d VHDL audio_mixer.vhd:99-100", s[0], s[1]));
     }
 
-    // MX-14 - max reachable subset (EAR+MIC+DAC max) sum = 512+128+2040 = 2680.
+    // MX-14 - max reachable subset (EAR+MIC+DAC max) = 512+128+2040 = 2680.
+    // signed = (2680 - 1024)*4 = 6624.
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         bp.set_ear(true);
@@ -2428,9 +2376,11 @@ static void g_mixer() {
         dac.write_channel(0, 0xFF);
         dac.write_channel(1, 0xFF);
         mx.generate_sample(bp, ts, dac);
-        check("MX-14", "EAR+MIC+DAC subset sum = 2680",
-              mx.pcm_left() == 2680,
-              fmt("L=%u VHDL audio_mixer.vhd:99", mx.pcm_left()));
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-14", "EAR+MIC+DAC subset sum: signed = 6624",
+              s[0] == 6624,
+              fmt("L=%d VHDL audio_mixer.vhd:99", s[0]));
     }
 
     // A: MX-15: non-saturation — confirmed by MX-05 (full-scale sum = 5998,
@@ -2444,6 +2394,104 @@ static void g_mixer() {
     // default and would fail if the default were non-zero.
     // RE-HOME: MX-22 — exc_i derivation (zxnext.vhd:6504). Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
+
+    // -----------------------------------------------------------------
+    // Output band-limiting (MX-BL-*).
+    //
+    // NOTE: unlike every other row in this file these have NO VHDL oracle.
+    // They test the emulator's *output stage* — how the VHDL mixer's level is
+    // resampled down to 44100 Hz. That is a host DSP concern, not hardware: the
+    // FPGA has no sample rate. jnext does, and choosing samples badly is audible.
+    //
+    // The defect (2026-07-11, Task 23 follow-up): the emulator point-sampled the
+    // mixer — it asked "what is the level right now?" once per output sample.
+    // Output samples are ~635 master cycles apart and a 1-bit beeper engine
+    // toggles the speaker far faster than that, so most toggles were never
+    // observed at all. Their energy does not vanish: it aliases down into the
+    // audible band as an inharmonic tone riding over the music. Measured on the
+    // Cesare intro, point-sampling put 6.2% of all energy above 6 kHz, against
+    // 0.5% for FUSE — which integrates the level across each sample period, as
+    // Mixer::accumulate()/emit_sample() now do.
+    // -----------------------------------------------------------------
+
+    // MX-BL-01 — emit_sample() is the time-weighted average of the interval, not
+    // the last level seen. EAR high for 1/4 of it, low for 3/4.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bp.set_ear(true);
+        mx.accumulate(bp, ts, dac, 100);   // EAR high for 100 master cycles
+        bp.set_ear(false);
+        mx.accumulate(bp, ts, dac, 300);   // and low for 300
+        mx.emit_sample();
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        // EAR alone reads 2048 at the output (MX-01); a 25% duty cycle is 512.
+        check("MX-BL-01", "emit_sample = time-weighted average of the interval",
+              s[0] == 512 && s[1] == 512,
+              fmt("L=%d R=%d expected 512 (25%% duty of MX-01's 2048)", s[0], s[1]));
+    }
+
+    // MX-BL-02 — the discriminative row. A beeper toggling FASTER than the output
+    // sample rate must average out rather than alias: EAR flips every 50 master
+    // cycles across a 635-cycle sample (~22 kHz, far above what 44.1 kHz can
+    // represent), so every emitted sample must sit near the 50%-duty midpoint.
+    // Point-sampling instead latches whichever level happened to be live at the
+    // sample instant and swings the full 0..2048 — that IS the aliasing. This row
+    // fails loudly if the integration is ever removed.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bool ear = false;
+        int16_t lo = 32767, hi = -32768;
+        for (int sample = 0; sample < 64; sample++) {
+            for (int c = 0; c < 635; c += 50) {
+                ear = !ear;
+                bp.set_ear(ear);
+                mx.accumulate(bp, ts, dac, std::min(50, 635 - c));
+            }
+            mx.emit_sample();
+            int16_t s[2];
+            if (mx.read_samples(s, 1) == 1) {
+                if (s[0] < lo) lo = s[0];
+                if (s[0] > hi) hi = s[0];
+            }
+        }
+        // 50% duty of 2048 = 1024; integration holds every sample near it.
+        const int pp = hi - lo;
+        check("MX-BL-02", "a supersonic beeper averages out instead of aliasing",
+              lo > 700 && hi < 1350 && pp < 500,
+              fmt("min=%d max=%d peak-to-peak=%d (point-sampling gives ~2048)",
+                  lo, hi, pp));
+    }
+
+    // MX-BL-03 — emitting with nothing accumulated invents no sample (emitting
+    // silence would punch a hole in the stream, i.e. a click).
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bp.set_ear(true);
+        mx.accumulate(bp, ts, dac, 0);
+        mx.emit_sample();
+        check("MX-BL-03", "emit with nothing accumulated produces no sample",
+              mx.available() == 0, fmt("available=%d", mx.available()));
+    }
+
+    // MX-BL-04 — generate_sample() (the point-sampling API every VHDL-transfer
+    // row above uses) must stay exactly equivalent to accumulate(1)+emit_sample(),
+    // so those rows keep testing the mixer's real transfer function.
+    {
+        Beeper bp1; TurboSound ts1; Dac dac1; Mixer mx1;
+        Beeper bp2; TurboSound ts2; Dac dac2; Mixer mx2;
+        bp1.set_ear(true); bp1.set_mic(true);
+        bp2.set_ear(true); bp2.set_mic(true);
+        mx1.generate_sample(bp1, ts1, dac1);
+        mx2.accumulate(bp2, ts2, dac2, 1);
+        mx2.emit_sample();
+        int16_t a[2], b[2];
+        mx1.read_samples(a, 1);
+        mx2.read_samples(b, 1);
+        check("MX-BL-04", "generate_sample == accumulate(1) + emit_sample",
+              a[0] == b[0] && a[1] == b[1],
+              fmt("generate=(%d,%d) accumulate=(%d,%d)", a[0], a[1], b[0], b[1]));
+    }
 }
 
 // =====================================================================

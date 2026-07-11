@@ -431,6 +431,24 @@ discrepancies bullets, Summary table totals line):
   by design. The aggregate Pass column in the summary table tracks the
   runner's overall pass count (currently 1356/1356 FUSE + 78/78 Z80N
   compliance). Update only the aggregate, never the per-row rows.
+- **Host audio pipeline (`SdlAudio`, the frontends' tick)**: no test in
+  the repo instantiates a real or mock SDL audio device, or a headless
+  `QtApp`. Two paths are therefore **manual-only by construction**, and a
+  future skip-audit should not treat them as missing coverage to be
+  chased:
+  - `QtApp::on_frame_tick()`'s **debugger-paused branch** (added 2026-07-11,
+    Task 23): while paused the mixer is empty, so `push_from_mixer()` runs
+    only its underrun guard and holds the last level, keeping the device
+    queue off empty so SDL cannot zero-fill and click on pause/resume.
+  - `SdlAudio::push_from_mixer()` itself (the max-queue guard and the
+    hold-padding).
+  What *is* covered, and is the right place to add to: the **policy** in
+  `src/platform/audio_pacing.h` (`audio_pacing_test`, AP-01..AP-12 —
+  closed-loop models of both the 48K under-production and the 128K/Next
+  over-production sides), and the **end-to-end behaviour** via the
+  `audio-underrun-func` regression test, which captures jnext's real audio
+  output through SDL's `disk` driver and asserts no zeros were spliced into
+  a live waveform. Prefer extending those two over mocking SDL.
 
 ## 7. Worktree mechanics and the sub-agent sandbox
 
