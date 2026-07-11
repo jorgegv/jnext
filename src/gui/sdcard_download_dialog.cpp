@@ -34,7 +34,8 @@ bool SdcardGuiProvisioner::confirm(const std::string& message) {
     QMessageBox box;
     box.setWindowTitle(QStringLiteral("jnext — SD card image"));
     box.setIcon(QMessageBox::Question);
-    box.setText(QStringLiteral("No ZX Spectrum Next SD-card image found"));
+    // Rich-text <b> forces bold on styles that don't embolden the main text.
+    box.setText(QStringLiteral("<b>No ZX Spectrum Next SD-card image found</b>"));
     box.setInformativeText(QString::fromStdString(message));
     box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
     box.setDefaultButton(QMessageBox::No);
@@ -47,28 +48,29 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
     if (cancelled_) return false; // already cancelled: keep aborting
 
     if (!dialog_) {
+        // Fixed 0..10000 range (int-based; scaled so multi-GB totals don't
+        // overflow). Starting with a real range + value 0 shows an EMPTY bar
+        // on the first frame — a (0,0) "busy" range paints as a FULL bar in
+        // several Qt styles until the first real total arrives.
         dialog_ = std::make_unique<QProgressDialog>(
             QStringLiteral("Downloading NextZXOS distribution image…"),
-            QStringLiteral("Cancel"), 0, 0);
+            QStringLiteral("Cancel"), 0, 10000);
         dialog_->setWindowTitle(QStringLiteral("jnext — Downloading"));
         dialog_->setWindowModality(Qt::ApplicationModal);
         dialog_->setMinimumDuration(0);   // show immediately
         dialog_->setAutoClose(false);
         dialog_->setAutoReset(false);
+        dialog_->setValue(0);             // start empty, not full
         dialog_->show();
     }
 
     if (total > 0) {
-        // QProgressDialog is int-based; scale to a fixed 0..10000 range so we
-        // do not overflow on multi-GB totals.
-        dialog_->setMaximum(10000);
         const int value = static_cast<int>((downloaded * 10000ULL) / total);
         dialog_->setValue(value);
-    } else {
-        // No Content-Length → busy/indeterminate bar (min == max == 0).
-        dialog_->setMaximum(0);
-        dialog_->setValue(0);
     }
+    // total == 0 (Content-Length not yet known): leave the bar at its current
+    // value (0% at first) rather than switching to a busy bar, which some
+    // styles paint as full.
 
     // Repaint the bar during the synchronous libcurl transfer.
     QApplication::processEvents();
