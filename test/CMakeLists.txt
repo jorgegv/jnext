@@ -356,6 +356,23 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+# Log change-gate test (Task 24). Drives a real Emulator through the port path
+# and counts the log lines NR 0x07 actually emits. Own binary: the natural home
+# (nextreg_integration_test) has a local fmt() that collides with spdlog's fmt.
+add_executable(log_gate_test core/log_gate_test.cpp)
+target_link_libraries(log_gate_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(log_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME log_gate_tests COMMAND log_gate_test)
+
+# Logging level-policy test (Task 24). Host-side tooling; no VHDL oracle.
+add_executable(log_test core/log_test.cpp)
+target_link_libraries(log_test PRIVATE spdlog::spdlog)
+target_include_directories(log_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME log_tests COMMAND log_test)
+
 # Audio-clock pacing test (issue #7 / Task 23). Header-only policy under test
 # (src/platform/audio_pacing.h) — no SDL, no emulator core needed.
 add_executable(audio_pacing_test audio/audio_pacing_test.cpp)

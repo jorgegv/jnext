@@ -96,10 +96,13 @@ public:
     /// Map a level name to a level, accepting the spellings people actually
     /// type. Returns false if `s` is not a level at all.
     ///
-    /// Do NOT use spdlog::level::from_str() directly: it maps ANY unrecognised
-    /// string to `off`. spdlog spells the warn level "warning", so
-    /// `--log-level video=warn` — the example in our own --help text — was
-    /// silently turning video logging OFF instead of setting it to warn.
+    /// Do NOT use spdlog::level::from_str() directly. It handles the real level
+    /// names fine ("warn" and "warning" both work), but it maps every
+    /// UNRECOGNISED string to `off` — so a typo silently MUTES a subsystem
+    /// instead of being ignored: `--log-level video=warnn` turns video logging
+    /// off entirely, and `cpu=fatal` turns cpu off rather than setting critical.
+    /// to_level() rejects what it does not understand, and parse_levels() then
+    /// skips the token, so a typo is a no-op rather than a blackout.
     static bool to_level(const std::string& s, spdlog::level::level_enum& out) {
         using namespace spdlog::level;
         if (s == "trace")                             { out = trace;    return true; }
