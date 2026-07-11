@@ -199,12 +199,12 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:2437 |
 | ADR-09  | 0xE0                                                         | —               | pass    | test/mmu/mmu_test.cpp:2465 |
 | ADR-10  | 0xFF                                                         | —               | pass    | test/mmu/mmu_test.cpp:2475 |
-| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2510 |
-| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2528 |
-| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2552 |
-| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:2572 |
-| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:2589 |
-| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:2602 |
+| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2513 |
+| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2532 |
+| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2556 |
+| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:2576 |
+| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:2593 |
+| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:2606 |
 | CON-01  | 48K: bank 5 contended                                        | —               | missing | missing                   |
 | CON-02  | 48K: bank 5 hi contended                                     | —               | missing | missing                   |
 | CON-03  | 48K: bank 0 not contended                                    | —               | missing | missing                   |
@@ -217,40 +217,40 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CON-10  | NR 0x08 bit 6 disables contention                            | —               | missing | missing                   |
 | CON-11  | Speed > 3.5 MHz no contention                                | —               | missing | missing                   |
 | CON-12  | Pentagon timing no contention                                | —               | missing | missing                   |
-| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:2640 |
-| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:2659 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:2678 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:2721 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:2739 |
+| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:2644 |
+| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:2663 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:2682 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:2725 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:2743 |
 | L2M-05  | L2 bank from NR 0x12                                         | —               | missing | missing                   |
 | L2M-06  | L2 shadow bank from NR 0x13                                  | —               | missing | missing                   |
 | PRI-01  | DivMMC ROM overrides MMU                                     | —               | missing | missing                   |
 | PRI-02  | DivMMC RAM overrides MMU                                     | —               | missing | missing                   |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:2798 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:2802 |
 | PRI-04  | L2 does not override DivMMC                                  | —               | missing | missing                   |
-| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:2819 |
-| PRI-06  | Altrom overrides normal ROM                                  | —               | pass    | test/mmu/mmu_test.cpp:2844 |
-| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:2868 |
+| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:2823 |
+| PRI-06  | Altrom overrides normal ROM                                  | —               | pass    | test/mmu/mmu_test.cpp:2848 |
+| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:2872 |
 | P7F-16      | Shadow disables Timex `screen_mode`                                   | zxula.vhd:191        | pass    | test/mmu/mmu_test.cpp:479  |
 | P7F-17      | Bit 3 -> `Ula::set_shadow_screen_en` routing                          | zxnext.vhd:4453      | pass    | test/mmu/mmu_test.cpp:508  |
 | DFF-09      | DFFD bit 6 round-trip via Multiface readback                          | zxnext.vhd:877,3694  | pass    | test/mmu/mmu_test.cpp:718  |
 | EF7-06      | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes (G143 closed; RE-HOMED to mmu_integration_test; mapping corrected NR 0x84→0x85 2026-05-04) | zxnext.vhd:2604,2441,2392 | missing | missing                           |
 | CON-12a     | Pentagon timing: machine type falls through switch                    | —                    | missing | missing                    |
 | CON-12b     | Pentagon timing: gate zeros 48K bank 5 contention                     | —                    | missing | missing                    |
-| L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:2678 |
-| L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:2697 |
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2905 |
-| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:2926 |
-| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2953 |
-| SD2-01      | SD2-on suppresses 0xF1FD paging                                       | zxnext.vhd:2708      | skip    | test/mmu/mmu_test.cpp:2973 |
-| SD2-02      | SD2-off lets 0xF1FD paging through                                    | —                    | skip    | test/mmu/mmu_test.cpp:2975 |
-| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:2989 |
-| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:3010 |
-| BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | skip    | test/mmu/mmu_test.cpp:3023 |
-| BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | skip    | test/mmu/mmu_test.cpp:3025 |
-| BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | skip    | test/mmu/mmu_test.cpp:3027 |
-| BOOT-NEX-06 | Loading-bar colour honoured                                           | —                    | skip    | test/mmu/mmu_test.cpp:3029 |
-| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes       | —                    | pass    | test/mmu/mmu_test.cpp:3104 |
+| L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:2682 |
+| L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:2701 |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2909 |
+| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:2930 |
+| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2957 |
+| SD2-01      | SD2-on suppresses 0xF1FD paging                                       | zxnext.vhd:2708      | skip    | test/mmu/mmu_test.cpp:2977 |
+| SD2-02      | SD2-off lets 0xF1FD paging through                                    | —                    | skip    | test/mmu/mmu_test.cpp:2979 |
+| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:2993 |
+| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:3014 |
+| BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | skip    | test/mmu/mmu_test.cpp:3027 |
+| BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | skip    | test/mmu/mmu_test.cpp:3029 |
+| BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | skip    | test/mmu/mmu_test.cpp:3031 |
+| BOOT-NEX-06 | Loading-bar colour honoured                                           | —                    | skip    | test/mmu/mmu_test.cpp:3033 |
+| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes       | —                    | pass    | test/mmu/mmu_test.cpp:3108 |
 | BOOT-SD-01  | mount -> unmount -> re-mount round-trip                               | —                    | missing | missing                    |
 | BOOT-SD-02  | unmount mid-transfer is safe                                          | —                    | missing | missing                    |
 | ROM-10           | 48K-mode sram_rom3 hardwire path untested                        | zxnext.vhd:2985      | pass    | test/mmu/mmu_test.cpp:1646 |
@@ -262,21 +262,21 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | SHA-01           | NR 0x69 b6 alias to shadow-screen unwired                        | zxnext.vhd:3622      | pass    | test/mmu/mmu_test.cpp:1942 |
 | SHA-02           | Shadow read-side bank 7 routing untested                         | —                    | pass    | test/mmu/mmu_test.cpp:1968 |
 | SHA-03           | Shadow + Timex cross-state discriminative                        | —                    | pass    | test/mmu/mmu_test.cpp:2010 |
-| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                             | —                    | skip    | test/mmu/mmu_test.cpp:3129 |
-| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                             | —                    | skip    | test/mmu/mmu_test.cpp:3130 |
-| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)                       | —                    | skip    | test/mmu/mmu_test.cpp:3131 |
-| BOOT-Z80-01      | v1 (uncompressed) .z80 round-trip                                | —                    | skip    | test/mmu/mmu_test.cpp:3134 |
-| BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | skip    | test/mmu/mmu_test.cpp:3135 |
-| BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | skip    | test/mmu/mmu_test.cpp:3136 |
-| BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | skip    | test/mmu/mmu_test.cpp:3137 |
+| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                             | —                    | skip    | test/mmu/mmu_test.cpp:3133 |
+| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                             | —                    | skip    | test/mmu/mmu_test.cpp:3134 |
+| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)                       | —                    | skip    | test/mmu/mmu_test.cpp:3135 |
+| BOOT-Z80-01      | v1 (uncompressed) .z80 round-trip                                | —                    | skip    | test/mmu/mmu_test.cpp:3138 |
+| BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | skip    | test/mmu/mmu_test.cpp:3139 |
+| BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | skip    | test/mmu/mmu_test.cpp:3140 |
+| BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | skip    | test/mmu/mmu_test.cpp:3141 |
 | BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI                               | —                    | missing | missing                    |
-| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | skip    | test/mmu/mmu_test.cpp:3157 |
-| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | skip    | test/mmu/mmu_test.cpp:3158 |
+| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | skip    | test/mmu/mmu_test.cpp:3161 |
+| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | skip    | test/mmu/mmu_test.cpp:3162 |
 | BOOT-SNAPSAVE-04 | Save-As dialog exposes all three formats                         | —                    | missing | missing                    |
-| BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | skip    | test/mmu/mmu_test.cpp:3162 |
-| BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | skip    | test/mmu/mmu_test.cpp:3163 |
-| BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | skip    | test/mmu/mmu_test.cpp:3164 |
-| BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | skip    | test/mmu/mmu_test.cpp:3165 |
+| BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | skip    | test/mmu/mmu_test.cpp:3166 |
+| BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | skip    | test/mmu/mmu_test.cpp:3167 |
+| BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | skip    | test/mmu/mmu_test.cpp:3168 |
+| BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | skip    | test/mmu/mmu_test.cpp:3169 |
 | BOOT-FDC-01      | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive                   | —                    | missing | missing                    |
 | BOOT-FDC-02      | uPD765 motor-on / read-id behaviour                              | —                    | missing | missing                    |
 | BOOT-FDC-03      | NR 0x81 b3 (`fdc` clken) gates motor-on                          | NR 0x81 b3           | missing | missing                    |
@@ -493,14 +493,14 @@ Created 2026-04-23 (commit `08a4296`, renamed and merged at `94ccaf3`) to host e
 
 | Test ID               | Plan row title                                                 | VHDL file:line | Status | Test file                                    |
 |-----------------------|----------------------------------------------------------------|----------------|--------|----------------------------------------------|
-| INT-SCROLL-01         | NR 0x26 coarse scroll: pixels shift by whole chars             | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:235        |
-| INT-SCROLL-02         | NR 0x27 vertical scroll: wraps modulo 192 per :193-207         | zxula.vhd:193-207 | pass    | test/ula/ula_integration_test.cpp:285        |
-| INT-SCROLL-03         | NR 0x68 bit 2 fine scroll X: sub-char offset                   | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:333        |
-| INT-ULAPLUS-01        | Port 0xFF3B enable: palette group 3 picks correct indices      | zxula.vhd:531  | pass    | test/ula/ula_integration_test.cpp:423        |
-| INT-ULANEXT-01        | NR 0x43 bit 0 + NR 0x42=0x0F: paper index uses format lookup   | zxula.vhd:503-515 | pass    | test/ula/ula_integration_test.cpp:770        |
-| INT-STANDARD-ALT-01   | Alt-file bit: standard-screen mode 001 selects alt display     | zxula.vhd:218  | pass    | test/ula/ula_integration_test.cpp:1308       |
-| INT-ULAPLUS-03  | Port 0xBF3B ULA+ index write commits palette entry at `port_bf3b_ulap_index` slot    | zxnext.vhd:4525-4538                 | pass    | test/ula/ula_integration_test.cpp:680         |
-| INT-ULANEXT-02  | Runtime renderer integration: NR 0x43 ULAnext encoder routed to scanline output       | zxula.vhd:485-528; zxnext.vhd:6981   | pass    | test/ula/ula_integration_test.cpp:901         |
+| INT-SCROLL-01         | NR 0x26 coarse scroll: pixels shift by whole chars             | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:236        |
+| INT-SCROLL-02         | NR 0x27 vertical scroll: wraps modulo 192 per :193-207         | zxula.vhd:193-207 | pass    | test/ula/ula_integration_test.cpp:286        |
+| INT-SCROLL-03         | NR 0x68 bit 2 fine scroll X: sub-char offset                   | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:334        |
+| INT-ULAPLUS-01        | Port 0xFF3B enable: palette group 3 picks correct indices      | zxula.vhd:531  | pass    | test/ula/ula_integration_test.cpp:424        |
+| INT-ULANEXT-01        | NR 0x43 bit 0 + NR 0x42=0x0F: paper index uses format lookup   | zxula.vhd:503-515 | pass    | test/ula/ula_integration_test.cpp:771        |
+| INT-STANDARD-ALT-01   | Alt-file bit: standard-screen mode 001 selects alt display     | zxula.vhd:218  | pass    | test/ula/ula_integration_test.cpp:1311       |
+| INT-ULAPLUS-03  | Port 0xBF3B ULA+ index write commits palette entry at `port_bf3b_ulap_index` slot    | zxnext.vhd:4525-4538                 | pass    | test/ula/ula_integration_test.cpp:681         |
+| INT-ULANEXT-02  | Runtime renderer integration: NR 0x43 ULAnext encoder routed to scanline output       | zxula.vhd:485-528; zxnext.vhd:6981   | pass    | test/ula/ula_integration_test.cpp:902         |
 
 ## Layer2 — `test/layer2/layer2_test.cpp`
 
@@ -1164,8 +1164,8 @@ Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that r
 
 | Test ID            | Plan row title                                               | VHDL file:line   | Status  | Test file:line                                       |
 |--------------------|--------------------------------------------------------------|------------------|---------|------------------------------------------------------|
-| UDIS-01            | NR 0x68 b7 toggles whole-ULA transparency end-to-end         | zxnext.vhd:7103  | pass    | test/compositor/compositor_integration_test.cpp:273  |
-| UDIS-02            | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable line 100 | zxnext.vhd:7103  | pass    | test/compositor/compositor_integration_test.cpp:392  |
+| UDIS-01            | NR 0x68 b7 toggles whole-ULA transparency end-to-end         | zxnext.vhd:7103  | pass    | test/compositor/compositor_integration_test.cpp:274  |
+| UDIS-02            | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable line 100 | zxnext.vhd:7103  | pass    | test/compositor/compositor_integration_test.cpp:393  |
 
 
 ## Audio — `test/audio/audio_test.cpp` + `test/audio/audio_nextreg_test.cpp` + `test/audio/audio_port_dispatch_test.cpp`
@@ -1919,105 +1919,105 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 
 | Test ID | Plan row title                                               | VHDL file:line | Status  | Test file:line              |
 |---------|--------------------------------------------------------------|----------------|---------|-----------------------------|
-| SEL-01  | Reset state: read select register                            | —              | pass    | test/uart/uart_test.cpp:223 |
-| SEL-02  | Write 0x40 to select, read back                              | —              | pass    | test/uart/uart_test.cpp:236 |
-| SEL-03  | Write 0x00 to select, read back                              | —              | pass    | test/uart/uart_test.cpp:249 |
-| SEL-04  | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0      | —              | pass    | test/uart/uart_test.cpp:261 |
-| SEL-05  | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UA… | —              | pass    | test/uart/uart_test.cpp:274 |
-| SEL-06  | Hard reset clears prescaler MSB to 0                         | —              | pass    | test/uart/uart_test.cpp:291 |
-| SEL-07  | Soft reset clears uart_select_r to 0 but preserves prescale… | —              | pass    | test/uart/uart_test.cpp:306 |
-| FRM-01  | Hard reset state: read frame                                 | —              | pass    | test/uart/uart_test.cpp:326 |
-| FRM-02  | Write 0x1B (8 bits, parity odd, 2 stop), read back           | —              | pass    | test/uart/uart_test.cpp:337 |
-| FRM-03  | Frame applies to selected UART only                          | —              | pass    | test/uart/uart_test.cpp:351 |
-| FRM-04  | Bit 7 write resets FIFO                                      | —              | pass    | test/uart/uart_test.cpp:366 |
-| FRM-05  | Bit 6 sets break on TX                                       | —              | pass    | test/uart/uart_test.cpp:390 |
-| FRM-06  | Frame bits 4:0 sampled at transmission start                 | —              | pass    | test/uart/uart_test.cpp:420 |
-| BAUD-01 | Default prescaler = 243 (115200 @ 28MHz)                     | —              | pass    | test/uart/uart_test.cpp:443 |
+| SEL-01  | Reset state: read select register                            | —              | pass    | test/uart/uart_test.cpp:224 |
+| SEL-02  | Write 0x40 to select, read back                              | —              | pass    | test/uart/uart_test.cpp:237 |
+| SEL-03  | Write 0x00 to select, read back                              | —              | pass    | test/uart/uart_test.cpp:250 |
+| SEL-04  | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0      | —              | pass    | test/uart/uart_test.cpp:262 |
+| SEL-05  | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UA… | —              | pass    | test/uart/uart_test.cpp:275 |
+| SEL-06  | Hard reset clears prescaler MSB to 0                         | —              | pass    | test/uart/uart_test.cpp:292 |
+| SEL-07  | Soft reset clears uart_select_r to 0 but preserves prescale… | —              | pass    | test/uart/uart_test.cpp:307 |
+| FRM-01  | Hard reset state: read frame                                 | —              | pass    | test/uart/uart_test.cpp:327 |
+| FRM-02  | Write 0x1B (8 bits, parity odd, 2 stop), read back           | —              | pass    | test/uart/uart_test.cpp:338 |
+| FRM-03  | Frame applies to selected UART only                          | —              | pass    | test/uart/uart_test.cpp:352 |
+| FRM-04  | Bit 7 write resets FIFO                                      | —              | pass    | test/uart/uart_test.cpp:367 |
+| FRM-05  | Bit 6 sets break on TX                                       | —              | pass    | test/uart/uart_test.cpp:391 |
+| FRM-06  | Frame bits 4:0 sampled at transmission start                 | —              | pass    | test/uart/uart_test.cpp:421 |
+| BAUD-01 | Default prescaler = 243 (115200 @ 28MHz)                     | —              | pass    | test/uart/uart_test.cpp:444 |
 | BAUD-02 | Write 0x33 to port 0x143B (bit7=0): sets LSB bits 6:0 = 0x33 | —              | missing | missing                     |
 | BAUD-03 | Write 0x85 to port 0x143B (bit7=1): sets LSB bits 13:7 = 0x… | —              | missing | missing                     |
-| BAUD-04 | Write prescaler MSB via select register                      | —              | pass    | test/uart/uart_test.cpp:467 |
-| BAUD-05 | Prescaler applies to selected UART independently             | —              | pass    | test/uart/uart_test.cpp:485 |
-| BAUD-06 | Hard reset restores default prescaler for both UARTs         | —              | pass    | test/uart/uart_test.cpp:503 |
-| BAUD-07 | Prescaler sampled at start of TX/RX (not mid-byte)           | —              | pass    | test/uart/uart_test.cpp:534 |
-| TX-01   | Write byte to port 0x133B when TX FIFO empty                 | —              | pass    | test/uart/uart_test.cpp:558 |
-| TX-02   | Write 64 bytes: FIFO full                                    | —              | pass    | test/uart/uart_test.cpp:571 |
-| TX-03   | Write 65th byte when full                                    | —              | pass    | test/uart/uart_test.cpp:585 |
-| TX-04   | TX empty flag: requires FIFO empty AND transmitter not busy  | —              | pass    | test/uart/uart_test.cpp:598 |
-| TX-05   | TX FIFO write is edge-triggered                              | —              | pass    | test/uart/uart_test.cpp:629 |
-| TX-06   | Frame bit 7 resets TX FIFO and transmitter                   | —              | pass    | test/uart/uart_test.cpp:643 |
-| TX-07   | Frame bit 6 (break): TX line held low, busy = 1, cannot send | —              | pass    | test/uart/uart_test.cpp:660 |
-| TX-08   | 8N1 frame: start(0) + 8 data bits (LSB first) + stop(1)      | —              | pass    | test/uart/uart_test.cpp:694 |
-| TX-09   | 7E2 frame: start + 7 bits + even parity + 2 stops            | —              | pass    | test/uart/uart_test.cpp:723 |
-| TX-10   | 5O1 frame: start + 5 bits + odd parity + 1 stop              | —              | pass    | test/uart/uart_test.cpp:750 |
-| TX-11   | Flow control: bit 5 enabled, CTS_n=1 blocks TX start         | —              | pass    | test/uart/uart_test.cpp:771 |
-| TX-12   | Flow control disabled: CTS_n ignored                         | —              | pass    | test/uart/uart_test.cpp:793 |
-| TX-13   | Parity calculation: even parity (frame bit 1 = 0)            | —              | pass    | test/uart/uart_test.cpp:815 |
-| TX-14   | Parity calculation: odd parity (frame bit 1 = 1)             | —              | pass    | test/uart/uart_test.cpp:836 |
-| RX-01   | Inject byte into RX: read port 0x143B                        | —              | pass    | test/uart/uart_test.cpp:859 |
-| RX-02   | Read empty RX FIFO                                           | —              | pass    | test/uart/uart_test.cpp:869 |
-| RX-03   | Fill RX FIFO with 512 bytes                                  | —              | pass    | test/uart/uart_test.cpp:881 |
-| RX-04   | RX FIFO overflow: 513th byte                                 | —              | pass    | test/uart/uart_test.cpp:895 |
-| RX-05   | Read advances RX FIFO pointer (edge-triggered)               | —              | pass    | test/uart/uart_test.cpp:911 |
-| RX-06   | RX near-full flag at 3/4 capacity (384 bytes)                | —              | pass    | test/uart/uart_test.cpp:924 |
-| RX-07   | Frame bit 7 resets RX FIFO                                   | —              | pass    | test/uart/uart_test.cpp:939 |
-| RX-08   | Framing error: missing stop bit                              | —              | pass    | test/uart/uart_test.cpp:1015 |
-| RX-09   | Parity error                                                 | —              | pass    | test/uart/uart_test.cpp:1035 |
-| RX-10   | Break condition: all-zero shift register in error state      | —              | pass    | test/uart/uart_test.cpp:1055 |
-| RX-11   | Error byte stored with 9th bit in FIFO                       | —              | pass    | test/uart/uart_test.cpp:1079 |
-| RX-12   | Noise rejection: pulse < 2^NOISE_REJECTION_BITS / CLK is fi… | —              | pass    | test/uart/uart_test.cpp:1099 |
-| RX-13   | RX state machine: pause mode (frame bit 6)                   | —              | pass    | test/uart/uart_test.cpp:1117 |
-| RX-14   | RX variables sampled at start bit detection                  | —              | pass    | test/uart/uart_test.cpp:1152 |
-| RX-15   | Hardware flow control: RTR_n asserted when FIFO almost full  | —              | pass    | test/uart/uart_test.cpp:1174 |
-| STAT-01 | Sticky errors (overflow, framing) persist across reads of RX | —              | pass    | test/uart/uart_test.cpp:1198 |
-| STAT-02 | Reading TX/status port (0x133B read) clears sticky errors    | —              | pass    | test/uart/uart_test.cpp:1212 |
-| STAT-03 | FIFO reset (frame bit 7) clears sticky errors                | —              | pass    | test/uart/uart_test.cpp:1225 |
-| STAT-04 | Status bits reflect correct UART (per select register)       | —              | pass    | test/uart/uart_test.cpp:1239 |
-| STAT-05 | tx_empty = tx_fifo_empty AND NOT tx_busy                     | —              | pass    | test/uart/uart_test.cpp:1251 |
-| STAT-06 | rx_avail = NOT rx_fifo_empty                                 | —              | pass    | test/uart/uart_test.cpp:1264 |
-| DUAL-01 | UART 0 and UART 1 have independent FIFOs                     | —              | pass    | test/uart/uart_test.cpp:1290 |
-| DUAL-02 | Independent prescalers                                       | —              | pass    | test/uart/uart_test.cpp:1308 |
-| DUAL-03 | Independent frame registers                                  | —              | pass    | test/uart/uart_test.cpp:1323 |
-| DUAL-04 | Independent status registers                                 | —              | pass    | test/uart/uart_test.cpp:1336 |
+| BAUD-04 | Write prescaler MSB via select register                      | —              | pass    | test/uart/uart_test.cpp:468 |
+| BAUD-05 | Prescaler applies to selected UART independently             | —              | pass    | test/uart/uart_test.cpp:486 |
+| BAUD-06 | Hard reset restores default prescaler for both UARTs         | —              | pass    | test/uart/uart_test.cpp:504 |
+| BAUD-07 | Prescaler sampled at start of TX/RX (not mid-byte)           | —              | pass    | test/uart/uart_test.cpp:535 |
+| TX-01   | Write byte to port 0x133B when TX FIFO empty                 | —              | pass    | test/uart/uart_test.cpp:559 |
+| TX-02   | Write 64 bytes: FIFO full                                    | —              | pass    | test/uart/uart_test.cpp:572 |
+| TX-03   | Write 65th byte when full                                    | —              | pass    | test/uart/uart_test.cpp:586 |
+| TX-04   | TX empty flag: requires FIFO empty AND transmitter not busy  | —              | pass    | test/uart/uart_test.cpp:599 |
+| TX-05   | TX FIFO write is edge-triggered                              | —              | pass    | test/uart/uart_test.cpp:630 |
+| TX-06   | Frame bit 7 resets TX FIFO and transmitter                   | —              | pass    | test/uart/uart_test.cpp:644 |
+| TX-07   | Frame bit 6 (break): TX line held low, busy = 1, cannot send | —              | pass    | test/uart/uart_test.cpp:661 |
+| TX-08   | 8N1 frame: start(0) + 8 data bits (LSB first) + stop(1)      | —              | pass    | test/uart/uart_test.cpp:695 |
+| TX-09   | 7E2 frame: start + 7 bits + even parity + 2 stops            | —              | pass    | test/uart/uart_test.cpp:724 |
+| TX-10   | 5O1 frame: start + 5 bits + odd parity + 1 stop              | —              | pass    | test/uart/uart_test.cpp:751 |
+| TX-11   | Flow control: bit 5 enabled, CTS_n=1 blocks TX start         | —              | pass    | test/uart/uart_test.cpp:772 |
+| TX-12   | Flow control disabled: CTS_n ignored                         | —              | pass    | test/uart/uart_test.cpp:794 |
+| TX-13   | Parity calculation: even parity (frame bit 1 = 0)            | —              | pass    | test/uart/uart_test.cpp:816 |
+| TX-14   | Parity calculation: odd parity (frame bit 1 = 1)             | —              | pass    | test/uart/uart_test.cpp:837 |
+| RX-01   | Inject byte into RX: read port 0x143B                        | —              | pass    | test/uart/uart_test.cpp:860 |
+| RX-02   | Read empty RX FIFO                                           | —              | pass    | test/uart/uart_test.cpp:870 |
+| RX-03   | Fill RX FIFO with 512 bytes                                  | —              | pass    | test/uart/uart_test.cpp:882 |
+| RX-04   | RX FIFO overflow: 513th byte                                 | —              | pass    | test/uart/uart_test.cpp:896 |
+| RX-05   | Read advances RX FIFO pointer (edge-triggered)               | —              | pass    | test/uart/uart_test.cpp:912 |
+| RX-06   | RX near-full flag at 3/4 capacity (384 bytes)                | —              | pass    | test/uart/uart_test.cpp:925 |
+| RX-07   | Frame bit 7 resets RX FIFO                                   | —              | pass    | test/uart/uart_test.cpp:940 |
+| RX-08   | Framing error: missing stop bit                              | —              | pass    | test/uart/uart_test.cpp:1016 |
+| RX-09   | Parity error                                                 | —              | pass    | test/uart/uart_test.cpp:1036 |
+| RX-10   | Break condition: all-zero shift register in error state      | —              | pass    | test/uart/uart_test.cpp:1056 |
+| RX-11   | Error byte stored with 9th bit in FIFO                       | —              | pass    | test/uart/uart_test.cpp:1080 |
+| RX-12   | Noise rejection: pulse < 2^NOISE_REJECTION_BITS / CLK is fi… | —              | pass    | test/uart/uart_test.cpp:1100 |
+| RX-13   | RX state machine: pause mode (frame bit 6)                   | —              | pass    | test/uart/uart_test.cpp:1118 |
+| RX-14   | RX variables sampled at start bit detection                  | —              | pass    | test/uart/uart_test.cpp:1153 |
+| RX-15   | Hardware flow control: RTR_n asserted when FIFO almost full  | —              | pass    | test/uart/uart_test.cpp:1175 |
+| STAT-01 | Sticky errors (overflow, framing) persist across reads of RX | —              | pass    | test/uart/uart_test.cpp:1199 |
+| STAT-02 | Reading TX/status port (0x133B read) clears sticky errors    | —              | pass    | test/uart/uart_test.cpp:1213 |
+| STAT-03 | FIFO reset (frame bit 7) clears sticky errors                | —              | pass    | test/uart/uart_test.cpp:1226 |
+| STAT-04 | Status bits reflect correct UART (per select register)       | —              | pass    | test/uart/uart_test.cpp:1240 |
+| STAT-05 | tx_empty = tx_fifo_empty AND NOT tx_busy                     | —              | pass    | test/uart/uart_test.cpp:1252 |
+| STAT-06 | rx_avail = NOT rx_fifo_empty                                 | —              | pass    | test/uart/uart_test.cpp:1265 |
+| DUAL-01 | UART 0 and UART 1 have independent FIFOs                     | —              | pass    | test/uart/uart_test.cpp:1291 |
+| DUAL-02 | Independent prescalers                                       | —              | pass    | test/uart/uart_test.cpp:1309 |
+| DUAL-03 | Independent frame registers                                  | —              | pass    | test/uart/uart_test.cpp:1324 |
+| DUAL-04 | Independent status registers                                 | —              | pass    | test/uart/uart_test.cpp:1337 |
 | DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | —              | missing | missing                     |
 | DUAL-06 | Joystick UART mode multiplexing                              | —              | missing | missing                     |
-| I2C-01  | Reset state: SCL = 1, SDA = 1 (both released)                | —              | pass    | test/uart/uart_test.cpp:1371 |
-| I2C-02  | Write 0x00 to port 0x103B                                    | —              | pass    | test/uart/uart_test.cpp:1383 |
-| I2C-03  | Write 0x01 to port 0x103B                                    | —              | pass    | test/uart/uart_test.cpp:1395 |
-| I2C-04  | Write 0x00 to port 0x113B                                    | —              | pass    | test/uart/uart_test.cpp:1406 |
-| I2C-05  | Write 0x01 to port 0x113B                                    | —              | pass    | test/uart/uart_test.cpp:1418 |
-| I2C-06  | Read port 0x103B                                             | —              | pass    | test/uart/uart_test.cpp:1430 |
-| I2C-07  | Read port 0x113B                                             | —              | pass    | test/uart/uart_test.cpp:1440 |
-| I2C-08  | Only bit 0 is significant for write                          | —              | pass    | test/uart/uart_test.cpp:1452 |
-| I2C-09  | Bits 7:1 always read as 1                                    | —              | pass    | test/uart/uart_test.cpp:1466 |
+| I2C-01  | Reset state: SCL = 1, SDA = 1 (both released)                | —              | pass    | test/uart/uart_test.cpp:1372 |
+| I2C-02  | Write 0x00 to port 0x103B                                    | —              | pass    | test/uart/uart_test.cpp:1384 |
+| I2C-03  | Write 0x01 to port 0x103B                                    | —              | pass    | test/uart/uart_test.cpp:1396 |
+| I2C-04  | Write 0x00 to port 0x113B                                    | —              | pass    | test/uart/uart_test.cpp:1407 |
+| I2C-05  | Write 0x01 to port 0x113B                                    | —              | pass    | test/uart/uart_test.cpp:1419 |
+| I2C-06  | Read port 0x103B                                             | —              | pass    | test/uart/uart_test.cpp:1431 |
+| I2C-07  | Read port 0x113B                                             | —              | pass    | test/uart/uart_test.cpp:1441 |
+| I2C-08  | Only bit 0 is significant for write                          | —              | pass    | test/uart/uart_test.cpp:1453 |
+| I2C-09  | Bits 7:1 always read as 1                                    | —              | pass    | test/uart/uart_test.cpp:1467 |
 | I2C-10  | I2C port enable gated by internal_port_enable(10)            | —              | missing | missing                     |
-| I2C-11  | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0          | —              | pass    | test/uart/uart_test.cpp:1495 |
-| I2C-12  | Reset releases both lines                                    | —              | pass    | test/uart/uart_test.cpp:1510 |
-| I2C-13  | NR 0xA0 bit 3 (pi_i2c1_en) gates GPIO 2/3 -> I2C1 wired-AND mux (G138)                                  | zxnext.vhd:2280,2309-2318               | pass    | test/uart/uart_test.cpp:1541 |
+| I2C-11  | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0          | —              | pass    | test/uart/uart_test.cpp:1496 |
+| I2C-12  | Reset releases both lines                                    | —              | pass    | test/uart/uart_test.cpp:1511 |
+| I2C-13  | NR 0xA0 bit 3 (pi_i2c1_en) gates GPIO 2/3 -> I2C1 wired-AND mux (G138)                                  | zxnext.vhd:2280,2309-2318               | pass    | test/uart/uart_test.cpp:1542 |
 | I2C-14  | EEPROM 24LC256 at write addr 0xA0: device ACKs (alongside DS1307) (G139)                                | i2c.cpp                                 | missing | missing                      |
-| I2C-P01 | START condition: SDA high->low while SCL high                | —              | pass    | test/uart/uart_test.cpp:1585 |
-| I2C-P02 | STOP condition: SDA low->high while SCL high                 | —              | pass    | test/uart/uart_test.cpp:1598 |
-| I2C-P03 | Send byte (8 clocks): MSB first, clock each bit              | —              | pass    | test/uart/uart_test.cpp:1613 |
-| I2C-P04 | Read ACK: release SDA, clock SCL, read SDA bit 0             | —              | pass    | test/uart/uart_test.cpp:1627 |
-| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits               | —              | pass    | test/uart/uart_test.cpp:1647 |
-| I2C-P06 | Send ACK/NACK after read                                     | —              | pass    | test/uart/uart_test.cpp:1677 |
-| RTC-01  | Address 0xD0 write: device ACKs                              | —              | pass    | test/uart/uart_test.cpp:1716 |
-| RTC-02  | Address 0xD1 read: device ACKs                               | —              | pass    | test/uart/uart_test.cpp:1728 |
-| RTC-03  | Wrong address: device NACKs                                  | —              | pass    | test/uart/uart_test.cpp:1740 |
-| RTC-04  | Write register pointer (0x00), read seconds                  | —              | pass    | test/uart/uart_test.cpp:1751 |
-| RTC-05  | Read minutes (register 0x01)                                 | —              | pass    | test/uart/uart_test.cpp:1761 |
-| RTC-06  | Read hours (register 0x02)                                   | —              | pass    | test/uart/uart_test.cpp:1780 |
-| RTC-07  | Read day-of-week (register 0x03)                             | —              | pass    | test/uart/uart_test.cpp:1789 |
-| RTC-08  | Read date (register 0x04)                                    | —              | pass    | test/uart/uart_test.cpp:1804 |
-| RTC-09  | Read month (register 0x05)                                   | —              | pass    | test/uart/uart_test.cpp:1813 |
-| RTC-10  | Read year (register 0x06)                                    | —              | pass    | test/uart/uart_test.cpp:1822 |
-| RTC-11  | Read control register (0x07)                                 | —              | pass    | test/uart/uart_test.cpp:1874 |
-| RTC-12  | Write seconds register                                       | —              | pass    | test/uart/uart_test.cpp:1890 |
-| RTC-13  | Write hours in 12h mode (bit 6 = 1)                          | —              | pass    | test/uart/uart_test.cpp:1907 |
-| RTC-14  | Sequential read: auto-increment register pointer             | —              | pass    | test/uart/uart_test.cpp:1929 |
-| RTC-15  | Sequential write: auto-increment register pointer            | —              | pass    | test/uart/uart_test.cpp:1947 |
-| RTC-16  | Clock halt bit (seconds register bit 7)                      | —              | pass    | test/uart/uart_test.cpp:1975 |
-| RTC-17  | NVRAM registers 0x08-0x3F (56 bytes)                         | —              | pass    | test/uart/uart_test.cpp:2007 |
-| RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | i2c.cpp:111                             | pass    | test/uart/uart_test.cpp:2058 |
+| I2C-P01 | START condition: SDA high->low while SCL high                | —              | pass    | test/uart/uart_test.cpp:1586 |
+| I2C-P02 | STOP condition: SDA low->high while SCL high                 | —              | pass    | test/uart/uart_test.cpp:1599 |
+| I2C-P03 | Send byte (8 clocks): MSB first, clock each bit              | —              | pass    | test/uart/uart_test.cpp:1614 |
+| I2C-P04 | Read ACK: release SDA, clock SCL, read SDA bit 0             | —              | pass    | test/uart/uart_test.cpp:1628 |
+| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits               | —              | pass    | test/uart/uart_test.cpp:1648 |
+| I2C-P06 | Send ACK/NACK after read                                     | —              | pass    | test/uart/uart_test.cpp:1678 |
+| RTC-01  | Address 0xD0 write: device ACKs                              | —              | pass    | test/uart/uart_test.cpp:1717 |
+| RTC-02  | Address 0xD1 read: device ACKs                               | —              | pass    | test/uart/uart_test.cpp:1729 |
+| RTC-03  | Wrong address: device NACKs                                  | —              | pass    | test/uart/uart_test.cpp:1741 |
+| RTC-04  | Write register pointer (0x00), read seconds                  | —              | pass    | test/uart/uart_test.cpp:1752 |
+| RTC-05  | Read minutes (register 0x01)                                 | —              | pass    | test/uart/uart_test.cpp:1762 |
+| RTC-06  | Read hours (register 0x02)                                   | —              | pass    | test/uart/uart_test.cpp:1781 |
+| RTC-07  | Read day-of-week (register 0x03)                             | —              | pass    | test/uart/uart_test.cpp:1790 |
+| RTC-08  | Read date (register 0x04)                                    | —              | pass    | test/uart/uart_test.cpp:1805 |
+| RTC-09  | Read month (register 0x05)                                   | —              | pass    | test/uart/uart_test.cpp:1814 |
+| RTC-10  | Read year (register 0x06)                                    | —              | pass    | test/uart/uart_test.cpp:1823 |
+| RTC-11  | Read control register (0x07)                                 | —              | pass    | test/uart/uart_test.cpp:1875 |
+| RTC-12  | Write seconds register                                       | —              | pass    | test/uart/uart_test.cpp:1891 |
+| RTC-13  | Write hours in 12h mode (bit 6 = 1)                          | —              | pass    | test/uart/uart_test.cpp:1908 |
+| RTC-14  | Sequential read: auto-increment register pointer             | —              | pass    | test/uart/uart_test.cpp:1930 |
+| RTC-15  | Sequential write: auto-increment register pointer            | —              | pass    | test/uart/uart_test.cpp:1948 |
+| RTC-16  | Clock halt bit (seconds register bit 7)                      | —              | pass    | test/uart/uart_test.cpp:1976 |
+| RTC-17  | NVRAM registers 0x08-0x3F (56 bytes)                         | —              | pass    | test/uart/uart_test.cpp:2008 |
+| RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | i2c.cpp:111                             | pass    | test/uart/uart_test.cpp:2059 |
 | INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | —              | missing | missing                     |
 | INT-02  | UART 0 RX near-full always triggers                          | —              | missing | missing                     |
 | INT-03  | UART 1 RX interrupt: same logic as UART 0                    | —              | missing | missing                     |
@@ -2207,39 +2207,39 @@ Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host 
 | RST-11             | NR 0x4B sprite transparent index reset = 0xE3                                                    | zxnext.vhd:5003                 | pass    | test/nextreg/nextreg_integration_test.cpp:283  |
 | RST-12             | NR 0x4C tilemap transparent index reset = 0x0F                                                   | zxnext.vhd:5004                 | pass    | test/nextreg/nextreg_integration_test.cpp:293  |
 | RST-09             | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00                                           | zxnext.vhd:4977-4981, 5971-5977 | pass    | test/nextreg/nextreg_integration_test.cpp:308  |
-| RO-01              | NR 0x00 machine ID reset = 0x0A via port path (NextZXOS-boot fix 2026-07-09)                     | src/port/nextreg.cpp:27         | pass    | test/nextreg/nextreg_integration_test.cpp:699  |
-| RO-02              | NR 0x00 read-only enforcement (write 0x42; read still 0x0A)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:715  |
-| RO-03              | NR 0x01 core version reset = 0x32 (core 3.02)                                                    | src/port/nextreg.cpp:28         | pass    | test/nextreg/nextreg_integration_test.cpp:726  |
-| RO-04              | NR 0x0E sub-version reset = 0x03                                                                 | zxnext_top_issue2.vhd:38        | pass    | test/nextreg/nextreg_integration_test.cpp:738  |
-| RO-05              | NR 0x0F board issue reset = 0x00                                                                 | g_board_issue (generic)         | pass    | test/nextreg/nextreg_integration_test.cpp:750  |
-| RO-06              | NR 0x1E/0x1F active video line readable via port path                                            | emulator.cpp:405-414            | pass    | test/nextreg/nextreg_integration_test.cpp:762  |
-| SEL-03             | NR 0x00 via select+write+read path returns 0x08 (read-only)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:788  |
-| CLIP-01            | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44                                          | zxnext.vhd:5242-5249            | pass    | test/nextreg/nextreg_integration_test.cpp:821  |
-| CLIP-02            | NR 0x18 fifth write wraps back to x1 (mod-4 idx)                                                 | zxnext.vhd:5242-5249            | pass    | test/nextreg/nextreg_integration_test.cpp:841  |
-| CLIP-03            | NR 0x1C bit 0 resets L2 clip idx (next 0x18 write → x1)                                          | zxnext.vhd:5278-5281            | pass    | test/nextreg/nextreg_integration_test.cpp:860  |
-| CLIP-04            | NR 0x1C bit 1 resets sprite clip idx (next 0x19 write → x1)                                      | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:881  |
-| CLIP-05            | NR 0x1C bit 2 resets ULA clip idx (next 0x1A write → x1)                                         | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:903  |
-| CLIP-06            | NR 0x1C bit 3 resets tilemap clip idx (next 0x1B write → x1)                                     | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:921  |
-| CLIP-07a           | NR 0x1C read post-all-reset packs idx=0000 → 0x00                                                | zxnext.vhd:5979-5980            | pass    | test/nextreg/nextreg_integration_test.cpp:940  |
-| CLIP-07b           | NR 0x1C after one NR 0x1B write: bits 7:6 = 01 → 0x40                                            | zxnext.vhd:5276, 5979-5980      | pass    | test/nextreg/nextreg_integration_test.cpp:950  |
-| CLIP-08            | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances                                   | zxnext.vhd:5947-5953            | pass    | test/nextreg/nextreg_integration_test.cpp:985  |
-| CLIP-09a           | NR 0x1B read does NOT advance idx (two consecutive reads equal)                                  | zxnext.vhd:5971-5977            | pass    | test/nextreg/nextreg_integration_test.cpp:1009 |
-| CLIP-09b           | NR 0x1B reads at idx=3 both return y2=0xFF; read does not wrap                                   | zxnext.vhd:5971-5977            | pass    | test/nextreg/nextreg_integration_test.cpp:1025 |
-| CLIP-10            | NR 0x1B write lands x1 AND advances tm idx (NR 0x1C bits 7:6 = 01)                               | zxnext.vhd:5276, 5980           | pass    | test/nextreg/nextreg_integration_test.cpp:1040 |
-| PAL-01             | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03                                   | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1218 |
-| PAL-02             | NR 0x41 8-bit palette value round-trips at selected index                                         | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1232 |
-| PAL-03             | NR 0x44 9-bit write: upper 8 bits land at selected idx (sub_idx latch)                            | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1252 |
-| PAL-04             | NR 0x41 read returns palette byte at selected index                                               | zxnext.vhd:5867-6292            | pass    | test/nextreg/nextreg_integration_test.cpp:1267 |
-| PAL-05             | NR 0x44 read returns priority+LSB for selected index                                              | zxnext.vhd:5867-6292            | pass    | test/nextreg/nextreg_integration_test.cpp:1280 |
-| PAL-06             | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 keeps pointer on same idx                            | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1304 |
-| PE-03              | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF                          | zxnext.vhd:2392-2442            | pass    | test/nextreg/nextreg_integration_test.cpp:1362 |
-| PE-05              | NR 0x89 bus port enable reset = 0x8F (bit 7 reset_type=1, bits 3:0 = 1111)                       | zxnext.vhd:1234-1235, 6147-6150 | pass    | test/nextreg/nextreg_integration_test.cpp:1381 |
-| RW-01              | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2]                        | pass                            | test/nextreg/nextreg_integration_test.cpp:1544 | test/nextreg/nextreg_integration_test.cpp:1256 |
-| RW-02              | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable                      | zxnext.vhd:5906                 | pass    | test/nextreg/nextreg_integration_test.cpp:1596 |
-| CFG-01             | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011")                        | zxnext.vhd:1099, 5893-5894      | pass    | test/nextreg/nextreg_integration_test.cpp:1876 |
-| CFG-02             | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from state                     | zxnext.vhd:5121-5151, 5894      | pass    | test/nextreg/nextreg_integration_test.cpp:1912 |
-| CFG-05             | NR 0x03 bits 2:0 = 001 clears config_mode at write time                                          | zxnext.vhd:5147-5151            | pass    | test/nextreg/nextreg_integration_test.cpp:1943 |
-| CFG-09-INT         | NR 0x03 machine-type latch read-back lost on reset (G63)                                         | zxnext.vhd:5137                 | pass    | test/nextreg/nextreg_integration_test.cpp:1991 |
+| RO-01              | NR 0x00 machine ID reset = 0x0A via port path (NextZXOS-boot fix 2026-07-09)                     | src/port/nextreg.cpp:27         | pass    | test/nextreg/nextreg_integration_test.cpp:706  |
+| RO-02              | NR 0x00 read-only enforcement (write 0x42; read still 0x0A)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:722  |
+| RO-03              | NR 0x01 core version reset = 0x32 (core 3.02)                                                    | src/port/nextreg.cpp:28         | pass    | test/nextreg/nextreg_integration_test.cpp:733  |
+| RO-04              | NR 0x0E sub-version reset = 0x03                                                                 | zxnext_top_issue2.vhd:38        | pass    | test/nextreg/nextreg_integration_test.cpp:745  |
+| RO-05              | NR 0x0F board issue reset = 0x00                                                                 | g_board_issue (generic)         | pass    | test/nextreg/nextreg_integration_test.cpp:757  |
+| RO-06              | NR 0x1E/0x1F active video line readable via port path                                            | emulator.cpp:405-414            | pass    | test/nextreg/nextreg_integration_test.cpp:769  |
+| SEL-03             | NR 0x00 via select+write+read path returns 0x08 (read-only)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:795  |
+| CLIP-01            | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44                                          | zxnext.vhd:5242-5249            | pass    | test/nextreg/nextreg_integration_test.cpp:828  |
+| CLIP-02            | NR 0x18 fifth write wraps back to x1 (mod-4 idx)                                                 | zxnext.vhd:5242-5249            | pass    | test/nextreg/nextreg_integration_test.cpp:848  |
+| CLIP-03            | NR 0x1C bit 0 resets L2 clip idx (next 0x18 write → x1)                                          | zxnext.vhd:5278-5281            | pass    | test/nextreg/nextreg_integration_test.cpp:867  |
+| CLIP-04            | NR 0x1C bit 1 resets sprite clip idx (next 0x19 write → x1)                                      | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:888  |
+| CLIP-05            | NR 0x1C bit 2 resets ULA clip idx (next 0x1A write → x1)                                         | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:910  |
+| CLIP-06            | NR 0x1C bit 3 resets tilemap clip idx (next 0x1B write → x1)                                     | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:928  |
+| CLIP-07a           | NR 0x1C read post-all-reset packs idx=0000 → 0x00                                                | zxnext.vhd:5979-5980            | pass    | test/nextreg/nextreg_integration_test.cpp:947  |
+| CLIP-07b           | NR 0x1C after one NR 0x1B write: bits 7:6 = 01 → 0x40                                            | zxnext.vhd:5276, 5979-5980      | pass    | test/nextreg/nextreg_integration_test.cpp:957  |
+| CLIP-08            | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances                                   | zxnext.vhd:5947-5953            | pass    | test/nextreg/nextreg_integration_test.cpp:992  |
+| CLIP-09a           | NR 0x1B read does NOT advance idx (two consecutive reads equal)                                  | zxnext.vhd:5971-5977            | pass    | test/nextreg/nextreg_integration_test.cpp:1016 |
+| CLIP-09b           | NR 0x1B reads at idx=3 both return y2=0xFF; read does not wrap                                   | zxnext.vhd:5971-5977            | pass    | test/nextreg/nextreg_integration_test.cpp:1032 |
+| CLIP-10            | NR 0x1B write lands x1 AND advances tm idx (NR 0x1C bits 7:6 = 01)                               | zxnext.vhd:5276, 5980           | pass    | test/nextreg/nextreg_integration_test.cpp:1047 |
+| PAL-01             | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03                                   | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1225 |
+| PAL-02             | NR 0x41 8-bit palette value round-trips at selected index                                         | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1239 |
+| PAL-03             | NR 0x44 9-bit write: upper 8 bits land at selected idx (sub_idx latch)                            | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1259 |
+| PAL-04             | NR 0x41 read returns palette byte at selected index                                               | zxnext.vhd:5867-6292            | pass    | test/nextreg/nextreg_integration_test.cpp:1274 |
+| PAL-05             | NR 0x44 read returns priority+LSB for selected index                                              | zxnext.vhd:5867-6292            | pass    | test/nextreg/nextreg_integration_test.cpp:1287 |
+| PAL-06             | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 keeps pointer on same idx                            | zxnext.vhd:4918-4920            | pass    | test/nextreg/nextreg_integration_test.cpp:1311 |
+| PE-03              | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF                          | zxnext.vhd:2392-2442            | pass    | test/nextreg/nextreg_integration_test.cpp:1369 |
+| PE-05              | NR 0x89 bus port enable reset = 0x8F (bit 7 reset_type=1, bits 3:0 = 1111)                       | zxnext.vhd:1234-1235, 6147-6150 | pass    | test/nextreg/nextreg_integration_test.cpp:1388 |
+| RW-01              | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2]                        | pass                            | test/nextreg/nextreg_integration_test.cpp:1551 | test/nextreg/nextreg_integration_test.cpp:1256 |
+| RW-02              | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable                      | zxnext.vhd:5906                 | pass    | test/nextreg/nextreg_integration_test.cpp:1603 |
+| CFG-01             | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011")                        | zxnext.vhd:1099, 5893-5894      | pass    | test/nextreg/nextreg_integration_test.cpp:1883 |
+| CFG-02             | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from state                     | zxnext.vhd:5121-5151, 5894      | pass    | test/nextreg/nextreg_integration_test.cpp:1919 |
+| CFG-05             | NR 0x03 bits 2:0 = 001 clears config_mode at write time                                          | zxnext.vhd:5147-5151            | pass    | test/nextreg/nextreg_integration_test.cpp:1950 |
+| CFG-09-INT         | NR 0x03 machine-type latch read-back lost on reset (G63)                                         | zxnext.vhd:5137                 | pass    | test/nextreg/nextreg_integration_test.cpp:1998 |
 | 20.3a              | NR 0xCC readback masks to bits 7 and 1:0                                                         | zxnext.vhd:6257                 | pass    | test/nextreg/nextreg_integration_test.cpp:359  |
 | 20.3b              | NR 0xCC ignores bits 6:2 on readback                                                             | zxnext.vhd:5629-5630            | pass    | test/nextreg/nextreg_integration_test.cpp:367  |
 | 20.3c              | NR 0xCD readback preserves all 8 bits (CTC 7..0)                                                 | zxnext.vhd:5633, 6260           | pass    | test/nextreg/nextreg_integration_test.cpp:375  |
@@ -2255,19 +2255,19 @@ Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host 
 | 20.4f              | latched_prev=1 & dma_delay=0 → im2_dma_delay drops to 0                                          | zxnext.vhd:2007                 | pass    | test/nextreg/nextreg_integration_test.cpp:485  |
 | TM-114             | NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order                                              | zxnext.vhd:5242-5290            | pass    | test/nextreg/nextreg_integration_test.cpp:515  |
 | TM-115             | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1                                    | emulator.cpp:304-308            | pass    | test/nextreg/nextreg_integration_test.cpp:538  |
-| SR-01              | NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents                                                 | VHDL: SRAM not in reset domain  | pass    | test/nextreg/nextreg_integration_test.cpp:575  |
-| SR-02              | NR 0x02=0x02 (RESET_HARD) zeroes SRAM                                                             | full power-on reinit            | pass    | test/nextreg/nextreg_integration_test.cpp:590  |
-| SR-03              | boot_rom_en_ cleared state survives RESET_SOFT with boot ROM loaded                               | zxnext.vhd:1101, 5109-5111, 5122 | pass    | test/nextreg/nextreg_integration_test.cpp:616  |
-| SR-04              | NR 0x02=0x80 (RESET_ESPBUS alone) is a no-op — SRAM untouched                                    | —                               | pass    | test/nextreg/nextreg_integration_test.cpp:631  |
-| SR-05              | NR 0x02=0x03 (RESET_HARD\|RESET_SOFT): hard wins, SRAM zeroed                                     | pass                              | test/nextreg/nextreg_integration_test.cpp:642 | test/nextreg/nextreg_integration_test.cpp:601  |
-| SR-06              | ROM-in-SRAM window (ram_ pages 0..7) survives RESET_SOFT                                          | —                               | pass    | test/nextreg/nextreg_integration_test.cpp:658  |
-| SR-07              | ROM-in-SRAM window re-seeded from rom_ on RESET_HARD                                              | —                               | pass    | test/nextreg/nextreg_integration_test.cpp:673  |
-| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0                                            | zxnext.vhd:3814, 4677           | pass    | test/nextreg/nextreg_integration_test.cpp:2081 |
-| N8E-RAM-REBUILD-1  | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank                                            | zxnext.vhd:3814, 4677           | pass    | test/nextreg/nextreg_integration_test.cpp:2106 |
-| L2M-05             | NR 0x12 write sets Layer 2 active bank (7-bit)                                                    | zxnext.vhd:4945                 | pass    | test/nextreg/nextreg_integration_test.cpp:2183 |
-| L2M-05b            | NR 0x12 top bit masked on write (Layer2 state) AND on readback                                    | zxnext.vhd:4945, 5930           | pass    | test/nextreg/nextreg_integration_test.cpp:2203 |
-| L2M-06             | NR 0x13 write sets Layer 2 shadow bank (7-bit)                                                    | zxnext.vhd:4946                 | pass    | test/nextreg/nextreg_integration_test.cpp:2219 |
-| L2M-06b            | NR 0x13 top bit masked on write (Layer2 state) AND on readback                                    | zxnext.vhd:4946, 5931           | pass    | test/nextreg/nextreg_integration_test.cpp:2236 |
+| SR-01              | NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents                                                 | VHDL: SRAM not in reset domain  | pass    | test/nextreg/nextreg_integration_test.cpp:582  |
+| SR-02              | NR 0x02=0x02 (RESET_HARD) zeroes SRAM                                                             | full power-on reinit            | pass    | test/nextreg/nextreg_integration_test.cpp:597  |
+| SR-03              | boot_rom_en_ cleared state survives RESET_SOFT with boot ROM loaded                               | zxnext.vhd:1101, 5109-5111, 5122 | pass    | test/nextreg/nextreg_integration_test.cpp:623  |
+| SR-04              | NR 0x02=0x80 (RESET_ESPBUS alone) is a no-op — SRAM untouched                                    | —                               | pass    | test/nextreg/nextreg_integration_test.cpp:638  |
+| SR-05              | NR 0x02=0x03 (RESET_HARD\|RESET_SOFT): hard wins, SRAM zeroed                                     | pass                              | test/nextreg/nextreg_integration_test.cpp:649 | test/nextreg/nextreg_integration_test.cpp:601  |
+| SR-06              | ROM-in-SRAM window (ram_ pages 0..7) survives RESET_SOFT                                          | —                               | pass    | test/nextreg/nextreg_integration_test.cpp:665  |
+| SR-07              | ROM-in-SRAM window re-seeded from rom_ on RESET_HARD                                              | —                               | pass    | test/nextreg/nextreg_integration_test.cpp:680  |
+| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0                                            | zxnext.vhd:3814, 4677           | pass    | test/nextreg/nextreg_integration_test.cpp:2088 |
+| N8E-RAM-REBUILD-1  | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank                                            | zxnext.vhd:3814, 4677           | pass    | test/nextreg/nextreg_integration_test.cpp:2113 |
+| L2M-05             | NR 0x12 write sets Layer 2 active bank (7-bit)                                                    | zxnext.vhd:4945                 | pass    | test/nextreg/nextreg_integration_test.cpp:2190 |
+| L2M-05b            | NR 0x12 top bit masked on write (Layer2 state) AND on readback                                    | zxnext.vhd:4945, 5930           | pass    | test/nextreg/nextreg_integration_test.cpp:2210 |
+| L2M-06             | NR 0x13 write sets Layer 2 shadow bank (7-bit)                                                    | zxnext.vhd:4946                 | pass    | test/nextreg/nextreg_integration_test.cpp:2226 |
+| L2M-06b            | NR 0x13 top bit masked on write (Layer2 state) AND on readback                                    | zxnext.vhd:4946, 5931           | pass    | test/nextreg/nextreg_integration_test.cpp:2243 |
 
 
 ## IO Port Dispatch — `test/port/port_test.cpp`
@@ -2893,27 +2893,27 @@ NMI Source Pipeline plan (`doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md`) closed
 | BOOT-LOOP-01    | NextZXOS RAM-test outer loop (208 passes × 112 banks over ~15 s)                              | n/a (end-to-end behavioural)                    | skip   | test/nmi/nmi_test.cpp:1196                  |
 | BOOT-LOGO-01    | NextZXOS loader logo + 4-entry log render                                                     | n/a (rendering)                                 | skip   | test/nmi/nmi_test.cpp:1201                  |
 | BOOT-DOT-01     | NextZXOS BASIC + dot-command surface                                                          | n/a (end-to-end)                                | skip   | test/nmi/nmi_test.cpp:1206                  |
-| BYPASS-FAT-01   | Host-side FAT32 reader for direct enNextZX.rom load                                           | n/a (host-side)                                 | skip   | test/nmi/nmi_test.cpp:1216                  |
-| BYPASS-INI-01   | config.ini / menu.ini / menu.def parser                                                       | n/a (host-side)                                 | skip   | test/nmi/nmi_test.cpp:1222                  |
-| DIS-01          | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true)        | zxnext.vhd:2170 / divmmc.vhd:108-111            | pass   | test/nmi/nmi_test.cpp:1250                  |
-| DIS-02          | DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1                         | divmmc.vhd:150 / zxnext.vhd:2107,2118           | pass   | test/nmi/nmi_test.cpp:1279                  |
-| DIS-03          | is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11}                               | divmmc.vhd:150                                  | pass   | test/nmi/nmi_test.cpp:1320                  |
-| DIS-04          | FSM HOLD → END when divmmc_nmi_hold transitions to 0                                          | zxnext.vhd:2118 / 2135-2148 / divmmc.vhd:150    | pass   | test/nmi/nmi_test.cpp:1356                  |
-| CLR-01          | reset() clears button_nmi_                                                                    | divmmc.vhd:108 (i_reset)                        | pass   | test/nmi/nmi_test.cpp:1379                  |
-| CLR-02          | set_enabled(true→false) edge (i_automap_reset) clears button_nmi_                             | divmmc.vhd:108 / zxnext.vhd:4112                | pass   | test/nmi/nmi_test.cpp:1400                  |
-| CLR-03          | on_retn_seen() clears button_nmi_                                                             | divmmc.vhd:108 (i_retn_seen)                    | pass   | test/nmi/nmi_test.cpp:1418                  |
-| CLR-04          | automap_held rising edge clears button_nmi_                                                   | divmmc.vhd:112-113                              | pass   | test/nmi/nmi_test.cpp:1451                  |
-| GATE-01         | NR 0x06 bit 3 decode sets NmiSource::mf_enable()                                              | zxnext.vhd:1110                                 | pass   | test/nmi/nmi_test.cpp:1497                  |
-| GATE-02         | NR 0x06 bit 4 decode sets NmiSource::divmmc_enable()                                          | zxnext.vhd:1109                                 | pass   | test/nmi/nmi_test.cpp:1512                  |
-| GATE-03         | NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable()                                | zxnext.vhd:1222                                 | pass   | test/nmi/nmi_test.cpp:1527                  |
-| GATE-04         | CONMEM=1 blocks MF latch even with enable+button set                                          | zxnext.vhd:2107 (port_e3_reg(7) gate)           | pass   | test/nmi/nmi_test.cpp:1551                  |
-| GATE-05         | mf_is_active=1 blocks DivMMC latch even with enable+button set                                | zxnext.vhd:2099 (mf_is_active gate)             | pass   | test/nmi/nmi_test.cpp:1572                  |
-| GATE-06         | config_mode=1 force-clears all three priority latches                                         | zxnext.vhd:2102-2105                            | pass   | test/nmi/nmi_test.cpp:1598                  |
-| GATE-07         | config_mode=1 force-clears FSM to Idle from any state                                         | zxnext.vhd:2102-2105                            | pass   | test/nmi/nmi_test.cpp:1618                  |
-| GATE-08         | Power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, config_mode) all false            | zxnext.vhd:1109-1110 / 1222 / NR 0x03           | pass   | test/nmi/nmi_test.cpp:1639                  |
-| DMA-01          | is_activated() true while any NMI latch is set                                                | zxnext.vhd:2107                                 | pass   | test/nmi/nmi_test.cpp:1747                  |
-| DMA-02          | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7                            | zxnext.vhd:2007                                 | pass   | test/nmi/nmi_test.cpp:1771                  |
-| DMA-03          | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay                            | zxnext.vhd:2007                                 | pass   | test/nmi/nmi_test.cpp:1800                  |
+| BYPASS-FAT-01   | Host-side FAT32 reader for direct enNextZX.rom load                                           | n/a (host-side)                                 | skip   | test/nmi/nmi_test.cpp:1211                  |
+| BYPASS-INI-01   | config.ini / menu.ini / menu.def parser                                                       | n/a (host-side)                                 | skip   | test/nmi/nmi_test.cpp:1217                  |
+| DIS-01          | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true)        | zxnext.vhd:2170 / divmmc.vhd:108-111            | pass   | test/nmi/nmi_test.cpp:1245                  |
+| DIS-02          | DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1                         | divmmc.vhd:150 / zxnext.vhd:2107,2118           | pass   | test/nmi/nmi_test.cpp:1274                  |
+| DIS-03          | is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11}                               | divmmc.vhd:150                                  | pass   | test/nmi/nmi_test.cpp:1315                  |
+| DIS-04          | FSM HOLD → END when divmmc_nmi_hold transitions to 0                                          | zxnext.vhd:2118 / 2135-2148 / divmmc.vhd:150    | pass   | test/nmi/nmi_test.cpp:1351                  |
+| CLR-01          | reset() clears button_nmi_                                                                    | divmmc.vhd:108 (i_reset)                        | pass   | test/nmi/nmi_test.cpp:1374                  |
+| CLR-02          | set_enabled(true→false) edge (i_automap_reset) clears button_nmi_                             | divmmc.vhd:108 / zxnext.vhd:4112                | pass   | test/nmi/nmi_test.cpp:1395                  |
+| CLR-03          | on_retn_seen() clears button_nmi_                                                             | divmmc.vhd:108 (i_retn_seen)                    | pass   | test/nmi/nmi_test.cpp:1413                  |
+| CLR-04          | automap_held rising edge clears button_nmi_                                                   | divmmc.vhd:112-113                              | pass   | test/nmi/nmi_test.cpp:1446                  |
+| GATE-01         | NR 0x06 bit 3 decode sets NmiSource::mf_enable()                                              | zxnext.vhd:1110                                 | pass   | test/nmi/nmi_test.cpp:1492                  |
+| GATE-02         | NR 0x06 bit 4 decode sets NmiSource::divmmc_enable()                                          | zxnext.vhd:1109                                 | pass   | test/nmi/nmi_test.cpp:1507                  |
+| GATE-03         | NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable()                                | zxnext.vhd:1222                                 | pass   | test/nmi/nmi_test.cpp:1522                  |
+| GATE-04         | CONMEM=1 blocks MF latch even with enable+button set                                          | zxnext.vhd:2107 (port_e3_reg(7) gate)           | pass   | test/nmi/nmi_test.cpp:1546                  |
+| GATE-05         | mf_is_active=1 blocks DivMMC latch even with enable+button set                                | zxnext.vhd:2099 (mf_is_active gate)             | pass   | test/nmi/nmi_test.cpp:1567                  |
+| GATE-06         | config_mode=1 force-clears all three priority latches                                         | zxnext.vhd:2102-2105                            | pass   | test/nmi/nmi_test.cpp:1593                  |
+| GATE-07         | config_mode=1 force-clears FSM to Idle from any state                                         | zxnext.vhd:2102-2105                            | pass   | test/nmi/nmi_test.cpp:1613                  |
+| GATE-08         | Power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, config_mode) all false            | zxnext.vhd:1109-1110 / 1222 / NR 0x03           | pass   | test/nmi/nmi_test.cpp:1634                  |
+| DMA-01          | is_activated() true while any NMI latch is set                                                | zxnext.vhd:2107                                 | pass   | test/nmi/nmi_test.cpp:1742                  |
+| DMA-02          | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7                            | zxnext.vhd:2007                                 | pass   | test/nmi/nmi_test.cpp:1766                  |
+| DMA-03          | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay                            | zxnext.vhd:2007                                 | pass   | test/nmi/nmi_test.cpp:1795                  |
 
 ### Companion integration suite — `test/nmi/nmi_integration_test.cpp`
 
