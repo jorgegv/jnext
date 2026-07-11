@@ -4,17 +4,26 @@
 // network fetch and the user confirmation are behind std::function seams, so
 // NO test here ever touches the network.
 //
-//   PROV-PATH-01   default_sdcard_dir / image_path derive from $HOME.
+//   PROV-PATH-01   default_sdcard_dir / (fixed + raw) image_path derive from
+//                  $HOME; the default (used) image is the -fixed.img one.
 //   PROV-PREC-01   Explicit --sd-card wins; download seam is never invoked.
-//   PROV-PREC-02   Default-location image is used when present; no download.
+//   PROV-PREC-02   Default-location FIXED image is used when present; no download.
 //   PROV-PREC-03   --sdcard-download-force ignores an explicit path and an
 //                  existing default image (routes to the download branch).
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
 //   PROV-CONF-02   Confirm accepted + download seam fails → Failed; seam ran.
+//   PROV-PROG-01   The ProvisionOptions.progress seam is forwarded into the
+//                  download seam and invoked.
+//   PROV-PROG-02   A progress fn returning false (cancel) → download aborts →
+//                  Failed.
+//   PROV-FIXED-01  Skip-redownload: with a valid raw cspect-next-1gb.img
+//                  present, provision produces cspect-next-1gb-fixed.img
+//                  WITHOUT a download; both files exist afterwards.
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
 
+#include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
 
 #include <zlib.h>
@@ -130,6 +139,39 @@ std::vector<uint8_t> make_zip(const std::string& name,
     return z;
 }
 
+void wr32(uint8_t* p, uint32_t v) { p[0]=v; p[1]=v>>8; p[2]=v>>16; p[3]=v>>24; }
+
+Fat32Node fnode(const std::string& n, const std::string& content) {
+    Fat32Node x; x.name = n; x.is_dir = false;
+    x.data.assign(content.begin(), content.end());
+    return x;
+}
+
+// Build a small-but-spec-valid FAT32 source image (MBR + one FAT32-LBA
+// partition) at `path`, sparse on disk. ~600 MB partition so f_mkfs with
+// 8 KB clusters clears the 65525-cluster FAT32 minimum — same geometry the
+// real distribution image uses. Mirrors fat32_image_test's builder.
+bool make_fat32_source(const std::string& path, uint32_t part_lba,
+                       uint32_t total_sectors, std::string& err) {
+    const uint64_t bytes = static_cast<uint64_t>(part_lba + total_sectors) * 512;
+    {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        if (!f) { err = "cannot create " + path; return false; }
+        std::vector<uint8_t> mbr(512, 0);
+        uint8_t* pe = mbr.data() + 0x1BE;
+        pe[4] = 0x0C;                 // type FAT32 LBA
+        wr32(pe + 8, part_lba);       // start LBA
+        wr32(pe + 12, total_sectors); // sectors
+        mbr[510] = 0x55; mbr[511] = 0xAA;
+        f.write(reinterpret_cast<char*>(mbr.data()), 512);
+        f.seekp(static_cast<std::streamoff>(bytes - 1)); char z = 0; f.write(&z, 1);
+        if (!f.good()) { err = "write error on " + path; return false; }
+    }
+    Fat32Tree tree;
+    tree.root.push_back(fnode("HELLO.TXT", "hi"));
+    return fat32_format_and_populate(path, part_lba, total_sectors, tree, err);
+}
+
 } // namespace
 
 int main() {
@@ -142,18 +184,23 @@ int main() {
 
     // -- PROV-PATH-01 --
     {
-        const std::string dir = sdcard::default_sdcard_dir();
-        const std::string img = sdcard::default_sdcard_image_path();
+        const std::string dir   = sdcard::default_sdcard_dir();
+        const std::string fixed = sdcard::default_sdcard_image_path();
+        const std::string raw   = sdcard::default_sdcard_raw_image_path();
         check("PROV-PATH-01", "default dir == $HOME/.jnext/sdcard",
               dir == g_tmpdir + "/.jnext/sdcard", dir);
-        check("PROV-PATH-01", "default image == dir/cspect-next-1gb.img",
-              img == dir + "/cspect-next-1gb.img", img);
+        check("PROV-PATH-01", "default (used) image == dir/cspect-next-1gb-fixed.img",
+              fixed == dir + "/cspect-next-1gb-fixed.img", fixed);
+        check("PROV-PATH-01", "raw download image == dir/cspect-next-1gb.img",
+              raw == dir + "/cspect-next-1gb.img", raw);
     }
 
     // Download seam that records invocation and fails (so no real net op).
+    // New 4-arg signature carries the ProgressFn seam.
     bool download_called = false;
     sdcard::DownloadFn recording_dl =
-        [&](const std::string&, const std::string&, std::string& err) {
+        [&](const std::string&, const std::string&,
+            const sdcard::ProgressFn&, std::string& err) {
             download_called = true; err = "stub: no network"; return false;
         };
 
@@ -232,6 +279,88 @@ int main() {
         check("PROV-CONF-02", "download seam invoked after confirm", download_called);
         check("PROV-CONF-02", "download failure => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
+    }
+
+    // -- PROV-PROG-01: the progress seam is forwarded into the download seam --
+    {
+        // No default image present (removed above). A stub download that
+        // invokes the ProgressFn it receives, records the call, then fails
+        // (so no unzip/patch runs). Proves ProvisionOptions.progress reaches
+        // the download seam.
+        int progress_calls = 0;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true; // skip the confirm prompt
+        o.progress = [&](uint64_t dl, uint64_t total) {
+            ++progress_calls; (void)dl; (void)total; return true;
+        };
+        o.download = [](const std::string&, const std::string&,
+                        const sdcard::ProgressFn& prog, std::string& err) {
+            if (prog) { prog(0, 100); prog(50, 100); prog(100, 100); }
+            err = "stub: no network"; return false;
+        };
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-PROG-01", "progress seam forwarded + invoked",
+              progress_calls == 3, "calls=" + std::to_string(progress_calls));
+        check("PROV-PROG-01", "download failure still => Failed",
+              r.status == sdcard::ProvisionStatus::Failed);
+    }
+
+    // -- PROV-PROG-02: a progress fn returning false cancels the download --
+    {
+        bool saw_cancel = false;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        // The caller's progress fn requests cancel on the first tick.
+        o.progress = [&](uint64_t, uint64_t) { return false; };
+        // Stub download mimics libcurl: on a false ProgressFn it aborts and
+        // reports failure (partial file removed by the real impl).
+        o.download = [&](const std::string&, const std::string&,
+                         const sdcard::ProgressFn& prog, std::string& err) {
+            if (prog && !prog(0, 100)) { saw_cancel = true;
+                err = "download cancelled by user"; return false; }
+            return true;
+        };
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-PROG-02", "cancel observed at download seam", saw_cancel);
+        check("PROV-PROG-02", "cancelled download => Failed",
+              r.status == sdcard::ProvisionStatus::Failed);
+    }
+
+    // -- PROV-FIXED-01: skip-redownload produces the fixed image from a raw --
+    {
+        // Place a valid raw cspect-next-1gb.img at the default location; the
+        // fixed image is absent. Provision must produce the fixed image
+        // WITHOUT any download, leaving BOTH files present.
+        ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
+        ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
+        const std::string raw   = sdcard::default_sdcard_raw_image_path();
+        const std::string fixed = sdcard::default_sdcard_image_path();
+        std::remove(fixed.c_str());
+
+        std::string berr;
+        // ~600 MB partition at LBA 63 (sparse) → valid 8 KB-cluster FAT32.
+        bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
+        check("PROV-FIXED-01", "raw FAT32 source built", src_ok, berr);
+
+        download_called = false;
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl; // must NOT be called (skip-redownload)
+        o.confirm  = [](const std::string&) { return true; };
+        auto r = src_ok ? sdcard::provision_sd_card(o) : sdcard::ProvisionResult{};
+
+        check("PROV-FIXED-01", "provision Ok, path is the fixed image",
+              src_ok && r.status == sdcard::ProvisionStatus::Ok &&
+              r.path == fixed, r.path);
+        check("PROV-FIXED-01", "no download when raw already present",
+              !download_called);
+        struct stat st{};
+        check("PROV-FIXED-01", "raw image kept (pristine)",
+              ::stat(raw.c_str(), &st) == 0);
+        check("PROV-FIXED-01", "fixed image produced",
+              ::stat(fixed.c_str(), &st) == 0);
+
+        std::remove(raw.c_str());
+        std::remove(fixed.c_str());
     }
 
     // -- PROV-UNZIP-01/02/03 --
