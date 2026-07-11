@@ -38,6 +38,14 @@ public:
     /// Get the number of samples available in the ring buffer.
     int available() const;
 
+    /// Raw VHDL-faithful 13-bit mixer sum from the most recent
+    /// generate_sample() (audio_mixer.vhd:99-100), BEFORE the analog
+    /// AC-coupling / gain stage. Exposed so the mixer unit tests can assert
+    /// the digital sum directly (a steady contribution is invisible in the
+    /// DC-blocked output, but present in the sum).
+    uint16_t pcm_left()  const { return last_pcm_l_; }
+    uint16_t pcm_right() const { return last_pcm_r_; }
+
     /// Read up to `count` stereo samples into `out` (interleaved L, R, L, R...).
     /// Returns the number of stereo samples actually read.
     int read_samples(int16_t* out, int count);
@@ -73,10 +81,16 @@ private:
     // VHDL audio_mixer.vhd:80-81 — when '1', ear/mic muxes feed (others=>'0').
     bool exc_i_{false};
 
+    // Raw 13-bit VHDL mixer sum from the last generate_sample() (for tests).
+    uint16_t last_pcm_l_{0}, last_pcm_r_{0};
+
     // DC-blocking (AC-coupling) high-pass filter state, one pole per channel.
     // Models the real hardware's series output capacitor: any *steady* level
     // (DAC rest, a held OUT 0xFE bit-4 EAR line, MIC, i2s midpoint) decays to
     // silence instead of leaking a DC offset into the sound card (issue #7).
+    // `primed_` lazily seeds the input history on the first post-reset sample
+    // with the actual resting sum, so that first sample is exactly silent.
+    bool primed_{false};
     double hp_x_l_{0.0}, hp_y_l_{0.0};
     double hp_x_r_{0.0}, hp_y_r_{0.0};
 };

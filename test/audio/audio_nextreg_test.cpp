@@ -629,30 +629,25 @@ static void test_nr_a2(Emulator& emu) {
         emu.i2s().set_sample(0x3FF, 0x3FF);
         nr_write(emu, 0xA2, 0xC0);                 // enL+enR, no mute
         emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
-        int16_t buf_on[2] = {0, 0};
-        const int got_on = emu.mixer().read_samples(buf_on, 1);
-        const int16_t pcm_L_on = buf_on[0];
+        // Assert on the raw VHDL mixer sum (pcm_left), not the AC-coupled
+        // output: the I2S contribution is a *steady* level, so it is DC and
+        // correctly invisible in the DC-blocked int16 output (issue #7).
+        const int pcm_L_on = emu.mixer().pcm_left();
 
         // Disabled scenario.
         fresh(emu);
-        {
-            int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
-            emu.mixer().read_samples(scratch, emu.mixer().available());
-        }
         emu.i2s().set_sample(0x3FF, 0x3FF);
         nr_write(emu, 0xA2, 0x00);                 // disabled (default)
         emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
-        int16_t buf_off[2] = {0, 0};
-        const int got_off = emu.mixer().read_samples(buf_off, 1);
-        const int16_t pcm_L_off = buf_off[0];
+        const int pcm_L_off = emu.mixer().pcm_left();
 
-        const int delta = static_cast<int>(pcm_L_on) - static_cast<int>(pcm_L_off);
+        const int delta = pcm_L_on - pcm_L_off;
         check("NR-43",
               "Mixer gates Pi I2S contribution by NR 0xA2 enable/mute "
               "(audio_mixer.vhd:91-92, zxnext.vhd:2358-2359)",
-              got_on == 1 && got_off == 1 &&
-              pcm_L_on == 4092 && pcm_L_off == 2048 && delta == 2044,
-              fmt("pcm_L on=%d off=%d delta=%d (want 4092/2048/2044)",
+              pcm_L_on == 2047 && pcm_L_off == 1536 && delta == 511,
+              fmt("pcm_L on=%d off=%d delta=%d (want 2047/1536/511; "
+                  "DAC rest 1024 + i2s 1023 vs 512)",
                   pcm_L_on, pcm_L_off, delta));
     }
 }
@@ -885,33 +880,28 @@ static void test_nr_mixer(Emulator& emu) {
         }
         emu.beeper().set_ear(true);
         emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
-        int16_t buf_off[2] = {0, 0};
-        const int got_off = emu.mixer().read_samples(buf_off, 1);
-        const int16_t pcm_L_off = buf_off[0];
+        // Raw VHDL mixer sum (pcm_left), not the AC-coupled output: a steady
+        // EAR level is DC and correctly zero in the DC-blocked output (#7).
+        const int pcm_L_off = emu.mixer().pcm_left();
 
         // Speaker-exclusive: NR 0x06 b6=1 AND NR 0x08 b4=1 ⇒ exc_i=1.
         // EAR=1 again; the ear term must vanish from pcm_L.
         fresh(emu);
-        {
-            int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
-            emu.mixer().read_samples(scratch, emu.mixer().available());
-        }
         nr_write(emu, 0x06, 0x40);   // bit 6 = 1
         nr_write(emu, 0x08, 0x10);   // bit 4 = 1 (already default; explicit)
         emu.beeper().set_ear(true);
         emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
-        int16_t buf_on[2] = {0, 0};
-        const int got_on = emu.mixer().read_samples(buf_on, 1);
-        const int16_t pcm_L_on = buf_on[0];
+        const int pcm_L_on = emu.mixer().pcm_left();
 
-        // Expected delta is the gated 13-bit ear term (512) times the
-        // Mixer's int16 ×4 scale = 2048.
-        const int delta = static_cast<int>(pcm_L_off) - static_cast<int>(pcm_L_on);
+        // Expected delta is the gated 13-bit ear term (512). exc_i=0 sum =
+        // ear(512) + DAC rest(1024) + i2s midpoint(512) = 2048; exc_i=1 gates
+        // the ear term → 1536.
+        const int delta = pcm_L_off - pcm_L_on;
         check("MX-23",
               "Mixer gates EAR/MIC when exc_i=1 (audio_mixer.vhd:80-81; "
               "exc_i = beep_spkr_excl per zxnext.vhd:6504)",
-              got_off == 1 && got_on == 1 && delta == 512 * 4,
-              fmt("pcm_L exc_i=0:%d exc_i=1:%d delta=%d (want 2048)",
+              pcm_L_off == 2048 && pcm_L_on == 1536 && delta == 512,
+              fmt("pcm_L exc_i=0:%d exc_i=1:%d delta=%d (want 2048/1536/512)",
                   pcm_L_off, pcm_L_on, delta));
     }
 }
