@@ -135,11 +135,13 @@ The `--headless` option runs without display/audio for automated testing:
 Key options:
 - `--machine TYPE` — `48k`, `128k`, `plus3`, `next` (default)
 - `--headless` — no display, no audio, runs at max speed
-- `--sd-card FILE` — required; SD image with ROMs at `/MACHINES/NEXT/`
+- `--sd-card FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/cspect-next-1gb.img` (offers to download + patch it). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
 - `--delayed-screenshot-time N` — delay in seconds (default 10)
+- `--delayed-screenshot-frames N` — delay in frames (overrides `--delayed-screenshot-time`)
 - `--delayed-automatic-exit N` — exit emulator after N seconds
 - `--load FILE` — load a NEX, TAP, or TZX file at startup
+- `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the RTC to a fixed date/time (deterministic boot screenshots; ISO `T` form also accepted)
 
 Always use `timeout --kill-after=5s` when running non-headless for safety.
 
@@ -167,9 +169,9 @@ ZX Spectrum Next hardware. There are two parts:
    in `src/core/CMakeLists.txt`. No CLI flag, no SD lookup. Mirrors the
    on-FPGA flash IPL of real Next hardware.
 
-2. **All other ROMs** are extracted from the user-supplied SD image
-   (`--sd-card`, mandatory) at canonical TBBlue paths via the host-side
-   FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`:
+2. **All other ROMs** are extracted from the SD image (supplied via
+   `--sd-card`, or the `~/.jnext/sdcard/` fallback) at canonical TBBlue
+   paths via the host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`:
    - `/MACHINES/NEXT/48.rom` (16 KB) — 48K BASIC
    - `/MACHINES/NEXT/128.rom` (32 KB combined) — 128K BASIC (split into 2 banks)
    - `/MACHINES/NEXT/plus3.rom` (64 KB combined) — +3 BASIC (split into 4 banks)
@@ -183,7 +185,9 @@ image at init time.
 
 ### ZX Spectrum Next boot assets
 
-The only required asset is a NextZXOS SD image mounted via `--sd-card`.
+jnext needs a NextZXOS SD image. Mount one explicitly via `--sd-card`, or omit
+it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb.img` (offering to
+download + patch the canonical distribution image there — see Task 27).
 
 **Canonical NextZXOS test image: `roms/nextzxos-1gb-fat32fix.img`.**
 The original `roms/nextzxos-1gb.img` uses 32 KB clusters on a 1 GB

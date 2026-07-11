@@ -120,10 +120,14 @@ Debugger keyboard shortcuts:
 |-------------------------------|----------------------------------------------------------------------|
 | `--machine TYPE`         | `48k`, `128k`, `plus3`, `next` (default)                             |
 | `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
-| `--sd-card FILE`              | **Required.** Mount SD card image (.img); canonical source for all ROMs |
+| `--sd-card FILE`              | Mount SD card image (.img); canonical source for all ROMs. Optional — if omitted, jnext uses `~/.jnext/sdcard/cspect-next-1gb.img`, offering to download + patch it |
+| `--sdcard-download-confirm`   | Skip the download prompt and provision the default image automatically |
+| `--sdcard-download-force`     | Force re-download + re-patch of the default-location image (ignored when `--sd-card` is given) |
 | `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
 | `--headless`                  | Run without display or audio, at maximum speed                       |
 | `--tape-realtime`             | Real-time tape loading instead of fast load                          |
+| `--esxdos-stub`               | Stub RST $08 esxdos calls so NEX games boot without NextZXOS         |
+| `--rtc "YYYY-MM-DD HH:MM:SS"` | Pin the RTC to a fixed date/time (frozen clock; ISO `T` form also accepted) |
 | `--inject FILE`               | Load raw binary into RAM (see `--inject-org`, `--inject-pc`)         |
 | `--inject-org ADDR`           | Load address for `--inject` (hex, default: 8000)                     |
 | `--inject-pc ADDR`            | Entry point for `--inject` (hex, default: same as `--inject-org`)    |
@@ -137,7 +141,10 @@ Debugger keyboard shortcuts:
 | `--magic-port-mode MODE`      | Magic port output mode: `hex`, `dec`, `ascii`, `line`                |
 | `--delayed-screenshot FILE`   | Save a PNG screenshot after a delay                                  |
 | `--delayed-screenshot-time N` | Delay in seconds before screenshot (default: 10)                     |
+| `--delayed-screenshot-frames N` | Delay in frames before screenshot (overrides `--delayed-screenshot-time`) |
 | `--delayed-automatic-exit N`  | Exit after N seconds                                                 |
+| `--delayed-keypress SECS KEY` | Headless: press KEY after SECS seconds (repeatable; KEY is a char or ENTER/SPACE) |
+| `--delayed-keypress-frames N KEY` | Headless: press KEY after N frames (frame-based form)            |
 | `--log-level SPEC`            | Per-subsystem log levels, e.g. `cpu=trace,video=warn`                |
 | `--version`                   | Print version and exit                                               |
 
@@ -210,9 +217,10 @@ The TBBlue distribution image is the standard reference: see
 
 ## Quick start
 
-`--sd-card FILE` is required for every invocation (jnext is a ZX Spectrum
-Next emulator and the SD image is the canonical source for all
-peripheral and machine ROMs — same as real hardware).
+jnext needs an SD-card image: it is the canonical source for all peripheral
+and machine ROMs (same as real hardware). Point at one with `--sd-card FILE`,
+or omit it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb.img`,
+offering to download + patch the canonical distribution image there.
 
 ```sh
 # Boot NextZXOS / TBBlue firmware (default Next machine)
