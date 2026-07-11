@@ -15,14 +15,6 @@ void Mixer::reset()
     // b4 cleared at power-on means exc_i='0'. Emulator::reset() restores it
     // via set_exc_i(beep_spkr_excl()) once NR 0x08 has settled to 0x10.
     exc_i_ = false;
-    // Reset the DC-blocking filter. `primed_` triggers a lazy prime on the
-    // first generate_sample() (seeds the input history with the actual
-    // resting sum), guaranteeing an exactly-silent first sample for whatever
-    // sources are wired — no reset click.
-    hp_x_l_ = hp_y_l_ = 0.0;
-    hp_x_r_ = hp_y_r_ = 0.0;
-    primed_ = false;
-    last_pcm_l_ = last_pcm_r_ = 0;
 }
 
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
@@ -75,41 +67,16 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     // is needed at this point.
     uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L + i2s_L;
     uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R + i2s_R;
-    last_pcm_l_ = pcm_L;   // raw VHDL sum, exposed for the mixer unit tests
-    last_pcm_r_ = pcm_R;
 
-    // AC-couple the output exactly like the real hardware's series output
-    // capacitor: a one-pole DC-blocking high-pass filter removes ANY steady
-    // level (the DAC's 1024 rest, the i2s 512 midpoint, a held OUT 0xFE
-    // bit-4 EAR line, MIC) so a constant speaker level is silent instead of
-    // a DC offset that makes the sound card hum/buzz (issue #7). The previous
-    // fixed `- 1024` only cancelled the DAC rest and left, e.g., the i2s
-    // midpoint (+512 → +2048 out) and a stuck EAR bit as a permanent offset.
-    //   y[n] = x[n] - x[n-1] + R * y[n-1]
-    // R = 0.999 → ~7 Hz cutoff at 44.1 kHz: passes the whole audio band,
-    // blocks DC. Only sub-cutoff (inaudible) content is removed, so genuine
-    // beeper/AY/DAC audio is unchanged; a *toggling* EAR line still sounds.
-    //
-    // Lazy prime: on the first sample after a reset, seed the filter's input
-    // history with the *actual* resting sum (whatever sources are wired —
-    // DAC rest, i2s midpoint, etc.) so that first sample is exactly 0. A
-    // fixed prime would only match one wiring and click on every reset.
-    if (!primed_) {
-        hp_x_l_ = static_cast<double>(pcm_L);
-        hp_x_r_ = static_cast<double>(pcm_R);
-        hp_y_l_ = hp_y_r_ = 0.0;
-        primed_ = true;
-    }
-    constexpr double R = 0.999;
-    hp_y_l_ = static_cast<double>(pcm_L) - hp_x_l_ + R * hp_y_l_;
-    hp_x_l_ = static_cast<double>(pcm_L);
-    hp_y_r_ = static_cast<double>(pcm_R) - hp_x_r_ + R * hp_y_r_;
-    hp_x_r_ = static_cast<double>(pcm_R);
-
-    // Scale by 4 to use more of the int16 dynamic range (matches the old gain
-    // for AC content well above the cutoff).
-    int32_t sL = static_cast<int32_t>(hp_y_l_ * 4.0);
-    int32_t sR = static_cast<int32_t>(hp_y_r_ * 4.0);
+    // Convert to signed 16-bit.  Center at the resting DC level so that
+    // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
+    // all other sources = 0, so resting level is 1024.
+    // The real hardware has AC-coupled output (capacitor blocks DC); we
+    // replicate that by subtracting the resting level instead of the 13-bit
+    // midpoint.  Scale by 4 to use more of the int16 dynamic range.
+    constexpr int32_t DC_REST = 1024;  // DAC silence level in 13-bit space
+    int32_t sL = (static_cast<int32_t>(pcm_L) - DC_REST) * 4;
+    int32_t sR = (static_cast<int32_t>(pcm_R) - DC_REST) * 4;
 
     // Clamp to int16_t range
     sL = std::clamp(sL, static_cast<int32_t>(-32768), static_cast<int32_t>(32767));
