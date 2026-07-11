@@ -223,7 +223,7 @@ void UartChannel::write_frame(uint8_t val) {
 
     // Bit 7 = reset: immediately reset TX/RX to idle and empty FIFOs
     if (val & 0x80) {
-        uart_log()->info("UART channel reset via framing bit 7");
+        uart_log()->debug("UART channel reset via framing bit 7");
         reset();
         framing_ = val;  // preserve the framing register value after reset
     }
@@ -636,7 +636,7 @@ void Uart::reset() {
     for (auto& ch : channels_) {
         ch.reset();
     }
-    uart_log()->info("UART soft reset");
+    uart_log()->debug("UART soft reset");
 }
 
 void Uart::hard_reset() {
@@ -644,7 +644,7 @@ void Uart::hard_reset() {
     for (auto& ch : channels_) {
         ch.hard_reset();
     }
-    uart_log()->info("UART hard reset");
+    uart_log()->debug("UART hard reset");
 }
 
 void Uart::tick(uint32_t master_cycles) {

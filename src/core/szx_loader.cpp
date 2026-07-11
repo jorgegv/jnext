@@ -231,7 +231,7 @@ bool SzxLoader::load(const std::string& path)
         return false;
     }
 
-    Log::emulator()->info("SZX: parsed {} RAM pages, Z80R={}, SPCR={}",
+    Log::emulator()->debug("SZX: parsed {} RAM pages, Z80R={}, SPCR={}",
                           ram_pages_.size(), have_z80r_ ? "yes" : "no",
                           have_spcr_ ? "yes" : "no");
 
@@ -263,7 +263,7 @@ bool SzxLoader::apply(Emulator& emu) const
         Log::emulator()->debug("SZX: loaded RAM page {} (8K pages {}, {})",
                                page_num, page_lo, page_lo + 1);
     }
-    Log::emulator()->info("SZX: loaded {} RAM pages ({} KB)",
+    Log::emulator()->debug("SZX: loaded {} RAM pages ({} KB)",
                           ram_pages_.size(), ram_pages_.size() * 16);
 
     // ---------------------------------------------------------------
@@ -272,7 +272,7 @@ bool SzxLoader::apply(Emulator& emu) const
     if (have_spcr_) {
         // Set border via port 0xFE
         emu.port().out(0x00FE, spcr_.port_fe);
-        Log::emulator()->info("SZX: border colour set to {}", spcr_.border & 0x07);
+        Log::emulator()->debug("SZX: border colour set to {}", spcr_.border & 0x07);
 
         // 128K paging
         if (machine_id_ >= 2) {
@@ -311,7 +311,7 @@ bool SzxLoader::apply(Emulator& emu) const
     regs.halted = regs_.halted;
     cpu.set_registers(regs);
 
-    Log::emulator()->info("SZX: registers set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
+    Log::emulator()->debug("SZX: registers set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
                           regs_.PC, regs_.SP, regs_.AF, regs_.IM);
 
     return true;

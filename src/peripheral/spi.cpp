@@ -114,7 +114,7 @@ void SpiMaster::attach_device(int cs_id, SpiDevice* device) {
         return;
     }
     devices_[cs_id] = device;
-    spi_log()->info("device attached on CS {}", cs_id);
+    spi_log()->debug("device attached on CS {}", cs_id);
 }
 
 void SpiMaster::write_cs(uint8_t val) {

@@ -345,7 +345,7 @@ bool Multiface::load_rom_bytes(const uint8_t* data, size_t size)
     std::fill(dst, dst + kRomSize, 0xFF);
     std::memcpy(dst, data, to_copy);
 
-    mf_log()->info("loaded Multiface ROM from byte buffer ({} bytes, backing={})",
+    mf_log()->debug("loaded Multiface ROM from byte buffer ({} bytes, backing={})",
                    to_copy, rom_ext_ ? "external-SRAM" : "private");
     return true;
 }

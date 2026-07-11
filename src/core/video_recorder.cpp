@@ -94,7 +94,7 @@ bool VideoRecorder::stop()
         {"libopenh264",  "-pix_fmt yuv420p"},
     };
 
-    Log::emulator()->info("VideoRecorder: encoding with FFmpeg...");
+    Log::emulator()->debug("VideoRecorder: encoding with FFmpeg...");
     int ret = -1;
     for (const auto& enc : encoders) {
         char cmd[2048];
@@ -112,7 +112,7 @@ bool VideoRecorder::stop()
             enc.codec, enc.extra,
             output_path_.c_str());
 
-        Log::emulator()->info("VideoRecorder: trying encoder '{}'", enc.codec);
+        Log::emulator()->debug("VideoRecorder: trying encoder '{}'", enc.codec);
         Log::emulator()->debug("VideoRecorder: cmd={}", cmd);
         ret = system(cmd);
         if (ret == 0) break;

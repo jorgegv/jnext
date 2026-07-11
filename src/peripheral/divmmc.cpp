@@ -71,7 +71,7 @@ bool DivMmc::load_rom(const std::string& path) {
     f.seekg(0, std::ios::beg);
     f.read(reinterpret_cast<char*>(rom_.data()), size);
 
-    divmmc_log()->info("loaded ROM: {} ({} bytes)", path, static_cast<int>(size));
+    divmmc_log()->debug("loaded ROM: {} ({} bytes)", path, static_cast<int>(size));
     return true;
 }
 
@@ -98,7 +98,7 @@ bool DivMmc::load_rom_bytes(const uint8_t* data, size_t size) {
 
     std::memcpy(rom_.data(), data, to_copy);
 
-    divmmc_log()->info("loaded ROM from byte buffer ({} bytes)", to_copy);
+    divmmc_log()->debug("loaded ROM from byte buffer ({} bytes)", to_copy);
     return true;
 }
 

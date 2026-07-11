@@ -15,7 +15,7 @@ bool Rom::load(int slot, const std::string& path) {
     f.read(reinterpret_cast<char*>(data_.data() + slot * 0x4000), 0x4000);
     loaded_[slot] = f.gcount() == 0x4000;
     if (loaded_[slot]) {
-        Log::memory()->info("ROM slot {}: loaded '{}' (16384 bytes)", slot, path);
+        Log::memory()->debug("ROM slot {}: loaded '{}' (16384 bytes)", slot, path);
     } else {
         Log::memory()->warn("ROM slot {}: '{}' short read ({} bytes)", slot, path, f.gcount());
     }
@@ -32,7 +32,7 @@ bool Rom::load_bytes(int slot, const uint8_t* data, size_t size) {
     }
     std::memcpy(data_.data() + slot * 0x4000, data, 0x4000);
     loaded_[slot] = true;
-    Log::memory()->info("ROM slot {}: loaded from byte buffer (16384 bytes)", slot);
+    Log::memory()->debug("ROM slot {}: loaded from byte buffer (16384 bytes)", slot);
     return true;
 }
 
