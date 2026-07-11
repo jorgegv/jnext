@@ -90,5 +90,11 @@
 | 9/7    | 4h   | zx_go comparison: refutes G46(b) L6/L7 conclusions; boot verified in zx_go with our image + ROM      |
 | 10/7   | 7h   | **NextZXOS NATIVE BOOT ACHIEVED**: bank-7 BRAM/alt-ROM aliasing root-caused via symmetric trace      |
 |        |      | 3-round independent review (BLOCKER found+fixed); merged to main; v0.94.0                            |
+| 11/7   | 9h   | v0.95.0 batch (multi-agent, ~12 independent reviews): Task 25 bank-5 dedicated 16K VRAM (mid-boot    |
+|        |      | glitch), Task 28 --rtc fixed clock, Task 24 boot-to-menu regressions, Task 23 splash glitch fix      |
+|        |      | Task 18 --bypass-tbblue-fw route+tooling removed; Task 26 SPI Ncr/CMD58/CRC-16 + NR $03 + Multiface  |
+|        |      | external-SRAM conformance; Task 27 SD default-location + built-in download (vendored ChaN FatFs      |
+|        |      | f_mkfs + libcurl + SHA256 raw-integrity guard + Qt progress dialog); Task 29 doc drift + check       |
+|        |      | script; --sd-card→--sdcard rename (silent alias); Task 30 full-static feasibility (WONT). v0.95.0    |
 |        |      |                                                                                                      |
-| TOTAL: | 314h |                                                                                                      |
+| TOTAL: | 323h |                                                                                                      |
