@@ -28,6 +28,7 @@
 #include "audio/mixer.h"
 #include "audio/i2s.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -2393,6 +2394,104 @@ static void g_mixer() {
     // default and would fail if the default were non-zero.
     // RE-HOME: MX-22 — exc_i derivation (zxnext.vhd:6504). Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
+
+    // -----------------------------------------------------------------
+    // Output band-limiting (MX-BL-*).
+    //
+    // NOTE: unlike every other row in this file these have NO VHDL oracle.
+    // They test the emulator's *output stage* — how the VHDL mixer's level is
+    // resampled down to 44100 Hz. That is a host DSP concern, not hardware: the
+    // FPGA has no sample rate. jnext does, and choosing samples badly is audible.
+    //
+    // The defect (2026-07-11, Task 23 follow-up): the emulator point-sampled the
+    // mixer — it asked "what is the level right now?" once per output sample.
+    // Output samples are ~635 master cycles apart and a 1-bit beeper engine
+    // toggles the speaker far faster than that, so most toggles were never
+    // observed at all. Their energy does not vanish: it aliases down into the
+    // audible band as an inharmonic tone riding over the music. Measured on the
+    // Cesare intro, point-sampling put 6.2% of all energy above 6 kHz, against
+    // 0.5% for FUSE — which integrates the level across each sample period, as
+    // Mixer::accumulate()/emit_sample() now do.
+    // -----------------------------------------------------------------
+
+    // MX-BL-01 — emit_sample() is the time-weighted average of the interval, not
+    // the last level seen. EAR high for 1/4 of it, low for 3/4.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bp.set_ear(true);
+        mx.accumulate(bp, ts, dac, 100);   // EAR high for 100 master cycles
+        bp.set_ear(false);
+        mx.accumulate(bp, ts, dac, 300);   // and low for 300
+        mx.emit_sample();
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        // EAR alone reads 2048 at the output (MX-01); a 25% duty cycle is 512.
+        check("MX-BL-01", "emit_sample = time-weighted average of the interval",
+              s[0] == 512 && s[1] == 512,
+              fmt("L=%d R=%d expected 512 (25%% duty of MX-01's 2048)", s[0], s[1]));
+    }
+
+    // MX-BL-02 — the discriminative row. A beeper toggling FASTER than the output
+    // sample rate must average out rather than alias: EAR flips every 50 master
+    // cycles across a 635-cycle sample (~22 kHz, far above what 44.1 kHz can
+    // represent), so every emitted sample must sit near the 50%-duty midpoint.
+    // Point-sampling instead latches whichever level happened to be live at the
+    // sample instant and swings the full 0..2048 — that IS the aliasing. This row
+    // fails loudly if the integration is ever removed.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bool ear = false;
+        int16_t lo = 32767, hi = -32768;
+        for (int sample = 0; sample < 64; sample++) {
+            for (int c = 0; c < 635; c += 50) {
+                ear = !ear;
+                bp.set_ear(ear);
+                mx.accumulate(bp, ts, dac, std::min(50, 635 - c));
+            }
+            mx.emit_sample();
+            int16_t s[2];
+            if (mx.read_samples(s, 1) == 1) {
+                if (s[0] < lo) lo = s[0];
+                if (s[0] > hi) hi = s[0];
+            }
+        }
+        // 50% duty of 2048 = 1024; integration holds every sample near it.
+        const int pp = hi - lo;
+        check("MX-BL-02", "a supersonic beeper averages out instead of aliasing",
+              lo > 700 && hi < 1350 && pp < 500,
+              fmt("min=%d max=%d peak-to-peak=%d (point-sampling gives ~2048)",
+                  lo, hi, pp));
+    }
+
+    // MX-BL-03 — emitting with nothing accumulated invents no sample (emitting
+    // silence would punch a hole in the stream, i.e. a click).
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        bp.set_ear(true);
+        mx.accumulate(bp, ts, dac, 0);
+        mx.emit_sample();
+        check("MX-BL-03", "emit with nothing accumulated produces no sample",
+              mx.available() == 0, fmt("available=%d", mx.available()));
+    }
+
+    // MX-BL-04 — generate_sample() (the point-sampling API every VHDL-transfer
+    // row above uses) must stay exactly equivalent to accumulate(1)+emit_sample(),
+    // so those rows keep testing the mixer's real transfer function.
+    {
+        Beeper bp1; TurboSound ts1; Dac dac1; Mixer mx1;
+        Beeper bp2; TurboSound ts2; Dac dac2; Mixer mx2;
+        bp1.set_ear(true); bp1.set_mic(true);
+        bp2.set_ear(true); bp2.set_mic(true);
+        mx1.generate_sample(bp1, ts1, dac1);
+        mx2.accumulate(bp2, ts2, dac2, 1);
+        mx2.emit_sample();
+        int16_t a[2], b[2];
+        mx1.read_samples(a, 1);
+        mx2.read_samples(b, 1);
+        check("MX-BL-04", "generate_sample == accumulate(1) + emit_sample",
+              a[0] == b[0] && a[1] == b[1],
+              fmt("generate=(%d,%d) accumulate=(%d,%d)", a[0], a[1], b[0], b[1]));
+    }
 }
 
 // =====================================================================

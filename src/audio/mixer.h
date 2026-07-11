@@ -31,8 +31,35 @@ public:
 
     void reset();
 
-    /// Generate one stereo sample from current source states.
-    /// Adds the sample to the ring buffer.
+    /// Integrate the current source levels over `master_cycles` of emulated
+    /// time. Called for every slice of emulated time, NOT once per output
+    /// sample — see emit_sample().
+    void accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                    uint32_t master_cycles);
+
+    /// Emit one stereo output sample: the time-weighted average of everything
+    /// accumulate() has been fed since the previous emit, then reset the
+    /// accumulator. Adds the sample to the ring buffer.
+    ///
+    /// Averaging (a box filter) rather than point-sampling is what makes beeper
+    /// music sound right. An output sample is ~635 master cycles (~79 T-states)
+    /// apart; a 1-bit beeper engine toggles the speaker far faster than that, so
+    /// reading "is EAR high right now?" once per sample DISCARDS most toggles and
+    /// snaps the surviving edges to sample boundaries. The discarded energy does
+    /// not vanish — it folds down into the audible band as an inharmonic whistle
+    /// over the music. Measured against FUSE on the Cesare intro, point-sampling
+    /// put 6.2% of total energy above 6 kHz (3.7% above 10 kHz) where FUSE, which
+    /// integrates the speaker level across each sample period, has 0.5% / 0.0%.
+    ///
+    /// The average is taken at emulated-instruction granularity: the source
+    /// levels are constant between accumulate() calls, so a sample straddling an
+    /// instruction boundary gets each level weighted by how long it actually held.
+    void emit_sample();
+
+    /// Point-sample the current source states into one output sample.
+    /// Equivalent to accumulate(..., 1) + emit_sample(). Retained for the unit
+    /// tests, which assert the mixer's transfer function on steady inputs; the
+    /// emulator uses accumulate()/emit_sample() so that audio is band-limited.
     void generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac);
 
     /// Get the number of samples available in the ring buffer.
@@ -60,6 +87,17 @@ public:
     void set_exc_i(bool v) { exc_i_ = v; }
 
 private:
+    /// The VHDL 13-bit unsigned mix (audio_mixer.vhd:99-100) of the current
+    /// source levels. Pure function of the sources — no state, no filtering.
+    void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+             uint16_t& pcm_L, uint16_t& pcm_R) const;
+
+    // Box-filter accumulator: sum of (13-bit mix x master cycles held), and the
+    // total cycles, since the last emit_sample().
+    uint64_t acc_l_ = 0;
+    uint64_t acc_r_ = 0;
+    uint64_t acc_cycles_ = 0;
+
     // Ring buffer: stereo int16_t pairs
     std::vector<int16_t> buffer_;
     int write_pos_ = 0;

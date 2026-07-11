@@ -15,9 +15,11 @@ void Mixer::reset()
     // b4 cleared at power-on means exc_i='0'. Emulator::reset() restores it
     // via set_exc_i(beep_spkr_excl()) once NR 0x08 has settled to 0x10.
     exc_i_ = false;
+    acc_l_ = acc_r_ = acc_cycles_ = 0;
 }
 
-void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
+void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                uint16_t& pcm_L, uint16_t& pcm_R) const
 {
     // VHDL audio_mixer.vhd scaling (all values are 13-bit unsigned, 0-8191):
     //
@@ -65,8 +67,45 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     // audio_mixer.vhd:99-100 13-bit sum — every term is in the 13-bit
     // domain; uint16_t is a superset of 13-bit-unsigned so no clamping
     // is needed at this point.
-    uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L + i2s_L;
-    uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R + i2s_R;
+    pcm_L = ear + mic + tape_ear + ay_L + dac_L + i2s_L;
+    pcm_R = ear + mic + tape_ear + ay_R + dac_R + i2s_R;
+}
+
+void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                       uint32_t master_cycles)
+{
+    if (master_cycles == 0) return;
+
+    uint16_t pcm_L, pcm_R;
+    mix(beeper, ts, dac, pcm_L, pcm_R);
+
+    // Weight this level by how long it actually held. See emit_sample().
+    acc_l_ += static_cast<uint64_t>(pcm_L) * master_cycles;
+    acc_r_ += static_cast<uint64_t>(pcm_R) * master_cycles;
+    acc_cycles_ += master_cycles;
+}
+
+void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
+{
+    accumulate(beeper, ts, dac, 1);
+    emit_sample();
+}
+
+void Mixer::emit_sample()
+{
+    // Nothing was accumulated for this sample — emit nothing rather than invent
+    // a level. (The emulator always accumulates before emitting.)
+    if (acc_cycles_ == 0) return;
+
+    // Time-weighted average of the 13-bit mix over this sample's interval. The
+    // x4 gain is applied BEFORE the division so the fractional part of the
+    // average survives into the output; +acc_cycles_/2 rounds to nearest.
+    const int32_t avg4_L =
+        static_cast<int32_t>((acc_l_ * 4 + acc_cycles_ / 2) / acc_cycles_);
+    const int32_t avg4_R =
+        static_cast<int32_t>((acc_r_ * 4 + acc_cycles_ / 2) / acc_cycles_);
+
+    acc_l_ = acc_r_ = acc_cycles_ = 0;
 
     // Convert to signed 16-bit.  Center at the resting DC level so that
     // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
@@ -75,8 +114,8 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     // replicate that by subtracting the resting level instead of the 13-bit
     // midpoint.  Scale by 4 to use more of the int16 dynamic range.
     constexpr int32_t DC_REST = 1024;  // DAC silence level in 13-bit space
-    int32_t sL = (static_cast<int32_t>(pcm_L) - DC_REST) * 4;
-    int32_t sR = (static_cast<int32_t>(pcm_R) - DC_REST) * 4;
+    int32_t sL = avg4_L - DC_REST * 4;
+    int32_t sR = avg4_R - DC_REST * 4;
 
     // Clamp to int16_t range
     sL = std::clamp(sL, static_cast<int32_t>(-32768), static_cast<int32_t>(32767));

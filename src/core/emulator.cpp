@@ -6106,9 +6106,6 @@ void Emulator::run_frame()
     // Audio timing constants.
     // PSG clock = 28 MHz / 16 = 1.75 MHz → one PSG tick every 16 master cycles.
     static constexpr uint64_t PSG_DIVISOR = 16;
-    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
-    // Use Bresenham-style accumulator: generate sample every time accum >= MASTER_CLOCK_HZ.
-    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
@@ -6582,14 +6579,11 @@ void Emulator::run_frame()
             turbosound_.tick();
         }
 
-        // Generate audio samples at 44100 Hz using Bresenham accumulator.
-        // Suppressed in replay mode (fast-forward rewind path).
+        // Feed this instruction's span to the mixer, which INTEGRATES the source
+        // levels across each output-sample interval rather than point-sampling
+        // them. Suppressed in replay mode (fast-forward rewind path).
         if (!replay_mode_) {
-            sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
-            while (sample_accum_ >= SAMPLE_THRESHOLD) {
-                sample_accum_ -= SAMPLE_THRESHOLD;
-                mixer_.generate_sample(beeper_, turbosound_, dac_);
-            }
+            advance_audio(master_cycles);
         }
 
         // Drain any scheduler events that have become due.
@@ -6691,7 +6685,6 @@ int Emulator::execute_single_instruction()
 {
     // Audio timing constants (same as in run_frame).
     static constexpr uint64_t PSG_DIVISOR = 16;
-    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
     uint64_t master_cycles;
     if (dma_.is_active()) {
@@ -6805,17 +6798,52 @@ int Emulator::execute_single_instruction()
         turbosound_.tick();
     }
 
-    // Audio samples.
-    sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
-    while (sample_accum_ >= SAMPLE_THRESHOLD) {
-        sample_accum_ -= SAMPLE_THRESHOLD;
-        mixer_.generate_sample(beeper_, turbosound_, dac_);
-    }
+    // Audio samples — see run_frame().
+    advance_audio(master_cycles);
 
     // Scheduler.
     scheduler_.run_until(clock_.get());
 
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
+}
+
+void Emulator::advance_audio(uint64_t master_cycles)
+{
+    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
+    // Bresenham-style accumulator: a sample completes each time accum >= MASTER_CLOCK_HZ.
+    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
+
+    // Walk the slice in chunks that stop at each output-sample boundary, so the
+    // mixer integrates the source levels ACROSS each sample interval instead of
+    // point-sampling them at its end.
+    //
+    // Point-sampling was the source of the beeper "whistle": output samples are
+    // ~635 master cycles (~79 T-states) apart, and a 1-bit beeper engine toggles
+    // the speaker far faster than that, so most toggles were never observed at
+    // all. The energy they carry does not vanish — it folds down into the
+    // audible band as an inharmonic tone over the music. Averaging over the
+    // interval is a box filter, and it cut jnext's energy above 6 kHz on the
+    // Cesare intro from 6.2% of total to 1.8% (FUSE, which does the same, 0.5%).
+    //
+    // The source levels are constant between accumulate() calls (we observe the
+    // machine at instruction boundaries), so weighting each level by the cycles
+    // it held is exact at that granularity.
+    uint64_t remaining = master_cycles;
+    while (remaining > 0) {
+        // Master cycles still owed before the current output sample completes.
+        const uint64_t need =
+            (SAMPLE_THRESHOLD - sample_accum_ + Mixer::SAMPLE_RATE - 1) / Mixer::SAMPLE_RATE;
+        const uint64_t take = std::min(remaining, need);
+
+        mixer_.accumulate(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
+        sample_accum_ += take * Mixer::SAMPLE_RATE;
+        remaining -= take;
+
+        if (sample_accum_ >= SAMPLE_THRESHOLD) {
+            sample_accum_ -= SAMPLE_THRESHOLD;
+            mixer_.emit_sample();
+        }
+    }
 }
 
 void Emulator::reset()

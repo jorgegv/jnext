@@ -772,6 +772,13 @@ private:
     uint64_t psg_accum_ = 0;      ///< Accumulates master cycles for PSG tick timing
     uint64_t sample_accum_ = 0;   ///< Accumulates master cycles for sample generation
 
+    /// Feed `master_cycles` of emulated time to the audio mixer, emitting output
+    /// samples as their intervals complete. The mixer INTEGRATES the source
+    /// levels over each interval rather than point-sampling them at its end —
+    /// see Mixer::emit_sample() for why (aliasing / the beeper whistle).
+    void advance_audio(uint64_t master_cycles);
+
+
     /// DAC enable flag (NextREG 0x08 bit 3).
     bool dac_enabled_ = false;
 
