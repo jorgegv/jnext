@@ -1174,138 +1174,138 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 
 | Test ID | Plan row title                                               | VHDL file:line | Status  | Test file:line                 |
 |---------|--------------------------------------------------------------|----------------|---------|--------------------------------|
-| AY-01   | Write register address via `busctrl_addr`                    | —              | pass    | test/audio/audio_test.cpp:114  |
-| AY-02   | Address only latches when `busctrl_addr=1`                   | —              | pass    | test/audio/audio_test.cpp:125  |
-| AY-03   | Reset clears address to 0                                    | —              | pass    | test/audio/audio_test.cpp:135  |
-| AY-04   | Write to all 16 registers (addr 0-15)                        | —              | pass    | test/audio/audio_test.cpp:156  |
-| AY-05   | Write with `addr[4]=1` is ignored                            | —              | pass    | test/audio/audio_test.cpp:167  |
-| AY-06   | Reset initialises all registers to 0x00                      | —              | pass    | test/audio/audio_test.cpp:185  |
-| AY-07   | Writing R13 triggers envelope reset                          | —              | pass    | test/audio/audio_test.cpp:201  |
-| AY-10   | Read R0 (Ch A fine tone) in AY mode                          | —              | pass    | test/audio/audio_test.cpp:221  |
-| AY-11   | Read R1 (Ch A coarse tone) in AY mode                        | —              | pass    | test/audio/audio_test.cpp:232  |
-| AY-12   | Read R1 in YM mode                                           | —              | pass    | test/audio/audio_test.cpp:243  |
-| AY-13   | Read R3, R5 (Ch B/C coarse tone) AY vs YM                    | —              | pass    | test/audio/audio_test.cpp:261  |
-| AY-14   | Read R6 (noise period) in AY mode                            | —              | pass    | test/audio/audio_test.cpp:273  |
-| AY-15   | Read R6 in YM mode                                           | —              | pass    | test/audio/audio_test.cpp:284  |
-| AY-16   | Read R7 (mixer enable)                                       | —              | pass    | test/audio/audio_test.cpp:297  |
-| AY-17   | Read R8/R9/R10 (volume) in AY mode                           | —              | pass    | test/audio/audio_test.cpp:312  |
-| AY-18   | Read R8/R9/R10 in YM mode                                    | —              | pass    | test/audio/audio_test.cpp:328  |
-| AY-19   | Read R13 (envelope shape) in AY mode                         | —              | pass    | test/audio/audio_test.cpp:340  |
-| AY-20   | Read R13 in YM mode                                          | —              | pass    | test/audio/audio_test.cpp:351  |
-| AY-21   | Read R11/R12 (envelope period)                               | —              | pass    | test/audio/audio_test.cpp:367  |
-| AY-22   | Read addr >= 16 in YM mode                                   | —              | pass    | test/audio/audio_test.cpp:378  |
-| AY-23   | Read addr >= 16 in AY mode                                   | —              | pass    | test/audio/audio_test.cpp:390  |
-| AY-24   | Read with `I_REG=1` (register query mode)                    | —              | pass    | test/audio/audio_test.cpp:400  |
-| AY-25   | AY_ID is "11" for PSG0, "10" for PSG1, "01" for PSG2         | —              | pass    | test/audio/audio_test.cpp:412  |
+| AY-01   | Write register address via `busctrl_addr`                    | —              | pass    | test/audio/audio_test.cpp:115  |
+| AY-02   | Address only latches when `busctrl_addr=1`                   | —              | pass    | test/audio/audio_test.cpp:126  |
+| AY-03   | Reset clears address to 0                                    | —              | pass    | test/audio/audio_test.cpp:136  |
+| AY-04   | Write to all 16 registers (addr 0-15)                        | —              | pass    | test/audio/audio_test.cpp:157  |
+| AY-05   | Write with `addr[4]=1` is ignored                            | —              | pass    | test/audio/audio_test.cpp:168  |
+| AY-06   | Reset initialises all registers to 0x00                      | —              | pass    | test/audio/audio_test.cpp:186  |
+| AY-07   | Writing R13 triggers envelope reset                          | —              | pass    | test/audio/audio_test.cpp:202  |
+| AY-10   | Read R0 (Ch A fine tone) in AY mode                          | —              | pass    | test/audio/audio_test.cpp:222  |
+| AY-11   | Read R1 (Ch A coarse tone) in AY mode                        | —              | pass    | test/audio/audio_test.cpp:233  |
+| AY-12   | Read R1 in YM mode                                           | —              | pass    | test/audio/audio_test.cpp:244  |
+| AY-13   | Read R3, R5 (Ch B/C coarse tone) AY vs YM                    | —              | pass    | test/audio/audio_test.cpp:262  |
+| AY-14   | Read R6 (noise period) in AY mode                            | —              | pass    | test/audio/audio_test.cpp:274  |
+| AY-15   | Read R6 in YM mode                                           | —              | pass    | test/audio/audio_test.cpp:285  |
+| AY-16   | Read R7 (mixer enable)                                       | —              | pass    | test/audio/audio_test.cpp:298  |
+| AY-17   | Read R8/R9/R10 (volume) in AY mode                           | —              | pass    | test/audio/audio_test.cpp:313  |
+| AY-18   | Read R8/R9/R10 in YM mode                                    | —              | pass    | test/audio/audio_test.cpp:329  |
+| AY-19   | Read R13 (envelope shape) in AY mode                         | —              | pass    | test/audio/audio_test.cpp:341  |
+| AY-20   | Read R13 in YM mode                                          | —              | pass    | test/audio/audio_test.cpp:352  |
+| AY-21   | Read R11/R12 (envelope period)                               | —              | pass    | test/audio/audio_test.cpp:368  |
+| AY-22   | Read addr >= 16 in YM mode                                   | —              | pass    | test/audio/audio_test.cpp:379  |
+| AY-23   | Read addr >= 16 in AY mode                                   | —              | pass    | test/audio/audio_test.cpp:391  |
+| AY-24   | Read with `I_REG=1` (register query mode)                    | —              | pass    | test/audio/audio_test.cpp:401  |
+| AY-25   | AY_ID is "11" for PSG0, "10" for PSG1, "01" for PSG2         | —              | pass    | test/audio/audio_test.cpp:413  |
 | AY-30   | Read R14 with R7 bit 6 = 0 (Port A input mode)               | —              | missing | missing                        |
 | AY-31   | Read R14 with R7 bit 6 = 1 (Port A output mode)              | —              | missing | missing                        |
 | AY-32   | Read R15 with R7 bit 7 = 0 (Port B input mode)               | —              | missing | missing                        |
 | AY-33   | Read R15 with R7 bit 7 = 1 (Port B output mode)              | —              | missing | missing                        |
 | AY-34   | Port A/B inputs default to 0xFF (pullup)                     | —              | missing | missing                        |
-| AY-40   | Divider reloads with `I_SEL_L=1` (AY compat)                 | —              | pass    | test/audio/audio_test.cpp:467  |
+| AY-40   | Divider reloads with `I_SEL_L=1` (AY compat)                 | —              | pass    | test/audio/audio_test.cpp:468  |
 | AY-41   | Divider reloads with `I_SEL_L=0` (YM mode)                   | —              | missing | missing                        |
-| AY-42   | `ena_div` pulses once per divider cycle                      | —              | pass    | test/audio/audio_test.cpp:485  |
+| AY-42   | `ena_div` pulses once per divider cycle                      | —              | pass    | test/audio/audio_test.cpp:486  |
 | AY-43   | `ena_div_noise` at half `ena_div` rate                       | —              | missing | missing                        |
-| AY-44   | In turbosound wiring, `I_SEL_L='1'` always                   | —              | pass    | test/audio/audio_test.cpp:511  |
-| AY-50   | Tone period 0 or 1 produces constant high output             | —              | pass    | test/audio/audio_test.cpp:529  |
-| AY-51   | Tone period 2 toggles every 2 ena_div cycles                 | —              | pass    | test/audio/audio_test.cpp:543  |
-| AY-52   | Tone period 0xFFF (max) produces lowest freq                 | —              | pass    | test/audio/audio_test.cpp:553  |
-| AY-53   | Channel A uses R1[3:0] & R0                                  | —              | pass    | test/audio/audio_test.cpp:563  |
-| AY-54   | Channel B uses R3[3:0] & R2                                  | —              | pass    | test/audio/audio_test.cpp:573  |
-| AY-55   | Channel C uses R5[3:0] & R4                                  | —              | pass    | test/audio/audio_test.cpp:583  |
-| AY-56   | Tone output toggles (not pulse)                              | —              | pass    | test/audio/audio_test.cpp:603  |
-| AY-60   | Noise period from R6[4:0]                                    | —              | pass    | test/audio/audio_test.cpp:620  |
-| AY-61   | Noise period 0 or 1 => comparator 0                          | —              | pass    | test/audio/audio_test.cpp:629  |
-| AY-62   | Noise uses 17-bit LFSR (poly17)                              | —              | pass    | test/audio/audio_test.cpp:652  |
+| AY-44   | In turbosound wiring, `I_SEL_L='1'` always                   | —              | pass    | test/audio/audio_test.cpp:512  |
+| AY-50   | Tone period 0 or 1 produces constant high output             | —              | pass    | test/audio/audio_test.cpp:530  |
+| AY-51   | Tone period 2 toggles every 2 ena_div cycles                 | —              | pass    | test/audio/audio_test.cpp:544  |
+| AY-52   | Tone period 0xFFF (max) produces lowest freq                 | —              | pass    | test/audio/audio_test.cpp:554  |
+| AY-53   | Channel A uses R1[3:0] & R0                                  | —              | pass    | test/audio/audio_test.cpp:564  |
+| AY-54   | Channel B uses R3[3:0] & R2                                  | —              | pass    | test/audio/audio_test.cpp:574  |
+| AY-55   | Channel C uses R5[3:0] & R4                                  | —              | pass    | test/audio/audio_test.cpp:584  |
+| AY-56   | Tone output toggles (not pulse)                              | —              | pass    | test/audio/audio_test.cpp:604  |
+| AY-60   | Noise period from R6[4:0]                                    | —              | pass    | test/audio/audio_test.cpp:621  |
+| AY-61   | Noise period 0 or 1 => comparator 0                          | —              | pass    | test/audio/audio_test.cpp:630  |
+| AY-62   | Noise uses 17-bit LFSR (poly17)                              | —              | pass    | test/audio/audio_test.cpp:653  |
 | AY-63   | Noise output is poly17 bit 0                                 | —              | missing | missing                        |
 | AY-64   | Noise clocked at `ena_div_noise` rate                        | —              | missing | missing                        |
-| AY-70   | R7 bit 0 = 0: Channel A tone enabled                         | —              | pass    | test/audio/audio_test.cpp:685  |
-| AY-71   | R7 bit 0 = 1: Channel A tone disabled (forced 1)             | —              | pass    | test/audio/audio_test.cpp:697  |
-| AY-72   | R7 bit 3 = 0: Channel A noise enabled                        | —              | pass    | test/audio/audio_test.cpp:714  |
-| AY-73   | R7 bit 3 = 1: Channel A noise disabled (forced 1)            | —              | pass    | test/audio/audio_test.cpp:726  |
-| AY-74   | R7 bits 1,4: Channel B tone + noise control                  | —              | pass    | test/audio/audio_test.cpp:739  |
-| AY-75   | R7 bits 2,5: Channel C tone + noise control                  | —              | pass    | test/audio/audio_test.cpp:742  |
-| AY-76   | Both tone and noise disabled: constant high                  | —              | pass    | test/audio/audio_test.cpp:756  |
-| AY-77   | Both tone and noise enabled: AND of both                     | —              | pass    | test/audio/audio_test.cpp:776  |
-| AY-78   | Mixer output 0 => volume output 0                            | —              | pass    | test/audio/audio_test.cpp:794  |
-| AY-80   | R8 bit 4 = 0: Channel A uses fixed volume                    | —              | pass    | test/audio/audio_test.cpp:814  |
-| AY-81   | R8 bit 4 = 1: Channel A uses envelope volume                 | —              | pass    | test/audio/audio_test.cpp:829  |
-| AY-82   | Fixed volume 0 => output "00000"                             | —              | pass    | test/audio/audio_test.cpp:841  |
-| AY-83   | Fixed volume 1-15 => `{vol[3:0], "1"}`                       | —              | pass    | test/audio/audio_test.cpp:860  |
-| AY-84   | Same for R9 (Channel B) and R10 (Channel C)                  | —              | pass    | test/audio/audio_test.cpp:873  |
-| AY-90   | YM mode: 32-entry volume table                               | —              | pass    | test/audio/audio_test.cpp:901  |
-| AY-91   | AY mode: 16-entry volume table                               | —              | pass    | test/audio/audio_test.cpp:913  |
-| AY-92   | YM vol 0 = 0x00, vol 31 = 0xFF                               | —              | pass    | test/audio/audio_test.cpp:933  |
-| AY-93   | AY vol 0 = 0x00, vol 15 = 0xFF                               | —              | pass    | test/audio/audio_test.cpp:954  |
-| AY-94   | YM volume table exact values                                 | —              | pass    | test/audio/audio_test.cpp:980  |
-| AY-95   | AY volume table exact values                                 | —              | pass    | test/audio/audio_test.cpp:1004 |
-| AY-96   | Reset sets all audio outputs to 0x00                         | —              | pass    | test/audio/audio_test.cpp:1016 |
-| AY-100  | Envelope period from R12:R11 (16-bit)                        | —              | pass    | test/audio/audio_test.cpp:1035 |
-| AY-101  | Envelope period 0 or 1 => comparator 0                       | —              | pass    | test/audio/audio_test.cpp:1045 |
-| AY-102  | Writing R13 resets envelope counter to 0                     | —              | pass    | test/audio/audio_test.cpp:1067 |
+| AY-70   | R7 bit 0 = 0: Channel A tone enabled                         | —              | pass    | test/audio/audio_test.cpp:686  |
+| AY-71   | R7 bit 0 = 1: Channel A tone disabled (forced 1)             | —              | pass    | test/audio/audio_test.cpp:698  |
+| AY-72   | R7 bit 3 = 0: Channel A noise enabled                        | —              | pass    | test/audio/audio_test.cpp:715  |
+| AY-73   | R7 bit 3 = 1: Channel A noise disabled (forced 1)            | —              | pass    | test/audio/audio_test.cpp:727  |
+| AY-74   | R7 bits 1,4: Channel B tone + noise control                  | —              | pass    | test/audio/audio_test.cpp:740  |
+| AY-75   | R7 bits 2,5: Channel C tone + noise control                  | —              | pass    | test/audio/audio_test.cpp:743  |
+| AY-76   | Both tone and noise disabled: constant high                  | —              | pass    | test/audio/audio_test.cpp:757  |
+| AY-77   | Both tone and noise enabled: AND of both                     | —              | pass    | test/audio/audio_test.cpp:777  |
+| AY-78   | Mixer output 0 => volume output 0                            | —              | pass    | test/audio/audio_test.cpp:795  |
+| AY-80   | R8 bit 4 = 0: Channel A uses fixed volume                    | —              | pass    | test/audio/audio_test.cpp:815  |
+| AY-81   | R8 bit 4 = 1: Channel A uses envelope volume                 | —              | pass    | test/audio/audio_test.cpp:830  |
+| AY-82   | Fixed volume 0 => output "00000"                             | —              | pass    | test/audio/audio_test.cpp:842  |
+| AY-83   | Fixed volume 1-15 => `{vol[3:0], "1"}`                       | —              | pass    | test/audio/audio_test.cpp:861  |
+| AY-84   | Same for R9 (Channel B) and R10 (Channel C)                  | —              | pass    | test/audio/audio_test.cpp:874  |
+| AY-90   | YM mode: 32-entry volume table                               | —              | pass    | test/audio/audio_test.cpp:902  |
+| AY-91   | AY mode: 16-entry volume table                               | —              | pass    | test/audio/audio_test.cpp:914  |
+| AY-92   | YM vol 0 = 0x00, vol 31 = 0xFF                               | —              | pass    | test/audio/audio_test.cpp:934  |
+| AY-93   | AY vol 0 = 0x00, vol 15 = 0xFF                               | —              | pass    | test/audio/audio_test.cpp:955  |
+| AY-94   | YM volume table exact values                                 | —              | pass    | test/audio/audio_test.cpp:981  |
+| AY-95   | AY volume table exact values                                 | —              | pass    | test/audio/audio_test.cpp:1005 |
+| AY-96   | Reset sets all audio outputs to 0x00                         | —              | pass    | test/audio/audio_test.cpp:1017 |
+| AY-100  | Envelope period from R12:R11 (16-bit)                        | —              | pass    | test/audio/audio_test.cpp:1036 |
+| AY-101  | Envelope period 0 or 1 => comparator 0                       | —              | pass    | test/audio/audio_test.cpp:1046 |
+| AY-102  | Writing R13 resets envelope counter to 0                     | —              | pass    | test/audio/audio_test.cpp:1068 |
 | AY-103  | Writing R13 resets envelope to initial state                 | —              | missing | missing                        |
-| AY-110  | 0-3                                                          | —              | pass    | test/audio/audio_test.cpp:1086 |
-| AY-111  | 4-7                                                          | —              | pass    | test/audio/audio_test.cpp:1101 |
-| AY-112  | 8                                                            | —              | pass    | test/audio/audio_test.cpp:1121 |
-| AY-113  | 9                                                            | —              | pass    | test/audio/audio_test.cpp:1140 |
-| AY-114  | 10                                                           | —              | pass    | test/audio/audio_test.cpp:1160 |
-| AY-115  | 11                                                           | —              | pass    | test/audio/audio_test.cpp:1175 |
-| AY-116  | 12                                                           | —              | pass    | test/audio/audio_test.cpp:1195 |
-| AY-117  | 13                                                           | —              | pass    | test/audio/audio_test.cpp:1211 |
-| AY-118  | 14                                                           | —              | pass    | test/audio/audio_test.cpp:1231 |
-| AY-119  | 15                                                           | —              | pass    | test/audio/audio_test.cpp:1246 |
+| AY-110  | 0-3                                                          | —              | pass    | test/audio/audio_test.cpp:1087 |
+| AY-111  | 4-7                                                          | —              | pass    | test/audio/audio_test.cpp:1102 |
+| AY-112  | 8                                                            | —              | pass    | test/audio/audio_test.cpp:1122 |
+| AY-113  | 9                                                            | —              | pass    | test/audio/audio_test.cpp:1141 |
+| AY-114  | 10                                                           | —              | pass    | test/audio/audio_test.cpp:1161 |
+| AY-115  | 11                                                           | —              | pass    | test/audio/audio_test.cpp:1176 |
+| AY-116  | 12                                                           | —              | pass    | test/audio/audio_test.cpp:1196 |
+| AY-117  | 13                                                           | —              | pass    | test/audio/audio_test.cpp:1212 |
+| AY-118  | 14                                                           | —              | pass    | test/audio/audio_test.cpp:1232 |
+| AY-119  | 15                                                           | —              | pass    | test/audio/audio_test.cpp:1247 |
 | AY-120  | Attack=0 (At bit): initial vol=31, direction=down            | —              | missing | missing                        |
 | AY-121  | Attack=1 (At bit): initial vol=0, direction=up               | —              | missing | missing                        |
-| AY-122  | C=0: hold after first ramp regardless of Al/H                | —              | pass    | test/audio/audio_test.cpp:1266 |
-| AY-123  | C=1, H=1, Al=0: hold one step inside boundary                | —              | pass    | test/audio/audio_test.cpp:1284 |
-| AY-124  | C=1, H=1, Al=1: hold exactly at boundary                     | —              | pass    | test/audio/audio_test.cpp:1303 |
+| AY-122  | C=0: hold after first ramp regardless of Al/H                | —              | pass    | test/audio/audio_test.cpp:1267 |
+| AY-123  | C=1, H=1, Al=0: hold one step inside boundary                | —              | pass    | test/audio/audio_test.cpp:1285 |
+| AY-124  | C=1, H=1, Al=1: hold exactly at boundary                     | —              | pass    | test/audio/audio_test.cpp:1304 |
 | AY-125  | C=1, H=0, Al=1: triangle wave (continuous)                   | —              | missing | missing                        |
 | AY-126  | C=1, H=0, Al=0: sawtooth (continuous)                        | —              | missing | missing                        |
 | AY-127  | Envelope steps through 32 levels (0-31)                      | —              | missing | missing                        |
 | AY-128  | Envelope period counter reset on R13 write                   | —              | missing | missing                        |
-| TS-01   | Reset selects AY#0 (`ay_select = "11"`)                      | —              | pass    | test/audio/audio_test.cpp:1329 |
-| TS-02   | Select AY#0: write 0xFC+ to FFFD with bits[4:2]=111, bits[1… | —              | pass    | test/audio/audio_test.cpp:1356 |
-| TS-03   | Select AY#1: write with bits[1:0]=10                         | —              | pass    | test/audio/audio_test.cpp:1342 |
-| TS-04   | Select AY#2: write with bits[1:0]=01                         | —              | pass    | test/audio/audio_test.cpp:1349 |
-| TS-05   | Selection requires `turbosound_en_i = 1`                     | —              | pass    | test/audio/audio_test.cpp:1368 |
-| TS-06   | Selection requires `psg_reg_addr_i = 1`                      | —              | pass    | test/audio/audio_test.cpp:1381 |
-| TS-07   | Selection requires `psg_d_i[7] = 1`                          | —              | pass    | test/audio/audio_test.cpp:1393 |
-| TS-08   | Selection requires `psg_d_i[4:2] = "111"`                    | —              | pass    | test/audio/audio_test.cpp:1405 |
-| TS-09   | Panning set simultaneously: bits[6:5]                        | —              | pass    | test/audio/audio_test.cpp:1427 |
-| TS-10   | Reset sets all panning to "11" (both L+R)                    | —              | pass    | test/audio/audio_test.cpp:1448 |
-| TS-15   | Normal register address: bits[7:5] must be "000"             | —              | pass    | test/audio/audio_test.cpp:1466 |
-| TS-16   | Address routed to selected AY only                           | —              | pass    | test/audio/audio_test.cpp:1481 |
+| TS-01   | Reset selects AY#0 (`ay_select = "11"`)                      | —              | pass    | test/audio/audio_test.cpp:1330 |
+| TS-02   | Select AY#0: write 0xFC+ to FFFD with bits[4:2]=111, bits[1… | —              | pass    | test/audio/audio_test.cpp:1357 |
+| TS-03   | Select AY#1: write with bits[1:0]=10                         | —              | pass    | test/audio/audio_test.cpp:1343 |
+| TS-04   | Select AY#2: write with bits[1:0]=01                         | —              | pass    | test/audio/audio_test.cpp:1350 |
+| TS-05   | Selection requires `turbosound_en_i = 1`                     | —              | pass    | test/audio/audio_test.cpp:1369 |
+| TS-06   | Selection requires `psg_reg_addr_i = 1`                      | —              | pass    | test/audio/audio_test.cpp:1382 |
+| TS-07   | Selection requires `psg_d_i[7] = 1`                          | —              | pass    | test/audio/audio_test.cpp:1394 |
+| TS-08   | Selection requires `psg_d_i[4:2] = "111"`                    | —              | pass    | test/audio/audio_test.cpp:1406 |
+| TS-09   | Panning set simultaneously: bits[6:5]                        | —              | pass    | test/audio/audio_test.cpp:1428 |
+| TS-10   | Reset sets all panning to "11" (both L+R)                    | —              | pass    | test/audio/audio_test.cpp:1449 |
+| TS-15   | Normal register address: bits[7:5] must be "000"             | —              | pass    | test/audio/audio_test.cpp:1467 |
+| TS-16   | Address routed to selected AY only                           | —              | pass    | test/audio/audio_test.cpp:1482 |
 | TS-17   | Write routed to selected AY only                             | —              | missing | missing                        |
-| TS-18   | Readback from selected AY                                    | —              | pass    | test/audio/audio_test.cpp:1503 |
-| TS-20   | ABC stereo mode (`stereo_mode_i=0`): L=A+B, R=B+C            | —              | pass    | test/audio/audio_test.cpp:1535 |
-| TS-21   | ACB stereo mode (`stereo_mode_i=1`): L=A+C, R=C+B            | —              | pass    | test/audio/audio_test.cpp:1563 |
-| TS-22   | Mono mode for PSG0: L=R=A+B+C                                | —              | pass    | test/audio/audio_test.cpp:1591 |
-| TS-23   | Mono mode per-PSG: each bit controls one PSG                 | —              | pass    | test/audio/audio_test.cpp:1621 |
-| TS-24   | Stereo mode is global for all PSGs                           | —              | pass    | test/audio/audio_test.cpp:1686 |
-| TS-30   | Turbosound disabled: only selected PSG outputs               | —              | pass    | test/audio/audio_test.cpp:1704 |
-| TS-31   | Turbosound enabled: all three PSGs output                    | —              | pass    | test/audio/audio_test.cpp:1725 |
-| TS-32   | PSG0 active when `ay_select="11"` or ts enabled              | —              | pass    | test/audio/audio_test.cpp:1780 |
-| TS-33   | PSG1 active when `ay_select="10"` or ts enabled              | —              | pass    | test/audio/audio_test.cpp:1793 |
-| TS-34   | PSG2 active when `ay_select="01"` or ts enabled              | —              | pass    | test/audio/audio_test.cpp:1806 |
+| TS-18   | Readback from selected AY                                    | —              | pass    | test/audio/audio_test.cpp:1504 |
+| TS-20   | ABC stereo mode (`stereo_mode_i=0`): L=A+B, R=B+C            | —              | pass    | test/audio/audio_test.cpp:1536 |
+| TS-21   | ACB stereo mode (`stereo_mode_i=1`): L=A+C, R=C+B            | —              | pass    | test/audio/audio_test.cpp:1564 |
+| TS-22   | Mono mode for PSG0: L=R=A+B+C                                | —              | pass    | test/audio/audio_test.cpp:1592 |
+| TS-23   | Mono mode per-PSG: each bit controls one PSG                 | —              | pass    | test/audio/audio_test.cpp:1622 |
+| TS-24   | Stereo mode is global for all PSGs                           | —              | pass    | test/audio/audio_test.cpp:1687 |
+| TS-30   | Turbosound disabled: only selected PSG outputs               | —              | pass    | test/audio/audio_test.cpp:1705 |
+| TS-31   | Turbosound enabled: all three PSGs output                    | —              | pass    | test/audio/audio_test.cpp:1726 |
+| TS-32   | PSG0 active when `ay_select="11"` or ts enabled              | —              | pass    | test/audio/audio_test.cpp:1781 |
+| TS-33   | PSG1 active when `ay_select="10"` or ts enabled              | —              | pass    | test/audio/audio_test.cpp:1794 |
+| TS-34   | PSG2 active when `ay_select="01"` or ts enabled              | —              | pass    | test/audio/audio_test.cpp:1807 |
 | TS-40   | Pan "11": output to both L and R                             | —              | missing | missing                        |
-| TS-41   | Pan "10": output to L only, R silenced                       | —              | pass    | test/audio/audio_test.cpp:1898 |
-| TS-42   | Pan "01": output to R only, L silenced                       | —              | pass    | test/audio/audio_test.cpp:1921 |
-| TS-43   | Pan "00": output silenced on both channels                   | —              | pass    | test/audio/audio_test.cpp:1939 |
-| TS-44   | Final L = sum of all three PSG L contributions               | —              | pass    | test/audio/audio_test.cpp:1967 |
-| TS-45   | Final R = sum of all three PSG R contributions               | —              | pass    | test/audio/audio_test.cpp:1970 |
-| TS-50   | PSG0 has AY_ID = "11"                                        | —              | pass    | test/audio/audio_test.cpp:1984 |
-| TS-51   | PSG1 has AY_ID = "10"                                        | —              | pass    | test/audio/audio_test.cpp:1990 |
-| TS-52   | PSG2 has AY_ID = "01"                                        | —              | pass    | test/audio/audio_test.cpp:1996 |
-| TS-60   | `TurboSound::reset()` clears only `ay_select` + `psg{0,1,2}_pan` (not enabled/stereo/mono)  | turbosound.vhd:118-138                  | pass    | test/audio/audio_test.cpp:1838                  |
-| TS-61   | psg_mode=11 → audio_ay_reset must not clobber NR 0x08 b1/b5 or NR 0x09 mono bits            | zxnext.vhd (NR 0x06 psg_mode=11 strobe) | pass    | test/audio/audio_test.cpp:1867                  |
-| SD-01   | Reset sets all channels to 0x80                              | —              | pass    | test/audio/audio_test.cpp:2011 |
-| SD-02   | Write channel A via port I/O (`chA_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2021 |
-| SD-03   | Write channel B via port I/O (`chB_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2030 |
-| SD-04   | Write channel C via port I/O (`chC_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2039 |
-| SD-05   | Write channel D via port I/O (`chD_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2048 |
-| SD-06   | NextREG 0x2D (mono) writes to chA AND chD                    | —              | pass    | test/audio/audio_test.cpp:2057 |
-| SD-07   | NextREG 0x2C (left) writes to chB only                       | —              | pass    | test/audio/audio_test.cpp:2067 |
-| SD-08   | NextREG 0x2E (right) writes to chC only                      | —              | pass    | test/audio/audio_test.cpp:2077 |
+| TS-41   | Pan "10": output to L only, R silenced                       | —              | pass    | test/audio/audio_test.cpp:1899 |
+| TS-42   | Pan "01": output to R only, L silenced                       | —              | pass    | test/audio/audio_test.cpp:1922 |
+| TS-43   | Pan "00": output silenced on both channels                   | —              | pass    | test/audio/audio_test.cpp:1940 |
+| TS-44   | Final L = sum of all three PSG L contributions               | —              | pass    | test/audio/audio_test.cpp:1968 |
+| TS-45   | Final R = sum of all three PSG R contributions               | —              | pass    | test/audio/audio_test.cpp:1971 |
+| TS-50   | PSG0 has AY_ID = "11"                                        | —              | pass    | test/audio/audio_test.cpp:1985 |
+| TS-51   | PSG1 has AY_ID = "10"                                        | —              | pass    | test/audio/audio_test.cpp:1991 |
+| TS-52   | PSG2 has AY_ID = "01"                                        | —              | pass    | test/audio/audio_test.cpp:1997 |
+| TS-60   | `TurboSound::reset()` clears only `ay_select` + `psg{0,1,2}_pan` (not enabled/stereo/mono)  | turbosound.vhd:118-138                  | pass    | test/audio/audio_test.cpp:1839                  |
+| TS-61   | psg_mode=11 → audio_ay_reset must not clobber NR 0x08 b1/b5 or NR 0x09 mono bits            | zxnext.vhd (NR 0x06 psg_mode=11 strobe) | pass    | test/audio/audio_test.cpp:1868                  |
+| SD-01   | Reset sets all channels to 0x80                              | —              | pass    | test/audio/audio_test.cpp:2012 |
+| SD-02   | Write channel A via port I/O (`chA_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2022 |
+| SD-03   | Write channel B via port I/O (`chB_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2031 |
+| SD-04   | Write channel C via port I/O (`chC_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2040 |
+| SD-05   | Write channel D via port I/O (`chD_wr_i`)                    | —              | pass    | test/audio/audio_test.cpp:2049 |
+| SD-06   | NextREG 0x2D (mono) writes to chA AND chD                    | —              | pass    | test/audio/audio_test.cpp:2058 |
+| SD-07   | NextREG 0x2C (left) writes to chB only                       | —              | pass    | test/audio/audio_test.cpp:2068 |
+| SD-08   | NextREG 0x2E (right) writes to chC only                      | —              | pass    | test/audio/audio_test.cpp:2078 |
 | SD-09   | Port I/O takes priority over NextREG                         | —              | missing | missing                        |
 | SD-10   | Soundrive mode 1 ports: 0x1F(A), 0x0F(B), 0x4F(C), 0x5F(D)   | zxnext.vhd:2429                         | missing | missing                                        |
 | SD-11   | Soundrive mode 2 ports: 0xF1(A), 0xF3(B), 0xF9(C), 0xFB(D)   | zxnext.vhd:2432                         | missing | missing                                        |
@@ -1317,15 +1317,15 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | SD-17   | DAC requires `nr_08_dac_en=1`                                | zxnext.vhd:5179, :6436                  | missing | missing                                        |
 | SD-18   | Mono ports (FB, DF, B3) write to both A+D or B+C             | zxnext.vhd port-decode fan              | missing | missing                                        |
 | SD-19   | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition                                 | soundrive.vhd:69-78; zxnext.vhd:6436    | missing | missing                                        |
-| SD-20   | Left output = chA + chB (9-bit unsigned)                     | —              | pass    | test/audio/audio_test.cpp:2117 |
-| SD-21   | Right output = chC + chD (9-bit unsigned)                    | —              | pass    | test/audio/audio_test.cpp:2127 |
-| SD-22   | Max output: chA=0xFF, chB=0xFF => L=0x1FE                    | —              | pass    | test/audio/audio_test.cpp:2137 |
-| SD-23   | Reset output: L=0x100, R=0x100                               | —              | pass    | test/audio/audio_test.cpp:2145 |
+| SD-20   | Left output = chA + chB (9-bit unsigned)                     | —              | pass    | test/audio/audio_test.cpp:2118 |
+| SD-21   | Right output = chC + chD (9-bit unsigned)                    | —              | pass    | test/audio/audio_test.cpp:2128 |
+| SD-22   | Max output: chA=0xFF, chB=0xFF => L=0x1FE                    | —              | pass    | test/audio/audio_test.cpp:2138 |
+| SD-23   | Reset output: L=0x100, R=0x100                               | —              | pass    | test/audio/audio_test.cpp:2146 |
 | BP-01   | Port 0xFE write stores bits [4:0]                            | zxnext.vhd:3593                         | missing | missing                                        |
-| BP-02   | Bit 4 is the EAR output (speaker)                            | —              | pass    | test/audio/audio_test.cpp:2176 |
-| BP-03   | Bit 3 is the MIC output                                      | —              | pass    | test/audio/audio_test.cpp:2185 |
+| BP-02   | Bit 4 is the EAR output (speaker)                            | —              | pass    | test/audio/audio_test.cpp:2177 |
+| BP-03   | Bit 3 is the MIC output                                      | —              | pass    | test/audio/audio_test.cpp:2186 |
 | BP-04   | Bits [2:0] are the border colour                             | —              | missing | missing                        |
-| BP-05   | Reset clears port_fe_reg to 0                                | —              | pass    | test/audio/audio_test.cpp:2197 |
+| BP-05   | Reset clears port_fe_reg to 0                                | —              | pass    | test/audio/audio_test.cpp:2198 |
 | BP-06   | Port 0xFE decoded as A0=0                                    | emulator.cpp:1163, :1192                | missing | missing                                        |
 | BP-10   | `beep_mic_final` = `EAR_in XOR (mic AND issue2) XOR mic`     | zxnext.vhd:6503                         | missing | missing                                        |
 | BP-11   | Issue 2 mode: MIC is XOR'd twice (cancels)                   | zxnext.vhd:6503                         | missing | missing                                        |
@@ -1335,17 +1335,17 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | BP-21   | Port 0xFE read bit 5 = 1 (always set)                        | —              | missing | missing                        |
 | BP-22   | Port 0xFE read bits [4:0] = keyboard columns                 | —              | missing | missing                        |
 | BP-23   | Port 0xFE read bit 7 = 1                                     | —              | missing | missing                        |
-| MX-01   | EAR volume = 0x0200 (512) when active                        | —              | pass    | test/audio/audio_test.cpp:2230 |
-| MX-02   | MIC volume = 0x0080 (128) when active                        | —              | pass    | test/audio/audio_test.cpp:2242 |
+| MX-01   | EAR volume = 0x0200 (512) when active                        | —              | pass    | test/audio/audio_test.cpp:2231 |
+| MX-02   | MIC volume = 0x0080 (128) when active                        | —              | pass    | test/audio/audio_test.cpp:2243 |
 | MX-03   | EAR/MIC silenced when `exc_i=1`                              | audio_mixer.vhd (exc_i wire composition)| missing | missing                                        |
-| MX-04   | AY input: zero-extended 12-bit to 13-bit                     | —              | pass    | test/audio/audio_test.cpp:2269 |
-| MX-05   | DAC input: 9-bit left-shifted by 2 + zero-padded             | —              | pass    | test/audio/audio_test.cpp:2283 |
-| MX-06   | I2S input: zero-extended 10-bit to 13-bit                    | —              | pass    | test/audio/audio_test.cpp:2308 |
-| MX-10   | Left output = ear + mic + ay_L + dac_L + i2s_L               | —              | pass    | test/audio/audio_test.cpp:2329 |
-| MX-11   | Right output = ear + mic + ay_R + dac_R + i2s_R              | —              | pass    | test/audio/audio_test.cpp:2340 |
-| MX-12   | Reset zeroes both output channels                            | —              | pass    | test/audio/audio_test.cpp:2351 |
-| MX-13   | EAR and MIC go to both L and R                               | —              | pass    | test/audio/audio_test.cpp:2364 |
-| MX-14   | Max theoretical output = 5998                                | —              | pass    | test/audio/audio_test.cpp:2380 |
+| MX-04   | AY input: zero-extended 12-bit to 13-bit                     | —              | pass    | test/audio/audio_test.cpp:2270 |
+| MX-05   | DAC input: 9-bit left-shifted by 2 + zero-padded             | —              | pass    | test/audio/audio_test.cpp:2284 |
+| MX-06   | I2S input: zero-extended 10-bit to 13-bit                    | —              | pass    | test/audio/audio_test.cpp:2309 |
+| MX-10   | Left output = ear + mic + ay_L + dac_L + i2s_L               | —              | pass    | test/audio/audio_test.cpp:2330 |
+| MX-11   | Right output = ear + mic + ay_R + dac_R + i2s_R              | —              | pass    | test/audio/audio_test.cpp:2341 |
+| MX-12   | Reset zeroes both output channels                            | —              | pass    | test/audio/audio_test.cpp:2352 |
+| MX-13   | EAR and MIC go to both L and R                               | —              | pass    | test/audio/audio_test.cpp:2365 |
+| MX-14   | Max theoretical output = 5998                                | —              | pass    | test/audio/audio_test.cpp:2381 |
 | MX-15   | No saturation/clipping in mixer                              | —              | missing | missing                        |
 | MX-20   | `exc_i=1`: EAR and MIC contribute 0 to mix                   | audio_mixer.vhd:80                      | missing | missing                                        |
 | MX-21   | `exc_i=0`: EAR and MIC contribute normally                   | —              | missing | missing                        |

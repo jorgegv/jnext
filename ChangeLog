@@ -1,5 +1,17 @@
 # ChangeLog
 
+## v0.96.0 (2026-07-12)
+
+### Bug Fixes
+- Constant noise/buzz throughout a session fixed — the audio device was starved and SDL filled the gaps with silence (issue #7)
+- Clicking over beeper music fixed; worst on machines with little CPU headroom, which is why issue #7 was reported as a constant hum
+- Beeper music no longer has a high-pitched tone over it: the mixer is sampled by integration instead of point-sampling (aliasing)
+- Emulation now paces on the sound card's clock, so audio never drifts ahead of or behind the emulator
+
+### Internal JNEXT Development
+- Reverted the v0.95.x DC-blocking mixer stage: it never fixed issue #7, it masked it, and it distorted beeper waveforms
+- New audio-underrun regression test captures jnext's real audio output and fails if silence is ever spliced into the stream
+
 ## v0.95.0 (2026-07-11)
 
 ### User Features

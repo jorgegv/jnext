@@ -96,5 +96,13 @@
 |        |      | external-SRAM conformance; Task 27 SD default-location + built-in download (vendored ChaN FatFs      |
 |        |      | f_mkfs + libcurl + SHA256 raw-integrity guard + Qt progress dialog); Task 29 doc drift + check       |
 |        |      | script; --sd-card→--sdcard rename (silent alias); Task 30 full-static feasibility (WONT). v0.95.0    |
+| 12/7   | 5h   | Task 23 audio (3 independent reviews). Root-caused the Cesare beeper clicking to audio-device        |
+|        |      | underruns — the SAME bug as issue #7 "constant noise": audio is synthesised on the emulated clock    |
+|        |      | but the frontends paced on the wall clock (48K frame 50.08Hz vs 20ms tick → 44030 samples/s fed vs   |
+|        |      | 44100 consumed), so the queue drained and SDL spliced ZEROS into the stream. Fixed by pacing         |
+|        |      | emulation on the audio device's clock. The v0.95.x DC-blocker "fix" for #7 only MASKED it (and       |
+|        |      | sagged beeper plateaus 8.6%) — reverted. Second, separate bug: the mixer was point-sampled once per  |
+|        |      | output sample, discarding most beeper toggles → aliasing ("higher pitch over the tune"); it now      |
+|        |      | integrates over each sample interval. Two speculative fixes built, measured as no-ops, deleted.      |
 |        |      |                                                                                                      |
-| TOTAL: | 323h |                                                                                                      |
+| TOTAL: | 328h |                                                                                                      |

@@ -34,13 +34,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      105 |      104 |      0 |       1 |     99% | 🟡 Tier 6: G45 EXPBUS-AND-01..04 → WONT (expansion bus + cartridge framework out of scope). |
-| Audio (AY+DAC+Beeper) |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (AY+DAC+Beeper) |      138 |      138 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       62 |       57 |      0 |       5 |     91% | 🟡 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 5 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-FAT/INI (G46/G47/G59/G60). |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4133** | **4095** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
+| **Total**             | **4137** | **4099** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
