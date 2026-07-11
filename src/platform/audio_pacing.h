@@ -33,7 +33,15 @@ inline constexpr int QUEUE_HIGH_MS = 90;
 /// so SdlAudio tops the queue up by holding the last sample level instead of
 /// letting SDL inject zeros (a DC hold has no discontinuity, so it stutters
 /// rather than clicks).
-inline constexpr int QUEUE_FLOOR_MS = 15;
+///
+/// This MUST exceed the frontends' ~20 ms tick period: the guard can only run
+/// when a tick runs, so a floor below one tick cannot bridge even a single late
+/// tick — the device would drain to empty before the next push and SDL would
+/// inject zeros anyway. It must also stay below QUEUE_LOW_MS so that pacing,
+/// not padding, does the work on a host that can keep up (padding inserts
+/// samples the emulator never produced, so it must remain a rescue, not a
+/// routine).
+inline constexpr int QUEUE_FLOOR_MS = 30;
 
 /// Hard ceiling. Beyond this the device is so far ahead (host stall, debugger
 /// resume, fastload burst) that we stop feeding it and let it drain.

@@ -111,6 +111,15 @@ int main()
           audio_pacing::QUEUE_LOW_MS   < audio_pacing::QUEUE_HIGH_MS &&
           audio_pacing::QUEUE_HIGH_MS  < audio_pacing::QUEUE_MAX_MS);
 
+    // --- AP-02b: the underrun floor must outlast one frontend tick ----------
+    // The hold-guard only runs when a tick runs. A floor shorter than the tick
+    // period cannot bridge a single late tick: the device drains to empty
+    // before the next push and SDL injects zeros regardless. (Observed with a
+    // 15 ms floor against the 20 ms tick — clicks survived on a loaded host.)
+    check("AP-02b", "underrun floor exceeds the 20 ms frontend tick period",
+          audio_pacing::QUEUE_FLOOR_MS > static_cast<int>(TICK_MS),
+          fmt_d("floor_ms", audio_pacing::QUEUE_FLOOR_MS));
+
     // --- AP-03: the closed loop never starves the device ---------------------
     // 20000 ticks = 400 s of emulation, far beyond the ~20 s in which the
     // unpaced deficit emptied the queue in the field.

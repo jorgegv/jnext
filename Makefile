@@ -126,7 +126,7 @@ unit-test: unit-test-build
 	TESTS="fuse_z80_test z80n_test rewind_test copper_test copper_integration_test mmu_test mmu_integration_test nextreg_test \
 	       nextreg_integration_test input_test input_integration_test phantom_typist_test ctc_test ctc_interrupts_test layer2_test \
 	       uart_test uart_integration_test divmmc_test multiface_test sdcard_test sd_rom_extractor_test fat32_image_test sdcard_provisioner_test sprites_test compositor_test compositor_integration_test ula_test ula_integration_test \
-	       floating_bus_test videotiming_test contention_test port_test audio_test audio_nextreg_test audio_port_dispatch_test dma_test tilemap_test nmi_test nmi_integration_test profiler_test"; \
+	       floating_bus_test videotiming_test contention_test port_test audio_test audio_nextreg_test audio_port_dispatch_test audio_pacing_test dma_test tilemap_test nmi_test nmi_integration_test profiler_test"; \
 	for t in $$TESTS; do \
 		bin="$$BUILD/test/$$t"; \
 		if [ ! -x "$$bin" ]; then continue; fi; \
