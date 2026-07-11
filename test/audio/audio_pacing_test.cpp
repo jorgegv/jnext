@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace {
 
@@ -64,27 +65,56 @@ std::string fmt_d(const char* label, double v)
 // `paced` selects the policy: true = audio_pacing::frames_for_tick (the fix),
 // false = the old "always exactly one frame per tick" behaviour.
 constexpr double TICK_MS = 20.0;
-constexpr double FRAME_HZ_48K = 3'500'000.0 / 69888.0;              // 50.08 Hz
-constexpr double SAMPLES_PER_FRAME = Mixer::SAMPLE_RATE / FRAME_HZ_48K;  // 880.6
 constexpr double SAMPLES_PER_TICK = Mixer::SAMPLE_RATE * TICK_MS / 1000.0;  // 882
 
-double simulate(int ticks, bool paced, double start_ms)
+// The defect is TWO-SIDED, because the machines' frame rates straddle the 20 ms
+// tick (src/core/emulator_config.h machine_timing()):
+//
+//   48K       224 T x 312 lines = 69888 T @3.5 MHz = 50.08 Hz -> 19.968 ms/frame
+//             frame SHORTER than the tick -> UNDER-production -> the device queue
+//             starves -> SDL pads with ZEROS -> clicks (Task 23 / issue #7).
+//
+//   128K/+3/  228 T x 311 lines = 70908 T @3.5 MHz = 49.36 Hz -> 20.259 ms/frame
+//   Next      frame LONGER than the tick -> OVER-production -> the queue overfills
+//             -> the old code drained the mixer ring and DISCARDED the chunk,
+//             dropping audio outright (a skip rather than a hole).
+//
+// Same root cause, opposite sign. Both must converge under pacing.
+constexpr double FRAME_HZ_48K = 3'500'000.0 / (224.0 * 312.0);   // 50.08 Hz
+constexpr double FRAME_HZ_128K = 3'500'000.0 / (228.0 * 311.0);  // 49.36 Hz (also Next)
+
+constexpr double samples_per_frame(double frame_hz)
 {
+    return Mixer::SAMPLE_RATE / frame_hz;
+}
+
+// min_ms / max_ms track only depths the loop actually settles on — the initial
+// depth is excluded, or a run that deliberately STARTS at the ceiling would
+// trivially report max == ceiling and say nothing about whether it converges.
+struct LoopRun {
+    double min_ms;   // 0 => the device ran dry (SDL injected zeros: clicks)
+    double max_ms;   // >= QUEUE_MAX_MS => the old drain-and-discard path re-arms
+};
+
+LoopRun simulate(int ticks, bool paced, double start_ms, double frame_hz = FRAME_HZ_48K)
+{
+    const double per_frame = samples_per_frame(frame_hz);
     double queued = Mixer::SAMPLE_RATE * start_ms / 1000.0;  // samples in the device queue
-    double min_ms = start_ms;
+    LoopRun r{1e9, 0.0};
 
     for (int t = 0; t < ticks; t++) {
         const int queued_ms = static_cast<int>(queued * 1000.0 / Mixer::SAMPLE_RATE);
         const int frames = paced ? audio_pacing::frames_for_tick(queued_ms) : 1;
 
-        queued += frames * SAMPLES_PER_FRAME;   // emulator produces
+        queued += frames * per_frame;           // emulator produces
         queued -= SAMPLES_PER_TICK;             // sound card consumes
         if (queued < 0.0) queued = 0.0;         // empty: SDL pads with zeros == click
 
         const double ms = queued * 1000.0 / Mixer::SAMPLE_RATE;
-        if (ms < min_ms) min_ms = ms;
+        if (ms < r.min_ms) r.min_ms = ms;
+        if (ms > r.max_ms) r.max_ms = ms;
     }
-    return min_ms;
+    return r;
 }
 
 // --- Model of SdlAudio::push_from_mixer against a real device queue ---------
@@ -121,7 +151,8 @@ DeviceRun simulate_device(int ticks, int floor_ms, bool starved)
         // 2. the emulator's samples for this tick
         const int queued_ms = static_cast<int>(queued * 1000.0 / Mixer::SAMPLE_RATE);
         const double produced =
-            starved ? 0.0 : audio_pacing::frames_for_tick(queued_ms) * SAMPLES_PER_FRAME;
+            starved ? 0.0
+                    : audio_pacing::frames_for_tick(queued_ms) * samples_per_frame(FRAME_HZ_48K);
         queued += produced;
 
         // 3. the underrun guard (parameterised on floor_ms so the test can show
@@ -168,32 +199,78 @@ int main()
           audio_pacing::QUEUE_FLOOR_MS > static_cast<int>(TICK_MS),
           fmt_d("floor_ms", audio_pacing::QUEUE_FLOOR_MS));
 
-    // --- AP-03: the closed loop never starves the device ---------------------
+    // --- AP-03: 48K — the closed loop never starves the device ----------------
     // 20000 ticks = 400 s of emulation, far beyond the ~20 s in which the
     // unpaced deficit emptied the queue in the field.
     {
-        const double min_ms = simulate(20000, /*paced=*/true, audio_pacing::QUEUE_LOW_MS);
-        check("AP-03", "paced: device queue never empties over 400 s",
-              min_ms > 0.0, fmt_d("min_queue_ms", min_ms));
+        const LoopRun r = simulate(20000, /*paced=*/true, audio_pacing::QUEUE_LOW_MS);
+        check("AP-03", "48K paced: device queue never empties over 400 s",
+              r.min_ms > 0.0, fmt_d("min_queue_ms", r.min_ms));
         // It should not merely stay off zero — it should stay in a healthy band.
-        check("AP-03b", "paced: queue stays at or above the underrun floor",
-              min_ms >= audio_pacing::QUEUE_FLOOR_MS, fmt_d("min_queue_ms", min_ms));
+        check("AP-03b", "48K paced: queue stays at or above the underrun floor",
+              r.min_ms >= audio_pacing::QUEUE_FLOOR_MS, fmt_d("min_queue_ms", r.min_ms));
     }
 
     // --- AP-04: ...and the old policy demonstrably did ------------------------
     // Guards the guard: if this ever passes, the simulation has stopped
     // modelling the defect and AP-03 proves nothing.
     {
-        const double min_ms = simulate(20000, /*paced=*/false, audio_pacing::QUEUE_LOW_MS);
-        check("AP-04", "unpaced (old policy): device queue drains to empty",
-              min_ms == 0.0, fmt_d("min_queue_ms", min_ms));
+        const LoopRun r = simulate(20000, /*paced=*/false, audio_pacing::QUEUE_LOW_MS);
+        check("AP-04", "48K unpaced (old policy): device queue drains to empty",
+              r.min_ms == 0.0, fmt_d("min_queue_ms", r.min_ms));
     }
 
     // --- AP-05: a full queue is pulled back into the band --------------------
     {
-        const double min_ms = simulate(20000, /*paced=*/true, audio_pacing::QUEUE_MAX_MS);
-        check("AP-05", "paced: an over-full queue converges without emptying",
-              min_ms >= audio_pacing::QUEUE_FLOOR_MS, fmt_d("min_queue_ms", min_ms));
+        const LoopRun r = simulate(20000, /*paced=*/true, audio_pacing::QUEUE_MAX_MS);
+        check("AP-05", "48K paced: an over-full queue converges without emptying",
+              r.min_ms >= audio_pacing::QUEUE_FLOOR_MS, fmt_d("min_queue_ms", r.min_ms));
+    }
+
+    // --- AP-10: 128K/+3/Next — the OVER-production side of the same bug -------
+    // A 49.36 Hz machine's frame (20.26 ms) is LONGER than the 20 ms tick, so an
+    // unpaced frontend feeds the device faster than it drains. The queue climbs
+    // until it crosses QUEUE_MAX_MS, where the old code drained the mixer ring
+    // and then discarded what it had drained — a hole in the stream, i.e. a
+    // click, just from the other direction. Pacing must hold the queue below
+    // that ceiling instead (frames_for_tick returns 0 above QUEUE_HIGH_MS).
+    {
+        const LoopRun r =
+            simulate(20000, /*paced=*/true, audio_pacing::QUEUE_LOW_MS, FRAME_HZ_128K);
+        check("AP-10a", "128K/Next paced: queue never reaches the discard ceiling",
+              r.max_ms < audio_pacing::QUEUE_MAX_MS, fmt_d("max_queue_ms", r.max_ms));
+        check("AP-10b", "128K/Next paced: queue never empties either",
+              r.min_ms >= audio_pacing::QUEUE_FLOOR_MS, fmt_d("min_queue_ms", r.min_ms));
+    }
+
+    // --- AP-11: ...and the old policy demonstrably overflowed -----------------
+    // The teeth for AP-10: unpaced at 49.36 Hz the queue ratchets past the
+    // ceiling and the old drain-and-discard fires.
+    {
+        const LoopRun r =
+            simulate(20000, /*paced=*/false, audio_pacing::QUEUE_LOW_MS, FRAME_HZ_128K);
+        check("AP-11", "128K/Next unpaced (old policy): queue overruns the ceiling",
+              r.max_ms >= audio_pacing::QUEUE_MAX_MS, fmt_d("max_queue_ms", r.max_ms));
+    }
+
+    // --- AP-12: both machines settle inside the band, from either extreme -----
+    {
+        bool ok = true;
+        double worst_lo = 1e9, worst_hi = 0.0;
+        for (double hz : {FRAME_HZ_48K, FRAME_HZ_128K}) {
+            for (double start : {0.0, static_cast<double>(audio_pacing::QUEUE_MAX_MS)}) {
+                const LoopRun r = simulate(20000, /*paced=*/true, start, hz);
+                if (r.max_ms >= audio_pacing::QUEUE_MAX_MS) ok = false;
+                // Ignore the transient from a start of 0 for the low-water check:
+                // the queue legitimately begins empty and climbs into the band.
+                const LoopRun s = simulate(20000, /*paced=*/true, audio_pacing::QUEUE_LOW_MS, hz);
+                if (s.min_ms < audio_pacing::QUEUE_FLOOR_MS) ok = false;
+                worst_lo = std::min(worst_lo, s.min_ms);
+                worst_hi = std::max(worst_hi, r.max_ms);
+            }
+        }
+        check("AP-12", "48K and 128K/Next both converge inside the queue band",
+              ok, fmt_d("worst_min_ms", worst_lo) + " " + fmt_d("worst_max_ms", worst_hi));
     }
 
     // --- AP-06: the underrun guard keeps a STARVED host off zero -------------
