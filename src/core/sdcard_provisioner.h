@@ -18,13 +18,16 @@
 ///      present. This is the PATCHED (FAT32-reclustered) image jnext actually
 ///      boots from — distinct from the raw download.
 ///   3. else offer to download the canonical distro zip, extract the raw
-///      official `cspect-next-1gb.img` (kept pristine), copy it to
+///      official `cspect-next-1gb.img` (kept pristine), record its SHA256 in a
+///      `cspect-next-1gb.img.sha256` sidecar, copy it to
 ///      `cspect-next-1gb-fixed.img`, and FAT32-recluster THAT copy so our
 ///      strict reader accepts it. The fixed image is what is returned/used.
 ///
 /// If the raw `cspect-next-1gb.img` is already present but the fixed one is
 /// not, the (large) re-download is skipped and the fixed image is produced
-/// straight from the existing raw file.
+/// straight from the existing raw file — but ONLY if the raw's SHA256 matches
+/// its `.sha256` sidecar. A missing/unreadable sidecar or a hash mismatch
+/// marks the raw untrusted and forces the full download cycle again.
 ///
 /// --sdcard-download-force forces the re-download+re-patch in step 3 (to
 /// recover a corrupted default-location image); it never applies to an
@@ -70,11 +73,27 @@ using DownloadFn = std::function<bool(const std::string& url,
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
 
+// Copy seam: byte-copy `src` to `dst`, verifying completeness. Returns true on
+// success, else sets `err`. Default impl streams and checks the copied size
+// against the source size. Behind a seam so the failure path is unit-testable.
+using CopyFn = std::function<bool(const std::string& src,
+                                  const std::string& dst, std::string& err)>;
+
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err);
 bool cli_confirm(const std::string& message);
 // Lightweight textual (\r NN%) progress for the CLI/headless path.
 bool cli_progress(uint64_t downloaded, uint64_t total);
+// Real copy implementation (default CopyFn). Streams in chunks and fails on a
+// short/incomplete copy (removing the partial destination).
+bool default_copy_file(const std::string& src, const std::string& dst,
+                       std::string& err);
+
+// SHA256 helpers (OpenSSL EVP). `sha256_hex` digests an in-memory buffer;
+// `sha256_file` digests a whole file. Both return a lowercase hex string
+// ("" on error, e.g. the file cannot be read).
+std::string sha256_hex(const std::vector<uint8_t>& bytes);
+std::string sha256_file(const std::string& path);
 
 // Extract a single named entry (matched by basename, case-insensitive) from
 // the zip file `zip_path` into `out_path`. Supports stored (method 0) and
@@ -94,6 +113,7 @@ struct ProvisionOptions {
     DownloadFn  download;           // defaults to default_http_download
     ConfirmFn   confirm;            // defaults to cli_confirm
     ProgressFn  progress;           // optional; passed into the download
+    CopyFn      copy;               // defaults to default_copy_file
 };
 
 enum class ProvisionStatus { Ok, Declined, Failed };
