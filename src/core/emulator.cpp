@@ -7610,6 +7610,11 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u64(frame_cycle_);
     w.write_u32(frame_num_);
     w.write_u64(psg_accum_);
+    // Note: this is the Bresenham phase only. The Mixer's in-progress
+    // integration accumulator is deliberately NOT snapshotted — after a restore
+    // the first emitted sample averages over a short window instead of a full
+    // one. That is a single sample, and strictly smaller than the discontinuity a
+    // restore already puts into the beeper/AY/DAC levels themselves.
     w.write_u64(sample_accum_);
     w.write_bool(dac_enabled_);
     // G71: line_int state owned by video_timing_; mirror through the

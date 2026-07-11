@@ -778,7 +778,6 @@ private:
     /// see Mixer::emit_sample() for why (aliasing / the beeper whistle).
     void advance_audio(uint64_t master_cycles);
 
-
     /// DAC enable flag (NextREG 0x08 bit 3).
     bool dac_enabled_ = false;
 
