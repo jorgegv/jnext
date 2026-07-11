@@ -178,7 +178,7 @@ bool SnaLoader::apply(Emulator& emu) const
 
         // Set 128K memory paging
         emu.port().out(0x7FFD, ext_header_.port_7ffd);
-        Log::emulator()->info("SNA: 128K paging set to {:#04x}", ext_header_.port_7ffd);
+        Log::emulator()->debug("SNA: 128K paging set to {:#04x}", ext_header_.port_7ffd);
     } else {
         // 48K: third block goes to bank 0 (default at 0xC000) -> pages 0,1
         write_to_ram(mmu, 0, 0, ram48_.data() + 32768, 16384);
@@ -219,19 +219,19 @@ bool SnaLoader::apply(Emulator& emu) const
         uint8_t hi = mmu.read(static_cast<uint16_t>(header_.SP + 1));
         regs.PC = static_cast<uint16_t>(lo | (hi << 8));
         regs.SP = static_cast<uint16_t>(header_.SP + 2);
-        Log::emulator()->info("SNA: 48K popped PC={:#06x} from stack, SP now {:#06x}",
+        Log::emulator()->debug("SNA: 48K popped PC={:#06x} from stack, SP now {:#06x}",
                               regs.PC, regs.SP);
     }
 
     cpu.set_registers(regs);
-    Log::emulator()->info("SNA: CPU set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
+    Log::emulator()->debug("SNA: CPU set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
                           regs.PC, regs.SP, regs.AF, regs.IM);
 
     // ---------------------------------------------------------------
     // 3. Border colour
     // ---------------------------------------------------------------
     emu.port().out(0x00FE, header_.border & 0x07);
-    Log::emulator()->info("SNA: border colour set to {}", header_.border & 0x07);
+    Log::emulator()->debug("SNA: border colour set to {}", header_.border & 0x07);
 
     return true;
 }

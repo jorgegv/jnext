@@ -913,7 +913,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (any non-zero speed disables memory contention).
     nextreg_.set_write_handler(0x07, [this](uint8_t v) -> uint8_t {
         CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
-        Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
+        // Guest-initiated state change → debug, and only when the value actually
+        // CHANGES. Programs rewrite NR 0x07 every frame; logging every write —
+        // at info, as this did — floods the console. See the level policy in
+        // core/log.h.
+        if (static_cast<uint8_t>(speed) != last_logged_cpu_speed_) {
+            Log::emulator()->debug("CPU speed changed to {} (NextREG 0x07={:#04x})",
+                                   cpu_speed_str(speed), v);
+            last_logged_cpu_speed_ = static_cast<uint8_t>(speed);
+        }
         // VHDL zxnext.vhd:5788-5789 — NR 0x07 write updates the
         // `nr_07_cpu_speed` register immediately (this IS the shadow).
         // The effective `cpu_speed` at zxnext.vhd:5817 only commits on
@@ -2197,12 +2205,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
         if (v & 0x02) {
             const auto regs = cpu_.get_registers();
-            Log::emulator()->info("Hard reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
+            Log::emulator()->debug("Hard reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
                                   v, regs.PC, mmu_.current_rom_bank(), mmu_.get_page(7));
             reset();
         } else if (v & 0x01) {
             const auto regs = cpu_.get_registers();
-            Log::emulator()->info("Soft reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
+            Log::emulator()->debug("Soft reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
                                   v, regs.PC, mmu_.current_rom_bank(), mmu_.get_page(7));
             soft_reset();
         }
@@ -2419,7 +2427,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x03, [this](uint8_t v) -> uint8_t {
         if (mmu_.boot_rom_enabled()) {
             mmu_.set_boot_rom_enabled(false);
-            Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
+            Log::emulator()->debug("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
         }
 
         // Machine-timing update (VHDL :5124-5133). The gate checks the
@@ -2545,7 +2553,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 default: /* VHDL :5143 others => null (no change) */ break;
             }
             if (commit && new_mt != mmu_.machine_type()) {
-                Log::emulator()->info(
+                Log::emulator()->debug(
                     "machine_type committed via NR 0x03: {} -> {} (typ_sel={:#04x})",
                     static_cast<int>(mmu_.machine_type()),
                     static_cast<int>(new_mt), typ_sel);
@@ -2588,7 +2596,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         spi_.set_flash_cs_enable(
             nextreg_.nr_03_config_mode()
             || ((nmi_source_.reset_type() & 0x04) != 0));
-        Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
+        Log::emulator()->debug("NextREG 0x03 ← {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
         return v;
     });
@@ -5455,7 +5463,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 Log::emulator()->warn("could not install Multiface ROM from SD '{}'", mf_sd_path);
             }
         } else {
-            Log::emulator()->info("Multiface ROM not found on SD image '{}' (path '{}') — Multiface ROM unavailable",
+            Log::emulator()->warn("Multiface ROM not found on SD image '{}' (path '{}') — Multiface ROM unavailable",
                                   cfg.sd_card_image, mf_sd_path);
         }
 
@@ -5514,7 +5522,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 Log::emulator()->info("AltROM loaded from SD '{}' ({} bytes -> SRAM pages 0x0C..0x0F)",
                                       alt_sd_path, off);
             } else {
-                Log::emulator()->info("AltROM not found on SD image '{}' (path '{}') — AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
+                Log::emulator()->warn("AltROM not found on SD image '{}' (path '{}') — AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
                                       cfg.sd_card_image, alt_sd_path);
             }
         }
@@ -6848,6 +6856,11 @@ void Emulator::advance_audio(uint64_t master_cycles)
 
 void Emulator::reset()
 {
+    // NR 0x07 returns to its power-on value (3.5 MHz) across a reset, so the log
+    // change-gate must return with it — otherwise the guest's first write back to
+    // the pre-reset speed would be swallowed as "unchanged" and never logged.
+    last_logged_cpu_speed_ = 0;
+
     // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
     // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
     // they are preserved. Save the port-enable state and reset_type before
@@ -6968,7 +6981,7 @@ void Emulator::soft_reset()
     // bootrom_en where VHDL would have re-enabled it. With Mmu::reset()
     // VHDL-faithful, no host-side capture is required.
 
-    Log::emulator()->info("Soft reset (NR 0x02 bit 0): preserving SRAM");
+    Log::emulator()->debug("Soft reset (NR 0x02 bit 0): preserving SRAM");
 
     // Clear framebuffer to black (not part of emulated state).
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);

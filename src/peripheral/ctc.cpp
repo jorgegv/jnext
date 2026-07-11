@@ -209,7 +209,7 @@ void Ctc::reset() {
     for (auto& ch : channels_) {
         ch.reset();
     }
-    ctc_log()->info("CTC reset");
+    ctc_log()->debug("CTC reset");
 }
 
 void Ctc::write(int channel, uint8_t val) {

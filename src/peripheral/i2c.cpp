@@ -225,7 +225,7 @@ uint8_t I2cController::read_sda() const {
 
 void I2cController::attach_device(uint8_t address, I2cDevice* device) {
     devices_[address & 0x7F] = device;
-    i2c_log()->info("I2C device attached at address {:#04x}", address & 0x7F);
+    i2c_log()->debug("I2C device attached at address {:#04x}", address & 0x7F);
 }
 
 void I2cController::detect_start_stop() {

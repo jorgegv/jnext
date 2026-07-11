@@ -224,9 +224,6 @@ public:
     /// Set whether sprite 0 is drawn on top (true) or behind (false, default).
     void set_zero_on_top(bool val) { zero_on_top_ = val; }
 
-    /// Debug: log sprite 0 state and internal counters.
-    void debug_log_sprite0() const;
-
     // -----------------------------------------------------------------
     // Per-scanline attribute and pattern change log
     // -----------------------------------------------------------------

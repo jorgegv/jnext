@@ -92,9 +92,9 @@ bool TapLoader::load(const std::string& path) {
                 case 2: type_str = "Character array"; break;
                 case 3: type_str = "Bytes"; break;
             }
-            Log::emulator()->info("  block {}: Header — {} \"{}\"", i, type_str, name);
+            Log::emulator()->debug("  block {}: Header — {} \"{}\"", i, type_str, name);
         } else {
-            Log::emulator()->info("  block {}: Data — {} bytes (flag={:#04x})",
+            Log::emulator()->debug("  block {}: Data — {} bytes (flag={:#04x})",
                                    i, b.data.size(), b.flag);
         }
     }

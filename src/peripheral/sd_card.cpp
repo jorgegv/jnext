@@ -93,7 +93,7 @@ bool SdCardDevice::mount(const std::string& path) {
     // mount() is conceptually a hard cycle of the card.
     reset();
 
-    sd_log()->info("mounted SD image: {} ({} bytes, {} MB)",
+    sd_log()->debug("mounted SD image: {} ({} bytes, {} MB)",
                    path, file_size_, file_size_ / (1024 * 1024));
     return true;
 }
@@ -101,7 +101,7 @@ bool SdCardDevice::mount(const std::string& path) {
 void SdCardDevice::unmount() {
     if (file_.is_open()) {
         file_.close();
-        sd_log()->info("SD image unmounted");
+        sd_log()->debug("SD image unmounted");
     }
     // Pass-8 verify-audit fix (2026-05-09): symmetric with mount(). Pre-fix
     // unmount() cleared only state_ / initialized_ / file_size_ /

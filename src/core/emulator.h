@@ -778,6 +778,11 @@ private:
     /// see Mixer::emit_sample() for why (aliasing / the beeper whistle).
     void advance_audio(uint64_t master_cycles);
 
+    /// Last CPU speed we emitted a log line for. Guest state changes are logged
+    /// only when the value actually changes (core/log.h level policy); programs
+    /// rewrite NR 0x07 every frame. 0 = 3.5 MHz, the power-on value.
+    uint8_t last_logged_cpu_speed_ = 0;
+
     /// DAC enable flag (NextREG 0x08 bit 3).
     bool dac_enabled_ = false;
 

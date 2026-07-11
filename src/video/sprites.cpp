@@ -967,16 +967,6 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
     }
 }
 
-void SpriteEngine::debug_log_sprite0() const
-{
-    const auto& s = sprites_[0];
-    Log::video()->info("SPR0: x={} y={} vis={} pat={} bytes=[{:02x},{:02x},{:02x},{:02x},{:02x}] "
-                       "global_vis={} over_border={} attr_slot={} attr_byte={}",
-                       s.x(), s.y(), s.visible(), s.pattern_base(),
-                       s.byte0, s.byte1, s.byte2, s.byte3, s.byte4,
-                       sprites_visible_, over_border_, attr_slot_, attr_byte_);
-}
-
 // ---------------------------------------------------------------------------
 // Debug / introspection
 // ---------------------------------------------------------------------------

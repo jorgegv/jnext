@@ -172,7 +172,7 @@ bool NexLoader::apply(Emulator& emu) const
         }
         // Load 256 palette entries into Layer2 first palette via NextREG API.
         // Each entry is 2 bytes: byte 0 = RRRGGGBB, byte 1 = 0000000B (9th bit).
-        Log::emulator()->info("NEX: loading Layer2 palette (512 bytes)");
+        Log::emulator()->debug("NEX: loading Layer2 palette (512 bytes)");
         auto& pal = emu.palette();
         // Select Layer2 first palette for writing, auto-increment enabled
         pal.write_control(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4);
@@ -194,7 +194,7 @@ bool NexLoader::apply(Emulator& emu) const
             Log::emulator()->error("NEX: truncated Layer2 screen data");
             return false;
         }
-        Log::emulator()->info("NEX: loading Layer2 screen ({} bytes into banks 8,9,10)", L2_SIZE);
+        Log::emulator()->debug("NEX: loading Layer2 screen ({} bytes into banks 8,9,10)", L2_SIZE);
         // Banks 8,9,10 → pages 16,17,18,19,20,21
         write_to_ram(mmu, 16, 0, file_data_.data() + offset, L2_SIZE);
         offset += L2_SIZE;
@@ -207,7 +207,7 @@ bool NexLoader::apply(Emulator& emu) const
             Log::emulator()->error("NEX: truncated ULA screen data");
             return false;
         }
-        Log::emulator()->info("NEX: loading ULA screen ({} bytes into bank 5)", ULA_SIZE);
+        Log::emulator()->debug("NEX: loading ULA screen ({} bytes into bank 5)", ULA_SIZE);
         write_to_ram(mmu, 10, 0, file_data_.data() + offset, ULA_SIZE);
         offset += ULA_SIZE;
     }
@@ -219,7 +219,7 @@ bool NexLoader::apply(Emulator& emu) const
             Log::emulator()->error("NEX: truncated LoRes screen data");
             return false;
         }
-        Log::emulator()->info("NEX: loading LoRes screen ({} bytes into bank 5)", LORES_SIZE);
+        Log::emulator()->debug("NEX: loading LoRes screen ({} bytes into bank 5)", LORES_SIZE);
         write_to_ram(mmu, 10, 0, file_data_.data() + offset, LORES_SIZE);
         offset += LORES_SIZE;
     }
@@ -231,7 +231,7 @@ bool NexLoader::apply(Emulator& emu) const
             Log::emulator()->error("NEX: truncated HiRes screen data");
             return false;
         }
-        Log::emulator()->info("NEX: loading HiRes screen ({} bytes into bank 5)", HIRES_SIZE);
+        Log::emulator()->debug("NEX: loading HiRes screen ({} bytes into bank 5)", HIRES_SIZE);
         write_to_ram(mmu, 10, 0, file_data_.data() + offset, HIRES_SIZE);
         offset += HIRES_SIZE;
     }
@@ -243,7 +243,7 @@ bool NexLoader::apply(Emulator& emu) const
             Log::emulator()->error("NEX: truncated HiColour screen data");
             return false;
         }
-        Log::emulator()->info("NEX: loading HiColour screen ({} bytes into bank 5)", HICOL_SIZE);
+        Log::emulator()->debug("NEX: loading HiColour screen ({} bytes into bank 5)", HICOL_SIZE);
         write_to_ram(mmu, 10, 0, file_data_.data() + offset, HICOL_SIZE);
         offset += HICOL_SIZE;
     }
@@ -273,7 +273,7 @@ bool NexLoader::apply(Emulator& emu) const
         ++banks_loaded;
     }
 
-    Log::emulator()->info("NEX: loaded {} banks ({} KB)", banks_loaded, banks_loaded * 16);
+    Log::emulator()->debug("NEX: loaded {} banks ({} KB)", banks_loaded, banks_loaded * 16);
 
     // ---------------------------------------------------------------
     // 3. CPU setup
@@ -289,13 +289,13 @@ bool NexLoader::apply(Emulator& emu) const
         regs.IFF1 = 0;
         regs.IFF2 = 0;
         cpu.set_registers(regs);
-        Log::emulator()->info("NEX: registers reset, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
+        Log::emulator()->debug("NEX: registers reset, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
     } else {
         auto regs = cpu.get_registers();
         regs.PC = header_.pc;
         regs.SP = header_.sp;
         cpu.set_registers(regs);
-        Log::emulator()->info("NEX: registers preserved, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
+        Log::emulator()->debug("NEX: registers preserved, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
     }
 
     // ---------------------------------------------------------------
@@ -379,14 +379,14 @@ bool NexLoader::apply(Emulator& emu) const
     // Reset palette index to 0 (programs assume this after NEX load)
     nr.write(0x40, 0x00);
 
-    Log::emulator()->info("NEX: machine state initialized (nexload.asm compatible)");
+    Log::emulator()->debug("NEX: machine state initialized (nexload.asm compatible)");
 
     // ---------------------------------------------------------------
     // 5. Border colour (via ULA port 0xFE)
     // ---------------------------------------------------------------
 
     emu.port().out(0x00FE, header_.border_colour & 0x07);
-    Log::emulator()->info("NEX: border colour set to {}", header_.border_colour & 0x07);
+    Log::emulator()->debug("NEX: border colour set to {}", header_.border_colour & 0x07);
 
     // ---------------------------------------------------------------
     // 6. Map entry_bank to MMU slots 6+7 (0xC000-0xFFFF)
@@ -396,7 +396,7 @@ bool NexLoader::apply(Emulator& emu) const
     uint8_t page_slot7 = static_cast<uint8_t>(header_.entry_bank * 2 + 1);
     mmu.set_page(6, page_slot6);
     mmu.set_page(7, page_slot7);
-    Log::emulator()->info("NEX: entry_bank {} mapped to slots 6,7 (pages {}, {})",
+    Log::emulator()->debug("NEX: entry_bank {} mapped to slots 6,7 (pages {}, {})",
                           header_.entry_bank, page_slot6, page_slot7);
 
     return true;
