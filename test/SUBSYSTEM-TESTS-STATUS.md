@@ -11,8 +11,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Rewind                |       32 |       22 |      0 |      10 |     68% | 🟡 Task 7r2: G66/G67 SS-VER + RB-FRAME skips added. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU            |      234 |      212 |      0 |      22 |     90% | 🟡 Tier B 2026-05-04: G16 BOOT-NEX-07 closed (NEX bank-5 pre-zero); G35 BOOT-SNAPSAVE-01/04 closed (SnaSaver wired to GUI Ctrl+Shift+S). EF7-06 re-homed; BOOT-FDC → WONT. |
-| Memory/MMU (int)      |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU            |      238 |      216 |      0 |      22 |     90% | 🟡 Tier B 2026-05-04: G16 BOOT-NEX-07 closed (NEX bank-5 pre-zero); G35 BOOT-SNAPSAVE-01/04 closed (SnaSaver wired to GUI Ctrl+Shift+S). EF7-06 re-homed; BOOT-FDC → WONT. |
+| Memory/MMU (int)      |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      279 |      279 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -20,11 +20,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART + I2C/RTC        |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART + I2C/RTC        |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       49 |       49 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card               |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card               |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      197 |      197 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      143 |      143 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -39,8 +39,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI Source Pipeline   |       62 |       57 |      0 |       5 |     92% | 🟡 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 5 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-FAT/INI (G46/G47/G59/G60). |
+| NMI Source Pipeline   |       62 |       57 |      0 |       5 |     91% | 🟡 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 5 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-FAT/INI (G46/G47/G59/G60). |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4115** | **4077** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
+| **Total**             | **4133** | **4095** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
