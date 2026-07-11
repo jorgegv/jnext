@@ -1,5 +1,27 @@
 # ChangeLog
 
+## v0.95.0 (2026-07-11)
+
+### User Features
+- SD card is now optional: with no --sdcard, jnext finds, or offers to download and patch, the official NextZXOS image
+- Download progress dialog while the distribution image is fetched
+- SD-card flag renamed to --sdcard (the old --sd-card is still accepted)
+
+### Developer Features
+- --rtc pins the emulated real-time clock to a fixed date/time for deterministic boot screenshots
+- --sdcard-download-confirm / --sdcard-download-force control the built-in image download
+
+### Bug Fixes
+- NextZXOS mid-boot colour-garbage glitch fixed (bank 5 is now dedicated VRAM, un-aliased from external SRAM)
+- SD/SPI card responses conform to spec (2 idle bytes before R1, no $FF in CMD58 reply, real CRC-16 data checksums)
+- Multiface memory window backed by external SRAM on the Next, matching hardware
+- +3 machine-type register reports the VHDL cold-boot default
+
+### Internal JNEXT Development
+- Firmware-bypass route (--bypass-tbblue-fw) and its tooling removed now that native boot works
+- Host-side SD-image formatting rebuilt on vendored ChaN FatFs; downloads via libcurl; SHA256 integrity guard on the cached image
+- Boot-to-menu screenshot regressions added; unit tests 4232 pass / 0 fail, regression 46/0/0
+
 ## v0.94.0 (2026-07-10)
 
 ### User Features
