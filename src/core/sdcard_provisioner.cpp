@@ -2,6 +2,7 @@
 #include "core/fat32_image.h"
 #include "core/log.h"
 
+#include <curl/curl.h>
 #include <zlib.h>
 
 #include <array>
@@ -84,33 +85,66 @@ std::vector<uint8_t> default_config_ini() {
 }
 
 // ---------------------------------------------------------------------------
-// Download (default impl shells out to curl / wget)
+// Download (default impl uses libcurl — no shell-out)
 // ---------------------------------------------------------------------------
+namespace {
+// libcurl write callback: append received bytes to the destination FILE*.
+size_t curl_write_to_file(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    FILE* f = static_cast<FILE*>(userdata);
+    return std::fwrite(ptr, size, nmemb, f);
+}
+} // namespace
+
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            std::string& err) {
-    // No libcurl in the jnext dependency set; shell out to curl (preferred,
-    // present on Windows 10+, macOS, Linux) then wget as a fallback. This is
-    // the only non-native piece and is fully behind the DownloadFn seam.
-    auto shell_quote = [](const std::string& s) {
-        std::string q = "'";
-        for (char c : s) { if (c == '\'') q += "'\\''"; else q.push_back(c); }
-        q += "'";
-        return q;
-    };
-    const std::string u = shell_quote(url);
-    const std::string d = shell_quote(dest_path);
-    std::string cmd = "curl -L --fail -o " + d + " " + u;
-    Log::emulator()->info("sdcard: downloading via curl: {}", url);
-    int rc = std::system(cmd.c_str());
-    if (rc == 0 && file_exists(dest_path)) return true;
+    Log::emulator()->info("sdcard: downloading via libcurl: {}", url);
 
-    cmd = "wget -O " + d + " " + u;
-    Log::emulator()->info("sdcard: curl failed (rc={}), retrying via wget", rc);
-    rc = std::system(cmd.c_str());
-    if (rc == 0 && file_exists(dest_path)) return true;
+    FILE* out = std::fopen(dest_path.c_str(), "wb");
+    if (!out) { err = "cannot create output file: " + dest_path; return false; }
 
-    err = "download failed (curl and wget both unavailable or errored)";
-    return false;
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        std::fclose(out);
+        std::remove(dest_path.c_str());
+        err = "curl_easy_init failed";
+        return false;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // follow redirects
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);    // HTTP >= 400 -> error
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_to_file);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);   // abort if the
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 120L);  // stream stalls
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "jnext-sdcard-provisioner");
+    // TLS verification stays at libcurl defaults (peer + host on).
+
+    const CURLcode rc = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup(curl);
+
+    const bool flush_ok = (std::fflush(out) == 0);
+    std::fclose(out);
+
+    if (rc != CURLE_OK) {
+        std::remove(dest_path.c_str());
+        err = std::string("download failed: ") + curl_easy_strerror(rc);
+        return false;
+    }
+    if (!flush_ok) {
+        std::remove(dest_path.c_str());
+        err = "download failed: write/flush error on " + dest_path;
+        return false;
+    }
+    if (!file_exists(dest_path)) {
+        err = "download produced no file: " + dest_path;
+        return false;
+    }
+    return true;
 }
 
 bool cli_confirm(const std::string& message) {
@@ -299,19 +333,14 @@ bool patch_image_fat32(const std::string& image_path, std::string& err) {
     // Inject the default config.ini.
     fat32_tree_upsert(tree, "MACHINES/NEXT/config.ini", default_config_ini());
 
-    // Reformat to 8 KB clusters (sectors_per_cluster = 16).
-    Fat32FormatGeom geom = fat32_compute_geometry(total_sectors, /*spc=*/16);
-    if (!geom.valid || !geom.is_fat32) {
-        err = "computed geometry is not a valid FAT32 (cluster_count=" +
-              std::to_string(geom.cluster_count) + ")";
-        return false;
-    }
-    if (!fat32_write_volume(image_path, part_lba, geom, tree, err)) {
+    // Reformat the partition in place to a spec-valid FAT32 with 8 KB clusters
+    // (via vendored ChaN FatFs f_mkfs + f_write) and re-emit the whole tree.
+    if (!fat32_format_and_populate(image_path, part_lba, total_sectors, tree, err)) {
         return false;
     }
     Log::emulator()->info(
-        "sdcard: patched {} -> {} clusters/8KB, {} data clusters (FAT32 valid)",
-        image_path, geom.sectors_per_cluster, geom.cluster_count);
+        "sdcard: patched {} -> FAT32 with 8 KB clusters ({} partition sectors)",
+        image_path, total_sectors);
     return true;
 }
 
