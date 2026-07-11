@@ -14,7 +14,7 @@ The taxonomy was formalised after Task 14's [test-strategy analysis](../issues/n
 
 **Status:** currently blocked at G46(b) — see [G46B-INVESTIGATION-LIVE.md](../issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md). No regression rows fire this layer end-to-end yet; the 6 SKIPs in the `nmi_test` BOOT group (BOOT-LOOP-01, BOOT-LOGO-01, BOOT-DOT-01, BYPASS-CLI-01, BYPASS-FAT-01, BYPASS-INI-01) are gated on this layer.
 
-**Identifying property:** invocation has `--sd-card <...>` AND no `--load`. The boot-ROM auto-load gate at `Emulator::init` fires only when `cfg.load_file` is empty.
+**Identifying property:** invocation has `--sdcard <...>` AND no `--load`. The boot-ROM auto-load gate at `Emulator::init` fires only when `cfg.load_file` is empty.
 
 ---
 
@@ -53,7 +53,7 @@ The taxonomy was formalised after Task 14's [test-strategy analysis](../issues/n
 
 ## When a regression row fails — which layer?
 
-1. Row has `--sd-card` and no `--load` → **Layer 1**. Suspect supervisor / boot path. Start with [G46B-INVESTIGATION-LIVE.md](../issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md) and the boot-trace-detective agent.
+1. Row has `--sdcard` and no `--load` → **Layer 1**. Suspect supervisor / boot path. Start with [G46B-INVESTIGATION-LIVE.md](../issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md) and the boot-trace-detective agent.
 2. Row has `--load test/00regression/nex/<game>.nex` and `--esxdos-stub` → **Layer 2** (real game). The bug is in a runtime subsystem (video, input, audio, MMU under runtime traffic). Probe with PC histograms / port read traces.
 3. Row has `--load demo/<probe>/<probe>.nex` → **Layer 3** (z88dk probe). The probe's own framebuffer output names the failure; start by reading the probe's source.
 
@@ -63,4 +63,4 @@ The taxonomy was formalised after Task 14's [test-strategy analysis](../issues/n
 
 Before this taxonomy existed, the G46(b) investigation conflated Layer 1 (supervisor stall) with apparent "boot failures" of Layer 2 game NEXes — they looked similar (black screen, stuck splash) but the actual stack was different (`celeste.nex` couldn't reach RST $20 because esxdos wasn't loaded under `--load`, not because the supervisor was looping). The esxdos shim resolved every Layer 2 stall at once; the Layer 1 G46(b) blocker remained untouched by that fix because it lives in a different layer.
 
-Investigations should declare their layer up-front. A "stuck on splash" report under `--load some.nex` is a Layer 2 issue; under `--sd-card alone` it's Layer 1; investigative effort directed at the wrong layer wastes time.
+Investigations should declare their layer up-front. A "stuck on splash" report under `--load some.nex` is a Layer 2 issue; under `--sdcard alone` it's Layer 1; investigative effort directed at the wrong layer wastes time.
