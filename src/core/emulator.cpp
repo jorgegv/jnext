@@ -85,8 +85,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
     timing_ = machine_timing(cfg.type);
-    Log::emulator()->info("Initializing emulator: machine_type={} cpu_speed={} lines={} tstates/line={}{}",
-                          static_cast<int>(cfg.type), cpu_speed_str(cfg.cpu_speed),
+    Log::emulator()->info("Initializing emulator: machine_type={}[{}] cpu_speed={}[{}] "
+                          "lines={} tstates/line={}{}",
+                          static_cast<int>(cfg.type), machine_type_str(cfg.type),
+                          static_cast<int>(cfg.cpu_speed), cpu_speed_str(cfg.cpu_speed),
                           timing_.lines_per_frame, timing_.tstates_per_line,
                           preserve_memory ? "  [preserve_memory=1 soft-reset]" : "");
 
