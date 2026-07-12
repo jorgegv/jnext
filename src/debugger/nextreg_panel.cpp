@@ -184,7 +184,19 @@ void NextRegPanel::refresh() {
     table_->blockSignals(true);
 
     for (int i = 0; i < 256; ++i) {
-        uint8_t val = emulator_->nextreg().cached(static_cast<uint8_t>(i));
+        // read(), not cached(): show the register as the Z80 would read it.
+        //
+        // cached() returns regs_[i] — the last byte written to that NextREG number and
+        // nothing more. Many registers are not owned by their cache: their live value is
+        // composed by a read handler from the subsystem that actually holds the state
+        // (NR 0x69 bit 7 is the Layer 2 enable FF, which port 0x123B also latches; NR
+        // 0x15 recomposes priority and sprite_en from the renderer; NR 0x6B is the live
+        // tilemap control...). This panel showed the stale cache for every one of them —
+        // beast.nex reads NR 0x69 = 0x00 here while the true value is 0xC0 (Task 40).
+        //
+        // read() is side-effect free (handler dispatch + a trace log), so it is safe to
+        // call for all 256 registers from the debugger.
+        uint8_t val = emulator_->nextreg().read(static_cast<uint8_t>(i));
 
         // Hex column
         table_->item(i, 2)->setText(QString::asprintf("%02X", val));

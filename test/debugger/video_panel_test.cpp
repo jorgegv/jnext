@@ -1559,6 +1559,77 @@ static void test_composite_is_default_tab() {
 
 // ── main ──────────────────────────────────────────────────────────────
 
+// ── DVP-LAYERSTATE: the "active layers" line must read the LIVE register ─────
+//
+// Task 40, from beast.nex: the panel reported "ULA, Tilemap, Sprites" active while the
+// Layer 2 view beside it showed the demo's graphics. It read NextReg::cached(), i.e.
+// the last byte written to the NextREG number — but Layer 2's enable is a single FF
+// that port 0x123B bit 1 latches too (VHDL zxnext.vhd:3916, 3924-3925), and that is
+// how programs actually switch Layer 2 on. Raw NR 0x69 stayed 0x00; the true value
+// was 0xC0.
+//
+// Every assertion below is written to FAIL against the cached() implementation: the
+// registers are driven ONLY through the surfaces that bypass regs_[], never by an
+// NR write to the register being read.
+static void test_layer_state_reads_live_registers(Emulator& emu) {
+    set_group("DVP-LAYERSTATE");
+
+    bool active[4];
+    int  priority = -1;
+
+    // Layer 2 ON via port 0x123B bit 1 — the beast.nex path. regs_[0x69] is untouched.
+    emu.port().write(0x123B, 0x02);
+    video_panel_layer_state(emu, active, priority);
+    check("DVP-LS-01",
+          "Layer 2 enabled via port 0x123B is reported ACTIVE (cached NR 0x69 is stale)",
+          active[1],
+          fmt("nr69 raw=%02X read=%02X layer2.enabled=%d",
+              emu.nextreg().cached(0x69), emu.nextreg().read(0x69),
+              int(emu.layer2().enabled())));
+
+    // …and the raw cache really is stale, so the assertion above is discriminative
+    // rather than accidentally true.
+    check("DVP-LS-02",
+          "the raw NR 0x69 cache does NOT see the port 0x123B write (test premise)",
+          (emu.nextreg().cached(0x69) & 0x80) == 0,
+          fmt("nr69 raw=%02X", emu.nextreg().cached(0x69)));
+
+    // Layer 2 OFF again through the same port: the flag must follow it back down, so
+    // the fix cannot be "always report Layer 2 active".
+    emu.port().write(0x123B, 0x00);
+    video_panel_layer_state(emu, active, priority);
+    check("DVP-LS-03",
+          "Layer 2 disabled via port 0x123B is reported INACTIVE",
+          !active[1],
+          fmt("nr69 read=%02X", emu.nextreg().read(0x69)));
+
+    // Sprites + priority live in NR 0x15, whose read handler recomposes them from the
+    // renderer. Drive them through the NR write path and confirm both surface.
+    emu.nextreg().write(0x15, 0x01 | (0x03 << 2));   // sprite_en, priority 3 (LUS)
+    video_panel_layer_state(emu, active, priority);
+    check("DVP-LS-04", "sprites enabled (NR 0x15 b0) is reported ACTIVE", active[3]);
+    check("DVP-LS-05", "layer priority is NR 0x15 bits 4:2", priority == 3,
+          fmt("priority=%d want 3", priority));
+
+    // ULA: NR 0x68 bit 7 is a DISABLE bit, so the flag is inverted.
+    emu.nextreg().write(0x68, 0x80);
+    video_panel_layer_state(emu, active, priority);
+    check("DVP-LS-06", "ULA disabled via NR 0x68 b7 is reported INACTIVE", !active[0]);
+    emu.nextreg().write(0x68, 0x00);
+    video_panel_layer_state(emu, active, priority);
+    check("DVP-LS-07", "ULA enabled (NR 0x68 b7 clear) is reported ACTIVE", active[0]);
+
+    // Tilemap: NR 0x6B's read handler returns the live tilemap control byte, so set it
+    // on the Tilemap itself — regs_[0x6B] never sees this.
+    emu.tilemap().set_control(0x80);
+    video_panel_layer_state(emu, active, priority);
+    check("DVP-LS-08",
+          "tilemap enabled via the live control byte is reported ACTIVE",
+          active[2],
+          fmt("nr6b raw=%02X read=%02X",
+              emu.nextreg().cached(0x6B), emu.nextreg().read(0x6B)));
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1616,6 +1687,14 @@ int main(int argc, char** argv) {
     }
     test_run_to_targets();
     std::printf("  Group: DVP-RUNTO      — done\n");
+
+    // ── Task 40: the "active layers" line must read the live registers ───
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_layer_state_reads_live_registers(emu);
+        std::printf("  Group: DVP-LAYERSTATE — done\n");
+    }
 
     // ── Task 36: the "All layers" composite view ─────────────────────
     {

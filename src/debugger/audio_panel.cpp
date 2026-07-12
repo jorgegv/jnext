@@ -157,8 +157,10 @@ void AudioPanel::refresh() {
 
     // Read NextREG 0x06 bit 4 for AY/YM mode (0=YM, 1=AY)
     // and NextREG 0x08 for stereo/turbosound config
-    uint8_t reg06 = emulator_->nextreg().cached(0x06);
-    uint8_t reg08 = emulator_->nextreg().cached(0x08);
+    // read(), not cached(): both registers have read handlers that compose the live
+    // value from the audio subsystem, so the raw cache can lag it (Task 40).
+    uint8_t reg06 = emulator_->nextreg().read(0x06);
+    uint8_t reg08 = emulator_->nextreg().read(0x08);
 
     bool ay_mode = (reg06 & 0x10) != 0; // bit 4: 1=AY, 0=YM
     ay_ym_label_->setText(tr("Mode: %1").arg(ay_mode ? "AY" : "YM"));

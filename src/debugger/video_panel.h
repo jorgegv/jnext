@@ -72,6 +72,12 @@ private:
 //              priority, ULA palette, and per-layer sub-panel views.
 // ---------------------------------------------------------------------------
 
+/// Which layers are enabled (ULA, Layer 2, Tilemap, Sprites) and the NR 0x15 layer
+/// priority, read through the NextREG read handlers rather than the raw register
+/// cache — see the definition for why that distinction is load-bearing (Task 40).
+/// Exposed so the panel's answer can be tested without a QWidget.
+void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out);
+
 class VideoPanel : public QWidget {
     Q_OBJECT
 public:
