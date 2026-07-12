@@ -360,6 +360,34 @@ public:
                       SpriteEngine* sprites,
                       Tilemap* tilemap);
 
+    /// Render every layer for ONE framebuffer row and composite it.
+    ///
+    /// This is render_frame's row body, lifted out verbatim (Task 36) so the
+    /// debugger's "All layers" view can composite through the very same code
+    /// the live output does — NR 0x15 priority, per-layer transparency, the
+    /// ULA/tilemap merge, Layer 2 priority promotion, the blend modes, the
+    /// stencil, the border, and the NR 0x4A fallback colour. A second,
+    /// hand-rolled compositor in the debugger would inevitably drift from
+    /// this one; the fallback colour alone (emitted where EVERY layer is
+    /// transparent, so it belongs to no layer view) is why the per-layer
+    /// panels cannot be made to add up to the picture on screen.
+    ///
+    /// The CALLER owns the per-scanline change-log replay: rewind every log
+    /// to the frame baseline, apply the entries for `row`, call this, and
+    /// flush the remaining entries when done (render_frame does exactly that
+    /// inline; VideoLayerView::render_to_image uses the same helpers). This
+    /// function reads only the state the logs leave live, advances no cursor,
+    /// and does not touch the once-per-frame ULA flash counter — so it is
+    /// safe to call from a debug view on a paused machine.
+    ///
+    /// @param out  FB_WIDTH (640) ARGB8888 cells for this row.
+    /// @param row  Framebuffer row 0..FB_HEIGHT-1.
+    void render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
+                    PaletteManager& palette,
+                    class Layer2& layer2,
+                    SpriteEngine* sprites,
+                    Tilemap* tilemap);
+
     /// Configure the per-pixel compositor trace (debug). When path is
     /// non-empty, the renderer dumps one CSV row per pixel of the target
     /// frame to that file, then closes it. Empty path disables tracing.
