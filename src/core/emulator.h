@@ -733,6 +733,18 @@ private:
     /// When true, suppresses audio/video output during fast-forward replay.
     bool replay_mode_ = false;
 
+    /// Everything that must happen exactly once per frame, at its start (Copper vsync,
+    /// per-scanline change-log baselines, interrupt scheduling, rewind snapshot). Called
+    /// from run_frame() ONLY when a new frame actually begins — never when resuming a
+    /// frame the debugger paused mid-way, which would corrupt the frame still in flight
+    /// (Task 40: it rewinds the Copper and clears the change logs the compositor replays).
+    void begin_new_frame();
+
+    /// True between the start of a frame and its completion. The debugger pauses by
+    /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
+    /// not restart it.
+    bool frame_in_progress_ = false;
+
     /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
     /// link time — see core/embedded_nextboot_rom.h).
     std::vector<uint8_t> boot_rom_;

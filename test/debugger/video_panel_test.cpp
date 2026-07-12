@@ -100,6 +100,7 @@
 #include "video/palette.h"
 #include "video/renderer.h"
 #include "video/tilemap.h"
+#include "peripheral/copper.h"
 #include "audio/i2s.h"
 #include "video/ula.h"
 
@@ -1721,6 +1722,147 @@ static void test_peek_does_not_mutate(Emulator& emu) {
           mismatches == 0, fmt("%d mismatch(es)", mismatches));
 }
 
+// ── DVP-RESUME: a frame the debugger paused must be RESUMED, not RESTARTED ───
+//
+// Task 40, second half. The debugger pauses by returning from inside run_frame()'s loop,
+// leaving the frame half-executed; the frontend then calls run_frame() again to continue
+// it. run_frame() re-ran its entire frame-start block on that call — mid-frame:
+//
+//   copper_.on_vsync()        rewound the Copper's PC, so a Copper program restarted at
+//                             mid-frame re-executed its WAITs against scanlines already
+//                             gone by, never matched again, and wrote NOTHING for the
+//                             rest of the frame;
+//   palette_.start_frame()    CLEARED the per-scanline palette change log and rebaselined
+//     (and the same for      it to the mid-frame state — and that log is exactly what the
+//      layer2/sprites/ula/    compositor and the debugger's video panels replay to
+//      tilemap)               reproduce raster splits.
+//
+// Reported from beast.nex: Break, then "Run to EOF", and the Copper's per-scanline sky
+// gradient vanished — from the ULA panel on one press, and from the EMULATOR WINDOW on
+// the next, alternating, as the wiped log was consumed by one replay or the other.
+//
+// Stepping through a frame must OBSERVE the emulation, never alter it.
+static void test_paused_frame_resumes_not_restarts(Emulator& emu) {
+    set_group("DVP-RESUME");
+
+    emu.debug_state().set_active(true);
+    emu.run_frame();                      // settle: one clean frame
+
+    // Pause partway through the next frame, exactly as "Break" / "Run to EOF" do.
+    const auto& t = emu.timing();
+    const uint64_t mid = emu.current_frame_cycle() + 100 * t.master_cycles_per_line;
+    emu.debug_state().run_to_cycle(mid);
+    emu.run_frame();
+    check("DVP-RES-01", "the debugger paused mid-frame (test premise)",
+          emu.debug_state().paused() && emu.clock().get() < emu.current_frame_cycle()
+              + t.master_cycles_per_frame,
+          fmt("paused=%d", int(emu.debug_state().paused())));
+
+    // A mid-frame palette write — the kind a Copper MOVE makes on every scanline, and
+    // the kind whose change-log entry the compositor replays to draw a gradient.
+    emu.nextreg().write(0x40, 0x10);      // palette index
+    emu.nextreg().write(0x41, 0xE3);      // 8-bit colour write
+    const size_t log_before = emu.palette().change_log_size();
+    check("DVP-RES-02", "the mid-frame palette write is in the change log (test premise)",
+          log_before >= 1, fmt("entries=%zu", log_before));
+
+    // Resume. Before the fix this call re-ran the frame-start block: start_frame() wiped
+    // the log (entries -> 0) and on_vsync() rewound the Copper.
+    emu.debug_state().resume();
+    emu.run_frame();
+
+    check("DVP-RES-03",
+          "resuming does NOT clear the frame's palette change log",
+          emu.palette().change_log_size() >= log_before,
+          fmt("entries=%zu, were %zu (0 = the resume wiped the frame's raster splits)",
+              emu.palette().change_log_size(), log_before));
+
+    // …and the NEXT frame must still get its frame-start actions: the guard resumes a
+    // paused frame, it does not suppress frame starts altogether.
+    emu.run_frame();
+    check("DVP-RES-05",
+          "a genuinely new frame still gets its frame-start baseline (log reset)",
+          emu.palette().change_log_size() == 0,
+          fmt("entries=%zu", emu.palette().change_log_size()));
+}
+
+// The Copper half of the same bug, on its own.
+//
+// copper_.on_vsync() and the change-log start_frame()s are two INDEPENDENT casualties of
+// re-running the frame-start block mid-frame, and today one boolean guards both. The row
+// above would still pass if a future change decided that "only the change logs need the
+// guard; on_vsync() is harmless" — and beast.nex's sky would silently go flat again, which
+// is precisely the reported symptom. So the Copper gets its own row, with a real Copper
+// program: WAIT scanline N, MOVE a palette colour — the shape that paints a gradient.
+//
+// A Copper rewound to PC 0 mid-frame re-executes its WAITs against scanlines that have
+// already gone by, so it never matches again and writes nothing for the rest of the frame.
+static void test_resume_does_not_rewind_the_copper(Emulator& emu) {
+    set_group("DVP-COPPER");
+
+    auto nr = [&emu](uint8_t reg, uint8_t val) { emu.nextreg().write(reg, val); };
+    auto enc_move = [](uint8_t reg, uint8_t val) -> uint16_t {
+        return static_cast<uint16_t>(((reg & 0x7F) << 8) | val);
+    };
+    auto enc_wait = [](uint8_t hpos, uint16_t vpos) -> uint16_t {
+        return static_cast<uint16_t>(0x8000 | ((hpos & 0x3F) << 9) | (vpos & 0x1FF));
+    };
+    auto program_word = [&](uint16_t word_addr, uint16_t instr) {
+        const uint8_t mode_hi = static_cast<uint8_t>(emu.nextreg().read(0x62) & 0xC0);
+        nr(0x61, static_cast<uint8_t>(((word_addr & 0x3FF) << 1) & 0xFF));
+        nr(0x62, static_cast<uint8_t>(mode_hi | ((((word_addr & 0x3FF) << 1) >> 8) & 0x07)));
+        nr(0x63, static_cast<uint8_t>(instr >> 8));
+        nr(0x63, static_cast<uint8_t>(instr & 0xFF));
+    };
+
+    // A gradient program: on every 8th scanline, write a palette colour.
+    constexpr int kSteps = 24;
+    for (int i = 0; i < kSteps; ++i) {
+        program_word(static_cast<uint16_t>(i * 3 + 0), enc_wait(0, static_cast<uint16_t>(32 + i * 8)));
+        program_word(static_cast<uint16_t>(i * 3 + 1), enc_move(0x40, 0x10));            // palette index
+        program_word(static_cast<uint16_t>(i * 3 + 2), enc_move(0x41, static_cast<uint8_t>(i * 4)));
+    }
+    nr(0x62, 0xC0);                       // mode 11 = run + RESET PC AT VSYNC (what a
+                                          // per-frame gradient uses, and what makes
+                                          // on_vsync() mid-frame destructive)
+    emu.run_frame();                      // one clean frame with the Copper running
+
+    // Pause mid-frame, PAST several WAITs, so the Copper PC is deep in its program.
+    const auto& t = emu.timing();
+    emu.debug_state().set_active(true);
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() + 120 * t.master_cycles_per_line);
+    emu.run_frame();
+    const uint16_t pc_before = emu.copper().pc();
+    check("DVP-COP-01",
+          "the Copper is mid-program at the pause (test premise — not PC 0)",
+          emu.debug_state().paused() && pc_before > 0,
+          fmt("paused=%d copper pc=%u", int(emu.debug_state().paused()), pc_before));
+
+    // Resume, and stop again a few scanlines later — still inside the SAME frame. Sample
+    // the PC immediately, before the frame can run on and mask a rewind by advancing past
+    // it again. Pre-fix, the resume called on_vsync() and this reads 0.
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() + 150 * t.master_cycles_per_line);
+    emu.run_frame();
+    const uint16_t pc_after = emu.copper().pc();
+    check("DVP-COP-02",
+          "resuming a paused frame does NOT rewind the Copper to its program start",
+          pc_after >= pc_before,
+          fmt("copper pc %u -> %u (a rewind to 0 = the gradient stops here)",
+              pc_before, pc_after));
+
+    // The observable the user actually reported: the Copper must keep painting for the
+    // REST of the frame after the resume. A rewound Copper waits forever for scanlines
+    // that have already passed, and writes nothing more.
+    const size_t log_at_resume = emu.palette().change_log_size();
+    emu.debug_state().resume();
+    emu.run_frame();                      // finish the frame
+    check("DVP-COP-03",
+          "the Copper keeps writing its per-scanline palette after the resume",
+          emu.palette().change_log_size() > log_at_resume,
+          fmt("entries %zu -> %zu (no growth = the Copper stopped painting)",
+              log_at_resume, emu.palette().change_log_size()));
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1791,6 +1933,18 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_peek_does_not_mutate(emu);
         std::printf("  Group: DVP-PEEK       — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_paused_frame_resumes_not_restarts(emu);
+        std::printf("  Group: DVP-RESUME     — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_resume_does_not_rewind_the_copper(emu);
+        std::printf("  Group: DVP-COPPER     — done\n");
     }
 
     // ── Task 36: the "All layers" composite view ─────────────────────
