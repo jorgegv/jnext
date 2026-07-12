@@ -44,6 +44,7 @@ See `doc/testing/audits/task3-ula-phase4.md` for full per-wave critic verdicts a
 | Timing constants             | `zxula_timing.vhd`         | 13      |
 | Frame interrupt               | `zxula_timing.vhd` 547-559 | 14      |
 | Shadow screen                | `zxnext.vhd` line 4453     | 15      |
+| Debug render entry points    | `zxnext.vhd` 6558/6670     | 16      |
 
 ## Architecture
 
@@ -890,3 +891,52 @@ The FUSE Z80 test suite (1356/1356) validates CPU timing but not ULA video
 output. The screenshot regression tests provide end-to-end validation but
 are not fine-grained enough to catch subtle timing or address calculation
 errors. This test suite fills the gap with VHDL-derived deterministic checks.
+
+
+## Section 16: Debug render entry points (Task 22a, 2026-07-12)
+
+`Ula::render_scanline_bank(dst, row, mmu, use_bank7)` renders one scanline
+with the VRAM bank **pinned**, instead of following the live port-0x7FFD b3
+shadow selector that `render_scanline` uses.  It exists for the debugger's two
+ULA views, which must each show *their* bank whichever one the running program
+has selected:
+
+* `use_bank7=false` → bank 5, the dedicated 16K dual-port VRAM
+  (VHDL `bank5_ram` dpram2, `zxnext.vhd:6558`).
+* `use_bank7=true`  → bank 7, the dedicated 8K BRAM
+  (VHDL `bank7_ram` dpram2, `zxnext.vhd:6670`).
+
+It delegates to `render_scanline`, so the Timex screen mode (port 0xFF), ULA
+scroll, active-palette selector and per-line border snapshot all apply exactly
+as in the live compositor path — the entry point it replaced open-coded a
+STANDARD-mode-only decode, so a Timex hi-colour / hi-res program's shadow
+screen was decoded with the wrong layout.  It saves and restores the live bank
+selector, so it never disturbs emulation state.
+`Ula::vram_bank7()` exposes that selector for the restore assertion.
+
+| ID       | Test                                                            | Status |
+|----------|-----------------------------------------------------------------|--------|
+| DVP-03   | bank-5 view shows bank 5 while the shadow screen is selected     | PASS   |
+| DVP-03b  | bank-5 view shows bank 5 while the primary screen is selected    | PASS   |
+| DVP-04   | bank-7 view shows bank 7 while the primary screen is selected    | PASS   |
+| DVP-04a  | bank-7 view shows bank 7 while the shadow screen is selected     | PASS   |
+| DVP-04c/d| the live bank selector is restored after the debug render        | PASS   |
+| DVP-12   | the debug views apply the NR 0x1A clip window                    | PASS   |
+| DVP-12a  | …keeping display cells inside the window                         | PASS   |
+| DVP-12b  | …and clipping the border strips when clip_x1>0 / clip_x2<255     | PASS   |
+
+### ULA clip window in the debug path
+
+The ULA is the only layer whose clip window is applied by the **compositor**
+rather than inside its own `render_scanline`: in VHDL the clip is a
+compositor-stage signal (`zxnext.vhd:7104` — `ula_clipped` is OR'd into
+`ula_transparent`), whereas Layer 2 / Tilemap / Sprites each gate their own
+pixel output.  `Renderer::apply_ula_clip(line, row)` was factored out of
+`render_frame` (verbatim, no behavioural change) so the debugger's ULA views
+can apply the identical mask — otherwise the ULA view would be the only layer
+view showing content the compositor suppresses.
+
+Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
+alongside the rest of the panel-vs-compositor parity rows, because the entry
+point exists solely for the debugger and the discriminating fixture is the
+panel itself.

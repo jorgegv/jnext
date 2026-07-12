@@ -479,6 +479,12 @@ public:
     }
     bool get_shadow_screen_en() const { return shadow_screen_en_; }
 
+    /// Which VRAM bank vram_read() is currently fetching from: true = bank 7
+    /// (shadow), false = bank 5.  Kept in sync with shadow_screen_en_ by the
+    /// setter above.  Exposed so tests can assert that the debugger's
+    /// render_scanline_bank() override is properly restored.
+    bool vram_bank7() const { return vram_use_bank7_; }
+
     // Wave-D hook: select `border_clr_tmx` (VHDL zxula.vhd:419) route for
     // border rendering instead of the standard `border_clr`. Default false
     // preserves existing behaviour; Phase-2 Wave D may flip this based on
@@ -634,13 +640,32 @@ public:
     void render_scanline(uint32_t* dst, int row, Mmu& mmu,
                          bool* border_dst = nullptr);
 
-    /// Render a single scanline from the 128K shadow screen (bank 7, page 14).
-    /// Bank 7 uses the same ZX pixel/attribute layout as bank 5 but lives in
-    /// physical pages 14-15.  The FPGA implements it as 8K BRAM (enough for
-    /// the ~7KB screen data).  Selected by port 0x7FFD bit 3.
-    /// Used by the debugger video panel; does NOT affect live rendering state.
-    /// Border-flag plumbing is unused for the debugger view (always nullptr).
-    void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu);
+    /// Render a single scanline forcing a specific VRAM bank, regardless of
+    /// the live port-0x7FFD bit-3 shadow-screen selector.
+    ///
+    /// The live `render_scanline` above follows `vram_use_bank7_`, which is
+    /// exactly right for the compositor but wrong for the debugger's two
+    /// separate ULA views: "Primary (bank 5)" must always show bank 5 and
+    /// "Shadow (bank 7)" must always show bank 7, whichever one the running
+    /// program happens to have selected.
+    ///
+    /// Bank 7 uses the same ZX pixel/attribute layout as bank 5; on real
+    /// hardware it is a dedicated 8K BRAM (VHDL bank7_ram dpram2,
+    /// zxnext.vhd:6670) and bank 5 a dedicated 16K dual-port VRAM
+    /// (bank5_ram dpram2, zxnext.vhd:6558) — `vram_read` serves both from
+    /// the wired buffers.
+    ///
+    /// Delegates to `render_scanline`, so the Timex screen mode (port 0xFF),
+    /// ULA scroll, palette selector and per-line border snapshot all apply
+    /// exactly as in the live path.  Saves/restores the live bank selector,
+    /// so it does NOT disturb emulation state.  Border-flag plumbing is
+    /// unused for the debugger view (always nullptr).
+    void render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7);
+
+    /// Shadow-screen (bank 7) convenience wrapper for render_scanline_bank.
+    void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu) {
+        render_scanline_bank(dst, row, mmu, /*use_bank7=*/true);
+    }
 
     /// Advance flash state (call once per frame after all scanlines rendered).
     void advance_flash();

@@ -204,61 +204,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
         }
 
-        // ULA clip window (NextREG 0x1A).
-        // G104 Phase 2: clip math runs at canonical 640 grid (DISP_X=64,
-        // DISP_W=512, FB_WIDTH=640) since ULA now emits native 640.
-        {
-            uint8_t cx1 = ula_.clip_x1();
-            uint8_t cx2 = ula_.clip_x2();
-            uint8_t cy1 = ula_.clip_y1();
-            uint8_t cy2 = ula_.clip_y2();
-
-            bool row_in_display = in_display;
-            int vc = screen_row;
-
-            bool y_clipped = row_in_display && (vc < cy1 || vc > cy2);
-            bool in_border_y = !row_in_display;
-
-            if (y_clipped) {
-                for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
-                    ula_line_[x] = TRANSPARENT;
-            }
-
-            if (in_border_y || y_clipped) {
-                bool clip_border_row;
-                if (in_border_y) {
-                    clip_border_row = (row < DISP_Y) ? (cy1 > 0) : (cy2 < (DISP_H - 1) || cy1 > cy2 || cy1 >= DISP_H);
-                } else {
-                    clip_border_row = true;
-                }
-                if (clip_border_row) {
-                    std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
-                }
-            }
-
-            if (row_in_display && !y_clipped) {
-                // NR 0x1A clip-x range is in 256-pixel display-coordinate
-                // space (zxnext.vhd:6779-6783); under G104 native-512
-                // each source clip-coord covers two adjacent framebuffer
-                // cells (the same VHDL-faithful pixel doubling the ULA
-                // renderer does — zxula.vhd:390-393).
-                for (int x = 0; x < DISP_W; ++x) {
-                    const int src_x = x / 2;
-                    if (src_x < cx1 || src_x > cx2)
-                        ula_line_[DISP_X + x] = TRANSPARENT;
-                }
-                bool left_clipped  = (cx1 > 0);
-                bool right_clipped = (cx2 < 255) || (cx1 > cx2);
-                if (left_clipped) {
-                    for (int x = 0; x < DISP_X; ++x)
-                        ula_line_[x] = TRANSPARENT;
-                }
-                if (right_clipped) {
-                    for (int x = DISP_X + DISP_W; x < FB_WIDTH; ++x)
-                        ula_line_[x] = TRANSPARENT;
-                }
-            }
-        }
+        // ULA clip window (NextREG 0x1A) — see Renderer::apply_ula_clip.
+        apply_ula_clip(ula_line_.data(), row);
 
         trace_current_row_ = row;
         composite_scanline(out, fb_argb);
@@ -296,6 +243,73 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 
     // Advance ULA flash state once per frame.
     ula_.advance_flash();
+}
+
+// ---------------------------------------------------------------------------
+// apply_ula_clip — mask one ULA scanline with the NR 0x1A clip window
+// ---------------------------------------------------------------------------
+//
+// Lifted verbatim out of render_frame (no behavioural change) so the debugger's
+// ULA views can apply the same mask. Layer 2 / Tilemap / Sprites each clip
+// inside their own render_scanline; the ULA does not, because in VHDL the clip
+// is a compositor-stage signal (zxnext.vhd:7104 — `ula_clipped` is OR'd into
+// `ula_transparent`), so Ula::render_scanline emits an unclipped line.
+//
+// G104 Phase 2: the clip math runs on the canonical 640 grid (DISP_X=64,
+// DISP_W=512, FB_WIDTH=640) since the ULA now emits native 640.
+
+void Renderer::apply_ula_clip(uint32_t* line, int row) const
+{
+    const uint8_t cx1 = ula_.clip_x1();
+    const uint8_t cx2 = ula_.clip_x2();
+    const uint8_t cy1 = ula_.clip_y1();
+    const uint8_t cy2 = ula_.clip_y2();
+
+    const int  screen_row     = row - DISP_Y;
+    const bool row_in_display = (screen_row >= 0 && screen_row < DISP_H);
+    const int  vc             = screen_row;
+
+    const bool y_clipped   = row_in_display && (vc < cy1 || vc > cy2);
+    const bool in_border_y = !row_in_display;
+
+    if (y_clipped) {
+        for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
+            line[x] = TRANSPARENT;
+    }
+
+    if (in_border_y || y_clipped) {
+        bool clip_border_row;
+        if (in_border_y) {
+            clip_border_row = (row < DISP_Y) ? (cy1 > 0) : (cy2 < (DISP_H - 1) || cy1 > cy2 || cy1 >= DISP_H);
+        } else {
+            clip_border_row = true;
+        }
+        if (clip_border_row) {
+            std::fill_n(line, FB_WIDTH, TRANSPARENT);
+        }
+    }
+
+    if (row_in_display && !y_clipped) {
+        // NR 0x1A clip-x range is in 256-pixel display-coordinate space
+        // (zxnext.vhd:6779-6783); under G104 native-512 each source clip-coord
+        // covers two adjacent framebuffer cells (the same VHDL-faithful pixel
+        // doubling the ULA renderer does — zxula.vhd:390-393).
+        for (int x = 0; x < DISP_W; ++x) {
+            const int src_x = x / 2;
+            if (src_x < cx1 || src_x > cx2)
+                line[DISP_X + x] = TRANSPARENT;
+        }
+        const bool left_clipped  = (cx1 > 0);
+        const bool right_clipped = (cx2 < 255) || (cx1 > cx2);
+        if (left_clipped) {
+            for (int x = 0; x < DISP_X; ++x)
+                line[x] = TRANSPARENT;
+        }
+        if (right_clipped) {
+            for (int x = DISP_X + DISP_W; x < FB_WIDTH; ++x)
+                line[x] = TRANSPARENT;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

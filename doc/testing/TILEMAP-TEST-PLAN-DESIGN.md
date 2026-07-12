@@ -501,3 +501,32 @@ Implementation priority (most impactful tests first):
 | 14: Stencil | 2 |
 | 15: Enable/below interaction | 2 |
 | **Total** | **~72** |
+
+
+## Debug render entry point (Task 22a, 2026-07-12)
+
+`Tilemap::render_scanline_debug` overrides **only** the NR 0x6B b7 enable gate
+— that is the whole point of the debugger view, which must show the layer's
+content even when the tilemap is switched off.  Everything else is left exactly
+as the compositor sees it.
+
+In particular the per-line scroll snapshots (`scroll_x_per_line_` /
+`scroll_y_per_line_`, captured by `Emulator::on_scanline` as the raster walks
+the frame) are **read, not written**.  An earlier version wrote the *live*
+`scroll_x_` / `scroll_y_` into `scroll_{x,y}_per_line_[y]` for every row it
+drew, which
+
+1. flattened every mid-frame scroll split — precisely the effect the panel is
+   most needed for; and
+2. corrupted emulation state: pausing mid-frame overwrote the already-captured
+   snapshots for rows 0..y, so the frame the compositor rendered on resume used
+   the wrong scroll for its top half.
+
+A debug view must never mutate the state it observes.
+
+| ID      | Test                                                              | Status |
+|---------|-------------------------------------------------------------------|--------|
+| DVP-06  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
+| DVP-07  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
+
+Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`).

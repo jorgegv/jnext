@@ -478,40 +478,30 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
 }
 
 // ---------------------------------------------------------------------------
-// render_scanline_screen1 — render 128K shadow screen (bank 7) for debug panel
+// render_scanline_bank — render a scanline forcing bank 5 or bank 7 (debugger)
 // ---------------------------------------------------------------------------
 //
-// Bank 7 uses the identical ZX pixel/attribute layout as bank 5, just stored
-// in physical pages 14-15.  We temporarily set vram_use_bank7_=true so that
-// all vram_read() calls inside render_display_line() go to page 14 instead of
-// page 10.  We pass STANDARD-mode addresses (0x4000-base) so that
-// render_display_line() uses pixel_base = 0x4000 | poff (the 0x3FFF mask in
-// vram_read strips that base, leaving just the 14-bit bank offset).
+// The debugger video panel has two ULA views ("Primary (bank 5)" and
+// "Shadow (bank 7)") and each must show ITS bank regardless of which one the
+// running program currently has selected via port 0x7FFD bit 3.  We therefore
+// override `vram_use_bank7_` for the duration of the call — every vram_read()
+// inside the render path then goes to the requested bank — and restore it
+// afterwards, so emulation state is untouched.
+//
+// Everything else (Timex screen mode from port 0xFF, ULA scroll, palette
+// selector, per-line border snapshot) is inherited by delegating to the live
+// render_scanline(): the debug views must be pixel-identical to what the
+// compositor produces for the selected bank, not a STANDARD-mode
+// approximation of it.  (The previous implementation open-coded a
+// STANDARD-mode-only path, so a Timex hi-colour / hi-res program's shadow
+// screen was decoded with the wrong layout.)
 
-void Ula::render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu)
+void Ula::render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7)
 {
-    const uint8_t saved_border   = border_colour_;
-    const bool    saved_bank7    = vram_use_bank7_;
-
-    if (row >= 0 && row < FB_HEIGHT)
-        border_colour_ = border_per_line_[row];
-
-    vram_use_bank7_ = true;
-
-    const int screen_row = row - DISP_Y;
-
-    if (screen_row >= 0 && screen_row < DISP_H) {
-        // STANDARD-mode addresses: pixel base 0x4000, attr base 0x5800.
-        // vram_read will map the 14-bit offsets to bank 7 (page 14).
-        const uint16_t poff     = pixel_addr_offset(screen_row, 0);
-        const uint16_t attr_row = static_cast<uint16_t>(0x5800u + (screen_row / 8) * 32);
-        render_display_line(dst, screen_row, poff, attr_row, mmu);
-    } else {
-        render_border_line(dst);
-    }
-
+    const bool saved_bank7 = vram_use_bank7_;
+    vram_use_bank7_ = use_bank7;
+    render_scanline(dst, row, mmu, /*border_dst=*/nullptr);
     vram_use_bank7_ = saved_bank7;
-    border_colour_  = saved_border;
 }
 
 // ---------------------------------------------------------------------------
