@@ -92,7 +92,10 @@ private:
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;
-    uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;  // in frames; -1 = no pending
+    uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
+    // Set once we have warned that the capture is being held back because no
+    // frame is rendering (debugger paused). Keeps the warning off every tick.
+    bool        screenshot_deferred_warned_ = false;  // in frames; -1 = no pending
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending

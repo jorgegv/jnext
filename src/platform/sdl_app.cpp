@@ -191,12 +191,19 @@ void SdlApp::run() {
         if (screenshot_countdown_ == 0)
             emulator_.renderer().set_layer_mask(screenshot_layers_);
 
+        // Frames actually rendered this tick. frames_for_tick() returns 0 when
+        // the audio queue is ahead of the card (audio_pacing.h:56), so this
+        // loop can legitimately run zero times — and then the framebuffer still
+        // holds the previous frame, composited with LAYER_ALL. Capturing that
+        // would silently ignore the user's layer selection.
+        int frames_rendered = 0;
         {
             const int frames = emulator_.fastload_active()
                                    ? 1
                                    : audio_pacing::frames_for_tick(audio_.queued_ms());
             for (int i = 0; i < frames; i++) {
                 emulator_.run_frame();
+                ++frames_rendered;
             }
         }
 
@@ -225,9 +232,17 @@ void SdlApp::run() {
 
         // Delayed screenshot: take after countdown expires.
         if (screenshot_countdown_ == 0) {
-            save_screenshot_png(screenshot_file_, fb, fb_w, fb_h);
-            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
-            screenshot_countdown_ = -1;  // done
+            if (frames_rendered > 0) {
+                save_screenshot_png(screenshot_file_, fb, fb_w, fb_h);
+                emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+                screenshot_countdown_ = -1;  // done
+            } else {
+                // No frame went through the compositor this tick (audio queue
+                // ahead of the card). Hold the countdown at 0 and capture on
+                // the next tick that actually renders, rather than writing a
+                // stale frame with the wrong layers in it.
+                emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+            }
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;
         }
