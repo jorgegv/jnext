@@ -41,7 +41,8 @@ static void print_usage(const char* prog) {
         "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
-        "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav\n"
+        "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav, .rzx\n"
+        "                       (.rzx is accepted here and plays back, as --rzx-play)\n"
         "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
         "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
         "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
@@ -431,7 +432,7 @@ int main(int argc, char* argv[]) {
                 app.set_pending_load(load_file, 100);
                 app.set_tape_realtime(true);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .tap, .tzx, .wav)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .tap, .tzx, .wav, .rzx)", ext);
                 return 1;
             }
         }
