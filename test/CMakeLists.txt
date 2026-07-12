@@ -505,6 +505,20 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_video_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_video_panel_tests COMMAND debugger_video_panel_test)
+
+    # Debugger Audio Panel test (Task 41 — "the audio panel decodes a field
+    # that does not exist"). Drives the real AudioPanel widget against a
+    # headless Emulator so the NR 0x06/0x08 stereo/AY-mode decode is under
+    # test. Needs Qt but no display — same offscreen QPA idiom as above.
+    add_executable(debugger_audio_panel_test debugger/audio_panel_test.cpp)
+    set_target_properties(debugger_audio_panel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_audio_panel_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_audio_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_audio_panel_tests COMMAND debugger_audio_panel_test)
 endif()
 
 # Pin the C locale for every registered test, so `ctest` matches what
