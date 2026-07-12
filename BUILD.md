@@ -66,7 +66,7 @@ The `make` targets pass these for you; use them when invoking CMake directly.
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `ENABLE_QT_UI` | **OFF** | Build the Qt6 native UI. `make gui-*` turns it on — a plain `cmake` without it gives the SDL frontend |
-| `ENABLE_DEBUGGER` | **ON** | Include the Qt debugger UI |
+| `ENABLE_DEBUGGER` | **ON** | Include the Qt debugger UI. It is opened from the Qt main window, so it is only reachable in a build that also has `ENABLE_QT_UI=ON` |
 | `ENABLE_TESTS` | ON | Build the unit-test binaries |
 | `USE_CCACHE` | ON | Use ccache as the compiler launcher when it is found (no-op if it is not) |
 | `CYCLE_ACCURATE` | OFF | 28 MHz cycle-accurate mode |

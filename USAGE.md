@@ -306,9 +306,9 @@ MD) follows NextREG 0x05, as on real hardware.
 
 ## The debugger
 
-The debugger opens in its own window (**View > Debugger**, Ctrl+D) and is
-included in every build unless it is explicitly disabled (see
-[BUILD.md](BUILD.md)).
+The debugger opens in its own window (**View > Debugger**, Ctrl+D). It is
+driven from the Qt6 UI, so it needs a GUI build (`make gui-release` /
+`make gui-debug`) — the SDL-only build has no way to open it.
 
 - **CPU registers** — all Z80/Z80N registers, flags (S/Z/H/P/V/N/C), halt
   state, interrupt mode, active ULA screen
