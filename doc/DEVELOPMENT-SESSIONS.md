@@ -105,4 +105,27 @@
 |        |      | output sample, discarding most beeper toggles → aliasing ("higher pitch over the tune"); it now      |
 |        |      | integrates over each sample interval. Two speculative fixes built, measured as no-ops, deleted.      |
 |        |      |                                                                                                      |
-| TOTAL: | 328h |                                                                                                      |
+| 12/7   | 6h   | Tasks 32/35/37: the harness could silently run FEWER tests than it claimed — three suites had        |
+|        |      | vanished from the counts, all found by accident. Suites are now DECLARED (test/unit-tests.conf +     |
+|        |      | the two regression manifests) with per-suite row counts and manifest-count pins, cross-checked       |
+|        |      | against what CMake registered; anything missing is a loud refusal. cpu_int_pulse_test +              |
+|        |      | cpu_z80n_im2_regressions_test ran for the FIRST TIME (63 assertions, never once executed).           |
+|        |      | Four review rounds, each finding real bugs in the harness itself (a failing suite aborted the whole  |
+|        |      | run; the completeness check was a tautology; two guards were dead code), so the harness is now       |
+|        |      | itself under test: test/harness-selftest.sh, 26 cases, run by every regression.                      |
+|        |      | Also: LC_ALL=C pinned everywhere — Qt's QApplication calls setlocale(), so a strerror assertion      |
+|        |      | FAILed on a Spanish desktop and passed on an English one.                                            |
+| 12/7   | 4h   | Task 40 (beast.nex): FOUR reported symptoms, TWO causes, and two of the four were not bugs.          |
+|        |      | (1) The debugger read NextReg::cached() — the last byte written to a NextREG number — but Layer 2's  |
+|        |      | enable is one FF that port 0x123B also latches, so it reported Layer 2 OFF while showing its         |
+|        |      | graphics. Systemic: the NextREG panel showed all 256 registers from the stale cache. The first fix   |
+|        |      | made it WORSE (NR 0x2C/0x2E reads LATCH the Pi-I2S sample, and the panel sweeps 256 registers 4 Hz   |
+|        |      | while the guest runs — the debugger was writing to the machine), hence NextReg::peek().              |
+|        |      | (2) The REAL one: run_frame() RESTARTED a frame the debugger had paused instead of resuming it,      |
+|        |      | rewinding the Copper PC and clearing the per-scanline change logs — so beast's Copper-driven sky     |
+|        |      | gradient vanished, alternating between the panel and the emulator window on each step. Both halves   |
+|        |      | were the same disease: the debugger was altering the machine it was looking at.                      |
+|        |      | NOT bugs: the solid Background panel (NR 0x4A really is 0x00) and the garbage bank-5 ULA view        |
+|        |      | (beast draws in the shadow screen). Saying so was half the value.                                    |
+|        |      |                                                                                                      |
+| TOTAL: | 338h |                                                                                                      |

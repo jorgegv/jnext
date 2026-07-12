@@ -1,5 +1,30 @@
 # ChangeLog
 
+## v0.97.0 (2026-07-13)
+
+### User Features
+- Run a program by name: `jnext game.tap` now works exactly like `--load game.tap`
+
+### Developer Features
+- Debugger video panel gains "All layers" (the composed picture) and "Background colour" views
+- `--delayed-screenshot-layers` captures any subset of ULA / Layer 2 / sprites / tilemap
+- The two ULA views now say which screen bank the ULA is actually reading
+- Per-subsystem log levels, e.g. `--log-level cpu=trace,video=warn`
+
+### Bug Fixes
+- Stepping through a frame no longer corrupts the emulation: the Copper and every raster split were being wiped
+- Debugger no longer reports Layer 2 disabled when a program enables it through port 0x123B
+- Debugger's NextREG panel no longer disturbs the Pi-I2S sample the program is about to read
+- Debugger video panels fixed: wrong memory bank, no per-scanline replay, and one panel corrupted live scroll state
+- A screenshot that cannot be written is now an error with a non-zero exit, not a silent success
+
+### Internal JNEXT Development
+- Test suites are declared in config files with pinned row counts: a missing test is a loud failure, never a silent skip
+- Two unit-test suites that had never once run now run — 63 assertions no count had ever included
+- The test harness is itself under test: 26 self-test cases, run by every regression
+- ccache wired into the build: a clean rebuild drops from 65 s to 9 s
+- Test results no longer depend on the user's locale
+
 ## v0.96.0 (2026-07-12)
 
 ### Bug Fixes

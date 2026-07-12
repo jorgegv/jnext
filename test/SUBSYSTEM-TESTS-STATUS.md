@@ -26,7 +26,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Multiface (core)      |       49 |       49 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      197 |      197 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Compositor            |      143 |      143 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Compositor            |      181 |      181 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      106 |      106 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -41,7 +41,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       62 |       57 |      0 |       5 |     91% | 🟡 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 5 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-FAT/INI (G46/G47/G59/G60). |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Video Panel  |       35 |       35 |      0 |       0 |    100% | 🟢 Task 22a (2026-07-12): new suite. Panel-vs-compositor parity — rom_in_sram bank shift, bank-pinned ULA views, per-scanline replay, raw-VC→fb-row. |
-| **Total**             | **4172** | **4134** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
+| Debugger Video Panel  |       80 |       80 |      0 |       0 |    100% | 🟢 Task 22a (2026-07-12): new suite. Panel-vs-compositor parity — rom_in_sram bank shift, bank-pinned ULA views, per-scanline replay, raw-VC→fb-row. |
+| **Total**             | **4255** | **4217** |  **0** |  **38** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
