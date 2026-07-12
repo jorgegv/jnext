@@ -38,6 +38,10 @@ public:
     /// Force re-render on the next refresh() call (e.g. after a tab switch).
     void invalidate() { last_vc_ = -2; }
 
+    /// The rendered layer image (test seam — see test/debugger/video_panel_test.cpp).
+    /// Width is 640 for every layer under G104; height is NATIVE_H.
+    const QImage& image() const { return image_; }
+
     /// Layout constants shared by all VideoLayerView instances.
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;
@@ -73,6 +77,20 @@ public:
 
     /// Update display with current video state.
     void refresh();
+
+    /// Convert the raw raster vertical counter into the framebuffer row the
+    /// layer views index.
+    ///
+    /// G164v2 / Task 13: `fb_row = raw_vc - vblank_top`, where vblank_top is
+    /// the number of raw-VC lines above the framebuffer's top border — 32 on
+    /// the NEXT family / 48K / 128K / +3 50 Hz, 48 on Pentagon, 8 on the 60 Hz
+    /// overrides (VideoTiming::vblank_top()).  Renderer::render_frame,
+    /// Emulator::on_scanline and every per-scanline change log already index
+    /// by fb_row; the panel must too.
+    ///
+    /// Returns a value < 0 while the raster is still in the top vblank (no row
+    /// has been drawn yet), and is clamped to FB_HEIGHT-1 at the bottom.
+    static int fb_row_for_vc(int raw_vc, int vblank_top);
 
     QSize sizeHint() const override { return QSize(600, 600); }
 

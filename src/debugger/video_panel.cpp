@@ -89,6 +89,67 @@ static void fill_checker(uint32_t* dst, int row, int width)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Per-scanline state replay (mirrors Renderer::render_frame)
+// ---------------------------------------------------------------------------
+//
+// Every video subsystem keeps a per-frame change log of the register writes
+// the Z80 / Copper made mid-frame, tagged with the framebuffer row they landed
+// on.  `Renderer::render_frame` rewinds each log to the frame baseline and
+// replays it line by line, so row N is composited with the register state that
+// was live when the raster crossed row N.  That is what produces raster splits
+// — beast.nex's Layer 2 parallax bands, its per-line palette gradient,
+// parallax.nex's DMA-multiplexed sprites, tilemap scroll splits.
+//
+// The panel used to render every row with the END-OF-PAUSE live register
+// state, so all of those effects collapsed to a single flat value and the
+// panel showed something the compositor never draws.  The compositor is the
+// oracle for "what should this layer look like", so the panel replays the
+// frame exactly the same way.
+//
+// This is state-preserving.  Each subsystem's live register state is, by
+// construction, equal to the last entry in its change log (every write both
+// mutates the live register and appends a log entry).  So rewind → apply rows
+// 0..FB_HEIGHT-1 → flush-remaining walks the cursor to the end of the log and
+// leaves every live register exactly where it started; the render cursors are
+// reset by the next render_frame's rewind anyway.  It is the same round trip
+// render_frame performs once per frame — no more, no less.  We only ever do it
+// while the emulator is PAUSED (refresh() early-returns for vc < 0), so there
+// is no concurrent emulation to perturb.
+
+static void replay_rewind(Emulator& emu)
+{
+    emu.palette().rewind_to_baseline();
+    emu.layer2().rewind_to_baseline();
+    emu.sprites().rewind_to_baseline();
+    emu.ula().rewind_to_baseline();            // port 0xFF Timex screen-mode
+    emu.ula().rewind_scroll_to_baseline();     // ULA scroll
+    emu.ula().palsel_rewind_to_baseline();     // ULA active-palette selector
+    emu.tilemap().rewind_nr6b_to_baseline();   // NR 0x6B
+}
+
+static void replay_line(Emulator& emu, int row)
+{
+    emu.palette().apply_changes_for_line(row);
+    emu.layer2().apply_changes_for_line(row);
+    emu.sprites().apply_changes_for_line(row);
+    emu.ula().apply_changes_for_line(row);
+    emu.ula().apply_scroll_changes_for_line(row);
+    emu.ula().palsel_apply_changes_for_line(row);
+    emu.tilemap().apply_nr6b_changes_for_line(row);
+}
+
+static void replay_restore(Emulator& emu)
+{
+    emu.palette().flush_remaining_changes();
+    emu.layer2().flush_remaining_changes();
+    emu.sprites().flush_remaining_changes();
+    emu.ula().flush_remaining_changes();
+    emu.ula().flush_remaining_scroll_changes();
+    emu.ula().palsel_flush_remaining_changes();
+    emu.tilemap().flush_remaining_nr6b_changes();
+}
+
 VideoLayerView::VideoLayerView(Layer layer, const char* title,
                                Emulator* emulator, QWidget* parent)
     : QWidget(parent)
@@ -197,7 +258,26 @@ void VideoLayerView::render_to_image(int vc)
         image_ = QImage(layer_w, NATIVE_H, QImage::Format_ARGB32);
     }
 
+    // Layer 2 fetches its pixels straight out of physical SRAM, so it needs
+    // the same bank transform the compositor applies (renderer.cpp: the
+    // mmu.rom_in_sram() argument to Layer2::render_scanline).  On a Next the
+    // ROM lives in SRAM and every ZX RAM bank is shifted by +16 16K-banks
+    // (VHDL layer2.vhd:172); without this the panel read Layer 2 pixels from
+    // banks 0..N instead of 16..N+16 — i.e. from unrelated (usually zeroed)
+    // SRAM, which is why the Layer 2 view rendered solid black on every Next
+    // program.
+    const bool rom_in_sram = emu.mmu().rom_in_sram();
+
+    // Replay the frame line by line, exactly as Renderer::render_frame does
+    // (see the replay_* helpers above).  Rows past the paused raster position
+    // have not been drawn yet this frame, but we still have to walk the
+    // change-log cursors across them so replay_restore() puts every live
+    // register back where it was.
+    replay_rewind(emu);
+
     for (int row = 0; row < 256; ++row) {
+        replay_line(emu, row);
+
         uint32_t* dst = reinterpret_cast<uint32_t*>(image_.scanLine(row));
 
         if (row > vc) {
@@ -210,24 +290,31 @@ void VideoLayerView::render_to_image(int vc)
 
         switch (layer_) {
             case Layer::ULA_PRIMARY:
-                emu.renderer().ula().render_scanline(dst, row, emu.mmu());
+                // Force bank 5: the live render_scanline() follows the
+                // port-0x7FFD b3 shadow selector, so with the shadow screen
+                // active the "Primary (bank 5)" view used to show bank 7.
+                emu.ula().render_scanline_bank(dst, row, emu.mmu(),
+                                               /*use_bank7=*/false);
                 break;
 
             case Layer::ULA_SHADOW:
-                emu.renderer().ula().render_scanline_screen1(dst, row, emu.mmu());
+                emu.ula().render_scanline_bank(dst, row, emu.mmu(),
+                                               /*use_bank7=*/true);
                 break;
 
             case Layer::LAYER2_ACTIVE:
                 // G104 Phase 3: render_scanline_debug always emits 640.
+                // active_bank() is re-read per row — it is itself replayed
+                // per scanline (Layer2 bank change-log).
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().active_bank());
+                    emu.layer2().active_bank(), rom_in_sram);
                 break;
 
             case Layer::LAYER2_SHADOW:
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().shadow_bank());
+                    emu.layer2().shadow_bank(), rom_in_sram);
                 break;
 
             case Layer::SPRITES:
@@ -245,6 +332,8 @@ void VideoLayerView::render_to_image(int vc)
             }
         }
     }
+
+    replay_restore(emu);
 }
 
 void VideoLayerView::paintEvent(QPaintEvent*)
@@ -311,6 +400,13 @@ VideoPanel::VideoPanel(Emulator* emulator, QWidget* parent)
     , emulator_(emulator)
 {
     create_ui();
+}
+
+int VideoPanel::fb_row_for_vc(int raw_vc, int vblank_top)
+{
+    // See the declaration in video_panel.h for the G164v2 rationale.
+    const int fb_row = raw_vc - vblank_top;
+    return std::min(fb_row, Renderer::FB_HEIGHT - 1);
 }
 
 void VideoPanel::create_ui()
@@ -522,12 +618,29 @@ void VideoPanel::refresh()
     if (!emulator_) return;
 
     // ── Raster position (only when paused) ───────────────────────────────────
-    // Raw VC is 0..LINES_PER_FRAME-1 (0..319); clamp to FB_HEIGHT-1 (0..255)
-    // since only those scanlines are visible and rendered in the layer views.
+    //
+    // paused_vc() is the RAW vertical counter (0..lines_per_frame-1) — that is
+    // what the HC/VC readout must show, since it is the hardware raster
+    // counter.  The layer views, however, index FRAMEBUFFER ROWS, and since
+    // G164v2 (Task 13) the mapping is
+    //
+    //     fb_row = raw_vc - VideoTiming::vblank_top()
+    //
+    // (32 on the NEXT family / 48K / 128K / +3 50 Hz, 48 on Pentagon, 8 on the
+    // 60 Hz overrides).  Renderer::render_frame, Emulator::on_scanline and
+    // every per-scanline change log already work in fb_row space.  The panel
+    // did not: it fed the raw VC straight in as a row index, so on a Next the
+    // "already rendered" cut-off and the red raster marker sat 32 rows below
+    // the true raster position (and during the top vblank, raw VC 0..31, it
+    // claimed rows the raster had not reached yet).
+    //
+    // fb_row < 0  → raster is still in the top vblank: nothing drawn yet.
+    // fb_row is clamped to FB_HEIGHT-1 for the bottom border / bottom vblank.
     int vc = -1;
     if (emulator_->debug_state().paused()) {
-        vc = std::min(emulator_->paused_vc(), Renderer::FB_HEIGHT - 1);
-        vc_label_->setText(QString::asprintf("%3d", vc));
+        const int raw_vc = emulator_->paused_vc();
+        vc = fb_row_for_vc(raw_vc, emulator_->video_timing().vblank_top());
+        vc_label_->setText(QString::asprintf("%3d", raw_vc));
         hc_label_->setText(QString::asprintf("%3d", emulator_->paused_hc()));
     } else {
         vc_label_->setText("---");

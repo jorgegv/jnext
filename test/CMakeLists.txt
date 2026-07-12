@@ -488,3 +488,21 @@ if(GTest_FOUND)
         gtest_discover_tests(jnext_tests)
     endif()
 endif()
+
+# Debugger Video Panel test (Task 22a — "debugger video panels are broken").
+# Drives the real VideoLayerView / VideoPanel widgets against a headless
+# Emulator, so the panel's bank selection, rom_in_sram shift, per-scanline
+# replay and raw-VC→framebuffer-row conversion are all under test. Needs Qt
+# (the panel is a QWidget) but no display — main() forces the offscreen QPA
+# platform. Gated on ENABLE_DEBUGGER, which builds jnext_debugger.
+if(ENABLE_DEBUGGER)
+    add_executable(debugger_video_panel_test debugger/video_panel_test.cpp)
+    set_target_properties(debugger_video_panel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_video_panel_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_video_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_video_panel_tests COMMAND debugger_video_panel_test)
+endif()
