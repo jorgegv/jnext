@@ -142,6 +142,14 @@ static const uint32_t PIX_S   = opaque_tag(0x00, 0x00, 0xCC);
 static const uint32_t PIX_TM  = opaque_tag(0xDD, 0x00, 0xDD);
 static constexpr uint32_t TRANSP = 0x00000000u;
 
+// Channel extraction from ARGB, mirroring the compositor's own
+// argb_r3/argb_g3/argb_b2 (file-static in renderer.cpp). Used by the LMASK
+// stencil rows to compute the VHDL AND-branch oracle (zxnext.vhd:7113
+// `stencil_rgb <= ula_rgb and tm_rgb`) rather than hard-coding a constant.
+static uint8_t argb_r3_t(uint32_t argb) { return (argb >> 21) & 7; }
+static uint8_t argb_g3_t(uint32_t argb) { return (argb >> 13) & 7; }
+static uint8_t argb_b2_t(uint32_t argb) { return (argb >>  6) & 3; }
+
 static void clear_layers(Renderer& r) {
     for (int i = 0; i < W; ++i) {
         r.ula_line_[i]     = TRANSP;
@@ -2993,23 +3001,94 @@ static void test_LMASK() {
                      with_spr, PIX_S, no_spr, PIX_ULA));
     }
 
-    // LMASK-C09 — stencil (NR 0x68 b0) is gated on tm_en (VHDL 7130), so
-    // masking 'tiles' out must take the stencil path down with it. Without
-    // that gate, ULA-AND-(transparent TM) would blank the ULA too and
-    // '--delayed-screenshot-layers ula' would come back empty.
-    {
+    // LMASK-C09-xy — STENCIL, the full 2x2 mask matrix (x = ula masked,
+    // y = tiles masked). VHDL zxnext.vhd:7130 selects the AND-branch only
+    // when BOTH enables are set:
+    //     if ula_stencil_mode_2='1' and ula_en_2='1' and tm_en_2='1'
+    // and stencil_rgb is transparent whenever EITHER input is (7112). So
+    // masking either layer away must drop out of the AND-branch into the
+    // ordinary ulatm merge (7134-7135) and show the survivor — not erase it.
+    // Testing only one off-diagonal cell is what let the ula_en half of the
+    // gate go missing in the first place, so all four cells are pinned.
+    //
+    // Fixture: stencil on, tm_en on, ULA and TM both opaque, mode 000.
+    auto stencil_cell = [&](uint8_t mask) -> uint32_t {
         clear_layers(r);
         r.set_layer_priority(0);
         r.stencil_mode_    = true;
         r.tm_enabled_      = true;
         r.ula_line_[0]     = PIX_ULA;
         r.tilemap_line_[0] = PIX_TM;
-        r.set_layer_mask(Renderer::LAYER_ULA);
-        const uint32_t got = composite_one(r, FB);
-        check("LMASK-C09",
-              "stencil mode is disabled along with the tilemap when 'tiles' is masked "
-              "out, so 'ula' alone still shows the ULA (VHDL 7130)",
+        r.set_layer_mask(mask);
+        return composite_one(r, FB);
+    };
+
+    // Cell 00 — neither masked: the AND-branch is live, output is the
+    // per-channel bitwise AND of the two RGBs (VHDL 7112-7113).
+    {
+        const uint8_t  and_rgb = static_cast<uint8_t>(
+            ((argb_r3_t(PIX_ULA) & argb_r3_t(PIX_TM)) << 5) |
+            ((argb_g3_t(PIX_ULA) & argb_g3_t(PIX_TM)) << 2) |
+             (argb_b2_t(PIX_ULA) & argb_b2_t(PIX_TM)));
+        const uint32_t exp = Renderer::rrrgggbb_to_argb(and_rgb);
+        const uint32_t got = stencil_cell(Renderer::LAYER_ALL);
+        check("LMASK-C09-00",
+              "stencil, neither layer masked -> AND-branch live, ULA AND TM "
+              "(VHDL 7130, 7112-7113)",
+              got == exp, DETAIL("got=0x%08X exp=0x%08X", got, exp));
+    }
+
+    // Cell 01 — 'tiles' masked (tm_en=0 equivalent): AND-branch off, the
+    // ulatm merge shows the ULA. ('--delayed-screenshot-layers ula')
+    {
+        const uint32_t got = stencil_cell(Renderer::LAYER_ULA);
+        check("LMASK-C09-01",
+              "stencil, 'tiles' masked -> AND-branch off (tm_en=0), ulatm merge "
+              "shows the ULA (VHDL 7130, 7134-7135)",
               got == PIX_ULA, DETAIL("got=0x%08X exp=0x%08X", got, PIX_ULA));
+    }
+
+    // Cell 10 — 'ula' masked (ula_en=0 equivalent): AND-branch off, the
+    // ulatm merge shows the TILE. This is the cell the first cut of the
+    // feature got wrong — it kept the AND-branch selected, stencil_transparent
+    // went high because ula_transparent was, and the tile vanished into the
+    // fallback colour. ('--delayed-screenshot-layers tiles')
+    {
+        const uint32_t got = stencil_cell(Renderer::LAYER_TILES);
+        check("LMASK-C09-10",
+              "stencil, 'ula' masked -> AND-branch off (ula_en=0), ulatm merge "
+              "shows the TILE, NOT the fallback (VHDL 7130, 7134-7135)",
+              got == PIX_TM,
+              DETAIL("got=0x%08X exp=0x%08X (fallback would be 0x%08X)",
+                     got, PIX_TM, FB));
+    }
+
+    // Cell 11 — both masked: AND-branch off and both inputs transparent, so
+    // the ulatm merge is transparent too and the NR 0x4A fallback shows.
+    {
+        const uint32_t got = stencil_cell(Renderer::LAYER_LAYER2);
+        check("LMASK-C09-11",
+              "stencil, both 'ula' and 'tiles' masked -> ulatm merge transparent, "
+              "NR 0x4A fallback (VHDL 7214)",
+              got == FB, DETAIL("got=0x%08X exp_fallback=0x%08X", got, FB));
+    }
+
+    // LMASK-C09-SPR — the failing cell again, but with the mask the CLI
+    // actually produces for "everything except the ULA"
+    // (--delayed-screenshot-layers layer2,sprites,tiles): the tile must
+    // still survive. Guards against the gate being fixed only for the
+    // single-layer spelling.
+    {
+        uint8_t     mask = 0;
+        std::string err;
+        const bool parsed = Renderer::parse_layer_mask("layer2,sprites,tiles", mask, err);
+        const uint32_t got = stencil_cell(mask);
+        check("LMASK-C09-SPR",
+              "stencil, CLI mask 'layer2,sprites,tiles' (i.e. only 'ula' excluded) -> "
+              "tile survives (VHDL 7130)",
+              parsed && got == PIX_TM,
+              DETAIL("parsed=%d mask=0x%02X got=0x%08X exp=0x%08X",
+                     parsed ? 1 : 0, mask, got, PIX_TM));
     }
 
     // LMASK-C10 — the L2 priority bit (palette b15) promotes L2 above the

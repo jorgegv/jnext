@@ -698,9 +698,40 @@ elements, unknown names, wrong case and double-selection (including
 | LMASK-C06 | A selected-but-transparent layer does not resurrect the masked ones | ULA/S/TM opaque, L2 transparent, mask = `layer2` | NR 0x4A fallback | 7214 |
 | LMASK-C07 | Excluding `ula` removes the BORDER as well | border cell painted by ULA, mask = `layer2` | fallback colour (== hardware `ula_en=0`) | 7103 |
 | LMASK-C08 | `ula_border_2` is raster geometry, not an enable: the mode-100 border exception still fires with the ULA masked | border + opaque sprite, mask = `ula,sprites` vs `ula` | sprite wins; sprite masked ⇒ ULA wins | 7266 |
-| LMASK-C09 | Stencil is gated on `tm_en`, so masking `tiles` disables it | stencil=1, tm_en=1, ULA+TM opaque, mask = `ula` | ULA pixel (not ULA AND transparent-TM) | 7130 |
 | LMASK-C10 | Masking `layer2` cancels its priority-bit promotion over sprites | L2 opaque with palette b15, sprite opaque, mask = `sprites` | sprite wins | 7220 |
 | LMASK-C11 | Blend mode 110: masking `ula` zeroes the `mix_rgb` contribution | ULA+L2 opaque, priority 110, blend 00, mask = `layer2` | mixer emits L2 unchanged | 7101, 7122, 7288-7298 |
+
+#### LMASK-C09 — the stencil 2×2 matrix (mask-ula × mask-tiles)
+
+Enumerated in full, deliberately. VHDL zxnext.vhd:7130 takes the stencil
+AND-branch only when **both** enables are set:
+
+```vhdl
+if ula_stencil_mode_2 = '1' and ula_en_2 = '1' and tm_en_2 = '1' then
+   ula_final_rgb <= stencil_rgb;      -- ula_rgb and tm_rgb   (7113)
+else
+   ula_final_rgb <= ulatm_rgb;        -- ordinary merge       (7135)
+```
+
+and `stencil_rgb` is transparent whenever **either** input is (7112). So
+masking either layer away must drop out of the AND-branch and show the
+survivor — never erase it. The first cut of this feature gated stencil on
+`tm_en` only; the `ula_en` half was missing, and the miss was invisible
+because only one off-diagonal cell had a test. All four cells are pinned now.
+Fixture for every cell: stencil on, `tm_en` on, ULA and TM both opaque, mode 000.
+
+| ID | mask | Meaning | Expected | VHDL |
+|----|------|---------|----------|------|
+| LMASK-C09-00 | `all` | neither masked | AND-branch live: ULA `and` TM, per channel | 7130, 7112-7113 |
+| LMASK-C09-01 | `ula` | `tiles` masked (≡ tm_en=0) | AND-branch off → ulatm merge shows the **ULA** | 7130, 7134-7135 |
+| LMASK-C09-10 | `tiles` | `ula` masked (≡ ula_en=0) | AND-branch off → ulatm merge shows the **TILE**, *not* the fallback | 7130, 7134-7135 |
+| LMASK-C09-11 | `layer2` | both masked | ulatm merge transparent → NR 0x4A fallback | 7214 |
+| LMASK-C09-SPR | `layer2,sprites,tiles` | the mask the CLI actually builds for "everything except the ULA" | tile survives (guards against fixing only the single-layer spelling) | 7130 |
+
+`LMASK-C09-10` and `LMASK-C09-SPR` are the discriminative rows: they **fail**
+against a compositor whose stencil gate omits `ula_en` (the tile is composited
+as the fallback colour) and pass once it is present. Screenshot-level twin:
+`stencil-layers-tiles` (see below).
 
 ## Test Count Summary
 
@@ -720,8 +751,8 @@ elements, unknown names, wrong case and double-selection (including
 | BLANK (output blanking)            |  4 |
 | PAL (palette integration)          |  6 |
 | RST (reset)                        |  4 |
-| LMASK (host layer mask, Task 22b)  | 34 |
-| **Total**                          |**147** |
+| LMASK (host layer mask, Task 22b)  | 38 |
+| **Total**                          |**151** |
 
 ## Open Questions (Honest)
 
