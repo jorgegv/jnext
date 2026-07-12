@@ -497,6 +497,79 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# Third route by which a requested screenshot can fail to appear (Task 34): the
+# capture IS taken, but the PNG cannot be WRITTEN (missing directory, no
+# permission, disk full). save_screenshot_png() returned false and every caller
+# threw the result away, so jnext exited 0 with no PNG. Same contract as the two
+# tests above: error log + non-zero exit, each with a positive control.
+#
+#   screenshot-io-func     headless — unwritable path (directory does not exist)
+#   screenshot-io-qt-func  GUI (Qt, offscreen) — same, through the Qt frontend
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-io-func'; then
+    printf "  %-25s " "[screenshot-io-func]"
+    bad_png="$TMP_DIR/no-such-dir/io.png"     # parent directory does not exist
+    png_ok="$TMP_DIR/io-ok.png"
+    rm -rf "$TMP_DIR/no-such-dir"; rm -f "$png_ok"
+
+    if out=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-screenshot "$bad_png" --delayed-screenshot-frames 60 \
+                --delayed-automatic-exit 5 2>&1)
+    then io_rc=0; else io_rc=1; fi
+
+    # Positive control: identical run, writable path — must write a PNG, exit 0.
+    if timeout --foreground --kill-after=5s 60s "$JNEXT" --headless \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-screenshot "$png_ok" --delayed-screenshot-frames 60 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then ioctrl_rc=0; else ioctrl_rc=1; fi
+
+    if [[ "$io_rc" -ne 0 ]] && [[ ! -f "$bad_png" ]] \
+       && echo "$out" | grep -q "FAILED to write" \
+       && echo "$out" | grep -q "No such file or directory" \
+       && [[ "$ioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
+        echo -e "${GREEN}PASS${RESET} (unwritable path: error+reason, exit!=0, no PNG; control writes one)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (io_rc=$io_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$ioctrl_rc)"
+        fail=$((fail + 1))
+    fi
+fi
+
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-io-qt-func'; then
+    printf "  %-25s " "[screenshot-io-qt-func]"
+    bad_png="$TMP_DIR/no-such-dir-qt/io.png"  # parent directory does not exist
+    png_ok="$TMP_DIR/io-qt-ok.png"
+    rm -rf "$TMP_DIR/no-such-dir-qt"; rm -f "$png_ok"
+
+    # 120 s timeout, not the 60 s used elsewhere: a Qt-offscreen boot to frame 60
+    # takes ~28 s on an idle box, and the whole point of this test is that a
+    # non-zero exit means "the PNG failed to write" — a timeout kill would be
+    # indistinguishable from the very failure being asserted. Give it headroom.
+    if out=$(QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 120s "$JNEXT" \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-screenshot "$bad_png" --delayed-screenshot-frames 60 \
+                --delayed-automatic-exit 5 2>&1)
+    then qio_rc=0; else qio_rc=1; fi
+
+    if QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 120s "$JNEXT" \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-screenshot "$png_ok" --delayed-screenshot-frames 60 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then qioctrl_rc=0; else qioctrl_rc=1; fi
+
+    if [[ "$qio_rc" -ne 0 ]] && [[ ! -f "$bad_png" ]] \
+       && echo "$out" | grep -q "FAILED to write" \
+       && echo "$out" | grep -q "No such file or directory" \
+       && [[ "$qioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
+        echo -e "${GREEN}PASS${RESET} (Qt unwritable path: error+reason, exit!=0, no PNG; control writes one)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (qt_io_rc=$qio_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$qioctrl_rc)"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests
 REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
 if [[ -x "$REWIND_TEST" ]]; then

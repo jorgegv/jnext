@@ -327,10 +327,20 @@ void QtApp::on_frame_tick() {
     if (screenshot_countdown_ == 0) {
         if (frames_rendered > 0) {
             // The framebuffer holds a frame composited with the mask armed
-            // above — capture it.
-            save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
-                                emulator_.get_framebuffer_width(),
-                                emulator_.get_framebuffer_height());
+            // above — capture it. If the write fails (missing directory, no
+            // permission, disk full) the PNG the user asked for does not
+            // exist, which is the same failure as never taking it at all:
+            // error + non-zero exit, per QtApp::shutdown()'s contract.
+            // save_screenshot_png() has already logged WHY.
+            if (!save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
+                                     emulator_.get_framebuffer_width(),
+                                     emulator_.get_framebuffer_height())) {
+                Log::platform()->error(
+                    "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
+                    "see the error above. Exiting non-zero.",
+                    screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+                exit_code_ = 1;
+            }
             emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
             screenshot_countdown_ = -1;  // done
             screenshot_deferred_warned_ = false;

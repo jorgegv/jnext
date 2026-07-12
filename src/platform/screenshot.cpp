@@ -3,13 +3,19 @@
 #include <png.h>
 #include <vector>
 #include <cstdio>
+#include <cerrno>
+#include <cstring>
 
 bool save_screenshot_png(const std::string& path,
                          const uint32_t* framebuffer,
                          int width, int height) {
     FILE* fp = fopen(path.c_str(), "wb");
     if (!fp) {
-        Log::platform()->error("screenshot: cannot open '{}'", path);
+        // Name the path AND the reason: "cannot open" alone leaves the user
+        // guessing between a missing directory, a permission problem and a
+        // read-only mount.
+        Log::platform()->error("screenshot: cannot open '{}' for writing: {}",
+                               path, std::strerror(errno));
         return false;
     }
 
@@ -27,10 +33,21 @@ bool save_screenshot_png(const std::string& path,
         return false;
     }
 
+    // libpng longjmps here when a write fails MID-STREAM, i.e. only when stdio
+    // actually issues a write(2) while rows are still being emitted.
+    //
+    // KNOWN GAP, deliberate: this does NOT cover the usual disk-full case. A
+    // 640x512 screenshot compresses to a few KB, so it fits inside glibc's stdio
+    // buffer and no write(2) happens until the final flush — which is inside
+    // fclose() below, whose result we do not check. On a genuinely full disk the
+    // likely outcome is therefore a truncated PNG reported as "saved", exit 0.
+    // Judged not worth the complexity (disk-full is very unlikely); the failure
+    // this code DOES catch reliably is an unwritable path, at the fopen() above.
     if (setjmp(png_jmpbuf(png))) {
         png_destroy_write_struct(&png, &info);
         fclose(fp);
-        Log::platform()->error("screenshot: PNG write error");
+        Log::platform()->error("screenshot: PNG write error on '{}': {}",
+                               path, std::strerror(errno));
         return false;
     }
 
