@@ -7,6 +7,15 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
+# Every recipe runs in the C locale. Two reasons, both about not lying:
+#  - builds: compiler/linker diagnostics stay in English (greppable, quotable).
+#  - tests:  a test's verdict must depend on the code, not on the user's LANG.
+#    Qt's QApplication calls setlocale(LC_ALL, "") on construction, which localises
+#    strerror() — screenshot-io-qt-func greps for "No such file or directory" and
+#    duly FAILed on a Spanish desktop while its headless twin (no QApplication)
+#    passed. LC_ALL overrides LANG, so this holds regardless of the caller's env.
+export LC_ALL := C
+
 # ANSI color palette (matches user prompt theme: 256-color mode)
 RESET     := \033[0m
 BOLD      := \033[1m
@@ -23,7 +32,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test \
+       kloc-count regression unit-test harness-selftest worktree-bootstrap \
        bump bump-patch bump-minor bump-major version
 .SILENT:
 
@@ -113,77 +122,19 @@ gui-clean: gui-debug-clean gui-release-clean
 # Remove all build directories (debug/release/gui + unit-test)
 clean: debug-clean release-clean gui-clean unit-test-clean
 
-# Run the full regression test suite (FUSE Z80 opcodes + screenshot tests)
-regression:
+# Run the full regression test suite (screenshot + functional tests)
+# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
+# `make clean` deletes it. It used to vanish from the suite with no row printed.
+regression: unit-test-build
 	bash test/00regression/regression.sh
 
-# Run all subsystem unit tests in parallel (rebuilds test binaries first if sources changed)
+# Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
 unit-test: unit-test-build
-	@BUILD=build; \
-	TMPDIR=$$(mktemp -d); \
-	SUMMARY=$$BUILD/test-summary.tsv; \
-	rm -f $$SUMMARY; \
-	TESTS="fuse_z80_test z80n_test rewind_test copper_test copper_integration_test mmu_test mmu_integration_test nextreg_test \
-	       nextreg_integration_test input_test input_integration_test phantom_typist_test ctc_test ctc_interrupts_test layer2_test \
-	       uart_test uart_integration_test divmmc_test multiface_test sdcard_test sd_rom_extractor_test fat32_image_test sdcard_provisioner_test sprites_test compositor_test compositor_integration_test ula_test ula_integration_test \
-	       floating_bus_test videotiming_test contention_test port_test audio_test audio_nextreg_test audio_port_dispatch_test audio_pacing_test log_test log_gate_test dma_test tilemap_test nmi_test nmi_integration_test profiler_test \
-	       debugger_video_panel_test"; \
-	for t in $$TESTS; do \
-		bin="$$BUILD/test/$$t"; \
-		if [ ! -x "$$bin" ]; then continue; fi; \
-		( \
-			case $$t in \
-				fuse_z80_test) $$bin $$BUILD/test/fuse ;; \
-				z80n_test)     $$bin $$BUILD/test/z80n  ;; \
-				*)             $$bin                    ;; \
-			esac >$$TMPDIR/$$t.out 2>&1; \
-			echo $$? >$$TMPDIR/$$t.rc \
-		) & \
-	done; \
-	wait; \
-	printf "\n$(BOLD)Subsystem unit test results:$(RESET)\n\n"; \
-	suites_pass=0; suites_fail=0; suites_skip=0; \
-	sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0; \
-	for t in $$TESTS; do \
-		rc_file="$$TMPDIR/$$t.rc"; \
-		if [ ! -f "$$rc_file" ]; then \
-			printf "  $(CYAN)%-34s$(RESET) $(BADGE_SKIP) SKIP $(RESET)  (not built)\n" "$$t"; \
-			suites_skip=$$((suites_skip + 1)); \
-			continue; \
-		fi; \
-		rc=$$(cat $$rc_file); \
-		line=$$(grep '^Total:' $$TMPDIR/$$t.out | tail -1); \
-		if [ -z "$$line" ]; then \
-			t_total=0; t_passed=0; t_failed=0; t_skipped=0; \
-		else \
-			t_total=$$(echo "$$line" | sed 's/.*Total: *\([0-9]*\).*/\1/'); \
-			t_passed=$$(echo "$$line" | sed 's/.*Passed: *\([0-9]*\).*/\1/'); \
-			t_failed=$$(echo "$$line" | sed 's/.*Failed: *\([0-9]*\).*/\1/'); \
-			t_skipped=$$(echo "$$line" | sed 's/.*Skipped: *\([0-9]*\).*/\1/'); \
-		fi; \
-		sum_total=$$((sum_total + t_total)); \
-		sum_passed=$$((sum_passed + t_passed)); \
-		sum_failed=$$((sum_failed + t_failed)); \
-		sum_skipped=$$((sum_skipped + t_skipped)); \
-		if [ -n "$$line" ]; then \
-			printf "%s\t%s\t%s\t%s\t%s\n" "$$t" "$${t_total:-0}" "$${t_passed:-0}" "$${t_failed:-0}" "$${t_skipped:-0}" >> $$SUMMARY; \
-		fi; \
-		if [ $$rc -ne 0 ] || [ "$$t_failed" -gt 0 ] 2>/dev/null; then \
-			printf "  $(CYAN)%-34s$(RESET) $(BADGE_FAIL) FAIL $(RESET)  %s\n" "$$t" "$$line"; \
-			suites_fail=$$((suites_fail + 1)); \
-		elif [ "$$t_skipped" -gt 0 ] 2>/dev/null; then \
-			printf "  $(CYAN)%-34s$(RESET) $(BADGE_SKIP) SKIP $(RESET)  %s\n" "$$t" "$$line"; \
-			suites_pass=$$((suites_pass + 1)); \
-		else \
-			printf "  $(CYAN)%-34s$(RESET) $(BADGE_PASS) PASS $(RESET)  %s\n" "$$t" "$$line"; \
-			suites_pass=$$((suites_pass + 1)); \
-		fi; \
-	done; \
-	printf "\n$(BOLD)Total: %d  Passed: %d  Failed: %d  Skipped: %d$(RESET)\n" \
-		$$sum_total $$sum_passed $$sum_failed $$sum_skipped; \
-	printf "$(BOLD)Suites: %d pass, %d fail, %d skip$(RESET)\n\n" \
-		$$suites_pass $$suites_fail $$suites_skip; \
-	rm -rf $$TMPDIR
+	@bash test/run-unit-tests.sh build
+
+# Self-test the unit-test harness: inject each fault, assert it refuses to run
+harness-selftest:
+	@bash test/harness-selftest.sh
 
 # Configure + build the canonical build/ directory (prerequisite for unit-test)
 unit-test-build:
@@ -211,6 +162,31 @@ unit-test-dashboard: unit-test
 		printf "$(BOLD)Warning:$(RESET) dashboard refresh skipped (no $$SUMMARY — did unit-test produce any rows?)\n\n"; \
 	fi; \
 	rm -f $$SUMMARY
+
+# Symlink the git-ignored roms/ fixtures from the main worktree into this one
+# An agent worktree without them cannot run the unit tests or the regression
+# suite (both need roms/nextzxos-1gb-fat32fix.img). No-op in the main worktree.
+worktree-bootstrap:
+	@main=$$(git worktree list --porcelain | head -1 | sed 's/^worktree //'); \
+	here=$$(git rev-parse --show-toplevel); \
+	if [ "$$main" = "$$here" ]; then \
+		printf "$(BOLD)Main worktree — roms/ fixtures are real files here; nothing to do.$(RESET)\n"; \
+		exit 0; \
+	fi; \
+	if [ ! -d "$$main/roms" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) main worktree has no roms/ at $$main/roms\n"; exit 1; \
+	fi; \
+	mkdir -p "$$here/roms"; \
+	n=0; \
+	for f in "$$main"/roms/*; do \
+		b=$$(basename "$$f"); \
+		if [ ! -e "$$here/roms/$$b" ]; then \
+			ln -s "$$f" "$$here/roms/$$b"; \
+			printf "  $(CYAN)linked$(RESET) roms/%s\n" "$$b"; \
+			n=$$((n + 1)); \
+		fi; \
+	done; \
+	printf "$(BOLD)worktree-bootstrap: %d fixture(s) linked from %s$(RESET)\n" "$$n" "$$main"
 
 # Count lines of code (excluding comments and blanks), per directory and total
 kloc-count:

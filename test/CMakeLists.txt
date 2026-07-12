@@ -506,3 +506,11 @@ if(ENABLE_DEBUGGER)
     target_include_directories(debugger_video_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_video_panel_tests COMMAND debugger_video_panel_test)
 endif()
+
+# Pin the C locale for every registered test, so `ctest` matches what
+# test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
+# code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on
+# construction, which localises strerror() and broke a grep-for-the-reason assertion
+# on a Spanish desktop. Must stay LAST — it applies to the add_test()s seen so far.
+get_property(JNEXT_REGISTERED_TESTS DIRECTORY PROPERTY TESTS)
+set_tests_properties(${JNEXT_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "LC_ALL=C")

@@ -96,6 +96,42 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 > The process is mandatory for every test plan rewrite and every emulator
 > fix that touches subsystem tests.
 
+### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
+
+The suites are **declared**, and the harness proves it ran exactly what was declared.
+A green triplet is only as trustworthy as its denominator (Tasks 32/35/37: three suites
+had vanished from the counts, all found by accident).
+
+**`test/unit-tests.conf`** — every unit suite, with its **exact expected row count**.
+`test/run-unit-tests.sh` **refuses to run** (exit 2) if the manifest and the suites CMake
+registered via `add_test()` disagree in either direction, if a declared binary is not
+built, or if a suite is declared twice. It **FAILS** (exit 1) if a suite reports a row
+count other than the pinned one (in either direction), prints no parseable `Total:` line,
+crashes, or times out. `make unit-test` **exits non-zero** when a suite fails.
+
+> **Adding or removing a test row means updating its count in the manifest.** That edit is
+> the point: the number is the project's claim about how much it tests, and it is made
+> deliberately. The CMake side is not a second hand-kept list — it is read from the
+> generated `build/test/CTestTestfile.cmake`.
+
+**`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
+(functional). At the end of a full run, `regression.sh` asserts every declared functional
+test reported exactly one row, no undeclared row appeared, and the total equals
+`1 lint + screenshots + functional`. Screenshots additionally get an *independent*
+witness: every checked-in `img/<name>-reference.png` must have a conf entry, so truncating
+the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
+
+**The harness is itself under test.** `make harness-selftest` (also run every regression as
+`harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It
+exists because the harness shipped once with a bug that appeared *only when a suite failed*
+— the one path nobody exercises while everything is green.
+
+`make regression` depends on `unit-test-build`: the suite runs `build/test/rewind_test`,
+and `make clean` deletes it.
+
+**Agent worktrees: run `make worktree-bootstrap` first.** `roms/*` is git-ignored, so a
+fresh worktree has no SD-card image and cannot run the tests at all.
+
 ### FUSE Z80 opcode test suite
 
 ```bash

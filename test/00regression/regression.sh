@@ -3,11 +3,27 @@
 # Runs screenshot tests + a few functional/integration tests.
 # (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
-# Usage: bash test/00regression/regression.sh [--update] [test_name...]
-#   --update    Update reference screenshots instead of comparing
-#   test_name   Run only specified tests (default: all)
+# Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [test_name...]
+#   --update          Update reference screenshots instead of comparing
+#   --preflight-only  Run only the harness preflight checks and exit (no tests).
+#                     This is the seam test/harness-selftest.sh drives: the preflight
+#                     is what proves the suite runs everything it declares, and an
+#                     untested guard ships broken (it did — twice).
+#   test_name         Run only specified tests (default: all)
+#
+# Env: JNEXT_REGRESSION_CONF / JNEXT_REGRESSION_FUNC_CONF override the manifests
+#      (the self-test uses these to inject a truncated or unpinned manifest).
 
 set -euo pipefail
+
+# Pin the locale for the whole suite. Several assertions grep the emulator's
+# error output for C-locale strerror() text ("No such file or directory"), and
+# Qt's QApplication constructor calls setlocale(LC_ALL, "") — so under a non-English
+# locale the Qt frontend localises strerror and screenshot-io-qt-func FAILed while
+# its headless twin (no QApplication, so still in the C locale) PASSed. The suite's
+# result must not depend on the user's LANG. Also keeps ImageMagick's `compare`
+# emitting a C-locale decimal point for the pixel-diff parse.
+export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -32,11 +48,15 @@ fi
 # active (Next + sd_card non-empty + load_file empty), `BOOT` rows
 # exercise the firmware path; rows with --load NEX skip the boot ROM via
 # the cfg.load_file gate (Emulator::init).
-SD_CARD_ARGS=(--sdcard "$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img")
-# rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON,
-# i.e. via `make unit-test-build`); the rewind functional test below
-# SKIPs gracefully if it is missing.
-CONF="$SCRIPT_DIR/regression_tests.conf"
+SD_IMAGE="$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img"
+SD_CARD_ARGS=(--sdcard "$SD_IMAGE")
+# rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON, i.e. via
+# `make unit-test-build`, which `make regression` now depends on). If it is
+# missing the rewind functional test FAILS LOUDLY — it used to print no row at
+# all, silently shrinking the suite total (Task 35).
+REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
+CONF="${JNEXT_REGRESSION_CONF:-$SCRIPT_DIR/regression_tests.conf}"
+FUNC_CONF="${JNEXT_REGRESSION_FUNC_CONF:-$SCRIPT_DIR/functional_tests.conf}"
 # img/ lives next to this script under test/00regression/img.
 IMG_DIR="$SCRIPT_DIR/img"
 TMP_DIR=$(mktemp -d)
@@ -47,10 +67,13 @@ TOLERANCE=${JNEXT_TEST_TOLERANCE:-0}
 
 # Parse arguments
 UPDATE_MODE=false
+PREFLIGHT_ONLY=false
 FILTER_TESTS=()
 for arg in "$@"; do
     if [[ "$arg" == "--update" ]]; then
         UPDATE_MODE=true
+    elif [[ "$arg" == "--preflight-only" ]]; then
+        PREFLIGHT_ONLY=true
     else
         FILTER_TESTS+=("$arg")
     fi
@@ -67,11 +90,125 @@ pass=0
 fail=0
 skip=0
 
+# A harness fault is not a test failure: it means the suite cannot be trusted to
+# have run what it claims. Exit 2, loudly, and run nothing further.
+harness_fault() {
+    echo ""
+    echo -e "${RED}${BOLD}=== REGRESSION HARNESS FAULT ===${RESET}"
+    for msg in "$@"; do echo -e "  $msg"; done
+    echo ""
+    exit 2
+}
+
 # Check prerequisites
 if [[ ! -x "$JNEXT" ]]; then
     echo -e "${RED}ERROR: jnext binary not found at $JNEXT — build first${RESET}"
     exit 1
 fi
+
+# Every screenshot test mounts this image, and so does sd_rom_extractor_test.
+# In a worktree it is a git-ignored symlink that must be provisioned; without it
+# all 46 screenshot rows would FAIL for a reason none of them would name.
+if [[ ! -f "$SD_IMAGE" ]]; then
+    harness_fault "SD-card fixture missing: ${BOLD}$SD_IMAGE${RESET}" \
+                  "Every screenshot test mounts it, so the whole suite is meaningless without it." \
+                  "In an agent worktree, provision it with: ${BOLD}make worktree-bootstrap${RESET}"
+fi
+
+# A manifest that is not there must say so, not be diagnosed as "missing its pin".
+for conf in "$CONF" "$FUNC_CONF"; do
+    [[ -f "$conf" ]] || harness_fault "Test manifest not found: ${BOLD}$conf${RESET}"
+done
+echo -e "  manifests: $(basename "$CONF") + $(basename "$FUNC_CONF")"
+
+# rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE, in the
+# first second, not five minutes into the run: an incomplete build is a harness fault,
+# not a code regression — and never, as it once was, an absent row (Task 35).
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx rewind-func; then
+    if [[ ! -x "$REWIND_TEST" ]]; then
+        harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
+                      "The suite runs it, so it cannot report a rewind result without it." \
+                      "Build it with: ${BOLD}make unit-test-build${RESET}  (or use ${BOLD}make regression${RESET}, which does)"
+    fi
+fi
+
+# --- The declared counts, pinned ---
+# `# expect: N` in each manifest. Without it, deleting a test from a conf shrinks both
+# sides of the completeness check below in lockstep — expected and actual both go down
+# and the suite reports a smaller number as a clean pass. Review round 2 removed one
+# screenshot row plus its reference image and got a green 59/0/0, which is this
+# project's own previous published baseline. The pin makes the denominator a claim the
+# file has to make out loud, exactly like test/unit-tests.conf's per-suite row counts.
+declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
+    grep -cvE '^[[:space:]]*(#|$)' "$1" || true
+}
+pinned_count() {     # pinned_count <conf>  — the `# expect: N` line
+    # `|| true` is load-bearing: grep exits 1 when there is no pin line, and under
+    # `set -e` + pipefail that kills the script AT THE ASSIGNMENT — so the
+    # "No '# expect: N' pin" fault below would never print. A guard that cannot
+    # report is not a guard; this one was dead on arrival until review caught it.
+    grep -oP '^#\s*expect:\s*\K[0-9]+' "$1" 2>/dev/null | head -1 || true
+}
+for conf in "$CONF" "$FUNC_CONF"; do
+    pin=$(pinned_count "$conf")
+    have=$(declared_count "$conf")
+    [[ -n "$pin" ]] || harness_fault "No '# expect: N' pin in ${BOLD}$conf${RESET}" \
+                                     "The manifest must state how many tests it declares."
+    [[ "$pin" -eq "$have" ]] || harness_fault \
+        "${BOLD}$conf${RESET} declares ${BOLD}$have${RESET} tests but pins ${BOLD}# expect: $pin${RESET}" \
+        "A test was added or removed without updating the pin. If deliberate, update it."
+done
+
+# --- The screenshot manifest needs an INDEPENDENT witness ---
+# The completeness check at the end compares the rows reported against the rows
+# declared — but for screenshots both sides come from regression_tests.conf, so on
+# its own that term is a tautology: delete 44 of the 46 lines and the suite happily
+# reports "15/15 declared tests reported" and exits green. (Found in review. It is
+# the very bug this file exists to abolish, so it does not get to live here.)
+#
+# img/<name>-reference.png is that independent witness: it is checked in, one per
+# screenshot test, and it does not disappear when the conf is truncated. A reference
+# with no conf entry means a test was dropped from the manifest.
+for ref in "$IMG_DIR"/*-reference.png; do
+    [[ -e "$ref" ]] || continue           # no refs at all (fresh tree) — nothing to witness
+    ref_name=$(basename "$ref" -reference.png)
+    grep -qE "^[[:space:]]*${ref_name}[[:space:]]" "$CONF" \
+        || harness_fault "reference image ${BOLD}img/${ref_name}-reference.png${RESET} exists, but ${BOLD}$ref_name${RESET} is NOT declared in regression_tests.conf" \
+                         "A screenshot test was dropped from the manifest. If that was deliberate, delete its reference image too."
+done
+
+# --- The declared functional tests (test/00regression/functional_tests.conf) ---
+# Each block below calls `begin_func <name>`, which records that the row was
+# actually reported. The completeness check at the end of the run proves that
+# every declared test reported exactly one row and no undeclared row appeared.
+DECLARED_FUNC=()
+while read -r name _; do
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    DECLARED_FUNC+=("$name")
+done < "$FUNC_CONF"
+[[ ${#DECLARED_FUNC[@]} -gt 0 ]] || harness_fault "No functional tests declared in $FUNC_CONF"
+REPORTED_FUNC=()
+
+# Every preflight guard has now run. --preflight-only exists so the self-test can drive
+# each of them in a second instead of a five-minute suite: these guards are what make
+# the denominator trustworthy, and two of them shipped DEAD (a grep exiting 1 under
+# `set -e` killed the script before the fault could print). Untested guards ship broken.
+if $PREFLIGHT_ONLY; then
+    echo -e "${GREEN}preflight OK${RESET}: $(declared_count "$CONF") screenshot + ${#DECLARED_FUNC[@]} functional tests declared, pins agree"
+    exit 0
+fi
+
+# want <name> — should this test run? (no filter given, or explicitly named)
+want() {
+    [[ ${#FILTER_TESTS[@]} -eq 0 ]] && return 0
+    printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx "$1"
+}
+
+# begin_func <name> — register the row and print its label.
+begin_func() {
+    REPORTED_FUNC+=("$1")
+    printf "  %-25s " "[$1]"
+}
 
 if ! command -v compare &>/dev/null; then
     echo -e "${YELLOW}WARNING: ImageMagick 'compare' not found — pixel comparison disabled${RESET}"
@@ -221,9 +358,28 @@ echo ""
 echo -e "${BOLD}Running functional tests...${RESET}"
 echo ""
 
+# The unit-test harness is load-bearing for every number this project quotes, so it
+# is itself under test. It shipped once with a bug that only appeared when a suite
+# FAILED — the very path nobody exercises when everything is green.
+if want harness-selftest-func; then
+    begin_func harness-selftest-func
+    # Timeout-wrapped like every other invocation here. Its only other time bound would
+    # be the per-suite timeout inside the very harness it is testing — circular, and the
+    # exact shape of the Task 33 hang.
+    if hs_out=$(timeout --foreground --kill-after=5s 120s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
+        hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
+        echo -e "${GREEN}PASS${RESET} ($hs_line)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (the test harness itself is broken — see below)"
+        echo "$hs_out" | grep -E '^\s*FAIL' | head -5 | sed -E 's/^/      /'
+        fail=$((fail + 1))
+    fi
+fi
+
 # Magic breakpoint test: verify ED FF is detected and logged
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-bp-func'; then
-    printf "  %-25s " "[magic-bp-func]"
+if want magic-bp-func; then
+    begin_func magic-bp-func
     bp_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
         "${SD_CARD_ARGS[@]}" \
         --load "$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex" \
@@ -239,8 +395,8 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
 fi
 
 # Magic port test: verify port output appears on stderr in line mode
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-port-func'; then
-    printf "  %-25s " "[magic-port-func]"
+if want magic-port-func; then
+    begin_func magic-port-func
     port_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" \
         --magic-port 0xCAFE --magic-port-mode line \
@@ -256,8 +412,8 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
 fi
 
 # Video recording test: verify --record produces a valid MP4 file
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'video-record-func'; then
-    printf "  %-25s " "[video-record-func]"
+if want video-record-func; then
+    begin_func video-record-func
     rec_file="/tmp/jnext_test_recording.mp4"
     rm -f "$rec_file"
     timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
@@ -296,8 +452,8 @@ fi
 # Captured via SDL's `disk` audio driver (raw S16LE stereo 44100), which writes
 # exactly what jnext hands the sound card. --headless has no audio at all, so
 # this must run the GUI binary under a virtual X server.
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'audio-underrun-func'; then
-    printf "  %-25s " "[audio-underrun-func]"
+if want audio-underrun-func; then
+    begin_func audio-underrun-func
     tone_bin="$SCRIPT_DIR/bin/beeper_tone.bin"
     checker="$SCRIPT_DIR/check-audio-underruns.py"
     raw_file="$TMP_DIR/audio_underrun.raw"
@@ -351,8 +507,8 @@ fi
 # Bare-filename CLI test (Task 25): `jnext <file>` must load the file exactly as
 # `--load <file>` does, while a mistyped flag must still be an error rather than
 # being silently swallowed as a filename.
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'cli-bare-file-func'; then
-    printf "  %-25s " "[cli-bare-file-func]"
+if want cli-bare-file-func; then
+    begin_func cli-bare-file-func
     bare_nex="$SCRIPT_DIR/nex/celeste.nex"
     bare_out=$(timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" "$bare_nex" --delayed-automatic-exit 2 2>&1) || true
@@ -382,8 +538,8 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
 fi
 
 # RZX recording test: verify --rzx-record produces a valid RZX file
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-record-func'; then
-    printf "  %-25s " "[rzx-record-func]"
+if want rzx-record-func; then
+    begin_func rzx-record-func
     rzx_file="$TMP_DIR/test_recording.rzx"
     rzx_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" \
@@ -407,8 +563,8 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
 fi
 
 # RZX roundtrip test: record then play back, verify playback starts
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-playback-func'; then
-    printf "  %-25s " "[rzx-playback-func]"
+if want rzx-playback-func; then
+    begin_func rzx-playback-func
     rzx_rt="$TMP_DIR/roundtrip.rzx"
     # Record 2 seconds
     timeout --foreground --kill-after=5s 8s "$JNEXT" --headless \
@@ -449,8 +605,8 @@ fi
 #                            outstanding. This is the case that has no headless
 #                            equivalent (headless has no debugger pause), so it
 #                            is driven through the real Qt frontend.
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-pending-func'; then
-    printf "  %-25s " "[screenshot-pending-func]"
+if want screenshot-pending-func; then
+    begin_func screenshot-pending-func
     png="$TMP_DIR/pending.png"
     rm -f "$png"
     # Capture due at frame 5000; auto-exit at 1 s (~50 frames). Never taken.
@@ -480,8 +636,8 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-paused-func'; then
-    printf "  %-25s " "[screenshot-paused-func]"
+if want screenshot-paused-func; then
+    begin_func screenshot-paused-func
     png="$TMP_DIR/paused.png"
     png_ok="$TMP_DIR/paused-ok.png"
     rm -f "$png" "$png_ok"
@@ -523,8 +679,8 @@ fi
 #
 #   screenshot-io-func     headless — unwritable path (directory does not exist)
 #   screenshot-io-qt-func  GUI (Qt, offscreen) — same, through the Qt frontend
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-io-func'; then
-    printf "  %-25s " "[screenshot-io-func]"
+if want screenshot-io-func; then
+    begin_func screenshot-io-func
     bad_png="$TMP_DIR/no-such-dir/io.png"     # parent directory does not exist
     png_ok="$TMP_DIR/io-ok.png"
     rm -rf "$TMP_DIR/no-such-dir"; rm -f "$png_ok"
@@ -554,8 +710,8 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-io-qt-func'; then
-    printf "  %-25s " "[screenshot-io-qt-func]"
+if want screenshot-io-qt-func; then
+    begin_func screenshot-io-qt-func
     bad_png="$TMP_DIR/no-such-dir-qt/io.png"  # parent directory does not exist
     png_ok="$TMP_DIR/io-qt-ok.png"
     rm -rf "$TMP_DIR/no-such-dir-qt"; rm -f "$png_ok"
@@ -588,28 +744,55 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
-# Rewind / backwards execution unit tests
-REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
-if [[ -x "$REWIND_TEST" ]]; then
-    if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rewind-func'; then
-        printf "  %-25s " "[rewind-func]"
-        rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
-        rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
-        if [[ -n "$rewind_summary" ]]; then
-            rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
-            echo -e "${GREEN}PASS${RESET} (${rewind_passed}/${rewind_passed} rewind unit tests)"
-            pass=$((pass + 1))
-        else
-            fail_line=$(echo "$rewind_out" | grep -E "^Total:" || echo "unknown")
-            echo -e "${RED}FAIL${RESET} ($fail_line)"
-            fail=$((fail + 1))
-        fi
+# Rewind / backwards execution unit tests.
+# This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
+# the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that
+# quietly dropped by one (Task 35). The binary's absence is now caught in the preflight,
+# so by the time we get here it is there and the only question is whether it passes.
+if want rewind-func; then
+    begin_func rewind-func
+    rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
+    rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
+    if [[ -n "$rewind_summary" ]]; then
+        rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
+        echo -e "${GREEN}PASS${RESET} (${rewind_passed}/${rewind_passed} rewind unit tests)"
+        pass=$((pass + 1))
+    else
+        fail_line=$(echo "$rewind_out" | grep -E "^Total:" || echo "unknown")
+        echo -e "${RED}FAIL${RESET} ($fail_line)"
+        fail=$((fail + 1))
     fi
 fi
 
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
+
+# --- Completeness: prove the suite ran everything it declares ---
+# A green result is only as trustworthy as its denominator. On a full run, every
+# declared functional test must have reported exactly one row, no undeclared row
+# may appear, and the grand total must equal 1 (lint) + screenshots + functional.
+# Anything else means a test went missing, which is a harness fault, not a pass.
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
+    faults=()
+    for name in "${DECLARED_FUNC[@]}"; do
+        n=$(printf '%s\n' "${REPORTED_FUNC[@]}" | grep -cx "$name" || true)
+        [[ "$n" -eq 1 ]] || faults+=("declared in functional_tests.conf but reported $n rows: ${BOLD}$name${RESET}")
+    done
+    for name in "${REPORTED_FUNC[@]}"; do
+        printf '%s\n' "${DECLARED_FUNC[@]}" | grep -qx "$name" \
+            || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
+    done
+    expected=$(( 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
+    actual=$(( pass + fail + skip ))
+    [[ "$actual" -eq "$expected" ]] \
+        || faults+=("row count is ${BOLD}$actual${RESET}, but 1 lint + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
+    if [[ ${#faults[@]} -gt 0 ]]; then
+        harness_fault "${faults[@]}" "" \
+            "The suite did not run what it says it ran. Treat this as RED, not as a pass."
+    fi
+    echo -e "  ${BOLD}$actual/$expected declared tests reported${RESET}"
+fi
 
 if [[ $fail -gt 0 ]]; then
     exit 1

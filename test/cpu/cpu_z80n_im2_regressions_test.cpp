@@ -3250,7 +3250,7 @@ int main() {
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
-    std::printf("Total: %4d  Passed: %4d  Failed: %4d\n",
-                res.total, res.passed, res.failed);
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+                res.total, res.passed, res.failed, 0);
     return res.failed == 0 ? 0 : 1;
 }

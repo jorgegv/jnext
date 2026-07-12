@@ -36,7 +36,18 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 git worktree add /home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-<ID> -b <BRANCH> main
 ```
 
-### 3. Sync demo artifacts (only if needed)
+### 3. Provision the roms/ fixtures (ALWAYS — the tests need them)
+
+```bash
+make -C /home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-<ID> worktree-bootstrap
+```
+
+`roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
+Without the SD image, `make unit-test` and the regression suite cannot run. They now
+say so loudly instead of quietly reporting a smaller number (Task 37) — but the
+agent still can't work, so link the fixtures up front.
+
+### 4. Sync demo artifacts (only if needed)
 
 Per `feedback_worktree_demo_artifacts`, build artifacts under `demo/` aren't checked in, so they must be rsync'd:
 
@@ -49,7 +60,7 @@ rsync -a --include='*.nex' --include='*.bin' --include='*.tap' --include='*.tzx'
 
 Skip this step if the agent doesn't need to run demos.
 
-### 4. Print the agent briefing footer
+### 5. Print the agent briefing footer
 
 This goes into the agent's prompt:
 

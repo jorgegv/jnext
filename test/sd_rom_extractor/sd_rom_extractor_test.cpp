@@ -114,32 +114,24 @@ bool first4_eq(const std::vector<uint8_t>& v, const uint8_t (&ref)[4]) {
 int main() {
     const std::string img = canonical_image();
     if (!file_exists(img)) {
-        // Skip the entire suite — mark each row as SKIPped and exit 0
-        // so the Makefile aggregator records it as 0/0/0/8.
-        const char* reasons[] = {
-            "SD image fixture missing",
-            "SD image fixture missing",
-            "SD image fixture missing",
-            "SD image fixture missing",
-            "SD image fixture missing",
-            "SD image fixture missing",
-            "SD image fixture missing",
-            "SD image fixture missing",
-        };
-        const char* ids[] = {
-            "SD-EXT-01", "SD-EXT-02", "SD-EXT-03", "SD-EXT-04",
-            "SD-EXT-05", "SD-EXT-06", "SD-EXT-07", "SD-EXT-08",
-        };
-        for (int i = 0; i < 8; ++i) skip(ids[i], reasons[i]);
-        std::printf("\n====================================\n");
-        std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
-                    g_total + g_skip, g_pass, g_fail, g_skip);
-        std::printf("\nSkipped rows:\n");
-        for (const auto& s : g_skipped) {
-            std::printf("  SKIP %s: %s\n", s.id, s.reason);
-        }
-        std::printf("Hint: set JNEXT_TEST_SD_IMAGE to the canonical 1 GB image\n");
-        return 0;
+        // A missing fixture is a FATAL harness fault, not a skip.
+        //
+        // This used to emit 8 hardcoded SKIP rows and exit 0. The suite really
+        // has 26 rows, so the other 18 were never announced at all — they did
+        // not become skips, they ceased to exist, and the headline count went
+        // from 4369/0/38 to 4334/0/46 with nothing failing and nothing said.
+        // That is exactly how an unprovisioned worktree produced a smaller,
+        // still-green-looking number (Task 37).
+        //
+        // Exit non-zero with no summary line: the harness reports the suite as
+        // FAIL, and no count can absorb it silently.
+        std::fprintf(stderr,
+            "\nFATAL: SD image fixture missing: %s\n"
+            "  This suite cannot run without it, and will NOT pretend to.\n"
+            "  In an agent worktree, provision it with: make worktree-bootstrap\n"
+            "  Or point JNEXT_TEST_SD_IMAGE at the canonical 1 GB image.\n\n",
+            img.c_str());
+        return 1;
     }
 
     // ------------------------------------------------------------------
