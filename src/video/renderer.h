@@ -43,8 +43,16 @@ public:
     //   Sprites  NR 0x15 b0 = 0  → sprite_transparent   (zxnext.vhd:7118)
     //   Tilemap  NR 0x6B b7 = 0  → tm_transparent       (zxnext.vhd:7109)
     // Everything downstream — the NR 0x15 priority order, the ULA/TM
-    // merge, stencil, the blend modes, and the NR 0x4A fallback colour —
-    // then behaves per the VHDL with no special-casing.
+    // merge, the blend modes, and the NR 0x4A fallback colour — then
+    // behaves per the VHDL with no special-casing.
+    //
+    // The one place that needs the enables and not just the transparency
+    // flags is STENCIL: zxnext.vhd:7130 selects the AND-branch only when
+    //     ula_stencil_mode_2 = '1' AND ula_en_2 = '1' AND tm_en_2 = '1'
+    // — BOTH enables. stencil_rgb is transparent whenever either input is
+    // (7112), so masking either `ula` or `tiles` must take the AND-branch
+    // down with it and fall through to the ordinary ulatm merge (7134-7135);
+    // otherwise the surviving layer would be erased rather than shown.
     //
     // Note on the BORDER: the border is emitted by the ULA path, so
     // masking out `ula` removes the border too, and those pixels fall

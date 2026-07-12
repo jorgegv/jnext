@@ -446,10 +446,16 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
     const bool mask_l2      = (layer_mask_ & LAYER_LAYER2)  == 0;
     const bool mask_sprites = (layer_mask_ & LAYER_SPRITES) == 0;
     const bool mask_tiles   = (layer_mask_ & LAYER_TILES)   == 0;
-    // Stencil mode requires tm_en (VHDL zxnext.vhd:7130), so masking the
-    // tilemap out must also take the stencil path down with it — otherwise
-    // ULA-AND-transparent-TM would blank the ULA as well.
-    const bool stencil_active = stencil_mode_ && tm_enabled_ && !mask_tiles;
+    // Stencil mode requires BOTH enables (VHDL zxnext.vhd:7130):
+    //   if ula_stencil_mode_2 = '1' and ula_en_2 = '1' and tm_en_2 = '1'
+    // so masking out EITHER the ULA or the tilemap must take the stencil
+    // AND-branch down with it and fall through to the ordinary ulatm merge
+    // (VHDL 7134-7135). Getting this half-right is a real bug in both
+    // directions: stencil_rgb is transparent whenever either input is
+    // (7112), so leaving the AND-branch selected with one input masked away
+    // erases the surviving layer instead of showing it.
+    const bool stencil_active =
+        stencil_mode_ && tm_enabled_ && !mask_tiles && !mask_ula;
 
     for (int x = 0; x < FB_WIDTH; ++x) {
         const uint32_t ula_px  = ula_line_[x];
