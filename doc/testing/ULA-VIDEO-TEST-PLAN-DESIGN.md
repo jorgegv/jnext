@@ -981,12 +981,13 @@ second, hand-rolled compositor in the debugger unacceptable:
 | DVP-15   | composite honours the raster cut-off (row+1 = unrendered)        | PASS   |
 | DVP-15a  | …and every row below the raster is the placeholder               | PASS   |
 | DVP-16   | compositing for the panel leaves every live register untouched   | PASS   |
+| DVP-16a  | …and does not clobber the tilemap per-line scroll snapshots      | PASS   |
 | DVP-16b  | premise: the vblank writes really did move the live registers    | PASS   |
 | DVP-16c  | …including VBLANK-tagged writes, which only the flush replays    | PASS   |
 | DVP-17   | "All layers" is the leftmost tab and selected by default         | PASS   |
 | DVP-17a  | …and the per-layer tabs still follow it in order                 | PASS   |
 
-### Why DVP-16c needs a VBLANK-tagged write
+### Why DVP-16c needs a VBLANK-tagged write — and the DVP-06 blind spot
 
 A state-preservation row built only from *mid-frame* writes cannot see a panel
 that rewinds and replays but forgets to `flush_remaining_changes()`: replaying
@@ -996,6 +997,16 @@ is the entries tagged at line >= `FB_HEIGHT` that only the final flush replays
 describes (at NR 0x07 >= 0x02 the whole setup lands in vblank).  DVP-16c plants
 one and pins it; removing `replay_restore()` from the panel fails DVP-16c and
 nothing else.
+
+**This means the Task-22a group DVP-06 (`DVP-NOMUT`) has a documented blind
+spot**: every write it makes is tagged at a visible scanline, so it stays GREEN
+against a panel that has lost its `replay_restore()` call (verified by mutation
+during Task 36).  Do not read DVP-06 as covering that bug class — DVP-16c is
+what guards it, and because `replay_restore()` has a single call site shared by
+every `VideoLayerView::Layer` case, DVP-16c covers all of the views, not just
+the composite.  DVP-06 remains valid for what it *was* written for (the
+`Tilemap::render_scanline_debug` snapshot-clobbering defect).  Both facts are
+recorded in the header comment of `test/debugger/video_panel_test.cpp`.
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
 with the other panel-vs-compositor parity rows.

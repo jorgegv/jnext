@@ -31,7 +31,9 @@
 //           gradient, its Layer 2 parallax bands) to a single flat value.
 //   DVP-06  The replay is state-preserving: a panel refresh must not perturb
 //           any live register.  (A debug view that mutates the state it
-//           observes is a Heisenbug generator.)
+//           observes is a Heisenbug generator.)  NOTE: this group has a known
+//           blind spot — it cannot catch a MISSING replay_restore()/flush; only
+//           DVP-16c can.  See the comment above test_no_state_mutation().
 //   DVP-07  Tilemap per-line scroll snapshots are READ, not overwritten.
 //           Tilemap::render_scanline_debug used to write the LIVE scroll into
 //           scroll_{x,y}_per_line_[y], which both flattened mid-frame scroll
@@ -539,6 +541,19 @@ static void test_per_line_palette_replay(Emulator& emu) {
 }
 
 // ── DVP-06: the panel must not perturb live emulator state ────────────
+//
+// KNOWN BLIND SPOT — read before trusting this group in isolation.  Every write
+// this group makes is tagged at a VISIBLE scanline (0..FB_HEIGHT-1), and the
+// panel's replay applies rows 0..FB_HEIGHT-1, so those entries are walked back
+// to exactly where they started whether or not the panel calls
+// replay_restore().  These rows therefore CANNOT fail if the panel drops the
+// final flush_remaining_changes(): deleting replay_restore() from
+// VideoLayerView::render_to_image leaves this whole group green (verified by
+// mutation, Task 36).  Only entries tagged in VBLANK (line >= FB_HEIGHT) expose
+// that bug — the tilemap_demo class of defect the renderer's own flush comment
+// describes.  DVP-16c plants one and is what actually guards the invariant; it
+// covers every Layer view, because replay_restore() has a single call site
+// shared by all of them.  Keep DVP-16c alive.
 
 static void test_no_state_mutation(Emulator& emu) {
     set_group("DVP-NOMUT");
