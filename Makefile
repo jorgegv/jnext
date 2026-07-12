@@ -32,7 +32,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test worktree-bootstrap \
+       kloc-count regression unit-test harness-selftest worktree-bootstrap \
        bump bump-patch bump-minor bump-major version
 .SILENT:
 
@@ -131,6 +131,10 @@ regression: unit-test-build
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
 unit-test: unit-test-build
 	@bash test/run-unit-tests.sh build
+
+# Self-test the unit-test harness: inject each fault, assert it refuses to run
+harness-selftest:
+	@bash test/harness-selftest.sh
 
 # Configure + build the canonical build/ directory (prerequisite for unit-test)
 unit-test-build:

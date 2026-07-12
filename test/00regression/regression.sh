@@ -105,6 +105,24 @@ if [[ ! -f "$SD_IMAGE" ]]; then
                   "In an agent worktree, provision it with: ${BOLD}make worktree-bootstrap${RESET}"
 fi
 
+# --- The screenshot manifest needs an INDEPENDENT witness ---
+# The completeness check at the end compares the rows reported against the rows
+# declared — but for screenshots both sides come from regression_tests.conf, so on
+# its own that term is a tautology: delete 44 of the 46 lines and the suite happily
+# reports "15/15 declared tests reported" and exits green. (Found in review. It is
+# the very bug this file exists to abolish, so it does not get to live here.)
+#
+# img/<name>-reference.png is that independent witness: it is checked in, one per
+# screenshot test, and it does not disappear when the conf is truncated. A reference
+# with no conf entry means a test was dropped from the manifest.
+for ref in "$IMG_DIR"/*-reference.png; do
+    [[ -e "$ref" ]] || continue           # no refs at all (fresh tree) — nothing to witness
+    ref_name=$(basename "$ref" -reference.png)
+    grep -qE "^[[:space:]]*${ref_name}[[:space:]]" "$CONF" \
+        || harness_fault "reference image ${BOLD}img/${ref_name}-reference.png${RESET} exists, but ${BOLD}$ref_name${RESET} is NOT declared in regression_tests.conf" \
+                         "A screenshot test was dropped from the manifest. If that was deliberate, delete its reference image too."
+done
+
 # --- The declared functional tests (test/00regression/functional_tests.conf) ---
 # Each block below calls `begin_func <name>`, which records that the row was
 # actually reported. The completeness check at the end of the run proves that
@@ -276,6 +294,22 @@ done
 echo ""
 echo -e "${BOLD}Running functional tests...${RESET}"
 echo ""
+
+# The unit-test harness is load-bearing for every number this project quotes, so it
+# is itself under test. It shipped once with a bug that only appeared when a suite
+# FAILED — the very path nobody exercises when everything is green.
+if want harness-selftest-func; then
+    begin_func harness-selftest-func
+    if hs_out=$(bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
+        hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
+        echo -e "${GREEN}PASS${RESET} ($hs_line)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (the test harness itself is broken — see below)"
+        echo "$hs_out" | grep -E '^\s*FAIL' | head -5 | sed -E 's/^/      /'
+        fail=$((fail + 1))
+    fi
+fi
 
 # Magic breakpoint test: verify ED FF is detected and logged
 if want magic-bp-func; then
@@ -652,8 +686,13 @@ fi
 if want rewind-func; then
     begin_func rewind-func
     if [[ ! -x "$REWIND_TEST" ]]; then
-        echo -e "${RED}FAIL${RESET} (rewind_test not built — run 'make unit-test-build')"
-        fail=$((fail + 1))
+        # An incomplete build is not a code regression: say so as a harness fault
+        # (exit 2), not as a red FAIL that would send someone hunting a bug in the
+        # emulator. What it must never be again is an absent row.
+        echo ""
+        harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
+                      "The suite runs it, so it cannot report a rewind result without it." \
+                      "Build it with: ${BOLD}make unit-test-build${RESET}  (or just use ${BOLD}make regression${RESET}, which does)"
     else
         rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
         rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
