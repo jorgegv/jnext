@@ -488,6 +488,24 @@ void NextReg::set_read_handler(uint8_t reg, std::function<uint8_t()> fn) {
     read_handlers_[reg] = std::move(fn);
 }
 
+void NextReg::set_destructive_read_handler(uint8_t reg,
+                                           std::function<uint8_t()> read_fn,
+                                           std::function<uint8_t()> peek_fn) {
+    read_handlers_[reg]   = std::move(read_fn);
+    peek_handlers_[reg]   = std::move(peek_fn);
+    destructive_read_[reg] = true;
+}
+
+uint8_t NextReg::peek(uint8_t reg) const {
+    // The debugger's read: the register's live value, with no side effect and no
+    // trace line. Order matters — the destructive check must come BEFORE the read
+    // handler, or peek() would call the very handler it exists to avoid.
+    if (peek_handlers_[reg]) return peek_handlers_[reg]();
+    if (destructive_read_[reg]) return regs_[reg];   // declared destructive, no twin
+    if (read_handlers_[reg])   return read_handlers_[reg]();
+    return regs_[reg];
+}
+
 void NextReg::save_state(StateWriter& w) const
 {
     w.write_u8(selected_);

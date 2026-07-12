@@ -33,7 +33,45 @@ public:
     // value from regs_[] is returned.
     void set_read_handler(uint8_t reg, std::function<uint8_t()> fn);
 
-    // Direct access to cached register value (bypasses read handler)
+    // Install a read handler whose read MUTATES emulated state — a VHDL read-side
+    // effect (NR 0x2C / 0x2E latch the Pi-I2S low bits into the NR 0x2D shadow,
+    // zxnext.vhd:6006-6015). Such a register CANNOT be handed to the debugger's
+    // read handler, because the debugger reads registers en masse and must never
+    // perturb the machine it is observing.
+    //
+    // So a destructive handler may only be installed together with a `peek_fn`
+    // that returns the SAME value with no side effect. peek() refuses to call a
+    // destructive read handler, so a future destructive register cannot silently
+    // acquire a debugger that writes to the machine — the API makes it impossible
+    // to declare one without also saying how to observe it safely.
+    void set_destructive_read_handler(uint8_t reg,
+                                      std::function<uint8_t()> read_fn,
+                                      std::function<uint8_t()> peek_fn);
+
+    /// Observe a register WITHOUT side effects and WITHOUT logging: the debugger's
+    /// read.
+    ///
+    /// read() is the Z80's read — it runs the read handler, which for NR 0x2C/0x2E
+    /// latches state, and it emits a trace line. A debugger panel that sweeps all
+    /// 256 registers several times a second would therefore corrupt the NR 0x2D
+    /// sample the guest is about to read, and would fabricate ~1000 phantom reads a
+    /// second into the very log used to diagnose NextREG traffic. peek() is the same
+    /// value with neither consequence.
+    uint8_t peek(uint8_t reg) const;
+
+    /// True if reading this register through read() mutates emulated state.
+    bool read_is_destructive(uint8_t reg) const { return destructive_read_[reg]; }
+
+    // Direct access to cached register value (bypasses read handler).
+    //
+    // This is the LAST BYTE WRITTEN to that NextREG number, and nothing more. It is
+    // NOT the register's value: many registers are not owned by their cache (NR 0x69
+    // bit 7 is the Layer 2 enable FF, which port 0x123B also latches; NR 0x15
+    // recomposes priority and sprite_en from the renderer; NR 0x6B is the live
+    // tilemap control). Reading those from here yields a stale byte — which is
+    // exactly what made the debugger report Layer 2 as OFF while displaying its
+    // graphics (Task 40). To observe a register, use peek(). cached() is for the
+    // read handlers themselves, which own the "last written" half of the value.
     uint8_t cached(uint8_t reg) const { return regs_[reg]; }
 
     // VHDL nr_03_config_mode state (zxnext.vhd:1102 default '1' at power-on,
@@ -100,4 +138,8 @@ private:
     uint8_t nr_03_machine_type_   = 0x03;  // VHDL zxnext.vhd:1103 "011" default
     std::array<std::function<uint8_t(uint8_t)>, 256> write_handlers_{};
     std::array<std::function<uint8_t()>, 256> read_handlers_{};
+    // Side-effect-free twins of the read handlers that mutate state, plus the flag
+    // that lets peek() refuse to call one it has no twin for. See peek().
+    std::array<std::function<uint8_t()>, 256> peek_handlers_{};
+    std::array<bool, 256> destructive_read_{};
 };

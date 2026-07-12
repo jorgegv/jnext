@@ -92,6 +92,7 @@
 #include "core/emulator_config.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/video_panel.h"
+#include "debugger/nextreg_panel.h"
 #include "debug/debug_state.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
@@ -99,6 +100,7 @@
 #include "video/palette.h"
 #include "video/renderer.h"
 #include "video/tilemap.h"
+#include "audio/i2s.h"
 #include "video/ula.h"
 
 #include "video/sprites.h"
@@ -1568,9 +1570,18 @@ static void test_composite_is_default_tab() {
 // how programs actually switch Layer 2 on. Raw NR 0x69 stayed 0x00; the true value
 // was 0xC0.
 //
-// Every assertion below is written to FAIL against the cached() implementation: the
-// registers are driven ONLY through the surfaces that bypass regs_[], never by an
-// NR write to the register being read.
+// Which rows here are DISCRIMINATIVE (fail against the old cached() code) and which are
+// only mapping coverage is stated per row, because it is not uniform and pretending
+// otherwise would be the same species of lie this task is about:
+//
+//   NR 0x69 (Layer 2)  discriminative — port 0x123B never touches regs_[0x69]
+//   NR 0x6B (Tilemap)  discriminative — the read handler returns the live tilemap control
+//   NR 0x15 (sprites,  discriminative — the read handler recomposes both from the
+//            priority)                  Renderer, so we drive the Renderer directly
+//   NR 0x68 (ULA)      NOT discriminative, and cannot be: the read handler takes bit 7
+//                      straight from cached(0x68) (emulator.cpp:2729-2733), so read()
+//                      and cached() agree on it BY CONSTRUCTION. These rows pin the
+//                      bit-7-is-a-DISABLE-bit inversion, nothing more.
 static void test_layer_state_reads_live_registers(Emulator& emu) {
     set_group("DVP-LAYERSTATE");
 
@@ -1603,15 +1614,24 @@ static void test_layer_state_reads_live_registers(Emulator& emu) {
           !active[1],
           fmt("nr69 read=%02X", emu.nextreg().read(0x69)));
 
-    // Sprites + priority live in NR 0x15, whose read handler recomposes them from the
-    // renderer. Drive them through the NR write path and confirm both surface.
-    emu.nextreg().write(0x15, 0x01 | (0x03 << 2));   // sprite_en, priority 3 (LUS)
+    // Sprites + priority live in NR 0x15, whose read handler recomposes BOTH from the
+    // Renderer (emulator.cpp:1628-1636). Drive the Renderer directly — regs_[0x15] is
+    // never written, so these rows fail against cached() too.
+    emu.nextreg().write(0x15, 0x00);          // cache says: no sprites, priority 0 (SLU)
+    emu.renderer().set_sprite_en(true);       // …the machine says otherwise
+    emu.renderer().set_layer_priority(3);     // priority 3 = LUS
     video_panel_layer_state(emu, active, priority);
-    check("DVP-LS-04", "sprites enabled (NR 0x15 b0) is reported ACTIVE", active[3]);
-    check("DVP-LS-05", "layer priority is NR 0x15 bits 4:2", priority == 3,
-          fmt("priority=%d want 3", priority));
+    check("DVP-LS-04",
+          "sprites enabled on the Renderer is reported ACTIVE (cached NR 0x15 says off)",
+          active[3],
+          fmt("nr15 raw=%02X read=%02X", emu.nextreg().cached(0x15), emu.nextreg().read(0x15)));
+    check("DVP-LS-05",
+          "layer priority comes from the Renderer, not the NR 0x15 cache",
+          priority == 3,
+          fmt("priority=%d want 3 (nr15 raw=%02X)", priority, emu.nextreg().cached(0x15)));
 
-    // ULA: NR 0x68 bit 7 is a DISABLE bit, so the flag is inverted.
+    // ULA: NR 0x68 bit 7 is a DISABLE bit, so the flag is inverted. NOT discriminative
+    // (see the header) — the read handler sources bit 7 from the cache itself.
     emu.nextreg().write(0x68, 0x80);
     video_panel_layer_state(emu, active, priority);
     check("DVP-LS-06", "ULA disabled via NR 0x68 b7 is reported INACTIVE", !active[0]);
@@ -1628,6 +1648,70 @@ static void test_layer_state_reads_live_registers(Emulator& emu) {
           active[2],
           fmt("nr6b raw=%02X read=%02X",
               emu.nextreg().cached(0x6B), emu.nextreg().read(0x6B)));
+}
+
+// ── DVP-PEEK: the debugger must not MUTATE the machine it observes ───────────
+//
+// The NextREG panel displays all 256 registers and DebuggerManager refreshes it several
+// times a second WHILE THE GUEST RUNS. NR 0x2C / 0x2E are the only two read handlers in
+// the machine whose read has a side effect: per VHDL zxnext.vhd:6006-6015 they latch the
+// Pi-I2S low bits into the NR 0x2D shadow. A panel that reads them the way the Z80 does
+// would latch L, then latch R over it, and hand the guest a sample the DEBUGGER invented
+// — a far worse bug than the stale display it was fixing (caught in review, Task 40).
+//
+// So the panel peeks. peek() returns the same byte with no side effect, and refuses to
+// call a destructive handler at all.
+static void test_peek_does_not_mutate(Emulator& emu) {
+    set_group("DVP-PEEK");
+
+    emu.nextreg().write(0xA2, 0xC0);            // enable Pi-I2S so the samples are live
+    emu.i2s().set_sample(0x3FF, 0x000);         // L low bits = 0b11, R low bits = 0b00
+
+    // The guest reads NR 0x2C: per the VHDL this LATCHES L's low 2 bits into NR 0x2D.
+    const uint8_t l_hi = emu.nextreg().read(0x2C);
+    const uint8_t d_after_guest_read = emu.nextreg().read(0x2D);
+    check("DVP-PEEK-01",
+          "guest read of NR 0x2C latches L's low bits into NR 0x2D (VHDL 6006-6015)",
+          d_after_guest_read == 0xC0,
+          fmt("nr2C=%02X nr2D=%02X want C0", l_hi, d_after_guest_read));
+
+    // Now refresh the REAL NextREG panel — not a stand-in loop, the widget itself, so
+    // this row still fails if someone points it back at read(). The latch must be
+    // untouched. Through read() the sweep leaves 0x00 behind: R's low bits, clobbering
+    // the guest's L sample.
+    NextRegPanel panel(&emu);
+    panel.refresh();
+
+    check("DVP-PEEK-02",
+          "refreshing the real NextREG panel does NOT disturb the NR 0x2D latch",
+          emu.nextreg().read(0x2D) == 0xC0,
+          fmt("nr2D=%02X want C0 (0x00 = the debugger clobbered it with R)",
+              emu.nextreg().read(0x2D)));
+
+    // …and peek still returns the right VALUE for the destructive registers: the twin
+    // must not be a defensive zero. L = 0x3FF → high 8 bits = 0xFF.
+    check("DVP-PEEK-03",
+          "peek(0x2C) returns the same byte read(0x2C) does",
+          emu.nextreg().peek(0x2C) == 0xFF,
+          fmt("peek=%02X want FF", emu.nextreg().peek(0x2C)));
+    check("DVP-PEEK-04",
+          "NR 0x2C / 0x2E are declared destructive; nothing else is",
+          emu.nextreg().read_is_destructive(0x2C) &&
+          emu.nextreg().read_is_destructive(0x2E) &&
+          !emu.nextreg().read_is_destructive(0x2D) &&
+          !emu.nextreg().read_is_destructive(0x69));
+
+    // peek() must equal read() everywhere it is safe to compare — i.e. everywhere except
+    // the two destructive registers and NR 0x2D, whose value read() itself changes.
+    int mismatches = 0;
+    for (int i = 0; i < 256; ++i) {
+        const uint8_t r = static_cast<uint8_t>(i);
+        if (r == 0x2C || r == 0x2D || r == 0x2E) continue;
+        if (emu.nextreg().peek(r) != emu.nextreg().read(r)) ++mismatches;
+    }
+    check("DVP-PEEK-05",
+          "peek() agrees with read() for every non-destructive register",
+          mismatches == 0, fmt("%d mismatch(es)", mismatches));
 }
 
 int main(int argc, char** argv) {
@@ -1694,6 +1778,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_layer_state_reads_live_registers(emu);
         std::printf("  Group: DVP-LAYERSTATE — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_peek_does_not_mutate(emu);
+        std::printf("  Group: DVP-PEEK       — done\n");
     }
 
     // ── Task 36: the "All layers" composite view ─────────────────────
