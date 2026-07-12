@@ -64,6 +64,7 @@ BEGIN {
     L["Tilemap"]               = "tilemap_test"
     L["NMI Source Pipeline"]   = "nmi_test"
     L["NMI (integration)"]     = "nmi_integration_test"
+    L["Debugger Video Panel"]  = "debugger_video_panel_test"
 
     while ((getline line < summary) > 0) {
         n = split(line, f, "\t")
