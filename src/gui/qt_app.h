@@ -7,6 +7,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "platform/screenshot.h"
+#include "video/renderer.h"
 
 class QApplication;
 class QTimer;
@@ -40,8 +41,11 @@ public:
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
-    /// Schedule a screenshot after `delay_frames` frames.
-    void set_delayed_screenshot(const std::string& file, int delay_frames);
+    /// Schedule a screenshot after `delay_frames` frames. `layer_mask` is a
+    /// Renderer::LayerMask bitmask (--delayed-screenshot-layers), armed on the
+    /// renderer for the captured frame only. Renderer::LAYER_ALL = no-op.
+    void set_delayed_screenshot(const std::string& file, int delay_frames,
+                                uint8_t layer_mask);
 
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
@@ -87,7 +91,8 @@ private:
 
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
-    int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    int         screenshot_countdown_ = -1;
+    uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;  // in frames; -1 = no pending
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending

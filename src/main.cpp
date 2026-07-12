@@ -1,5 +1,6 @@
 #include "core/log.h"
 #include "core/sdcard_provisioner.h"
+#include "video/renderer.h"
 #include "version.h"
 #include <csignal>
 #include <cctype>
@@ -51,6 +52,13 @@ static void print_usage(const char* prog) {
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-screenshot-frames N  Delay in frames (overrides --delayed-screenshot-time)\n"
+        "  --delayed-screenshot-layers LIST  Layers to compose into the screenshot:\n"
+        "                       a comma-separated list of ula, layer2, sprites, tiles, all\n"
+        "                       (default: all). Excluded layers are treated as disabled, so\n"
+        "                       the rest still composite per NR 0x15 priority and the NR 0x4A\n"
+        "                       fallback colour shows through. Excluding 'ula' also removes\n"
+        "                       the border (the ULA draws it). E.g. --delayed-screenshot-layers\n"
+        "                       layer2 captures Layer 2 alone; 'ula,sprites' captures both.\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
         "  --headless               Run without display/audio (for automated testing)\n"
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
@@ -111,6 +119,8 @@ int main(int argc, char* argv[]) {
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
     int         screenshot_delay_frames = -1; // -1 = unset; if set, overrides screenshot_delay
+    uint8_t     screenshot_layers = Renderer::LAYER_ALL;  // --delayed-screenshot-layers
+    bool        screenshot_layers_set = false;
     int         auto_exit_delay = -1;         // -1 = disabled
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
@@ -167,6 +177,13 @@ int main(int argc, char* argv[]) {
             screenshot_delay = std::stoi(argv[++i]);
         } else if (arg == "--delayed-screenshot-frames" && i + 1 < argc) {
             screenshot_delay_frames = std::stoi(argv[++i]);
+        } else if (arg == "--delayed-screenshot-layers" && i + 1 < argc) {
+            std::string err;
+            if (!Renderer::parse_layer_mask(argv[++i], screenshot_layers, err)) {
+                fprintf(stderr, "--delayed-screenshot-layers: %s\n", err.c_str());
+                return 1;
+            }
+            screenshot_layers_set = true;
         } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
             auto_exit_delay = std::stoi(argv[++i]);
         } else if (arg == "--machine" && i + 1 < argc) {
@@ -278,6 +295,13 @@ int main(int argc, char* argv[]) {
         load_file = positional_file;
     }
 
+    // --delayed-screenshot-layers only means anything with a screenshot to
+    // apply it to. Say so instead of quietly doing nothing.
+    if (screenshot_layers_set && screenshot_file.empty()) {
+        fprintf(stderr, "--delayed-screenshot-layers requires --delayed-screenshot FILE.\n");
+        return 1;
+    }
+
     if (!inject_pc_set) inject_pc = inject_org;
 
     // --sdcard is mandatory at the CLI level: jnext is a ZX Spectrum Next
@@ -366,7 +390,7 @@ int main(int argc, char* argv[]) {
         if (!screenshot_file.empty()) {
             int frames = (screenshot_delay_frames >= 0) ? screenshot_delay_frames
                                                         : screenshot_delay * 50;
-            app.set_delayed_screenshot(screenshot_file, frames);
+            app.set_delayed_screenshot(screenshot_file, frames, screenshot_layers);
         }
         if (auto_exit_delay >= 0)
             app.set_delayed_exit(auto_exit_delay);

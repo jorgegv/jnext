@@ -33,11 +33,14 @@ void HeadlessApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
-void HeadlessApp::set_delayed_screenshot(const std::string& file, int delay_frames) {
+void HeadlessApp::set_delayed_screenshot(const std::string& file, int delay_frames,
+                                         uint8_t layer_mask) {
     screenshot_file_ = file;
     screenshot_countdown_ = delay_frames;
-    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s)",
-                           file, delay_frames);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
+                           file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
 }
 
 void HeadlessApp::set_delayed_exit(int delay_seconds) {
@@ -199,6 +202,12 @@ void HeadlessApp::run() {
             }
         }
 
+        // --delayed-screenshot-layers: arm the compositor layer mask for the
+        // one frame that is about to be captured, and take it down again
+        // immediately after. Default LAYER_ALL => both calls are no-ops.
+        if (screenshot_countdown_ == 0)
+            emulator_.renderer().set_layer_mask(screenshot_layers_);
+
         emulator_.run_frame();
 
         // Delayed screenshot.
@@ -206,6 +215,7 @@ void HeadlessApp::run() {
             save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
                                 emulator_.get_framebuffer_width(),
                                 emulator_.get_framebuffer_height());
+            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
             screenshot_countdown_ = -1;
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;

@@ -31,11 +31,14 @@ void QtApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
-void QtApp::set_delayed_screenshot(const std::string& file, int delay_frames) {
+void QtApp::set_delayed_screenshot(const std::string& file, int delay_frames,
+                                   uint8_t layer_mask) {
     screenshot_file_ = file;
     screenshot_countdown_ = delay_frames;
-    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s)",
-                           file, delay_frames);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
+                           file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
 }
 
 void QtApp::set_speed_multiplier(double multiplier) {
@@ -195,6 +198,20 @@ void QtApp::on_frame_tick() {
         --load_countdown_;
     }
 
+    // --delayed-screenshot-layers: arm the compositor layer mask for the frames
+    // rendered in this tick — the last of them is the one the screenshot below
+    // captures — and take it down again right after. Default LAYER_ALL makes
+    // both calls no-ops, so the unmasked path is bit-identical to before.
+    // Trade-off: the mask lives on the one Renderer the GUI also displays, so
+    // for that single tick (~20 ms) the on-screen window shows the same masked
+    // composite that lands in the PNG. Rendering a second, separate pass for
+    // the screenshot would avoid that, but re-running render_frame also
+    // re-advances per-frame renderer state (the ULA flash counter), which would
+    // make `--delayed-screenshot-layers all` differ from the plain
+    // --delayed-screenshot default. One frame of flicker is the cheaper bug.
+    if (screenshot_countdown_ == 0)
+        emulator_.renderer().set_layer_mask(screenshot_layers_);
+
     // Run one emulator frame (skip if debugger has paused).
     if (!emulator_.debug_state().paused()) {
         // Pace emulation against the sound card, not the wall clock. The 20 ms
@@ -285,6 +302,7 @@ void QtApp::on_frame_tick() {
         save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
                             emulator_.get_framebuffer_width(),
                             emulator_.get_framebuffer_height());
+        emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
         screenshot_countdown_ = -1;  // done
     } else if (screenshot_countdown_ > 0) {
         --screenshot_countdown_;
