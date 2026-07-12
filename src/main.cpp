@@ -352,7 +352,8 @@ int main(int argc, char* argv[]) {
                 "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
                 "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
                 "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sdcard FILE,\n"
-                "or accept the download prompt to install it at ~/.jnext/sdcard/cspect-next-1gb-fixed.img.\n");
+                "or accept the download prompt to install it at ~/.jnext/sdcard/cspect-next-1gb-fixed.img.\n"
+                "Use --sdcard-download-confirm to confirm download without asking.\n");
             return 1;
         }
     }
