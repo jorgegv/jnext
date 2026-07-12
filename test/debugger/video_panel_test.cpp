@@ -1694,12 +1694,19 @@ static void test_peek_does_not_mutate(Emulator& emu) {
           "peek(0x2C) returns the same byte read(0x2C) does",
           emu.nextreg().peek(0x2C) == 0xFF,
           fmt("peek=%02X want FF", emu.nextreg().peek(0x2C)));
+    // Assert what the label says, over all 256 — not a spot-check of two negatives. If a
+    // register ever acquires a read side effect, it must be DECLARED, and this row is
+    // what notices when it is not.
+    int wrongly_destructive = 0;
+    for (int i = 0; i < 256; ++i) {
+        const uint8_t r = static_cast<uint8_t>(i);
+        const bool expect = (r == 0x2C || r == 0x2E);
+        if (emu.nextreg().read_is_destructive(r) != expect) ++wrongly_destructive;
+    }
     check("DVP-PEEK-04",
-          "NR 0x2C / 0x2E are declared destructive; nothing else is",
-          emu.nextreg().read_is_destructive(0x2C) &&
-          emu.nextreg().read_is_destructive(0x2E) &&
-          !emu.nextreg().read_is_destructive(0x2D) &&
-          !emu.nextreg().read_is_destructive(0x69));
+          "NR 0x2C / 0x2E are declared destructive, and — across all 256 — nothing else is",
+          wrongly_destructive == 0,
+          fmt("%d register(s) disagree", wrongly_destructive));
 
     // peek() must equal read() everywhere it is safe to compare — i.e. everywhere except
     // the two destructive registers and NR 0x2D, whose value read() itself changes.

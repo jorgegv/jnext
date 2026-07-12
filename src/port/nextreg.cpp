@@ -486,6 +486,11 @@ void NextReg::set_write_handler(uint8_t reg, std::function<uint8_t(uint8_t)> fn)
 
 void NextReg::set_read_handler(uint8_t reg, std::function<uint8_t()> fn) {
     read_handlers_[reg] = std::move(fn);
+    // Installing a plain (non-destructive) handler RETIRES any destructive wiring for
+    // this register. Otherwise re-registering NR 0x2C through this setter would leave
+    // peek() calling a stale twin for a handler that no longer exists.
+    peek_handlers_[reg]    = nullptr;
+    destructive_read_[reg] = false;
 }
 
 void NextReg::set_destructive_read_handler(uint8_t reg,

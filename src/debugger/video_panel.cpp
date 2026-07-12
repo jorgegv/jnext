@@ -147,14 +147,19 @@ static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
 //
 // All four of these registers have read handlers (0x15 recomposes priority and
 // sprite_en from the renderer, 0x68 bit 3 from the ULA, 0x6B from the live tilemap
-// control), so reading any of them from the cache is a bug waiting to happen. Read
-// them the way the Z80 would.
+// control), so reading any of them from the cache is a bug waiting to happen.
+//
+// peek(), not read(): the same value, but read() is the *Z80's* read — it emits a trace
+// line, and this panel refreshes several times a second with the guest running, so it
+// would inject phantom NextREG reads into the log used to diagnose NextREG traffic.
+// (None of these four handlers mutates state, so read() would be safe here — but the
+// debugger has its own read, and this is it.)
 void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out)
 {
-    const uint8_t reg15 = emu.nextreg().read(0x15);
-    const uint8_t reg68 = emu.nextreg().read(0x68);
-    const uint8_t reg69 = emu.nextreg().read(0x69);
-    const uint8_t reg6b = emu.nextreg().read(0x6B);
+    const uint8_t reg15 = emu.nextreg().peek(0x15);
+    const uint8_t reg68 = emu.nextreg().peek(0x68);
+    const uint8_t reg69 = emu.nextreg().peek(0x69);
+    const uint8_t reg6b = emu.nextreg().peek(0x6B);
 
     active_out[0] = !(reg68 & 0x80);   // ULA     (bit 7 = DISABLE)
     active_out[1] = !!(reg69 & 0x80);  // Layer 2
