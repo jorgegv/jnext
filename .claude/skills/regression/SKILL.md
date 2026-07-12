@@ -47,7 +47,7 @@ New failures vs baseline (33/0/0): <list or "none">
 - Pre-existing skips ≠ failures.
 - **Never update reference screenshots without explicit user authorization** (`feedback_pixel_equivalence_for_ref_regen`).
 - For GUI-touching changes, use `build/gui-release/` (`feedback_clean_gui_release_for_regression`).
-- Set `JNEXT_TEST_JOBS=1` when running parallel work alongside (`feedback_jnext_test_jobs`).
+- Leave `JNEXT_TEST_JOBS` unset for a solo run (the script auto-picks ~2/3 of the CPUs, capped at 8). Set `JNEXT_TEST_JOBS=2..4` **only** when other agents are running regressions concurrently (`feedback_jnext_test_jobs`).
 - Run regression in the branch worktree, not on main (`feedback_regression_in_branches`).
 
 ## When to escalate to the `regression-runner` subagent

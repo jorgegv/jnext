@@ -121,6 +121,48 @@ To update reference screenshots after intentional rendering changes:
 bash test/00regression/generate-references.sh
 ```
 
+### Test-cycle performance (Task 39)
+
+Three rules that keep the build/test/review loop fast. None of them weakens a
+test: the identical work runs, it just runs faster.
+
+**1. ccache is wired into the build.** `CMakeLists.txt` auto-detects `ccache`
+and uses it as `CMAKE_{C,CXX}_COMPILER_LAUNCHER` (guarded — a machine without
+ccache builds exactly as before; `-DUSE_CCACHE=OFF` opts out). This is what
+makes the mandatory `make clean` + full-rebuild discipline cheap: a clean
+rebuild of `gui-release` + `build/` drops from ~65 s to ~8 s on a warm cache
+(100% hit rate). Reverting a fix and rebuilding — the core reviewer move — is a
+*pure* cache hit, because the source is byte-identical to a state already
+compiled.
+
+Give ccache room, once per machine (it is not captured in the repo):
+
+```bash
+ccache -M 20G     # the 5G default thrashes on a tree this size
+```
+
+**2. Do NOT blindly pass `JNEXT_TEST_JOBS=4`.** The regression script now picks
+a sensible default on its own (~2/3 of the CPUs, capped at 8). Just run:
+
+```bash
+LANG=C make regression 2>&1 | tee /tmp/regression-<branch>.log
+```
+
+`JNEXT_TEST_JOBS` is an override for **multi-agent contention only**: when
+several agents run regressions at the same time, each of them must cap itself
+(`JNEXT_TEST_JOBS=2..4`). Six concurrent unbounded runs have crashed this
+machine twice — that rule is real, but it is a *concurrency* rule, not a
+default. Throttling a solo run to 4 jobs on a 12-core box costs ~55 s per run
+for nothing.
+
+**3. Reviewers: run mutation cycles in parallel, not serially.** Reviewer
+mutations are independent by construction (reverting a stencil gate has nothing
+to do with reverting a tab order), yet they are usually run one after another in
+a single build dir. Give each mutation its own build directory (or its own
+worktree) and run them concurrently — ccache is global, so the second and third
+builds are almost free. Cap each concurrent regression run with
+`JNEXT_TEST_JOBS` per rule 2.
+
 ### Headless mode
 
 The `--headless` option runs without display/audio for automated testing:

@@ -27,7 +27,7 @@ Per feedback memory:
 - **Use `make regression`** as the canonical entry (`feedback_make_regression_canonical`).
 - **Run from `build/gui-release/`** for regression when the change touched GUI (`feedback_clean_gui_release_for_regression`).
 - **Tee the regression log to a file** (`feedback_regression_log_to_file`) so reviewers can read it. Default: `/tmp/regression-<short-sha>.log`.
-- **Set `JNEXT_TEST_JOBS=1`** when running regression in a session that also has other parallel work (`feedback_jnext_test_jobs`).
+- **Leave `JNEXT_TEST_JOBS` unset for a solo run** — the script defaults to ~2/3 of the CPUs (capped at 8). Set `JNEXT_TEST_JOBS=2..4` **only** when other agents are running regressions at the same time (`feedback_jnext_test_jobs`).
 
 ## Workflow
 
