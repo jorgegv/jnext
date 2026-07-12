@@ -330,6 +330,39 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# Bare-filename CLI test (Task 25): `jnext <file>` must load the file exactly as
+# `--load <file>` does, while a mistyped flag must still be an error rather than
+# being silently swallowed as a filename.
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'cli-bare-file-func'; then
+    printf "  %-25s " "[cli-bare-file-func]"
+    bare_nex="$SCRIPT_DIR/nex/celeste.nex"
+    bare_out=$(timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" "$bare_nex" --delayed-automatic-exit 2 2>&1) || true
+    # A typo'd flag must NOT be taken as a filename. These runs are EXPECTED to
+    # exit non-zero, so capture the status in an if — a bare command would trip
+    # the script's `set -e`.
+    if timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --hedless --delayed-automatic-exit 1 >/dev/null 2>&1
+    then typo_rc=0; else typo_rc=1; fi
+    # --load plus a bare file is ambiguous and must be rejected.
+    if timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --load "$bare_nex" "$bare_nex" --delayed-automatic-exit 1 >/dev/null 2>&1
+    then both_rc=0; else both_rc=1; fi
+    if ! echo "$bare_out" | grep -q "NEX: loaded"; then
+        echo -e "${RED}FAIL${RESET} (bare filename did not load the NEX)"
+        fail=$((fail + 1))
+    elif [[ $typo_rc -eq 0 ]]; then
+        echo -e "${RED}FAIL${RESET} (a mistyped flag was accepted as a filename)"
+        fail=$((fail + 1))
+    elif [[ $both_rc -eq 0 ]]; then
+        echo -e "${RED}FAIL${RESET} (--load plus a bare file was not rejected)"
+        fail=$((fail + 1))
+    else
+        echo -e "${GREEN}PASS${RESET} (bare filename loads; typo and --load+file rejected)"
+        pass=$((pass + 1))
+    fi
+fi
+
 # RZX recording test: verify --rzx-record produces a valid RZX file
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-record-func'; then
     printf "  %-25s " "[rzx-record-func]"

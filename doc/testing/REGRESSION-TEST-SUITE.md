@@ -149,6 +149,13 @@ make -C demo clean
 | layer2-640x256  | Next     | Layer 2 640x256 4bpp mode             |
 | sprite-scaling  | Next     | Hardware sprite scaling               |
 
+## Functional test: cli-bare-file-func
+
+`jnext <file>` must load the file exactly as `--load <file>` does (Task 25), and
+the two ways of getting that wrong must stay errors: a mistyped flag
+(`--hedless`) must NOT be silently swallowed as a filename, and `--load X Y` is
+ambiguous and must be rejected rather than silently picking one.
+
 ## Functional test: audio-underrun-func
 
 The only test in the suite that exercises the **audio output path** end to end,
