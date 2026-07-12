@@ -27,7 +27,7 @@ Per feedback memory:
 - **Use `make regression`** as the canonical entry (`feedback_make_regression_canonical`).
 - **Run from `build/gui-release/`** for regression when the change touched GUI (`feedback_clean_gui_release_for_regression`).
 - **Tee the regression log to a file** (`feedback_regression_log_to_file`) so reviewers can read it. Default: `/tmp/regression-<short-sha>.log`.
-- **Leave `JNEXT_TEST_JOBS` unset for a solo run** — the script defaults to ~2/3 of the CPUs (capped at 8). Set `JNEXT_TEST_JOBS=2..4` **only** when other agents are running regressions at the same time (`feedback_jnext_test_jobs`).
+- **Set `JNEXT_TEST_JOBS=4` on every regression invocation** (`feedback_jnext_test_jobs`). Never raise it for speed: `audio-underrun-func` and `screenshot-paused-func` are real-time-bounded and fail under CPU contention, so the cap protects test correctness as well as the machine.
 
 ## Workflow
 
