@@ -76,6 +76,22 @@ public:
     Ula& ula() { return ula_; }
     const Ula& ula() const { return ula_; }
 
+    /// Apply the ULA clip window (NextREG 0x1A) to one rendered ULA scanline.
+    ///
+    /// Unlike Layer 2 / Tilemap / Sprites — which each apply their own clip
+    /// window inside their render_scanline — the ULA's clip lives in the
+    /// compositor stage (VHDL zxnext.vhd:7104, `ula_clipped` feeds
+    /// `ula_transparent`), so `Ula::render_scanline` emits an UNCLIPPED line
+    /// and this pass masks it.  Every clipped-away cell becomes TRANSPARENT.
+    ///
+    /// Factored out of render_frame so the debugger's ULA views can apply the
+    /// identical mask — otherwise the ULA panel would be the only layer view
+    /// showing content the compositor suppresses.
+    ///
+    /// @param line  FB_WIDTH (640) ARGB cells, as emitted by Ula::render_scanline.
+    /// @param row   Framebuffer row 0..FB_HEIGHT-1.
+    void apply_ula_clip(uint32_t* line, int row) const;
+
     /// Set layer priority from NextREG 0x15 bits 4:2.
     void set_layer_priority(uint8_t val) { layer_priority_ = val & 0x07; }
     uint8_t layer_priority() const { return layer_priority_; }

@@ -43,6 +43,15 @@
 //           rows below the true raster position.
 //   DVP-09  Rows past the raster are marked unrendered, rows at/before it are
 //           drawn (pins the cut-off semantics DVP-08 depends on).
+//   DVP-10  "Run to EOF" targeted raw VC 255 = framebuffer row 223 on a Next,
+//           so it stopped 32 rows short of the end of the frame.
+//   DVP-11  "Run to EOSL" classified raw VC 256..287 (the bottom border,
+//           framebuffer rows 224..255) as blanking and skipped to the next
+//           frame instead of stepping one scanline.
+//   DVP-12  The ULA views apply the NR 0x1A clip window.  Layer 2 / Tilemap /
+//           Sprites clip inside their own render_scanline; the ULA's clip is a
+//           compositor-stage signal (zxnext.vhd:7104), which the panel skipped
+//           — so the ULA view was the only one showing suppressed content.
 //
 // Qt is required (the panel is a QWidget), but no display is: the test forces
 // the offscreen QPA platform.  Run: ./build/test/debugger_video_panel_test
@@ -597,6 +606,66 @@ static void test_fb_row_conversion(Emulator& emu) {
               cut, px(img, 0, cut), cut + 1, px(img, 0, cut + 1)));
 }
 
+// ── DVP-12: the ULA views apply the NR 0x1A clip window ───────────────
+//
+// Layer 2 / Tilemap / Sprites each apply their clip window inside their own
+// render_scanline, so the debug views inherit it for free.  The ULA does not:
+// in VHDL the clip is a compositor-stage signal (zxnext.vhd:7104 — ula_clipped
+// is OR'd into ula_transparent), so Ula::render_scanline emits an UNCLIPPED
+// line and Renderer::apply_ula_clip masks it.  The panel skipped that pass, so
+// the ULA view was the only layer view showing content the compositor
+// suppresses.
+
+static void test_ula_clip_window(Emulator& emu) {
+    set_group("DVP-ULA-CLIP");
+
+    emu.layer2().set_enabled(false);
+
+    Ula& ula = emu.ula();
+    ula.set_ula_enabled(true);
+    ula.set_screen_mode(0x00);
+    ula.set_shadow_screen_en(false);
+
+    // Paint the whole bank-5 screen with opaque ink.
+    uint8_t* b5 = emu.mmu().bank5_vram();
+    for (int i = 0; i < 0x1800; ++i)      b5[i] = 0xFF;   // pixels: all ink
+    for (int i = 0x1800; i < 0x1B00; ++i) b5[i] = 0x02;   // attrs: ink 2 (red)
+
+    // Clip to display columns 32..63 (source pixels) on every row.  Under G104
+    // each source column covers two framebuffer cells, so the surviving band is
+    // framebuffer cells DISP_X+64 .. DISP_X+127.
+    ula.set_clip_x1(32);
+    ula.set_clip_x2(63);
+    ula.set_clip_y1(0);
+    ula.set_clip_y2(191);
+
+    begin_frame(emu);
+
+    const int row = fb_row_of(20);
+    QImage img = render_view(emu, VideoLayerView::Layer::ULA_PRIMARY, row);
+
+    const uint32_t inside  = px(img, 64 + 2 * 40, row);   // src col 40 → kept
+    const uint32_t outside = px(img, 64 + 2 * 10, row);   // src col 10 → clipped
+    const uint32_t border  = px(img, 4, row);             // left border → clipped
+
+    const bool     pbank    = ula.get_active_ula_palette();
+    const uint32_t argb_ink = emu.palette().ula_colour(pbank, 0x02);
+
+    check("DVP-12a",
+          "ULA view keeps display cells INSIDE the NR 0x1A clip window",
+          inside == argb_ink,
+          fmt("got=0x%08X want=0x%08X", inside, argb_ink));
+    check("DVP-12",
+          "ULA view clips display cells OUTSIDE the NR 0x1A clip window",
+          outside != argb_ink,
+          fmt("got=0x%08X (must not be the ink colour 0x%08X)",
+              outside, argb_ink));
+    check("DVP-12b",
+          "…and clips the border strips when clip_x1 > 0 / clip_x2 < 255",
+          border != argb_ink,
+          fmt("got=0x%08X", border));
+}
+
 // ── DVP-10/11: "Run to EOF" / "Run to EOSL" raster targets ────────────
 //
 // Same G164v2 defect, one level up in DebuggerManager: both slots treated the
@@ -735,6 +804,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_fb_row_conversion(emu);
         std::printf("  Group: DVP-FBROW      — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_ula_clip_window(emu);
+        std::printf("  Group: DVP-ULA-CLIP   — done\n");
     }
     test_run_to_targets();
     std::printf("  Group: DVP-RUNTO      — done\n");

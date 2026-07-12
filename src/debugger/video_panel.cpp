@@ -89,6 +89,18 @@ static void fill_checker(uint32_t* dst, int row, int width)
     }
 }
 
+// Repaint the checkerboard over every zero-alpha cell.  Used after the ULA
+// clip pass, which turns clipped-away cells TRANSPARENT (alpha 0); the panel's
+// convention is that transparent areas show the checkerboard.
+static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
+{
+    for (int x = 0; x < width; ++x) {
+        if ((dst[x] & 0xFF000000u) != 0) continue;
+        const bool dark = (((row / CHECK_SZ) ^ (x / CHECK_SZ)) & 1) != 0;
+        dst[x] = dark ? CHECKER_DARK_ARGB : CHECKER_LITE_ARGB;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-scanline state replay (mirrors Renderer::render_frame)
 // ---------------------------------------------------------------------------
@@ -290,16 +302,26 @@ void VideoLayerView::render_to_image(int vc)
 
         switch (layer_) {
             case Layer::ULA_PRIMARY:
-                // Force bank 5: the live render_scanline() follows the
+            case Layer::ULA_SHADOW:
+                // Force the bank: the live render_scanline() follows the
                 // port-0x7FFD b3 shadow selector, so with the shadow screen
                 // active the "Primary (bank 5)" view used to show bank 7.
-                emu.ula().render_scanline_bank(dst, row, emu.mmu(),
-                                               /*use_bank7=*/false);
-                break;
-
-            case Layer::ULA_SHADOW:
-                emu.ula().render_scanline_bank(dst, row, emu.mmu(),
-                                               /*use_bank7=*/true);
+                emu.ula().render_scanline_bank(
+                    dst, row, emu.mmu(),
+                    /*use_bank7=*/layer_ == Layer::ULA_SHADOW);
+                // The ULA is the one layer whose clip window (NR 0x1A) is
+                // applied by the COMPOSITOR rather than inside its own
+                // render_scanline (VHDL zxnext.vhd:7104 — ula_clipped feeds
+                // ula_transparent).  Layer 2 / Tilemap / Sprites all clip
+                // themselves, so without this the ULA view was the only layer
+                // view showing content the compositor suppresses.
+                emu.renderer().apply_ula_clip(dst, row);
+                // apply_ula_clip zeroes the clipped-away cells.  The ULA
+                // renderer itself only ever emits opaque pixels, so a zero
+                // alpha here means exactly "clipped away" — repaint the
+                // checkerboard there so it reads as transparent, like every
+                // other layer view.
+                restore_checker_where_transparent(dst, row, layer_w);
                 break;
 
             case Layer::LAYER2_ACTIVE:

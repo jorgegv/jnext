@@ -921,6 +921,20 @@ selector, so it never disturbs emulation state.
 | DVP-04   | bank-7 view shows bank 7 while the primary screen is selected    | PASS   |
 | DVP-04a  | bank-7 view shows bank 7 while the shadow screen is selected     | PASS   |
 | DVP-04c/d| the live bank selector is restored after the debug render        | PASS   |
+| DVP-12   | the debug views apply the NR 0x1A clip window                    | PASS   |
+| DVP-12a  | …keeping display cells inside the window                         | PASS   |
+| DVP-12b  | …and clipping the border strips when clip_x1>0 / clip_x2<255     | PASS   |
+
+### ULA clip window in the debug path
+
+The ULA is the only layer whose clip window is applied by the **compositor**
+rather than inside its own `render_scanline`: in VHDL the clip is a
+compositor-stage signal (`zxnext.vhd:7104` — `ula_clipped` is OR'd into
+`ula_transparent`), whereas Layer 2 / Tilemap / Sprites each gate their own
+pixel output.  `Renderer::apply_ula_clip(line, row)` was factored out of
+`render_frame` (verbatim, no behavioural change) so the debugger's ULA views
+can apply the identical mask — otherwise the ULA view would be the only layer
+view showing content the compositor suppresses.
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
 alongside the rest of the panel-vs-compositor parity rows, because the entry
