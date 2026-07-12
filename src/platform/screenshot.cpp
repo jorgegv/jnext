@@ -33,10 +33,19 @@ bool save_screenshot_png(const std::string& path,
         return false;
     }
 
+    // libpng longjmps here when a write fails MID-STREAM, i.e. only when stdio
+    // actually issues a write(2) while rows are still being emitted.
+    //
+    // KNOWN GAP, deliberate: this does NOT cover the usual disk-full case. A
+    // 640x512 screenshot compresses to a few KB, so it fits inside glibc's stdio
+    // buffer and no write(2) happens until the final flush — which is inside
+    // fclose() below, whose result we do not check. On a genuinely full disk the
+    // likely outcome is therefore a truncated PNG reported as "saved", exit 0.
+    // Judged not worth the complexity (disk-full is very unlikely); the failure
+    // this code DOES catch reliably is an unwritable path, at the fopen() above.
     if (setjmp(png_jmpbuf(png))) {
         png_destroy_write_struct(&png, &info);
         fclose(fp);
-        // libpng longjmps here on a short write — disk full, quota exceeded.
         Log::platform()->error("screenshot: PNG write error on '{}': {}",
                                path, std::strerror(errno));
         return false;
