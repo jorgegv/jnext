@@ -16,6 +16,7 @@ class VideoLayerView : public QWidget {
     Q_OBJECT
 public:
     enum class Layer {
+        COMPOSITE,      ///< All layers, composited exactly as the emulator window
         ULA_PRIMARY,    ///< ULA standard screen (bank 5, pages 10-11)
         ULA_SHADOW,     ///< ULA 128K shadow screen (bank 7, page 14) — port 0x7FFD bit 3
         LAYER2_ACTIVE,  ///< Layer 2 active bank
@@ -114,6 +115,7 @@ private:
 
     // Sub-panel layer views (one per tab)
     QTabWidget*      layer_tabs_    = nullptr;
+    VideoLayerView*  composite_view_ = nullptr; ///< "All layers" tab (leftmost, default)
     VideoLayerView*  ula_view_      = nullptr;  ///< ULA tab (primary or shadow)
     VideoLayerView*  l2_view_       = nullptr;  ///< Layer2 tab (active or shadow)
     VideoLayerView*  sprites_view_  = nullptr;
