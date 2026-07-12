@@ -364,14 +364,25 @@ void DebuggerManager::on_run_to_eof() {
     if (!enabled_) return;
     if (!emulator_->debug_state().paused()) return;
 
-    // Target the midpoint of the last visible scanline (VC = FB_HEIGHT-1 = 255)
-    // so that when the CPU stops, paused_vc_ = 255 and all visible rows are shown
-    // in the video panel.  If we are already past that point in the current frame
-    // (e.g. stepping from blanking), target the same scanline in the next frame.
+    // Target the midpoint of the last visible scanline, so that when the CPU
+    // stops every framebuffer row has been rendered and the video panel shows
+    // a complete picture.  If we are already past that point in the current
+    // frame (e.g. stepping from blanking), target the same scanline in the
+    // next frame.
+    //
+    // The last visible row is framebuffer row FB_HEIGHT-1, and since G164v2
+    // (Task 13) `fb_row = raw_vc - vblank_top()` — so the RAW VC we must run
+    // to is FB_HEIGHT-1 + vblank_top() (287 on the NEXT family, 303 on
+    // Pentagon, 263 on the 60 Hz overrides), not the bare FB_HEIGHT-1 = 255
+    // this used to target.  Stopping at raw VC 255 left the bottom 32
+    // framebuffer rows undrawn, so "Run to EOF" never actually reached the end
+    // of the frame.
     uint64_t frame_start = emulator_->current_frame_cycle();
     const auto& t = emulator_->timing();
-    const uint64_t last_vis_mid = static_cast<uint64_t>(Renderer::FB_HEIGHT - 1)
-                                  * t.master_cycles_per_line
+    const uint64_t last_vis_vc =
+        static_cast<uint64_t>(Renderer::FB_HEIGHT - 1
+                              + emulator_->video_timing().vblank_top());
+    const uint64_t last_vis_mid = last_vis_vc * t.master_cycles_per_line
                                   + t.master_cycles_per_line / 2;
     uint64_t target = frame_start + last_vis_mid;
     if (emulator_->clock().get() >= target)
@@ -404,8 +415,17 @@ void DebuggerManager::on_run_to_eosl() {
     const auto& t = emulator_->timing();
     uint64_t next_line_start = ((elapsed / t.master_cycles_per_line) + 1) * t.master_cycles_per_line;
     uint64_t next_line_vc    = next_line_start / t.master_cycles_per_line;
-    // Skip blanking lines (VC >= FB_HEIGHT): jump straight to next frame start.
-    uint64_t target = (static_cast<int>(next_line_vc) >= Renderer::FB_HEIGHT)
+    // Past the last visible row → jump straight to the next frame start.
+    //
+    // `next_line_vc` is a RAW VC; the visible framebuffer occupies raw VC
+    // [vblank_top(), vblank_top()+FB_HEIGHT).  Comparing the raw VC directly
+    // against FB_HEIGHT (as this used to) misclassified raw VC 256..287 — the
+    // bottom border, framebuffer rows 224..255 — as blanking, so "Run to
+    // EOSL" skipped to the next frame instead of the next scanline for the
+    // last 32 visible rows.  G164v2 / Task 13.
+    const int next_fb_row = static_cast<int>(next_line_vc)
+                            - emulator_->video_timing().vblank_top();
+    uint64_t target = (next_fb_row >= Renderer::FB_HEIGHT)
                     ? frame_start + t.master_cycles_per_frame
                     : frame_start + next_line_start;
 
