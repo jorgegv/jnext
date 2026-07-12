@@ -115,6 +115,12 @@ if [[ ! -f "$SD_IMAGE" ]]; then
                   "In an agent worktree, provision it with: ${BOLD}make worktree-bootstrap${RESET}"
 fi
 
+# A manifest that is not there must say so, not be diagnosed as "missing its pin".
+for conf in "$CONF" "$FUNC_CONF"; do
+    [[ -f "$conf" ]] || harness_fault "Test manifest not found: ${BOLD}$conf${RESET}"
+done
+echo -e "  manifests: $(basename "$CONF") + $(basename "$FUNC_CONF")"
+
 # rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE, in the
 # first second, not five minutes into the run: an incomplete build is a harness fault,
 # not a code regression — and never, as it once was, an absent row (Task 35).

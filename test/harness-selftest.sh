@@ -253,6 +253,7 @@ check "HS-19" "a manifest with NO suite-count pin is rejected (guard must not be
 # A directory with its own CMakeCache.txt is an independent build root.
 stub good_test 10 0; stub other_test 5 0
 register good_test other_test
+touch "$T/build/CMakeCache.txt"          # the root IS a build root: -mindepth 1 must not prune it
 mkdir -p "$T/build/gui-debug/test"
 touch "$T/build/gui-debug/CMakeCache.txt"
 { echo "add_test(good \"$T/build/gui-debug/test/good_test\")"
@@ -263,6 +264,30 @@ out=$(run_harness); rc=$?
 check "HS-20" "a nested build tree (own CMakeCache.txt) is NOT enumerated" 0 $rc "$out" \
     "Suites: 2 pass, 0 fail" "2 registered"
 rm -rf "$T/build/gui-debug"
+
+# ------------------------------------------- a build tree that registers NOTHING
+# The other half of the dead-guard pair. `grep -hc` exits 1 when no file has an
+# add_test line; under `set -e` + pipefail that killed the script at the assignment —
+# bare exit 1, not one character of output, and the "No suites registered" die below it
+# was unreachable. Revived with `|| true`, and it stayed 24/24 green when the reviewer
+# re-killed it, because nothing tested it. This is that test.
+stub good_test 10 0
+: > "$T/build/test/CTestTestfile.cmake"      # configured, but zero add_test()
+manifest "good_test 10"
+out=$(run_harness); rc=$?
+check "HS-25" "a build tree that registers NO suites is rejected, loudly" 2 $rc "$out" \
+    "REFUSES TO RUN" "No suites registered"
+
+# The parse-completeness guard: an add_test() line the regex cannot read must not be
+# silently dropped from the registered set — that is the blindness this file prevents.
+stub good_test 10 0
+{ echo "add_test(good \"$T/build/test/good_test\")"
+  echo "add_test(unquoted $T/build/test/other_test)"     # no quotes: counted, not parsed
+} > "$T/build/test/CTestTestfile.cmake"
+manifest "good_test 10"
+out=$(run_harness); rc=$?
+check "HS-26" "an add_test() line the parser cannot read is a refusal, not a silent drop" 2 $rc "$out" \
+    "REFUSES TO RUN" "Parsed"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).
