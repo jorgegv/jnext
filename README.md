@@ -53,9 +53,9 @@ under CI.
 rough or missing; they are listed, not hidden:
 
 - [TODO.md](TODO.md) — known issues and pending features
-- [doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)
+- [KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)
   — every subsystem-level gap, sorted by display impact
-- [test/SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
+- [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
 Linux only for now; Windows and macOS ports are pending.
