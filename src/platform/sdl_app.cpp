@@ -233,7 +233,17 @@ void SdlApp::run() {
         // Delayed screenshot: take after countdown expires.
         if (screenshot_countdown_ == 0) {
             if (frames_rendered > 0) {
-                save_screenshot_png(screenshot_file_, fb, fb_w, fb_h);
+                // A failed write means no PNG — same failure as never taking
+                // the capture, so same contract as SdlApp::shutdown(): error +
+                // non-zero exit. save_screenshot_png() has already logged WHY.
+                if (!save_screenshot_png(screenshot_file_, fb, fb_w, fb_h)) {
+                    Log::platform()->error(
+                        "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
+                        "see the error above. Exiting non-zero.",
+                        screenshot_file_,
+                        Renderer::layer_mask_to_string(screenshot_layers_));
+                    exit_code_ = 1;
+                }
                 emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
                 screenshot_countdown_ = -1;  // done
             } else {

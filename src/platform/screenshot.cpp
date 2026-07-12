@@ -3,13 +3,19 @@
 #include <png.h>
 #include <vector>
 #include <cstdio>
+#include <cerrno>
+#include <cstring>
 
 bool save_screenshot_png(const std::string& path,
                          const uint32_t* framebuffer,
                          int width, int height) {
     FILE* fp = fopen(path.c_str(), "wb");
     if (!fp) {
-        Log::platform()->error("screenshot: cannot open '{}'", path);
+        // Name the path AND the reason: "cannot open" alone leaves the user
+        // guessing between a missing directory, a permission problem and a
+        // read-only mount.
+        Log::platform()->error("screenshot: cannot open '{}' for writing: {}",
+                               path, std::strerror(errno));
         return false;
     }
 
@@ -30,7 +36,9 @@ bool save_screenshot_png(const std::string& path,
     if (setjmp(png_jmpbuf(png))) {
         png_destroy_write_struct(&png, &info);
         fclose(fp);
-        Log::platform()->error("screenshot: PNG write error");
+        // libpng longjmps here on a short write — disk full, quota exceeded.
+        Log::platform()->error("screenshot: PNG write error on '{}': {}",
+                               path, std::strerror(errno));
         return false;
     }
 
