@@ -3,12 +3,10 @@
 **JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
 the people who write Next software.**
 
-A comfortable machine to develop on: a
-debugger that shows you everything the hardware is doing — every layer, every
-sprite, every register, and the ability to step *backwards* — plus a headless
-mode that puts your program under CI.
-
-It runs your game. It also tells you why it doesn't.
+A comfortable machine to develop on: a debugger that shows you everything
+the hardware is doing — every layer, every sprite, every register, and the
+ability to step *backwards* — plus a headless mode that puts your program
+under CI.
 
 <p align="center">
   <a href="doc/SCREENSHOT.png">
@@ -27,8 +25,7 @@ It runs your game. It also tells you why it doesn't.
   layer compositor, the AY chips — plus **backwards execution**: step back,
   frame back, scrub a rewind slider.
 - **Every layer, on its own.** See the ULA, Layer 2, sprites and the tilemap
-  rendered separately, next to the composite the hardware would show you — so
-  "why is that sprite invisible?" takes seconds, not an afternoon.
+  rendered separately, next to the composite the hardware would show you
 - **Headless and scriptable.** Deterministic PNG screenshots (frame-accurate,
   per-layer, with a pinnable RTC), keypress injection, a T-state profiler, RZX
   and MP4 recording: enough to put a Next program under CI.
