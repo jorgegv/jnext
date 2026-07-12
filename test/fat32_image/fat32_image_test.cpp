@@ -1,7 +1,7 @@
 // FatFs SD-image patch end-to-end tests (Task 27, FatFs rewrite).
 //
 // The hand-rolled FAT32 volume writer + geometry math were retired in favour
-// of the vendored ChaN FatFs (src/third_party/fatfs): the patch now reformats
+// of the vendored ChaN FatFs (third_party/fatfs): the patch now reformats
 // the partition with f_mkfs (8 KB clusters) and re-emits the tree with
 // f_mkdir / f_open / f_write. These tests therefore exercise the WHOLE patch
 // pipeline as a black box and assert its output invariants — no

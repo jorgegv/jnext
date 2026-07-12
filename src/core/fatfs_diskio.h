@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-/// Glue that backs ChaN FatFs (src/third_party/fatfs) on host image files.
+/// Glue that backs ChaN FatFs (third_party/fatfs) on host image files.
 ///
 /// FatFs addresses a "physical drive" through the disk_read / disk_write /
 /// disk_ioctl callbacks. Here each drive is an MBR-partitioned image file: the

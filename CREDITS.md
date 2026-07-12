@@ -8,7 +8,7 @@
 | [Qt6](https://www.qt.io/) | LGPLv3 | GUI framework (optional: `ENABLE_QT_UI`) |
 | [libcurl](https://curl.se/libcurl/) | curl | HTTP(S) download of the NextZXOS distribution SD-card image |
 | [OpenSSL](https://www.openssl.org/) (libcrypto) | Apache-2.0 | SHA-256 integrity hash of the cached SD-card image |
-| [FatFs](http://elm-chan.org/fsw/ff/) | BSD-1 | Host-side FAT32 read/format of the SD image (vendored in `src/third_party/fatfs/`) |
+| [FatFs](http://elm-chan.org/fsw/ff/) | BSD-1 | Host-side FAT32 read/format of the SD image (vendored in `third_party/fatfs/`) |
 | [spdlog](https://github.com/gabime/spdlog) | MIT | Fast C++ logging (git submodule, `third_party/spdlog/`) |
 | FUSE Z80 core | GPLv2 | Z80 CPU core, adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator (`third_party/fuse-z80/`) |
 | [ZOT](https://github.com/antirez/zot) | MIT | TZX/TAP tape player library by antirez (vendored in `third_party/zot/`) |

@@ -43,16 +43,18 @@ set_source_files_properties(${NEXTBOOT_ROM_OBJ} PROPERTIES
     GENERATED TRUE)
 
 # ---------------------------------------------------------------------------
-# Vendored ChaN FatFs R0.15b (src/third_party/fatfs). Used by the SD-card
+# Vendored ChaN FatFs R0.15b (third_party/fatfs). Used by the SD-card
 # provisioner to reformat a freshly downloaded image to a spec-valid FAT32
 # (8 KB clusters) via f_mkfs + f_write, retiring the hand-rolled volume writer.
 # Config lives in third_party/fatfs/ffconf.h. ff.c / ffunicode.c compile as C.
 # ---------------------------------------------------------------------------
-set(FATFS_DIR ${CMAKE_SOURCE_DIR}/src/third_party/fatfs)
+set(FATFS_DIR ${CMAKE_SOURCE_DIR}/third_party/fatfs)
 set(FATFS_SOURCES ${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c)
 
 add_library(jnext_core STATIC ${SOURCES} ${FATFS_SOURCES} ${NEXTBOOT_ROM_OBJ})
-target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+# ${CMAKE_SOURCE_DIR} is on the path so that #include "third_party/fatfs/ff.h"
+# resolves now that FatFs sits with the other vendored libraries at the root.
+target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
 # emulator.h includes input/keyboard.h; Keyboard symbols live in jnext_input.
 # src/input is added before src/core in the root CMakeLists so this target exists.
 target_link_libraries(jnext_core PUBLIC jnext_input jnext_peripheral jnext_debug jnext_profiler spdlog::spdlog zot_tzx ZLIB::ZLIB CURL::libcurl OpenSSL::Crypto)
