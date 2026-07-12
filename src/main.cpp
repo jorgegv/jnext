@@ -27,8 +27,10 @@ static void print_usage(const char* prog) {
     fprintf(stderr,
         "  jnext is a ZX Spectrum Next emulator.\n"
         "\n"
-        "  Usage: %s [options]\n"
+        "  Usage: %s [options] [file]\n"
         "\n"
+        "  [file]               Program to load (NEX, TAP, TZX, SNA, SZX, WAV, RZX).\n"
+        "                       Equivalent to --load FILE, so 'jnext game.tap' just works.\n"
         "  --log-level SPEC     Log levels: a bare level sets all subsystems (e.g. warn),\n"
         "                       name=level sets one (e.g. cpu=trace); mix them, applied\n"
         "                       left to right (e.g. warn,emulator=debug)\n"
@@ -102,6 +104,7 @@ int main(int argc, char* argv[]) {
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
     std::string load_file;
+    std::string positional_file;   // bare filename arg; shorthand for --load
     std::string sd_card_image;
     bool        sdcard_download_confirm = false;
     bool        sdcard_download_force   = false;
@@ -244,10 +247,35 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--version" || arg == "-V") {
             fprintf(stdout, "jnext %s\n", JNEXT_VERSION_STRING);
             return 0;
+        } else if (!arg.empty() && arg[0] != '-') {
+            // A bare argument is the program to load, so `jnext game.tap` works
+            // like `jnext --load game.tap`. Anything starting with '-' is still an
+            // unknown option, not a filename — a mistyped flag must not be
+            // silently swallowed as a file.
+            if (!positional_file.empty()) {
+                fprintf(stderr,
+                        "Only one file may be given ('%s' and '%s').\n"
+                        "Run '%s --help' for a list of available options.\n",
+                        positional_file.c_str(), arg.c_str(), argv[0]);
+                return 1;
+            }
+            positional_file = arg;
         } else {
             fprintf(stderr, "Unknown option: %s\nRun '%s --help' for a list of available options.\n", arg.c_str(), argv[0]);
             return 1;
         }
+    }
+
+    // A bare filename is shorthand for --load. Giving both is ambiguous — say so
+    // rather than silently picking one.
+    if (!positional_file.empty()) {
+        if (!load_file.empty()) {
+            fprintf(stderr,
+                    "--load %s and the file argument %s cannot be combined; give only one.\n",
+                    load_file.c_str(), positional_file.c_str());
+            return 1;
+        }
+        load_file = positional_file;
     }
 
     if (!inject_pc_set) inject_pc = inject_org;
