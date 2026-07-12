@@ -141,6 +141,23 @@ int QtApp::run() {
 }
 
 void QtApp::shutdown() {
+    // A screenshot that was asked for and never taken is a FAILURE, not a
+    // footnote. The capture is deferred while no frame is rendering (debugger
+    // paused), but --delayed-automatic-exit is a hard bound and must stay one,
+    // so exit can arrive with the capture still outstanding. Saying nothing and
+    // returning 0 would let a script mistake "no PNG" for success — the exact
+    // trap the old unconditional write avoided by emitting a stale frame.
+    // Per src/core/log.h, error = "the user asked for something and did not get
+    // it". That is precisely this, so: error + non-zero exit.
+    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}). "
+            "The capture came due while the debugger was paused, so no frame was "
+            "ever rendered for it, and the emulator exited first. Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+        exit_code_ = 1;
+    }
+
     // Stop RZX recording if active (writes the file).
     if (emulator_.rzx_recorder().is_recording()) {
         emulator_.stop_rzx_recording();

@@ -29,6 +29,10 @@ public:
     void set_delayed_screenshot(const std::string& file, int delay_frames,
                                 uint8_t layer_mask);
     void set_delayed_exit(int delay_seconds);
+
+    /// Process exit status, valid after shutdown(). Non-zero when a requested
+    /// --delayed-screenshot was never written (auto-exit fired first).
+    int exit_code() const { return exit_code_; }
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
@@ -65,6 +69,9 @@ private:
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;
+
+    // Non-zero when a requested screenshot was never taken (see shutdown()).
+    int         exit_code_ = 0;
 
     EmulatorConfig config_;
     bool           config_set_ = false;

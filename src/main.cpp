@@ -467,7 +467,10 @@ int main(int argc, char* argv[]) {
         }
 
         app.shutdown();
-        return 0;
+        // shutdown() decides the status: a --delayed-screenshot that was
+        // requested and never written exits non-zero, so a CI script cannot
+        // mistake a missing PNG for success.
+        return app.exit_code();
     };
 
     int result;

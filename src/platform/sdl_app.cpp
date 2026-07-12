@@ -271,6 +271,18 @@ void SdlApp::run() {
 }
 
 void SdlApp::shutdown() {
+    // A requested screenshot that was never written is a failure, not a
+    // footnote — same contract as QtApp::shutdown(). Reachable here if the
+    // capture was still deferred (no frame rendered on its tick) when
+    // --delayed-automatic-exit fired.
+    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
+            "the emulator exited with the capture still pending. Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+        exit_code_ = 1;
+    }
+
     // Close any open game-controllers (G42).
     for (int s = 0; s < 2; ++s) {
         if (controllers_[s]) {

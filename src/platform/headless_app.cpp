@@ -232,6 +232,22 @@ void HeadlessApp::run() {
 }
 
 void HeadlessApp::shutdown() {
+    // Same contract as the two GUI frontends: a screenshot that was asked for
+    // and never taken is a failure. Headless always renders (there is no
+    // debugger pause here), so the only way to land in this branch is a
+    // --delayed-automatic-exit that fires before --delayed-screenshot-time /
+    // -frames comes due. That misconfiguration used to exit 0 with no PNG and
+    // no message — a silent no-op in the one mode built for scripting.
+    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
+            "--delayed-automatic-exit fired {} frame(s) before the capture was due. "
+            "Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_),
+            screenshot_countdown_);
+        exit_code_ = 1;
+    }
+
     // Stop RZX recording if active (writes the file).
     if (emulator_.rzx_recorder().is_recording()) {
         emulator_.stop_rzx_recording();

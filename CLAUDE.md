@@ -140,7 +140,7 @@ Key options:
 - `--delayed-screenshot-time N` — delay in seconds (default 10)
 - `--delayed-screenshot-frames N` — delay in frames (overrides `--delayed-screenshot-time`)
 - `--delayed-screenshot-layers LIST` — layers composed into the screenshot: comma-separated `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`). An excluded layer is composed as if its hardware enable bit were clear, so the rest still follow NR 0x15 priority and the NR 0x4A fallback colour shows through. Excluding `ula` also removes the **border** (the ULA emits it)
-- `--delayed-automatic-exit N` — exit emulator after N seconds
+- `--delayed-automatic-exit N` — exit emulator after N seconds. It is a hard bound: it always fires. If it (or a window close) arrives while a `--delayed-screenshot` is still outstanding — the capture came due but no frame was rendered for it, e.g. the debugger was paused, or the exit delay is simply shorter than the screenshot delay — jnext logs an **error** and **exits non-zero** rather than quietly writing nothing, or writing a stale frame with the wrong layers in it
 - `--load FILE` — load a NEX, TAP, or TZX file at startup
 - `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the RTC to a fixed date/time (deterministic boot screenshots; ISO `T` form also accepted)
 

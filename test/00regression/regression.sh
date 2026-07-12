@@ -416,6 +416,87 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# A --delayed-screenshot that is requested and never taken must FAIL LOUDLY:
+# an `error` log line and a non-zero exit, never a silent "no PNG, status 0"
+# that a CI script would read as success (Task 22b round-2 review).
+#
+# Two cases, each with its own positive control so the test cannot pass by
+# simply never producing a PNG:
+#
+#   screenshot-pending-func  headless — --delayed-automatic-exit fires before
+#                            the capture comes due.
+#   screenshot-paused-func   GUI (Qt, offscreen) — --magic-breakpoint pauses the
+#                            debugger, so run_frame() stops and the capture is
+#                            deferred; auto-exit then arrives with it still
+#                            outstanding. This is the case that has no headless
+#                            equivalent (headless has no debugger pause), so it
+#                            is driven through the real Qt frontend.
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-pending-func'; then
+    printf "  %-25s " "[screenshot-pending-func]"
+    png="$TMP_DIR/pending.png"
+    rm -f "$png"
+    # Capture due at frame 5000; auto-exit at 1 s (~50 frames). Never taken.
+    if out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-screenshot "$png" --delayed-screenshot-frames 5000 \
+                --delayed-automatic-exit 1 2>&1)
+    then pend_rc=0; else pend_rc=1; fi
+
+    # Positive control: same flags, capture comfortably before the exit.
+    png_ok="$TMP_DIR/pending-ok.png"
+    rm -f "$png_ok"
+    if timeout --foreground --kill-after=5s 60s "$JNEXT" --headless \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-screenshot "$png_ok" --delayed-screenshot-frames 60 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then ctrl_rc=0; else ctrl_rc=1; fi
+
+    if [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$png" ]] \
+       && echo "$out" | grep -q "NO screenshot was written" \
+       && [[ "$ctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
+        echo -e "${GREEN}PASS${RESET} (pending capture: error + exit!=0, no PNG; control writes one)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (pending_rc=$pend_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$ctrl_rc)"
+        fail=$((fail + 1))
+    fi
+fi
+
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'screenshot-paused-func'; then
+    printf "  %-25s " "[screenshot-paused-func]"
+    png="$TMP_DIR/paused.png"
+    png_ok="$TMP_DIR/paused-ok.png"
+    rm -f "$png" "$png_ok"
+    bp_nex="$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex"
+
+    # --magic-breakpoint: the demo's ED FF traps into the debugger and PAUSES it.
+    # run_frame() then stops, so the capture (frame 200) is deferred forever and
+    # --delayed-automatic-exit (6 s) arrives with it still pending.
+    if out=$(QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 60s "$JNEXT" \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --magic-breakpoint --load "$bp_nex" \
+                --delayed-screenshot "$png" --delayed-screenshot-frames 200 \
+                --delayed-automatic-exit 6 2>&1)
+    then paused_rc=0; else paused_rc=1; fi
+
+    # Positive control: identical, minus --magic-breakpoint, so it never pauses.
+    if QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 60s "$JNEXT" \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 --load "$bp_nex" \
+            --delayed-screenshot "$png_ok" --delayed-screenshot-frames 200 \
+            --delayed-automatic-exit 6 >/dev/null 2>&1
+    then pctrl_rc=0; else pctrl_rc=1; fi
+
+    if [[ "$paused_rc" -ne 0 ]] && [[ ! -f "$png" ]] \
+       && echo "$out" | grep -q "NO screenshot was written" \
+       && [[ "$pctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
+        echo -e "${GREEN}PASS${RESET} (paused debugger: error + exit!=0, no PNG; control writes one)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (paused_rc=$paused_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$pctrl_rc)"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests
 REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
 if [[ -x "$REWIND_TEST" ]]; then

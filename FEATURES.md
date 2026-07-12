@@ -71,7 +71,6 @@
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
-- `--delayed-screenshot` with `--delayed-screenshot-time` / `--delayed-screenshot-frames`
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` — compose only the named layers into the screenshot (default all), for capturing each graphics layer in isolation
 - `--log-level` per subsystem (cpu, video, audio, etc.)
 - `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the DS1307 RTC to a fixed date/time (frozen clock; deterministic boot screenshots)

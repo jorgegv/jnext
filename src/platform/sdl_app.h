@@ -38,6 +38,10 @@ public:
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
 
+    /// Process exit status, valid after shutdown(). Non-zero when a requested
+    /// --delayed-screenshot was never written.
+    int exit_code() const { return exit_code_; }
+
     void set_tape_realtime(bool) {}
     void set_rzx_play(const std::string&) {}
     void set_rzx_record(const std::string&) {}
@@ -76,6 +80,9 @@ private:
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
+
+    // Non-zero when a requested screenshot was never taken (see shutdown()).
+    int         exit_code_ = 0;
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending
