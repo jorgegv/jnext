@@ -55,7 +55,8 @@
 ## Debugger (Qt 6)
 - Separate debugger window with full panel layout
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
-- Panels: video layers (ULA/Layer2/Sprites/Tilemap per-scanline view), sprites, copper, NextREG, audio, watches, breakpoints
+- Panels: video layers (All layers / ULA / Layer2 / Sprites / Tilemap per-scanline view), sprites, copper, NextREG, audio, watches, breakpoints
+- Video panel "All layers" view: the real composite (same image as the emulator window) — renders through the live compositor, so NR 0x15 priority, blend modes and the NR 0x4A fallback colour (which belongs to no layer) are all visible
 - PC/data/read/write breakpoints with watchpoints
 - Symbol table from Z88DK MAP files; inline symbol names in disassembly
 - Trace log (circular buffer, export to file)
