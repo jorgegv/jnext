@@ -589,6 +589,17 @@ void DebuggerWindow::create_panels() {
     callstack_panel_ = new CallStackPanel(emulator_);
     breakpoint_panel_ = new BreakpointPanel(emulator_);
 
+    // Keep the breakpoint list and the disassembly gutter in sync, both ways.
+    // Neither direction was actually wired: BreakpointPanel::set_disasm_panel()
+    // was never called (so add/edit/remove in the list left the gutter stale)
+    // and DisasmPanel::breakpoint_toggled was emitted but never connected (so
+    // toggling a breakpoint from the gutter left the list stale).  Both panels
+    // only otherwise repaint on a pause/step transition, so the staleness was
+    // visible for as long as the emulator stayed paused.
+    breakpoint_panel_->set_disasm_panel(disasm_panel_);
+    connect(disasm_panel_, &DisasmPanel::breakpoint_toggled,
+            this, [this](uint16_t) { breakpoint_panel_->refresh(); });
+
     mmu_panel_ = new MmuPanel(emulator_);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
