@@ -1,45 +1,58 @@
-# JNEXT — a ZX Spectrum Next emulator built from the FPGA sources
+# JNEXT — a ZX Spectrum Next emulator for developers
 
-**JNEXT is a real-time ZX Spectrum Next emulator written in C++17, whose
-hardware behaviour comes from the official ZX Next FPGA core VHDL — not from
-guesswork, and not from other emulators.** When a behaviour is unclear, the
-VHDL is the oracle: it decides, and a unit test citing it locks the answer
-down.
+**JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
+the people who write Next software.**
 
-It is built for **developers**: a comfortable machine to write Next games on,
-with a debugger that shows you everything the hardware is doing.
+A comfortable machine to develop on: a
+debugger that shows you everything the hardware is doing — every layer, every
+sprite, every register, and the ability to step *backwards* — plus a headless
+mode that puts your program under CI.
 
-![JNEXT screenshot](doc/SCREENSHOT.png)
+It runs your game. It also tells you why it doesn't.
+
+<p align="center">
+  <a href="doc/SCREENSHOT.png">
+    <img src="doc/SCREENSHOT.png" height="260" alt="JNEXT with the debugger open">
+  </a>
+  <a href="doc/JNEXT-NEXTZXOS-BOOT.png">
+    <img src="doc/JNEXT-NEXTZXOS-BOOT.png" height="260" alt="JNEXT cold-booting NextZXOS">
+  </a>
+</p>
+<p align="center"><sub>Click either image for full size.</sub></p>
 
 ## Why this one
 
-- **The VHDL is the specification.** Ambiguous behaviour is resolved against
-  the FPGA core sources, and pinned there by unit tests.
 - **A debugger that sees the whole machine.** Z80/Z80N disassembly, memory,
   the 8-slot MMU, all 256 NextREGs, 128 sprites, the Copper, the tilemap, the
   layer compositor, the AY chips — plus **backwards execution**: step back,
   frame back, scrub a rewind slider.
+- **Every layer, on its own.** See the ULA, Layer 2, sprites and the tilemap
+  rendered separately, next to the composite the hardware would show you — so
+  "why is that sprite invisible?" takes seconds, not an afternoon.
+- **Headless and scriptable.** Deterministic PNG screenshots (frame-accurate,
+  per-layer, with a pinnable RTC), keypress injection, a T-state profiler, RZX
+  and MP4 recording: enough to put a Next program under CI.
 - **It boots the real thing.** NextZXOS cold-boots through the authentic chain
   (FPGA boot ROM → TBBLUE.FW → NextZXOS) off an SD-card image, like real
   hardware — all machine and peripheral ROMs come from the SD card, not from
   the emulator.
-- **Headless and scriptable.** Deterministic PNG screenshots (frame-accurate,
-  per-layer, with a pinnable RTC), keypress injection, a T-state profiler, RZX
-  and MP4 recording: enough to put a Next program under CI.
-
-![JNEXT booting NextZXOS](doc/JNEXT-NEXTZXOS-BOOT.png)
+- **The VHDL is the specification.** Where the hardware's behaviour is
+  ambiguous, it is resolved against the official FPGA core sources and pinned
+  there by a unit test — so the emulator's answer is the silicon's answer.
 
 ## What it emulates
 
-Four machines — **48K, 128K, +3 and ZX Spectrum Next (Issue 2)** — and the
-Next hardware set: Z80N CPU, ULA (48K + Timex modes), Layer 2, 128 hardware
-sprites, tilemap, Copper, the layer compositor, 3 × AY-3-8910 (TurboSound),
-DAC, beeper, DMA, DivMMC, Multiface, UART, CTC, SPI / I²C / RTC, IM1/IM2
-interrupts, keyboard and USB gamepads. It loads NEX, SNA, SZX, TAP, TZX, WAV
-and RZX.
+- **Machines** — 48K, 128K, +3 and ZX Spectrum Next (Issue 2)
+- **CPU** — Z80N, with IM1/IM2 interrupts
+- **Video** — ULA (48K + Timex modes), Layer 2, 128 hardware sprites, tilemap,
+  Copper, and the layer compositor
+- **Audio** — 3 × AY-3-8910 (TurboSound), DAC, beeper
+- **Storage and peripherals** — DivMMC, Multiface, DMA, UART, CTC,
+  SPI / I²C / RTC, keyboard and USB gamepads
+- **Formats** — NEX, SNA, SZX, TAP, TZX, WAV, RZX
 
-**Status: ALPHA**, and honest about it. Extreme cycle-exactness is explicitly
-*not* a goal — "good enough to develop games on" is. Some things are still
+**Status: Beta** — Extreme cycle-exactness is explicitly
+*not* a goal; "good enough to develop games on" is. Some things are still
 rough or missing; they are listed, not hidden:
 
 - [TODO.md](TODO.md) — known issues and pending features
@@ -77,8 +90,8 @@ Build details in **[BUILD.md](BUILD.md)**; everything you can do with it in
 | [TODO.md](TODO.md) | Pending features and known issues |
 | [ChangeLog](ChangeLog) | What changed in each release |
 | [CREDITS.md](CREDITS.md) | Third-party libraries, references and acknowledgments |
-| [doc/design/EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md) | The development plan: real status, implemented features, roadmap |
-| [doc/CURRENT-REGRESSION-STATE.md](doc/CURRENT-REGRESSION-STATE.md) | Current state of the screenshot regression suite |
+| [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md) | The development plan: real status, implemented features, roadmap |
+| [CURRENT-REGRESSION-STATE.md](doc/CURRENT-REGRESSION-STATE.md) | Current state of the screenshot regression suite |
 
 Issues and pull requests will be welcome once the repository is in a somewhat
 stable state; for now, waiting for a mostly working emulator is the better
