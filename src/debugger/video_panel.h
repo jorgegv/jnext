@@ -23,6 +23,7 @@ public:
         LAYER2_SHADOW,  ///< Layer 2 shadow bank
         SPRITES,        ///< Sprite layer (transparent background)
         TILEMAP,        ///< Tilemap layer (transparent background)
+        BACKGROUND,     ///< NR 0x4A fallback colour, per scanline (belongs to no layer)
     };
 
     VideoLayerView(Layer layer, const char* title,
@@ -120,6 +121,7 @@ private:
     VideoLayerView*  l2_view_       = nullptr;  ///< Layer2 tab (active or shadow)
     VideoLayerView*  sprites_view_  = nullptr;
     VideoLayerView*  tilemap_view_  = nullptr;
+    VideoLayerView*  background_view_ = nullptr;  ///< "Background" tab (rightmost)
 
     // Screen-select radio buttons
     QRadioButton*    ula_rb_primary_  = nullptr;

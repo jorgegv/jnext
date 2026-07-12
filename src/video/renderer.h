@@ -268,6 +268,25 @@ public:
         fallback_per_line_.fill(fallback_colour_);
     }
 
+    /// The NR 0x4A fallback colour the compositor used on framebuffer row
+    /// `line` — the colour it emits where EVERY layer is transparent (VHDL
+    /// zxnext.vhd:7218-7352: each priority mux defaults to `fallback_rgb_2`
+    /// and is only overwritten by an opaque layer).
+    ///
+    /// This is the exact byte `render_row` feeds `rrrgggbb_to_argb` for that
+    /// row, so the debugger's "Background" view reads the compositor's own
+    /// per-scanline snapshot instead of re-deriving anything.  It is per-LINE
+    /// because a Copper program can MOVE NR 0x4A mid-frame to paint a gradient
+    /// across the raster; the live `fallback_colour()` is only the last value
+    /// of the frame and would flatten that to a lie.
+    ///
+    /// Out-of-range lines fall back to the live register (matches
+    /// transparent_rgb_for_line / stencil_mode_for_line).
+    uint8_t fallback_for_line(int line) const {
+        return (line >= 0 && line < 320) ? fallback_per_line_[line]
+                                         : fallback_colour_;
+    }
+
     /// Snapshot the current ULA-enable state (NR 0x68 bit 7 inverted) for
     /// a given scanline. Parallels snapshot_fallback_for_line so a Copper
     /// MOVE to NR 0x68 mid-frame is reflected in only the rows that follow
