@@ -311,8 +311,26 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
         rm -f "$raw_file"
         # A bare 18-byte square-wave loop: sound starts immediately, with none of
         # the tape-fastload burst that would pre-fill the queue and mask the leak.
+        # This is the ONE test that cannot use --headless (it needs a real audio
+        # path), so it runs the windowed emulator under xvfb-run. But xvfb-run
+        # only sets DISPLAY; it leaves WAYLAND_DISPLAY alone, and on a Wayland
+        # session Qt/SDL PREFER the Wayland backend -- so the emulator ignored
+        # the virtual X display and opened a real window on the user's desktop,
+        # once per regression run. Verified by strace: 2 connects to wayland-0.
+        #
+        # Fix: unset WAYLAND_DISPLAY and force the X11 backends, so Qt renders
+        # into the Xvfb display instead of the real compositor.
+        #
+        # NOT done: pointing WAYLAND_DISPLAY at a dead socket. That does stop the
+        # last libwayland probe (libwayland falls back to the default name
+        # "wayland-0" when the var is simply unset), but it makes SDL fail to
+        # bring up an audio backend, and the test SKIPs with "no audio captured"
+        # -- trading a stray window for a silently-disabled test. Not a trade we
+        # make: a residual probe connect is harmless; a skipped test is not.
         SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_file" \
-        timeout --foreground --kill-after=5s 40s xvfb-run -a "$JNEXT" \
+        timeout --foreground --kill-after=5s 40s \
+        env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 \
+        xvfb-run -a "$JNEXT" \
             "${SD_CARD_ARGS[@]}" \
             --machine 48k \
             --inject "$tone_bin" --inject-org 8000 --inject-pc 8000 --inject-delay 100 \
