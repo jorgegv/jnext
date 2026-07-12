@@ -105,25 +105,8 @@ echo ""
 echo -e "${BOLD}Running screenshot tests...${RESET}"
 echo ""
 
-# Maximum parallel screenshot jobs.
-#
-# Default (nothing set): ~2/3 of the CPUs, capped at 8. Tuned for the common
-# case — ONE regression run on the box. The old default (one job per CPU)
-# oversubscribed; the habit of always passing JNEXT_TEST_JOBS=4 undersubscribed
-# and made a solo run ~1.7x slower than it needed to be.
-#
-# JNEXT_TEST_JOBS still overrides, and MUST be lowered when several agents run
-# regressions concurrently: each run spawns one emulator per in-flight test, and
-# six unbounded concurrent runs have crashed this machine twice. In a
-# multi-agent wave use JNEXT_TEST_JOBS=2..4.
-if [[ -n "${JNEXT_TEST_JOBS:-}" ]]; then
-    MAX_JOBS=$JNEXT_TEST_JOBS
-else
-    NCPUS=$(nproc 2>/dev/null || echo 4)
-    MAX_JOBS=$(( NCPUS * 2 / 3 ))
-    if (( MAX_JOBS > 8 )); then MAX_JOBS=8; fi
-    if (( MAX_JOBS < 1 )); then MAX_JOBS=1; fi
-fi
+# Maximum parallel jobs (default: number of CPUs)
+MAX_JOBS=${JNEXT_TEST_JOBS:-$(nproc 2>/dev/null || echo 4)}
 
 # Phase 1: Launch all emulator instances in parallel to generate screenshots
 declare -A TEST_PIDS  # test_name -> PID
