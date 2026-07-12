@@ -66,9 +66,12 @@ while read -r name rows rest; do
     [[ -z "$name" || "$name" == \#* ]] && continue
     opt=0
     if [[ "$name" == \?* ]]; then opt=1; name="${name#\?}"; fi
-    [[ "$rows" =~ ^[0-9]+$ ]] \
+    # A pin of 0 must not be expressible: a suite pinned at 0 that reports 0 rows would
+    # PASS, while the same suite reporting no summary at all is a hard FAIL. Zeroing a
+    # suite is exactly the silent-truncation move this manifest exists to forbid.
+    [[ "$rows" =~ ^[1-9][0-9]*$ ]] \
         || die "Malformed line in $CONF: '${BOLD}$name $rows${RESET}'" \
-               "Expected: <executable> <expected_rows> [args...]"
+               "Expected: <executable> <expected_rows> [args...], with expected_rows >= 1"
     for prev in ${DECLARED[@]+"${DECLARED[@]}"}; do
         [[ "$prev" == "$name" ]] && die "Declared twice in $CONF: ${BOLD}$name${RESET}" \
                                         "A duplicate runs the suite twice and inflates every count."
@@ -81,16 +84,31 @@ done < <(sed 's/#.*//' "$CONF")
 
 # --- What CMake actually registered (authoritative, machine-generated) ---
 # add_test(<name> "<abs/path/to/binary>" [args...])  ->  basename of the binary.
-# Assert we parsed every add_test line: a silent parse miss would be the very
-# blindness this file exists to prevent.
+#
+# Read EVERY CTestTestfile.cmake in the build tree, not just test/'s: an add_test()
+# issued from any other CMakeLists.txt would otherwise be invisible to both directions
+# of the cross-check — never required in the manifest, never run, never faulted. That
+# is Task 32 re-entering through a different door.
+mapfile -t CTEST_FILES < <(find "$BUILD" -name CTestTestfile.cmake)
 REGISTERED=()
 while read -r bin; do
     [[ -n "$bin" ]] && REGISTERED+=("$(basename "$bin")")
-done < <(grep -oP '^add_test\([^ ]+ "\K[^"]+' "$CTEST_FILE" || true)
-n_add_test=$(grep -c '^add_test(' "$CTEST_FILE" || true)
-[[ "${#REGISTERED[@]}" -eq "$n_add_test" ]] \
-    || die "Parsed ${BOLD}${#REGISTERED[@]}${RESET} of ${BOLD}$n_add_test${RESET} add_test() lines in $CTEST_FILE." \
+done < <(grep -hoP '^add_test\([^ ]+ "\K[^"]+' "${CTEST_FILES[@]}" || true)
+
+# Assert we parsed every add_test line: a silent parse miss would be the very
+# blindness this file exists to prevent.
+n_add_test=$(grep -hc '^add_test(' "${CTEST_FILES[@]}" 2>/dev/null | paste -sd+ | bc)
+[[ "${#REGISTERED[@]}" -eq "${n_add_test:-0}" ]] \
+    || die "Parsed ${BOLD}${#REGISTERED[@]}${RESET} of ${BOLD}${n_add_test:-0}${RESET} add_test() lines under $BUILD." \
            "The harness cannot see every registered suite, so it cannot vouch for the list."
+
+# One binary registered under two add_test() names runs once, and the manifest cannot
+# even express the second (duplicates are rejected). Set-membership would call that
+# agreement; it is not. Reject it.
+dupes=$(printf '%s\n' "${REGISTERED[@]}" | sort | uniq -d)
+[[ -z "$dupes" ]] \
+    || die "Registered under more than one add_test() name: ${BOLD}$(echo "$dupes" | tr '\n' ' ')${RESET}" \
+           "The manifest names each binary once, so one of those registrations would never run."
 
 (( ${#DECLARED[@]}   )) || die "No suites declared in $CONF."
 (( ${#REGISTERED[@]} )) || die "No suites registered in $CTEST_FILE."
@@ -211,12 +229,25 @@ done
 
 printf "\n${BOLD}Total: %d  Passed: %d  Failed: %d  Skipped: %d${RESET}\n" \
     "$sum_total" "$sum_passed" "$sum_failed" "$sum_skipped"
-printf "${BOLD}Suites: %d pass, %d fail  (%d run, %d declared, %d registered)${RESET}\n" \
-    "$suites_pass" "$suites_fail" "${#RUNNABLE[@]}" "${#DECLARED[@]}" "${#REGISTERED[@]}"
+printf "${BOLD}Suites: %d pass, %d fail  (%d run, %d declared, %d registered; manifest: %s)${RESET}\n" \
+    "$suites_pass" "$suites_fail" "${#RUNNABLE[@]}" "${#DECLARED[@]}" "${#REGISTERED[@]}" "$CONF"
 if (( ${#notices[@]} )); then
     printf "${BOLD}%d optional suite(s) not registered by this build — see NOTICE above.${RESET}\n" "${#notices[@]}"
 fi
-printf "\n"
 
-[[ "$suites_fail" -eq 0 ]] || exit 1
+# The three counts in that footer are an invariant, not a decoration: every declared
+# suite either ran or was a NOTICE'd optional, and the manifest and the build agree.
+# If they ever disagree, the footer must not be allowed to read like agreement.
+if (( ${#RUNNABLE[@]} + ${#notices[@]} != ${#DECLARED[@]} )); then
+    die "Internal: ${#RUNNABLE[@]} run + ${#notices[@]} skipped != ${#DECLARED[@]} declared."
+fi
+
+# A pin violation or a failing suite must NOT leave a green-looking headline behind:
+# "Total: ... Failed: 0" is the exact line that gets copied into status reports.
+if [[ "$suites_fail" -gt 0 ]]; then
+    printf "\n${BADGE_FAIL} UNIT TESTS FAILED ${RESET} ${BOLD}%d suite(s) failed — the totals above are NOT a passing result.${RESET}\n\n" \
+        "$suites_fail"
+    exit 1
+fi
+printf "\n"
 exit 0

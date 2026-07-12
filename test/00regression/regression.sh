@@ -105,6 +105,40 @@ if [[ ! -f "$SD_IMAGE" ]]; then
                   "In an agent worktree, provision it with: ${BOLD}make worktree-bootstrap${RESET}"
 fi
 
+# rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE, in the
+# first second, not five minutes into the run: an incomplete build is a harness fault,
+# not a code regression — and never, as it once was, an absent row (Task 35).
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx rewind-func; then
+    if [[ ! -x "$REWIND_TEST" ]]; then
+        harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
+                      "The suite runs it, so it cannot report a rewind result without it." \
+                      "Build it with: ${BOLD}make unit-test-build${RESET}  (or use ${BOLD}make regression${RESET}, which does)"
+    fi
+fi
+
+# --- The declared counts, pinned ---
+# `# expect: N` in each manifest. Without it, deleting a test from a conf shrinks both
+# sides of the completeness check below in lockstep — expected and actual both go down
+# and the suite reports a smaller number as a clean pass. Review round 2 removed one
+# screenshot row plus its reference image and got a green 59/0/0, which is this
+# project's own previous published baseline. The pin makes the denominator a claim the
+# file has to make out loud, exactly like test/unit-tests.conf's per-suite row counts.
+declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
+    grep -cvE '^[[:space:]]*(#|$)' "$1" || true
+}
+pinned_count() {     # pinned_count <conf>  — the `# expect: N` line
+    grep -oP '^#\s*expect:\s*\K[0-9]+' "$1" | head -1
+}
+for conf in "$CONF" "$FUNC_CONF"; do
+    pin=$(pinned_count "$conf")
+    have=$(declared_count "$conf")
+    [[ -n "$pin" ]] || harness_fault "No '# expect: N' pin in ${BOLD}$conf${RESET}" \
+                                     "The manifest must state how many tests it declares."
+    [[ "$pin" -eq "$have" ]] || harness_fault \
+        "${BOLD}$conf${RESET} declares ${BOLD}$have${RESET} tests but pins ${BOLD}# expect: $pin${RESET}" \
+        "A test was added or removed without updating the pin. If deliberate, update it."
+done
+
 # --- The screenshot manifest needs an INDEPENDENT witness ---
 # The completeness check at the end compares the rows reported against the rows
 # declared — but for screenshots both sides come from regression_tests.conf, so on
@@ -300,7 +334,10 @@ echo ""
 # FAILED — the very path nobody exercises when everything is green.
 if want harness-selftest-func; then
     begin_func harness-selftest-func
-    if hs_out=$(bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
+    # Timeout-wrapped like every other invocation here. Its only other time bound would
+    # be the per-suite timeout inside the very harness it is testing — circular, and the
+    # exact shape of the Task 33 hang.
+    if hs_out=$(timeout --foreground --kill-after=5s 120s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
         hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
         echo -e "${GREEN}PASS${RESET} ($hs_line)"
         pass=$((pass + 1))
@@ -679,32 +716,22 @@ if want screenshot-io-qt-func; then
 fi
 
 # Rewind / backwards execution unit tests.
-# A missing rewind_test is a FAILURE, not an absent row: this block used to be
-# wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean` the test
-# simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that
-# quietly dropped by one (Task 35).
+# This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
+# the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that
+# quietly dropped by one (Task 35). The binary's absence is now caught in the preflight,
+# so by the time we get here it is there and the only question is whether it passes.
 if want rewind-func; then
     begin_func rewind-func
-    if [[ ! -x "$REWIND_TEST" ]]; then
-        # An incomplete build is not a code regression: say so as a harness fault
-        # (exit 2), not as a red FAIL that would send someone hunting a bug in the
-        # emulator. What it must never be again is an absent row.
-        echo ""
-        harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
-                      "The suite runs it, so it cannot report a rewind result without it." \
-                      "Build it with: ${BOLD}make unit-test-build${RESET}  (or just use ${BOLD}make regression${RESET}, which does)"
+    rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
+    rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
+    if [[ -n "$rewind_summary" ]]; then
+        rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
+        echo -e "${GREEN}PASS${RESET} (${rewind_passed}/${rewind_passed} rewind unit tests)"
+        pass=$((pass + 1))
     else
-        rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
-        rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
-        if [[ -n "$rewind_summary" ]]; then
-            rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
-            echo -e "${GREEN}PASS${RESET} (${rewind_passed}/${rewind_passed} rewind unit tests)"
-            pass=$((pass + 1))
-        else
-            fail_line=$(echo "$rewind_out" | grep -E "^Total:" || echo "unknown")
-            echo -e "${RED}FAIL${RESET} ($fail_line)"
-            fail=$((fail + 1))
-        fi
+        fail_line=$(echo "$rewind_out" | grep -E "^Total:" || echo "unknown")
+        echo -e "${RED}FAIL${RESET} ($fail_line)"
+        fail=$((fail + 1))
     fi
 fi
 

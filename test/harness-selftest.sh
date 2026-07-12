@@ -109,7 +109,9 @@ check "HS-03" "a CRASHING suite is reported and does not abort the run" 1 $rc "$
 stub hanging_test -1 0 'sleep 30'
 register hanging_test other_test
 manifest "hanging_test 10" "other_test 5"
-TIMEOUT_OVERRIDE=2 out=$(TIMEOUT_OVERRIDE=2 run_harness); rc=$?
+out=$(TIMEOUT_OVERRIDE=2 run_harness); rc=$?   # NOT `X=1 out=$(...)`: that is an
+# assignment list, not a command prefix, so the outer X would PERSIST into every later
+# case and silently run them all with a 2 s suite timeout. Found in review.
 check "HS-04" "a HANGING suite times out, is reported, run continues" 1 $rc "$out" \
     "hanging_test" "TIMED OUT" "other_test"
 
@@ -186,6 +188,40 @@ manifest "good_test"                     # no row count
 out=$(run_harness); rc=$?
 check "HS-14" "a manifest line with no row count is rejected" 2 $rc "$out" \
     "REFUSES TO RUN" "Malformed line"
+
+register good_test
+manifest "good_test 0"                   # a pin of zero would make an empty suite "pass"
+out=$(run_harness); rc=$?
+check "HS-15" "a row-count pin of 0 is rejected (an empty suite must not pass)" 2 $rc "$out" \
+    "REFUSES TO RUN" "Malformed line"
+
+# ------------------------------ the CMake side must be checked by count, not membership
+# One binary registered under two add_test() names: the manifest can only name it once
+# (duplicates are rejected), so one registration would never run — while a plain
+# set-membership check calls that "in agreement" and exits 0.
+stub good_test 10 0; stub other_test 5 0
+{ echo "add_test(other_a \"$T/build/test/other_test\" modeA)"
+  echo "add_test(other_b \"$T/build/test/other_test\" modeB)"
+  echo "add_test(good \"$T/build/test/good_test\")"
+} > "$T/build/test/CTestTestfile.cmake"
+manifest "good_test 10" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-16" "one binary registered under TWO add_test() names is rejected" 2 $rc "$out" \
+    "REFUSES TO RUN" "more than one add_test" "other_test"
+
+# ---------------------- add_test() from a CMakeLists other than test/ must still be seen
+# Otherwise it is invisible to BOTH directions of the cross-check: not registered as far
+# as the harness can see, so not required in the manifest, so never run, never faulted —
+# Task 32 re-entering through a different door.
+stub good_test 10 0; stub other_test 5 0
+register good_test                                   # build/test/CTestTestfile.cmake
+mkdir -p "$T/build/elsewhere"
+echo "add_test(sneaky \"$T/build/test/other_test\")" > "$T/build/elsewhere/CTestTestfile.cmake"
+manifest "good_test 10"                              # other_test NOT declared
+out=$(run_harness); rc=$?
+check "HS-17" "an add_test() outside build/test/ is still cross-checked" 2 $rc "$out" \
+    "REFUSES TO RUN" "MISSING from" "other_test"
+rm -rf "$T/build/elsewhere"
 
 echo ""
 echo "====================================="
