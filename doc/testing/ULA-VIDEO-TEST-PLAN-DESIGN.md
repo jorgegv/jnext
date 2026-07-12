@@ -940,3 +940,62 @@ Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
 alongside the rest of the panel-vs-compositor parity rows, because the entry
 point exists solely for the debugger and the discriminating fixture is the
 panel itself.
+
+## Section 17: The composite "All layers" debug view (Task 36, 2026-07-12)
+
+`Renderer::render_row(out, row, mmu, ram, palette, layer2, sprites, tilemap)`
+is `render_frame`'s per-row body, lifted out **verbatim** (no behavioural
+change — proven by a 0-pixel-diff regression run and a byte-identical
+`--delayed-screenshot-layers all` capture of `sonic.nex`).  It renders every
+layer for one framebuffer row and composites it: NR 0x15 priority, per-layer
+transparency, the ULA/tilemap merge, Layer 2 priority promotion, the blend
+modes, the stencil, the border, and the **NR 0x4A fallback colour**.
+
+The debugger's "All layers" tab (leftmost, selected by default) renders through
+it, so the panel and the live output cannot drift.  Two properties make a
+second, hand-rolled compositor in the debugger unacceptable:
+
+1. **The fallback colour belongs to no layer.**  The compositor emits it
+   wherever *every* layer is transparent (VHDL `zxnext.vhd:7218-7352` — each
+   priority mux starts at the fallback and is only overwritten by an opaque
+   layer).  `sonic.nex` is the motivating case: it writes NR 0x68 = 0x80 (ULA
+   off) and NR 0x4A = 0x13, leaves Layer 2 empty, and its entire sky is that
+   fallback (`0x13` in RRRGGGBB = `#0092FF`).  No per-layer view can ever show
+   it — which is why the layer panels do not visibly add up to the picture on
+   screen, and why this view had to exist.
+2. **A debug view must not perturb the machine it inspects.**  The caller owns
+   the per-scanline change-log replay; `render_row` advances no cursor and does
+   not touch the once-per-frame ULA flash counter.  The panel wraps it in the
+   same rewind → apply-per-row → flush round trip `render_frame` performs.
+
+| ID       | Test                                                            | Status |
+|----------|-----------------------------------------------------------------|--------|
+| DVP-13   | "All layers" view is pixel-for-pixel the emulator's framebuffer  | PASS   |
+| DVP-13a  | premise: ULA + Layer 2 + tilemap + sprite all reach that frame   | PASS   |
+| DVP-13b  | the composite view is FB_WIDTH × FB_HEIGHT (640 × 256)           | PASS   |
+| DVP-14   | NR 0x4A fallback shows where EVERY layer is transparent          | PASS   |
+| DVP-14a  | premise: NR 0x4A = 0x13 really is #0092FF (sonic.nex's sky)      | PASS   |
+| DVP-14b  | an opaque tilemap pixel still composites over the fallback       | PASS   |
+| DVP-14c  | …and so does the sprite                                          | PASS   |
+| DVP-14d  | the fallback appears in NO per-layer view — only the composite   | PASS   |
+| DVP-15   | composite honours the raster cut-off (row+1 = unrendered)        | PASS   |
+| DVP-15a  | …and every row below the raster is the placeholder               | PASS   |
+| DVP-16   | compositing for the panel leaves every live register untouched   | PASS   |
+| DVP-16b  | premise: the vblank writes really did move the live registers    | PASS   |
+| DVP-16c  | …including VBLANK-tagged writes, which only the flush replays    | PASS   |
+| DVP-17   | "All layers" is the leftmost tab and selected by default         | PASS   |
+| DVP-17a  | …and the per-layer tabs still follow it in order                 | PASS   |
+
+### Why DVP-16c needs a VBLANK-tagged write
+
+A state-preservation row built only from *mid-frame* writes cannot see a panel
+that rewinds and replays but forgets to `flush_remaining_changes()`: replaying
+rows 0..255 happens to walk every visible-line entry back to where it was.  It
+is the entries tagged at line >= `FB_HEIGHT` that only the final flush replays
+— exactly the `tilemap_demo` class of bug the renderer's flush comment
+describes (at NR 0x07 >= 0x02 the whole setup lands in vblank).  DVP-16c plants
+one and pins it; removing `replay_restore()` from the panel fails DVP-16c and
+nothing else.
+
+Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
+with the other panel-vs-compositor parity rows.
