@@ -136,12 +136,36 @@ unit-test: unit-test-build
 harness-selftest:
 	@bash test/harness-selftest.sh
 
+# build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
+# CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and
+# ENABLE_QT_UI defaults OFF — so `make clean` silently downgraded ./build/jnext to an
+# SDL binary with no main window, and the next person to check the GUI found no window
+# and concluded their change had broken it. That cost a previous author two capture
+# runs. Qt6 was never optional here anyway: ENABLE_DEBUGGER already defaults ON and
+# src/debugger does find_package(Qt6 REQUIRED). The Qt-less configuration keeps its
+# coverage — `make release` / `make debug` still build exactly that.
+#
+# The else-branch: the `if` only fires on a fresh build/, so a build/ configured by
+# hand with other flags would be reused in silence — the same trap, one step removed.
+# Refuse to build on it rather than hand back a binary that isn't what it claims.
+#
 # Configure + build the canonical build/ directory (prerequisite for unit-test)
 unit-test-build:
 	@if [ ! -f build/CMakeCache.txt ]; then \
 		$(CMAKE) -B build -S . \
 			-DCMAKE_C_COMPILER=$(CC) \
-			-DCMAKE_CXX_COMPILER=$(CXX); \
+			-DCMAKE_CXX_COMPILER=$(CXX) \
+			-DENABLE_QT_UI=ON \
+			-DENABLE_DEBUGGER=ON; \
+	else \
+		for flag in ENABLE_QT_UI ENABLE_DEBUGGER; do \
+			if ! grep -q "^$$flag:BOOL=ON$$" build/CMakeCache.txt; then \
+				printf "$(BADGE_FAIL) ERROR $(RESET) build/ is configured with $(BOLD)$$flag=OFF$(RESET).\n"; \
+				printf "  ./build/jnext would not be the Qt binary this project mandates.\n"; \
+				printf "  Run '$(BOLD)make clean$(RESET)' first, then retry.\n"; \
+				exit 1; \
+			fi; \
+		done; \
 	fi
 	@$(CMAKE) --build build -j$(JOBS)
 
