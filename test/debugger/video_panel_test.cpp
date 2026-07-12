@@ -76,9 +76,12 @@
 //           (the round trip render_frame does — no more, no less).
 //   DVP-17  "All layers" is the leftmost tab and the selected one by default.
 //   DVP-18  The Background tab shows the NR 0x4A fallback colour, read PER
-//           SCANLINE from the renderer's own snapshot — a Copper MOVE to NR
-//           0x4A mid-frame must show as a band split, not a flat swatch of the
-//           frame's last value.
+//           SCANLINE from the renderer's own snapshot (DVP-18d) rather than
+//           from the live register.
+//   DVP-18b The reason that matters, proved end to end: a REAL Copper program
+//           (assembled bytecode, uploaded via NR 0x60/0x61/0x62, executed by
+//           run_frame()) MOVEs NR 0x4A mid-frame, and the band split shows up
+//           in the panel — and in the emulator's own framebuffer (DVP-18c).
 //   DVP-19  It honours the raster cut-off, and rendering it preserves state.
 //   DVP-20  "Background" is the RIGHTMOST tab.
 //
@@ -99,6 +102,8 @@
 #include "video/ula.h"
 
 #include "video/sprites.h"
+#include "cpu/z80_cpu.h"
+#include "port/port_dispatch.h"
 
 #include <QApplication>
 #include <QImage>
@@ -1275,18 +1280,24 @@ static void test_composite_no_state_mutation(Emulator& emu) {
 // ── DVP-18/19: the Background (NR 0x4A fallback) view ─────────────────
 //
 // The sequel to DVP-14.  The fallback colour is on screen but in no layer, so
-// the Background tab makes it directly inspectable.  It must be PER-SCANLINE:
-// the renderer snapshots NR 0x4A into fallback_per_line_[row] precisely because
-// a Copper MOVE can change it mid-frame to paint a gradient down the raster
-// (VHDL zxnext.vhd:7218-7352 — the compositor's per-line `fallback_rgb_2`).
-// A flat swatch of the live register would show only the frame's last value.
+// the Background tab makes it directly inspectable.
+//
+// SCOPE OF THIS GROUP: it drives `Renderer::snapshot_fallback_for_line()`
+// DIRECTLY — i.e. it simulates the per-line snapshot mechanism that
+// Emulator::on_scanline performs, without running the emulator.  It therefore
+// proves that the VIEW reads the per-line array rather than the live register,
+// and nothing about how that array gets filled.  The real Copper → NextReg →
+// snapshot integration is proved by DVP-18b below, which assembles actual
+// Copper bytecode and runs a frame (the UDIS-02 idiom from
+// test/compositor/compositor_integration_test.cpp).  Do not let this group's
+// convenience pokes be mistaken for that.
 
 static void test_background_view(Emulator& emu) {
     set_group("DVP-BACKGROUND");
 
     constexpr uint8_t SKY   = 0x13;   // #0092FF — sonic.nex's sky
     constexpr uint8_t GROUND = 0xE0;  // a clearly different colour
-    constexpr int     SPLIT = 100;    // the row the Copper MOVE lands on
+    constexpr int     SPLIT = 100;    // the row the value changes on
 
     const uint32_t argb_sky    = Renderer::rrrgggbb_to_argb(SKY);
     const uint32_t argb_ground = Renderer::rrrgggbb_to_argb(GROUND);
@@ -1306,8 +1317,9 @@ static void test_background_view(Emulator& emu) {
 
     begin_frame(emu);   // init_fallback_per_line() → every row = SKY
 
-    // The raster walks the frame; a Copper MOVE to NR 0x4A lands on SPLIT.
-    // This is exactly what Emulator::on_scanline + the NR write handler do.
+    // Simulate the raster walking the frame with NR 0x4A changing at SPLIT —
+    // the snapshot half of what Emulator::on_scanline does.  (The Z80/Copper
+    // half is DVP-18b's job.)
     for (int row = 0; row < SPLIT; ++row) r.snapshot_fallback_for_line(row);
     r.set_fallback_colour(GROUND);
     for (int row = SPLIT; row < Renderer::FB_HEIGHT; ++row)
@@ -1321,30 +1333,17 @@ static void test_background_view(Emulator& emu) {
           px(bg, 300, 20) == argb_sky,
           fmt("(300,20) got=0x%08X want=0x%08X", px(bg, 300, 20), argb_sky));
 
-    // THE discriminating row: a flat swatch of the live register would paint
-    // every row GROUND (the frame's last value), so the rows above the split
-    // would be wrong.  Only a per-row read of fallback_per_line_ passes.
-    check("DVP-18b",
-          "…per SCANLINE: a mid-frame Copper MOVE to NR 0x4A shows as a band split",
+    // The view reads fallback_per_line_[row], not the live register: a flat
+    // swatch of Renderer::fallback_colour() would paint every row GROUND (the
+    // frame's LAST value), so the rows above the split would be wrong.
+    check("DVP-18d",
+          "…the view reads the PER-LINE snapshot, not the live NR 0x4A register",
           px(bg, 0, SPLIT - 1) == argb_sky
               && px(bg, 0, SPLIT) == argb_ground
               && px(bg, 639, Renderer::FB_HEIGHT - 1) == argb_ground,
           fmt("row%d=0x%08X (want sky 0x%08X) row%d=0x%08X (want ground 0x%08X)",
               SPLIT - 1, px(bg, 0, SPLIT - 1), argb_sky,
               SPLIT, px(bg, 0, SPLIT), argb_ground));
-
-    // And it must agree with what the compositor actually emits for those rows —
-    // the Background view is a window onto the compositor, not a second opinion.
-    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
-                              Renderer::FB_HEIGHT - 1);
-    check("DVP-18c",
-          "…and every row agrees with the composite where all layers are transparent",
-          px(comp, 0, SPLIT - 1) == px(bg, 0, SPLIT - 1)
-              && px(comp, 0, SPLIT) == px(bg, 0, SPLIT)
-              && px(comp, 400, 200) == px(bg, 400, 200),
-          fmt("comp row%d=0x%08X bg=0x%08X | comp row%d=0x%08X bg=0x%08X",
-              SPLIT - 1, px(comp, 0, SPLIT - 1), px(bg, 0, SPLIT - 1),
-              SPLIT, px(comp, 0, SPLIT), px(bg, 0, SPLIT)));
 
     check("DVP-19",
           "Background view honours the raster cut-off like every other view",
@@ -1370,6 +1369,142 @@ static void test_background_view(Emulator& emu) {
               live_nr4a, r.fallback_colour(),
               SPLIT - 1, r.fallback_for_line(SPLIT - 1),
               SPLIT, r.fallback_for_line(SPLIT)));
+}
+
+// ── DVP-18b/18c: a REAL Copper program moves NR 0x4A mid-frame ────────
+//
+// The reason the Background view is per-scanline at all is that the Copper can
+// MOVE NR 0x4A partway down the raster — that is what fallback_per_line_[]
+// exists for.  A test that pokes snapshot_fallback_for_line() by hand proves
+// nothing about that path, so this row drives the genuine one end to end:
+//
+//   Z80 parked on HALT → Copper bytecode uploaded via NR 0x60/0x61/0x62 →
+//   Emulator::run_frame() ticks Copper::execute at every raster edge →
+//   the MOVE writes NR 0x4A through the real NextReg dispatch →
+//   Emulator::on_scanline snapshots it into fallback_per_line_[row] →
+//   the panel's Background view shows the band split.
+//
+// Copper program (copper.vhd:20-43; src/peripheral/copper.cpp:10-43):
+//   [0] WAIT vpos=100, hpos=0   = 0x8000 | 100
+//   [1] MOVE NR 0x4A, GROUND    = (0x4A << 8) | 0xE0     (MSB clear)
+//   [2] WAIT vpos=511           = 0x8000 | 511            → park (HALT)
+// Upload idiom + NR 0x62 = 0xC0 (mode 11: reset PC each vsync, run) are copied
+// verbatim from UDIS-02 in test/compositor/compositor_integration_test.cpp,
+// which is the established proof of the Copper → NextReg dispatch.
+//
+// VHDL: zxnext.vhd:6809 (Copper scheduling from cvc/hcount), :7214 (the
+// compositor's per-line fallback_rgb_2), copper.vhd:85-106 (WAIT/MOVE).
+//
+// Row choice mirrors UDIS-02: the exact framebuffer row the MOVE lands on may
+// be DISP_Y+100 or DISP_Y+101 depending on where inside the line the raster
+// edge falls, so we sample one row before and one row after with a cushion —
+// the same "acceptable simplification" UDIS-02 documents.
+
+static void test_background_copper() {
+    set_group("DVP-BG-COPPER");
+
+    constexpr uint8_t SKY    = 0x13;   // #0092FF — sonic.nex's sky
+    constexpr uint8_t GROUND = 0xE0;   // bright red
+    constexpr int     WAIT_LINE = 100;
+
+    const uint32_t argb_sky    = Renderer::rrrgggbb_to_argb(SKY);
+    const uint32_t argb_ground = Renderer::rrrgggbb_to_argb(GROUND);
+
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("DVP-18b", "Emulator construction for the Copper fixture", false);
+        return;
+    }
+
+    // Park the Z80 on a HALT so the boot ROM cannot issue NR writes of its own
+    // — every NR 0x4A change this frame must come from the Copper.
+    emu.mmu().write(0x8000, 0x76);              // HALT
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    // Every NR below goes through the REAL port dispatch (OUT 0x243B/0x253B).
+    auto nr = [&emu](uint8_t reg, uint8_t val) {
+        emu.port().out(0x243B, reg);
+        emu.port().out(0x253B, val);
+    };
+
+    nr(0x4A, SKY);      // frame-start fallback
+    nr(0x68, 0x80);     // ULA off  → nothing opaque anywhere…
+    nr(0x69, 0x00);     // Layer 2 off
+    nr(0x6B, 0x00);     // Tilemap off
+    nr(0x15, 0x00);     // Sprites off, priority SLU
+    //                     …so the whole frame IS the fallback colour.
+
+    const uint16_t WAIT_V   = static_cast<uint16_t>(0x8000u | WAIT_LINE);
+    const uint16_t MOVE_4A  = static_cast<uint16_t>((0x4Au << 8) | GROUND);
+    const uint16_t WAIT_END = static_cast<uint16_t>(0x8000u | 511u);
+
+    nr(0x61, 0x00);     // copper write addr low  = 0
+    nr(0x62, 0x00);     // copper write addr high = 0, mode 00 (stopped)
+    for (uint16_t insn : {WAIT_V, MOVE_4A, WAIT_END}) {
+        nr(0x60, static_cast<uint8_t>((insn >> 8) & 0xFF));
+        nr(0x60, static_cast<uint8_t>( insn       & 0xFF));
+    }
+    nr(0x62, 0xC0);     // mode 11: reset PC each vsync + run
+
+    emu.run_frame();    // the Copper actually executes here
+
+    // Ground truth first: did the Copper really write NR 0x4A mid-frame?
+    Renderer& r = emu.renderer();
+    const int row_before = Renderer::DISP_Y + WAIT_LINE - 1;   // 131
+    const int row_after  = Renderer::DISP_Y + WAIT_LINE + 1;   // 133
+    const int row_deep   = Renderer::DISP_Y + 150;             // 182
+
+    check("DVP-18b1",
+          "premise: the Copper MOVE really reached NR 0x4A (live register = GROUND)",
+          r.fallback_colour() == GROUND
+              && r.fallback_for_line(row_before) == SKY
+              && r.fallback_for_line(row_after)  == GROUND,
+          fmt("live=0x%02X row%d=0x%02X (want 0x%02X) row%d=0x%02X (want 0x%02X)",
+              r.fallback_colour(),
+              row_before, r.fallback_for_line(row_before), SKY,
+              row_after,  r.fallback_for_line(row_after),  GROUND));
+
+    // Now the panel: paused at the end of the frame, every row drawn.
+    QImage bg = render_view(emu, VideoLayerView::Layer::BACKGROUND,
+                            Renderer::FB_HEIGHT - 1);
+
+    check("DVP-18b",
+          "a mid-frame Copper MOVE to NR 0x4A shows as a band split in the Background view",
+          px(bg, 0, row_before) == argb_sky
+              && px(bg, 0, row_after) == argb_ground
+              && px(bg, 400, row_deep) == argb_ground,
+          fmt("row%d=0x%08X (want sky 0x%08X) row%d=0x%08X row%d=0x%08X "
+              "(want ground 0x%08X)",
+              row_before, px(bg, 0, row_before), argb_sky,
+              row_after,  px(bg, 0, row_after),
+              row_deep,   px(bg, 400, row_deep), argb_ground));
+
+    // The Background view is a window onto the compositor, not a second opinion:
+    // with every layer transparent the composite IS the fallback, row for row —
+    // and both must equal the framebuffer run_frame() actually produced.
+    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+                              Renderer::FB_HEIGHT - 1);
+    const uint32_t* fb = emu.get_framebuffer();
+    auto fb_px = [&](int x, int y) {
+        return fb[y * Renderer::FB_WIDTH + x] | 0xFF000000u;
+    };
+
+    check("DVP-18c",
+          "…and the composite AND the emulator's own framebuffer agree with it, row for row",
+          px(comp, 0, row_before) == px(bg, 0, row_before)
+              && px(comp, 0, row_after) == px(bg, 0, row_after)
+              && px(comp, 400, row_deep) == px(bg, 400, row_deep)
+              && fb_px(0, row_before) == argb_sky
+              && fb_px(0, row_after)  == argb_ground
+              && fb_px(400, row_deep) == argb_ground,
+          fmt("comp row%d=0x%08X bg=0x%08X fb=0x%08X | "
+              "comp row%d=0x%08X bg=0x%08X fb=0x%08X",
+              row_before, px(comp, 0, row_before), px(bg, 0, row_before),
+              fb_px(0, row_before),
+              row_after, px(comp, 0, row_after), px(bg, 0, row_after),
+              fb_px(0, row_after)));
 }
 
 // ── DVP-17: "All layers" is the leftmost tab, selected by default ─────
@@ -1513,6 +1648,8 @@ int main(int argc, char** argv) {
         test_background_view(emu);
         std::printf("  Group: DVP-BACKGROUND — done\n");
     }
+    test_background_copper();
+    std::printf("  Group: DVP-BG-COPPER  — done\n");
     test_composite_is_default_tab();
     std::printf("  Group: DVP-COMP-TAB   — done\n");
 

@@ -988,8 +988,10 @@ second, hand-rolled compositor in the debugger unacceptable:
 | DVP-17a  | …and the per-layer tabs still follow it in order                 | PASS   |
 | DVP-18   | Background view shows the NR 0x4A fallback colour                | PASS   |
 | DVP-18a  | premise: the two fallback colours differ                         | PASS   |
-| DVP-18b  | …PER SCANLINE: a mid-frame Copper MOVE shows as a band split     | PASS   |
-| DVP-18c  | …and every row agrees with the composite where all is transparent| PASS   |
+| DVP-18d  | the view reads the PER-LINE snapshot, not the live NR 0x4A       | PASS   |
+| DVP-18b1 | premise: a real Copper MOVE reached NR 0x4A mid-frame            | PASS   |
+| DVP-18b  | **real Copper program** MOVEs NR 0x4A → band split in the view   | PASS   |
+| DVP-18c  | …and the composite AND the emulator framebuffer agree, row-wise  | PASS   |
 | DVP-19   | Background view honours the raster cut-off                       | PASS   |
 | DVP-19a  | …and rendering it preserves NR 0x4A and its per-line snapshots   | PASS   |
 | DVP-20   | "Background" is the RIGHTMOST tab (and not the selected one)     | PASS   |
@@ -1007,36 +1009,37 @@ It reads `Renderer::fallback_for_line(row)` — the very byte `render_row` feeds
 uses, honouring the same raster cut-off.  It is **per-line and not a flat
 swatch** because the Copper can MOVE NR 0x4A mid-frame to paint a gradient down
 the raster (that is exactly why `fallback_per_line_[]` exists in the renderer);
-the live `fallback_colour()` is only the frame's last value.  DVP-18b is the
-discriminating row: swapping `fallback_for_line(row)` for the live
-`fallback_colour()` fails DVP-18, DVP-18b and DVP-18c, and nothing else.  The
-title carries the live register (`Background colour (NR 0x4A = $13)`), reusing
-the existing per-view title idiom rather than inventing a widget.
+the live `fallback_colour()` is only the frame's last value.  The title carries
+the live register (`Background colour (NR 0x4A = $13)`), reusing the existing
+per-view title idiom rather than inventing a widget.
+
+**Which row proves what — read this before trusting the table.**
+
+* **DVP-18 / DVP-18d** drive `Renderer::snapshot_fallback_for_line()` *directly*.
+  They simulate the snapshot half of `Emulator::on_scanline` without running the
+  emulator, and therefore prove only that the **view** reads the per-line array
+  instead of the live register.  They say nothing about how that array is
+  filled.  They are labelled accordingly and must not be read as Copper
+  coverage.
+* **DVP-18b / DVP-18b1 / DVP-18c** are the Copper integration, done for real:
+  the Z80 is parked on a HALT, Copper bytecode
+  (`WAIT vpos=100` → `MOVE NR 0x4A,$E0` → `WAIT vpos=511`) is assembled and
+  uploaded through NR 0x60/0x61/0x62, `Emulator::run_frame()` executes it, the
+  MOVE reaches NR 0x4A through the real NextReg dispatch, `on_scanline`
+  snapshots it, and the band split is asserted in the panel **and** in the
+  emulator's own framebuffer.  Same fixture idiom as UDIS-02 in
+  `test/compositor/compositor_integration_test.cpp`, which is this repo's
+  established proof of the Copper → NextReg path.
+
+Discriminative evidence: swapping `fallback_for_line(row)` for the live
+`fallback_colour()` (a flat swatch) fails DVP-18, DVP-18d, DVP-18b and DVP-18c.
+Removing the `NR 0x62 = 0xC0` that starts the Copper fails DVP-18b1, DVP-18b and
+DVP-18c — i.e. those rows genuinely depend on the Copper executing, not on any
+hand-poked register.
 
 Note that BACKGROUND is deliberately **absent** from DVP-14d's "the fallback
 appears in no per-layer view" loop: it is not a layer view, it *is* the
 fallback.  Adding it there would make DVP-14d self-contradictory.
-
-### Why DVP-16c needs a VBLANK-tagged write — and the DVP-06 blind spot
-
-A state-preservation row built only from *mid-frame* writes cannot see a panel
-that rewinds and replays but forgets to `flush_remaining_changes()`: replaying
-rows 0..255 happens to walk every visible-line entry back to where it was.  It
-is the entries tagged at line >= `FB_HEIGHT` that only the final flush replays
-— exactly the `tilemap_demo` class of bug the renderer's flush comment
-describes (at NR 0x07 >= 0x02 the whole setup lands in vblank).  DVP-16c plants
-one and pins it; removing `replay_restore()` from the panel fails DVP-16c and
-nothing else.
-
-**This means the Task-22a group DVP-06 (`DVP-NOMUT`) has a documented blind
-spot**: every write it makes is tagged at a visible scanline, so it stays GREEN
-against a panel that has lost its `replay_restore()` call (verified by mutation
-during Task 36).  Do not read DVP-06 as covering that bug class — DVP-16c is
-what guards it, and because `replay_restore()` has a single call site shared by
-every `VideoLayerView::Layer` case, DVP-16c covers all of the views, not just
-the composite.  DVP-06 remains valid for what it *was* written for (the
-`Tilemap::render_scanline_debug` snapshot-clobbering defect).  Both facts are
-recorded in the header comment of `test/debugger/video_panel_test.cpp`.
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
 with the other panel-vs-compositor parity rows.
