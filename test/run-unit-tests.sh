@@ -85,19 +85,32 @@ done < <(sed 's/#.*//' "$CONF")
 # --- What CMake actually registered (authoritative, machine-generated) ---
 # add_test(<name> "<abs/path/to/binary>" [args...])  ->  basename of the binary.
 #
-# Read EVERY CTestTestfile.cmake in the build tree, not just test/'s: an add_test()
+# Read EVERY CTestTestfile.cmake in THIS build tree, not just test/'s: an add_test()
 # issued from any other CMakeLists.txt would otherwise be invisible to both directions
 # of the cross-check — never required in the manifest, never run, never faulted. That
 # is Task 32 re-entering through a different door.
-mapfile -t CTEST_FILES < <(find "$BUILD" -name CTestTestfile.cmake)
+#
+# But prune nested build trees. The project's other build dirs live INSIDE build/
+# (build/debug, build/gui-debug, build/gui-release — see the Makefile), and the two
+# debug ones configure with ENABLE_TESTS=ON. An unscoped find would swallow their
+# CTestTestfile.cmake, see every binary twice, and refuse to run with a false
+# "registered twice" diagnosis after a plain `make gui-debug`. A directory with its own
+# CMakeCache.txt is an independent build root and is not ours to enumerate.
+mapfile -t CTEST_FILES < <(
+    find "$BUILD" -mindepth 1 -type d -exec test -e '{}/CMakeCache.txt' ';' -prune -o \
+         -name CTestTestfile.cmake -print
+)
 REGISTERED=()
 while read -r bin; do
     [[ -n "$bin" ]] && REGISTERED+=("$(basename "$bin")")
-done < <(grep -hoP '^add_test\([^ ]+ "\K[^"]+' "${CTEST_FILES[@]}" || true)
+done < <(grep -hoP '^add_test\([^ ]+ "\K[^"]+' "${CTEST_FILES[@]}" 2>/dev/null || true)
 
-# Assert we parsed every add_test line: a silent parse miss would be the very
-# blindness this file exists to prevent.
-n_add_test=$(grep -hc '^add_test(' "${CTEST_FILES[@]}" 2>/dev/null | paste -sd+ | bc)
+# Assert we parsed every add_test line: a silent parse miss would be the very blindness
+# this file exists to prevent. `|| true` is load-bearing — grep exits 1 when a file has
+# no add_test lines, and under `set -e` + pipefail that would kill the script HERE,
+# silently, making the "No suites registered" die below unreachable. (Exactly that bug
+# was found in review, in this very guard.)
+n_add_test=$(grep -hc '^add_test(' "${CTEST_FILES[@]}" 2>/dev/null | awk '{s+=$1} END {print s+0}' || true)
 [[ "${#REGISTERED[@]}" -eq "${n_add_test:-0}" ]] \
     || die "Parsed ${BOLD}${#REGISTERED[@]}${RESET} of ${BOLD}${n_add_test:-0}${RESET} add_test() lines under $BUILD." \
            "The harness cannot see every registered suite, so it cannot vouch for the list."
@@ -111,7 +124,19 @@ dupes=$(printf '%s\n' "${REGISTERED[@]}" | sort | uniq -d)
            "The manifest names each binary once, so one of those registrations would never run."
 
 (( ${#DECLARED[@]}   )) || die "No suites declared in $CONF."
-(( ${#REGISTERED[@]} )) || die "No suites registered in $CTEST_FILE."
+(( ${#REGISTERED[@]} )) || die "No suites registered under $BUILD."
+
+# The suite-count pin. Without it, "N declared == N registered" is a tautology against
+# the one edit that matters most: remove a suite's add_test() AND its manifest row, and
+# both sides shrink in lockstep — every count agrees, exit 0, and the suite is gone.
+# `|| true`: grep exits 1 when there is no pin line, which under `set -e` would kill the
+# script here and make the die below unreachable — a dead guard, found in review.
+pin=$(grep -oP '^#\s*expect:\s*\K[0-9]+' "$CONF" | head -1 || true)
+[[ -n "$pin" ]] || die "No '${BOLD}# expect: N${RESET}' pin in $CONF." \
+                       "The manifest must state how many suites it declares."
+[[ "$pin" -eq "${#DECLARED[@]}" ]] \
+    || die "$CONF declares ${BOLD}${#DECLARED[@]}${RESET} suites but pins ${BOLD}# expect: $pin${RESET}." \
+           "A suite was added or removed without updating the pin. If deliberate, update it."
 
 is_registered() { printf '%s\n' "${REGISTERED[@]}" | grep -qx "$1"; }
 

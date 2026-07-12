@@ -45,8 +45,15 @@ register() {
     done
 }
 
-# manifest <line...> — write the manifest
-manifest() { printf '%s\n' "$@" > "$T/manifest.conf"; }
+# manifest <line...> — write the manifest, with a matching `# expect: N` pin
+manifest() {
+    { echo "# expect: $#"; printf '%s\n' "$@"; } > "$T/manifest.conf"
+}
+# manifest_pinned <pin> <line...> — same, but with a deliberately chosen pin
+manifest_pinned() {
+    local pin=$1; shift
+    { echo "# expect: $pin"; printf '%s\n' "$@"; } > "$T/manifest.conf"
+}
 
 run_harness() {
     JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_SUITE_TIMEOUT="${TIMEOUT_OVERRIDE:-300}" \
@@ -222,6 +229,76 @@ out=$(run_harness); rc=$?
 check "HS-17" "an add_test() outside build/test/ is still cross-checked" 2 $rc "$out" \
     "REFUSES TO RUN" "MISSING from" "other_test"
 rm -rf "$T/build/elsewhere"
+
+# --------------------------------------------------------- the suite-count pin
+# Without it, "N declared == N registered" is a tautology against the edit that matters
+# most: drop a suite's add_test() AND its manifest row and both sides shrink together.
+stub good_test 10 0; stub other_test 5 0
+register good_test other_test
+manifest_pinned 3 "good_test 10" "other_test 5"      # pin says 3, only 2 declared
+out=$(run_harness); rc=$?
+check "HS-18" "the manifest's own suite-count pin is enforced" 2 $rc "$out" \
+    "REFUSES TO RUN" "pins" "expect: 3"
+
+register good_test other_test
+printf 'good_test 10\nother_test 5\n' > "$T/manifest.conf"    # no pin line at all
+out=$(run_harness); rc=$?
+check "HS-19" "a manifest with NO suite-count pin is rejected (guard must not be dead)" 2 $rc "$out" \
+    "REFUSES TO RUN" "expect: N"
+
+# ------------------------------------------- nested build trees must NOT be swallowed
+# build/debug and build/gui-debug live INSIDE build/ and configure with ENABLE_TESTS=ON.
+# An unscoped find swallowed their CTestTestfile.cmake, saw every binary twice, and
+# refused to run with a FALSE "registered twice" diagnosis after a plain `make gui-debug`.
+# A directory with its own CMakeCache.txt is an independent build root.
+stub good_test 10 0; stub other_test 5 0
+register good_test other_test
+mkdir -p "$T/build/gui-debug/test"
+touch "$T/build/gui-debug/CMakeCache.txt"
+{ echo "add_test(good \"$T/build/gui-debug/test/good_test\")"
+  echo "add_test(other \"$T/build/gui-debug/test/other_test\")"
+} > "$T/build/gui-debug/test/CTestTestfile.cmake"
+manifest "good_test 10" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-20" "a nested build tree (own CMakeCache.txt) is NOT enumerated" 0 $rc "$out" \
+    "Suites: 2 pass, 0 fail" "2 registered"
+rm -rf "$T/build/gui-debug"
+
+# =====================================================================================
+# The regression harness's preflight (test/00regression/regression.sh --preflight-only).
+# It had ZERO test coverage, and that is precisely where two guards shipped DEAD: a grep
+# exiting 1 under `set -e` killed the script before the fault could print.
+# =====================================================================================
+REG="$PROJECT_DIR/test/00regression/regression.sh"
+REG_CONF="$PROJECT_DIR/test/00regression/regression_tests.conf"
+REG_FUNC="$PROJECT_DIR/test/00regression/functional_tests.conf"
+
+run_preflight() {   # run_preflight <conf> <func_conf>
+    JNEXT_REGRESSION_CONF="$1" JNEXT_REGRESSION_FUNC_CONF="$2" \
+        bash "$REG" --preflight-only 2>&1
+}
+
+out=$(run_preflight "$REG_CONF" "$REG_FUNC"); rc=$?
+check "HS-21" "regression preflight: the real manifests pass" 0 $rc "$out" "preflight OK"
+
+# a screenshot test quietly dropped from the conf (with its reference image deleted too,
+# which is what defeated the reference-image witness)
+grep -v '^odemo ' "$REG_CONF" > "$T/trunc.conf"
+out=$(run_preflight "$T/trunc.conf" "$REG_FUNC"); rc=$?
+check "HS-22" "regression preflight: a dropped screenshot test faults on the pin" 2 $rc "$out" \
+    "HARNESS FAULT" "declares" "pins"
+
+# a functional test quietly dropped from its conf
+grep -v '^rzx-record-func' "$REG_FUNC" > "$T/trunc-func.conf"
+out=$(run_preflight "$REG_CONF" "$T/trunc-func.conf"); rc=$?
+check "HS-23" "regression preflight: a dropped functional test faults on the pin" 2 $rc "$out" \
+    "HARNESS FAULT" "declares" "pins"
+
+# no pin line at all — the guard that was dead on arrival
+grep -v '^# expect:' "$REG_CONF" > "$T/nopin.conf"
+out=$(run_preflight "$T/nopin.conf" "$REG_FUNC"); rc=$?
+check "HS-24" "regression preflight: a manifest with NO pin is rejected, loudly" 2 $rc "$out" \
+    "HARNESS FAULT" "expect: N"
 
 echo ""
 echo "====================================="

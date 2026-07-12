@@ -3,9 +3,16 @@
 # Runs screenshot tests + a few functional/integration tests.
 # (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
-# Usage: bash test/00regression/regression.sh [--update] [test_name...]
-#   --update    Update reference screenshots instead of comparing
-#   test_name   Run only specified tests (default: all)
+# Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [test_name...]
+#   --update          Update reference screenshots instead of comparing
+#   --preflight-only  Run only the harness preflight checks and exit (no tests).
+#                     This is the seam test/harness-selftest.sh drives: the preflight
+#                     is what proves the suite runs everything it declares, and an
+#                     untested guard ships broken (it did — twice).
+#   test_name         Run only specified tests (default: all)
+#
+# Env: JNEXT_REGRESSION_CONF / JNEXT_REGRESSION_FUNC_CONF override the manifests
+#      (the self-test uses these to inject a truncated or unpinned manifest).
 
 set -euo pipefail
 
@@ -48,8 +55,8 @@ SD_CARD_ARGS=(--sdcard "$SD_IMAGE")
 # missing the rewind functional test FAILS LOUDLY — it used to print no row at
 # all, silently shrinking the suite total (Task 35).
 REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
-CONF="$SCRIPT_DIR/regression_tests.conf"
-FUNC_CONF="$SCRIPT_DIR/functional_tests.conf"
+CONF="${JNEXT_REGRESSION_CONF:-$SCRIPT_DIR/regression_tests.conf}"
+FUNC_CONF="${JNEXT_REGRESSION_FUNC_CONF:-$SCRIPT_DIR/functional_tests.conf}"
 # img/ lives next to this script under test/00regression/img.
 IMG_DIR="$SCRIPT_DIR/img"
 TMP_DIR=$(mktemp -d)
@@ -60,10 +67,13 @@ TOLERANCE=${JNEXT_TEST_TOLERANCE:-0}
 
 # Parse arguments
 UPDATE_MODE=false
+PREFLIGHT_ONLY=false
 FILTER_TESTS=()
 for arg in "$@"; do
     if [[ "$arg" == "--update" ]]; then
         UPDATE_MODE=true
+    elif [[ "$arg" == "--preflight-only" ]]; then
+        PREFLIGHT_ONLY=true
     else
         FILTER_TESTS+=("$arg")
     fi
@@ -127,7 +137,11 @@ declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
     grep -cvE '^[[:space:]]*(#|$)' "$1" || true
 }
 pinned_count() {     # pinned_count <conf>  — the `# expect: N` line
-    grep -oP '^#\s*expect:\s*\K[0-9]+' "$1" | head -1
+    # `|| true` is load-bearing: grep exits 1 when there is no pin line, and under
+    # `set -e` + pipefail that kills the script AT THE ASSIGNMENT — so the
+    # "No '# expect: N' pin" fault below would never print. A guard that cannot
+    # report is not a guard; this one was dead on arrival until review caught it.
+    grep -oP '^#\s*expect:\s*\K[0-9]+' "$1" 2>/dev/null | head -1 || true
 }
 for conf in "$CONF" "$FUNC_CONF"; do
     pin=$(pinned_count "$conf")
@@ -168,6 +182,15 @@ while read -r name _; do
 done < "$FUNC_CONF"
 [[ ${#DECLARED_FUNC[@]} -gt 0 ]] || harness_fault "No functional tests declared in $FUNC_CONF"
 REPORTED_FUNC=()
+
+# Every preflight guard has now run. --preflight-only exists so the self-test can drive
+# each of them in a second instead of a five-minute suite: these guards are what make
+# the denominator trustworthy, and two of them shipped DEAD (a grep exiting 1 under
+# `set -e` killed the script before the fault could print). Untested guards ship broken.
+if $PREFLIGHT_ONLY; then
+    echo -e "${GREEN}preflight OK${RESET}: $(declared_count "$CONF") screenshot + ${#DECLARED_FUNC[@]} functional tests declared, pins agree"
+    exit 0
+fi
 
 # want <name> — should this test run? (no filter given, or explicitly named)
 want() {
