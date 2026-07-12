@@ -97,6 +97,15 @@ public:
     ///     audio samples, checks interrupts.
     void run_frame();
 
+private:
+    /// Everything that must happen exactly once per frame, at its start (Copper vsync,
+    /// per-scanline change-log baselines, interrupt scheduling, rewind snapshot). Run
+    /// ONLY when a new frame actually begins — never when resuming a frame the debugger
+    /// paused mid-way, which would corrupt the frame still in flight (Task 40).
+    void begin_new_frame();
+
+public:
+
     /// Perform a hard reset: reinitialize all subsystems, clear RAM, reload ROM.
     void reset();
 
@@ -757,6 +766,12 @@ private:
     uint64_t line_int_fire_count_ = 0;
 
     /// Raster position snapshotted at pause time.
+    // True between the start of a frame and its completion. The debugger pauses by
+    // returning from inside run_frame()'s loop, so the next call must RESUME that frame,
+    // not restart it — re-running the frame-start actions mid-frame rewinds the Copper
+    // and clears the per-scanline change logs the compositor replays (Task 40).
+    bool frame_in_progress_ = false;
+
     int paused_vc_ = 0;
     int paused_hc_ = 0;
 

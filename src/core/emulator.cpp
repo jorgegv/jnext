@@ -120,6 +120,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         frame_cycle_ = 0;
         frame_num_   = 0;
     }
+    frame_in_progress_ = false;   // no frame is in flight after a reset
     replay_mode_ = false;
 
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
@@ -5944,8 +5945,12 @@ void Emulator::stop_rzx_recording()
     rzx_recorder_.stop();
 }
 
-void Emulator::run_frame()
+void Emulator::begin_new_frame()
 {
+    // Everything that must happen exactly ONCE per frame, at its start. Called from
+    // run_frame() only when a new frame is actually beginning — never when resuming a
+    // frame the debugger paused mid-way. See the guard at its call site.
+
     // Per-frame sample of the IM2 DMA-delay latch into the DMA peripheral.
     // VHDL zxnext.vhd:2001-2010 models this as a per-CPU-clock latch, but
     // the jnext architecture runs the DMA start-gate check coarsely, so a
@@ -5953,28 +5958,11 @@ void Emulator::run_frame()
     // adequate for the currently-covered test rows (DMA-01/02/03/05, NR CC/CD/CE-01).
     // Finer-grain wiring can be revisited if a specific workload requires it.
     dma_.set_dma_delay(im2_.dma_delay());
-
-    // Handle rewind step modes set by the GUI or scripting layer.
-    // These are processed before the normal snapshot so we don't take a
-    // snapshot of the "current" state before rewinding away from it.
-    if (debug_state_.active() && !replay_mode_) {
-        if (debug_state_.step_mode() == StepMode::STEP_BACK) {
-            step_back(debug_state_.step_back_count());
-            return;
-        }
-        if (debug_state_.step_mode() == StepMode::RUN_BACK_TO_CYCLE) {
-            rewind_to_cycle(debug_state_.target_cycle());
-            return;
-        }
-    }
-
     // Snapshot at frame boundary — scheduler queue is empty here, which is
     // required for correct serialisation (no pending events to save).
     if (rewind_buffer_ && rewind_enabled_ && !replay_mode_) {
         rewind_buffer_->take_snapshot(*this, frame_cycle_, frame_num_++);
     }
-
-    const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
     // V24-MEM-01 / V25-MEM-01 fix — video-frame-edge commit of the
     // NR 0x03 machine_timing latch per VHDL zxnext.vhd:6694-6703:
@@ -6128,6 +6116,55 @@ void Emulator::run_frame()
 
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
+}
+
+void Emulator::run_frame()
+{
+
+    // Handle rewind step modes set by the GUI or scripting layer.
+    // These are processed before the normal snapshot so we don't take a
+    // snapshot of the "current" state before rewinding away from it.
+    if (debug_state_.active() && !replay_mode_) {
+        if (debug_state_.step_mode() == StepMode::STEP_BACK) {
+            step_back(debug_state_.step_back_count());
+            return;
+        }
+        if (debug_state_.step_mode() == StepMode::RUN_BACK_TO_CYCLE) {
+            rewind_to_cycle(debug_state_.target_cycle());
+            return;
+        }
+    }
+
+    const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
+
+    // A frame that was PAUSED mid-way is RESUMED, not RESTARTED.
+    //
+    // The debugger pauses by returning from inside the loop below, leaving the frame
+    // half-executed; the frontend then calls run_frame() again to continue it. Every
+    // one of the actions in begin_new_frame() is a FRAME-START action, and re-running
+    // them mid-frame corrupts the frame that is still in flight:
+    //
+    //   * copper_.on_vsync() rewinds the Copper's PC. A Copper program restarted at
+    //     mid-frame re-executes its WAITs against scanlines that have already gone by,
+    //     so it never matches again and writes NOTHING for the rest of the frame.
+    //   * palette_/layer2_/sprites_/ula_/tilemap_.start_frame() CLEAR the per-scanline
+    //     change logs and re-baseline them to the mid-frame state. Those logs are what
+    //     the compositor (and the debugger's video panels) replay to reproduce raster
+    //     splits, so the frame renders flat.
+    //   * the interrupts get re-scheduled at offsets from frame_cycle_ that are now in
+    //     the past, and the rewind buffer takes a "frame boundary" snapshot mid-frame,
+    //     with a scheduler queue that is not empty — the one thing its comment promises.
+    //
+    // Symptom that found this (Task 40, beast.nex): Break, then "Run to EOF" — the
+    // Copper's per-scanline palette gradient vanished from the ULA and the emulator
+    // window rendered a flat sky, alternating between the two on each press as the
+    // wiped log was consumed by one replay or the other. Stepping through a frame must
+    // OBSERVE the emulation, never alter it.
+    if (!frame_in_progress_) {
+        begin_new_frame();
+        frame_in_progress_ = true;
+    }
+
 
     // Audio timing constants.
     // PSG clock = 28 MHz / 16 = 1.75 MHz → one PSG tick every 16 master cycles.
@@ -6625,6 +6662,10 @@ void Emulator::run_frame()
         last_frame_hc_ = static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
     }
     frame_cycle_ = frame_end;
+    // The frame ran to completion, so the NEXT run_frame() call begins a new one.
+    // Every early return above (breakpoint, pause, run-to-cycle) leaves this true, so
+    // that call resumes this frame instead of restarting it.
+    frame_in_progress_ = false;
 
     // Snapshot the fallback/border/ULA-enable colour and tilemap scroll
     // for the last visible framebuffer row. G164v2 — these arrays are
@@ -6900,6 +6941,7 @@ void Emulator::reset()
     clock_.reset();
     scheduler_.reset();
     frame_cycle_ = 0;
+    frame_in_progress_ = false;   // no frame is in flight after a reset
 
     ram_.reset();
     // Emulator::reset() is a hard reset (see header — "Perform a hard
@@ -7760,6 +7802,12 @@ void Emulator::save_state(StateWriter& w) const
 
 void Emulator::load_state(StateReader& r)
 {
+    // Snapshots are only ever taken at a frame boundary (begin_new_frame()), so a
+    // restored machine has no frame in flight — the next run_frame() must start one.
+    // Without this, restoring while the debugger had a frame paused would leave the
+    // flag set and the first restored frame would skip its own frame-start actions.
+    frame_in_progress_ = false;
+
     // Core subsystems.
     clock_.load_state(r);
     ram_.load_state(r);

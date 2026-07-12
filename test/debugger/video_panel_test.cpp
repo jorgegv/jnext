@@ -100,6 +100,7 @@
 #include "video/palette.h"
 #include "video/renderer.h"
 #include "video/tilemap.h"
+#include "peripheral/copper.h"
 #include "audio/i2s.h"
 #include "video/ula.h"
 
@@ -1721,6 +1722,78 @@ static void test_peek_does_not_mutate(Emulator& emu) {
           mismatches == 0, fmt("%d mismatch(es)", mismatches));
 }
 
+// ── DVP-RESUME: a frame the debugger paused must be RESUMED, not RESTARTED ───
+//
+// Task 40, second half. The debugger pauses by returning from inside run_frame()'s loop,
+// leaving the frame half-executed; the frontend then calls run_frame() again to continue
+// it. run_frame() re-ran its entire frame-start block on that call — mid-frame:
+//
+//   copper_.on_vsync()        rewound the Copper's PC, so a Copper program restarted at
+//                             mid-frame re-executed its WAITs against scanlines already
+//                             gone by, never matched again, and wrote NOTHING for the
+//                             rest of the frame;
+//   palette_.start_frame()    CLEARED the per-scanline palette change log and rebaselined
+//     (and the same for      it to the mid-frame state — and that log is exactly what the
+//      layer2/sprites/ula/    compositor and the debugger's video panels replay to
+//      tilemap)               reproduce raster splits.
+//
+// Reported from beast.nex: Break, then "Run to EOF", and the Copper's per-scanline sky
+// gradient vanished — from the ULA panel on one press, and from the EMULATOR WINDOW on
+// the next, alternating, as the wiped log was consumed by one replay or the other.
+//
+// Stepping through a frame must OBSERVE the emulation, never alter it.
+static void test_paused_frame_resumes_not_restarts(Emulator& emu) {
+    set_group("DVP-RESUME");
+
+    emu.debug_state().set_active(true);
+    emu.run_frame();                      // settle: one clean frame
+
+    // Pause partway through the next frame, exactly as "Break" / "Run to EOF" do.
+    const auto& t = emu.timing();
+    const uint64_t mid = emu.current_frame_cycle() + 100 * t.master_cycles_per_line;
+    emu.debug_state().run_to_cycle(mid);
+    emu.run_frame();
+    check("DVP-RES-01", "the debugger paused mid-frame (test premise)",
+          emu.debug_state().paused() && emu.clock().get() < emu.current_frame_cycle()
+              + t.master_cycles_per_frame,
+          fmt("paused=%d", int(emu.debug_state().paused())));
+
+    // A mid-frame palette write — the kind a Copper MOVE makes on every scanline, and
+    // the kind whose change-log entry the compositor replays to draw a gradient.
+    emu.nextreg().write(0x40, 0x10);      // palette index
+    emu.nextreg().write(0x41, 0xE3);      // 8-bit colour write
+    const size_t log_before = emu.palette().change_log_size();
+    check("DVP-RES-02", "the mid-frame palette write is in the change log (test premise)",
+          log_before >= 1, fmt("entries=%zu", log_before));
+
+    const uint16_t copper_pc_before = emu.copper().pc();
+
+    // Resume. Before the fix this call re-ran the frame-start block: start_frame() wiped
+    // the log (entries -> 0) and on_vsync() rewound the Copper.
+    emu.debug_state().resume();
+    emu.run_frame();
+
+    check("DVP-RES-03",
+          "resuming does NOT clear the frame's palette change log",
+          emu.palette().change_log_size() >= log_before,
+          fmt("entries=%zu, were %zu (0 = the resume wiped the frame's raster splits)",
+              emu.palette().change_log_size(), log_before));
+
+    check("DVP-RES-04",
+          "resuming does NOT rewind the Copper to its program start",
+          !(copper_pc_before != 0 && emu.copper().pc() == 0 &&
+            emu.clock().get() < emu.current_frame_cycle() + t.master_cycles_per_frame),
+          fmt("copper pc %u -> %u", copper_pc_before, emu.copper().pc()));
+
+    // …and the NEXT frame must still get its frame-start actions: the guard resumes a
+    // paused frame, it does not suppress frame starts altogether.
+    emu.run_frame();
+    check("DVP-RES-05",
+          "a genuinely new frame still gets its frame-start baseline (log reset)",
+          emu.palette().change_log_size() == 0,
+          fmt("entries=%zu", emu.palette().change_log_size()));
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1791,6 +1864,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_peek_does_not_mutate(emu);
         std::printf("  Group: DVP-PEEK       — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_paused_frame_resumes_not_restarts(emu);
+        std::printf("  Group: DVP-RESUME     — done\n");
     }
 
     // ── Task 36: the "All layers" composite view ─────────────────────
