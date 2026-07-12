@@ -96,6 +96,32 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 > The process is mandatory for every test plan rewrite and every emulator
 > fix that touches subsystem tests.
 
+### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
+
+The suites are **declared**, and the harness proves it ran exactly what was declared:
+
+- `test/unit-tests.conf` — every unit-test suite. `test/run-unit-tests.sh` cross-checks
+  it against the suites CMake registered via `add_test()` and **refuses to run** (exit 2)
+  if the two disagree in either direction, or if a declared binary is not built, or if a
+  suite runs but prints no parseable `Total:` line. `make unit-test` also **exits non-zero**
+  when a suite fails — it used to exit 0.
+- `test/00regression/regression_tests.conf` (screenshots) and
+  `test/00regression/functional_tests.conf` (functional). At the end of every full run,
+  `regression.sh` asserts that every declared test reported exactly one row and that the
+  grand total equals `1 lint + screenshots + functional`; any mismatch is a **harness
+  fault** (exit 2), not a pass.
+
+Adding a suite means adding it to the manifest. The harness will stop you if you forget —
+which is the whole point: three separate suites had silently vanished from the counts
+(Tasks 32/35/37, all found by accident), and a green triplet is only as trustworthy as its
+denominator.
+
+`make regression` now depends on `unit-test-build`, because the suite runs
+`build/test/rewind_test` and `make clean` deletes it.
+
+**Agent worktrees: run `make worktree-bootstrap` first.** `roms/*` is git-ignored, so a
+fresh worktree has no SD-card image and cannot run the tests at all.
+
 ### FUSE Z80 opcode test suite
 
 ```bash
