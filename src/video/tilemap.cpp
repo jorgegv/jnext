@@ -287,14 +287,22 @@ void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                     const PaletteManager& palette,
                                     bool* textmode_flags)
 {
+    // Only the enable gate is overridden — the debug view exists precisely to
+    // show the layer's content even when NR 0x6B b7 has it switched off.
+    //
+    // Everything else is left exactly as the compositor sees it.  In
+    // particular the per-line scroll snapshots (scroll_x_per_line_ /
+    // scroll_y_per_line_, captured by Emulator::on_scanline as the raster
+    // walks the frame) are READ, not overwritten: an earlier version wrote
+    // the LIVE scroll_x_/scroll_y_ into scroll_x_per_line_[y] here "so the
+    // debugger shows the live scroll position", which (a) flattened every
+    // mid-frame raster split the panel is most needed for, and (b) corrupted
+    // emulation state — pausing mid-frame overwrote the already-captured
+    // snapshots for rows 0..y, so the frame the compositor then rendered on
+    // resume used the wrong scroll for its top half.  A debug view must never
+    // mutate the state it observes.
     const bool saved = enabled_;
     enabled_ = true;
-    // Use current register values (not per-line snapshots) so the debugger
-    // shows the tilemap with the live scroll position.
-    if (y >= 0 && y < kSnapshotLines) {
-        scroll_x_per_line_[y] = scroll_x_;
-        scroll_y_per_line_[y] = scroll_y_;
-    }
     render_scanline(dst, ula_over_flags, y, ram, palette, textmode_flags);
     enabled_ = saved;
 }
