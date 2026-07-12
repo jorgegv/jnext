@@ -1041,5 +1041,26 @@ Note that BACKGROUND is deliberately **absent** from DVP-14d's "the fallback
 appears in no per-layer view" loop: it is not a layer view, it *is* the
 fallback.  Adding it there would make DVP-14d self-contradictory.
 
+### Why DVP-16c needs a VBLANK-tagged write — and the DVP-06 blind spot
+
+A state-preservation row built only from *mid-frame* writes cannot see a panel
+that rewinds and replays but forgets to `flush_remaining_changes()`: replaying
+rows 0..255 happens to walk every visible-line entry back to where it was.  It
+is the entries tagged at line >= `FB_HEIGHT` that only the final flush replays
+— exactly the `tilemap_demo` class of bug the renderer's flush comment
+describes (at NR 0x07 >= 0x02 the whole setup lands in vblank).  DVP-16c plants
+one and pins it; removing `replay_restore()` from the panel fails DVP-16c and
+nothing else.
+
+**This means the Task-22a group DVP-06 (`DVP-NOMUT`) has a documented blind
+spot**: every write it makes is tagged at a visible scanline, so it stays GREEN
+against a panel that has lost its `replay_restore()` call (verified by mutation
+during Task 36).  Do not read DVP-06 as covering that bug class — DVP-16c is
+what guards it, and because `replay_restore()` has a single call site shared by
+every `VideoLayerView::Layer` case, DVP-16c covers all of the views, not just
+the composite.  DVP-06 remains valid for what it *was* written for (the
+`Tilemap::render_scanline_debug` snapshot-clobbering defect).  Both facts are
+recorded in the header comment of `test/debugger/video_panel_test.cpp`.
+
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
 with the other panel-vs-compositor parity rows.
