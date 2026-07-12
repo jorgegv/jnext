@@ -218,89 +218,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             tilemap->apply_nr6b_changes_for_line(row);
         }
 
-        uint32_t* out = framebuffer + row * FB_WIDTH;
-        const int screen_row = row - DISP_Y;  // display row (negative = top border)
-
-        // --- Clear layer buffers to transparent ---
-        // Clear the FULL 640-wide line buffer: layers still emit only into
-        // [0..319] at Phase 1; the upper half stays TRANSPARENT until the
-        // doubling scaffold below overwrites it.
-        std::fill_n(layer2_line_.begin(), FB_WIDTH, TRANSPARENT);
-        std::fill_n(sprite_line_.begin(), FB_WIDTH, TRANSPARENT);
-        std::fill_n(tilemap_line_.begin(), FB_WIDTH, TRANSPARENT);
-        std::fill_n(tm_pixel_below_.begin(), FB_WIDTH, false);
-        std::fill_n(tm_pixel_textmode_.begin(), FB_WIDTH, false);
-        std::fill_n(layer2_priority_.begin(), FB_WIDTH, false);
-        std::fill_n(ula_border_.begin(), FB_WIDTH, false);
-
-        // --- Render each layer for this scanline ---
-        const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
-
-        // Layer 2 — 256×192 is active only in the display area;
-        // 320×256 and 640×256 ("wide") modes cover all 256 rows.
-        if (layer2.enabled()) {
-            if (layer2.is_wide() || in_display) {
-                // Phase 3 (G104): Layer 2 emits 640 natively (resolution 0
-                // pixel-doubled into [DISP_X..DISP_X+512), resolution 1
-                // pixel-doubled across the full 640, resolution 2/3 native).
-                // G179 issue #3: per-pixel priority bit (NR 0x44 b7) flows
-                // from the L2 palette into layer2_priority_[] so the
-                // compositor can promote L2 above sprites for opaque pixels
-                // whose palette entry has the priority bit set (VHDL
-                // zxnext.vhd:7050, 7220). The buffer is zero-filled at the
-                // top of this loop so transparent pixels stay false.
-                layer2.render_scanline(layer2_line_.data(), row, ram, palette,
-                                       mmu.rom_in_sram(),
-                                       layer2_priority_.data());
-            }
-        }
-
-        // Tilemap — covers the full 640-wide framebuffer (VHDL: vcounter(8)='0').
-        // G104 phase 4: native 640 emit (80-col 1:1, 40-col internal double).
-        if (tilemap && tilemap->enabled()) {
-            tilemap->render_scanline(tilemap_line_.data(),
-                                     tm_pixel_below_.data(),
-                                     row, ram, palette,
-                                     tm_pixel_textmode_.data());
-        }
-
-        // Sprites — Y coordinates are in absolute framebuffer space (0-255)
-        if (sprites && sprites->sprites_visible()) {
-            sprites->render_scanline(sprite_line_.data(), row, palette);
-        }
-
-        // Render ULA scanline (G104 Phase 2: native 640 emit). Pass
-        // ula_border_ so the ULA renderer marks every cell painted with
-        // the border colour for the compositor stage's `ula_border_2`
-        // mux gate (VHDL zxnext.vhd:7256/7266/7278; source signal at
-        // zxula.vhd:415, exposed as o_ula_border at :567). The pre-fill
-        // at line ~143 leaves display-area cells at false, so the ULA
-        // only needs to write the border strips (left/right per display
-        // row + entire top/bottom border rows).
-        const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
-        ula_.render_scanline(ula_line_.data(), row, mmu, ula_border_.data());
-        // When ULA is disabled (NR 0x68 bit 7 = 1), the whole ULA output
-        // is transparent — display AND border — per VHDL zxnext.vhd:7103
-        //   ula_transparent <= '1' when (ula_mix_transparent = '1')
-        //                             or (ula_en_2 = '0') else '0';
-        // That makes the border pixels fall through to the fallback
-        // colour (NR 0x4A) just like the display area, which is what
-        // copper_demo relies on to paint the rainbow across the border.
-        //
-        // Read the per-line snapshot (not the live Ula::ula_enabled())
-        // so a Copper MOVE to NR 0x68 mid-frame flips transparency only
-        // for rows that follow the toggle. Matches the per-line fallback
-        // snapshot handling already used for NR 0x4A.
-        if (!ula_enabled_per_line_[row]) {
-            // G104 Phase 2: ULA emits native 640, zero the full line.
-            std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
-        }
-
-        // ULA clip window (NextREG 0x1A) — see Renderer::apply_ula_clip.
-        apply_ula_clip(ula_line_.data(), row);
-
-        trace_current_row_ = row;
-        composite_scanline(out, fb_argb);
+        render_row(framebuffer + row * FB_WIDTH, row, mmu, ram, palette,
+                   layer2, sprites, tilemap);
     }
 
     // Close the trace file once the target frame is done so subsequent
@@ -335,6 +254,108 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 
     // Advance ULA flash state once per frame.
     ula_.advance_flash();
+}
+
+// ---------------------------------------------------------------------------
+// render_row — render every layer for one row and composite it
+// ---------------------------------------------------------------------------
+//
+// Lifted verbatim out of render_frame's row loop (Task 36, no behavioural
+// change) so the debugger's "All layers" view composites through the SAME
+// code the live output does, instead of a second, drifting compositor.
+//
+// The caller owns the per-scanline change-log replay (rewind → apply row →
+// … → flush): render_frame does it inline above, and the debugger panel does
+// it with the identical helper sequence.  This function only reads the state
+// those logs leave live; it never advances a cursor and never touches the
+// once-per-frame ULA flash counter.
+
+void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
+                          PaletteManager& palette, Layer2& layer2,
+                          SpriteEngine* sprites, Tilemap* tilemap)
+{
+    const int screen_row = row - DISP_Y;  // display row (negative = top border)
+
+    // --- Clear layer buffers to transparent ---
+    // Clear the FULL 640-wide line buffer: layers still emit only into
+    // [0..319] at Phase 1; the upper half stays TRANSPARENT until the
+    // doubling scaffold below overwrites it.
+    std::fill_n(layer2_line_.begin(), FB_WIDTH, TRANSPARENT);
+    std::fill_n(sprite_line_.begin(), FB_WIDTH, TRANSPARENT);
+    std::fill_n(tilemap_line_.begin(), FB_WIDTH, TRANSPARENT);
+    std::fill_n(tm_pixel_below_.begin(), FB_WIDTH, false);
+    std::fill_n(tm_pixel_textmode_.begin(), FB_WIDTH, false);
+    std::fill_n(layer2_priority_.begin(), FB_WIDTH, false);
+    std::fill_n(ula_border_.begin(), FB_WIDTH, false);
+
+    // --- Render each layer for this scanline ---
+    const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
+
+    // Layer 2 — 256×192 is active only in the display area;
+    // 320×256 and 640×256 ("wide") modes cover all 256 rows.
+    if (layer2.enabled()) {
+        if (layer2.is_wide() || in_display) {
+            // Phase 3 (G104): Layer 2 emits 640 natively (resolution 0
+            // pixel-doubled into [DISP_X..DISP_X+512), resolution 1
+            // pixel-doubled across the full 640, resolution 2/3 native).
+            // G179 issue #3: per-pixel priority bit (NR 0x44 b7) flows
+            // from the L2 palette into layer2_priority_[] so the
+            // compositor can promote L2 above sprites for opaque pixels
+            // whose palette entry has the priority bit set (VHDL
+            // zxnext.vhd:7050, 7220). The buffer is zero-filled at the
+            // top of this function so transparent pixels stay false.
+            layer2.render_scanline(layer2_line_.data(), row, ram, palette,
+                                   mmu.rom_in_sram(),
+                                   layer2_priority_.data());
+        }
+    }
+
+    // Tilemap — covers the full 640-wide framebuffer (VHDL: vcounter(8)='0').
+    // G104 phase 4: native 640 emit (80-col 1:1, 40-col internal double).
+    if (tilemap && tilemap->enabled()) {
+        tilemap->render_scanline(tilemap_line_.data(),
+                                 tm_pixel_below_.data(),
+                                 row, ram, palette,
+                                 tm_pixel_textmode_.data());
+    }
+
+    // Sprites — Y coordinates are in absolute framebuffer space (0-255)
+    if (sprites && sprites->sprites_visible()) {
+        sprites->render_scanline(sprite_line_.data(), row, palette);
+    }
+
+    // Render ULA scanline (G104 Phase 2: native 640 emit). Pass
+    // ula_border_ so the ULA renderer marks every cell painted with
+    // the border colour for the compositor stage's `ula_border_2`
+    // mux gate (VHDL zxnext.vhd:7256/7266/7278; source signal at
+    // zxula.vhd:415, exposed as o_ula_border at :567). The pre-fill
+    // above leaves display-area cells at false, so the ULA only needs
+    // to write the border strips (left/right per display row + entire
+    // top/bottom border rows).
+    const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
+    ula_.render_scanline(ula_line_.data(), row, mmu, ula_border_.data());
+    // When ULA is disabled (NR 0x68 bit 7 = 1), the whole ULA output
+    // is transparent — display AND border — per VHDL zxnext.vhd:7103
+    //   ula_transparent <= '1' when (ula_mix_transparent = '1')
+    //                             or (ula_en_2 = '0') else '0';
+    // That makes the border pixels fall through to the fallback
+    // colour (NR 0x4A) just like the display area, which is what
+    // copper_demo relies on to paint the rainbow across the border.
+    //
+    // Read the per-line snapshot (not the live Ula::ula_enabled())
+    // so a Copper MOVE to NR 0x68 mid-frame flips transparency only
+    // for rows that follow the toggle. Matches the per-line fallback
+    // snapshot handling already used for NR 0x4A.
+    if (!ula_enabled_per_line_[row]) {
+        // G104 Phase 2: ULA emits native 640, zero the full line.
+        std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
+    }
+
+    // ULA clip window (NextREG 0x1A) — see Renderer::apply_ula_clip.
+    apply_ula_clip(ula_line_.data(), row);
+
+    trace_current_row_ = row;
+    composite_scanline(out, fb_argb);
 }
 
 // ---------------------------------------------------------------------------

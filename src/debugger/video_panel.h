@@ -16,12 +16,14 @@ class VideoLayerView : public QWidget {
     Q_OBJECT
 public:
     enum class Layer {
+        COMPOSITE,      ///< All layers, composited exactly as the emulator window
         ULA_PRIMARY,    ///< ULA standard screen (bank 5, pages 10-11)
         ULA_SHADOW,     ///< ULA 128K shadow screen (bank 7, page 14) — port 0x7FFD bit 3
         LAYER2_ACTIVE,  ///< Layer 2 active bank
         LAYER2_SHADOW,  ///< Layer 2 shadow bank
         SPRITES,        ///< Sprite layer (transparent background)
         TILEMAP,        ///< Tilemap layer (transparent background)
+        BACKGROUND,     ///< NR 0x4A fallback colour, per scanline (belongs to no layer)
     };
 
     VideoLayerView(Layer layer, const char* title,
@@ -114,10 +116,12 @@ private:
 
     // Sub-panel layer views (one per tab)
     QTabWidget*      layer_tabs_    = nullptr;
+    VideoLayerView*  composite_view_ = nullptr; ///< "All layers" tab (leftmost, default)
     VideoLayerView*  ula_view_      = nullptr;  ///< ULA tab (primary or shadow)
     VideoLayerView*  l2_view_       = nullptr;  ///< Layer2 tab (active or shadow)
     VideoLayerView*  sprites_view_  = nullptr;
     VideoLayerView*  tilemap_view_  = nullptr;
+    VideoLayerView*  background_view_ = nullptr;  ///< "Background" tab (rightmost)
 
     // Screen-select radio buttons
     QRadioButton*    ula_rb_primary_  = nullptr;

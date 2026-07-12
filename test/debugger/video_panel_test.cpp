@@ -31,7 +31,9 @@
 //           gradient, its Layer 2 parallax bands) to a single flat value.
 //   DVP-06  The replay is state-preserving: a panel refresh must not perturb
 //           any live register.  (A debug view that mutates the state it
-//           observes is a Heisenbug generator.)
+//           observes is a Heisenbug generator.)  NOTE: this group has a known
+//           blind spot — it cannot catch a MISSING replay_restore()/flush; only
+//           DVP-16c can.  See the comment above test_no_state_mutation().
 //   DVP-07  Tilemap per-line scroll snapshots are READ, not overwritten.
 //           Tilemap::render_scanline_debug used to write the LIVE scroll into
 //           scroll_{x,y}_per_line_[y], which both flattened mid-frame scroll
@@ -53,6 +55,36 @@
 //           compositor-stage signal (zxnext.vhd:7104), which the panel skipped
 //           — so the ULA view was the only one showing suppressed content.
 //
+// Task 36 — the "All layers" (composite) view.  The per-layer views above can
+// never add up to the picture on screen, because the NR 0x4A FALLBACK COLOUR
+// belongs to no layer: the compositor emits it wherever every layer is
+// transparent (VHDL zxnext.vhd:7218-7352, the `else` of each priority mux).
+// sonic.nex is the case that surfaced this — it disables the ULA (NR 0x68 b7),
+// leaves Layer 2 empty, and paints its whole sky with NR 0x4A = 0x13 = #0092FF
+// — so ULA and Layer 2 panels are blank and NOTHING shows the sky.  The
+// composite view fixes that by rendering through Renderer::render_row, i.e.
+// the very row body render_frame runs.  These rows pin that:
+//
+//   DVP-13  The composite view is pixel-for-pixel the emulator's own
+//           framebuffer for the same frame (all four layers in the scene).
+//   DVP-14  The NR 0x4A fallback colour shows where every layer is
+//           transparent — the sonic.nex case: ULA disabled, Layer 2 off, only
+//           tiles + sprites — and the per-layer views cannot show it.
+//   DVP-15  The composite honours the raster cut-off convention of the other
+//           views (rows past the paused row are the unrendered placeholder).
+//   DVP-16  Compositing for the panel leaves the live machine state untouched
+//           (the round trip render_frame does — no more, no less).
+//   DVP-17  "All layers" is the leftmost tab and the selected one by default.
+//   DVP-18  The Background tab shows the NR 0x4A fallback colour, read PER
+//           SCANLINE from the renderer's own snapshot (DVP-18d) rather than
+//           from the live register.
+//   DVP-18b The reason that matters, proved end to end: a REAL Copper program
+//           (assembled bytecode, uploaded via NR 0x60/0x61/0x62, executed by
+//           run_frame()) MOVEs NR 0x4A mid-frame, and the band split shows up
+//           in the panel — and in the emulator's own framebuffer (DVP-18c).
+//   DVP-19  It honours the raster cut-off, and rendering it preserves state.
+//   DVP-20  "Background" is the RIGHTMOST tab.
+//
 // Qt is required (the panel is a QWidget), but no display is: the test forces
 // the offscreen QPA platform.  Run: ./build/test/debugger_video_panel_test
 
@@ -69,9 +101,14 @@
 #include "video/tilemap.h"
 #include "video/ula.h"
 
+#include "video/sprites.h"
+#include "cpu/z80_cpu.h"
+#include "port/port_dispatch.h"
+
 #include <QApplication>
 #include <QImage>
 #include <QMainWindow>
+#include <QTabWidget>
 
 #include <cstdarg>
 #include <cstdint>
@@ -199,6 +236,83 @@ QImage render_view(Emulator& emu, VideoLayerView::Layer layer, int fb_row) {
 uint32_t px(const QImage& img, int x, int y) {
     return img.pixel(x, y) | 0xFF000000u;   // normalise alpha for comparison
 }
+
+// ── Task 36 (composite view) fixture helpers ──────────────────────────
+
+// The panel's "not yet rendered" fill (video_panel.cpp: UNRENDERED_ARGB).
+constexpr uint32_t UNRENDERED = 0xFF111111;
+
+// Paint a palette entry in one of the four 8-bit palettes.  `ctl` is the
+// NR 0x43 control byte: 0x00 ULA-first, 0x10 Layer2-first, 0x20 Sprite-first,
+// 0x30 Tilemap-first (PaletteId, palette.h:15-18).
+void paint_palette(PaletteManager& pal, uint8_t ctl, uint8_t idx, uint8_t rgb8) {
+    pal.write_control(ctl);
+    pal.set_index(idx);
+    pal.write_8bit(rgb8);
+}
+
+// Tilemap map / definition memory live in bank 5, which on a full Emulator is
+// the dedicated 16K VRAM BRAM (Tilemap::vram_read → bank5_vram_), NOT Ram.
+// NR 0x6E (map) and NR 0x6F (definitions) each hold a 256-byte-unit offset
+// into that bank.  The reset defaults (0x2C / 0x0C) put the tile definitions
+// INSIDE the ULA screen at 0x0C00, and the 40×32×2-byte map overlaps them, so
+// the fixtures below re-base both: map → 0x2000, definitions → 0x3000.  Both
+// are clear of the ULA screen (0x0000-0x1AFF) and of each other.
+constexpr uint8_t  TM_MAP_BASE = 0x20;                       // NR 0x6E
+constexpr uint8_t  TM_DEF_BASE = 0x30;                       // NR 0x6F
+constexpr uint32_t TM_MAP_OFF  = TM_MAP_BASE * 256u;         // 0x2000
+constexpr uint32_t TM_DEF_OFF  = TM_DEF_BASE * 256u;         // 0x3000
+constexpr int      TM_TILES_PER_ROW = 40;   // 40-column mode (NR 0x6B b6 = 0)
+
+// 4bpp tile: every pixel of tile `idx` = `pixel_val` (low nibble).
+void fill_tile(uint8_t* b5, uint16_t idx, uint8_t pixel_val) {
+    const uint32_t addr = TM_DEF_OFF + static_cast<uint32_t>(idx) * 32u;
+    const uint8_t  b    = static_cast<uint8_t>(((pixel_val & 0x0F) << 4)
+                                             | (pixel_val & 0x0F));
+    for (int i = 0; i < 32; ++i) b5[addr + i] = b;
+}
+
+// 2-byte map entry (tile index + attribute).
+void write_tile_map(uint8_t* b5, int col, int row, uint8_t idx, uint8_t attr) {
+    const uint32_t addr = TM_MAP_OFF
+        + static_cast<uint32_t>(row * TM_TILES_PER_ROW + col) * 2u;
+    b5[addr]     = idx;
+    b5[addr + 1] = attr;
+}
+
+// Upload a solid 16×16 8bpp sprite pattern and make sprite 0 show it.
+void put_solid_sprite(SpriteEngine& spr, uint8_t pat_idx, uint8_t colour_idx,
+                      uint8_t x, uint8_t y) {
+    spr.write_slot_select(pat_idx & 0x3F);          // bit 7 = 0 → pattern port
+    for (int i = 0; i < 256; ++i) spr.write_pattern(colour_idx);
+
+    spr.write_slot_select(0);                        // sprite 0 attributes
+    spr.write_attribute(x);                          // byte 0: X lsb
+    spr.write_attribute(y);                          // byte 1: Y lsb
+    spr.write_attribute(0x00);                       // byte 2: no pal offset/mirror
+    spr.write_attribute(0x80 | (pat_idx & 0x3F));    // byte 3: visible, pattern
+
+    spr.set_clip_x1(0);   spr.set_clip_x2(0xFF);
+    spr.set_clip_y1(0);   spr.set_clip_y2(0xFF);
+    spr.set_over_border(true);
+    spr.set_sprites_visible(true);
+}
+
+// Does `argb` appear anywhere in the 640×256 buffer?
+bool contains(const uint32_t* fb, uint32_t argb) {
+    for (int i = 0; i < Renderer::FB_WIDTH * Renderer::FB_HEIGHT; ++i)
+        if (fb[i] == argb) return true;
+    return false;
+}
+
+// …and in a rendered layer view?
+bool contains(const QImage& img, uint32_t argb) {
+    for (int y = 0; y < img.height(); ++y)
+        for (int x = 0; x < img.width(); ++x)
+            if (px(img, x, y) == argb) return true;
+    return false;
+}
+
 
 } // namespace
 
@@ -438,6 +552,19 @@ static void test_per_line_palette_replay(Emulator& emu) {
 }
 
 // ── DVP-06: the panel must not perturb live emulator state ────────────
+//
+// KNOWN BLIND SPOT — read before trusting this group in isolation.  Every write
+// this group makes is tagged at a VISIBLE scanline (0..FB_HEIGHT-1), and the
+// panel's replay applies rows 0..FB_HEIGHT-1, so those entries are walked back
+// to exactly where they started whether or not the panel calls
+// replay_restore().  These rows therefore CANNOT fail if the panel drops the
+// final flush_remaining_changes(): deleting replay_restore() from
+// VideoLayerView::render_to_image leaves this whole group green (verified by
+// mutation, Task 36).  Only entries tagged in VBLANK (line >= FB_HEIGHT) expose
+// that bug — the tilemap_demo class of defect the renderer's own flush comment
+// describes.  DVP-16c plants one and is what actually guards the invariant; it
+// covers every Layer view, because replay_restore() has a single call site
+// shared by all of them.  Keep DVP-16c alive.
 
 static void test_no_state_mutation(Emulator& emu) {
     set_group("DVP-NOMUT");
@@ -482,12 +609,14 @@ static void test_no_state_mutation(Emulator& emu) {
     const bool     tm_enabled    = tm.enabled();
 
     // Refresh every view — each one runs a full rewind → replay → restore.
-    for (auto layer : { VideoLayerView::Layer::ULA_PRIMARY,
+    for (auto layer : { VideoLayerView::Layer::COMPOSITE,
+                        VideoLayerView::Layer::ULA_PRIMARY,
                         VideoLayerView::Layer::ULA_SHADOW,
                         VideoLayerView::Layer::LAYER2_ACTIVE,
                         VideoLayerView::Layer::LAYER2_SHADOW,
                         VideoLayerView::Layer::SPRITES,
-                        VideoLayerView::Layer::TILEMAP }) {
+                        VideoLayerView::Layer::TILEMAP,
+                        VideoLayerView::Layer::BACKGROUND }) {
         (void)render_view(emu, layer, Renderer::FB_HEIGHT - 1);
     }
 
@@ -754,6 +883,680 @@ static void test_run_to_targets() {
           fmt("fb_row=%d", VideoPanel::fb_row_for_vc(PARK_VC, vbt)));
 }
 
+// ── DVP-13: the composite view IS the emulator's framebuffer ──────────
+//
+// The strongest statement of "do not hand-roll a second compositor": build a
+// scene with all four layers live, let Renderer::render_frame draw it into the
+// emulator's own framebuffer (that is literally what the emulator window
+// shows), then render the panel's "All layers" view for the same frame and
+// demand every one of the 640 × 256 pixels agree.
+
+static void test_composite_matches_framebuffer(Emulator& emu) {
+    set_group("DVP-COMPOSITE");
+
+    constexpr uint8_t L2_BANK   = 9;
+    constexpr uint8_t L2_IDX    = 0x40;
+    constexpr uint8_t SPR_PAT   = 3;
+    constexpr uint8_t SPR_IDX   = 0x77;
+    constexpr uint8_t TM_PIXEL  = 0x03;
+    constexpr int     TM_COL    = 2;
+    constexpr int     TM_ROW    = 4;
+
+    PaletteManager& pal = emu.palette();
+    pal.set_global_transparency(0xE3);           // NR 0x14
+
+    // --- ULA: whole bank-5 screen in ink 2 (red) ---
+    Ula& ula = emu.ula();
+    ula.set_ula_enabled(true);
+    ula.set_screen_mode(0x00);
+    ula.set_shadow_screen_en(false);
+    ula.set_clip_x1(0); ula.set_clip_x2(255);
+    ula.set_clip_y1(0); ula.set_clip_y2(191);
+
+    uint8_t* b5 = emu.mmu().bank5_vram();
+    for (int i = 0; i < 0x1800; ++i)      b5[i] = 0xFF;   // all ink
+    for (int i = 0x1800; i < 0x1B00; ++i) b5[i] = 0x02;   // ink 2, paper 0, no flash
+
+    // --- Layer 2: a block of pixels in the top-left of the display ---
+    Layer2& l2 = emu.layer2();
+    l2.set_enabled(true);
+    l2.set_control(0x00);                        // 256×192, 8bpp
+    l2.set_active_bank(L2_BANK);
+    l2.set_clip_x1(0); l2.set_clip_x2(255);
+    l2.set_clip_y1(0); l2.set_clip_y2(191);
+    set_l2_palette(pal, 0x00, 0xE3);             // index 0 == NR 0x14 → transparent
+    set_l2_palette(pal, L2_IDX, 0xFF);           // white
+    Ram& ram = emu.ram();
+    for (int y = 20; y < 40; ++y)
+        for (int x = 20; x < 60; ++x)
+            ram.write(l2_phys_addr(L2_BANK, l2_addr_256x192(x, y), true), L2_IDX);
+
+    // --- Tilemap: one opaque tile; every other cell transparent ---
+    Tilemap& tm = emu.tilemap();
+    tm.set_map_base(TM_MAP_BASE);
+    tm.set_def_base(TM_DEF_BASE);
+    tm.set_control(0x80);                        // enable, 40-col, 2-byte map entries
+    fill_tile(b5, 0, 0x0F);                      // tile 0 == NR 0x4C transparency index
+    fill_tile(b5, 1, TM_PIXEL);
+    write_tile_map(b5, TM_COL, TM_ROW, 1, 0x00);
+    paint_palette(pal, 0x30, TM_PIXEL, 0x1C);    // tilemap palette: green
+
+    // --- Sprites ---
+    SpriteEngine& spr = emu.sprites();
+    paint_palette(pal, 0x20, SPR_IDX, 0xA5);     // sprite palette: purple
+    put_solid_sprite(spr, SPR_PAT, SPR_IDX, /*x=*/100, /*y=*/100);
+
+    Renderer& r = emu.renderer();
+    r.set_sprite_en(true);                       // NR 0x15 b0
+    r.set_tm_enabled(true);                      // NR 0x6B b7 (compositor mirror)
+    r.set_transparent_rgb(0xE3);                 // NR 0x14
+    r.set_fallback_colour(0x13);                 // NR 0x4A — the sonic.nex blue
+    r.set_layer_priority(0);                     // SLU
+
+    begin_frame(emu);
+
+    // Draw the frame exactly as the emulator does — this buffer IS the picture
+    // in the emulator window.
+    r.render_frame(emu.get_framebuffer(), emu.mmu(), ram, pal, l2, &spr, &tm);
+    std::vector<uint32_t> want(
+        emu.get_framebuffer(),
+        emu.get_framebuffer() + Renderer::FB_WIDTH * Renderer::FB_HEIGHT);
+
+    // Premise: all four layers really did reach the framebuffer.  Without this
+    // the pixel-for-pixel comparison below could pass on an empty scene.
+    const uint32_t argb_ula = pal.ula_colour(ula.get_active_ula_palette(), 0x02);
+    const uint32_t argb_l2  = pal.layer2_colour(L2_IDX);
+    const uint32_t argb_tm  = pal.tilemap_colour(TM_PIXEL);
+    const uint32_t argb_spr = pal.sprite_colour(SPR_IDX);
+    check("DVP-13a",
+          "test premise: ULA, Layer 2, tilemap and sprite pixels all reach the framebuffer",
+          contains(want.data(), argb_ula) && contains(want.data(), argb_l2)
+              && contains(want.data(), argb_tm) && contains(want.data(), argb_spr),
+          fmt("ula=%d l2=%d tm=%d spr=%d (0x%08X/0x%08X/0x%08X/0x%08X)",
+              int(contains(want.data(), argb_ula)), int(contains(want.data(), argb_l2)),
+              int(contains(want.data(), argb_tm)), int(contains(want.data(), argb_spr)),
+              argb_ula, argb_l2, argb_tm, argb_spr));
+
+    // The panel, paused at the last framebuffer row → every row drawn.
+    QImage img = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+                             Renderer::FB_HEIGHT - 1);
+
+    check("DVP-13b",
+          "the composite view is 640 cells wide (Renderer::FB_WIDTH)",
+          img.width() == Renderer::FB_WIDTH && img.height() == Renderer::FB_HEIGHT,
+          fmt("%dx%d", img.width(), img.height()));
+
+    int  diffs = 0;
+    int  fx = -1, fy = -1;
+    uint32_t fgot = 0, fwant = 0;
+    for (int y = 0; y < Renderer::FB_HEIGHT; ++y) {
+        for (int x = 0; x < Renderer::FB_WIDTH; ++x) {
+            const uint32_t got = px(img, x, y);
+            const uint32_t exp = want[y * Renderer::FB_WIDTH + x];
+            if (got != exp) {
+                if (diffs == 0) { fx = x; fy = y; fgot = got; fwant = exp; }
+                ++diffs;
+            }
+        }
+    }
+    check("DVP-13",
+          "\"All layers\" view is pixel-for-pixel the emulator's own framebuffer",
+          diffs == 0,
+          fmt("%d differing pixels; first at (%d,%d) got=0x%08X want=0x%08X",
+              diffs, fx, fy, fgot, fwant));
+}
+
+// ── DVP-14: the NR 0x4A fallback colour — the sonic.nex case ──────────
+//
+// sonic.nex writes NR 0x68 = 0x80 (ULA off), leaves Layer 2 empty, and writes
+// NR 0x4A = 0x13.  Its whole sky is that fallback colour — emitted by the
+// compositor wherever EVERY layer is transparent (VHDL zxnext.vhd:7218-7352:
+// `result` starts at the fallback and is only overwritten by an opaque layer).
+// It therefore belongs to no layer and NO per-layer view can ever show it,
+// which is exactly why the panels did not visibly add up to the picture on
+// screen.  Only the composite view can.
+
+static void test_fallback_colour_sonic_case(Emulator& emu) {
+    set_group("DVP-FALLBACK");
+
+    // NR 0x4A = 0x13 → RRRGGGBB r3=0 g3=4 b2=3 → #0092FF (Renderer::rrrgggbb_to_argb).
+    constexpr uint8_t  NR4A     = 0x13;
+    const     uint32_t FALLBACK = Renderer::rrrgggbb_to_argb(NR4A);
+
+    constexpr uint8_t SPR_PAT  = 5;
+    constexpr uint8_t SPR_IDX  = 0x77;
+    constexpr uint8_t TM_PIXEL = 0x03;
+    constexpr int     TM_COL   = 2;
+    constexpr int     TM_ROW   = 4;
+
+    check("DVP-14a",
+          "test premise: NR 0x4A = 0x13 really is #0092FF (sonic.nex's sky)",
+          FALLBACK == 0xFF0092FFu,
+          fmt("got=0x%08X", FALLBACK));
+
+    PaletteManager& pal = emu.palette();
+    pal.set_global_transparency(0xE3);
+
+    // ULA OFF (NR 0x68 b7 = 1) — as sonic.nex leaves it.
+    emu.ula().set_ula_enabled(false);
+    // Layer 2 empty.
+    emu.layer2().set_enabled(false);
+    set_l2_palette(pal, 0x00, 0xE3);
+
+    // Tilemap: one opaque tile, everything else the transparency index.
+    uint8_t* b5 = emu.mmu().bank5_vram();
+    Tilemap& tm = emu.tilemap();
+    tm.set_map_base(TM_MAP_BASE);
+    tm.set_def_base(TM_DEF_BASE);
+    tm.set_control(0x80);
+    fill_tile(b5, 0, 0x0F);
+    fill_tile(b5, 1, TM_PIXEL);
+    write_tile_map(b5, TM_COL, TM_ROW, 1, 0x00);
+    paint_palette(pal, 0x30, TM_PIXEL, 0x1C);
+
+    // One sprite, well clear of the tile.
+    SpriteEngine& spr = emu.sprites();
+    paint_palette(pal, 0x20, SPR_IDX, 0xA5);
+    put_solid_sprite(spr, SPR_PAT, SPR_IDX, /*x=*/200, /*y=*/200);
+
+    Renderer& r = emu.renderer();
+    r.set_sprite_en(true);
+    r.set_tm_enabled(true);
+    r.set_transparent_rgb(0xE3);
+    r.set_fallback_colour(NR4A);
+    r.set_layer_priority(0);
+
+    begin_frame(emu);
+
+    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+                              Renderer::FB_HEIGHT - 1);
+
+    // 40-col tilemap: tile column C covers source x 8C..8C+7, pixel-doubled to
+    // framebuffer cells 16C..16C+15; tile row R covers framebuffer rows 8R..8R+7.
+    const int tm_x = 16 * TM_COL + 4;
+    const int tm_y = 8 * TM_ROW + 4;
+    // A cell far from both the tile and the sprite: nothing but fallback there.
+    const int sky_x = 500, sky_y = 20;
+
+    const uint32_t argb_tm  = pal.tilemap_colour(TM_PIXEL);
+    const uint32_t argb_spr = pal.sprite_colour(SPR_IDX);
+
+    check("DVP-14",
+          "composite shows the NR 0x4A fallback where EVERY layer is transparent",
+          px(comp, sky_x, sky_y) == FALLBACK,
+          fmt("(%d,%d) got=0x%08X want=0x%08X", sky_x, sky_y,
+              px(comp, sky_x, sky_y), FALLBACK));
+
+    check("DVP-14b",
+          "…and an opaque tilemap pixel still composites over it",
+          px(comp, tm_x, tm_y) == argb_tm,
+          fmt("(%d,%d) got=0x%08X want=0x%08X", tm_x, tm_y,
+              px(comp, tm_x, tm_y), argb_tm));
+
+    check("DVP-14c",
+          "…and the sprite composites over it too",
+          contains(comp, argb_spr),
+          fmt("sprite colour 0x%08X not found in the composite", argb_spr));
+
+    // The point of the whole task: the fallback belongs to NO layer, so no
+    // per-layer view can show it.  If any of these views did contain it, the
+    // composite would be redundant — and the user's confusion would be a bug
+    // rather than a missing view.
+    bool in_any_layer = false;
+    for (auto layer : { VideoLayerView::Layer::ULA_PRIMARY,
+                        VideoLayerView::Layer::ULA_SHADOW,
+                        VideoLayerView::Layer::LAYER2_ACTIVE,
+                        VideoLayerView::Layer::LAYER2_SHADOW,
+                        VideoLayerView::Layer::SPRITES,
+                        VideoLayerView::Layer::TILEMAP }) {
+        QImage v = render_view(emu, layer, Renderer::FB_HEIGHT - 1);
+        if (contains(v, FALLBACK)) in_any_layer = true;
+    }
+    check("DVP-14d",
+          "the fallback colour appears in NO per-layer view — only the composite can show it",
+          !in_any_layer && contains(comp, FALLBACK),
+          fmt("in_a_layer_view=%d in_composite=%d",
+              int(in_any_layer), int(contains(comp, FALLBACK))));
+}
+
+// ── DVP-15: the composite honours the raster cut-off ──────────────────
+
+static void test_composite_raster_cutoff(Emulator& emu) {
+    set_group("DVP-COMP-RASTER");
+
+    const uint32_t FALLBACK = Renderer::rrrgggbb_to_argb(0x13);
+
+    emu.ula().set_ula_enabled(false);
+    emu.layer2().set_enabled(false);
+
+    Renderer& r = emu.renderer();
+    r.set_fallback_colour(0x13);
+    r.set_layer_priority(0);
+
+    begin_frame(emu);
+
+    constexpr int CUT = 137;
+    QImage img = render_view(emu, VideoLayerView::Layer::COMPOSITE, CUT);
+
+    check("DVP-15",
+          "composite draws the paused row and marks the row below it unrendered",
+          px(img, 0, CUT) == FALLBACK && px(img, 0, CUT + 1) == UNRENDERED,
+          fmt("row%d=0x%08X (want 0x%08X) row%d=0x%08X (want 0x%08X)",
+              CUT, px(img, 0, CUT), FALLBACK,
+              CUT + 1, px(img, 0, CUT + 1), UNRENDERED));
+    check("DVP-15a",
+          "…and every row below the raster is the unrendered placeholder",
+          px(img, 320, Renderer::FB_HEIGHT - 1) == UNRENDERED
+              && px(img, 0, 0) == FALLBACK,
+          fmt("last=0x%08X first=0x%08X",
+              px(img, 320, Renderer::FB_HEIGHT - 1), px(img, 0, 0)));
+}
+
+// ── DVP-16: the composite render must not perturb the machine ─────────
+
+static void test_composite_no_state_mutation(Emulator& emu) {
+    set_group("DVP-COMP-NOMUT");
+
+    constexpr uint8_t L2_BANK = 9;
+
+    PaletteManager& pal = emu.palette();
+    Layer2&         l2  = emu.layer2();
+    Tilemap&        tm  = emu.tilemap();
+    Ula&            ula = emu.ula();
+    Renderer&       r   = emu.renderer();
+
+    l2.set_enabled(true);
+    l2.set_control(0x00);
+    l2.set_active_bank(L2_BANK);
+    tm.set_map_base(TM_MAP_BASE);
+    tm.set_def_base(TM_DEF_BASE);
+    tm.set_control(0x80);
+    ula.set_ula_enabled(true);
+    r.set_sprite_en(true);
+    r.set_tm_enabled(true);
+    r.set_fallback_colour(0x13);
+    set_l2_palette(pal, 0x55, 0xFF);
+    // Frame-baseline values for the two registers the VBLANK writes below move.
+    set_l2_palette(pal, 0x66, 0x11);
+    l2.set_scroll_y(0);
+
+    tm.set_scroll_x_lsb(0);
+    tm.set_scroll_y(0);
+    begin_frame(emu);
+
+    // Mid-frame writes, so every change log the replay walks is non-empty —
+    // that is the case where a sloppy replay would leave the machine off.
+    for (int row = 0; row < 60; ++row) tm.snapshot_scroll_for_line(row);
+    tm.set_scroll_x_lsb(48);
+    tm.set_scroll_y(12);
+    for (int row = 60; row < 120; ++row) tm.snapshot_scroll_for_line(row);
+
+    l2.set_current_line(40);
+    l2.set_scroll_x_lsb(17);
+    pal.set_current_line(70);
+    set_l2_palette(pal, 0x55, 0x3F);
+    ula.set_current_scroll_line(90);
+    ula.set_ula_scroll_x_coarse(7);
+
+    // VBLANK writes (line >= FB_HEIGHT).  These are the ones that pin the
+    // RESTORE half of the round trip: rewind_to_baseline() undoes the direct
+    // live mutation, and apply_changes_for_line(0..255) never reaches an entry
+    // tagged at line 300 — only flush_remaining_changes() replays it.  A panel
+    // that rewinds and replays but forgets to flush therefore silently reverts
+    // every vblank write to its frame baseline, and the NEXT frame's
+    // start_frame() snapshots that corrupted state as the new baseline.  (This
+    // is the tilemap_demo class of bug the renderer's own flush comment
+    // describes — at NR 0x07 >= 0x02 the whole setup lands in vblank.)  Without
+    // a vblank-tagged entry a state-preservation row cannot see the defect at
+    // all: rows 0..255 happen to replay everything else back to where it was.
+    constexpr int VBLANK_LINE = Renderer::FB_HEIGHT + 44;   // 300
+    pal.set_current_line(VBLANK_LINE);
+    set_l2_palette(pal, 0x66, 0x77);
+    l2.set_current_line(VBLANK_LINE);
+    l2.set_scroll_y(123);
+
+    // Snapshot everything the composite path touches.
+    const uint16_t l2_scroll_x   = l2.scroll_x();
+    const uint8_t  l2_scroll_y   = l2.scroll_y();
+    const uint8_t  l2_bank       = l2.active_bank();
+    const uint32_t pal_colour    = pal.layer2_colour(0x55);
+    const uint32_t pal_vblank    = pal.layer2_colour(0x66);
+    const uint16_t tm_sx_30      = tm.scroll_x_for_line(30);
+    const uint16_t tm_sx_90      = tm.scroll_x_for_line(90);
+    const uint8_t  tm_sy_30      = tm.scroll_y_for_line(30);
+    const uint8_t  ula_scroll_x  = ula.get_ula_scroll_x_coarse();
+    const bool     ula_enabled   = ula.ula_enabled();
+    const uint8_t  fallback      = r.fallback_colour();
+    const uint8_t  priority      = r.layer_priority();
+    const bool     sprite_en     = r.sprite_en();
+    const bool     tm_en         = tm.enabled();
+
+    check("DVP-16b",
+          "test premise: the vblank writes really did move the live registers",
+          pal_vblank == pal.layer2_colour(0x66) && pal_vblank != 0
+              && l2_scroll_y == 123,
+          fmt("pal(0x66)=0x%08X l2 scroll_y=%u", pal_vblank, l2_scroll_y));
+
+    // Render the composite view repeatedly — each pass is a full rewind →
+    // replay → restore round trip; N passes must be as harmless as one.
+    for (int i = 0; i < 3; ++i)
+        (void)render_view(emu, VideoLayerView::Layer::COMPOSITE,
+                          Renderer::FB_HEIGHT - 1);
+
+    check("DVP-16",
+          "compositing for the panel leaves every live video register untouched",
+          l2.scroll_x() == l2_scroll_x && l2.active_bank() == l2_bank
+              && pal.layer2_colour(0x55) == pal_colour
+              && ula.get_ula_scroll_x_coarse() == ula_scroll_x
+              && ula.ula_enabled() == ula_enabled
+              && r.fallback_colour() == fallback
+              && r.layer_priority() == priority
+              && r.sprite_en() == sprite_en
+              && tm.enabled() == tm_en,
+          fmt("l2sx %u→%u l2bank %u→%u pal 0x%08X→0x%08X ulasx %u→%u",
+              l2_scroll_x, l2.scroll_x(), l2_bank, l2.active_bank(),
+              pal_colour, pal.layer2_colour(0x55),
+              ula_scroll_x, ula.get_ula_scroll_x_coarse()));
+
+    check("DVP-16c",
+          "…including the VBLANK-tagged writes, which only the final flush replays",
+          pal.layer2_colour(0x66) == pal_vblank
+              && l2.scroll_y() == l2_scroll_y,
+          fmt("pal(0x66) 0x%08X→0x%08X  l2 scroll_y %u→%u",
+              pal_vblank, pal.layer2_colour(0x66),
+              l2_scroll_y, l2.scroll_y()));
+
+    check("DVP-16a",
+          "…and does not clobber the tilemap per-line scroll snapshots",
+          tm.scroll_x_for_line(30) == tm_sx_30
+              && tm.scroll_y_for_line(30) == tm_sy_30
+              && tm.scroll_x_for_line(90) == tm_sx_90,
+          fmt("l30x %u→%u l30y %u→%u l90x %u→%u",
+              tm_sx_30, tm.scroll_x_for_line(30),
+              tm_sy_30, tm.scroll_y_for_line(30),
+              tm_sx_90, tm.scroll_x_for_line(90)));
+}
+
+// ── DVP-18/19: the Background (NR 0x4A fallback) view ─────────────────
+//
+// The sequel to DVP-14.  The fallback colour is on screen but in no layer, so
+// the Background tab makes it directly inspectable.
+//
+// SCOPE OF THIS GROUP: it drives `Renderer::snapshot_fallback_for_line()`
+// DIRECTLY — i.e. it simulates the per-line snapshot mechanism that
+// Emulator::on_scanline performs, without running the emulator.  It therefore
+// proves that the VIEW reads the per-line array rather than the live register,
+// and nothing about how that array gets filled.  The real Copper → NextReg →
+// snapshot integration is proved by DVP-18b below, which assembles actual
+// Copper bytecode and runs a frame (the UDIS-02 idiom from
+// test/compositor/compositor_integration_test.cpp).  Do not let this group's
+// convenience pokes be mistaken for that.
+
+static void test_background_view(Emulator& emu) {
+    set_group("DVP-BACKGROUND");
+
+    constexpr uint8_t SKY   = 0x13;   // #0092FF — sonic.nex's sky
+    constexpr uint8_t GROUND = 0xE0;  // a clearly different colour
+    constexpr int     SPLIT = 100;    // the row the value changes on
+
+    const uint32_t argb_sky    = Renderer::rrrgggbb_to_argb(SKY);
+    const uint32_t argb_ground = Renderer::rrrgggbb_to_argb(GROUND);
+
+    check("DVP-18a",
+          "test premise: the two fallback colours differ",
+          argb_sky != argb_ground,
+          fmt("sky=0x%08X ground=0x%08X", argb_sky, argb_ground));
+
+    // Nothing opaque anywhere: the fallback is the entire picture.
+    emu.ula().set_ula_enabled(false);
+    emu.layer2().set_enabled(false);
+
+    Renderer& r = emu.renderer();
+    r.set_fallback_colour(SKY);
+    r.set_layer_priority(0);
+
+    begin_frame(emu);   // init_fallback_per_line() → every row = SKY
+
+    // Simulate the raster walking the frame with NR 0x4A changing at SPLIT —
+    // the snapshot half of what Emulator::on_scanline does.  (The Z80/Copper
+    // half is DVP-18b's job.)
+    for (int row = 0; row < SPLIT; ++row) r.snapshot_fallback_for_line(row);
+    r.set_fallback_colour(GROUND);
+    for (int row = SPLIT; row < Renderer::FB_HEIGHT; ++row)
+        r.snapshot_fallback_for_line(row);
+
+    QImage bg = render_view(emu, VideoLayerView::Layer::BACKGROUND,
+                            Renderer::FB_HEIGHT - 1);
+
+    check("DVP-18",
+          "Background view shows the NR 0x4A fallback colour",
+          px(bg, 300, 20) == argb_sky,
+          fmt("(300,20) got=0x%08X want=0x%08X", px(bg, 300, 20), argb_sky));
+
+    // The view reads fallback_per_line_[row], not the live register: a flat
+    // swatch of Renderer::fallback_colour() would paint every row GROUND (the
+    // frame's LAST value), so the rows above the split would be wrong.
+    check("DVP-18d",
+          "…the view reads the PER-LINE snapshot, not the live NR 0x4A register",
+          px(bg, 0, SPLIT - 1) == argb_sky
+              && px(bg, 0, SPLIT) == argb_ground
+              && px(bg, 639, Renderer::FB_HEIGHT - 1) == argb_ground,
+          fmt("row%d=0x%08X (want sky 0x%08X) row%d=0x%08X (want ground 0x%08X)",
+              SPLIT - 1, px(bg, 0, SPLIT - 1), argb_sky,
+              SPLIT, px(bg, 0, SPLIT), argb_ground));
+
+    check("DVP-19",
+          "Background view honours the raster cut-off like every other view",
+          px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 137)
+                  == argb_ground
+              && px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137),
+                    0, 138) == UNRENDERED,
+          fmt("row137=0x%08X row138=0x%08X",
+              px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 137),
+              px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 138)));
+
+    // State preservation: the Background view runs the same replay round trip.
+    const uint8_t live_nr4a = r.fallback_colour();
+    for (int i = 0; i < 3; ++i)
+        (void)render_view(emu, VideoLayerView::Layer::BACKGROUND,
+                          Renderer::FB_HEIGHT - 1);
+    check("DVP-19a",
+          "…and rendering it leaves the live NR 0x4A and its per-line snapshots alone",
+          r.fallback_colour() == live_nr4a
+              && r.fallback_for_line(SPLIT - 1) == SKY
+              && r.fallback_for_line(SPLIT) == GROUND,
+          fmt("live 0x%02X→0x%02X | line%d=0x%02X line%d=0x%02X",
+              live_nr4a, r.fallback_colour(),
+              SPLIT - 1, r.fallback_for_line(SPLIT - 1),
+              SPLIT, r.fallback_for_line(SPLIT)));
+}
+
+// ── DVP-18b/18c: a REAL Copper program moves NR 0x4A mid-frame ────────
+//
+// The reason the Background view is per-scanline at all is that the Copper can
+// MOVE NR 0x4A partway down the raster — that is what fallback_per_line_[]
+// exists for.  A test that pokes snapshot_fallback_for_line() by hand proves
+// nothing about that path, so this row drives the genuine one end to end:
+//
+//   Z80 parked on HALT → Copper bytecode uploaded via NR 0x60/0x61/0x62 →
+//   Emulator::run_frame() ticks Copper::execute at every raster edge →
+//   the MOVE writes NR 0x4A through the real NextReg dispatch →
+//   Emulator::on_scanline snapshots it into fallback_per_line_[row] →
+//   the panel's Background view shows the band split.
+//
+// Copper program (copper.vhd:20-43; src/peripheral/copper.cpp:10-43):
+//   [0] WAIT vpos=100, hpos=0   = 0x8000 | 100
+//   [1] MOVE NR 0x4A, GROUND    = (0x4A << 8) | 0xE0     (MSB clear)
+//   [2] WAIT vpos=511           = 0x8000 | 511            → park (HALT)
+// Upload idiom + NR 0x62 = 0xC0 (mode 11: reset PC each vsync, run) are copied
+// verbatim from UDIS-02 in test/compositor/compositor_integration_test.cpp,
+// which is the established proof of the Copper → NextReg dispatch.
+//
+// VHDL: zxnext.vhd:6809 (Copper scheduling from cvc/hcount), :7214 (the
+// compositor's per-line fallback_rgb_2), copper.vhd:85-106 (WAIT/MOVE).
+//
+// Row choice mirrors UDIS-02: the exact framebuffer row the MOVE lands on may
+// be DISP_Y+100 or DISP_Y+101 depending on where inside the line the raster
+// edge falls, so we sample one row before and one row after with a cushion —
+// the same "acceptable simplification" UDIS-02 documents.
+
+static void test_background_copper() {
+    set_group("DVP-BG-COPPER");
+
+    constexpr uint8_t SKY    = 0x13;   // #0092FF — sonic.nex's sky
+    constexpr uint8_t GROUND = 0xE0;   // bright red
+    constexpr int     WAIT_LINE = 100;
+
+    const uint32_t argb_sky    = Renderer::rrrgggbb_to_argb(SKY);
+    const uint32_t argb_ground = Renderer::rrrgggbb_to_argb(GROUND);
+
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("DVP-18b", "Emulator construction for the Copper fixture", false);
+        return;
+    }
+
+    // Park the Z80 on a HALT so the boot ROM cannot issue NR writes of its own
+    // — every NR 0x4A change this frame must come from the Copper.
+    emu.mmu().write(0x8000, 0x76);              // HALT
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    // Every NR below goes through the REAL port dispatch (OUT 0x243B/0x253B).
+    auto nr = [&emu](uint8_t reg, uint8_t val) {
+        emu.port().out(0x243B, reg);
+        emu.port().out(0x253B, val);
+    };
+
+    nr(0x4A, SKY);      // frame-start fallback
+    nr(0x68, 0x80);     // ULA off  → nothing opaque anywhere…
+    nr(0x69, 0x00);     // Layer 2 off
+    nr(0x6B, 0x00);     // Tilemap off
+    nr(0x15, 0x00);     // Sprites off, priority SLU
+    //                     …so the whole frame IS the fallback colour.
+
+    const uint16_t WAIT_V   = static_cast<uint16_t>(0x8000u | WAIT_LINE);
+    const uint16_t MOVE_4A  = static_cast<uint16_t>((0x4Au << 8) | GROUND);
+    const uint16_t WAIT_END = static_cast<uint16_t>(0x8000u | 511u);
+
+    nr(0x61, 0x00);     // copper write addr low  = 0
+    nr(0x62, 0x00);     // copper write addr high = 0, mode 00 (stopped)
+    for (uint16_t insn : {WAIT_V, MOVE_4A, WAIT_END}) {
+        nr(0x60, static_cast<uint8_t>((insn >> 8) & 0xFF));
+        nr(0x60, static_cast<uint8_t>( insn       & 0xFF));
+    }
+    nr(0x62, 0xC0);     // mode 11: reset PC each vsync + run
+
+    emu.run_frame();    // the Copper actually executes here
+
+    // Ground truth first: did the Copper really write NR 0x4A mid-frame?
+    Renderer& r = emu.renderer();
+    const int row_before = Renderer::DISP_Y + WAIT_LINE - 1;   // 131
+    const int row_after  = Renderer::DISP_Y + WAIT_LINE + 1;   // 133
+    const int row_deep   = Renderer::DISP_Y + 150;             // 182
+
+    check("DVP-18b1",
+          "premise: the Copper MOVE really reached NR 0x4A (live register = GROUND)",
+          r.fallback_colour() == GROUND
+              && r.fallback_for_line(row_before) == SKY
+              && r.fallback_for_line(row_after)  == GROUND,
+          fmt("live=0x%02X row%d=0x%02X (want 0x%02X) row%d=0x%02X (want 0x%02X)",
+              r.fallback_colour(),
+              row_before, r.fallback_for_line(row_before), SKY,
+              row_after,  r.fallback_for_line(row_after),  GROUND));
+
+    // Now the panel: paused at the end of the frame, every row drawn.
+    QImage bg = render_view(emu, VideoLayerView::Layer::BACKGROUND,
+                            Renderer::FB_HEIGHT - 1);
+
+    check("DVP-18b",
+          "a mid-frame Copper MOVE to NR 0x4A shows as a band split in the Background view",
+          px(bg, 0, row_before) == argb_sky
+              && px(bg, 0, row_after) == argb_ground
+              && px(bg, 400, row_deep) == argb_ground,
+          fmt("row%d=0x%08X (want sky 0x%08X) row%d=0x%08X row%d=0x%08X "
+              "(want ground 0x%08X)",
+              row_before, px(bg, 0, row_before), argb_sky,
+              row_after,  px(bg, 0, row_after),
+              row_deep,   px(bg, 400, row_deep), argb_ground));
+
+    // The Background view is a window onto the compositor, not a second opinion:
+    // with every layer transparent the composite IS the fallback, row for row —
+    // and both must equal the framebuffer run_frame() actually produced.
+    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+                              Renderer::FB_HEIGHT - 1);
+    const uint32_t* fb = emu.get_framebuffer();
+    auto fb_px = [&](int x, int y) {
+        return fb[y * Renderer::FB_WIDTH + x] | 0xFF000000u;
+    };
+
+    check("DVP-18c",
+          "…and the composite AND the emulator's own framebuffer agree with it, row for row",
+          px(comp, 0, row_before) == px(bg, 0, row_before)
+              && px(comp, 0, row_after) == px(bg, 0, row_after)
+              && px(comp, 400, row_deep) == px(bg, 400, row_deep)
+              && fb_px(0, row_before) == argb_sky
+              && fb_px(0, row_after)  == argb_ground
+              && fb_px(400, row_deep) == argb_ground,
+          fmt("comp row%d=0x%08X bg=0x%08X fb=0x%08X | "
+              "comp row%d=0x%08X bg=0x%08X fb=0x%08X",
+              row_before, px(comp, 0, row_before), px(bg, 0, row_before),
+              fb_px(0, row_before),
+              row_after, px(comp, 0, row_after), px(bg, 0, row_after),
+              fb_px(0, row_after)));
+}
+
+// ── DVP-17: "All layers" is the leftmost tab, selected by default ─────
+
+static void test_composite_is_default_tab() {
+    set_group("DVP-COMP-TAB");
+
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("DVP-17", "Emulator construction for the tab-order check", false);
+        return;
+    }
+
+    VideoPanel panel(&emu);
+    auto* tabs = panel.findChild<QTabWidget*>();
+    if (!tabs) {
+        check("DVP-17", "VideoPanel has a QTabWidget", false);
+        return;
+    }
+
+    check("DVP-17",
+          "\"All layers\" is the leftmost tab and the selected one by default",
+          tabs->count() == 6 && tabs->tabText(0) == QStringLiteral("All layers")
+              && tabs->currentIndex() == 0,
+          fmt("count=%d tab0='%s' current=%d", tabs->count(),
+              tabs->tabText(0).toUtf8().constData(), tabs->currentIndex()));
+
+    check("DVP-17a",
+          "…and the per-layer tabs still follow it in order",
+          tabs->count() == 6
+              && tabs->tabText(1) == QStringLiteral("ULA")
+              && tabs->tabText(2) == QStringLiteral("Layer2")
+              && tabs->tabText(3) == QStringLiteral("Sprites")
+              && tabs->tabText(4) == QStringLiteral("TileMap"),
+          fmt("tabs: %s|%s|%s|%s|%s|%s",
+              tabs->tabText(0).toUtf8().constData(),
+              tabs->tabText(1).toUtf8().constData(),
+              tabs->tabText(2).toUtf8().constData(),
+              tabs->tabText(3).toUtf8().constData(),
+              tabs->tabText(4).toUtf8().constData(),
+              tabs->tabText(5).toUtf8().constData()));
+
+    check("DVP-20",
+          "\"Background\" is the RIGHTMOST tab (and not the selected one)",
+          tabs->count() == 6
+              && tabs->tabText(tabs->count() - 1) == QStringLiteral("Background")
+              && tabs->currentIndex() != tabs->count() - 1,
+          fmt("count=%d last='%s' current=%d", tabs->count(),
+              tabs->tabText(tabs->count() - 1).toUtf8().constData(),
+              tabs->currentIndex()));
+}
+
 // ── main ──────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
@@ -813,6 +1616,42 @@ int main(int argc, char** argv) {
     }
     test_run_to_targets();
     std::printf("  Group: DVP-RUNTO      — done\n");
+
+    // ── Task 36: the "All layers" composite view ─────────────────────
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_composite_matches_framebuffer(emu);
+        std::printf("  Group: DVP-COMPOSITE  — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_fallback_colour_sonic_case(emu);
+        std::printf("  Group: DVP-FALLBACK   — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_composite_raster_cutoff(emu);
+        std::printf("  Group: DVP-COMP-RASTER— done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_composite_no_state_mutation(emu);
+        std::printf("  Group: DVP-COMP-NOMUT — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_background_view(emu);
+        std::printf("  Group: DVP-BACKGROUND — done\n");
+    }
+    test_background_copper();
+    std::printf("  Group: DVP-BG-COPPER  — done\n");
+    test_composite_is_default_tab();
+    std::printf("  Group: DVP-COMP-TAB   — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

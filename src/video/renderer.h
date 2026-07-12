@@ -268,6 +268,25 @@ public:
         fallback_per_line_.fill(fallback_colour_);
     }
 
+    /// The NR 0x4A fallback colour the compositor used on framebuffer row
+    /// `line` — the colour it emits where EVERY layer is transparent (VHDL
+    /// zxnext.vhd:7218-7352: each priority mux defaults to `fallback_rgb_2`
+    /// and is only overwritten by an opaque layer).
+    ///
+    /// This is the exact byte `render_row` feeds `rrrgggbb_to_argb` for that
+    /// row, so the debugger's "Background" view reads the compositor's own
+    /// per-scanline snapshot instead of re-deriving anything.  It is per-LINE
+    /// because a Copper program can MOVE NR 0x4A mid-frame to paint a gradient
+    /// across the raster; the live `fallback_colour()` is only the last value
+    /// of the frame and would flatten that to a lie.
+    ///
+    /// Out-of-range lines fall back to the live register (matches
+    /// transparent_rgb_for_line / stencil_mode_for_line).
+    uint8_t fallback_for_line(int line) const {
+        return (line >= 0 && line < 320) ? fallback_per_line_[line]
+                                         : fallback_colour_;
+    }
+
     /// Snapshot the current ULA-enable state (NR 0x68 bit 7 inverted) for
     /// a given scanline. Parallels snapshot_fallback_for_line so a Copper
     /// MOVE to NR 0x68 mid-frame is reflected in only the rows that follow
@@ -359,6 +378,34 @@ public:
                       class Layer2& layer2,
                       SpriteEngine* sprites,
                       Tilemap* tilemap);
+
+    /// Render every layer for ONE framebuffer row and composite it.
+    ///
+    /// This is render_frame's row body, lifted out verbatim (Task 36) so the
+    /// debugger's "All layers" view can composite through the very same code
+    /// the live output does — NR 0x15 priority, per-layer transparency, the
+    /// ULA/tilemap merge, Layer 2 priority promotion, the blend modes, the
+    /// stencil, the border, and the NR 0x4A fallback colour. A second,
+    /// hand-rolled compositor in the debugger would inevitably drift from
+    /// this one; the fallback colour alone (emitted where EVERY layer is
+    /// transparent, so it belongs to no layer view) is why the per-layer
+    /// panels cannot be made to add up to the picture on screen.
+    ///
+    /// The CALLER owns the per-scanline change-log replay: rewind every log
+    /// to the frame baseline, apply the entries for `row`, call this, and
+    /// flush the remaining entries when done (render_frame does exactly that
+    /// inline; VideoLayerView::render_to_image uses the same helpers). This
+    /// function reads only the state the logs leave live, advances no cursor,
+    /// and does not touch the once-per-frame ULA flash counter — so it is
+    /// safe to call from a debug view on a paused machine.
+    ///
+    /// @param out  FB_WIDTH (640) ARGB8888 cells for this row.
+    /// @param row  Framebuffer row 0..FB_HEIGHT-1.
+    void render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
+                    PaletteManager& palette,
+                    class Layer2& layer2,
+                    SpriteEngine* sprites,
+                    Tilemap* tilemap);
 
     /// Configure the per-pixel compositor trace (debug). When path is
     /// non-empty, the renderer dumps one CSV row per pixel of the target

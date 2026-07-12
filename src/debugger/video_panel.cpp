@@ -236,6 +236,11 @@ void VideoLayerView::render_to_image(int vc)
     // dst will be overrun on every render call.
     int layer_w = NATIVE_W;
     switch (layer_) {
+        case Layer::COMPOSITE:
+        case Layer::BACKGROUND:
+            // The compositor's canonical output width (Renderer::FB_WIDTH).
+            layer_w = Renderer::FB_WIDTH;
+            break;
         case Layer::ULA_PRIMARY:
         case Layer::ULA_SHADOW:
             layer_w = 640;
@@ -301,6 +306,24 @@ void VideoLayerView::render_to_image(int vc)
         fill_checker(dst, row, layer_w);
 
         switch (layer_) {
+            case Layer::COMPOSITE:
+                // The real compositor, not a second copy of it: the very row
+                // body Renderer::render_frame runs (Task 36).  It writes every
+                // one of the 640 cells — a composited pixel is never
+                // transparent, because wherever all four layers are, the
+                // NR 0x4A fallback colour is emitted instead — so the
+                // checkerboard pre-fill above is fully overwritten.
+                //
+                // That fallback colour is exactly why this view has to exist:
+                // it belongs to NO layer, so no per-layer view can show it, and
+                // the per-layer views therefore do not visibly add up to the
+                // picture on screen (sonic.nex: ULA disabled via NR 0x68 b7,
+                // Layer 2 empty, whole sky = NR 0x4A = 0x13 = #0092FF).
+                emu.renderer().render_row(dst, row, emu.mmu(), emu.ram(),
+                                          emu.palette(), emu.layer2(),
+                                          &emu.sprites(), &emu.tilemap());
+                break;
+
             case Layer::ULA_PRIMARY:
             case Layer::ULA_SHADOW:
                 // Force the bank: the live render_scanline() follows the
@@ -352,10 +375,36 @@ void VideoLayerView::render_to_image(int vc)
                     dst, ula_over, row, emu.ram(), emu.palette());
                 break;
             }
+
+            case Layer::BACKGROUND: {
+                // The NR 0x4A fallback colour — what the compositor emits where
+                // EVERY layer is transparent (VHDL zxnext.vhd:7218-7352).  It
+                // belongs to no layer, so it appears in none of the views above;
+                // this one makes it inspectable directly, which is the whole
+                // point (sonic.nex's sky is nothing but this).
+                //
+                // Read PER ROW from the renderer's own snapshot — the exact byte
+                // render_row feeds rrrgggbb_to_argb for this row — not from the
+                // live NR 0x4A.  A Copper MOVE to NR 0x4A mid-frame paints a
+                // gradient down the raster; a flat swatch of the live register
+                // would show only the last value of the frame.
+                const uint32_t argb = Renderer::rrrgggbb_to_argb(
+                    emu.renderer().fallback_for_line(row));
+                std::fill_n(dst, layer_w, argb);
+                break;
+            }
         }
     }
 
     replay_restore(emu);
+
+    // Name the register value in the title, matching how the other views label
+    // themselves.  The live NR 0x4A is the end-of-frame value; when the Copper
+    // animates it, the bands in the image are the honest per-row story.
+    if (layer_ == Layer::BACKGROUND) {
+        title_ = QString::asprintf("Background colour (NR 0x4A = $%02X)",
+                                   emu.renderer().fallback_colour());
+    }
 }
 
 void VideoLayerView::paintEvent(QPaintEvent*)
@@ -570,6 +619,15 @@ void VideoPanel::create_ui()
         return view;
     };
 
+    // "All layers" tab — the full composite, i.e. the same image the emulator
+    // window shows.  Leftmost and selected by default (Task 36): it is the view
+    // that actually explains the screen, since the per-layer views cannot show
+    // the NR 0x4A fallback colour (it belongs to no layer).
+    composite_view_ = make_layer_tab(
+        "All layers",
+        VideoLayerView::Layer::COMPOSITE, "All layers (composite)",
+        nullptr, nullptr, nullptr, nullptr);
+
     // ULA tab — single view, radio buttons select primary/shadow.
     ula_view_ = make_layer_tab(
         "ULA",
@@ -622,14 +680,25 @@ void VideoPanel::create_ui()
         VideoLayerView::Layer::TILEMAP, "TileMap",
         nullptr, nullptr, nullptr, nullptr);
 
+    // Background tab — rightmost.  The NR 0x4A fallback colour: the one thing
+    // on screen that belongs to no layer, so no layer view can show it.
+    background_view_ = make_layer_tab(
+        "Background",
+        VideoLayerView::Layer::BACKGROUND, "Background colour (NR 0x4A)",
+        nullptr, nullptr, nullptr, nullptr);
+
     // When the user switches tabs, invalidate so the new tab renders immediately.
     connect(layer_tabs_, &QTabWidget::currentChanged, this, [this](int) {
-        for (VideoLayerView* v : {ula_view_, l2_view_,
-                                   sprites_view_, tilemap_view_}) {
+        for (VideoLayerView* v : {composite_view_, ula_view_, l2_view_,
+                                   sprites_view_, tilemap_view_,
+                                   background_view_}) {
             if (v) v->invalidate();
         }
         refresh();
     });
+
+    // "All layers" is the default view.
+    layer_tabs_->setCurrentIndex(0);
 
     layout->addWidget(layer_tabs_);
     layout->addStretch();
@@ -714,10 +783,12 @@ void VideoPanel::refresh()
 
     // ── Layer sub-panel views — only refresh the visible tab ─────────────────
     switch (layer_tabs_->currentIndex()) {
-        case 0:  if (ula_view_)      ula_view_->refresh(vc);      break;
-        case 1:  if (l2_view_)       l2_view_->refresh(vc);       break;
-        case 2:  if (sprites_view_)  sprites_view_->refresh(vc);  break;
-        case 3:  if (tilemap_view_)  tilemap_view_->refresh(vc);  break;
+        case 0:  if (composite_view_)  composite_view_->refresh(vc);  break;
+        case 1:  if (ula_view_)        ula_view_->refresh(vc);        break;
+        case 2:  if (l2_view_)         l2_view_->refresh(vc);         break;
+        case 3:  if (sprites_view_)    sprites_view_->refresh(vc);    break;
+        case 4:  if (tilemap_view_)    tilemap_view_->refresh(vc);    break;
+        case 5:  if (background_view_) background_view_->refresh(vc); break;
         default: break;
     }
 }
