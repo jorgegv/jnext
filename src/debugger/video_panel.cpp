@@ -129,6 +129,45 @@ static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
 // while the emulator is PAUSED (refresh() early-returns for vc < 0), so there
 // is no concurrent emulation to perturb.
 
+// Which layers are enabled, and in what priority order — read through the NextREG
+// READ HANDLERS, never from the raw register cache.
+//
+// `NextReg::cached()` returns regs_[reg]: the last byte someone wrote to that NextREG
+// number, and nothing else. But a layer enable is not owned by its NextREG. Layer 2's
+// enable is a single FF that BOTH NR 0x69 bit 7 and port 0x123B bit 1 latch (VHDL
+// zxnext.vhd:3916, 3924-3925), and port 0x123B is how programs actually turn Layer 2
+// on — it never touches regs_[0x69]. That is precisely why NR 0x69 has a read handler
+// composing the live value from Layer2/Mmu/port_ff_reg; emulator.cpp:2779 says so in
+// as many words ("The bare regs_[0x69] would only echo the last NR 0x69 write and miss
+// port 0x123B / 0x7FFD / 0xFF mid-stream changes").
+//
+// The panel read the raw cache and so reported beast.nex — which enables Layer 2 via
+// port 0x123B — as having Layer 2 OFF, while the Layer 2 view right next to it showed
+// the demo's graphics. Raw NR 0x69 = 0x00; true value = 0xC0 (Task 40).
+//
+// All four of these registers have read handlers (0x15 recomposes priority and
+// sprite_en from the renderer, 0x68 bit 3 from the ULA, 0x6B from the live tilemap
+// control), so reading any of them from the cache is a bug waiting to happen.
+//
+// peek(), not read(): the same value, but read() is the *Z80's* read — it emits a trace
+// line, and this panel refreshes several times a second with the guest running, so it
+// would inject phantom NextREG reads into the log used to diagnose NextREG traffic.
+// (None of these four handlers mutates state, so read() would be safe here — but the
+// debugger has its own read, and this is it.)
+void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out)
+{
+    const uint8_t reg15 = emu.nextreg().peek(0x15);
+    const uint8_t reg68 = emu.nextreg().peek(0x68);
+    const uint8_t reg69 = emu.nextreg().peek(0x69);
+    const uint8_t reg6b = emu.nextreg().peek(0x6B);
+
+    active_out[0] = !(reg68 & 0x80);   // ULA     (bit 7 = DISABLE)
+    active_out[1] = !!(reg69 & 0x80);  // Layer 2
+    active_out[2] = !!(reg6b & 0x80);  // Tilemap
+    active_out[3] = !!(reg15 & 0x01);  // Sprites
+    priority_out  = (reg15 >> 2) & 0x07;
+}
+
 static void replay_rewind(Emulator& emu)
 {
     emu.palette().rewind_to_baseline();
@@ -404,6 +443,23 @@ void VideoLayerView::render_to_image(int vc)
     if (layer_ == Layer::BACKGROUND) {
         title_ = QString::asprintf("Background colour (NR 0x4A = $%02X)",
                                    emu.renderer().fallback_colour());
+    }
+
+    // The two ULA views pin their bank (that is the point of having both), so the one
+    // the ULA is NOT currently reading shows whatever happens to be in that bank —
+    // usually junk. Correct, and deeply confusing: beast.nex renders its sky from the
+    // SHADOW screen, so the default "Primary (bank 5)" view is a screenful of garbage
+    // and looks like a broken panel. Say which bank is live, so the garbage explains
+    // itself (Task 40).
+    if (layer_ == Layer::ULA_PRIMARY || layer_ == Layer::ULA_SHADOW) {
+        const bool showing_bank7 = (layer_ == Layer::ULA_SHADOW);
+        const bool live_bank7    = emu.ula().vram_bank7();
+        title_ = showing_bank7 ? QStringLiteral("ULA shadow (bank 7)")
+                               : QStringLiteral("ULA primary (bank 5)");
+        title_ += (showing_bank7 == live_bank7)
+                    ? QStringLiteral(" — LIVE: the ULA is reading this bank")
+                    : QString(" — NOT live: the ULA is reading bank %1")
+                          .arg(live_bank7 ? 7 : 5);
     }
 }
 
@@ -739,17 +795,9 @@ void VideoPanel::refresh()
     }
 
     // ── Layer state ──────────────────────────────────────────────────────────
-    uint8_t reg15 = emulator_->nextreg().cached(0x15);
-    uint8_t reg68 = emulator_->nextreg().cached(0x68);
-    uint8_t reg69 = emulator_->nextreg().cached(0x69);
-    uint8_t reg6b = emulator_->nextreg().cached(0x6B);
-
-    bool layer_active[4] = {
-        !(reg68 & 0x80),   // ULA
-        !!(reg69 & 0x80),  // Layer 2
-        !!(reg6b & 0x80),  // Tilemap
-        !!(reg15 & 0x01),  // Sprites
-    };
+    bool layer_active[4];
+    int priority;
+    video_panel_layer_state(*emulator_, layer_active, priority);
 
     auto set_flag = [](QLabel* lbl, bool active) {
         if (active)
@@ -762,7 +810,6 @@ void VideoPanel::refresh()
         set_flag(layer_flags_[i], layer_active[i]);
 
     // ── Layer priority ───────────────────────────────────────────────────────
-    int priority = (reg15 >> 2) & 0x07;
     for (int i = 0; i < 6; ++i)
         set_flag(prio_flags_[i], i == priority);
 

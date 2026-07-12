@@ -4576,23 +4576,39 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   NR 0x2D read → port_253b_dat <= nr_2d_i2s_sample & "000000";
     // Mutating nr_2d_i2s_sample_ from inside the read lambda is the
     // intended VHDL semantic — the latch updates ON read of NR 0x2C/0x2E.
-    nextreg_.set_read_handler(0x2C, [this]() -> uint8_t {
-        // G113: read the GATED pi_audio_L (10-bit), not the raw I2s
-        // latch — VHDL zxnext.vhd:6007 reads `pi_audio_L`, which already
-        // applies the NR 0xA2 enable/mute/ear/cross-channel-mux gate at
-        // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
-        // (silence midpoint), so the high-8 bits = 0x80 and the latched
-        // low-2 bits = 0b00.
-        const uint16_t L = i2s_.pi_audio_L() & 0x3FF;
-        nr_2d_i2s_sample_ = static_cast<uint8_t>((L & 0x03) << 6);  // bits [1:0] → byte [7:6]
-        return static_cast<uint8_t>((L >> 2) & 0xFF);               // bits [9:2] → byte [7:0]
-    });
-    nextreg_.set_read_handler(0x2E, [this]() -> uint8_t {
-        // G113: read the GATED pi_audio_R per VHDL zxnext.vhd:6014.
-        const uint16_t R = i2s_.pi_audio_R() & 0x3FF;
-        nr_2d_i2s_sample_ = static_cast<uint8_t>((R & 0x03) << 6);
-        return static_cast<uint8_t>((R >> 2) & 0xFF);
-    });
+    //
+    // Task 40 — these two are the ONLY read handlers in the machine that mutate
+    // state, so they are installed as DESTRUCTIVE, each with a side-effect-free twin
+    // for peek(). The debugger's NextREG panel sweeps all 256 registers several times
+    // a second while the guest runs; through read() it would latch L, then latch R
+    // over it, and the Z80's next NR 0x2D read would get a sample the debugger
+    // invented. The value is computable without the latch, so the twin returns
+    // exactly the same byte and touches nothing.
+    nextreg_.set_destructive_read_handler(0x2C,
+        [this]() -> uint8_t {
+            // G113: read the GATED pi_audio_L (10-bit), not the raw I2s
+            // latch — VHDL zxnext.vhd:6007 reads `pi_audio_L`, which already
+            // applies the NR 0xA2 enable/mute/ear/cross-channel-mux gate at
+            // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
+            // (silence midpoint), so the high-8 bits = 0x80 and the latched
+            // low-2 bits = 0b00.
+            const uint16_t L = i2s_.pi_audio_L() & 0x3FF;
+            nr_2d_i2s_sample_ = static_cast<uint8_t>((L & 0x03) << 6);  // bits [1:0] → byte [7:6]
+            return static_cast<uint8_t>((L >> 2) & 0xFF);               // bits [9:2] → byte [7:0]
+        },
+        [this]() -> uint8_t {   // peek: same byte, no latch
+            return static_cast<uint8_t>(((i2s_.pi_audio_L() & 0x3FF) >> 2) & 0xFF);
+        });
+    nextreg_.set_destructive_read_handler(0x2E,
+        [this]() -> uint8_t {
+            // G113: read the GATED pi_audio_R per VHDL zxnext.vhd:6014.
+            const uint16_t R = i2s_.pi_audio_R() & 0x3FF;
+            nr_2d_i2s_sample_ = static_cast<uint8_t>((R & 0x03) << 6);
+            return static_cast<uint8_t>((R >> 2) & 0xFF);
+        },
+        [this]() -> uint8_t {   // peek: same byte, no latch
+            return static_cast<uint8_t>(((i2s_.pi_audio_R() & 0x3FF) >> 2) & 0xFF);
+        });
     nextreg_.set_read_handler(0x2D, [this]() -> uint8_t {
         return nr_2d_i2s_sample_;  // already in [7:6] form, low 6 bits = 0
     });

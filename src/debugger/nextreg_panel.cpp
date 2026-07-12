@@ -184,7 +184,26 @@ void NextRegPanel::refresh() {
     table_->blockSignals(true);
 
     for (int i = 0; i < 256; ++i) {
-        uint8_t val = emulator_->nextreg().cached(static_cast<uint8_t>(i));
+        // peek(), not cached() and NOT read().
+        //
+        // Not cached(): that is regs_[i] — the last byte written to that NextREG number
+        // and nothing more. Many registers are not owned by their cache; their live
+        // value is composed by a read handler from the subsystem that actually holds
+        // the state (NR 0x69 bit 7 is the Layer 2 enable FF, which port 0x123B also
+        // latches; NR 0x15 recomposes priority and sprite_en from the renderer; NR 0x6B
+        // is the live tilemap control...). This panel showed the stale cache for every
+        // one of them — with beast.nex it displayed NR 0x69 = 0x00 while the true value
+        // was 0xC0 (Task 40).
+        //
+        // But NOT read() either, which is the *Z80's* read: for NR 0x2C / 0x2E the VHDL
+        // read latches the Pi-I2S low bits into the NR 0x2D shadow (zxnext.vhd:6006-6015),
+        // and this loop sweeps all 256 registers several times a second while the guest
+        // is running — it would latch L, then latch R over it, and hand the Z80 a sample
+        // the debugger invented. read() also emits a trace line per register, i.e. ~1000
+        // phantom NextREG reads a second into the log used to diagnose NextREG traffic.
+        //
+        // peek() is the same value with neither consequence.
+        uint8_t val = emulator_->nextreg().peek(static_cast<uint8_t>(i));
 
         // Hex column
         table_->item(i, 2)->setText(QString::asprintf("%02X", val));
