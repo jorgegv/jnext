@@ -2762,6 +2762,319 @@ static void test_PSCAN() {
     }
 }
 
+// ── Group LMASK — host-side layer mask (--delayed-screenshot-layers) ──────
+//
+// Task 22b. The mask is a HOST debug knob, not hardware: it selects which
+// layers the compositor is allowed to see when the delayed screenshot is
+// taken. Its contract is that a masked-out layer behaves EXACTLY like a
+// layer whose hardware enable bit is clear, so the VHDL oracle for every
+// row below is the corresponding "layer disabled" behaviour:
+//
+//   ULA      ula_en   = 0  → ula_transparent      (zxnext.vhd:7103)
+//   Layer 2  l2_en    = 0  → l2_transparent       (zxnext.vhd:7106)
+//   Sprites  sprite_en= 0  → sprite_transparent   (zxnext.vhd:7118)
+//   Tilemap  tm_en    = 0  → tm_transparent       (zxnext.vhd:7109), and
+//                            stencil is gated on tm_en (zxnext.vhd:7130)
+//
+// Everything downstream (NR 0x15 priority, ULA/TM merge, blend, the NR 0x4A
+// fallback) must therefore keep working unchanged — including the border,
+// which the ULA emits, and which consequently falls through to the fallback
+// colour when `ula` is excluded.
+
+static void test_LMASK() {
+    set_group("LMASK");
+
+    // ── Parser rows (Renderer::parse_layer_mask) ─────────────────────────
+
+    struct ParseOk { const char* spec; uint8_t expect; const char* desc; };
+    const ParseOk ok_rows[] = {
+        {"ula",     Renderer::LAYER_ULA,     "single name 'ula'"},
+        {"layer2",  Renderer::LAYER_LAYER2,  "single name 'layer2'"},
+        {"sprites", Renderer::LAYER_SPRITES, "single name 'sprites'"},
+        {"tiles",   Renderer::LAYER_TILES,   "single name 'tiles'"},
+        {"all",     Renderer::LAYER_ALL,     "'all' selects every layer"},
+        {"ula,layer2",
+             static_cast<uint8_t>(Renderer::LAYER_ULA | Renderer::LAYER_LAYER2),
+             "two names"},
+        {"layer2,ula",
+             static_cast<uint8_t>(Renderer::LAYER_ULA | Renderer::LAYER_LAYER2),
+             "order does not matter"},
+        {"sprites,tiles,ula,layer2", Renderer::LAYER_ALL,
+             "all four names spelled out == 'all'"},
+    };
+    for (size_t i = 0; i < sizeof(ok_rows) / sizeof(ok_rows[0]); ++i) {
+        const auto& row = ok_rows[i];
+        uint8_t     mask = 0xFF;
+        std::string err  = "unset";
+        const bool  got  = Renderer::parse_layer_mask(row.spec, mask, err);
+        char id[32];
+        snprintf(id, sizeof(id), "LMASK-P%02zu", i + 1);
+        check(id, row.desc,
+              got && mask == row.expect && err.empty(),
+              DETAIL("spec='%s' ok=%d mask=0x%02X (exp 0x%02X) err='%s'",
+                     row.spec, got ? 1 : 0, mask, row.expect, err.c_str()));
+    }
+
+    // Rejections. Fail loud: every one of these must return false with a
+    // non-empty message; none may be silently folded away.
+    struct ParseErr { const char* spec; const char* desc; };
+    const ParseErr err_rows[] = {
+        {"",            "empty list is an error"},
+        {"bogus",       "unknown name is an error"},
+        {"ULA",         "names are lowercase only — 'ULA' is unknown"},
+        {"Layer2",      "mixed case is unknown"},
+        {"ula,bogus",   "one bad name in a good list still errors"},
+        {"ula ,tiles",  "no whitespace tolerance — ' ' is part of the name"},
+        {"ula,ula",     "duplicate name is an error"},
+        {"all,ula",     "'all' plus another name double-selects — error"},
+        {"ula,all",     "…in either order"},
+        {"all,all",     "'all' twice is an error"},
+        {"ula,",        "trailing comma leaves an empty name — error"},
+        {",ula",        "leading comma leaves an empty name — error"},
+        {"ula,,tiles",  "empty element in the middle — error"},
+        {",",           "a lone comma is an error"},
+    };
+    for (size_t i = 0; i < sizeof(err_rows) / sizeof(err_rows[0]); ++i) {
+        const auto& row = err_rows[i];
+        uint8_t     mask = 0xAA;   // sentinel: must not be touched on failure
+        std::string err;
+        const bool  got = Renderer::parse_layer_mask(row.spec, mask, err);
+        char id[32];
+        snprintf(id, sizeof(id), "LMASK-E%02zu", i + 1);
+        check(id, row.desc,
+              !got && !err.empty() && mask == 0xAA,
+              DETAIL("spec='%s' returned=%d mask=0x%02X err='%s'",
+                     row.spec, got ? 1 : 0, mask, err.c_str()));
+    }
+
+    // Mask → name round-trip (used by the frontends' info log line).
+    {
+        const std::string s_all  = Renderer::layer_mask_to_string(Renderer::LAYER_ALL);
+        const std::string s_two  = Renderer::layer_mask_to_string(
+            static_cast<uint8_t>(Renderer::LAYER_ULA | Renderer::LAYER_TILES));
+        const std::string s_none = Renderer::layer_mask_to_string(0);
+        check("LMASK-S01",
+              "layer_mask_to_string: ALL->'all', ula|tiles->'ula,tiles', 0->'none'",
+              s_all == "all" && s_two == "ula,tiles" && s_none == "none",
+              DETAIL("all='%s' two='%s' none='%s'",
+                     s_all.c_str(), s_two.c_str(), s_none.c_str()));
+    }
+
+    // ── Compositor rows ──────────────────────────────────────────────────
+
+    Renderer r;
+    r.reset();
+
+    const uint32_t FB = vhdl_fallback_argb(0x10);   // distinct from every PIX_*
+
+    // Plant all four layers opaque at x=0 with mode 000 (SLU).
+    auto all_four = [&](uint8_t mask) -> uint32_t {
+        clear_layers(r);
+        r.set_layer_priority(0);          // SLU: sprite, layer2, ULA(+TM)
+        r.ula_line_[0]     = PIX_ULA;
+        r.layer2_line_[0]  = PIX_L2;
+        r.sprite_line_[0]  = PIX_S;
+        r.tilemap_line_[0] = PIX_TM;
+        r.tm_enabled_      = true;
+        r.set_layer_mask(mask);
+        return composite_one(r, FB);
+    };
+
+    // LMASK-C01 — the default. reset() must leave the mask at LAYER_ALL and
+    // the composite must be the untouched SLU result: TM sits above the ULA
+    // in the ULA/TM merge but sprites are top of the SLU order.
+    {
+        Renderer fresh;
+        fresh.reset();
+        const uint8_t  m   = fresh.layer_mask();
+        const uint32_t got = all_four(Renderer::LAYER_ALL);
+        check("LMASK-C01",
+              "default mask is LAYER_ALL and composes every layer (SLU: sprite wins)",
+              m == Renderer::LAYER_ALL && got == PIX_S,
+              DETAIL("reset_mask=0x%02X got=0x%08X exp=0x%08X", m, got, PIX_S));
+    }
+
+    // LMASK-C02..C05 — each layer captured alone. With everything else
+    // masked out, the surviving layer must reach the output regardless of
+    // its position in the NR 0x15 priority order.
+    {
+        const uint32_t got = all_four(Renderer::LAYER_SPRITES);
+        check("LMASK-C02", "'sprites' alone -> sprite pixel (ULA/L2/TM suppressed)",
+              got == PIX_S, DETAIL("got=0x%08X exp=0x%08X", got, PIX_S));
+    }
+    {
+        const uint32_t got = all_four(Renderer::LAYER_LAYER2);
+        check("LMASK-C03", "'layer2' alone -> L2 pixel even though SLU puts sprites on top",
+              got == PIX_L2, DETAIL("got=0x%08X exp=0x%08X", got, PIX_L2));
+    }
+    {
+        const uint32_t got = all_four(Renderer::LAYER_ULA);
+        check("LMASK-C04", "'ula' alone -> ULA pixel (TM masked, so no ULA/TM override)",
+              got == PIX_ULA, DETAIL("got=0x%08X exp=0x%08X", got, PIX_ULA));
+    }
+    {
+        const uint32_t got = all_four(Renderer::LAYER_TILES);
+        check("LMASK-C05", "'tiles' alone -> TM pixel (ULA transparent, TM wins the merge)",
+              got == PIX_TM, DETAIL("got=0x%08X exp=0x%08X", got, PIX_TM));
+    }
+
+    // LMASK-C06 — a selected-but-empty layer does not resurrect the masked
+    // ones: the fallback colour (NR 0x4A) shows through, exactly as when
+    // every hardware layer is disabled. VHDL zxnext.vhd:7214.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.ula_line_[0]     = PIX_ULA;
+        r.sprite_line_[0]  = PIX_S;
+        r.tilemap_line_[0] = PIX_TM;
+        r.layer2_line_[0]  = TRANSP;      // the one selected layer is empty here
+        r.tm_enabled_      = true;
+        r.set_layer_mask(Renderer::LAYER_LAYER2);
+        const uint32_t got = composite_one(r, FB);
+        check("LMASK-C06",
+              "'layer2' alone with L2 transparent -> NR 0x4A fallback, no leakage "
+              "from the masked ULA/sprite/TM pixels (VHDL 7214)",
+              got == FB, DETAIL("got=0x%08X exp_fallback=0x%08X", got, FB));
+    }
+
+    // LMASK-C07 — the border question. The border is emitted by the ULA
+    // path, so excluding 'ula' removes it too and those pixels fall through
+    // to the fallback colour — the same thing the hardware shows with
+    // ula_en=0 (VHDL 7103 makes ula_transparent cover display AND border).
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.ula_line_[0]   = PIX_ULA;      // a border cell painted by the ULA
+        r.ula_border_[0] = true;
+        r.set_layer_mask(Renderer::LAYER_LAYER2);
+        const uint32_t masked = composite_one(r, FB);
+
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.ula_line_[0]   = PIX_ULA;
+        r.ula_border_[0] = true;
+        r.set_layer_mask(Renderer::LAYER_ALL);
+        const uint32_t unmasked = composite_one(r, FB);
+
+        check("LMASK-C07",
+              "excluding 'ula' removes the BORDER as well; those pixels take the "
+              "NR 0x4A fallback (== hardware ula_en=0, VHDL 7103)",
+              masked == FB && unmasked == PIX_ULA,
+              DETAIL("masked=0x%08X (exp fallback 0x%08X) unmasked=0x%08X (exp ULA 0x%08X)",
+                     masked, FB, unmasked, PIX_ULA));
+    }
+
+    // LMASK-C08 — ula_border_2 is a raster-geometry flag, not an enable, so
+    // it stays asserted with the ULA masked out; the mode-4 (USL) border
+    // exception must still fire on the sprite. VHDL zxnext.vhd:7266.
+    {
+        clear_layers(r);
+        r.set_layer_priority(4);           // USL
+        r.ula_line_[0]    = PIX_ULA;
+        r.ula_border_[0]  = true;
+        r.sprite_line_[0] = PIX_S;         // TM transparent, sprite opaque
+        r.set_layer_mask(static_cast<uint8_t>(Renderer::LAYER_ULA | Renderer::LAYER_SPRITES));
+        const uint32_t with_spr = composite_one(r, FB);
+
+        clear_layers(r);
+        r.set_layer_priority(4);
+        r.ula_line_[0]    = PIX_ULA;
+        r.ula_border_[0]  = true;
+        r.sprite_line_[0] = PIX_S;
+        r.set_layer_mask(Renderer::LAYER_ULA);   // sprite now masked out
+        const uint32_t no_spr = composite_one(r, FB);
+
+        check("LMASK-C08",
+              "mode 100 border exception survives masking: sprite still wins over the "
+              "border ULA (VHDL 7266); masking the sprite away hands the border back "
+              "to the ULA",
+              with_spr == PIX_S && no_spr == PIX_ULA,
+              DETAIL("ula+sprites=0x%08X (exp S 0x%08X)  ula-only=0x%08X (exp ULA 0x%08X)",
+                     with_spr, PIX_S, no_spr, PIX_ULA));
+    }
+
+    // LMASK-C09 — stencil (NR 0x68 b0) is gated on tm_en (VHDL 7130), so
+    // masking 'tiles' out must take the stencil path down with it. Without
+    // that gate, ULA-AND-(transparent TM) would blank the ULA too and
+    // '--delayed-screenshot-layers ula' would come back empty.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.stencil_mode_    = true;
+        r.tm_enabled_      = true;
+        r.ula_line_[0]     = PIX_ULA;
+        r.tilemap_line_[0] = PIX_TM;
+        r.set_layer_mask(Renderer::LAYER_ULA);
+        const uint32_t got = composite_one(r, FB);
+        check("LMASK-C09",
+              "stencil mode is disabled along with the tilemap when 'tiles' is masked "
+              "out, so 'ula' alone still shows the ULA (VHDL 7130)",
+              got == PIX_ULA, DETAIL("got=0x%08X exp=0x%08X", got, PIX_ULA));
+    }
+
+    // LMASK-C10 — the L2 priority bit (palette b15) promotes L2 above the
+    // sprites (VHDL 7220). With L2 masked out, l2_transparent=1 and the
+    // promotion must not fire: the sprite is on top again.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);           // SLU
+        r.layer2_line_[0]     = PIX_L2;
+        r.layer2_priority_[0] = true;      // L2 promoted above sprites
+        r.sprite_line_[0]     = PIX_S;
+        r.set_layer_mask(Renderer::LAYER_ALL);
+        const uint32_t promoted = composite_one(r, FB);
+
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.layer2_line_[0]     = PIX_L2;
+        r.layer2_priority_[0] = true;
+        r.sprite_line_[0]     = PIX_S;
+        r.set_layer_mask(Renderer::LAYER_SPRITES);
+        const uint32_t masked = composite_one(r, FB);
+
+        check("LMASK-C10",
+              "masking 'layer2' out also cancels its priority-bit promotion over the "
+              "sprites (VHDL 7220)",
+              promoted == PIX_L2 && masked == PIX_S,
+              DETAIL("unmasked=0x%08X (exp L2 0x%08X) masked=0x%08X (exp S 0x%08X)",
+                     promoted, PIX_L2, masked, PIX_S));
+    }
+
+    // LMASK-C11 — blend mode 110 (additive). Masking the ULA out makes
+    // mix_rgb transparent, i.e. its channels contribute 0 to the sum (VHDL
+    // 7101/7122 + 7288-7298), so the mixer emits Layer 2 unchanged.
+    {
+        const uint8_t  L2_RGB   = 0x24;                       // r=1 g=1 b=0
+        const uint8_t  ULA_RGB  = 0x49;                       // r=2 g=2 b=1
+        const uint32_t L2_ARGB  = Renderer::rrrgggbb_to_argb(L2_RGB);
+        const uint32_t ULA_ARGB = Renderer::rrrgggbb_to_argb(ULA_RGB);
+        const uint32_t SUM_ARGB = Renderer::rrrgggbb_to_argb(0x6D);  // r=3 g=3 b=1
+
+        clear_layers(r);
+        r.set_layer_priority(6);           // additive blend
+        r.blend_mode_     = 0;             // mix_rgb = ULA
+        r.ula_line_[0]    = ULA_ARGB;
+        r.layer2_line_[0] = L2_ARGB;
+        r.set_layer_mask(Renderer::LAYER_ALL);
+        const uint32_t both = composite_one(r, FB);
+
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.blend_mode_     = 0;
+        r.ula_line_[0]    = ULA_ARGB;
+        r.layer2_line_[0] = L2_ARGB;
+        r.set_layer_mask(Renderer::LAYER_LAYER2);
+        const uint32_t l2_only = composite_one(r, FB);
+
+        check("LMASK-C11",
+              "blend mode 110: masking 'ula' zeroes the mix_rgb contribution, so the "
+              "mixer emits Layer 2 alone (VHDL 7101/7122, 7288-7298)",
+              both == SUM_ARGB && l2_only == L2_ARGB,
+              DETAIL("both=0x%08X (exp sum 0x%08X)  l2only=0x%08X (exp L2 0x%08X)",
+                     both, SUM_ARGB, l2_only, L2_ARGB));
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main() {
@@ -2785,6 +3098,7 @@ int main() {
     test_PAL();        printf("  Group: PAL — done\n");
     test_RST();        printf("  Group: RST — done\n");
     test_PSCAN();      printf("  Group: PSCAN — done\n");
+    test_LMASK();      printf("  Group: LMASK — done\n");
 
     printf("\n=====================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
