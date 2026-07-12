@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**39 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**46 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 ---
 
@@ -112,6 +112,66 @@ Sprite anchor + relative-positioning chains.
 Parallax scrolling demo (steady-state animation).
 
 <img src="../test/00regression/img/parallax-demo-reference.png" width="384" alt="parallax-demo reference"/>
+
+---
+
+## Per-layer screenshot capture (`--delayed-screenshot-layers`)
+
+Same demo (`beast.nex`) and same frame (100) as `beast-demo` above, captured one
+layer at a time. Excluded layers are composed as if their hardware enable bit were
+clear, so the four images are disjoint slices of the `beast-demo` reference —
+excluding `ula` removes the border too (the ULA draws it), leaving the NR 0x4A
+fallback colour, which beast sets to black.
+
+### `layers-beast-ula`
+ULA only: the per-scanline sky gradient and the moon.
+
+<img src="../test/00regression/img/layers-beast-ula-reference.png" width="384" alt="layers-beast-ula reference"/>
+
+### `layers-beast-l2`
+Layer 2 only: the trees and the grass.
+
+<img src="../test/00regression/img/layers-beast-l2-reference.png" width="384" alt="layers-beast-l2 reference"/>
+
+### `layers-beast-sprites`
+Sprites only: the beast and the foreground rocks/fence.
+
+<img src="../test/00regression/img/layers-beast-sprites-reference.png" width="384" alt="layers-beast-sprites reference"/>
+
+### `layers-beast-tiles`
+Tilemap only: the clouds and the mountain range.
+
+<img src="../test/00regression/img/layers-beast-tiles-reference.png" width="384" alt="layers-beast-tiles reference"/>
+
+---
+
+## ULA stencil mode (NR 0x68 bit 0)
+
+`stencil_test.nex` is the only fixture in the suite that turns stencil mode on
+(no other committed NEX writes NR 0x68 bit 0 at all). Bright ULA stripes under a
+red-tile checkerboard; NR 0x4A is forced to black so a dropped layer is obvious.
+Per VHDL `zxnext.vhd:7130` the stencil AND-branch needs `ula_en` **and** `tm_en`,
+so masking either layer away must fall through to the ordinary merge and show the
+survivor — `stencil-layers-tiles` is the row that catches a compositor which only
+gates stencil on `tm_en` (it renders the whole frame black instead).
+
+### `stencil-demo`
+All layers: the red tiles act as a colour filter over the ULA stripes (ULA `AND` TM);
+where a tile is transparent, stencil transparency lets the black fallback through.
+
+<img src="../test/00regression/img/stencil-demo-reference.png" width="384" alt="stencil-demo reference"/>
+
+### `stencil-layers-tiles`
+Tilemap only: the AND-branch must switch off with the ULA masked, showing the red
+checkerboard.
+
+<img src="../test/00regression/img/stencil-layers-tiles-reference.png" width="384" alt="stencil-layers-tiles reference"/>
+
+### `stencil-layers-ula`
+ULA only: the AND-branch switches off with the tilemap masked, showing the bright
+stripes and the border.
+
+<img src="../test/00regression/img/stencil-layers-ula-reference.png" width="384" alt="stencil-layers-ula reference"/>
 
 ---
 

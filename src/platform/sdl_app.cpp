@@ -138,11 +138,14 @@ void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
-void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames) {
+void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,
+                                    uint8_t layer_mask) {
     screenshot_file_ = file;
     screenshot_countdown_ = delay_frames;
-    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s)",
-                           file, delay_frames);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
+                           file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
 }
 
 void SdlApp::set_delayed_exit(int delay_seconds) {
@@ -180,12 +183,27 @@ void SdlApp::run() {
         // deficit empties the audio queue and SDL pads the stream with zeros:
         // clicks, a few times a second, forever (issue #7 / Task 23). See
         // audio_pacing.h.
+        // --delayed-screenshot-layers: arm the compositor layer mask for the
+        // frame(s) rendered in this tick (the last one is what the screenshot
+        // below saves), disarmed right after. Default LAYER_ALL = no-op. As in
+        // QtApp, the mask lives on the Renderer the window also shows, so the
+        // captured frame is displayed masked for that single tick.
+        if (screenshot_countdown_ == 0)
+            emulator_.renderer().set_layer_mask(screenshot_layers_);
+
+        // Frames actually rendered this tick. frames_for_tick() returns 0 when
+        // the audio queue is ahead of the card (audio_pacing.h:56), so this
+        // loop can legitimately run zero times — and then the framebuffer still
+        // holds the previous frame, composited with LAYER_ALL. Capturing that
+        // would silently ignore the user's layer selection.
+        int frames_rendered = 0;
         {
             const int frames = emulator_.fastload_active()
                                    ? 1
                                    : audio_pacing::frames_for_tick(audio_.queued_ms());
             for (int i = 0; i < frames; i++) {
                 emulator_.run_frame();
+                ++frames_rendered;
             }
         }
 
@@ -214,8 +232,17 @@ void SdlApp::run() {
 
         // Delayed screenshot: take after countdown expires.
         if (screenshot_countdown_ == 0) {
-            save_screenshot_png(screenshot_file_, fb, fb_w, fb_h);
-            screenshot_countdown_ = -1;  // done
+            if (frames_rendered > 0) {
+                save_screenshot_png(screenshot_file_, fb, fb_w, fb_h);
+                emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+                screenshot_countdown_ = -1;  // done
+            } else {
+                // No frame went through the compositor this tick (audio queue
+                // ahead of the card). Hold the countdown at 0 and capture on
+                // the next tick that actually renders, rather than writing a
+                // stale frame with the wrong layers in it.
+                emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+            }
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;
         }
@@ -244,6 +271,18 @@ void SdlApp::run() {
 }
 
 void SdlApp::shutdown() {
+    // A requested screenshot that was never written is a failure, not a
+    // footnote — same contract as QtApp::shutdown(). Reachable here if the
+    // capture was still deferred (no frame rendered on its tick) when
+    // --delayed-automatic-exit fired.
+    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
+            "the emulator exited with the capture still pending. Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+        exit_code_ = 1;
+    }
+
     // Close any open game-controllers (G42).
     for (int s = 0; s < 2; ++s) {
         if (controllers_[s]) {

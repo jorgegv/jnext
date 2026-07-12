@@ -5,6 +5,7 @@
 #include "screenshot.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "video/renderer.h"
 
 /// Headless application shell — no display, no audio, no input.
 /// Runs the emulator as fast as possible for automated testing.
@@ -21,8 +22,17 @@ public:
     void set_pending_inject(const std::string& file, uint16_t org,
                             uint16_t pc, int delay_frames);
     void set_pending_load(const std::string& file, int delay_frames);
-    void set_delayed_screenshot(const std::string& file, int delay_frames);
+    /// Schedule a screenshot after `delay_frames` frames. `layer_mask` is a
+    /// Renderer::LayerMask bitmask (--delayed-screenshot-layers); it is armed
+    /// on the renderer for exactly the captured frame and disarmed right
+    /// after. Renderer::LAYER_ALL (the default) makes that a no-op.
+    void set_delayed_screenshot(const std::string& file, int delay_frames,
+                                uint8_t layer_mask);
     void set_delayed_exit(int delay_seconds);
+
+    /// Process exit status, valid after shutdown(). Non-zero when a requested
+    /// --delayed-screenshot was never written (auto-exit fired first).
+    int exit_code() const { return exit_code_; }
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
@@ -55,9 +65,13 @@ private:
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;
+    uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;
+
+    // Non-zero when a requested screenshot was never taken (see shutdown()).
+    int         exit_code_ = 0;
 
     EmulatorConfig config_;
     bool           config_set_ = false;

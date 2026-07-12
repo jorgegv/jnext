@@ -31,6 +31,65 @@ enum class LayerPriority : uint8_t {
 /// VHDL reference: zxnext.vhd lines 7193-7354 (compositor process).
 class Renderer {
 public:
+    // -----------------------------------------------------------------
+    // Host-side layer mask (--delayed-screenshot-layers, Task 22b)
+    // -----------------------------------------------------------------
+    //
+    // Selects which layers the compositor is allowed to see. A masked-out
+    // layer is forced TRANSPARENT at the compositor input, which is
+    // exactly what the hardware does when that layer is disabled:
+    //   ULA      NR 0x68 b7 = 1  → ula_transparent      (zxnext.vhd:7103)
+    //   Layer 2  NR 0x69 b7 = 0  → l2_transparent       (zxnext.vhd:7106)
+    //   Sprites  NR 0x15 b0 = 0  → sprite_transparent   (zxnext.vhd:7118)
+    //   Tilemap  NR 0x6B b7 = 0  → tm_transparent       (zxnext.vhd:7109)
+    // Everything downstream — the NR 0x15 priority order, the ULA/TM
+    // merge, the blend modes, and the NR 0x4A fallback colour — then
+    // behaves per the VHDL with no special-casing.
+    //
+    // The one place that needs the enables and not just the transparency
+    // flags is STENCIL: zxnext.vhd:7130 selects the AND-branch only when
+    //     ula_stencil_mode_2 = '1' AND ula_en_2 = '1' AND tm_en_2 = '1'
+    // — BOTH enables. stencil_rgb is transparent whenever either input is
+    // (7112), so masking either `ula` or `tiles` must take the AND-branch
+    // down with it and fall through to the ordinary ulatm merge (7134-7135);
+    // otherwise the surviving layer would be erased rather than shown.
+    //
+    // Note on the BORDER: the border is emitted by the ULA path, so
+    // masking out `ula` removes the border too, and those pixels fall
+    // through to the NR 0x4A fallback colour — bit-identical to what the
+    // hardware shows with ula_en = 0 (the `ula_border_2` raster flag stays
+    // asserted, as in the VHDL, so the border exception in priority modes
+    // 3/4/5 keeps working).
+    //
+    // This is a HOST-side debug knob, not machine state: reset(),
+    // save_state() and load_state() deliberately leave it alone. The
+    // frontends arm it for the single frame that --delayed-screenshot
+    // captures and disarm it immediately afterwards.
+    enum LayerMask : uint8_t {
+        LAYER_ULA     = 0x01,
+        LAYER_LAYER2  = 0x02,
+        LAYER_SPRITES = 0x04,
+        LAYER_TILES   = 0x08,
+        LAYER_ALL     = 0x0F,
+    };
+
+    void set_layer_mask(uint8_t m) { layer_mask_ = m & LAYER_ALL; }
+    uint8_t layer_mask() const { return layer_mask_; }
+
+    /// Parse a --delayed-screenshot-layers value: a comma-separated list of
+    /// the lowercase names `ula`, `layer2`, `sprites`, `tiles`, `all`.
+    /// On success writes the mask, clears `error` and returns true. On an
+    /// empty list, an empty element, an unknown name, or a layer named twice
+    /// (including `all` combined with anything), returns false, leaves `mask`
+    /// untouched and fills `error` with a user-facing message. Never silently
+    /// drops a name.
+    static bool parse_layer_mask(const std::string& spec, uint8_t& mask,
+                                 std::string& error);
+
+    /// Render a mask back into its canonical comma-separated name list
+    /// ("all" when every layer is present). For log lines and tests.
+    static std::string layer_mask_to_string(uint8_t mask);
+
     // Canonical 640-wide framebuffer (G104). Layout:
     //   64 left border + 512 display + 64 right border = 640 columns.
     //   32 top border + 192 display + 32 bottom border = 256 rows.
@@ -326,6 +385,10 @@ private:
     uint8_t blend_mode_ = 0;         // NextREG 0x68 bits 6:5 (VHDL: ula_blend_mode_2)
     bool tm_enabled_ = false;        // NR 0x6B bit 7 (VHDL: tilemap enable)
     uint8_t nr15_raw_   = 0;         // last full byte written via write_nr15
+
+    /// Host-side layer selection (see LayerMask above). Not machine state:
+    /// deliberately absent from reset() / save_state() / load_state().
+    uint8_t layer_mask_ = LAYER_ALL;
 
     // ── NR 0x15 per-scanline change log (G02) ────────────────────────
     struct Nr15Change {

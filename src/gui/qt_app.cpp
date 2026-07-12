@@ -31,11 +31,14 @@ void QtApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
-void QtApp::set_delayed_screenshot(const std::string& file, int delay_frames) {
+void QtApp::set_delayed_screenshot(const std::string& file, int delay_frames,
+                                   uint8_t layer_mask) {
     screenshot_file_ = file;
     screenshot_countdown_ = delay_frames;
-    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s)",
-                           file, delay_frames);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
+                           file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
 }
 
 void QtApp::set_speed_multiplier(double multiplier) {
@@ -138,6 +141,23 @@ int QtApp::run() {
 }
 
 void QtApp::shutdown() {
+    // A screenshot that was asked for and never taken is a FAILURE, not a
+    // footnote. The capture is deferred while no frame is rendering (debugger
+    // paused), but --delayed-automatic-exit is a hard bound and must stay one,
+    // so exit can arrive with the capture still outstanding. Saying nothing and
+    // returning 0 would let a script mistake "no PNG" for success — the exact
+    // trap the old unconditional write avoided by emitting a stale frame.
+    // Per src/core/log.h, error = "the user asked for something and did not get
+    // it". That is precisely this, so: error + non-zero exit.
+    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}). "
+            "The capture came due while the debugger was paused, so no frame was "
+            "ever rendered for it, and the emulator exited first. Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+        exit_code_ = 1;
+    }
+
     // Stop RZX recording if active (writes the file).
     if (emulator_.rzx_recorder().is_recording()) {
         emulator_.stop_rzx_recording();
@@ -195,6 +215,27 @@ void QtApp::on_frame_tick() {
         --load_countdown_;
     }
 
+    // --delayed-screenshot-layers: arm the compositor layer mask for the frames
+    // rendered in this tick — the last of them is the one the screenshot below
+    // captures — and take it down again right after. Default LAYER_ALL makes
+    // both calls no-ops, so the unmasked path is bit-identical to before.
+    // Trade-off: the mask lives on the one Renderer the GUI also displays, so
+    // for that single tick (~20 ms) the on-screen window shows the same masked
+    // composite that lands in the PNG. Rendering a second, separate pass for
+    // the screenshot would avoid that, but re-running render_frame also
+    // re-advances per-frame renderer state (the ULA flash counter), which would
+    // make `--delayed-screenshot-layers all` differ from the plain
+    // --delayed-screenshot default. One frame of flicker is the cheaper bug.
+    if (screenshot_countdown_ == 0)
+        emulator_.renderer().set_layer_mask(screenshot_layers_);
+
+    // Frames actually rendered in this tick. The screenshot below is only
+    // valid if at least one of them went through the compositor with the mask
+    // armed above — a debugger pause skips run_frame() entirely, and then the
+    // framebuffer still holds a frame composited with LAYER_ALL. Capturing
+    // that would silently hand the user a picture with the wrong layers in it.
+    int frames_rendered = 0;
+
     // Run one emulator frame (skip if debugger has paused).
     if (!emulator_.debug_state().paused()) {
         // Pace emulation against the sound card, not the wall clock. The 20 ms
@@ -222,6 +263,7 @@ void QtApp::on_frame_tick() {
         for (int i = 0; i < frames; i++) {
             emulator_.run_frame();
             ++frame_count_;
+            ++frames_rendered;
         }
 
         // Task 19 fastload follow-up — when the phantom typist is
@@ -243,6 +285,7 @@ void QtApp::on_frame_tick() {
                !emulator_.debug_state().paused()) {
             emulator_.run_frame();
             ++frame_count_;
+            ++frames_rendered;
             ++burst;
         }
 
@@ -282,10 +325,31 @@ void QtApp::on_frame_tick() {
     // GUI use the imprecision is on the order of the burst length
     // (sub-second) and not user-visible.
     if (screenshot_countdown_ == 0) {
-        save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
-                            emulator_.get_framebuffer_width(),
-                            emulator_.get_framebuffer_height());
-        screenshot_countdown_ = -1;  // done
+        if (frames_rendered > 0) {
+            // The framebuffer holds a frame composited with the mask armed
+            // above — capture it.
+            save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
+                                emulator_.get_framebuffer_width(),
+                                emulator_.get_framebuffer_height());
+            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+            screenshot_countdown_ = -1;  // done
+            screenshot_deferred_warned_ = false;
+        } else {
+            // The debugger is paused: run_frame() never ran, so the framebuffer
+            // is a stale frame composited with LAYER_ALL. Writing it would
+            // silently ignore the layer selection the user explicitly asked
+            // for. Hold the countdown at 0 and capture on the first tick that
+            // actually renders — but say so, once, rather than sitting mute.
+            if (!screenshot_deferred_warned_) {
+                Log::platform()->warn(
+                    "--delayed-screenshot: due now, but the debugger is paused so no "
+                    "frame is being rendered; deferring the capture (layers: {}). "
+                    "Resume to take it.",
+                    Renderer::layer_mask_to_string(screenshot_layers_));
+                screenshot_deferred_warned_ = true;
+            }
+            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+        }
     } else if (screenshot_countdown_ > 0) {
         --screenshot_countdown_;
     }

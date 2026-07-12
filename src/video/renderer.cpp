@@ -33,6 +33,98 @@ void Renderer::set_compositor_trace(const std::string& path, int target_frame) {
 }
 
 // ---------------------------------------------------------------------------
+// Host-side layer mask (--delayed-screenshot-layers, Task 22b)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct LayerName {
+    const char* name;
+    uint8_t     bits;
+};
+
+// The complete, authoritative list of accepted names. Lowercase only —
+// the CLI contract is "names exactly ula, layer2, sprites, tiles, all".
+constexpr LayerName kLayerNames[] = {
+    {"ula",     Renderer::LAYER_ULA},
+    {"layer2",  Renderer::LAYER_LAYER2},
+    {"sprites", Renderer::LAYER_SPRITES},
+    {"tiles",   Renderer::LAYER_TILES},
+    {"all",     Renderer::LAYER_ALL},
+};
+
+const char* kValidNames = "ula, layer2, sprites, tiles, all";
+
+} // namespace
+
+bool Renderer::parse_layer_mask(const std::string& spec, uint8_t& mask,
+                                std::string& error)
+{
+    error.clear();
+    if (spec.empty()) {
+        error = std::string("empty layer list (valid names: ") + kValidNames + ")";
+        return false;
+    }
+
+    uint8_t acc = 0;
+    size_t  pos = 0;
+    while (pos <= spec.size()) {
+        const size_t comma = spec.find(',', pos);
+        const std::string tok =
+            spec.substr(pos, (comma == std::string::npos) ? std::string::npos
+                                                          : comma - pos);
+        if (tok.empty()) {
+            error = std::string("empty layer name in '") + spec
+                  + "' (valid names: " + kValidNames + ")";
+            return false;
+        }
+
+        uint8_t bits = 0;
+        for (const auto& ln : kLayerNames) {
+            if (tok == ln.name) { bits = ln.bits; break; }
+        }
+        if (bits == 0) {
+            error = "unknown layer name '" + tok
+                  + "' (valid names: " + kValidNames + ")";
+            return false;
+        }
+        // Any overlap means the user named the same layer twice — either
+        // literally (ula,ula) or via 'all' (all,ula). Say so; never fold
+        // it away silently.
+        if (acc & bits) {
+            error = "layer '" + tok + "' selected twice in '" + spec + "'";
+            return false;
+        }
+        acc |= bits;
+
+        if (comma == std::string::npos) break;
+        pos = comma + 1;
+        // A trailing comma leaves pos == size(): the next iteration reads an
+        // empty token and errors out, which is what we want.
+    }
+
+    mask = acc;
+    return true;
+}
+
+std::string Renderer::layer_mask_to_string(uint8_t mask)
+{
+    mask &= LAYER_ALL;
+    if (mask == LAYER_ALL) return "all";
+    if (mask == 0)         return "none";
+
+    std::string out;
+    for (const auto& ln : kLayerNames) {
+        if (ln.bits == LAYER_ALL) continue;  // composite name, not a layer
+        if (mask & ln.bits) {
+            if (!out.empty()) out += ',';
+            out += ln.name;
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // render_frame — per-scanline compositing
 // ---------------------------------------------------------------------------
 //
@@ -360,6 +452,25 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
     const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_) & 0x00FFFFFF;
 
+    // Host-side layer mask (--delayed-screenshot-layers). A masked-out
+    // layer is forced transparent at the compositor input, i.e. treated
+    // exactly as if its hardware enable bit were clear (see LayerMask in
+    // renderer.h). Default LAYER_ALL leaves every flag below untouched.
+    const bool mask_ula     = (layer_mask_ & LAYER_ULA)     == 0;
+    const bool mask_l2      = (layer_mask_ & LAYER_LAYER2)  == 0;
+    const bool mask_sprites = (layer_mask_ & LAYER_SPRITES) == 0;
+    const bool mask_tiles   = (layer_mask_ & LAYER_TILES)   == 0;
+    // Stencil mode requires BOTH enables (VHDL zxnext.vhd:7130):
+    //   if ula_stencil_mode_2 = '1' and ula_en_2 = '1' and tm_en_2 = '1'
+    // so masking out EITHER the ULA or the tilemap must take the stencil
+    // AND-branch down with it and fall through to the ordinary ulatm merge
+    // (VHDL 7134-7135). Getting this half-right is a real bug in both
+    // directions: stencil_rgb is transparent whenever either input is
+    // (7112), so leaving the AND-branch selected with one input masked away
+    // erases the surviving layer instead of showing it.
+    const bool stencil_active =
+        stencil_mode_ && tm_enabled_ && !mask_tiles && !mask_ula;
+
     for (int x = 0; x < FB_WIDTH; ++x) {
         const uint32_t ula_px  = ula_line_[x];
         const uint32_t l2_px   = layer2_line_[x];
@@ -367,12 +478,15 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
         const uint32_t tm_px   = tilemap_line_[x];
 
         // --- Transparency detection (VHDL 7100-7123) ---
-        const bool ula_transp = is_transparent(ula_px) ||
+        // The `mask_*` terms are the host-side layer mask; they sit
+        // alongside the hardware enable bits because that is precisely
+        // what they emulate (a masked layer == a disabled layer).
+        const bool ula_transp = mask_ula || is_transparent(ula_px) ||
                                 ((ula_px & 0x00FFFFFF) == nr14_rgb);
-        const bool l2_transp  = is_transparent(l2_px) ||
+        const bool l2_transp  = mask_l2 || is_transparent(l2_px) ||
                                 ((l2_px & 0x00FFFFFF) == nr14_rgb);
         // VHDL 6934/7118: sprite_en=0 forces all sprites transparent.
-        const bool spr_transp = is_transparent(spr_px) || !sprite_en_;
+        const bool spr_transp = mask_sprites || is_transparent(spr_px) || !sprite_en_;
         // VHDL zxnext.vhd:7109 — `tm_transparent <= '1' when (tm_pixel_en_2 = '0')
         // or (tm_pixel_textmode_2 = '1' and tm_rgb_2(8 downto 1) =
         // transparent_rgb_2) or (tm_en_2 = '0')`.  is_transparent(tm_px)
@@ -380,7 +494,7 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
         // tm_en_2='0' (Tilemap::render_scanline early-returns when disabled,
         // leaving the line buffer at TRANSPARENT).  The per-pixel textmode
         // flag gates the RGB match clause (G98 + G101).
-        const bool tm_transp  = is_transparent(tm_px) ||
+        const bool tm_transp  = mask_tiles || is_transparent(tm_px) ||
                                 (tm_pixel_textmode_[x] &&
                                  (tm_px & 0x00FFFFFF) == nr14_rgb);
 
@@ -392,7 +506,7 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
         // --- ULA/TM merge (VHDL 7112-7116) ---
         uint32_t u_px;
         bool ulatm_transp;
-        if (stencil_mode_ && tm_enabled_) {
+        if (stencil_active) {
             // Stencil mode (VHDL 7112-7113): bitwise AND of ULA and TM RGB.
             // stencil_transparent = ula_transp OR tm_transp.
             if (ula_transp || tm_transp) {

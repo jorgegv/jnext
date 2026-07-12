@@ -7,6 +7,7 @@
 #include "sdl_audio.h"
 #include "screenshot.h"
 #include "core/emulator.h"
+#include "video/renderer.h"
 #include "input/joystick_dispatcher.h"
 #include "input/mouse_dispatcher.h"
 
@@ -28,11 +29,18 @@ public:
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
 
-    /// Schedule a screenshot after `delay_frames` frames.
-    void set_delayed_screenshot(const std::string& file, int delay_frames);
+    /// Schedule a screenshot after `delay_frames` frames. `layer_mask` is a
+    /// Renderer::LayerMask bitmask (--delayed-screenshot-layers), armed on the
+    /// renderer for the captured frame only. Renderer::LAYER_ALL = no-op.
+    void set_delayed_screenshot(const std::string& file, int delay_frames,
+                                uint8_t layer_mask);
 
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
+
+    /// Process exit status, valid after shutdown(). Non-zero when a requested
+    /// --delayed-screenshot was never written.
+    int exit_code() const { return exit_code_; }
 
     void set_tape_realtime(bool) {}
     void set_rzx_play(const std::string&) {}
@@ -71,6 +79,10 @@ private:
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
+
+    // Non-zero when a requested screenshot was never taken (see shutdown()).
+    int         exit_code_ = 0;
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending

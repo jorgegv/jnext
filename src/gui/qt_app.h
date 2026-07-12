@@ -7,6 +7,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "platform/screenshot.h"
+#include "video/renderer.h"
 
 class QApplication;
 class QTimer;
@@ -40,11 +41,19 @@ public:
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
-    /// Schedule a screenshot after `delay_frames` frames.
-    void set_delayed_screenshot(const std::string& file, int delay_frames);
+    /// Schedule a screenshot after `delay_frames` frames. `layer_mask` is a
+    /// Renderer::LayerMask bitmask (--delayed-screenshot-layers), armed on the
+    /// renderer for the captured frame only. Renderer::LAYER_ALL = no-op.
+    void set_delayed_screenshot(const std::string& file, int delay_frames,
+                                uint8_t layer_mask);
 
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
+
+    /// Process exit status, valid after shutdown(). Non-zero when a requested
+    /// --delayed-screenshot was never written (the debugger stayed paused, so
+    /// no frame was ever rendered for it, and the emulator exited first).
+    int exit_code() const { return exit_code_; }
 
     /// Set emulator speed multiplier (e.g. 0.5, 1.0, 2.0, 4.0).
     /// Adjusts the frame timer interval accordingly.
@@ -88,6 +97,14 @@ private:
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
+    // Set once we have warned that the capture is being held back because no
+    // frame is rendering (debugger paused). Keeps the warning off every tick.
+    bool        screenshot_deferred_warned_ = false;
+
+    // Process exit status. Non-zero when a requested screenshot was never
+    // taken (see shutdown()); main.cpp returns it.
+    int         exit_code_ = 0;
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending
