@@ -986,6 +986,36 @@ second, hand-rolled compositor in the debugger unacceptable:
 | DVP-16c  | …including VBLANK-tagged writes, which only the flush replays    | PASS   |
 | DVP-17   | "All layers" is the leftmost tab and selected by default         | PASS   |
 | DVP-17a  | …and the per-layer tabs still follow it in order                 | PASS   |
+| DVP-18   | Background view shows the NR 0x4A fallback colour                | PASS   |
+| DVP-18a  | premise: the two fallback colours differ                         | PASS   |
+| DVP-18b  | …PER SCANLINE: a mid-frame Copper MOVE shows as a band split     | PASS   |
+| DVP-18c  | …and every row agrees with the composite where all is transparent| PASS   |
+| DVP-19   | Background view honours the raster cut-off                       | PASS   |
+| DVP-19a  | …and rendering it preserves NR 0x4A and its per-line snapshots   | PASS   |
+| DVP-20   | "Background" is the RIGHTMOST tab (and not the selected one)     | PASS   |
+
+### The Background view (NR 0x4A) — why it is per-scanline
+
+`VideoLayerView::Layer::BACKGROUND` is the sequel to DVP-14: the fallback colour
+is on screen but in **no layer**, so the rightmost "Background" tab makes it
+directly inspectable — the answer to "where does sonic.nex's blue sky come
+from?" becomes a thing you can look at rather than something you must deduce.
+
+It reads `Renderer::fallback_for_line(row)` — the very byte `render_row` feeds
+`rrrgggbb_to_argb` for that row — and paints the row with it, inside the same
+`replay_rewind → replay_line(row) → replay_restore` round trip every other view
+uses, honouring the same raster cut-off.  It is **per-line and not a flat
+swatch** because the Copper can MOVE NR 0x4A mid-frame to paint a gradient down
+the raster (that is exactly why `fallback_per_line_[]` exists in the renderer);
+the live `fallback_colour()` is only the frame's last value.  DVP-18b is the
+discriminating row: swapping `fallback_for_line(row)` for the live
+`fallback_colour()` fails DVP-18, DVP-18b and DVP-18c, and nothing else.  The
+title carries the live register (`Background colour (NR 0x4A = $13)`), reusing
+the existing per-view title idiom rather than inventing a widget.
+
+Note that BACKGROUND is deliberately **absent** from DVP-14d's "the fallback
+appears in no per-layer view" loop: it is not a layer view, it *is* the
+fallback.  Adding it there would make DVP-14d self-contradictory.
 
 ### Why DVP-16c needs a VBLANK-tagged write — and the DVP-06 blind spot
 

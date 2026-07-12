@@ -75,6 +75,12 @@
 //   DVP-16  Compositing for the panel leaves the live machine state untouched
 //           (the round trip render_frame does — no more, no less).
 //   DVP-17  "All layers" is the leftmost tab and the selected one by default.
+//   DVP-18  The Background tab shows the NR 0x4A fallback colour, read PER
+//           SCANLINE from the renderer's own snapshot — a Copper MOVE to NR
+//           0x4A mid-frame must show as a band split, not a flat swatch of the
+//           frame's last value.
+//   DVP-19  It honours the raster cut-off, and rendering it preserves state.
+//   DVP-20  "Background" is the RIGHTMOST tab.
 //
 // Qt is required (the panel is a QWidget), but no display is: the test forces
 // the offscreen QPA platform.  Run: ./build/test/debugger_video_panel_test
@@ -604,7 +610,8 @@ static void test_no_state_mutation(Emulator& emu) {
                         VideoLayerView::Layer::LAYER2_ACTIVE,
                         VideoLayerView::Layer::LAYER2_SHADOW,
                         VideoLayerView::Layer::SPRITES,
-                        VideoLayerView::Layer::TILEMAP }) {
+                        VideoLayerView::Layer::TILEMAP,
+                        VideoLayerView::Layer::BACKGROUND }) {
         (void)render_view(emu, layer, Renderer::FB_HEIGHT - 1);
     }
 
@@ -1265,6 +1272,106 @@ static void test_composite_no_state_mutation(Emulator& emu) {
               tm_sx_90, tm.scroll_x_for_line(90)));
 }
 
+// ── DVP-18/19: the Background (NR 0x4A fallback) view ─────────────────
+//
+// The sequel to DVP-14.  The fallback colour is on screen but in no layer, so
+// the Background tab makes it directly inspectable.  It must be PER-SCANLINE:
+// the renderer snapshots NR 0x4A into fallback_per_line_[row] precisely because
+// a Copper MOVE can change it mid-frame to paint a gradient down the raster
+// (VHDL zxnext.vhd:7218-7352 — the compositor's per-line `fallback_rgb_2`).
+// A flat swatch of the live register would show only the frame's last value.
+
+static void test_background_view(Emulator& emu) {
+    set_group("DVP-BACKGROUND");
+
+    constexpr uint8_t SKY   = 0x13;   // #0092FF — sonic.nex's sky
+    constexpr uint8_t GROUND = 0xE0;  // a clearly different colour
+    constexpr int     SPLIT = 100;    // the row the Copper MOVE lands on
+
+    const uint32_t argb_sky    = Renderer::rrrgggbb_to_argb(SKY);
+    const uint32_t argb_ground = Renderer::rrrgggbb_to_argb(GROUND);
+
+    check("DVP-18a",
+          "test premise: the two fallback colours differ",
+          argb_sky != argb_ground,
+          fmt("sky=0x%08X ground=0x%08X", argb_sky, argb_ground));
+
+    // Nothing opaque anywhere: the fallback is the entire picture.
+    emu.ula().set_ula_enabled(false);
+    emu.layer2().set_enabled(false);
+
+    Renderer& r = emu.renderer();
+    r.set_fallback_colour(SKY);
+    r.set_layer_priority(0);
+
+    begin_frame(emu);   // init_fallback_per_line() → every row = SKY
+
+    // The raster walks the frame; a Copper MOVE to NR 0x4A lands on SPLIT.
+    // This is exactly what Emulator::on_scanline + the NR write handler do.
+    for (int row = 0; row < SPLIT; ++row) r.snapshot_fallback_for_line(row);
+    r.set_fallback_colour(GROUND);
+    for (int row = SPLIT; row < Renderer::FB_HEIGHT; ++row)
+        r.snapshot_fallback_for_line(row);
+
+    QImage bg = render_view(emu, VideoLayerView::Layer::BACKGROUND,
+                            Renderer::FB_HEIGHT - 1);
+
+    check("DVP-18",
+          "Background view shows the NR 0x4A fallback colour",
+          px(bg, 300, 20) == argb_sky,
+          fmt("(300,20) got=0x%08X want=0x%08X", px(bg, 300, 20), argb_sky));
+
+    // THE discriminating row: a flat swatch of the live register would paint
+    // every row GROUND (the frame's last value), so the rows above the split
+    // would be wrong.  Only a per-row read of fallback_per_line_ passes.
+    check("DVP-18b",
+          "…per SCANLINE: a mid-frame Copper MOVE to NR 0x4A shows as a band split",
+          px(bg, 0, SPLIT - 1) == argb_sky
+              && px(bg, 0, SPLIT) == argb_ground
+              && px(bg, 639, Renderer::FB_HEIGHT - 1) == argb_ground,
+          fmt("row%d=0x%08X (want sky 0x%08X) row%d=0x%08X (want ground 0x%08X)",
+              SPLIT - 1, px(bg, 0, SPLIT - 1), argb_sky,
+              SPLIT, px(bg, 0, SPLIT), argb_ground));
+
+    // And it must agree with what the compositor actually emits for those rows —
+    // the Background view is a window onto the compositor, not a second opinion.
+    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+                              Renderer::FB_HEIGHT - 1);
+    check("DVP-18c",
+          "…and every row agrees with the composite where all layers are transparent",
+          px(comp, 0, SPLIT - 1) == px(bg, 0, SPLIT - 1)
+              && px(comp, 0, SPLIT) == px(bg, 0, SPLIT)
+              && px(comp, 400, 200) == px(bg, 400, 200),
+          fmt("comp row%d=0x%08X bg=0x%08X | comp row%d=0x%08X bg=0x%08X",
+              SPLIT - 1, px(comp, 0, SPLIT - 1), px(bg, 0, SPLIT - 1),
+              SPLIT, px(comp, 0, SPLIT), px(bg, 0, SPLIT)));
+
+    check("DVP-19",
+          "Background view honours the raster cut-off like every other view",
+          px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 137)
+                  == argb_ground
+              && px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137),
+                    0, 138) == UNRENDERED,
+          fmt("row137=0x%08X row138=0x%08X",
+              px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 137),
+              px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 138)));
+
+    // State preservation: the Background view runs the same replay round trip.
+    const uint8_t live_nr4a = r.fallback_colour();
+    for (int i = 0; i < 3; ++i)
+        (void)render_view(emu, VideoLayerView::Layer::BACKGROUND,
+                          Renderer::FB_HEIGHT - 1);
+    check("DVP-19a",
+          "…and rendering it leaves the live NR 0x4A and its per-line snapshots alone",
+          r.fallback_colour() == live_nr4a
+              && r.fallback_for_line(SPLIT - 1) == SKY
+              && r.fallback_for_line(SPLIT) == GROUND,
+          fmt("live 0x%02X→0x%02X | line%d=0x%02X line%d=0x%02X",
+              live_nr4a, r.fallback_colour(),
+              SPLIT - 1, r.fallback_for_line(SPLIT - 1),
+              SPLIT, r.fallback_for_line(SPLIT)));
+}
+
 // ── DVP-17: "All layers" is the leftmost tab, selected by default ─────
 
 static void test_composite_is_default_tab() {
@@ -1285,24 +1392,34 @@ static void test_composite_is_default_tab() {
 
     check("DVP-17",
           "\"All layers\" is the leftmost tab and the selected one by default",
-          tabs->count() == 5 && tabs->tabText(0) == QStringLiteral("All layers")
+          tabs->count() == 6 && tabs->tabText(0) == QStringLiteral("All layers")
               && tabs->currentIndex() == 0,
           fmt("count=%d tab0='%s' current=%d", tabs->count(),
               tabs->tabText(0).toUtf8().constData(), tabs->currentIndex()));
 
     check("DVP-17a",
           "…and the per-layer tabs still follow it in order",
-          tabs->count() == 5
+          tabs->count() == 6
               && tabs->tabText(1) == QStringLiteral("ULA")
               && tabs->tabText(2) == QStringLiteral("Layer2")
               && tabs->tabText(3) == QStringLiteral("Sprites")
               && tabs->tabText(4) == QStringLiteral("TileMap"),
-          fmt("tabs: %s|%s|%s|%s|%s",
+          fmt("tabs: %s|%s|%s|%s|%s|%s",
               tabs->tabText(0).toUtf8().constData(),
               tabs->tabText(1).toUtf8().constData(),
               tabs->tabText(2).toUtf8().constData(),
               tabs->tabText(3).toUtf8().constData(),
-              tabs->tabText(4).toUtf8().constData()));
+              tabs->tabText(4).toUtf8().constData(),
+              tabs->tabText(5).toUtf8().constData()));
+
+    check("DVP-20",
+          "\"Background\" is the RIGHTMOST tab (and not the selected one)",
+          tabs->count() == 6
+              && tabs->tabText(tabs->count() - 1) == QStringLiteral("Background")
+              && tabs->currentIndex() != tabs->count() - 1,
+          fmt("count=%d last='%s' current=%d", tabs->count(),
+              tabs->tabText(tabs->count() - 1).toUtf8().constData(),
+              tabs->currentIndex()));
 }
 
 // ── main ──────────────────────────────────────────────────────────────
@@ -1389,6 +1506,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_composite_no_state_mutation(emu);
         std::printf("  Group: DVP-COMP-NOMUT — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_background_view(emu);
+        std::printf("  Group: DVP-BACKGROUND — done\n");
     }
     test_composite_is_default_tab();
     std::printf("  Group: DVP-COMP-TAB   — done\n");
