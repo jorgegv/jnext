@@ -11,6 +11,23 @@ project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ccache — makes the mandatory `make clean` + full-rebuild discipline cheap.
+# Reviewers rebuild the whole tree several times per review (revert a fix,
+# rebuild, run the suite, restore, rebuild, run); with ccache the revert and
+# restore builds are near-total cache hits. Guarded: a machine without ccache
+# configures and builds exactly as before. Set USE_CCACHE=OFF to opt out.
+option(USE_CCACHE "Use ccache as compiler launcher when available" ON)
+if(USE_CCACHE)
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+        message(STATUS "ccache found (${CCACHE_PROGRAM}) — using it as compiler launcher")
+        set(CMAKE_C_COMPILER_LAUNCHER   "${CCACHE_PROGRAM}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    else()
+        message(STATUS "ccache not found — compiling without a launcher")
+    endif()
+endif()
+
 # Initialize git submodules (e.g. third_party/spdlog) if not already present
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")

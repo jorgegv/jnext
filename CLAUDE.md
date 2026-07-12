@@ -121,6 +121,46 @@ To update reference screenshots after intentional rendering changes:
 bash test/00regression/generate-references.sh
 ```
 
+### Test-cycle performance (Task 39)
+
+Two ways to keep the build/test/review loop fast. Neither weakens a test: the
+identical work runs, it just runs faster. **Speed is never traded for test
+rigour** — see the `JNEXT_TEST_JOBS` note below for the one place that
+temptation arises, and why we decline it.
+
+**1. ccache is wired into the build.** `CMakeLists.txt` auto-detects `ccache`
+and uses it as `CMAKE_{C,CXX}_COMPILER_LAUNCHER` (guarded — a machine without
+ccache builds exactly as before; `-DUSE_CCACHE=OFF` opts out). This is what
+makes the mandatory `make clean` + full-rebuild discipline cheap: a clean
+rebuild of `gui-release` + `build/` drops from ~65 s to ~8 s on a warm cache
+(100% hit rate). Reverting a fix and rebuilding — the core reviewer move — is a
+*pure* cache hit, because the source is byte-identical to a state already
+compiled.
+
+Give ccache room, once per machine (this is a user-level config, **not**
+captured in the repo — re-apply it on any new machine):
+
+```bash
+ccache -M 20G     # the 5G default thrashes on a tree this size
+```
+
+**2. Reviewers: run mutation cycles in parallel, not serially.** Reviewer
+mutations are independent by construction (reverting a stencil gate has nothing
+to do with reverting a tab order), yet they are usually run one after another in
+a single build dir. Give each mutation its own build directory (or its own
+worktree) and run them concurrently — ccache is global, so the second and third
+builds are almost free. Keep `JNEXT_TEST_JOBS=4` on each concurrent regression
+run (see below).
+
+**Do NOT raise `JNEXT_TEST_JOBS` to buy speed.** `JNEXT_TEST_JOBS=4` stays on
+**every** regression invocation. It is not merely a politeness cap for the
+machine — the suite contains tests that are *real-time-pacing bounded* and will
+fail under CPU contention: `audio-underrun-func` reports underruns when the box
+is loaded, and `screenshot-paused-func`'s control run takes ~55 s against a 60 s
+timeout. Raising in-suite concurrency makes the suite intermittently lie, which
+is far more expensive than the ~55 s it would save. This was measured and
+rejected in Task 39.
+
 ### Headless mode
 
 The `--headless` option runs without display/audio for automated testing:

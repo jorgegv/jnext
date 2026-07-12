@@ -26,7 +26,7 @@ Per feedback memory:
 - **`make regression` is the canonical entry** (`feedback_make_regression_canonical`).
 - **Tee regression to a log file** so reviewers can read it (`feedback_regression_log_to_file`).
 - **For GUI-touching changes, build `build/gui-release/` first** (`feedback_clean_gui_release_for_regression`).
-- **Set `JNEXT_TEST_JOBS=1`** when running parallel work alongside regression (`feedback_jnext_test_jobs`).
+- **Set `JNEXT_TEST_JOBS=4` on every regression invocation** (`feedback_jnext_test_jobs`). Never raise it to go faster: the suite has contention-sensitive tests (`audio-underrun-func`, `screenshot-paused-func`) that fail under CPU load, so the cap protects test *correctness*, not just the machine.
 - **Run regression in the branch worktree, NOT on main** (`feedback_regression_in_branches`).
 - **Run regression on main only as a final convergence check** (`feedback_regression_main_session`).
 

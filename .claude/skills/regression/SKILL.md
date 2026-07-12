@@ -47,7 +47,7 @@ New failures vs baseline (33/0/0): <list or "none">
 - Pre-existing skips ≠ failures.
 - **Never update reference screenshots without explicit user authorization** (`feedback_pixel_equivalence_for_ref_regen`).
 - For GUI-touching changes, use `build/gui-release/` (`feedback_clean_gui_release_for_regression`).
-- Set `JNEXT_TEST_JOBS=1` when running parallel work alongside (`feedback_jnext_test_jobs`).
+- Set `JNEXT_TEST_JOBS=4` on every regression invocation (`feedback_jnext_test_jobs`). Never raise it for speed — `audio-underrun-func` and `screenshot-paused-func` are real-time-bounded and fail under CPU contention.
 - Run regression in the branch worktree, not on main (`feedback_regression_in_branches`).
 
 ## When to escalate to the `regression-runner` subagent
