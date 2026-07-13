@@ -2,9 +2,16 @@
 
 > ## RESOLVED — 2026-07-13 night (Task 54)
 >
-> **BIFROST now renders pixel-identical to real FUSE (0/49152 differing
-> pixels, both demo screens, modulo FLASH phase), and Nirvana's bricks
-> render yellow, matching FUSE.** Two final bugs, found by measuring
+> **BIFROST now renders logically pixel-identical to real FUSE (0/49152
+> differing ZX colour indices, both demo screens, modulo FLASH phase),
+> and Nirvana's bricks render yellow, matching FUSE.** NOTE the
+> measurement protocol: a raw RGB diff will NOT read 0 — FUSE renders
+> the "normal" intensity at 0xC0 where jnext uses 0xDB (RGB333); both
+> use 0xFF for bright. Compare colour indices (quantize both to the
+> ZX-16 palette), or map FUSE 0xC0→0xDB and raw-diff (then exactly 0).
+> The per-level channel histograms match exactly on both sides (3395
+> normal-level / 6678 bright-level samples per frame), so the BRIGHT
+> bit agrees at every pixel. Two final bugs, found by measuring
 > BIFROST's per-write beam positions against FUSE (`break write` +
 > `ula:tstates`, the Task 50 oracle recipe):
 >
