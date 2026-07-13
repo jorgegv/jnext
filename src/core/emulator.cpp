@@ -6090,6 +6090,13 @@ void Emulator::begin_new_frame()
     renderer_.init_stencil_mode_per_line();
     renderer_.init_blend_mode_per_line();
 
+    // Initialize per-line NR 0x14 (global transparent RGB) snapshot.
+    // VHDL zxnext.vhd:1137,5226,6822,6912-6913,7078 pipeline
+    // nr_14_global_transparent_rgb through the exact same stage0/1a/1/2
+    // register chain as ula_en (Task 45 — the snapshot/init/getter trio
+    // existed with zero call sites until now).
+    renderer_.init_transparent_rgb_per_line();
+
     // Initialize per-line border colour to current value.
     // Port 0xFE writes will update individual lines during execution.
     renderer_.ula().init_border_per_line();
@@ -6739,6 +6746,7 @@ void Emulator::run_frame()
     renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
     tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
 
@@ -7637,6 +7645,7 @@ void Emulator::on_scanline(int line)
             renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
             renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
             renderer_.snapshot_blend_mode_for_line(prev_fb_row);
+            renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
             renderer_.ula().snapshot_border_for_line(prev_fb_row);
             tilemap_.snapshot_scroll_for_line(prev_fb_row);
         }
