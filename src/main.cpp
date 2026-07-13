@@ -30,7 +30,7 @@ static void print_usage(const char* prog) {
         "\n"
         "  Usage: %s [options] [file]\n"
         "\n"
-        "  [file]               Program to load (NEX, TAP, TZX, SNA, SZX, WAV, RZX).\n"
+        "  [file]               Program to load (NEX, TAP, TZX, SNA, SZX, Z80, WAV, RZX).\n"
         "                       Equivalent to --load FILE, so 'jnext game.tap' just works.\n"
         "  --log-level SPEC     Log levels: a bare level sets all subsystems (e.g. warn),\n"
         "                       name=level sets one (e.g. cpu=trace); mix them, applied\n"
@@ -41,7 +41,7 @@ static void print_usage(const char* prog) {
         "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
-        "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav, .rzx\n"
+        "                       Supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
         "                       (.rzx is accepted here and plays back, as --rzx-play)\n"
         "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
         "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
@@ -411,7 +411,7 @@ int main(int argc, char* argv[]) {
                 // RZX files are handled via --rzx-play, not --load.
                 // But support it here for convenience.
                 rzx_play_file = load_file;
-            } else if (ext == ".nex" || ext == ".sna" || ext == ".szx") {
+            } else if (ext == ".nex" || ext == ".sna" || ext == ".szx" || ext == ".z80") {
                 app.set_pending_load(load_file, 0);
             } else if (ext == ".tap") {
                 // Task 19: TAP loading uses the phantom typist
@@ -432,7 +432,7 @@ int main(int argc, char* argv[]) {
                 app.set_pending_load(load_file, 100);
                 app.set_tape_realtime(true);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .tap, .tzx, .wav, .rzx)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx)", ext);
                 return 1;
             }
         }

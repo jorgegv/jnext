@@ -1183,39 +1183,67 @@ static void g_mf_int_wiring()
 
 // =====================================================================
 // Group BOOT — NextZXOS boot ladder + bypass + dot-cmd (G46/G47/G59/G60)
-// All NOT-UNIT-TESTABLE today; pinned-skip rows for traceability.
 // =====================================================================
+//
+// Task 8a re-audit (2026-07-13): the native firmware-faithful boot
+// landed 2026-07-10 (v0.94.0) and regression screenshots now exist at
+// test/00regression/regression_tests.conf: boot-nextzxos-splash (f252),
+// boot-nextzxos-welcome (f400), boot-nextzxos-menu (f450). Two of the
+// five original skip rows are genuinely exercised by those regression
+// tests and are re-homed below (comment only, no unit-tier row). The
+// `--bypass-tbblue-fw` feature (G59) was REMOVED from src/ on 2026-07-11
+// per explicit user decision (EMULATOR-DESIGN-PLAN.md Phase 11); its two
+// rows are WONT, not skip — there is nothing left to implement.
 
 static void g_boot_skips()
 {
     set_group("BOOT");
 
-    // BOOT-LOOP-01 — G46(b): RAM-test outer-loop (208 passes × 112 banks
-    // over 15s) is end-to-end behavioural; future regression script
-    // test/regression/nextzxos-boot.sh (see G47) is the owner.
-    skip("BOOT-LOOP-01",
-         "RAM-test loop is end-to-end; covered by future G47 regression (see G46)");
+    // BOOT-LOOP-01 — COVERED AT regression tier (not a skip). G46(b)'s
+    // RAM-test outer-loop (112 banks via NR 0x56, ~208 passes/bank) sits
+    // between the splash log and the welcome screen in the real boot
+    // ladder (doc/issues/nextzxos-boot/...). boot-nextzxos-welcome
+    // (test/00regression/regression_tests.conf, frame 400 = 8s emulated)
+    // only renders if the RAM-test loop completes and falls through to
+    // BASIC — if it hung (its pre-fix behaviour), the welcome screenshot
+    // would not match the reference. See
+    // test/00regression/regression_tests.conf: boot-nextzxos-welcome.
 
-    // BOOT-LOGO-01 — G46(c): missing logo + 4-entry loader log are
-    // rendering / screenshot-regression scope; future G47 owner.
-    skip("BOOT-LOGO-01",
-         "Loader logo+log is rendering; covered by future G47 screenshot ref (see G46)");
+    // BOOT-LOGO-01 — COVERED AT regression tier (not a skip). G46(c)'s
+    // "missing logo + 4-entry loader log" defect is exactly what
+    // boot-nextzxos-splash pins: its conf comment reads "the fixed frame
+    // shows the clean white-on-black loading log (incl. the Multiface
+    // ROM line)" at frame 252. See
+    // test/00regression/regression_tests.conf: boot-nextzxos-splash.
 
-    // BOOT-DOT-01 — G47: NextZXOS BASIC + dot-command surface is
-    // end-to-end (load NextZXOS, run .ls, screenshot-compare).
+    // BOOT-DOT-01 — G47: welcome/menu screenshots (above) prove NextZXOS
+    // reaches BASIC, but no test exercises the dot-command shell itself
+    // (e.g. typing ".ls" and comparing the directory listing). Neither
+    // the CLI (`--delayed-keypress-frames` presses one key, not a typed
+    // command line) nor any regression conf entry does this. Genuinely
+    // still end-to-end/unreachable from the unit tier.
     skip("BOOT-DOT-01",
-         "NextZXOS BASIC + dot-command surface is end-to-end (see G47)");
+         "NextZXOS reaches BASIC (see boot-nextzxos-welcome/menu regression); "
+         "dot-command shell execution (e.g. .ls) is not exercised by any test (see G47)");
 
-    // BYPASS-FAT-01 — G59: Host-side FAT32 reader for direct
-    // enNextZX.rom load missing.
-    skip("BYPASS-FAT-01",
-         "Host-side FAT32 reader for direct enNextZX.rom missing (see G59)");
+    // WONT BYPASS-FAT-01 — G59's `--bypass-tbblue-fw` boot path (the
+    // only consumer that needed a *direct host-side load of
+    // enNextZX.rom*) was removed from src/ on 2026-07-11 per explicit
+    // user decision (EMULATOR-DESIGN-PLAN.md Phase 11 "the flag and its
+    // C++ route were REMOVED ... native boot is the only path"). The
+    // generic host-side FAT32 reader this row's old reason called
+    // "missing" now exists (src/core/sd_rom_extractor.{h,cpp},
+    // src/core/fat32_image.{h,cpp}) and is used for 48/128/plus3.rom,
+    // enNxtmmc.rom, enNextMf.rom and the Alt ROM — but nothing calls it
+    // for enNextZX.rom, because nothing needs to: firmware-faithful boot
+    // loads that ROM through the emulated SD/SPI path, not the host
+    // reader. Reopen only if a bypass-style boot path is reintroduced.
 
-    // BYPASS-INI-01 — G60: config.ini/menu.ini/menu.def parser class
-    // not authored. When parser lands, this single skip explodes into
-    // ~29 unit rows.
-    skip("BYPASS-INI-01",
-         "config.ini/menu.ini/menu.def parser not authored (see G60)");
+    // WONT BYPASS-INI-01 — G60's config.ini/menu.ini/menu.def parser was
+    // scoped exclusively as a dependency of G59 ("Dependencies: G59
+    // lands first" — doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md).
+    // G59 is gone (see BYPASS-FAT-01 above), so this row has no feature
+    // left to implement. Reopen only if G59-equivalent work returns.
 }
 
 // =====================================================================

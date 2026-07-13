@@ -25,6 +25,7 @@
 #include "memory/rom.h"
 #include "memory/contention.h"
 #include "core/nex_loader.h"
+#include "core/z80_loader.h"
 #include "core/saveable.h"
 
 #include <cstdarg>
@@ -86,6 +87,21 @@ std::string fmt(const char* fmt_str, ...) {
     std::vsnprintf(buf, sizeof(buf), fmt_str, ap);
     va_end(ap);
     return std::string(buf);
+}
+
+// Append an `ED ED <count> <value>` RLE run (split into <=255-byte chunks)
+// to a byte vector under construction — the same encoding
+// Z80Loader::decompress_v1()/decompress_page() decode. Used to build
+// programmatic .z80 fixtures for BOOT-Z80-* below (no binaries checked in).
+void append_rle_run(std::vector<uint8_t>& out, uint8_t value, size_t count) {
+    while (count > 0) {
+        size_t chunk = std::min(count, static_cast<size_t>(255));
+        out.push_back(0xED);
+        out.push_back(0xED);
+        out.push_back(static_cast<uint8_t>(chunk));
+        out.push_back(value);
+        count -= chunk;
+    }
 }
 
 // ── Fixture ──────────────────────────────────────────────────────────
@@ -3229,11 +3245,302 @@ void test_boot_format_loaders() {
     skip("BOOT-TAPESAVE-02", "no tape-save infrastructure (see G33)");
     skip("BOOT-TAPESAVE-03", "no tape-save infrastructure (see G33)");
 
-    // Cat 23 — .z80 loader (G34). No src/core/z80_loader exists.
-    skip("BOOT-Z80-01", "no `.z80` loader exists (see G34)");
-    skip("BOOT-Z80-02", "no `.z80` loader exists (see G34)");
-    skip("BOOT-Z80-03", "no `.z80` loader exists (see G34)");
-    skip("BOOT-Z80-04", "no `.z80` loader exists (see G34)");
+    // Cat 23 — .z80 loader (G34). Z80Loader (src/core/z80_loader.h/.cpp)
+    // landed Task 13b. mmu_test does not link jnext_core (no Emulator), so
+    // — same technique as BOOT-NEX-07 / NexLoader — these exercise
+    // Z80Loader::load_from_buffer() + apply_ram_to_mmu() directly against a
+    // Fixture's bare Mmu, with fixtures built as byte arrays in-test (no
+    // binaries checked in). Field-offset citations: worldofspectrum.org/
+    // faq/reference/z80format.htm (the canonical `.z80` v1/v2/v3 spec every
+    // implementation — FUSE/CSpect/ZEsarUX — traces back to).
+
+    // BOOT-Z80-01 — v1 (uncompressed) .z80 round-trip. 30-byte header with
+    // PC != 0 (offset 6-7) is the v1 sentinel; body is a raw 49152-byte 48K
+    // dump laid out 0x4000-0x7FFF / 0x8000-0xBFFF / 0xC000-0xFFFF. Verifies
+    // both the header field parse and that Mmu reads at 0x4000-0xFFFF (via
+    // the post-reset() default 48K slot mapping — mmu.cpp RESET_PAGES —
+    // bank5@slots2/3, bank2@slots4/5, bank0@slots6/7) match the raw image.
+    {
+        std::vector<uint8_t> buf(30, 0);
+        buf[0] = 0x11; buf[1] = 0x22;                    // A, F
+        buf[2] = 0x44; buf[3] = 0x33;                    // BC = 0x3344 (LE)
+        buf[4] = 0x66; buf[5] = 0x55;                    // HL = 0x5566
+        buf[6] = 0x00; buf[7] = 0x80;                    // PC = 0x8000 (v1 sentinel: != 0)
+        buf[8] = 0xFE; buf[9] = 0xFF;                    // SP = 0xFFFE
+        buf[10] = 0x3F;                                  // I
+        buf[11] = 0x2A;                                  // R low 7 bits
+        buf[12] = 0x07;                                  // flags1: R hi=1, border=3, uncompressed
+        buf[13] = 0x88; buf[14] = 0x77;                  // DE = 0x7788
+        buf[15] = 0xAA; buf[16] = 0x99;                  // BC' = 0x99AA
+        buf[17] = 0xCC; buf[18] = 0xBB;                  // DE' = 0xBBCC
+        buf[19] = 0xEE; buf[20] = 0xDD;                  // HL' = 0xDDEE
+        buf[21] = 0x01; buf[22] = 0x02;                  // A', F'
+        buf[23] = 0x34; buf[24] = 0x12;                  // IY = 0x1234
+        buf[25] = 0x78; buf[26] = 0x56;                  // IX = 0x5678
+        buf[27] = 0x01;                                  // IFF1 = EI
+        buf[28] = 0x01;                                  // IFF2 = EI
+        buf[29] = 0x01;                                  // flags2: IM = 1
+
+        buf.resize(30 + 49152, 0);
+        std::fill(buf.begin() + 30,           buf.begin() + 30 + 16384, 0xA5);
+        std::fill(buf.begin() + 30 + 16384,   buf.begin() + 30 + 32768, 0xB6);
+        std::fill(buf.begin() + 30 + 32768,   buf.begin() + 30 + 49152, 0xC7);
+
+        Fixture f;
+        f.fresh();
+        Z80Loader loader;
+        bool load_ok  = loader.load_from_buffer(buf);
+        bool apply_ok = load_ok && loader.apply_ram_to_mmu(f.mmu);
+        const auto& h = loader.header();
+
+        bool header_ok = h.version == 1 && h.PC == 0x8000 && h.SP == 0xFFFE &&
+                          h.A == 0x11 && h.F == 0x22 && h.BC == 0x3344 && h.HL == 0x5566 &&
+                          h.DE == 0x7788 && h.IX == 0x5678 && h.IY == 0x1234 &&
+                          h.IM == 1 && h.IFF1 && h.IFF2 && h.border == 3;
+
+        bool mem_ok = f.mmu.read(0x4000) == 0xA5 && f.mmu.read(0x7FFF) == 0xA5 &&
+                      f.mmu.read(0x8000) == 0xB6 && f.mmu.read(0xBFFF) == 0xB6 &&
+                      f.mmu.read(0xC000) == 0xC7 && f.mmu.read(0xFFFF) == 0xC7;
+
+        check("BOOT-Z80-01",
+              "v1 (uncompressed) .z80 round-trip — Mmu reads at 0x4000-0xFFFF match "
+              "the raw-RAM image; PC/AF/BC/etc. match header bytes "
+              "(worldofspectrum.org/faq/reference/z80format.htm v1 layout)",
+              load_ok && apply_ok && header_ok && mem_ok,
+              fmt("load_ok=%d apply_ok=%d header_ok=%d mem_ok=%d version=%d",
+                  static_cast<int>(load_ok), static_cast<int>(apply_ok),
+                  static_cast<int>(header_ok), static_cast<int>(mem_ok), h.version));
+    }
+
+    // BOOT-Z80-02 — v2 (RLE-compressed) .z80 round-trip. PC==0 at offset
+    // 6-7 signals v2/v3; additional-header length 23 (offset 30-31) marks
+    // v2; hardware_mode=0 (offset 34) selects the 48K page table (page 4 ->
+    // 0x8000-0xBFFF, page 5 -> 0xC000-0xFFFF, page 8 -> 0x4000-0x7FFF).
+    // Each page is RLE-encoded as 16000 bytes of a fill value (multiple
+    // `ED ED <count> <byte>` runs, since count is a single byte, max 255)
+    // followed by 384 literal bytes — exercising both the run decoder and
+    // the literal-byte path of decompress_page() in the same block.
+    {
+        auto build_compressed_page = [](uint8_t fill) {
+            std::vector<uint8_t> page;
+            append_rle_run(page, fill, 16000);
+            for (int i = 0; i < 384; ++i)
+                page.push_back(static_cast<uint8_t>(0x30 + (i & 0x0F)));
+            return page;
+        };
+        auto append_page_block = [](std::vector<uint8_t>& out, uint8_t page_num,
+                                     const std::vector<uint8_t>& compressed) {
+            uint16_t len = static_cast<uint16_t>(compressed.size());
+            out.push_back(static_cast<uint8_t>(len & 0xFF));
+            out.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+            out.push_back(page_num);
+            out.insert(out.end(), compressed.begin(), compressed.end());
+        };
+
+        std::vector<uint8_t> buf(30, 0);        // buf[6..7] left 0 -> v2/v3 sentinel
+        uint16_t add_len = 23;
+        buf.push_back(static_cast<uint8_t>(add_len & 0xFF));
+        buf.push_back(static_cast<uint8_t>((add_len >> 8) & 0xFF));  // offset 30-31
+        uint16_t real_pc = 0x9000;
+        buf.push_back(static_cast<uint8_t>(real_pc & 0xFF));
+        buf.push_back(static_cast<uint8_t>((real_pc >> 8) & 0xFF));  // offset 32-33
+        buf.push_back(0x00);                     // offset 34: hardware_mode = 0 (48K)
+        buf.push_back(0x00);                     // offset 35: port_7ffd (unused, 48K)
+        for (int i = 0; i < 19; ++i) buf.push_back(0);  // pad to 23-byte additional header
+        // buf.size() == 32 + 23 == 55 here (memory pages start at offset 55).
+
+        append_page_block(buf, 4, build_compressed_page(0xA5));
+        append_page_block(buf, 5, build_compressed_page(0xB6));
+        append_page_block(buf, 8, build_compressed_page(0xC7));
+
+        Fixture f;
+        f.fresh();
+        Z80Loader loader;
+        bool load_ok  = loader.load_from_buffer(buf);
+        bool apply_ok = load_ok && loader.apply_ram_to_mmu(f.mmu);
+        const auto& h = loader.header();
+
+        bool header_ok = h.version == 2 && !h.is_128k && h.hardware_mode == 0 &&
+                          h.PC == 0x9000;
+
+        auto verify_region = [&](uint16_t base, uint8_t fill) {
+            for (int i = 0; i < 16000; ++i)
+                if (f.mmu.read(static_cast<uint16_t>(base + i)) != fill) return false;
+            for (int i = 0; i < 384; ++i)
+                if (f.mmu.read(static_cast<uint16_t>(base + 16000 + i)) !=
+                    static_cast<uint8_t>(0x30 + (i & 0x0F))) return false;
+            return true;
+        };
+        bool mem_ok = verify_region(0x8000, 0xA5) &&   // z80 page 4 -> bank 2
+                      verify_region(0xC000, 0xB6) &&   // z80 page 5 -> bank 0
+                      verify_region(0x4000, 0xC7);      // z80 page 8 -> bank 5
+
+        check("BOOT-Z80-02",
+              "v2 (RLE-compressed) .z80 round-trip — decompress_page() reproduces "
+              "the fill-run + literal-tail pattern across all three 48K page-number "
+              "-> bank mappings (page4/5/8 -> 0x8000/0xC000/0x4000)",
+              load_ok && apply_ok && header_ok && mem_ok,
+              fmt("load_ok=%d apply_ok=%d header_ok=%d mem_ok=%d version=%d is_128k=%d",
+                  static_cast<int>(load_ok), static_cast<int>(apply_ok),
+                  static_cast<int>(header_ok), static_cast<int>(mem_ok),
+                  h.version, static_cast<int>(h.is_128k)));
+    }
+
+    // BOOT-Z80-03 — v3 (extended-header, 128K) .z80. Additional-header
+    // length 54 marks v3; hardware_mode=4 (offset 34) is unambiguously
+    // 128K-class in both v2 and v3 (only value 3 is disputed across
+    // sources — see Z80Loader header comment; not exercised here).
+    // port_7ffd at offset 35 (0x23) must land in header().port_7ffd. All
+    // 8 z80 page numbers (3..10) map to RAM banks 0..7 (page-3), each
+    // tagged with its own page number so bank routing is unambiguous.
+    {
+        std::vector<uint8_t> buf(30, 0);        // buf[6..7] left 0 -> v2/v3 sentinel
+        uint16_t add_len = 54;
+        buf.push_back(static_cast<uint8_t>(add_len & 0xFF));
+        buf.push_back(static_cast<uint8_t>((add_len >> 8) & 0xFF));  // offset 30-31
+        uint16_t real_pc = 0xC000;
+        buf.push_back(static_cast<uint8_t>(real_pc & 0xFF));
+        buf.push_back(static_cast<uint8_t>((real_pc >> 8) & 0xFF));  // offset 32-33
+        buf.push_back(0x04);                     // offset 34: hardware_mode = 4 (128K)
+        buf.push_back(0x10);                     // offset 35 (0x23): port_7ffd = 0x10
+        for (int i = 0; i < 50; ++i) buf.push_back(0);  // pad to 54-byte additional header
+        // buf.size() == 32 + 54 == 86 here.
+
+        for (uint8_t page_num = 3; page_num <= 10; ++page_num) {
+            uint16_t len = 0xFFFF;               // sentinel: 16384 bytes follow uncompressed
+            buf.push_back(static_cast<uint8_t>(len & 0xFF));
+            buf.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+            buf.push_back(page_num);
+            buf.insert(buf.end(), 16384, page_num);  // whole page tagged with its own number
+        }
+
+        Fixture f;
+        f.fresh();
+        Z80Loader loader;
+        bool load_ok  = loader.load_from_buffer(buf);
+        bool apply_ok = load_ok && loader.apply_ram_to_mmu(f.mmu);
+        const auto& h = loader.header();
+
+        bool header_ok = h.version == 3 && h.is_128k && h.hardware_mode == 4 &&
+                          h.port_7ffd == 0x10 && h.PC == 0xC000;
+
+        // Verify each of the 8 banks via Mmu (not ram.page_ptr() directly —
+        // bank 5 / physical pages 10-11 route through a dedicated
+        // bank5_vram_ buffer in Next mode per mmu.h:1135, so only a Mmu
+        // round-trip is guaranteed consistent for every bank).
+        auto verify_page_uniform = [&](uint8_t page, uint8_t expect) {
+            constexpr int TEMP_SLOT = 1;
+            uint8_t saved = f.mmu.get_page(TEMP_SLOT);
+            f.mmu.set_page(TEMP_SLOT, page);
+            bool ok = true;
+            for (int off = 0; off < 0x2000; ++off) {
+                if (f.mmu.read(static_cast<uint16_t>(0x2000 + off)) != expect) { ok = false; break; }
+            }
+            f.mmu.set_page(TEMP_SLOT, saved);
+            return ok;
+        };
+        bool banks_ok = true;
+        for (int bank = 0; bank < 8 && banks_ok; ++bank) {
+            uint8_t expect = static_cast<uint8_t>(bank + 3);
+            banks_ok = verify_page_uniform(static_cast<uint8_t>(bank * 2), expect) &&
+                       verify_page_uniform(static_cast<uint8_t>(bank * 2 + 1), expect);
+        }
+
+        check("BOOT-Z80-03",
+              "v3 (extended-header, 128K) .z80 — Ram banks 0-7 populated per the "
+              "page3..10 -> bank0..7 table; port_7ffd_ from header byte 0x23",
+              load_ok && apply_ok && header_ok && banks_ok,
+              fmt("load_ok=%d apply_ok=%d header_ok=%d banks_ok=%d version=%d "
+                  "is_128k=%d port_7ffd=%#04x",
+                  static_cast<int>(load_ok), static_cast<int>(apply_ok),
+                  static_cast<int>(header_ok), static_cast<int>(banks_ok),
+                  h.version, static_cast<int>(h.is_128k), h.port_7ffd));
+    }
+
+    // BOOT-Z80-04 — Unsupported / corrupt .z80 file rejected. A v1 header
+    // (PC != 0) claims compression (flags1 bit 5) but the body is a
+    // truncated RLE run marker (`ED ED 05`, missing its value byte and the
+    // 00 ED ED 00 end marker) — decompress_v1() must detect the truncation
+    // and load_from_buffer() must return false. Also proves the emulator
+    // stays in pre-load state: a canary byte written before the failed
+    // load survives apply_ram_to_mmu() (which itself must refuse to write
+    // anything, since load() never succeeded).
+    {
+        std::vector<uint8_t> buf(30, 0);
+        buf[6] = 0x00; buf[7] = 0x80;   // PC = 0x8000 (v1 sentinel: != 0)
+        buf[12] = 0x20;                 // flags1: compressed bit set
+        buf.push_back(0xED);
+        buf.push_back(0xED);
+        buf.push_back(0x05);            // truncated: run marker with no value byte,
+                                         // and no 00 ED ED 00 end marker anywhere
+
+        Fixture f;
+        f.fresh();
+        f.mmu.write(0x4000, 0xEE);      // canary: must survive the failed load
+
+        Z80Loader loader;
+        bool load_ok  = loader.load_from_buffer(buf);
+        bool apply_ok = loader.apply_ram_to_mmu(f.mmu);
+        bool canary_intact = (f.mmu.read(0x4000) == 0xEE);
+
+        check("BOOT-Z80-04",
+              "Unsupported / corrupt .z80 file rejected — truncated RLE run with no "
+              "end marker; loader returns error and Mmu is left untouched",
+              !load_ok && !loader.is_loaded() && !apply_ok && canary_intact,
+              fmt("load_ok=%d is_loaded=%d apply_ok=%d canary_intact=%d",
+                  static_cast<int>(load_ok), static_cast<int>(loader.is_loaded()),
+                  static_cast<int>(apply_ok), static_cast<int>(canary_intact)));
+    }
+
+    // BOOT-Z80-05 — structurally-valid .z80 whose pages are all foreign
+    // page numbers must be rejected by apply_ram_to_mmu(), not silently
+    // report success with zero RAM written. A v3/128K header (add_len=54,
+    // hardware_mode=4) passes header parsing and parse_pages()'s
+    // `!pages_.empty()` check (one page present), but that page carries
+    // page_num=255 — outside the valid 3..10 (128K) / {4,5,8} (48K) sets —
+    // so apply_ram_to_mmu()'s bank-routing loop applies zero pages.
+    // load_from_buffer() must still SUCCEED here (parsing is structurally
+    // fine — the corruption is only in which page numbers were used), but
+    // apply_ram_to_mmu() must FAIL and leave Mmu untouched (independent
+    // review finding: without the `applied > 0` guard this silently
+    // "succeeds" with no RAM written at all — exit 0, nothing logged).
+    {
+        std::vector<uint8_t> buf(30, 0);        // buf[6..7] left 0 -> v2/v3 sentinel
+        uint16_t add_len = 54;
+        buf.push_back(static_cast<uint8_t>(add_len & 0xFF));
+        buf.push_back(static_cast<uint8_t>((add_len >> 8) & 0xFF));  // offset 30-31
+        uint16_t real_pc = 0x8000;
+        buf.push_back(static_cast<uint8_t>(real_pc & 0xFF));
+        buf.push_back(static_cast<uint8_t>((real_pc >> 8) & 0xFF));  // offset 32-33
+        buf.push_back(0x04);                     // offset 34: hardware_mode = 4 (128K)
+        buf.push_back(0x00);                     // offset 35: port_7ffd
+        for (int i = 0; i < 50; ++i) buf.push_back(0);  // pad to 54-byte additional header
+        // buf.size() == 32 + 54 == 86 here.
+
+        uint16_t len = 0xFFFF;                   // sentinel: 16384 bytes follow uncompressed
+        buf.push_back(static_cast<uint8_t>(len & 0xFF));
+        buf.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+        buf.push_back(static_cast<uint8_t>(255)); // foreign page number: outside 3..10
+        buf.insert(buf.end(), 16384, 0xAA);
+
+        Fixture f;
+        f.fresh();
+        f.mmu.write(0x4000, 0xEE);      // canary: must survive the rejected apply
+
+        Z80Loader loader;
+        bool load_ok  = loader.load_from_buffer(buf);
+        bool apply_ok = load_ok && loader.apply_ram_to_mmu(f.mmu);
+        bool canary_intact = (f.mmu.read(0x4000) == 0xEE);
+
+        check("BOOT-Z80-05",
+              "Structurally-valid .z80 with only foreign page numbers is rejected by "
+              "apply_ram_to_mmu() (zero pages applied), not silently reported as a "
+              "successful load with no RAM written",
+              load_ok && !apply_ok && canary_intact,
+              fmt("load_ok=%d apply_ok=%d canary_intact=%d",
+                  static_cast<int>(load_ok), static_cast<int>(apply_ok),
+                  static_cast<int>(canary_intact)));
+    }
 
     // Cat 24 — Snapshot save (G35).
     //

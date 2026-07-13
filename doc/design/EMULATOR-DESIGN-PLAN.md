@@ -1152,7 +1152,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 Easy ones:
 - [ ] Fix: when taking a screenshot in 640x256 pixel mode (Tilemap 80x32 mode), vertically scale the PNG 2x, so that the real screen aspect ratio is maintained (computer pixels in this format will be in PNG 1pix wide x 2 pix high)
-- [ ] Z80 file format loading
+- [x] Z80 file format loading ✓ (Task 13b — v1/v2/v3, 48K/128K, RLE + uncompressed pages)
 - [x] SZX file format loading ✓ (done in Phase 7.8)
 - [ ] Redefinable debugger keys (or perhaps named key combinations? e.g. "borland", "cspect", "zesarux",...)
 - [ ] Save screenshots in .SCR format

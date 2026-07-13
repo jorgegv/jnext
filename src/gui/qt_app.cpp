@@ -205,6 +205,8 @@ void QtApp::on_frame_tick() {
             emulator_.load_sna(load_file_);
         } else if (ext == ".szx") {
             emulator_.load_szx(load_file_);
+        } else if (ext == ".z80") {
+            emulator_.load_z80(load_file_);
         } else if (ext == ".wav") {
             emulator_.load_wav(load_file_);
         } else {
