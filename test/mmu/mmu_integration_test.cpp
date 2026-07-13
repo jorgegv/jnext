@@ -15,13 +15,18 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "core/szx_saver.h"
+#include "core/nex_saver.h"
 #include "memory/contention.h"
 
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <string>
 #include <vector>
+
+#include <unistd.h>   // mkstemp (POSIX) — temp files for saver round-trip tests
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -792,6 +797,199 @@ static void test_task26_mf_sram_backing() {
     }
 }
 
+// ── Snapshot saver full-pipeline round trip (Task 13b, G35) ────────────
+//
+// Complements the structural byte-layout checks in mmu_test.cpp
+// (BOOT-SNAPSAVE-02/02B/02C/03/03B/03C), which cannot link jnext_core and
+// so cannot call the real Emulator::load_szx()/load_nex() consumer path.
+// Here we DO have a full Emulator on both ends: build a known machine
+// state, save it, reload it into a FRESH Emulator via the exact same
+// path the GUI's File > Save Snapshot... / Load... menu items use, and
+// compare live state — registers, classic paging ports, RAM content,
+// and border.
+
+static bool write_temp_file(const std::vector<uint8_t>& bytes, std::string& path_out) {
+    char tmpl[] = "/tmp/jnext-snapsave-rt-XXXXXX";
+    int fd = mkstemp(tmpl);
+    if (fd < 0) return false;
+    ssize_t written = write(fd, bytes.data(), bytes.size());
+    close(fd);
+    path_out = tmpl;
+    return written == static_cast<ssize_t>(bytes.size());
+}
+
+static void test_snapsave_szx_roundtrip() {
+    set_group("SNAPSAVE-SZX-RT");
+
+    // +3 exercises both classic paging ports (7FFD + 1FFD) — the fullest
+    // classic-paging path SzxSaver/SzxLoader support.
+    Emulator emu1;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX_PLUS3;
+    cfg.rewind_buffer_frames = 0;
+    emu1.init(cfg);
+
+    Z80Registers regs = emu1.cpu().get_registers();
+    regs.AF = 0x2244; regs.BC = 0x6688; regs.DE = 0xAACC; regs.HL = 0xEE11;
+    regs.AF2 = 0x3355; regs.BC2 = 0x7799; regs.DE2 = 0xBBDD; regs.HL2 = 0xFF22;
+    regs.IX = 0x4466; regs.IY = 0x8899; regs.SP = 0x7000; regs.PC = 0x6500;
+    regs.I = 0x21; regs.R = 0x43; regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1;
+    regs.halted = false;
+    emu1.cpu().set_registers(regs);
+
+    // Distinctive RAM content in banks 0, 2, 5 (the ones SzxSaver always
+    // covers for any installed-RAM size) via direct physical-page write.
+    for (int bank : {0, 2, 5}) {
+        for (int half = 0; half < 2; ++half) {
+            uint8_t* p = emu1.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
+            for (int i = 0; i < 8192; ++i)
+                p[i] = static_cast<uint8_t>(bank * 17 + half * 3 + i);
+        }
+    }
+
+    emu1.port().out(0x7FFD, 0x05);   // bank 5 at 0xC000, ROM0, screen=normal
+    emu1.port().out(0x1FFD, 0x01);   // +3 special paging bit set
+    emu1.port().out(0x00FE, 0x04);   // border = 4
+
+    auto bytes = SzxSaver::save(emu1);
+    check("SNAPSAVE-SZX-RT-00", "SzxSaver::save() returns a non-empty buffer",
+          !bytes.empty(), fmt("size=%zu", bytes.size()));
+
+    std::string path;
+    bool wrote = write_temp_file(bytes, path);
+    check("SNAPSAVE-SZX-RT-01", "saved .szx bytes written to disk", wrote);
+    if (!wrote) return;
+
+    Emulator emu2;
+    EmulatorConfig cfg2;
+    cfg2.type = MachineType::ZX_PLUS3;
+    cfg2.rewind_buffer_frames = 0;
+    emu2.init(cfg2);
+
+    bool loaded = emu2.load_szx(path);
+    std::remove(path.c_str());
+    check("SNAPSAVE-SZX-RT-02", "Emulator::load_szx() accepts the saved file", loaded);
+    if (!loaded) return;
+
+    Z80Registers r2 = emu2.cpu().get_registers();
+    bool regs_ok = r2.AF==regs.AF && r2.BC==regs.BC && r2.DE==regs.DE && r2.HL==regs.HL
+        && r2.AF2==regs.AF2 && r2.BC2==regs.BC2 && r2.DE2==regs.DE2 && r2.HL2==regs.HL2
+        && r2.IX==regs.IX && r2.IY==regs.IY && r2.SP==regs.SP && r2.PC==regs.PC
+        && r2.I==regs.I && r2.R==regs.R && r2.IFF1==regs.IFF1 && r2.IFF2==regs.IFF2
+        && r2.IM==regs.IM && r2.halted==regs.halted;
+    check("SNAPSAVE-SZX-RT-REGS",
+          "full register set (both AF/BC/DE/HL sets, IX/IY/SP/PC, I/R/IFF/IM/halted) "
+          "round-trips through save()->file->Emulator::load_szx()",
+          regs_ok,
+          fmt("AF %04X/%04X PC %04X/%04X SP %04X/%04X halted %d/%d",
+              r2.AF, regs.AF, r2.PC, regs.PC, r2.SP, regs.SP, r2.halted, regs.halted));
+
+    bool paging_ok = emu2.mmu().port_7ffd() == 0x05 && emu2.mmu().port_1ffd() == 0x01;
+    check("SNAPSAVE-SZX-RT-PAGING",
+          "classic paging ports (0x7FFD/0x1FFD) round-trip via ZXSTSPECREGS",
+          paging_ok,
+          fmt("7ffd=0x%02X 1ffd=0x%02X (want 0x05/0x01)",
+              emu2.mmu().port_7ffd(), emu2.mmu().port_1ffd()));
+
+    bool ram_ok = true;
+    for (int bank : {0, 2, 5}) {
+        for (int half = 0; half < 2 && ram_ok; ++half) {
+            const uint8_t* p = emu2.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
+            for (int i = 0; i < 8192; ++i) {
+                if (p[i] != static_cast<uint8_t>(bank * 17 + half * 3 + i)) { ram_ok = false; break; }
+            }
+        }
+    }
+    check("SNAPSAVE-SZX-RT-RAM",
+          "banks 0/2/5 RAM content round-trips byte-for-byte via ZXSTRAMPAGE",
+          ram_ok);
+
+    bool border_ok = emu2.ula().get_border() == 4;
+    check("SNAPSAVE-SZX-RT-BORDER",
+          "border colour round-trips via ZXSTSPECREGS.chFe",
+          border_ok, fmt("border=%d (want 4)", emu2.ula().get_border()));
+}
+
+static void test_snapsave_nex_roundtrip() {
+    set_group("SNAPSAVE-NEX-RT");
+
+    // Next is the format's primary real-world target.
+    Emulator emu1;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu1.init(cfg);
+
+    // Bank 20 mapped contiguously (pages 40/41) at slots 6/7 — the entry
+    // point NEX resumes into.
+    emu1.mmu().set_page(6, 40);
+    emu1.mmu().set_page(7, 41);
+    for (int i = 0; i < 8192; ++i) {
+        emu1.ram().page_ptr(40)[i] = static_cast<uint8_t>(0x10 + (i & 0xFF));
+        emu1.ram().page_ptr(41)[i] = static_cast<uint8_t>(0x20 + (i & 0xFF));
+    }
+
+    Z80Registers regs = emu1.cpu().get_registers();
+    regs.PC = 0xC100;   // inside the bank-20 window (0xC000-0xFFFF)
+    regs.SP = 0xC500;
+    emu1.cpu().set_registers(regs);
+    emu1.port().out(0x00FE, 0x02);   // border = 2
+
+    auto result = NexSaver::save(emu1);
+    check("SNAPSAVE-NEX-RT-00", "NexSaver::save() returns a non-empty buffer",
+          !result.data.empty(), fmt("size=%zu", result.data.size()));
+
+    std::string path;
+    bool wrote = write_temp_file(result.data, path);
+    check("SNAPSAVE-NEX-RT-01", "saved .nex bytes written to disk", wrote);
+    if (!wrote) return;
+
+    Emulator emu2;
+    EmulatorConfig cfg2;
+    cfg2.type = MachineType::ZXN_ISSUE2;
+    cfg2.rewind_buffer_frames = 0;
+    emu2.init(cfg2);
+
+    bool loaded = emu2.load_nex(path);
+    std::remove(path.c_str());
+    check("SNAPSAVE-NEX-RT-02", "Emulator::load_nex() accepts the saved file", loaded);
+    if (!loaded) return;
+
+    // HONEST LIMITATION (see NexSaver class doc-comment): only PC/SP
+    // survive — Emulator::load_nex() resets before apply(), so every
+    // other register is reset-baseline, not the original value.
+    Z80Registers r2 = emu2.cpu().get_registers();
+    check("SNAPSAVE-NEX-RT-PCSP",
+          "PC/SP round-trip through save()->file->Emulator::load_nex() "
+          "(the only two registers NEX's header carries)",
+          r2.PC == regs.PC && r2.SP == regs.SP,
+          fmt("PC %04X/%04X SP %04X/%04X", r2.PC, regs.PC, r2.SP, regs.SP));
+
+    const uint8_t* p6 = emu2.ram().page_ptr(40);
+    const uint8_t* p7 = emu2.ram().page_ptr(41);
+    bool ram_ok = true;
+    for (int i = 0; i < 8192 && ram_ok; ++i) {
+        if (p6[i] != static_cast<uint8_t>(0x10 + (i & 0xFF))) ram_ok = false;
+        if (p7[i] != static_cast<uint8_t>(0x20 + (i & 0xFF))) ram_ok = false;
+    }
+    check("SNAPSAVE-NEX-RT-RAM",
+          "bank-20 (pages 40/41) content round-trips byte-for-byte through "
+          "the .nex bank payload",
+          ram_ok);
+
+    bool border_ok = emu2.ula().get_border() == 2;
+    check("SNAPSAVE-NEX-RT-BORDER",
+          "border colour round-trips via the .nex header",
+          border_ok, fmt("border=%d (want 2)", emu2.ula().get_border()));
+
+    bool entry_bank_ok = emu2.mmu().get_page(6) == 40 && emu2.mmu().get_page(7) == 41;
+    check("SNAPSAVE-NEX-RT-ENTRYBANK",
+          "entry_bank re-establishes the CPU-executable mapping at "
+          "0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator",
+          entry_bank_ok,
+          fmt("slot6=%d slot7=%d (want 40/41)", emu2.mmu().get_page(6), emu2.mmu().get_page(7)));
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -826,6 +1024,12 @@ int main() {
 
     test_task26_mf_sram_backing();
     std::printf("  Group: MF-SRAM (Task 26 MF external-SRAM backing) — done\n");
+
+    test_snapsave_szx_roundtrip();
+    std::printf("  Group: SNAPSAVE-SZX-RT (Task 13b .szx full round trip) — done\n");
+
+    test_snapsave_nex_roundtrip();
+    std::printf("  Group: SNAPSAVE-NEX-RT (Task 13b .nex full round trip) — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",
