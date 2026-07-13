@@ -82,6 +82,18 @@ compositor_integration_test 7/7/0/0 (100%). Net 9 SKIP closures this session:
   oracle confirmation (see Open Questions §1, §2 below). No code
   change is appropriate until the semantic question is resolved.
 
+* **2026-07-13 (Task 43 + Task 45) — per-line snapshot *consumption*
+  now covered, not just bookkeeping.** `stencil_mode_per_line_` /
+  `blend_mode_per_line_` (Task 43) and `transparent_rgb_per_line_`
+  (Task 45) each existed with a snapshot/init/getter trio but zero
+  call sites in `composite_scanline`, so a mid-frame Copper MOVE to
+  NR 0x68 b0/b6:5 or NR 0x14 took effect one scanline too early. Fixed
+  in `src/video/renderer.cpp`/`src/core/emulator.cpp`; new deferral
+  rows **TR-50/51**, **STEN-20/21**, **UTB-50/51** (Group TR/STEN/UTB
+  below) prove the fix — see the note above Group BLANK for how they
+  differ from the pre-existing PSCAN-G04-01/G11-01/G11-02 bookkeeping
+  rows. `compositor_test` 187→189.
+
 ---
 
 **Pre-Task 8 baseline (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**
@@ -377,6 +389,8 @@ derivation is non-obvious, the arithmetic is shown inline.
 | TR-33 | Layer 2 priority forced to 0 when layer is transparent | palette bit 15 set, l2_pixel_en=0 | — | `layer2_priority=0` (even though bit 15=1) | 7123 |
 | TR-40 | Sprite `pixel_en=0` transparent | — | sprite_pixel_en_2=0 | sprite_transparent=1 | 7118 |
 | TR-41 | Sprite `pixel_en=1` opaque regardless of NR 0x14 | NR 0x14=any | sprite_pixel_en_2=1, sprite_rgb_2=0x1C6 | sprite_transparent=0 | 7118 (no RGB compare) |
+| TR-50 | **Deferral** (Task 45): a mid-frame NR 0x14 write does not retroactively affect a row whose per-line snapshot already ran | Row 13's `transparent_rgb_per_line_` snapshot captured with NR 0x14=0xE3 (reset default); mode 000, opaque ULA pixel RGB=0xAA, all other layers transparent | Write NR 0x14 ← 0xAA (now matches the ULA pixel's RGB) but do **not** re-snapshot row 13; composite row 13 directly via `composite_scanline` (bypasses `composite_one()`'s auto-sync — see the deferral-methodology note in Group PSCAN) | Row still shows the OLD snapshot (0xE3 ≠ 0xAA) — ULA pixel stays opaque and wins | 1137, 5226, 6822, 6912–6913, 7078, 7100 |
+| TR-51 | **Deferral** (Task 45): the SAME row takes the new NR 0x14 value only once its snapshot is refreshed | Continuation of TR-50 (same `Renderer`, same row) | Re-snapshot row 13 (mirrors the next `on_scanline()` capture), composite the SAME row again | ULA RGB (0xAA) now matches the refreshed NR 0x14 snapshot → ULA transparent → the NR 0x4A fallback colour wins | 1137, 5226, 6822, 6912–6913, 7078, 7100 |
 
 ### Group TRI — Index-based transparency (integration rows only)
 
@@ -520,6 +534,11 @@ The subtraction branch is only entered if `mix_rgb_transparent = '0'`
 | UB-G26-01 | UTB-40/41 oracle inversion check: confirm `ula_blend_mode_2 = 01` `mix_top`/`mix_bot` swap on `tm_pixel_below_2` matches FPGA-team intent | mode 01, set ULA+TM with TM pixel below = 1; sample `mix_rgb` source | matches FPGA-team-confirmed expected; if confirmed inverted, UTB-40/41 must be regenerated and this row re-rules | zxnext.vhd:7163-7177 |
 | UB-G26-02 | L2 priority bit in modes 110/111 *over* opaque `mix_top` matches FPGA-team intent | mode 110, L=✓ S=✓ U=✓ mix_top=opaque, L2 priority bit set | additive RGB wins over `mix_top_rgb` (per VHDL 7300/7342 first-`if`); FPGA-team confirms not a copy-paste artefact | zxnext.vhd:7300, 7342 |
 
+| ID | Title | Preconditions | Stimulus | Expected | VHDL |
+|----|-------|---------------|----------|----------|------|
+| UTB-50 | **Deferral** (Task 43): a mid-frame NR 0x68 bits 6:5 write does not retroactively affect a row whose per-line snapshot already ran | Row 11's `blend_mode_per_line_` snapshot captured with blend_mode="00"; layer_priority=6 (mode 110, blend path), ULA+TM both opaque, `tm_pixel_below_2=0`, no L2/sprite | Write NR 0x68 bits 6:5 ← "10" (mode 10) but do **not** re-snapshot row 11; composite row 11 directly via `composite_scanline` (bypasses `composite_one()`'s auto-sync — see the deferral-methodology note in Group PSCAN) | Row still uses mode "00" (VHDL 7142–7148): TM opaque wins the `mix_top` cascade slot | 5446, 6811, 6900–6901, 7065 |
+| UTB-51 | **Deferral** (Task 43): the SAME row takes the new blend mode only once its snapshot is refreshed | Continuation of UTB-50 (same `Renderer`, same row) | Re-snapshot row 11 (mirrors the next `on_scanline()` capture), composite the SAME row again | Row now uses mode "10" (VHDL 7149–7155): `mix_top`/`mix_bot` forced transparent; with no L2 pixel the additive cascade (VHDL 7300–7310) never fires → the NR 0x4A fallback colour wins | 7149–7155, 7300–7310 |
+
 Note on UTB-30/UTB-31: the VHDL gating in mode 11 reads as
 `mix_top_transparent <= ula_transparent or not tm_pixel_below_2`, i.e.
 the ULA floats to the *top* when `tm_pixel_below_2=1` (because
@@ -545,6 +564,11 @@ Stencil is only active when both ULA and TM are enabled
 | STEN-15 | Stencil inactive if `tm_en=0` (even with bit set) | ULA opaque, TM disabled | — | `ula_final_rgb = ulatm_rgb` (non-stencil path) | 7130, 7133 |
 | STEN-16 | Stencil inactive if `ula_en=0` | — | — | non-stencil path | 7130 |
 | STEN-17 | Stencil off (bit=0), both enabled | — | — | non-stencil path | 7130 |
+
+| ID | Title | Preconditions | Stimulus | Expected | VHDL |
+|----|-------|---------------|----------|----------|------|
+| STEN-20 | **Deferral** (Task 43): a mid-frame NR 0x68 bit 0 write does not retroactively affect a row whose per-line snapshot already ran | Row 7's `stencil_mode_per_line_` snapshot captured with stencil_mode=off; mode 000 (SLU), `tm_enabled_=1`, `ula_enabled_per_line_[7]=1`, ULA=0xE0 and TM=0x1F (opaque, distinct, non-AND-equal RGBs) | Write NR 0x68 bit 0 ← 1 (stencil on) but do **not** re-snapshot row 7; composite row 7 directly via `composite_scanline` (bypasses `composite_one()`'s auto-sync — see the deferral-methodology note in Group PSCAN) | Row still uses the pre-write non-stencil `ulatm` merge — TM (opaque, `tm_pixel_below=0`) wins | 5445, 6810, 6897–6898, 7064 |
+| STEN-21 | **Deferral** (Task 43): the SAME row takes stencil mode only once its snapshot is refreshed | Continuation of STEN-20 (same `Renderer`, same row) | Re-snapshot row 7 (mirrors the next `on_scanline()` capture), composite the SAME row again | Row now takes the stencil AND-branch: `ula_rgb AND tm_rgb` (0xE0 AND 0x1F = 0x00) | 7112–7113, 7130 |
 
 ### Group UDIS — NR 0x68 bit 7 ULA disable + end-to-end blend assertion
 
@@ -611,6 +635,37 @@ bit 3 (ULA+ enable) per-scanline replay.
 | PSCAN-G11-01  | NR 0x68 bit 0 (stencil) per-scanline replay                                    | start_frame; line=50 NR 0x68 ← 0x01 (stencil_mode=1)                                              | rows 0..49 see stencil_mode=0; rows 50..end see stencil_mode=1                                    | zxnext.vhd:5445, 7142-7176 |
 | PSCAN-G11-02  | NR 0x68 bits 6:5 (blend mode) per-scanline replay                              | start_frame; line=100 NR 0x68 ← 0x40 (blend mode 10 / mix_rgb=ula_final)                          | rows 0..99 use blend mode 00; rows 100..end use 10 (mix_rgb routing changes)                      | zxnext.vhd:5445, 7142-7176 |
 | PSCAN-G11-03  | NR 0x68 bit 3 (ULA+ gate) per-scanline replay                                  | start_frame; line=80 NR 0x68 ← 0x08 (ulap_en=1)                                                   | rows 0..79 use ULA path; rows 80..end use ULA+ palette path                                       | zxnext.vhd:5445, ulap_en   |
+
+**PSCAN-G04-01 / G11-01 / G11-02 test the array's bookkeeping in
+isolation, not `composite_scanline`'s consumption of it.** They drive
+`snapshot_*_for_line()`/`init_*_per_line()`/`*_for_line()` directly and
+assert the array holds the right value per row — they never call
+`composite_scanline` at all, so a bug where the compositor reads the
+*live* member instead of the per-line snapshot (the exact defect fixed
+in Task 43 for stencil/blend and Task 45 for NR 0x14) would not be
+caught by these rows. Do not conflate the two: the bookkeeping is
+proven here; the *consumption* is proven by the deferral pairs below,
+which call `composite_scanline` directly and assert an observable pixel
+difference before vs. after the snapshot is refreshed for the SAME row:
+
+- **TR-50 / TR-51** (Group TR below) — NR 0x14.
+- **STEN-20 / STEN-21** (Group STEN below) — NR 0x68 bit 0 (stencil).
+- **UTB-50 / UTB-51** (Group UTB below) — NR 0x68 bits 6:5 (blend mode).
+
+All three pairs share one methodological point worth stating once,
+here, rather than only in a code comment: `test/compositor/compositor_test.cpp`'s
+`composite_one()` helper auto-syncs every per-line snapshot
+(`snapshot_transparent_rgb_for_line`, `snapshot_stencil_mode_for_line`,
+`snapshot_blend_mode_for_line`) for its target row immediately before
+compositing, so every OTHER row in the suite (which sets the live
+member and composites through `composite_one()` in the same
+statement) tests pixel math given an *already-effective* value, not
+deferral. A deferral row that used `composite_one()` would have its
+withheld snapshot silently filled in by the helper and could never
+fail — a vacuous test. TR-50/51, STEN-20/21 and UTB-50/51 therefore
+call `r.composite_scanline()` directly, bypassing `composite_one()`,
+so the snapshot they deliberately withhold for the "before" assertion
+stays withheld.
 
 ### Group BLANK — Output blanking
 
