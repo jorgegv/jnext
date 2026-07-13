@@ -1945,83 +1945,61 @@ namespace {
 void test_cat21_nirvana_multiplex() {
     set_group("G12-MUX");
 
-    // G12-MUX-01/02 — G12 Problem-2 fix: the zero-false-negative arm
-    // condition (Mmu::attr_mux_write_still_relevant_(), src/memory/mmu.h)
-    // that replaced an earlier same-byte-repeat-count heuristic
-    // (kAttrMuxArmRepeatThreshold=4, removed). Nirvana-class demos
-    // rewrite ULA attribute bytes mid-frame, racing the video beam, to
-    // get more colours per cell than the hardware nominally allows. This
-    // is possible on real hardware because the ULA does not fetch the
-    // attribute byte once per frame — it recomputes the attribute-row
-    // address from the CURRENT raster position every scanline and
-    // re-fetches it every character column: VHDL video/zxula.vhd:192,
-    // 223-224 (`py_s <= i_vc + ...`; `addr_a_spc_12_5 <= "110" & py(7
-    // downto 3)` — driven straight off the live `i_vc` counter, not a
-    // frame-latched value). An independent reviewer of the original
-    // repeat-count heuristic found a real false-negative: a cell racing
-    // only 2 colour bands (repeat count 2) never reached the old
-    // threshold of 4 and rendered flat and silently wrong —
-    // indistinguishable from "working as designed" except the picture
-    // was wrong. These two rows are the regression guard for that fix
-    // and its complementary control; G12-MUX-03..09 below cover the
-    // frame-boundary latency and per-line replay-reconstruction
-    // mechanics, which the arm-condition change did not touch.
+    // G12-MUX — Task 8 Nirvana round 3 (2026-07-13): the arm/gate
+    // mechanism (first a same-byte-repeat-count heuristic, then a
+    // "positional" beam-position gate — see doc/issues/KNOWN-
+    // FUNCTIONALITY-GAPS-AND-PLAN.md "G12" for the full history) is
+    // REMOVED. Measured (headless beast.nex, 2500 frames, release, 3+
+    // runs each side) to cost nothing detectable vs. always recording —
+    // gating existed only to avoid the log-append cost on ordinary
+    // content, and that cost turned out to be unmeasurable. Recording is
+    // now unconditional: ANY write landing in the 768-byte attribute
+    // sub-range of the bank-5/bank-7 attribute pages is logged
+    // immediately, tagged with whatever scanline is current at the time
+    // of the write — no repeat count, no beam-position check, no
+    // frame-boundary latency. Nirvana-class demos rewrite ULA attribute
+    // bytes mid-frame, racing the video beam, because the ULA does not
+    // fetch the attribute byte once per frame — it recomputes the
+    // attribute-row address from the CURRENT raster position every
+    // scanline and re-fetches it every character column: VHDL
+    // video/zxula.vhd:192, 223-224 (`py_s <= i_vc + ...`;
+    // `addr_a_spc_12_5 <= "110" & py(7 downto 3)` — driven straight off
+    // the live `i_vc` counter, not a frame-latched value).
 
-    // G12-MUX-01: a cell racing only 2 bands (repeat count 2, both
-    // writes landing inside the byte's own cell's 8-scanline
-    // active-display span) arms replay at the next frame boundary and
-    // correctly reconstructs both distinct band colours — the scenario
-    // the old repeat->=4 heuristic left flat and silently wrong.
+    // G12-MUX-01: a single attribute write is recorded and replayable
+    // within the SAME frame it happens — no "next frame boundary" wait
+    // of any kind (regression guard against ever reintroducing arm
+    // latency).
     {
         Fixture f;
         f.fresh();
         f.mmu.set_page(2, 0x0A);   // bank-5 attribute page at CPU 0x4000-0x5FFF
-        const uint16_t attr5_addr = 0x5810;               // column 16, character row 0
-        const uint16_t off = attr5_addr - 0x5800;          // cell spans screen rows 0-7
-        const int disp_y = 32;   // Ula::DISP_Y — see Mmu::kAttrMuxDispY
+        const uint16_t attr5_addr = 0x5810;      // column 16, character row 0
+        const uint16_t off = attr5_addr - 0x5800;
+        const int disp_y = 32;   // Ula::DISP_Y
 
         f.mmu.attr_mux_start_frame();
-        f.mmu.attr_mux_set_current_line(disp_y + 0);   // screen row 0 — cell 0's own span
-        f.mmu.write(attr5_addr, 0x11);
-        f.mmu.attr_mux_set_current_line(disp_y + 4);   // screen row 4 — still cell 0's own span
-        f.mmu.write(attr5_addr, 0x22);
-        f.mmu.attr_mux_start_frame();   // arm decision applies at the NEXT frame boundary
-        const bool armed_after_2band = f.mmu.attr_mux_armed();
-
-        // Prove it doesn't just flip a flag — the same 2-band pattern,
-        // replayed now that the mux is armed, reconstructs two genuinely
-        // distinct colours from the one physical byte.
         f.mmu.attr_mux_set_current_line(disp_y + 0);
-        f.mmu.write(attr5_addr, 0xAA);
-        f.mmu.attr_mux_set_current_line(disp_y + 4);
-        f.mmu.write(attr5_addr, 0xBB);
+        f.mmu.write(attr5_addr, 0x42);
         f.mmu.attr_mux_rewind_to_baseline();
         f.mmu.attr_mux_apply_line(disp_y + 0);
-        const uint8_t band1 = f.mmu.attr_mux5().current(off);
-        f.mmu.attr_mux_apply_line(disp_y + 4);
-        const uint8_t band2 = f.mmu.attr_mux5().current(off);
-
+        const uint8_t value = f.mmu.attr_mux5().current(off);
         check("G12-MUX-01",
-              "G12 Problem-2 fix: a cell racing only 2 bands (repeat count "
-              "2, both writes inside the cell's own active-display span) "
-              "arms replay at the next frame boundary and correctly "
-              "reconstructs both distinct band colours — the old "
-              "repeat>=4 heuristic left this scenario flat and silently "
-              "wrong",
-              armed_after_2band && band1 == 0xAA && band2 == 0xBB,
-              fmt("armed=%d band1=0x%02X band2=0x%02X "
-                  "(expected armed=1 band1=0xAA band2=0xBB)",
-                  static_cast<int>(armed_after_2band), band1, band2));
+              "a single attribute write is recorded and replayable within "
+              "the SAME frame it happens -- no arm/gate, no frame-boundary "
+              "latency",
+              f.mmu.attr_mux5().log_size() == 1 && value == 0x42,
+              fmt("log_size=%zu value=0x%02X (expected 1/0x42)",
+                  f.mmu.attr_mux5().log_size(), value));
     }
 
-    // G12-MUX-02: the complementary control for G12-MUX-01's positional
-    // gate. Writes tagged OUTSIDE the active display (top/bottom border,
-    // vblank — screen row < 0 or >= 192) can never race the beam this
-    // frame: the entire visible frame is still ahead of them. Real
-    // software commonly rewrites the whole attribute plane during
-    // vblank/top border before the frame starts, so this must stay
-    // inert no matter how many times the same byte is rewritten —
-    // arming is gated on beam POSITION, not raw write count.
+    // G12-MUX-02: writes tagged OUTSIDE the active display (top/bottom
+    // border, vblank) are ALSO recorded now — there is no beam-position
+    // gate left to exempt them. This is the direct regression guard
+    // against reintroducing any positional or count-based gate: the old
+    // gate deliberately left these inert (they "could never race"), but
+    // that was a property of the GATE, not of recording itself, and the
+    // gate is gone.
     {
         Fixture f;
         f.fresh();
@@ -2033,24 +2011,20 @@ void test_cat21_nirvana_multiplex() {
         for (int i = 0; i < 16; ++i) {
             f.mmu.write(attr5_addr, static_cast<uint8_t>(i));
         }
-        f.mmu.attr_mux_start_frame();   // next frame boundary
         check("G12-MUX-02",
               "writes tagged outside the active display (border/vblank) "
-              "never arm replay, no matter how many times the same byte "
-              "is rewritten in the frame",
-              !f.mmu.attr_mux_armed(),
-              fmt("armed=%d after 16 out-of-display writes to the same "
-                  "byte (expected armed=0)",
-                  static_cast<int>(f.mmu.attr_mux_armed())));
+              "are recorded unconditionally -- no positional gate remains",
+              f.mmu.attr_mux5().log_size() == 16,
+              fmt("log_size=%zu (expected 16, one per write)",
+                  f.mmu.attr_mux5().log_size()));
     }
 
     // G12-MUX-03 — the actual ULA-side mid-row recolour mux consumer,
-    // now wired via Mmu::attr_mux5()/attr_mux7() (Mmu::write()'s
-    // dedicated always-on-detector-plus-armed-log path -- see mmu.h,
-    // independent of the generic Ram observer exercised above). This
-    // Fixture has no Ula/Renderer, so per the task's bounded scope we
-    // verify the Mmu-side plumbing is provably correct at the source: a
-    // real Ula/Renderer just calls mmu.attr_mux5().current(offset) after
+    // wired via Mmu::attr_mux5()/attr_mux7() (Mmu::write()'s dedicated
+    // always-on detector-plus-recorder — see mmu.h). This Fixture has no
+    // Ula/Renderer, so per the task's bounded scope we verify the
+    // Mmu-side plumbing is provably correct at the source: a real
+    // Ula/Renderer just calls mmu.attr_mux5().current(offset) after
     // Mmu::attr_mux_apply_line(row) -- see src/video/ula.cpp
     // Ula::attr_vram_read() for the actual consumer wiring, exercised
     // end-to-end by the nirvana_demo regression test instead of here.
@@ -2073,42 +2047,34 @@ void test_cat21_nirvana_multiplex() {
         const uint16_t attr5_addr = 0x5810;  // bank5 attribute, column 16 row 0
         const uint16_t attr7_addr = 0x7810;  // bank7 shadow, same column/row
         const uint16_t off = attr5_addr - 0x5800;
+        const int disp_y = 32;   // Ula::DISP_Y — arbitrary in-display line; no gate depends on it
 
-        // G12-MUX-03: before the NEXT frame boundary, even a write that
-        // DOES satisfy the arm condition (in-display, inside the target
-        // cell's own active-display span — see G12 Problem-2 fix,
-        // Mmu::attr_mux_write_still_relevant_()) does not retroactively
-        // arm THIS frame: arming has one frame of detection latency by
-        // design (same convention every sibling per-scanline log
-        // follows). attr_mux_armed() stays false and the per-frame log
-        // stays empty until attr_mux_start_frame() is called again.
-        const int disp_y = 32;   // Ula::DISP_Y — see Mmu::kAttrMuxDispY
         f.mmu.attr_mux_start_frame();
-        f.mmu.attr_mux_set_current_line(disp_y + 0);   // screen row 0 — cell 0's own span (0-7)
+
+        // Two distinct colour bands within the same cell's own
+        // 8-scanline span (screen rows 0-7) -- the exact scenario the
+        // OLD repeat>=4 heuristic left flat and silently wrong (a
+        // 2-write race never reached the threshold). Must always
+        // reconstruct correctly now: there is no threshold.
+        f.mmu.attr_mux_set_current_line(disp_y);
         f.mmu.write(attr5_addr, 0xAA);
+        f.mmu.attr_mux_set_current_line(disp_y + 4);
+        f.mmu.write(attr5_addr, 0xBB);
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(disp_y);
+        const uint8_t band1 = f.mmu.attr_mux5().current(off);
+        f.mmu.attr_mux_apply_line(disp_y + 4);
+        const uint8_t band2 = f.mmu.attr_mux5().current(off);
         check("G12-MUX-03",
-              "a write satisfying the arm condition does not retroactively "
-              "arm the CURRENT frame -- attr_mux_armed() stays false and "
-              "the per-frame log stays empty until the next frame boundary",
-              !f.mmu.attr_mux_armed() && f.mmu.attr_mux5().log_size() == 0,
-              fmt("armed=%d log_size=%zu", f.mmu.attr_mux_armed(), f.mmu.attr_mux5().log_size()));
+              "a cell racing only 2 colour bands (the scenario the old "
+              "repeat>=4 heuristic left flat and silently wrong) correctly "
+              "reconstructs both distinct band colours",
+              band1 == 0xAA && band2 == 0xBB,
+              fmt("band1=0x%02X band2=0x%02X (expected 0xAA/0xBB)", band1, band2));
 
-        // G12-MUX-04: the arm decision fires at the NEXT frame boundary
-        // (attr_mux_start_frame), not immediately -- one frame of
-        // detection latency before replay engages. Under the G12
-        // Problem-2 fix, a SINGLE write inside its target cell's own
-        // active-display span is sufficient to arm -- no repeat count
-        // needed (see G12-MUX-01 for the case that motivated dropping
-        // the old repeat-count requirement).
-        f.mmu.attr_mux_start_frame();
-        check("G12-MUX-04",
-              "a write inside its target cell's own active-display span "
-              "arms replay for the following frame",
-              f.mmu.attr_mux_armed(),
-              fmt("armed=%d", static_cast<int>(f.mmu.attr_mux_armed())));
-
-        // Now armed: race attr5_addr across three scanlines with three
+        // Now race attr5_addr across three scanlines with three
         // different values, then read back the per-line reconstruction.
+        f.mmu.attr_mux_start_frame();
         f.mmu.attr_mux_set_current_line(0);
         f.mmu.write(attr5_addr, 0x01);
         f.mmu.attr_mux_set_current_line(1);
@@ -2118,47 +2084,47 @@ void test_cat21_nirvana_multiplex() {
 
         f.mmu.attr_mux_rewind_to_baseline();
         f.mmu.attr_mux_apply_line(0);
-        check("G12-MUX-05",
-              "armed: scanline 0 replay reconstructs the value written while "
+        check("G12-MUX-04",
+              "scanline 0 replay reconstructs the value written while "
               "tagged line 0, not the frame's last write",
               f.mmu.attr_mux5().current(off) == 0x01,
               fmt("current=0x%02X (expected 0x01)", f.mmu.attr_mux5().current(off)));
 
         f.mmu.attr_mux_apply_line(1);
-        check("G12-MUX-06",
-              "armed: scanline 1 replay reconstructs the value written while "
+        check("G12-MUX-05",
+              "scanline 1 replay reconstructs the value written while "
               "tagged line 1",
               f.mmu.attr_mux5().current(off) == 0x02,
               fmt("current=0x%02X (expected 0x02)", f.mmu.attr_mux5().current(off)));
 
         f.mmu.attr_mux_apply_line(2);
-        check("G12-MUX-07",
-              "armed: scanline 2 replay reconstructs the value written while "
+        check("G12-MUX-06",
+              "scanline 2 replay reconstructs the value written while "
               "tagged line 2 -- three distinct scanlines, three distinct "
               "colours from ONE physical byte, matching real Nirvana output",
               f.mmu.attr_mux5().current(off) == 0x03,
               fmt("current=0x%02X (expected 0x03)", f.mmu.attr_mux5().current(off)));
 
-        // G12-MUX-08: scanline 3 has no logged write -- per VHDL the ULA
+        // G12-MUX-07: scanline 3 has no logged write -- per VHDL the ULA
         // re-fetches the SAME RAM address every scanline (zxula.vhd:223-224);
         // if the CPU didn't rewrite it, the fetch returns the value already
         // there. The replay must carry the last value forward, not reset
         // to baseline or corrupt it.
         f.mmu.attr_mux_apply_line(3);
-        check("G12-MUX-08",
+        check("G12-MUX-07",
               "a scanline with no attribute write carries the previous "
               "scanline's reconstructed value forward (matches VHDL: the ULA "
               "re-fetches unchanged RAM and sees the unchanged byte)",
               f.mmu.attr_mux5().current(off) == 0x03,
               fmt("current=0x%02X (expected 0x03, carried from line 2)", f.mmu.attr_mux5().current(off)));
 
-        // G12-MUX-09: bank-7 shadow attribute plane is tracked
+        // G12-MUX-08: bank-7 shadow attribute plane is tracked
         // independently of bank 5 -- writing the SAME column/row offset
         // in the shadow plane must not disturb bank 5's reconstruction.
         f.mmu.attr_mux_set_current_line(2);
         f.mmu.write(attr7_addr, 0x55);
         f.mmu.attr_mux_apply_line(2);
-        check("G12-MUX-09",
+        check("G12-MUX-08",
               "bank-7 shadow attribute plane replays independently of bank 5 "
               "at the same column/row offset",
               f.mmu.attr_mux7().current(off) == 0x55 && f.mmu.attr_mux5().current(off) == 0x03,
@@ -2166,54 +2132,67 @@ void test_cat21_nirvana_multiplex() {
                   f.mmu.attr_mux7().current(off), f.mmu.attr_mux5().current(off)));
     }
 
-    // G12-MUX-10 — transparency (Non-negotiable correctness property for
-    // the G12 Problem-2 fix): once armed by SOME genuinely racing byte,
-    // a DIFFERENT byte that is written only ONCE per frame, tagged well
-    // BEFORE its own cell's active-display span begins, still
-    // reconstructs the single value it was written with for every row
-    // of that cell -- matching exactly what unarmed last-write-wins
-    // rendering (a direct RAM read) would show. Arming a run because
-    // SOME content races does not corrupt or delay ordinary non-racing
-    // content elsewhere on screen.
+    // G12-MUX-09 — the discriminative fall-through test the always-on
+    // redesign specifically needed and previously lacked: a frame in
+    // which SOME attribute cells are written mid-frame and OTHERS are
+    // left completely untouched. The untouched cell must render its
+    // REAL RAM content unchanged (baseline fall-through) across every
+    // scanline of its span -- not zero, not a stale/wrong-bank value --
+    // while a DIFFERENT cell racing in the SAME frame replays its own
+    // mid-frame writes. This is the assertion whose absence let the
+    // Task 8 Nirvana round-2 bank-selection bug ship silently (see
+    // Ula::attr_vram_read() -- reading the WRONG bank's baseline looked
+    // exactly like "no fall-through" from the outside, even though
+    // AttributeMux's own baseline+fall-through mechanism was correct
+    // all along). Mutation-tested: temporarily forcing
+    // AttributeMux::start_frame() to ignore its baseline argument (as if
+    // Mmu had passed a null/wrong pointer) makes this row FAIL
+    // (untouched byte reads back 0x00, not 0x99); restoring the real
+    // baseline snapshot makes it PASS again.
     {
         Fixture f;
         f.fresh();
         f.mmu.set_page(2, 0x0A);
-        const uint16_t attr5_addr = 0x5810;   // cell row 0 -> screen rows 0-7 (fb_row 32-39)
-        const uint16_t off = attr5_addr - 0x5800;
-        const int disp_y = 32;   // Ula::DISP_Y — see Mmu::kAttrMuxDispY
+        const uint16_t untouched_addr = 0x5820;  // a DIFFERENT cell, never rewritten
+        const uint16_t racing_addr    = 0x5810;  // the cell under race this frame
+        const uint16_t off_untouched  = untouched_addr - 0x5800;
+        const uint16_t off_racing     = racing_addr - 0x5800;
+        const int disp_y = 32;
 
-        // Arm via a genuine race on a DIFFERENT byte first (mirrors
-        // G12-MUX-01's arming mechanism), decoupled from the byte under
-        // test here.
-        f.mmu.attr_mux_start_frame();
+        // Pre-existing real RAM content for the untouched cell, written
+        // BEFORE this frame starts -- exactly what a genuine "set once,
+        // never touched again" attribute byte looks like. This becomes
+        // part of the baseline snapshot when attr_mux_start_frame() runs.
+        f.mmu.write(untouched_addr, 0x99);
+
+        f.mmu.attr_mux_start_frame();   // snapshots baseline, including the 0x99 above
+
+        // Race a DIFFERENT cell mid-frame -- proves the log/replay
+        // mechanism is actively engaged this frame, not merely inert.
         f.mmu.attr_mux_set_current_line(disp_y + 0);
-        f.mmu.write(0x5820, 0x00);   // a different cell's byte -- only needs to arm
-        f.mmu.attr_mux_start_frame();
-        const bool armed = f.mmu.attr_mux_armed();
+        f.mmu.write(racing_addr, 0x11);
+        f.mmu.attr_mux_set_current_line(disp_y + 4);
+        f.mmu.write(racing_addr, 0x22);
 
-        // Now armed: write attr5_addr exactly ONCE, tagged well BEFORE
-        // its own cell's span (fb_row 0 -- top border; cell 0 starts at
-        // fb_row disp_y=32).
-        f.mmu.attr_mux_set_current_line(0);
-        f.mmu.write(attr5_addr, 0x77);
         f.mmu.attr_mux_rewind_to_baseline();
-        for (int line = 0; line <= disp_y + 7; ++line) {
-            f.mmu.attr_mux_apply_line(line);
-        }
-        const uint8_t reconstructed = f.mmu.attr_mux5().current(off);
+        f.mmu.attr_mux_apply_line(disp_y + 0);
+        const uint8_t untouched_at_line0 = f.mmu.attr_mux5().current(off_untouched);
+        const uint8_t racing_at_line0    = f.mmu.attr_mux5().current(off_racing);
+        f.mmu.attr_mux_apply_line(disp_y + 4);
+        const uint8_t untouched_at_line4 = f.mmu.attr_mux5().current(off_untouched);
+        const uint8_t racing_at_line4    = f.mmu.attr_mux5().current(off_racing);
 
-        check("G12-MUX-10",
-              "transparency: once armed by an unrelated racing byte, a "
-              "DIFFERENT byte written only ONCE per frame -- before its "
-              "own cell's active-display span begins -- still "
-              "reconstructs the single value it was written with for "
-              "every row of that cell, matching what unarmed "
-              "last-write-wins rendering would show",
-              armed && reconstructed == 0x77,
-              fmt("armed=%d reconstructed=0x%02X "
-                  "(expected armed=1 reconstructed=0x77)",
-                  static_cast<int>(armed), reconstructed));
+        check("G12-MUX-09",
+              "discriminative fall-through: an untouched cell renders its "
+              "REAL RAM content unchanged across every scanline, while a "
+              "DIFFERENT cell racing in the SAME frame replays its own "
+              "mid-frame writes -- proves the mux overlays changes on top "
+              "of real RAM rather than replacing the entire plane",
+              untouched_at_line0 == 0x99 && untouched_at_line4 == 0x99 &&
+              racing_at_line0 == 0x11 && racing_at_line4 == 0x22,
+              fmt("untouched@0=0x%02X untouched@4=0x%02X racing@0=0x%02X racing@4=0x%02X "
+                  "(expected 0x99/0x99/0x11/0x22)",
+                  untouched_at_line0, untouched_at_line4, racing_at_line0, racing_at_line4));
     }
 }
 

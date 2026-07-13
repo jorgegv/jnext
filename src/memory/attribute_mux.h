@@ -116,9 +116,9 @@ public:
     // size" heap-corruption crash: RewindBuffer slots are fixed-size,
     // but log_size_ (and therefore the serialised byte count) varies
     // frame to frame — see Mmu::save_state, which persists only the
-    // single `attr_mux_armed_` bool that genuinely needs to survive a
-    // rewind (so replay doesn't need to "re-detect" racing after
-    // loading a snapshot taken mid-run).
+    // scanline-tag cursor (`attr_mux_current_line_`) that genuinely
+    // needs to survive a rewind. (The mux itself is always-on — no
+    // "armed" state exists to persist as of Task 8 Nirvana round 3.)
 
 private:
     struct Entry {

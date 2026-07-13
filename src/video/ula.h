@@ -834,16 +834,20 @@ private:
     uint8_t vram_read(uint16_t addr, Mmu& mmu) const;
 
     /// G12 — attribute-byte read for the STANDARD/STANDARD_1 renderer.
-    /// When Mmu::attr_mux_armed() (i.e. this run has shown genuine
-    /// Nirvana-class mid-scanline attribute racing), returns the value
+    /// Always-on (no arm/gate — removed round 3): returns the value
     /// AttributeMux reconstructed for the current render row instead of
     /// the raw byte currently sitting in RAM (which only ever reflects
-    /// the LAST write of the frame — see attribute_mux.h). Falls back to
-    /// the plain vram_read() path otherwise, byte-for-byte identical to
-    /// pre-G12 behaviour. `addr` is the full CPU-space attribute address
-    /// (0x5800-0x5AFF / 0x7800-0x7AFF + row/col offset); `alt` selects
-    /// bank 7 (shadow) vs bank 5 (primary), matching the `alt` local
-    /// already computed in render_display_line from attr_row_base.
+    /// the LAST write of the frame — see attribute_mux.h), for the
+    /// address range AttributeMux actually tracks. Falls back to the
+    /// plain vram_read() path otherwise (STANDARD_1's genuine Timex
+    /// alt-file attribute range, which AttributeMux does not track — see
+    /// .cpp for why), byte-for-byte identical to pre-G12 behaviour.
+    /// `addr` is the full CPU-space attribute address (0x5800-0x5AFF /
+    /// 0x7800-0x7AFF + row/col offset); `alt` is true iff `addr` is in
+    /// the STANDARD_1 (Timex alt-file) 0x7800 range, matching the `alt`
+    /// local already computed in render_display_line from attr_row_base.
+    /// Physical BANK selection (5 vs 7) is NOT taken from `alt` — see
+    /// .cpp for the VHDL citation on why that would be wrong.
     uint8_t attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const;
 
     /// Compute the interleaved pixel address offset for (screen_row, col).

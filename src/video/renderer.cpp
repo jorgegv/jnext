@@ -199,8 +199,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         tilemap->rewind_nr6b_to_baseline();
     }
     // G12 — Nirvana-class attribute-mux (Category B, per-scanline
-    // replay of mid-frame attribute writes). No-op (log empty) unless
-    // mmu.attr_mux_armed() — see Mmu::attr_mux_start_frame().
+    // replay of mid-frame attribute writes). Always-on — see
+    // Mmu::attr_mux_start_frame() / Ula::attr_vram_read().
     mmu.attr_mux_rewind_to_baseline();
 
     for (int row = 0; row < FB_HEIGHT; ++row) {

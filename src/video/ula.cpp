@@ -96,14 +96,48 @@ uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
 // ---------------------------------------------------------------------------
 // attr_vram_read — G12 Nirvana-class attribute replay consumer
 // ---------------------------------------------------------------------------
-
+//
+// Bank-selection bug fix (Task 8 Nirvana round 3, 2026-07-13): the
+// PHYSICAL bank (5 vs 7) the mux must be read from is `vram_use_bank7_`
+// — the exact same signal vram_read() uses for pixel fetches — NOT
+// `alt`. VHDL zxula.vhd:191 (`screen_mode_s <= i_port_ff_reg(2 downto 0)
+// when i_ula_shadow_en = '0' else "000"`) and zxnext.vhd:6649-6656
+// (`ula_bank_do <= vram_bank5_do1 when ula_vram_shadow = '0' else
+// vram_bank7_do`) both establish that bank choice is driven PURELY by
+// the 7FFD shadow-screen bit, independent of Timex screen mode — Timex
+// mode only ever picks the ADDRESS OFFSET within whichever bank shadow
+// has already selected, and is forced to STANDARD (clearing the
+// alt-file bit) whenever shadow is asserted (see
+// set_shadow_screen_en()). A previous version derived the bank choice
+// from `alt` (attr_row_base >= 0x7800, i.e. Timex STANDARD_1 mode) —
+// but STANDARD_1 can never be active while shadow is on (shadow forces
+// STANDARD), so that derivation could NEVER select bank 7 while shadow
+// was enabled — reading bank 5's (functionally unrelated) attribute
+// content instead of bank 7's, for any program that enables shadow-
+// screen without ever touching Timex mode (e.g. beast.nex). Confirmed
+// via a scratch diagnostic (temporarily compared armed vs. direct read
+// on every call) and by tracing Mmu::write()'s detector, which already
+// keys the write side purely on physical page (0x0A/0x0E) — the write
+// side was never the bug; only this read-side bank derivation was.
+//
+// `alt` still matters for a SEPARATE axis: it selects which 768-byte
+// sub-window of the bank AttributeMux tracks. AttributeMux only ever
+// observes writes to physical-page offset 0x1800-0x1AFF (kAttrMuxOffLo
+// in mmu.h) — the "primary" attribute sub-region, which is what CPU
+// address 0x5800-based (`alt`=false) addressing maps to, for EITHER
+// bank. Genuine Timex STANDARD_1 addressing (`alt`=true, CPU
+// 0x7800-based) lands in bank 5's UPPER 8K page (0x0B) — a page
+// Mmu::write()'s detector does not watch at all (STANDARD_1 cannot
+// coexist with shadow, so it is never the beast.nex/nirvana scenario) —
+// so the mux must never be consulted for that range; fall through to
+// the direct read exactly as pre-G12, matching what the (never-armed,
+// for this address range) mux would have produced anyway.
 uint8_t Ula::attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const
 {
-    if (mmu.attr_mux_armed()) {
-        const uint16_t base = alt ? 0x7800u : 0x5800u;
-        const uint16_t off  = static_cast<uint16_t>(addr - base);
+    if (!alt) {
+        const uint16_t off = static_cast<uint16_t>(addr - 0x5800u);
         if (off < AttributeMux::kNumBytes) {
-            return (alt ? mmu.attr_mux7() : mmu.attr_mux5()).current(off);
+            return (vram_use_bank7_ ? mmu.attr_mux7() : mmu.attr_mux5()).current(off);
         }
     }
     return vram_read(addr, mmu);
