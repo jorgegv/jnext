@@ -3079,16 +3079,39 @@ static void test_cpu_seam_raster_window()
     // ts_in_line 80 → hc = 160, inside the 48K display window (128..383).
     constexpr int kDispTs = 80;
 
-    // T50-01 — TOP BORDER must NOT contend. This is the half of the bug
-    // that stole BIFROST's 808 T-states: raw vc 10 is 54 lines ABOVE the
-    // first display line, but the raw-fed gate saw "vc=10 < 192 → visible".
+    // T50-01's probe is deliberately NOT kDispTs. A zero result only proves
+    // what this row claims if the HORIZONTAL gate would have let the access
+    // through — otherwise the row passes for a reason that has nothing to do
+    // with the vertical window, and it would pass even with the bug present.
+    //
+    // kDispTs (raw hc = 160) is exactly that trap: hc_adj = (160 & 0xF) + 1 = 1,
+    // and 1 & 0xC == 0, so `wait_s` is false on the RAW coordinates whatever vc
+    // says. A T50-01 written on kDispTs is theatre — it reports "border does not
+    // contend" while actually measuring "this hc phase never contends".
+    // (Caught in review by mutation-testing `to_ula_counters()` to identity: the
+    // row kept passing while the other five failed.)
+    //
+    // ts_in_line 60 → raw hc = 120, which contends in BOTH coordinate systems:
+    //   raw:      hc_adj = (120 & 0xF) + 1 = 9  → 9 & 0xC  = 8 ≠ 0 → contends,
+    //             pattern[120 & 7] = pattern[0] = 6 T of stretch.
+    //   rebased:  hc_ula = 120 - 116 = 4, hc_adj = 5 → 5 & 0xC = 4 ≠ 0 → contends,
+    //             pattern[4 & 7] = pattern[4] = 2 T of stretch.
+    // So the ONLY thing that can drive the result to zero is the vertical border
+    // check — which is precisely the half of the bug this row exists to pin.
+    constexpr int kBorderProbeTs = 60;
+
+    // T50-01 — TOP BORDER must NOT contend. This is the half of the bug that
+    // stole BIFROST's 808 T-states: raw vc 10 is 54 lines ABOVE the first
+    // display line, but the raw-fed gate saw "vc=10 < 192 → visible" and
+    // contended. With the raw coordinates the hc phase above WOULD contend
+    // (6 T), so this row goes non-zero the moment the rebase is removed.
     {
-        const int s = stretch_at(/*raw_vc=*/10, kDispTs);
+        const int s = stretch_at(/*raw_vc=*/10, kBorderProbeTs);
         check("T50-01",
               "48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) "
-              "→ NO contention (zxula.vhd:414 border_active_v is keyed on the "
-              "ULA display-relative i_vc, reset at c_min_vactive per "
-              "zxula_timing.vhd:441-452)",
+              "on an hc phase that DOES contend in raw coordinates → NO contention "
+              "(zxula.vhd:414 border_active_v is keyed on the ULA display-relative "
+              "i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452)",
               s == 0, std::string("stretch=") + std::to_string(s));
     }
 
