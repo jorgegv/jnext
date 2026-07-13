@@ -10,6 +10,7 @@
 #include "cpu/z80_cpu.h"
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
+#include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
 
 
 class DivMmc;     // forward declaration for overlay
@@ -500,7 +501,100 @@ public:
                 ram_.notify_write(ram_addr, val, write_beam_m1_, t);
             }
         }
+        // G12-MUX-03 — Nirvana-class attribute-mux consumer (Phase B).
+        // Dedicated, cheap, always-on detector — deliberately independent
+        // of the generic Ram write-observer above (which is untested for
+        // the vram_overlay case and would cost an extra std::function
+        // indirection per write once anything registers on it). This
+        // check works uniformly for BOTH backing stores (plain ram_ pages
+        // 0x0A/0x0E on standalone 48K/128K/+3, and the dedicated
+        // bank5_vram_/bank7_bram_ buffers on Next machines — see
+        // rebuild_ptr()) because it keys off `slots_[slot]`, the logical
+        // MMU page, which is identical either way; `ptr` already points
+        // at whichever buffer actually backs it.
+        //
+        // Cost: two array/member loads + up to 3 integer compares on
+        // EVERY plain-RAM-slot write (this is the "always-on" cost
+        // measured for the G12 report). The expensive part — appending
+        // to AttributeMux's per-frame log — only runs once
+        // attr_mux_armed_ is true, i.e. once THIS RUN has already shown
+        // genuine repeated mid-frame writes to the attribute range (see
+        // attr_mux_start_frame()).
+        {
+            const uint8_t page = slots_[slot];
+            if (page == kAttrMuxBank5Page || page == kAttrMuxBank7Page) {
+                const uint16_t off = addr & 0x1FFF;
+                if (off >= kAttrMuxOffLo && off <= kAttrMuxOffHi) {
+                    ++attr_mux_write_count_;
+                    if (attr_mux_armed_) {
+                        AttributeMux& mux = (page == kAttrMuxBank5Page)
+                            ? attr_mux5_ : attr_mux7_;
+                        mux.record_write(attr_mux_current_line_,
+                            static_cast<uint16_t>(off - kAttrMuxOffLo), val);
+                    }
+                }
+            }
+        }
     }
+
+    // ── G12 — Nirvana-class attribute-mux public API ───────────────────
+    //
+    // Mirrors the established per-scanline change-log pattern already
+    // used by PaletteManager / Layer2 / Sprites / Ula (scroll, palsel) —
+    // see attribute_mux.h for the full VHDL-cited rationale. Called from
+    // Emulator::run_frame (start_frame), Emulator::on_scanline
+    // (set_current_line), and Renderer::render_frame (rewind_to_baseline
+    // / apply_line per row / flush_remaining), exactly like those
+    // siblings.
+
+    /// Call once per frame, before any CPU execution. Snapshots the
+    /// live attribute-plane bytes as this frame's baseline and decides
+    /// whether to arm replay for this frame, based on how many
+    /// attribute-range writes the PREVIOUS frame made (see
+    /// kAttrMuxArmThreshold). Arming is sticky — once a run has shown
+    /// genuine racing, replay stays on for the rest of the run, so a
+    /// brief quiet period doesn't cause the effect to flicker on/off.
+    void attr_mux_start_frame() {
+        if (!attr_mux_armed_ && attr_mux_write_count_ >= kAttrMuxArmThreshold) {
+            attr_mux_armed_ = true;
+        }
+        attr_mux_write_count_ = 0;
+        attr_mux5_.start_frame(bank5_attr_baseline_ptr());
+        attr_mux7_.start_frame(bank7_attr_baseline_ptr());
+    }
+
+    /// Update the scanline tag attached to subsequent attribute writes.
+    /// `line` is framebuffer-row space (0..FB_HEIGHT-1), matching the
+    /// tag Emulator::on_scanline already computes for every sibling
+    /// per-scanline log (palette_, layer2_, sprites_, ula scroll/palsel).
+    void attr_mux_set_current_line(int line) {
+        attr_mux_current_line_ = (line < 0) ? 0 : static_cast<uint16_t>(line);
+    }
+
+    /// Rewind both attribute planes to this frame's baseline. Call once
+    /// before the per-row render loop.
+    void attr_mux_rewind_to_baseline() {
+        attr_mux5_.rewind_to_baseline();
+        attr_mux7_.rewind_to_baseline();
+    }
+
+    /// Apply logged writes tagged with `line` to both attribute planes.
+    /// Call once per rendered row, before that row is rendered.
+    void attr_mux_apply_line(int line) {
+        attr_mux5_.apply_changes_for_line(line);
+        attr_mux7_.apply_changes_for_line(line);
+    }
+
+    /// Drain any remaining log entries (e.g. tagged past FB_HEIGHT) so
+    /// they aren't lost before the next attr_mux_start_frame().
+    void attr_mux_flush_remaining() {
+        attr_mux5_.flush_remaining_changes();
+        attr_mux7_.flush_remaining_changes();
+    }
+
+    bool attr_mux_armed() const { return attr_mux_armed_; }
+    const AttributeMux& attr_mux5() const { return attr_mux5_; }
+    const AttributeMux& attr_mux7() const { return attr_mux7_; }
 
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
     void map_128k_bank(uint8_t port_7ffd);
@@ -1442,6 +1536,52 @@ private:
     uint16_t       write_beam_hc_ = 0;
     uint16_t       write_beam_vc_ = 0;
     bool           write_beam_m1_ = false;
+
+    // G12-MUX-03 — Nirvana-class attribute-mux consumer (Phase B). See
+    // the public attr_mux_* API above for the frame lifecycle and
+    // attribute_mux.h for the VHDL citations. Physical MMU pages that
+    // carry an attribute plane (bank 5 lower half / bank 7 shadow lower
+    // half — see rebuild_ptr()'s bank5_vram_/bank7_bram_ + plain-ram_
+    // branches, both of which use these same logical page numbers) and
+    // the byte-offset sub-range within an 8K page that is the 768-byte
+    // attribute area (0x5800-0x5AFF / 0x7800-0x7AFF in CPU space, which
+    // is offset 0x1800-0x1AFF within either page regardless of banking).
+    static constexpr uint8_t  kAttrMuxBank5Page = 0x0A;
+    static constexpr uint8_t  kAttrMuxBank7Page = 0x0E;
+    static constexpr uint16_t kAttrMuxOffLo     = 0x1800;
+    static constexpr uint16_t kAttrMuxOffHi     = 0x1AFF;
+    // Arm once a single frame has written the attribute range at least
+    // twice per byte on average (2 * 768). A single "clear the whole
+    // attribute area" write burst (768, once each) is common ordinary
+    // game behaviour and must NOT arm the (slightly) more expensive
+    // logging path; true Nirvana-class racing writes each byte up to 8
+    // times a frame (worst case 6144, see attribute_mux.h), so 1536 is a
+    // comfortable, cheap-to-check line between the two.
+    static constexpr unsigned kAttrMuxArmThreshold = 2 * AttributeMux::kNumBytes;
+
+    AttributeMux   attr_mux5_;
+    AttributeMux   attr_mux7_;
+    bool           attr_mux_armed_        = false;
+    unsigned       attr_mux_write_count_  = 0;
+    uint16_t       attr_mux_current_line_ = 0;
+
+    /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
+    /// currently lives (dedicated bank5_vram_ on Next machines, plain
+    /// ram_ page 0x0A otherwise). Null only if ram_.page_ptr() itself
+    /// would be null (out-of-range Ram size — defensive, not reachable
+    /// with the default 2048 KB Ram).
+    const uint8_t* bank5_attr_baseline_ptr() const {
+        if (rom_in_sram_) return bank5_vram_.data() + kAttrMuxOffLo;
+        const uint8_t* p = ram_.page_ptr(kAttrMuxBank5Page);
+        return p ? p + kAttrMuxOffLo : nullptr;
+    }
+    /// Same as above for the bank-7 shadow attribute plane.
+    const uint8_t* bank7_attr_baseline_ptr() const {
+        if (rom_in_sram_) return bank7_bram_.data() + kAttrMuxOffLo;
+        const uint8_t* p = ram_.page_ptr(kAttrMuxBank7Page);
+        return p ? p + kAttrMuxOffLo : nullptr;
+    }
+
     // Per-16K-slot contention mirror (see set_slot_contended() comment).
     bool           slot_contended_[4] = {false, false, false, false};
     // VHDL nr_08_contention_disable (zxnext.vhd:1114 default '0', written
