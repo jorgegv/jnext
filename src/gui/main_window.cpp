@@ -887,9 +887,19 @@ void MainWindow::on_save_snapshot() {
     }
 
     std::vector<uint8_t> bytes;
+    bool ram_truncated = false;
+    unsigned banks_written = 0, banks_installed = 0;
     if (path.endsWith(".szx", Qt::CaseInsensitive)) {
-        bytes = SzxSaver::save(*emulator_);
+        // .szx has a hard real-world 64-bank (1024 KB) ceiling — see
+        // SzxSaver class doc-comment. Surface it; don't silently drop RAM.
+        auto result = SzxSaver::save(*emulator_);
+        bytes = result.data;
+        ram_truncated = result.truncated;
+        banks_written = result.banks_written;
+        banks_installed = result.banks_installed;
     } else if (path.endsWith(".nex", Qt::CaseInsensitive)) {
+        // .nex has its own (looser, 112-bank) ceiling — see NexSaver
+        // class doc-comment; NexSaver::save() already logs a warning.
         bytes = NexSaver::save(*emulator_).data;
     } else {
         bytes = SnaSaver::save(*emulator_);
@@ -916,6 +926,15 @@ void MainWindow::on_save_snapshot() {
     }
     Log::emulator()->info("Snapshot saved to '{}' ({} bytes)",
                           path.toStdString(), bytes.size());
+    if (ram_truncated) {
+        QMessageBox::warning(this, tr("Save Snapshot"),
+            tr("'%1' was saved, but the .szx format can only carry the first "
+               "%2 of %3 installed RAM banks (1024 KB max — a real-world SZX "
+               "reader limit, not a jnext one). The saved snapshot is missing "
+               "the top of RAM and will not resume correctly if the running "
+               "program used it.\n\nUse .nex instead for larger RAM (up to 1792 KB).")
+                .arg(path).arg(banks_written).arg(banks_installed));
+    }
     statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
 }
 

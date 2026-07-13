@@ -17,30 +17,48 @@ class Emulator;
 /// /zx-state/{header,block,z80regs,specregs,rampage}.shtml. Only the three
 /// block types SzxLoader::load() understands are emitted:
 ///   ZXSTZ80REGS ('Z80R'), ZXSTSPECREGS ('SPCR'), ZXSTRAMPAGE ('RAMP')
-/// so every byte this saver writes is provably round-trippable through our
-/// own loader. There is no standard zx-state block for Next-only state
-/// (NextREG, video layers, sprites, copper, audio, peripheral devices,
-/// individual MMU-slot page assignments beyond what ports 0x7FFD/0x1FFD
-/// imply) — a real SZX reader loading a file this saver produced will see
-/// a classic-Spectrum-equivalent snapshot only: CPU registers (both sets),
-/// IM/IFF1/IFF2, tstates-in-frame, border, classic 128K/+3 paging state,
-/// and the full content of every RAM bank this saver can reach (see
-/// below for the ceiling on that).
+/// so every byte this saver writes is structurally round-trippable through
+/// our own loader. There is no standard zx-state block for Next-only
+/// state (NextREG, video layers, sprites, copper, audio, peripheral
+/// devices, individual MMU-slot page assignments beyond what ports
+/// 0x7FFD/0x1FFD imply) — a real SZX reader loading a file this saver
+/// produced will see a classic-Spectrum-equivalent snapshot only: CPU
+/// registers (both sets), IM/IFF1/IFF2, tstates-in-frame, border,
+/// classic 128K/+3 paging state, and — this is the part worth reading
+/// carefully — only the FIRST 1024 KB of RAM (see RAM CEILING below). A
+/// Next's full 1792/2048 KB RAM never round-trips through .szx: the
+/// wire format itself cannot carry it.
 ///
-/// RAM CEILING: RAM is read via `Mmu::set_page()` + `Mmu::read()` (the
-/// same temp-slot-7 technique SzxLoader::apply() uses in reverse). Per
-/// VHDL zxnext.vhd:2964 (`mmu_A21_A13(8)`), logical/physical MMU page
-/// values >= 0xE0 (224) are hardware-reserved (ROM area / unmapped) —
-/// NOT general RAM — so only physical pages 0x00-0xDF (0-223, i.e. 112
-/// 16K banks, 1792 KB) can be read this way at all. `build()` therefore
-/// silently clamps `ram_bank_count` to 112; installations with more RAM
-/// (jnext's 2048 KB / 128-bank ceiling) only get banks 0-111 saved — the
-/// same ceiling NexSaver has, for the same underlying reason (this is
-/// not a NEX-format quirk, it is the more fundamental fact that jnext's
-/// Mmu class cannot address the top 256 KB of a 2048 KB install via
-/// `set_page()` at all). Found via the BOOT-SNAPSAVE-02 mutation test
-/// (Task 13b) — the naive un-clamped version silently saved 0xFF filler
-/// for banks 112-127 instead of their real content.
+/// RAM CEILING — two separate limits; the tighter one wins:
+///
+///  1. FORMAT CEILING (this is the one that binds). ZXSTRAMPAGE's
+///     `chPageNo` is checked by real-world readers, not just accepted as
+///     an opaque index. Confirmed directly against libspectrum 1.5.0
+///     source (the library FUSE / ZEsarUX's importer / most other tools
+///     use to read .szx): `szx.c` `read_ramp_chunk()` hard-rejects
+///     `page > 63` for *every* machine ID —
+///     `LIBSPECTRUM_ERROR_CORRUPT: "unknown page number %lu"`. That is a
+///     64-page (1024 KB) ceiling, independent of jnext's own hardware
+///     model or RAM size. A file with pages 0-111 (jnext's *own* MMU-
+///     addressability figure — see point 2) loads fine through jnext's
+///     own `SzxLoader` (which has no such check) but is REJECTED outright
+///     by real FUSE: `fuse: error: libspectrum: szx.c:read_ramp_chunk:
+///     unknown page number 64`.
+///  2. jnext's own MMU-addressability ceiling (112 banks / 1792 KB — see
+///     `NexSaver`'s doc-comment for the VHDL citation) is LOOSER than
+///     the format ceiling above, so it never actually binds here.
+///
+/// `build()` therefore clamps `ram_bank_count` to 64 (1024 KB), not 112:
+/// the format's real-world ceiling, not jnext's hardware-addressability
+/// ceiling — they are different numbers, and only the smaller one is
+/// safe to ship. This was found the hard way: the first cut of this
+/// saver clamped to 112 and passed every jnext-internal test, because
+/// `SzxLoader::parse_ramp()` has no upper-bound check either — saver and
+/// loader shared the same blind spot, so the (self-consistent, wrong)
+/// test suite was green while every file this saver produced was
+/// silently rejected by real FUSE. Fixed after an independent review
+/// caught it; re-verified against the actual libspectrum source, not
+/// just the review's word for it.
 class SzxSaver {
 public:
     /// Classic port-driven ULA/paging state — the ZXSTSPECREGS payload.
@@ -63,18 +81,25 @@ public:
     ///
     /// `ram_bank_count` 16K banks (bank N = physical 8K pages N*2, N*2+1)
     /// are each written as one uncompressed ZXSTRAMPAGE chunk, chPageNo
-    /// = the bank index — clamped to 112 (see class doc-comment RAM
-    /// CEILING paragraph). Uncompressed by choice (zlib compression is
-    /// optional per spec; SzxLoader::parse_ramp() already supports both
-    /// paths, so leaving compression out keeps this function dependency-
-    /// free — no ZLIB link requirement at the Mmu test tier).
+    /// = the bank index — clamped to 64 (1024 KB; see class doc-comment
+    /// RAM CEILING paragraph — this is libspectrum's real-world
+    /// `page > 63` rejection, NOT jnext's own 112-bank MMU-addressability
+    /// figure, which is looser and irrelevant here). Uncompressed by
+    /// choice (zlib compression is optional per spec;
+    /// SzxLoader::parse_ramp() already supports both paths, so leaving
+    /// compression out keeps this function dependency-free — no ZLIB
+    /// link requirement at the Mmu test tier).
     static std::vector<uint8_t> build(const Z80Registers& regs, uint32_t tstates,
                                        uint8_t machine_id, const SpecRegs& spec,
                                        Mmu& mmu, unsigned ram_bank_count)
     {
-        // See class doc-comment RAM CEILING: pages >= 0xE0 (bank 112+)
-        // are not general RAM (VHDL zxnext.vhd:2964).
-        if (ram_bank_count > 112) ram_bank_count = 112;
+        // See class doc-comment RAM CEILING point 1: real-world zx-state
+        // readers (libspectrum szx.c:read_ramp_chunk) reject page > 63.
+        // This is NOT the same number as jnext's own 112-bank MMU-
+        // addressability ceiling (point 2) — that one is looser and
+        // never binds here.
+        constexpr unsigned SZX_MAX_RAM_BANKS = 64;  // libspectrum: page > 63 rejected
+        if (ram_bank_count > SZX_MAX_RAM_BANKS) ram_bank_count = SZX_MAX_RAM_BANKS;
 
         std::vector<uint8_t> out;
 
@@ -182,7 +207,18 @@ public:
         return out;
     }
 
+    /// Result of save(): the bytes, plus whether installed RAM exceeded
+    /// the 64-bank (1024 KB) format ceiling (see class doc-comment RAM
+    /// CEILING) — callers (GUI, headless CLI) surface this to the user
+    /// rather than silently dropping RAM.
+    struct SaveResult {
+        std::vector<uint8_t> data;
+        bool     truncated       = false;  // installed RAM > 64 banks
+        unsigned banks_written   = 0;
+        unsigned banks_installed = 0;
+    };
+
     /// Convenience wrapper: extracts state from a running Emulator and
     /// calls build(). Implemented in szx_saver.cpp (needs core/emulator.h).
-    static std::vector<uint8_t> save(Emulator& emu);
+    static SaveResult save(Emulator& emu);
 };

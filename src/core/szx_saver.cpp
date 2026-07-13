@@ -2,7 +2,7 @@
 #include "core/emulator.h"
 #include "core/log.h"
 
-std::vector<uint8_t> SzxSaver::save(Emulator& emu)
+SzxSaver::SaveResult SzxSaver::save(Emulator& emu)
 {
     Mmu&     mmu  = emu.mmu();
     Z80Cpu&  cpu  = emu.cpu();
@@ -35,18 +35,28 @@ std::vector<uint8_t> SzxSaver::save(Emulator& emu)
         | (emu.beeper().mic() ? 0x08 : 0x00)
         | (emu.beeper().ear() ? 0x10 : 0x00));
 
-    unsigned bank_count = static_cast<unsigned>(emu.ram().size() / 16384);
-    if (bank_count > 112) {
+    constexpr unsigned SZX_MAX_RAM_BANKS = 64;  // libspectrum: page > 63 rejected — see class doc-comment
+    const unsigned installed_banks = static_cast<unsigned>(emu.ram().size() / 16384);
+    const unsigned written_banks   = installed_banks > SZX_MAX_RAM_BANKS
+                                    ? SZX_MAX_RAM_BANKS : installed_banks;
+    const bool     truncated       = installed_banks > SZX_MAX_RAM_BANKS;
+    if (truncated) {
         Log::emulator()->warn(
-            "SZX saver: installed RAM ({} KB) exceeds the MMU-reachable "
-            "112-bank (1792 KB) ceiling (VHDL zxnext.vhd:2964, pages "
-            ">= 0xE0 are not general RAM) — only banks 0-111 were saved",
-            emu.ram().size() / 1024);
+            "SZX saver: installed RAM ({} KB) exceeds the .szx format's "
+            "real-world 64-bank (1024 KB) ceiling (libspectrum "
+            "szx.c:read_ramp_chunk rejects page > 63 — NOT the same as "
+            "jnext's own 112-bank MMU ceiling) — only banks 0-{} were "
+            "saved; banks {}-{} are NOT in this file",
+            emu.ram().size() / 1024, written_banks - 1, written_banks, installed_banks - 1);
     }
     uint32_t tstates = *fuse_z80_tstates_ptr();
 
-    auto data = build(regs, tstates, machine_id, spec, mmu, bank_count);
-    Log::emulator()->info("SZX saver: saved snapshot ({} bytes, {} RAM banks, machine_id={})",
-                          data.size(), bank_count, machine_id);
-    return data;
+    SaveResult result;
+    result.data             = build(regs, tstates, machine_id, spec, mmu, installed_banks);
+    result.truncated        = truncated;
+    result.banks_written    = written_banks;
+    result.banks_installed  = installed_banks;
+    Log::emulator()->info("SZX saver: saved snapshot ({} bytes, {} of {} RAM banks, machine_id={})",
+                          result.data.size(), written_banks, installed_banks, machine_id);
+    return result;
 }

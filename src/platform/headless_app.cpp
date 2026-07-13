@@ -256,7 +256,10 @@ void HeadlessApp::run() {
             }
             std::vector<uint8_t> bytes;
             if (ext == ".szx") {
-                bytes = SzxSaver::save(emulator_);
+                // .szx has a hard real-world 64-bank (1024 KB) ceiling —
+                // save() already logs a warning if RAM exceeds it (see
+                // SzxSaver class doc-comment).
+                bytes = SzxSaver::save(emulator_).data;
             } else if (ext == ".nex") {
                 bytes = NexSaver::save(emulator_).data;
             } else {

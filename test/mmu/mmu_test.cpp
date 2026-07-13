@@ -3199,13 +3199,15 @@ void test_boot_format_loaders() {
         f.fresh();
 
         // f.ram is the default 2048 KB (128-bank) fixture; SzxSaver::build()
-        // clamps to 112 banks (physical pages >= 0xE0 are not general RAM —
-        // see the SzxSaver class doc-comment RAM CEILING paragraph, and
-        // BOOT-SNAPSAVE-02C below for a dedicated test of the clamp). Fill
-        // all 128 banks' worth of pattern data (harmless) but only the
-        // first 112 are expected to appear in the saved output.
+        // clamps to 64 banks — libspectrum's real-world `page > 63`
+        // rejection (szx.c:read_ramp_chunk), NOT jnext's own 112-bank MMU-
+        // addressability figure (see the SzxSaver class doc-comment RAM
+        // CEILING paragraph, and BOOT-SNAPSAVE-02C below for a dedicated
+        // test that also scans the emitted bytes for any chPageNo > 63).
+        // Fill all 128 banks' worth of pattern data (harmless) but only
+        // the first 64 are expected to appear in the saved output.
         const unsigned raw_bank_count = static_cast<unsigned>(f.ram.size() / 16384);
-        const unsigned bank_count = raw_bank_count > 112 ? 112 : raw_bank_count;
+        const unsigned bank_count = raw_bank_count > 64 ? 64 : raw_bank_count;
         for (unsigned page = 0; page < raw_bank_count * 2; ++page) {
             uint8_t* p = f.ram.page_ptr(static_cast<uint16_t>(page));
             for (int i = 0; i < 8192; ++i)
@@ -3267,13 +3269,16 @@ void test_boot_format_loaders() {
         bool ramp_ok = bytes.size() == expected_size;
         size_t first_bad_bank = bank_count, first_bad_off = 0;
         uint8_t got = 0, want = 0;
+        unsigned max_page_seen = 0;
         if (ramp_ok) {
             for (unsigned bank = 0; bank < bank_count; ++bank) {
                 size_t p = ramp0 + static_cast<size_t>(bank) * ramp_stride;
+                uint8_t chpageno = bytes[p + 10];
+                if (chpageno > max_page_seen) max_page_seen = chpageno;
                 bool chunk_hdr_ok = bytes[p]=='R' && bytes[p+1]=='A' && bytes[p+2]=='M' && bytes[p+3]=='P'
                                   && ru32(bytes, p+4)==16387
                                   && ru16(bytes, p+8)==0            // wFlags: uncompressed
-                                  && bytes[p+10]==bank;             // chPageNo
+                                  && chpageno==bank;                // chPageNo
                 if (!chunk_hdr_ok) { ramp_ok = false; first_bad_bank = bank; break; }
                 bool bank_ok = true;
                 for (size_t i = 0; i < 16384; ++i) {
@@ -3289,21 +3294,31 @@ void test_boot_format_loaders() {
                 if (!bank_ok) break;
             }
         }
+        // The interop-critical assertion (Task 13b review finding): no
+        // ZXSTRAMPAGE chPageNo may exceed 63 — libspectrum's
+        // szx.c:read_ramp_chunk rejects page > 63 for every machine ID.
+        // This is independent of jnext's own SzxLoader (no such bound
+        // there), so it is the one check that actually protects
+        // interop with real SZX readers (FUSE, ZEsarUX, ...).
+        bool page_ceiling_ok = ramp_ok && max_page_seen <= 63;
 
-        bool all_ok = header_ok && z80r_payload_ok && spcr_chunk_ok && ramp_ok;
+        bool all_ok = header_ok && z80r_payload_ok && spcr_chunk_ok && ramp_ok && page_ceiling_ok;
 
         check("BOOT-SNAPSAVE-02",
               "SzxSaver::build() produces a spec-conformant .szx: 8-byte "
               "header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE "
-              "chunks at their exact published offsets, full RAM content "
-              "— spectaculator.com/docs/zx-state/{header,z80regs,specregs,"
-              "rampage}.shtml (G35)",
+              "chunks at their exact published offsets, full RAM content, "
+              "and every chPageNo <= 63 (libspectrum szx.c:read_ramp_chunk "
+              "real-world ceiling) — spectaculator.com/docs/zx-state/"
+              "{header,z80regs,specregs,rampage}.shtml (G35)",
               all_ok,
               fmt("header=%d z80r_chunk=%d z80r_payload=%d spcr=%d ramp=%d "
-                  "size=%zu expected=%zu first_bad_bank=%zu off=%zu got=0x%02X want=0x%02X",
+                  "page_ceiling=%d(max=%u) size=%zu expected=%zu "
+                  "first_bad_bank=%zu off=%zu got=0x%02X want=0x%02X",
                   static_cast<int>(header_ok), static_cast<int>(z80r_chunk_ok),
                   static_cast<int>(z80r_payload_ok), static_cast<int>(spcr_chunk_ok),
-                  static_cast<int>(ramp_ok), bytes.size(), expected_size,
+                  static_cast<int>(ramp_ok), static_cast<int>(page_ceiling_ok), max_page_seen,
+                  bytes.size(), expected_size,
                   first_bad_bank, first_bad_off, got, want));
     }
 
@@ -3334,24 +3349,53 @@ void test_boot_format_loaders() {
     }
 
     // BOOT-SNAPSAVE-02C — RAM-ceiling clamp (see SzxSaver class doc-comment
-    // RAM CEILING paragraph). Requesting more than 112 banks must not
-    // silently emit RAMP chunks for the unreachable pages >= 0xE0 — this
-    // is exactly the bug the BOOT-SNAPSAVE-02 mutation test caught
-    // (naive first implementation wrote 0xFF filler for banks 112-127).
+    // RAM CEILING paragraph). Requesting more than 64 banks must not
+    // silently emit ZXSTRAMPAGE chunks with chPageNo > 63 — real-world
+    // SZX readers (libspectrum szx.c:read_ramp_chunk) hard-reject those.
+    // This is the exact bug an independent review caught in the first
+    // cut of this saver: it clamped to 112 (jnext's own MMU-
+    // addressability ceiling, the WRONG number for this purpose) and
+    // passed every jnext-internal test, because SzxLoader::parse_ramp()
+    // has no upper bound either — so this test asserts on the emitted
+    // BYTES directly (chPageNo, chunk count), not on round-tripping
+    // through jnext's own loader, which would not catch it.
     {
         Fixture f;
         f.fresh();  // default Ram = 2048 KB = 128 banks
         Z80Registers regs{};
         SzxSaver::SpecRegs spec{};
         std::vector<uint8_t> bytes = SzxSaver::build(regs, 0, 1, spec, f.mmu, 128);
-        const size_t expected = 69 + static_cast<size_t>(112) * (8 + 3 + 16384);
-        bool ok = bytes.size() == expected;
+        const size_t ramp0       = 69;
+        const size_t ramp_stride = 8 + 3 + 16384;
+        const size_t expected    = ramp0 + static_cast<size_t>(64) * ramp_stride;
+        bool size_ok = bytes.size() == expected;
+
+        unsigned ramp_chunk_count = 0, max_page_seen = 0;
+        bool page_ceiling_ok = size_ok;
+        if (size_ok) {
+            for (unsigned bank = 0; bank < 64; ++bank) {
+                size_t p = ramp0 + static_cast<size_t>(bank) * ramp_stride;
+                if (bytes[p]!='R' || bytes[p+1]!='A' || bytes[p+2]!='M' || bytes[p+3]!='P') {
+                    page_ceiling_ok = false;
+                    break;
+                }
+                ++ramp_chunk_count;
+                uint8_t chpageno = bytes[p + 10];
+                if (chpageno > max_page_seen) max_page_seen = chpageno;
+                if (chpageno > 63) { page_ceiling_ok = false; break; }
+            }
+        }
+        bool ok = size_ok && page_ceiling_ok && ramp_chunk_count == 64 && max_page_seen == 63;
         check("BOOT-SNAPSAVE-02C",
-              "SzxSaver::build() clamps ram_bank_count to 112 (physical "
-              "pages >= 0xE0 are not general RAM, VHDL zxnext.vhd:2964) "
-              "rather than emitting RAMP chunks with garbage content",
+              "SzxSaver::build() clamps ram_bank_count to 64 (libspectrum "
+              "szx.c:read_ramp_chunk rejects chPageNo > 63 — NOT the 112 "
+              "jnext-own-MMU figure) and never emits a chPageNo > 63 in "
+              "the saved bytes, for any requested bank count",
               ok,
-              fmt("size=%zu expected=%zu (112 banks)", bytes.size(), expected));
+              fmt("size_ok=%d page_ceiling_ok=%d ramp_chunks=%u max_page=%u "
+                  "size=%zu expected=%zu",
+                  static_cast<int>(size_ok), static_cast<int>(page_ceiling_ok),
+                  ramp_chunk_count, max_page_seen, bytes.size(), expected));
     }
 
     // BOOT-SNAPSAVE-03 — NexSaver round trip (structural, see the

@@ -744,6 +744,54 @@ if want screenshot-io-qt-func; then
     fi
 fi
 
+# --delayed-snapshot (Task 13b, headless-only): save/reload proof plus the
+# same "requested but never written" loud-failure contract the
+# --delayed-screenshot tests above use (screenshot-pending-func).
+if want snapshot-save-func; then
+    begin_func snapshot-save-func
+    szx="$TMP_DIR/snap.szx"
+    reloaded_png="$TMP_DIR/snap-reloaded.png"
+    rm -f "$szx" "$reloaded_png"
+
+    # Positive control: boot 48K to the BASIC copyright screen, save a .szx.
+    if timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-snapshot "$szx" --delayed-snapshot-frames 150 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then save_rc=0; else save_rc=1; fi
+
+    # Reload proof: a FRESH process loads the saved file and renders a frame
+    # (see also the manual pixel-exact proof for the same file layout in
+    # the Task 13b agent report — this functional test only checks the
+    # process doesn't crash and a PNG comes out, keeping it fast).
+    if [[ -s "$szx" ]] && timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 --load "$szx" \
+            --delayed-screenshot "$reloaded_png" --delayed-screenshot-frames 1 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then reload_rc=0; else reload_rc=1; fi
+
+    # Negative control: a snapshot requested but never due before auto-exit
+    # fires must be a loud non-zero-exit failure, never a silent no-op.
+    pending="$TMP_DIR/snap-pending.szx"
+    rm -f "$pending"
+    if out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-snapshot "$pending" --delayed-snapshot-frames 5000 \
+                --delayed-automatic-exit 1 2>&1)
+    then pend_rc=0; else pend_rc=1; fi
+
+    if [[ "$save_rc" -eq 0 ]] && [[ -s "$szx" ]] \
+       && [[ "$reload_rc" -eq 0 ]] && [[ -s "$reloaded_png" ]] \
+       && [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$pending" ]] \
+       && echo "$out" | grep -q "NO snapshot was written"; then
+        echo -e "${GREEN}PASS${RESET} (save+reload OK; pending-never-written: error+exit!=0, no file)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n))"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests.
 # This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
 # the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that
