@@ -106,8 +106,19 @@ public:
     size_t log_size() const { return log_size_; }
     void clear();
 
-    void save_state(class StateWriter& w) const;
-    void load_state(class StateReader& r);
+    // No save_state/load_state: nothing here needs to survive a rewind
+    // snapshot. `log_`/`baseline_`/`current_` are all rebuilt fresh
+    // every frame from live RAM by start_frame() (called at the top of
+    // every Emulator::run_frame, BEFORE any CPU execution) — a rewind
+    // restores RAM content, and the very next start_frame() re-derives
+    // everything from that restored content. Serialising `log_` was
+    // tried first and was the actual bug behind a "free(): invalid
+    // size" heap-corruption crash: RewindBuffer slots are fixed-size,
+    // but log_size_ (and therefore the serialised byte count) varies
+    // frame to frame — see Mmu::save_state, which persists only the
+    // single `attr_mux_armed_` bool that genuinely needs to survive a
+    // rewind (so replay doesn't need to "re-detect" racing after
+    // loading a snapshot taken mid-run).
 
 private:
     struct Entry {

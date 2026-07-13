@@ -940,19 +940,22 @@ void Mmu::save_state(StateWriter& w) const
     // Task 25 (2026-07-10) schema append: dedicated bank-5 16K VRAM
     // content (VHDL bank5_ram dpram2, zxnext.vhd:6558). Same pattern.
     w.write_bytes(bank5_vram_.data(), bank5_vram_.size());
-    // G12 (Task 8 Nirvana) schema append: attribute-mux replay state.
-    // Without this, a rewind/restore mid-frame would silently drop the
-    // per-scanline attribute log and armed/counter state — the very
-    // next render_frame() after a rewind would render the current frame
-    // flat again even though the live run had already proven racing
-    // behaviour and armed replay. Persisted at the tail per the
-    // established schema-extension pattern (older streams fall through
-    // via the `!r.eof()` guards in load_state below).
+    // G12 (Task 8 Nirvana) schema append: attribute-mux armed state.
+    // Only `attr_mux_armed_` needs to survive a rewind snapshot — once
+    // a run has proven mid-scanline racing behaviour, a rewind shouldn't
+    // make replay "forget" that and fall back to flat rendering. The
+    // per-frame log/baseline/repeat-counters do NOT need persisting:
+    // Mmu::attr_mux_start_frame() (called at the top of every
+    // Emulator::run_frame, before any CPU execution) rebuilds them
+    // fresh from live RAM every frame, including the frame right after
+    // a rewind/load. A prior version DID persist AttributeMux's
+    // variable-length log_ array here; that was the actual root cause
+    // of a "free(): invalid size" heap-corruption crash in
+    // RewindBuffer::Slot's destructor — RewindBuffer slots are
+    // fixed-size, but the serialised byte count varied with log_size_
+    // frame to frame. See attribute_mux.h for the full rationale.
     w.write_bool(attr_mux_armed_);
-    w.write_u32(attr_mux_write_count_);
     w.write_u16(attr_mux_current_line_);
-    attr_mux5_.save_state(w);
-    attr_mux7_.save_state(w);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -1049,17 +1052,18 @@ void Mmu::load_state(StateReader& r)
     if (!r.eof()) {
         r.read_bytes(bank5_vram_.data(), bank5_vram_.size());
     }
-    // G12 (Task 8 Nirvana) schema append — attribute-mux replay state.
-    // Older streams fall through with attr_mux_armed_=false and empty
-    // logs (constructor defaults) — a load from an older save simply
-    // resumes as if Nirvana replay had not yet armed, re-arming
-    // naturally on the next frame that shows real racing.
+    // G12 (Task 8 Nirvana) schema append — attribute-mux armed state.
+    // Older streams fall through with attr_mux_armed_=false (constructor
+    // default) — a load from an older save simply resumes as if Nirvana
+    // replay had not yet armed, re-arming naturally on the next frame
+    // that shows real racing. attr_mux5_/attr_mux7_ are NOT restored
+    // here (no save_state/load_state on AttributeMux — see the comment
+    // in save_state above): the next Mmu::attr_mux_start_frame() call
+    // (top of every Emulator::run_frame) rebuilds them from the
+    // now-restored live RAM content.
     if (!r.eof()) {
         attr_mux_armed_        = r.read_bool();
-        attr_mux_write_count_  = r.read_u32();
         attr_mux_current_line_ = r.read_u16();
-        attr_mux5_.load_state(r);
-        attr_mux7_.load_state(r);
     }
     // Re-point the slot ptrs so any slot holding page 0x0A/0x0B/0x0E
     // picks up the freshly-restored BRAM buffers.

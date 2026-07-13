@@ -1,8 +1,6 @@
 #include "attribute_mux.h"
-#include "core/saveable.h"
 #include "core/log.h"
 
-#include <algorithm>
 #include <cstring>
 
 void AttributeMux::start_frame(const uint8_t* baseline)
@@ -69,37 +67,3 @@ void AttributeMux::clear()
     overflow_warned_ = false;
 }
 
-void AttributeMux::save_state(StateWriter& w) const
-{
-    w.write_bytes(baseline_.data(), baseline_.size());
-    w.write_bytes(current_.data(), current_.size());
-    w.write_u64(static_cast<uint64_t>(log_size_));
-    for (size_t i = 0; i < log_size_; ++i) {
-        w.write_u16(log_[i].line);
-        w.write_u16(log_[i].offset);
-        w.write_u8(log_[i].value);
-    }
-    w.write_u64(static_cast<uint64_t>(render_cursor_));
-}
-
-void AttributeMux::load_state(StateReader& r)
-{
-    r.read_bytes(baseline_.data(), baseline_.size());
-    r.read_bytes(current_.data(), current_.size());
-    uint64_t n = r.read_u64();
-    log_size_ = std::min(static_cast<size_t>(n), kMaxLogEntries);
-    for (size_t i = 0; i < log_size_; ++i) {
-        Entry e;
-        e.line   = r.read_u16();
-        e.offset = r.read_u16();
-        e.value  = r.read_u8();
-        log_[i] = e;
-    }
-    // If the saved log was truncated to fit kMaxLogEntries, still consume
-    // the remaining bytes so the stream stays aligned for whatever follows.
-    for (uint64_t i = log_size_; i < n; ++i) {
-        r.read_u16(); r.read_u16(); r.read_u8();
-    }
-    render_cursor_   = static_cast<size_t>(r.read_u64());
-    overflow_warned_ = false;
-}

@@ -518,19 +518,36 @@ public:
         // measured for the G12 report). The expensive part — appending
         // to AttributeMux's per-frame log — only runs once
         // attr_mux_armed_ is true, i.e. once THIS RUN has already shown
-        // genuine repeated mid-frame writes to the attribute range (see
-        // attr_mux_start_frame()).
+        // genuine repeated mid-frame writes to the SAME attribute byte
+        // (see attr_mux_start_frame()).
+        //
+        // Arm signal is "same byte rewritten several times in one
+        // frame", NOT "many attribute-range writes total" — beast.nex
+        // (regression demo) legitimately writes 1500+ DIFFERENT
+        // attribute cells per frame as ordinary HUD/sprite-colour
+        // updates; a total-write-count threshold false-armed on it and
+        // corrupted its screen (25000+/190000+ pixel diff in
+        // beast-demo/layers-beast-ula — caught by the regression suite,
+        // never landed). Real Nirvana racing rewrites the SAME byte up
+        // to 8 times per frame (once per scanline of its 8-line cell);
+        // a small per-byte repeat counter (reset every frame) discriminates
+        // the two cases cheaply.
         {
             const uint8_t page = slots_[slot];
             if (page == kAttrMuxBank5Page || page == kAttrMuxBank7Page) {
                 const uint16_t off = addr & 0x1FFF;
                 if (off >= kAttrMuxOffLo && off <= kAttrMuxOffHi) {
-                    ++attr_mux_write_count_;
+                    const uint16_t rel = static_cast<uint16_t>(off - kAttrMuxOffLo);
+                    uint8_t& rep = (page == kAttrMuxBank5Page)
+                        ? attr_mux5_repeat_[rel] : attr_mux7_repeat_[rel];
+                    if (rep < 0xFF) ++rep;
+                    if (rep > attr_mux_max_repeat_this_frame_) {
+                        attr_mux_max_repeat_this_frame_ = rep;
+                    }
                     if (attr_mux_armed_) {
                         AttributeMux& mux = (page == kAttrMuxBank5Page)
                             ? attr_mux5_ : attr_mux7_;
-                        mux.record_write(attr_mux_current_line_,
-                            static_cast<uint16_t>(off - kAttrMuxOffLo), val);
+                        mux.record_write(attr_mux_current_line_, rel, val);
                     }
                 }
             }
@@ -549,16 +566,20 @@ public:
 
     /// Call once per frame, before any CPU execution. Snapshots the
     /// live attribute-plane bytes as this frame's baseline and decides
-    /// whether to arm replay for this frame, based on how many
-    /// attribute-range writes the PREVIOUS frame made (see
-    /// kAttrMuxArmThreshold). Arming is sticky — once a run has shown
+    /// whether to arm replay for this frame, based on whether the
+    /// PREVIOUS frame rewrote any single attribute byte several times
+    /// (see kAttrMuxArmRepeatThreshold — the Nirvana signature; a high
+    /// TOTAL write count across many DIFFERENT bytes is ordinary
+    /// gameplay, not racing). Arming is sticky — once a run has shown
     /// genuine racing, replay stays on for the rest of the run, so a
     /// brief quiet period doesn't cause the effect to flicker on/off.
     void attr_mux_start_frame() {
-        if (!attr_mux_armed_ && attr_mux_write_count_ >= kAttrMuxArmThreshold) {
+        if (!attr_mux_armed_ && attr_mux_max_repeat_this_frame_ >= kAttrMuxArmRepeatThreshold) {
             attr_mux_armed_ = true;
         }
-        attr_mux_write_count_ = 0;
+        attr_mux_max_repeat_this_frame_ = 0;
+        attr_mux5_repeat_.fill(0);
+        attr_mux7_repeat_.fill(0);
         attr_mux5_.start_frame(bank5_attr_baseline_ptr());
         attr_mux7_.start_frame(bank7_attr_baseline_ptr());
     }
@@ -1550,19 +1571,30 @@ private:
     static constexpr uint8_t  kAttrMuxBank7Page = 0x0E;
     static constexpr uint16_t kAttrMuxOffLo     = 0x1800;
     static constexpr uint16_t kAttrMuxOffHi     = 0x1AFF;
-    // Arm once a single frame has written the attribute range at least
-    // twice per byte on average (2 * 768). A single "clear the whole
-    // attribute area" write burst (768, once each) is common ordinary
-    // game behaviour and must NOT arm the (slightly) more expensive
-    // logging path; true Nirvana-class racing writes each byte up to 8
-    // times a frame (worst case 6144, see attribute_mux.h), so 1536 is a
-    // comfortable, cheap-to-check line between the two.
-    static constexpr unsigned kAttrMuxArmThreshold = 2 * AttributeMux::kNumBytes;
+    // Arm once a SINGLE attribute byte has been rewritten this many
+    // times within one frame. This is the Nirvana signature — the same
+    // byte re-fetched (and, for the effect to work, rewritten) on every
+    // one of the 8 scanlines of its character cell, worst case 8
+    // rewrites. A TOTAL write-count threshold across many DIFFERENT
+    // bytes was tried first and false-armed on beast.nex, which
+    // legitimately writes 1500+ distinct attribute cells per frame as
+    // ordinary HUD/sprite-colour updates (each written once, not
+    // raced) — corrupting its screen (25000+/190000+ pixel diff,
+    // caught by the regression suite before landing). 4 repeats is
+    // comfortably above what a single-pass "redraw changed cells"
+    // sweep would ever produce for the SAME byte and comfortably below
+    // the 8-repeat true-racing case.
+    static constexpr uint8_t kAttrMuxArmRepeatThreshold = 4;
 
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
     bool           attr_mux_armed_        = false;
-    unsigned       attr_mux_write_count_  = 0;
+    // Per-byte write-repeat counters (reset every frame in
+    // attr_mux_start_frame) — see kAttrMuxArmRepeatThreshold above for
+    // why this replaces a simple total-write counter.
+    std::array<uint8_t, AttributeMux::kNumBytes> attr_mux5_repeat_{};
+    std::array<uint8_t, AttributeMux::kNumBytes> attr_mux7_repeat_{};
+    uint8_t        attr_mux_max_repeat_this_frame_ = 0;
     uint16_t       attr_mux_current_line_ = 0;
 
     /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
