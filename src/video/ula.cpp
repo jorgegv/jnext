@@ -137,7 +137,20 @@ uint8_t Ula::attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const
     if (!alt) {
         const uint16_t off = static_cast<uint16_t>(addr - 0x5800u);
         if (off < AttributeMux::kNumBytes) {
-            return (vram_use_bank7_ ? mmu.attr_mux7() : mmu.attr_mux5()).current(off);
+            const AttributeMux& mux = vram_use_bank7_ ? mmu.attr_mux7() : mmu.attr_mux5();
+            // mux.started() — NOT a racing/arm heuristic (that mechanism
+            // is gone; see mmu.h). A plain lifecycle guard: `current()`
+            // only reflects real content once Mmu::attr_mux_start_frame()
+            // has actually snapshotted a baseline. Production rendering
+            // always calls it once per frame before any CPU execution,
+            // so this is unconditionally true for a running emulator;
+            // it only matters for callers (most subsystem unit/
+            // integration tests) that construct a bare Ula+Mmu and
+            // render directly without the per-frame lifecycle, and must
+            // fall through to the plain read exactly as pre-G12.
+            if (mux.started()) {
+                return mux.current(off);
+            }
         }
     }
     return vram_read(addr, mmu);

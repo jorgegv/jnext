@@ -13,6 +13,7 @@ void AttributeMux::start_frame(const uint8_t* baseline)
     log_size_        = 0;
     render_cursor_   = 0;
     overflow_warned_ = false;
+    started_         = true;
 }
 
 bool AttributeMux::record_write(uint16_t line, uint16_t offset, uint8_t value)
@@ -65,5 +66,6 @@ void AttributeMux::clear()
     log_size_        = 0;
     render_cursor_   = 0;
     overflow_warned_ = false;
+    started_         = false;
 }
 

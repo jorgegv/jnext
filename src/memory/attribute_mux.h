@@ -69,6 +69,22 @@ public:
     /// yet wired to a physical buffer) — treated as all-zero.
     void start_frame(const uint8_t* baseline);
 
+    /// True once start_frame() has been called at least once. NOT a
+    /// racing/arm heuristic — a plain lifecycle invariant: `current()`
+    /// only reflects real content once a baseline has actually been
+    /// snapshotted. Real production rendering always calls
+    /// Mmu::attr_mux_start_frame() once per frame before any CPU
+    /// execution (see mmu.h), so this is true for the entire life of a
+    /// running emulator. It exists so callers that construct a bare
+    /// Ula+Mmu fixture and render directly (most subsystem unit/
+    /// integration tests, which write attribute bytes straight into Ram
+    /// and never touch the per-frame mux lifecycle at all) fall through
+    /// to the plain vram_read() path instead of reading an all-zero
+    /// `current_` — exactly the pre-G12 behaviour for any caller that
+    /// never opts into the per-frame lifecycle, regardless of whether
+    /// any write happened to race.
+    bool started() const { return started_; }
+
     /// Record that attribute-plane offset `offset` (0..767) was written
     /// `value` while scanline `line` was the current beam position (per
     /// Mmu::attr_mux_set_current_line, itself mirroring
@@ -133,4 +149,5 @@ private:
     size_t   log_size_        = 0;
     size_t   render_cursor_   = 0;
     bool     overflow_warned_ = false;
+    bool     started_         = false;
 };
