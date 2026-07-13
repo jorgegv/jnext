@@ -28,6 +28,7 @@
 // Run: ./build/test/debugger_audio_panel_test
 
 #include "audio/audio_mute.h"
+#include "audio/mixer.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/audio_panel.h"

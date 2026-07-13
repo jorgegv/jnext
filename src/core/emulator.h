@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "audio/audio_mute.h"
 #include "core/clock.h"
 #include "core/emulator_config.h"
 #include "core/scheduler.h"
