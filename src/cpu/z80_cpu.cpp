@@ -151,18 +151,6 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,   /*wr_n*/false,
             address, pos.hc, pos.vc);
-        // G12 (Nirvana-class attribute-mux plumbing, Phase A) — stash the
-        // beam position active for this write so Mmu::write() (below)
-        // can forward it to Ram's write observer, if one is registered.
-        // Reuses the s_contention_mmu wiring z80_set_contention_runtime()
-        // already installs; no new Emulator-side wiring needed. Only the
-        // CPU-driven write path is ever beam-position-accurate — DMA and
-        // Copper writes are bursts, not per-cycle, so they don't call
-        // this and the observer sees t=0/m1=false for those (see
-        // Mmu::set_write_beam_pos()).
-        if (s_contention_mmu) {
-            s_contention_mmu->set_write_beam_pos(pos.hc, pos.vc, /*m1=*/false);
-        }
     }
     tstates += 3;
     s_mem->write(address, b);

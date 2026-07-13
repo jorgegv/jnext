@@ -12,12 +12,6 @@ uint8_t Ram::read(uint32_t addr) const {
 void Ram::write(uint32_t addr, uint8_t val) {
     if (addr >= data_.size()) return;
     data_[addr] = val;
-    // G12 — Nirvana-class write observer (Phase A). See ram.h. Direct
-    // Ram::write() callers have no beam-position context of their own,
-    // so m1/t are the "unknown" defaults (false/0); Mmu's raw-pointer
-    // write path calls notify_write() directly with real values instead
-    // of going through this function (see mmu.h Mmu::write()).
-    if (observer_) observer_(addr, val, /*m1=*/false, /*t=*/0);
 }
 
 uint8_t* Ram::page_ptr(uint16_t page) {
