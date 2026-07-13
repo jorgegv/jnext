@@ -51,8 +51,12 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
 // Destructor — handles JNEXT_TRACE_DUMP_AT_EXIT env-gate (G46(b) trace infra).
 // Reads the env var at destruction time only; zero overhead when unset.
 // ---------------------------------------------------------------------------
+extern "C" void g12_inprobe_report(void);
+
 Emulator::~Emulator()
 {
+    mmu_.g12_probe_report();
+    g12_inprobe_report();
     // G46(b) EOD-30i+29: JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
     //   If set, export the full trace-log ring buffer to a text file at
     //   emulator shutdown. Allows post-mortem grep/awk walks when combined
@@ -6144,7 +6148,8 @@ void Emulator::begin_new_frame()
     // zxula_timing.vhd:423) so render-time resolution can gate mid-
     // scanline writes by column, not just by scanline — see
     // attribute_mux.h's column-accurate-resolution block comment.
-    mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc());
+    mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
+                              video_timing_.vblank_top());
 
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();

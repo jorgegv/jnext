@@ -514,10 +514,56 @@ public:
                     const uint16_t rel = static_cast<uint16_t>(off - kAttrMuxOffLo);
                     AttributeMux& mux = (page == kAttrMuxBank5Page)
                         ? attr_mux5_ : attr_mux7_;
-                    mux.record_write(attr_mux_current_line_, attr_mux_current_hc_, rel, val);
+                    g12_probe_compare_tags();
+                    // Prefer the beam line derived from THIS write's own
+                    // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
+                    // over the on_scanline() tag, which is only refreshed
+                    // between instructions and is therefore stale for any
+                    // write inside an instruction that straddles a scanline
+                    // boundary — tagging it a whole scanline early. Non-CPU
+                    // writers (DMA, loaders) never set it and keep the
+                    // coarse tag.
+                    const uint16_t line = attr_mux_write_pos_valid_
+                        ? attr_mux_write_line_ : attr_mux_current_line_;
+                    attr_mux_write_pos_valid_ = false;
+                    mux.record_write(line, attr_mux_current_hc_, rel, val);
                 }
             }
         }
+    }
+
+    // TEMPORARY diagnostic (G12 T-state hypothesis). Counts how often the
+    // on_scanline-derived line tag disagrees with the true per-write beam
+    // line. Enabled by JNEXT_G12_LINEPROBE=1; zero cost otherwise.
+    void g12_probe_compare_tags() const {
+        static const bool on = [] {
+            const char* e = std::getenv("JNEXT_G12_LINEPROBE");
+            return e && *e == '1';
+        }();
+        if (!on || !attr_mux_write_pos_valid_) return;
+        ++g12_probe_total_;
+        if (attr_mux_write_line_ != attr_mux_current_line_) {
+            ++g12_probe_mismatch_;
+            const int delta = static_cast<int>(attr_mux_write_line_)
+                            - static_cast<int>(attr_mux_current_line_);
+            if (delta >= -4 && delta <= 4) ++g12_probe_delta_[delta + 4];
+            else                           ++g12_probe_delta_far_;
+        }
+    }
+    void g12_probe_report() const {
+        if (g12_probe_total_ == 0) return;
+        std::fprintf(stderr,
+            "[G12-LINEPROBE] attr writes=%llu mismatched-line=%llu (%.2f%%) "
+            "delta -4..+4 = [%llu %llu %llu %llu | %llu | %llu %llu %llu %llu] far=%llu\n",
+            (unsigned long long)g12_probe_total_,
+            (unsigned long long)g12_probe_mismatch_,
+            100.0 * double(g12_probe_mismatch_) / double(g12_probe_total_),
+            (unsigned long long)g12_probe_delta_[0], (unsigned long long)g12_probe_delta_[1],
+            (unsigned long long)g12_probe_delta_[2], (unsigned long long)g12_probe_delta_[3],
+            (unsigned long long)g12_probe_delta_[4],
+            (unsigned long long)g12_probe_delta_[5], (unsigned long long)g12_probe_delta_[6],
+            (unsigned long long)g12_probe_delta_[7], (unsigned long long)g12_probe_delta_[8],
+            (unsigned long long)g12_probe_delta_far_);
     }
 
     // ── G12 — Nirvana-class attribute-mux public API ───────────────────
@@ -542,9 +588,21 @@ public:
     /// exists only so bare-Mmu test fixtures that call this directly
     /// keep compiling and keep resolving on line alone (see
     /// AttributeMux::start_frame()'s doc comment).
-    void attr_mux_start_frame(int hc_origin = 0) {
+    void attr_mux_start_frame(int hc_origin = 0, int vblank_top = 0) {
+        attr_mux_vblank_top_ = vblank_top;
         attr_mux5_.start_frame(bank5_attr_baseline_ptr(), hc_origin);
         attr_mux7_.start_frame(bank7_attr_baseline_ptr(), hc_origin);
+    }
+
+    /// True beam position at the exact T-state the write lands on the bus,
+    /// as derived from the FUSE T-state counter in fuse_z80_writebyte().
+    /// `vc` is raw scanline (frame-relative); it is converted to the same
+    /// framebuffer-row space every per-scanline change log is tagged in.
+    void attr_mux_set_write_pos(int vc, int hc) {
+        attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
+        const int fb_row = vc - attr_mux_vblank_top_;
+        attr_mux_write_line_ = (fb_row < 0) ? 0 : static_cast<uint16_t>(fb_row);
+        attr_mux_write_pos_valid_ = true;
     }
 
     /// Update the scanline tag attached to subsequent attribute writes.
@@ -1527,6 +1585,14 @@ private:
     // directly by test fixtures. NOT persisted across a rewind snapshot
     // — see AttributeMux's save_state/load_state doc comment for why.
     uint16_t       attr_mux_current_hc_ = 0;
+    // Beam position captured at the exact write T-state (attr_mux_set_write_pos).
+    uint16_t       attr_mux_write_line_      = 0;
+    bool           attr_mux_write_pos_valid_ = false;
+    int            attr_mux_vblank_top_      = 0;
+    mutable uint64_t g12_probe_total_    = 0;
+    mutable uint64_t g12_probe_mismatch_ = 0;
+    mutable uint64_t g12_probe_delta_[9] = {};
+    mutable uint64_t g12_probe_delta_far_ = 0;
 
     /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
     /// currently lives (dedicated bank5_vram_ on Next machines, plain

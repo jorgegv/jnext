@@ -2,6 +2,8 @@
 #include "core/log.h"
 
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 
 void AttributeMux::start_frame(const uint8_t* baseline, int hc_origin)
 {
@@ -48,6 +50,25 @@ void AttributeMux::rewind_to_baseline()
 
 void AttributeMux::flush_remaining_changes()
 {
+    // TEMPORARY diagnostic (G12): JNEXT_G12_DUMPOFF=<attr-plane-offset>
+    // dumps every recorded write for that offset this frame, with the
+    // column-fetch instant it is resolved against.
+    static const int dump_off = [] {
+        const char* e = std::getenv("JNEXT_G12_DUMPOFF");
+        return e ? std::atoi(e) : -1;
+    }();
+    if (dump_off >= 0 && dump_off < kNumBytes && !per_offset_log_[dump_off].empty()) {
+        const int col = dump_off % 32;
+        std::fprintf(stderr,
+            "[G12-DUMP] off=%d (col=%d row=%d) hc_origin=%d hc_fetch=%d baseline=%02X\n",
+            dump_off, col, dump_off / 32, hc_origin_, hc_fetch(col), baseline_[dump_off]);
+        for (uint16_t i : per_offset_log_[dump_off]) {
+            const Entry& e = log_[i];
+            std::fprintf(stderr, "[G12-DUMP]   line=%3u hc=%3u val=%02X\n",
+                         e.line, e.hc, e.value);
+        }
+    }
+
     // Unconditional drain, ignoring the line/hc gate -- see the header
     // doc comment. Only offsets with a non-empty log do any work.
     for (size_t offset = 0; offset < kNumBytes; ++offset) {

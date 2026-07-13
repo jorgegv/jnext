@@ -66,6 +66,10 @@ static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
 // stay inert.
 static ContentionModel* s_contention      = nullptr;
 static Mmu*             s_contention_mmu  = nullptr;
+static libspectrum_dword s_last_int_accept_ts = 0;
+static libspectrum_dword s_cont_total = 0;
+static libspectrum_dword s_cont_prev = 0;
+static libspectrum_dword s_cont_at_int = 0;
 static int              s_tstates_per_line = 224;
 static int              s_tstates_per_frame = 224 * 312;
 
@@ -78,6 +82,13 @@ namespace {
 /// domain (each T-state = 2 pixel ticks). Frame is reset to 0 at
 /// frame start in Emulator::run_frame().
 struct HcVc { uint16_t hc; uint16_t vc; };
+inline HcVc to_ula_counters(HcVc p) {
+    const int line_ticks = s_tstates_per_line * 2;
+    const int lines      = s_tstates_per_frame / s_tstates_per_line;
+    int h = (int(p.hc) - 116 + line_ticks) % line_ticks;
+    int v = (int(p.vc) - 64  + lines)      % lines;
+    return {uint16_t(h), uint16_t(v)};
+}
 inline HcVc derive_hc_vc(uint32_t tstates) {
     int frame_ts = static_cast<int>(tstates % static_cast<uint32_t>(s_tstates_per_frame));
     int line     = frame_ts / s_tstates_per_line;
@@ -130,11 +141,12 @@ libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
     if (s_contention) {
         // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_rd_n='0'` — memory read.
         s_contention->set_mem_active_page(mem_active_page_for(address));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/false,  /*wr_n*/true,
             address, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
     return s_mem->read(address);
@@ -146,11 +158,12 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
     if (s_contention) {
         // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_wr_n='0'` — memory write.
         s_contention->set_mem_active_page(mem_active_page_for(address));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,   /*wr_n*/false,
             address, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
     // G12 round 4 (Nirvana-class column-accurate attribute replay) —
@@ -162,10 +175,64 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
     // Mmu is attached — s_contention_mmu is null in the FUSE Z80
     // opcode-test harness, which never runs a scanline schedule and has
     // no video timing to tag against.
+    {
+        static const bool wts = [] {
+            const char* e = std::getenv("JNEXT_G12_WTS");
+            return e && *e == '1';
+        }();
+        if (wts && address == 0x5865) {
+            static int n = 0;
+            if (n < 24) { ++n;
+                std::fprintf(stderr, "[G12-WTS] pc=%04X int_rel_ts=%u contention_T_since_INT=%u\n",
+                    (unsigned)z80.pc.w,
+                    (unsigned)(tstates - s_last_int_accept_ts),
+                    (unsigned)(s_cont_total - s_cont_at_int));
+            }
+        }
+        // First attribute-plane write of each frame (bisect point).
+        if (wts && address >= 0x5800 && address <= 0x5AFF) {
+            static libspectrum_dword last_int = 0xFFFFFFFFu;
+            static int nf = 0;
+            if (s_last_int_accept_ts != last_int) {
+                last_int = s_last_int_accept_ts;
+                if (++nf > 200 && nf < 204)
+                    std::fprintf(stderr, "[G12-FIRST] addr=%04X pc=%04X int_rel_ts=%u\n",
+                        (unsigned)address, (unsigned)z80.pc.w,
+                        (unsigned)(tstates - s_last_int_accept_ts));
+            }
+        }
+    }
     if (s_contention_mmu) {
-        s_contention_mmu->attr_mux_set_current_hc(derive_hc_vc(tstates).hc);
+        const auto wpos = derive_hc_vc(tstates);
+        s_contention_mmu->attr_mux_set_current_hc(wpos.hc);
+        s_contention_mmu->attr_mux_set_write_pos(wpos.vc, wpos.hc);
     }
     s_mem->write(address, b);
+}
+
+// TEMPORARY diagnostic (G12): JNEXT_G12_INPROBE=1 histograms every IN by
+// port low byte, and reports where port 0xFF (floating bus) is read from.
+static uint64_t s_inprobe_port[256] = {};
+static uint64_t s_inprobe_ff_pc[8]  = {};
+static int      s_inprobe_ff_pcs    = 0;
+static bool g12_inprobe_on() {
+    static const bool on = [] {
+        const char* e = std::getenv("JNEXT_G12_INPROBE");
+        return e && *e == '1';
+    }();
+    return on;
+}
+void g12_inprobe_report(void) {
+    if (!g12_inprobe_on()) return;
+    std::fprintf(stderr, "[G12-INPROBE] IN counts by port low byte:\n");
+    for (int i = 0; i < 256; ++i)
+        if (s_inprobe_port[i])
+            std::fprintf(stderr, "[G12-INPROBE]   port lo=%02X : %llu\n",
+                         i, (unsigned long long)s_inprobe_port[i]);
+    std::fprintf(stderr, "[G12-INPROBE] floating-bus (lo=FF) read from PCs:");
+    for (int i = 0; i < s_inprobe_ff_pcs; ++i)
+        std::fprintf(stderr, " %04llX", (unsigned long long)s_inprobe_ff_pc[i]);
+    std::fprintf(stderr, "\n");
 }
 
 // Expose tstates for contention callback to add delays
@@ -178,16 +245,26 @@ libspectrum_byte fuse_z80_readport(libspectrum_word port) {
     // contention_tick at the start of the post-IORQ phase, when
     // `cpu_iorq_n` would go low.
     tstates++;
+    if (g12_inprobe_on()) {
+        ++s_inprobe_port[port & 0xFF];
+        if ((port & 0xFF) == 0xFF && s_inprobe_ff_pcs < 8) {
+            bool seen = false;
+            for (int i = 0; i < s_inprobe_ff_pcs; ++i)
+                if (s_inprobe_ff_pc[i] == z80.pc.w) seen = true;
+            if (!seen) s_inprobe_ff_pc[s_inprobe_ff_pcs++] = z80.pc.w;
+        }
+    }
     libspectrum_byte val = s_io->in(port);
     if (s_contention) {
         // mem_active_page is irrelevant for port cycles (mem_contend=0);
         // contention_tick gates on port_contend internally.
         s_contention->set_mem_active_page(mem_active_page_for(port));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/true,  /*iorq_n*/false,
             /*rd_n*/false,   /*wr_n*/true,
             port, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
     return val;
@@ -198,11 +275,12 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
     s_io->out(port, b);
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(port));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/true,  /*iorq_n*/false,
             /*rd_n*/true,    /*wr_n*/false,
             port, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
 }
@@ -252,11 +330,12 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
 extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(address));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/false,   /*wr_n*/true,
             address, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += time;
 }
@@ -264,11 +343,12 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
 extern "C" void contend_read_no_mreq(libspectrum_word address, libspectrum_dword time) {
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(address));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,    /*wr_n*/true,
             address, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += time;
 }
@@ -276,11 +356,12 @@ extern "C" void contend_read_no_mreq(libspectrum_word address, libspectrum_dword
 extern "C" void contend_write_no_mreq(libspectrum_word address, libspectrum_dword time) {
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(address));
-        auto pos = derive_hc_vc(tstates);
-        tstates += s_contention->contention_tick(
+        auto pos = to_ula_counters(derive_hc_vc(tstates));
+        s_cont_total += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,    /*wr_n*/true,
             address, pos.hc, pos.vc);
+        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += time;
 }
@@ -524,7 +605,35 @@ int Z80Cpu::execute() {
                 uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
                 Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
                 libspectrum_dword before = tstates;
+                const libspectrum_dword int_accept_ts = tstates;
+                s_last_int_accept_ts = int_accept_ts;
+                s_cont_at_int = s_cont_total;
                 int accepted = fuse_z80_interrupt(vector);
+                // TEMPORARY diagnostic (G12): JNEXT_G12_INTPROBE=1 reports
+                // the T-state at which the INT is requested vs actually
+                // accepted, and the raster line that implies.
+                static const bool intprobe = [] {
+                    const char* e = std::getenv("JNEXT_G12_INTPROBE");
+                    return e && *e == '1';
+                }();
+                if (intprobe && accepted) {
+                    static int n = 0;
+                    ++n;
+                    if (n > 200 && n < 204) {
+                        std::fprintf(stderr,
+                            "[G12-ISR] entry pc=%04X  im=%d  cost=%u T\n",
+                            (unsigned)z80.pc.w, (int)z80.im,
+                            (unsigned)(tstates - int_accept_ts));
+                        const auto rp = derive_hc_vc(int_requested_at_);
+                        const auto ap = derive_hc_vc(int_accept_ts);
+                        std::fprintf(stderr,
+                            "[G12-INTPROBE] requested ts=%5u (vc=%3u hc=%3u) | "
+                            "accepted ts=%5u (vc=%3u hc=%3u) | latency=%u T\n",
+                            (unsigned)int_requested_at_, rp.vc, rp.hc,
+                            (unsigned)int_accept_ts, ap.vc, ap.hc,
+                            (unsigned)(int_accept_ts - int_requested_at_));
+                    }
+                }
                 sync_regs_from_fuse(regs_);
                 if (accepted) {
                     int_pending_ = false;

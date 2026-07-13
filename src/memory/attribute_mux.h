@@ -2,6 +2,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 // G12 — Nirvana-class mid-scanline attribute multiplex.
@@ -257,10 +258,18 @@ private:
         const auto& idx = per_offset_log_[offset];
         size_t& cur = per_offset_cursor_[offset];
         const uint16_t target_hc = hc_fetch(static_cast<int>(offset % 32));
+        // TEMPORARY diagnostic (G12): JNEXT_G12_LINEBIAS shifts every
+        // entry's line tag, to test whether a pure raster phase offset
+        // explains the BIFROST mismatch. Default 0 = no change.
+        static const int line_bias = [] {
+            const char* e = std::getenv("JNEXT_G12_LINEBIAS");
+            return e ? std::atoi(e) : 0;
+        }();
         while (cur < idx.size()) {
             const Entry& e = log_[idx[cur]];
-            if (e.line < target_line_
-                || (e.line == target_line_ && e.hc <= target_hc)) {
+            const int eline = static_cast<int>(e.line) + line_bias;
+            if (eline < static_cast<int>(target_line_)
+                || (eline == static_cast<int>(target_line_) && e.hc <= target_hc)) {
                 current_[offset] = e.value;
                 ++cur;
             } else {
