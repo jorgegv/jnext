@@ -56,9 +56,24 @@
 > and is covered by **TR-52/53** in
 > [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md), which
 > drives the real `Layer2` through `Renderer::render_row`.
-> `Layer2::render_scanline_debug` (the debugger's isolated-bank view)
-> deliberately keeps reading the LIVE value — see its doc comment in
-> `layer2.h`.
+> `Layer2::render_scanline_debug` ALSO gained a mandatory `transparent_rgb`
+> parameter — independent review found the original justification for
+> keeping it on the LIVE value ("no meaningful per-line snapshot to defer
+> to") factually wrong: `src/debugger/video_panel.cpp`'s
+> `replay_rewind()`/`replay_line()` already replay everything Layer2 owns
+> (bank/scroll/clip) per row for the paused frame, so NR 0x14 was simply
+> the one input still read live. `video_panel.cpp`'s `LAYER2_ACTIVE`/
+> `LAYER2_SHADOW` call sites now pass
+> `Renderer::transparent_rgb_for_line(row)`, mirroring the `BACKGROUND`
+> view's `fallback_for_line(row)` read; regression-guarded by **DVP-21**
+> in `test/debugger/video_panel_test.cpp`. See both files' doc comments
+> for the corrected rationale.
+>
+> Also: the `(l2_px & 0xFFFFFF) == nr14_rgb` dead-clause claim in
+> `renderer.cpp` (see the COMPOSITOR plan's Task 46 changelog entry) is
+> now an ENFORCED regression row — **L2EQ-01** in
+> [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md) — not
+> just a comment.
 
 Systematic compliance test plan for the Layer 2 bitmap display subsystem,
 derived exclusively from the VHDL sources (`layer2.vhd` and the Layer 2 wiring

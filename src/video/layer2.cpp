@@ -347,6 +347,7 @@ static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr,
 
 void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                    const PaletteManager& palette, uint8_t bank,
+                                   uint8_t transparent_rgb,
                                    bool rom_in_sram)
 {
     const bool saved_enabled = enabled_;
@@ -354,9 +355,9 @@ void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
     enabled_      = true;
     active_bank_  = bank;
     // Debugger view doesn't need per-pixel priority info — pass nullptr.
-    // Reads the LIVE NR 0x14 value on purpose — see the doc comment on
-    // this function in layer2.h (Task 46).
-    render_scanline(dst, row, ram, palette, palette.global_transparency(),
+    // transparent_rgb comes from the CALLER's per-line replay — see the
+    // doc comment on this function in layer2.h (Task 46).
+    render_scanline(dst, row, ram, palette, transparent_rgb,
                     rom_in_sram, /*priority_dst=*/nullptr);
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
