@@ -65,6 +65,11 @@ static void print_usage(const char* prog) {
         "                       format chosen by FILE's extension (.szx/.nex/other->.sna)\n"
         "  --delayed-snapshot-frames N Delay in frames for --delayed-snapshot (default 0)\n"
         "  --headless               Run without display/audio (for automated testing)\n"
+        "  --silent                 Disable all sound output (beeper, AY/YM x3, DAC/\n"
+        "                       Covox/Specdrum). No audio device is opened, and the\n"
+        "                       emulator skips PSG/mixer sample synthesis entirely —\n"
+        "                       can measurably speed up CPU-bound runs. Tape loading\n"
+        "                       (EAR input) is unaffected.\n"
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
         "  --esxdos-stub            Intercept RST $08 calls; let NEX games without\n"
@@ -131,6 +136,7 @@ int main(int argc, char* argv[]) {
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     bool        headless = false;
+    bool        silent = false;
     bool        tape_realtime = false;
     bool        magic_breakpoint = false;
     bool        esxdos_stub = false;
@@ -204,6 +210,8 @@ int main(int argc, char* argv[]) {
             machine_type_set = true;
         } else if (arg == "--headless") {
             headless = true;
+        } else if (arg == "--silent") {
+            silent = true;
         } else if (arg == "--tape-realtime") {
             tape_realtime = true;
         } else if (arg == "--magic-breakpoint") {
@@ -394,6 +402,7 @@ int main(int argc, char* argv[]) {
         cfg.profile_output_path    = profile_output_path;
         cfg.rtc_fixed              = !rtc_fixed_arg.empty();
         cfg.rtc_fixed_tm           = rtc_fixed_tm;
+        cfg.silent                 = silent;
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) return 1;

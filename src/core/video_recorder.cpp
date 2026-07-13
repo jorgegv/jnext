@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <system_error>
 
 namespace fs = std::filesystem;
 
@@ -94,23 +95,52 @@ bool VideoRecorder::stop()
         {"libopenh264",  "-pix_fmt yuv420p"},
     };
 
+    // Task 47 (--silent): with audio synthesis skipped, audio_tmp_ is a
+    // 0-byte file. Feeding ffmpeg a zero-duration raw-PCM input alongside
+    // "-shortest" makes it clamp the WHOLE output to that zero duration —
+    // ffmpeg exits 0 having written a structurally-valid but empty/corrupt
+    // MP4 ("Output file is empty, nothing was encoded"), and the caller
+    // reported success. Detected by review (Task 47 fix-round). When there
+    // is no audio to mux, build a video-only command instead: no audio
+    // input, no "-c:a", no "-shortest" (nothing to be the shortest OF).
+    std::error_code fs_ec;
+    const bool have_audio = fs::file_size(audio_tmp_, fs_ec) > 0 && !fs_ec;
+    if (!have_audio) {
+        Log::emulator()->info(
+            "VideoRecorder: no audio was captured (--silent, or a source with "
+            "no output) — encoding video-only");
+    }
+
     Log::emulator()->debug("VideoRecorder: encoding with FFmpeg...");
     int ret = -1;
     for (const auto& enc : encoders) {
         char cmd[2048];
-        snprintf(cmd, sizeof(cmd),
-            "ffmpeg -y "
-            "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i '%s' "
-            "-f s16le -ar %d -ac 2 -i '%s' "
-            "-c:v %s %s "
-            "-c:a aac -b:a 128k "
-            "-shortest -movflags +faststart "
-            "'%s' "
-            ">/dev/null 2>&1",
-            frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
-            SAMPLE_RATE, audio_tmp_.c_str(),
-            enc.codec, enc.extra,
-            output_path_.c_str());
+        if (have_audio) {
+            snprintf(cmd, sizeof(cmd),
+                "ffmpeg -y "
+                "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i '%s' "
+                "-f s16le -ar %d -ac 2 -i '%s' "
+                "-c:v %s %s "
+                "-c:a aac -b:a 128k "
+                "-shortest -movflags +faststart "
+                "'%s' "
+                ">/dev/null 2>&1",
+                frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
+                SAMPLE_RATE, audio_tmp_.c_str(),
+                enc.codec, enc.extra,
+                output_path_.c_str());
+        } else {
+            snprintf(cmd, sizeof(cmd),
+                "ffmpeg -y "
+                "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i '%s' "
+                "-c:v %s %s "
+                "-movflags +faststart "
+                "'%s' "
+                ">/dev/null 2>&1",
+                frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
+                enc.codec, enc.extra,
+                output_path_.c_str());
+        }
 
         Log::emulator()->debug("VideoRecorder: trying encoder '{}'", enc.codec);
         Log::emulator()->debug("VideoRecorder: cmd={}", cmd);

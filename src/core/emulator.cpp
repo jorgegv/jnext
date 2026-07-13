@@ -6700,18 +6700,26 @@ void Emulator::run_frame()
             prev_nmi_generate_n_ = nmi_n;
         }
 
-        // Tick PSG (TurboSound) at 1.75 MHz rate.
-        psg_accum_ += master_cycles;
-        while (psg_accum_ >= PSG_DIVISOR) {
-            psg_accum_ -= PSG_DIVISOR;
-            turbosound_.tick();
-        }
+        // Task 47 (--silent): skip PSG ticking and mixer synthesis entirely —
+        // nothing reads their output (no audio device is opened, and the
+        // ring buffer is never drained), so doing the work is pure waste.
+        // Register writes to the AY/DAC/beeper ports above are unaffected;
+        // only the oscillator/mixer work that turns them into samples is
+        // skipped. See EmulatorConfig::silent doc comment.
+        if (!config_.silent) {
+            // Tick PSG (TurboSound) at 1.75 MHz rate.
+            psg_accum_ += master_cycles;
+            while (psg_accum_ >= PSG_DIVISOR) {
+                psg_accum_ -= PSG_DIVISOR;
+                turbosound_.tick();
+            }
 
-        // Feed this instruction's span to the mixer, which INTEGRATES the source
-        // levels across each output-sample interval rather than point-sampling
-        // them. Suppressed in replay mode (fast-forward rewind path).
-        if (!replay_mode_) {
-            advance_audio(master_cycles);
+            // Feed this instruction's span to the mixer, which INTEGRATES the source
+            // levels across each output-sample interval rather than point-sampling
+            // them. Suppressed in replay mode (fast-forward rewind path).
+            if (!replay_mode_) {
+                advance_audio(master_cycles);
+            }
         }
 
         // Drain any scheduler events that have become due.
@@ -6932,15 +6940,17 @@ int Emulator::execute_single_instruction()
         prev_nmi_generate_n_ = nmi_n;
     }
 
-    // PSG.
-    psg_accum_ += master_cycles;
-    while (psg_accum_ >= PSG_DIVISOR) {
-        psg_accum_ -= PSG_DIVISOR;
-        turbosound_.tick();
-    }
+    // PSG. Task 47 (--silent): skip entirely — see run_frame() for rationale.
+    if (!config_.silent) {
+        psg_accum_ += master_cycles;
+        while (psg_accum_ >= PSG_DIVISOR) {
+            psg_accum_ -= PSG_DIVISOR;
+            turbosound_.tick();
+        }
 
-    // Audio samples — see run_frame().
-    advance_audio(master_cycles);
+        // Audio samples — see run_frame().
+        advance_audio(master_cycles);
+    }
 
     // Scheduler.
     scheduler_.run_until(clock_.get());

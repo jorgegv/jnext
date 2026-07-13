@@ -9,8 +9,17 @@ bool SdlApp::init(int argc, char* argv[]) {
     }
     if (!display_.init("JNEXT — ZX Spectrum Next Emulator",
                        NATIVE_W, NATIVE_H, DISPLAY_H)) return false;
-    if (!audio_.init()) {
-        Log::platform()->warn("Audio init failed — continuing without sound");
+    // Task 47 (--silent): never open an SDL audio device. SdlAudio stays
+    // un-initialized, so SdlAudio::queued_ms() returns -1 and
+    // push_from_mixer() is a no-op — audio_pacing::frames_for_tick(-1)
+    // falls back to wall-clock pacing (1 frame/tick), the same path taken
+    // when audio init genuinely fails below.
+    if (!(config_set_ && config_.silent)) {
+        if (!audio_.init()) {
+            Log::platform()->warn("Audio init failed — continuing without sound");
+        }
+    } else {
+        Log::platform()->info("--silent: not opening an audio device");
     }
 
     // Initialise the emulator with config (use set_config() before init(), or defaults).

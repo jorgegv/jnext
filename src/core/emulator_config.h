@@ -171,6 +171,18 @@ struct EmulatorConfig {
     // to make boot screenshots deterministic (regression tests).
     bool    rtc_fixed = false;
     std::tm rtc_fixed_tm{};
+
+    // Task 47 — --silent: disable all sound output (beeper, AY/YM x3,
+    // DAC/Covox/Specdrum). Gates two things: (1) the frontends never open
+    // an SDL audio device, and (2) the emulator core skips PSG ticking and
+    // mixer sample synthesis in the per-instruction hot path (see
+    // Emulator::run_frame() / execute_single_instruction()) — the actual
+    // performance win, not just a muted output. Register writes to the AY/
+    // DAC/beeper ports still land normally; only the oscillator/mixer work
+    // that turns them into samples nobody consumes is skipped. The tape
+    // EAR *input* bit (read by the CPU on port 0xFE) is computed
+    // independently of the mixer and is unaffected.
+    bool silent = false;
 };
 
 // ---------------------------------------------------------------------------
