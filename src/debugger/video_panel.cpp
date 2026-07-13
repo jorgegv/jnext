@@ -177,6 +177,7 @@ static void replay_rewind(Emulator& emu)
     emu.ula().rewind_scroll_to_baseline();     // ULA scroll
     emu.ula().palsel_rewind_to_baseline();     // ULA active-palette selector
     emu.tilemap().rewind_nr6b_to_baseline();   // NR 0x6B
+    emu.mmu().attr_mux_rewind_to_baseline();   // G12 Nirvana-class attribute mux
 }
 
 static void replay_line(Emulator& emu, int row)
@@ -188,6 +189,7 @@ static void replay_line(Emulator& emu, int row)
     emu.ula().apply_scroll_changes_for_line(row);
     emu.ula().palsel_apply_changes_for_line(row);
     emu.tilemap().apply_nr6b_changes_for_line(row);
+    emu.mmu().attr_mux_apply_line(row);        // G12 Nirvana-class attribute mux
 }
 
 static void replay_restore(Emulator& emu)
