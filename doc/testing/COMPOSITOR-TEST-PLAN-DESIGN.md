@@ -760,6 +760,43 @@ deliberately withhold for the "before" assertion stays withheld.
 TR-52/53 sidesteps `composite_one()` for the same reason by calling
 `r.render_row()` directly instead.
 
+### Group UCLIP — NR 0x1A ULA clip window per-line deferral
+
+The last instance of the Task 43/45/46 per-line-deferral bug class.
+`Renderer::apply_ula_clip` (the compositor-stage consumer of the ULA
+clip — VHDL `zxnext.vhd:7104`, `ula_clipped` feeds `ula_transparent`)
+read the LIVE `Ula::clip_x1()/clip_x2()/clip_y1()/clip_y2()` getters at
+render time, so a mid-frame NR 0x1A write (Copper MOVE / CPU racing the
+beam) retroactively re-masked every row rendered after the write. Per
+VHDL the clip comparators consume the live registers per pixel
+(`zxnext.vhd:988-991` stage-0 register; NR 0x1A rotating 4-write cycle
+plus the y2 >= 0xC0 clamp at `zxnext.vhd:6779-6783`), so a mid-frame
+change takes effect exactly at the raster position where it lands —
+never earlier. jnext now snapshots the four EFFECTIVE clip values per
+scanline (`Renderer::snapshot_ula_clip_for_line` /
+`init_ula_clip_per_line` / `ula_clip_for_line`, captured by
+`Emulator::on_scanline`; the rotating write-cycle index is NOT part of
+the snapshot), and `apply_ula_clip(row)` consumes the snapshot. The
+rows drive `apply_ula_clip()` directly — no `composite_one()`-style
+auto-sync exists for this array, so the deferral assertions cannot be
+made vacuous by a helper. Window A (x1=128, x2=255) is deliberately
+NOT the reset default (0/255/0/191) so a dead capture (array left at
+the reset default) is distinguishable from a stale-but-captured
+snapshot via the left-border clip (`left_clipped = cx1 > 0` in
+`renderer.cpp`).
+
+| ID       | Title                                                                                           | Stimulus                                                                                                                                       | Expected                                                                                                 | VHDL               |
+|----------|-------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|--------------------|
+| UCLIP-01 | **Deferral**: mid-frame NR 0x1A write does not retroactively re-mask an already-snapshotted row | Row 52's clip snapshot captured with window A (128,255,0,191); write window B (0,127,0,191) live; `apply_ula_clip(row 52)` on a full-ink line | Display col 200 (fb cell 464) survives — stale window A masks the row; live window B would clip it        | 988-991, 6779-6783 |
+| UCLIP-02 | Snapshot is genuinely CAPTURED, not the reset default                                           | Same buffer as UCLIP-01                                                                                                                        | Left border cell clipped (snapshotted A has x1=128>0; the reset-default window would keep it)             | 6779-6783          |
+| UCLIP-03 | The SAME row takes window B only once its snapshot is refreshed                                 | Re-snapshot row 52 (mirrors the next `on_scanline()` capture), re-apply on a fresh full-ink line                                               | Col 200 clipped, left border kept (x1=0), right border clipped (x2=127<255)                               | 988-991, 6779-6783 |
+| UCLIP-04 | Split frame: rows < S masked with window A, rows >= S with window B                             | Snapshot rows 32..51 under A, write B, snapshot rows 52..71; apply per row on fresh buffers                                                    | Every row < 52 shows A masking (col kept, border clipped); every row >= 52 shows B masking (inverse)      | 988-991            |
+
+Mutation coverage (both halves of the dead-snapshot trap, verified at
+authoring time): reverting `apply_ula_clip` to the live getters fails
+UCLIP-01/02/04; stubbing the capture (snapshot never writes) fails
+UCLIP-02/03/04.
+
 ### Group BLANK — Output blanking
 
 From `zxnext.vhd:7395–7412`:
@@ -900,7 +937,8 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 | PAL (palette integration)          |  6 |
 | RST (reset)                        |  4 |
 | LMASK (host layer mask, Task 22b)  | 38 |
-| **Total**                          |**151** |
+| UCLIP (NR 0x1A per-line deferral)  |  4 |
+| **Total**                          |**155** |
 
 ## Open Questions (Honest)
 

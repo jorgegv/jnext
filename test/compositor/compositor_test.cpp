@@ -3303,6 +3303,146 @@ static void test_PSCAN() {
     }
 }
 
+// ── Group UCLIP — NR 0x1A ULA clip window per-line deferral ───────────────
+//
+// The last instance of the Task 43/45/46 per-line-deferral bug class:
+// Renderer::apply_ula_clip masked every rendered ULA scanline with the LIVE
+// Ula::clip_x1()/clip_x2()/clip_y1()/clip_y2() values, so a mid-frame NR 0x1A
+// write (Copper MOVE / CPU racing the beam) retroactively re-masked every row
+// rendered after the write — including rows the beam had already passed.
+//
+// VHDL oracle: the ULA clip comparators consume the live registers per pixel
+// (zxnext.vhd:988-991 stage-0 register; NR 0x1A rotating 4-write cycle and
+// the y2>=0xC0 clamp at zxnext.vhd:6779-6783), so a mid-frame change takes
+// effect exactly at the raster position where it lands — never earlier.
+//
+// jnext models this with the standard per-line snapshot trio
+// (snapshot_ula_clip_for_line / init_ula_clip_per_line / ula_clip_for_line),
+// captured by Emulator::on_scanline and consumed by apply_ula_clip(row).
+// These rows drive apply_ula_clip() directly (the compositor-stage consumer)
+// and are discriminative against BOTH mutation halves:
+//   (a) consumption reverted to the live getters  → UCLIP-01 goes red
+//   (b) capture stubbed dead (snapshot never writes; the array keeps the
+//       reset-default full window 0/255/0/191) → UCLIP-02/03 go red.
+//
+// Window A (x1=128, x2=255) is deliberately NOT the reset default, so a dead
+// capture is distinguishable from a stale-but-captured snapshot: under A the
+// LEFT BORDER is clipped (renderer.cpp: left_clipped = cx1 > 0), under the
+// reset default it is not.
+
+static void test_UCLIP() {
+    set_group("UCLIP");
+    Renderer r;
+    r.reset();
+
+    // A display row inside both windows' y range (y1=0, y2=191 throughout;
+    // only x changes mid-frame). fb row 52 = display row 20.
+    const int ROW = Renderer::DISP_Y + 20;
+    // Source display column 200 → fb cell DISP_X + 2*200 (G104 doubling).
+    const int CELL_IN_A  = Renderer::DISP_X + 2 * 200;  // kept by A, clipped by B
+    const int CELL_BORDER = 4;                          // left border cell
+
+    auto set_clip = [&](uint8_t x1, uint8_t x2, uint8_t y1, uint8_t y2) {
+        r.ula().set_clip_x1(x1); r.ula().set_clip_x2(x2);
+        r.ula().set_clip_y1(y1); r.ula().set_clip_y2(y2);
+    };
+    auto fill_line = [&](uint32_t* line) {
+        for (int i = 0; i < W; ++i) line[i] = PIX_ULA;
+    };
+
+    // Baseline snapshot for ROW: window A = right half (x1=128..x2=255).
+    set_clip(128, 255, 0, 191);
+    r.snapshot_ula_clip_for_line(ROW);
+
+    // NR 0x1A writes land mid-frame, flipping to window B = left half
+    // (x1=0..x2=127). ROW's snapshot is deliberately NOT refreshed.
+    set_clip(0, 127, 0, 191);
+
+    uint32_t line[W];
+
+    // UCLIP-01: the row masked BEFORE its snapshot refresh must still use
+    // window A — source col 200 survives (live window B would clip it).
+    {
+        fill_line(line);
+        r.apply_ula_clip(line, ROW);
+        check("UCLIP-01",
+              "mid-frame NR 0x1A write does not retroactively re-mask a row "
+              "whose per-line snapshot already ran — col 200 survives under "
+              "the stale window A (VHDL zxnext.vhd:988-991, 6779-6783)",
+              line[CELL_IN_A] == PIX_ULA,
+              DETAIL("cell[%d]=0x%08X expected=0x%08X (live window B would "
+                     "clip it)", CELL_IN_A, line[CELL_IN_A], PIX_ULA));
+
+        // UCLIP-02: same buffer — the LEFT BORDER is clipped because the
+        // SNAPSHOTTED window A has x1=128 > 0. Discriminative against a
+        // dead capture: the reset-default window (x1=0) keeps the border.
+        check("UCLIP-02",
+              "…and the left border is clipped per the SNAPSHOTTED window A "
+              "(x1=128>0) — proves the snapshot is captured, not the "
+              "reset default (renderer.cpp left_clipped; VHDL 6779-6783)",
+              line[CELL_BORDER] == TRANSP,
+              DETAIL("cell[%d]=0x%08X expected TRANSPARENT",
+                     CELL_BORDER, line[CELL_BORDER]));
+    }
+
+    // UCLIP-03: refresh the row's snapshot (mirrors the next on_scanline
+    // call). The SAME row must now use window B: col 200 clipped, left
+    // border kept (x1=0), right border clipped (x2=127<255).
+    {
+        r.snapshot_ula_clip_for_line(ROW);
+        fill_line(line);
+        r.apply_ula_clip(line, ROW);
+        const bool col_clipped   = (line[CELL_IN_A] == TRANSP);
+        const bool border_kept   = (line[CELL_BORDER] == PIX_ULA);
+        const bool right_clipped = (line[Renderer::FB_WIDTH - 4] == TRANSP);
+        check("UCLIP-03",
+              "after the deferred snapshot lands, the SAME row selects "
+              "window B: col 200 clipped, left border kept, right border "
+              "clipped (VHDL zxnext.vhd:988-991, 6779-6783)",
+              col_clipped && border_kept && right_clipped,
+              DETAIL("cell[%d]=0x%08X border=0x%08X right=0x%08X",
+                     CELL_IN_A, line[CELL_IN_A], line[CELL_BORDER],
+                     line[Renderer::FB_WIDTH - 4]));
+    }
+
+    // UCLIP-04: full split-frame shape — rows below the split keep window A,
+    // rows at/after the split get window B, exactly like a Copper program
+    // changing the ULA clip at scanline S.
+    {
+        const int R0 = Renderer::DISP_Y;        // fb rows 32..71
+        const int S  = Renderer::DISP_Y + 20;   // split at fb row 52
+        const int R1 = Renderer::DISP_Y + 40;
+
+        set_clip(128, 255, 0, 191);             // window A
+        for (int row = R0; row < S; ++row)
+            r.snapshot_ula_clip_for_line(row);
+        set_clip(0, 127, 0, 191);               // mid-frame write → window B
+        for (int row = S; row < R1; ++row)
+            r.snapshot_ula_clip_for_line(row);
+
+        bool ok = true;
+        int bad_row = -1;
+        for (int row = R0; row < R1; ++row) {
+            fill_line(line);
+            r.apply_ula_clip(line, row);
+            const bool want_a = (row < S);
+            const bool row_ok = want_a
+                ? (line[CELL_IN_A] == PIX_ULA && line[CELL_BORDER] == TRANSP)
+                : (line[CELL_IN_A] == TRANSP  && line[CELL_BORDER] == PIX_ULA);
+            if (!row_ok && ok) { ok = false; bad_row = row; }
+        }
+        check("UCLIP-04",
+              "split frame: rows < S masked with window A, rows >= S with "
+              "window B — mid-frame NR 0x1A change lands exactly at the "
+              "scanline where it was written (VHDL zxnext.vhd:988-991)",
+              ok, DETAIL("first bad row=%d (split S=%d)", bad_row, S));
+    }
+
+    // Restore reset-default window for any group appended after this one.
+    set_clip(0, 255, 0, 191);
+    r.init_ula_clip_per_line();
+}
+
 // ── Group LMASK — host-side layer mask (--delayed-screenshot-layers) ──────
 //
 // Task 22b. The mask is a HOST debug knob, not hardware: it selects which
@@ -3711,6 +3851,7 @@ int main() {
     test_PAL();        printf("  Group: PAL — done\n");
     test_RST();        printf("  Group: RST — done\n");
     test_PSCAN();      printf("  Group: PSCAN — done\n");
+    test_UCLIP();      printf("  Group: UCLIP — done\n");
     test_LMASK();      printf("  Group: LMASK — done\n");
 
     printf("\n=====================================\n");

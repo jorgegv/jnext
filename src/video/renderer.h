@@ -121,6 +121,9 @@ public:
         stencil_mode_per_line_.fill(false);
         blend_mode_per_line_.fill(0);
         ula_.reset();
+        // Per-scanline NR 0x1A snapshot mirrors the Ula reset clip window
+        // (0, 255, 0, 191) — must run after ula_.reset().
+        init_ula_clip_per_line();
         // Reset NR 0x15 per-scanline change log.
         nr15_change_count_      = 0;
         nr15_render_cursor_     = 0;
@@ -354,6 +357,34 @@ public:
                                          : blend_mode_;
     }
 
+    /// Per-scanline ULA clip window (NR 0x1A) snapshot.
+    ///
+    /// VHDL zxnext.vhd:988-991 — the ULA clip comparators consume the live
+    /// `nr_1a_ula_clip_*` registers per pixel (values written via NR 0x1A's
+    /// rotating 4-write cycle, zxnext.vhd:6779-6783, where the y2 clamp to
+    /// 0xBF is also applied), so a mid-frame write takes effect at the raster
+    /// position where it lands.  apply_ula_clip(row) reads this snapshot
+    /// instead of the live Ula::clip_*() getters so rows the beam already
+    /// passed keep the window that was in force when they were scanned.
+    ///
+    /// The snapshot stores the four EFFECTIVE values (clip_y2() is the
+    /// clamped consumer-facing value, not the raw NR 0x1A byte), never the
+    /// rotating write-cycle index — that lives in the NR dispatch.
+    struct UlaClipWindow {
+        uint8_t x1, x2, y1, y2;
+    };
+    void snapshot_ula_clip_for_line(int line) {
+        if (line >= 0 && line < 320)
+            ula_clip_per_line_[line] = live_ula_clip();
+    }
+    void init_ula_clip_per_line() {
+        ula_clip_per_line_.fill(live_ula_clip());
+    }
+    UlaClipWindow ula_clip_for_line(int line) const {
+        return (line >= 0 && line < 320) ? ula_clip_per_line_[line]
+                                         : live_ula_clip();
+    }
+
     /// Convert an 8-bit RRRGGGBB colour to ARGB8888.
     static uint32_t rrrgggbb_to_argb(uint8_t c) {
         uint8_t r3 = (c >> 5) & 0x07;
@@ -476,6 +507,19 @@ private:
 
     /// Per-scanline NR 0x68 b6:5 blend-mode snapshot — gap G11 closure.
     std::array<uint8_t, 320>  blend_mode_per_line_{};
+
+    /// Per-scanline NR 0x1A ULA clip window snapshot (see UlaClipWindow).
+    /// Like its stencil/blend/NR-0x14 siblings this is re-populated every
+    /// frame (init at frame start + snapshot per scanline), so it is
+    /// deliberately absent from save_state()/load_state().
+    std::array<UlaClipWindow, 320> ula_clip_per_line_{};
+
+    /// The four EFFECTIVE ULA clip values currently live on the Ula
+    /// (clip_y2() already clamps per VHDL zxnext.vhd:6779-6783).
+    UlaClipWindow live_ula_clip() const {
+        return UlaClipWindow{ula_.clip_x1(), ula_.clip_x2(),
+                             ula_.clip_y1(), ula_.clip_y2()};
+    }
 
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;
