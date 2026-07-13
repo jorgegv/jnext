@@ -889,28 +889,18 @@ void MainWindow::on_save_snapshot() {
     }
 
     std::vector<uint8_t> bytes;
-    bool ram_truncated = false;
-    unsigned banks_written = 0, banks_installed = 0;
     if (path.endsWith(".szx", Qt::CaseInsensitive)) {
-        // .szx has a hard real-world 64-bank (1024 KB) ceiling — see
-        // SzxSaver class doc-comment. Surface it; don't silently drop RAM.
-        //
-        // KNOWN IMPRECISION (Task 13b review round 2, accepted as-is):
-        // jnext always installs a fixed 2048 KB Ram regardless of
-        // --machine (src/memory/ram.h:8 default; EmulatorConfig has no
-        // size override), so `truncated` is true on EVERY .szx save,
-        // including plain 48K/128K/+3 programs that never touch RAM
-        // beyond the first 64 banks — nothing real is lost in that
-        // common case, but the warning below fires anyway. "Truncate +
-        // always warn" is the deliberately chosen safe default (silent
-        // data loss would be worse); do NOT re-architect Ram sizing to
-        // "fix" this without a separate, deliberate task — it is out of
-        // scope here.
+        // .szx is a classic-Spectrum interchange format: it can only
+        // represent 48K/128K/+2A/+3 — see SzxSaver class doc-comment
+        // SCOPE. jnext's default machine (Next) is refused outright, with
+        // a clear error rather than a truncated or misrepresenting file.
         auto result = SzxSaver::save(*emulator_);
+        if (!result.ok) {
+            QMessageBox::warning(this, tr("Save Snapshot"),
+                QString::fromStdString(result.error));
+            return;
+        }
         bytes = result.data;
-        ram_truncated = result.truncated;
-        banks_written = result.banks_written;
-        banks_installed = result.banks_installed;
     } else if (path.endsWith(".nex", Qt::CaseInsensitive)) {
         // .nex has its own (looser, 112-bank) ceiling — see NexSaver
         // class doc-comment; NexSaver::save() already logs a warning.
@@ -940,15 +930,6 @@ void MainWindow::on_save_snapshot() {
     }
     Log::emulator()->info("Snapshot saved to '{}' ({} bytes)",
                           path.toStdString(), bytes.size());
-    if (ram_truncated) {
-        QMessageBox::warning(this, tr("Save Snapshot"),
-            tr("'%1' was saved, but the .szx format can only carry the first "
-               "%2 of %3 installed RAM banks (1024 KB max — a real-world SZX "
-               "reader limit, not a jnext one). The saved snapshot is missing "
-               "the top of RAM and will not resume correctly if the running "
-               "program used it.\n\nUse .nex instead for larger RAM (up to 1792 KB).")
-                .arg(path).arg(banks_written).arg(banks_installed));
-    }
     statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
 }
 

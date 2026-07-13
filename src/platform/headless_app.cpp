@@ -270,9 +270,11 @@ void HeadlessApp::run() {
             }
             std::vector<uint8_t> bytes;
             if (ext == ".szx") {
-                // .szx has a hard real-world 64-bank (1024 KB) ceiling —
-                // save() already logs a warning if RAM exceeds it (see
-                // SzxSaver class doc-comment).
+                // .szx is a classic-Spectrum interchange format: it can
+                // only represent 48K/128K/+2A/+3 — see SzxSaver class
+                // doc-comment SCOPE. save() already logs a clear error and
+                // returns no data when the current machine (e.g. jnext's
+                // default, Next) can't be represented.
                 bytes = SzxSaver::save(emulator_).data;
             } else if (ext == ".nex") {
                 bytes = NexSaver::save(emulator_).data;
