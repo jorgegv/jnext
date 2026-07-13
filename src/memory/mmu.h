@@ -514,7 +514,7 @@ public:
                     const uint16_t rel = static_cast<uint16_t>(off - kAttrMuxOffLo);
                     AttributeMux& mux = (page == kAttrMuxBank5Page)
                         ? attr_mux5_ : attr_mux7_;
-                    mux.record_write(attr_mux_current_line_, rel, val);
+                    mux.record_write(attr_mux_current_line_, attr_mux_current_hc_, rel, val);
                 }
             }
         }
@@ -534,9 +534,17 @@ public:
     /// live attribute-plane bytes as this frame's baseline and resets
     /// the per-frame change log. Always-on — no arm/gate (removed Task 8
     /// Nirvana round 3; see Mmu::write()'s G12-MUX-03 comment for why).
-    void attr_mux_start_frame() {
-        attr_mux5_.start_frame(bank5_attr_baseline_ptr());
-        attr_mux7_.start_frame(bank7_attr_baseline_ptr());
+    ///
+    /// `hc_origin` (round 4, column-accurate resolution) is
+    /// `VideoTiming::ula_prefetch_origin_hc()` for the active machine —
+    /// see attribute_mux.h's column-accurate-resolution block comment.
+    /// Emulator::begin_new_frame() passes it explicitly; the default (0)
+    /// exists only so bare-Mmu test fixtures that call this directly
+    /// keep compiling and keep resolving on line alone (see
+    /// AttributeMux::start_frame()'s doc comment).
+    void attr_mux_start_frame(int hc_origin = 0) {
+        attr_mux5_.start_frame(bank5_attr_baseline_ptr(), hc_origin);
+        attr_mux7_.start_frame(bank7_attr_baseline_ptr(), hc_origin);
     }
 
     /// Update the scanline tag attached to subsequent attribute writes.
@@ -545,6 +553,16 @@ public:
     /// per-scanline log (palette_, layer2_, sprites_, ula scroll/palsel).
     void attr_mux_set_current_line(int line) {
         attr_mux_current_line_ = (line < 0) ? 0 : static_cast<uint16_t>(line);
+    }
+
+    /// Update the horizontal (7 MHz pixel-tick) position tag attached to
+    /// subsequent attribute writes (round 4, column-accurate resolution).
+    /// Set from the true per-write T-state position in
+    /// src/cpu/z80_cpu.cpp's fuse_z80_writebyte() for the production
+    /// path; bare-Mmu test fixtures may call this directly to exercise
+    /// column gating without a real CPU.
+    void attr_mux_set_current_hc(int hc) {
+        attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
     }
 
     /// Rewind both attribute planes to this frame's baseline. Call once
@@ -1504,6 +1522,11 @@ private:
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
     uint16_t       attr_mux_current_line_ = 0;
+    // Round 4 column-accurate resolution: current 7 MHz-domain hc tag,
+    // set immediately before every write by z80_cpu.cpp (production) or
+    // directly by test fixtures. NOT persisted across a rewind snapshot
+    // — see AttributeMux's save_state/load_state doc comment for why.
+    uint16_t       attr_mux_current_hc_ = 0;
 
     /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
     /// currently lives (dedicated bank5_vram_ on Next machines, plain

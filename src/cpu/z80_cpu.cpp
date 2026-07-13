@@ -153,6 +153,18 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
             address, pos.hc, pos.vc);
     }
     tstates += 3;
+    // G12 round 4 (Nirvana-class column-accurate attribute replay) —
+    // tag the write with the TRUE post-contention hc, not the `pos`
+    // above (computed before contention_tick() and before this write's
+    // own 3 T-states): both elapse before the byte actually lands on the
+    // bus, so re-deriving from the now-final `tstates` gives the real
+    // horizontal position at write time. Only wired when a production
+    // Mmu is attached — s_contention_mmu is null in the FUSE Z80
+    // opcode-test harness, which never runs a scanline schedule and has
+    // no video timing to tag against.
+    if (s_contention_mmu) {
+        s_contention_mmu->attr_mux_set_current_hc(derive_hc_vc(tstates).hc);
+    }
     s_mem->write(address, b);
 }
 

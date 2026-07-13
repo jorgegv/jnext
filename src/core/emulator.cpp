@@ -6138,9 +6138,13 @@ void Emulator::begin_new_frame()
     // Per-scanline active-palette selector snapshot (G10).
     renderer_.ula().palsel_start_frame();
 
-    // G12 — Nirvana-class attribute-mux snapshot + arm decision. Same
-    // pattern as the per-scanline logs above.
-    mmu_.attr_mux_start_frame();
+    // G12 — Nirvana-class attribute-mux snapshot. Same pattern as the
+    // per-scanline logs above. Round 4: also seed the column-accurate
+    // hc-fetch origin (VideoTiming::ula_prefetch_origin_hc(), VHDL
+    // zxula_timing.vhd:423) so render-time resolution can gate mid-
+    // scanline writes by column, not just by scanline — see
+    // attribute_mux.h's column-accurate-resolution block comment.
+    mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc());
 
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();

@@ -2194,6 +2194,71 @@ void test_cat21_nirvana_multiplex() {
                   "(expected 0x99/0x99/0x11/0x22)",
                   untouched_at_line0, untouched_at_line4, racing_at_line0, racing_at_line4));
     }
+
+    // G12-MUX-10 — column-accurate resolution (Task 8 Nirvana round 4).
+    // Round 3 resolved writes at SCANLINE granularity only: whichever
+    // value a byte held as of the scanline tag applied to ALL 32
+    // columns of that scanline, which is wrong -- the ULA fetches each
+    // column's own attribute byte at a DIFFERENT, increasing hc
+    // position within the scanline (zxula.vhd:226-263/270-303; see
+    // attribute_mux.h's column-accurate-resolution block comment for
+    // the full citation and the hc_fetch(col) = hc_origin + col*8
+    // derivation). This row proves resolution is genuinely hc-gated:
+    // two writes to the SAME byte on the SAME scanline, straddling that
+    // byte's own column-5 fetch instant. The write BEFORE the fetch
+    // must win for THIS scanline; the write AFTER it must carry forward
+    // only to the cell's NEXT scanline (screen rows 0-7 all belong to
+    // character row 0), not retroactively recolour the scanline already
+    // rendered.
+    //
+    // Mutation-tested: temporarily reverting AttributeMux::resolve()'s
+    // hc comparison to a line-only comparison (as round 3 had it --
+    // `e.line <= target_line_` unconditionally, dropping the `e.hc <=
+    // target_hc` half of the condition) makes this row FAIL
+    // (this_scanline reads back 0xBB, the LATE write, instead of 0xAA);
+    // restoring the real column-gated comparison makes it PASS again.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t attr5_addr = 0x5805;   // column 5, character row 0
+        const uint16_t off = attr5_addr - 0x5800;
+        const int disp_y     = 32;   // Ula::DISP_Y
+        const int hc_origin  = 116;  // VideoTiming::ula_prefetch_origin_hc(), 48K: 128-12
+        const int col        = 5;
+        const int fetch_hc   = hc_origin + col * 8;   // 156
+
+        f.mmu.attr_mux_start_frame(hc_origin);
+        f.mmu.attr_mux_set_current_line(disp_y + 0);
+
+        // Write BEFORE column 5's own fetch instant this scanline.
+        f.mmu.attr_mux_set_current_hc(fetch_hc - 6);
+        f.mmu.write(attr5_addr, 0xAA);
+        // Write AFTER column 5's own fetch instant this scanline -- real
+        // RAM now holds 0xBB, but the ULA already fetched 0xAA for THIS
+        // scanline's render of column 5.
+        f.mmu.attr_mux_set_current_hc(fetch_hc + 6);
+        f.mmu.write(attr5_addr, 0xBB);
+
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(disp_y + 0);
+        const uint8_t this_scanline = f.mmu.attr_mux5().current(off);
+
+        // Next scanline of the SAME cell: the late write is now "from a
+        // strictly earlier scanline" and carries forward unconditionally.
+        f.mmu.attr_mux_apply_line(disp_y + 1);
+        const uint8_t next_scanline = f.mmu.attr_mux5().current(off);
+
+        check("G12-MUX-10",
+              "column-accurate resolution: a write landing AFTER this "
+              "column's own attribute-fetch instant this scanline does "
+              "NOT apply until the cell's next scanline -- the earlier "
+              "write wins for THIS scanline's render, proving genuine "
+              "hc gating rather than round 3's line-only gating",
+              this_scanline == 0xAA && next_scanline == 0xBB,
+              fmt("this_scanline=0x%02X next_scanline=0x%02X "
+                  "(expected 0xAA then 0xBB)", this_scanline, next_scanline));
+    }
 }
 
 void test_cat3bis_shadow_screen() {
