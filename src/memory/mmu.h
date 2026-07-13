@@ -514,7 +514,6 @@ public:
                     const uint16_t rel = static_cast<uint16_t>(off - kAttrMuxOffLo);
                     AttributeMux& mux = (page == kAttrMuxBank5Page)
                         ? attr_mux5_ : attr_mux7_;
-                    g12_probe_compare_tags();
                     // Prefer the beam line derived from THIS write's own
                     // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
                     // over the on_scanline() tag, which is only refreshed
@@ -530,40 +529,6 @@ public:
                 }
             }
         }
-    }
-
-    // TEMPORARY diagnostic (G12 T-state hypothesis). Counts how often the
-    // on_scanline-derived line tag disagrees with the true per-write beam
-    // line. Enabled by JNEXT_G12_LINEPROBE=1; zero cost otherwise.
-    void g12_probe_compare_tags() const {
-        static const bool on = [] {
-            const char* e = std::getenv("JNEXT_G12_LINEPROBE");
-            return e && *e == '1';
-        }();
-        if (!on || !attr_mux_write_pos_valid_) return;
-        ++g12_probe_total_;
-        if (attr_mux_write_line_ != attr_mux_current_line_) {
-            ++g12_probe_mismatch_;
-            const int delta = static_cast<int>(attr_mux_write_line_)
-                            - static_cast<int>(attr_mux_current_line_);
-            if (delta >= -4 && delta <= 4) ++g12_probe_delta_[delta + 4];
-            else                           ++g12_probe_delta_far_;
-        }
-    }
-    void g12_probe_report() const {
-        if (g12_probe_total_ == 0) return;
-        std::fprintf(stderr,
-            "[G12-LINEPROBE] attr writes=%llu mismatched-line=%llu (%.2f%%) "
-            "delta -4..+4 = [%llu %llu %llu %llu | %llu | %llu %llu %llu %llu] far=%llu\n",
-            (unsigned long long)g12_probe_total_,
-            (unsigned long long)g12_probe_mismatch_,
-            100.0 * double(g12_probe_mismatch_) / double(g12_probe_total_),
-            (unsigned long long)g12_probe_delta_[0], (unsigned long long)g12_probe_delta_[1],
-            (unsigned long long)g12_probe_delta_[2], (unsigned long long)g12_probe_delta_[3],
-            (unsigned long long)g12_probe_delta_[4],
-            (unsigned long long)g12_probe_delta_[5], (unsigned long long)g12_probe_delta_[6],
-            (unsigned long long)g12_probe_delta_[7], (unsigned long long)g12_probe_delta_[8],
-            (unsigned long long)g12_probe_delta_far_);
     }
 
     // ── G12 — Nirvana-class attribute-mux public API ───────────────────
@@ -1589,10 +1554,6 @@ private:
     uint16_t       attr_mux_write_line_      = 0;
     bool           attr_mux_write_pos_valid_ = false;
     int            attr_mux_vblank_top_      = 0;
-    mutable uint64_t g12_probe_total_    = 0;
-    mutable uint64_t g12_probe_mismatch_ = 0;
-    mutable uint64_t g12_probe_delta_[9] = {};
-    mutable uint64_t g12_probe_delta_far_ = 0;
 
     /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
     /// currently lives (dedicated bank5_vram_ on Next machines, plain

@@ -1,5 +1,6 @@
 #include "debugger/audio_panel.h"
 #include "core/emulator.h"
+#include "audio/audio_mute.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -94,12 +95,26 @@ void AudioPanel::create_ui() {
     mute_dac_ = new QCheckBox(tr("DAC"), sources_box);
     mute_beeper_ = new QCheckBox(tr("Beeper"), sources_box);
 
-    // All checked (unmuted) by default
-    mute_ay0_->setChecked(true);
-    mute_ay1_->setChecked(true);
-    mute_ay2_->setChecked(true);
-    mute_dac_->setChecked(true);
-    mute_beeper_->setChecked(true);
+    // Seed the boxes FROM the emulator (checked = audible), rather than
+    // hardcoding "all checked". The panel is re-created whenever the debugger
+    // window is rebuilt, and the mute mask deliberately outlives that (and a
+    // machine reset); seeding from the live mask is what keeps the tick-marks
+    // from lying about what is actually audible. On a fresh machine the mask is
+    // AudioMute::NONE, so this still comes up all-checked.
+    // Done BEFORE the connects below, so seeding does not itself emit toggled().
+    const uint8_t mask = emulator_ ? emulator_->audio_mute_mask() : AudioMute::NONE;
+    mute_ay0_->setChecked(!(mask & AudioMute::AY0));
+    mute_ay1_->setChecked(!(mask & AudioMute::AY1));
+    mute_ay2_->setChecked(!(mask & AudioMute::AY2));
+    mute_dac_->setChecked(!(mask & AudioMute::DAC));
+    mute_beeper_->setChecked(!(mask & AudioMute::BEEPER));
+
+    // Task 48: these five boxes were pure decoration — there was no connect()
+    // on any of them and nobody ever read isChecked(), so clicking them did
+    // exactly nothing. Each toggle now recomputes the whole mask and pushes it
+    // to the emulator, which gates the corresponding output stage.
+    for (QCheckBox* cb : {mute_ay0_, mute_ay1_, mute_ay2_, mute_dac_, mute_beeper_})
+        connect(cb, &QCheckBox::toggled, this, &AudioPanel::apply_source_mutes);
 
     sources_layout->addWidget(mute_ay0_);
     sources_layout->addWidget(mute_ay1_);
@@ -130,6 +145,24 @@ void AudioPanel::create_ui() {
     info_layout->addWidget(stereo_label_);
 
     layout->addWidget(info_box);
+}
+
+void AudioPanel::apply_source_mutes() {
+    if (!emulator_)
+        return;
+
+    // Checked = audible, unchecked = muted, so the mask bit is the NEGATION of
+    // the box. The emulator fans the mask out to TurboSound (AY chips) and the
+    // Mixer (DAC / beeper) — see src/audio/audio_mute.h for why this cannot be
+    // allowed to disturb anything the Z80 can observe.
+    uint8_t mask = AudioMute::NONE;
+    if (!mute_ay0_->isChecked())    mask |= AudioMute::AY0;
+    if (!mute_ay1_->isChecked())    mask |= AudioMute::AY1;
+    if (!mute_ay2_->isChecked())    mask |= AudioMute::AY2;
+    if (!mute_dac_->isChecked())    mask |= AudioMute::DAC;
+    if (!mute_beeper_->isChecked()) mask |= AudioMute::BEEPER;
+
+    emulator_->set_audio_mute_mask(mask);
 }
 
 void AudioPanel::refresh() {

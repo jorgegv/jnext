@@ -23,10 +23,14 @@ public:
 private:
     void create_ui();
 
+    /// Collect the five source checkboxes into an AudioMute mask (unchecked =
+    /// muted) and push it to the emulator. Called on every toggle.
+    void apply_source_mutes();
+
     Emulator* emulator_;
     QTableWidget* ay_table_ = nullptr;
 
-    // Mute checkboxes (display-only for now)
+    // Source checkboxes: CHECKED = audible, UNCHECKED = muted.
     QCheckBox* mute_ay0_ = nullptr;
     QCheckBox* mute_ay1_ = nullptr;
     QCheckBox* mute_ay2_ = nullptr;

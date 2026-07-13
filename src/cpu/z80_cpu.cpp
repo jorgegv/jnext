@@ -66,10 +66,8 @@ static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
 // stay inert.
 static ContentionModel* s_contention      = nullptr;
 static Mmu*             s_contention_mmu  = nullptr;
-static libspectrum_dword s_last_int_accept_ts = 0;
-static libspectrum_dword s_cont_total = 0;
-static libspectrum_dword s_cont_prev = 0;
-static libspectrum_dword s_cont_at_int = 0;
+static int              s_ula_hc_origin    = 116;   // 48K c_min_hactive(128) - 12
+static int              s_ula_vc_origin    = 64;    // 48K c_min_vactive
 static int              s_tstates_per_line = 224;
 static int              s_tstates_per_frame = 224 * 312;
 
@@ -82,13 +80,31 @@ namespace {
 /// domain (each T-state = 2 pixel ticks). Frame is reset to 0 at
 /// frame start in Emulator::run_frame().
 struct HcVc { uint16_t hc; uint16_t vc; };
+
+/// Rebase a raw frame-relative (hc, vc) onto the ULA's own display-relative
+/// counters — VHDL `i_hc` / `i_vc` (zxula_timing.vhd:426-453):
+///
+///   hc_ula <= 0 when hc = ula_min_hactive (= c_min_hactive - 12, :423)
+///   vc_ula <= 0 when vc = c_min_vactive   (at the first ACTIVE DISPLAY line)
+///
+/// `ContentionModel::contention_tick()`'s window gate is a verbatim
+/// transcription of `border_active_v <= i_vc(8) or (i_vc(7) and i_vc(6))`
+/// (zxula.vhd:414) — "border when vc >= 192". That test is only meaningful
+/// against the ULA counters: a raw frame `vc` runs 0..311 with the display
+/// starting at 64, so feeding it raw made the gate contend across the whole
+/// TOP BORDER (raw vc 0..63) and stop contending over the BOTTOM 64 display
+/// lines (raw vc 192..255). Task 50 — measured against real FUSE on
+/// bifrost.tap: 808 T-states of phantom contention per frame.
 inline HcVc to_ula_counters(HcVc p) {
-    const int line_ticks = s_tstates_per_line * 2;
-    const int lines      = s_tstates_per_frame / s_tstates_per_line;
-    int h = (int(p.hc) - 116 + line_ticks) % line_ticks;
-    int v = (int(p.vc) - 64  + lines)      % lines;
-    return {uint16_t(h), uint16_t(v)};
+    const int line_ticks  = s_tstates_per_line * 2;               // hc_max + 1
+    const int frame_lines = s_tstates_per_frame / s_tstates_per_line;  // vc_max + 1
+    int h = (static_cast<int>(p.hc) - s_ula_hc_origin) % line_ticks;
+    int v = (static_cast<int>(p.vc) - s_ula_vc_origin) % frame_lines;
+    if (h < 0) h += line_ticks;
+    if (v < 0) v += frame_lines;
+    return {static_cast<uint16_t>(h), static_cast<uint16_t>(v)};
 }
+
 inline HcVc derive_hc_vc(uint32_t tstates) {
     int frame_ts = static_cast<int>(tstates % static_cast<uint32_t>(s_tstates_per_frame));
     int line     = frame_ts / s_tstates_per_line;
@@ -142,11 +158,10 @@ libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
         // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_rd_n='0'` — memory read.
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/false,  /*wr_n*/true,
             address, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
     return s_mem->read(address);
@@ -159,80 +174,36 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
         // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_wr_n='0'` — memory write.
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,   /*wr_n*/false,
             address, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
-    // G12 round 4 (Nirvana-class column-accurate attribute replay) —
-    // tag the write with the TRUE post-contention hc, not the `pos`
-    // above (computed before contention_tick() and before this write's
-    // own 3 T-states): both elapse before the byte actually lands on the
-    // bus, so re-deriving from the now-final `tstates` gives the real
-    // horizontal position at write time. Only wired when a production
-    // Mmu is attached — s_contention_mmu is null in the FUSE Z80
-    // opcode-test harness, which never runs a scanline schedule and has
-    // no video timing to tag against.
-    {
-        static const bool wts = [] {
-            const char* e = std::getenv("JNEXT_G12_WTS");
-            return e && *e == '1';
-        }();
-        if (wts && address == 0x5865) {
-            static int n = 0;
-            if (n < 24) { ++n;
-                std::fprintf(stderr, "[G12-WTS] pc=%04X int_rel_ts=%u contention_T_since_INT=%u\n",
-                    (unsigned)z80.pc.w,
-                    (unsigned)(tstates - s_last_int_accept_ts),
-                    (unsigned)(s_cont_total - s_cont_at_int));
-            }
-        }
-        // First attribute-plane write of each frame (bisect point).
-        if (wts && address >= 0x5800 && address <= 0x5AFF) {
-            static libspectrum_dword last_int = 0xFFFFFFFFu;
-            static int nf = 0;
-            if (s_last_int_accept_ts != last_int) {
-                last_int = s_last_int_accept_ts;
-                if (++nf > 200 && nf < 204)
-                    std::fprintf(stderr, "[G12-FIRST] addr=%04X pc=%04X int_rel_ts=%u\n",
-                        (unsigned)address, (unsigned)z80.pc.w,
-                        (unsigned)(tstates - s_last_int_accept_ts));
-            }
-        }
-    }
+    // G12 (Nirvana-class attribute mux) — tag this write with the beam
+    // position at the instant the byte actually lands on the bus: AFTER the
+    // contention stretch and AFTER this write's own 3 T-states, both of which
+    // elapse first. Re-derive from the now-final `tstates` rather than reusing
+    // `pos` above.
+    //
+    // NOTE: this deliberately uses the RAW frame (hc, vc) from derive_hc_vc(),
+    // NOT the ULA display-relative counters the contention gate takes. The two
+    // consumers want different coordinate systems: the contention gate is a
+    // transcription of VHDL logic written against i_hc/i_vc (Task 50), while
+    // the mux tags writes in the same raw-frame space the renderer's per-line
+    // change-logs use (Mmu converts vc → framebuffer row via vblank_top).
+    // Passing ULA counters here would silently shift every attribute write by
+    // 64 scanlines.
+    //
+    // Only wired when a production Mmu is attached — s_contention_mmu is null
+    // in the FUSE Z80 opcode-test harness, which has no video timing to tag
+    // against.
     if (s_contention_mmu) {
         const auto wpos = derive_hc_vc(tstates);
         s_contention_mmu->attr_mux_set_current_hc(wpos.hc);
         s_contention_mmu->attr_mux_set_write_pos(wpos.vc, wpos.hc);
     }
     s_mem->write(address, b);
-}
-
-// TEMPORARY diagnostic (G12): JNEXT_G12_INPROBE=1 histograms every IN by
-// port low byte, and reports where port 0xFF (floating bus) is read from.
-static uint64_t s_inprobe_port[256] = {};
-static uint64_t s_inprobe_ff_pc[8]  = {};
-static int      s_inprobe_ff_pcs    = 0;
-static bool g12_inprobe_on() {
-    static const bool on = [] {
-        const char* e = std::getenv("JNEXT_G12_INPROBE");
-        return e && *e == '1';
-    }();
-    return on;
-}
-void g12_inprobe_report(void) {
-    if (!g12_inprobe_on()) return;
-    std::fprintf(stderr, "[G12-INPROBE] IN counts by port low byte:\n");
-    for (int i = 0; i < 256; ++i)
-        if (s_inprobe_port[i])
-            std::fprintf(stderr, "[G12-INPROBE]   port lo=%02X : %llu\n",
-                         i, (unsigned long long)s_inprobe_port[i]);
-    std::fprintf(stderr, "[G12-INPROBE] floating-bus (lo=FF) read from PCs:");
-    for (int i = 0; i < s_inprobe_ff_pcs; ++i)
-        std::fprintf(stderr, " %04llX", (unsigned long long)s_inprobe_ff_pc[i]);
-    std::fprintf(stderr, "\n");
 }
 
 // Expose tstates for contention callback to add delays
@@ -245,26 +216,16 @@ libspectrum_byte fuse_z80_readport(libspectrum_word port) {
     // contention_tick at the start of the post-IORQ phase, when
     // `cpu_iorq_n` would go low.
     tstates++;
-    if (g12_inprobe_on()) {
-        ++s_inprobe_port[port & 0xFF];
-        if ((port & 0xFF) == 0xFF && s_inprobe_ff_pcs < 8) {
-            bool seen = false;
-            for (int i = 0; i < s_inprobe_ff_pcs; ++i)
-                if (s_inprobe_ff_pc[i] == z80.pc.w) seen = true;
-            if (!seen) s_inprobe_ff_pc[s_inprobe_ff_pcs++] = z80.pc.w;
-        }
-    }
     libspectrum_byte val = s_io->in(port);
     if (s_contention) {
         // mem_active_page is irrelevant for port cycles (mem_contend=0);
         // contention_tick gates on port_contend internally.
         s_contention->set_mem_active_page(mem_active_page_for(port));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/true,  /*iorq_n*/false,
             /*rd_n*/false,   /*wr_n*/true,
             port, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
     return val;
@@ -276,11 +237,10 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(port));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/true,  /*iorq_n*/false,
             /*rd_n*/true,    /*wr_n*/false,
             port, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += 3;
 }
@@ -331,11 +291,10 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/false,   /*wr_n*/true,
             address, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += time;
 }
@@ -344,11 +303,10 @@ extern "C" void contend_read_no_mreq(libspectrum_word address, libspectrum_dword
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,    /*wr_n*/true,
             address, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += time;
 }
@@ -357,11 +315,10 @@ extern "C" void contend_write_no_mreq(libspectrum_word address, libspectrum_dwor
     if (s_contention) {
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        s_cont_total += s_contention->contention_tick(
+        tstates += s_contention->contention_tick(
             /*mreq_n*/false, /*iorq_n*/true,
             /*rd_n*/true,    /*wr_n*/true,
             address, pos.hc, pos.vc);
-        { const libspectrum_dword d = s_cont_total - s_cont_prev; s_cont_prev = s_cont_total; tstates += d; }
     }
     tstates += time;
 }
@@ -605,35 +562,7 @@ int Z80Cpu::execute() {
                 uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
                 Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
                 libspectrum_dword before = tstates;
-                const libspectrum_dword int_accept_ts = tstates;
-                s_last_int_accept_ts = int_accept_ts;
-                s_cont_at_int = s_cont_total;
                 int accepted = fuse_z80_interrupt(vector);
-                // TEMPORARY diagnostic (G12): JNEXT_G12_INTPROBE=1 reports
-                // the T-state at which the INT is requested vs actually
-                // accepted, and the raster line that implies.
-                static const bool intprobe = [] {
-                    const char* e = std::getenv("JNEXT_G12_INTPROBE");
-                    return e && *e == '1';
-                }();
-                if (intprobe && accepted) {
-                    static int n = 0;
-                    ++n;
-                    if (n > 200 && n < 204) {
-                        std::fprintf(stderr,
-                            "[G12-ISR] entry pc=%04X  im=%d  cost=%u T\n",
-                            (unsigned)z80.pc.w, (int)z80.im,
-                            (unsigned)(tstates - int_accept_ts));
-                        const auto rp = derive_hc_vc(int_requested_at_);
-                        const auto ap = derive_hc_vc(int_accept_ts);
-                        std::fprintf(stderr,
-                            "[G12-INTPROBE] requested ts=%5u (vc=%3u hc=%3u) | "
-                            "accepted ts=%5u (vc=%3u hc=%3u) | latency=%u T\n",
-                            (unsigned)int_requested_at_, rp.vc, rp.hc,
-                            (unsigned)int_accept_ts, ap.vc, ap.hc,
-                            (unsigned)(int_accept_ts - int_requested_at_));
-                    }
-                }
                 sync_regs_from_fuse(regs_);
                 if (accepted) {
                     int_pending_ = false;
@@ -1176,6 +1105,12 @@ void Z80Cpu::load_state(StateReader& r)
 // path now goes through ContentionModel::contention_tick() via the
 // CORETEST function overrides at the top of this file (G141). No
 // callers remain in the codebase.
+
+void z80_set_ula_counter_origins(int hc_origin, int vc_origin)
+{
+    s_ula_hc_origin = hc_origin;
+    s_ula_vc_origin = vc_origin;
+}
 
 void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machine_type)
 {

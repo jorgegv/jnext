@@ -60,6 +60,20 @@ class Mmu;
 /// callbacks then add the legacy `+3` non-contended T-states only).
 void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machine_type);
 
+/// Origins of the ULA's own (display-relative) raster counters, in the same
+/// units `derive_hc_vc()` produces: `hc_origin` = VHDL `ula_min_hactive`
+/// (= `c_min_hactive - 12`, zxula_timing.vhd:423, i.e.
+/// `VideoTiming::ula_prefetch_origin_hc()`), `vc_origin` = VHDL
+/// `c_min_vactive` (= `VideoTiming::display_origin().y`).
+///
+/// `ContentionModel::contention_tick()` transcribes the VHDL contention gate
+/// verbatim, and that gate is written against the ULA counters `i_hc`/`i_vc`
+/// — which zxula_timing.vhd:441-452 resets to 0 at the start of the ACTIVE
+/// DISPLAY, not at the start of the frame. The CPU-side callbacks derive raw
+/// frame-relative `(hc, vc)` from the FUSE T-state counter, so they must be
+/// rebased onto the ULA counters before the gate sees them. Task 50.
+void z80_set_ula_counter_origins(int hc_origin, int vc_origin);
+
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {
 public:

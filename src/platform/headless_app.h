@@ -28,7 +28,12 @@ public:
     /// after. Renderer::LAYER_ALL (the default) makes that a no-op.
     void set_delayed_screenshot(const std::string& file, int delay_frames,
                                 uint8_t layer_mask);
-    void set_delayed_exit(int delay_seconds);
+    /// Exit after `delay_frames` frames — the hard bound: it always fires,
+    /// even with a --delayed-screenshot / --delayed-snapshot still outstanding
+    /// (which then errors and exits non-zero, see shutdown()). main() resolves
+    /// --delayed-automatic-exit (seconds) and --delayed-automatic-exit-frames
+    /// (frames, wins when both given) into this frame count.
+    void set_delayed_exit(int delay_frames);
 
     /// Schedule a snapshot save after `delay_frames` frames. Format is
     /// chosen by `file`'s extension (.szx / .nex / anything else -> .sna),

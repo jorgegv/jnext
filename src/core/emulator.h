@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "audio/audio_mute.h"
 #include "core/clock.h"
 #include "core/emulator_config.h"
 #include "core/scheduler.h"
@@ -292,6 +293,20 @@ public:
     Dac&          dac()       { return dac_; }
     I2s&          i2s()       { return i2s_; }
     Mixer&        mixer()     { return mixer_; }
+
+    /// Debugger-only per-source audio mute (AudioMute bits, audio/audio_mute.h).
+    /// Single owner of the 5-bit mask; fans the AY bits out to TurboSound (which
+    /// sums the 3 PSGs) and the DAC/Beeper bits to the Mixer. No hardware
+    /// analogue and no CPU-visible effect: it gates output stages only, never
+    /// register files or timing. Not machine state — a rewind or a reset does
+    /// not change it.
+    void set_audio_mute_mask(uint8_t mask) {
+        audio_mute_mask_ = mask & AudioMute::ALL;
+        turbosound_.set_chip_mute_mask(audio_mute_mask_);
+        mixer_.set_mute_mask(audio_mute_mask_);
+    }
+    uint8_t audio_mute_mask() const { return audio_mute_mask_; }
+
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
     Renderer&     renderer()  { return renderer_; }
@@ -725,6 +740,9 @@ private:
     Dac             dac_;
     I2s             i2s_;
     Mixer           mixer_;
+
+    // Debugger-only source mute; NOT machine state (not reset, not serialised).
+    uint8_t         audio_mute_mask_ = AudioMute::NONE;
     DebugState      debug_state_;
     TraceLog        trace_log_;
     CallStack       call_stack_;

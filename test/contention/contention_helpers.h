@@ -194,8 +194,48 @@ inline void install_int_smoke_program(Emulator& emu) {
 // The FUSE tstates counter is global; we snapshot it at entry, never
 // reset it, and return the (end - start) delta. This sidesteps the
 // frame-start reset that `Emulator::run_frame()` applies.
+// Task 50 — park the FUSE T-state counter on the FIRST ACTIVE DISPLAY LINE
+// before running a timing program.
+//
+// Contention only exists inside the active display (VHDL zxula.vhd:414-416:
+// `border_active_v <= i_vc(8) or (i_vc(7) and i_vc(6))` over the ULA's
+// display-relative i_vc). The FUSE counter is frame-relative and starts at 0
+// — raw vc 0, which is the TOP BORDER, 64 lines above the display on a 48K.
+//
+// Every timing-smoke row below used to run from tstates=0 and still measured
+// a contention stretch. That was only possible because the CPU seam fed the
+// gate the RAW frame vc, so the window sat 64 lines too high and the top
+// border contended. Those rows were, in effect, asserting the bug. With the
+// seam corrected they must execute where contention genuinely applies, or
+// they measure a legitimate zero. See the T50-* rows in contention_test.cpp.
+//
+// `display_origin().vc` is c_min_vactive (48K/128K/+3: 64; Pentagon: 80), so
+// this is machine-correct, not a hardcoded 14336.
+// The anchor is the ULA COUNTER ORIGIN — the (hc_ula, vc_ula) = (0, 0)
+// instant, i.e. the tick at which the ULA opens its fetch window
+// (ula_min_hactive = c_min_hactive - 12, zxula_timing.vhd:423) on the first
+// active display line (c_min_vactive). It is deliberately NOT a tuned
+// constant: these programs read on a FIXED cadence (the smoke program's
+// 20 T loop = 40 pixel ticks ≡ 0 mod 8), so their contention phase is LOCKED
+// by wherever they start — whatever wait-pattern bin the first read lands in,
+// every read lands in. Picking the start offset by trying values until the
+// suite goes green would be tuning the test to the answer; anchoring on the
+// hardware's own window origin is the one choice that is defensible without
+// looking at the result.
+inline void seek_to_display_window(Emulator& emu) {
+    const auto& t = emu.video_timing();
+    // 1 T-state = 2 pixel ticks, so tstates_per_line = (hc_max + 1) / 2, and
+    // the hc origin (a pixel-tick count) is likewise halved to reach T-states.
+    const uint32_t ts_per_line = static_cast<uint32_t>(t.hc_max() + 1) / 2u;
+    const uint32_t ts_into_line =
+        static_cast<uint32_t>(t.ula_prefetch_origin_hc()) / 2u;
+    *fuse_z80_tstates_ptr() =
+        static_cast<uint32_t>(t.display_origin().vc) * ts_per_line + ts_into_line;
+}
+
 inline uint32_t run_int_smoke_program(Emulator& emu,
                                       std::size_t max_steps = 100000) {
+    seek_to_display_window(emu);
     const uint32_t t_start = *fuse_z80_tstates_ptr();
     for (std::size_t i = 0; i < max_steps; ++i) {
         emu.cpu().execute();

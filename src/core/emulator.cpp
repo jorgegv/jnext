@@ -51,12 +51,8 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
 // Destructor — handles JNEXT_TRACE_DUMP_AT_EXIT env-gate (G46(b) trace infra).
 // Reads the env var at destruction time only; zero overhead when unset.
 // ---------------------------------------------------------------------------
-extern "C" void g12_inprobe_report(void);
-
 Emulator::~Emulator()
 {
-    mmu_.g12_probe_report();
-    g12_inprobe_report();
     // G46(b) EOD-30i+29: JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
     //   If set, export the full trace-log ring buffer to a text file at
     //   emulator shutdown. Allows post-mortem grep/awk walks when combined
@@ -498,6 +494,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // and the legacy z80_build_contention_tables() / z80_set_page_contended()
     // were retired in lockstep.
     z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
+
+    // Task 50 — the contention gate is written against the ULA's own
+    // display-relative counters (VHDL i_hc/i_vc, reset at the start of the
+    // ACTIVE DISPLAY — zxula_timing.vhd:423,441-452), but the CPU callbacks
+    // derive raw frame-relative (hc, vc) from the FUSE T-state counter.
+    // Hand the CPU side the two origins so it can rebase before the gate.
+    // Must follow video_timing_.init() above, which establishes them.
+    z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
+                                video_timing_.display_origin().vc);
 
     // Clear all port dispatch handlers before re-registering them.
     // Without this, reset() → init() would duplicate every handler, causing

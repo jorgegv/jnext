@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <array>
 #include "audio/ay_chip.h"
+#include "audio/audio_mute.h"
 
 /// TurboSound Next: 3× YM2149/AY-3-8910 with stereo panning.
 ///
@@ -71,6 +72,15 @@ public:
     /// Advance all active AY chips by one PSG clock-enable tick.
     void tick();
 
+    /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
+    /// Gates ONLY this chip's contribution to the 3-PSG sum in
+    /// compute_stereo_mix(); the chip keeps ticking and its register file
+    /// keeps reading back. Not hardware, not machine state — see
+    /// audio/audio_mute.h. Deliberately not touched by reset() /
+    /// reset_ay_only() / save_state() / load_state().
+    void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; }
+    uint8_t chip_mute_mask() const { return chip_mute_mask_; }
+
     /// Get mixed stereo output (12-bit per channel).
     uint16_t pcm_left() const { return pcm_L_; }
     uint16_t pcm_right() const { return pcm_R_; }
@@ -95,6 +105,9 @@ private:
 
     uint16_t pcm_L_ = 0;
     uint16_t pcm_R_ = 0;
+
+    // Debugger-only; NOT machine state (not reset, not serialised).
+    uint8_t chip_mute_mask_ = AudioMute::NONE;
 
     int active_ay_index() const;
     void compute_stereo_mix();

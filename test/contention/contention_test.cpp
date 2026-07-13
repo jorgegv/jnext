@@ -1658,6 +1658,7 @@ inline void install_fuse_m1_program(Emulator& emu) {
 }
 
 inline uint32_t run_fuse_m1_program(Emulator& emu, std::size_t max_steps = 100000) {
+    seek_to_display_window(emu);   // Task 50 — contention only exists in the display
     const uint32_t t_start = *fuse_z80_tstates_ptr();
     for (std::size_t i = 0; i < max_steps; ++i) {
         emu.cpu().execute();
@@ -1729,6 +1730,7 @@ inline void install_fuse_ldir_program(Emulator& emu) {
 }
 
 inline uint32_t run_fuse_ldir_program(Emulator& emu, std::size_t max_steps = 100000) {
+    seek_to_display_window(emu);   // Task 50 — contention only exists in the display
     const uint32_t t_start = *fuse_z80_tstates_ptr();
     for (std::size_t i = 0; i < max_steps; ++i) {
         emu.cpu().execute();
@@ -3026,6 +3028,172 @@ static void test_cat29_v24_mem_01() {
     }
 }
 
+// ── Task 50 — the CPU→contention SEAM (raw frame vs ULA counters) ─────
+//
+// Every other row in this file calls `contention_tick()` DIRECTLY, passing
+// the ULA's own display-relative counters (the VHDL i_hc/i_vc the gate is
+// written against — hence "vc=100 (visible)" in those rows). Production
+// does NOT call it that way: `fuse_z80_readbyte()` and friends derive RAW
+// frame-relative (hc, vc) from the FUSE T-state counter (vc=0 at frame
+// start; the display only begins at c_min_vactive=64 on a 48K).
+//
+// Nothing checked that the two conventions agreed, so both sides could be
+// individually "right" while the wiring between them was wrong — and it
+// was, for the entire life of the contention model: the gate ran 64 lines
+// too high, contending across the TOP BORDER and NOT contending over the
+// BOTTOM 64 display lines. Measured against real FUSE on bifrost.tap: 808
+// phantom T-states per frame.
+//
+// These rows therefore drive the PRODUCTION seam — set the FUSE T-state
+// counter to a chosen raster position, invoke the real CPU memory callback,
+// and measure the T-states it actually charges. A read costs 3 T + whatever
+// contention the gate adds, so `delta - 3` is the contention stretch.
+extern "C" uint8_t  fuse_z80_readbyte(uint16_t address);
+extern "C" uint32_t* fuse_z80_tstates_ptr(void);
+
+static void test_cpu_seam_raster_window()
+{
+    // 48K: 224 T/line, display lines are raw vc 64..255 (c_min_vactive=64).
+    constexpr int kTsPerLine  = 224;
+    constexpr int kFirstDispVc = 64;
+    constexpr int kLastDispVc  = 255;
+
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    emu.init(cfg);
+
+    // Contention on a 48K applies to 0x4000-0x7FFF (bank 5, screen RAM).
+    // hc is derived as (ts_in_line * 2); pick a T-state offset whose hc
+    // lands inside the active display window AND on a contended hc_adj
+    // phase, so a correctly-gated access must stretch.
+    auto stretch_at = [&](int raw_vc, int ts_in_line) -> int {
+        uint32_t* ts = fuse_z80_tstates_ptr();
+        *ts = static_cast<uint32_t>(raw_vc * kTsPerLine + ts_in_line);
+        const uint32_t before = *ts;
+        (void)fuse_z80_readbyte(0x4000);
+        const int delta = static_cast<int>(*ts - before);
+        return delta - 3;   // a data read is 3 T + contention
+    };
+
+    // ts_in_line 80 → hc = 160, inside the 48K display window (128..383).
+    constexpr int kDispTs = 80;
+
+    // T50-01's probe is deliberately NOT kDispTs. A zero result only proves
+    // what this row claims if the HORIZONTAL gate would have let the access
+    // through — otherwise the row passes for a reason that has nothing to do
+    // with the vertical window, and it would pass even with the bug present.
+    //
+    // kDispTs (raw hc = 160) is exactly that trap: hc_adj = (160 & 0xF) + 1 = 1,
+    // and 1 & 0xC == 0, so `wait_s` is false on the RAW coordinates whatever vc
+    // says. A T50-01 written on kDispTs is theatre — it reports "border does not
+    // contend" while actually measuring "this hc phase never contends".
+    // (Caught in review by mutation-testing `to_ula_counters()` to identity: the
+    // row kept passing while the other five failed.)
+    //
+    // ts_in_line 60 → raw hc = 120, which contends in BOTH coordinate systems:
+    //   raw:      hc_adj = (120 & 0xF) + 1 = 9  → 9 & 0xC  = 8 ≠ 0 → contends,
+    //             pattern[120 & 7] = pattern[0] = 6 T of stretch.
+    //   rebased:  hc_ula = 120 - 116 = 4, hc_adj = 5 → 5 & 0xC = 4 ≠ 0 → contends,
+    //             pattern[4 & 7] = pattern[4] = 2 T of stretch.
+    // So the ONLY thing that can drive the result to zero is the vertical border
+    // check — which is precisely the half of the bug this row exists to pin.
+    constexpr int kBorderProbeTs = 60;
+
+    // T50-01 — TOP BORDER must NOT contend. This is the half of the bug that
+    // stole BIFROST's 808 T-states: raw vc 10 is 54 lines ABOVE the first
+    // display line, but the raw-fed gate saw "vc=10 < 192 → visible" and
+    // contended. With the raw coordinates the hc phase above WOULD contend
+    // (6 T), so this row goes non-zero the moment the rebase is removed.
+    {
+        const int s = stretch_at(/*raw_vc=*/10, kBorderProbeTs);
+        check("T50-01",
+              "48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) "
+              "on an hc phase that DOES contend in raw coordinates → NO contention "
+              "(zxula.vhd:414 border_active_v is keyed on the ULA display-relative "
+              "i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452)",
+              s == 0, std::string("stretch=") + std::to_string(s));
+    }
+
+    // T50-02 — first display line MUST contend (the window opens here).
+    {
+        const int s = stretch_at(kFirstDispVc, kDispTs);
+        check("T50-02",
+              "48K, read $4000 at raw vc=64 (FIRST display line) → contends "
+              "(zxula.vhd:414)",
+              s > 0, std::string("stretch=") + std::to_string(s));
+    }
+
+    // T50-03 — BOTTOM display third MUST contend. This is the OTHER half of
+    // the bug, and the one no screenshot could catch: with the raw frame vc
+    // fed in, raw vc 200 tripped `vc(7)&vc(6)` → the gate called it BORDER
+    // and silently stopped contending over the last 64 display lines.
+    {
+        const int s = stretch_at(/*raw_vc=*/200, kDispTs);
+        check("T50-03",
+              "48K, read $4000 at raw vc=200 (BOTTOM display third, still "
+              "within 64..255) → contends; pre-fix the raw vc tripped "
+              "border_active_v and silently stopped contending (zxula.vhd:414)",
+              s > 0, std::string("stretch=") + std::to_string(s));
+    }
+
+    // T50-04 — last display line contends; the line AFTER it must not.
+    {
+        const int s_last  = stretch_at(kLastDispVc, kDispTs);
+        const int s_after = stretch_at(kLastDispVc + 1, kDispTs);
+        check("T50-04",
+              "48K, read $4000: raw vc=255 (LAST display line) contends, "
+              "raw vc=256 (BOTTOM BORDER) does not — the window closes at "
+              "exactly 192 ULA lines (zxula.vhd:414)",
+              s_last > 0 && s_after == 0,
+              std::string("last=") + std::to_string(s_last)
+                  + " after=" + std::to_string(s_after));
+    }
+
+    // T50-05 — horizontal half of the same rebase: an access in the LEFT
+    // BORDER of a display line must not contend (hc(8) gate, zxula.vhd:416),
+    // which is only correct once hc is rebased onto ula_min_hactive.
+    {
+        const int s = stretch_at(kFirstDispVc + 20, /*ts_in_line=*/2);  // hc=4
+        check("T50-05",
+              "48K, read $4000 on a display line but at hc=4 (LEFT BORDER, "
+              "before ula_min_hactive=c_min_hactive-12=116) → NO contention "
+              "(zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; "
+              "zxula_timing.vhd:423)",
+              s == 0, std::string("stretch=") + std::to_string(s));
+    }
+
+    // T50-06 — the origins are PER MACHINE, not hardcoded. 128K has the same
+    // c_min_vactive (64) but a different c_min_hactive (136 → ula origin 124)
+    // and a longer line (228 T). Re-running the border/display pair on a 128K
+    // catches any future regression that bakes in the 48K constants.
+    {
+        Emulator emu128;
+        EmulatorConfig cfg128;
+        cfg128.type = MachineType::ZX128K;
+        emu128.init(cfg128);
+        constexpr int kTsPerLine128 = 228;
+
+        auto stretch128 = [&](int raw_vc, int ts_in_line) -> int {
+            uint32_t* ts = fuse_z80_tstates_ptr();
+            *ts = static_cast<uint32_t>(raw_vc * kTsPerLine128 + ts_in_line);
+            const uint32_t before = *ts;
+            (void)fuse_z80_readbyte(0x4000);
+            return static_cast<int>(*ts - before) - 3;
+        };
+        const int s_border = stretch128(/*raw_vc=*/10, /*ts_in_line=*/84);
+        const int s_disp   = stretch128(/*raw_vc=*/100, /*ts_in_line=*/84);
+        check("T50-06",
+              "128K (c_min_hactive=136, 228 T/line): top border does not "
+              "contend and a display line does — proves the ULA counter "
+              "origins are taken per-machine from VideoTiming, not hardcoded "
+              "to the 48K values (zxula_timing.vhd:195,203)",
+              s_border == 0 && s_disp > 0,
+              std::string("border=") + std::to_string(s_border)
+                  + " display=" + std::to_string(s_disp));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -3096,6 +3264,9 @@ int main() {
     // NEXTZXOS-BOOT-SUBSYSTEM-VERIFY24-MEMORY.md + VERIFY25-MEMORY.md.
     test_cat29_v24_mem_01();
     std::printf("  Group: CT-CAT29-V24   — done\n");
+
+    test_cpu_seam_raster_window();
+    std::printf("  Group: T50-CPU-SEAM   — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
