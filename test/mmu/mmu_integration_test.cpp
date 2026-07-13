@@ -797,6 +797,134 @@ static void test_task26_mf_sram_backing() {
     }
 }
 
+static void test_g156_boot_hold() {
+    set_group("G156-HOLD");
+
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+
+    // HOLD-01 — set_boot_hold_frames() is reflected immediately.
+    emu.set_boot_hold_frames(5);
+    check("G156-HOLD-01",
+          "boot_hold_frames_remaining() reflects set_boot_hold_frames()",
+          emu.boot_hold_frames_remaining() == 5,
+          fmt("remaining=%u (want 5)", emu.boot_hold_frames_remaining()));
+
+    // HOLD-02 — decrements by EXACTLY 1 per completed run_frame() call.
+    for (int i = 0; i < 3; ++i) emu.run_frame();
+    check("G156-HOLD-02",
+          "boot_hold_frames_remaining() decrements by exactly 1 per run_frame()",
+          emu.boot_hold_frames_remaining() == 2,
+          fmt("remaining=%u after 3 run_frame() calls (want 2)",
+              emu.boot_hold_frames_remaining()));
+
+    const auto regs_mid_hold = emu.cpu().get_registers();
+
+    // HOLD-03 — the remaining 2 frames exhaust it to exactly 0.
+    for (int i = 0; i < 2; ++i) emu.run_frame();
+    check("G156-HOLD-03",
+          "boot_hold_frames_remaining() reaches exactly 0 after the full "
+          "hold count of run_frame() calls",
+          emu.boot_hold_frames_remaining() == 0,
+          fmt("remaining=%u (want 0)", emu.boot_hold_frames_remaining()));
+
+    // HOLD-04 — PC and R (Z80 refresh counter, incremented on every M1
+    // fetch) are frozen across every held frame: no CPU instruction was
+    // fetched/executed while boot_hold_frames_remaining_ > 0. R is the
+    // key discriminator — even an instruction that happens to leave PC
+    // unchanged (e.g. a self-loop already at that address) still bumps R
+    // on real/FUSE Z80 hardware.
+    const auto regs_end_hold = emu.cpu().get_registers();
+    check("G156-HOLD-04",
+          "PC and R are frozen across every held frame (no instruction "
+          "executed while boot_hold_frames_remaining_ > 0)",
+          regs_mid_hold.PC == regs_end_hold.PC && regs_mid_hold.R == regs_end_hold.R,
+          fmt("PC %04X->%04X R %02X->%02X (expected unchanged)",
+              regs_mid_hold.PC, regs_end_hold.PC, regs_mid_hold.R, regs_end_hold.R));
+
+    // HOLD-05 — positive control: once the hold ends the CPU DOES resume
+    // real execution (PC/R change over subsequent frames). Without this,
+    // a "CPU never runs at all" mutation would also freeze PC/R forever
+    // and slip past HOLD-04 undetected.
+    for (int i = 0; i < 5; ++i) emu.run_frame();
+    const auto regs_resumed = emu.cpu().get_registers();
+    check("G156-HOLD-05",
+          "CPU resumes real execution once the hold ends — PC/R change "
+          "over post-hold frames (the hold is not permanent)",
+          regs_resumed.PC != regs_end_hold.PC || regs_resumed.R != regs_end_hold.R,
+          fmt("PC %04X->%04X R %02X->%02X (expected a change)",
+              regs_end_hold.PC, regs_resumed.PC, regs_end_hold.R, regs_resumed.R));
+
+    // HOLD-06/07/08/09 — save_state()/load_state() round-trip TAKEN
+    // MID-HOLD preserves boot_hold_frames_remaining_ exactly and the
+    // restored hold resumes correctly (not silently reset to 0, which
+    // would make a rewind mid-hold jump straight into the loaded
+    // program — the scenario the review flagged as untested rewind
+    // correctness).
+    Emulator emu2;
+    EmulatorConfig cfg2;
+    cfg2.type = MachineType::ZXN_ISSUE2;
+    cfg2.rewind_buffer_frames = 0;
+    emu2.init(cfg2);
+    emu2.set_boot_hold_frames(10);
+    emu2.run_frame();
+    emu2.run_frame();
+    check("G156-HOLD-06",
+          "pre-save remaining is genuinely mid-hold (neither the initial "
+          "value nor zero)",
+          emu2.boot_hold_frames_remaining() == 8,
+          fmt("remaining=%u (want 8)", emu2.boot_hold_frames_remaining()));
+
+    size_t need = 0;
+    {
+        StateWriter measure(nullptr, 0);
+        emu2.save_state(measure);
+        need = measure.position();
+    }
+    std::vector<uint8_t> blob(need, 0);
+    {
+        StateWriter w(blob.data(), blob.size());
+        emu2.save_state(w);
+    }
+
+    Emulator emu3;
+    EmulatorConfig cfg3;
+    cfg3.type = MachineType::ZXN_ISSUE2;
+    cfg3.rewind_buffer_frames = 0;
+    emu3.init(cfg3);
+    {
+        StateReader r(blob.data(), blob.size());
+        emu3.load_state(r);
+    }
+    check("G156-HOLD-07",
+          "save_state()/load_state() round-trip preserves "
+          "boot_hold_frames_remaining_ exactly",
+          emu3.boot_hold_frames_remaining() == 8,
+          fmt("remaining after load=%u (want 8)", emu3.boot_hold_frames_remaining()));
+
+    const auto regs_pre_resume = emu3.cpu().get_registers();
+    for (int i = 0; i < 8; ++i) emu3.run_frame();
+    check("G156-HOLD-08",
+          "the restored hold correctly resumes: exactly the restored "
+          "remaining count of run_frame() calls exhausts it to 0",
+          emu3.boot_hold_frames_remaining() == 0,
+          fmt("remaining=%u (want 0)", emu3.boot_hold_frames_remaining()));
+
+    const auto regs_post_resume = emu3.cpu().get_registers();
+    check("G156-HOLD-09",
+          "PC/R stayed frozen for the entire restored hold — no "
+          "instruction executed while resuming a mid-hold snapshot",
+          regs_pre_resume.PC == regs_post_resume.PC &&
+          regs_pre_resume.R == regs_post_resume.R,
+          fmt("PC %04X->%04X R %02X->%02X (expected unchanged)",
+              regs_pre_resume.PC, regs_post_resume.PC,
+              regs_pre_resume.R, regs_post_resume.R));
+}
+
+
 // ── Snapshot saver full-pipeline round trip (Task 13b, G35) ────────────
 //
 // Complements the structural byte-layout checks in mmu_test.cpp
@@ -1098,6 +1226,7 @@ static void test_snapsave_nex_roundtrip() {
           fmt("slot6=%d slot7=%d (want 40/41)", emu2.mmu().get_page(6), emu2.mmu().get_page(7)));
 }
 
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -1132,6 +1261,9 @@ int main() {
 
     test_task26_mf_sram_backing();
     std::printf("  Group: MF-SRAM (Task 26 MF external-SRAM backing) — done\n");
+
+    test_g156_boot_hold();
+    std::printf("  Group: G156-HOLD (NEX boot-hold run_frame() branch) — done\n");
 
     test_snapsave_szx_roundtrip();
     std::printf("  Group: SNAPSAVE-SZX-RT (Task 13b .szx full round trip) — done\n");

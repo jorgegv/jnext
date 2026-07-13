@@ -689,13 +689,55 @@ where possible.
 - **Dependencies**: G102/G103 palette infrastructure.
 - **Effort**: L.
 
-### G156. NEX loader ignores loading_bar/loading_delay/start_delay/colour
-- **What**: NEX V1.1+ spec — fields at offsets 130/132/133 control per-bank progress bar + inter-bank delays in 50 Hz frames. jnext `nex_loader.cpp:89-92` parses but ignores.
-- **User impact**: NEX files authored with visible loading bar render instantly; cosmetic.
-- **Source ref**: Wave-2 nmi-boot-sd-rtc (NEW-BOOT-4); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: per-bank scheduler + on-screen bar render.
-- **Effort**: M.
+### G156. NEX loader ignores loading_bar/loading_delay/start_delay/colour [closed]
+- **Status: CLOSED 2026-07-13** (Task 8b, two independent reviews). NEX V1.1+
+  header fields at offsets 130-133 (`loading_bar`, `loading_bar_colour`,
+  `loading_delay`, `start_delay`) — jnext's `nex_loader.cpp` parsed but
+  ignored all four; now honoured against the reference loader,
+  `tbblue/src/asm/nexload/nexload.asm` (this is a file-format convention,
+  not VHDL — nexload.asm is the oracle here, not the FPGA source).
+- **What was originally observed**: `nex_loader.cpp:89-92` read the four
+  bytes into `NexHeader` but never acted on them — no bar drawn, no delay
+  frames honoured.
+- **Fix**: `NexLoader::render_progress_mark()` replicates nexload.asm:616-621
+  `progress` — writes a real 4-byte, colour-verbatim mark into physical bank
+  11 (MMU page 23) at a bank-slot-index-derived address, drawn for all 112
+  `kBankOrder` slots (present or not) when `loading_bar != 0`.
+  `NexLoader::inter_bank_delay_frames()` / `boot_hold_frames()` replicate
+  nexload.asm's delay semantics (nexload.asm:541,612-614: 109 post-early
+  slot-iterations x `loading_delay`, gated on `screen_flags != 0`;
+  nexload.asm:575-577: unconditional `start_delay`). `apply()` computes the
+  total and calls the new `Emulator::set_boot_hold_frames()`;
+  `Emulator::run_frame()` gained a `boot_hold_frames_remaining_ > 0` branch
+  (peer to the existing DMA-stall branch) that skips CPU instruction
+  fetch/execute for that many frames while rendering/audio/scheduler still
+  run every frame, matching nexload.asm's own DI raster-wait.
+- **Residual limitation (by design, not a follow-up bug)**: the loading bar
+  is written to VRAM **correctly** but is **NOT observable on a bare
+  `--load file.nex`** (CLI or GUI File>Load). Layer 2 starts disabled
+  (`Layer2::reset()` sets `enabled_ = false`) and neither `nexload.asm` nor
+  `NexLoader::apply()` ever writes NR 0x69 bit 7 — on real hardware the bar
+  is only visible because whatever screen was already showing (e.g. the
+  NextZXOS file browser) had Layer 2 on before nexload.asm ran. This was
+  proven end-to-end with a throwaway scratch harness that explicitly forced
+  Layer 2 on before drawing the bar (see the Task 8b commit history for the
+  screenshot). A future reader hitting "the bar doesn't show up" on a plain
+  `--load` should read this note before re-diagnosing it as a bug.
+- **Test coverage**: `test/mmu/mmu_test.cpp` BOOT-NEX-03/04/05/06 (pure
+  `render_progress_mark`/`inter_bank_delay_frames`/`boot_hold_frames`
+  assertions, mutation-tested); `test/mmu/mmu_integration_test.cpp`
+  G156-HOLD-01..09 (drives the real `Emulator::run_frame()` hold branch:
+  decrement-per-frame, PC/R frozen while held, positive-control resume once
+  the hold ends, `save_state`/`load_state` round-trip taken mid-hold).
+  Independent review round 1 found the first four rows alone insufficient
+  (stubbing the `run_frame()` branch dead left the whole suite green) —
+  the G156-HOLD rows close that gap and were mutation-tested against the
+  same stub.
+- **Source ref**: Wave-2 nmi-boot-sd-rtc (NEW-BOOT-4). Two independent
+  reviews: round 1 REJECT (missing `run_frame()` branch coverage), round 2
+  APPROVE.
+- **Dependencies**: none remaining.
+- **Effort**: M (as estimated).
 
 ### G164. jnext `Ula::set_screen_mode` decoded mode bits from port_ff(5:3) instead of VHDL port_ff(2:0) [closed]
 - **Status: CLOSED 2026-05-03** by G179 Issue #1 (commits `9d885d8 → 40cf581`).
