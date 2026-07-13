@@ -175,6 +175,7 @@ with `-` is treated as an option, never as a filename.
 | `--delayed-screenshot-frames N` | Delay in frames (overrides `--delayed-screenshot-time`) |
 | `--delayed-screenshot-layers LIST` | Layers to compose into the screenshot: comma-separated `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`) |
 | `--delayed-automatic-exit N` | Exit the emulator after N seconds |
+| `--delayed-automatic-exit-frames N` | Exit after N frames (overrides `--delayed-automatic-exit`) |
 | `--delayed-keypress SECS KEY` | Press KEY after SECS seconds (repeatable) |
 | `--delayed-keypress-frames N KEY` | Press KEY after N emulated frames |
 | `--compositor-trace FILE` | Dump a per-pixel compositor trace (CSV) for one frame |
@@ -217,6 +218,8 @@ Notes worth knowing:
 
 - **`--delayed-screenshot-frames` is the deterministic one.** Frame counts are
   reproducible; wall-clock seconds are not.
+  `--delayed-automatic-exit-frames` is the same idea for the exit bound, and
+  wins over `--delayed-automatic-exit` when both are given.
 - **`--rtc` makes boot screenshots reproducible** by freezing the clock, so
   the NextZXOS date/time on screen never changes between runs.
 - **A screenshot that was asked for and never taken is an error.** If

@@ -47,8 +47,10 @@ public:
     void set_delayed_screenshot(const std::string& file, int delay_frames,
                                 uint8_t layer_mask);
 
-    /// Schedule automatic exit after `delay_seconds` seconds.
-    void set_delayed_exit(int delay_seconds);
+    /// Schedule automatic exit after `delay_frames` frames. main() resolves
+    /// --delayed-automatic-exit (seconds) and --delayed-automatic-exit-frames
+    /// (frames, wins when both given) into this frame count.
+    void set_delayed_exit(int delay_frames);
 
     /// Process exit status, valid after shutdown(). Non-zero when a requested
     /// --delayed-screenshot was never written (the debugger stayed paused, so
