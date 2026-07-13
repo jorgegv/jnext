@@ -34,9 +34,10 @@
 - SDL audio output at 44100 Hz stereo
 
 ## File format support
-- NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header
-- SNA: 48K and 128K snapshots with full register and paging restore
-- SZX: chunked format with zlib-compressed RAM pages
+- NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header; saving (V1.2, PC/SP/border/RAM banks — see class doc-comment for honest register limitations)
+- SNA: 48K and 128K snapshots with full register and paging restore; saving (48K)
+- SZX: chunked format with zlib-compressed RAM pages; saving (full CPU register set, classic paging, border, uncompressed RAM banks)
+- Snapshot saving (`.sna`/`.szx`/`.nex`) via File > Save Snapshot... (Ctrl+Shift+S) or `--delayed-snapshot FILE` (headless)
 - TAP: fast-load via ROM trap + real-time EAR bit simulation; instant `LOAD ""` autostart via FUSE-style phantom typist (48K/128K/+3 modes — triggers on first full keyboard scan, no fixed delay)
 - TZX: full block support via ZOT library, fast-load + real-time playback
 - WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo)
