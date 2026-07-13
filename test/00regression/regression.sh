@@ -571,6 +571,49 @@ if want silent-func; then
     fi
 fi
 
+# --silent + --record test (Task 47 review round 2): reviewer reproduced a
+# MAJOR bug — with audio synthesis skipped, audio_tmp_ is a 0-byte file, but
+# VideoRecorder::stop() still invoked ffmpeg with that zero-duration raw-PCM
+# input plus "-shortest", which clamps the WHOLE output to zero duration:
+# ffmpeg exited 0 having written a structurally-valid but EMPTY MP4
+# ("Output file is empty, nothing was encoded"), and jnext logged success.
+# A test that only checks "the file exists and the process exited 0" is
+# EXACTLY what missed this — it must assert on the artifact's content.
+#
+# Fix: VideoRecorder::stop() now detects the 0-byte audio temp file and
+# encodes video-only (no audio input, no "-shortest" — nothing to be the
+# shortest OF). Assert the output MP4 has a real video stream with a real
+# (non-zero) duration, not just "a file appeared".
+if want silent-record-func; then
+    begin_func silent-record-func
+    rec_file="$TMP_DIR/silent_recording.mp4"
+    rm -f "$rec_file"
+    if ! command -v ffprobe &>/dev/null; then
+        echo -e "${YELLOW}SKIP${RESET} (ffprobe not available for validation)"
+        skip=$((skip + 1))
+    else
+        timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --silent \
+            "${SD_CARD_ARGS[@]}" \
+            --record "$rec_file" \
+            --delayed-automatic-exit 3 &>/dev/null || true
+        if [[ ! -s "$rec_file" ]]; then
+            echo -e "${RED}FAIL${RESET} (no MP4 file produced)"
+            fail=$((fail + 1))
+        else
+            has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
+            duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$rec_file" 2>/dev/null || echo 0)
+            duration_ok=$(awk -v d="$duration" 'BEGIN{print (d+0 >= 1.0) ? 1 : 0}')
+            if [[ "$has_video" -ge 1 && "$duration_ok" -eq 1 ]]; then
+                echo -e "${GREEN}PASS${RESET} (video-only MP4, ${duration}s duration, ${has_video} video stream)"
+                pass=$((pass + 1))
+            else
+                echo -e "${RED}FAIL${RESET} (has_video=$has_video duration=$duration — corrupt/empty recording reported as success)"
+                fail=$((fail + 1))
+            fi
+        fi
+    fi
+fi
+
 # Bare-filename CLI test (Task 25): `jnext <file>` must load the file exactly as
 # `--load <file>` does, while a mistyped flag must still be an error rather than
 # being silently swallowed as a filename.
