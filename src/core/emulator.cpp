@@ -6138,6 +6138,10 @@ void Emulator::begin_new_frame()
     // Per-scanline active-palette selector snapshot (G10).
     renderer_.ula().palsel_start_frame();
 
+    // G12 — Nirvana-class attribute-mux snapshot + arm decision. Same
+    // pattern as the per-scanline logs above.
+    mmu_.attr_mux_start_frame();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 }
@@ -7699,6 +7703,9 @@ void Emulator::on_scanline(int line)
     renderer_.ula().set_current_scroll_line(tag);
     renderer_.ula().set_palsel_current_line(tag);
     tilemap_.set_current_nr6b_line(tag);
+    // G12 — tag subsequent attribute-plane writes with this scanline
+    // (framebuffer-row space, matching every sibling log above).
+    mmu_.attr_mux_set_current_line(tag);
 }
 
 void Emulator::on_vsync()

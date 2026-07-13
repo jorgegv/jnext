@@ -198,6 +198,10 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     if (tilemap) {
         tilemap->rewind_nr6b_to_baseline();
     }
+    // G12 — Nirvana-class attribute-mux (Category B, per-scanline
+    // replay of mid-frame attribute writes). No-op (log empty) unless
+    // mmu.attr_mux_armed() — see Mmu::attr_mux_start_frame().
+    mmu.attr_mux_rewind_to_baseline();
 
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
@@ -217,6 +221,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         if (tilemap) {
             tilemap->apply_nr6b_changes_for_line(row);
         }
+        // Apply attribute-mux log for this scanline (G12).
+        mmu.attr_mux_apply_line(row);
 
         render_row(framebuffer + row * FB_WIDTH, row, mmu, ram, palette,
                    layer2, sprites, tilemap);
@@ -251,6 +257,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     if (tilemap) {
         tilemap->flush_remaining_nr6b_changes();
     }
+    mmu.attr_mux_flush_remaining();
 
     // Advance ULA flash state once per frame.
     ula_.advance_flash();
