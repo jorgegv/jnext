@@ -833,6 +833,19 @@ private:
     /// Falls back to MMU reads if RAM is not wired (backward compat).
     uint8_t vram_read(uint16_t addr, Mmu& mmu) const;
 
+    /// G12 — attribute-byte read for the STANDARD/STANDARD_1 renderer.
+    /// When Mmu::attr_mux_armed() (i.e. this run has shown genuine
+    /// Nirvana-class mid-scanline attribute racing), returns the value
+    /// AttributeMux reconstructed for the current render row instead of
+    /// the raw byte currently sitting in RAM (which only ever reflects
+    /// the LAST write of the frame — see attribute_mux.h). Falls back to
+    /// the plain vram_read() path otherwise, byte-for-byte identical to
+    /// pre-G12 behaviour. `addr` is the full CPU-space attribute address
+    /// (0x5800-0x5AFF / 0x7800-0x7AFF + row/col offset); `alt` selects
+    /// bank 7 (shadow) vs bank 5 (primary), matching the `alt` local
+    /// already computed in render_display_line from attr_row_base.
+    uint8_t attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const;
+
     /// Compute the interleaved pixel address offset for (screen_row, col).
     /// Returns the offset from 0x4000 (or 0x6000) for the given position.
     static uint16_t pixel_addr_offset(int screen_row, int col);

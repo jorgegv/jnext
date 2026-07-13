@@ -94,6 +94,22 @@ uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
 }
 
 // ---------------------------------------------------------------------------
+// attr_vram_read — G12 Nirvana-class attribute replay consumer
+// ---------------------------------------------------------------------------
+
+uint8_t Ula::attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const
+{
+    if (mmu.attr_mux_armed()) {
+        const uint16_t base = alt ? 0x7800u : 0x5800u;
+        const uint16_t off  = static_cast<uint16_t>(addr - base);
+        if (off < AttributeMux::kNumBytes) {
+            return (alt ? mmu.attr_mux7() : mmu.attr_mux5()).current(off);
+        }
+    }
+    return vram_read(addr, mmu);
+}
+
+// ---------------------------------------------------------------------------
 // encode_ulap_pixel — ULA+ 8-bit ula_pixel index (VHDL zxula.vhd:531-541)
 // ---------------------------------------------------------------------------
 //
@@ -675,7 +691,7 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
         // Fast path (unchanged semantics under default NR 0x26/NR 0x68 bit 2).
         for (int col = 0; col < 32; ++col) {
             const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
-            const uint8_t attr_raw = vram_read(static_cast<uint16_t>(eff_attr_base + col), mmu);
+            const uint8_t attr_raw = attr_vram_read(static_cast<uint16_t>(eff_attr_base + col), alt, mmu);
 
             // zxula.vhd:470 — `attr_active(7) and flash_cnt(4) and
             // (not i_ulanext_en) and not i_ulap_en`: BOTH ULAnext (Wave B)
@@ -754,8 +770,8 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
             const int src_bit = 7 - (src_x & 0x7);   // MSB-first within byte
             const uint8_t pixels = vram_read(
                 static_cast<uint16_t>(pixel_base + src_col), mmu);
-            const uint8_t attr_raw = vram_read(
-                static_cast<uint16_t>(eff_attr_base + src_col), mmu);
+            const uint8_t attr_raw = attr_vram_read(
+                static_cast<uint16_t>(eff_attr_base + src_col), alt, mmu);
 
             // zxula.vhd:470 — both ULAnext (Wave B) and ULA+ (Wave C)
             // suppress the flash XOR; mirrors the fast-path gate above.
