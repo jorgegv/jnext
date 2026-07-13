@@ -495,6 +495,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // were retired in lockstep.
     z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
 
+    // Task 50 — the contention gate is written against the ULA's own
+    // display-relative counters (VHDL i_hc/i_vc, reset at the start of the
+    // ACTIVE DISPLAY — zxula_timing.vhd:423,441-452), but the CPU callbacks
+    // derive raw frame-relative (hc, vc) from the FUSE T-state counter.
+    // Hand the CPU side the two origins so it can rebase before the gate.
+    // Must follow video_timing_.init() above, which establishes them.
+    z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
+                                video_timing_.display_origin().vc);
+
     // Clear all port dispatch handlers before re-registering them.
     // Without this, reset() → init() would duplicate every handler, causing
     // double-fired writes (breaking auto-increment ports like sprites/palette).
