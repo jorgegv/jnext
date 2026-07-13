@@ -1945,11 +1945,110 @@ namespace {
 void test_cat21_nirvana_multiplex() {
     set_group("G12-MUX");
 
-    // G12-MUX-01..03 — G12: Ram::set_write_observer callback API for
-    // mid-row recolour (Nirvana-class) is not yet implemented. The
-    // observer would carry (addr, val, m1, t) per byte.
-    skip("G12-MUX-01", "Ram::set_write_observer not implemented (see G12)");
-    skip("G12-MUX-02", "per-write callback signature absent (see G12)");
+    // G12-MUX-01/02 — G12 Phase A: Ram::set_write_observer plumbing.
+    // Nirvana-class demos rewrite ULA attribute bytes mid-frame, racing
+    // the video beam, to get more colours per cell than the hardware
+    // nominally allows. This is possible on real hardware because the
+    // ULA does not fetch the attribute byte once per frame — it
+    // recomputes the attribute-row address from the CURRENT raster
+    // position every scanline and re-fetches it every character column:
+    // VHDL video/zxula.vhd:192,223-224 (`py_s <= i_vc + ...`;
+    // `addr_a_spc_12_5 <= "110" & py(7 downto 3)` — driven straight off
+    // the live `i_vc` counter, not a frame-latched value) and
+    // video/zxula.vhd:280-299,421-432 (the fetched byte is latched into
+    // `abyteXX` at specific `hc` sub-cycles and loaded into `attr_reg`,
+    // which feeds pixel colour for that exact raster position). So a
+    // byte written to attribute RAM after row N's fetch but before row
+    // N+1's fetch is genuinely a *different* attribute value as seen by
+    // the two rows — jnext's render-from-final-RAM-state model cannot
+    // reproduce that without knowing, per write, which beam position was
+    // current. These two rows prove the write-observer plumbing that
+    // makes that position available; the actual ULA-side mid-row mux
+    // consumer is G12-MUX-03, a later phase.
+
+    // G12-MUX-01: Ram::set_write_observer registers a callback that
+    // fires on Ram::write() with the correct (addr, val); direct
+    // Ram::write() callers have no beam-position context of their own,
+    // so m1/t are the documented "unknown" defaults (false/0).
+    {
+        Fixture f;
+        f.fresh();
+        struct Capture {
+            int      count = 0;
+            uint32_t addr  = 0xFFFFFFFF;
+            uint8_t  val   = 0;
+            bool     m1    = true;
+            uint32_t t     = 1;
+        } cap;
+        f.ram.set_write_observer(
+            [&cap](uint32_t addr, uint8_t val, bool m1, uint32_t t) {
+                ++cap.count;
+                cap.addr = addr;
+                cap.val  = val;
+                cap.m1   = m1;
+                cap.t    = t;
+            });
+        f.ram.write(0x1234, 0x99);
+        f.ram.clear_write_observer();
+        check("G12-MUX-01",
+              "Ram::set_write_observer registers and fires exactly once on Ram::write() "
+              "with the written (addr, val); m1/t default false/0 with no beam-position source",
+              cap.count == 1 && cap.addr == 0x1234 && cap.val == 0x99 && !cap.m1 && cap.t == 0,
+              fmt("count=%d addr=0x%04X val=0x%02X m1=%d t=%u "
+                  "(expected count=1 addr=0x1234 val=0x99 m1=0 t=0)",
+                  cap.count, cap.addr, cap.val, static_cast<int>(cap.m1), cap.t));
+    }
+
+    // G12-MUX-02: the per-write callback signature carries a beam-
+    // position timestamp, plumbed end-to-end through Mmu::write() —
+    // Mmu::set_write_beam_pos() (test-supplied stand-in here; the CPU
+    // write path z80_cpu.cpp::fuse_z80_writebyte() calls the same
+    // method with the real derive_hc_vc(tstates) result in production)
+    // feeds the (hc, vc, m1) that Mmu::write()'s fallback RAM-slot path
+    // packs into the observer's `t` field as (vc<<16)|hc. This fixture
+    // has no CPU running, so the position is the test's stand-in value
+    // — the contract under test is that it reaches the observer intact,
+    // not that a real CPU produced it (that CPU-side wiring is exercised
+    // at the integration level, not by this unit fixture).
+    {
+        Fixture f;
+        f.fresh();
+        struct Capture {
+            int      count = 0;
+            uint32_t addr  = 0xFFFFFFFF;
+            uint8_t  val   = 0;
+            bool     m1    = true;
+            uint32_t t     = 0;
+        } cap;
+        f.ram.set_write_observer(
+            [&cap](uint32_t addr, uint8_t val, bool m1, uint32_t t) {
+                ++cap.count;
+                cap.addr = addr;
+                cap.val  = val;
+                cap.m1   = m1;
+                cap.t    = t;
+            });
+        const uint16_t hc = 100, vc = 50;
+        f.mmu.set_write_beam_pos(hc, vc, /*m1=*/false);
+        f.mmu.set_page(0, 0x02);   // ordinary RAM page — not bank5/bank7 VRAM
+        f.mmu.write(0x0000, 0x77);
+        f.ram.clear_write_observer();
+        const uint32_t expected_addr = 0x02u * 0x2000u;  // rom_in_sram_=false → to_sram_page identity
+        const uint32_t expected_t    = (static_cast<uint32_t>(vc) << 16) | hc;
+        check("G12-MUX-02",
+              "per-write callback signature (addr, val, m1, t) is plumbed from "
+              "Mmu::set_write_beam_pos() through Mmu::write() to the observer, "
+              "with t packed as (vc<<16)|hc",
+              cap.count == 1 && cap.addr == expected_addr && cap.val == 0x77 &&
+              !cap.m1 && cap.t == expected_t,
+              fmt("count=%d addr=0x%05X val=0x%02X m1=%d t=0x%08X "
+                  "(expected count=1 addr=0x%05X val=0x77 m1=0 t=0x%08X)",
+                  cap.count, cap.addr, cap.val, static_cast<int>(cap.m1), cap.t,
+                  expected_addr, expected_t));
+    }
+
+    // G12-MUX-03 — ULA mid-row recolour mux (the actual consumer of the
+    // observer plumbed above) is not yet wired. A later phase.
     skip("G12-MUX-03", "ULA mid-row recolour mux unwired (see G12)");
 }
 
