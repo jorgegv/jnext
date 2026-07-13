@@ -6106,6 +6106,14 @@ void Emulator::begin_new_frame()
     // existed with zero call sites until now).
     renderer_.init_transparent_rgb_per_line();
 
+    // Initialize per-line ULA clip window (NR 0x1A) snapshot. VHDL
+    // zxnext.vhd:988-991 — the clip comparators consume the live registers
+    // per pixel, so a mid-frame NR 0x1A write (Copper MOVE / CPU racing
+    // the beam) must only affect rows scanned after the write.
+    // on_scanline → renderer_.snapshot_ula_clip_for_line refreshes
+    // individual lines.
+    renderer_.init_ula_clip_per_line();
+
     // Initialize per-line border colour to current value.
     // Port 0xFE writes will update individual lines during execution.
     renderer_.ula().init_border_per_line();
@@ -6773,6 +6781,7 @@ void Emulator::run_frame()
     renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
     tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
 
@@ -7674,6 +7683,7 @@ void Emulator::on_scanline(int line)
             renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
             renderer_.snapshot_blend_mode_for_line(prev_fb_row);
             renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
+            renderer_.snapshot_ula_clip_for_line(prev_fb_row);
             renderer_.ula().snapshot_border_for_line(prev_fb_row);
             tilemap_.snapshot_scroll_for_line(prev_fb_row);
         }

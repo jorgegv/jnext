@@ -194,6 +194,7 @@ void begin_frame(Emulator& emu) {
     emu.renderer().init_fallback_per_line();
     emu.renderer().init_ula_enabled_per_line();
     emu.renderer().init_transparent_rgb_per_line();
+    emu.renderer().init_ula_clip_per_line();
     emu.ula().init_border_per_line();
     emu.tilemap().init_scroll_per_line();
     emu.tilemap().start_frame_nr6b();

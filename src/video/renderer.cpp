@@ -390,10 +390,18 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
 
 void Renderer::apply_ula_clip(uint32_t* line, int row) const
 {
-    const uint8_t cx1 = ula_.clip_x1();
-    const uint8_t cx2 = ula_.clip_x2();
-    const uint8_t cy1 = ula_.clip_y1();
-    const uint8_t cy2 = ula_.clip_y2();
+    // Read the per-scanline NR 0x1A snapshot, NOT the live Ula::clip_*()
+    // getters: the VHDL clip comparators consume the registers per pixel
+    // (zxnext.vhd:988-991; NR 0x1A rotating write + y2 clamp at 6779-6783),
+    // so a mid-frame write must affect only rows the beam has not yet
+    // passed. The live getters here would retroactively re-mask every row
+    // rendered after the write (the Task 43/45/46 per-line-deferral bug
+    // class). Out-of-range rows fall back to the live values.
+    const UlaClipWindow cw = ula_clip_for_line(row);
+    const uint8_t cx1 = cw.x1;
+    const uint8_t cx2 = cw.x2;
+    const uint8_t cy1 = cw.y1;
+    const uint8_t cy2 = cw.y2;
 
     const int  screen_row     = row - DISP_Y;
     const bool row_in_display = (screen_row >= 0 && screen_row < DISP_H);
