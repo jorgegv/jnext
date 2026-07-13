@@ -67,7 +67,12 @@ void ContentionModel::rebuild_for_type(MachineType type) {
     // callers must also push the matching `set_machine_timing()` if
     // they want both axes aligned — which is exactly what the
     // canonical NextZXOS boot path does.)
-    static const uint8_t pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+    // Task 54 (2026-07-13): magnitude has period 16 ticks (8 T-states),
+    // keyed on hc(3:0) — see the derivation in contention_tick(). The
+    // pre-fix `pattern[hc & 7]` repeated the 8-T-state pattern every
+    // 4 T-states (units bug: T-state table indexed by pixel ticks).
+    static const uint8_t pat48[16] = {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0};
+    static const uint8_t patp3[16] = {1,0,0,7,7,6,6,5,5,4,4,3,3,2,2,1};
     const bool is_p3 = (machine_timing_ == MachineTimingMode::TimingPlus3);
 
     for (int vc = 0; vc <= 191; ++vc) {
@@ -77,7 +82,7 @@ void ContentionModel::rebuild_for_type(MachineType type) {
             bool contend = (hc_adj & 0xC) != 0;           // hc_adj[3:2] != 0
             if (is_p3) contend |= (hc_adj & 0xE) == 0;    // hc_adj[3:1] == 0
             if (contend) {
-                lut_[vc][hc] = pattern[hc & 7];
+                lut_[vc][hc] = is_p3 ? patp3[hc & 0xF] : pat48[hc & 0xF];
             }
         }
     }
@@ -331,19 +336,44 @@ uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
     // pattern, which is the same on 48K/128K (`o_cpu_contend` triggers
     // a clock-low stretch of N T-states matching the LUT) and on +3
     // (`o_cpu_wait_n` holds WAIT_n low for N T-states matching the LUT).
-    static constexpr uint8_t kPattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+    // Task 54 (2026-07-13) — the stretch magnitude is a function of
+    // hc(3:0): period 16 ticks = 8 T-states, NOT hc(2:0) (8 ticks = 4 T).
+    // The pre-fix `kPattern[hc & 7]` indexed FUSE's per-T-STATE pattern
+    // with a PIXEL-TICK counter, repeating it twice per contention octet
+    // and under-charging 5 of the 6 contended phases (14 T instead of
+    // 21 T per octet of continuous access). Contention-locked engines
+    // (BIFROST/Nirvana multicolour) equilibrate against this grid, so the
+    // wrong magnitudes displaced their raster lock ~22 T early and their
+    // attribute writes crossed the ULA fetch boundary one line early.
+    //
+    // Derivation (zxula.vhd:582-583 + clock-stretch consumption in
+    // zxnext_top_issue2.vhd:1024-1140): wait_s='1' for hc(3:0)=3..14
+    // (hc_adj(3:2)/="00"); the CPU clock-low transition is deferred one
+    // 7 MHz tick at a time while the gate holds, and a T-state spans the
+    // tick pair {odd p, even p+1}. Counting consecutive held samples from
+    // start phase p to the release window gives:
+    //   48K/128K (release at hc 15,0,1,2):
+    //     {3,4}->6  {5,6}->5  {7,8}->4  {9,10}->3  {11,12}->2  {13,14}->1
+    //   +3: wait_s also covers hc 15,0 (hc_adj(3:1)="000" term,
+    //   zxula.vhd:583), so release shrinks to {1,2} and the wrap phases
+    //   gain one — the classic +3 {1,0,7,6,5,4,3,2} pattern at even hc.
+    // Verified against real FUSE (Task 54): BIFROST's attribute writes
+    // lock at a constant ts_in_line on both emulators and the rendered
+    // frame is pixel-identical (modulo FLASH phase).
+    static constexpr uint8_t kPat48[16] = {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0};
+    static constexpr uint8_t kPatP3[16] = {1,0,0,7,7,6,6,5,5,4,4,3,3,2,2,1};
 
     if (is_p3) {
         // +3: memory-side WAIT_n only (port-side commented out in VHDL).
         if (mreq_n == false && mem_c) {
-            return kPattern[hc & 7];
+            return kPatP3[hc & 0xF];
         }
         return 0;
     }
 
     // 48K/128K: memory-side OR port-side both fire o_cpu_contend.
     if ((mreq_n == false && mem_c) || port_c) {
-        return kPattern[hc & 7];
+        return kPat48[hc & 0xF];
     }
     return 0;
 }

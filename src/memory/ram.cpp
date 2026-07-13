@@ -10,7 +10,8 @@ uint8_t Ram::read(uint32_t addr) const {
 }
 
 void Ram::write(uint32_t addr, uint8_t val) {
-    if (addr < data_.size()) data_[addr] = val;
+    if (addr >= data_.size()) return;
+    data_[addr] = val;
 }
 
 uint8_t* Ram::page_ptr(uint16_t page) {

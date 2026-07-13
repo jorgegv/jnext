@@ -10,6 +10,7 @@
 #include "cpu/z80_cpu.h"
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
+#include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
 
 
 class DivMmc;     // forward declaration for overlay
@@ -477,7 +478,139 @@ public:
         if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
+        // G12-MUX-03 — Nirvana-class attribute-mux consumer (Phase B).
+        // Dedicated, cheap, always-on detector AND always-on recorder.
+        // This check works uniformly for BOTH backing stores (plain
+        // ram_ pages 0x0A/0x0E on standalone 48K/128K/+3, and the
+        // dedicated bank5_vram_/bank7_bram_ buffers on Next machines —
+        // see rebuild_ptr()) because it keys off `slots_[slot]`, the
+        // logical MMU page, which is identical either way; `ptr` already
+        // points at whichever buffer actually backs it.
+        //
+        // Cost: two array/member loads + up to 2 integer compares on
+        // EVERY plain-RAM-slot write; appending to AttributeMux's
+        // per-frame log costs one more compare + array store, on every
+        // write that lands in the 768-byte attribute sub-range.
+        //
+        // No arm/gate — measured (Task 8 Nirvana round 3, headless
+        // beast.nex, 2500 frames, release, 3+ runs each side) to be
+        // statistically indistinguishable in cost from the gated
+        // version that used to sit here (a same-byte-repeat-count
+        // heuristic, then a "positional" beam-position gate — see
+        // doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md "G12" history
+        // for both). Both prior heuristics existed only to avoid this
+        // log-append cost on ordinary (non-racing) content; since that
+        // cost turned out to be unmeasurable, and the positional gate's
+        // own bookkeeping was not free, always recording is both
+        // simpler and at least as fast. The render-time consumer
+        // (Ula::attr_vram_read()) always replays through the log now —
+        // see that function for the VHDL-grounded bank-selection fix
+        // that accompanied this removal.
+        {
+            const uint8_t page = slots_[slot];
+            if (page == kAttrMuxBank5Page || page == kAttrMuxBank7Page) {
+                const uint16_t off = addr & 0x1FFF;
+                if (off >= kAttrMuxOffLo && off <= kAttrMuxOffHi) {
+                    const uint16_t rel = static_cast<uint16_t>(off - kAttrMuxOffLo);
+                    AttributeMux& mux = (page == kAttrMuxBank5Page)
+                        ? attr_mux5_ : attr_mux7_;
+                    // Prefer the beam line derived from THIS write's own
+                    // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
+                    // over the on_scanline() tag, which is only refreshed
+                    // between instructions and is therefore stale for any
+                    // write inside an instruction that straddles a scanline
+                    // boundary — tagging it a whole scanline early. Non-CPU
+                    // writers (DMA, loaders) never set it and keep the
+                    // coarse tag.
+                    const uint16_t line = attr_mux_write_pos_valid_
+                        ? attr_mux_write_line_ : attr_mux_current_line_;
+                    attr_mux_write_pos_valid_ = false;
+                    mux.record_write(line, attr_mux_current_hc_, rel, val);
+                }
+            }
+        }
     }
+
+    // ── G12 — Nirvana-class attribute-mux public API ───────────────────
+    //
+    // Mirrors the established per-scanline change-log pattern already
+    // used by PaletteManager / Layer2 / Sprites / Ula (scroll, palsel) —
+    // see attribute_mux.h for the full VHDL-cited rationale. Called from
+    // Emulator::run_frame (start_frame), Emulator::on_scanline
+    // (set_current_line), and Renderer::render_frame (rewind_to_baseline
+    // / apply_line per row / flush_remaining), exactly like those
+    // siblings.
+
+    /// Call once per frame, before any CPU execution. Snapshots the
+    /// live attribute-plane bytes as this frame's baseline and resets
+    /// the per-frame change log. Always-on — no arm/gate (removed Task 8
+    /// Nirvana round 3; see Mmu::write()'s G12-MUX-03 comment for why).
+    ///
+    /// `hc_origin` (round 4, column-accurate resolution) is
+    /// `VideoTiming::ula_prefetch_origin_hc()` for the active machine —
+    /// see attribute_mux.h's column-accurate-resolution block comment.
+    /// Emulator::begin_new_frame() passes it explicitly; the default (0)
+    /// exists only so bare-Mmu test fixtures that call this directly
+    /// keep compiling and keep resolving on line alone (see
+    /// AttributeMux::start_frame()'s doc comment).
+    void attr_mux_start_frame(int hc_origin = 0, int vblank_top = 0) {
+        attr_mux_vblank_top_ = vblank_top;
+        attr_mux5_.start_frame(bank5_attr_baseline_ptr(), hc_origin);
+        attr_mux7_.start_frame(bank7_attr_baseline_ptr(), hc_origin);
+    }
+
+    /// True beam position at the exact T-state the write lands on the bus,
+    /// as derived from the FUSE T-state counter in fuse_z80_writebyte().
+    /// `vc` is raw scanline (frame-relative); it is converted to the same
+    /// framebuffer-row space every per-scanline change log is tagged in.
+    void attr_mux_set_write_pos(int vc, int hc) {
+        attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
+        const int fb_row = vc - attr_mux_vblank_top_;
+        attr_mux_write_line_ = (fb_row < 0) ? 0 : static_cast<uint16_t>(fb_row);
+        attr_mux_write_pos_valid_ = true;
+    }
+
+    /// Update the scanline tag attached to subsequent attribute writes.
+    /// `line` is framebuffer-row space (0..FB_HEIGHT-1), matching the
+    /// tag Emulator::on_scanline already computes for every sibling
+    /// per-scanline log (palette_, layer2_, sprites_, ula scroll/palsel).
+    void attr_mux_set_current_line(int line) {
+        attr_mux_current_line_ = (line < 0) ? 0 : static_cast<uint16_t>(line);
+    }
+
+    /// Update the horizontal (7 MHz pixel-tick) position tag attached to
+    /// subsequent attribute writes (round 4, column-accurate resolution).
+    /// Set from the true per-write T-state position in
+    /// src/cpu/z80_cpu.cpp's fuse_z80_writebyte() for the production
+    /// path; bare-Mmu test fixtures may call this directly to exercise
+    /// column gating without a real CPU.
+    void attr_mux_set_current_hc(int hc) {
+        attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
+    }
+
+    /// Rewind both attribute planes to this frame's baseline. Call once
+    /// before the per-row render loop.
+    void attr_mux_rewind_to_baseline() {
+        attr_mux5_.rewind_to_baseline();
+        attr_mux7_.rewind_to_baseline();
+    }
+
+    /// Apply logged writes tagged with `line` to both attribute planes.
+    /// Call once per rendered row, before that row is rendered.
+    void attr_mux_apply_line(int line) {
+        attr_mux5_.apply_changes_for_line(line);
+        attr_mux7_.apply_changes_for_line(line);
+    }
+
+    /// Drain any remaining log entries (e.g. tagged past FB_HEIGHT) so
+    /// they aren't lost before the next attr_mux_start_frame().
+    void attr_mux_flush_remaining() {
+        attr_mux5_.flush_remaining_changes();
+        attr_mux7_.flush_remaining_changes();
+    }
+
+    const AttributeMux& attr_mux5() const { return attr_mux5_; }
+    const AttributeMux& attr_mux7() const { return attr_mux7_; }
 
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
     void map_128k_bank(uint8_t port_7ffd);
@@ -1394,6 +1527,51 @@ private:
     // +3. Power-on default 0x00 (VHDL signal default — no explicit
     // reset clause).
     uint8_t        p3_floating_bus_dat_ = 0x00;
+
+    // G12-MUX-03 — Nirvana-class attribute-mux consumer (Phase B). See
+    // the public attr_mux_* API above for the frame lifecycle and
+    // attribute_mux.h for the VHDL citations. Physical MMU pages that
+    // carry an attribute plane (bank 5 lower half / bank 7 shadow lower
+    // half — see rebuild_ptr()'s bank5_vram_/bank7_bram_ + plain-ram_
+    // branches, both of which use these same logical page numbers) and
+    // the byte-offset sub-range within an 8K page that is the 768-byte
+    // attribute area (0x5800-0x5AFF / 0x7800-0x7AFF in CPU space, which
+    // is offset 0x1800-0x1AFF within either page regardless of banking).
+    static constexpr uint8_t  kAttrMuxBank5Page = 0x0A;
+    static constexpr uint8_t  kAttrMuxBank7Page = 0x0E;
+    static constexpr uint16_t kAttrMuxOffLo     = 0x1800;
+    static constexpr uint16_t kAttrMuxOffHi     = 0x1AFF;
+
+    AttributeMux   attr_mux5_;
+    AttributeMux   attr_mux7_;
+    uint16_t       attr_mux_current_line_ = 0;
+    // Round 4 column-accurate resolution: current 7 MHz-domain hc tag,
+    // set immediately before every write by z80_cpu.cpp (production) or
+    // directly by test fixtures. NOT persisted across a rewind snapshot
+    // — see AttributeMux's save_state/load_state doc comment for why.
+    uint16_t       attr_mux_current_hc_ = 0;
+    // Beam position captured at the exact write T-state (attr_mux_set_write_pos).
+    uint16_t       attr_mux_write_line_      = 0;
+    bool           attr_mux_write_pos_valid_ = false;
+    int            attr_mux_vblank_top_      = 0;
+
+    /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
+    /// currently lives (dedicated bank5_vram_ on Next machines, plain
+    /// ram_ page 0x0A otherwise). Null only if ram_.page_ptr() itself
+    /// would be null (out-of-range Ram size — defensive, not reachable
+    /// with the default 2048 KB Ram).
+    const uint8_t* bank5_attr_baseline_ptr() const {
+        if (rom_in_sram_) return bank5_vram_.data() + kAttrMuxOffLo;
+        const uint8_t* p = ram_.page_ptr(kAttrMuxBank5Page);
+        return p ? p + kAttrMuxOffLo : nullptr;
+    }
+    /// Same as above for the bank-7 shadow attribute plane.
+    const uint8_t* bank7_attr_baseline_ptr() const {
+        if (rom_in_sram_) return bank7_bram_.data() + kAttrMuxOffLo;
+        const uint8_t* p = ram_.page_ptr(kAttrMuxBank7Page);
+        return p ? p + kAttrMuxOffLo : nullptr;
+    }
+
     // Per-16K-slot contention mirror (see set_slot_contended() comment).
     bool           slot_contended_[4] = {false, false, false, false};
     // VHDL nr_08_contention_disable (zxnext.vhd:1114 default '0', written

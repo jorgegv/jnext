@@ -517,14 +517,18 @@ static void test_wait_window() {
     }
 
     // CT-WIN-02: 48K, hc=3, vc=100 — display row, hc_adj=4 → (3:2)=01,
-    // pattern[3]=3.
+    // wait_s=1. hc=3 is the FIRST held tick of the octet: wait_s stays
+    // high through hc 3..14 and releases at 15, so an access starting
+    // here is held 6 T-states (Task 54 table {3,4}->6).
+    // (Pre-Task-54 this row expected pattern[3]=3 — a value from the
+    // wrong-period pattern[hc&7] table; it was asserting the bug.)
     {
         ContentionModel cm = make_cm(MachineType::ZX48K);
         const uint8_t d = cm.delay(3, 100);
         check("CT-WIN-02",
-              "48K, hc=3, vc=100 (hc_adj=4, (3:2)=01) → delay=pattern[3]=3 "
-              "[zxula.vhd:582-583,587-595]",
-              d == 3,
+              "48K, hc=3, vc=100 (hc_adj=4, (3:2)=01, first held tick) → "
+              "delay=6 [zxula.vhd:582-583; Task 54 hc(3:0) table]",
+              d == 6,
               std::string("delay=") + std::to_string(d));
     }
 
@@ -578,18 +582,28 @@ static void test_wait_window() {
               std::string("delay=") + std::to_string(d));
     }
 
-    // CT-WIN-07: 48K, hc=100, vc sweep across active display: per-phase
-    // pattern follows {6,5,4,3,2,1,0,0} for the contended phases. vc=100
-    // is in display window. We assert the LUT matches expect_lut_nonzero
-    // and that the per-phase pattern is exactly {6,5,4,3,2,1,0,0}.
+    // CT-WIN-07: 48K, full hc=0..255 sweep at vc=100. Task 54: the
+    // per-phase magnitude table is written INLINE here as literals —
+    // deliberately NOT shared with src/memory/contention.cpp — so the
+    // test cannot silently mirror a wrong production table (the
+    // pre-Task-54 sweep did exactly that: contention_helpers.h's
+    // expected_wait_pattern() reproduced the emulator's wrong-period
+    // pattern[hc&7] and the sweep was green with both sides wrong).
+    //
+    // Derivation (zxula.vhd:582-583; consumption zxnext_top_issue2.vhd
+    // :1024-1140): wait_s='1' for hc(3:0)=3..14, an access starting at
+    // phase p is held until the release window {15,0,1,2}, one T-state
+    // = 2 ticks: {3,4}->6 {5,6}->5 {7,8}->4 {9,10}->3 {11,12}->2
+    // {13,14}->1, else 0. Period 16 ticks = 8 T-states.
     {
+        static constexpr uint8_t kExp48[16] =
+            {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0};
         ContentionModel cm = make_cm(MachineType::ZX48K);
         bool sweep_ok = true;
         std::string detail;
         for (int hc = 0; hc <= 255; ++hc) {
             const uint8_t d   = cm.delay(hc, 100);
-            const uint8_t exp = expect_lut_nonzero(MachineType::ZX48K, hc, 100)
-                                ? expected_wait_pattern(hc) : 0;
+            const uint8_t exp = kExp48[hc & 0xF];
             if (d != exp) {
                 sweep_ok = false;
                 detail = std::string("hc=") + std::to_string(hc)
@@ -599,46 +613,35 @@ static void test_wait_window() {
             }
         }
         check("CT-WIN-07",
-              "48K, hc=0..255 sweep at vc=100: per-phase LUT == "
-              "{6,5,4,3,2,1,0,0} on stretched phases, 0 elsewhere "
-              "[zxula.vhd:579-583,587-595; contention.cpp:37-46]",
+              "48K, hc=0..255 sweep at vc=100: per-phase LUT == inline "
+              "VHDL-derived hc(3:0) table {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0} "
+              "(period 16 ticks = 8 T-states) [zxula.vhd:582-583; Task 54]",
               sweep_ok, detail);
     }
 
     // CT-WIN-08: +3, hc=15 — hc_adj=0 (after 4-bit wrap of 15+1), so
-    // (3:1)=000 AND p3=1 ⇒ second `wait_s` clause fires. Per plan §11,
-    // the +3 path has the additional clause hc_adj(3:1)='000'. delay()
-    // should be non-zero (pattern[7]=0 actually, see below).
-    //
-    // hc=15: hc&7=7 → pattern[7]=0. So even though wait_s=1, the LUT
-    // value is 0 (the VHDL pattern is asymmetric). To get a NON-ZERO
-    // delay from the +3 extra phase, hc must satisfy hc_adj(3:1)=000
-    // AND hc&7 != 7. Available values: hc&0xF=15 → hc_adj=0 → (3:1)=000.
-    // So hc ∈ {15, 31, 47, ..., 255}; hc&7 = (hc&0xF)&7 = 15&7 = 7
-    // (since hc&0xF=15 → hc&7=7). Always 7 → pattern[7]=0.
-    //
-    // Thus the +3 extra phase ONLY shows zero delay in the LUT — the
-    // clause-2 fires but its pattern row is 0. Plan §9 row CT-WIN-08
-    // asks "wait_s=1" which the bare-class LUT cannot directly observe;
-    // we assert that on +3 the LUT for hc=15 vc=100 is 0 (pattern[7]=0)
-    // and on 48K it is also 0 (clause 1 false, clause 2 doesn't fire on
-    // 48K). The discrimination between 48K and +3 falls out of CT-SP3-08
-    // (zero phase, +3-only). Document that here.
+    // (3:1)=000 AND p3=1 ⇒ second `wait_s` clause fires (+3 only,
+    // zxula.vhd:583). Task 54: with the correct hc(3:0)-period magnitude
+    // table the +3 clause-2 phase IS directly observable in the LUT — a
+    // +3 access starting at hc=15 is held through the {15,0} extension
+    // and releases at hc=1, i.e. 1 T-state (the classic +3 pattern's
+    // wrap value). On 48K clause 2 does not exist: hc=15 is in the
+    // release window and the delay is 0. This row is now the direct
+    // 48K-vs-+3 clause-2 discriminator.
+    // (Pre-Task-54 it asserted 0 on BOTH machines — the wrong-period
+    // pattern[hc&7] table happened to hold 0 at index 7, which the row's
+    // own comment documented as "the asymmetric pattern". That was the
+    // bug, not the hardware.)
     {
         ContentionModel cm_p3   = make_cm(MachineType::ZX_PLUS3);
         ContentionModel cm_48k  = make_cm(MachineType::ZX48K);
         const uint8_t d_p3  = cm_p3.delay(15, 100);
         const uint8_t d_48k = cm_48k.delay(15, 100);
-        // Both report 0 because pattern[7]=0; but the wait_s SIGNAL on +3
-        // is asserted (clause 2). Branch A's runtime tick will observe
-        // the wait assertion via cycle stretching even when LUT is 0 —
-        // that's why CT-SP3-08 (bank 4 read at the same hc) verifies the
-        // stretch on +3 specifically.
         check("CT-WIN-08",
-              "+3 vs 48K, hc=15, vc=100: pattern[7]=0 so LUT=0 on both "
-              "(clause-2 wait_s=1 on +3 is observable via Branch-A stretch) "
-              "[zxula.vhd:582-583; pattern[hc&7]={6,5,4,3,2,1,0,0}]",
-              d_p3 == 0 && d_48k == 0,
+              "+3 vs 48K, hc=15, vc=100: +3 clause-2 wait_s=1 → delay=1; "
+              "48K clause-2 absent → delay=0 "
+              "[zxula.vhd:582-583; Task 54 hc(3:0) tables]",
+              d_p3 == 1 && d_48k == 0,
               std::string("d_p3=") + std::to_string(d_p3)
               + " d_48k=" + std::to_string(d_48k));
     }
@@ -657,16 +660,19 @@ static void test_wait_window() {
               std::string("delay=") + std::to_string(d));
     }
 
-    // CT-WIN-10: 48K, hc=7, vc=100 — hc_adj=8, (3:2)=10 ⇒ wait_s=1.
-    // Pattern address = hc & 7 = 7 → pattern[7]=0. So LUT=0 even though
-    // wait_s=1. Documents the asymmetric pattern.
+    // CT-WIN-10: 48K, hc=7, vc=100 — hc_adj=8, (3:2)=10 ⇒ wait_s=1. An
+    // access starting at hc=7 is held through hc 7..14, releasing at 15:
+    // 4 T-states (Task 54 table {7,8}->4).
+    // (Pre-Task-54 this row asserted delay=0 here via pattern[7]=0 of the
+    // wrong-period table — it was asserting the bug and even documented
+    // the artifact as "the asymmetric pattern".)
     {
         ContentionModel cm = make_cm(MachineType::ZX48K);
         const uint8_t d = cm.delay(7, 100);
         check("CT-WIN-10",
-              "48K, hc=7, vc=100 (hc_adj=8 ⇒ wait_s=1, pattern[7]=0) → delay=0 "
-              "[zxula.vhd:582-583,587-595]",
-              d == 0,
+              "48K, hc=7, vc=100 (hc_adj=8 ⇒ wait_s=1, held 7..14) → delay=4 "
+              "[zxula.vhd:582-583; Task 54 hc(3:0) table]",
+              d == 4,
               std::string("delay=") + std::to_string(d));
     }
 }
@@ -688,7 +694,10 @@ static void test_stretch_48k() {
     // (PHASE-2-DEPENDS: Branch-A wires LUT → tick).
 
     // CT-S48-01: 48K, bank 5 (page 0x0A), display window, stretched
-    // phase. Use hc=4 (hc_adj=5 → (3:2)=01, hc&7=4 → pattern[4]=2).
+    // phase. hc=4 (hc_adj=5 → (3:2)=01): first even held tick of the
+    // octet — held through hc 4..14, release at 15 → 6 T-states
+    // (Task 54 table {3,4}->6; pre-fix this row expected pattern[4]=2
+    // from the wrong-period pattern[hc&7] table).
     {
         ContentionModel cm;
         cm.build(MachineType::ZX48K);
@@ -697,8 +706,8 @@ static void test_stretch_48k() {
         const uint8_t d = cm.delay(4, 100);
         check("CT-S48-01",
               "48K bank-5 (page 0x0A) display+stretched (hc=4,vc=100) → "
-              "gate=1 AND delay=pattern[4]=2 [zxula.vhd:587-595]",
-              gate && d == 2,
+              "gate=1 AND delay=6 [zxula.vhd:582-595; Task 54 table]",
+              gate && d == 6,
               std::string("gate=") + std::to_string(gate)
               + " delay=" + std::to_string(d));
     }
@@ -740,8 +749,9 @@ static void test_stretch_48k() {
         const uint8_t d = cm.delay(4, 100);
         check("CT-S48-04",
               "128K bank-1 (page 0x02) display+stretched (hc=4,vc=100) → "
-              "gate=1 AND delay=pattern[4]=2 [zxnext.vhd:4491]",
-              gate && d == 2,
+              "gate=1 AND delay=6 (Task 54 hc(3:0) table, {3,4}->6) "
+              "[zxnext.vhd:4491]",
+              gate && d == 6,
               std::string("gate=") + std::to_string(gate)
               + " delay=" + std::to_string(d));
     }
@@ -769,9 +779,9 @@ static void test_stretch_48k() {
         const uint8_t d = cm.delay(4, 100);
         check("CT-S48-06",
               "48K port=0xFE, hc=4, vc=100 → port_contend=1 AND "
-              "delay=pattern[4]=2 (port stretched) "
+              "delay=6 (port stretched; Task 54 hc(3:0) table) "
               "[zxula.vhd:587-595; zxnext.vhd:4496]",
-              pc && d == 2,
+              pc && d == 6,
               std::string("pc=") + std::to_string(pc)
               + " delay=" + std::to_string(d));
     }
@@ -828,8 +838,9 @@ static void test_stretch_plus3() {
         const uint8_t d = cm.delay(4, 100);
         check("CT-SP3-01",
               "+3 bank-4 (page 0x08) display+stretched (hc=4,vc=100) → "
-              "gate=1 AND delay=pattern[4]=2 [zxula.vhd:600; zxnext.vhd:4492]",
-              gate && d == 2,
+              "gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) "
+              "[zxula.vhd:600; zxnext.vhd:4492]",
+              gate && d == 7,
               std::string("gate=") + std::to_string(gate)
               + " delay=" + std::to_string(d));
     }
@@ -845,8 +856,9 @@ static void test_stretch_plus3() {
         const uint8_t d = cm.delay(4, 100);
         check("CT-SP3-02",
               "+3 bank-7 (page 0x0E) display+stretched (hc=4,vc=100) → "
-              "gate=1 AND delay=pattern[4]=2 [zxula.vhd:600; zxnext.vhd:4492]",
-              gate && d == 2,
+              "gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) "
+              "[zxula.vhd:600; zxnext.vhd:4492]",
+              gate && d == 7,
               std::string("gate=") + std::to_string(gate)
               + " delay=" + std::to_string(d));
     }
@@ -930,20 +942,15 @@ static void test_stretch_plus3() {
 
     // CT-SP3-08: +3 extra phase — hc_adj(3:1)=000. Pick hc=15 (hc_adj=0
     // after 4-bit wrap → (3:1)=000), bank 4. wait_s=1 by clause 2 on +3.
-    // Pattern[hc&7]=pattern[7]=0 → LUT=0 today. Branch A will emit the
-    // stretch on +3 even when LUT==0 because clause 2 sets wait_s=1.
     //
-    // Standalone observable check: on +3, the build() loop populates
-    // lut_[100][15] iff (hc_adj & 0xC) != 0 OR (hc_adj & 0xE) == 0.
-    // For hc=15: hc_adj=0, (0xC)=0, (0xE)=0 → contend=true. Pattern[7]=0
-    // so LUT=0 anyway. We pin the asymmetric "wait_s asserted but LUT=0"
-    // behaviour by checking that on 48K hc=15 vc=100 LUT IS NOT WRITTEN
-    // (contend=false — same hc_adj fails 48K's only clause).
-    //
-    // Branch A future: when stretch is wired, +3 hc=15 will stall N
-    // cycles even though LUT=0. The behaviour we CAN assert today:
-    // delay(15,100)==0 on both 48K AND +3 (pattern[7]=0). The
-    // discrimination is invisible at the LUT layer.
+    // Task 54: with the corrected hc(3:0)-period magnitude table the
+    // clause-2 phase is directly visible in the LUT — a +3 access at
+    // hc=15 is held through the {15,0} window extension and releases at
+    // hc=1: delay=1. On 48K the same hc fails clause 1 (its only clause)
+    // → delay=0. The 48K-vs-+3 clause-2 discrimination is now a plain
+    // LUT assertion, no longer "invisible at the LUT layer" as the
+    // pre-Task-54 comment claimed (that invisibility was an artifact of
+    // the wrong-period pattern holding 0 at index 7).
     {
         ContentionModel cm_p3   = make_cm(MachineType::ZX_PLUS3,  /*page=*/0x08);
         ContentionModel cm_48k  = make_cm(MachineType::ZX48K,     /*page=*/0x0A);
@@ -951,9 +958,9 @@ static void test_stretch_plus3() {
         const uint8_t d_48k = cm_48k.delay(15, 100);
         check("CT-SP3-08",
               "+3 hc=15 hc_adj=0 (3:1)=000 clause-2 wait_s=1 with bank 4: "
-              "LUT=pattern[7]=0 (asymmetric pattern); 48K same hc=15 "
-              "LUT=0 (clause-1 fails) [zxula.vhd:582-583,600]",
-              d_p3 == 0 && d_48k == 0,
+              "delay=1 (+3 wrap phase); 48K same hc=15 delay=0 "
+              "(clause-1 fails) [zxula.vhd:582-583,600; Task 54 tables]",
+              d_p3 == 1 && d_48k == 0,
               std::string("d_p3=") + std::to_string(d_p3)
               + " d_48k=" + std::to_string(d_48k));
     }

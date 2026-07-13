@@ -78,13 +78,12 @@ inline ContentionModel make_cm(MachineType type, uint8_t mem_active_page = 0) {
     return cm;
 }
 
-// Per-phase wait-pattern LUT element from VHDL zxula.vhd:587-595.
-// `pattern[hc & 7] = {6,5,4,3,2,1,0,0}` is the 7-cycle clock-stretch
-// table emitted on contended cycles inside the wait-window.
-inline uint8_t expected_wait_pattern(int hc) {
-    static constexpr uint8_t pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
-    return pattern[hc & 7];
-}
+// (Task 54: the former `expected_wait_pattern(hc)` helper was REMOVED.
+// It mirrored the emulator's wrong-period `pattern[hc & 7]` table —
+// FUSE's per-T-STATE pattern indexed with PIXEL ticks — so the CT-WIN-07
+// sweep that consumed it was green with both sides wrong. The sweep now
+// carries its own INLINE VHDL-derived literal table in
+// contention_test.cpp, deliberately not shared with production code.)
 
 // True when the row's `(hc, vc)` pair is inside the VHDL display window
 // AND the hc_adj phase is in a stretched bin (see CONTENTION-TEST-PLAN-

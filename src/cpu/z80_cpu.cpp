@@ -180,6 +180,29 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
             address, pos.hc, pos.vc);
     }
     tstates += 3;
+    // G12 (Nirvana-class attribute mux) — tag this write with the beam
+    // position at the instant the byte actually lands on the bus: AFTER the
+    // contention stretch and AFTER this write's own 3 T-states, both of which
+    // elapse first. Re-derive from the now-final `tstates` rather than reusing
+    // `pos` above.
+    //
+    // NOTE: this deliberately uses the RAW frame (hc, vc) from derive_hc_vc(),
+    // NOT the ULA display-relative counters the contention gate takes. The two
+    // consumers want different coordinate systems: the contention gate is a
+    // transcription of VHDL logic written against i_hc/i_vc (Task 50), while
+    // the mux tags writes in the same raw-frame space the renderer's per-line
+    // change-logs use (Mmu converts vc → framebuffer row via vblank_top).
+    // Passing ULA counters here would silently shift every attribute write by
+    // 64 scanlines.
+    //
+    // Only wired when a production Mmu is attached — s_contention_mmu is null
+    // in the FUSE Z80 opcode-test harness, which has no video timing to tag
+    // against.
+    if (s_contention_mmu) {
+        const auto wpos = derive_hc_vc(tstates);
+        s_contention_mmu->attr_mux_set_current_hc(wpos.hc);
+        s_contention_mmu->attr_mux_set_write_pos(wpos.vc, wpos.hc);
+    }
     s_mem->write(address, b);
 }
 
