@@ -49,7 +49,15 @@ bool Z80Loader::apply(Emulator& emu) const
 
     Mmu& mmu = emu.mmu();
     if (!apply_ram_to_mmu(mmu)) {
-        Log::emulator()->error("Z80: apply_ram_to_mmu() failed");
+        // By this point loaded_ is guaranteed true (checked above), so the
+        // only way apply_ram_to_mmu() can fail is zero pages landing in the
+        // expected page-number set for this hardware mode — see the
+        // comment in Z80Loader::apply_ram_to_mmu() (z80_loader.h).
+        Log::emulator()->error(
+            "Z80: no RAM pages matched the expected page-number set ({}) for "
+            "hardware_mode={} ({} page(s) parsed) — refusing to report a "
+            "successful load with zero bytes written",
+            header_.is_128k ? "3..10" : "4, 5, 8", header_.hardware_mode, pages_.size());
         return false;
     }
 

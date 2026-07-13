@@ -345,6 +345,15 @@ inline bool Z80Loader::apply_ram_to_mmu(Mmu& mmu) const
         return true;
     }
 
+    // Count how many pages actually land in a known slot. A structurally
+    // valid file (parse_pages() only requires !pages_.empty()) can still
+    // carry exclusively out-of-range page numbers — a corrupt page byte,
+    // or a hardware-mode misclassification sending 128K pages down the
+    // 48K branch (or vice versa) — in which case nothing below would ever
+    // write any RAM, yet the function would still report success. Refuse
+    // that: zero pages applied is a load failure, not a silent no-op.
+    int applied = 0;
+
     if (header_.is_128k) {
         // v2/v3 page numbers 3..10 -> RAM banks 0..7 (canonical `.z80`
         // page table). Pages 0-2 (ROM) and 11 (Multiface ROM) are skipped.
@@ -352,16 +361,26 @@ inline bool Z80Loader::apply_ram_to_mmu(Mmu& mmu) const
             if (page_num < 3 || page_num > 10) continue;
             uint8_t bank = static_cast<uint8_t>(page_num - 3);
             write_bank(mmu, static_cast<uint16_t>(bank * 2), data.data(), data.size());
+            ++applied;
         }
     } else {
         // 48K page table: page4 -> 0x8000-0xBFFF (bank2), page5 ->
         // 0xC000-0xFFFF (bank0), page8 -> 0x4000-0x7FFF (bank5).
         auto it4 = pages_.find(4);
-        if (it4 != pages_.end()) write_bank(mmu, 4, it4->second.data(), it4->second.size());
+        if (it4 != pages_.end()) { write_bank(mmu, 4, it4->second.data(), it4->second.size()); ++applied; }
         auto it5 = pages_.find(5);
-        if (it5 != pages_.end()) write_bank(mmu, 0, it5->second.data(), it5->second.size());
+        if (it5 != pages_.end()) { write_bank(mmu, 0, it5->second.data(), it5->second.size()); ++applied; }
         auto it8 = pages_.find(8);
-        if (it8 != pages_.end()) write_bank(mmu, 10, it8->second.data(), it8->second.size());
+        if (it8 != pages_.end()) { write_bank(mmu, 10, it8->second.data(), it8->second.size()); ++applied; }
     }
-    return true;
+
+    // Zero pages applied is a load failure, not a silent no-op success —
+    // see the comment above the loop. This function stays free of
+    // core/log.h on purpose (it must remain includable/linkable by
+    // mmu_test, which does not link jnext_core; a prior attempt to log
+    // here collided ambiguously with mmu_test.cpp's own file-scope
+    // fmt() helper against spdlog's `namespace fmt`). The caller —
+    // Z80Loader::apply(Emulator&) in z80_loader.cpp — logs the specific
+    // reason when this returns false.
+    return applied > 0;
 }

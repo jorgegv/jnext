@@ -3397,6 +3397,56 @@ void test_boot_format_loaders() {
                   static_cast<int>(apply_ok), static_cast<int>(canary_intact)));
     }
 
+    // BOOT-Z80-05 — structurally-valid .z80 whose pages are all foreign
+    // page numbers must be rejected by apply_ram_to_mmu(), not silently
+    // report success with zero RAM written. A v3/128K header (add_len=54,
+    // hardware_mode=4) passes header parsing and parse_pages()'s
+    // `!pages_.empty()` check (one page present), but that page carries
+    // page_num=255 — outside the valid 3..10 (128K) / {4,5,8} (48K) sets —
+    // so apply_ram_to_mmu()'s bank-routing loop applies zero pages.
+    // load_from_buffer() must still SUCCEED here (parsing is structurally
+    // fine — the corruption is only in which page numbers were used), but
+    // apply_ram_to_mmu() must FAIL and leave Mmu untouched (independent
+    // review finding: without the `applied > 0` guard this silently
+    // "succeeds" with no RAM written at all — exit 0, nothing logged).
+    {
+        std::vector<uint8_t> buf(30, 0);        // buf[6..7] left 0 -> v2/v3 sentinel
+        uint16_t add_len = 54;
+        buf.push_back(static_cast<uint8_t>(add_len & 0xFF));
+        buf.push_back(static_cast<uint8_t>((add_len >> 8) & 0xFF));  // offset 30-31
+        uint16_t real_pc = 0x8000;
+        buf.push_back(static_cast<uint8_t>(real_pc & 0xFF));
+        buf.push_back(static_cast<uint8_t>((real_pc >> 8) & 0xFF));  // offset 32-33
+        buf.push_back(0x04);                     // offset 34: hardware_mode = 4 (128K)
+        buf.push_back(0x00);                     // offset 35: port_7ffd
+        for (int i = 0; i < 50; ++i) buf.push_back(0);  // pad to 54-byte additional header
+        // buf.size() == 32 + 54 == 86 here.
+
+        uint16_t len = 0xFFFF;                   // sentinel: 16384 bytes follow uncompressed
+        buf.push_back(static_cast<uint8_t>(len & 0xFF));
+        buf.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+        buf.push_back(static_cast<uint8_t>(255)); // foreign page number: outside 3..10
+        buf.insert(buf.end(), 16384, 0xAA);
+
+        Fixture f;
+        f.fresh();
+        f.mmu.write(0x4000, 0xEE);      // canary: must survive the rejected apply
+
+        Z80Loader loader;
+        bool load_ok  = loader.load_from_buffer(buf);
+        bool apply_ok = load_ok && loader.apply_ram_to_mmu(f.mmu);
+        bool canary_intact = (f.mmu.read(0x4000) == 0xEE);
+
+        check("BOOT-Z80-05",
+              "Structurally-valid .z80 with only foreign page numbers is rejected by "
+              "apply_ram_to_mmu() (zero pages applied), not silently reported as a "
+              "successful load with no RAM written",
+              load_ok && !apply_ok && canary_intact,
+              fmt("load_ok=%d apply_ok=%d canary_intact=%d",
+                  static_cast<int>(load_ok), static_cast<int>(apply_ok),
+                  static_cast<int>(canary_intact)));
+    }
+
     // Cat 24 — Snapshot save (G35).
     //
     // CLOSED 2026-05-04 BOOT-SNAPSAVE-01: sna_saver IS now reachable from

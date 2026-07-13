@@ -761,18 +761,22 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 
 ### Category 23: `.z80` Snapshot Loader (parked here as `BOOT-Z80-*`)
 
-> Note: `.z80` (v1/v2/v3) is the canonical FUSE/SPIN snapshot format
-> alongside `.sna`/`.szx`; jnext loads `.sna` and `.szx` via
-> `src/core/{sna,szx}_loader.*` but has **no** `.z80` loader. CLI and
-> GUI file dialogs both omit `*.z80`. Parked here because snapshot
-> loaders write through `Mmu`.
+> Note (updated Task 13b — CLOSED): `.z80` (v1/v2/v3) is the canonical
+> FUSE/SPIN snapshot format alongside `.sna`/`.szx`. `Z80Loader`
+> (`src/core/z80_loader.{h,cpp}`) now exists and is wired into CLI, Qt
+> file dialogs, and `Emulator::load_z80()`. Rows below run against
+> `Z80Loader::load_from_buffer()` / `apply_ram_to_mmu()` directly (not
+> `--load`, since `mmu_test` does not link `Emulator`/`jnext_core` —
+> same technique `NexLoader`'s inline static helpers use). Parked here
+> because the loader writes through `Mmu`.
 
 | ID         | Test                                                  | Setup                                                                                                         | Expected                                                                                                                              |
 |------------|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip                     | `--load fixture.z80` (48K, v1 header, 49152 bytes raw RAM)                                                    | `Mmu` reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC etc. match header bytes. skip — no `.z80` loader exists (see G34)        |
-| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip                   | `--load fixture.z80` (v2 header; banks RLE-encoded with `ED ED nn xx` runs)                                    | Decompressor reproduces matching RAM image. skip — no `.z80` loader exists (see G34)                                                    |
-| BOOT-Z80-03 | v3 (extended-header, 128K) .z80                       | `--load fixture.z80` (v3 header, 30+ byte extension, 8 × 16 KB banks)                                          | `Ram` banks 0-7 populated; `port_7ffd_` from header byte 0x23. skip — no `.z80` loader exists (see G34)                                  |
-| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected              | `--load fixture-bad.z80` (truncated body)                                                                     | Loader returns error; emulator stays in pre-load state. skip — no `.z80` loader exists (see G34)                                         |
+| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip                     | in-test byte-array v1 header (48K, PC!=0 sentinel) + 49152-byte raw RAM body                                  | `Mmu` reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC etc. match header bytes.        |
+| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip                   | in-test byte-array v2 header; 3 pages RLE-encoded with `ED ED nn xx` runs + literal tail                      | Decompressor reproduces matching RAM image across all three 48K page->bank mappings.           |
+| BOOT-Z80-03 | v3 (extended-header, 128K) .z80                       | in-test byte-array v3 header, 54-byte extension, 8 × 16 KB uncompressed pages (3..10)                         | `Ram` banks 0-7 populated; `port_7ffd_` from header byte 0x23.                                  |
+| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected              | in-test byte-array truncated v1-compressed body (no end marker)                                               | Loader returns error; `Mmu` stays untouched (canary byte survives).                             |
+| BOOT-Z80-05 | Structurally-valid .z80 whose pages are all foreign page numbers is rejected | in-test byte-array v3/128K header, single page with page_num=255 (outside 3..10) | `load_from_buffer()` succeeds (parsing is structurally fine) but `apply_ram_to_mmu()` returns false — zero pages applied is a load failure, not a silent no-op success. Independent-review finding (post-Task-13b): without this guard the loader reported success with zero RAM written. Canary byte in `Mmu` survives untouched. |
 
 ### Category 24: Snapshot Save Pipeline (parked here as `BOOT-SNAPSAVE-*`)
 
