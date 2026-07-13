@@ -201,6 +201,7 @@ static void replay_restore(Emulator& emu)
     emu.ula().flush_remaining_scroll_changes();
     emu.ula().palsel_flush_remaining_changes();
     emu.tilemap().flush_remaining_nr6b_changes();
+    emu.mmu().attr_mux_flush_remaining();  // G12 Nirvana-class attribute mux
 }
 
 VideoLayerView::VideoLayerView(Layer layer, const char* title,
