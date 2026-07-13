@@ -471,7 +471,14 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
 {
     // Pre-compute NR 0x14 transparency reference (RGB portion only).
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
-    const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_) & 0x00FFFFFF;
+    //
+    // Read via transparent_rgb_for_line(row), not the live transparent_rgb_
+    // member: VHDL zxnext.vhd:1137,5226,6822,6912-6913,7078 pipeline NR 0x14
+    // (nr_14_global_transparent_rgb -> transparent_rgb_0 -> transparent_rgb_1a
+    // -> transparent_rgb_1 -> transparent_rgb_2) through the exact same
+    // stage0/1a/1/2 register chain as ula_en, so a Copper MOVE that changes
+    // NR 0x14 mid-frame must not affect the row it lands on (Task 45).
+    const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_for_line(row)) & 0x00FFFFFF;
 
     // Host-side layer mask (--delayed-screenshot-layers). A masked-out
     // layer is forced transparent at the compositor input, i.e. treated

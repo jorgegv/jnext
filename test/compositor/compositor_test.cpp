@@ -169,22 +169,25 @@ static void clear_layers(Renderer& r) {
     r.tm_enabled_ = false;
 }
 
-// Task 43: composite_scanline now reads the per-line stencil/blend-mode
-// snapshots (stencil_mode_per_line_ / blend_mode_per_line_) instead of the
-// live stencil_mode_ / blend_mode_ members — VHDL zxnext.vhd:5445-5446,
-// 6810-6811,6897-6901,7064-7065 pipeline NR 0x68 b0 and b6:5 through the
-// SAME stage0/1a/1/2 register chain as ula_en. Every OTHER row in this file
-// sets the live member with set_stencil_mode()/set_blend_mode() (or the
-// live field directly) and composites immediately at the same row, testing
-// pixel math given an already-effective value, not deferral — so
-// composite_one() re-syncs the snapshot for `row` right before compositing
-// to keep those single-row assertions meaningful. Genuine cross-row
-// DEFERRAL assertions (STEN-20/21, UTB-50/51) must NOT use this helper —
-// they call r.composite_scanline() directly so a snapshot they deliberately
-// withhold stays withheld.
+// Task 43/45: composite_scanline now reads the per-line stencil/blend-mode/
+// transparent-RGB snapshots (stencil_mode_per_line_ / blend_mode_per_line_ /
+// transparent_rgb_per_line_) instead of the live stencil_mode_ / blend_mode_
+// / transparent_rgb_ members — VHDL zxnext.vhd:5445-5446,6810-6811,
+// 6897-6901,7064-7065 (stencil/blend) and 1137,5226,6822,6912-6913,7078
+// (NR 0x14) pipeline all three through the SAME stage0/1a/1/2 register
+// chain as ula_en. Every OTHER row in this file sets the live member with
+// set_stencil_mode()/set_blend_mode()/set_transparent_rgb() (or the live
+// field directly, or relies on the reset() default) and composites
+// immediately at the same row, testing pixel math given an already-
+// effective value, not deferral — so composite_one() re-syncs the snapshot
+// for `row` right before compositing to keep those single-row assertions
+// meaningful. Genuine cross-row DEFERRAL assertions (STEN-20/21, UTB-50/51,
+// TR-50/51) must NOT use this helper — they call r.composite_scanline()
+// directly so a snapshot they deliberately withhold stays withheld.
 static uint32_t composite_one(Renderer& r, uint32_t fb_argb, int row = 0) {
     r.snapshot_stencil_mode_for_line(row);
     r.snapshot_blend_mode_for_line(row);
+    r.snapshot_transparent_rgb_for_line(row);
     uint32_t out[W];
     std::memset(out, 0, sizeof(out));
     r.composite_scanline(out, fb_argb, row);
@@ -502,6 +505,75 @@ static void test_TR() {
         check("TR-41", "Sprite opaque even if RGB==NR0x14 (no sprite RGB compare) (VHDL 7118)",
               got == sprite_rgb_eq_nr14,
               DETAIL("got=0x%08X expected=0x%08X", got, sprite_rgb_eq_nr14));
+    }
+
+    // TR-50/51: Task 45 — a mid-frame NR 0x14 (global transparent RGB)
+    //           write must NOT retroactively affect a row whose per-line
+    //           snapshot has already been captured, mirroring STEN-20/21
+    //           and UTB-50/51. VHDL zxnext.vhd:1137,5226,6822,6912-6913,7078
+    //           pipeline `nr_14_global_transparent_rgb` through the SAME
+    //           stage0/1a/1/2 register chain as `ula_en`
+    //           (zxnext.vhd:1198,6809,6894-6895,7061), so a Copper MOVE to
+    //           NR 0x14 mid-frame cannot land earlier than the next
+    //           scanline. Before Task 45, transparent_rgb_per_line_ existed
+    //           (PSCAN-G04-01) but composite_scanline read the LIVE
+    //           transparent_rgb_ member directly, applying the new value
+    //           one scanline too early — the exact bug this pair is
+    //           discriminative against. Calls r.composite_scanline()
+    //           directly (NOT composite_one(), which auto-syncs the row)
+    //           so the withheld snapshot stays withheld.
+    //
+    //           Setup mirrors TR-11: mode 000 (SLU), a single opaque ULA
+    //           pixel whose RRRGGGBB palette output is 0xAA, fallback
+    //           colour distinct from both candidate NR 0x14 values so the
+    //           two outcomes (ULA pixel vs. fallback) are unambiguous.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);                  // mode 000 (SLU)
+        const uint32_t ULA_PIX = Renderer::rrrgggbb_to_argb(0xAA);
+        const uint32_t FALLBACK = vhdl_fallback_argb(0x10);
+        r.ula_line_[13] = ULA_PIX;
+
+        // Baseline snapshot for row 13: NR 0x14 = 0xE3 (VHDL reset default,
+        // zxnext.vhd:4946), which does not match the ULA pixel's RGB 0xAA
+        // -> ULA opaque -> ULA wins.
+        r.set_transparent_rgb(0xE3);
+        r.snapshot_transparent_rgb_for_line(13);
+
+        // NR 0x14 write lands mid-frame (Copper MOVE / CPU OUT), flipping
+        // to 0xAA — which now matches the ULA pixel's RGB.
+        r.set_transparent_rgb(0xAA);
+
+        // Row 13 composited BEFORE its snapshot is refreshed: must still
+        // use the OLD value (0xE3), so the ULA pixel stays opaque.
+        uint32_t out_before[W];
+        std::memset(out_before, 0, sizeof(out_before));
+        r.composite_scanline(out_before, FALLBACK, 13);
+        check("TR-50",
+              "NR 0x14 write mid-frame does not retroactively affect a row "
+              "whose per-line snapshot already ran — row still shows the "
+              "pre-write ULA pixel (VHDL 1137,5226,6822,6912-6913,7078,7100)",
+              out_before[13] == ULA_PIX,
+              DETAIL("row13=0x%08X expected_ula=0x%08X (NR0x14=0xAA would be "
+                     "fallback 0x%08X)",
+                     out_before[13], ULA_PIX, FALLBACK));
+
+        // Refresh the row's snapshot (mirrors the next on_scanline() call).
+        // The SAME row must now select the NEW value: ULA RGB==0xAA ==
+        // NR 0x14 -> ULA transparent -> fallback wins.
+        r.snapshot_transparent_rgb_for_line(13);
+        uint32_t out_after[W];
+        std::memset(out_after, 0, sizeof(out_after));
+        r.composite_scanline(out_after, FALLBACK, 13);
+        check("TR-51",
+              "After the deferred snapshot lands, the SAME row selects the "
+              "new NR 0x14 value and the ULA pixel goes transparent "
+              "(VHDL 1137,5226,6822,6912-6913,7078,7100)",
+              out_after[13] == FALLBACK,
+              DETAIL("row13=0x%08X expected_fallback=0x%08X", out_after[13],
+                     FALLBACK));
+
+        r.set_transparent_rgb(0xE3);  // restore default for later groups
     }
 }
 
