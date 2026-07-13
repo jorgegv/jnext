@@ -493,8 +493,14 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
     // leaving the AND-branch selected with one input disabled erases the
     // surviving layer (falls to the NR 0x4A fallback colour) instead of
     // showing it.
+    //
+    // ula_stencil_mode_2 is read via stencil_mode_for_line(row), not the
+    // live stencil_mode_ member: VHDL zxnext.vhd:5445/6810/6897-6898/7064
+    // pipelines NR 0x68 bit 0 through the same stage0/1a/1/2 register
+    // chain as ula_en, so a Copper MOVE that flips the bit mid-frame must
+    // not affect the row it lands on (Task 43).
     const bool stencil_active =
-        stencil_mode_ && tm_enabled_ && !mask_tiles && !mask_ula &&
+        stencil_mode_for_line(row) && tm_enabled_ && !mask_tiles && !mask_ula &&
         ula_enabled_per_line_[row];
 
     for (int x = 0; x < FB_WIDTH; ++x) {
@@ -626,7 +632,12 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
                 uint32_t mix_bot_px   = 0;
                 bool     mix_bot_transp = true;
 
-                switch (blend_mode_) {
+                // ula_blend_mode_2 is read via blend_mode_for_line(row), not
+                // the live blend_mode_ member: VHDL zxnext.vhd:5446/6811/
+                // 6900-6901/7065 pipelines NR 0x68 bits 6:5 through the same
+                // stage0/1a/1/2 register chain as ula_en, so a mid-frame
+                // Copper MOVE must not affect the row it lands on (Task 43).
+                switch (blend_mode_for_line(row)) {
                     case 0:  // "00" — VHDL 7142-7148 (existing default behaviour).
                         mix_rgb_px     = ula_px;
                         mix_rgb_transp = ula_transp;

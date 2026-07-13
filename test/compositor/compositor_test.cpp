@@ -169,7 +169,22 @@ static void clear_layers(Renderer& r) {
     r.tm_enabled_ = false;
 }
 
+// Task 43: composite_scanline now reads the per-line stencil/blend-mode
+// snapshots (stencil_mode_per_line_ / blend_mode_per_line_) instead of the
+// live stencil_mode_ / blend_mode_ members — VHDL zxnext.vhd:5445-5446,
+// 6810-6811,6897-6901,7064-7065 pipeline NR 0x68 b0 and b6:5 through the
+// SAME stage0/1a/1/2 register chain as ula_en. Every OTHER row in this file
+// sets the live member with set_stencil_mode()/set_blend_mode() (or the
+// live field directly) and composites immediately at the same row, testing
+// pixel math given an already-effective value, not deferral — so
+// composite_one() re-syncs the snapshot for `row` right before compositing
+// to keep those single-row assertions meaningful. Genuine cross-row
+// DEFERRAL assertions (STEN-20/21, BL-32/33) must NOT use this helper —
+// they call r.composite_scanline() directly so a snapshot they deliberately
+// withhold stays withheld.
 static uint32_t composite_one(Renderer& r, uint32_t fb_argb, int row = 0) {
+    r.snapshot_stencil_mode_for_line(row);
+    r.snapshot_blend_mode_for_line(row);
     uint32_t out[W];
     std::memset(out, 0, sizeof(out));
     r.composite_scanline(out, fb_argb, row);
@@ -1615,6 +1630,80 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.set_blend_mode(0);
     }
+
+    // UTB-50/51: Task 43 — a mid-frame NR 0x68 bits 6:5 (ula_blend_mode)
+    //            write must NOT retroactively affect a row whose per-line
+    //            snapshot has already been captured, mirroring STEN-20/21.
+    //            VHDL zxnext.vhd:5446,6811,6900-6901,7065 pipeline
+    //            `ula_blend_mode` through the SAME stage0/1a/1/2 register
+    //            chain as `ula_en`, so a mode change written mid-scanline
+    //            cannot land earlier than the next scanline. Before Task 43,
+    //            blend_mode_per_line_ existed (PSCAN-G11-02) but
+    //            composite_scanline read the LIVE blend_mode_ member
+    //            directly, applying the new mode one scanline too early —
+    //            the exact bug this pair is discriminative against. Calls
+    //            r.composite_scanline() directly (NOT composite_one(),
+    //            which auto-syncs the row) so the withheld snapshot stays
+    //            withheld.
+    //
+    //            Setup: layer_priority=6 (mode 110, blend path), ULA and TM
+    //            both opaque, tm_pixel_below=0, no L2/sprite.
+    //              Mode "00" (blend_mode=0, VHDL 7142-7148): mix_top=TM
+    //                (opaque since tm_below=0) -> cascade picks mix_top
+    //                directly -> result = TM pixel.
+    //              Mode "10" (blend_mode=2, VHDL 7149-7155): mix_top/bot
+    //                forced transparent; mix_rgb=ula_final (opaque) but
+    //                the additive mixer only reaches `result` via the
+    //                l2_prio or !l2_transp cascade arms (VHDL 7300-7310),
+    //                neither of which fires with no L2 pixel -> result
+    //                falls through to the NR 0x4A fallback colour.
+    //            The two outcomes (TM pixel vs. fallback) are unambiguous.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);                  // mode 110 (blend path)
+        const uint32_t ULA_PIX = Renderer::rrrgggbb_to_argb(0x92);
+        const uint32_t TM_PIX  = Renderer::rrrgggbb_to_argb(0x24);
+        const uint32_t FALLBACK = Renderer::rrrgggbb_to_argb(0xE3);
+        r.ula_line_[11]     = ULA_PIX;
+        r.tilemap_line_[11] = TM_PIX;
+        r.tm_pixel_below_[11] = false;
+
+        // Baseline snapshot for row 11: blend_mode = "00" (mirrors
+        // on_scanline capturing pre-write state).
+        r.blend_mode_ = 0;
+        r.snapshot_blend_mode_for_line(11);
+
+        // NR 0x68 bits 6:5 write lands mid-frame, flipping to mode "10".
+        r.set_blend_mode(2);
+
+        // Row 11 composited BEFORE its snapshot is refreshed: must still
+        // use mode "00" (TM opaque wins the mix_top cascade slot).
+        uint32_t out_before[W];
+        std::memset(out_before, 0, sizeof(out_before));
+        r.composite_scanline(out_before, FALLBACK, 11);
+        check("UTB-50",
+              "NR 0x68 b6:5 write mid-frame does not retroactively affect a "
+              "row whose per-line snapshot already ran — row still shows "
+              "the pre-write mode \"00\" result (VHDL 5446,6811,6900-6901,7065)",
+              out_before[11] == TM_PIX,
+              DETAIL("row11=0x%08X expected_tm=0x%08X (mode-10 would be fallback 0x%08X)",
+                     out_before[11], TM_PIX, FALLBACK));
+
+        // Refresh the row's snapshot (mirrors the next on_scanline() call).
+        // The SAME row must now select mode "10".
+        r.snapshot_blend_mode_for_line(11);
+        uint32_t out_after[W];
+        std::memset(out_after, 0, sizeof(out_after));
+        r.composite_scanline(out_after, FALLBACK, 11);
+        check("UTB-51",
+              "After the deferred snapshot lands, the SAME row selects "
+              "mode \"10\" (VHDL 7149-7155,7300-7310)",
+              out_after[11] == FALLBACK,
+              DETAIL("row11=0x%08X expected_fallback=0x%08X", out_after[11], FALLBACK));
+
+        r.set_layer_priority(0);
+        r.set_blend_mode(0);
+    }
 }
 
 // ── Group PFF — port_ff_reg NR-side fan-out (G108) ──────────────────────
@@ -1825,6 +1914,81 @@ static void test_STEN() {
               "(VHDL 7130,7112-7113)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
+    }
+
+    // STEN-20/21: Task 43 — a mid-frame NR 0x68 bit 0 (stencil_mode) write
+    //             must NOT retroactively affect a row whose per-line
+    //             snapshot has already been captured; the compositor must
+    //             go on reading the OLD value until that row's snapshot is
+    //             refreshed. VHDL zxnext.vhd:5445,6810,6897-6898,7064
+    //             pipeline `ula_stencil_mode` through the exact same
+    //             stage0/1a/1/2 register chain as `ula_en`
+    //             (zxnext.vhd:1489,6809,6894-6895,7061), so a bit flip
+    //             cannot land earlier than the next scanline — identical
+    //             reasoning to ula_enabled_per_line_ (STEN-18/19 above).
+    //
+    //             Before Task 43, stencil_mode_per_line_ existed (added by
+    //             an earlier pass, PSCAN-G11-01) but composite_scanline
+    //             read the LIVE stencil_mode_ member directly, so a write
+    //             took effect one scanline too early — the exact bug this
+    //             pair is discriminative against. Calls
+    //             r.composite_scanline() directly (NOT composite_one(),
+    //             which auto-syncs the row's snapshot) so the withheld
+    //             snapshot stays withheld until explicitly refreshed.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);                  // mode 000 (SLU)
+        r.tm_enabled_ = true;                     // NR 0x6B bit 7
+        r.ula_enabled_per_line_[7] = true;         // NR 0x68 bit 7 (per-line)
+        // ULA=0xE0 (R3=111 G3=000 B2=00), TM=0x1F (R3=000 G3=111 B2=11).
+        // Bitwise AND (VHDL 7113) => 0x00 (opaque black) — distinct from
+        // both the plain TM pixel and the fallback colour, so "before"
+        // (non-stencil merge -> TM) and "after" (stencil AND -> 0x00) are
+        // unambiguous.
+        r.ula_line_[7]     = Renderer::rrrgggbb_to_argb(0xE0);
+        r.tilemap_line_[7] = Renderer::rrrgggbb_to_argb(0x1F);
+        r.tm_pixel_below_[7] = false;
+
+        // Baseline snapshot for row 7: stencil OFF (mirrors on_scanline
+        // capturing pre-write state).
+        r.stencil_mode_ = false;
+        r.snapshot_stencil_mode_for_line(7);
+
+        // NR 0x68 bit 0 write lands mid-frame (Copper MOVE / CPU OUT),
+        // simulated by flipping the live member directly.
+        r.set_stencil_mode(true);
+
+        // Row 7 composited BEFORE its snapshot is refreshed: the compositor
+        // must still see the OLD (stencil-off) value, so the non-stencil
+        // ulatm merge picks the opaque TM pixel (VHDL 7115-7116: tm opaque,
+        // tm_pixel_below=0 -> TM wins).
+        uint32_t out_before[W];
+        std::memset(out_before, 0, sizeof(out_before));
+        r.composite_scanline(out_before, Renderer::rrrgggbb_to_argb(0x00), 7);
+        const uint32_t tm_argb = Renderer::rrrgggbb_to_argb(0x1F);
+        check("STEN-20",
+              "NR 0x68 b0 write mid-frame does not retroactively affect a row "
+              "whose per-line snapshot already ran — row still shows the "
+              "pre-write non-stencil merge (VHDL 5445,6810,6897-6898,7064)",
+              out_before[7] == tm_argb,
+              DETAIL("row7=0x%08X expected_tm=0x%08X (stencil-AND would be 0x%08X)",
+                     out_before[7], tm_argb, Renderer::rrrgggbb_to_argb(0x00)));
+
+        // Now the row's snapshot is refreshed (mirrors the next
+        // on_scanline() call capturing the post-write state). The SAME row
+        // must now take the stencil AND-branch.
+        r.snapshot_stencil_mode_for_line(7);
+        uint32_t out_after[W];
+        std::memset(out_after, 0, sizeof(out_after));
+        r.composite_scanline(out_after, Renderer::rrrgggbb_to_argb(0x00), 7);
+        const uint32_t and_argb = Renderer::rrrgggbb_to_argb(0x00);
+        check("STEN-21",
+              "After the deferred snapshot lands, the SAME row selects the "
+              "stencil AND-branch (VHDL 7112-7113,7130)",
+              out_after[7] == and_argb,
+              DETAIL("row7=0x%08X expected_and=0x%08X", out_after[7], and_argb));
+
+        r.ula_enabled_per_line_[7] = true;  // restore default for later groups
     }
 }
 
