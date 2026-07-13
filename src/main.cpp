@@ -61,6 +61,9 @@ static void print_usage(const char* prog) {
         "                       the border (the ULA draws it). E.g. --delayed-screenshot-layers\n"
         "                       layer2 captures Layer 2 alone; 'ula,sprites' captures both.\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
+        "  --delayed-snapshot FILE     Headless-only: save a snapshot after a delay (frames);\n"
+        "                       format chosen by FILE's extension (.szx/.nex/other->.sna)\n"
+        "  --delayed-snapshot-frames N Delay in frames for --delayed-snapshot (default 0)\n"
         "  --headless               Run without display/audio (for automated testing)\n"
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
@@ -123,6 +126,8 @@ int main(int argc, char* argv[]) {
     uint8_t     screenshot_layers = Renderer::LAYER_ALL;  // --delayed-screenshot-layers
     bool        screenshot_layers_set = false;
     int         auto_exit_delay = -1;         // -1 = disabled
+    std::string snapshot_file;
+    int         snapshot_delay_frames = 0;    // --delayed-snapshot-frames
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     bool        headless = false;
@@ -187,6 +192,10 @@ int main(int argc, char* argv[]) {
             screenshot_layers_set = true;
         } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
             auto_exit_delay = std::stoi(argv[++i]);
+        } else if (arg == "--delayed-snapshot" && i + 1 < argc) {
+            snapshot_file = argv[++i];
+        } else if (arg == "--delayed-snapshot-frames" && i + 1 < argc) {
+            snapshot_delay_frames = std::stoi(argv[++i]);
         } else if (arg == "--machine" && i + 1 < argc) {
             if (!parse_machine_type(argv[++i], machine_type)) {
                 fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", argv[i]);
@@ -396,6 +405,12 @@ int main(int argc, char* argv[]) {
         }
         if (auto_exit_delay >= 0)
             app.set_delayed_exit(auto_exit_delay);
+        // --delayed-snapshot is headless-only (Task 13b) — HeadlessApp is
+        // the only frontend that implements it.
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, HeadlessApp>) {
+            if (!snapshot_file.empty())
+                app.set_delayed_snapshot(snapshot_file, snapshot_delay_frames);
+        }
         if (!inject_file.empty())
             app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
 

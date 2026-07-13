@@ -744,6 +744,82 @@ if want screenshot-io-qt-func; then
     fi
 fi
 
+# --delayed-snapshot (Task 13b, headless-only): save/reload proof plus the
+# same "requested but never written" loud-failure contract the
+# --delayed-screenshot tests above use (screenshot-pending-func).
+if want snapshot-save-func; then
+    begin_func snapshot-save-func
+    szx="$TMP_DIR/snap.szx"
+    orig_png="$TMP_DIR/snap-orig.png"
+    reloaded_png="$TMP_DIR/snap-reloaded.png"
+    rm -f "$szx" "$orig_png" "$reloaded_png"
+
+    # Positive control: boot 48K to the BASIC copyright screen, capture it
+    # AND save a .szx at the same frame (150) in the same run, so
+    # snap-orig.png is a screenshot of the exact state snap.szx captured.
+    if timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-screenshot "$orig_png" --delayed-screenshot-frames 150 \
+            --delayed-snapshot "$szx" --delayed-snapshot-frames 150 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then save_rc=0; else save_rc=1; fi
+
+    # Reload proof: a FRESH process loads the saved file and renders a
+    # frame. This must be BYTE/PIXEL content-verified, not just "a PNG
+    # came out" — Task 13b review round 2 caught a version of this test
+    # that still PASSED when the reviewer mutated SzxSaver to write
+    # all-zero RAM into every ZXSTRAMPAGE payload (structurally valid,
+    # still loads, renders garbage). Compare against snap-orig.png with
+    # the same ImageMagick `compare -metric AE` the screenshot tests
+    # above use; 0 pixel diff is required (BASIC's copyright screen is
+    # static, so the reload must reproduce it exactly).
+    if [[ -s "$szx" ]] && timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 --load "$szx" \
+            --delayed-screenshot "$reloaded_png" --delayed-screenshot-frames 1 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then reload_rc=0; else reload_rc=1; fi
+
+    content_ok=0
+    diff_pixels=-1
+    if [[ -s "$orig_png" ]] && [[ -s "$reloaded_png" ]]; then
+        if $HAS_COMPARE; then
+            diff_raw=$(compare -metric AE "$reloaded_png" "$orig_png" /dev/null 2>&1) || true
+            diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+            [[ "$diff_pixels" -eq 0 ]] && content_ok=1
+        else
+            # No ImageMagick: cannot content-verify. Do NOT silently pass —
+            # that is exactly the "advertises coverage that does not exist"
+            # failure mode this fix exists to close.
+            content_ok=-1
+        fi
+    fi
+
+    # Negative control: a snapshot requested but never due before auto-exit
+    # fires must be a loud non-zero-exit failure, never a silent no-op.
+    pending="$TMP_DIR/snap-pending.szx"
+    rm -f "$pending"
+    if out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-snapshot "$pending" --delayed-snapshot-frames 5000 \
+                --delayed-automatic-exit 1 2>&1)
+    then pend_rc=0; else pend_rc=1; fi
+
+    if [[ "$content_ok" -eq -1 ]]; then
+        echo -e "${YELLOW}SKIP${RESET} (no ImageMagick — cannot content-verify the reload)"
+        skip=$((skip + 1))
+    elif [[ "$save_rc" -eq 0 ]] && [[ -s "$szx" ]] \
+       && [[ "$reload_rc" -eq 0 ]] && [[ -s "$reloaded_png" ]] \
+       && [[ "$content_ok" -eq 1 ]] \
+       && [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$pending" ]] \
+       && echo "$out" | grep -q "NO snapshot was written"; then
+        echo -e "${GREEN}PASS${RESET} (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n))"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests.
 # This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
 # the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that

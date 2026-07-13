@@ -1,7 +1,11 @@
 #include "headless_app.h"
 #include "core/log.h"
+#include "core/sna_saver.h"
+#include "core/szx_saver.h"
+#include "core/nex_saver.h"
 #include "input/keyboard.h"
 #include <cctype>
+#include <fstream>
 
 bool HeadlessApp::init(int argc, char* argv[]) {
     (void)argc; (void)argv;
@@ -41,6 +45,13 @@ void HeadlessApp::set_delayed_screenshot(const std::string& file, int delay_fram
     Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
                            file, delay_frames,
                            Renderer::layer_mask_to_string(layer_mask));
+}
+
+void HeadlessApp::set_delayed_snapshot(const std::string& file, int delay_frames) {
+    snapshot_file_ = file;
+    snapshot_countdown_ = delay_frames;
+    Log::platform()->info("--delayed-snapshot: will save '{}' after {} frame(s)",
+                           file, delay_frames);
 }
 
 void HeadlessApp::set_delayed_exit(int delay_seconds) {
@@ -171,7 +182,19 @@ void HeadlessApp::run() {
             } else if (ext == ".sna") {
                 emulator_.load_sna(load_file_);
             } else if (ext == ".szx") {
-                emulator_.load_szx(load_file_);
+                // Task 13b review round 2: this used to discard the bool
+                // return, so a load FAILURE (corrupt/rejected file) fell
+                // through silently to whatever the process happened to
+                // render next, with exit 0 — a script had no way to tell
+                // "loaded fine" from "failed to load, ran anyway". The
+                // other --load branches here have the same discarded-
+                // return-value shape; only .szx is fixed (that is what
+                // this task touches — see snapshot-save-func, which now
+                // depends on this to detect a corrupt reload).
+                if (!emulator_.load_szx(load_file_)) {
+                    Log::platform()->error("--load: failed to load '{}' as .szx", load_file_);
+                    exit_code_ = 1;
+                }
             } else if (ext == ".z80") {
                 emulator_.load_z80(load_file_);
             } else if (ext == ".wav") {
@@ -234,6 +257,53 @@ void HeadlessApp::run() {
             --screenshot_countdown_;
         }
 
+        // Delayed snapshot save (Task 13b). Format by extension, same
+        // dispatch as MainWindow::on_save_snapshot(); "requested but
+        // never written" is a loud non-zero-exit failure, same contract
+        // as --delayed-screenshot above.
+        if (snapshot_countdown_ == 0) {
+            std::string ext;
+            auto dot = snapshot_file_.rfind('.');
+            if (dot != std::string::npos) {
+                ext = snapshot_file_.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            std::vector<uint8_t> bytes;
+            if (ext == ".szx") {
+                // .szx has a hard real-world 64-bank (1024 KB) ceiling —
+                // save() already logs a warning if RAM exceeds it (see
+                // SzxSaver class doc-comment).
+                bytes = SzxSaver::save(emulator_).data;
+            } else if (ext == ".nex") {
+                bytes = NexSaver::save(emulator_).data;
+            } else {
+                bytes = SnaSaver::save(emulator_);
+            }
+            bool ok = !bytes.empty();
+            if (ok) {
+                std::ofstream f(snapshot_file_, std::ios::binary);
+                if (f) {
+                    f.write(reinterpret_cast<const char*>(bytes.data()),
+                            static_cast<std::streamsize>(bytes.size()));
+                    ok = static_cast<bool>(f);
+                } else {
+                    ok = false;
+                }
+            }
+            if (!ok) {
+                Log::platform()->error(
+                    "--delayed-snapshot: FAILED to write '{}'. Exiting non-zero.",
+                    snapshot_file_);
+                exit_code_ = 1;
+            } else {
+                Log::platform()->info("--delayed-snapshot: saved '{}' ({} bytes)",
+                                      snapshot_file_, bytes.size());
+            }
+            snapshot_countdown_ = -1;
+        } else if (snapshot_countdown_ > 0) {
+            --snapshot_countdown_;
+        }
+
         // Delayed automatic exit.
         if (exit_countdown_ == 0) {
             Log::platform()->info("automatic exit triggered");
@@ -258,6 +328,17 @@ void HeadlessApp::shutdown() {
             "Exiting non-zero.",
             screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_),
             screenshot_countdown_);
+        exit_code_ = 1;
+    }
+
+    // Same "requested but never taken" contract as the screenshot check
+    // above (see there for the misconfiguration this catches).
+    if (snapshot_countdown_ >= 0 && !snapshot_file_.empty()) {
+        Log::platform()->error(
+            "--delayed-snapshot: NO snapshot was written to '{}'; "
+            "--delayed-automatic-exit fired {} frame(s) before the save "
+            "was due. Exiting non-zero.",
+            snapshot_file_, snapshot_countdown_);
         exit_code_ = 1;
     }
 

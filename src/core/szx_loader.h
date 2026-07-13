@@ -24,6 +24,33 @@ public:
     /// border, and load RAM pages.
     bool apply(Emulator& emu) const;
 
+    // Read-only accessors — let Emulator-free test tiers (e.g. mmu_test,
+    // which cannot link jnext_core / construct an Emulator) verify a
+    // round trip through the real load() parser without going through
+    // apply(). Added alongside SzxSaver (Task 13b) for BOOT-SNAPSAVE-02.
+    struct Z80RState {
+        uint16_t AF, BC, DE, HL;
+        uint16_t AF2, BC2, DE2, HL2;
+        uint16_t IX, IY, SP, PC;
+        uint8_t  I, R;
+        uint8_t  IFF1, IFF2, IM;
+        uint32_t tstates;
+        bool     halted;
+    };
+    struct SpcrState {
+        uint8_t border;
+        uint8_t port_7ffd;
+        uint8_t port_1ffd;
+        uint8_t port_fe;
+    };
+    bool loaded() const { return loaded_; }
+    bool have_z80r() const { return have_z80r_; }
+    bool have_spcr() const { return have_spcr_; }
+    uint8_t machine_id() const { return machine_id_; }
+    const Z80RState& z80r() const { return regs_; }
+    const SpcrState& spcr() const { return spcr_; }
+    const std::map<uint8_t, std::vector<uint8_t>>& ram_pages() const { return ram_pages_; }
+
 private:
     // SZX file header
     uint8_t  major_version_ = 0;
@@ -32,24 +59,11 @@ private:
     uint8_t  flags_         = 0;
 
     // Z80R — CPU registers
-    struct {
-        uint16_t AF, BC, DE, HL;
-        uint16_t AF2, BC2, DE2, HL2;
-        uint16_t IX, IY, SP, PC;
-        uint8_t  I, R;
-        uint8_t  IFF1, IFF2, IM;
-        uint32_t tstates;
-        bool     halted;
-    } regs_{};
+    Z80RState regs_{};
     bool have_z80r_ = false;
 
     // SPCR — Spectrum configuration
-    struct {
-        uint8_t border;
-        uint8_t port_7ffd;
-        uint8_t port_1ffd;
-        uint8_t port_fe;
-    } spcr_{};
+    SpcrState spcr_{};
     bool have_spcr_ = false;
 
     // RAMP — RAM pages (page number → 16384 bytes)

@@ -30,6 +30,14 @@ public:
                                 uint8_t layer_mask);
     void set_delayed_exit(int delay_seconds);
 
+    /// Schedule a snapshot save after `delay_frames` frames. Format is
+    /// chosen by `file`'s extension (.szx / .nex / anything else -> .sna),
+    /// same dispatch as MainWindow::on_save_snapshot(). Headless-only
+    /// (Task 13b) — enables scripted save/reload round-trip testing
+    /// without a GUI. Same "requested but never taken -> non-zero exit"
+    /// contract as set_delayed_screenshot().
+    void set_delayed_snapshot(const std::string& file, int delay_frames);
+
     /// Process exit status, valid after shutdown(). Non-zero when a requested
     /// --delayed-screenshot was never written (auto-exit fired first).
     int exit_code() const { return exit_code_; }
@@ -69,6 +77,10 @@ private:
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;
+
+    // Pending --delayed-snapshot state
+    std::string snapshot_file_;
+    int         snapshot_countdown_ = -1;
 
     // Non-zero when a requested screenshot was never taken (see shutdown()).
     int         exit_code_ = 0;

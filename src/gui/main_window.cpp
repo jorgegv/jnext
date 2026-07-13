@@ -5,6 +5,8 @@
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
+#include "core/nex_saver.h"
 #include "core/log.h"
 #include "platform/screenshot.h"
 #include "input/mouse_dispatcher.h"
@@ -871,23 +873,54 @@ void MainWindow::on_record_stop() {
     }
 }
 
-// G35: wires SnaSaver to File > Save Snapshot... — closes
-// BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04 in mmu_test. Only 48K SNA is
-// supported by SnaSaver (49179 bytes); .szx and .nex savers don't
-// exist yet (BOOT-SNAPSAVE-02/-03 stay as SKIPs).
+// G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —
+// closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
+// extension the user picks (or types); defaults to .sna if none/unknown.
 void MainWindow::on_save_snapshot() {
     if (!emulator_) return;
     QString path = QFileDialog::getSaveFileName(
         this, tr("Save Snapshot"), QString(),
-        tr("Spectrum snapshot (*.sna);;All Files (*)"));
+        tr("Spectrum snapshot (*.sna);;ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)"));
     if (path.isEmpty()) return;
-    if (!path.endsWith(".sna", Qt::CaseInsensitive)) {
+    if (!path.endsWith(".sna", Qt::CaseInsensitive) &&
+        !path.endsWith(".szx", Qt::CaseInsensitive) &&
+        !path.endsWith(".nex", Qt::CaseInsensitive)) {
         path += ".sna";
     }
-    std::vector<uint8_t> bytes = SnaSaver::save(*emulator_);
+
+    std::vector<uint8_t> bytes;
+    bool ram_truncated = false;
+    unsigned banks_written = 0, banks_installed = 0;
+    if (path.endsWith(".szx", Qt::CaseInsensitive)) {
+        // .szx has a hard real-world 64-bank (1024 KB) ceiling — see
+        // SzxSaver class doc-comment. Surface it; don't silently drop RAM.
+        //
+        // KNOWN IMPRECISION (Task 13b review round 2, accepted as-is):
+        // jnext always installs a fixed 2048 KB Ram regardless of
+        // --machine (src/memory/ram.h:8 default; EmulatorConfig has no
+        // size override), so `truncated` is true on EVERY .szx save,
+        // including plain 48K/128K/+3 programs that never touch RAM
+        // beyond the first 64 banks — nothing real is lost in that
+        // common case, but the warning below fires anyway. "Truncate +
+        // always warn" is the deliberately chosen safe default (silent
+        // data loss would be worse); do NOT re-architect Ram sizing to
+        // "fix" this without a separate, deliberate task — it is out of
+        // scope here.
+        auto result = SzxSaver::save(*emulator_);
+        bytes = result.data;
+        ram_truncated = result.truncated;
+        banks_written = result.banks_written;
+        banks_installed = result.banks_installed;
+    } else if (path.endsWith(".nex", Qt::CaseInsensitive)) {
+        // .nex has its own (looser, 112-bank) ceiling — see NexSaver
+        // class doc-comment; NexSaver::save() already logs a warning.
+        bytes = NexSaver::save(*emulator_).data;
+    } else {
+        bytes = SnaSaver::save(*emulator_);
+    }
     if (bytes.empty()) {
         QMessageBox::warning(this, tr("Save Snapshot"),
-            tr("SnaSaver returned an empty buffer; snapshot not written."));
+            tr("Snapshot saver returned an empty buffer; nothing written."));
         return;
     }
     QFile f(path);
@@ -907,6 +940,15 @@ void MainWindow::on_save_snapshot() {
     }
     Log::emulator()->info("Snapshot saved to '{}' ({} bytes)",
                           path.toStdString(), bytes.size());
+    if (ram_truncated) {
+        QMessageBox::warning(this, tr("Save Snapshot"),
+            tr("'%1' was saved, but the .szx format can only carry the first "
+               "%2 of %3 installed RAM banks (1024 KB max — a real-world SZX "
+               "reader limit, not a jnext one). The saved snapshot is missing "
+               "the top of RAM and will not resume correctly if the running "
+               "program used it.\n\nUse .nex instead for larger RAM (up to 1792 KB).")
+                .arg(path).arg(banks_written).arg(banks_installed));
+    }
     statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
 }
 
