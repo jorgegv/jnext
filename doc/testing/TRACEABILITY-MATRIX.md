@@ -5,41 +5,50 @@
 
 ## Summary
 
-| Subsystem             | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
-|-----------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
-| FUSE Z80              |      1356 |    1356 | 1356 |    0 |         0 |       0 | HEAD              |
-| Z80N CPU              |        85 |      85 |   85 |    0 |         0 |       0 | HEAD              |
-| Rewind                |        28 |      28 |   18 |    0 |        10 |       0 | HEAD              |
-| Copper                |        82 |      82 |   76 |    0 |         6 |       0 | HEAD              |
-| Memory/MMU            |       178 |     178 |  137 |    0 |        41 |       0 | HEAD              |
-| NextREG (bare)        |        63 |      63 |   21 |    0 |        42 |       0 | HEAD              |
-| NextREG (integration) |        74 |      74 |   73 |    0 |         1 |       0 | HEAD              |
-| Input                 |       152 |     152 |  139 |    0 |        13 |       0 | HEAD              |
-| Input (integration)   |        17 |      17 |   11 |    0 |         6 |       0 | HEAD              |
-| CTC + Interrupts      |       133 |     133 |  129 |    0 |         4 |       0 | HEAD              |
-| CTC (integration)     |        21 |      21 |   12 |    0 |         9 |       0 | HEAD              |
-| Layer 2               |       115 |     115 |  100 |    0 |        15 |       0 | HEAD              |
-| UART + I2C/RTC        |       102 |     102 |   92 |    0 |        10 |       0 | HEAD              |
-| UART (integration)    |        13 |      13 |   12 |    0 |         1 |       0 | HEAD              |
-| DivMMC + SPI          |       110 |     110 |  100 |    0 |        10 |       0 | HEAD              |
-| SD Card               |        21 |      21 |    8 |    0 |        13 |       0 | HEAD              |
-| Sprites               |       178 |     178 |  168 |    0 |        10 |       0 | HEAD              |
-| Compositor            |       143 |     143 |  130 |    0 |        13 |       0 | HEAD              |
-| Compositor (int)      |         2 |       2 |    2 |    0 |         0 |       0 | HEAD              |
-| ULA Video             |        98 |      98 |   82 |    0 |        16 |       0 | HEAD              |
-| ULA Video (int)       |        11 |      11 |    9 |    0 |         2 |       0 | HEAD              |
-| Floating Bus          |        32 |      32 |   32 |    0 |         0 |       0 | HEAD              |
-| VideoTiming           |        27 |      27 |   22 |    0 |         5 |       0 | HEAD              |
-| Contention            |        76 |      76 |   68 |    0 |         8 |       0 | HEAD              |
-| I/O Port Dispatch     |        87 |      87 |   83 |    0 |         4 |       0 | HEAD              |
-| Audio (AY+DAC+Beeper) |       141 |     141 |  132 |    0 |         9 |       0 | HEAD              |
-| Audio (NextREG)       |        33 |      33 |   25 |    0 |         8 |       0 | HEAD              |
-| Audio (port dispatch) |        21 |      21 |   16 |    0 |         5 |       0 | HEAD              |
-| DMA                   |       152 |     152 |  150 |    0 |         2 |       0 | HEAD              |
-| Tilemap               |        69 |      69 |   59 |    0 |        10 |       0 | HEAD              |
-| NMI Source Pipeline   |        55 |      55 |   32 |    0 |        23 |       0 | HEAD              |
-| NMI (integration)     |         9 |       9 |    5 |    0 |         4 |       0 | HEAD              |
-| **Total**             |  **3684** | **3684** | **3384** | **0** | **300** | **0** | HEAD              |
+> **Staleness notice (added 2026-07-13):** every row below except **NMI Source
+> Pipeline** is frozen at its 2026-04-27 runtime snapshot (`Last-touch commit:
+> HEAD` is a leftover placeholder, not a real pointer — the table has not been
+> regenerated since). Do not treat any other row's Pass/Fail/Skip numbers as
+> current; re-deriving the full table is a separate job (see Phase 11 backlog,
+> "Traceability matrix — close the VHDL-citation gap"). **Only the NMI Source
+> Pipeline row is current**, refreshed as part of the Task 8a BOOT/BYPASS skip
+> re-audit (commit `d92c4b300b`, 2026-07-13): `58 / 58 / 57 / 0 / 1 / 0`.
+
+| Subsystem             | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit                  |
+|-----------------------|----------:|--------:|-----:|-----:|----------:|--------:|------------------------------------|
+| FUSE Z80              |      1356 |    1356 | 1356 |    0 |         0 |       0 | HEAD                               |
+| Z80N CPU              |        85 |      85 |   85 |    0 |         0 |       0 | HEAD                               |
+| Rewind                |        28 |      28 |   18 |    0 |        10 |       0 | HEAD                               |
+| Copper                |        82 |      82 |   76 |    0 |         6 |       0 | HEAD                               |
+| Memory/MMU            |       178 |     178 |  137 |    0 |        41 |       0 | HEAD                               |
+| NextREG (bare)        |        63 |      63 |   21 |    0 |        42 |       0 | HEAD                               |
+| NextREG (integration) |        74 |      74 |   73 |    0 |         1 |       0 | HEAD                               |
+| Input                 |       152 |     152 |  139 |    0 |        13 |       0 | HEAD                               |
+| Input (integration)   |        17 |      17 |   11 |    0 |         6 |       0 | HEAD                               |
+| CTC + Interrupts      |       133 |     133 |  129 |    0 |         4 |       0 | HEAD                               |
+| CTC (integration)     |        21 |      21 |   12 |    0 |         9 |       0 | HEAD                               |
+| Layer 2               |       115 |     115 |  100 |    0 |        15 |       0 | HEAD                               |
+| UART + I2C/RTC        |       102 |     102 |   92 |    0 |        10 |       0 | HEAD                               |
+| UART (integration)    |        13 |      13 |   12 |    0 |         1 |       0 | HEAD                               |
+| DivMMC + SPI          |       110 |     110 |  100 |    0 |        10 |       0 | HEAD                               |
+| SD Card               |        21 |      21 |    8 |    0 |        13 |       0 | HEAD                               |
+| Sprites               |       178 |     178 |  168 |    0 |        10 |       0 | HEAD                               |
+| Compositor            |       143 |     143 |  130 |    0 |        13 |       0 | HEAD                               |
+| Compositor (int)      |         2 |       2 |    2 |    0 |         0 |       0 | HEAD                               |
+| ULA Video             |        98 |      98 |   82 |    0 |        16 |       0 | HEAD                               |
+| ULA Video (int)       |        11 |      11 |    9 |    0 |         2 |       0 | HEAD                               |
+| Floating Bus          |        32 |      32 |   32 |    0 |         0 |       0 | HEAD                               |
+| VideoTiming           |        27 |      27 |   22 |    0 |         5 |       0 | HEAD                               |
+| Contention            |        76 |      76 |   68 |    0 |         8 |       0 | HEAD                               |
+| I/O Port Dispatch     |        87 |      87 |   83 |    0 |         4 |       0 | HEAD                               |
+| Audio (AY+DAC+Beeper) |       141 |     141 |  132 |    0 |         9 |       0 | HEAD                               |
+| Audio (NextREG)       |        33 |      33 |   25 |    0 |         8 |       0 | HEAD                               |
+| Audio (port dispatch) |        21 |      21 |   16 |    0 |         5 |       0 | HEAD                               |
+| DMA                   |       152 |     152 |  150 |    0 |         2 |       0 | HEAD                               |
+| Tilemap               |        69 |      69 |   59 |    0 |        10 |       0 | HEAD                               |
+| NMI Source Pipeline   |        58 |      58 |   57 |    0 |         1 |       0 | `d92c4b300b` (2026-07-13, current) |
+| NMI (integration)     |         9 |       9 |    5 |    0 |         4 |       0 | HEAD                               |
+| **Total**             |  **3684** | **3684** | **3384** | **0** | **300** | **0** | HEAD                               |
 
 Updated 2026-04-27 from `test/SUBSYSTEM-TESTS-STATUS.md` runtime totals across all 32 suites. **Convention**: the **head Summary table above** is the *runtime* view — `Plan rows = In-test = runtime live count` per suite, with `Missing = 0` by construction. The **per-section detail blocks below** are the *plan-mapping* view — they list every plan-doc row including re-home pointers and not-yet-implemented entries, so a section's row count can exceed the matching head-Summary `Plan rows` value. The two views are intentionally different. The dashboard at `test/SUBSYSTEM-TESTS-STATUS.md` is the canonical runtime source; the plan docs at `doc/testing/*-TEST-PLAN-DESIGN.md` are the canonical plan-row source. The script's bottom-line aggregate (run `perl test/refresh-traceability-matrix.pl`) reports plan-doc row totals across all 21 sub-section anchors plus 6 companion-integration anchors; that aggregate ≠ the head Summary's runtime aggregate by design.
 
@@ -2854,7 +2863,7 @@ Dashboard (Task 7 r2): 21 total / 8 pass / 0 fail / 13 skip.
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp` + `test/nmi/nmi_integration_test.cpp`
 
-Last-touch commit: `d92c4b3` (Task 8a BOOT/BYPASS skip re-audit, 2026-07-13)
+Last-touch commit: `d92c4b300b4894f71f4b88470e8442750c4442be` (`d92c4b300b`) — Task 8a BOOT/BYPASS skip re-audit, 2026-07-13
 
 NMI Source Pipeline plan (`doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md`) closed end-to-end 2026-04-24d (per `project_session_handover_20260424d_eod.md` — Phase 1 scaffold + Wave A NR 0x02 + Wave B HK/DIS/CLR + Wave C gate registers + Wave E NMI-activated DMA delay all landed; 5 real emulator bugs fixed). The plan was reopened by Task 7 r1 + r2 (2026-04-24/25) which added skip rows for the residual gaps it surfaced — specifically G87/G88 (NMIACK PC-capture cross-link to NR 0xC2/0xC3 and CTC owner), G152/G153 (host F-key dispatch + NR 0x02 reset_type FSM bits 1:0), and G162 (iotrap strobe + Multiface port 0x2FFD/0x3FFD trap, parked until `MULTIFACE-TEST-PLAN-DESIGN.md` is authored). Companion integration suite `test/nmi/nmi_integration_test.cpp` runs the full button/software-NMI chain through a real `Emulator` fixture (NmiSource → arbiter strobe → DivMmc::set_button_nmi → cpu request_nmi → PC=0x0066 → automap → RETN clear); its 4 skips track the same G152 host-hotkey wiring debt at the GUI level. Task 8a (2026-07-13) re-audited the 5-row BOOT group: BOOT-LOOP-01/BOOT-LOGO-01 are now covered at the regression tier (see their row notes below) and dropped from the unit-tier count entirely; BYPASS-FAT-01/BYPASS-INI-01 are retired as WONT (the `--bypass-tbblue-fw` feature they gated was removed from `src/` 2026-07-11); BOOT-DOT-01 stays `skip()` with a corrected reason. `nmi_test.cpp` now runs at `58 / 57 pass / 0 fail / 1 skip` (Z80-04 re-homed to CTC plan 2026-04-28 — duplicate cross-link with NR-C2-01/NR-C3-01) and `nmi_integration_test.cpp` at `9 / 5 / 0 / 4`.
 
