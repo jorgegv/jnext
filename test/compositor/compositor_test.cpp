@@ -179,7 +179,7 @@ static void clear_layers(Renderer& r) {
 // pixel math given an already-effective value, not deferral — so
 // composite_one() re-syncs the snapshot for `row` right before compositing
 // to keep those single-row assertions meaningful. Genuine cross-row
-// DEFERRAL assertions (STEN-20/21, BL-32/33) must NOT use this helper —
+// DEFERRAL assertions (STEN-20/21, UTB-50/51) must NOT use this helper —
 // they call r.composite_scanline() directly so a snapshot they deliberately
 // withhold stays withheld.
 static uint32_t composite_one(Renderer& r, uint32_t fb_argb, int row = 0) {
