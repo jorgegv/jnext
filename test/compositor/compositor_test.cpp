@@ -575,6 +575,243 @@ static void test_TR() {
 
         r.set_transparent_rgb(0xE3);  // restore default for later groups
     }
+
+    // TR-52/53: Task 46 — Layer2::render_scanline must use the SAME
+    //           per-line-deferred NR 0x14 snapshot composite_scanline reads
+    //           (transparent_rgb_for_line(row)), not the SEPARATE live
+    //           member PaletteManager::global_transparency(). Before the
+    //           fix, Layer2 read the live palette member directly, so a
+    //           mid-frame NR 0x14 write could make Layer2 WRONGLY judge an
+    //           opaque pixel transparent for the CURRENT row and skip-write
+    //           it (layer2.cpp `continue`, leaving `dst[]` at the
+    //           TRANSPARENT sentinel). That destruction is unrecoverable:
+    //           composite_scanline's own NR 0x14 check (renderer.cpp, the
+    //           `l2_transp` clause) can only ever narrow an ALREADY-WRITTEN
+    //           pixel to transparent — is_transparent(l2_px) is already
+    //           true once skip-written — so it cannot un-delete a pixel
+    //           Layer2 never wrote. Unlike TR-50/51 (which drive
+    //           composite_scanline directly against a hand-set ula_line_),
+    //           this pair exercises the REAL Layer2::render_scanline path
+    //           via Renderer::render_row, because the bug lives one
+    //           pipeline stage EARLIER than composite_scanline. VHDL
+    //           zxnext.vhd:7121 (layer2_transparent compares
+    //           layer2_rgb_2(8:1) against transparent_rgb_2);
+    //           1137,5226,6822,6912-6913,7078 (the transparent_rgb_0->1a->
+    //           1->2 deferral chain, Task 45's per-line snapshot of the
+    //           same chain).
+    //
+    //           set_layer_mask(LAYER_LAYER2) is a HOST-side test-isolation
+    //           knob (not machine state — see the LayerMask doc comment in
+    //           renderer.h) that forces ULA/sprites/tilemap transparent so
+    //           the only two possible outputs are "the Layer 2 pixel" or
+    //           "the NR 0x4A fallback colour", making the two directions
+    //           (opaque survives / transparent falls through) unambiguous.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+
+        PaletteManager pal;
+        pal.reset();
+
+        r.reset();
+        r.set_layer_mask(Renderer::LAYER_LAYER2);
+        r.set_fallback_colour(0x10);
+        r.init_fallback_per_line();
+
+        Layer2 l2;
+        l2.reset();
+        l2.set_enabled(true);
+        // active_bank_=8, resolution_=0 (256x192 narrow), scroll=0 (Layer2
+        // reset defaults). Single opaque source pixel at (x=0,y=0):
+        // pixel byte 0x01 -> palette index 0x01 (palette_offset_=0).
+        ram.write(8u * 16384u, 0x01);
+        // NR 0x43: target = LAYER2_FIRST (bits 6:4 = 001 = 0x10), clear
+        // bit 2 so writes and display both hit palette 0 (VHDL
+        // zxnext.vhd:5392) — same pattern as test/layer2/layer2_test.cpp's
+        // set_l2_palette_8bit(). Palette entry RGB8 = 0xAA, distinct from
+        // both the NR 0x14 default (0xE3) and the fallback colour (0x10)
+        // set above, so all three possible outputs (L2 pixel / fallback /
+        // stale-wrong-value) are visually distinguishable.
+        pal.write_control(0x10);
+        pal.set_index(0x01);
+        pal.write_8bit(0xAA);
+
+        const int ROW = Renderer::DISP_Y;  // first display row (32)
+        uint32_t row_buf[Renderer::FB_WIDTH];
+
+        // Mirrors the actual NR 0x14 write handler (emulator.cpp: writes
+        // BOTH palette_.set_global_transparency(v) AND
+        // renderer_.set_transparent_rgb(v) from the same handler) so the
+        // mutation below reproduces the historical bug's exact shape: two
+        // separate live members that are always in sync EXCEPT during the
+        // per-line-snapshot deferral window this test targets.
+        auto write_nr14 = [&](uint8_t v) {
+            pal.set_global_transparency(v);
+            r.set_transparent_rgb(v);
+        };
+
+        // Baseline: row's deferred snapshot captured with NR 0x14 = 0xE3
+        // (VHDL reset default), which does NOT match the pixel's palette
+        // RGB (0xAA) -> Layer2 must judge the pixel OPAQUE and write it.
+        write_nr14(0xE3);
+        r.snapshot_transparent_rgb_for_line(ROW);
+
+        // NR 0x14 write lands mid-frame (Copper MOVE / CPU OUT), flipping
+        // BOTH live members to 0xAA — which now matches the pixel's RGB.
+        // Row ROW's per-line snapshot is deliberately NOT refreshed.
+        write_nr14(0xAA);
+
+        std::memset(row_buf, 0, sizeof(row_buf));
+        r.render_row(row_buf, ROW, mmu, ram, pal, l2, nullptr, nullptr);
+        const uint32_t l2_pixel = pal.layer2_colour(0x01);
+        check("TR-52",
+              "mid-frame NR 0x14 write does not retroactively make "
+              "Layer2::render_scanline skip-write a pixel on a row whose "
+              "snapshot already ran — pixel survives using the pre-write "
+              "deferred value (VHDL 7121, 1137,5226,6822,6912-6913,7078)",
+              row_buf[Renderer::DISP_X] == l2_pixel,
+              DETAIL("row_buf[%d]=0x%08X expected_l2_pixel=0x%08X "
+                     "(stale live 0xAA would wrongly skip-write -> fallback "
+                     "0x%08X)",
+                     Renderer::DISP_X, row_buf[Renderer::DISP_X], l2_pixel,
+                     Renderer::rrrgggbb_to_argb(0x10)));
+
+        // Refresh the row's snapshot (mirrors the next on_scanline() call).
+        // The SAME row must now select the NEW value (0xAA == pixel RGB)
+        // -> Layer2 judges the pixel transparent and skip-writes it ->
+        // everything else is masked transparent -> fallback wins.
+        r.snapshot_transparent_rgb_for_line(ROW);
+        std::memset(row_buf, 0, sizeof(row_buf));
+        r.render_row(row_buf, ROW, mmu, ram, pal, l2, nullptr, nullptr);
+        const uint32_t fallback = Renderer::rrrgggbb_to_argb(0x10);
+        check("TR-53",
+              "After the deferred snapshot lands, the SAME row selects the "
+              "new NR 0x14 value and Layer2 correctly skip-writes the "
+              "now-transparent pixel — fallback colour wins "
+              "(VHDL 7121, 1137,5226,6822,6912-6913,7078)",
+              row_buf[Renderer::DISP_X] == fallback,
+              DETAIL("row_buf[%d]=0x%08X expected_fallback=0x%08X",
+                     Renderer::DISP_X, row_buf[Renderer::DISP_X], fallback));
+
+        // Restore for any code appended after this block in the future.
+        r.set_transparent_rgb(0xE3);
+        r.set_fallback_colour(0xE3);
+        r.set_layer_mask(Renderer::LAYER_ALL);
+    }
+}
+
+// ── Group L2EQ — Task 46: enforced dead-clause equivalence proof ────────
+//
+// renderer.cpp's `l2_transp` clause carries a redundant RGB-match check
+// (`(l2_px & 0x00FFFFFF) == nr14_rgb`) that is provably UNREACHABLE
+// whenever `is_transparent(l2_px)` is false, now that Layer2 and the
+// compositor read the SAME transparent_rgb snapshot (Task 46 fixed the bug
+// where they didn't). That proof was worked out during review as a one-off
+// standalone calculation — this group commits it as a permanent, enforced
+// invariant, because a comment cannot enforce anything and the standalone
+// check leaves no artefact. If a future change to
+// `PaletteManager::layer2_rgb8()`'s blue-channel downsample or
+// `Renderer::rrrgggbb_to_argb()`'s blue-channel expansion ever breaks the
+// identity below, THIS test fails loudly instead of the historical
+// "recovery is impossible" bug quietly returning.
+//
+// The property, for ANY register byte X and ANY Layer 2 palette entry with
+// RGB333 components (r3,g3,b3) — ONE direction only, the direction the
+// dead-clause claim actually needs:
+//
+//     layer2_rgb8(entry) != X   =>   layer2_colour(entry) != rrrgggbb_to_argb(X)
+//
+// i.e. whenever Layer2's OWN gate says a pixel is OPAQUE (and therefore
+// writes it — VHDL zxnext.vhd:7121's `layer2_transparent`, dst[] populated
+// in layer2.cpp), the compositor's redundant full-precision RGB comparison
+// can never independently re-flag that SAME written pixel as transparent.
+// The converse does NOT hold in general (own_says_transparent can be true
+// while the full-precision ARGB values still differ, e.g. r3=g3=0,b3=1,
+// X=0x00 — b3's dropped LSB), but that case is irrelevant to the dead-
+// clause claim: when Layer2's own gate says transparent it skip-writes,
+// so `l2_px` stays the TRANSPARENT sentinel and the compositor's
+// `is_transparent(l2_px)` branch already short-circuits the whole
+// `l2_transp` OR-chain before the redundant RGB clause is ever reached.
+//
+// R/G: both `layer2_colour()` (via PaletteManager's internal
+// rgb333_to_argb8888, palette.cpp:12) and `rrrgggbb_to_argb()`
+// (renderer.h) apply the IDENTICAL injective 3-bit->8-bit expansion
+// `(x3<<5)|(x3<<2)|(x3>>1)` to R and G, so an R/G mismatch on one side of
+// the identity is an R/G mismatch on the other — this is definitional, not
+// exercised row by row here; the loop below covers it anyway as a side
+// effect of iterating every (r3,g3) pair.
+//
+// B is where an accidental collision could hide: `layer2_rgb8()` keeps
+// only the top 2 bits of the palette entry's 3-bit blue (drops bit 0, VHDL
+// 7121's `(8 downto 1)` slice), while `layer2_colour()` keeps the full 3
+// bits. The two candidate 8-bit blue expansions are:
+//   3-bit (rgb333_to_argb8888, full palette precision): {0,36,73,109,146,182,219,255} for b3=0..7
+//   2-bit (rrrgggbb_to_argb, register precision):       {0,85,170,255}                for b2=0..3
+// These sets intersect ONLY at {0,255} — exactly the b3 values whose top 2
+// bits (b3>>1) already equal the b2 value being compared against, i.e.
+// exactly the cases the RGB8 comparison already covers. Exhaustively
+// checked below for all 512 (r3,g3,b3) combinations x all 256 register
+// values X (131072 checks total), through the REAL production API
+// (PaletteManager::write_9bit / layer2_rgb8 / layer2_colour,
+// Renderer::rrrgggbb_to_argb) — no formula is reimplemented in the test.
+static void test_L2EQ() {
+    set_group("L2EQ");
+
+    PaletteManager pal;
+    pal.reset();
+    pal.write_control(0x10);   // NR 0x43: target = LAYER2_FIRST, active_l2_second=0
+
+    long violations = 0;
+    int  first_r3 = -1, first_g3 = -1, first_b3 = -1, first_x = -1;
+
+    for (int r3 = 0; r3 < 8; ++r3) {
+        for (int g3 = 0; g3 < 8; ++g3) {
+            for (int b3 = 0; b3 < 8; ++b3) {
+                // Reconstruct the exact RGB333 entry via two real NR 0x44
+                // (9-bit) writes — see PaletteManager::write_9bit,
+                // palette.cpp:328-352 for the bit layout this mirrors.
+                const uint8_t first_byte  = static_cast<uint8_t>(
+                    (r3 << 5) | (g3 << 2) | ((b3 >> 1) & 0x03));
+                const uint8_t second_byte = static_cast<uint8_t>(b3 & 0x01);
+                pal.set_index(0x00);
+                pal.write_9bit(first_byte);
+                pal.write_9bit(second_byte);
+
+                const uint8_t  entry_rgb8  = pal.layer2_rgb8(0x00);
+                const uint32_t entry_argb  = pal.layer2_colour(0x00) & 0x00FFFFFFu;
+
+                for (int x = 0; x < 256; ++x) {
+                    const uint32_t reg_argb =
+                        Renderer::rrrgggbb_to_argb(static_cast<uint8_t>(x))
+                        & 0x00FFFFFFu;
+                    const bool own_says_opaque        = (entry_rgb8 != x);
+                    const bool compositor_would_match  = (entry_argb == reg_argb);
+
+                    // Violation ONLY if Layer2 would WRITE the pixel (opaque
+                    // per its own gate) yet the compositor's redundant
+                    // check would independently re-flag it transparent.
+                    if (own_says_opaque && compositor_would_match) {
+                        ++violations;
+                        if (first_r3 < 0) {
+                            first_r3 = r3; first_g3 = g3; first_b3 = b3; first_x = x;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    check("L2EQ-01",
+          "layer2_rgb8(entry)!=X implies layer2_colour(entry)!=rrrgggbb_to_argb(X), "
+          "for all 512 RGB333 entries x all 256 register values — a pixel "
+          "Layer2's own gate writes (opaque) can never be independently "
+          "re-flagged transparent by renderer.cpp's redundant l2_transp "
+          "RGB-match clause (VHDL 7121)",
+          violations == 0,
+          DETAIL("violations=%ld first_mismatch: r3=%d g3=%d b3=%d X=0x%02X",
+                 violations, first_r3, first_g3, first_b3, first_x));
 }
 
 // ── Group TRI — Index-based transparency integration (VHDL 7109, 7118) ──
@@ -3457,6 +3694,7 @@ int main() {
     printf("=====================================\n\n");
 
     test_TR();         printf("  Group: TR — done\n");
+    test_L2EQ();       printf("  Group: L2EQ — done\n");
     test_TRI();        printf("  Group: TRI — done\n");
     test_FB();         printf("  Group: FB — done\n");
     test_PRI();        printf("  Group: PRI — done\n");

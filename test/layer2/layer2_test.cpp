@@ -184,7 +184,7 @@ static void fill_640x256(Ram& ram, uint8_t bank, F pat) {
 static void render_row(const Layer2& l2, Ram& ram, PaletteManager& pal,
                        uint32_t* buf, int fb_row) {
     memset(buf, 0, sizeof(uint32_t) * BUF_WIDTH);
-    l2.render_scanline(buf, fb_row, ram, pal);
+    l2.render_scanline(buf, fb_row, ram, pal, pal.global_transparency());
 }
 
 // Program a single palette entry (8-bit RRRGGGBB) into the currently-active
@@ -1252,7 +1252,9 @@ static void test_group7_bank_transform() {
 
         // Render row 50 with rom_in_sram=true (Next-mode SRAM layout).
         memset(buf_g720, 0, sizeof(buf_g720));
-        l2_g720.render_scanline(buf_g720, 50, ram_g720, pal_g720, /*rom_in_sram=*/true);
+        l2_g720.render_scanline(buf_g720, 50, ram_g720, pal_g720,
+                                pal_g720.global_transparency(),
+                                /*rom_in_sram=*/true);
 
         // sub_bank 2 → src_x=128 → buf[256] (pixel-doubled).
         // sub_bank 3 → src_x=192 → buf[384].
@@ -1947,6 +1949,7 @@ static void test_group11_priority_propagation() {
         std::fill_n(prio, BUF_WIDTH, true);
 
         l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal,
+                           pal.global_transparency(),
                            /*rom_in_sram*/ false,
                            /*priority_dst*/ prio);
 
@@ -2006,7 +2009,8 @@ static void test_group11_priority_propagation() {
         // priority bit anyway, this assertion catches it.
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, false, prio);
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal,
+                           pal.global_transparency(), false, prio);
 
         check("G11-02b",
               "narrow: transparent L2 pixel leaves priority_dst untouched",
@@ -2038,7 +2042,8 @@ static void test_group11_priority_propagation() {
         memset(buf, 0, sizeof(buf));
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, /*row*/ 0, ram, pal, false, prio);
+        l2.render_scanline(buf, /*row*/ 0, ram, pal,
+                           pal.global_transparency(), false, prio);
 
         // G104 Phase 3: 320-mode pixel-doubles → source pixel x at cells [2x, 2x+1].
         check("G11-03a",
@@ -2079,7 +2084,8 @@ static void test_group11_priority_propagation() {
         memset(buf, 0, sizeof(buf));
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, /*row*/ 0, ram, pal, false, prio);
+        l2.render_scanline(buf, /*row*/ 0, ram, pal,
+                           pal.global_transparency(), false, prio);
 
         check("G11-04a",
               "640px: left nibble (idx 0x01) writes priority TRUE at col*2",
@@ -2116,7 +2122,8 @@ static void test_group11_priority_propagation() {
         memset(buf, 0, sizeof(buf));
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, /*row*/ 0, ram, pal, false, prio);
+        l2.render_scanline(buf, /*row*/ 0, ram, pal,
+                           pal.global_transparency(), false, prio);
 
         check("G11-05a",
               "640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0",
@@ -2145,7 +2152,8 @@ static void test_group11_priority_propagation() {
         // Pass nullptr explicitly. The fact this returns is the assertion;
         // the colour buffer is also checked to confirm rendering still
         // worked.
-        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, false,
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal,
+                           pal.global_transparency(), false,
                            /*priority_dst*/ nullptr);
         check("G11-06",
               "nullptr priority_dst: render still emits colour, no crash",

@@ -40,6 +40,40 @@
 > all driven by a single Task 3 emulator bug — `src/video/layer2.cpp:52-61`
 > `compute_ram_addr()` omits the VHDL `+1` bank transform at `layer2.vhd:172`.
 > Tests are the specification; leave failing until Task 3 fixes the emulator.**
+>
+> **2026-07-13 (Task 46) — interface note.** `Layer2::render_scanline` gained
+> a mandatory `transparent_rgb` parameter (was: read
+> `PaletteManager::global_transparency()` internally). The G6-\* rows below
+> (RGB-vs-index NR 0x14 comparison) are unaffected in substance — they now
+> pass `pal.global_transparency()` explicitly through the local `render_row`
+> test helper, preserving the exact value they exercised before. This plan's
+> own scope note (below `## Test Architecture`) already places per-scanline
+> deferral of NextREG/Copper writes out of Layer2's unit-test scope ("a pure
+> pixel generator"); the Task 46 bug — Layer2 reading a stale LIVE NR 0x14
+> value instead of the Renderer's per-line-deferred snapshot, silently
+> destroying a wrongly-judged-transparent pixel via the skip-write `continue`
+> paths in `layer2.cpp` — is exactly that class of cross-subsystem interaction
+> and is covered by **TR-52/53** in
+> [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md), which
+> drives the real `Layer2` through `Renderer::render_row`.
+> `Layer2::render_scanline_debug` ALSO gained a mandatory `transparent_rgb`
+> parameter — independent review found the original justification for
+> keeping it on the LIVE value ("no meaningful per-line snapshot to defer
+> to") factually wrong: `src/debugger/video_panel.cpp`'s
+> `replay_rewind()`/`replay_line()` already replay everything Layer2 owns
+> (bank/scroll/clip) per row for the paused frame, so NR 0x14 was simply
+> the one input still read live. `video_panel.cpp`'s `LAYER2_ACTIVE`/
+> `LAYER2_SHADOW` call sites now pass
+> `Renderer::transparent_rgb_for_line(row)`, mirroring the `BACKGROUND`
+> view's `fallback_for_line(row)` read; regression-guarded by **DVP-21**
+> in `test/debugger/video_panel_test.cpp`. See both files' doc comments
+> for the corrected rationale.
+>
+> Also: the `(l2_px & 0xFFFFFF) == nr14_rgb` dead-clause claim in
+> `renderer.cpp` (see the COMPOSITOR plan's Task 46 changelog entry) is
+> now an ENFORCED regression row — **L2EQ-01** in
+> [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md) — not
+> just a comment.
 
 Systematic compliance test plan for the Layer 2 bitmap display subsystem,
 derived exclusively from the VHDL sources (`layer2.vhd` and the Layer 2 wiring

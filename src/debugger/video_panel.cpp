@@ -389,16 +389,24 @@ void VideoLayerView::render_to_image(int vc)
             case Layer::LAYER2_ACTIVE:
                 // G104 Phase 3: render_scanline_debug always emits 640.
                 // active_bank() is re-read per row — it is itself replayed
-                // per scanline (Layer2 bank change-log).
+                // per scanline (Layer2 bank change-log). transparent_rgb is
+                // read PER ROW from the renderer's own NR 0x14 snapshot —
+                // not from the live PaletteManager::global_transparency() —
+                // exactly like the BACKGROUND view's fallback_for_line(row)
+                // read below (Task 46).
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().active_bank(), rom_in_sram);
+                    emu.layer2().active_bank(),
+                    emu.renderer().transparent_rgb_for_line(row),
+                    rom_in_sram);
                 break;
 
             case Layer::LAYER2_SHADOW:
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().shadow_bank(), rom_in_sram);
+                    emu.layer2().shadow_bank(),
+                    emu.renderer().transparent_rgb_for_line(row),
+                    rom_in_sram);
                 break;
 
             case Layer::SPRITES:

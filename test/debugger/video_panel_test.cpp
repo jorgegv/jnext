@@ -84,6 +84,13 @@
 //           in the panel — and in the emulator's own framebuffer (DVP-18c).
 //   DVP-19  It honours the raster cut-off, and rendering it preserves state.
 //   DVP-20  "Background" is the RIGHTMOST tab.
+//   DVP-21  Task 46: the Layer 2 ACTIVE view reads NR 0x14 (global
+//           transparency) PER SCANLINE from Renderer::transparent_rgb_for_line
+//           rather than the live PaletteManager::global_transparency() —
+//           the same per-line-snapshot bug class as DVP-05/DVP-18, against a
+//           third array. Layer2::render_scanline_debug used to read the live
+//           register directly, so a mid-frame NR 0x14 write flattened every
+//           row in the view to the frame's END-OF-PAUSE value.
 //
 // Qt is required (the panel is a QWidget), but no display is: the test forces
 // the offscreen QPA platform.  Run: ./build/test/debugger_video_panel_test
@@ -186,6 +193,7 @@ bool build_next_emulator(Emulator& emu) {
 void begin_frame(Emulator& emu) {
     emu.renderer().init_fallback_per_line();
     emu.renderer().init_ula_enabled_per_line();
+    emu.renderer().init_transparent_rgb_per_line();
     emu.ula().init_border_per_line();
     emu.tilemap().init_scroll_per_line();
     emu.tilemap().start_frame_nr6b();
@@ -387,6 +395,118 @@ static void test_layer2_rom_in_sram(Emulator& emu) {
               fmt("got=0x%08X want=0x%08X (unshifted decoy=0x%08X)",
                   got, argb_true, argb_decoy));
     }
+}
+
+// ── DVP-21: Layer 2 ACTIVE view honours the per-line NR 0x14 snapshot ──
+//
+// Task 46: Layer2::render_scanline_debug used to read the LIVE
+// PaletteManager::global_transparency() instead of the per-line NR 0x14
+// snapshot Renderer::transparent_rgb_for_line() exposes, so a mid-frame
+// Copper MOVE to NR 0x14 flattened every row of the LAYER2_ACTIVE/SHADOW
+// debugger views to the frame's END-OF-PAUSE value — the same per-line-
+// snapshot bug class as DVP-05 (palette) and DVP-18 (fallback colour),
+// against a third array that happens to live in Renderer rather than in
+// the subsystem being viewed. Fixed by threading transparent_rgb through
+// render_scanline_debug and having video_panel.cpp pass
+// emu.renderer().transparent_rgb_for_line(row) at the call site, exactly
+// mirroring the BACKGROUND view's fallback_for_line(row) read.
+//
+// SCOPE: mirrors DVP-18a/18d/19a — pokes Renderer::snapshot_transparent_
+// rgb_for_line() directly to simulate the per-scanline capture
+// Emulator::on_scanline performs (emulator.cpp:7648), proving the VIEW
+// reads the per-line array rather than the live register. It does not
+// drive a real Copper program (that end-to-end proof is DVP-18b/18c's
+// role for the fallback colour; not duplicated here).
+
+static void test_layer2_transparent_rgb_replay(Emulator& emu) {
+    set_group("DVP-L2-TRANSP");
+
+    // Matches video_panel.cpp's own checker constants exactly (duplicated
+    // here rather than exposed, following this file's existing convention
+    // for UNRENDERED_ARGB).
+    constexpr uint32_t CHECKER_DARK_ARGB = 0xFFAAAAAA;
+    constexpr uint32_t CHECKER_LITE_ARGB = 0xFFCCCCCC;
+    constexpr int       CHECK_SZ         = 8;
+    auto checker_at = [](int row, int col) -> uint32_t {
+        const bool dark = (((row / CHECK_SZ) ^ (col / CHECK_SZ)) & 1) != 0;
+        return dark ? CHECKER_DARK_ARGB : CHECKER_LITE_ARGB;
+    };
+
+    constexpr uint8_t BASELINE_NR14 = 0xE3;   // VHDL reset default (zxnext.vhd:4946)
+    constexpr uint8_t SPLIT_NR14    = 0xAA;   // == the pixel's palette RGB8
+    constexpr uint8_t BANK          = 9;
+    constexpr uint8_t IDX           = 0x60;
+    constexpr int      SPLIT_ROW    = 100;
+    constexpr int      SRC_X        = 5;
+
+    Layer2& l2 = emu.layer2();
+    l2.set_enabled(true);
+    l2.set_control(0x00);              // resolution 0 = 256x192 8bpp
+    l2.set_active_bank(BANK);
+    l2.set_clip_x1(0); l2.set_clip_x2(255);
+    l2.set_clip_y1(0); l2.set_clip_y2(191);
+
+    PaletteManager& pal = emu.palette();
+    set_l2_palette(pal, IDX, SPLIT_NR14);   // palette entry's RRRGGGBB == SPLIT_NR14
+    const uint32_t argb_opaque = pal.layer2_colour(IDX);
+
+    Ram& ram = emu.ram();
+    for (int y = 0; y < 192; ++y)
+        ram.write(l2_phys_addr(BANK, l2_addr_256x192(SRC_X, y), true), IDX);
+
+    Renderer& r = emu.renderer();
+    r.set_transparent_rgb(BASELINE_NR14);
+
+    begin_frame(emu);   // init_transparent_rgb_per_line() -> every row = BASELINE_NR14
+
+    // Simulate the raster walking the frame with NR 0x14 changing at
+    // SPLIT_ROW — the snapshot half of what Emulator::on_scanline does
+    // (emulator.cpp:7648 snapshot_transparent_rgb_for_line(prev_fb_row)).
+    for (int row = 0; row < SPLIT_ROW; ++row) r.snapshot_transparent_rgb_for_line(row);
+    r.set_transparent_rgb(SPLIT_NR14);
+    for (int row = SPLIT_ROW; row < Renderer::FB_HEIGHT; ++row)
+        r.snapshot_transparent_rgb_for_line(row);
+
+    QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+                             Renderer::FB_HEIGHT - 1);
+    const int cell = l2_cell_256(SRC_X);
+
+    check("DVP-21a",
+          "rows above the NR 0x14 split still show the opaque L2 pixel "
+          "(pre-write snapshot BASELINE_NR14 != pixel RGB, VHDL 7121)",
+          px(img, cell, SPLIT_ROW - 1) == argb_opaque,
+          fmt("row%d=0x%08X want=0x%08X", SPLIT_ROW - 1,
+              px(img, cell, SPLIT_ROW - 1), argb_opaque));
+
+    check("DVP-21",
+          "the row the NR 0x14 write landed on, and every row below it, "
+          "already shows the pixel as transparent (checkerboard) — the "
+          "view reads the PER-LINE snapshot, not the live NR 0x14 register",
+          px(img, cell, SPLIT_ROW) == checker_at(SPLIT_ROW, cell)
+              && px(img, cell, Renderer::FB_HEIGHT - 1)
+                     == checker_at(Renderer::FB_HEIGHT - 1, cell),
+          fmt("row%d=0x%08X (want checker 0x%08X) row%d=0x%08X (want "
+              "checker 0x%08X)",
+              SPLIT_ROW, px(img, cell, SPLIT_ROW),
+              checker_at(SPLIT_ROW, cell), Renderer::FB_HEIGHT - 1,
+              px(img, cell, Renderer::FB_HEIGHT - 1),
+              checker_at(Renderer::FB_HEIGHT - 1, cell)));
+
+    // State preservation, mirroring DVP-19a.
+    const uint8_t live_before = r.transparent_rgb();
+    for (int i = 0; i < 3; ++i)
+        (void)render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+                          Renderer::FB_HEIGHT - 1);
+    check("DVP-21b",
+          "...and rendering it leaves the live NR 0x14 and its per-line "
+          "snapshots alone",
+          r.transparent_rgb() == live_before
+              && r.transparent_rgb_for_line(SPLIT_ROW - 1) == BASELINE_NR14
+              && r.transparent_rgb_for_line(SPLIT_ROW) == SPLIT_NR14,
+          fmt("live 0x%02X->0x%02X | line%d=0x%02X line%d=0x%02X",
+              live_before, r.transparent_rgb(),
+              SPLIT_ROW - 1, r.transparent_rgb_for_line(SPLIT_ROW - 1),
+              SPLIT_ROW, r.transparent_rgb_for_line(SPLIT_ROW)));
 }
 
 // ── DVP-03/04: ULA views must pin their bank, not follow port 0x7FFD ──
@@ -1881,6 +2001,12 @@ int main(int argc, char** argv) {
         }
         test_layer2_rom_in_sram(emu);
         std::printf("  Group: DVP-L2-SRAM    — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_layer2_transparent_rgb_replay(emu);
+        std::printf("  Group: DVP-L2-TRANSP  — done\n");
     }
     {
         Emulator emu;
