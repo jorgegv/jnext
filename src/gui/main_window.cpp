@@ -669,7 +669,7 @@ void MainWindow::update_status(double fps, int cpu_speed_idx, double emu_speed) 
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), QString(),
-        tr("Spectrum Files (*.nex *.sna *.szx *.tap *.tzx *.wav *.rzx);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;All Files (*)"));
+        tr("Spectrum Files (*.nex *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;All Files (*)"));
     if (!path.isEmpty()) {
         if (emulator_) {
             if (path.toLower().endsWith(".tap")) {
@@ -680,6 +680,8 @@ void MainWindow::on_load_nex() {
                 emulator_->load_sna(path.toStdString());
             } else if (path.toLower().endsWith(".szx")) {
                 emulator_->load_szx(path.toStdString());
+            } else if (path.toLower().endsWith(".z80")) {
+                emulator_->load_z80(path.toStdString());
             } else if (path.toLower().endsWith(".wav")) {
                 emulator_->load_wav(path.toStdString());
             } else if (path.toLower().endsWith(".rzx")) {

@@ -36,7 +36,8 @@
 ## File format support
 - NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header; saving (V1.2, PC/SP/border/RAM banks — see class doc-comment for honest register limitations)
 - SNA: 48K and 128K snapshots with full register and paging restore; saving (48K)
-- SZX: chunked format with zlib-compressed RAM pages; saving (full CPU register set, classic paging, border, uncompressed RAM banks)
+- SZX: chunked format with zlib-compressed RAM pages; saving (full CPU register set, classic paging, border, RAM banks up to the format's 1024 KB real-world ceiling)
+- Z80: v1/v2/v3 snapshots, 48K and 128K, RLE-compressed and uncompressed pages, full register and paging restore
 - Snapshot saving (`.sna`/`.szx`/`.nex`) via File > Save Snapshot... (Ctrl+Shift+S) or `--delayed-snapshot FILE` (headless)
 - TAP: fast-load via ROM trap + real-time EAR bit simulation; instant `LOAD ""` autostart via FUSE-style phantom typist (48K/128K/+3 modes — triggers on first full keyboard scan, no fixed delay)
 - TZX: full block support via ZOT library, fast-load + real-time playback

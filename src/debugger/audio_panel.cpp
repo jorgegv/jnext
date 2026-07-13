@@ -155,18 +155,23 @@ void AudioPanel::refresh() {
     turbosound_label_->setText(
         tr("TurboSound: %1").arg(ts_enabled ? tr("Yes") : tr("No")));
 
-    // Read NextREG 0x06 bit 4 for AY/YM mode (0=YM, 1=AY)
-    // and NextREG 0x08 for stereo/turbosound config
-    uint8_t reg06 = emulator_->nextreg().cached(0x06);
-    uint8_t reg08 = emulator_->nextreg().cached(0x08);
+    // AY/YM mode. VHDL zxnext.vhd:6389 wires `aymode_i <= nr_06_psg_mode(0)`
+    // (audio/ym2149.vhd:86 "0 = YM, 1 = AY") into the chip core; NR 0x06
+    // bits 1:0 are a 2-bit field (nextreg.txt: 00=YM, 01=AY, 10=ZXN-8950,
+    // 11=hold AY in reset) but only bit 0 drives chip mode. Read
+    // TurboSound::ay_mode() (src/audio/turbosound.h:57-58), which mirrors
+    // that live signal, instead of re-decoding a raw NextREG byte: the
+    // previous code read NR 0x06 bit 4, which is "Enable divmmc nmi by
+    // DRIVE button" (nextreg.txt) — an unrelated field.
+    ay_ym_label_->setText(tr("Mode: %1").arg(ts.ay_mode() ? "AY" : "YM"));
 
-    bool ay_mode = (reg06 & 0x10) != 0; // bit 4: 1=AY, 0=YM
-    ay_ym_label_->setText(tr("Mode: %1").arg(ay_mode ? "AY" : "YM"));
-
-    // Stereo mode from reg 0x08 bits 5:4
-    // 00=ABC, 01=ACB, 10=BAC, 11=BCA (approximate — actual mapping may vary)
-    static const char* const stereo_names[] = {"ABC", "ACB", "BAC", "BCA", "CAB", "CBA"};
-    uint8_t stereo_bits = (reg08 >> 4) & 0x03;
-    const char* stereo_name = (stereo_bits < 6) ? stereo_names[stereo_bits] : "???";
-    stereo_label_->setText(tr("Stereo: %1").arg(stereo_name));
+    // Stereo mode. VHDL zxnext.vhd:5177 — `nr_08_psg_stereo_mode` is a
+    // SINGLE bit (NR 0x08 bit 5), not a 2-bit field; audio/turbosound.vhd:45
+    // — "0 = ABC, 1 = ACB for all psg". Read TurboSound::stereo_mode()
+    // (src/audio/turbosound.h:46-48), which mirrors that live signal. The
+    // previous code read bits 5:4 as a bogus 2-bit field (bit 4 is
+    // nr_08_internal_speaker_en, VHDL zxnext.vhd:5178, unrelated to stereo)
+    // against a 6-entry table that invented four stereo modes ZX Next
+    // hardware does not have.
+    stereo_label_->setText(tr("Stereo: %1").arg(ts.stereo_mode() ? "ACB" : "ABC"));
 }

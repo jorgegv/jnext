@@ -794,6 +794,19 @@ where possible.
 - **Proposed**: `Z80Loader` supporting V1/V2/V3 headers, compressed
   / uncompressed pages, full register restore + 128K paging.
 - **Effort**: M.
+- **Status: CLOSED (Task 13b)**. `Z80Loader` (`src/core/z80_loader.{h,cpp}`)
+  landed: v1 (30-byte header, RLE with `00 ED ED 00` end marker or raw
+  49152-byte dump), v2 (23-byte extended header) and v3 (54/55-byte
+  extended header), 48K and 128K page-number tables, full register
+  restore (incl. AF', R bit-7 quirk, IM, IFF1/IFF2), border, and 128K
+  paging (port 0x7FFD from header byte 0x23). Wired into `--load`/bare-arg
+  CLI dispatch, the Qt file dialog, and `Emulator::load_z80()`. Unblocked
+  `mmu_test` BOOT-Z80-01..04 (`test/mmu/mmu_test.cpp`). One documented
+  ambiguity: hardware-mode byte value 3 (offset 34) is disputed between
+  v2/v3 across sources; jnext treats it as 48K-class in both (see
+  `Z80Loader::load_from_buffer()` comment) since neither MGT nor SamRam
+  is emulated. `.z80` **saving** is out of scope (not requested; no other
+  loader in this codebase has a matching saver either, e.g. NEX/RZX-play).
 
 ### G35. Snapshot save (.sna out / .szx out / .nex out) wired [partial]
 - **Status: PARTIAL 2026-05-04** (Tier B). `.sna` save WIRED to GUI:
@@ -1330,23 +1343,43 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Source ref**: `TASK-MMU-SHADOW-SCREEN-PLAN.md`.
 - **Effort**: L.
 
-### G59. NextZXOS bypass-tbblue-fw boot path
+### G59. NextZXOS bypass-tbblue-fw boot path [WONT]
 - **What**: `FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` — fully-scoped
   4-branch plan (CLI / SRAM populate / synthetic RESET_SOFT + post-
-  firmware NR state / host-side FAT32 reader). Unstarted. Provides
-  instant-boot NextZXOS bypassing tbblue.fw — mitigates G46 if
-  firmware-faithful proves intractable.
+  firmware NR state / host-side FAT32 reader). Provides instant-boot
+  NextZXOS bypassing tbblue.fw — mitigates G46 if firmware-faithful
+  proves intractable.
 - **Dependencies**: 8 open VHDL/state questions (Q1-Q8) need pre-
   implementation answers (G62, G63, G64).
 - **Effort**: H (Branches 1-3; Branch 4 optional).
+- **Status (2026-07-13) — WONT**: firmware-faithful boot did NOT prove
+  intractable — native NextZXOS boot was achieved 2026-07-10 (v0.94.0,
+  see G46). The bypass had already been implemented as
+  `--bypass-tbblue-fw` (Task 18, 2026-05-17) as a stopgap before that,
+  but with the real boot path working it was **removed from `src/`
+  entirely on 2026-07-11 by explicit user decision** — native
+  firmware-faithful boot is the only supported path. This entry no
+  longer describes "unstarted, effort H" work; it describes a feature
+  that was built, then deliberately deleted. See
+  `EMULATOR-DESIGN-PLAN.md` Phase 11 ("the flag and its C++ route were
+  REMOVED per user decision") and the historical design retained for
+  reference only in `FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md`. Do not
+  re-file this work without a new reason firmware-faithful boot has
+  regressed.
 
-### G60. config.ini / menu.ini / menu.def parsing
+### G60. config.ini / menu.ini / menu.def parsing [WONT]
 - **What**: Bypass plan §4 Cons: ~29 user customisations
   (50/60Hz, scandoubler, joystick mapping, DivMMC/MF enables,
   turbosound, DAC, mouse DPI) parsed by firmware today; bypass
   skips. v1 hard-coded defaults; v2 needs JNEXT-side parser.
 - **Dependencies**: G59 lands first.
 - **Effort**: M.
+- **Status (2026-07-13) — WONT**: this item existed solely as a
+  dependency of G59 ("Dependencies: G59 lands first"). G59 is
+  retired WONT (see above) — the bypass path it would have completed
+  no longer exists in `src/`. No independent justification remains
+  for a config.ini/menu.ini/menu.def parser. Do not re-file without a
+  new, G59-independent reason.
 
 ### G61. Z80N undocumented RETN-alias coverage edge
 - **What**: Test gap — `fuse_z80_test` covers Z80 base; `z80n_test`

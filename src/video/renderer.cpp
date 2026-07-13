@@ -355,7 +355,7 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
     apply_ula_clip(ula_line_.data(), row);
 
     trace_current_row_ = row;
-    composite_scanline(out, fb_argb);
+    composite_scanline(out, fb_argb, row);
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +467,7 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b2) {
     return Renderer::rrrgggbb_to_argb(rgb8);
 }
 
-void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
+void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row)
 {
     // Pre-compute NR 0x14 transparency reference (RGB portion only).
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
@@ -481,16 +481,21 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
     const bool mask_l2      = (layer_mask_ & LAYER_LAYER2)  == 0;
     const bool mask_sprites = (layer_mask_ & LAYER_SPRITES) == 0;
     const bool mask_tiles   = (layer_mask_ & LAYER_TILES)   == 0;
-    // Stencil mode requires BOTH enables (VHDL zxnext.vhd:7130):
+    // Stencil mode requires ALL THREE enables (VHDL zxnext.vhd:7130):
     //   if ula_stencil_mode_2 = '1' and ula_en_2 = '1' and tm_en_2 = '1'
-    // so masking out EITHER the ULA or the tilemap must take the stencil
-    // AND-branch down with it and fall through to the ordinary ulatm merge
-    // (VHDL 7134-7135). Getting this half-right is a real bug in both
-    // directions: stencil_rgb is transparent whenever either input is
-    // (7112), so leaving the AND-branch selected with one input masked away
-    // erases the surviving layer instead of showing it.
+    // so masking out the ULA, the tilemap, OR disabling the ULA itself
+    // (NR 0x68 bit 7, per-line snapshot ula_enabled_per_line_) must take
+    // the stencil AND-branch down with it and fall through to the
+    // ordinary ulatm merge (VHDL 7134-7135), which — with ula_transparent
+    // forced by ula_en_2='0' (VHDL 7103) — degrades to "show the tile
+    // pixel". Getting this half-right is a real bug in both directions:
+    // stencil_rgb is transparent whenever either input is (7112), so
+    // leaving the AND-branch selected with one input disabled erases the
+    // surviving layer (falls to the NR 0x4A fallback colour) instead of
+    // showing it.
     const bool stencil_active =
-        stencil_mode_ && tm_enabled_ && !mask_tiles && !mask_ula;
+        stencil_mode_ && tm_enabled_ && !mask_tiles && !mask_ula &&
+        ula_enabled_per_line_[row];
 
     for (int x = 0; x < FB_WIDTH; ++x) {
         const uint32_t ula_px  = ula_line_[x];
