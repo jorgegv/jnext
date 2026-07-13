@@ -17,48 +17,58 @@ class Emulator;
 /// /zx-state/{header,block,z80regs,specregs,rampage}.shtml. Only the three
 /// block types SzxLoader::load() understands are emitted:
 ///   ZXSTZ80REGS ('Z80R'), ZXSTSPECREGS ('SPCR'), ZXSTRAMPAGE ('RAMP')
-/// so every byte this saver writes is structurally round-trippable through
-/// our own loader. There is no standard zx-state block for Next-only
-/// state (NextREG, video layers, sprites, copper, audio, peripheral
-/// devices, individual MMU-slot page assignments beyond what ports
-/// 0x7FFD/0x1FFD imply) — a real SZX reader loading a file this saver
-/// produced will see a classic-Spectrum-equivalent snapshot only: CPU
-/// registers (both sets), IM/IFF1/IFF2, tstates-in-frame, border,
-/// classic 128K/+3 paging state, and — this is the part worth reading
-/// carefully — only the FIRST 1024 KB of RAM (see RAM CEILING below). A
-/// Next's full 1792/2048 KB RAM never round-trips through .szx: the
-/// wire format itself cannot carry it.
 ///
-/// RAM CEILING — two separate limits; the tighter one wins:
+/// SCOPE — .szx is a CLASSIC-SPECTRUM interchange format, not a Next
+/// snapshot format (Task 13b, reopened 2026-07-13 after a first cut wrongly
+/// tried to widen the format to carry Next RAM by raising the RAM ceiling —
+/// rejected by the user; see doc-history in git log for the full story).
+/// libspectrum's `szx.c` (both the reader's `read_ramp_chunk()` page>63
+/// rejection AND the writer's `write_ram_pages()` machine-specific page
+/// sets) treats the RAM model as fixed per `chMachineId`: a classic
+/// Spectrum's 8-bank-max memory map, not an arbitrary-sized blob. jnext
+/// therefore saves `.szx` ONLY for the three machines that map cleanly onto
+/// that model — 48K, 128K, +2A/+3 — and REFUSES for anything else
+/// (Next/Pentagon/unknown), rather than truncating or lying in the header.
+/// The Next-specific full-state format is Task 13a (PARKED); `.nex` already
+/// exists as the Next-native program/snapshot container.
 ///
-///  1. FORMAT CEILING (this is the one that binds). ZXSTRAMPAGE's
-///     `chPageNo` is checked by real-world readers, not just accepted as
-///     an opaque index. Confirmed directly against libspectrum 1.5.0
-///     source (the library FUSE / ZEsarUX's importer / most other tools
-///     use to read .szx): `szx.c` `read_ramp_chunk()` hard-rejects
-///     `page > 63` for *every* machine ID —
-///     `LIBSPECTRUM_ERROR_CORRUPT: "unknown page number %lu"`. That is a
-///     64-page (1024 KB) ceiling, independent of jnext's own hardware
-///     model or RAM size. A file with pages 0-111 (jnext's *own* MMU-
-///     addressability figure — see point 2) loads fine through jnext's
-///     own `SzxLoader` (which has no such check) but is REJECTED outright
-///     by real FUSE: `fuse: error: libspectrum: szx.c:read_ramp_chunk:
-///     unknown page number 64`.
-///  2. jnext's own MMU-addressability ceiling (112 banks / 1792 KB — see
-///     `NexSaver`'s doc-comment for the VHDL citation) is LOOSER than
-///     the format ceiling above, so it never actually binds here.
+/// PAGE NUMBERING — chMachineId + chPageNo, verified against libspectrum
+/// 1.5.0 source (szx.c `write_ram_pages()`/`write_ramp_chunk()`, the same
+/// convention `read_ramp_chunk()` enforces on load):
 ///
-/// `build()` therefore clamps `ram_bank_count` to 64 (1024 KB), not 112:
-/// the format's real-world ceiling, not jnext's hardware-addressability
-/// ceiling — they are different numbers, and only the smaller one is
-/// safe to ship. This was found the hard way: the first cut of this
-/// saver clamped to 112 and passed every jnext-internal test, because
-/// `SzxLoader::parse_ramp()` has no upper-bound check either — saver and
-/// loader shared the same blind spot, so the (self-consistent, wrong)
-/// test suite was green while every file this saver produced was
-/// silently rejected by real FUSE. Fixed after an independent review
-/// caught it; re-verified against the actual libspectrum source, not
-/// just the review's word for it.
+///  * chMachineId: 1 = 48K, 2 = 128K, 4 = +2A, 5 = +3 (SZX_MACHINE_* enum,
+///    szx.c:42-48). jnext has no distinct +2A `MachineType` — `ZX_PLUS3`
+///    covers both +2A and +3 (identical memory model: 4 ROMs, port 0x1FFD
+///    paging) — so jnext always emits 5 for that machine, never 4.
+///  * chPageNo is NOT jnext's currently-mapped MMU *slot* number, and
+///    critically is NOT simply "the first N banks". It is the classic
+///    Spectrum 128 **physical RAM chip** index (0-7), the same convention
+///    jnext's own `Mmu::compose_bank_()` / `rebuild_ram_slots_()` already
+///    use (bank N -> physical 8K pages 2N, 2N+1) — confirmed against
+///    `src/memory/mmu.cpp`: at reset, slots 2/3 (0x4000-0x7FFF) hold bank 5,
+///    slots 4/5 (0x8000-0xBFFF) hold bank 2, slots 6/7 (0xC000-0xFFFF) hold
+///    bank 0 (port_7ffd_=0) — i.e. jnext's own bank numbering already IS
+///    the standard convention, so "bank N" == "chPageNo N" for banks that
+///    are actually part of the machine's RAM.
+///  * The set of banks that ARE part of the machine's RAM is what differs
+///    by machine, and is NOT "banks 0..N-1":
+///      - 48K: banks {5, 2, 0} ONLY (szx.c:3330-3334 — unconditionally
+///        writes page 5, then, for any machine except the 16K Spectrum,
+///        pages 2 and 0). These are exactly the three banks a real 48K
+///        machine has wired to 0x4000/0x8000/0xC000 — there is no
+///        paging, so no other bank number is meaningful. Banks 1, 3, 4,
+///        6, 7 must NOT be written for a 48K save.
+///      - 128K / +2A / +3: all banks {0..7} (szx.c:3337-3342, gated on
+///        `LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY`, true for all three).
+///
+/// `build()` reads RAM in ascending bank order for readability; order
+/// within the file has no semantic meaning (each ZXSTRAMPAGE chunk is
+/// self-describing via chPageNo).
+///
+/// REFUSAL — `build()`/`save()` return an EMPTY buffer (no partial/lying
+/// file) plus a human-readable `error` string when `machine_id` doesn't map
+/// to one of {1, 2, 4, 5}. Callers (GUI, headless CLI) must surface this as
+/// a real failure, not silently write nothing.
 class SzxSaver {
 public:
     /// Classic port-driven ULA/paging state — the ZXSTSPECREGS payload.
@@ -74,32 +84,41 @@ public:
         uint8_t port_fe   = 0;  // ZXSTSPECREGS.chFe (bits 2:0 = border, 3 = MIC, 4 = EAR)
     };
 
-    /// Build a complete .szx byte buffer. Emulator-free — RAM is read
-    /// directly from `mmu` via the same temp-slot-7 pattern
-    /// SzxLoader::apply() uses in reverse — so this is directly
-    /// unit-testable against a bare Mmu fixture (no Emulator needed).
-    ///
-    /// `ram_bank_count` 16K banks (bank N = physical 8K pages N*2, N*2+1)
-    /// are each written as one uncompressed ZXSTRAMPAGE chunk, chPageNo
-    /// = the bank index — clamped to 64 (1024 KB; see class doc-comment
-    /// RAM CEILING paragraph — this is libspectrum's real-world
-    /// `page > 63` rejection, NOT jnext's own 112-bank MMU-addressability
-    /// figure, which is looser and irrelevant here). Uncompressed by
-    /// choice (zlib compression is optional per spec;
-    /// SzxLoader::parse_ramp() already supports both paths, so leaving
-    /// compression out keeps this function dependency-free — no ZLIB
-    /// link requirement at the Mmu test tier).
+    /// The set of physical RAM bank numbers (== ZXSTRAMPAGE chPageNo, see
+    /// class doc-comment PAGE NUMBERING) that make up a given chMachineId's
+    /// RAM. Empty iff `machine_id` is not one of the four .szx supports
+    /// (1=48K, 2=128K, 4=+2A, 5=+3) — jnext's `save()` only ever produces
+    /// 1, 2 or 5 (no distinct +2A `MachineType`), but `build()`/this helper
+    /// accept 4 too since it is a valid chMachineId per spec.
+    static std::vector<uint8_t> ram_page_set(uint8_t machine_id)
+    {
+        switch (machine_id) {
+            case 1: return {0, 2, 5};                          // 48K
+            case 2: case 4: case 5:                             // 128K / +2A / +3
+                return {0, 1, 2, 3, 4, 5, 6, 7};
+            default: return {};                                 // unsupported
+        }
+    }
+
+    /// Build a complete .szx byte buffer, or refuse (empty return, `*error`
+    /// set) if `machine_id` is not one of the machines .szx can represent —
+    /// see class doc-comment SCOPE. Emulator-free — RAM is read directly
+    /// from `mmu` via the same temp-slot-7 pattern SzxLoader::apply() uses
+    /// in reverse — so this is directly unit-testable against a bare Mmu
+    /// fixture (no Emulator needed).
     static std::vector<uint8_t> build(const Z80Registers& regs, uint32_t tstates,
                                        uint8_t machine_id, const SpecRegs& spec,
-                                       Mmu& mmu, unsigned ram_bank_count)
+                                       Mmu& mmu, std::string* error = nullptr)
     {
-        // See class doc-comment RAM CEILING point 1: real-world zx-state
-        // readers (libspectrum szx.c:read_ramp_chunk) reject page > 63.
-        // This is NOT the same number as jnext's own 112-bank MMU-
-        // addressability ceiling (point 2) — that one is looser and
-        // never binds here.
-        constexpr unsigned SZX_MAX_RAM_BANKS = 64;  // libspectrum: page > 63 rejected
-        if (ram_bank_count > SZX_MAX_RAM_BANKS) ram_bank_count = SZX_MAX_RAM_BANKS;
+        std::vector<uint8_t> banks = ram_page_set(machine_id);
+        if (banks.empty()) {
+            if (error) {
+                *error = "SzxSaver::build(): unsupported chMachineId " + std::to_string(machine_id)
+                       + " — .szx can only represent 48K (1), 128K (2), +2A (4) or "
+                         "+3 (5); refusing rather than truncating or lying in the header.";
+            }
+            return {};
+        }
 
         std::vector<uint8_t> out;
 
@@ -175,20 +194,20 @@ public:
             put_u32(hdr + 4, sz);
         }
 
-        // ---- ZXSTRAMPAGE ('RAMP') × ram_bank_count, uncompressed ----
+        // ---- ZXSTRAMPAGE ('RAMP') × banks.size(), uncompressed ------
         constexpr int      TEMP_SLOT = 7;
         constexpr uint16_t SLOT_BASE = 0xE000;
         constexpr size_t   PAGE_SIZE = 16384;
         uint8_t saved_slot7 = mmu.get_page(TEMP_SLOT);
 
-        for (unsigned bank = 0; bank < ram_bank_count; ++bank) {
+        for (uint8_t bank : banks) {
             size_t hdr = out.size();
             out.insert(out.end(), {'R', 'A', 'M', 'P'});
             out.resize(out.size() + 4);
             size_t p = out.size();
             out.resize(p + 3 + PAGE_SIZE, 0);
             put_u16(p + 0, 0);                            // wFlags: uncompressed
-            out[p + 2] = static_cast<uint8_t>(bank);       // chPageNo
+            out[p + 2] = bank;                             // chPageNo
 
             uint16_t lo_page = static_cast<uint16_t>(bank * 2);
             uint16_t hi_page = static_cast<uint16_t>(bank * 2 + 1);
@@ -207,15 +226,13 @@ public:
         return out;
     }
 
-    /// Result of save(): the bytes, plus whether installed RAM exceeded
-    /// the 64-bank (1024 KB) format ceiling (see class doc-comment RAM
-    /// CEILING) — callers (GUI, headless CLI) surface this to the user
-    /// rather than silently dropping RAM.
+    /// Result of save(): the bytes, or (ok=false, data empty, error set)
+    /// when the emulator's current machine type cannot be represented as
+    /// .szx — see class doc-comment SCOPE.
     struct SaveResult {
         std::vector<uint8_t> data;
-        bool     truncated       = false;  // installed RAM > 64 banks
-        unsigned banks_written   = 0;
-        unsigned banks_installed = 0;
+        bool        ok = false;
+        std::string error;
     };
 
     /// Convenience wrapper: extracts state from a running Emulator and

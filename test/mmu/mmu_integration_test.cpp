@@ -952,17 +952,20 @@ static uint32_t ru32le(const std::vector<uint8_t>& b, size_t off) {
 }
 
 // Independent, from-scratch .szx chunk walker — deliberately NOT using
-// SzxLoader (which shares the saver's blind spot: no upper bound on
-// chPageNo). Walks every ZXSTBLOCK exactly per the published zx-state
-// format (dwId + dwSize header, skip dwSize bytes to the next block) and
-// asserts every ZXSTRAMPAGE chPageNo is <= 63 — the real-world ceiling
-// libspectrum's szx.c:read_ramp_chunk enforces (see SzxSaver class
-// doc-comment). This is what an independent reviewer's "assert on file
-// contents against the published spec, not jnext's own loader" demands.
+// SzxLoader (which has no page-set/upper-bound validation of its own, so
+// a loader-only round trip cannot catch a wrong page SET, only wrong
+// content). Walks every ZXSTBLOCK exactly per the published zx-state
+// format (dwId + dwSize header, skip dwSize bytes to the next block),
+// records every ZXSTRAMPAGE chPageNo seen, and (belt-and-braces) asserts
+// none exceeds 63 — the real-world ceiling libspectrum's
+// szx.c:read_ramp_chunk enforces for every machine ID. This is what an
+// independent reviewer's "assert on file contents against the published
+// spec, not jnext's own loader" demands.
 struct SzxRampScan {
     bool     ok = true;
     unsigned ramp_chunk_count = 0;
     unsigned max_page_seen = 0;
+    bool     page_seen[256] = {};
     std::string detail;
 };
 
@@ -984,6 +987,7 @@ static SzxRampScan scan_szx_ramp_pages(const std::vector<uint8_t>& b) {
             ++r.ramp_chunk_count;
             if (sz < 3) { r.ok = false; r.detail = "RAMP chunk too small"; return r; }
             uint8_t page = b[pos + 8 + 2];  // wFlags(2) + chPageNo(1)
+            r.page_seen[page] = true;
             if (page > r.max_page_seen) r.max_page_seen = page;
             if (page > 63) {
                 r.ok = false;
@@ -1017,9 +1021,11 @@ static void test_snapsave_szx_roundtrip() {
     regs.halted = false;
     emu1.cpu().set_registers(regs);
 
-    // Distinctive RAM content in banks 0, 2, 5 (the ones SzxSaver always
-    // covers for any installed-RAM size) via direct physical-page write.
-    for (int bank : {0, 2, 5}) {
+    // Distinctive RAM content in all 8 physical banks — a supported
+    // machine (+3) now saves its FULL RAM (all 8 banks), not a truncated
+    // subset (see SzxSaver class doc-comment SCOPE — the redesign this
+    // replaces the old 64-bank-ceiling-clamp contract with).
+    for (int bank = 0; bank < 8; ++bank) {
         for (int half = 0; half < 2; ++half) {
             uint8_t* p = emu1.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
             for (int i = 0; i < 8192; ++i)
@@ -1033,23 +1039,9 @@ static void test_snapsave_szx_roundtrip() {
 
     auto save_result = SzxSaver::save(emu1);
     auto& bytes = save_result.data;
-    check("SNAPSAVE-SZX-RT-00", "SzxSaver::save() returns a non-empty buffer",
-          !bytes.empty(), fmt("size=%zu", bytes.size()));
-    // jnext installs a fixed 2048 KB (128-bank) Ram regardless of machine
-    // type (Ram's default-constructed size, EmulatorConfig has no
-    // override) — so EVERY .szx save is truncated against the 64-bank
-    // format ceiling, not just large/Next installs. This asserts that
-    // fact rather than silently assuming otherwise (an earlier version
-    // of this test wrongly assumed a classic-machine save wouldn't be
-    // truncated and failed here — see SNAPSAVE-SZX-RT-CEILING for the
-    // from-scratch byte-level proof that the clamp actually holds).
-    check("SNAPSAVE-SZX-RT-00B",
-          "SaveResult reports the (always-true, given jnext's fixed "
-          "2048 KB Ram) truncation for this install",
-          save_result.truncated && save_result.banks_written == 64
-              && save_result.banks_installed == 128,
-          fmt("truncated=%d banks_written=%u banks_installed=%u",
-              save_result.truncated, save_result.banks_written, save_result.banks_installed));
+    check("SNAPSAVE-SZX-RT-00", "SzxSaver::save() returns a non-empty buffer "
+          "and reports success for a supported machine (+3)",
+          save_result.ok && !bytes.empty(), fmt("ok=%d size=%zu", save_result.ok, bytes.size()));
 
     std::string path;
     bool wrote = write_temp_file(bytes, path);
@@ -1088,7 +1080,7 @@ static void test_snapsave_szx_roundtrip() {
               emu2.mmu().port_7ffd(), emu2.mmu().port_1ffd()));
 
     bool ram_ok = true;
-    for (int bank : {0, 2, 5}) {
+    for (int bank = 0; bank < 8 && ram_ok; ++bank) {
         for (int half = 0; half < 2 && ram_ok; ++half) {
             const uint8_t* p = emu2.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
             for (int i = 0; i < 8192; ++i) {
@@ -1097,7 +1089,9 @@ static void test_snapsave_szx_roundtrip() {
         }
     }
     check("SNAPSAVE-SZX-RT-RAM",
-          "banks 0/2/5 RAM content round-trips byte-for-byte via ZXSTRAMPAGE",
+          "all 8 physical RAM banks (0-7) round-trip byte-for-byte via "
+          "ZXSTRAMPAGE — a +3 save now carries its full RAM, not a "
+          "truncated subset",
           ram_ok);
 
     bool border_ok = emu2.ula().get_border() == 4;
@@ -1106,44 +1100,146 @@ static void test_snapsave_szx_roundtrip() {
           border_ok, fmt("border=%d (want 4)", emu2.ula().get_border()));
 }
 
-// SNAPSAVE-SZX-RT-CEILING — the positive case for the SzxSaver RAM
-// ceiling: an install with MORE than 64 banks (jnext's default 2048 KB /
-// 128-bank Next configuration) must be (a) reported as truncated via
-// SaveResult, and (b) — this is the part that actually protects
-// interop — every ZXSTRAMPAGE chPageNo written to disk must be <= 63.
-// Scanned with scan_szx_ramp_pages(), an independent from-scratch parser
-// that does NOT go through jnext's own SzxLoader (which has no such
-// bound, so a loader-only round trip cannot catch this class of bug —
-// this is exactly the gap an independent review found in the first cut
-// of this saver, which clamped to 112 instead of 64 and produced files
-// real FUSE/libspectrum rejects outright).
-static void test_snapsave_szx_ram_ceiling() {
+// SNAPSAVE-SZX-RT-REFUSED — the Emulator-level refusal case (Task 13b
+// redesign, 2026-07-13): jnext's DEFAULT machine (Next, ZXN_ISSUE2) has no
+// ZXSTMID_* representation and its RAM cannot be described by the
+// classic-Spectrum-8-bank .szx model — SzxSaver::save() MUST refuse
+// outright (ok=false, empty data, non-empty error), never truncate or
+// write a misrepresenting file. See SzxSaver class doc-comment
+// SCOPE/REFUSAL. This is the common path in practice, since Next is
+// jnext's default --machine.
+static void test_snapsave_szx_refused_for_next() {
     set_group("SNAPSAVE-SZX-RT");
 
     Emulator emu;
     EmulatorConfig cfg;
-    cfg.type = MachineType::ZXN_ISSUE2;  // default Ram = 2048 KB = 128 banks
+    cfg.type = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
     emu.init(cfg);
 
     auto result = SzxSaver::save(emu);
 
-    check("SNAPSAVE-SZX-RT-CEILING-FLAG",
-          "SaveResult correctly reports truncation for a >64-bank install",
-          result.truncated && result.banks_written == 64 && result.banks_installed == 128,
-          fmt("truncated=%d written=%u installed=%u",
-              result.truncated, result.banks_written, result.banks_installed));
+    check("SNAPSAVE-SZX-RT-REFUSED",
+          "SzxSaver::save() refuses outright for a Next machine: ok=false, "
+          "no data written, a non-empty error explaining why",
+          !result.ok && result.data.empty() && !result.error.empty(),
+          fmt("ok=%d size=%zu error='%s'",
+              result.ok, result.data.size(), result.error.c_str()));
+}
 
-    auto scan = scan_szx_ramp_pages(result.data);
-    check("SNAPSAVE-SZX-RT-CEILING-BYTES",
-          "every ZXSTRAMPAGE chPageNo in the SAVED FILE is <= 63 — the "
-          "real-world ceiling libspectrum szx.c:read_ramp_chunk enforces "
-          "(independently re-verified against the actual libspectrum "
-          "1.5.0 source, not just jnext's own SzxLoader, which has no "
-          "such bound and would not catch this)",
-          scan.ok && scan.ramp_chunk_count == 64 && scan.max_page_seen == 63,
-          fmt("ok=%d ramp_chunks=%u max_page=%u detail='%s'",
-              scan.ok, scan.ramp_chunk_count, scan.max_page_seen, scan.detail.c_str()));
+// SNAPSAVE-SZX-RT-48K — 48K round trip through the REAL Emulator/SzxLoader
+// pipeline (not just the structural byte checks in mmu_test.cpp), proving
+// the {5,2,0} page-set redesign (BOOT-SNAPSAVE-02C) actually restores a
+// live 48K machine correctly. Also independently scans the raw saved bytes
+// (scan_szx_ramp_pages(), not SzxLoader) for the exact page set, since a
+// loader-only round trip would not catch a wrong SET if both sides shared
+// the same (wrong) assumption.
+static void test_snapsave_szx_roundtrip_48k() {
+    set_group("SNAPSAVE-SZX-RT");
+
+    Emulator emu1;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    emu1.init(cfg);
+
+    Z80Registers regs = emu1.cpu().get_registers();
+    regs.AF = 0x1357; regs.BC = 0x2468; regs.HL = 0xACE0; regs.SP = 0x5C00; regs.PC = 0x8000;
+    regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1; regs.halted = false;
+    emu1.cpu().set_registers(regs);
+
+    // Distinctive content in banks 0, 2, 5 (48K's real RAM) AND in a bank
+    // outside that set (1) — bank 1 must NOT survive the round trip, since
+    // a real 48K's RAM has no such bank.
+    for (int bank : {0, 1, 2, 5}) {
+        for (int half = 0; half < 2; ++half) {
+            uint8_t* p = emu1.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
+            for (int i = 0; i < 8192; ++i)
+                p[i] = static_cast<uint8_t>(0x40 + bank * 5 + half * 2 + i);
+        }
+    }
+    emu1.port().out(0x00FE, 0x06);   // border = 6
+
+    auto save_result = SzxSaver::save(emu1);
+    check("SNAPSAVE-SZX-RT-48K-00", "SzxSaver::save() succeeds for 48K",
+          save_result.ok && !save_result.data.empty(),
+          fmt("ok=%d size=%zu", save_result.ok, save_result.data.size()));
+
+    auto scan = scan_szx_ramp_pages(save_result.data);
+    bool page_set_ok = scan.ok && scan.ramp_chunk_count == 3
+        && scan.page_seen[0] && scan.page_seen[2] && scan.page_seen[5]
+        && !scan.page_seen[1] && !scan.page_seen[3] && !scan.page_seen[4]
+        && !scan.page_seen[6] && !scan.page_seen[7];
+    check("SNAPSAVE-SZX-RT-48K-PAGESET",
+          "the SAVED FILE's ZXSTRAMPAGE chPageNo set is exactly {0,2,5} — "
+          "independently scanned from raw bytes, not via SzxLoader",
+          page_set_ok,
+          fmt("ok=%d ramp_chunks=%u seen={%d,%d,%d,%d,%d,%d,%d,%d} detail='%s'",
+              scan.ok, scan.ramp_chunk_count,
+              scan.page_seen[0], scan.page_seen[1], scan.page_seen[2], scan.page_seen[3],
+              scan.page_seen[4], scan.page_seen[5], scan.page_seen[6], scan.page_seen[7],
+              scan.detail.c_str()));
+
+    std::string path;
+    bool wrote = write_temp_file(save_result.data, path);
+    check("SNAPSAVE-SZX-RT-48K-01", "saved 48K .szx bytes written to disk", wrote);
+    if (!wrote) return;
+
+    Emulator emu2;
+    EmulatorConfig cfg2;
+    cfg2.type = MachineType::ZX48K;
+    cfg2.rewind_buffer_frames = 0;
+    emu2.init(cfg2);
+
+    bool loaded = emu2.load_szx(path);
+    std::remove(path.c_str());
+    check("SNAPSAVE-SZX-RT-48K-02", "Emulator::load_szx() accepts the saved 48K file", loaded);
+    if (!loaded) return;
+
+    Z80Registers r2 = emu2.cpu().get_registers();
+    bool regs_ok = r2.AF==regs.AF && r2.BC==regs.BC && r2.HL==regs.HL
+        && r2.SP==regs.SP && r2.PC==regs.PC && r2.IFF1==regs.IFF1 && r2.halted==regs.halted;
+    check("SNAPSAVE-SZX-RT-48K-REGS",
+          "register set round-trips through save()->file->Emulator::load_szx() for 48K",
+          regs_ok, fmt("AF %04X/%04X PC %04X/%04X", r2.AF, regs.AF, r2.PC, regs.PC));
+
+    bool ram_ok = true;
+    for (int bank : {0, 2, 5}) {
+        for (int half = 0; half < 2 && ram_ok; ++half) {
+            const uint8_t* p = emu2.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
+            for (int i = 0; i < 8192; ++i) {
+                if (p[i] != static_cast<uint8_t>(0x40 + bank * 5 + half * 2 + i)) { ram_ok = false; break; }
+            }
+        }
+    }
+    check("SNAPSAVE-SZX-RT-48K-RAM",
+          "banks 0/2/5 (48K's real RAM) round-trip byte-for-byte via ZXSTRAMPAGE",
+          ram_ok);
+
+    // Bank 1 was never saved (48K page set is {0,2,5} only). load_szx()
+    // calls Emulator::reset() (which zero-fills RAM) before applying the
+    // snapshot's RAMP chunks, so bank 1 must read back as all-zero — if
+    // the {0,1,2}-first-N-banks bug this test guards against were
+    // present, chPageNo=1's payload would carry emu1's distinctive bank-1
+    // pattern (set above) and land right back in physical bank 1, making
+    // this assertion fail.
+    bool bank1_untouched = true;
+    for (int half = 0; half < 2 && bank1_untouched; ++half) {
+        const uint8_t* p = emu2.ram().page_ptr(static_cast<uint16_t>(1 * 2 + half));
+        for (int i = 0; i < 8192; ++i) {
+            if (p[i] != 0x00) { bank1_untouched = false; break; }
+        }
+    }
+    check("SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED",
+          "bank 1 (not part of a 48K's RAM) is never written by load_szx() "
+          "— reads back as reset()'s all-zero fill, not the distinctive "
+          "pattern emu1's physical bank 1 was seeded with",
+          bank1_untouched);
+
+    bool border_ok = emu2.ula().get_border() == 6;
+    check("SNAPSAVE-SZX-RT-48K-BORDER",
+          "border colour round-trips via ZXSTSPECREGS.chFe for 48K",
+          border_ok, fmt("border=%d (want 6)", emu2.ula().get_border()));
 }
 
 static void test_snapsave_nex_roundtrip() {
@@ -1266,10 +1362,13 @@ int main() {
     std::printf("  Group: G156-HOLD (NEX boot-hold run_frame() branch) — done\n");
 
     test_snapsave_szx_roundtrip();
-    std::printf("  Group: SNAPSAVE-SZX-RT (Task 13b .szx full round trip) — done\n");
+    std::printf("  Group: SNAPSAVE-SZX-RT (Task 13b .szx +3 full round trip) — done\n");
 
-    test_snapsave_szx_ram_ceiling();
-    std::printf("  Group: SNAPSAVE-SZX-RT-CEILING (Task 13b .szx 64-bank interop ceiling) — done\n");
+    test_snapsave_szx_refused_for_next();
+    std::printf("  Group: SNAPSAVE-SZX-RT-REFUSED (Task 13b .szx refused for Next) — done\n");
+
+    test_snapsave_szx_roundtrip_48k();
+    std::printf("  Group: SNAPSAVE-SZX-RT-48K (Task 13b .szx 48K page-set round trip) — done\n");
 
     test_snapsave_nex_roundtrip();
     std::printf("  Group: SNAPSAVE-NEX-RT (Task 13b .nex full round trip) — done\n");

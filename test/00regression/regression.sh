@@ -804,6 +804,20 @@ if want snapshot-save-func; then
                 --delayed-automatic-exit 1 2>&1)
     then pend_rc=0; else pend_rc=1; fi
 
+    # Negative control (Task 13b redesign): .szx is scoped to 48K/128K/
+    # +2A/+3 only — see SzxSaver class doc-comment SCOPE. jnext's DEFAULT
+    # --machine is Next, so this is the common path in practice, not an
+    # edge case: it must fail loudly (non-zero exit, clear reason logged,
+    # no file written), never silently write a truncated/misrepresenting
+    # snapshot.
+    refused="$TMP_DIR/snap-refused.szx"
+    rm -f "$refused"
+    if out_next=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-snapshot "$refused" --delayed-snapshot-frames 5 \
+                --delayed-automatic-exit 3 2>&1)
+    then refuse_rc=0; else refuse_rc=1; fi
+
     if [[ "$content_ok" -eq -1 ]]; then
         echo -e "${YELLOW}SKIP${RESET} (no ImageMagick — cannot content-verify the reload)"
         skip=$((skip + 1))
@@ -811,11 +825,13 @@ if want snapshot-save-func; then
        && [[ "$reload_rc" -eq 0 ]] && [[ -s "$reloaded_png" ]] \
        && [[ "$content_ok" -eq 1 ]] \
        && [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$pending" ]] \
-       && echo "$out" | grep -q "NO snapshot was written"; then
-        echo -e "${GREEN}PASS${RESET} (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file)"
+       && echo "$out" | grep -q "NO snapshot was written" \
+       && [[ "$refuse_rc" -ne 0 ]] && [[ ! -f "$refused" ]] \
+       && echo "$out_next" | grep -qi "cannot represent this machine"; then
+        echo -e "${GREEN}PASS${RESET} (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file; --machine next refused: error+exit!=0, no file)"
         pass=$((pass + 1))
     else
-        echo -e "${RED}FAIL${RESET} (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n))"
+        echo -e "${RED}FAIL${RESET} (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n) refuse_rc=$refuse_rc refused_exists=$([[ -f "$refused" ]] && echo y || echo n))"
         fail=$((fail + 1))
     fi
 fi
