@@ -77,27 +77,26 @@
 // nirvana.tap (writes well ahead of the beam) but corrupts bifrost.tap
 // (the whole point of that technique is per-column colour).
 //
-// Exact fetch instant used here: `hc_fetch(col) = hc_origin + col * 8`.
+// Exact fetch instant used here (Task 54 — parity-aware; supersedes
+// round 4's uniform `hc_origin + col*8`, which was 8-12 ticks EARLY):
+//   `hc_fetch(col) = hc_origin + col*8 + (col odd ? 8 : 12)`
 //   * `hc_origin` = `VideoTiming::ula_prefetch_origin_hc()` (timing.h),
-//     itself VHDL zxula_timing.vhd:423 (`c_min_hactive - 12`) — column
-//     0's own fetch has completed by the time hc reaches the display
-//     window, so it must start 12 ticks earlier; this constant was
-//     already implemented and unit-tested (VT-07/VT-08) but never wired
-//     into production rendering before this round.
-//   * `8` = one character cell's width in the 7 MHz pixel-tick domain
-//     (8 pixels/cell, 1 tick/pixel) — matches the cadence established
-//     by zxula.vhd's own case block: address-set cycles for a given
-//     attribute role (px vs px_1) recur every 16 ticks for a 2-column
-//     pair, i.e. 8 ticks per column. The two anchors agree at column 0
-//     by construction (that's what `hc_origin` already means).
-//   Deliberately NOT modelling the two-column double-buffered
-//   pixel-shift-register pipeline visible in zxula.vhd:305-360
-//   (`abyte00/01/10/11`, `sload_0`/`sload_1`) — that stagger exists to
-//   feed a 16-bit shift register at 14 MHz and has no CPU-write-race
-//   observable at the granularity this emulator renders (whole bytes,
-//   once per scanline pass); it does not change WHICH column a given
-//   write's hc falls before or after, only sub-tick pipeline delay
-//   inside the ULA that a same-frame CPU poke cannot exploit anyway.
+//     itself VHDL zxula_timing.vhd:423 (`c_min_hactive - 12`).
+//   * The +12/+8 parity terms come from the two-column double-buffered
+//     fetch pipeline (zxula.vhd:271-306, 368-455): the abyte* registers
+//     latch VRAM data at hc(3:0)=3/7/B/F, and the byte that actually
+//     governs on-screen column C (zero scroll) is consumed by sload_0
+//     (hc(3:0)=C, abyte00, latched 1 tick earlier) for even C, or
+//     sload_1 (hc(3:0)=4, abyte10, latched 5 ticks earlier in the
+//     previous block) for odd C. With hc_ula=0 at raw hc =
+//     c_min_hactive-11 (registered reset, zxula_timing.vhd:423-436)
+//     the latch lands at raw hc = c_min_hactive + 8C (even C) /
+//     c_min_hactive - 4 + 8C (odd C). Round 4's block comment claimed
+//     the sload stagger "has no CPU-write-race observable" — WRONG:
+//     BIFROST writes race exactly this boundary, and the uniform
+//     formula displaced it by 8-12 ticks (verified against real FUSE,
+//     Task 54: with this boundary + the Task 54 contention-magnitude
+//     fix, bifrost.tap renders pixel-identical to FUSE).
 //
 // Because offset -> column is a fixed, 1:1 mapping (`col = offset %
 // 32`), and because entries for a single offset are appended in strict
@@ -270,12 +269,28 @@ private:
         }
     }
 
-    /// `hc_fetch(col) = hc_origin_ + col * 8` — see the column-accurate-
-    /// resolution block comment above the class for the VHDL citations
-    /// behind both the origin and the 8-tick-per-column stride.
+    /// The last raw-hc instant at which a CPU write still affects column
+    /// `col` on the current scanline. Task 54 correction (was
+    /// `origin + col*8`, i.e. 8-12 ticks too early, no parity):
+    ///
+    /// Per zxula.vhd:271-306 the abyte* registers latch VRAM data at
+    /// hc(3:0)=3/7/B/F, and per :368-455 the byte that actually governs
+    /// on-screen column C (zero scroll) is the one consumed by sload_0
+    /// (hc(3:0)=C, abyte00, latched 1 tick earlier at B) for even C, or
+    /// sload_1 (hc(3:0)=4, abyte10, latched 5 ticks earlier at F of the
+    /// previous block) for odd C. With hc_ula=0 at raw hc = min_hactive-11
+    /// (registered reset, zxula_timing.vhd:423-436) that works out to
+    ///   latch(C) = min_hactive + 8C       (C even)
+    ///            = min_hactive - 4 + 8C   (C odd)
+    /// and with hc_origin_ = min_hactive - 12 (ula_prefetch_origin_hc):
+    ///   fetch(C) = origin + 12 + 8C  (even) / origin + 8 + 8C  (odd).
+    ///
+    /// Verified empirically against real FUSE on bifrost.tap (Task 54):
+    /// with this boundary + the Task 54 contention-magnitude fix, the
+    /// rendered frame is pixel-identical to FUSE modulo FLASH phase.
     uint16_t hc_fetch(int col) const {
         const int origin = (hc_origin_ < 0) ? 0 : hc_origin_;
-        return static_cast<uint16_t>(origin + col * 8);
+        return static_cast<uint16_t>(origin + col * 8 + ((col & 1) ? 8 : 12));
     }
 
     std::array<uint8_t, kNumBytes> baseline_{};

@@ -2211,6 +2211,15 @@ void test_cat21_nirvana_multiplex() {
     // character row 0), not retroactively recolour the scanline already
     // rendered.
     //
+    // Task 54: the fetch instant is parity-aware (zxula.vhd:271-306 +
+    // 368-455 — see AttributeMux::hc_fetch()): odd columns latch at
+    // origin + 8 + col*8. For col 5 on 48K that is 116+8+40 = 164, not
+    // the pre-Task-54 origin + col*8 = 156. The straddle points below
+    // (fetch∓6 = 158/170) are chosen so 158 sits BETWEEN the old and new
+    // boundaries: under the old formula the early write would resolve as
+    // "after the fetch" — i.e. this row also goes red if hc_fetch()
+    // regresses to the old formula.
+    //
     // Mutation-tested: temporarily reverting AttributeMux::resolve()'s
     // hc comparison to a line-only comparison (as round 3 had it --
     // `e.line <= target_line_` unconditionally, dropping the `e.hc <=
@@ -2226,7 +2235,7 @@ void test_cat21_nirvana_multiplex() {
         const int disp_y     = 32;   // Ula::DISP_Y
         const int hc_origin  = 116;  // VideoTiming::ula_prefetch_origin_hc(), 48K: 128-12
         const int col        = 5;
-        const int fetch_hc   = hc_origin + col * 8;   // 156
+        const int fetch_hc   = hc_origin + 8 + col * 8;   // 164 (odd col, Task 54)
 
         f.mmu.attr_mux_start_frame(hc_origin);
         f.mmu.attr_mux_set_current_line(disp_y + 0);
@@ -2258,6 +2267,61 @@ void test_cat21_nirvana_multiplex() {
               this_scanline == 0xAA && next_scanline == 0xBB,
               fmt("this_scanline=0x%02X next_scanline=0x%02X "
                   "(expected 0xAA then 0xBB)", this_scanline, next_scanline));
+    }
+
+    // G12-MUX-11 — Task 54: fetch-instant PARITY asymmetry. Per
+    // zxula.vhd:368-455 the byte governing an EVEN column is consumed by
+    // sload_0 (latched 1 tick earlier, at origin+12+8C); an ODD column's
+    // byte comes via sload_1 (latched 5 ticks earlier, at origin+8+8C).
+    // On 48K: fetch(col 4) = 116+12+32 = 160, fetch(col 5) = 116+8+40 =
+    // 164. Three probes pin the pair of boundaries:
+    //   * hc=162 write to BOTH cols: after col 4's 160 (next line), but
+    //     before col 5's 164 (this line). Kills the pre-Task-54 formula
+    //     origin+col*8 (fetch(5)=156 < 162 would resolve col 5 "after").
+    //   * hc=166 write to col 5: after 164 (next line). Kills a uniform
+    //     parity-blind origin+12+col*8 (fetch(5)=168 > 166 would resolve
+    //     it "before" and show it this line).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const int disp_y    = 32;
+        const int hc_origin = 116;
+        const uint16_t addr4 = 0x5804, addr5 = 0x5805;  // cols 4 and 5, row 0
+
+        f.mmu.attr_mux_start_frame(hc_origin);
+        f.mmu.attr_mux_set_current_line(disp_y + 0);
+        // Baseline values written well before either fetch this scanline.
+        f.mmu.attr_mux_set_current_hc(10);
+        f.mmu.write(addr4, 0x40);
+        f.mmu.write(addr5, 0x50);
+        // Between fetch(4)=160 and fetch(5)=164.
+        f.mmu.attr_mux_set_current_hc(162);
+        f.mmu.write(addr4, 0x41);
+        f.mmu.write(addr5, 0x51);
+        // After fetch(5)=164 (but before a parity-blind 168).
+        f.mmu.attr_mux_set_current_hc(166);
+        f.mmu.write(addr5, 0x52);
+
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(disp_y + 0);
+        const uint8_t c4_this = f.mmu.attr_mux5().current(4);
+        const uint8_t c5_this = f.mmu.attr_mux5().current(5);
+        f.mmu.attr_mux_apply_line(disp_y + 1);
+        const uint8_t c4_next = f.mmu.attr_mux5().current(4);
+        const uint8_t c5_next = f.mmu.attr_mux5().current(5);
+
+        check("G12-MUX-11",
+              "fetch-instant parity asymmetry: hc=162 lands AFTER even "
+              "col 4's fetch (160) but BEFORE odd col 5's (164); hc=166 "
+              "lands AFTER col 5's -- col 4 keeps its early value this "
+              "line, col 5 shows the 162-write this line and the 166-write "
+              "only next line [zxula.vhd:271-306,368-455; Task 54]",
+              c4_this == 0x40 && c5_this == 0x51 &&
+              c4_next == 0x41 && c5_next == 0x52,
+              fmt("c4_this=0x%02X c5_this=0x%02X c4_next=0x%02X c5_next=0x%02X "
+                  "(expected 0x40/0x51/0x41/0x52)",
+                  c4_this, c5_this, c4_next, c5_next));
     }
 }
 
