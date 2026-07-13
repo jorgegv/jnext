@@ -331,9 +331,12 @@ where possible.
 - **Effort**: L.
 
 ### G12. Nirvana-class memory-write multiplexers (`Ram::write` hook)
-- **Status: OPEN — blocked on a genuine renderer bug found during
-  review, NOT closed.** See below for what landed and what's still
-  broken.
+- **Status (2026-07-13, round 3): mostly resolved — always-on mux
+  (no gate, per user decision), beast.nex bank-selection bug FIXED,
+  `beast-demo`/`layers-beast-ula` back to 0 px diff, full triplet
+  green. One open finding remains (`bifrost.tap`, see below) that is
+  NOT a regression against anything currently covered by an automated
+  test — not a merge blocker, but not independently verified either.
 - **What**: Renderer reads ULA pixel/attribute bytes from physical
   bank 5/7 at frame-end. **Nirvana**, **BIFROST*2**, **multicolour**
   demos rewrite the same attribute byte multiple times per frame
@@ -441,18 +444,108 @@ where possible.
     merge — the positional arm-condition fix (Problem 2) is itself
     correct and zero-false-negative, but shipping it as-is regresses
     `beast-demo`/`layers-beast-ula` by exposing this bug.
-- **Coverage today**: `test/mmu/mmu_test.cpp` group `G12-MUX` (10
-  rows, `G12-MUX-01`..`10`), all passing with real mutation evidence.
+- **Round 3 (2026-07-13) — arm/gate REMOVED (user decision) + the
+  bank-selection bug above FIXED; status upgraded to mostly-resolved,
+  one open finding remains (see below).**
+  - **No more arm/gate, by explicit user decision**, recorded
+    verbatim: *"do not gate it. Do it at all times, and we'll try to
+    optimize it later in the general optimization and profiling pass.
+    5% penalty can be assumed (for the moment)."* Measured
+    (`.prompts/2026-07-13.md` "Task 8 / Nirvana"): gated vs
+    always-armed cost is statistically indistinguishable (headless
+    beast.nex, 2500 frames, release, 3+ runs each side: main 38.5-40.6s,
+    gated 39.8-42.8s, always-armed 42.7s) — the gate bought nothing
+    measurable. `attr_mux_armed_`/`attr_mux_arm_next_frame_`/
+    `attr_mux_write_still_relevant_()`/`kAttrMuxDispY`/`kAttrMuxDispH`
+    deleted from `Mmu`; `Mmu::write()`'s detector now unconditionally
+    calls `record_write()` for every write in the 768-byte attribute
+    sub-range (still gated on address range — that's "is this relevant
+    data at all", not a heuristic). `Ula::attr_vram_read()` no longer
+    branches on an armed flag.
+  - **The beast.nex bank-selection bug (documented above) is FIXED**:
+    `attr_vram_read()`'s bank choice (mux5 vs mux7) now follows
+    `vram_use_bank7_` — the exact same shadow-screen-driven signal
+    `vram_read()` already used for pixels — instead of the Timex-mode-
+    derived `alt`. `alt` still selects which 768-byte sub-window is
+    read (STANDARD vs STANDARD_1 addressing), an orthogonal axis;
+    STANDARD_1's genuine Timex alt-file range (bank 5 upper 8K, page
+    0x0B) is untracked by `AttributeMux` and unaffected — the mux is
+    only ever consulted for `!alt` (0x5800-based) addressing.
+    `beast-demo`/`layers-beast-ula` are back to **0 pixel diff**
+    against their pinned references (confirmed: full regression suite,
+    63/63 pass).
+  - **A second, unrelated fix was needed to ship always-on safely**:
+    `AttributeMux::started()` — NOT a racing heuristic, a plain
+    lifecycle guard. Consulting the mux unconditionally broke 14 tests
+    (`ula_test`, `ula_integration_test`, `debugger_video_panel_test`)
+    that construct a bare `Ula`+`Mmu` and write attribute bytes
+    straight into `Ram`, bypassing `Mmu::write()`'s detector and never
+    calling `Mmu::attr_mux_start_frame()` — so `AttributeMux::current_`
+    stayed all-zero (default-constructed) and reads came back black
+    instead of falling through to the real byte. `started()` is true
+    once `start_frame()` has been called at least once (true for the
+    entire life of a real running emulator, since production always
+    calls it once per frame before any CPU execution); `attr_vram_read()`
+    falls through to the plain read when false, reproducing pre-G12
+    behaviour exactly for any caller that never opts into the
+    per-frame lifecycle.
+  - **New discriminative test** (`G12-MUX-09`, mmu_test): a frame with
+    some cells written mid-frame and others left untouched — untouched
+    cells must show real RAM content unchanged. This is the assertion
+    whose absence let the round-2 bank-selection bug ship (reading the
+    WRONG bank's baseline looked identical to "no fall-through" from
+    the outside). Mutation-tested: temporarily forcing
+    `AttributeMux::start_frame()` to ignore its baseline argument makes
+    this row FAIL (0x00 instead of the real 0x99); reverting makes it
+    PASS. `mmu_test` G12-MUX group: 10 rows → 9 (arm-latency-specific
+    rows removed, one new row added); `test/unit-tests.conf` updated
+    251 → 250.
+  - **Open finding, NOT resolved — `bifrost.tap`'s title screen shows
+    a busy, speckled colour pattern in several icons that could not be
+    conclusively distinguished from genuine dense multicolour racing
+    given available tooling** (no reference-emulator cross-check was
+    performed; CSpect/ZEsarUX are present on the dev machine but were
+    not used due to time budget). Diagnostic evidence gathered: the
+    write log for one frame (2592 attribute-range writes, `bifrost.tap`
+    running on plain 48K — shadow-screen and Timex mode are not in play
+    here, so this is independent of the bank-selection fix above) is
+    self-consistent when replayed in an independent Python
+    reimplementation of `AttributeMux`'s exact algorithm (same
+    picture, no cursor/ordering bug found); writes span framebuffer
+    rows 42-184, i.e. well into the ACTIVE DISPLAY period, not confined
+    to border/vblank as `attribute_mux.h`'s own header comment assumes
+    ("True Nirvana demos always write the full 32-byte row during the
+    horizontal border/blanking period before that row's first fetch").
+    If `bifrost.tap` intentionally races attribute writes continuously
+    across the whole active-display period (a plausible reading of
+    "BIFROST*2" — true per-pixel-row multicolour, not just border-time
+    redraw), jnext's per-scanline-not-per-T-state CPU execution
+    granularity may be attributing some writes to the wrong side of a
+    fetch boundary — a CPU/scheduler-level timing question, beyond
+    `Ula`/`Mmu`, that this round did not investigate further.
+    `nirvana.tap`'s brick-wall texture (unambiguous, visually confirmed
+    two-tone red/yellow banding vs. flat red pre-G12) and `beast.nex`
+    (0 px diff) both work correctly, so this is not a blanket failure
+    of the mechanism — it is scoped to whatever `bifrost.tap`
+    specifically does. Needs a CSpect/ZEsarUX cross-check before further
+    action.
+- **Coverage today**: `test/mmu/mmu_test.cpp` group `G12-MUX` (9
+  rows, `G12-MUX-01`..`09`), all passing with real mutation evidence.
   `demo/nirvana_demo` (racing-the-beam verification demo, visually
   verified via manual headless screenshots per its landing commit;
   not yet wired into `test/00regression/regression_tests.conf` as an
-  automated regression row) — unaffected by the beast.nex bug, since
-  it never enables shadow-screen.
-- **Dependencies**: the Phase-B bank-selection fix above, before
-  merge to main.
-- **Effort**: remaining work (bank-selection fix) — S (small,
-  well-understood root cause + citation, just out of this round's
-  scope).
+  automated regression row). `test/00regression/tap/{bifrost,nirvana,
+  nirvanap}.tap` (added to main 2026-07-13, commit `efd4769d`) were
+  run manually against this round's build — see the open finding
+  above; not wired into any regression manifest (no authorisation to
+  add a reference image yet).
+- **Dependencies**: none blocking merge for the `beast.nex`/pinned-
+  reference acceptance bar; the `bifrost.tap` finding above is a
+  follow-up investigation, not a regression against anything currently
+  covered by an automated test.
+- **Effort**: remaining work (bifrost.tap investigation, if pursued) —
+  M (needs a reference-emulator cross-check and possibly a CPU/
+  scheduler-level timing investigation, not a quick Mmu/Ula fix).
 
 ### G13. Per-scanline sprite-attribute multiplexing
 - **What**: Sprite attrs (port 0x57, NR 0x75-0x79) read at frame-end;
