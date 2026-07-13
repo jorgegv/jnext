@@ -477,6 +477,29 @@ public:
         if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
+        // G12 — Nirvana-class write-observer plumbing (Phase A). Fires
+        // only for the "plain RAM slot" backing store (write_ptr_
+        // sourced from ram_.page_ptr(), the branch at the bottom of
+        // rebuild_ptr()). The dedicated bank5_vram_/bank7_bram_ dual-
+        // port overlays used in Next mode (rom_in_sram_==true, pages
+        // 0x0A/0x0B/0x0E — see rebuild_ptr()) are a separate backing
+        // store this observer does not cover yet: a later phase
+        // (G12-MUX-03, the actual ULA consumer) extends coverage there.
+        // Cheap early-out: has_write_observer() is a single bool test,
+        // so the common case (nothing registered) costs one branch.
+        if (ram_.has_write_observer()) {
+            const uint8_t page = slots_[slot];
+            const bool vram_overlay = rom_in_sram_ &&
+                (page == 0x0A || page == 0x0B || page == 0x0E);
+            if (!vram_overlay) {
+                const uint32_t ram_addr =
+                    static_cast<uint32_t>(to_sram_page(page)) * 0x2000u +
+                    (addr & 0x1FFF);
+                const uint32_t t = (static_cast<uint32_t>(write_beam_vc_) << 16) |
+                                    write_beam_hc_;
+                ram_.notify_write(ram_addr, val, write_beam_m1_, t);
+            }
+        }
     }
 
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
@@ -725,6 +748,24 @@ public:
     // `set_slot_contended()` without changing the latch behaviour.
     void    set_p3_floating_bus_dat(uint8_t v) { p3_floating_bus_dat_ = v; }
     uint8_t p3_floating_bus_dat() const { return p3_floating_bus_dat_; }
+
+    // ── G12 — Nirvana-class write-observer plumbing (Phase A) ──────────
+    // Stashes the beam position (7 MHz-domain hc/vc, see
+    // z80_cpu.cpp::derive_hc_vc) that is current for the *next* write().
+    // Called by the CPU write path (fuse_z80_writebyte(), via the
+    // s_contention_mmu wiring z80_set_contention_runtime() already
+    // installs) immediately before each memory write, so the position
+    // captured here is accurate for that write. Also callable directly
+    // by tests as a stand-in beam position when no CPU is running (see
+    // test/mmu/mmu_test.cpp G12-MUX-02) — Mmu has no opinion about who
+    // calls it. m1 is always false for the current caller (data writes
+    // are never M1 cycles); kept for signature symmetry with Ram's
+    // WriteObserver.
+    void set_write_beam_pos(uint16_t hc, uint16_t vc, bool m1) {
+        write_beam_hc_ = hc;
+        write_beam_vc_ = vc;
+        write_beam_m1_ = m1;
+    }
 
     // Per-16K-slot contention mirror — legacy plumbing retained for
     // save-state compatibility (see comment above). The hot-path latch
@@ -1394,6 +1435,13 @@ private:
     // +3. Power-on default 0x00 (VHDL signal default — no explicit
     // reset clause).
     uint8_t        p3_floating_bus_dat_ = 0x00;
+    // G12 — Nirvana-class write-observer plumbing (Phase A). Beam
+    // position stashed by set_write_beam_pos(), consumed (and packed
+    // into Ram::WriteObserver's `t`) by write()'s notify_write() call.
+    // See set_write_beam_pos() above for who sets these.
+    uint16_t       write_beam_hc_ = 0;
+    uint16_t       write_beam_vc_ = 0;
+    bool           write_beam_m1_ = false;
     // Per-16K-slot contention mirror (see set_slot_contended() comment).
     bool           slot_contended_[4] = {false, false, false, false};
     // VHDL nr_08_contention_disable (zxnext.vhd:1114 default '0', written
