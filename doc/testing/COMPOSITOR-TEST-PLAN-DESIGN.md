@@ -94,6 +94,38 @@ compositor_integration_test 7/7/0/0 (100%). Net 9 SKIP closures this session:
   differ from the pre-existing PSCAN-G04-01/G11-01/G11-02 bookkeeping
   rows. `compositor_test` 187→189.
 
+* **2026-07-13 (Task 46) — sixth and last instance of the same bug
+  class, and the only one with a user-visible rendering consequence.**
+  `Layer2::render_scanline` read a SEPARATE live member
+  (`PaletteManager::global_transparency()`), not
+  `Renderer::transparent_rgb_per_line_`, so it did not benefit from
+  Task 45's fix at all. Worse than TR-50/51's case: Layer2
+  *skip-writes* transparent pixels (`layer2.cpp`'s `continue` paths
+  leave `dst[]` at the caller's TRANSPARENT sentinel), so a pixel
+  Layer2 wrongly judged transparent during the stale-live window was
+  DESTROYED before `composite_scanline`'s own NR 0x14 check
+  (`renderer.cpp`'s `l2_transp` clause) ever saw it — that check can
+  only narrow an already-written pixel to transparent, never recover
+  one that was never written. Fixed by giving
+  `Layer2::render_scanline` a mandatory `transparent_rgb` parameter
+  and having `Renderer::render_row` pass
+  `transparent_rgb_for_line(row)`; `Layer2::render_scanline_debug`
+  deliberately keeps reading the LIVE value (see its own doc comment
+  in `layer2.h` — it is the debugger's isolated-bank view of the
+  CURRENT machine state, not a replay of a historical scanline, and
+  must not be forced through the render-time deferral path). New rows
+  **TR-52/53** (Group TR below) exercise the REAL `Layer2` via
+  `Renderer::render_row` (not a hand-set `layer2_line_`), because the
+  bug is one pipeline stage before `composite_scanline`. Also proved
+  (exhaustive property check, all 512 RGB333 palette values × all 256
+  NR 0x14 values, 0 violations) that once Layer2 and the compositor
+  read the SAME snapshot, `renderer.cpp`'s `(l2_px & 0xFFFFFF) ==
+  nr14_rgb` redundant check is provably unreachable whenever
+  `is_transparent(l2_px)` is false — documented in place, not deleted
+  (harmless, and a future change to either RGB-expansion function
+  would silently resurrect a real bug if the guard were gone).
+  `compositor_test` 189→191.
+
 ---
 
 **Pre-Task 8 baseline (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**
@@ -391,6 +423,8 @@ derivation is non-obvious, the arithmetic is shown inline.
 | TR-41 | Sprite `pixel_en=1` opaque regardless of NR 0x14 | NR 0x14=any | sprite_pixel_en_2=1, sprite_rgb_2=0x1C6 | sprite_transparent=0 | 7118 (no RGB compare) |
 | TR-50 | **Deferral** (Task 45): a mid-frame NR 0x14 write does not retroactively affect a row whose per-line snapshot already ran | Row 13's `transparent_rgb_per_line_` snapshot captured with NR 0x14=0xE3 (reset default); mode 000, opaque ULA pixel RGB=0xAA, all other layers transparent | Write NR 0x14 ← 0xAA (now matches the ULA pixel's RGB) but do **not** re-snapshot row 13; composite row 13 directly via `composite_scanline` (bypasses `composite_one()`'s auto-sync — see the deferral-methodology note in Group PSCAN) | Row still shows the OLD snapshot (0xE3 ≠ 0xAA) — ULA pixel stays opaque and wins | 1137, 5226, 6822, 6912–6913, 7078, 7100 |
 | TR-51 | **Deferral** (Task 45): the SAME row takes the new NR 0x14 value only once its snapshot is refreshed | Continuation of TR-50 (same `Renderer`, same row) | Re-snapshot row 13 (mirrors the next `on_scanline()` capture), composite the SAME row again | ULA RGB (0xAA) now matches the refreshed NR 0x14 snapshot → ULA transparent → the NR 0x4A fallback colour wins | 1137, 5226, 6822, 6912–6913, 7078, 7100 |
+| TR-52 | **Skip-write recovery** (Task 46): `Layer2::render_scanline` used a SEPARATE live member (`PaletteManager::global_transparency()`) instead of the per-line snapshot `composite_scanline` uses, so a mid-frame NR 0x14 write could make it wrongly skip-write (destroy) an opaque pixel one row too early — unlike TR-50/51 this drives the REAL `Layer2::render_scanline` via `Renderer::render_row` (not a hand-set `layer2_line_`), because the bug is one pipeline stage before `composite_scanline` | Row 32's `transparent_rgb_per_line_` snapshot captured with NR 0x14=0xE3 (reset default); a real `Layer2` (bank 8, palette index 0x01 = RGB 0xAA) painted via `render_row`; `set_layer_mask(LAYER_LAYER2)` isolates L2 (host-side test knob, not machine state) | `write_nr14(0xAA)` (mirrors the emulator.cpp handler: sets BOTH `PaletteManager::global_transparency()` and `Renderer::transparent_rgb_` — now matches the pixel's RGB) but do **not** re-snapshot row 32; call `render_row` for row 32 | Pixel SURVIVES using the pre-write deferred value (0xE3 ≠ 0xAA → opaque) — before Task 46, the stale live 0xAA would make Layer2 skip-write it, and `composite_scanline`'s own NR 0x14 check cannot recover a pixel that was never written (`is_transparent(l2_px)` is already true) | 7121, 1137, 5226, 6822, 6912–6913, 7078 |
+| TR-53 | **Deferral round-trip** (Task 46): the SAME row's Layer 2 output takes the new NR 0x14 value only once its snapshot is refreshed | Continuation of TR-52 (same `Renderer`, same `Layer2`, same row) | Re-snapshot row 32 (mirrors the next `on_scanline()` capture), call `render_row` for row 32 again | Layer 2 RGB (0xAA) now matches the refreshed NR 0x14 snapshot → Layer2 correctly skip-writes the now-transparent pixel → the NR 0x4A fallback colour wins | 7121, 1137, 5226, 6822, 6912–6913, 7078 |
 
 ### Group TRI — Index-based transparency (integration rows only)
 
@@ -648,24 +682,34 @@ proven here; the *consumption* is proven by the deferral pairs below,
 which call `composite_scanline` directly and assert an observable pixel
 difference before vs. after the snapshot is refreshed for the SAME row:
 
-- **TR-50 / TR-51** (Group TR below) — NR 0x14.
+- **TR-50 / TR-51** (Group TR below) — NR 0x14, `composite_scanline`'s own transparency check.
 - **STEN-20 / STEN-21** (Group STEN below) — NR 0x68 bit 0 (stencil).
 - **UTB-50 / UTB-51** (Group UTB below) — NR 0x68 bits 6:5 (blend mode).
+- **TR-52 / TR-53** (Group TR below) — NR 0x14, `Layer2::render_scanline`'s
+  gate one stage EARLIER than `composite_scanline` (Task 46). This pair is
+  the odd one out structurally: it calls `Renderer::render_row` (which
+  itself calls the real `Layer2::render_scanline`), not
+  `composite_scanline` directly, because the Task 46 defect was Layer2
+  reading a separate live member, not `composite_scanline` reading the
+  wrong array. `composite_one()`'s auto-sync would be equally vacuous
+  here for the same reason as the other three pairs.
 
-All three pairs share one methodological point worth stating once,
-here, rather than only in a code comment: `test/compositor/compositor_test.cpp`'s
-`composite_one()` helper auto-syncs every per-line snapshot
-(`snapshot_transparent_rgb_for_line`, `snapshot_stencil_mode_for_line`,
-`snapshot_blend_mode_for_line`) for its target row immediately before
-compositing, so every OTHER row in the suite (which sets the live
-member and composites through `composite_one()` in the same
-statement) tests pixel math given an *already-effective* value, not
-deferral. A deferral row that used `composite_one()` would have its
-withheld snapshot silently filled in by the helper and could never
-fail — a vacuous test. TR-50/51, STEN-20/21 and UTB-50/51 therefore
-call `r.composite_scanline()` directly, bypassing `composite_one()`,
-so the snapshot they deliberately withhold for the "before" assertion
-stays withheld.
+All three `composite_scanline`-level pairs share one methodological
+point worth stating once, here, rather than only in a code comment:
+`test/compositor/compositor_test.cpp`'s `composite_one()` helper
+auto-syncs every per-line snapshot (`snapshot_transparent_rgb_for_line`,
+`snapshot_stencil_mode_for_line`, `snapshot_blend_mode_for_line`) for
+its target row immediately before compositing, so every OTHER row in
+the suite (which sets the live member and composites through
+`composite_one()` in the same statement) tests pixel math given an
+*already-effective* value, not deferral. A deferral row that used
+`composite_one()` would have its withheld snapshot silently filled in
+by the helper and could never fail — a vacuous test. TR-50/51,
+STEN-20/21 and UTB-50/51 therefore call `r.composite_scanline()`
+directly, bypassing `composite_one()`, so the snapshot they
+deliberately withhold for the "before" assertion stays withheld.
+TR-52/53 sidesteps `composite_one()` for the same reason by calling
+`r.render_row()` directly instead.
 
 ### Group BLANK — Output blanking
 

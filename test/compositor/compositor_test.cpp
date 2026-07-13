@@ -575,6 +575,131 @@ static void test_TR() {
 
         r.set_transparent_rgb(0xE3);  // restore default for later groups
     }
+
+    // TR-52/53: Task 46 — Layer2::render_scanline must use the SAME
+    //           per-line-deferred NR 0x14 snapshot composite_scanline reads
+    //           (transparent_rgb_for_line(row)), not the SEPARATE live
+    //           member PaletteManager::global_transparency(). Before the
+    //           fix, Layer2 read the live palette member directly, so a
+    //           mid-frame NR 0x14 write could make Layer2 WRONGLY judge an
+    //           opaque pixel transparent for the CURRENT row and skip-write
+    //           it (layer2.cpp `continue`, leaving `dst[]` at the
+    //           TRANSPARENT sentinel). That destruction is unrecoverable:
+    //           composite_scanline's own NR 0x14 check (renderer.cpp, the
+    //           `l2_transp` clause) can only ever narrow an ALREADY-WRITTEN
+    //           pixel to transparent — is_transparent(l2_px) is already
+    //           true once skip-written — so it cannot un-delete a pixel
+    //           Layer2 never wrote. Unlike TR-50/51 (which drive
+    //           composite_scanline directly against a hand-set ula_line_),
+    //           this pair exercises the REAL Layer2::render_scanline path
+    //           via Renderer::render_row, because the bug lives one
+    //           pipeline stage EARLIER than composite_scanline. VHDL
+    //           zxnext.vhd:7121 (layer2_transparent compares
+    //           layer2_rgb_2(8:1) against transparent_rgb_2);
+    //           1137,5226,6822,6912-6913,7078 (the transparent_rgb_0->1a->
+    //           1->2 deferral chain, Task 45's per-line snapshot of the
+    //           same chain).
+    //
+    //           set_layer_mask(LAYER_LAYER2) is a HOST-side test-isolation
+    //           knob (not machine state — see the LayerMask doc comment in
+    //           renderer.h) that forces ULA/sprites/tilemap transparent so
+    //           the only two possible outputs are "the Layer 2 pixel" or
+    //           "the NR 0x4A fallback colour", making the two directions
+    //           (opaque survives / transparent falls through) unambiguous.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+
+        PaletteManager pal;
+        pal.reset();
+
+        r.reset();
+        r.set_layer_mask(Renderer::LAYER_LAYER2);
+        r.set_fallback_colour(0x10);
+        r.init_fallback_per_line();
+
+        Layer2 l2;
+        l2.reset();
+        l2.set_enabled(true);
+        // active_bank_=8, resolution_=0 (256x192 narrow), scroll=0 (Layer2
+        // reset defaults). Single opaque source pixel at (x=0,y=0):
+        // pixel byte 0x01 -> palette index 0x01 (palette_offset_=0).
+        ram.write(8u * 16384u, 0x01);
+        // NR 0x43: target = LAYER2_FIRST (bits 6:4 = 001 = 0x10), clear
+        // bit 2 so writes and display both hit palette 0 (VHDL
+        // zxnext.vhd:5392) — same pattern as test/layer2/layer2_test.cpp's
+        // set_l2_palette_8bit(). Palette entry RGB8 = 0xAA, distinct from
+        // both the NR 0x14 default (0xE3) and the fallback colour (0x10)
+        // set above, so all three possible outputs (L2 pixel / fallback /
+        // stale-wrong-value) are visually distinguishable.
+        pal.write_control(0x10);
+        pal.set_index(0x01);
+        pal.write_8bit(0xAA);
+
+        const int ROW = Renderer::DISP_Y;  // first display row (32)
+        uint32_t row_buf[Renderer::FB_WIDTH];
+
+        // Mirrors the actual NR 0x14 write handler (emulator.cpp: writes
+        // BOTH palette_.set_global_transparency(v) AND
+        // renderer_.set_transparent_rgb(v) from the same handler) so the
+        // mutation below reproduces the historical bug's exact shape: two
+        // separate live members that are always in sync EXCEPT during the
+        // per-line-snapshot deferral window this test targets.
+        auto write_nr14 = [&](uint8_t v) {
+            pal.set_global_transparency(v);
+            r.set_transparent_rgb(v);
+        };
+
+        // Baseline: row's deferred snapshot captured with NR 0x14 = 0xE3
+        // (VHDL reset default), which does NOT match the pixel's palette
+        // RGB (0xAA) -> Layer2 must judge the pixel OPAQUE and write it.
+        write_nr14(0xE3);
+        r.snapshot_transparent_rgb_for_line(ROW);
+
+        // NR 0x14 write lands mid-frame (Copper MOVE / CPU OUT), flipping
+        // BOTH live members to 0xAA — which now matches the pixel's RGB.
+        // Row ROW's per-line snapshot is deliberately NOT refreshed.
+        write_nr14(0xAA);
+
+        std::memset(row_buf, 0, sizeof(row_buf));
+        r.render_row(row_buf, ROW, mmu, ram, pal, l2, nullptr, nullptr);
+        const uint32_t l2_pixel = pal.layer2_colour(0x01);
+        check("TR-52",
+              "mid-frame NR 0x14 write does not retroactively make "
+              "Layer2::render_scanline skip-write a pixel on a row whose "
+              "snapshot already ran — pixel survives using the pre-write "
+              "deferred value (VHDL 7121, 1137,5226,6822,6912-6913,7078)",
+              row_buf[Renderer::DISP_X] == l2_pixel,
+              DETAIL("row_buf[%d]=0x%08X expected_l2_pixel=0x%08X "
+                     "(stale live 0xAA would wrongly skip-write -> fallback "
+                     "0x%08X)",
+                     Renderer::DISP_X, row_buf[Renderer::DISP_X], l2_pixel,
+                     Renderer::rrrgggbb_to_argb(0x10)));
+
+        // Refresh the row's snapshot (mirrors the next on_scanline() call).
+        // The SAME row must now select the NEW value (0xAA == pixel RGB)
+        // -> Layer2 judges the pixel transparent and skip-writes it ->
+        // everything else is masked transparent -> fallback wins.
+        r.snapshot_transparent_rgb_for_line(ROW);
+        std::memset(row_buf, 0, sizeof(row_buf));
+        r.render_row(row_buf, ROW, mmu, ram, pal, l2, nullptr, nullptr);
+        const uint32_t fallback = Renderer::rrrgggbb_to_argb(0x10);
+        check("TR-53",
+              "After the deferred snapshot lands, the SAME row selects the "
+              "new NR 0x14 value and Layer2 correctly skip-writes the "
+              "now-transparent pixel — fallback colour wins "
+              "(VHDL 7121, 1137,5226,6822,6912-6913,7078)",
+              row_buf[Renderer::DISP_X] == fallback,
+              DETAIL("row_buf[%d]=0x%08X expected_fallback=0x%08X",
+                     Renderer::DISP_X, row_buf[Renderer::DISP_X], fallback));
+
+        // Restore for any code appended after this block in the future.
+        r.set_transparent_rgb(0xE3);
+        r.set_fallback_colour(0xE3);
+        r.set_layer_mask(Renderer::LAYER_ALL);
+    }
 }
 
 // ── Group TRI — Index-based transparency integration (VHDL 7109, 7118) ──

@@ -121,10 +121,37 @@ public:
     /// resolution ≥ 2 (640×256 4bpp). Cells outside the painted range are
     /// left untouched (caller is expected to pre-fill with TRANSPARENT).
     ///
-    /// @param dst          Output buffer — must hold at least 640 pixels.
-    /// @param row          Framebuffer row (0–255).
-    /// @param ram          Physical RAM for direct bank access.
-    /// @param palette      Palette manager for Layer 2 colour lookup.
+    /// @param dst              Output buffer — must hold at least 640 pixels.
+    /// @param row              Framebuffer row (0–255).
+    /// @param ram              Physical RAM for direct bank access.
+    /// @param palette          Palette manager for Layer 2 colour lookup.
+    /// @param transparent_rgb  NextREG 0x14 global transparency reference
+    ///                         (8-bit RRRGGGBB), compared against the
+    ///                         RRRGGGBB portion of each pixel's palette
+    ///                         output (VHDL zxnext.vhd:7121: `layer2_rgb_2
+    ///                         (8 downto 1) = transparent_rgb_2`). MUST be
+    ///                         the caller's per-line-deferred snapshot, not
+    ///                         a live NextREG value — Task 46: this used to
+    ///                         be read internally via
+    ///                         `palette.global_transparency()` (a *separate*
+    ///                         live member from `Renderer::transparent_rgb_`,
+    ///                         both written from the same NR 0x14 handler),
+    ///                         so a mid-frame Copper MOVE to NR 0x14 could
+    ///                         flip a pixel's transparency for the CURRENT
+    ///                         row instead of only rows from the next
+    ///                         scanline onward — and because this function
+    ///                         *skip-writes* transparent pixels (leaves
+    ///                         `dst[]` untouched at the caller's TRANSPARENT
+    ///                         sentinel), a wrongly-transparent pixel was
+    ///                         unrecoverably destroyed before it ever
+    ///                         reached the compositor. `Renderer::render_row`
+    ///                         passes `transparent_rgb_for_line(row)` (the
+    ///                         SAME stage0/1a/1/2-pipelined snapshot
+    ///                         `composite_scanline` reads, VHDL
+    ///                         zxnext.vhd:1137,5226,6822,6912-6913,7078,
+    ///                         wired by Task 45). `render_scanline_debug`
+    ///                         deliberately does NOT do this — see its own
+    ///                         doc comment.
     /// @param rom_in_sram  Next-mode flag — when true, apply VHDL zxnext.vhd:
     ///                     2964 +0x20 shift (in 8K-page units = +16 in 16K-
     ///                     bank units) to the active bank so the Layer 2
@@ -144,12 +171,24 @@ public:
     ///                     not need per-pixel priority info.
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette,
+                         uint8_t transparent_rgb,
                          bool rom_in_sram = false,
                          bool* priority_dst = nullptr) const;
 
     /// Render one scanline using a specific bank, regardless of enabled_ state.
     /// Used by the debugger video panel to show active and shadow Layer 2 content.
     /// Always renders 640 pixels — see render_scanline doc.
+    ///
+    /// Deliberately reads `palette.global_transparency()` (the LIVE NR 0x14
+    /// value) internally rather than taking a `transparent_rgb` parameter:
+    /// this is the debugger's isolated-bank inspection view (a synthetic
+    /// render of a chosen bank at the CURRENT paused instant, not a replay
+    /// of a specific historical scanline within an in-progress frame — see
+    /// `src/debugger/video_panel.cpp:393,399`), so there is no meaningful
+    /// per-line snapshot to defer to. The debugger must OBSERVE the machine
+    /// state, never change what it observes, and must not be forced through
+    /// the render-time deferral path that exists solely to match the
+    /// hardware's mid-frame Copper-write pipeline timing.
     void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                const PaletteManager& palette, uint8_t bank,
                                bool rom_in_sram = false);

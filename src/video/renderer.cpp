@@ -304,7 +304,17 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
             // whose palette entry has the priority bit set (VHDL
             // zxnext.vhd:7050, 7220). The buffer is zero-filled at the
             // top of this function so transparent pixels stay false.
+            // transparent_rgb_for_line(row), NOT palette.global_transparency()
+            // (the live NR 0x14 member): VHDL zxnext.vhd:1137,5226,6822,
+            // 6912-6913,7078 pipeline NR 0x14 through the SAME stage0/1a/1/2
+            // register chain composite_scanline reads via nr14_rgb (Task 45),
+            // so a Copper MOVE to NR 0x14 mid-frame must not affect the row
+            // it lands on. Layer2::render_scanline SKIP-WRITES transparent
+            // pixels, so before Task 46 a wrongly-transparent pixel here was
+            // destroyed before composite_scanline's own NR 0x14 check ever
+            // saw it — unrecoverable.
             layer2.render_scanline(layer2_line_.data(), row, ram, palette,
+                                   transparent_rgb_for_line(row),
                                    mmu.rom_in_sram(),
                                    layer2_priority_.data());
         }
@@ -522,6 +532,34 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
         // what they emulate (a masked layer == a disabled layer).
         const bool ula_transp = mask_ula || is_transparent(ula_px) ||
                                 ((ula_px & 0x00FFFFFF) == nr14_rgb);
+        // Task 46: `(l2_px & 0x00FFFFFF) == nr14_rgb` is now PROVABLY
+        // UNREACHABLE whenever `is_transparent(l2_px)` is false. Unlike
+        // the ULA (which never evaluates NR 0x14 itself — VHDL 7100 does
+        // it once, here, at the compositor), Layer2::render_scanline
+        // already skip-writes any pixel whose palette RRRGGGBB equals
+        // `transparent_rgb_for_line(row)` (VHDL zxnext.vhd:7121), using
+        // the IDENTICAL snapshot `nr14_rgb` is built from two lines above.
+        // rrrgggbb_to_argb()'s R/G expansion is the same injective 3-bit
+        // function `layer2_colour()`'s full-precision RGB333->ARGB uses
+        // for R/G, so an R/G mismatch in one representation is an R/G
+        // mismatch in the other. For B, rrrgggbb_to_argb() only carries 2
+        // bits (register format) while layer2_colour() carries the full 3
+        // (palette format); the 8-bit values each side's expansion can
+        // produce (`{0,36,73,109,146,182,219,255}` for 3-bit vs.
+        // `{0,85,170,255}` for 2-bit-then-doubled) intersect ONLY at the
+        // endpoints 0 and 255 — precisely the b3 values whose top 2 bits
+        // (`b3>>1`) already equal the compared 2-bit value, i.e. exactly
+        // the cases `layer2_rgb8() == transparent_rgb` already covers.
+        // So a WRITTEN Layer 2 pixel (opaque per Layer2's own gate against
+        // this SAME snapshot) can never coincide with `nr14_rgb` here.
+        // Before Task 46, Layer2 read a DIFFERENT (live) value than this
+        // `nr14_rgb`, so the two gates could legitimately disagree — this
+        // clause was the (broken) recovery path for the "wrongly opaque"
+        // direction, but could never recover the "wrongly transparent /
+        // skip-written" direction (the pixel was already destroyed). Kept
+        // rather than deleted: it is harmless, documents the equivalence,
+        // and a future change to either expansion function would silently
+        // resurrect a real bug if this clause were gone.
         const bool l2_transp  = mask_l2 || is_transparent(l2_px) ||
                                 ((l2_px & 0x00FFFFFF) == nr14_rgb);
         // VHDL 6934/7118: sprite_en=0 forces all sprites transparent.

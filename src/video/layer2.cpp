@@ -354,13 +354,17 @@ void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
     enabled_      = true;
     active_bank_  = bank;
     // Debugger view doesn't need per-pixel priority info — pass nullptr.
-    render_scanline(dst, row, ram, palette, rom_in_sram, /*priority_dst=*/nullptr);
+    // Reads the LIVE NR 0x14 value on purpose — see the doc comment on
+    // this function in layer2.h (Task 46).
+    render_scanline(dst, row, ram, palette, palette.global_transparency(),
+                    rom_in_sram, /*priority_dst=*/nullptr);
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
 }
 
 void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                              const PaletteManager& palette,
+                             uint8_t transparent_rgb,
                              bool rom_in_sram,
                              bool* priority_dst) const
 {
@@ -369,8 +373,11 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
 
     // VHDL transparency: compares the 8-bit RRRGGGBB palette output
     // (NOT the raw pixel index) against the global transparency colour
-    // (NextREG 0x14).  See zxnext.vhd line 7121.
-    uint8_t transp_rgb = palette.global_transparency();
+    // (NextREG 0x14).  See zxnext.vhd line 7121. `transparent_rgb` is the
+    // caller-supplied reference — see the parameter doc in layer2.h
+    // (Task 46) for why this must be the caller's per-line snapshot, not
+    // a live NextREG read.
+    uint8_t transp_rgb = transparent_rgb;
 
     if (resolution_ == 0) {
         // ---------------------------------------------------------------
