@@ -592,8 +592,8 @@ void test_pass5_pass6_z80n_tstates_via_fuse_counter(Result& res) {
 //   With cpu_speed=0, contention_disable=false, mem_active_page on a
 //   contended bank (e.g. low nibble = 0x05 for ZX48K bank-5 8K pages
 //   0x0A or 0x0B), and (hc, vc) inside the active raster window
-//   (hc_adj[3:2] != 0, vc < 192), the LUT pattern fires:
-//   `kPattern[hc & 7]` returns 1..6 stretch.
+//   (hc_adj[3:2] != 0, vc < 192), the per-phase stretch fires:
+//   Task 54 table `kPat48[hc & 0xF]` returns 1..6 stretch.
 //
 // Pre-Pass-5: Z80N M1 contend_read was bypassed → tstates advance is
 // only the +8 baseline.
@@ -643,7 +643,7 @@ void test_pass5_z80n_m1_contention_stretch(Result& res) {
     mem.ram[0x4001] = 0x30;
 
     *fuse_z80_tstates_ptr() = kDisplayRasterTs48;   // hc_ula=4, vc_ula=0 → hc_adj=5,
-                                   // hc&7=4 → pattern[4]=2 stretch units
+                                   // Task 54 table: hc&0xF=4 → 6 stretch units
 
     int t_returned = cpu.execute();
     uint32_t t_global = *fuse_z80_tstates_ptr();
