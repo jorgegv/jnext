@@ -64,6 +64,30 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
     uint16_t i2s_L = i2s_ ? i2s_->pi_audio_L() : 0u;   // 0..1023
     uint16_t i2s_R = i2s_ ? i2s_->pi_audio_R() : 0u;
 
+    // Debugger-only source mute (audio/audio_mute.h). Guarded by a single
+    // test on a member that is 0 in every normal run, so the common path
+    // costs one perfectly-predicted branch — this must not eat Task 47's
+    // throughput win. AY chips are muted upstream, in TurboSound.
+    if (mute_mask_ != AudioMute::NONE) {
+        if (mute_mask_ & AudioMute::BEEPER) {
+            // 0 IS the beeper's resting level (EAR/MIC low), so zeroing is
+            // silence — same substitution the exc_i_ gate above makes.
+            ear = 0;
+            mic = 0;
+            tape_ear = 0;
+        }
+        if (mute_mask_ & AudioMute::DAC) {
+            // The DAC's silence is its MIDPOINT, not zero: an idle Soundrive
+            // sits at 0x80 per channel. Substituting 0 here would not mute the
+            // DAC, it would slam it to full negative rail — emit_sample()
+            // subtracts DAC_REST_LEVEL as the mix's DC reference, so a zeroed
+            // DAC term reads as a permanent -1024 offset (a click on toggle
+            // plus a chunk of lost headroom) instead of silence.
+            dac_L = DAC_REST_LEVEL;
+            dac_R = DAC_REST_LEVEL;
+        }
+    }
+
     // audio_mixer.vhd:99-100 13-bit sum — every term is in the 13-bit
     // domain; uint16_t is a superset of 13-bit-unsigned so no clamping
     // is needed at this point.
@@ -113,9 +137,8 @@ void Mixer::emit_sample()
     // The real hardware has AC-coupled output (capacitor blocks DC); we
     // replicate that by subtracting the resting level instead of the 13-bit
     // midpoint.  Scale by 4 to use more of the int16 dynamic range.
-    constexpr int32_t DC_REST = 1024;  // DAC silence level in 13-bit space
-    int32_t sL = avg4_L - DC_REST * 4;
-    int32_t sR = avg4_R - DC_REST * 4;
+    int32_t sL = avg4_L - DAC_REST_LEVEL * 4;
+    int32_t sR = avg4_R - DAC_REST_LEVEL * 4;
 
     // Clamp to int16_t range
     sL = std::clamp(sL, static_cast<int32_t>(-32768), static_cast<int32_t>(32767));

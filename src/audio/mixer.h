@@ -6,6 +6,7 @@
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
 #include "audio/dac.h"
+#include "audio/audio_mute.h"
 
 class I2s;
 
@@ -26,6 +27,14 @@ public:
 
     /// Maximum ring buffer size: ~4 frames worth of samples at 50 Hz.
     static constexpr int RING_BUFFER_SIZE = 4096;
+
+    /// The DAC's idle level in the 13-bit mix domain. Both DAC channel pairs
+    /// reset to 0x80 (soundrive.vhd: unsigned-8 midpoint = silence), so
+    /// dac.pcm_left() idles at 0x80+0x80 = 0x100, and mix() scales it <<2.
+    /// This is ALSO the whole mix's resting DC level (nothing else is
+    /// non-zero at rest), which emit_sample() subtracts to AC-couple the
+    /// output — hence one constant, used by both.
+    static constexpr int32_t DAC_REST_LEVEL = (0x80 + 0x80) << 2;  // 1024
 
     Mixer();
 
@@ -86,6 +95,15 @@ public:
     /// VHDL zxnext.vhd:6504) is computed by Emulator and forwarded here.
     void set_exc_i(bool v) { exc_i_ = v; }
 
+    /// Debugger-only source mute (AudioMute::DAC / AudioMute::BEEPER). The AY
+    /// bits of the mask are NOT handled here — the 3 PSGs are already summed
+    /// into a single stereo pair by the time the Mixer sees them, so per-chip
+    /// muting is gated in TurboSound. Emulator::set_audio_mute_mask() owns the
+    /// full 5-bit mask and fans it out to both. Not machine state — see
+    /// audio/audio_mute.h.
+    void set_mute_mask(uint8_t m) { mute_mask_ = m & (AudioMute::DAC | AudioMute::BEEPER); }
+    uint8_t mute_mask() const { return mute_mask_; }
+
 private:
     /// The VHDL 13-bit unsigned mix (audio_mixer.vhd:99-100) of the current
     /// source levels. Pure function of the sources — no state, no filtering.
@@ -110,4 +128,7 @@ private:
 
     // VHDL audio_mixer.vhd:80-81 — when '1', ear/mic muxes feed (others=>'0').
     bool exc_i_{false};
+
+    // Debugger-only; NOT machine state (not reset, not serialised).
+    uint8_t mute_mask_{AudioMute::NONE};
 };

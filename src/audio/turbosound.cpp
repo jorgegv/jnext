@@ -139,6 +139,13 @@ void TurboSound::compute_stereo_mix()
 
         if (!active) continue;
 
+        // Debugger-only per-chip mute (audio/audio_mute.h). Gates this chip
+        // out of the sum exactly like a pan of "00" would, but WITHOUT
+        // touching pan_ (which is real, CPU-writable hardware state). The
+        // chip has already been ticked above, so its oscillators/envelope
+        // keep running and un-muting resumes mid-waveform.
+        if ((chip_mute_mask_ >> i) & 1) continue;
+
         uint16_t a = ay_[i].output_a();
         uint16_t b = ay_[i].output_b();
         uint16_t c = ay_[i].output_c();
