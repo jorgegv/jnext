@@ -54,10 +54,10 @@ void HeadlessApp::set_delayed_snapshot(const std::string& file, int delay_frames
                            file, delay_frames);
 }
 
-void HeadlessApp::set_delayed_exit(int delay_seconds) {
-    exit_countdown_ = delay_seconds * 50;
-    Log::platform()->info("--delayed-automatic-exit: will exit after {} second(s)",
-                           delay_seconds);
+void HeadlessApp::set_delayed_exit(int delay_frames) {
+    exit_countdown_ = delay_frames;
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
+                           delay_frames);
 }
 
 // Map a character to ZX Spectrum keyboard matrix position (row, col).

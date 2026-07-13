@@ -157,10 +157,10 @@ void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                            Renderer::layer_mask_to_string(layer_mask));
 }
 
-void SdlApp::set_delayed_exit(int delay_seconds) {
-    exit_countdown_ = delay_seconds * 50;  // 50 fps
-    Log::platform()->info("--delayed-automatic-exit: will exit after {} second(s)",
-                           delay_seconds);
+void SdlApp::set_delayed_exit(int delay_frames) {
+    exit_countdown_ = delay_frames;
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
+                           delay_frames);
 }
 
 void SdlApp::run() {

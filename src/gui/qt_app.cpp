@@ -57,10 +57,10 @@ void QtApp::set_speed_multiplier(double multiplier) {
     Log::platform()->info("Emulator speed: {}x (timer {}ms)", multiplier, interval_ms);
 }
 
-void QtApp::set_delayed_exit(int delay_seconds) {
-    exit_countdown_ = delay_seconds * 50;  // 50 fps
-    Log::platform()->info("--delayed-automatic-exit: will exit after {} second(s)",
-                           delay_seconds);
+void QtApp::set_delayed_exit(int delay_frames) {
+    exit_countdown_ = delay_frames;
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
+                           delay_frames);
 }
 
 bool QtApp::init(int argc, char* argv[]) {
