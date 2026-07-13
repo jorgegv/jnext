@@ -478,71 +478,49 @@ public:
         if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
-        // G12 — Nirvana-class write-observer plumbing (Phase A). Fires
-        // only for the "plain RAM slot" backing store (write_ptr_
-        // sourced from ram_.page_ptr(), the branch at the bottom of
-        // rebuild_ptr()). The dedicated bank5_vram_/bank7_bram_ dual-
-        // port overlays used in Next mode (rom_in_sram_==true, pages
-        // 0x0A/0x0B/0x0E — see rebuild_ptr()) are a separate backing
-        // store this observer does not cover yet: a later phase
-        // (G12-MUX-03, the actual ULA consumer) extends coverage there.
-        // Cheap early-out: has_write_observer() is a single bool test,
-        // so the common case (nothing registered) costs one branch.
-        if (ram_.has_write_observer()) {
-            const uint8_t page = slots_[slot];
-            const bool vram_overlay = rom_in_sram_ &&
-                (page == 0x0A || page == 0x0B || page == 0x0E);
-            if (!vram_overlay) {
-                const uint32_t ram_addr =
-                    static_cast<uint32_t>(to_sram_page(page)) * 0x2000u +
-                    (addr & 0x1FFF);
-                const uint32_t t = (static_cast<uint32_t>(write_beam_vc_) << 16) |
-                                    write_beam_hc_;
-                ram_.notify_write(ram_addr, val, write_beam_m1_, t);
-            }
-        }
         // G12-MUX-03 — Nirvana-class attribute-mux consumer (Phase B).
-        // Dedicated, cheap, always-on detector — deliberately independent
-        // of the generic Ram write-observer above (which is untested for
-        // the vram_overlay case and would cost an extra std::function
-        // indirection per write once anything registers on it). This
-        // check works uniformly for BOTH backing stores (plain ram_ pages
-        // 0x0A/0x0E on standalone 48K/128K/+3, and the dedicated
+        // Dedicated, cheap, always-on detector. This check works
+        // uniformly for BOTH backing stores (plain ram_ pages 0x0A/0x0E
+        // on standalone 48K/128K/+3, and the dedicated
         // bank5_vram_/bank7_bram_ buffers on Next machines — see
         // rebuild_ptr()) because it keys off `slots_[slot]`, the logical
         // MMU page, which is identical either way; `ptr` already points
         // at whichever buffer actually backs it.
         //
         // Cost: two array/member loads + up to 3 integer compares on
-        // EVERY plain-RAM-slot write (this is the "always-on" cost
-        // measured for the G12 report). The expensive part — appending
-        // to AttributeMux's per-frame log — only runs once
-        // attr_mux_armed_ is true, i.e. once THIS RUN has already shown
-        // genuine repeated mid-frame writes to the SAME attribute byte
-        // (see attr_mux_start_frame()).
+        // EVERY plain-RAM-slot write. The expensive part — appending to
+        // AttributeMux's per-frame log — only runs once attr_mux_armed_
+        // is true.
         //
-        // Arm signal is "same byte rewritten several times in one
-        // frame", NOT "many attribute-range writes total" — beast.nex
-        // (regression demo) legitimately writes 1500+ DIFFERENT
-        // attribute cells per frame as ordinary HUD/sprite-colour
-        // updates; a total-write-count threshold false-armed on it and
-        // corrupted its screen (25000+/190000+ pixel diff in
-        // beast-demo/layers-beast-ula — caught by the regression suite,
-        // never landed). Real Nirvana racing rewrites the SAME byte up
-        // to 8 times per frame (once per scanline of its 8-line cell);
-        // a small per-byte repeat counter (reset every frame) discriminates
-        // the two cases cheaply.
+        // Arm signal (G12 Problem-2 fix — see
+        // doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md "G12"): a
+        // write ARMS replay iff it could still change what THIS frame
+        // renders for the target cell — i.e. the beam has not yet
+        // finished drawing that cell's own 8-scanline span this frame.
+        // See attr_mux_write_still_relevant_() below for the exact
+        // VHDL-grounded condition.
+        //
+        // This replaces an earlier same-byte-repeat-count heuristic
+        // (kAttrMuxArmRepeatThreshold, since removed) that had a real
+        // false-negative: a cell racing only 2 bands (repeat count 2)
+        // never reached the repeat threshold of 4 and rendered silently
+        // flat/wrong — indistinguishable from "working as designed"
+        // except the picture was wrong. The positional condition has no
+        // such gap by construction: ANY write that can still affect this
+        // frame's render of that cell arms it. It therefore arms MORE
+        // readily than the repeat-count heuristic did — a false arm
+        // only costs a bounded amount of extra per-frame bookkeeping,
+        // while a false non-arm renders the wrong picture, so the
+        // asymmetry is deliberate.
         {
             const uint8_t page = slots_[slot];
             if (page == kAttrMuxBank5Page || page == kAttrMuxBank7Page) {
                 const uint16_t off = addr & 0x1FFF;
                 if (off >= kAttrMuxOffLo && off <= kAttrMuxOffHi) {
                     const uint16_t rel = static_cast<uint16_t>(off - kAttrMuxOffLo);
-                    uint8_t& rep = (page == kAttrMuxBank5Page)
-                        ? attr_mux5_repeat_[rel] : attr_mux7_repeat_[rel];
-                    if (rep < 0xFF) ++rep;
-                    if (rep > attr_mux_max_repeat_this_frame_) {
-                        attr_mux_max_repeat_this_frame_ = rep;
+                    if (!attr_mux_armed_ && !attr_mux_arm_next_frame_ &&
+                        attr_mux_write_still_relevant_(rel)) {
+                        attr_mux_arm_next_frame_ = true;
                     }
                     if (attr_mux_armed_) {
                         AttributeMux& mux = (page == kAttrMuxBank5Page)
@@ -567,19 +545,18 @@ public:
     /// Call once per frame, before any CPU execution. Snapshots the
     /// live attribute-plane bytes as this frame's baseline and decides
     /// whether to arm replay for this frame, based on whether the
-    /// PREVIOUS frame rewrote any single attribute byte several times
-    /// (see kAttrMuxArmRepeatThreshold — the Nirvana signature; a high
-    /// TOTAL write count across many DIFFERENT bytes is ordinary
-    /// gameplay, not racing). Arming is sticky — once a run has shown
-    /// genuine racing, replay stays on for the rest of the run, so a
-    /// brief quiet period doesn't cause the effect to flicker on/off.
+    /// PREVIOUS frame contained any write that satisfied
+    /// attr_mux_write_still_relevant_() (see that helper for the exact
+    /// VHDL-grounded "could this write still affect this frame's render
+    /// of its target cell" condition — the G12 Problem-2 fix). Arming is
+    /// sticky — once a run has shown genuine racing, replay stays on for
+    /// the rest of the run, so a brief quiet period doesn't cause the
+    /// effect to flicker on/off.
     void attr_mux_start_frame() {
-        if (!attr_mux_armed_ && attr_mux_max_repeat_this_frame_ >= kAttrMuxArmRepeatThreshold) {
+        if (!attr_mux_armed_ && attr_mux_arm_next_frame_) {
             attr_mux_armed_ = true;
         }
-        attr_mux_max_repeat_this_frame_ = 0;
-        attr_mux5_repeat_.fill(0);
-        attr_mux7_repeat_.fill(0);
+        attr_mux_arm_next_frame_ = false;
         attr_mux5_.start_frame(bank5_attr_baseline_ptr());
         attr_mux7_.start_frame(bank7_attr_baseline_ptr());
     }
@@ -863,24 +840,6 @@ public:
     // `set_slot_contended()` without changing the latch behaviour.
     void    set_p3_floating_bus_dat(uint8_t v) { p3_floating_bus_dat_ = v; }
     uint8_t p3_floating_bus_dat() const { return p3_floating_bus_dat_; }
-
-    // ── G12 — Nirvana-class write-observer plumbing (Phase A) ──────────
-    // Stashes the beam position (7 MHz-domain hc/vc, see
-    // z80_cpu.cpp::derive_hc_vc) that is current for the *next* write().
-    // Called by the CPU write path (fuse_z80_writebyte(), via the
-    // s_contention_mmu wiring z80_set_contention_runtime() already
-    // installs) immediately before each memory write, so the position
-    // captured here is accurate for that write. Also callable directly
-    // by tests as a stand-in beam position when no CPU is running (see
-    // test/mmu/mmu_test.cpp G12-MUX-02) — Mmu has no opinion about who
-    // calls it. m1 is always false for the current caller (data writes
-    // are never M1 cycles); kept for signature symmetry with Ram's
-    // WriteObserver.
-    void set_write_beam_pos(uint16_t hc, uint16_t vc, bool m1) {
-        write_beam_hc_ = hc;
-        write_beam_vc_ = vc;
-        write_beam_m1_ = m1;
-    }
 
     // Per-16K-slot contention mirror — legacy plumbing retained for
     // save-state compatibility (see comment above). The hot-path latch
@@ -1550,13 +1509,6 @@ private:
     // +3. Power-on default 0x00 (VHDL signal default — no explicit
     // reset clause).
     uint8_t        p3_floating_bus_dat_ = 0x00;
-    // G12 — Nirvana-class write-observer plumbing (Phase A). Beam
-    // position stashed by set_write_beam_pos(), consumed (and packed
-    // into Ram::WriteObserver's `t`) by write()'s notify_write() call.
-    // See set_write_beam_pos() above for who sets these.
-    uint16_t       write_beam_hc_ = 0;
-    uint16_t       write_beam_vc_ = 0;
-    bool           write_beam_m1_ = false;
 
     // G12-MUX-03 — Nirvana-class attribute-mux consumer (Phase B). See
     // the public attr_mux_* API above for the frame lifecycle and
@@ -1571,30 +1523,52 @@ private:
     static constexpr uint8_t  kAttrMuxBank7Page = 0x0E;
     static constexpr uint16_t kAttrMuxOffLo     = 0x1800;
     static constexpr uint16_t kAttrMuxOffHi     = 0x1AFF;
-    // Arm once a SINGLE attribute byte has been rewritten this many
-    // times within one frame. This is the Nirvana signature — the same
-    // byte re-fetched (and, for the effect to work, rewritten) on every
-    // one of the 8 scanlines of its character cell, worst case 8
-    // rewrites. A TOTAL write-count threshold across many DIFFERENT
-    // bytes was tried first and false-armed on beast.nex, which
-    // legitimately writes 1500+ distinct attribute cells per frame as
-    // ordinary HUD/sprite-colour updates (each written once, not
-    // raced) — corrupting its screen (25000+/190000+ pixel diff,
-    // caught by the regression suite before landing). 4 repeats is
-    // comfortably above what a single-pass "redraw changed cells"
-    // sweep would ever produce for the SAME byte and comfortably below
-    // the 8-repeat true-racing case.
-    static constexpr uint8_t kAttrMuxArmRepeatThreshold = 4;
+
+    // G12 Problem-2 fix — framebuffer-row → screen-row conversion for
+    // the arm-condition gate. `attr_mux_current_line_` is tagged in
+    // framebuffer-row space (0..FB_HEIGHT-1, borders included) — see
+    // Emulator::on_scanline's `tag` and attr_mux_set_current_line()'s
+    // doc comment above. The active 192-line display starts at
+    // framebuffer row DISP_Y and is DISP_H rows tall; these mirror
+    // Ula::DISP_Y / Ula::DISP_H (src/video/ula.h) verbatim. Duplicated
+    // (rather than included) because src/video is downstream of
+    // src/memory and including it here would invert the dependency
+    // direction; both constants are display-geometry constants, not
+    // raster-timing values, so they don't vary by machine type.
+    static constexpr int kAttrMuxDispY = 32;
+    static constexpr int kAttrMuxDispH = 192;
+
+    // G12 Problem-2 fix — the zero-false-negative arm-condition gate.
+    // `rel` is the attribute-plane-relative offset (0..767) of the byte
+    // just written; `rel / 32` is its character ROW (VHDL zxula.vhd:
+    // 223-224 `addr_a_spc_12_5 <= "110" & py(7 downto 3)` — the fetch
+    // address depends only on the character row, not the column or the
+    // pixel row within the cell). That character row's own 8-scanline
+    // span (in screen-row space, 0..191) ends at `R*8+7`. A write can
+    // still change what THIS frame renders for that row iff the beam
+    // has not yet finished drawing it, i.e. the CURRENT screen row (from
+    // attr_mux_current_line_) is at or before that row's own last
+    // scanline. Writes tagged outside the active display (top/bottom
+    // border, vblank) can never race — the entire visible frame is
+    // still ahead of them — so they never arm by this gate; they still
+    // update RAM (and therefore next frame's baseline) normally, which
+    // is all a genuine non-racing "set it once before it's drawn"
+    // write needs.
+    bool attr_mux_write_still_relevant_(uint16_t rel) const {
+        const int sr = static_cast<int>(attr_mux_current_line_) - kAttrMuxDispY;
+        if (sr < 0 || sr >= kAttrMuxDispH) return false;
+        const int cell_last_row = (rel / 32) * 8 + 7;
+        return sr <= cell_last_row;
+    }
 
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
     bool           attr_mux_armed_        = false;
-    // Per-byte write-repeat counters (reset every frame in
-    // attr_mux_start_frame) — see kAttrMuxArmRepeatThreshold above for
-    // why this replaces a simple total-write counter.
-    std::array<uint8_t, AttributeMux::kNumBytes> attr_mux5_repeat_{};
-    std::array<uint8_t, AttributeMux::kNumBytes> attr_mux7_repeat_{};
-    uint8_t        attr_mux_max_repeat_this_frame_ = 0;
+    // Set true by attr_mux_write_still_relevant_() firing during this
+    // frame; consumed (and cleared) by the NEXT attr_mux_start_frame()
+    // call, which is when the sticky attr_mux_armed_ latch actually
+    // engages (one frame of detection latency — see G12-MUX-04).
+    bool           attr_mux_arm_next_frame_ = false;
     uint16_t       attr_mux_current_line_ = 0;
 
     /// Pointer to the live 768-byte bank-5 attribute plane, wherever it
