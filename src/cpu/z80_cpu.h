@@ -74,6 +74,23 @@ void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machi
 /// rebased onto the ULA counters before the gate sees them. Task 50.
 void z80_set_ula_counter_origins(int hc_origin, int vc_origin);
 
+/// Task 51 — update the frame geometry (`s_tstates_per_line` /
+/// `s_tstates_per_frame`) that `derive_hc_vc()` uses to map the FUSE
+/// T-state counter onto raster coordinates, WITHOUT re-binding the
+/// contention runtime pointers. Called from the frame-edge machine-timing
+/// commit seam (Emulator::begin_new_frame()) when a runtime NR 0x03
+/// tim_sel change takes effect — the VHDL switches every c_* constant on
+/// `eff_nr_03_machine_timing` (zxnext.vhd:6694-6703), so the CPU-side
+/// line length must follow at the same seam. `z80_set_contention_runtime()`
+/// still sets the same fields at init from the MachineType default.
+void z80_set_frame_geometry(int tstates_per_line, int tstates_per_frame);
+
+/// Test-observability getter for the line geometry `derive_hc_vc()` is
+/// currently using (T-states per line). Lets integration rows prove the
+/// Task 51 frame-edge re-push actually reached the CPU side, which has
+/// no other public observable.
+int z80_get_tstates_per_line();
+
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {
 public:

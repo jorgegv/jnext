@@ -879,6 +879,92 @@ static void section9_vblank_top() {
     // VT-VBT-06 RETIRED 2026-05-04 (paired with VT-VBT-04 retirement).
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 10 — Task 51: init_timing() (tim_sel axis) + Pentagon block
+// VHDL: zxula_timing.vhd:147-280 (constants keyed on i_timing), fed from
+// eff_nr_03_machine_timing (zxnext.vhd:6694-6703). The Pentagon branch
+// (:150-168) sits OUTSIDE the i_50_60 split — no 60 Hz variant exists.
+// ══════════════════════════════════════════════════════════════════════
+
+static void section10_t51_init_timing() {
+    set_group("VT-S10-T51-INIT-TIMING");
+
+    // VT-T51-01 — Pentagon timing constants. This block was lost when the
+    // standalone Pentagon MachineType was retired (Wave 0.3); NR 0x03
+    // tim_sel bit 2 can still select Pentagon timing at runtime.
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::TimingPentagon);
+        const bool ok = vt.hc_max() == 447 && vt.vc_max() == 319 &&
+                        vt.display_origin().hc == 128 &&
+                        vt.display_origin().vc == 80 &&
+                        vt.int_position().hc == 439 &&
+                        vt.int_position().vc == 319;
+        check("VT-T51-01",
+              "init_timing(Pentagon): hc_max=447, vc_max=319, display "
+              "origin (128,80), INT at (439,319) "
+              "[zxula_timing.vhd:155,159,160,163,167,168]",
+              ok,
+              "hc_max=" + std::to_string(vt.hc_max()) +
+              " vc_max=" + std::to_string(vt.vc_max()) +
+              " do=(" + std::to_string(vt.display_origin().hc) + "," +
+              std::to_string(vt.display_origin().vc) + ")" +
+              " int=(" + std::to_string(vt.int_position().hc) + "," +
+              std::to_string(vt.int_position().vc) + ")");
+    }
+
+    // VT-T51-02 — init(MachineType) delegates through the canonical
+    // typ_sel → tim_sel mapping: every constant identical between
+    // init(type) and init_timing(default_machine_timing_for(type)).
+    {
+        bool ok = true;
+        std::string detail;
+        const MachineType types[] = {MachineType::ZX48K, MachineType::ZX128K,
+                                     MachineType::ZX_PLUS3,
+                                     MachineType::ZXN_ISSUE2};
+        for (MachineType t : types) {
+            VideoTiming a, b;
+            a.init(t);
+            b.init_timing(default_machine_timing_for(t));
+            if (a.hc_max() != b.hc_max() || a.vc_max() != b.vc_max() ||
+                a.display_origin().hc != b.display_origin().hc ||
+                a.display_origin().vc != b.display_origin().vc ||
+                a.int_position().hc != b.int_position().hc ||
+                a.int_position().vc != b.int_position().vc) {
+                ok = false;
+                detail = "mismatch for type " +
+                         std::to_string(static_cast<int>(t));
+                break;
+            }
+        }
+        check("VT-T51-02",
+              "init(MachineType) == init_timing(default_machine_timing_for) "
+              "for all four machine types (delegation preserves the "
+              "pre-Task-51 constants exactly)",
+              ok, detail);
+    }
+
+    // VT-T51-03 — 60 Hz override applies on the 128K branch but is
+    // ignored on Pentagon (no i_50_60 split in the :150-168 block).
+    {
+        VideoTiming vt128, vtp;
+        vt128.init_timing(MachineTimingMode::Timing128, /*refresh_60hz=*/true);
+        vtp.init_timing(MachineTimingMode::TimingPentagon,
+                        /*refresh_60hz=*/true);
+        const bool ok = vt128.vc_max() == 263 && vt128.refresh_60hz() &&
+                        vtp.vc_max() == 319 && !vtp.refresh_60hz();
+        check("VT-T51-03",
+              "init_timing 60Hz: 128K honours (vc_max=263, flag set); "
+              "Pentagon ignores (vc_max=319, flag clear) "
+              "[zxula_timing.vhd:214-308 vs :150-168]",
+              ok,
+              "128: vc_max=" + std::to_string(vt128.vc_max()) + " 60hz=" +
+              std::to_string(vt128.refresh_60hz()) +
+              "; pent: vc_max=" + std::to_string(vtp.vc_max()) + " 60hz=" +
+              std::to_string(vtp.refresh_60hz()));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -918,6 +1004,9 @@ int main() {
 
     section9_vblank_top();
     std::printf("  Section 9: VT-S9-VBLANK-TOP         — done (4 live)\n");
+
+    section10_t51_init_timing();
+    std::printf("  Section 10: VT-S10-T51-INIT-TIMING  — done (3 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

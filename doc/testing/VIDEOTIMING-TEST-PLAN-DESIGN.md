@@ -826,3 +826,28 @@ choice.
   scheduler routes through `VideoTiming`, the CTC plan's ULA-INT
   rows may flip to depend on the accessors defined here — track as a
   post-coupling amendment.
+
+## Section 10 — Task 51: init_timing() (tim_sel axis) + Pentagon block (2026-07-14)
+
+The VHDL keys every `c_*` constant on the TIMING axis (`i_timing`,
+`zxula_timing.vhd:147-280`), fed from `eff_nr_03_machine_timing`
+(`zxnext.vhd:6694-6703`). Task 51 adds `VideoTiming::init_timing(
+MachineTimingMode, refresh_60hz)` as the tim_sel entry point (the
+MachineType `init()` now delegates through
+`default_machine_timing_for()`), restores the Pentagon block lost with
+the standalone Pentagon machine type (Wave 0.3), and re-pushes all
+timing surfaces at the frame-edge NR 0x03 commit.
+
+| Row | Asserts | VHDL |
+|---|---|---|
+| VT-T51-01 | Pentagon constants: hc_max 447, vc_max 319, display (128,80), INT (439,319) | zxula_timing.vhd:155,159,160,163,167,168 |
+| VT-T51-02 | init(MachineType) == init_timing(default_machine_timing_for(type)) for all 4 types | delegation equivalence |
+| VT-T51-03 | 60 Hz override honoured on 128K, ignored on Pentagon (block outside i_50_60 split) | zxula_timing.vhd:214-308 vs :150-168 |
+
+The end-to-end frame-edge re-push row (T51-INT-01) lives in
+`test/contention/contention_test.cpp` beside D3-CONTENTION-04 (same
+fixture and commit seam); see CONTENTION-TEST-PLAN-DESIGN.md.
+
+Mutation-tested: breaking the Pentagon `min_vactive` turns VT-T51-01
+red; removing the Pentagon 60 Hz exemption turns VT-T51-03 red;
+disabling the frame-edge re-push turns T51-INT-01 red.
