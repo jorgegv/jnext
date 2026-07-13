@@ -6082,6 +6082,14 @@ void Emulator::begin_new_frame()
     // on_scanline → renderer_.snapshot_ula_enabled_for_line.
     renderer_.init_ula_enabled_per_line();
 
+    // Initialize per-line stencil-mode / blend-mode snapshots (NR 0x68 bit 0
+    // and bits 6:5). VHDL zxnext.vhd:6810-6811,6897-6901,7064-7065 pipelines
+    // ula_stencil_mode and ula_blend_mode through the exact same 3-stage
+    // (stage0/1a/1/2) register chain as ula_en, so a Copper MOVE to NR 0x68
+    // mid-frame must take effect on the next scanline, not the current one.
+    renderer_.init_stencil_mode_per_line();
+    renderer_.init_blend_mode_per_line();
+
     // Initialize per-line border colour to current value.
     // Port 0xFE writes will update individual lines during execution.
     renderer_.ula().init_border_per_line();
@@ -6729,6 +6737,8 @@ void Emulator::run_frame()
     // must use FB_HEIGHT-1 (=255), not the raw last VC line.
     renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
     tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
 
@@ -7625,6 +7635,8 @@ void Emulator::on_scanline(int line)
         if (prev_fb_row >= 0 && prev_fb_row < Renderer::FB_HEIGHT) {
             renderer_.snapshot_fallback_for_line(prev_fb_row);
             renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
+            renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
+            renderer_.snapshot_blend_mode_for_line(prev_fb_row);
             renderer_.ula().snapshot_border_for_line(prev_fb_row);
             tilemap_.snapshot_scroll_for_line(prev_fb_row);
         }
