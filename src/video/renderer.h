@@ -493,7 +493,10 @@ private:
     /// Composite one scanline from the layer buffers into the output.
     /// Always operates at FB_WIDTH (640) columns post-G104 Phase 1.
     /// @param fallback_argb  ARGB8888 fallback colour for when all layers are transparent.
-    void composite_scanline(uint32_t* dst, uint32_t fallback_argb);
+    /// @param row  Framebuffer row, used to read the per-line ULA-enable
+    ///             snapshot (ula_enabled_per_line_) for the stencil gate
+    ///             (VHDL zxnext.vhd:7130 requires ula_en_2 = '1').
+    void composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row);
 
     /// Check if a pixel is transparent (alpha channel = 0).
     static bool is_transparent(uint32_t argb) { return (argb & 0xFF000000) == 0; }

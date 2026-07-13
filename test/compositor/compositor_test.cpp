@@ -169,10 +169,10 @@ static void clear_layers(Renderer& r) {
     r.tm_enabled_ = false;
 }
 
-static uint32_t composite_one(Renderer& r, uint32_t fb_argb) {
+static uint32_t composite_one(Renderer& r, uint32_t fb_argb, int row = 0) {
     uint32_t out[W];
     std::memset(out, 0, sizeof(out));
-    r.composite_scanline(out, fb_argb);
+    r.composite_scanline(out, fb_argb, row);
     return out[0];
 }
 
@@ -934,7 +934,7 @@ static void test_L2P() {
         // FB_WIDTH is now always 640; FB_WIDTH_HI was retired).
         uint32_t out[Renderer::FB_WIDTH];
         std::memset(out, 0, sizeof(out));
-        r.composite_scanline(out, Renderer::rrrgggbb_to_argb(0xE3));
+        r.composite_scanline(out, Renderer::rrrgggbb_to_argb(0xE3), 0);
 
         const bool col0_promoted = (out[0] == L2_A);
         const bool col1_promoted = (out[1] == L2_B);
@@ -1766,6 +1766,66 @@ static void test_STEN() {
               got == PIX_TM,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
+
+    // STEN-18: Task 31 — stencil ON, tm_en ON, but the per-LINE ULA-enable
+    //          snapshot (NR 0x68 bit 7, ula_enabled_per_line_) is FALSE for
+    //          this row. VHDL zxnext.vhd:7130 gates the stencil AND-branch
+    //          on THREE terms: `ula_stencil_mode_2='1' and ula_en_2='1' and
+    //          tm_en_2='1'`. With ula_en_2=0 the gate must be false and the
+    //          compositor must fall to the ordinary ulatm merge (7134-7135),
+    //          which — with ula_transparent forced by ula_en_2=0 (VHDL
+    //          7103) — degrades to "show the TM pixel". Mirrors what
+    //          render_row does when ula_enabled_per_line_[row]=false: the
+    //          ULA line buffer is zeroed (TRANSPARENT), exactly as coded
+    //          here. Before the Task 31 fix, the stale two-term gate
+    //          (stencil_mode_ && tm_enabled_ && !mask_tiles && !mask_ula)
+    //          stayed TRUE, so the compositor computed
+    //          stencil_transparent = ula_transp(true) OR tm_transp(false)
+    //          = true and emitted the NR 0x4A FALLBACK colour instead of
+    //          the TM pixel — the exact bug reproduced empirically
+    //          (jnext emitted 0xFF009200 fallback where VHDL requires the
+    //          0xFFDD00DD tile pixel).
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);                // mode 000 (SLU)
+        r.stencil_mode_ = true;                 // NR 0x68 bit 0
+        r.tm_enabled_   = true;                 // NR 0x6B bit 7
+        r.ula_enabled_per_line_[0] = false;      // NR 0x68 bit 7 (per-line)
+        r.ula_line_[0]     = TRANSP;             // render_row zeroes ULA when disabled
+        r.tilemap_line_[0] = PIX_TM;
+        r.tm_pixel_below_[0] = false;
+        uint32_t fb = Renderer::rrrgggbb_to_argb(0xE3);
+        uint32_t got = composite_one(r, fb, 0);
+        check("STEN-18",
+              "ula_en_2=0 disables stencil gate even with stencil+tm_en set; "
+              "TM pixel shows, NOT the NR0x4A fallback (VHDL 7103,7130,7134-7135)",
+              got == PIX_TM,
+              DETAIL("got=0x%08X expected_tm=0x%08X fallback_would_be=0x%08X",
+                     got, PIX_TM, fb));
+        r.ula_enabled_per_line_[0] = true;       // restore default for later groups
+    }
+
+    // STEN-19: Sanity companion to STEN-18 — same stencil+tm_en setup but
+    //          ula_enabled_per_line_[0]=true (the default), so the stencil
+    //          gate DOES fire and the AND-branch (VHDL 7112-7113) is taken.
+    //          Guards against a fix that disables stencil unconditionally.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.stencil_mode_ = true;
+        r.tm_enabled_   = true;
+        r.ula_enabled_per_line_[0] = true;       // NR 0x68 bit 7 (per-line) — enabled
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(0xFF);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0xE0);
+        r.tm_pixel_below_[0] = false;
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0x00), 0);
+        uint32_t expected = Renderer::rrrgggbb_to_argb(static_cast<uint8_t>(0xFF & 0xE0));
+        check("STEN-19",
+              "ula_en_2=1 (default): stencil AND-branch still fires normally "
+              "(VHDL 7130,7112-7113)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+    }
 }
 
 // ── Group UDIS — NR 0x68 bit 7 ULA-disable + end-to-end blend ────────────
@@ -2004,7 +2064,7 @@ static void test_BLANK() {
         const uint32_t fb = Renderer::rrrgggbb_to_argb(0xE3);
         uint32_t out[W];
         std::memset(out, 0, sizeof(out));
-        r.composite_scanline(out, fb);
+        r.composite_scanline(out, fb, 0);
 
         const bool col0_active = (out[0] == PIX_ULA);
         const bool col1_blank  = (out[1] == fb);

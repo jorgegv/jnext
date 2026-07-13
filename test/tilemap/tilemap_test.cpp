@@ -1332,7 +1332,7 @@ void group10_transparency() {
         }
         uint32_t out[Renderer::FB_WIDTH];  // G104 phase1: canonical 640
         std::memset(out, 0, sizeof(out));
-        R.composite_scanline(out, /*fallback_argb=*/0u);
+        R.composite_scanline(out, /*fallback_argb=*/0u, /*row=*/0);
 
         check_pred("TM-95",
                    tm_pre_ok && out[0] == ula_pix,
