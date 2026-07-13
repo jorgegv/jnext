@@ -41,6 +41,24 @@
 // "iff2_read latched" preconditions that no public Z80Cpu API exposes.
 extern "C" {
 #include "fuse_z80_shim.h"
+
+// Task 50 — the raster seed for "contended access in the active display".
+//
+// These rows want the ULA counters at (hc_ula = 4, vc_ula = 0): hc_adj = 5 →
+// contended phase, wait pattern {6,5,4,3,2,1,0,0}[4] = 2 T of stretch.
+// They used to seed the FUSE T-state counter with literally `2`, because the
+// CPU seam fed the contention gate the RAW frame (hc, vc) — so raw vc 0 was
+// mistaken for the first display line and the top border contended.
+//
+// The gate is keyed on the ULA's display-relative counters, which reset at
+// the start of the ACTIVE DISPLAY (zxula_timing.vhd:423,441-452). On a 48K
+// that is raw vc 64 and raw hc 116, so the SAME intended ULA position is:
+//
+//   64 * 224 (first display line) + 60 (ts_in_line → raw hc 120 → hc_ula 4)
+//
+// The intent of every row below is unchanged; only its expression in raw
+// frame coordinates is corrected.
+static constexpr uint32_t kDisplayRasterTs48 = 64u * 224u + 60u;   // 14396
 }
 
 // ─── Test plumbing ──────────────────────────────────────────────────────────
@@ -624,7 +642,7 @@ void test_pass5_z80n_m1_contention_stretch(Result& res) {
     mem.ram[0x4000] = 0xED;
     mem.ram[0x4001] = 0x30;
 
-    *fuse_z80_tstates_ptr() = 2;   // vc=0, ts_in_line=2 → hc=4 → hc_adj=5,
+    *fuse_z80_tstates_ptr() = kDisplayRasterTs48;   // hc_ula=4, vc_ula=0 → hc_adj=5,
                                    // hc&7=4 → pattern[4]=2 stretch units
 
     int t_returned = cpu.execute();
@@ -772,7 +790,7 @@ void test_pass7_ldix_internal_idle_contention_stretch(Result& res) {
 
     // hc=0, vc=0 → hc_adj=1, hc_adj[3:2]=0 → wait_s=0 → no contention.
     // Use tstates=2 → hc=4, hc_adj=5, hc_adj[3:2]=01 → wait_s=1, pattern[4]=2.
-    *fuse_z80_tstates_ptr() = 2;
+    *fuse_z80_tstates_ptr() = kDisplayRasterTs48;
 
     int t_returned = cpu.execute();
     uint32_t t_total = *fuse_z80_tstates_ptr() - 2u;
@@ -793,7 +811,7 @@ void test_pass7_ldix_internal_idle_contention_stretch(Result& res) {
         mem2.ram[0x4000] = 0x42;
         mem2.ram[0x8000] = 0xED;
         mem2.ram[0x8001] = 0xA4;
-        *fuse_z80_tstates_ptr() = 2;
+        *fuse_z80_tstates_ptr() = kDisplayRasterTs48;
         cpu2.execute();
         t_baseline = *fuse_z80_tstates_ptr() - 2u;
     }
@@ -877,7 +895,7 @@ void test_pass9_ldix_skip_contention_stretch(Result& res) {
     mem.ram[0x8000] = 0xED;
     mem.ram[0x8001] = 0xA4;  // LDIX
 
-    *fuse_z80_tstates_ptr() = 2;
+    *fuse_z80_tstates_ptr() = kDisplayRasterTs48;
     int t_returned = cpu.execute();
     uint32_t t_total = *fuse_z80_tstates_ptr() - 2u;
     uint8_t mem_after = mem.ram[0xA000];
@@ -898,7 +916,7 @@ void test_pass9_ldix_skip_contention_stretch(Result& res) {
         mem2.ram[0xA000] = 0x99;
         mem2.ram[0x8000] = 0xED;
         mem2.ram[0x8001] = 0xA4;
-        *fuse_z80_tstates_ptr() = 2;
+        *fuse_z80_tstates_ptr() = kDisplayRasterTs48;
         cpu2.execute();
         t_baseline = *fuse_z80_tstates_ptr() - 2u;
     }
@@ -1658,7 +1676,7 @@ void test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(Result& res) {
 
         // tstates=2 → hc=4 at start, hc_adj=5 → wait_s=1 → emits stretch
         // when an MREQ-or-IORQ (or no-MREQ) cycle fires on a contended page.
-        *fuse_z80_tstates_ptr() = 2;
+        *fuse_z80_tstates_ptr() = kDisplayRasterTs48;
         cpu.execute();
         uint32_t total = *fuse_z80_tstates_ptr() - 2u;
 
