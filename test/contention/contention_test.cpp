@@ -2805,6 +2805,70 @@ static void test_cat29_v24_mem_01() {
         }
     }
 
+    // T51-INT-01 — Task 51: the frame-edge tim_sel commit re-pushes the
+    // VIDEO TIMING surfaces, not just the contention/Mmu decode. VHDL:
+    // every zxula_timing c_* constant switches on eff_nr_03_machine_timing
+    // (zxula_timing.vhd:147-280 keyed on i_timing, latched at
+    // video_frame_sync per zxnext.vhd:6694-6703). Pre-Task-51 the
+    // VideoTiming constants, the CPU-side line geometry (derive_hc_vc)
+    // and the ULA counter origins were set once at Emulator::init() and
+    // a runtime NR 0x03 timing change left them stale.
+    //
+    // Stimulus mirrors D3-CONTENTION-04: 128K machine, NR 0x03 =
+    // 0x82 (bit7=1 | tim_sel=000=48K | typ_sel=2=128K). Deferred until
+    // the frame edge, then: hc_max 455→447, INT position →(116,0),
+    // prefetch origin 124→116, CPU line geometry 228→224 T.
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX128K);
+        if (!ok) {
+            check("T51-INT-01",
+                  "Emulator::init(ZX128K) failed — Task 51 video-timing "
+                  "re-push probe",
+                  false, "Emulator::init returned false");
+        } else {
+            const bool pre_ok =
+                emu.video_timing().hc_max() == 455 &&
+                z80_get_tstates_per_line() == 228;
+
+            emu.nextreg().write(0x03, 0x82);   // tim_sel=48K, typ unchanged
+            // Pending only — nothing re-pushed before the frame edge.
+            const bool mid_ok =
+                emu.video_timing().hc_max() == 455 &&
+                z80_get_tstates_per_line() == 228;
+
+            emu.run_frame();                   // frame edge commits + re-push
+            const bool post_ok =
+                emu.video_timing().hc_max() == 447 &&
+                emu.video_timing().int_position().hc == 116 &&
+                emu.video_timing().int_position().vc == 0 &&
+                emu.video_timing().ula_prefetch_origin_hc() == 116 &&
+                z80_get_tstates_per_line() == 224;
+
+            // And back: restore 128K timing, same deferred semantics.
+            emu.nextreg().write(0x03, 0xA2);   // tim_sel=010=128K
+            emu.run_frame();
+            const bool back_ok =
+                emu.video_timing().hc_max() == 455 &&
+                z80_get_tstates_per_line() == 228;
+
+            check("T51-INT-01",
+                  "runtime NR 0x03 tim_sel change re-pushes video timing at "
+                  "the frame edge: 128K→48K flips hc_max 455→447, INT to "
+                  "(116,0), prefetch origin to 116, CPU line geometry to "
+                  "224 T (deferred until run_frame, reversible) "
+                  "[zxula_timing.vhd:147-280; zxnext.vhd:6694-6703]",
+                  pre_ok && mid_ok && post_ok && back_ok,
+                  std::string("pre=") + std::to_string(pre_ok) +
+                  " mid=" + std::to_string(mid_ok) +
+                  " post=" + std::to_string(post_ok) +
+                  " back=" + std::to_string(back_ok) +
+                  " (exp 1/1/1/1; post hc_max=" +
+                  std::to_string(emu.video_timing().hc_max()) +
+                  " tpl=" + std::to_string(z80_get_tstates_per_line()) + ")");
+        }
+    }
+
     // D3-CONTENTION-05 — Mmu::machine_timing_ axis storage + commit
     // primitives. Probes the Mmu-side mirror through the production
     // Emulator init path. The Mmu's `machine_timing_` feeds the

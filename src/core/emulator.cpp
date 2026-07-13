@@ -5963,6 +5963,33 @@ void Emulator::stop_rzx_recording()
     rzx_recorder_.stop();
 }
 
+void Emulator::repush_video_timing_from_machine_timing()
+{
+    const MachineTimingMode mode = contention_.machine_timing();
+
+    // VideoTiming constants (VHDL zxula_timing.vhd c_*, keyed on i_timing).
+    // Preserve the current 50/60 Hz selection across the re-init.
+    video_timing_.init_timing(mode, video_timing_.refresh_60hz());
+
+    // Master-cycle frame geometry (`timing_`) + CPU-side line geometry, both
+    // derived from the freshly initialised VideoTiming so there is a single
+    // source of truth for the new mode's line/frame lengths.
+    const int pixels_per_line = video_timing_.hc_max() + 1;
+    const int lines_per_frame = video_timing_.vc_max() + 1;
+    timing_.pixels_per_line   = pixels_per_line;
+    timing_.lines_per_frame   = lines_per_frame;
+    timing_.tstates_per_line  = pixels_per_line / 2;
+    timing_.tstates_per_frame = (pixels_per_line / 2) * lines_per_frame;
+    timing_.master_cycles_per_line =
+        static_cast<uint64_t>(pixels_per_line) * 4u;
+    timing_.master_cycles_per_frame =
+        timing_.master_cycles_per_line * static_cast<uint64_t>(lines_per_frame);
+
+    z80_set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
+    z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
+                                video_timing_.display_origin().vc);
+}
+
 void Emulator::begin_new_frame()
 {
     // Everything that must happen exactly ONCE per frame, at its start. Called from
@@ -5994,8 +6021,24 @@ void Emulator::begin_new_frame()
     // when a user wrote NR 0x03 with bits 6:4 != bits 2:0. The
     // shadow→effective commit happens here so contention sees the new
     // tim_sel value starting at the next frame, matching VHDL.
-    contention_.commit_pending_machine_timing();
-    mmu_.commit_pending_machine_timing();
+    //
+    // Task 51 — when the effective tim_sel actually CHANGES at this
+    // commit edge, the video timing constants must follow: the VHDL
+    // switches every zxula_timing c_* constant combinationally on
+    // `eff_nr_03_machine_timing` (zxula_timing.vhd:147-280 keyed on
+    // i_timing, fed from zxnext.vhd:6694-6703). Pre-fix, VideoTiming /
+    // the CPU-side line geometry (derive_hc_vc) / the master-cycle
+    // frame length (timing_) / the ULA counter origins were all set
+    // ONCE at init() and a runtime NR 0x03 timing change left them
+    // stale — the NextZXOS boot path writes NR 0x03.
+    {
+        const MachineTimingMode tim_before = contention_.machine_timing();
+        contention_.commit_pending_machine_timing();
+        mmu_.commit_pending_machine_timing();
+        if (contention_.machine_timing() != tim_before) {
+            repush_video_timing_from_machine_timing();
+        }
+    }
 
     // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
     // z80_cpu.cpp computes (hc, vc) directly from `tstates % tstates_per_frame`,
@@ -8067,6 +8110,12 @@ void Emulator::load_state(StateReader& r)
             contention_.set_machine_timing(tim_mode);
             mmu_.set_machine_timing(tim_mode);
         }
+        // Task 51 — the restored effective tim_sel may differ from the
+        // init()-time machine default (a rewind/load across a runtime
+        // NR 0x03 timing change); re-derive the video timing constants,
+        // CPU-side line geometry, master-cycle frame length and ULA
+        // counter origins from it. Idempotent when nothing changed.
+        repush_video_timing_from_machine_timing();
     }
 
     // Audio subsystems.

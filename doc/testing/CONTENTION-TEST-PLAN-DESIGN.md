@@ -812,3 +812,13 @@ cmake --build build -j$(nproc) 2>&1 | tail -5
 # Run full regression (includes contention_test once landed)
 bash test/regression.sh
 ```
+
+## Task 51 append (2026-07-14) — frame-edge video-timing re-push
+
+| Row | Asserts | VHDL |
+|---|---|---|
+| T51-INT-01 | Runtime NR 0x03 tim_sel change (128K→48K) re-pushes VideoTiming (hc_max 455→447, INT (116,0), prefetch origin 116) and the CPU line geometry (228→224 T) at the frame edge — deferred until run_frame, reversible | zxula_timing.vhd:147-280; zxnext.vhd:6694-6703 |
+
+Placed beside D3-CONTENTION-04 (same 128K fixture, same commit seam).
+Observability: `Emulator::video_timing()` accessors +
+`z80_get_tstates_per_line()` (Task 51 test getter).

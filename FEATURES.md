@@ -22,6 +22,10 @@
 - Copper co-processor: WAIT/MOVE instructions, per-scanline register writes
 - 6-mode layer compositor (SLU/LSU/SUL/LUS/USL/ULS priority)
 - Per-scanline border colour updates (authentic tape loading stripes)
+- Nirvana/BIFROST-class multicolour: per-scanline, column-accurate attribute
+  racing (FUSE-verified pixel-identical rendering)
+- Runtime NR 0x03 machine-timing changes re-derive the full video timing at
+  the frame edge (line/frame length, INT position), incl. Pentagon timing
 
 ## Palettes
 - 8 palettes (ULA/Layer2/Sprite/Tilemap × first/second), 256 entries each

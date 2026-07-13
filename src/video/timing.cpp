@@ -15,11 +15,21 @@ void VideoTiming::reset()
 
 void VideoTiming::init(MachineType type, bool refresh_60hz)
 {
+    // The VHDL constants are keyed on the TIMING axis (i_timing / tim_sel),
+    // not the machine personality (typ_sel) — delegate through the canonical
+    // typ_sel → tim_sel mapping (ZXN defaults to 128K-style timing, matching
+    // the pre-Task-51 dedicated ZXN_ISSUE2 case which held the identical
+    // constants).
+    init_timing(default_machine_timing_for(type), refresh_60hz);
+}
+
+void VideoTiming::init_timing(MachineTimingMode mode, bool refresh_60hz)
+{
     // Storage holds VHDL-faithful c_max_hc / c_max_vc / c_int_h / c_int_v
     // (max-reached-before-wrap; not line/frame counts). Period is c_max_+1.
     // ── 50 Hz baseline (VHDL i_50_60='0' branch, zxula_timing.vhd:147-280)
-    switch (type) {
-        case MachineType::ZX128K:
+    switch (mode) {
+        case MachineTimingMode::Timing128:
             // 128K 50 Hz (VHDL :184-204)
             hc_max_       = 455;            // :196
             vc_max_       = 310;            // :204
@@ -28,7 +38,7 @@ void VideoTiming::init(MachineType type, bool refresh_60hz)
             int_h_        = 128;            // :187 (136+4-12)
             int_v_        = 1;              // :199
             break;
-        case MachineType::ZX_PLUS3:
+        case MachineTimingMode::TimingPlus3:
             // +3 50 Hz (VHDL :184-204, i_timing(0)='1' branch at :189)
             hc_max_       = 455;            // :196
             vc_max_       = 310;            // :204
@@ -37,16 +47,19 @@ void VideoTiming::init(MachineType type, bool refresh_60hz)
             int_h_        = 126;            // :189 (136+2-12)
             int_v_        = 1;              // :199
             break;
-        case MachineType::ZXN_ISSUE2:
-            // ZX Next defaults to 128K-style timing (256x192, 50 Hz).
-            hc_max_       = 455;            // follows 128K
-            vc_max_       = 310;
-            min_hactive_  = 136;
-            min_vactive_  = 64;
-            int_h_        = 128;
-            int_v_        = 1;
+        case MachineTimingMode::TimingPentagon:
+            // Pentagon (VHDL :150-168 — no 50/60 split; i_timing(2)='1').
+            // Task 51: this block was lost when the standalone Pentagon
+            // MachineType was retired (Wave 0.3); NR 0x03 tim_sel can
+            // still select Pentagon timing at runtime.
+            hc_max_       = 447;            // :160 c_max_hc
+            vc_max_       = 319;            // :168 c_max_vc
+            min_hactive_  = 128;            // :159 c_min_hactive
+            min_vactive_  = 80;             // :167 c_min_vactive
+            int_h_        = 439;            // :155 c_int_h (448+3-12)
+            int_v_        = 319;            // :163 c_int_v
             break;
-        case MachineType::ZX48K:
+        case MachineTimingMode::Timing48:
         default:
             // 48K 50 Hz (VHDL :252-278). c_max_hc=447, c_max_vc=311.
             hc_max_       = 447;            // :262
@@ -61,9 +74,11 @@ void VideoTiming::init(MachineType type, bool refresh_60hz)
     // ── 60 Hz overrides (VHDL i_50_60='1' branch, zxula_timing.vhd:214-308).
     // hc_max_ / min_hactive_ / int_h_ are unchanged between 50 Hz and 60 Hz
     // on the same machine (per VHDL — the 128K-vs-+3 c_int_h split is the
-    // same at both refresh rates).
+    // same at both refresh rates). Pentagon has no 60 Hz branch (the whole
+    // i_timing(2)='1' block at :150-168 sits outside the i_50_60 split);
+    // the flag is ignored there.
     refresh_60hz_ = false;
-    if (refresh_60hz) {
+    if (refresh_60hz && mode != MachineTimingMode::TimingPentagon) {
         refresh_60hz_ = true;
         vc_max_      = 263;     // VHDL c_max_vc :238/:298
         min_vactive_ = 40;      // VHDL c_min_vactive :237/:297

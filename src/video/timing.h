@@ -61,7 +61,21 @@ public:
     /// (zxula_timing.vhd:214-308) and overrides vc_max_, min_vactive_ and
     /// int_v_ accordingly. Pentagon has no 60 Hz VHDL branch, so the flag
     /// is silently ignored for that machine (50 Hz values retained).
+    ///
+    /// Delegates to init_timing() via default_machine_timing_for() — the
+    /// VHDL constants are keyed on the TIMING axis (i_timing, tim_sel),
+    /// not the machine personality (typ_sel).
     void init(MachineType type, bool refresh_60hz = false);
+
+    /// Task 51 — configure timing directly from the tim_sel axis
+    /// (VHDL `i_timing`, zxula_timing.vhd:43: 1XX = Pentagon, 010 = 128K,
+    /// 011 = +3, else 48K; decoded to MachineTimingMode per
+    /// zxnext.vhd:5761-5777). This is the entry point for RUNTIME NR 0x03
+    /// machine-timing changes: the VHDL switches every c_* constant
+    /// combinationally on `eff_nr_03_machine_timing` (latched at
+    /// video_frame_sync, zxnext.vhd:6694-6703), so jnext re-inits at the
+    /// same frame-edge seam (Emulator::begin_new_frame()).
+    void init_timing(MachineTimingMode mode, bool refresh_60hz = false);
 
     /// Advance raster counters by the given number of CPU T-states.
     /// Each T-state at 3.5 MHz = 2 pixel ticks at 7 MHz.

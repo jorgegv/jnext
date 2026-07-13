@@ -1120,3 +1120,14 @@ void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machi
     s_tstates_per_line  = t.tstates_per_line;
     s_tstates_per_frame = t.tstates_per_frame;
 }
+
+void z80_set_frame_geometry(int tstates_per_line, int tstates_per_frame)
+{
+    s_tstates_per_line  = tstates_per_line;
+    s_tstates_per_frame = tstates_per_frame;
+}
+
+int z80_get_tstates_per_line()
+{
+    return s_tstates_per_line;
+}

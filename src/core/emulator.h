@@ -784,6 +784,18 @@ private:
     /// (Task 40: it rewinds the Copper and clears the change logs the compositor replays).
     void begin_new_frame();
 
+    /// Task 51 — re-derive every timing surface that depends on the EFFECTIVE
+    /// machine-timing mode (tim_sel axis, `contention_.machine_timing()`):
+    /// VideoTiming constants, the master-cycle frame geometry (`timing_`),
+    /// the CPU-side line geometry (`z80_set_frame_geometry`) and the ULA
+    /// counter origins. Called from the frame-edge NR 0x03 commit in
+    /// begin_new_frame() when the effective mode changes, and from
+    /// load_state() (a rewind/load may cross a timing change). VHDL: all
+    /// zxula_timing c_* constants switch combinationally on
+    /// `eff_nr_03_machine_timing` (zxula_timing.vhd:147-280 via
+    /// zxnext.vhd:6694-6703).
+    void repush_video_timing_from_machine_timing();
+
     /// True between the start of a frame and its completion. The debugger pauses by
     /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
     /// not restart it.
