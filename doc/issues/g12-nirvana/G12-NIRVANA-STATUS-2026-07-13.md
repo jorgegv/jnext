@@ -1,5 +1,42 @@
 # G12 — Nirvana-class attribute mux: status, conclusions, and the open hypothesis
 
+> ## RESOLVED — 2026-07-13 night (Task 54)
+>
+> **BIFROST now renders pixel-identical to real FUSE (0/49152 differing
+> pixels, both demo screens, modulo FLASH phase), and Nirvana's bricks
+> render yellow, matching FUSE.** Two final bugs, found by measuring
+> BIFROST's per-write beam positions against FUSE (`break write` +
+> `ula:tstates`, the Task 50 oracle recipe):
+>
+> 1. **Contention stretch magnitudes were wrong at 5 of 6 phases**
+>    (`src/memory/contention.cpp`, on main since G141): the classic
+>    `{6,5,4,3,2,1,0,0}` table — FUSE's per-T-STATE pattern, period
+>    8 T-states = 16 pixel ticks — was indexed `[hc & 7]` with `hc` in
+>    PIXEL ticks, repeating it every 4 T-states. Correct per VHDL
+>    (zxula.vhd:582-583 + zxnext_top_issue2.vhd:1024-1140 clock-stretch):
+>    48K/128K `{0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0}[hc & 0xF]`, +3
+>    `{1,0,0,7,7,6,6,5,5,4,4,3,3,2,2,1}[hc & 0xF]`. BIFROST is a
+>    contention-LOCKED engine: FUSE holds its attribute writes at a
+>    constant ts_in_line=80 for 144 straight scanlines; jnext with the
+>    wrong magnitudes drifted ~2 T/line and locked 22 T early, pushing
+>    the writes for char cols 16-18 across the ULA fetch boundary — the
+>    user-visible "attributes one scanline early" band. This was also
+>    the root cause of Task 52's "+32 T constant bias". Post-fix jnext
+>    locks constant at ts_in_line=91 (residual +11 T vs FUSE — see the
+>    Task 52 follow-up), wobble-free.
+> 2. **The mux fetch-instant model was 8-12 ticks early and parity-blind**
+>    (`AttributeMux::hc_fetch()`): the byte governing column C latches at
+>    raw hc `c_min_hactive + 8C` (even C) / `c_min_hactive - 4 + 8C`
+>    (odd C) per zxula.vhd:271-306 + :368-455 (sload_0/sload_1 consume
+>    abyte00/abyte10 latched 1/5 ticks earlier). Round 4's uniform
+>    `origin + col*8` — and its block comment claiming the sload stagger
+>    "has no CPU-write-race observable" — were wrong.
+>
+> §4/§5 below are the pre-resolution analysis, kept for history. The §5
+> instruction-boundary hypothesis was already refuted (0.71% of writes);
+> the real answers were Task 50 (64-line window displacement) + Task 54
+> (this entry).
+
 **Date:** 2026-07-13 · **Branch:** `task8-nirvana` @ `027b9c65` — **NOT merged, do not merge as-is**
 **Verdict:** the mechanism works, the *timing model is still wrong*. Both real engines render incorrectly.
 
