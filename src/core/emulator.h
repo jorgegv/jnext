@@ -114,6 +114,18 @@ public:
     /// Load a NEX file into the emulator.  Returns true on success.
     bool load_nex(const std::string& path);
 
+    /// G156 — NEX `loading_delay`/`start_delay` (tbblue nexload.asm:541,
+    /// 575-577). NexLoader::apply() computes the total frame count via
+    /// NexLoader::boot_hold_frames() and calls this. run_frame() then
+    /// holds the CPU idle (no instruction fetch/execute — matches
+    /// nexload's own DI raster-wait) for that many frames before the
+    /// already-injected PC starts executing, while scanline rendering /
+    /// audio / scheduler continue ticking normally so the fully-loaded
+    /// screen (including the finished loading bar) is visible during
+    /// the hold.
+    void set_boot_hold_frames(uint32_t frames) { boot_hold_frames_remaining_ = frames; }
+    uint32_t boot_hold_frames_remaining() const { return boot_hold_frames_remaining_; }
+
     /// Load a TAP file and attach it as the virtual tape.
     /// When fast_load is true (default), uses ROM trap interception.
     /// When false, uses real-time EAR bit simulation.
@@ -732,6 +744,10 @@ private:
 
     /// When true, suppresses audio/video output during fast-forward replay.
     bool replay_mode_ = false;
+
+    /// G156 — remaining frames the CPU is held idle after a NEX load with
+    /// non-zero loading_delay/start_delay. See set_boot_hold_frames().
+    uint32_t boot_hold_frames_remaining_ = 0;
 
     /// Everything that must happen exactly once per frame, at its start (Copper vsync,
     /// per-scanline change-log baselines, interrupt scheduling, rewind snapshot). Called

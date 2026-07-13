@@ -122,6 +122,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     frame_in_progress_ = false;   // no frame is in flight after a reset
     replay_mode_ = false;
+    boot_hold_frames_remaining_ = 0;  // G156
 
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
     // soft reset so tbblue-loaded content in SRAM (including the ROM-in-SRAM
@@ -6232,6 +6233,16 @@ void Emulator::run_frame()
             int transferred = dma_.execute_burst(16);
             master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
             if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+        } else if (boot_hold_frames_remaining_ > 0) {
+            // G156 — NEX loading_delay/start_delay hold: no CPU instruction
+            // is fetched or executed (matches nexload.asm running its own
+            // DI raster-wait loop instead of the loaded program). Advance
+            // the clock in small NOP-sized steps so scanline rendering,
+            // the scheduler and audio still run every frame — the fully
+            // loaded screen (loading bar included) stays visible while
+            // held. boot_hold_frames_remaining_ is decremented once per
+            // completed frame, below.
+            master_cycles = 4ULL * clock_.cpu_divisor();
         } else {
             // Record trace entry before execution (captures pre-execution state).
             // Enabled during replay so consecutive step-backs can look up target cycles.
@@ -6666,6 +6677,12 @@ void Emulator::run_frame()
     // Every early return above (breakpoint, pause, run-to-cycle) leaves this true, so
     // that call resumes this frame instead of restarting it.
     frame_in_progress_ = false;
+
+    // G156 — one held frame has now completed in full (rendering/audio/
+    // scheduler all ran normally above); count it down.
+    if (boot_hold_frames_remaining_ > 0) {
+        --boot_hold_frames_remaining_;
+    }
 
     // Snapshot the fallback/border/ULA-enable colour and tilemap scroll
     // for the last visible framebuffer row. G164v2 — these arrays are
@@ -7682,6 +7699,7 @@ void Emulator::save_state(StateWriter& w) const
     // Emulator private state.
     w.write_u64(frame_cycle_);
     w.write_u32(frame_num_);
+    w.write_u32(boot_hold_frames_remaining_);  // G156
     w.write_u64(psg_accum_);
     // Note: this is the Bresenham phase only. The Mixer's in-progress
     // integration accumulator is deliberately NOT snapshotted — after a restore
@@ -7968,6 +7986,7 @@ void Emulator::load_state(StateReader& r)
     // Emulator private state.
     frame_cycle_      = r.read_u64();
     frame_num_        = r.read_u32();
+    boot_hold_frames_remaining_ = r.read_u32();  // G156
     psg_accum_        = r.read_u64();
     sample_accum_     = r.read_u64();
     dac_enabled_      = r.read_bool();

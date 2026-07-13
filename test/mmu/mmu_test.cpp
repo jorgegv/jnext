@@ -3021,17 +3021,112 @@ void test_nex_loader() {
                   kb0, kb1, kb2, kb_unknown));
     }
 
-    // BOOT-NEX-03..06 — src/core/nex_loader.cpp:89-92 parses
-    // loading_bar / loading_delay / start_delay / loading_bar_colour
-    // but ignores all four. (G156)
-    skip("BOOT-NEX-03",
-         "loading_bar not rendered; per-bank bar absent (see G156)");
-    skip("BOOT-NEX-04",
-         "loading_delay frame-count not honoured (see G156)");
-    skip("BOOT-NEX-05",
-         "start_delay frame-count not honoured (see G156)");
-    skip("BOOT-NEX-06",
-         "loading_bar_colour ignored (see G156)");
+    // BOOT-NEX-03/06 — G156 fix: NexLoader::render_progress_mark() draws
+    // a real loading-bar mark (4 bytes, all == `colour`) into physical
+    // bank 11 (MMU pages 22/23; the 4 bytes always land in page 23 — see
+    // nex_loader.h derivation) for a given bank-slot index `d`. Citation:
+    // tbblue/src/asm/nexload/nexload.asm:616-621 `progress`.
+    {
+        Fixture f;
+        f.fresh();
+        // Page 23 must start clean so any non-zero byte found came from
+        // render_progress_mark(), not fixture noise.
+        std::memset(f.ram.page_ptr(23), 0x00, 0x2000);
+
+        // BOOT-NEX-03: "a 1-pixel-row bar advances along VRAM ... per
+        // bank loaded" — draw marks for 3 successive bank-slot indices
+        // (stimulus colour 0x07/white per the plan row) and confirm each
+        // one landed at its own distinct, non-overlapping byte position.
+        NexLoader::render_progress_mark(f.mmu, 0, 0x07);
+        NexLoader::render_progress_mark(f.mmu, 1, 0x07);
+        NexLoader::render_progress_mark(f.mmu, 5, 0x07);
+
+        const uint8_t* p23 = f.ram.page_ptr(23);
+        // l = d*2+18 (nexload.asm:620, `24-6`); each mark is 2 bytes wide
+        // at offsets 0x1E00+l/0x1F00+l/0x1F00+l+1/0x1E00+l+1.
+        auto mark_ok = [&](uint8_t d, uint8_t colour) {
+            uint8_t l  = static_cast<uint8_t>(d * 2 + 18);
+            uint8_t l1 = static_cast<uint8_t>(l + 1);
+            return p23[0x1E00 + l]  == colour && p23[0x1F00 + l]  == colour &&
+                   p23[0x1F00 + l1] == colour && p23[0x1E00 + l1] == colour;
+        };
+        const bool d0_ok = mark_ok(0, 0x07);
+        const bool d1_ok = mark_ok(1, 0x07);
+        const bool d5_ok = mark_ok(5, 0x07);
+        // "Advances": strictly increasing byte offsets, i.e. the three
+        // marks do not alias onto the same position.
+        const bool positions_distinct = (0 * 2 + 18) != (1 * 2 + 18) &&
+                                         (1 * 2 + 18) != (5 * 2 + 18);
+
+        check("BOOT-NEX-03",
+              "loading_bar draws a per-bank-slot mark that advances along "
+              "VRAM (bank 11 / MMU page 23) — nexload.asm:616-621 `progress`",
+              d0_ok && d1_ok && d5_ok && positions_distinct,
+              fmt("d0_ok=%d d1_ok=%d d5_ok=%d distinct=%d",
+                  static_cast<int>(d0_ok), static_cast<int>(d1_ok),
+                  static_cast<int>(d5_ok), static_cast<int>(positions_distinct)));
+    }
+    {
+        // BOOT-NEX-06: loading_bar_colour is honoured verbatim, not a
+        // hardcoded default — two DIFFERENT colours at two DIFFERENT
+        // bank-slot indices (so they don't alias) must produce two
+        // DIFFERENT observed byte values, each matching its own request.
+        Fixture f;
+        f.fresh();
+        std::memset(f.ram.page_ptr(23), 0x00, 0x2000);
+
+        NexLoader::render_progress_mark(f.mmu, 10, 0x02);  // red
+        NexLoader::render_progress_mark(f.mmu, 20, 0x07);  // white
+
+        const uint8_t* p23 = f.ram.page_ptr(23);
+        auto mark_ok = [&](uint8_t d, uint8_t colour) {
+            uint8_t l  = static_cast<uint8_t>(d * 2 + 18);
+            uint8_t l1 = static_cast<uint8_t>(l + 1);
+            return p23[0x1E00 + l]  == colour && p23[0x1F00 + l]  == colour &&
+                   p23[0x1F00 + l1] == colour && p23[0x1E00 + l1] == colour;
+        };
+        const bool red_ok   = mark_ok(10, 0x02);
+        const bool white_ok = mark_ok(20, 0x07);
+
+        check("BOOT-NEX-06",
+              "loading_bar_colour byte is written verbatim, not a fixed "
+              "default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a`",
+              red_ok && white_ok,
+              fmt("red_ok=%d white_ok=%d", static_cast<int>(red_ok),
+                  static_cast<int>(white_ok)));
+    }
+
+    // BOOT-NEX-04 — G156 fix: NexLoader::inter_bank_delay_frames() matches
+    // nexload.asm's `delay` gate: fires kPostEarlyBankSlots (109) times,
+    // once per bank-slot iteration, ONLY when screen_flags != 0. Citation:
+    // nexload.asm:541 `ld a,(IsLoadingScr):or a:call nz,delay`, :612-614
+    // `delay: ld a,(LoadDel):or a:ret z:call rasterWait`.
+    {
+        const uint32_t frames_with_screen    = NexLoader::inter_bank_delay_frames(true, 10);
+        const uint32_t frames_without_screen = NexLoader::inter_bank_delay_frames(false, 10);
+        check("BOOT-NEX-04",
+              "loading_delay honoured: 109 post-early bank-slot waits of "
+              "loading_delay frames each when a screen is present; zero "
+              "frames when no screen is present",
+              frames_with_screen == 1090 && frames_without_screen == 0,
+              fmt("with_screen=%u (expected 1090) without_screen=%u (expected 0)",
+                  frames_with_screen, frames_without_screen));
+    }
+
+    // BOOT-NEX-05 — G156 fix: NexLoader::boot_hold_frames() adds the
+    // unconditional start_delay (nexload.asm:575-577 `ld a,(StartDel):call
+    // rasterWait`) on top of the inter-bank total — and start_delay applies
+    // even with NO screen data present (unlike loading_delay above).
+    {
+        const uint32_t total      = NexLoader::boot_hold_frames(/*start_delay=*/50, /*screen_present=*/true, /*loading_delay=*/10);
+        const uint32_t start_only = NexLoader::boot_hold_frames(/*start_delay=*/50, /*screen_present=*/false, /*loading_delay=*/10);
+        check("BOOT-NEX-05",
+              "start_delay honoured unconditionally before code-entry, on "
+              "top of any inter-bank loading_delay total",
+              total == 1140 && start_only == 50,
+              fmt("total=%u (expected 1140) start_only=%u (expected 50)",
+                  total, start_only));
+    }
 
     // BOOT-NEX-07 — G16 fix verification: NexLoader::zero_bank5_screen_pages()
     // must zero the full 16 KB of bank 5 (pages 10+11) so that subsequent

@@ -51,6 +51,10 @@ static void write_to_ram(Mmu& mmu, uint16_t start_page, size_t start_offset,
     }
 }
 
+// render_progress_mark — defined inline in nex_loader.h (G156). Inline
+// keeps unit tests linkable without jnext_core, same rationale as
+// ram_required_kb / zero_bank5_screen_pages above.
+
 bool NexLoader::load(const std::string& path)
 {
     loaded_ = false;
@@ -249,31 +253,63 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // ---------------------------------------------------------------
-    // 2. Bank data (16K each, in kBankOrder)
+    // 2. Bank data (16K each, in kBankOrder) + loading bar (G156)
+    //
+    // `d` is the bank-slot index nexload.asm calls `progress` with
+    // (nexload.asm:534-545) — kBankOrder[d] is present-or-not, but the
+    // mark is drawn on EVERY slot when loading_bar != 0, matching the
+    // reference loader exactly (see nex_loader.h citations).
     // ---------------------------------------------------------------
 
     int banks_loaded = 0;
-    for (int bank : kBankOrder) {
-        if (bank >= 112) break;
-        if (!header_.banks[bank]) continue;
+    for (size_t d = 0; d < static_cast<size_t>(kTotalBankSlots); ++d) {
+        const int bank = kBankOrder[d];
 
-        constexpr size_t BANK_SIZE = 16384;
-        if (offset + BANK_SIZE > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated bank {} data (offset {} + {} > {})",
-                                   bank, offset, BANK_SIZE, file_data_.size());
-            return false;
+        if (bank < 112 && header_.banks[bank]) {
+            constexpr size_t BANK_SIZE = 16384;
+            if (offset + BANK_SIZE > file_data_.size()) {
+                Log::emulator()->error("NEX: truncated bank {} data (offset {} + {} > {})",
+                                       bank, offset, BANK_SIZE, file_data_.size());
+                return false;
+            }
+
+            // Bank N → 8K pages N*2 and N*2+1
+            uint16_t page_lo = static_cast<uint16_t>(bank * 2);
+            write_to_ram(mmu, page_lo, 0, file_data_.data() + offset, BANK_SIZE);
+
+            Log::emulator()->debug("NEX: loaded bank {} (pages {}, {})", bank, page_lo, page_lo + 1);
+            offset += BANK_SIZE;
+            ++banks_loaded;
         }
 
-        // Bank N → 8K pages N*2 and N*2+1
-        uint16_t page_lo = static_cast<uint16_t>(bank * 2);
-        write_to_ram(mmu, page_lo, 0, file_data_.data() + offset, BANK_SIZE);
-
-        Log::emulator()->debug("NEX: loaded bank {} (pages {}, {})", bank, page_lo, page_lo + 1);
-        offset += BANK_SIZE;
-        ++banks_loaded;
+        // nexload.asm draws the progress mark AFTER (any) bank data for
+        // this slot has been loaded — including the case where `bank`
+        // IS 11 itself (LAYER_2_PAGE_2), whose freshly-loaded tail bytes
+        // get overwritten by its own mark. That is real firmware
+        // behaviour, not a jnext bug; faithfully reproduced by ordering
+        // this call after the bank-data write above.
+        if (header_.loading_bar) {
+            render_progress_mark(mmu, static_cast<uint8_t>(d), header_.loading_bar_colour);
+        }
     }
 
     Log::emulator()->debug("NEX: loaded {} banks ({} KB)", banks_loaded, banks_loaded * 16);
+
+    // G156 — total frames to hold the CPU idle before the loaded program
+    // starts (inter-bank loading_delay total, gated on screen presence,
+    // plus the unconditional start_delay). See nex_loader.h citations.
+    {
+        const bool screen_present = (sf != 0);
+        const uint32_t hold_frames =
+            boot_hold_frames(header_.start_delay, screen_present, header_.loading_delay);
+        if (hold_frames > 0) {
+            emu.set_boot_hold_frames(hold_frames);
+            Log::emulator()->info(
+                "NEX: holding CPU for {} frames before entry (loading_delay={} "
+                "screen_present={} start_delay={})",
+                hold_frames, header_.loading_delay, screen_present, header_.start_delay);
+        }
+    }
 
     // ---------------------------------------------------------------
     // 3. CPU setup
