@@ -85,7 +85,15 @@ bool SzxLoader::parse_z80r(const uint8_t* data, uint32_t size)
     regs_.IFF2 = data[27];
     regs_.IM  = data[28];
     regs_.tstates = read_u32(data + 29);
-    regs_.halted = (data[33] & 0x01) != 0;
+    // chFlags lives at offset 34 (chHoldIntReqCycles is offset 33) —
+    // bit1 = ZXSTZF_HALTED per the zx-state spec
+    // (spectaculator.com/docs/zx-state/z80regs.shtml). Previously this
+    // read offset 33 bit 0 (chHoldIntReqCycles), which is not the halted
+    // flag at all — files from real SZX writers (fuse, ZEsarUX, ...)
+    // almost never had that bit set, so a HALTed CPU loaded from a
+    // third-party .szx was silently un-HALTed. Found while implementing
+    // the SZX saver (Task 13b) — fixed here so save()+load() round-trip.
+    regs_.halted = (data[34] & 0x02) != 0;
 
     have_z80r_ = true;
     Log::emulator()->debug("SZX: Z80R — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",

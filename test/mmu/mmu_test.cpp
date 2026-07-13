@@ -25,6 +25,8 @@
 #include "memory/rom.h"
 #include "memory/contention.h"
 #include "core/nex_loader.h"
+#include "core/nex_saver.h"
+#include "core/szx_saver.h"
 #include "core/z80_loader.h"
 #include "core/saveable.h"
 
@@ -32,8 +34,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
+
+#include <unistd.h>   // mkstemp (POSIX) — temp files for loader round-trip tests
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -87,6 +92,22 @@ std::string fmt(const char* fmt_str, ...) {
     std::vsnprintf(buf, sizeof(buf), fmt_str, ap);
     va_end(ap);
     return std::string(buf);
+}
+
+// Little-endian byte readers — used by the BOOT-SNAPSAVE round-trip
+// checks to verify saver output against the exact byte offsets the real
+// SzxLoader::parse_z80r/parse_spcr/parse_ramp (szx_loader.cpp) and
+// NexLoader::load (nex_loader.cpp) read. mmu_test cannot link jnext_core
+// so it cannot call those loaders' non-inline load()/apply() methods
+// directly (see BOOT-SNAPSAVE-02/03 comments below) — this is the
+// structural equivalent: the same offsets, hand-checked against both
+// loader .cpp files.
+uint16_t ru16(const std::vector<uint8_t>& b, size_t off) {
+    return static_cast<uint16_t>(b[off]) | (static_cast<uint16_t>(b[off + 1]) << 8);
+}
+uint32_t ru32(const std::vector<uint8_t>& b, size_t off) {
+    return static_cast<uint32_t>(b[off]) | (static_cast<uint32_t>(b[off + 1]) << 8)
+         | (static_cast<uint32_t>(b[off + 2]) << 16) | (static_cast<uint32_t>(b[off + 3]) << 24);
 }
 
 // Append an `ED ED <count> <value>` RLE run (split into <=255-byte chunks)
@@ -3560,8 +3581,381 @@ void test_boot_format_loaders() {
     // QFileDialog::getSaveFileName() with `.sna` filter, auto-extension,
     // QFile::write() of the SnaSaver buffer. See on_save_snapshot() in
     // src/gui/main_window.cpp.
-    skip("BOOT-SNAPSAVE-02", "no `.szx` saver implementation (see G35)");
-    skip("BOOT-SNAPSAVE-03", "no `.nex` saver implementation (see G35)");
+    // CLOSED (Task 13b) BOOT-SNAPSAVE-02/03: SzxSaver / NexSaver exist
+    // (src/core/szx_saver.h, src/core/nex_saver.h) and are wired into
+    // MainWindow::on_save_snapshot() (extension-dispatched, same
+    // entry point SnaSaver already used). Both savers' Emulator-free
+    // build() entry point is exercised here directly against a bare
+    // Mmu/Ram fixture — this Mmu-tier suite cannot link jnext_core, so
+    // it cannot call the real SzxLoader::load()/NexLoader::load() (both
+    // non-inline, defined in szx_loader.cpp/nex_loader.cpp, part of
+    // jnext_core). The checks below instead verify every byte the real
+    // loaders are known to read, at the exact offsets hand-verified
+    // against both loader .cpp files, plus the full RAM payload content
+    // byte for byte. A full-pipeline round trip (build → file →
+    // Emulator::load_szx()/load_nex() → verify live Emulator state)
+    // additionally lives in mmu_integration_test.cpp, which does link
+    // jnext_core.
+    {
+        Fixture f;
+        f.fresh();
+
+        // f.ram is the default 2048 KB (128-bank) fixture; SzxSaver::build()
+        // clamps to 64 banks — libspectrum's real-world `page > 63`
+        // rejection (szx.c:read_ramp_chunk), NOT jnext's own 112-bank MMU-
+        // addressability figure (see the SzxSaver class doc-comment RAM
+        // CEILING paragraph, and BOOT-SNAPSAVE-02C below for a dedicated
+        // test that also scans the emitted bytes for any chPageNo > 63).
+        // Fill all 128 banks' worth of pattern data (harmless) but only
+        // the first 64 are expected to appear in the saved output.
+        const unsigned raw_bank_count = static_cast<unsigned>(f.ram.size() / 16384);
+        const unsigned bank_count = raw_bank_count > 64 ? 64 : raw_bank_count;
+        for (unsigned page = 0; page < raw_bank_count * 2; ++page) {
+            uint8_t* p = f.ram.page_ptr(static_cast<uint16_t>(page));
+            for (int i = 0; i < 8192; ++i)
+                p[i] = static_cast<uint8_t>(page * 3 + i);
+        }
+
+        Z80Registers regs{};
+        regs.AF = 0x1234; regs.BC = 0x5678; regs.DE = 0x9ABC; regs.HL = 0xDEF0;
+        regs.AF2 = 0x1111; regs.BC2 = 0x2222; regs.DE2 = 0x3333; regs.HL2 = 0x4444;
+        regs.IX = 0x5555; regs.IY = 0x6666; regs.SP = 0x8000; regs.PC = 0x9000;
+        regs.MEMPTR = 0xABCD;
+        regs.I = 0x3F; regs.R = 0x7E;
+        regs.IFF1 = 1; regs.IFF2 = 0; regs.IM = 2;
+        regs.halted = true;
+        const uint32_t tstates = 0x1357FBDA;
+        const uint8_t machine_id = 5;  // ZXSTMID_PLUS3
+
+        SzxSaver::SpecRegs spec;
+        spec.border    = 3;
+        spec.port_7ffd = 0x17;
+        spec.port_1ffd = 0x04;
+        spec.port_fe   = 0x0B;  // border=3 | MIC(0x08)
+
+        std::vector<uint8_t> bytes = SzxSaver::build(regs, tstates, machine_id, spec, f.mmu, bank_count);
+
+        const size_t z80r_payload  = 16;
+        const size_t spcr_payload  = 61;
+        const size_t ramp0         = 69;
+        const size_t ramp_stride   = 8 + 3 + 16384;
+        const size_t expected_size = ramp0 + static_cast<size_t>(bank_count) * ramp_stride;
+
+        bool header_ok = bytes.size() >= 8
+            && bytes[0]=='Z' && bytes[1]=='X' && bytes[2]=='S' && bytes[3]=='T'
+            && bytes[4]==1 && bytes[5]==4 && bytes[6]==machine_id && bytes[7]==0;
+
+        bool z80r_chunk_ok = bytes.size() > z80r_payload
+            && bytes[8]=='Z' && bytes[9]=='8' && bytes[10]=='0' && bytes[11]=='R'
+            && ru32(bytes, 12) == 37;
+
+        bool z80r_payload_ok = z80r_chunk_ok
+            && ru16(bytes, z80r_payload+0)==regs.AF   && ru16(bytes, z80r_payload+2)==regs.BC
+            && ru16(bytes, z80r_payload+4)==regs.DE   && ru16(bytes, z80r_payload+6)==regs.HL
+            && ru16(bytes, z80r_payload+8)==regs.AF2  && ru16(bytes, z80r_payload+10)==regs.BC2
+            && ru16(bytes, z80r_payload+12)==regs.DE2 && ru16(bytes, z80r_payload+14)==regs.HL2
+            && ru16(bytes, z80r_payload+16)==regs.IX  && ru16(bytes, z80r_payload+18)==regs.IY
+            && ru16(bytes, z80r_payload+20)==regs.SP  && ru16(bytes, z80r_payload+22)==regs.PC
+            && bytes[z80r_payload+24]==regs.I && bytes[z80r_payload+25]==regs.R
+            && bytes[z80r_payload+26]==1 && bytes[z80r_payload+27]==0 && bytes[z80r_payload+28]==regs.IM
+            && ru32(bytes, z80r_payload+29)==tstates
+            && bytes[z80r_payload+34]==0x02   // chFlags bit1 = ZXSTZF_HALTED (regs.halted==true)
+            && ru16(bytes, z80r_payload+35)==regs.MEMPTR;
+
+        bool spcr_chunk_ok = bytes.size() > spcr_payload
+            && bytes[53]=='S' && bytes[54]=='P' && bytes[55]=='C' && bytes[56]=='R'
+            && ru32(bytes, 57) == 8
+            && bytes[spcr_payload+0]==spec.border && bytes[spcr_payload+1]==spec.port_7ffd
+            && bytes[spcr_payload+2]==spec.port_1ffd && bytes[spcr_payload+3]==spec.port_fe;
+
+        bool ramp_ok = bytes.size() == expected_size;
+        size_t first_bad_bank = bank_count, first_bad_off = 0;
+        uint8_t got = 0, want = 0;
+        unsigned max_page_seen = 0;
+        if (ramp_ok) {
+            for (unsigned bank = 0; bank < bank_count; ++bank) {
+                size_t p = ramp0 + static_cast<size_t>(bank) * ramp_stride;
+                uint8_t chpageno = bytes[p + 10];
+                if (chpageno > max_page_seen) max_page_seen = chpageno;
+                bool chunk_hdr_ok = bytes[p]=='R' && bytes[p+1]=='A' && bytes[p+2]=='M' && bytes[p+3]=='P'
+                                  && ru32(bytes, p+4)==16387
+                                  && ru16(bytes, p+8)==0            // wFlags: uncompressed
+                                  && chpageno==bank;                // chPageNo
+                if (!chunk_hdr_ok) { ramp_ok = false; first_bad_bank = bank; break; }
+                bool bank_ok = true;
+                for (size_t i = 0; i < 16384; ++i) {
+                    uint16_t page = static_cast<uint16_t>(bank * 2 + (i >= 8192 ? 1 : 0));
+                    uint8_t expect = static_cast<uint8_t>(page * 3 + (i % 8192));
+                    uint8_t actual = bytes[p + 11 + i];
+                    if (actual != expect) {
+                        ramp_ok = false; bank_ok = false; first_bad_bank = bank; first_bad_off = i;
+                        got = actual; want = expect;
+                        break;
+                    }
+                }
+                if (!bank_ok) break;
+            }
+        }
+        // The interop-critical assertion (Task 13b review finding): no
+        // ZXSTRAMPAGE chPageNo may exceed 63 — libspectrum's
+        // szx.c:read_ramp_chunk rejects page > 63 for every machine ID.
+        // This is independent of jnext's own SzxLoader (no such bound
+        // there), so it is the one check that actually protects
+        // interop with real SZX readers (FUSE, ZEsarUX, ...).
+        bool page_ceiling_ok = ramp_ok && max_page_seen <= 63;
+
+        bool all_ok = header_ok && z80r_payload_ok && spcr_chunk_ok && ramp_ok && page_ceiling_ok;
+
+        check("BOOT-SNAPSAVE-02",
+              "SzxSaver::build() produces a spec-conformant .szx: 8-byte "
+              "header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE "
+              "chunks at their exact published offsets, full RAM content, "
+              "and every chPageNo <= 63 (libspectrum szx.c:read_ramp_chunk "
+              "real-world ceiling) — spectaculator.com/docs/zx-state/"
+              "{header,z80regs,specregs,rampage}.shtml (G35)",
+              all_ok,
+              fmt("header=%d z80r_chunk=%d z80r_payload=%d spcr=%d ramp=%d "
+                  "page_ceiling=%d(max=%u) size=%zu expected=%zu "
+                  "first_bad_bank=%zu off=%zu got=0x%02X want=0x%02X",
+                  static_cast<int>(header_ok), static_cast<int>(z80r_chunk_ok),
+                  static_cast<int>(z80r_payload_ok), static_cast<int>(spcr_chunk_ok),
+                  static_cast<int>(ramp_ok), static_cast<int>(page_ceiling_ok), max_page_seen,
+                  bytes.size(), expected_size,
+                  first_bad_bank, first_bad_off, got, want));
+    }
+
+    // BOOT-SNAPSAVE-02B — discriminative pair for -02: halted=false and
+    // IFF2=1 (inverse of the -02 fixture) must each independently flip
+    // their single bit in chFlags/Z80R, proving the ternaries in
+    // SzxSaver::build() aren't hard-coded to one polarity.
+    {
+        Fixture f;
+        f.fresh();
+        Z80Registers regs{};
+        regs.IFF1 = 0; regs.IFF2 = 1; regs.halted = false;
+        SzxSaver::SpecRegs spec{};
+        std::vector<uint8_t> bytes = SzxSaver::build(regs, 0, 1, spec, f.mmu, 0);
+        bool ok = bytes.size() >= 53
+            && bytes[16 + 26] == 0     // IFF1 = 0
+            && bytes[16 + 27] == 1     // IFF2 = 1
+            && bytes[16 + 34] == 0x00; // chFlags: not halted
+        check("BOOT-SNAPSAVE-02B",
+              "SzxSaver::build() IFF1/IFF2/halted encode independently "
+              "(discriminative pair for BOOT-SNAPSAVE-02) — "
+              "spectaculator.com/docs/zx-state/z80regs.shtml",
+              ok,
+              fmt("IFF1=0x%02X IFF2=0x%02X chFlags=0x%02X",
+                  bytes.size() >= 53 ? bytes[16+26] : 0xFF,
+                  bytes.size() >= 53 ? bytes[16+27] : 0xFF,
+                  bytes.size() >= 53 ? bytes[16+34] : 0xFF));
+    }
+
+    // BOOT-SNAPSAVE-02C — RAM-ceiling clamp (see SzxSaver class doc-comment
+    // RAM CEILING paragraph). Requesting more than 64 banks must not
+    // silently emit ZXSTRAMPAGE chunks with chPageNo > 63 — real-world
+    // SZX readers (libspectrum szx.c:read_ramp_chunk) hard-reject those.
+    // This is the exact bug an independent review caught in the first
+    // cut of this saver: it clamped to 112 (jnext's own MMU-
+    // addressability ceiling, the WRONG number for this purpose) and
+    // passed every jnext-internal test, because SzxLoader::parse_ramp()
+    // has no upper bound either — so this test asserts on the emitted
+    // BYTES directly (chPageNo, chunk count), not on round-tripping
+    // through jnext's own loader, which would not catch it.
+    {
+        Fixture f;
+        f.fresh();  // default Ram = 2048 KB = 128 banks
+        Z80Registers regs{};
+        SzxSaver::SpecRegs spec{};
+        std::vector<uint8_t> bytes = SzxSaver::build(regs, 0, 1, spec, f.mmu, 128);
+        const size_t ramp0       = 69;
+        const size_t ramp_stride = 8 + 3 + 16384;
+        const size_t expected    = ramp0 + static_cast<size_t>(64) * ramp_stride;
+        bool size_ok = bytes.size() == expected;
+
+        unsigned ramp_chunk_count = 0, max_page_seen = 0;
+        bool page_ceiling_ok = size_ok;
+        if (size_ok) {
+            for (unsigned bank = 0; bank < 64; ++bank) {
+                size_t p = ramp0 + static_cast<size_t>(bank) * ramp_stride;
+                if (bytes[p]!='R' || bytes[p+1]!='A' || bytes[p+2]!='M' || bytes[p+3]!='P') {
+                    page_ceiling_ok = false;
+                    break;
+                }
+                ++ramp_chunk_count;
+                uint8_t chpageno = bytes[p + 10];
+                if (chpageno > max_page_seen) max_page_seen = chpageno;
+                if (chpageno > 63) { page_ceiling_ok = false; break; }
+            }
+        }
+        bool ok = size_ok && page_ceiling_ok && ramp_chunk_count == 64 && max_page_seen == 63;
+        check("BOOT-SNAPSAVE-02C",
+              "SzxSaver::build() clamps ram_bank_count to 64 (libspectrum "
+              "szx.c:read_ramp_chunk rejects chPageNo > 63 — NOT the 112 "
+              "jnext-own-MMU figure) and never emits a chPageNo > 63 in "
+              "the saved bytes, for any requested bank count",
+              ok,
+              fmt("size_ok=%d page_ceiling_ok=%d ramp_chunks=%u max_page=%u "
+                  "size=%zu expected=%zu",
+                  static_cast<int>(size_ok), static_cast<int>(page_ceiling_ok),
+                  ramp_chunk_count, max_page_seen, bytes.size(), expected));
+    }
+
+    // BOOT-SNAPSAVE-03 — NexSaver round trip (structural, see the
+    // BOOT-SNAPSAVE-02 comment above for why this is Mmu-tier-only).
+    // Uses a 768 KB (48-bank) Ram so num_banks/ram_required stay in the
+    // non-clamped, unambiguous range (see BOOT-SNAPSAVE-03B for the
+    // 112-bank clamp case) and a contiguous MMU slot 6/7 bank pair (see
+    // BOOT-SNAPSAVE-03C for the non-contiguous case).
+    {
+        Ram small_ram(768 * 1024);
+        Rom rom;
+        Mmu mmu(small_ram, rom);
+        mmu.reset();
+
+        const unsigned bank_count = static_cast<unsigned>(small_ram.size() / 16384);  // 48
+        for (unsigned page = 0; page < bank_count * 2; ++page) {
+            uint8_t* p = small_ram.page_ptr(static_cast<uint16_t>(page));
+            for (int i = 0; i < 8192; ++i)
+                p[i] = static_cast<uint8_t>(page * 5 + i);
+        }
+
+        // Bank 9 (pages 18/19) mapped contiguously at slots 6/7 — the
+        // clean "entry_bank" case NEX can represent exactly.
+        mmu.set_page(6, 18);
+        mmu.set_page(7, 19);
+
+        const uint16_t pc = 0xC050, sp = 0xFF00;
+        const uint8_t  border = 5;
+
+        NexSaver::BuildResult r = NexSaver::build(pc, sp, border, mmu, small_ram.size());
+        const std::vector<uint8_t>& bytes = r.data;
+
+        bool header_ok = bytes.size() >= 512
+            && bytes[0]=='N' && bytes[1]=='e' && bytes[2]=='x' && bytes[3]=='t'
+            && bytes[4]=='V' && bytes[5]=='1' && bytes[6]=='.' && bytes[7]=='2'
+            && bytes[8]==0                          // ram_required: 768 KB -> 0
+            && bytes[9]==bank_count
+            && bytes[10]==0                         // screen_flags: none
+            && bytes[11]==border
+            && ru16(bytes, 12)==sp && ru16(bytes, 14)==pc
+            && bytes[134]==1                        // preserve_regs
+            && bytes[139]==9;                       // entry_bank = page6/2 = 9
+
+        bool banks_flag_ok = header_ok;
+        if (banks_flag_ok) {
+            for (unsigned b = 0; b < 112; ++b) {
+                uint8_t want_flag = (b < bank_count) ? 1 : 0;
+                if (bytes[18 + b] != want_flag) { banks_flag_ok = false; break; }
+            }
+        }
+
+        // NexSaver writes banks in the same order NexLoader::apply()
+        // reads them back in — NexLoader's private kBankOrder,
+        // duplicated here (see nex_loader.h / nex_saver.h).
+        static const int kBankOrder48[] = {
+            5,2,0,1,3,4,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
+            24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
+        };
+        bool payload_ok = header_ok;
+        size_t off = 512;
+        size_t first_bad_bank = 999, first_bad_i = 0;
+        uint8_t got = 0, want = 0;
+        if (payload_ok) {
+            for (int bank : kBankOrder48) {
+                if (static_cast<unsigned>(bank) >= bank_count) continue;
+                if (off + 16384 > bytes.size()) { payload_ok = false; first_bad_bank = static_cast<size_t>(bank); break; }
+                bool bank_ok = true;
+                for (size_t i = 0; i < 16384; ++i) {
+                    uint16_t page = static_cast<uint16_t>(bank * 2 + (i >= 8192 ? 1 : 0));
+                    uint8_t expect = static_cast<uint8_t>(page * 5 + (i % 8192));
+                    uint8_t actual = bytes[off + i];
+                    if (actual != expect) {
+                        payload_ok = false; bank_ok = false;
+                        first_bad_bank = static_cast<size_t>(bank); first_bad_i = i;
+                        got = actual; want = expect;
+                        break;
+                    }
+                }
+                if (!bank_ok) break;
+                off += 16384;
+            }
+            if (payload_ok && off != bytes.size()) payload_ok = false;  // no trailing junk
+        }
+
+        bool all_ok = header_ok && banks_flag_ok && payload_ok
+                    && r.contiguous_entry_bank && !r.truncated_by_112_bank_limit
+                    && r.banks_written == bank_count;
+
+        check("BOOT-SNAPSAVE-03",
+              "NexSaver::build() produces a spec-conformant .nex V1.2: "
+              "512-byte header fields at their exact NexLoader-parsed "
+              "offsets (magic/version/ram_required/num_banks/border/sp/"
+              "pc/banks[]/preserve_regs/entry_bank), full bank payloads "
+              "in NexLoader's kBankOrder — "
+              "https://wiki.specnext.dev/NEX_file_format (G35)",
+              all_ok,
+              fmt("header=%d banks_flag=%d payload=%d contig=%d trunc=%d "
+                  "written=%u/%u first_bad_bank=%zu i=%zu got=0x%02X want=0x%02X",
+                  static_cast<int>(header_ok), static_cast<int>(banks_flag_ok),
+                  static_cast<int>(payload_ok), static_cast<int>(r.contiguous_entry_bank),
+                  static_cast<int>(r.truncated_by_112_bank_limit),
+                  r.banks_written, bank_count, first_bad_bank, first_bad_i, got, want));
+    }
+
+    // BOOT-SNAPSAVE-03B — the NEX bank table is a fixed 112 bytes;
+    // installed RAM beyond 1792 KB (jnext's 2048 KB ceiling = 128 banks)
+    // cannot be represented. NexSaver must clamp to 112 banks and mark
+    // the result truncated, not silently overflow the banks[] array or
+    // claim ram_required=2 (which nex_loader.h documents as an
+    // out-of-canonical-spec value it merely tolerates on read, per G155).
+    {
+        Fixture f;
+        f.fresh();  // default Ram = 2048 KB = 128 banks
+        NexSaver::BuildResult r = NexSaver::build(0, 0, 0, f.mmu, f.ram.size());
+        bool clamp_ok = r.truncated_by_112_bank_limit == true
+                      && r.banks_written == 112
+                      && r.data.size() >= 20
+                      && r.data[8] == 1     // ram_required: 112*16=1792KB -> value 1
+                      && r.data[9] == 112;
+        bool banks_array_ok = true;
+        for (unsigned b = 0; b < 112 && banks_array_ok; ++b)
+            if (r.data[18 + b] != 1) banks_array_ok = false;
+        bool size_ok = r.data.size() == 512 + static_cast<size_t>(112) * 16384;
+        bool all_ok = clamp_ok && banks_array_ok && size_ok;
+        check("BOOT-SNAPSAVE-03B",
+              "NexSaver::build() clamps to the format's 112-bank ceiling "
+              "on >1792 KB installs and reports the clamp rather than "
+              "overflowing banks[112] or writing an unrepresentable "
+              "ram_required — nex_loader.h banks[112]/kBankOrder (G155)",
+              all_ok,
+              fmt("clamp=%d banks_array=%d size=%d written=%u size_bytes=%zu",
+                  static_cast<int>(clamp_ok), static_cast<int>(banks_array_ok),
+                  static_cast<int>(size_ok), r.banks_written, r.data.size()));
+    }
+
+    // BOOT-SNAPSAVE-03C — when MMU slots 6/7 are NOT a contiguous
+    // (even, even+1) bank pair, NEX's single entry_bank byte cannot
+    // represent the split exactly; NexSaver must flag this rather than
+    // silently produce a file that resumes into the wrong bank at
+    // 0xE000-0xFFFF (see NexSaver class doc-comment).
+    {
+        Ram small_ram(256 * 1024);  // 16 banks
+        Rom rom;
+        Mmu mmu(small_ram, rom);
+        mmu.reset();
+        mmu.set_page(6, 4);   // page 4 = bank 2, low half
+        mmu.set_page(7, 9);   // page 9 = bank 4, high half — NOT bank 2's high half (5)
+        NexSaver::BuildResult r = NexSaver::build(0x1000, 0x2000, 0, mmu, small_ram.size());
+        bool ok = !r.contiguous_entry_bank && r.data.size() > 139 && r.data[139] == 2;
+        check("BOOT-SNAPSAVE-03C",
+              "NexSaver::build() detects a non-contiguous slot 6/7 bank "
+              "pair and flags contiguous_entry_bank=false rather than "
+              "silently mis-saving (NexSaver class doc-comment)",
+              ok,
+              fmt("contiguous=%d entry_bank_byte=%d (page6=4 page7=9, expect entry_bank=2)",
+                  static_cast<int>(r.contiguous_entry_bank),
+                  r.data.size() > 139 ? r.data[139] : -1));
+    }
 
     // Cat 25 — Tape DeciLoad / Real-time loading (G36/G37). TZX 0x15
     // not decoded; WAV real-time pulse-shaping unverified.
