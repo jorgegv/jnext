@@ -121,9 +121,15 @@ public:
     /// holds the CPU idle (no instruction fetch/execute — matches
     /// nexload's own DI raster-wait) for that many frames before the
     /// already-injected PC starts executing, while scanline rendering /
-    /// audio / scheduler continue ticking normally so the fully-loaded
-    /// screen (including the finished loading bar) is visible during
-    /// the hold.
+    /// audio / scheduler continue ticking normally so VRAM's post-load
+    /// state (including any loading-bar marks) is composited every held
+    /// frame exactly as it would be for any other frame. NOTE: on a bare
+    /// `--load file.nex` the loading bar is written to VRAM correctly but
+    /// is NOT observable on screen, because Layer 2 starts disabled and
+    /// neither nexload.asm nor NexLoader::apply() enables it — see the
+    /// long comment at the call site in run_frame() for the full caveat
+    /// (including the interrupt-servicing gap for preserve_regs=1 chain
+    /// loads).
     void set_boot_hold_frames(uint32_t frames) { boot_hold_frames_remaining_ = frames; }
     uint32_t boot_hold_frames_remaining() const { return boot_hold_frames_remaining_; }
 

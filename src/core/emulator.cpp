@@ -6243,12 +6243,43 @@ void Emulator::run_frame()
             if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
         } else if (boot_hold_frames_remaining_ > 0) {
             // G156 — NEX loading_delay/start_delay hold: no CPU instruction
-            // is fetched or executed (matches nexload.asm running its own
-            // DI raster-wait loop instead of the loaded program). Advance
-            // the clock in small NOP-sized steps so scanline rendering,
-            // the scheduler and audio still run every frame — the fully
-            // loaded screen (loading bar included) stays visible while
-            // held. boot_hold_frames_remaining_ is decremented once per
+            // is fetched or executed. Advance the clock in small NOP-sized
+            // steps so scanline rendering, the scheduler and audio still
+            // run every frame — VRAM already holds its final post-load
+            // state (bank data + any loading-bar marks), so it is composed
+            // into the framebuffer exactly like any other frame. NOTE: on
+            // a bare `--load file.nex` (CLI or GUI File>Load, no prior
+            // NextZXOS boot context) the loading bar is NOT visible on
+            // screen — nexload.asm never enables Layer 2 itself (NR 0x69
+            // bit 7); on real hardware the bar is only seen because
+            // whatever screen was showing before nexload.asm ran (e.g. the
+            // NextZXOS file browser) already had Layer 2 on. The bytes
+            // written by NexLoader::render_progress_mark() ARE correct;
+            // whether they are visible depends on that pre-existing state,
+            // same as real hardware.
+            //
+            // This branch skips this iteration's im2_.tick() / CTC / UART
+            // ticking and interrupt-line polling below (same treatment the
+            // pre-existing DMA-stall branch above already gets) — any
+            // interrupt source that would become due during a held frame
+            // is not serviced until the hold ends. This is believed to
+            // match real hardware for the default (preserve_regs=0) path,
+            // where nexload.asm's own unconditional `di` at its very entry
+            // (nexload.asm:250, BEFORE the header — hence before
+            // preserve_regs is even known) governs interrupts for the
+            // *entire* loader routine, regardless of preserve_regs — real
+            // nexload never re-enables interrupts before jumping to the
+            // loaded PC. CAVEAT: jnext's NexLoader is a C++ shortcut that
+            // does not execute nexload.asm's code, so for preserve_regs=1
+            // (register-preserving chain-load) it does not independently
+            // re-derive "IFF1=0 for the loader's own duration" — if the
+            // live emulator's IFF1 happens to be 1 when the hold begins
+            // (e.g. mid-session chain-load from a running, interrupt-
+            // enabled program), no interrupts fire during the held frames
+            // here either. Believed harmless (matches the DI-throughout
+            // real-hardware behaviour above) but not independently proven
+            // for that specific combination — flagged rather than assumed.
+            // boot_hold_frames_remaining_ is decremented once per
             // completed frame, below.
             master_cycles = 4ULL * clock_.cpu_divisor();
         } else {
