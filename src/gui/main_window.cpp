@@ -5,6 +5,8 @@
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
+#include "core/nex_saver.h"
 #include "core/log.h"
 #include "platform/screenshot.h"
 #include "input/mouse_dispatcher.h"
@@ -869,23 +871,32 @@ void MainWindow::on_record_stop() {
     }
 }
 
-// G35: wires SnaSaver to File > Save Snapshot... — closes
-// BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04 in mmu_test. Only 48K SNA is
-// supported by SnaSaver (49179 bytes); .szx and .nex savers don't
-// exist yet (BOOT-SNAPSAVE-02/-03 stay as SKIPs).
+// G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —
+// closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
+// extension the user picks (or types); defaults to .sna if none/unknown.
 void MainWindow::on_save_snapshot() {
     if (!emulator_) return;
     QString path = QFileDialog::getSaveFileName(
         this, tr("Save Snapshot"), QString(),
-        tr("Spectrum snapshot (*.sna);;All Files (*)"));
+        tr("Spectrum snapshot (*.sna);;ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)"));
     if (path.isEmpty()) return;
-    if (!path.endsWith(".sna", Qt::CaseInsensitive)) {
+    if (!path.endsWith(".sna", Qt::CaseInsensitive) &&
+        !path.endsWith(".szx", Qt::CaseInsensitive) &&
+        !path.endsWith(".nex", Qt::CaseInsensitive)) {
         path += ".sna";
     }
-    std::vector<uint8_t> bytes = SnaSaver::save(*emulator_);
+
+    std::vector<uint8_t> bytes;
+    if (path.endsWith(".szx", Qt::CaseInsensitive)) {
+        bytes = SzxSaver::save(*emulator_);
+    } else if (path.endsWith(".nex", Qt::CaseInsensitive)) {
+        bytes = NexSaver::save(*emulator_).data;
+    } else {
+        bytes = SnaSaver::save(*emulator_);
+    }
     if (bytes.empty()) {
         QMessageBox::warning(this, tr("Save Snapshot"),
-            tr("SnaSaver returned an empty buffer; snapshot not written."));
+            tr("Snapshot saver returned an empty buffer; nothing written."));
         return;
     }
     QFile f(path);
