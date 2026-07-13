@@ -3,6 +3,14 @@
 **Date:** 2026-07-13 · **Branch:** `task8-nirvana` @ `027b9c65` — **NOT merged, do not merge as-is**
 **Verdict:** the mechanism works, the *timing model is still wrong*. Both real engines render incorrectly.
 
+> **This document supersedes the original plan**, kept alongside as
+> [`task8-nirvana-2026-07-13.md`](task8-nirvana-2026-07-13.md). That plan was written *before* any of
+> the findings below and its design assumptions did not survive contact: it predates the no-gate
+> decision, the wrong-VRAM-bank bug, and the discovery that both real engines still render wrong.
+> Read it for the pre-research (it correctly established that `Emulator::current_hc()` is
+> instruction-boundary only while `fuse_z80_writebyte()` / `derive_hc_vc(tstates)` gives true
+> per-byte beam position — **which is now the thread to pull on**), not for its conclusions.
+
 ---
 
 ## 1. What this is
