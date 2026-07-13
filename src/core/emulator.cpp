@@ -5853,6 +5853,14 @@ bool Emulator::load_szx(const std::string& path)
     return loader.apply(*this);
 }
 
+bool Emulator::load_z80(const std::string& path)
+{
+    Z80Loader loader;
+    if (!loader.load(path)) return false;
+    reset();
+    return loader.apply(*this);
+}
+
 bool Emulator::load_wav(const std::string& path)
 {
     WavLoader loader;

@@ -51,6 +51,7 @@
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"
+#include "core/z80_loader.h"
 #include "core/wav_loader.h"
 #include "core/video_recorder.h"
 #include "core/rzx_player.h"
@@ -131,6 +132,9 @@ public:
 
     /// Load an SZX (zx-state) snapshot file. Returns true on success.
     bool load_szx(const std::string& path);
+
+    /// Load a `.z80` snapshot file (v1/v2/v3). Returns true on success.
+    bool load_z80(const std::string& path);
 
     /// Load a WAV file and start real-time EAR bit playback.
     /// WAV loading is always real-time (no fast-load possible).

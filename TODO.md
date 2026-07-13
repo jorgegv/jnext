@@ -1,7 +1,6 @@
 # JNEXT — Pending Features & Known Issues
 
 ## File Formats
-- Z80 snapshot format loading (`.z80`)
 - DSK disk image loading + FDC emulation (`.dsk`)
 
 ## Debugger

@@ -37,6 +37,7 @@
 - NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header
 - SNA: 48K and 128K snapshots with full register and paging restore
 - SZX: chunked format with zlib-compressed RAM pages
+- Z80: v1/v2/v3 snapshots, 48K and 128K, RLE-compressed and uncompressed pages, full register and paging restore
 - TAP: fast-load via ROM trap + real-time EAR bit simulation; instant `LOAD ""` autostart via FUSE-style phantom typist (48K/128K/+3 modes — triggers on first full keyboard scan, no fixed delay)
 - TZX: full block support via ZOT library, fast-load + real-time playback
 - WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo)

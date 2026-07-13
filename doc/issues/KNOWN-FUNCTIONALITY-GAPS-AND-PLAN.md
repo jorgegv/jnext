@@ -794,6 +794,19 @@ where possible.
 - **Proposed**: `Z80Loader` supporting V1/V2/V3 headers, compressed
   / uncompressed pages, full register restore + 128K paging.
 - **Effort**: M.
+- **Status: CLOSED (Task 13b)**. `Z80Loader` (`src/core/z80_loader.{h,cpp}`)
+  landed: v1 (30-byte header, RLE with `00 ED ED 00` end marker or raw
+  49152-byte dump), v2 (23-byte extended header) and v3 (54/55-byte
+  extended header), 48K and 128K page-number tables, full register
+  restore (incl. AF', R bit-7 quirk, IM, IFF1/IFF2), border, and 128K
+  paging (port 0x7FFD from header byte 0x23). Wired into `--load`/bare-arg
+  CLI dispatch, the Qt file dialog, and `Emulator::load_z80()`. Unblocked
+  `mmu_test` BOOT-Z80-01..04 (`test/mmu/mmu_test.cpp`). One documented
+  ambiguity: hardware-mode byte value 3 (offset 34) is disputed between
+  v2/v3 across sources; jnext treats it as 48K-class in both (see
+  `Z80Loader::load_from_buffer()` comment) since neither MGT nor SamRam
+  is emulated. `.z80` **saving** is out of scope (not requested; no other
+  loader in this codebase has a matching saver either, e.g. NEX/RZX-play).
 
 ### G35. Snapshot save (.sna out / .szx out / .nex out) wired [partial]
 - **Status: PARTIAL 2026-05-04** (Tier B). `.sna` save WIRED to GUI:
