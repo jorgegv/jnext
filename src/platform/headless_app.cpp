@@ -182,7 +182,19 @@ void HeadlessApp::run() {
             } else if (ext == ".sna") {
                 emulator_.load_sna(load_file_);
             } else if (ext == ".szx") {
-                emulator_.load_szx(load_file_);
+                // Task 13b review round 2: this used to discard the bool
+                // return, so a load FAILURE (corrupt/rejected file) fell
+                // through silently to whatever the process happened to
+                // render next, with exit 0 — a script had no way to tell
+                // "loaded fine" from "failed to load, ran anyway". The
+                // other --load branches here have the same discarded-
+                // return-value shape; only .szx is fixed (that is what
+                // this task touches — see snapshot-save-func, which now
+                // depends on this to detect a corrupt reload).
+                if (!emulator_.load_szx(load_file_)) {
+                    Log::platform()->error("--load: failed to load '{}' as .szx", load_file_);
+                    exit_code_ = 1;
+                }
             } else if (ext == ".z80") {
                 emulator_.load_z80(load_file_);
             } else if (ext == ".wav") {

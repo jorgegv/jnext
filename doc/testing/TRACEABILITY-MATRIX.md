@@ -269,6 +269,7 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | pass    | test/mmu/mmu_test.cpp:3304 |
 | BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | pass    | test/mmu/mmu_test.cpp:3375 |
 | BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | pass    | test/mmu/mmu_test.cpp:3412 |
+| BOOT-Z80-05      | Structurally-valid .z80 with only foreign page numbers rejected  | —                    | pass    | test/mmu/mmu_test.cpp:3461 |
 | BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI                               | —                    | missing | missing                    |
 | BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:3614 |
 | BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:3794 |

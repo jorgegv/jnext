@@ -894,6 +894,18 @@ void MainWindow::on_save_snapshot() {
     if (path.endsWith(".szx", Qt::CaseInsensitive)) {
         // .szx has a hard real-world 64-bank (1024 KB) ceiling — see
         // SzxSaver class doc-comment. Surface it; don't silently drop RAM.
+        //
+        // KNOWN IMPRECISION (Task 13b review round 2, accepted as-is):
+        // jnext always installs a fixed 2048 KB Ram regardless of
+        // --machine (src/memory/ram.h:8 default; EmulatorConfig has no
+        // size override), so `truncated` is true on EVERY .szx save,
+        // including plain 48K/128K/+3 programs that never touch RAM
+        // beyond the first 64 banks — nothing real is lost in that
+        // common case, but the warning below fires anyway. "Truncate +
+        // always warn" is the deliberately chosen safe default (silent
+        // data loss would be worse); do NOT re-architect Ram sizing to
+        // "fix" this without a separate, deliberate task — it is out of
+        // scope here.
         auto result = SzxSaver::save(*emulator_);
         bytes = result.data;
         ram_truncated = result.truncated;
