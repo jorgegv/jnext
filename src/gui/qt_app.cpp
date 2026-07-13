@@ -75,14 +75,23 @@ bool QtApp::init(int argc, char* argv[]) {
     // EmulatorWidget accounts for devicePixelRatio itself.
     qapp_ = new QApplication(argc, argv);
 
-    // Initialize SDL audio.
-    audio_ = std::make_unique<SdlAudio>();
-    if (!audio_->init()) {
-        Log::platform()->warn("Audio init failed - continuing without sound");
-    }
-
     // Initialize the emulator core.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
+
+    // Task 47 (--silent): never open an SDL audio device. audio_ stays
+    // null, which every downstream `audio_ &&` guard in on_frame_tick()
+    // already treats identically to "audio init failed" — the frame timer
+    // falls back to wall-clock pacing (audio_pacing::frames_for_tick(-1)
+    // returns 1 via the `audio_paced` gate below), same as any host with no
+    // audio backend at all.
+    if (!cfg.silent) {
+        audio_ = std::make_unique<SdlAudio>();
+        if (!audio_->init()) {
+            Log::platform()->warn("Audio init failed - continuing without sound");
+        }
+    } else {
+        Log::platform()->info("--silent: not opening an audio device");
+    }
     if (!emulator_.init(cfg)) {
         Log::platform()->error("Emulator init failed");
         return false;

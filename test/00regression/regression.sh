@@ -504,6 +504,73 @@ if want audio-underrun-func; then
     fi
 fi
 
+# --silent test (Task 47): (1) no audio device is ever opened, and (2) the
+# frames it renders are pixel-identical to a normal run — muting output must
+# not skip, stall, or otherwise perturb CPU/video execution.
+#
+# Two proven techniques, not a new one:
+#   - SDL's `disk` audio driver only ever creates its output file inside
+#     SDL_OpenAudioDevice (audio-underrun-func). An ABSENT file is direct
+#     proof no device was opened — stronger than grepping a log line, which
+#     would still pass if the message were ever renamed while the device
+#     kept opening underneath it.
+#   - The pixel-compare snapshot-save-func uses to content-verify a reload,
+#     used here to content-verify that --silent didn't perturb execution. A
+#     test that only checked "the process exited around N seconds" would
+#     NOT catch a bug that (wrongly) also stalls run_frame() under --silent:
+#     --delayed-automatic-exit's countdown fires on its own schedule in
+#     on_frame_tick() regardless of whether run_frame() itself ran — a stuck
+#     CPU and a live one both exit "on time". Comparing actual rendered
+#     content is what makes the frames-really-ran claim discriminative.
+#
+# QT_QPA_PLATFORM=offscreen (no xvfb needed — same technique as
+# screenshot-paused-func) keeps this fast; SDL's disk driver needs no
+# display of its own, unlike audio-underrun-func's real playback check.
+if want silent-func; then
+    begin_func silent-func
+    raw_normal="$TMP_DIR/silent_normal.raw"
+    raw_silent="$TMP_DIR/silent_silent.raw"
+    png_normal="$TMP_DIR/silent_normal.png"
+    png_silent="$TMP_DIR/silent_silent.png"
+    rm -f "$raw_normal" "$raw_silent" "$png_normal" "$png_silent"
+
+    SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_normal" QT_QPA_PLATFORM=offscreen \
+    timeout --foreground --kill-after=5s 30s "$JNEXT" \
+        "${SD_CARD_ARGS[@]}" --machine 48k --rewind-buffer-size 0 \
+        --delayed-screenshot "$png_normal" --delayed-screenshot-frames 150 \
+        --delayed-automatic-exit 5 &>/dev/null || true
+
+    SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_silent" QT_QPA_PLATFORM=offscreen \
+    timeout --foreground --kill-after=5s 30s "$JNEXT" \
+        "${SD_CARD_ARGS[@]}" --machine 48k --rewind-buffer-size 0 --silent \
+        --delayed-screenshot "$png_silent" --delayed-screenshot-frames 150 \
+        --delayed-automatic-exit 5 &>/dev/null || true
+
+    if [[ ! -s "$raw_normal" ]]; then
+        echo -e "${YELLOW}SKIP${RESET} (no SDL audio backend available; control run captured nothing)"
+        skip=$((skip + 1))
+    elif [[ ! -s "$png_normal" || ! -s "$png_silent" ]]; then
+        echo -e "${RED}FAIL${RESET} (screenshot missing: normal=$([[ -s "$png_normal" ]] && echo y || echo n) silent=$([[ -s "$png_silent" ]] && echo y || echo n))"
+        fail=$((fail + 1))
+    elif [[ -e "$raw_silent" ]]; then
+        echo -e "${RED}FAIL${RESET} (--silent still opened an audio device)"
+        fail=$((fail + 1))
+    elif $HAS_COMPARE; then
+        diff_raw=$(compare -metric AE "$png_silent" "$png_normal" /dev/null 2>&1) || true
+        diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+        if [[ "$diff_pixels" -eq 0 ]]; then
+            echo -e "${GREEN}PASS${RESET} (no audio device opened; frame 150 pixel-identical to a normal run)"
+            pass=$((pass + 1))
+        else
+            echo -e "${RED}FAIL${RESET} (--silent changed rendered output: ${diff_pixels} pixels differ)"
+            fail=$((fail + 1))
+        fi
+    else
+        echo -e "${YELLOW}SKIP${RESET} (no ImageMagick — cannot content-verify frame identity)"
+        skip=$((skip + 1))
+    fi
+fi
+
 # Bare-filename CLI test (Task 25): `jnext <file>` must load the file exactly as
 # `--load <file>` does, while a mistyped flag must still be an error rather than
 # being silently swallowed as a filename.
