@@ -865,12 +865,27 @@ where possible.
 - **Dependencies**: bundle with G92, G145.
 - **Effort**: L.
 
-### G146. port_fd_conflict_wr — Soundrive Mode 2 vs paging-port write conflict
-- **What**: VHDL `zxnext.vhd:2708,2718-2720` suppresses port_7ffd/dffd/1ffd writes when port_f1/f9 + Soundrive SD2 active. jnext paging handlers don't consult Soundrive SD2 state.
-- **User impact**: Soundrive Mode 2 + 0xF1FD/0xF9FD writes reapply paging that VHDL would suppress.
+### G146. port_fd_conflict_wr — Soundrive Mode 2 vs paging-port write conflict [closed]
+- **Status: CLOSED 2026-07-14** (Task 57, branch `task57-sd2`). `PortDispatch`
+  gained a `decline_write()` fall-through (a write handler whose io_en decode
+  gate is off passes the OUT to the next-most-specific matching handler,
+  mirroring the VHDL parallel decodes), and the SD2 0xF1/0xF9 handlers in
+  `emulator.cpp` decline when NR 0x84 bit 2 is clear. With the gate SET the
+  SD2 handlers (mask 0x00FF) already out-specify the paging handlers, so the
+  7FFD/DFFD/1FFD/3FFD write (incl. +3 motor bit and 3FFD FDC-trap strobe,
+  which live inside those handlers) is fully suppressed and the byte goes to
+  the Soundrive channel — exactly `zxnext.vhd:2708, 2718-2720, 2725,
+  2775-2778`. Rows: `audio_port_dispatch_test` SD2-01/SD2-02 (re-homed from
+  `mmu_test` Cat 19 — bare-Mmu tier can't reach port dispatch).
+- **What (original, corrected)**: VHDL `zxnext.vhd:2708,2718-2720` suppresses
+  port_7ffd/dffd/1ffd/3ffd writes when the OUT's low byte is 0xF1/0xF9
+  (full-8-bit lsb decode) AND SD2 is enabled. jnext dropped such writes with
+  SD2 *disabled* (the real bug — dispatch swallowed them) and note: the
+  original entry's "0xF1FD/0xF9FD writes" wording was wrong (those have low
+  byte 0xFD); colliding addresses are e.g. 0x7FF1/0xDFF9/0x1FF1.
 - **Source ref**: Wave-2 memory (NEW-MMU-6); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: gated by NR 0x84 bit 1 (`port_dac_sd2_ABCD_*_io_en`).
+- **Dependencies**: gated by NR 0x84 bit 2 (`port_dac_sd2_ABCD_*_io_en`,
+  `internal_port_enable(18)`), not bit 1 as originally recorded.
 - **Effort**: L.
 
 ### G147. F8/F3/F5/F6 host hotkeys to NR 0x07 / 50-60 / expbus unwired

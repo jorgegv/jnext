@@ -1646,6 +1646,56 @@ static void test_group_precedence() {
               v == 0x00,
               DETAIL("read=0x%02x expected 0x00", v));
     }
+
+    // PR-DECL-01 — decline_write() state must not leak across a NESTED
+    // dispatch (G146 follow-up; port_dispatch.cpp no-handler exit path).
+    //
+    // Reachable for real: a write handler may nest a full port write —
+    // Emulator wires `dma_.write_io = [..]{ port_.write(port, val); }`
+    // (src/core/emulator.cpp ~5145) and the DMA port-A address is
+    // CPU-programmable to ANY port, including one whose only matching
+    // handler declines with no fallback (e.g. an SD2 port with NR 0x84 b2
+    // clear and no paging alias). If the nested dispatch returns with
+    // write_declined_ still true, the OUTER frame misreads it as its own
+    // handler having declined and spuriously re-dispatches the outer OUT
+    // to a second, less-specific handler on the same address — double
+    // dispatch that the VHDL one-hot decode (zxnext.vhd:2696-2699) forbids.
+    //
+    // Synthetic-handler tier is correct here: the unit under test is the
+    // dispatcher's own decline/fall-through algebra, not peripheral wiring
+    // (the wired behaviour is covered by audio_port_dispatch_test
+    // SD2-01/SD2-02).
+    {
+        PortDispatch pd;
+        pd.clear_handlers();
+        int outer_fired = 0, second_fired = 0, decline_fired = 0;
+        // Outer port 0x1234, most-specific handler: nests a write to
+        // 0x00FF (models a DMA burst issued from inside an OUT).
+        pd.register_handler(0xFFFF, 0x1234, nullptr,
+            [&](uint16_t, uint8_t v) {
+                ++outer_fired;
+                pd.write(0x00FF, v);   // nested dispatch
+            });
+        // Less-specific handler matching the SAME outer address
+        // (0x1234 & 0x00FF == 0x34) — must NOT fire.
+        pd.register_handler(0x00FF, 0x0034, nullptr,
+            [&](uint16_t, uint8_t) { ++second_fired; });
+        // Nested port 0x00FF: its ONLY handler declines; no fallback
+        // exists, so the nested write is dropped — and the declined flag
+        // must be reset on that exit path.
+        pd.register_handler(0xFFFF, 0x00FF, nullptr,
+            [&](uint16_t, uint8_t) { ++decline_fired; pd.decline_write(); });
+
+        pd.write(0x1234, 0x42);
+
+        check("PR-DECL-01",
+              "declined flag from a dropped NESTED write does not leak: the "
+              "outer OUT is dispatched exactly once (no spurious fall-through "
+              "to the less-specific handler)",
+              outer_fired == 1 && decline_fired == 1 && second_fired == 0,
+              DETAIL("outer=%d decline=%d second=%d (expected 1/1/0)",
+                     outer_fired, decline_fired, second_fired));
+    }
 }
 
 // ── Group F. IORQ / M1 / contention ────────────────────────────────────

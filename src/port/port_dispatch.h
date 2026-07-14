@@ -46,6 +46,19 @@ public:
     }
     void clear_io_observers() { io_observers_.clear(); }
 
+    /// Decline the current write dispatch. May only be called from inside a
+    /// write handler, and must be that handler's LAST action before returning.
+    /// It signals that the handler's hardware decode does not exist right now
+    /// (its io_en gate is off), so dispatch falls through to the
+    /// next-most-specific matching handler — mirroring the VHDL, where the
+    /// port decodes run in PARALLEL and a decode ANDed with a cleared
+    /// internal_port_enable bit (zxnext.vhd:2392-2450) simply drops out of
+    /// the equation set, leaving any overlapping decode to fire instead.
+    /// Example (G146): with NR 0x84 bit 2 clear, the Soundrive-SD2 decode of
+    /// low byte 0xF1 vanishes and OUT 0x7FF1 becomes a plain port 0x7FFD
+    /// paging write (zxnext.vhd:2708, 2718-2725).
+    void decline_write() { write_declined_ = true; }
+
     // IoInterface implementation
     uint8_t in(uint16_t port) override;
     void    out(uint16_t port, uint8_t val) override;
@@ -60,6 +73,10 @@ public:
 private:
     std::vector<PortHandler> handlers_;
     std::function<uint8_t(uint16_t)> default_read_;
+    // Set by decline_write(); cleared by write() immediately before each
+    // handler invocation and tested immediately after it returns, so the
+    // flag is only meaningful across a single handler call.
+    bool write_declined_ = false;
     // Observers carry side-effect-only callbacks (peripheral state mutation
     // via captured refs); read() is `const` for the public API but observer
     // calls necessarily mutate. Marking the vector mutable keeps the

@@ -4010,10 +4010,39 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // handlers used mask 0xFFFF, requiring full 16-bit match; software writing
     // to e.g. 0x12F1 would update DAC ch A on real hardware but not in jnext.
     // Fix: change all four to mask 0x00FF.
+    // G146 — Soundrive-SD2 vs FD-family paging write conflict.
+    // VHDL zxnext.vhd:2708:
+    //   port_fd_conflict_wr <= (port_f1_lsb and port_dac_sd2_ABCD_f1f3f9fb_io_en)
+    //                       or (port_f9_lsb and port_dac_sd2_ABCD_f1f3f9fb_io_en);
+    // and zxnext.vhd:2718-2720, 2725: port_7ffd_wr / port_dffd_wr /
+    // port_1ffd_wr / port_3ffd_wr are each ANDed with NOT port_fd_conflict_wr.
+    // Only low bytes 0xF1 and 0xF9 can conflict: they have A1:A0="01" and so
+    // also satisfy the FD-family decode (port_fd, zxnext.vhd:2578); 0xF3/0xFB
+    // have A1:A0="11" and can never alias a paging port — the VHDL omits them
+    // from the conflict term, and so do we.
+    //
+    // In jnext both halves fall out of the exclusive most-specific-wins
+    // dispatch, because the SD2 handlers (mask 0x00FF, 8 bits) always beat
+    // the paging handlers (0x8003: 3 bits, 0xF003: 6 bits) on a colliding
+    // address such as 0x7FF1 / 0xDFF9 / 0x1FF1:
+    //   * SD2 gate ON  (NR 0x84 b2, internal_port_enable(18), vhd:2429-2430):
+    //     this handler wins and the paging handler never runs — full
+    //     suppression of the 7FFD/DFFD/1FFD/3FFD write, including the +3
+    //     motor bit (vhd:3755) and the 3FFD FDC-trap strobe (vhd:3892),
+    //     which live inside those suppressed handlers. The DAC side is NOT
+    //     gated by the conflict (vhd:2775-2778, 2661-2663): the byte goes to
+    //     the Soundrive channel, subject only to nr_08_dac_en (which resets
+    //     the soundrive module, vhd:6436 — it does NOT re-enable paging).
+    //   * SD2 gate OFF: port_fd_conflict_wr = 0 and the F1/F9 decode does
+    //     not exist — decline so dispatch falls through to the paging
+    //     handler that also matches the address (vhd:2718-2725 fire again).
     port_.register_handler(0x00FF, 0x00F1, nullptr,
         [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) {   // SD2 b2 gate
+                port_.decline_write();   // decode absent → FD paging may fire (G146)
+                return;
+            }
+            if (!dac_enabled_) return;   // soundrive in reset; paging stays suppressed
             dac_.write_channel(0, val);
         });
     port_.register_handler(0x00FF, 0x00F3, nullptr,
@@ -4024,8 +4053,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         });
     port_.register_handler(0x00FF, 0x00F9, nullptr,
         [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            // Same G146 conflict handling as the 0xF1 handler above
+            // (port_f9_lsb term of zxnext.vhd:2708).
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) {   // SD2 b2 gate
+                port_.decline_write();   // decode absent → FD paging may fire (G146)
+                return;
+            }
+            if (!dac_enabled_) return;   // soundrive in reset; paging stays suppressed
             dac_.write_channel(2, val);
         });
     port_.register_handler(0x00FF, 0x00FB, nullptr,
