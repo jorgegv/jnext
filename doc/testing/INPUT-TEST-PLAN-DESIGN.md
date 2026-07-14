@@ -843,3 +843,24 @@ select + expansion-bus AND.
 - **No coverage padding.** The nominal 139-test total is derived from
   concrete row count in §3; adding tests by splitting existing rows
   into "press / release / press again" triples is not allowed.
+
+## Task 58 append (2026-07-14) — FNK-02 / FNK-03 corrected to frame-edge-latched readback
+
+The NR 0x05 read mux (VHDL `zxnext.vhd:5897`) surfaces the EFFECTIVE
+`eff_nr_05_5060` (bit 2) and `eff_nr_05_scandouble_en` (bit 0), latched
+from the pending FFs only at `video_frame_sync` (`zxnext.vhd:6696-6703`)
+— not the pending FFs the F3/F2 hotkeys toggle (`:5839-5841` /
+`:5849-5852`). The pre-58 rows read straight after the simulated press
+and asserted the toggled value: that encoded jnext's pending-readback
+behaviour, the WRONG oracle. Corrected rows:
+
+| ID | Change | VHDL |
+|----|--------|------|
+| FNK-02 | F3 toggles the pending 5060 FF; a read immediately after the press still returns the OLD bit 2 (`mid == before`), the toggle is readable only after the next frame edge (`after == !before`) | zxnext.vhd:5839-5841, :5897, :6697-6700 |
+| FNK-03 | same for F2 / scandouble bit 0 | zxnext.vhd:5849-5852, :5897, :6702 |
+
+Emulator-side change (Task 58 Item 2) in `src/core/emulator.cpp`
+(NR 0x05 read handler) + `eff_nr_05_scandouble_en_` latch in
+`begin_new_frame()`. Mutation evidence: reverting the read handler to
+pending-cache bits turns both rows RED on their `mid == before`
+assertion.

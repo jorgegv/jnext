@@ -1045,6 +1045,17 @@ private:
     // outside config_mode that VHDL gates out at line 5167).
     bool     nr_06_ps2_mode_ = false;
 
+    // NR 0x05 bit 0 — effective (frame-edge-latched) copy of
+    // `nr_05_scandouble_en`. VHDL zxnext.vhd:6702 latches
+    // `eff_nr_05_scandouble_en <= nr_05_scandouble_en` at every
+    // `video_frame_sync`; the NR 0x05 read mux (:5897) surfaces the
+    // effective copy, not the pending FF (Task 58). Latched in
+    // begin_new_frame(), seeded in init(), re-derived in load_state()
+    // (snapshots are frame-edge, pending == effective). Not
+    // serialised. The bit-2 analogue (`eff_nr_05_5060`) lives in
+    // VideoTiming::refresh_60hz().
+    bool     eff_nr_05_scandouble_en_ = false;
+
     // NR 0x81 — Expansion bus control (VHDL zxnext.vhd:1222-1227).
     // Wave C (TASK-NMI-SOURCE-PIPELINE-PLAN) stores the raw byte for
     // VHDL-faithful read-back; bit 5 (`expbus_nmi_debounce_disable`) is

@@ -2514,8 +2514,15 @@ static void test_nr_05_composed_read(Emulator& emu) {
     }
 
     // Round-trip: writing a canonical value should read back identical
-    // (VHDL :5897 read formula is permutation-invariant w.r.t. write
-    // bits — every write bit appears exactly once in the read formula).
+    // AFTER a frame edge. VHDL :5897 is permutation-invariant w.r.t.
+    // write bits — every write bit appears exactly once in the read
+    // formula — but bits 2 and 0 of the read are the EFFECTIVE
+    // `eff_nr_05_5060` / `eff_nr_05_scandouble_en` signals, latched
+    // from the pending FFs only at `video_frame_sync = '1'`
+    // (zxnext.vhd:6696-6703). Task 58 correction: this row previously
+    // asserted the immediate write→read round-trip, which encoded
+    // jnext's pending-readback behaviour — the WRONG oracle. The
+    // VHDL-correct round-trip completes at the frame edge.
     // Write 0xA5 = 0b10100101.
     //   joy0_bits = (v[3], v[7], v[6]) = (0, 1, 0) = "010" = Cursor
     //   joy1_bits = (v[1], v[5], v[4]) = (0, 1, 0) = "010" = Cursor
@@ -2525,39 +2532,73 @@ static void test_nr_05_composed_read(Emulator& emu) {
     //        joy1[2]<<1 | eff_scandouble = 0b10 10 0 1 0 1 = 0xA5.
     {
         nr_write(emu, 0x05, 0xA5);
+        emu.run_frame();  // frame edge latches eff_ bits (zxnext.vhd:6696-6703)
         uint8_t got = nr_read(emu, 0x05);
         check("G56-CR-NR05-02",
-              "write 0xA5 → read 0xA5 (round-trip; VHDL :5897 is permutation-id)",
+              "write 0xA5 → read 0xA5 after frame edge (round-trip; "
+              "VHDL :5897 permutation-id, eff bits latch at :6696-6703)",
               got == 0xA5, detail_eq(got, uint8_t{0xA5}));
     }
 
     // Bit-mask discriminator: write 0xFF, every position should read
-    // back 1 because every write bit feeds exactly one read bit.
+    // back 1 after the frame edge because every write bit feeds
+    // exactly one read bit.
     //   joy0_bits = (1, 1, 1) = "111" = IoMode
     //   joy1_bits = (1, 1, 1) = "111" = IoMode
     //   nr_05_5060=1, nr_05_scandouble_en=1
     // Read = 0xFF.
     {
         nr_write(emu, 0x05, 0xFF);
+        emu.run_frame();  // frame edge latches eff_ bits (zxnext.vhd:6696-6703)
         uint8_t got = nr_read(emu, 0x05);
         check("G56-CR-NR05-03",
-              "write 0xFF → read 0xFF (every bit feeds exactly one read bit)",
+              "write 0xFF → read 0xFF after frame edge "
+              "(every bit feeds exactly one read bit)",
               got == 0xFF, detail_eq(got, uint8_t{0xFF}));
     }
 
-    // Partial-clear: write 0x00 — every read bit should be zero,
-    // including the 0x40 reset default for the joy0[0]=1 bit (which
-    // moves to 0 on a 0x00 write).
+    // Partial-clear: write 0x00 — every read bit should be zero after
+    // the frame edge, including the 0x40 reset default for the
+    // joy0[0]=1 bit (which moves to 0 on a 0x00 write).
     {
         nr_write(emu, 0x05, 0x00);
+        emu.run_frame();  // frame edge latches eff_ bits (zxnext.vhd:6696-6703)
         uint8_t got = nr_read(emu, 0x05);
         check("G56-CR-NR05-04",
-              "write 0x00 → read 0x00 (reset-default joy0[0] cleared)",
+              "write 0x00 → read 0x00 after frame edge "
+              "(reset-default joy0[0] cleared)",
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
 
-    // Restore reset state for downstream tests.
+    // T58-NR05-EFF-01 — discriminative row for the frame-edge latch
+    // itself. Bits 2 (5060) and 0 (scandouble) of the NR 0x05 read are
+    // `eff_nr_05_5060` / `eff_nr_05_scandouble_en` (VHDL zxnext.vhd:
+    // 5897), latched from the pending FFs ONLY at `video_frame_sync`
+    // (:6696-6703): between a write and the next frame edge real
+    // hardware reads the OLD values, while the joy bits (7:3, 1) are
+    // pending signals and follow the write immediately. Pre-Task-58
+    // jnext returned the pending cache bits, so `pre` here read 0x05.
+    {
+        // Settle a known effective state: pending 0x00 + frame edge.
+        nr_write(emu, 0x05, 0x00);
+        emu.run_frame();
+        nr_write(emu, 0x05, 0x05);  // pending: 5060=1, scandouble=1, joy=0
+        uint8_t pre = nr_read(emu, 0x05);   // before the frame edge → old eff
+        emu.run_frame();
+        uint8_t post = nr_read(emu, 0x05);  // after the frame edge → new eff
+        check("T58-NR05-EFF-01",
+              "NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 "
+              "reads 0x00 before the frame edge, 0x05 after "
+              "[zxnext.vhd:5897, :6696-6703]",
+              pre == 0x00 && post == 0x05,
+              "pre=" + hex2(pre) + " post=" + hex2(post) +
+              " (want pre=0x00 post=0x05)");
+    }
+
+    // Restore reset state for downstream tests (+ frame edge so the
+    // effective 50/60 geometry settles back to 50 Hz).
     nr_write(emu, 0x05, 0x40);
+    emu.run_frame();
 }
 
 static void test_nr_06_composed_read(Emulator& emu) {
@@ -4206,6 +4247,10 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
         // Set bits 7:6=10 (joy0 hi), 5:4=11 (joy1 hi), 3=1 (joy0 lo), 1=1
         // (joy1 lo), 0=1 (scandouble). Bit 2 (5060) intentionally =0.
         nr_write(emu, 0x05, 0xBB);
+        // Task 58 — bits 2/0 of the read are the frame-edge-latched
+        // eff_ copies (zxnext.vhd:5897, :6696-6703); run a frame so
+        // effective == pending before sampling.
+        emu.run_frame();
         const uint8_t before = nr_read(emu, 0x05);
         emu.reset();                        // hard reset
         const uint8_t after  = nr_read(emu, 0x05);
@@ -4216,29 +4261,40 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
               "before=" + hex2(before) + " after=" + hex2(after));
     }
 
-    // ── TC-NR05-PENTAGON — NR 0x05 bit 2 Pentagon force-zero (Pass-10, 6051f01)
-    //   VHDL :5832-5841 forces nr_05_5060 <= '0' continuously when
-    //   nr_03_machine_timing(2)='1' (Pentagon). The frame-sync latch at
-    //   :6701 propagates that '0' into eff_nr_05_5060.  Pre-pass-10 the
-    //   read mux returned the cached bit 2 unconditionally, leaking the
-    //   user's pre-Pentagon write through.
+    // ── TC-NR05-PENTAGON — NR 0x05 bit 2 Pentagon force-zero (Pass-10, 6051f01;
+    //   Task 58 rework to the frame-edge-latched read oracle)
+    //   VHDL :5832-5841 forces the pending nr_05_5060 FF to '0'
+    //   continuously when nr_03_machine_timing(2)='1' (Pentagon). The
+    //   frame-sync latch at :6697-6700 then propagates that '0' into
+    //   eff_nr_05_5060, which is what the read mux at :5897 surfaces.
+    //   Task 58 correction: the pre-58 row asserted a read-time mask
+    //   (bit 2 = 0 immediately on Pentagon entry, via a NextReg-field
+    //   bypass) — the WRONG oracle. Per VHDL the read returns the OLD
+    //   effective value until the next frame edge; this row now drives
+    //   the real NR 0x03 write path and samples after frame edges.
     {
         emu.reset();
-        // 1. With non-Pentagon timing, bit 2 round-trips.
-        nr_write(emu, 0x03, 0x00);          // bits[2:0]=000 (Config Mode commit;
-                                            //   non-Pentagon)
-        nr_write(emu, 0x05, 0x04);          // bit 2 = 1 (5060)
+        // 1. Non-Pentagon: write bit 2 = 1; eff latches at the frame
+        //    edge (:6697-6700) and the read surfaces it.
+        nr_write(emu, 0x05, 0x04);          // bit 2 = 1 (5060) pending
+        emu.run_frame();
         const uint8_t got_nopen = nr_read(emu, 0x05);
-        // 2. Switch to Pentagon (machine_timing[2]=1).
-        emu.nextreg().set_nr_03_machine_timing(0x04);
+        // 2. Switch to Pentagon via the real NR 0x03 write path
+        //    (bit 7 = 1, tim_sel = "100"): the pending FF is forced to
+        //    '0' (:5835-5836); the next frame edge latches it into
+        //    eff_nr_05_5060.
+        nr_write(emu, 0x03, 0x80 | (0x04 << 4));   // 0xC0 → Pentagon
+        emu.run_frame();
         const uint8_t got_pen = nr_read(emu, 0x05);
         check("TC-NR05-PENTAGON",
-              "NR 0x05 read masks bit 2 to 0 when Pentagon timing active "
-              "[zxnext.vhd:5832-5841 / :6701 / :5897]",
+              "NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge "
+              "(pending FF forced 0, eff latched at frame sync) "
+              "[zxnext.vhd:5835-5836 / :6697-6700 / :5897]",
               (got_nopen & 0x04) == 0x04 && (got_pen & 0x04) == 0x00,
               "nopen=" + hex2(got_nopen) + " pen=" + hex2(got_pen));
-        // Restore default timing
-        emu.nextreg().set_nr_03_machine_timing(0x03);
+        // Restore default timing (+3) and settle the frame geometry.
+        nr_write(emu, 0x03, 0x80 | (0x03 << 4));   // 0xB0 → +3 timing
+        emu.run_frame();
         emu.reset();
     }
 
@@ -5083,27 +5139,36 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
         nr_write(emu, 0x05, 0x04);
         // Exit Pentagon (timing → 0x03 +3).
         nr_write(emu, 0x03, 0x80 | (0x03 << 4));     // 0xB0
+        // Task 58 — the read surfaces the frame-edge-latched eff_ bits
+        // (zxnext.vhd:5897, :6696-6703): run a frame so the (dropped-
+        // to-0) pending FFs latch into the effective copies before
+        // sampling.
+        emu.run_frame();
         const uint8_t got_a = nr_read(emu, 0x05);
 
         emu.reset();
         // Discriminator B — Pentagon edge clears prior bit-2 latch.
         // Non-Pentagon (default boot timing = 0x03 +3). Write bit 2 = 1
-        // (FF latches 1; cached bit 2 = 1).
+        // (FF latches 1; cached bit 2 = 1) and run a frame so the eff
+        // copy latches it (Task 58 — the read is eff, :6697-6700).
         nr_write(emu, 0x05, 0x04);
+        emu.run_frame();
         const uint8_t got_b_pre = nr_read(emu, 0x05);
         // Activate Pentagon (FF forced to 0 next clock — NR 0x03 fan-out
         // must clear cached bit 2 to mirror the FF state).
         nr_write(emu, 0x03, 0x80 | (0x04 << 4));     // 0xC0
         const uint8_t timing_b = emu.nextreg().nr_03_machine_timing();
-        // Exit Pentagon (FF stays at 0 — no fresh NR 0x05 write or F3).
+        // Exit Pentagon (FF stays at 0 — no fresh NR 0x05 write or F3),
+        // then run a frame so eff latches the cleared FF before reading.
         nr_write(emu, 0x03, 0x80 | (0x03 << 4));     // 0xB0
+        emu.run_frame();
         const uint8_t got_b = nr_read(emu, 0x05);
 
         check("V13-NMP-01",
               "NR 0x05 bit 2 Pentagon-mode cache canonicalisation: "
               "(a) write-while-Pentagon does not leak; "
               "(b) Pentagon-engagement clears prior bit-2 latch "
-              "[zxnext.vhd:5832-5841 / :5897 / :6701]",
+              "[zxnext.vhd:5832-5841 / :5897 / :6696-6703]",
               (timing_a == 0x04) &&
               (got_a == 0x00) &&
               ((got_b_pre & 0x04) == 0x04) &&

@@ -2762,6 +2762,12 @@ static void test_fnkeys() {
     }
 
     // ── FNK-02: F3 press toggles NR 0x05 5060 bit (per VHDL :5839-5841) ──
+    // Task 58 correction — the NR 0x05 read surfaces the frame-edge-
+    // latched `eff_nr_05_5060` (zxnext.vhd:5897; latch at :6697-6700),
+    // NOT the pending FF the F3 hotkey toggles. The pre-58 row read
+    // straight after the press (pending-readback — the WRONG oracle);
+    // per VHDL the toggle only becomes readable after the next frame
+    // edge, and a read before it still returns the old value.
     {
         Emulator emu;
         build_next_emulator_for_nmi(emu);
@@ -2769,34 +2775,53 @@ static void test_fnkeys() {
         // F3 hotkey toggle is NOT short-circuited by the machine_timing(2)
         // gate at VHDL :5836.
         nr_write_via_port(emu, 0x05, 0x00);  // start with 5060 bit clear
+        emu.run_frame();                     // latch eff_nr_05_5060 = 0
+        emu.port().out(0x243B, 0x05);
         const bool before = (emu.port().in(0x253B) & 0x04) != 0;
         emu.emu_fnkeys().simulate_mf_fkey_press(3);
         // Re-select NR 0x05 to read.
         emu.port().out(0x243B, 0x05);
+        // Pending FF toggled, eff not yet latched → read still old.
+        const bool mid = (emu.port().in(0x253B) & 0x04) != 0;
+        emu.run_frame();                     // frame edge latches the toggle
+        emu.port().out(0x243B, 0x05);
         const bool after = (emu.port().in(0x253B) & 0x04) != 0;
 
         check("FNK-02",
-              "F3 press toggles NR 0x05 bit 2 (5060) (VHDL :5839-5841)",
-              after == !before,
-              DETAIL("NR 0x05 bit 2 before=%d after=%d (expected toggle)",
-                     before, after));
+              "F3 press toggles NR 0x05 bit 2 (5060), readable after the "
+              "frame edge only (VHDL :5839-5841; eff latch :6697-6700)",
+              mid == before && after == !before,
+              DETAIL("NR 0x05 bit 2 before=%d mid=%d after=%d "
+                     "(expected mid==before, after==!before)",
+                     before, mid, after));
     }
 
     // ── FNK-03: F2 press toggles NR 0x05 scandouble bit (VHDL :5849-5852) ──
+    // Task 58 correction — same frame-edge-latched readback as FNK-02:
+    // the read surfaces `eff_nr_05_scandouble_en` (zxnext.vhd:5897;
+    // latch at :6702).
     {
         Emulator emu;
         build_next_emulator_for_nmi(emu);
         nr_write_via_port(emu, 0x05, 0x00);  // start with scandouble bit clear
+        emu.run_frame();                     // latch eff_nr_05_scandouble_en = 0
+        emu.port().out(0x243B, 0x05);
         const bool before = (emu.port().in(0x253B) & 0x01) != 0;
         emu.emu_fnkeys().simulate_mf_fkey_press(2);
+        emu.port().out(0x243B, 0x05);
+        // Pending FF toggled, eff not yet latched → read still old.
+        const bool mid = (emu.port().in(0x253B) & 0x01) != 0;
+        emu.run_frame();                     // frame edge latches the toggle
         emu.port().out(0x243B, 0x05);
         const bool after = (emu.port().in(0x253B) & 0x01) != 0;
 
         check("FNK-03",
-              "F2 press toggles NR 0x05 bit 0 (scandouble) (VHDL :5849-5852)",
-              after == !before,
-              DETAIL("NR 0x05 bit 0 before=%d after=%d (expected toggle)",
-                     before, after));
+              "F2 press toggles NR 0x05 bit 0 (scandouble), readable after "
+              "the frame edge only (VHDL :5849-5852; eff latch :6702)",
+              mid == before && after == !before,
+              DETAIL("NR 0x05 bit 0 before=%d mid=%d after=%d "
+                     "(expected mid==before, after==!before)",
+                     before, mid, after));
     }
 
     // ── FNK-04: F7 press increments NR 0x09 scanlines (VHDL :5861-5863) ──
