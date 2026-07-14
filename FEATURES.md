@@ -45,8 +45,8 @@
 - Snapshot saving (`.sna`/`.szx`/`.nex`) via File > Save Snapshot... (Ctrl+Shift+S) or `--delayed-snapshot FILE` (headless)
 - TAP: fast-load via ROM trap + real-time EAR bit simulation; instant `LOAD ""` autostart via FUSE-style phantom typist (48K/128K/+3 modes — triggers on first full keyboard scan, no fixed delay)
 - TAP saving: BASIC `SAVE` through the 48K ROM SA-BYTES routine (trap at 0x04C2, gated on the 48K ROM identity) appends blocks to a `.tap` file (`--tape-save FILE`; FUSE-verified output; custom MIC-bit-banging savers not captured yet)
-- TZX: full block support via ZOT library, fast-load + real-time playback
-- WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo)
+- TZX: full block support via ZOT library, fast-load + real-time playback (incl. Direct Recording 0x15 / DeciLoad 12k8 turbo loaders)
+- WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo) with sub-sample edge interpolation (DeciLoad-class turbo loaders work)
 - RZX: playback and recording (IN replay, embedded SNA snapshot, zlib compressed)
 
 ## GUI (Qt 6)

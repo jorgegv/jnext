@@ -109,12 +109,12 @@ where possible.
 | G33 | Tape SAVE (write to TAP/TZX/WAV)                           | Tape                             | B   |         | cannot save BASIC programs / data — major gap              | M      | High     |
 | G34 | `.z80` snapshot loader                                     | Snapshot                         | B   |         | most-popular legacy snapshot format unsupported            | M      | High     |
 | G35 | Snapshot save (.sna out / .szx out / .nex out) wired       | Snapshot, GUI                    | B   |         | cannot save mid-game state to file                         | M      | High     |
-| G36 | TZX Direct-Recording (DeciLoad 0x15)                       | Tape                             | B   |         | many turbo-loaded games / demos won't load                 | M      | High     |
+| ~~G36~~ | ~~TZX Direct-Recording (DeciLoad 0x15)~~                   | ~~Tape~~                         | ~~B~~ | ~~Y~~ | ~~fixed Task 57: monotonic tape clock + ZOT pause edge~~   | ~~M~~  | ~~High~~ |
 | G42 | Joystick / gamepad host wiring (Kempston/Sinclair/MD)      | Joystick, SDL, GUI               | B   |         | gamepad / USB joystick unusable; keyboard-only             | M      | High     |
 | G66 | Save-state schema versioning + per-subsystem framing       | Save-state                       | C,D |         | ANY save_state field reorder corrupts older snapshots      | M      | High     |
 | G126| NR 0x05 mode change does not propagate to MembraneStick    | Joystick, MembraneStick, NextREG | B   |         | Joy mode switch leaves membrane fold pinned to defaults    | L      | High     |
 | G32 | DAC continuous-buzz playback artefact                      | DAC, Audio                       | B   |         | audible quality degradation on DAC software                | H      | Medium   |
-| G37 | WAV DeciLoad real-time loading                             | Tape, WAV                        | B   |         | same as G36 via WAV pipeline                               | M      | Medium   |
+| ~~G37~~ | ~~WAV DeciLoad real-time loading~~                         | ~~Tape, WAV~~                    | ~~B~~ | ~~Y~~ | ~~fixed Task 57: monotonic clock + sub-sample interpolation~~ | ~~M~~ | ~~Medium~~ |
 | G38 | DSK / +3 disk image loading + uPD765 FDC                   | FDC, Disk                        | B   |         | all +3 disk software unrunnable                            | H      | Medium   |
 | G43 | Kempston Mouse host wiring                                 | Mouse, SDL                       | B   |         | Art Studio Next, mouse demos unusable                      | M      | Medium   |
 | G47 | NextZXOS post-boot regression / dot-command surface        | Test, Boot                       | B   |         | no automation for NextZXOS-native software regressions     | L      | Medium   |
@@ -1101,22 +1101,54 @@ where possible.
   optional `.nex` saver. Both queued under Task 13b.
 - **Effort**: M (remainder).
 
-### G36. TZX Direct-Recording (DeciLoad 0x15)
+### G36. TZX Direct-Recording (DeciLoad 0x15) — CLOSED (Task 57, 2026-07-14)
 - **What**: TZX 0x15 blocks with DeciLoad 12k8 (77 T-states/sample)
-  fail in real-time mode. FUSE handles same file.
-- **User impact**: many turbo-loaded games (Xevious, Dizzy ZX0
-  ports, demos) cannot load.
-- **Source ref**: `EMULATOR-DESIGN-PLAN` §11; `DECILOAD-TZX-LOADING.md`.
-- **Proposed**: per `DECILOAD-TZX-LOADING.md` steps 1–5 (compare
-  with FUSE; fix ZOT or override the DIRECT phase locally).
-- **Effort**: M.
+  failed in real-time mode.
+- **Root cause (two independent bugs, both measured)**:
+  1. **Frame-relative tape clock** — `begin_new_frame()` zeroes the
+     FUSE `tstates` counter every frame (f3665f25, for the contention
+     hc/vc derivation), but that same counter was fed to ZOT's
+     absolute-timeline `edge_clock`. The moment an edge landed past a
+     frame boundary, `cpu_clocks >= edge_clock` could never become
+     true again — ALL real-time TZX playback froze (not just 0x15;
+     nothing covered `--tape-realtime`, so it broke silently).
+     Fixed by `Emulator::monotonic_tstates()` (completed-frames base +
+     live FUSE counter, still mid-instruction-live).
+  2. **ZOT pause swallowed the block-terminating edge** — entering
+     `TZX_PHASE_PAUSE` forced `level = 0` immediately; when a block's
+     final pulse ended low, the terminating edge (toggle to 1) was
+     overwritten and the ROM timed out on the last bit of EVERY block
+     (measured: LD-BYTES error at exact end-of-data). Fixed by holding
+     the final level ~1 ms, then dropping low — an empirically-derived
+     heuristic validated by real loads (NOT libspectrum behaviour;
+     libspectrum treats the pause start as an ordinary toggle edge).
+     Plus: DIRECT samples are SET, not toggled — the caller-side
+     toggle no longer inverts a 0x15 block's final sample level.
+- **Note**: with both fixes, the 0x15 decode itself needed no change —
+  ZOT's per-sample DIRECT handler was already faithful.
+  The doc's "FUSE handles the same file" was NOT reproducible headless
+  (FUSE 1.6.0 enters the DeciLoad loader but decodes zero bytes in
+  110 s, traps on or off); jnext now loads Xevious end-to-end.
+- **Coverage**: `xevious-deciload` screenshot row (full game to menu,
+  `--tape-realtime`, deterministic); mmu_test BOOT-DECI-01/02.
+- **Source ref**: `doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md`.
 
-### G37. WAV DeciLoad real-time loading
-- **What**: Same DeciLoad 12k8 turbo class fails when sourced from
-  a `.wav`; threshold-to-EAR conversion not tight enough for
-  loader's edge timer.
-- **Dependencies**: G36 — share fix between TZX 0x15 and WAV.
-- **Effort**: M.
+### G37. WAV DeciLoad real-time loading — CLOSED (Task 57, 2026-07-14)
+- **What**: Same DeciLoad 12k8 turbo class failed when sourced from a
+  `.wav`.
+- **Root cause**: shared G36 cause #1 (frame-relative clock froze all
+  WAV playback: `current <= start → 0` forever) PLUS a WAV-specific
+  one: stepwise per-sample thresholding quantised every edge to the
+  79.4 T sample grid (44.1 kHz); DeciLoad's short/long pulse classes
+  are ~60 T apart, and ~25% of the Dizzy WAV's long pulses quantised
+  into the wrong class (loader `RST 0`). Fixed by linear sub-sample
+  interpolation of the threshold crossing (8.8 fixed point) — the
+  analog crossing instant the hardware EAR Schmitt trigger sees.
+  Measured: quantised longs smeared to 476–556 T; interpolated widths
+  cluster cleanly at ~490–590 T. Dizzy WAV loads to the title screen.
+- **Coverage**: mmu_test BOOT-DECI-03/04 (04 is the interpolation
+  discriminator: a probe between the interpolated crossing and the
+  grid edge).
 
 ### G38. DSK / +3 disk image loading + uPD765 FDC
 - **What**: No floppy emulation. +3 has built-in FDC used by

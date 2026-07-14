@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <vector>
 #include <cassert>
+#include <unistd.h>   // mkstemp/write/close/unlink — TZX fixture for the G36 tape-clock row
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -403,6 +404,96 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
 // doc exists today; pinned-skip rows live here until the plan and
 // SaveStateLoader land.
 
+// ── Test: monotonic tape clock survives save/load (G36 review fix) ─────────
+//
+// Emulator::monotonic_tstates() (base + live FUSE counter) is the clock
+// real-time TZX/WAV playback runs on. The base is folded up in
+// begin_new_frame(); the live counter is NOT serialised by Z80Cpu (Pass-9
+// note there). save_state therefore writes the FOLDED monotonic instant and
+// load_state re-establishes it as the base with a zeroed live counter.
+// Without that field, a rewind during --tape-realtime playback left the
+// base at its pre-rewind (future) value → monotonic_tstates() jumped
+// forward by the rewound distance and the tape desynced. This test is the
+// rewind suite's only tape-clock coverage: it save_states mid-realtime-TZX
+// playback, runs on, load_states, and asserts exact clock continuity plus
+// consistent post-restore advancement.
+static int test_monotonic_tape_clock_roundtrip()
+{
+    printf("\n--- Test: monotonic tape clock across save/load (G36) ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 5);
+
+    // Minimal TZX: one standard-speed block (flag 0x00 → 8063 pilot pulses
+    // ≈ 17.5M T ≈ 250 frames of playback — the tape is still mid-pilot for
+    // the whole test). Written to a temp file because load_tzx takes a path.
+    static const uint8_t tzx_min[] = {
+        'Z','X','T','a','p','e','!',0x1A, 1, 20,
+        0x10,             // standard speed data
+        0xE8, 0x03,       // pause 1000 ms
+        0x03, 0x00,       // 3 data bytes
+        0x00, 0xAA, 0xAA, // flag 0x00 (header-class pilot) + payload
+    };
+    char tzx_path[] = "/tmp/jnext_rewind_tzxXXXXXX";
+    int fd = mkstemp(tzx_path);
+    REQUIRE(fd >= 0, "mkstemp for TZX fixture");
+    REQUIRE(write(fd, tzx_min, sizeof(tzx_min)) == (ssize_t)sizeof(tzx_min),
+            "write TZX fixture");
+    close(fd);
+
+    bool loaded = emu.load_tzx(tzx_path, /*fast_load=*/false);
+    unlink(tzx_path);
+    REQUIRE(loaded, "load_tzx (realtime) succeeds");
+    CHECK(emu.tzx_tape().is_playing(), "TZX realtime playback is live before snapshot");
+
+    // Run a few frames so the base has folded frames in it, then snapshot.
+    for (int i = 0; i < 3; ++i) emu.run_frame();
+    const uint64_t mono_at_save = emu.monotonic_tstates();
+
+    StateWriter measure;
+    emu.save_state(measure);
+    size_t snap_size = measure.position();
+    std::vector<uint8_t> buf(snap_size, 0);
+    StateWriter w(buf.data(), snap_size);
+    emu.save_state(w);
+
+    // Run past the snapshot point — pre-fix this is what poisoned the base.
+    for (int i = 0; i < 3; ++i) emu.run_frame();
+    const uint64_t mono_before_restore = emu.monotonic_tstates();
+
+    StateReader r(buf.data(), snap_size);
+    emu.load_state(r);
+
+    const uint64_t mono_after_restore = emu.monotonic_tstates();
+    char msg[160];
+    snprintf(msg, sizeof(msg),
+             "monotonic tape clock exactly restored (saved=%llu restored=%llu, "
+             "pre-restore=%llu)",
+             (unsigned long long)mono_at_save,
+             (unsigned long long)mono_after_restore,
+             (unsigned long long)mono_before_restore);
+    CHECK(mono_after_restore == mono_at_save && mono_after_restore < mono_before_restore,
+          msg);
+
+    // Post-restore advancement must be consistent: 2 frames advance the
+    // clock by 2 nominal frame lengths ± the difference in end-of-frame
+    // instruction overshoot between the save point and the measure point
+    // (a few T either way; ±100 T bound) — no double-fold of a stale
+    // live counter, no lost frames. A missing serialisation would show
+    // up as a ~whole-frame discrepancy here or as a jump in the check
+    // above, both far outside this window.
+    emu.run_frame();
+    emu.run_frame();
+    const uint64_t delta = emu.monotonic_tstates() - mono_after_restore;
+    const uint64_t two_frames = 2ull * 69888ull;  // 48K: 224 T × 312 lines
+    snprintf(msg, sizeof(msg),
+             "post-restore clock advances by ~2 frames +-100 T (delta=%llu)",
+             (unsigned long long)delta);
+    CHECK(delta >= two_frames - 100 && delta <= two_frames + 100, msg);
+
+    return 0;
+}
+
 static void test_ss_ver_skips()
 {
     skip("SS-VER-01", "schema magic + version head absent (see G66)");
@@ -434,6 +525,7 @@ int main()
     test_snapshot_roundtrip();
     test_step_back_disabled();
     test_v16_cpu_01_load_state_repushes_port_ulap_io_en();
+    test_monotonic_tape_clock_roundtrip();
     test_ss_ver_skips();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

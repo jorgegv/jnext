@@ -152,31 +152,49 @@ uint8_t WavLoader::get_ear_bit(uint64_t current_tstates) const
     if (!playing_ || !loaded_) return 0;
     if (current_tstates <= start_tstates_) return 0;
 
-    // Convert elapsed T-states to sample frame index.
-    // frame_index = (elapsed_tstates * sample_rate) / CPU_CLOCK_HZ
+    // Convert elapsed T-states to a FRACTIONAL sample frame position
+    // (8.8 fixed point) and linearly interpolate between the two
+    // neighbouring samples before thresholding (G37).
+    //
+    // Why: a stepwise per-sample threshold quantises every edge to the
+    // sample grid (79.4 T at 44.1 kHz). Turbo loaders like DeciLoad 12k8
+    // classify pulses by width with only ~60 T of margin between the
+    // "short" and "long" classes, so a pulse whose true analog width is
+    // ~535 T can quantise down to 6 samples (476 T) and be misclassified.
+    // Real hardware sees the analog crossing instant (EAR input Schmitt
+    // trigger on a band-limited signal); linear interpolation of the PCM
+    // data reconstructs that instant to sub-sample precision. Measured on
+    // Dizzy_ZX0Deciload12k8_eqB.wav: quantised long pulses smear to
+    // 476-556 T, interpolated widths cluster cleanly at ~490-590 T.
     uint64_t elapsed = current_tstates - start_tstates_;
-    uint64_t frame_index = (elapsed * sample_rate_) / CPU_CLOCK_HZ;
+    uint64_t pos256 = (elapsed * sample_rate_ * 256u) / CPU_CLOCK_HZ;
+    uint64_t frame_index = pos256 >> 8;
+    int32_t frac = static_cast<int32_t>(pos256 & 0xFF);
 
     uint32_t frames = total_frames();
     if (frame_index >= frames) return 0;  // Past end of audio.
 
-    return sample_to_ear(static_cast<uint32_t>(frame_index));
+    int32_t a0 = sample_amplitude(static_cast<uint32_t>(frame_index));
+    int32_t a1 = (frame_index + 1 < frames)
+                 ? sample_amplitude(static_cast<uint32_t>(frame_index + 1))
+                 : a0;
+    // Interpolated amplitude in 1/256ths; threshold at 0 (the centre).
+    int32_t v = a0 * 256 + (a1 - a0) * frac;
+    return (v >= 0) ? 1 : 0;
 }
 
-uint8_t WavLoader::sample_to_ear(uint32_t frame_index) const
+int32_t WavLoader::sample_amplitude(uint32_t frame_index) const
 {
     uint32_t bpf = bytes_per_frame();
     size_t byte_offset = static_cast<size_t>(frame_index) * bpf;
 
-    if (byte_offset + (bits_per_sample_ / 8) > raw_data_.size()) return 0;
+    if (byte_offset + (bits_per_sample_ / 8) > raw_data_.size()) return -1;
 
     if (bits_per_sample_ == 8) {
-        // 8-bit unsigned: 0-255, center at 128.
-        uint8_t sample = raw_data_[byte_offset];
-        return (sample >= 128) ? 1 : 0;
+        // 8-bit unsigned: 0-255, centre at 128.
+        return static_cast<int32_t>(raw_data_[byte_offset]) - 128;
     } else {
-        // 16-bit signed little-endian: center at 0.
-        int16_t sample = static_cast<int16_t>(read_u16(raw_data_.data() + byte_offset));
-        return (sample >= 0) ? 1 : 0;
+        // 16-bit signed little-endian: centre at 0.
+        return static_cast<int16_t>(read_u16(raw_data_.data() + byte_offset));
     }
 }

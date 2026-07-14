@@ -31,6 +31,13 @@
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
 #include "core/saveable.h"
+#include "core/wav_loader.h"   // Cat 25 BOOT-DECI-03/04 (G37) — compiled into this target
+
+// Cat 25 BOOT-DECI-01/02 (G36) — the vendored ZOT TZX player (pure C,
+// third_party/zot), linked as zot_tzx.
+extern "C" {
+#include "tzx.h"
+}
 
 #include <cstdarg>
 #include <cstdint>
@@ -94,6 +101,31 @@ std::string fmt(const char* fmt_str, ...) {
     std::vsnprintf(buf, sizeof(buf), fmt_str, ap);
     va_end(ap);
     return std::string(buf);
+}
+
+// Build a canonical 44-byte-header PCM WAV: 8-bit unsigned, mono,
+// 44100 Hz. Used by the Cat 25 BOOT-DECI WAV rows (G37).
+std::vector<uint8_t> make_wav8_mono_44k(const std::vector<uint8_t>& samples) {
+    std::vector<uint8_t> w;
+    auto put32 = [&](uint32_t v) {
+        w.push_back(v & 0xFF); w.push_back((v >> 8) & 0xFF);
+        w.push_back((v >> 16) & 0xFF); w.push_back((v >> 24) & 0xFF);
+    };
+    auto put16 = [&](uint16_t v) {
+        w.push_back(v & 0xFF); w.push_back((v >> 8) & 0xFF);
+    };
+    auto puts4 = [&](const char* s) { w.insert(w.end(), s, s + 4); };
+    puts4("RIFF"); put32(36 + static_cast<uint32_t>(samples.size())); puts4("WAVE");
+    puts4("fmt "); put32(16);
+    put16(1);      // PCM
+    put16(1);      // mono
+    put32(44100);  // sample rate
+    put32(44100);  // byte rate
+    put16(1);      // block align
+    put16(8);      // bits per sample
+    puts4("data"); put32(static_cast<uint32_t>(samples.size()));
+    w.insert(w.end(), samples.begin(), samples.end());
+    return w;
 }
 
 // Little-endian byte readers — used by the BOOT-SNAPSAVE round-trip
@@ -4537,12 +4569,261 @@ void test_boot_format_loaders() {
                   r.data.size() > 139 ? r.data[139] : -1));
     }
 
-    // Cat 25 — Tape DeciLoad / Real-time loading (G36/G37). TZX 0x15
-    // not decoded; WAV real-time pulse-shaping unverified.
-    skip("BOOT-DECI-01", "TZX 0x15 not implemented (see G36)");
-    skip("BOOT-DECI-02", "TZX 0x15 not implemented (see G36)");
-    skip("BOOT-DECI-03", "WAV real-time path unverified (see G37)");
-    skip("BOOT-DECI-04", "WAV real-time path unverified (see G37)");
+    // Cat 25 — Tape DeciLoad / Real-time loading (G36/G37), un-skipped
+    // by Task 57 (2026-07-14). Oracle: TZX spec v1.20 (block 0x15 =
+    // raw 1-bit samples at a fixed T-state rate; pauses hold the
+    // previous block's final level ~1 ms before dropping low — the
+    // libspectrum/FUSE behaviour) + the measured requirements of the
+    // DeciLoad 12k8 loader (test/tzx/Xevious_ZX0_DeciLoad12k8.tzx,
+    // reverse-engineered in doc/issues/deciload-tzx/). End-to-end
+    // coverage: the xevious-deciload screenshot regression row loads
+    // the full game through blocks 0x11 + 0x15 in --tape-realtime
+    // mode; these unit rows pin the decoder-level contracts.
+
+    // BOOT-DECI-01 — TZX 0x15 Direct Recording: EAR level as a
+    // function of time must equal sample[(t - t0) / sample_tstates],
+    // MSB-first, honouring used_bits in the final byte; after the
+    // last sample (pause=0) the tape ends at level 0.
+    {
+        // 13 samples: 0xB2 = 1,0,1,1,0,0,1,0 then 0x58 top 5 = 0,1,0,1,1.
+        static const uint8_t tzx_direct[] = {
+            'Z','X','T','a','p','e','!',0x1A, 1, 20,
+            0x15,                   // block id: Direct Recording
+            77, 0,                  // T-states per sample
+            0, 0,                   // pause ms
+            5,                      // used bits in last byte
+            2, 0, 0,                // data length (24-bit LE)
+            0xB2, 0x58,             // sample bytes
+        };
+        static const int expected[13] = {1,0,1,1,0,0,1,0, 0,1,0,1,1};
+
+        TZXPlayer p;
+        bool ok = tzx_load(&p, tzx_direct, static_cast<int>(sizeof(tzx_direct))) == 0;
+        const uint64_t t0 = 1000;
+        tzx_play(&p, t0);
+        std::string bad;
+        for (uint64_t t = t0; ok && t < t0 + 13 * 77 + 200; t += 7) {
+            int lvl = tzx_update(&p, t);
+            int idx = static_cast<int>((t - t0) / 77);
+            int want = (idx < 13) ? expected[idx] : 0;
+            if (lvl != want) {
+                ok = false;
+                bad = fmt("t=%llu idx=%d got=%d want=%d",
+                          static_cast<unsigned long long>(t), idx, lvl, want);
+            }
+        }
+        if (ok && tzx_is_playing(&p)) { ok = false; bad = "still playing after last sample"; }
+        check("BOOT-DECI-01",
+              "TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] "
+              "MSB-first with used_bits=5 in the last byte; level 0 and "
+              "stopped after the final sample (TZX spec v1.20 block 0x15)",
+              ok, bad);
+    }
+
+    // BOOT-DECI-02 — block-terminating edge across a pause. (a) A
+    // pulse block whose final pulse ends LOW must still produce its
+    // terminating edge: the pause holds the post-edge HIGH level for
+    // ~1 ms (3500 T) before dropping low. This is an empirically-
+    // derived heuristic, NOT libspectrum behaviour (libspectrum treats
+    // the pause start as an ordinary toggle edge): the 48K ROM times
+    // the final bit of EVERY block against this edge — swallowing it
+    // fails the checksum byte of every block (the measured pre-fix
+    // failure: LD-BYTES error at exact end-of-data; see
+    // doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md §RESOLVED).
+    // (b) A 0x15 block's final SAMPLE level must
+    // survive into the pause un-inverted (no caller-side toggle over
+    // direct samples): last sample 1 → held 1 for 1 ms; last sample
+    // 0 → immediately low, no phantom high pulse.
+    {
+        bool ok = true;
+        std::string bad;
+
+        // (a) 0x14 Pure Data, 1 byte 0x00 → 16 pulses of 855 T; the
+        // 16th pulse is emitted at level 0, so the terminating edge
+        // (toggle to 1) exists only if the pause holds it.
+        static const uint8_t tzx_data[] = {
+            'Z','X','T','a','p','e','!',0x1A, 1, 20,
+            0x14,                   // Pure Data
+            0x57, 0x03,             // zero pulse 855
+            0xAE, 0x06,             // one pulse 1710
+            8,                      // used bits
+            100, 0,                 // pause 100 ms
+            1, 0, 0,                // 1 data byte
+            0x00,
+        };
+        TZXPlayer p;
+        if (tzx_load(&p, tzx_data, static_cast<int>(sizeof(tzx_data))) != 0)
+            { ok = false; bad = "(a) load failed"; }
+        const uint64_t t0 = 500;
+        tzx_play(&p, t0);
+        const uint64_t data_end = t0 + 16 * 855;
+        for (uint64_t t = t0; ok && t <= data_end + 4000; t += 11) {
+            int lvl = tzx_update(&p, t);
+            int want;
+            if (t < data_end) {
+                want = 1 - static_cast<int>(((t - t0) / 855) & 1);  // 1,0,1,0,…
+            } else if (t < data_end + 3500) {
+                want = 1;  // terminating edge held for 1 ms
+            } else {
+                want = 0;  // remainder of the pause is low
+            }
+            if (lvl != want) {
+                ok = false;
+                bad = fmt("(a) t=%llu got=%d want=%d (data_end=%llu)",
+                          static_cast<unsigned long long>(t), lvl, want,
+                          static_cast<unsigned long long>(data_end));
+            }
+        }
+
+        // (b) 0x15 with a single sample = 1, pause 20 ms: the level
+        // going INTO the pause must be the sample value (1), held 1 ms.
+        if (ok) {
+            static const uint8_t tzx_dir1[] = {
+                'Z','X','T','a','p','e','!',0x1A, 1, 20,
+                0x15, 77, 0, 20, 0, 1, 1, 0, 0, 0x80,
+            };
+            TZXPlayer q;
+            ok = tzx_load(&q, tzx_dir1, static_cast<int>(sizeof(tzx_dir1))) == 0;
+            tzx_play(&q, t0);
+            if (ok && tzx_update(&q, t0) != 1) { ok = false; bad = "(b) sample level != 1"; }
+            if (ok && tzx_update(&q, t0 + 77 + 100) != 1)
+                { ok = false; bad = "(b) final direct sample not held into pause (toggled?)"; }
+            if (ok && tzx_update(&q, t0 + 77 + 3600) != 0)
+                { ok = false; bad = "(b) pause did not drop low after 1 ms hold"; }
+        }
+
+        // (b2) 0x15 with a single sample = 0: no phantom high in the pause.
+        if (ok) {
+            static const uint8_t tzx_dir0[] = {
+                'Z','X','T','a','p','e','!',0x1A, 1, 20,
+                0x15, 77, 0, 20, 0, 1, 1, 0, 0, 0x00,
+            };
+            TZXPlayer q;
+            ok = tzx_load(&q, tzx_dir0, static_cast<int>(sizeof(tzx_dir0))) == 0;
+            tzx_play(&q, t0);
+            if (ok && tzx_update(&q, t0) != 0) { ok = false; bad = "(b2) sample level != 0"; }
+            if (ok && tzx_update(&q, t0 + 77 + 100) != 0)
+                { ok = false; bad = "(b2) phantom high level in pause after low direct sample"; }
+        }
+
+        check("BOOT-DECI-02",
+              "TZX pause holds the block's final level ~1 ms (3500 T) "
+              "before dropping low, preserving the terminating edge of "
+              "pulse blocks and the un-inverted final sample of 0x15 "
+              "blocks (empirical heuristic; measured 48K-ROM LD-BYTES "
+              "terminating-edge requirement, Task 57)",
+              ok, bad);
+    }
+
+    // BOOT-DECI-03 — WAV real-time EAR playback: 8-bit unsigned PCM at
+    // 44.1 kHz maps T-states to sample frames against the 3.5 MHz CPU
+    // clock; level = amplitude vs the 128 centre. Silence before
+    // playback start and past end-of-data reads 0.
+    {
+        char path[] = "/tmp/jnext_mmu_wavXXXXXX";
+        int fd = mkstemp(path);
+        bool ok = fd >= 0;
+        std::string bad = ok ? "" : "mkstemp failed";
+        if (ok) {
+            std::vector<uint8_t> samples;
+            for (int i = 0; i < 10; ++i) samples.push_back(192);
+            for (int i = 0; i < 10; ++i) samples.push_back(64);
+            for (int i = 0; i < 10; ++i) samples.push_back(192);
+            std::vector<uint8_t> wav = make_wav8_mono_44k(samples);
+            ok = ::write(fd, wav.data(), wav.size()) == static_cast<ssize_t>(wav.size());
+            ::close(fd);
+            if (!ok) bad = "write failed";
+        }
+        WavLoader w;
+        if (ok) { ok = w.load(path); if (!ok) bad = "WavLoader::load failed"; }
+        if (ok) {
+            const uint64_t t0 = 5000;
+            w.start_playback(t0);
+            auto t_of = [&](double frames_pos) -> uint64_t {
+                return t0 + static_cast<uint64_t>(frames_pos * 3500000.0 / 44100.0);
+            };
+            struct { double pos; int want; const char* what; } probes[] = {
+                { 0.5, 1, "centre of high run" },
+                { 14.5, 0, "centre of low run" },
+                { 24.5, 1, "centre of second high run" },
+            };
+            for (auto& pr : probes) {
+                int got = w.get_ear_bit(t_of(pr.pos));
+                if (got != pr.want) {
+                    ok = false;
+                    bad = fmt("%s: got=%d want=%d", pr.what, got, pr.want);
+                    break;
+                }
+            }
+            if (ok && w.get_ear_bit(t0 - 100) != 0)
+                { ok = false; bad = "non-zero before playback start"; }
+            if (ok && w.get_ear_bit(t_of(35.0)) != 0)
+                { ok = false; bad = "non-zero past end of data"; }
+        }
+        ::unlink(path);
+        check("BOOT-DECI-03",
+              "WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from "
+              "the 3.5 MHz T-state clock, threshold at the 128 centre; "
+              "0 before start and past end (G37)",
+              ok, bad);
+    }
+
+    // BOOT-DECI-04 — WAV sub-sample interpolation (G37 fix): the EAR
+    // transition must occur at the linearly-interpolated threshold
+    // crossing, not quantised to the 79.4 T sample grid. Samples
+    // …64, 96, 160, 192… cross the 128 centre halfway between the 96
+    // and 160 frames: a probe at frame position 10.75 reads 1 under
+    // interpolation but 0 under stepwise per-sample thresholding —
+    // this is the margin DeciLoad 12k8 needs (its short/long pulse
+    // classes are ~60 T apart; grid quantisation alone mis-classified
+    // ~25% of the long pulses in the Dizzy WAV).
+    {
+        char path[] = "/tmp/jnext_mmu_wavXXXXXX";
+        int fd = mkstemp(path);
+        bool ok = fd >= 0;
+        std::string bad = ok ? "" : "mkstemp failed";
+        if (ok) {
+            std::vector<uint8_t> samples;
+            for (int i = 0; i < 10; ++i) samples.push_back(64);   // frames 0-9
+            samples.push_back(96);                                 // frame 10
+            samples.push_back(160);                                // frame 11
+            for (int i = 0; i < 10; ++i) samples.push_back(192);  // frames 12+
+            std::vector<uint8_t> wav = make_wav8_mono_44k(samples);
+            ok = ::write(fd, wav.data(), wav.size()) == static_cast<ssize_t>(wav.size());
+            ::close(fd);
+            if (!ok) bad = "write failed";
+        }
+        WavLoader w;
+        if (ok) { ok = w.load(path); if (!ok) bad = "WavLoader::load failed"; }
+        if (ok) {
+            const uint64_t t0 = 5000;
+            w.start_playback(t0);
+            auto t_of = [&](double frames_pos) -> uint64_t {
+                return t0 + static_cast<uint64_t>(frames_pos * 3500000.0 / 44100.0);
+            };
+            struct { double pos; int want; const char* what; } probes[] = {
+                { 10.25, 0, "before interpolated crossing (interp -16)" },
+                { 10.75, 1, "after interpolated crossing, before grid edge (interp +16)" },
+                { 11.25, 1, "after grid edge (sanity)" },
+                { 5.5,   0, "deep in low run (sanity)" },
+            };
+            for (auto& pr : probes) {
+                int got = w.get_ear_bit(t_of(pr.pos));
+                if (got != pr.want) {
+                    ok = false;
+                    bad = fmt("%s: got=%d want=%d", pr.what, got, pr.want);
+                    break;
+                }
+            }
+        }
+        ::unlink(path);
+        check("BOOT-DECI-04",
+              "WAV EAR transitions at the linearly-interpolated 128 "
+              "crossing (sub-sample precision), not quantised to the "
+              "79.4 T sample grid — frame 10.75 of a 96→160 crossing "
+              "reads 1 (G37 fix discriminator)",
+              ok, bad);
+    }
 
     // WONT BOOT-FDC-01 / BOOT-FDC-02 / BOOT-FDC-03 — G38: +3 FDC `.dsk`
     // loader. uPD765 chip unmodelled; jnext does not emulate the +3

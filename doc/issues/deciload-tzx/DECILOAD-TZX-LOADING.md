@@ -101,3 +101,101 @@ The `tzx_update()` hot loop (line 128-139):
 4. **Test with other Direct Recording TZX files** — Try other games that use 0x15 blocks (not necessarily DeciLoad) to narrow down whether this is a DeciLoad-specific issue or a general 0x15 problem.
 
 5. **Consider replacing ZOT's 0x15 handler** — If ZOT's implementation is the bottleneck, we could override the DIRECT phase handling in our C++ wrapper while keeping ZOT for all other block types.
+
+## RESOLVED — Task 57 (2026-07-14)
+
+Both G36 (TZX 0x15) and G37 (WAV) are fixed. Xevious loads end-to-end to
+its game menu in `--tape-realtime` mode; Dizzy loads from the WAV to its
+title screen. None of the §Theories above was the root cause — there were
+**three** independent bugs, all found by measurement:
+
+### Root cause 1 — frame-relative tape clock (killed ALL real-time TZX/WAV)
+
+`Emulator::begin_new_frame()` resets the FUSE `tstates` counter to 0 every
+frame (introduced by f3665f25, 2026-04-13, for the contention `hc/vc`
+derivation — ONE WEEK after the ZOT clock fix described above was landed
+and verified). ZOT models the tape as an absolute timeline
+(`edge_clock += pulse`); with a frame-relative clock, the first edge that
+landed past a frame boundary became unreachable (`cpu_clocks >=
+edge_clock` never true again) and the tape froze forever. The WAV loader
+(`elapsed = now - start`) froze identically. This is why the "Verified
+Working" observations above (pilot timing, EAR toggling) could not be
+reproduced on 2026-07-14: real-time TZX had been silently broken for
+three months — nothing in the test suites covered `--tape-realtime`.
+
+**Fix**: `Emulator::monotonic_tstates()` = accumulated completed-frame
+T-states + the live FUSE counter (still advances mid-instruction, the
+property the original clock fix needed). Used at every tape clock site.
+
+### Root cause 2 — ZOT pause swallowed every block's terminating edge
+
+`TZX_PHASE_PAUSE` forced `level = 0` immediately. When a block's final
+pulse ended at level 0, the terminating edge (the caller-side toggle to 1)
+was overwritten — the ROM times the LAST bit of every block against that
+edge, so the checksum byte of every block failed. Measured directly:
+LD-BYTES entered with A=0x00 (header) returned carry-clear at the exact
+end-of-data T-state of block 1, for every block, forever.
+
+**Fix**: the pause holds the previous block's final level for ~1 ms
+(3500 T), then drops low. This is an **empirically-derived heuristic**
+justified by the measured LD-BYTES terminating-edge requirement above
+and validated by real loads (ROM standard, turbo, DeciLoad). It is NOT
+what libspectrum does — libspectrum 1.5.0 (`tape.c` `do_tail_pause`)
+treats the pause start as an ordinary toggle edge with no level
+hold/force; that toggle-only model would also supply the terminating
+edge and remains an open alternative if the hold heuristic ever proves
+problematic (not switched now: the current model is load-validated).
+Additionally,
+DIRECT (0x15) samples are SET rather than toggled, so `tzx_update()` no
+longer toggles over them — a 0x15 block's final sample level survives
+into the pause un-inverted.
+
+With causes 1+2 fixed, ZOT's per-sample 0x15 DIRECT handler proved
+faithful as-is: DeciLoad decoded both Direct Recording blocks with **no
+change to the 0x15 code path**. Theories 1-4 above are all dismissed.
+
+### Root cause 3 (WAV only) — edge quantisation to the sample grid
+
+Stepwise per-sample thresholding quantises every edge to the 79.4 T
+sample grid (44.1 kHz). DeciLoad's short/long pulse classes are ~60 T
+apart (~285 T vs ~535 T); measured on the Dizzy WAV, ~25% of the long
+pulses quantised down to 6 samples (476 T) and were misclassified — the
+loader's failure path is `RST 0`, which matches the observed reset to the
+© banner. **Fix**: linear sub-sample interpolation of the threshold
+crossing (8.8 fixed point) in `WavLoader::get_ear_bit()` — reconstructs
+the analog crossing instant the hardware EAR Schmitt trigger sees.
+Interpolated pulse widths cluster cleanly at ~490–590 T (measured).
+
+### DeciLoad loader anatomy (from the block-2 disassembly)
+
+The 403-byte block 2 holds a BASIC line-0 REM with a relocator: USR entry
+at PROG+7 copies 0x120 bytes to 0xFED4-0xFFF3 (uncontended top RAM) and
+jumps there. The loader reads port **0xFFFE** (high byte 0xFF = no
+keyboard row selected, so idle bits are always 1) and senses EAR via the
+**parity flag** of `IN (C)` / `IN F,(C)`: 0xFF (EAR=1) has even parity,
+0xBF (EAR=0) odd — `RET PO` is the edge test. Pulse widths are measured
+by 32 T polling loops with counted timeouts and decoded through an
+IY-indexed table at 0xFFBD+ with self-modifying patches. Block 3 decodes
+2549 bytes to 0x5CD0 (a ZX0 second-stage), block 5 the main payload.
+
+### FUSE cross-check (honest note)
+
+The claim "FUSE handles the same file correctly" could NOT be reproduced
+headless on this box (FUSE 1.6.0 GTK, Xvfb, isolated config): with tape
+traps on, FUSE flash-loads blocks 1-2 and stops the tape — the DeciLoad
+loader polls a stopped tape forever; with `--no-traps` full realtime,
+FUSE reaches the loader entry (0xFED4, debugger-verified) but decodes
+zero bytes of block 3 in 110 s (`break write 0x6000` never fires past the
+boot RAM-clear). jnext post-fix is verified end-to-end instead: the
+loaded Xevious menu is pixel-deterministic across runs, and both ZX0
+streams decompress without fault — a single corrupt bit would crash the
+loader, not render the genuine menu.
+
+### Regression coverage
+
+- `xevious-deciload` screenshot row (test/00regression/regression_tests.conf)
+  — full realtime TZX load to the game menu at frame 1300.
+- `mmu_test` BOOT-DECI-01/02 (ZOT 0x15 level-vs-time; pause
+  terminating-edge + DIRECT final-sample hold).
+- `mmu_test` BOOT-DECI-03/04 (WAV threshold playback; sub-sample
+  interpolation discriminator).

@@ -190,6 +190,21 @@ public:
     WavLoader& wav_tape() { return wav_tape_; }
     const WavLoader& wav_tape() const { return wav_tape_; }
 
+    /// Monotonic CPU T-state clock for real-time tape playback (G36/G37).
+    ///
+    /// The FUSE `tstates` counter is FRAME-RELATIVE: begin_new_frame()
+    /// resets it to 0 every frame so derive_hc_vc()/contention can gate on
+    /// raster position. ZOT's TZX player and the WAV loader, however, model
+    /// the tape as an ABSOLUTE timeline (`edge_clock += pulse`,
+    /// `elapsed = now - start`). Feeding them the frame-relative counter
+    /// froze all real-time TZX/WAV playback the moment an edge crossed a
+    /// frame boundary: `cpu_clocks >= edge_clock` could never become true
+    /// again (regression introduced by the f3665f25 frame-relative reset,
+    /// 2026-04-13). This accessor restores a monotonic clock that still
+    /// advances MID-instruction (the property the original ZOT clock fix
+    /// needed for tight IN A,(0xFE) loops): frame base + live FUSE counter.
+    uint64_t monotonic_tstates() const;
+
     /// Access the video recorder.
     VideoRecorder& video_recorder() { return video_recorder_; }
     const VideoRecorder& video_recorder() const { return video_recorder_; }
@@ -842,6 +857,13 @@ private:
 
     /// FUSE tstates value at frame start (for contention position calc).
     uint32_t frame_ts_start_ = 0;
+
+    /// Accumulated FUSE tstates of all completed frames (G36/G37).
+    /// begin_new_frame() folds the outgoing frame's final counter value
+    /// (including any end-of-frame overshoot) into this base before
+    /// zeroing the FUSE counter, so `monotonic_tstates()` never goes
+    /// backwards across the per-frame reset.
+    uint64_t tstates_frame_base_ = 0;
 
     /// Audio timing: fractional accumulators for PSG ticking and sample generation.
     /// PSG clock = 28 MHz / 16 = 1.75 MHz.

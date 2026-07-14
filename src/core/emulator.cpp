@@ -3635,12 +3635,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (tape_.is_playing()) {
                 audio_ear_eff = tape_.tick_realtime(0);
             } else if (tzx_tape_.is_playing()) {
-                // Use FUSE's live T-state counter (advances mid-instruction during I/O).
-                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                audio_ear_eff = tzx_tape_.update(cpu_clocks);
+                // Monotonic live T-state clock (advances mid-instruction
+                // during I/O; never resets across frames — G36).
+                audio_ear_eff = tzx_tape_.update(monotonic_tstates());
             } else if (wav_tape_.is_playing()) {
-                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                audio_ear_eff = wav_tape_.get_ear_bit(cpu_clocks);
+                audio_ear_eff = wav_tape_.get_ear_bit(monotonic_tstates());
             } else if ((nr_08_stored_low_ & 0x01) != 0) {
                 // Issue-2 MIC→EAR feedback (VHDL zxnext.vhd:1636, :3459):
                 // i_AUDIO_EAR steady-state = port_fe_mic AND nr_08_keyboard_issue2.
@@ -5868,6 +5867,14 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     return true;
 }
 
+uint64_t Emulator::monotonic_tstates() const
+{
+    // Frame base (all completed frames) + live FUSE counter (advances
+    // mid-instruction, including during I/O cycles — required so ZOT's
+    // edge state machine progresses inside tight IN A,(0xFE) loops).
+    return tstates_frame_base_ + static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+}
+
 bool Emulator::load_tzx(const std::string& path, bool fast_load)
 {
     TzxLoader loader;
@@ -5892,7 +5899,7 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
 
     // For real-time mode, start TZX playback immediately.
     if (!tzx_tape_.fast_load()) {
-        uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+        uint64_t cpu_clocks = monotonic_tstates();
         tzx_tape_.start_playback(cpu_clocks);
         Log::emulator()->info("TZX: playback started at T-state {}", cpu_clocks);
     }
@@ -5938,8 +5945,7 @@ bool Emulator::load_wav(const std::string& path)
     keyboard_.queue_auto_type(keys);
 
     // WAV is always real-time — start playback immediately.
-    uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-    wav_tape_.start_playback(cpu_clocks);
+    wav_tape_.start_playback(monotonic_tstates());
 
     return true;
 }
@@ -6123,6 +6129,10 @@ void Emulator::begin_new_frame()
     // (hc, vc) directly from `tstates`, so VideoTiming is the test-side
     // observable. Reset its hc/vc at frame start so test queries
     // mid-frame match the (hc, vc) the contention path is using.
+    // G36/G37: fold the outgoing frame's T-states (including overshoot)
+    // into the monotonic base BEFORE zeroing, so monotonic_tstates()
+    // stays continuous across the frame-relative reset below.
+    tstates_frame_base_ += static_cast<uint64_t>(*fuse_z80_tstates_ptr());
     *fuse_z80_tstates_ptr() = 0;
     frame_ts_start_ = 0;
     video_timing_.reset();
@@ -6692,12 +6702,12 @@ void Emulator::run_frame()
                 tape_.tick_realtime(static_cast<uint64_t>(tstates));
                 beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
             } else if (tzx_tape_.is_playing()) {
-                // TZX real-time: ZOT uses absolute CPU T-state clocks.
-                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                beeper_.set_tape_ear(tzx_tape_.update(cpu_clocks) != 0);
+                // TZX real-time: ZOT models an absolute tape timeline, so
+                // it must see the monotonic clock, not the frame-relative
+                // FUSE counter (G36).
+                beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
             } else if (wav_tape_.is_playing()) {
-                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                beeper_.set_tape_ear(wav_tape_.get_ear_bit(cpu_clocks) != 0);
+                beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
             } else {
                 beeper_.set_tape_ear(false);
             }
@@ -7933,6 +7943,16 @@ void Emulator::save_state(StateWriter& w) const
 
     // Emulator private state.
     w.write_u64(frame_cycle_);
+    // G36 review fix: the monotonic tape clock MUST travel with the
+    // snapshot — without it, a rewind during --tape-realtime playback
+    // left tstates_frame_base_ at its pre-rewind value and the tape
+    // clock jumped, desyncing TZX/WAV playback. The live FUSE tstates
+    // counter is NOT serialised anywhere (Z80Cpu::save_state Pass-9
+    // note), so save the FOLDED value (base + live at capture) and let
+    // load_state re-establish it as the new base with a zeroed live
+    // counter — monotonic_tstates() is then exactly continuous across
+    // save/load, including restores taken from a mid-frame pause.
+    w.write_u64(monotonic_tstates());
     w.write_u32(frame_num_);
     w.write_u32(boot_hold_frames_remaining_);  // G156
     w.write_u64(psg_accum_);
@@ -8233,6 +8253,15 @@ void Emulator::load_state(StateReader& r)
 
     // Emulator private state.
     frame_cycle_      = r.read_u64();
+    // G36 review fix: restore the monotonic tape clock (see save_state).
+    // The saved value is the folded monotonic instant; re-establish it as
+    // the base and zero the live FUSE counter so monotonic_tstates() is
+    // exactly the saved value. Safe: restores only happen between frames
+    // (frame_in_progress_ = false above), and the next run_frame() begins
+    // with begin_new_frame(), which would zero the live counter anyway —
+    // with the counter already 0, its base fold is a no-op.
+    tstates_frame_base_ = r.read_u64();
+    *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156
     psg_accum_        = r.read_u64();
