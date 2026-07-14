@@ -73,6 +73,13 @@ bool QtApp::init(int argc, char* argv[]) {
     // Create QApplication (must exist before any QWidget).
     // Note: Hi-DPI scaling is left enabled (Qt6 default on Wayland).
     // EmulatorWidget accounts for devicePixelRatio itself.
+    //
+    // QApplication takes `int &argc` and keeps that reference for its whole
+    // life, so it must NOT be bound to init()'s parameter (dead once init()
+    // returns). QCoreApplication::arguments() then reads the stale slot and
+    // walks argv past its end. The only caller on that path is
+    // QXcbSessionManager, so this crashed on X11 sessions with a session
+    // manager (issue #8) and never on Wayland or headless.
     qt_argc_ = argc;
     qt_argv_ = argv;
     qapp_ = new QApplication(qt_argc_, qt_argv_);
