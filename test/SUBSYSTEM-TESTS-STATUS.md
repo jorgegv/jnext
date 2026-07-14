@@ -42,6 +42,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4338** | **4328** |  **0** |  **10** | **99%** | 🟢 10 SKIPs total, all Rewind (Task 13a / G66+G67 snapshot schema); 0 FAILs. Task 57 (2026-07-14) closed every mmu/nmi/port skip. |
+| **Total**             | **4338** | **4328** |  **0** |  **10** | **99%** | 🟡 10 SKIPs total, all Rewind (Task 13a / G66+G67 snapshot schema); 0 FAILs. Task 57 (2026-07-14) closed every mmu/nmi/port skip. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

@@ -194,6 +194,10 @@ function fmt_bold_rate(pas, live, w,   r, s) {
 #  - red   if any FAILs
 #  - yellow if any SKIPs (no FAILs)
 #  - green otherwise
+# A fully green row (0 FAIL, 0 SKIP) gets the fixed text "All tests
+# pass." — any historical detail in the Notes cell is dropped, so notes
+# written while a suite still had skips cannot outlive the skips
+# (2026-07-14: five rows carried task history from long-closed skips).
 function fmt_notes(cell, fail, skip,   inner, dot) {
     inner = cell
     # Migrate from earlier <span style=...>...</span> wrap if present.
@@ -213,7 +217,7 @@ function fmt_notes(cell, fail, skip,   inner, dot) {
     sub(/[[:space:]]+$/, "", inner)
     if (fail > 0)      dot = "\xF0\x9F\x94\xB4"  # 🔴
     else if (skip > 0) dot = "\xF0\x9F\x9F\xA1"  # 🟡
-    else               dot = "\xF0\x9F\x9F\xA2"  # 🟢
+    else             { dot = "\xF0\x9F\x9F\xA2"; inner = "All tests pass." }  # 🟢
     return " " dot " " inner " "
 }
 ' "$dashboard" > "$tmp"
