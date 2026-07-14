@@ -1134,9 +1134,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Generation of Windows version
 - [ ] Generation of MacOS version
 - [ ] Documentation
-  - [ ] Update README for repo and source code users
+  - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
-  - [ ] Create USAGE document and man page for users
+  - [ ] Create USAGE document and man page for users — USAGE.md done (CLI + GUI); man page pending
 - [ ] Create static executables by downloading QT and SDL sources and building them
 - [ ] Create exhaustive CI plan for Github and automated release
 
@@ -1153,7 +1153,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 ### Phase 11 - New functions
 
 Easy ones:
-- [ ] Fix: when taking a screenshot in 640x256 pixel mode (Tilemap 80x32 mode), vertically scale the PNG 2x, so that the real screen aspect ratio is maintained (computer pixels in this format will be in PNG 1pix wide x 2 pix high)
+- [x] Fix: when taking a screenshot in 640x256 pixel mode (Tilemap 80x32 mode), vertically scale the PNG 2x, so that the real screen aspect ratio is maintained (computer pixels in this format will be in PNG 1pix wide x 2 pix high) — done in `src/platform/screenshot.cpp` (every row written twice, 640×512 PNG; G104 Phase 7)
 - [x] Z80 file format loading ✓ (Task 13b — v1/v2/v3, 48K/128K, RLE + uncompressed pages)
 - [x] SZX file format loading ✓ (done in Phase 7.8)
 - [ ] Redefinable debugger keys (or perhaps named key combinations? e.g. "borland", "cspect", "zesarux",...)
