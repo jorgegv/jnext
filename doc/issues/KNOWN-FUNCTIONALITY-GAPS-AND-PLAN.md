@@ -1080,8 +1080,10 @@ where possible.
      `TZX_PHASE_PAUSE` forced `level = 0` immediately; when a block's
      final pulse ended low, the terminating edge (toggle to 1) was
      overwritten and the ROM timed out on the last bit of EVERY block
-     (measured: LD-BYTES error at exact end-of-data). Fixed per TZX
-     spec/libspectrum: hold the final level ~1 ms, then drop low.
+     (measured: LD-BYTES error at exact end-of-data). Fixed by holding
+     the final level ~1 ms, then dropping low — an empirically-derived
+     heuristic validated by real loads (NOT libspectrum behaviour;
+     libspectrum treats the pause start as an ordinary toggle edge).
      Plus: DIRECT samples are SET, not toggled — the caller-side
      toggle no longer inverts a 0x15 block's final sample level.
 - **Note**: with both fixes, the 0x15 decode itself needed no change —

@@ -183,11 +183,6 @@ uint8_t WavLoader::get_ear_bit(uint64_t current_tstates) const
     return (v >= 0) ? 1 : 0;
 }
 
-uint8_t WavLoader::sample_to_ear(uint32_t frame_index) const
-{
-    return (sample_amplitude(frame_index) >= 0) ? 1 : 0;
-}
-
 int32_t WavLoader::sample_amplitude(uint32_t frame_index) const
 {
     uint32_t bpf = bytes_per_frame();

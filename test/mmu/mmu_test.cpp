@@ -4450,11 +4450,14 @@ void test_boot_format_loaders() {
     // BOOT-DECI-02 — block-terminating edge across a pause. (a) A
     // pulse block whose final pulse ends LOW must still produce its
     // terminating edge: the pause holds the post-edge HIGH level for
-    // ~1 ms (3500 T) before dropping low (TZX spec; libspectrum does
-    // the same). The 48K ROM times the final bit of EVERY block
-    // against this edge — swallowing it fails the checksum byte of
-    // every block (the measured pre-fix failure: LD-BYTES error at
-    // exact end-of-data). (b) A 0x15 block's final SAMPLE level must
+    // ~1 ms (3500 T) before dropping low. This is an empirically-
+    // derived heuristic, NOT libspectrum behaviour (libspectrum treats
+    // the pause start as an ordinary toggle edge): the 48K ROM times
+    // the final bit of EVERY block against this edge — swallowing it
+    // fails the checksum byte of every block (the measured pre-fix
+    // failure: LD-BYTES error at exact end-of-data; see
+    // doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md §RESOLVED).
+    // (b) A 0x15 block's final SAMPLE level must
     // survive into the pause un-inverted (no caller-side toggle over
     // direct samples): last sample 1 → held 1 for 1 ms; last sample
     // 0 → immediately low, no phantom high pulse.
@@ -4534,7 +4537,8 @@ void test_boot_format_loaders() {
               "TZX pause holds the block's final level ~1 ms (3500 T) "
               "before dropping low, preserving the terminating edge of "
               "pulse blocks and the un-inverted final sample of 0x15 "
-              "blocks (TZX spec v1.20 pause semantics)",
+              "blocks (empirical heuristic; measured 48K-ROM LD-BYTES "
+              "terminating-edge requirement, Task 57)",
               ok, bad);
     }
 

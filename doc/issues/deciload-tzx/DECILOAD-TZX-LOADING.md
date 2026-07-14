@@ -136,8 +136,16 @@ edge, so the checksum byte of every block failed. Measured directly:
 LD-BYTES entered with A=0x00 (header) returned carry-clear at the exact
 end-of-data T-state of block 1, for every block, forever.
 
-**Fix** (TZX spec / libspectrum behaviour): the pause holds the previous
-block's final level for ~1 ms (3500 T), then drops low. Additionally,
+**Fix**: the pause holds the previous block's final level for ~1 ms
+(3500 T), then drops low. This is an **empirically-derived heuristic**
+justified by the measured LD-BYTES terminating-edge requirement above
+and validated by real loads (ROM standard, turbo, DeciLoad). It is NOT
+what libspectrum does — libspectrum 1.5.0 (`tape.c` `do_tail_pause`)
+treats the pause start as an ordinary toggle edge with no level
+hold/force; that toggle-only model would also supply the terminating
+edge and remains an open alternative if the hold heuristic ever proves
+problematic (not switched now: the current model is load-validated).
+Additionally,
 DIRECT (0x15) samples are SET rather than toggled, so `tzx_update()` no
 longer toggles over them — a 0x15 block's final sample level survives
 into the pause un-inverted.

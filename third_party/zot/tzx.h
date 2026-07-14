@@ -38,7 +38,8 @@ typedef enum {
     TZX_PHASE_DIRECT,   /* Direct recording (block 0x15) */
     TZX_PHASE_PAUSE2,   /* Low-level remainder of a pause (after the
                            ~1 ms hold of the previous block's final
-                           level -- see TZX spec on pauses) */
+                           level -- empirical heuristic preserving the
+                           block-terminating edge; see tzx.c PAUSE) */
 } TZXPhase;
 
 typedef struct {

@@ -71,10 +71,6 @@ private:
         return bpf ? data_size_ / bpf : 0;
     }
 
-    /// Convert a sample frame at the given index to an EAR bit (0 or 1).
-    /// For stereo, uses the left channel only.
-    uint8_t sample_to_ear(uint32_t frame_index) const;
-
     /// Signed amplitude of the sample frame at the given index, centred on
     /// the EAR threshold (8-bit: sample - 128; 16-bit: sample value).
     /// For stereo, uses the left channel only.

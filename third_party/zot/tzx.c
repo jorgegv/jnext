@@ -617,15 +617,21 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
             return pulse_len;
         }
 
-        /* Post-block silence. Per the TZX spec, a pause is LOW level,
-         * but the previous block's final level must persist for ~1 ms
-         * before dropping -- forcing the level low immediately would
-         * SWALLOW the block's terminating edge whenever the final data
-         * pulse ended at level 0 (the caller-side toggle that produces
-         * that edge got overwritten). The ROM loader times the last bit
-         * of every block against that terminating edge, so losing it
-         * fails the checksum byte of every block (libspectrum/FUSE
-         * implement the same 1 ms hold). */
+        /* Post-block silence. A pause is LOW level, but the previous
+         * block's final level must persist briefly before dropping --
+         * forcing the level low immediately would SWALLOW the block's
+         * terminating edge whenever the final data pulse ended at level
+         * 0 (the caller-side toggle that produces that edge got
+         * overwritten). The 48K ROM loader times the last bit of every
+         * block against that terminating edge, so losing it fails the
+         * checksum byte of every block (measured in jnext: LD-BYTES
+         * returned error at the exact end-of-data T-state of every
+         * block -- see doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md).
+         * The ~1 ms hold-then-low is an empirically-derived heuristic
+         * validated by real loads (ROM standard, turbo, DeciLoad); it is
+         * NOT what libspectrum does (libspectrum treats the pause start
+         * as an ordinary toggle edge -- a workable alternative model,
+         * noted in the doc above, but not the one adopted here). */
         case TZX_PHASE_PAUSE: {
             uint32_t d = p->pause_tstates;
             if (p->level && d > TSTATES_PER_MS) {
