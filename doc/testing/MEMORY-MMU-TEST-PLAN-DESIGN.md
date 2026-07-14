@@ -753,7 +753,12 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 > mmu_test does not link jnext_core — `TapSaver` block/file APIs and
 > `TapLoader::parse_blocks` are header-inline for exactly this reason,
 > z80_loader.h precedent). Expected bytes are hand-computed from the TAP
-> spec, never from TapSaver's own output. The original Phase 2/3 row ideas
+> spec, never from TapSaver's own output. The full-Emulator tier — the
+> trap handler and the run_frame() arming gate, including the ROM-identity
+> signature check added after the review found the plain PC gate corrupting
+> a NextZXOS boot — is covered by `mmu_integration_test`
+> MMU-G33-TRAP-01..03 plus the `tape-save-boot-func` regression row.
+> The original Phase 2/3 row ideas
 > (analogue MIC→TZX capture, WAV writer) remain open under G33 and get
 > their own rows when those savers exist.
 

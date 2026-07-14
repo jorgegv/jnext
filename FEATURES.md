@@ -44,7 +44,7 @@
 - Z80: v1/v2/v3 snapshots, 48K and 128K, RLE-compressed and uncompressed pages, full register and paging restore
 - Snapshot saving (`.sna`/`.szx`/`.nex`) via File > Save Snapshot... (Ctrl+Shift+S) or `--delayed-snapshot FILE` (headless)
 - TAP: fast-load via ROM trap + real-time EAR bit simulation; instant `LOAD ""` autostart via FUSE-style phantom typist (48K/128K/+3 modes — triggers on first full keyboard scan, no fixed delay)
-- TAP saving: `SAVE` captured via the 48K ROM SA-BYTES trap (0x04C2), blocks appended to a `.tap` file (`--tape-save FILE`; FUSE-verified output)
+- TAP saving: BASIC `SAVE` through the 48K ROM SA-BYTES routine (trap at 0x04C2, gated on the 48K ROM identity) appends blocks to a `.tap` file (`--tape-save FILE`; FUSE-verified output; custom MIC-bit-banging savers not captured yet)
 - TZX: full block support via ZOT library, fast-load + real-time playback
 - WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo)
 - RZX: playback and recording (IN replay, embedded SNA snapshot, zlib compressed)

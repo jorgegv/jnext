@@ -1038,6 +1038,16 @@ where possible.
   fixtures + TapLoader::parse_blocks round-trip). Foreign-reader
   verified: a stub-driven `SAVE` produced a TAP that real FUSE 1.6.0
   auto-loaded and ran ("Program: SAVETEST" / "0 OK, 10:1").
+  **Scope caveat**: the trap captures ONLY saves routed through the 48K
+  ROM SA-BYTES routine (48K BASIC; 128K/+3 when they page 48K BASIC in
+  for tape ops). Custom savers that bit-bang MIC directly are Phase 2
+  territory. The independent review caught a false-fire class — a plain
+  PC gate triggered 10× during an ordinary NextZXOS boot (other ROMs
+  execute at 0x04C2 too), corrupting the file and the boot — fixed by
+  the ROM-identity signature gate (`TapSaver::sa_bytes_rom_present`),
+  covered by `mmu_integration_test` MMU-G33-TRAP-01..03 and the
+  `tape-save-boot-func` regression row (NextZXOS boot with --tape-save
+  armed: pixel-identical boot, zero blocks).
   **STILL OPEN**: Phase 2 (analogue MIC→TZX 0x10/0x11) and Phase 3
   (WAV writer); GUI menu integration for `--tape-save` is a follow-up.
 
