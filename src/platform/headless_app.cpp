@@ -5,7 +5,16 @@
 #include "core/nex_saver.h"
 #include "input/keyboard.h"
 #include <cctype>
+#include <chrono>
+#include <cstdio>
 #include <fstream>
+#include <sched.h>
+
+// Build type baked in by src/platform/CMakeLists.txt (Task 27 T1) so the
+// BENCH line can state which optimisation level produced the numbers.
+#ifndef JNEXT_BUILD_TYPE
+#define JNEXT_BUILD_TYPE "unknown"
+#endif
 
 bool HeadlessApp::init(int argc, char* argv[]) {
     (void)argc; (void)argv;
@@ -52,6 +61,72 @@ void HeadlessApp::set_delayed_snapshot(const std::string& file, int delay_frames
     snapshot_countdown_ = delay_frames;
     Log::platform()->info("--delayed-snapshot: will save '{}' after {} frame(s)",
                            file, delay_frames);
+}
+
+void HeadlessApp::set_benchmark(int frames, const std::string& workload) {
+    benchmark_frames_ = frames;
+    benchmark_workload_ = workload;
+    Log::platform()->info("--benchmark: will run {} frame(s) uncapped (workload: {})",
+                           frames, workload);
+}
+
+// Print the benchmark result (Task 27 T1). One machine-parseable BENCH line
+// plus one human-readable summary line, both to stdout (all logging goes to
+// stderr, so stdout carries exactly these two lines).
+//
+// T-states/frame is computed from the machine timing actually in effect at
+// exit: master cycles per frame = (hc_max+1) pixel-ticks/line x (vc_max+1)
+// lines x 4 (28 MHz master cycles per 7 MHz pixel tick, timing.h:36-37),
+// divided by the effective CPU divisor (Clock::cpu_divisor — the committed
+// NR 0x07 speed: 8=3.5MHz, 4=7MHz, 2=14MHz, 1=28MHz).
+// Documented approximation: both the timing constants and the divisor are
+// sampled AT EXIT and assumed constant over the run. A workload that switches
+// CPU speed or video timing mid-run (e.g. the NextZXOS boot, which commits +3
+// timing and 28 MHz during boot) is reported entirely at its final speed.
+void HeadlessApp::print_benchmark_result(double wall_seconds) {
+    const auto& vt = emulator_.video_timing();
+    const uint64_t master_per_frame =
+        (static_cast<uint64_t>(vt.hc_max()) + 1) *
+        (static_cast<uint64_t>(vt.vc_max()) + 1) * 4;
+    const int divisor = emulator_.clock().cpu_divisor();
+    const uint64_t tstates_per_frame = master_per_frame / static_cast<uint64_t>(divisor);
+
+    const double fps = (wall_seconds > 0.0) ? benchmark_frames_ / wall_seconds : 0.0;
+    const double tstates_per_sec = static_cast<double>(tstates_per_frame) * fps;
+
+    // Guest CPU speed from the effective divisor (28 MHz / divisor).
+    char cpu_str[16];
+    if (divisor == 8)
+        std::snprintf(cpu_str, sizeof(cpu_str), "3.5MHz");
+    else
+        std::snprintf(cpu_str, sizeof(cpu_str), "%dMHz", 28 / divisor);
+
+    // Host core the run ended on + its scaling_max_freq (kHz). Different
+    // core classes on hybrid CPUs differ ~40%, so numbers are only
+    // comparable when this field matches.
+    const int core = sched_getcpu();
+    long khz = 0;
+    if (core >= 0) {
+        char path[128];
+        std::snprintf(path, sizeof(path),
+                      "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", core);
+        std::ifstream f(path);
+        if (f) f >> khz;
+    }
+
+    std::printf("BENCH workload=%s frames=%d wall=%.3f fps=%.1f "
+                "tstates_per_sec=%.0f tstates_per_frame=%llu cpu=%s core=%d@%ldkHz build=%s\n",
+                benchmark_workload_.c_str(), benchmark_frames_, wall_seconds, fps,
+                tstates_per_sec,
+                static_cast<unsigned long long>(tstates_per_frame),
+                cpu_str, core, khz, JNEXT_BUILD_TYPE);
+    std::printf("Benchmark %s: %d frames in %.3f s = %.1f fps, %.1fM T-states/s "
+                "(%llu T-states/frame @ %s), core %d @ %ld kHz, %s build\n",
+                benchmark_workload_.c_str(), benchmark_frames_, wall_seconds, fps,
+                tstates_per_sec / 1e6,
+                static_cast<unsigned long long>(tstates_per_frame),
+                cpu_str, core, khz, JNEXT_BUILD_TYPE);
+    std::fflush(stdout);
 }
 
 void HeadlessApp::set_delayed_exit(int delay_frames) {
@@ -225,6 +300,15 @@ void HeadlessApp::run() {
         emulator_.start_rzx_recording(rzx_record_file_);
     }
 
+    // --benchmark timing (Task 27 T1): the clock brackets exactly the
+    // benchmark_frames_ run_frame() iterations below — headless already runs
+    // uncapped, so wall time here is pure emulation throughput.
+    using bench_clock = std::chrono::steady_clock;
+    bench_clock::time_point bench_start{};
+    int bench_frames_done = 0;
+    if (benchmark_frames_ > 0)
+        bench_start = bench_clock::now();
+
     while (running_) {
         // Apply pending inject.
         if (inject_countdown_ == 0) {
@@ -299,6 +383,14 @@ void HeadlessApp::run() {
             emulator_.renderer().set_layer_mask(screenshot_layers_);
 
         emulator_.run_frame();
+
+        // --benchmark: stop after exactly N frames and report.
+        if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {
+            const double wall =
+                std::chrono::duration<double>(bench_clock::now() - bench_start).count();
+            print_benchmark_result(wall);
+            running_ = false;
+        }
 
         // Delayed screenshot.
         if (screenshot_countdown_ == 0) {
