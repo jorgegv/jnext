@@ -76,8 +76,10 @@ and `CLAUDE.md:87` points every human *and every future agent* at that binary. T
 
 - Branch `task27-t0-build-type`.
 - Root `CMakeLists.txt`: `if(NOT CMAKE_BUILD_TYPE) set(CMAKE_BUILD_TYPE RelWithDebInfo) endif()`.
-- Add `-fno-omit-frame-pointer` to the Release/RelWithDebInfo flags (needed by P1's `perf`;
-  costs ~1% and buys usable call graphs).
+- Add `-fno-omit-frame-pointer` to **RelWithDebInfo only**. *(Amended after T0 review: the plan
+  originally said "Release too, costs ~1%" — the T0 reviewer MEASURED it at **5.8%** on
+  gui-release. Release stays clean; P1 profiles the Release binary with
+  `perf record --call-graph dwarf` instead. Another estimate killed by a measurement.)*
 - Update `CLAUDE.md:87` to point at `build/gui-release/jnext` for anything performance-related.
 - **Acceptance:** full triplet green; `build/` binary is no longer `-O0` (check its
   `flags.make`). **`make bench` does not exist yet** (it is T1's deliverable), so measure T0
@@ -200,7 +202,8 @@ never read unless someone steps back.
 until this task finishes. This is the single highest-value task in the plan.
 
 - Branch `task27-p1-profile` (produces a **document + data**, no emulator code change).
-- `perf record -g` (frame pointers from T0) on all four canonical workloads, P-core, `-O3`.
+- `perf record --call-graph dwarf` on the **Release** binary (frame pointers were kept off
+  Release — T0 review measured them at 5.8%), all canonical workloads, P-core.
   Produce flamegraphs + a flat `perf report` per workload; commit them under `doc/perf/`.
 - **Run the discriminator experiment.** The 48K penalty has three candidate causes that the
   aggregate ratio cannot separate:
