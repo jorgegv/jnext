@@ -5967,9 +5967,26 @@ void Emulator::repush_video_timing_from_machine_timing()
 {
     const MachineTimingMode mode = contention_.machine_timing();
 
-    // VideoTiming constants (VHDL zxula_timing.vhd c_*, keyed on i_timing).
-    // Preserve the current 50/60 Hz selection across the re-init.
-    video_timing_.init_timing(mode, video_timing_.refresh_60hz());
+    // VideoTiming constants (VHDL zxula_timing.vhd c_*, keyed on i_timing
+    // AND i_50_60).
+    //
+    // Task 56 — the 50/60 Hz selection is committed here from the pending
+    // `nr_05_5060` FF, modelled by bit 2 of the NR 0x05 cache. VHDL
+    // zxnext.vhd:6697-6700 latches `eff_nr_05_5060 <= nr_05_5060` at
+    // `video_frame_sync = '1'` — the SAME frame-edge latch as
+    // `eff_nr_03_machine_timing` (comment at :6692: "changes to video
+    // timing occur during vsync") — and :6720 feeds it to
+    // zxula_timing's `i_50_60`. The cache is a faithful model of the
+    // pending FF: the NR 0x05 write handler and the NR 0x03 handler's
+    // Pentagon-entry canonicalisation both force bit 2 to 0 whenever
+    // `nr_03_machine_timing(2) = '1'`, mirroring the continuous FF
+    // clear at zxnext.vhd:5835-5836 (Pentagon is always 50 Hz).
+    // Pre-fix this preserved video_timing_.refresh_60hz(), which was
+    // only ever initialised to false — a runtime NR 0x05 bit-2 write
+    // (or the F3 hotkey, which routes through nextreg_.write(0x05,..))
+    // never re-initialised the frame geometry.
+    const bool refresh_60hz = (nextreg_.cached(0x05) & 0x04) != 0;
+    video_timing_.init_timing(mode, refresh_60hz);
 
     // Master-cycle frame geometry (`timing_`) + CPU-side line geometry, both
     // derived from the freshly initialised VideoTiming so there is a single
@@ -6031,11 +6048,23 @@ void Emulator::begin_new_frame()
     // frame length (timing_) / the ULA counter origins were all set
     // ONCE at init() and a runtime NR 0x03 timing change left them
     // stale — the NextZXOS boot path writes NR 0x03.
+    //
+    // Task 56 — the 50/60 Hz selection (`nr_05_5060`, NR 0x05 bit 2)
+    // commits at the SAME frame-edge latch: zxnext.vhd:6697-6700 latches
+    // `eff_nr_05_5060 <= nr_05_5060` alongside `eff_nr_03_machine_timing`
+    // when `video_frame_sync = '1'`. Re-push when the pending value
+    // (NR 0x05 cache bit 2, Pentagon-canonicalised — see the NR 0x05
+    // write handler and the NR 0x03 Pentagon-entry clear) differs from
+    // the effective one (video_timing_.refresh_60hz()), so a runtime
+    // NR 0x05 bit-2 write / F3 hotkey takes effect at the next frame
+    // edge, never mid-frame.
     {
         const MachineTimingMode tim_before = contention_.machine_timing();
         contention_.commit_pending_machine_timing();
         mmu_.commit_pending_machine_timing();
-        if (contention_.machine_timing() != tim_before) {
+        const bool pend_60hz = (nextreg_.cached(0x05) & 0x04) != 0;
+        if (contention_.machine_timing() != tim_before ||
+            pend_60hz != video_timing_.refresh_60hz()) {
             repush_video_timing_from_machine_timing();
         }
     }
@@ -8125,6 +8154,13 @@ void Emulator::load_state(StateReader& r)
         // NR 0x03 timing change); re-derive the video timing constants,
         // CPU-side line geometry, master-cycle frame length and ULA
         // counter origins from it. Idempotent when nothing changed.
+        //
+        // Task 56 — the 50/60 Hz selection rides along: repush derives
+        // refresh_60hz from the restored NR 0x05 cache bit 2 (the
+        // pending `nr_05_5060` FF; NextReg::load_state ran above), so a
+        // snapshot taken at 60 Hz restores 60 Hz geometry. Snapshots are
+        // taken at the frame edge (begin_new_frame), where pending ==
+        // effective per VHDL zxnext.vhd:6697-6700.
         repush_video_timing_from_machine_timing();
     }
 

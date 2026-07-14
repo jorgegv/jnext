@@ -822,3 +822,14 @@ bash test/regression.sh
 Placed beside D3-CONTENTION-04 (same 128K fixture, same commit seam).
 Observability: `Emulator::video_timing()` accessors +
 `z80_get_tstates_per_line()` (Task 51 test getter).
+
+## Task 56 append (2026-07-14) — 50/60 Hz rides the same frame-edge latch
+
+| Row | Asserts | VHDL |
+|---|---|---|
+| T56-INT-01 | NR 0x03 tim_sel (128K→48K) AND NR 0x05 bit 2 (50→60 Hz) written in the same frame commit TOGETHER at one frame edge: hc_max=447, vc_max=263, INT (116,0), 224 T/line — deferred until run_frame, reversible | zxnext.vhd:6697-6703; zxula_timing.vhd:282-298 |
+
+Placed beside T51-INT-01 (same fixture, same commit seam). The
+NR-0x05-only rows (VT-T56-01..04, incl. Pentagon FF-clear and save/load
+round-trip) live in `test/videotiming/videotiming_test.cpp` Section 11;
+see VIDEOTIMING-TEST-PLAN-DESIGN.md.

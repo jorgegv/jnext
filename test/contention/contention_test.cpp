@@ -2869,6 +2869,83 @@ static void test_cat29_v24_mem_01() {
         }
     }
 
+    // T56-INT-01 — Task 56: the 50/60 Hz selection (`nr_05_5060`,
+    // NR 0x05 bit 2) commits at the SAME frame-edge latch as tim_sel:
+    // VHDL zxnext.vhd:6697-6700 latches `eff_nr_05_5060` alongside
+    // `eff_nr_03_machine_timing` when `video_frame_sync = '1'`, and
+    // :6720 feeds it to zxula_timing's `i_50_60`. Pre-Task-56 the
+    // emulator only ever initialised refresh_60hz=false at init() —
+    // a runtime NR 0x05 bit-2 write (or F3, which routes through
+    // nextreg().write(0x05,..)) changed nothing.
+    //
+    // Stimulus: 128K machine, write BOTH axes in the same frame —
+    // NR 0x03 = 0x82 (tim_sel=48K) and NR 0x05 bit 2 = 1 (60 Hz).
+    // Both deferred until the frame edge, then commit together:
+    // 48K 60 Hz per zxula_timing.vhd:282-298 — hc_max=447 (hc axis
+    // unchanged between 50/60), vc_max=263 (:298), INT (116,0)
+    // (:285,:293), CPU line geometry 224 T.
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX128K);
+        if (!ok) {
+            check("T56-INT-01",
+                  "Emulator::init(ZX128K) failed — Task 56 50/60 Hz "
+                  "frame-edge commit probe",
+                  false, "Emulator::init returned false");
+        } else {
+            const bool pre_ok =
+                emu.video_timing().hc_max() == 455 &&
+                emu.video_timing().vc_max() == 310 &&
+                !emu.video_timing().refresh_60hz() &&
+                z80_get_tstates_per_line() == 228;
+
+            emu.nextreg().write(0x03, 0x82);   // tim_sel=48K (pending)
+            emu.nextreg().write(0x05, 0x04);   // 60 Hz (pending)
+            // Both pending only — nothing re-pushed before the edge.
+            const bool mid_ok =
+                emu.video_timing().hc_max() == 455 &&
+                emu.video_timing().vc_max() == 310 &&
+                !emu.video_timing().refresh_60hz() &&
+                z80_get_tstates_per_line() == 228;
+
+            emu.run_frame();                   // one edge commits both
+            const bool post_ok =
+                emu.video_timing().hc_max() == 447 &&
+                emu.video_timing().vc_max() == 263 &&
+                emu.video_timing().int_position().hc == 116 &&
+                emu.video_timing().int_position().vc == 0 &&
+                emu.video_timing().refresh_60hz() &&
+                z80_get_tstates_per_line() == 224;
+
+            // And back: restore 128K 50 Hz, same deferred semantics.
+            emu.nextreg().write(0x03, 0xA2);   // tim_sel=128K
+            emu.nextreg().write(0x05, 0x00);   // 50 Hz
+            emu.run_frame();
+            const bool back_ok =
+                emu.video_timing().hc_max() == 455 &&
+                emu.video_timing().vc_max() == 310 &&
+                emu.video_timing().int_position().hc == 128 &&
+                emu.video_timing().int_position().vc == 1 &&
+                !emu.video_timing().refresh_60hz() &&
+                z80_get_tstates_per_line() == 228;
+
+            check("T56-INT-01",
+                  "runtime NR 0x03 tim_sel + NR 0x05 bit-2 written in the "
+                  "same frame commit together at one frame edge: 128K 50Hz "
+                  "→ 48K 60Hz (hc_max=447, vc_max=263, INT (116,0), 224 T/"
+                  "line), reversible [zxnext.vhd:6697-6703; "
+                  "zxula_timing.vhd:282-298]",
+                  pre_ok && mid_ok && post_ok && back_ok,
+                  std::string("pre=") + std::to_string(pre_ok) +
+                  " mid=" + std::to_string(mid_ok) +
+                  " post=" + std::to_string(post_ok) +
+                  " back=" + std::to_string(back_ok) +
+                  " (post vc_max=" +
+                  std::to_string(emu.video_timing().vc_max()) +
+                  " tpl=" + std::to_string(z80_get_tstates_per_line()) + ")");
+        }
+    }
+
     // D3-CONTENTION-05 — Mmu::machine_timing_ axis storage + commit
     // primitives. Probes the Mmu-side mirror through the production
     // Emulator init path. The Mmu's `machine_timing_` feeds the

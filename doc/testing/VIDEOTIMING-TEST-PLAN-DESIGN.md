@@ -851,3 +851,38 @@ fixture and commit seam); see CONTENTION-TEST-PLAN-DESIGN.md.
 Mutation-tested: breaking the Pentagon `min_vactive` turns VT-T51-01
 red; removing the Pentagon 60 Hz exemption turns VT-T51-03 red;
 disabling the frame-edge re-push turns T51-INT-01 red.
+
+## Section 11 — Task 56: runtime NR 0x05 bit-2 (nr_05_5060) 50/60 Hz commit (2026-07-14)
+
+The 50/60 Hz selection is frame-edge-latched exactly like tim_sel:
+`zxnext.vhd:6697-6700` latches `eff_nr_05_5060 <= nr_05_5060` at
+`video_frame_sync = '1'` (comment at :6692 — "changes to video timing
+occur during vsync"); :6720 feeds it to `zxula_timing`'s `i_50_60`. The
+pending FF (`zxnext.vhd:5834-5842`) is Pentagon-forced to '0'
+continuously (:5835-5836), else written from NR 0x05 bit 2, else
+toggled by the F3 hotkey (which in jnext routes through
+`nextreg().write(0x05, ..)` — same path). Task 56 makes
+`repush_video_timing_from_machine_timing()` derive `refresh_60hz` from
+the NR 0x05 cache bit 2 (the pending-FF model) and triggers the re-push
+from `begin_new_frame()` when the pending value differs from the
+effective one. Full-Emulator tier (ZX128K fixture, NR writes via the
+real port path).
+
+| Row | Asserts | VHDL |
+|---|---|---|
+| VT-T56-01 | Runtime NR 0x05 bit-2 write (50→60 Hz): deferred until run_frame, then vc_max 310→263, display origin vc 64→40, INT (128,1)→(128,0) | zxnext.vhd:6697-6700; zxula_timing.vhd:233,237,238 |
+| VT-T56-02 | Reverse (60→50 Hz): deferred, then vc_max 263→310, INT back to (128,1) | zxnext.vhd:6697-6700; zxula_timing.vhd:199,203,204 |
+| VT-T56-03 | Pentagon entry clears the pending FF: 128K@60Hz → Pentagon (50 Hz) → back to 128K at 50 Hz — 60 Hz does not resurrect | zxnext.vhd:5835-5836; zxula_timing.vhd:150-168 |
+| VT-T56-04 | save/load round-trips 60 Hz: snapshot at 60 Hz restores vc_max=263 / INT vc=0 into a fresh 50 Hz emulator | zxnext.vhd:6697-6700 |
+
+The combined-axis end-to-end row (T56-INT-01: NR 0x03 tim_sel + NR 0x05
+bit 2 written in the same frame, committed together at one frame edge)
+lives in `test/contention/contention_test.cpp` beside T51-INT-01; see
+CONTENTION-TEST-PLAN-DESIGN.md.
+
+Mutation-tested (2026-07-14): (A) reverting the repush derive to
+"preserve current refresh_60hz()" turns VT-T56-01..04 AND T56-INT-01
+red; (B) dropping the `pend_60hz != refresh_60hz()` trigger term in
+begin_new_frame() turns VT-T56-01..04 red (T56-INT-01 survives B by
+design — its simultaneous tim change fires the re-push; the trigger
+term is discriminated by the VT rows).
