@@ -1471,11 +1471,19 @@ static void test_integration_smoke() {
         bool conf_has_fb = false;
         for (const char* p : conf_candidates) {
             if (std::FILE* f = std::fopen(p, "rb")) {
+                // Read the WHOLE conf. This used to read only the first
+                // 4096 bytes, which silently turned into a false FAIL the
+                // moment the conf's comment blocks grew past 4 KB and
+                // pushed the `floating-bus` row beyond the window
+                // (surfaced by the Task 57 boot-nextzxos-dotls addition).
+                std::string conf;
                 char buf[4096];
-                std::size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
-                buf[n] = '\0';
+                std::size_t n;
+                while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) {
+                    conf.append(buf, n);
+                }
                 std::fclose(f);
-                if (std::string(buf).find("floating-bus") != std::string::npos) {
+                if (conf.find("floating-bus") != std::string::npos) {
                     conf_has_fb = true;
                 }
                 break;
