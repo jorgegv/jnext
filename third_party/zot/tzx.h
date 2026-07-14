@@ -36,6 +36,9 @@ typedef enum {
     TZX_PHASE_TONE,     /* Pure tone (block 0x12) */
     TZX_PHASE_PULSES,   /* Pulse sequence (block 0x13) */
     TZX_PHASE_DIRECT,   /* Direct recording (block 0x15) */
+    TZX_PHASE_PAUSE2,   /* Low-level remainder of a pause (after the
+                           ~1 ms hold of the previous block's final
+                           level -- see TZX spec on pauses) */
 } TZXPhase;
 
 typedef struct {
@@ -88,6 +91,12 @@ typedef struct {
 
     /* Direct recording (block 0x15). */
     uint16_t sample_tstates;
+    int direct_level;       /* 1 = last emitted pulse came from a DIRECT
+                               block (level was set from a sample, not
+                               toggled) -- suppresses the caller-side
+                               toggle in tzx_update() so a pause after a
+                               direct block holds the true final sample
+                               level instead of its inverse */
 
     /* Loop support (single nesting level). */
     int loop_start_offset;

@@ -108,6 +108,7 @@ void tzx_play(TZXPlayer *p, uint64_t cpu_clocks) {
     p->level = 0;
     p->edge_clock = cpu_clocks;
     p->phase = TZX_PHASE_IDLE;
+    p->direct_level = 0;
     p->loop_count = 0;
     p->loop_start_offset = 0;
 }
@@ -126,7 +127,10 @@ uint8_t tzx_update(TZXPlayer *p, uint64_t cpu_clocks) {
      * Each iteration toggles the level and gets the duration of the
      * next pulse (time until the next toggle). */
     while (p->playing && cpu_clocks >= p->edge_clock) {
-        p->level ^= 1;
+        /* Toggle at each edge -- except right after a DIRECT-recording
+         * sample, whose level was SET (not toggled): toggling here would
+         * invert the true final sample level going into a pause. */
+        if (!p->direct_level) p->level ^= 1;
         uint32_t pulse = tzx_next_pulse(p);
         if (!pulse) {
             /* End of tape or stop command. */
@@ -532,6 +536,9 @@ static int tzx_parse_next_block(TZXPlayer *p) {
  * calling this. For DIRECT recording and PAUSE, this function
  * overrides the level directly. */
 static uint32_t tzx_next_pulse(TZXPlayer *p) {
+    /* Default: the pulse we are about to emit is a normal (toggled)
+     * pulse. The DIRECT phase overrides this before returning. */
+    p->direct_level = 0;
     for (;;) {
         switch (p->phase) {
 
@@ -610,13 +617,34 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
             return pulse_len;
         }
 
-        /* Post-block silence. Force EAR low for the pause duration,
-         * then continue to the next block. */
+        /* Post-block silence. Per the TZX spec, a pause is LOW level,
+         * but the previous block's final level must persist for ~1 ms
+         * before dropping -- forcing the level low immediately would
+         * SWALLOW the block's terminating edge whenever the final data
+         * pulse ended at level 0 (the caller-side toggle that produces
+         * that edge got overwritten). The ROM loader times the last bit
+         * of every block against that terminating edge, so losing it
+         * fails the checksum byte of every block (libspectrum/FUSE
+         * implement the same 1 ms hold). */
         case TZX_PHASE_PAUSE: {
             uint32_t d = p->pause_tstates;
+            if (p->level && d > TSTATES_PER_MS) {
+                /* Hold the final (post-edge) high level for 1 ms, then
+                 * spend the remainder of the pause low. */
+                p->pause_tstates = d - TSTATES_PER_MS;
+                p->phase = TZX_PHASE_PAUSE2;
+                return TSTATES_PER_MS;
+            }
             p->level = 0;
             p->phase = TZX_PHASE_IDLE;
             return d;
+        }
+
+        /* Remainder of a pause after the 1 ms hold: low level. */
+        case TZX_PHASE_PAUSE2: {
+            p->level = 0;
+            p->phase = TZX_PHASE_IDLE;
+            return p->pause_tstates;
         }
 
         /* Pure tone: repeated pulses of fixed length. */
@@ -651,7 +679,9 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
                 continue;
             }
 
-            /* Set level directly from the sample bit. */
+            /* Set level directly from the sample bit. Mark the pulse as
+             * a direct sample so tzx_update() does not toggle over it. */
+            p->direct_level = 1;
             p->level = (p->block_data[p->data_pos] >> p->bit_pos) & 1;
 
             /* Advance to next sample bit. */
