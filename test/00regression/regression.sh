@@ -1001,6 +1001,40 @@ if want snapshot-save-func; then
     fi
 fi
 
+# Tape SAVE trap guard (Task 57 / G33 Phase 1). An ordinary NextZXOS boot with
+# --tape-save armed must boot pixel-identically to the boot-nextzxos-welcome
+# reference and write ZERO blocks (file created empty by set_output, never
+# grown). The Task 57 review found the ungated SA-BYTES trap fired 10 times
+# during this exact boot, appending 327 KB of garbage AND breaking the boot;
+# the ROM-identity gate (48K SA-BYTES prologue bytes at 0x04C2) fixes it and
+# this row keeps it fixed.
+if want tape-save-boot-func; then
+    begin_func tape-save-boot-func
+    ts_tap="/tmp/jnext_test_tapesave_boot.tap"
+    ts_png="/tmp/jnext_test_tapesave_boot.png"
+    rm -f "$ts_tap" "$ts_png"
+    ts_out=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        --tape-save "$ts_tap" \
+        --delayed-screenshot "$ts_png" --delayed-screenshot-frames 400 \
+        --delayed-automatic-exit-frames 420 2>&1) || true
+    ts_blocks=$(echo "$ts_out" | grep -c "TAP save: block" || true)
+    ts_size=$(stat -c%s "$ts_tap" 2>/dev/null || echo missing)
+    ts_diff=999999
+    if [[ -f "$ts_png" ]]; then
+        ts_diff_raw=$(compare -metric AE "$ts_png" "$IMG_DIR/boot-nextzxos-welcome-reference.png" /dev/null 2>&1) || true
+        ts_diff=$(echo "$ts_diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+    fi
+    if [[ "$ts_blocks" -eq 0 && "$ts_size" == "0" && "$ts_diff" -le "$TOLERANCE" ]]; then
+        echo -e "${GREEN}PASS${RESET} (NextZXOS boot clean with --tape-save armed: 0 blocks, empty file, ${ts_diff} px diff)"
+        pass=$((pass + 1))
+        rm -f "$ts_tap" "$ts_png"
+    else
+        echo -e "${RED}FAIL${RESET} (blocks=$ts_blocks file_size=$ts_size px_diff=$ts_diff — SAVE trap fired during NextZXOS boot?)"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests.
 # This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
 # the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that
