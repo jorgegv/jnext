@@ -40,6 +40,7 @@
 // line-interrupt re-evaluation on NR 0x22 / NR 0x23 writes.
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"  // StateWriter/StateReader (Section 11, Task 56)
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -965,6 +966,215 @@ static void section10_t51_init_timing() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 11 — Task 56: runtime NR 0x05 bit-2 (`nr_05_5060`) 50/60 Hz
+// frame-edge commit.
+// VHDL: zxnext.vhd:6697-6700 — `eff_nr_05_5060 <= nr_05_5060` latched
+//       only when `video_frame_sync = '1'` (comment at :6692: "changes
+//       to video timing occur during vsync"); :6720 feeds it to
+//       zxula_timing's `i_50_60`.
+//       zxnext.vhd:5834-5842 — the pending `nr_05_5060` FF: Pentagon
+//       timing forces '0' continuously (priority IF, :5835-5836), else
+//       NR 0x05 write bit 2 (:5837-5838), else F3 hotkey toggle
+//       (:5839-5840).
+//       60 Hz constants (128K branch): zxula_timing.vhd:233 (c_int_v=0),
+//       :237 (c_min_vactive=40), :238 (c_max_vc=263). hc-axis constants
+//       are identical between 50 and 60 Hz.
+//
+// Harness: full Emulator (ZX128K — 128K timing), NR writes via the real
+// port path so the production NR 0x05 / NR 0x03 write handlers fire.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace t56 {
+
+static bool build_emu_128k(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX128K;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+// Write NR via the real port path (OUT 0x243B,reg; OUT 0x253B,val).
+static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
+
+}  // namespace t56
+
+static void section11_t56_nr05_5060() {
+    set_group("VT-S11-T56-NR05-5060");
+
+    // VT-T56-01 / VT-T56-02 — runtime NR 0x05 bit-2 write re-initialises
+    // the effective frame geometry at the NEXT frame edge (never
+    // mid-frame), in both directions.
+    {
+        Emulator emu;
+        if (!t56::build_emu_128k(emu)) {
+            check("VT-T56-01", "Emulator::init(ZX128K) failed", false,
+                  "Emulator::init returned false");
+            check("VT-T56-02", "Emulator::init(ZX128K) failed", false,
+                  "Emulator::init returned false");
+        } else {
+            // Pre: 128K 50 Hz (zxula_timing.vhd:199,203,204).
+            const bool pre_ok =
+                emu.video_timing().vc_max() == 310 &&
+                emu.video_timing().display_origin().vc == 64 &&
+                emu.video_timing().int_position().vc == 1 &&
+                !emu.video_timing().refresh_60hz();
+
+            t56::nr_write(emu, 0x05, 0x04);  // bit 2 = 1 (60 Hz pending)
+            // Pending only — VHDL latches eff_nr_05_5060 at
+            // video_frame_sync (zxnext.vhd:6697-6700); nothing changes
+            // before run_frame().
+            const bool mid_ok =
+                emu.video_timing().vc_max() == 310 &&
+                !emu.video_timing().refresh_60hz();
+
+            emu.run_frame();  // frame edge commits + re-push
+            const bool post_ok =
+                emu.video_timing().vc_max() == 263 &&
+                emu.video_timing().display_origin().vc == 40 &&
+                emu.video_timing().int_position().hc == 128 &&
+                emu.video_timing().int_position().vc == 0 &&
+                emu.video_timing().refresh_60hz();
+
+            check("VT-T56-01",
+                  "runtime NR 0x05 bit-2 write (50→60 Hz) re-pushes video "
+                  "timing at the frame edge: vc_max 310→263, display "
+                  "origin vc 64→40, INT (128,1)→(128,0); deferred until "
+                  "run_frame [zxnext.vhd:6697-6700; "
+                  "zxula_timing.vhd:233,237,238]",
+                  pre_ok && mid_ok && post_ok,
+                  std::string("pre=") + std::to_string(pre_ok) +
+                  " mid=" + std::to_string(mid_ok) +
+                  " post=" + std::to_string(post_ok) +
+                  " (vc_max=" + std::to_string(emu.video_timing().vc_max()) +
+                  " 60hz=" +
+                  std::to_string(emu.video_timing().refresh_60hz()) + ")");
+
+            // Reverse direction: 60 → 50 Hz, same deferred semantics.
+            t56::nr_write(emu, 0x05, 0x00);  // bit 2 = 0 (50 Hz pending)
+            const bool mid2_ok =
+                emu.video_timing().vc_max() == 263 &&
+                emu.video_timing().refresh_60hz();
+
+            emu.run_frame();
+            const bool post2_ok =
+                emu.video_timing().vc_max() == 310 &&
+                emu.video_timing().display_origin().vc == 64 &&
+                emu.video_timing().int_position().vc == 1 &&
+                !emu.video_timing().refresh_60hz();
+
+            check("VT-T56-02",
+                  "runtime NR 0x05 bit-2 clear (60→50 Hz) restores 128K "
+                  "50 Hz geometry at the frame edge: vc_max 263→310, INT "
+                  "back to (128,1); deferred until run_frame "
+                  "[zxnext.vhd:6697-6700; zxula_timing.vhd:199,203,204]",
+                  mid2_ok && post2_ok,
+                  std::string("mid=") + std::to_string(mid2_ok) +
+                  " post=" + std::to_string(post2_ok) +
+                  " (vc_max=" + std::to_string(emu.video_timing().vc_max()) +
+                  " 60hz=" +
+                  std::to_string(emu.video_timing().refresh_60hz()) + ")");
+        }
+    }
+
+    // VT-T56-03 — Pentagon gate: entering Pentagon timing clears the
+    // pending `nr_05_5060` FF (VHDL zxnext.vhd:5835-5836 forces '0'
+    // continuously while nr_03_machine_timing(2)='1'), so 60 Hz does
+    // NOT resurrect when Pentagon timing is later exited.
+    {
+        Emulator emu;
+        if (!t56::build_emu_128k(emu)) {
+            check("VT-T56-03", "Emulator::init(ZX128K) failed", false,
+                  "Emulator::init returned false");
+        } else {
+            t56::nr_write(emu, 0x05, 0x04);
+            emu.run_frame();
+            const bool at_60 = emu.video_timing().vc_max() == 263 &&
+                               emu.video_timing().refresh_60hz();
+
+            // tim_sel → Pentagon (bit7=1, tim=100, typ=010 unchanged).
+            t56::nr_write(emu, 0x03, 0xC2);
+            emu.run_frame();
+            // Pentagon block sits outside the i_50_60 split
+            // (zxula_timing.vhd:150-168) — always 50 Hz.
+            const bool pent_ok = emu.video_timing().vc_max() == 319 &&
+                                 !emu.video_timing().refresh_60hz();
+
+            // Back to 128K timing: the FF was force-cleared on Pentagon
+            // entry, so the machine returns at 50 Hz, not 60.
+            t56::nr_write(emu, 0x03, 0xA2);
+            emu.run_frame();
+            const bool back_50 = emu.video_timing().vc_max() == 310 &&
+                                 !emu.video_timing().refresh_60hz();
+
+            check("VT-T56-03",
+                  "Pentagon entry clears the pending 5060 FF: 128K@60Hz → "
+                  "Pentagon (vc_max=319, 50 Hz) → back to 128K at 50 Hz "
+                  "(vc_max=310), 60 Hz does not resurrect "
+                  "[zxnext.vhd:5835-5836; zxula_timing.vhd:150-168]",
+                  at_60 && pent_ok && back_50,
+                  std::string("at_60=") + std::to_string(at_60) +
+                  " pent=" + std::to_string(pent_ok) +
+                  " back_50=" + std::to_string(back_50) +
+                  " (vc_max=" + std::to_string(emu.video_timing().vc_max()) +
+                  " 60hz=" +
+                  std::to_string(emu.video_timing().refresh_60hz()) + ")");
+        }
+    }
+
+    // VT-T56-04 — save/load round-trips the 50/60 selection: a snapshot
+    // taken at 60 Hz restores 60 Hz geometry into a fresh (50 Hz)
+    // emulator. load_state re-pushes video timing from the restored
+    // NR 0x05 cache (the pending FF; snapshots are frame-edge, where
+    // pending == effective per zxnext.vhd:6697-6700).
+    {
+        Emulator emu1;
+        if (!t56::build_emu_128k(emu1)) {
+            check("VT-T56-04", "Emulator::init(ZX128K) #1 failed", false,
+                  "Emulator::init returned false");
+        } else {
+            t56::nr_write(emu1, 0x05, 0x04);
+            emu1.run_frame();
+            const bool src_60 = emu1.video_timing().refresh_60hz() &&
+                                emu1.video_timing().vc_max() == 263;
+
+            StateWriter measure;
+            emu1.save_state(measure);
+            std::vector<uint8_t> buf(measure.position(), 0);
+            StateWriter w(buf.data(), buf.size());
+            emu1.save_state(w);
+
+            Emulator emu2;
+            if (!t56::build_emu_128k(emu2)) {
+                check("VT-T56-04", "Emulator::init(ZX128K) #2 failed",
+                      false, "second Emulator::init returned false");
+            } else {
+                const bool dst_pre_50 = !emu2.video_timing().refresh_60hz() &&
+                                        emu2.video_timing().vc_max() == 310;
+                StateReader r(buf.data(), buf.size());
+                emu2.load_state(r);
+                const bool dst_60 = emu2.video_timing().refresh_60hz() &&
+                                    emu2.video_timing().vc_max() == 263 &&
+                                    emu2.video_timing().int_position().vc == 0;
+                check("VT-T56-04",
+                      "save/load round-trips 60 Hz: snapshot at 60 Hz "
+                      "restores vc_max=263, INT vc=0, refresh_60hz into a "
+                      "fresh 50 Hz emulator (load_state re-push from the "
+                      "restored NR 0x05 cache) [zxnext.vhd:6697-6700]",
+                      src_60 && dst_pre_50 && dst_60,
+                      std::string("src_60=") + std::to_string(src_60) +
+                      " dst_pre_50=" + std::to_string(dst_pre_50) +
+                      " dst_60=" + std::to_string(dst_60) +
+                      " (vc_max=" +
+                      std::to_string(emu2.video_timing().vc_max()) + ")");
+            }
+        }
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1007,6 +1217,9 @@ int main() {
 
     section10_t51_init_timing();
     std::printf("  Section 10: VT-S10-T51-INIT-TIMING  — done (3 live)\n");
+
+    section11_t56_nr05_5060();
+    std::printf("  Section 11: VT-S11-T56-NR05-5060    — done (4 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
