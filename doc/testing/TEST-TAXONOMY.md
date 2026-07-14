@@ -12,7 +12,7 @@ The taxonomy was formalised after Task 14's [test-strategy analysis](../issues/n
 
 **What it catches:** supervisor-level bugs, boot-ROM divergences, MMU configuration during init, IM2 / NMI routing in the post-supervisor world, IPL→supervisor handoff, NR-register state coherency across boot.
 
-**Status:** currently blocked at G46(b) — see [G46B-INVESTIGATION-LIVE.md](../issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md). No regression rows fire this layer end-to-end yet; the 6 SKIPs in the `nmi_test` BOOT group (BOOT-LOOP-01, BOOT-LOGO-01, BOOT-DOT-01, BYPASS-CLI-01, BYPASS-FAT-01, BYPASS-INI-01) are gated on this layer.
+**Status:** unblocked — native NextZXOS boot works since 2026-07-10 (G46 fixed). The `nmi_test` BOOT group is fully resolved: BOOT-LOOP-01 / BOOT-LOGO-01 are COVERED AT the regression tier (boot-nextzxos-welcome / -splash), BOOT-DOT-01 likewise since Task 57 (boot-nextzxos-dotls runs `.ls` in the NextZXOS Command Line and pins the SD-root listing, closing G47), and the three BYPASS rows are WONT (the `--bypass-tbblue-fw` path was removed 2026-07-11).
 
 **Identifying property:** invocation has `--sdcard <...>` AND no `--load`. The boot-ROM auto-load gate at `Emulator::init` fires only when `cfg.load_file` is empty.
 

@@ -1216,15 +1216,15 @@ static void g_boot_skips()
     // ROM line)" at frame 252. See
     // test/00regression/regression_tests.conf: boot-nextzxos-splash.
 
-    // BOOT-DOT-01 — G47: welcome/menu screenshots (above) prove NextZXOS
-    // reaches BASIC, but no test exercises the dot-command shell itself
-    // (e.g. typing ".ls" and comparing the directory listing). Neither
-    // the CLI (`--delayed-keypress-frames` presses one key, not a typed
-    // command line) nor any regression conf entry does this. Genuinely
-    // still end-to-end/unreachable from the unit tier.
-    skip("BOOT-DOT-01",
-         "NextZXOS reaches BASIC (see boot-nextzxos-welcome/menu regression); "
-         "dot-command shell execution (e.g. .ls) is not exercised by any test (see G47)");
+    // BOOT-DOT-01 — COVERED AT regression tier (not a skip). G47's
+    // dot-command shell is exercised end-to-end by boot-nextzxos-dotls
+    // (Task 57, 2026-07-14): boot NextZXOS, SPACE past the welcome tour,
+    // DOWN+ENTER into "Command Line", type ".ls" (the '.' via the SYM+M
+    // compound `--delayed-keypress-frames` now supports) + ENTER, and
+    // pin the resulting SD-root directory listing ("total 22 files",
+    // names/sizes verified against the image's FAT32 root via mdir) at
+    // frame 800 on the settled "scroll?" prompt. See
+    // test/00regression/regression_tests.conf: boot-nextzxos-dotls.
 
     // WONT BYPASS-FAT-01 — G59's `--bypass-tbblue-fw` boot path (the
     // only consumer that needed a *direct host-side load of
