@@ -560,3 +560,27 @@ This is the single NMI-blocked row in this suite. The test-row coverage
 for NR 0x02 bit 2/3 routing, readback, and auto-clear lives in the new
 `nmi_test.cpp` suite (group NR02); ARB-06 here is specifically the
 end-to-end Copper → NextREG → NMI latch integration proof.
+
+## Task 58 append (2026-07-14) — Copper `c_max_vc` follows runtime video-timing changes
+
+VHDL `zxula_timing.vhd:457-470` wraps the copper offset counter `cvc` at
+`c_max_vc` (reload to `i_cu_offset` at `ula_min_vactive`, +1 per line,
+wrap to 0 at `c_max_vc`), and `c_max_vc` is re-derived from
+`i_timing` / `i_50_60` alongside every other `c_*` constant
+(`zxula_timing.vhd:168/204/238/270/298`). `i_50_60` is the frame-edge-
+latched `eff_nr_05_5060` (`zxnext.vhd:6697-6700`, wired at `:6720`).
+Pre-Task-58, jnext pushed `Copper::set_c_max_vc(lines_per_frame - 1)`
+once in `Emulator::init()` only, so a runtime NR 0x03 tim_sel or
+NR 0x05 50/60 change left the Copper's vertical wrap stale. Fix:
+`repush_video_timing_from_machine_timing()` (the single re-push point
+covering BOTH axes) now re-pushes the Copper wrap.
+
+Row (in `copper_integration_test`):
+
+| ID | Description | VHDL |
+|----|-------------|------|
+| T58-CVC-01 | Runtime 50→60 Hz switch (NR 0x05 bit 2, committed at the frame edge) re-pushes the Copper wrap: WAIT vpos=60 with NR 0x64 offset=100 fires at vc=224 in the 264-line frame (correct mod-264 cvc); with the stale init-time 311-line wrap, cvc over a 264-line frame covers only 100..310 ∪ 0..52 and the WAIT never fires | zxula_timing.vhd:204,238,457-470; zxnext.vhd:6697-6700,6720 |
+
+Mutation evidence: reverting the `copper_.set_c_max_vc(...)` re-push in
+`repush_video_timing_from_machine_timing()` turns T58-CVC-01 RED
+(NR 0x14 stays 0x00); restoring it turns the row green.

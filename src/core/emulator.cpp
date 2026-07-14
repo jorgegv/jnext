@@ -6056,6 +6056,18 @@ void Emulator::repush_video_timing_from_machine_timing()
     z80_set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
     z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
                                 video_timing_.display_origin().vc);
+
+    // Task 58 — the Copper's vertical wrap follows the same constants.
+    // VHDL zxula_timing.vhd:457-470 wraps the copper offset counter
+    // (`cvc`) at `c_max_vc`, and `c_max_vc` is re-derived from
+    // i_timing / i_50_60 alongside every other c_* constant
+    // (zxula_timing.vhd:168/204/238/270/298: 319 Pentagon, 310
+    // 128K/+3 50 Hz, 311 48K 50 Hz, 263 any 60 Hz). Pre-fix this was
+    // pushed once in init() only, so a runtime NR 0x03 tim_sel or
+    // NR 0x05 50/60 change left the Copper wrapping at the stale
+    // init()-time frame length. Same (lines_per_frame - 1) semantics
+    // as the init()-time call.
+    copper_.set_c_max_vc(timing_.lines_per_frame - 1);
 }
 
 void Emulator::begin_new_frame()

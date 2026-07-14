@@ -254,6 +254,84 @@ static void test_g65_cpu_wins_tied_edge(Emulator& emu) {
     }
 }
 
+// ── T58 — Copper c_max_vc follows runtime video-timing changes ────────
+
+static void test_t58_cmaxvc_repush() {
+    set_group("T58-CMaxVc");
+
+    // T58-CVC-01 — the Copper's vertical wrap must follow a RUNTIME
+    // video-timing change.
+    //
+    // VHDL: zxula_timing.vhd:457-470 wraps the copper offset counter
+    // `cvc` at `c_max_vc` (reload to i_cu_offset at ula_min_vactive,
+    // +1 per line, wrap to 0 when cvc == c_max_vc), and `c_max_vc` is
+    // re-derived from i_timing / i_50_60 alongside every other c_*
+    // constant (zxula_timing.vhd:204 = 310 for 128K 50 Hz, :238 = 263
+    // for 128K 60 Hz). i_50_60 is `eff_nr_05_5060`, latched at the
+    // frame edge (zxnext.vhd:6697-6700, :6720). jnext models cvc as
+    // (vc + NR 0x64 offset) mod (c_max_vc + 1) in Copper::execute.
+    //
+    // Discriminator: ZXN_ISSUE2 boots with 128K timing at 50 Hz
+    // (c_max_vc = 310). Switch to 60 Hz (frame = 264 lines, c_max_vc =
+    // 263) and set NR 0x64 offset = 100. A WAIT for vpos = 60 then:
+    //   * correct c_max_vc = 263: cvc = (vc+100) mod 264 == 60 at
+    //     vc = 224 (< 264) → the WAIT fires every frame;
+    //   * stale c_max_vc = 310 (the pre-Task-58 bug — set once in
+    //     init() and never re-pushed): cvc = (vc+100) mod 311 over
+    //     vc ∈ [0,263] covers only 100..310 ∪ 0..52 — vpos 60 is
+    //     unreachable, the WAIT never fires.
+    // The MOVE behind the WAIT (NR 0x14 ← 0x5A) is the observable.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("T58-CVC-01", "Emulator::init(ZXN_ISSUE2) failed", false,
+                  "Emulator::init returned false");
+            return;
+        }
+
+        // Precondition: 128K-class timing at 50 Hz → vc_max = 310
+        // (zxula_timing.vhd:204).
+        const bool pre_ok = emu.video_timing().vc_max() == 310;
+
+        // Copper program: WAIT(h=0, v=60); MOVE NR 0x14 ← 0x5A; HALT.
+        for (int i = 0; i < 64; ++i) {
+            program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+        }
+        program_word(emu, 0, enc_wait(0, 60));
+        program_word(emu, 1, enc_move(0x14, 0x5A));
+        program_word(emu, 2, enc_wait(0, 511));   // HALT
+
+        nr_write(emu, 0x64, 100);   // copper vertical offset
+        nr_write(emu, 0x14, 0x00);  // observable baseline
+
+        // Switch to 60 Hz: NR 0x05 bit 2 pending; the frame edge
+        // commits it (zxnext.vhd:6697-6700) and the fix re-pushes the
+        // Copper wrap alongside the rest of the timing constants.
+        nr_write(emu, 0x05, 0x04);
+        emu.run_frame();
+        const bool at_60 = emu.video_timing().vc_max() == 263;
+
+        // Start the Copper (mode 0→1 edge resets PC) and run one full
+        // 60 Hz frame — the WAIT must fire at vc = 224 and the MOVE
+        // must land.
+        set_copper_mode(emu, 0);
+        set_copper_mode(emu, 1);
+        emu.run_frame();
+
+        const uint8_t got = nr_read(emu, 0x14);
+        check("T58-CVC-01",
+              "runtime 50→60 Hz switch re-pushes the Copper c_max_vc "
+              "wrap: WAIT vpos=60 with NR 0x64 offset=100 fires at "
+              "vc=224 in a 264-line frame (stale 311-line wrap never "
+              "reaches cvc=60) [zxula_timing.vhd:204/238/457-470; "
+              "zxnext.vhd:6697-6700]",
+              pre_ok && at_60 && got == 0x5A,
+              std::string("pre_ok=") + std::to_string(pre_ok) +
+              " at_60=" + std::to_string(at_60) +
+              " NR14=" + hex2(got) + " (want 0x5A)");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -272,6 +350,9 @@ int main() {
 
     test_g65_cpu_wins_tied_edge(emu);
     std::printf("  Group: G65-Priority — done\n");
+
+    test_t58_cmaxvc_repush();
+    std::printf("  Group: T58-CMaxVc — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
