@@ -32,7 +32,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test harness-selftest worktree-bootstrap \
+       kloc-count regression unit-test harness-selftest worktree-bootstrap bench \
        bump bump-patch bump-minor bump-major version
 .SILENT:
 
@@ -135,6 +135,10 @@ unit-test: unit-test-build
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
 harness-selftest:
 	@bash test/harness-selftest.sh
+
+# Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
+bench:
+	@bash test/bench/bench.sh
 
 # build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
 # CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and

@@ -35,6 +35,13 @@ public:
     /// (frames, wins when both given) into this frame count.
     void set_delayed_exit(int delay_frames);
 
+    /// Benchmark mode (Task 27 T1): run exactly `frames` frames uncapped,
+    /// then print ONE machine-parseable `BENCH ...` line plus a human
+    /// summary line to stdout and exit. `workload` is a free-form label
+    /// (the loaded file's basename, or "boot-<machine>") echoed in the
+    /// BENCH line. Measurement-only: nothing in the emulation path changes.
+    void set_benchmark(int frames, const std::string& workload);
+
     /// Schedule a snapshot save after `delay_frames` frames. Format is
     /// chosen by `file`'s extension (.szx / .nex / anything else -> .sna),
     /// same dispatch as MainWindow::on_save_snapshot(). Headless-only
@@ -96,6 +103,12 @@ private:
     // Pending --delayed-snapshot state
     std::string snapshot_file_;
     int         snapshot_countdown_ = -1;
+
+    // --benchmark state (Task 27 T1). 0 = disabled.
+    int         benchmark_frames_ = 0;
+    std::string benchmark_workload_;
+    /// Print the BENCH + human summary lines for a finished benchmark run.
+    void print_benchmark_result(double wall_seconds);
 
     // Non-zero when a requested screenshot was never taken (see shutdown()).
     int         exit_code_ = 0;
