@@ -1,5 +1,7 @@
 #pragma once
 
+#include "memory/mmu.h"
+
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -35,6 +37,28 @@ public:
     /// = SA/LD-RET; PUSH HL) — matching "The Complete Spectrum ROM
     /// Disassembly" (Logan & O'Hara), SA-BYTES.
     static constexpr uint16_t SA_BYTES_ADDR = 0x04C2;
+
+    /// SA-BYTES entry signature: LD HL,0x053F / PUSH HL — the first four
+    /// bytes of the routine in the 48K BASIC ROM (same bytes wherever that
+    /// ROM image appears: bare 48K machine, 128K ROM1, +3 ROM3, or the SD
+    /// image's 48.rom loaded into Next SRAM).
+    static constexpr uint8_t SA_BYTES_SIG[4] = { 0x21, 0x3F, 0x05, 0xE5 };
+
+    /// ROM-identity gate for the SA-BYTES trap. `PC == 0x04C2 with a ROM
+    /// in slot 0` is NOT sufficient: other ROMs (FPGA boot ROM, TBBLUE.FW,
+    /// NextZXOS) legitimately execute code at that address — a plain PC
+    /// gate fired 10 times during an ordinary NextZXOS boot, appending
+    /// garbage blocks AND corrupting the boot (Task 57 review finding).
+    /// Verify the bytes about to be executed really are the 48K SA-BYTES
+    /// prologue. Reads go through the same Mmu::read path the trap handler
+    /// itself uses (boot-ROM/MF/DivMMC overlays included), so the check
+    /// sees exactly what the CPU would fetch.
+    static bool sa_bytes_rom_present(Mmu& mmu) {
+        for (uint16_t i = 0; i < 4; ++i)
+            if (mmu.read(static_cast<uint16_t>(SA_BYTES_ADDR + i)) != SA_BYTES_SIG[i])
+                return false;
+        return true;
+    }
 
     /// Build one TAP block image from flag + payload.
     /// Returns an empty vector if the block cannot be represented
