@@ -20,13 +20,14 @@ if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "CMAKE_BUILD_TYPE not set — defaulting to RelWithDebInfo")
 endif()
 
-# Frame pointers in optimized builds: needed for usable `perf record -g`
-# call graphs (Task 27 P1). Costs ~1% — accepted for profiling fidelity.
+# Frame pointers on RelWithDebInfo ONLY (the dev/profiling build): needed
+# for usable `perf record -g` call graphs (Task 27 P1). NOT on Release —
+# measured at 5.8% cost there (independent review, 2026-07-15), an
+# unacceptable permanent tax on the user-facing binary. Profiling the
+# Release binary uses `perf record --call-graph dwarf` instead.
 if(NOT MSVC)
-    foreach(cfg RELEASE RELWITHDEBINFO)
-        string(APPEND CMAKE_C_FLAGS_${cfg}   " -fno-omit-frame-pointer")
-        string(APPEND CMAKE_CXX_FLAGS_${cfg} " -fno-omit-frame-pointer")
-    endforeach()
+    string(APPEND CMAKE_C_FLAGS_RELWITHDEBINFO   " -fno-omit-frame-pointer")
+    string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -fno-omit-frame-pointer")
 endif()
 
 # ccache — makes the mandatory `make clean` + full-rebuild discipline cheap.
