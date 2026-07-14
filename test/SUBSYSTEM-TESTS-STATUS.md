@@ -11,8 +11,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Rewind                |       35 |       25 |      0 |      10 |     71% | 🟡 Task 7r2: G66/G67 SS-VER + RB-FRAME skips added. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 Task 57: G33 Phase 1 — BOOT-TAPESAVE-01..03 closed (TapSaver). |
-| Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. Task 57: MMU-G33-TRAP-01..03 added. |
+| Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      280 |      280 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -33,15 +33,15 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Floating Bus          |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
-| I/O Port Dispatch     |      106 |      106 |      0 |       0 |    100% | 🟢 Tier 6: G45 EXPBUS-AND-01..04 → WONT (expansion bus + cartridge framework out of scope). |
+| I/O Port Dispatch     |      106 |      106 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      138 |      138 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 Zero skips. Task 57 (2026-07-14): BOOT-DOT-01 re-homed to the boot-nextzxos-dotls regression row (G47 closed); earlier BOOT/BYPASS rows closed or re-homed in Tasks 8/24. |
+| NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 Task 22a (2026-07-12): new suite. Panel-vs-compositor parity — rom_in_sram bank shift, bank-pinned ULA views, per-scanline replay, raw-VC→fb-row. |
+| Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | **Total**             | **4338** | **4328** |  **0** |  **10** | **99%** | 🟢 10 SKIPs total, all Rewind (Task 13a / G66+G67 snapshot schema); 0 FAILs. Task 57 (2026-07-14) closed every mmu/nmi/port skip. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
