@@ -7852,6 +7852,16 @@ void Emulator::save_state(StateWriter& w) const
 
     // Emulator private state.
     w.write_u64(frame_cycle_);
+    // G36 review fix: the monotonic tape clock MUST travel with the
+    // snapshot — without it, a rewind during --tape-realtime playback
+    // left tstates_frame_base_ at its pre-rewind value and the tape
+    // clock jumped, desyncing TZX/WAV playback. The live FUSE tstates
+    // counter is NOT serialised anywhere (Z80Cpu::save_state Pass-9
+    // note), so save the FOLDED value (base + live at capture) and let
+    // load_state re-establish it as the new base with a zeroed live
+    // counter — monotonic_tstates() is then exactly continuous across
+    // save/load, including restores taken from a mid-frame pause.
+    w.write_u64(monotonic_tstates());
     w.write_u32(frame_num_);
     w.write_u32(boot_hold_frames_remaining_);  // G156
     w.write_u64(psg_accum_);
@@ -8145,6 +8155,15 @@ void Emulator::load_state(StateReader& r)
 
     // Emulator private state.
     frame_cycle_      = r.read_u64();
+    // G36 review fix: restore the monotonic tape clock (see save_state).
+    // The saved value is the folded monotonic instant; re-establish it as
+    // the base and zero the live FUSE counter so monotonic_tstates() is
+    // exactly the saved value. Safe: restores only happen between frames
+    // (frame_in_progress_ = false above), and the next run_frame() begins
+    // with begin_new_frame(), which would zero the live counter anyway —
+    // with the counter already 0, its base fold is a no-op.
+    tstates_frame_base_ = r.read_u64();
+    *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156
     psg_accum_        = r.read_u64();

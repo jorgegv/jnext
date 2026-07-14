@@ -657,6 +657,14 @@ replay, audio resumes from the replay target position. This produces a brief aud
 - `RewindBuffer` ring wraps correctly at capacity
 - Step back 1 instruction: PC matches `trace.at(-2).pc`
 - Step back N instructions: verified against trace log
+- Monotonic tape clock survives save/load (Task 57 review fix, 2026-07-14):
+  `Emulator::monotonic_tstates()` — the clock real-time TZX/WAV playback
+  runs on — is serialised as its folded instant and re-established with a
+  zeroed live FUSE counter on load. The rewind_test row save_states
+  mid-realtime-TZX playback, runs on, load_states, and asserts exact
+  clock continuity plus ~2-frame post-restore advancement (±100 T).
+  Pre-fix, a rewind during --tape-realtime playback left
+  `tstates_frame_base_` at its pre-rewind value and the tape desynced.
 
 ### 12.2 Integration Tests (Regression Screenshots)
 
