@@ -71,6 +71,9 @@ static void print_usage(const char* prog) {
         "                       print one machine-parseable BENCH line (wall s, fps,\n"
         "                       T-states/s, T-states/frame, CPU speed, host core, build\n"
         "                       type) plus a human summary to stdout, and exit\n"
+        "  --benchmark-label NAME   Workload label printed verbatim in the BENCH line\n"
+        "                       (default: loaded file's basename, or boot-<machine>).\n"
+        "                       No whitespace (the BENCH line is space-delimited)\n"
         "  --silent                 Disable all sound output (beeper, AY/YM x3, DAC/\n"
         "                       Covox/Specdrum). No audio device is opened, and the\n"
         "                       emulator skips PSG/mixer sample synthesis entirely —\n"
@@ -151,6 +154,7 @@ int main(int argc, char* argv[]) {
     std::string machine_arg = "next";  // raw --machine string, for the benchmark label
     bool        headless = false;
     int         benchmark_frames = 0;  // --benchmark N; 0 = disabled
+    std::string benchmark_label;       // --benchmark-label; empty = derive
     bool        silent = false;
     bool        tape_realtime = false;
     std::string tape_save_file;
@@ -233,6 +237,17 @@ int main(int argc, char* argv[]) {
             benchmark_frames = std::stoi(argv[++i]);
             if (benchmark_frames <= 0) {
                 fprintf(stderr, "--benchmark: frame count must be > 0\n");
+                return 1;
+            }
+        } else if (arg == "--benchmark-label" && i + 1 < argc) {
+            // Canonical workload name for the BENCH line (Task 27 T1 review):
+            // bench.sh passes its workload names through so BENCH lines and
+            // baseline files agree; grep-ability across tasks depends on it.
+            benchmark_label = argv[++i];
+            if (benchmark_label.empty() ||
+                benchmark_label.find_first_of(" \t") != std::string::npos) {
+                fprintf(stderr, "--benchmark-label: label must be non-empty with no "
+                        "whitespace (the BENCH line is space-delimited)\n");
                 return 1;
             }
         } else if (arg == "--silent") {
@@ -350,6 +365,10 @@ int main(int argc, char* argv[]) {
     // wall clock, so a "benchmark" there would measure the frame timer.
     if (benchmark_frames > 0 && !headless) {
         fprintf(stderr, "--benchmark requires --headless.\n");
+        return 1;
+    }
+    if (!benchmark_label.empty() && benchmark_frames <= 0) {
+        fprintf(stderr, "--benchmark-label requires --benchmark N.\n");
         return 1;
     }
 
@@ -540,15 +559,19 @@ int main(int argc, char* argv[]) {
     if (headless) {
         HeadlessApp app;
         if (benchmark_frames > 0) {
-            // Workload label for the BENCH line: the loaded file's basename,
-            // or "boot-<machine>" for a bare firmware/ROM boot.
-            std::string label;
-            if (!load_file.empty()) {
-                auto slash = load_file.find_last_of('/');
-                label = (slash == std::string::npos) ? load_file
-                                                     : load_file.substr(slash + 1);
-            } else {
-                label = "boot-" + machine_arg;
+            // Workload label for the BENCH line: --benchmark-label verbatim
+            // when given (bench.sh passes its canonical workload names, so
+            // BENCH lines and baseline files agree); otherwise derived — the
+            // loaded file's basename, or "boot-<machine>" for a bare boot.
+            std::string label = benchmark_label;
+            if (label.empty()) {
+                if (!load_file.empty()) {
+                    auto slash = load_file.find_last_of('/');
+                    label = (slash == std::string::npos) ? load_file
+                                                         : load_file.substr(slash + 1);
+                } else {
+                    label = "boot-" + machine_arg;
+                }
             }
             app.set_benchmark(benchmark_frames, label);
         }

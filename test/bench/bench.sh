@@ -125,7 +125,11 @@ any_void=0
 for spec in "${WORKLOADS[@]}"; do
     IFS='|' read -r name machine load frames <<< "$spec"
 
-    args=(--headless --machine "$machine" --sdcard "$SD_IMAGE" --benchmark "$frames")
+    # --benchmark-label: BENCH lines carry the same canonical workload name
+    # used in this file's headers/MEDIAN rows, so baseline files are greppable
+    # by workload (review MINOR, Task 27 T1).
+    args=(--headless --machine "$machine" --sdcard "$SD_IMAGE"
+          --benchmark "$frames" --benchmark-label "$name")
     if [[ -n "$load" ]]; then
         [[ -f "$PROJECT_DIR/$load" ]] || die "workload $name: asset missing: $load"
         args+=(--load "$PROJECT_DIR/$load")

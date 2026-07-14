@@ -171,6 +171,7 @@ with `-` is treated as an option, never as a filename.
 |--------|-------------|
 | `--headless` | Run with no display and no audio, at maximum speed |
 | `--benchmark N` | Headless-only: run exactly N frames uncapped, print one machine-parseable `BENCH` line (wall s, fps, T-states/s, T-states/frame, CPU speed, host core, build type) plus a human summary to stdout, then exit. Used by `make bench` (`test/bench/bench.sh`) |
+| `--benchmark-label NAME` | Workload label printed verbatim in the `BENCH` line (default: loaded file's basename, or `boot-<machine>`). No whitespace |
 | `--delayed-screenshot FILE` | Save a PNG screenshot after a delay |
 | `--delayed-screenshot-time N` | Delay in seconds (default 10) |
 | `--delayed-screenshot-frames N` | Delay in frames (overrides `--delayed-screenshot-time`) |
