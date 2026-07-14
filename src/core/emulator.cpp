@@ -378,6 +378,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (jnext defaults to 50 Hz only); pass `false` here.
     video_timing_.init(cfg.type, /*refresh_60hz=*/false);
 
+    // Task 58 — seed the effective (frame-edge-latched) copy of NR 0x05
+    // bit 0 from the pending cache. VHDL zxnext.vhd:6702 latches
+    // `eff_nr_05_scandouble_en <= nr_05_scandouble_en` at every
+    // video_frame_sync; init() models the post-boot steady state where
+    // effective == pending (cold-boot default 0x41 → bit 0 = '1',
+    // zxnext.vhd:1303). Kept in sync per-frame by begin_new_frame().
+    eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
+
     // Mirror the post-build per-slot contention state into Mmu so the
     // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509) sees the
     // same initial slot map as ContentionModel. ContentionModel::build()
@@ -1383,15 +1391,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // '1' value while Pentagon is active.
     //
     // Pre-fix the C++ stored the raw `v` byte in `regs_[0x05]`, so bit 2
-    // could leak through the cache when Pentagon is on. The NR 0x05
-    // read_handler at line ~1117 already masks bit 2 to 0 while
-    // Pentagon is active (Pass-10 fix TC-NR05-PENTAGON), but if the
-    // sequence is "write bit 2 = 1 while Pentagon ON" then "exit
-    // Pentagon mode" then "read NR 0x05", VHDL would return bit 2 = 0
-    // (the underlying FF is still 0 — only a fresh NR 0x05 write or F3
-    // can flip it post-Pentagon-exit), but jnext returns bit 2 = 1
-    // because the read mask only triggers while Pentagon is active —
-    // post-exit the cached bit 2 = 1 surfaces verbatim.
+    // could leak through the cache when Pentagon is on: with the
+    // sequence "write bit 2 = 1 while Pentagon ON" then "exit Pentagon
+    // mode", VHDL keeps the underlying FF at 0 (only a fresh NR 0x05
+    // write or F3 can flip it post-Pentagon-exit), but jnext's cache
+    // held bit 2 = 1 — and the cache is the pending FF the frame-edge
+    // latch commits into the effective value (Task 56/58), so the
+    // stale bit would eventually surface.
     //
     // Same shape as V11-NMP-02 (NR 0x0A bits 7:5 config_mode gate) and
     // V11-NMP-03 (NR 0x06 bit 2 ps2_mode config_mode gate): canonicalise
@@ -1422,45 +1428,50 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // G56 cluster A — joy bits come from Joystick (the authoritative
     // owner of the decoded `nr_05_joy0` / `nr_05_joy1` 3-bit fields,
     // which can also be moved by `set_mode_direct()` in tests). The
-    // 5060 / scandouble bits live in the raw shadow store: there is no
-    // dedicated subsystem owner today, the F2/F3 hotkey toggles route
-    // through `nextreg_.write(0x05, ...)`, and `eff_nr_*` are simply
-    // frame-sync-latched copies (irrelevant at unit-test scope, where
-    // there is no video-frame edge between writes and reads).
+    // joy bits are PENDING signals in the read mux (plain `nr_05_joy0`
+    // / `nr_05_joy1`, no `eff_` copy) — a write is visible on the very
+    // next read.
     //
-    // PASS-10 verify-audit fix (Task 2 verify10-nmi-mf-port): VHDL
-    // zxnext.vhd:5832-5841 forces `nr_05_5060 <= '0'` continuously
-    // every cycle when `nr_03_machine_timing(2) = '1'` (Pentagon mode).
-    // This is the IF branch (highest priority), not an ELSIF, so even
-    // explicit NR 0x05 writes with bit 2 = 1 get overwritten on the
-    // very next clock edge. The frame-sync latch at :6701 then
-    // propagates that '0' into `eff_nr_05_5060`, and the NR 0x05 read
-    // mux at :5897 surfaces it. Pre-fix the C++ surfaced `cached & 0x04`
-    // unconditionally, leaking the user's pre-Pentagon write through.
-    // The F3 callback at line 3508-3514 already gates the toggle on
-    // Pentagon, but it's not the only writer (firmware can write NR
-    // 0x05 directly). Mask bit 2 to '0' at read time when Pentagon is
-    // active. Same shape as the existing `nr_06_ps2_mode_` config_mode
-    // handling — read composes from gated state when the gate is
-    // active.
+    // Task 58 (Item 2) — bits 2 and 0 are the EFFECTIVE, frame-edge-
+    // latched signals: VHDL :5897 reads `eff_nr_05_5060` (bit 2) and
+    // `eff_nr_05_scandouble_en` (bit 0), both latched from the pending
+    // FFs only at `video_frame_sync = '1'` (zxnext.vhd:6696-6703). So
+    // between a runtime NR 0x05 write and the next frame edge, real
+    // hardware still reads the OLD values. Pre-fix jnext returned the
+    // pending cache bits (write-through), leaking the new value early.
+    //   * bit 2: the emulator's effective state is
+    //     `video_timing_.refresh_60hz()` — repushed from the pending
+    //     cache bit at the begin_new_frame() seam (Task 56).
+    //   * bit 0: `eff_nr_05_scandouble_en_`, latched unconditionally
+    //     at the same seam (no behavioural consumer — readback only).
+    //
+    // Pentagon (PASS-10 / V13-NMP-01 history): VHDL zxnext.vhd:
+    // 5835-5836 forces the pending `nr_05_5060` FF to '0' continuously
+    // while `nr_03_machine_timing(2) = '1'`. jnext models that in the
+    // PENDING path only (NR 0x05 write handler + the NR 0x03 handler's
+    // Pentagon-entry cache canonicalisation); the read no longer masks
+    // at read time — the frame latch propagates the forced '0' into
+    // the effective value at the next frame edge, exactly as :6700
+    // does (`eff_nr_05_5060 <= nr_05_5060`). A read between Pentagon
+    // entry and the frame edge correctly returns the OLD effective
+    // value (VideoTiming::init_timing also forces refresh_60hz_ =
+    // false for Pentagon, matching the eff latch of a forced-0
+    // pending FF).
     nextreg_.set_read_handler(0x05, [this]() -> uint8_t {
         const auto m0 = static_cast<uint8_t>(joystick_.mode_left());   // 3 bits
         const auto m1 = static_cast<uint8_t>(joystick_.mode_right());  // 3 bits
-        const uint8_t cached = nextreg_.cached(0x05);
-        const bool pentagon =
-            (nextreg_.nr_03_machine_timing() & 0x04) != 0;
         uint8_t v = 0;
         v |= static_cast<uint8_t>(((m0 >> 1) & 1u) << 7);  // joy0[1] → bit 7
         v |= static_cast<uint8_t>(((m0 >> 0) & 1u) << 6);  // joy0[0] → bit 6
         v |= static_cast<uint8_t>(((m1 >> 1) & 1u) << 5);  // joy1[1] → bit 5
         v |= static_cast<uint8_t>(((m1 >> 0) & 1u) << 4);  // joy1[0] → bit 4
         v |= static_cast<uint8_t>(((m0 >> 2) & 1u) << 3);  // joy0[2] → bit 3
-        // bit 2 = eff_nr_05_5060. Pentagon (machine_timing(2)='1') forces
-        // the underlying `nr_05_5060` FF to '0' every clock per VHDL
-        // :5835-5836; otherwise mirror the cached byte's bit 2.
-        if (!pentagon) v |= static_cast<uint8_t>(cached & 0x04);
+        // bit 2 = eff_nr_05_5060 (frame-edge latched; zxnext.vhd:5897,
+        // :6697-6700). The effective state lives in VideoTiming.
+        if (video_timing_.refresh_60hz()) v |= 0x04;
         v |= static_cast<uint8_t>(((m1 >> 2) & 1u) << 1);  // joy1[2] → bit 1
-        v |= static_cast<uint8_t>(cached & 0x01);          // eff_scandouble (bit 0)
+        // bit 0 = eff_nr_05_scandouble_en (frame-edge latched; :6702).
+        if (eff_nr_05_scandouble_en_) v |= 0x01;
         return v;
     });
 
@@ -6056,6 +6067,18 @@ void Emulator::repush_video_timing_from_machine_timing()
     z80_set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
     z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
                                 video_timing_.display_origin().vc);
+
+    // Task 58 — the Copper's vertical wrap follows the same constants.
+    // VHDL zxula_timing.vhd:457-470 wraps the copper offset counter
+    // (`cvc`) at `c_max_vc`, and `c_max_vc` is re-derived from
+    // i_timing / i_50_60 alongside every other c_* constant
+    // (zxula_timing.vhd:168/204/238/270/298: 319 Pentagon, 310
+    // 128K/+3 50 Hz, 311 48K 50 Hz, 263 any 60 Hz). Pre-fix this was
+    // pushed once in init() only, so a runtime NR 0x03 tim_sel or
+    // NR 0x05 50/60 change left the Copper wrapping at the stale
+    // init()-time frame length. Same (lines_per_frame - 1) semantics
+    // as the init()-time call.
+    copper_.set_c_max_vc(timing_.lines_per_frame - 1);
 }
 
 void Emulator::begin_new_frame()
@@ -6118,6 +6141,15 @@ void Emulator::begin_new_frame()
             pend_60hz != video_timing_.refresh_60hz()) {
             repush_video_timing_from_machine_timing();
         }
+        // Task 58 — NR 0x05 bit 0 (`nr_05_scandouble_en`) has an
+        // effective copy latched at the SAME frame-sync edge: VHDL
+        // zxnext.vhd:6702 `eff_nr_05_scandouble_en <=
+        // nr_05_scandouble_en` whenever `video_frame_sync = '1'`
+        // (unconditional, every frame). The NR 0x05 read mux at :5897
+        // surfaces the effective copy, not the pending FF. No
+        // behavioural consumer in jnext (the scan doubler is a
+        // VGA-output device) — this exists for VHDL-faithful readback.
+        eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     }
 
     // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
@@ -8086,6 +8118,13 @@ void Emulator::load_state(StateReader& r)
     ram_.load_state(r);
     mmu_.load_state(r);
     nextreg_.load_state(r);
+    // Task 58 — re-derive the effective NR 0x05 bit-0 latch from the
+    // restored pending cache instead of serialising it (keeps the
+    // snapshot format stable — same pattern as the Z80Cpu /INT-window
+    // re-derive below). Valid because snapshots are taken at the frame
+    // edge (begin_new_frame), where pending == effective per VHDL
+    // zxnext.vhd:6696-6703.
+    eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     cpu_.load_state(r);
     // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
     // (zxnext.vhd:2033). The flag is intentionally not serialised in

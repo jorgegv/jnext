@@ -296,3 +296,47 @@ Distinct from G56 (composed-read divergence on NRs *with* read entries).
 | Copper arbitration | ~4 |
 | Write-only read behaviour | 4 (WO-01..04 G149) |
 | **Total** | **~74** |
+
+## Task 58 append (2026-07-14) — NR 0x05 bits 2/0 readback is frame-edge-latched
+
+The NR 0x05 read mux (VHDL `zxnext.vhd:5897`) composes:
+
+    port_253b_dat <= nr_05_joy0(1:0)              -- bits 7:6 (pending)
+                   & nr_05_joy1(1:0)              -- bits 5:4 (pending)
+                   & nr_05_joy0(2)                -- bit  3  (pending)
+                   & eff_nr_05_5060               -- bit  2  (EFFECTIVE)
+                   & nr_05_joy1(2)                -- bit  1  (pending)
+                   & eff_nr_05_scandouble_en;     -- bit  0  (EFFECTIVE)
+
+Bits 2 and 0 are the `eff_` copies, latched from the pending FFs only
+at `video_frame_sync = '1'` (`zxnext.vhd:6696-6703`): between a write
+and the next frame edge, real hardware reads the OLD values. The joy
+bits have no `eff_` copy and follow the write immediately.
+
+**Oracle correction.** Several existing rows asserted the immediate
+write→read round-trip for bits 2/0 — that encoded jnext's pending-
+readback behaviour (the write-through cache), i.e. they were locked to
+the WRONG oracle. Task 58 makes the emulator read return the effective
+values (`VideoTiming::refresh_60hz()` for bit 2; a frame-edge-latched
+`eff_nr_05_scandouble_en_` for bit 0) and corrects the rows to sample
+after a frame edge. Pentagon gating is unchanged and lives entirely in
+the PENDING path (`zxnext.vhd:5835-5836` forces the pending 5060 FF to
+0 continuously; the frame latch then propagates it) — the former
+read-time Pentagon mask is removed as not VHDL-faithful.
+
+Rows (in `nextreg_integration_test`):
+
+| ID | Change | VHDL |
+|----|--------|------|
+| T58-NR05-EFF-01 | NEW discriminative row: write 0x05 → read 0x00 BEFORE the frame edge (old eff), 0x05 after | zxnext.vhd:5897, :6696-6703 |
+| G56-CR-NR05-02/03/04 | corrected: round-trip sampled after `run_frame()` (frame edge latches eff bits) | zxnext.vhd:5897, :6696-6703 |
+| TC-NR05-PRESERVE | corrected: frame edge before sampling so eff == pending | zxnext.vhd:6696-6703 |
+| TC-NR05-PENTAGON | reworked: real NR 0x03 write path + frame edges; bit 2 reads 0 after Pentagon entry **+ frame edge** (was: read-time mask, wrong oracle) | zxnext.vhd:5835-5836, :6697-6700, :5897 |
+| V13-NMP-01 | corrected: frame edges added so each sample reads the latched eff value | zxnext.vhd:5835-5836, :5897, :6696-6703 |
+
+`input_test` FNK-02 / FNK-03 receive the analogous correction (see the
+INPUT plan's Task 58 append).
+
+Mutation evidence: reverting the read handler to pending-cache bits
+turns T58-NR05-EFF-01 (and input FNK-02/03) RED; restoring turns them
+green.
