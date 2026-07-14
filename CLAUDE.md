@@ -86,6 +86,11 @@ cmake --build build -j$(nproc) 2>&1 | tail -5
 
 The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable is at `build/jnext`.
 
+`build/jnext` is a **RelWithDebInfo dev binary** (the CMake default when no
+`-DCMAKE_BUILD_TYPE` is given — Task 27 T0). Any **performance measurement or
+benchmark must use `build/gui-release/jnext`** (`make gui-release`), never
+`build/jnext`.
+
 ## Testing
 
 > **Before authoring, rewriting, or un-skipping any subsystem unit test
