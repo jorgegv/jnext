@@ -59,9 +59,10 @@ timing and contention *is* live). Do not implement it. Do not trust that documen
 5. **Independent review** by an agent that did *not* write the change (project rule; use
    `subsystem-reviewer`). Reviewer gets its **own worktree** — never the author's.
 6. Verdict binary: APPROVE or REJECT. On REJECT, fix and re-review.
-7. **STOP at review-passed. Do NOT merge to `main`; do NOT push.** Leave the branch ready and
-   report. *(If the user later authorises merge-on-green for overnight runs, this step is the
-   only thing that changes.)*
+7. **Merge-on-green is AUTHORISED (user, 2026-07-14 evening)** for this plan's tasks: after an
+   independent APPROVE and a green triplet, the **manager** (not the worker agent) merges the
+   branch to `main`. Workers still never touch `main` and never push. **Pushing to origin
+   remains forbidden** — the user pushes.
 
 ---
 
@@ -151,6 +152,13 @@ nobody switched on.
   strategy (`profiler.cpp:17-35`) so that *when* rewind is requested, the 1.09 GB is lazily
   faulted rather than eagerly memset.
 - Update `USAGE.md`: rewind is now opt-in via `--rewind-buffer-size N`.
+- **User-confirmed direction (2026-07-14 evening):** default OFF, activated by the CLI option —
+  exactly this task — *plus* a debugger-window toggle. The toggle exists today
+  (`debugger_window.cpp:303-318`) but demands a restart when no buffer was allocated at boot.
+  Making it a **live** toggle needs a new `Emulator::enable_rewind(int frames)` API and is split
+  out as **A1b** (own branch, after A1): allocate the buffer at toggle time (mmap strategy, so
+  the GB is faulted lazily), enable snapshots from the next frame, and rewrite the restart
+  dialog. A1 must not block on A1b.
 - **Watch for:** `rewind_test` (10 declared SKIPs, Task 13a) **and `test/contention/contention_test.cpp`**,
   the only other test that builds an `EmulatorConfig` without pinning `rewind_buffer_frames`
   (benign — memory only — but it *is* in the enumeration). Every other test already pins it to 0.
