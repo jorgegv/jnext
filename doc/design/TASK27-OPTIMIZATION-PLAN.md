@@ -112,8 +112,12 @@ used to produce TASK27A is not good enough to hang weeks of work on.
   corrupted TASK27A twice.
 - Store results as `test/bench/baseline-<git-sha>.txt` so any later task can diff against the
   exact commit it branched from.
-- **Acceptance:** triplet green; harness is measurement-only and must not touch emulation code
-  paths. For `boot-48k` and `boot-nextzxos` (± rewind), `make bench` reproduces TASK27A §1.1's
+- **Interpretation caveats (T1 review, 2026-07-15):** (a) BENCH times the **frame loop only** —
+  it excludes ~0.25 s of SD/ROM init, so BENCH figures sit ~6-13% above whole-process wall-clock
+  numbers; **only compare BENCH against BENCH.** (b) `tstates_per_sec` samples the CPU divisor
+  **at exit** — a run whose guest switches speed mid-way (NextZXOS boot) is biased toward the
+  final speed. Fine for before/after deltas on the same workload (bias cancels); do NOT read the
+  absolute number as the true integral of executed T-states. For `boot-48k` and `boot-nextzxos` (± rewind), `make bench` reproduces TASK27A §1.1's
   **P-core** figures within 5%. **`copper-demo`, `beast` and `bifrost` have NO P-core baseline
   yet** — TASK27A only measured the first two on an E-core. T1 *establishes* their P-core
   baseline; there is nothing to reproduce, and claiming otherwise would be fabricating a
