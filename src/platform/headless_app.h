@@ -51,16 +51,26 @@ public:
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
     /// Schedule a keypress after a delay (for menu-driven tests in headless mode).
-    /// key is a character like '0'-'9', 'a'-'z', or '\n' / ' ' for ENTER / SPACE.
-    /// delay_frames is in emulated frames.
-    void set_delayed_keypress(char key, int delay_frames);
+    /// `key` is a case-insensitive key name (Task 57 extended it beyond
+    /// single chars so NextZXOS shell interactions can be scripted):
+    ///   - a single character: '0'-'9', 'a'-'z', or the punctuation
+    ///     '.' ',' ';' ':' (mapped to their SYMBOL SHIFT compound)
+    ///   - a named key: "enter"/"return", "space", "up"/"down"/"left"/
+    ///     "right" (cursors = CAPS SHIFT + 7/6/5/8, same table as the
+    ///     PC-arrow compound map in src/input/keyboard.cpp)
+    ///   - a compound "sym+<char>" or "caps+<char>" (e.g. "sym+m" = '.')
+    /// Returns false (and schedules nothing) if the name is not
+    /// recognised — the caller must fail loudly, never drop a key.
+    /// delay_frames is in emulated frames. Repeatable: each call queues
+    /// one independent keypress.
+    bool set_delayed_keypress(const std::string& key, int delay_frames);
 
     /// Same as set_delayed_keypress, but in emulated seconds. Conversion to
     /// frames is deferred to run() so the actual machine framerate
     /// (50 Hz PAL vs 60 Hz NTSC, per video_timing().refresh_60hz()) is
     /// used. Headless runs at max speed, so wallclock is irrelevant —
     /// "seconds" here means emulated-machine seconds.
-    void set_delayed_keypress_seconds(char key, int delay_seconds);
+    bool set_delayed_keypress_seconds(const std::string& key, int delay_seconds);
 
 private:
     Emulator emulator_;
@@ -97,16 +107,20 @@ private:
     std::string    rzx_play_file_;
     std::string    rzx_record_file_;
 
-    // Pending --delayed-keypress state
+    // Pending --delayed-keypress state. Key names are parsed to matrix
+    // positions up-front (set_delayed_keypress rejects unknown names);
+    // row2/col2 = -1 when there is no shift component.
     struct DelayedKey {
-        char key;
-        int countdown;  // in frames
+        std::string name;   // original key name (for logging)
+        int row1, col1;     // primary matrix position
+        int row2, col2;     // compound second position, or -1/-1
+        int countdown;      // in frames
     };
     std::vector<DelayedKey> delayed_keys_;
 
     // Pending seconds-form keys awaiting framerate-aware conversion in run().
     struct PendingSecondsKey {
-        char key;
+        DelayedKey key;     // countdown unused until conversion
         int  delay_seconds;
     };
     std::vector<PendingSecondsKey> pending_seconds_keys_;

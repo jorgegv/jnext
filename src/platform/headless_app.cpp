@@ -122,16 +122,82 @@ static bool char_to_matrix(char key, int& row, int& col) {
     }
 }
 
-void HeadlessApp::set_delayed_keypress(char key, int delay_frames) {
-    delayed_keys_.push_back({key, delay_frames});
-    Log::platform()->info("delayed-keypress: will press '{}' after {} frame(s)",
-                           key, delay_frames);
+// Parse a --delayed-keypress key name into matrix positions (Task 57).
+// Accepts (case-insensitive): a single alnum char, punctuation with a
+// well-known SYMBOL SHIFT compound ('.' ',' ';' ':'), the named keys
+// enter/return/space/up/down/left/right (cursors = CAPS SHIFT + 7/6/5/8,
+// mirroring the s_compound PC-arrow table in src/input/keyboard.cpp), or
+// an explicit compound "sym+<char>" / "caps+<char>".
+// Matrix constants: CAPS SHIFT = (0,0), SYMBOL SHIFT = (7,1).
+static bool key_name_to_matrix(const std::string& name,
+                               int& row1, int& col1, int& row2, int& col2) {
+    row2 = col2 = -1;
+    std::string k;
+    k.reserve(name.size());
+    for (char c : name)
+        k.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    if (k.empty()) return false;
+
+    // Named keys.
+    if (k == "enter" || k == "return") return char_to_matrix('\n', row1, col1);
+    if (k == "space")                  return char_to_matrix(' ', row1, col1);
+    if (k == "left")  { row2=0; col2=0; row1=3; col1=4; return true; }  // CAPS + 5
+    if (k == "down")  { row2=0; col2=0; row1=4; col1=4; return true; }  // CAPS + 6
+    if (k == "up")    { row2=0; col2=0; row1=4; col1=3; return true; }  // CAPS + 7
+    if (k == "right") { row2=0; col2=0; row1=4; col1=2; return true; }  // CAPS + 8
+
+    // Explicit compounds: "sym+x" / "caps+x".
+    auto plus = k.find('+');
+    if (plus != std::string::npos && plus + 2 == k.size()) {
+        const std::string mod = k.substr(0, plus);
+        const char c = k[plus + 1];
+        if (!char_to_matrix(c, row1, col1)) return false;
+        if (mod == "sym"  || mod == "ss") { row2=7; col2=1; return true; }
+        if (mod == "caps" || mod == "cs") { row2=0; col2=0; return true; }
+        return false;
+    }
+
+    // Single characters. Punctuation maps to its SYMBOL SHIFT compound
+    // (keyword table in the 48K ROM / NextZXOS editor):
+    //   '.' = SYM+M   ',' = SYM+N   ';' = SYM+O   ':' = SYM+Z
+    if (k.size() == 1) {
+        switch (k[0]) {
+            case '.': row1=7; col1=2; row2=7; col2=1; return true;  // SYM + M
+            case ',': row1=7; col1=3; row2=7; col2=1; return true;  // SYM + N
+            case ';': row1=5; col1=1; row2=7; col2=1; return true;  // SYM + O
+            case ':': row1=0; col1=1; row2=7; col2=1; return true;  // SYM + Z
+            default:  return char_to_matrix(k[0], row1, col1);
+        }
+    }
+    return false;
 }
 
-void HeadlessApp::set_delayed_keypress_seconds(char key, int delay_seconds) {
-    pending_seconds_keys_.push_back({key, delay_seconds});
+bool HeadlessApp::set_delayed_keypress(const std::string& key, int delay_frames) {
+    DelayedKey dk;
+    dk.name = key;
+    dk.countdown = delay_frames;
+    if (!key_name_to_matrix(key, dk.row1, dk.col1, dk.row2, dk.col2)) {
+        Log::platform()->error("delayed-keypress: unknown key name '{}'", key);
+        return false;
+    }
+    delayed_keys_.push_back(dk);
+    Log::platform()->info("delayed-keypress: will press '{}' after {} frame(s)",
+                           key, delay_frames);
+    return true;
+}
+
+bool HeadlessApp::set_delayed_keypress_seconds(const std::string& key, int delay_seconds) {
+    DelayedKey dk;
+    dk.name = key;
+    dk.countdown = -1;  // converted to frames in run()
+    if (!key_name_to_matrix(key, dk.row1, dk.col1, dk.row2, dk.col2)) {
+        Log::platform()->error("delayed-keypress: unknown key name '{}'", key);
+        return false;
+    }
+    pending_seconds_keys_.push_back({dk, delay_seconds});
     Log::platform()->info("delayed-keypress: will press '{}' after {} emulated second(s)",
                            key, delay_seconds);
+    return true;
 }
 
 void HeadlessApp::run() {
@@ -140,10 +206,11 @@ void HeadlessApp::run() {
     if (!pending_seconds_keys_.empty()) {
         const int fps = emulator_.video_timing().refresh_60hz() ? 60 : 50;
         for (const auto& pk : pending_seconds_keys_) {
-            const int frames = pk.delay_seconds * fps;
-            delayed_keys_.push_back({pk.key, frames});
+            DelayedKey dk = pk.key;
+            dk.countdown = pk.delay_seconds * fps;
+            delayed_keys_.push_back(dk);
             Log::platform()->info("delayed-keypress: '{}' scheduled at frame {} ({} s × {} fps)",
-                                   pk.key, frames, pk.delay_seconds, fps);
+                                   dk.name, dk.countdown, pk.delay_seconds, fps);
         }
         pending_seconds_keys_.clear();
     }
@@ -209,17 +276,15 @@ void HeadlessApp::run() {
             --load_countdown_;
         }
 
-        // Delayed keypresses.
+        // Delayed keypresses. Matrix positions were resolved at schedule
+        // time (unknown names are rejected there, never dropped here).
         for (auto it = delayed_keys_.begin(); it != delayed_keys_.end(); ) {
             if (it->countdown <= 0) {
-                int row, col;
-                if (char_to_matrix(it->key, row, col)) {
-                    std::vector<Keyboard::AutoKey> keys = {
-                        {row, col, -1, -1, 5}  // press for 5 frames
-                    };
-                    emulator_.keyboard().queue_auto_type(keys);
-                    Log::platform()->info("Delayed keypress '{}' injected", it->key);
-                }
+                std::vector<Keyboard::AutoKey> keys = {
+                    {it->row1, it->col1, it->row2, it->col2, 5}  // press for 5 frames
+                };
+                emulator_.keyboard().queue_auto_type(keys);
+                Log::platform()->info("Delayed keypress '{}' injected", it->name);
                 it = delayed_keys_.erase(it);
             } else {
                 --it->countdown;
