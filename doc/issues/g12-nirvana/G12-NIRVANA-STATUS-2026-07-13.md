@@ -233,3 +233,48 @@ program. Do not fix blind.
   **no automated test currently catches**. That is itself a finding: the three real TAPs
   (`test/00regression/tap/{bifrost,nirvana,nirvanap}.tap`, committed by the user) should become
   regression tests **once the render is correct** — with user authorisation for the reference images.
+
+---
+
+## 9. Task 52 postscript — the residual +11 T lock offset vs FUSE (CLOSED 2026-07-14)
+
+Kept here as the reference for any future "jnext and FUSE disagree by a constant few T-states"
+symptom. Task 52 began as "+32 T constant bias on all 8 phases" (found by the Task 50 review);
+the bulk of it was the Task 54 wrong-period stretch table. What remained, measured after the fix:
+
+- **jnext locks BIFROST's attribute writes at ts_in_line = 91; FUSE locks at 80. Both are
+  perfectly stable — zero wobble over 144 consecutive scanlines.** The offset is a property of
+  where each emulator's contention grid lets a contention-locked loop settle, not drift.
+
+Decomposition of the 11 T, and why it is CLOSED rather than fixed:
+
+1. **The grid anchor differs between the two MACHINES, not the two emulators.**
+   `zxula.vhd:580-581` (the Next core's own comment): *"the zx next is a synchronous machine and
+   decides whether the z80 clock will be allowed to go low in the previous i_hc cycle (contend
+   3-14); the original spectrums are combinatorial, they will OR a one into the clock in the
+   current cycle (contend 4-15)."* jnext transcribes the Next's gate (3-14). FUSE models the
+   ORIGINAL 48K (its classic anchor: first 6-stretch at ts 14335, 1 T before display). At even
+   T-state phases the two windows produce the same magnitudes, but the anchor differs by ~1 T —
+   a real hardware difference between the Next's 48K mode and an original 48K, not an emulation
+   error on either side.
+2. **The octet-level component is equilibrium selection.** A contention-locked loop's stable
+   phases repeat every 8 T (one contention octet); which equilibrium the engine settles into
+   follows from its approach dynamics after the INT. jnext's INT→display distance is 14342 T
+   (c_int_h=116 at raw vc 0, per the VHDL transcription) vs FUSE's 14336 T — enough to select a
+   neighbouring octet. Again: consistent-with-hardware, not an error.
+3. **Nothing visible depends on it.** With Task 54 in place, BIFROST and Nirvana render
+   pixel-identical to FUSE (colour-index compare) despite the 11 T offset — the demos' write
+   margins are wider than the offset at every fetch boundary.
+
+**Reopen condition:** a demo that races the beam at sub-octet precision AND renders wrong.
+If that happens, do NOT tune against FUSE — settle the anchor against **real Next hardware**
+(FUSE is the oracle for original-48K behaviour, but the Next's 48K mode is its own machine).
+
+**Diagnostic recipe for "constant small T offset" symptoms** (all proven in Tasks 50/52/54):
+1. Instrument the same write on both sides (`break write ADDR` + `print ula:tstates` in FUSE;
+   the mux log or gdb on `tstates` in jnext) and compare per-scanline sequences, not averages.
+2. A **drifting-then-locking** offset (changes for N lines, then constant) = wrong per-phase
+   contention magnitudes (the Task 54 signature). A **constant, wobble-free** offset from the
+   first line = grid anchor / INT placement / equilibrium selection (this section).
+3. Check the pattern PERIOD before the pattern VALUES: the Task 54 bug was FUSE's 8-T-state
+   table indexed with pixel ticks (period 4 T) — every value "looked right" in isolation.
