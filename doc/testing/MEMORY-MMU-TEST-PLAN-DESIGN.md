@@ -743,21 +743,25 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 
 ### Category 22: Tape SAVE Pipeline (parked here as `BOOT-TAPESAVE-*`)
 
-> Note: jnext currently has no tape-save path. `src/core/tap_loader.*`
-> + `tzx_loader.*` + `wav_loader.*` are read-only loaders; no
-> `tap_saver.cpp` / `tzx_saver.cpp` / `wav_saver.cpp` exists. Real
-> ZX Spectrum software emits the SAVE half via the ROM's tape
-> routines (0x04C2) writing to the EAR/MIC port; capturing that
-> requires modelling the EAR/MIC output ring and serialising to a
-> file format. Rows are parked here as `BOOT-TAPESAVE-*` because the
-> consumers will plug into `Emulator` lifecycle (where `Mmu` is the
-> existing focal point).
+> Note (updated Task 57 — G33 **Phase 1 CLOSED**): `TapSaver`
+> (`src/core/tap_saver.{h,cpp}`) now exists — trap-based SAVE→TAP at the
+> 48K ROM SA-BYTES routine (`0x04C2`, entry bytes verified against the
+> extracted 48.rom; register convention A=flag, IX=start, DE=length per
+> "The Complete Spectrum ROM Disassembly"), armed via `--tape-save FILE`.
+> The rows below exercise the TAP block builder / file-append / loader
+> round-trip directly (byte-array fixtures, same technique as `BOOT-Z80-*`;
+> mmu_test does not link jnext_core — `TapSaver` block/file APIs and
+> `TapLoader::parse_blocks` are header-inline for exactly this reason,
+> z80_loader.h precedent). Expected bytes are hand-computed from the TAP
+> spec, never from TapSaver's own output. The original Phase 2/3 row ideas
+> (analogue MIC→TZX capture, WAV writer) remain open under G33 and get
+> their own rows when those savers exist.
 
 | ID            | Test                                                       | Setup                                                                                                         | Expected                                                                                                          |
 |---------------|------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                    | 48K mode; CALL `0x04C2` (SA-BYTES) with header in IX/DE; arm a tape-saver to a temp file path                  | Resulting .tap matches FUSE/CSpect-captured reference. skip — no tape-save infrastructure (see G33) |
-| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                    | 48K mode; CALL `0x04C2`; arm a TZX saver                                                                       | Resulting .tzx contains a Standard-Speed Data block matching .tap content. skip — no tape-save infrastructure (see G33) |
-| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)              | 48K mode; CALL `0x04C2`; arm a WAV saver at 44100 Hz                                                           | Resulting .wav re-decodes via existing `WavLoader` round-trip-equal. skip — no tape-save infrastructure (see G33) |
+| BOOT-TAPESAVE-01 | TAP header block byte layout                            | `TapSaver::build_block(0x00, 17-byte Program header payload)`                                                  | Exact 21-byte image: `13 00` LE length (17+2), flag `00`, payload verbatim, XOR checksum `0x72` (hand-computed) |
+| BOOT-TAPESAVE-02 | TAP data block + multi-block file append ordering       | `build_block(0xFF, 5-byte payload)`; then `set_output(tmp)` + `append_block` header then data                  | Exact 9-byte data image (checksum `0xDC` hand-computed); file bytes == header-block ‖ data-block, in append order |
+| BOOT-TAPESAVE-03 | Saver→loader round-trip                                 | Concatenated `build_block` outputs parsed by `TapLoader::parse_blocks` (the exact loop `TapLoader::load` runs) | 2 blocks; flags 0x00/0xFF; payload identity with inputs; `verify_checksum()` true; zero parse warnings |
 
 ### Category 23: `.z80` Snapshot Loader (parked here as `BOOT-Z80-*`)
 

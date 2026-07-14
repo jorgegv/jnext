@@ -28,6 +28,8 @@
 #include "core/nex_saver.h"
 #include "core/szx_saver.h"
 #include "core/z80_loader.h"
+#include "core/tap_loader.h"
+#include "core/tap_saver.h"
 #include "core/saveable.h"
 
 #include <cstdarg>
@@ -3632,11 +3634,170 @@ void test_nex_loader() {
 void test_boot_format_loaders() {
     set_group("BOOT-FORMATS");
 
-    // Cat 22 — Tape SAVE (G33). No tap_saver/tzx_saver/wav_saver exists;
-    // ROM SAVE-via-EAR/MIC capture pipeline absent.
-    skip("BOOT-TAPESAVE-01", "no tape-save infrastructure (see G33)");
-    skip("BOOT-TAPESAVE-02", "no tape-save infrastructure (see G33)");
-    skip("BOOT-TAPESAVE-03", "no tape-save infrastructure (see G33)");
+    // Cat 22 — Tape SAVE (G33 Phase 1, Task 57). TapSaver
+    // (src/core/tap_saver.h) builds standard TAP blocks; its block/file
+    // APIs are header-inline (z80_loader.h precedent) so this suite can
+    // exercise them without linking jnext_core. Expected bytes below are
+    // hand-computed from the TAP container spec (2-byte LE length =
+    // payload+2, flag, payload, XOR checksum over flag+payload — the
+    // byte stream the 48K ROM SA-BYTES routine at 0x04C2 emits, framed),
+    // NEVER from TapSaver's own output.
+
+    // BOOT-TAPESAVE-01 — header block byte layout. A BASIC "Program"
+    // header for name "X": type=0x00, 10-char name 'X'+9 spaces,
+    // length=0x0102, autostart line=0x000A, vars offset=0x0102.
+    // Hand-computed checksum: 0x00 ^00 ^58 ^(20 x9) ^02 ^01 ^0A ^00 ^02
+    // ^01 = 0x72. Length field = 17+2 = 19 = 0x0013 LE.
+    {
+        static const uint8_t header_payload[17] = {
+            0x00,                                                         // type: Program
+            0x58, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,  // "X         "
+            0x02, 0x01,                                                   // length 0x0102
+            0x0A, 0x00,                                                   // autostart line 10
+            0x02, 0x01,                                                   // vars offset 0x0102
+        };
+        static const uint8_t expected[21] = {
+            0x13, 0x00,                                                   // LE length 19
+            0x00,                                                         // flag: header
+            0x00, 0x58, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+            0x20, 0x02, 0x01, 0x0A, 0x00, 0x02, 0x01,                    // payload
+            0x72,                                                         // XOR checksum
+        };
+        std::vector<uint8_t> block =
+            TapSaver::build_block(0x00, header_payload, sizeof(header_payload));
+        bool size_ok  = block.size() == sizeof(expected);
+        bool bytes_ok = size_ok &&
+                        std::memcmp(block.data(), expected, sizeof(expected)) == 0;
+        size_t first_bad = 0;
+        if (size_ok && !bytes_ok)
+            while (first_bad < sizeof(expected) && block[first_bad] == expected[first_bad])
+                ++first_bad;
+        check("BOOT-TAPESAVE-01",
+              "TapSaver::build_block header block: LE length prefix (payload+2), "
+              "flag 0x00, payload verbatim, XOR checksum — hand-computed TAP "
+              "image (G33 Phase 1)",
+              bytes_ok,
+              fmt("size=%zu (want %zu) first_bad_off=%zu got=0x%02X want=0x%02X",
+                  block.size(), sizeof(expected), first_bad,
+                  (size_ok && first_bad < block.size()) ? block[first_bad] : 0,
+                  first_bad < sizeof(expected) ? expected[first_bad] : 0));
+    }
+
+    // BOOT-TAPESAVE-02 — data block checksum over a non-trivial payload,
+    // plus multi-block append ordering through the real file API.
+    // Hand-computed checksum: 0xFF ^DE=0x21 ^AD=0x8C ^BE=0x32 ^EF=0xDD
+    // ^01 = 0xDC. Then set_output(mkstemp) + append header then data;
+    // raw file bytes must be the two hand-computed images concatenated
+    // in append order.
+    {
+        static const uint8_t data_payload[5] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x01 };
+        static const uint8_t expected_data_block[9] = {
+            0x07, 0x00,                    // LE length 7 = 5+2
+            0xFF,                          // flag: data
+            0xDE, 0xAD, 0xBE, 0xEF, 0x01,  // payload
+            0xDC,                          // XOR checksum
+        };
+        static const uint8_t header_payload[17] = {
+            0x00,
+            0x58, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+            0x02, 0x01, 0x0A, 0x00, 0x02, 0x01,
+        };
+        static const uint8_t expected_header_block[21] = {
+            0x13, 0x00, 0x00,
+            0x00, 0x58, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+            0x20, 0x02, 0x01, 0x0A, 0x00, 0x02, 0x01, 0x72,
+        };
+
+        std::vector<uint8_t> block =
+            TapSaver::build_block(0xFF, data_payload, sizeof(data_payload));
+        bool data_block_ok = block.size() == sizeof(expected_data_block) &&
+                             std::memcmp(block.data(), expected_data_block,
+                                         sizeof(expected_data_block)) == 0;
+
+        // Multi-block append ordering via the file API.
+        char tmp_path[] = "/tmp/jnext-tapesave-XXXXXX";
+        int fd = mkstemp(tmp_path);
+        bool append_ok = false, file_ok = false;
+        std::vector<uint8_t> file_bytes;
+        if (fd >= 0) {
+            close(fd);
+            TapSaver saver;
+            append_ok = saver.set_output(tmp_path) &&
+                        saver.append_block(0x00, header_payload, sizeof(header_payload)) &&
+                        saver.append_block(0xFF, data_payload, sizeof(data_payload)) &&
+                        saver.blocks_written() == 2;
+            std::ifstream f(tmp_path, std::ios::binary | std::ios::ate);
+            if (f) {
+                file_bytes.resize(static_cast<size_t>(f.tellg()));
+                f.seekg(0);
+                f.read(reinterpret_cast<char*>(file_bytes.data()),
+                       static_cast<std::streamsize>(file_bytes.size()));
+            }
+            file_ok = file_bytes.size() ==
+                          sizeof(expected_header_block) + sizeof(expected_data_block) &&
+                      std::memcmp(file_bytes.data(), expected_header_block,
+                                  sizeof(expected_header_block)) == 0 &&
+                      std::memcmp(file_bytes.data() + sizeof(expected_header_block),
+                                  expected_data_block, sizeof(expected_data_block)) == 0;
+            unlink(tmp_path);
+        }
+        check("BOOT-TAPESAVE-02",
+              "TapSaver data block (non-trivial XOR checksum) + append_block "
+              "file ordering: file bytes == header-block || data-block, "
+              "hand-computed images (G33 Phase 1)",
+              data_block_ok && append_ok && file_ok,
+              fmt("data_block_ok=%d append_ok=%d file_ok=%d file_size=%zu (want %zu)",
+                  static_cast<int>(data_block_ok), static_cast<int>(append_ok),
+                  static_cast<int>(file_ok), file_bytes.size(),
+                  sizeof(expected_header_block) + sizeof(expected_data_block)));
+    }
+
+    // BOOT-TAPESAVE-03 — saver→loader round-trip. TapSaver output
+    // (two build_block images concatenated — exactly what append_block
+    // writes, per BOOT-TAPESAVE-02) parsed back by the REAL loader parse
+    // path: TapLoader::parse_blocks is the exact loop TapLoader::load()
+    // runs on file contents (header-inline for this suite; z80_loader.h
+    // precedent). Block boundaries, flags, payload identity and loader-
+    // side checksum verification must all hold, with zero parse warnings.
+    {
+        static const uint8_t header_payload[17] = {
+            0x00,
+            0x58, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+            0x02, 0x01, 0x0A, 0x00, 0x02, 0x01,
+        };
+        static const uint8_t data_payload[5] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x01 };
+
+        std::vector<uint8_t> image =
+            TapSaver::build_block(0x00, header_payload, sizeof(header_payload));
+        std::vector<uint8_t> data_block =
+            TapSaver::build_block(0xFF, data_payload, sizeof(data_payload));
+        image.insert(image.end(), data_block.begin(), data_block.end());
+
+        std::vector<TapBlock> blocks;
+        int warnings = 0;
+        TapLoader::parse_blocks(image, blocks,
+                                [&warnings](const std::string&) { ++warnings; });
+
+        bool count_ok = blocks.size() == 2;
+        bool b0_ok = count_ok && blocks[0].flag == 0x00 &&
+                     blocks[0].data.size() == sizeof(header_payload) &&
+                     std::memcmp(blocks[0].data.data(), header_payload,
+                                 sizeof(header_payload)) == 0 &&
+                     blocks[0].verify_checksum();
+        bool b1_ok = count_ok && blocks[1].flag == 0xFF &&
+                     blocks[1].data.size() == sizeof(data_payload) &&
+                     std::memcmp(blocks[1].data.data(), data_payload,
+                                 sizeof(data_payload)) == 0 &&
+                     blocks[1].verify_checksum();
+        check("BOOT-TAPESAVE-03",
+              "TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, "
+              "correct boundaries/flags, payload identity, loader checksum "
+              "verification, zero parse warnings (G33 Phase 1)",
+              count_ok && b0_ok && b1_ok && warnings == 0,
+              fmt("blocks=%zu b0_ok=%d b1_ok=%d warnings=%d",
+                  blocks.size(), static_cast<int>(b0_ok),
+                  static_cast<int>(b1_ok), warnings));
+    }
 
     // Cat 23 — .z80 loader (G34). Z80Loader (src/core/z80_loader.h/.cpp)
     // landed Task 13b. mmu_test does not link jnext_core (no Emulator), so
