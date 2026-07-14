@@ -79,6 +79,11 @@ private:
 
     Emulator emulator_;
 
+    // QApplication holds a reference to argc (and may write through it), so the
+    // storage must outlive it — init()'s own parameters do not.
+    int    qt_argc_ = 0;
+    char** qt_argv_ = nullptr;
+
     // Ownership managed manually to control init/shutdown order.
     QApplication* qapp_        = nullptr;
     MainWindow*   main_window_ = nullptr;

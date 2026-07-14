@@ -73,7 +73,9 @@ bool QtApp::init(int argc, char* argv[]) {
     // Create QApplication (must exist before any QWidget).
     // Note: Hi-DPI scaling is left enabled (Qt6 default on Wayland).
     // EmulatorWidget accounts for devicePixelRatio itself.
-    qapp_ = new QApplication(argc, argv);
+    qt_argc_ = argc;
+    qt_argv_ = argv;
+    qapp_ = new QApplication(qt_argc_, qt_argv_);
 
     // Initialize the emulator core.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
