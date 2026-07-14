@@ -1,5 +1,30 @@
 # ChangeLog
 
+## v0.98.0 (2026-07-14)
+
+### User Features
+- Tape saving: BASIC `SAVE` writes a real `.tap` file (`--tape-save FILE`)
+- DeciLoad 12k8 turbo-loaded games now load, both from TZX Direct-Recording blocks and from WAV
+- `--silent` disables all sound output (about 10% faster emulation)
+
+### Developer Features
+- `--delayed-automatic-exit-frames`: frame-exact automatic exit for scripted runs
+- `--delayed-keypress-frames` extended: named keys, punctuation, shift combos, repeatable; unknown keys fail loudly
+
+### Bug Fixes
+- Multicolour engines (BIFROST, NIRVANA) render correctly: contention pattern had the wrong period, attribute fetches were early
+- Contention window was displaced 64 scanlines on 48K/128K/+3 — timing now matches real-hardware measurements
+- Real-time TZX/WAV tape playback had been silently frozen for some time: the tape clock reset every frame
+- Runtime video-timing changes (NR 0x03 machine timing, NR 0x05 50/60 Hz) now commit at the frame edge, readback included
+- Mid-frame ULA clip window and Layer 2 transparency changes now apply on the correct scanline
+- Soundrive Mode-2 sample ports no longer swallow 128K paging writes when disabled, and suppress them when enabled, as hardware does
+- Debugger audio mute checkboxes now actually mute their source
+
+### Internal JNEXT Development
+- 17 new screenshot regressions: BIFROST/NIRVANA FUSE-verified on 48K/128K/+3, DeciLoad TZX+WAV, NextZXOS dot-command, tape-save boot guard
+- Unit-suite skips down to 10 (all snapshot-schema); every Memory/MMU, NMI and port-dispatch skip closed
+- Real FUSE driven headless and scripted as a T-state oracle — located both contention root causes
+
 ## v0.97.0 (2026-07-13)
 
 ### User Features
