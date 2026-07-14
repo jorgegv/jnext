@@ -10,8 +10,6 @@
 
 ## Audio
 - DAC audio buzzing: Soundrive DAC demo produces continuous buzz alongside expected tones
-- TZX Direct Recording (DeciLoad 12k8 turbo): TZX 0x15 blocks not loading in real-time mode
-- WAV DeciLoad loading: WAV files with DeciLoad 12k8 turbo encoding fail to load
 
 ## Platform Ports
 - Windows port
