@@ -128,4 +128,23 @@
 |        |      | NOT bugs: the solid Background panel (NR 0x4A really is 0x00) and the garbage bank-5 ULA view        |
 |        |      | (beast draws in the shadow screen). Saying so was half the value.                                    |
 |        |      |                                                                                                      |
-| TOTAL: | 338h |                                                                                                      |
+| 13/7   | 10h  | Three sessions (day/night/overnight). Task 50: contention window displaced 64 SCANLINES since the    |
+|        |      | model was written — located by driving real FUSE headless+scripted (--debugger-command,             |
+|        |      | ula:tstates) as a T-state oracle: one number each side showed 808 T of phantom contention/frame.    |
+|        |      | Tasks 43/45/46/47 (per-line deferral class, --silent), Task 13b (.z80 machine-scoped), v0.97.0.     |
+|        |      | Overnight: Task 54 SOLVED Nirvana/BIFROST (G12): contention stretch table had the wrong PERIOD      |
+|        |      | (pattern[hc&7] repeated the 8-T table every 4 T) + AttributeMux fetch instants 8-12 ticks early     |
+|        |      | and parity-blind. BIFROST now pixel-identical to FUSE (0/49152 colour indices). Also Task 51        |
+|        |      | (runtime NR 0x03 re-push + Pentagon timing restored) and ULA clip NR 0x1A per-line (class 6/6).     |
+| 14/7   | 7h   | Agent-team day: 8 branches, 8 independent reviews (3 REJECT rounds, every one a real defect).        |
+|        |      | Task 55/59b: BIFROST/NIRVANA/NIRVANA+ pinned on 48k+128k+plus3 (12 FUSE-verified 0-px refs).        |
+|        |      | Task 56+58: NR 0x05 50/60 + scandouble are frame-edge-latched (write AND readback); Copper          |
+|        |      | c_max_vc re-pushed on runtime timing changes; 7 wrong-oracle rows corrected.                        |
+|        |      | Task 57 CLOSED: SD2 paging conflict (NR 0x84 b2, decline_write fall-through); tape SAVE→TAP         |
+|        |      | (SA-BYTES trap, ROM-identity gate after review caught NextZXOS boot corruption); .ls dot-command    |
+|        |      | e2e row; DeciLoad G36/G37 FIXED — 3 root causes (frame-relative tape clock froze ALL realtime       |
+|        |      | tape since 13/4; ZOT pause swallowed final edges; WAV edges quantised to sample grid). Xevious      |
+|        |      | TZX + Dizzy WAV load end-to-end. Task 59: Next-mode BIFROST col-18 adjudicated hardware-consistent  |
+|        |      | (equilibrium selection, G12 §10). Unit skips 21→10 (all remaining = Task 13a snapshot schema).      |
+|        |      |                                                                                                      |
+| TOTAL: | 355h |                                                                                                      |
