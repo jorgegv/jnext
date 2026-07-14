@@ -11,6 +11,24 @@ project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Build-type safety net (Task 27 T0). `cmake -B build` with no
+# -DCMAKE_BUILD_TYPE used to yield an -O0 binary ~5x slower than Release —
+# a trap for anyone measuring performance on build/jnext. Default to
+# RelWithDebInfo: optimized (-O2) but still debuggable.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+    message(STATUS "CMAKE_BUILD_TYPE not set — defaulting to RelWithDebInfo")
+endif()
+
+# Frame pointers in optimized builds: needed for usable `perf record -g`
+# call graphs (Task 27 P1). Costs ~1% — accepted for profiling fidelity.
+if(NOT MSVC)
+    foreach(cfg RELEASE RELWITHDEBINFO)
+        string(APPEND CMAKE_C_FLAGS_${cfg}   " -fno-omit-frame-pointer")
+        string(APPEND CMAKE_CXX_FLAGS_${cfg} " -fno-omit-frame-pointer")
+    endforeach()
+endif()
+
 # ccache — makes the mandatory `make clean` + full-rebuild discipline cheap.
 # Reviewers rebuild the whole tree several times per review (revert a fix,
 # rebuild, run the suite, restore, rebuild, run); with ccache the revert and
