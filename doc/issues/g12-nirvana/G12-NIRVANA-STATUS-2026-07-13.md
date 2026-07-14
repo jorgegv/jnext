@@ -278,3 +278,69 @@ If that happens, do NOT tune against FUSE — settle the anchor against **real N
    first line = grid anchor / INT placement / equilibrium selection (this section).
 3. Check the pattern PERIOD before the pattern VALUES: the Task 54 bug was FUSE's 8-T-state
    table indexed with pixel ticks (period 4 T) — every value "looked right" in isolation.
+
+## 10. Task 59 — BIFROST under `--machine next`: single-column +1-scanline offset (CLOSED 2026-07-14, no code change)
+
+**Symptom** (user-filed): running `bifrost.tap` with `--machine next`, one attribute column
+shows its colour one scanline early. Not present in 48k / 128k / plus3 modes.
+
+**Reproduction** (frame 300, FLASH phase A, vs `bifrost-screen1-reference.png` — the
+48k/FUSE-verified truth):
+
+- `--machine 48k` / `128k` / `plus3`: **0 pixels diff** (all three, measured 2026-07-14).
+- `--machine next`: **179 native pixels diff**, ALL inside character column 18
+  (pixels x=144–151; the user's "column 20" is the same cell under 1-based/border-inclusive
+  counting), scattered scanlines in char rows 1–6 and 8. Every differing cell is the
+  "attribute applied one scanline early" pattern.
+
+**What `--machine next` actually runs**: the SD image's own NextZXOS boots and tape-loads the
+demo; **NextZXOS itself** commits NR 0x03 machine timing **+3** (tim_sel = TimingPlus3) for
+its tape-load environment. Measured in-process at the instant of every col-18 attribute write
+(temporary env-gated probe in `fuse_z80_writebyte`, since reverted): timing=+3, 228 T/line,
+3.5 MHz (`cpu_speed=0`), contention **enabled** (`NR 0x08 bit 6 = 0`). Per the VHDL this is a
+contended configuration: `zxnext.vhd:4481` (`i_contention_en = (not eff_nr_08_contention_disable)
+and (not machine_timing_pentagon) and (not cpu_speed(1)) and (not cpu_speed(0))`) and
+`zxnext.vhd:4489-4493` (`machine_timing_p3` → banks ≥ 4 contended; the 0x5800 attribute plane
+in bank 5 is contended). jnext models exactly these gates.
+
+**Measurement** (write instants at attribute offset 594 = col 18, raw-frame pixel ticks;
+column-18 fetch boundary per the Task 54 parity-aware formula `origin + 12 + 8·18`):
+
+| machine | tim_sel | T/line | origin | fetch(18) | locked write hc | margin |
+|---------|---------|--------|--------|-----------|-----------------|--------|
+| 48k     | 48K     | 224    | 116    | 272       | 282             | +10 → applies next scanline (reference behaviour) |
+| 128k    | 128K    | 228    | 124    | 280       | 290             | +10 → next scanline (matches reference) |
+| plus3   | +3      | 228    | 124    | 280       | 292             | +12 → next scanline (matches reference) |
+| next    | +3      | 228    | 124    | 280       | **276**         | **−4 → applies SAME scanline = 1 scanline early** |
+
+All four locks are perfectly stable — zero wobble across 144+ consecutive scanlines and
+across frames. This is the §9 signature: **equilibrium selection**, not contention-magnitude
+error (which would drift before locking).
+
+**The decisive comparison is next-vs-plus3**: identical grid physics (same committed tim_sel,
+same 228 T line, same contention enable/speed/origin — all measured at write time), yet the
+engine settles one full 8-T contention octet apart (276 vs 292, 16 pixel ticks). With
+identical per-line physics, both hc values are fixed points of the same per-line iteration
+map; which basin the engine lands in is selected by the approach dynamics of the surrounding
+software environment — bare +3 BASIC ROM vs the live NextZXOS environment (both are REAL
+Z80 code running under the same transcribed physics; jnext does not choose the equilibrium).
+Column 18 is the one column whose write margin (±≈8 T in this demo) straddles its fetch
+boundary, so it alone tips; every other column has wider margin in both basins.
+
+**Verdict: not a demonstrable jnext bug — no code change.**
+1. The physics of the configuration (contention gates, +3 grid, fetch instants) are
+   VHDL-transcribed and independently locked by the 48k-mode FUSE pixel-identity
+   (bifrost-screen1/2 regression rows, Task 54).
+2. Which equilibrium a contention-locked engine selects in a given software environment is
+   not predicted by the VHDL alone; per §9 the only oracle for it is **real Next hardware**
+   (FUSE is not an oracle for Next-native mode). Nobody has that measurement.
+3. BIFROST is documented by its author as requiring **48K timing**; under +3 timing it is out
+   of spec, and the fact that jnext's 128k/plus3 modes happen to render reference-identical
+   is margin luck, not a guarantee the engine gives.
+
+**Disposition: run BIFROST (and Nirvana-class 48K multicolour engines) in `--machine 48k`
+(or 128k/plus3) mode.** The regression rows correctly pin `48k`. Reopen only with a real-Next
+hardware capture of this demo loaded through the NextZXOS tape loader; if that capture shows
+the plus3-basin rendering, the question becomes "which environment cycle count differs" —
+start from the INT-acceptance history after NextZXOS's tape-loader handoff, not from the
+contention tables (those are proven by the 48k identity).
