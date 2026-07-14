@@ -97,7 +97,17 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
                 best_idx = i;
             }
         }
-        if (!best) return;   // no (further) handler — write dropped
+        if (!best) {
+            // No (further) handler — write dropped. Reset the flag so the
+            // invariant "write_declined_ is false whenever write() returns"
+            // holds even on this path: a handler may legally nest a full
+            // port write (e.g. a DMA burst triggered from an OUT, via
+            // Emulator's dma_.write_io -> port_.write), and a leaked TRUE
+            // from the nested dispatch would make the outer loop believe
+            // ITS handler had declined.
+            write_declined_ = false;
+            return;
+        }
         write_declined_ = false;
         best->write(port, val);
         if (!write_declined_) return;   // handled
