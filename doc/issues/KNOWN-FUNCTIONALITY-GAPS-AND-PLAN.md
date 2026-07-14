@@ -104,17 +104,17 @@ where possible.
 | G109| NR 0x64 cu_offset not applied to line-int compare          | Emulator, Copper, VideoTiming    | A   | Y       | NR 0x64 + line-IRQ raster split misaligned                 | L      | Low      |
 | G132| F-key state machine + 50-60/cpu-speed/scandouble hotkeys absent | Keyboard, GUI, NextREG, VideoTiming | A,B | Y  | Host F1/F2/F3/F4/F7/F8 keys do nothing emulator-side       | M      | Low      |
 | G144| port 0x123B map_shadow bit 3 — read/write-over wrong bank  | MMU, Layer2                      | A   | Y       | L2 double-buffering via 0x123B b3 writes wrong bank        | L      | Low      |
-| G146| port_fd_conflict_wr — Soundrive Mode 2 vs paging-port write conflict | MMU, Audio             | A   | Y       | NR 0x84 SD2 + 0xF1FD/0xF9FD write reapplies paging         | L      | Low      |
+| G146| port_fd_conflict_wr — Soundrive Mode 2 vs paging-port write conflict | MMU, Audio             | A   | Y       | NR 0x84 b2 SD2 + low-byte 0xF1/0xF9 write mis-handled vs paging | L | Low      |
 | G147| F8/F3/F5/F6 host hotkeys to NR 0x07 / 50-60 / expbus unwired | Input, NextREG, Contention, Clock, Video | A | Y  | Users cannot cycle CPU speed / 50-60 / scandouble via F-keys | M    | Low      |
-| G33 | Tape SAVE (write to TAP/TZX/WAV)                           | Tape                             | B   |         | cannot save BASIC programs / data — major gap              | M      | High     |
+| G33 | Tape SAVE (write to TAP/TZX/WAV)                           | Tape                             | B   |         | Phase 1 SAVE→TAP shipped (Task 57); MIC→TZX + WAV writer absent | M | Medium   |
 | G34 | `.z80` snapshot loader                                     | Snapshot                         | B   |         | most-popular legacy snapshot format unsupported            | M      | High     |
 | G35 | Snapshot save (.sna out / .szx out / .nex out) wired       | Snapshot, GUI                    | B   |         | cannot save mid-game state to file                         | M      | High     |
-| ~~G36~~ | ~~TZX Direct-Recording (DeciLoad 0x15)~~                   | ~~Tape~~                         | ~~B~~ | ~~Y~~ | ~~fixed Task 57: monotonic tape clock + ZOT pause edge~~   | ~~M~~  | ~~High~~ |
+| G36 | TZX Direct-Recording (DeciLoad 0x15)                       | Tape                             | B   | Y       | fixed Task 57: monotonic tape clock + ZOT pause edge       | M      | High     |
 | G42 | Joystick / gamepad host wiring (Kempston/Sinclair/MD)      | Joystick, SDL, GUI               | B   |         | gamepad / USB joystick unusable; keyboard-only             | M      | High     |
 | G66 | Save-state schema versioning + per-subsystem framing       | Save-state                       | C,D |         | ANY save_state field reorder corrupts older snapshots      | M      | High     |
 | G126| NR 0x05 mode change does not propagate to MembraneStick    | Joystick, MembraneStick, NextREG | B   |         | Joy mode switch leaves membrane fold pinned to defaults    | L      | High     |
 | G32 | DAC continuous-buzz playback artefact                      | DAC, Audio                       | B   |         | audible quality degradation on DAC software                | H      | Medium   |
-| ~~G37~~ | ~~WAV DeciLoad real-time loading~~                         | ~~Tape, WAV~~                    | ~~B~~ | ~~Y~~ | ~~fixed Task 57: monotonic clock + sub-sample interpolation~~ | ~~M~~ | ~~Medium~~ |
+| G37 | WAV DeciLoad real-time loading                             | Tape, WAV                        | B   | Y       | fixed Task 57: monotonic clock + sub-sample interpolation  | M      | Medium   |
 | G38 | DSK / +3 disk image loading + uPD765 FDC                   | FDC, Disk                        | B   |         | all +3 disk software unrunnable                            | H      | Medium   |
 | G43 | Kempston Mouse host wiring                                 | Mouse, SDL                       | B   |         | Art Studio Next, mouse demos unusable                      | M      | Medium   |
 | G47 | NextZXOS post-boot regression / dot-command surface        | Test, Boot                       | B   |         | no automation for NextZXOS-native software regressions     | L      | Medium   |
@@ -330,13 +330,15 @@ where possible.
   `TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md` (UDIS-03 closed).
 - **Effort**: L.
 
-### G12. Nirvana-class memory-write multiplexers (`Ram::write` hook)
-- **Status (2026-07-13, round 3): mostly resolved — always-on mux
-  (no gate, per user decision), beast.nex bank-selection bug FIXED,
-  `beast-demo`/`layers-beast-ula` back to 0 px diff, full triplet
-  green. One open finding remains (`bifrost.tap`, see below) that is
-  NOT a regression against anything currently covered by an automated
-  test — not a merge blocker, but not independently verified either.
+### G12. Nirvana-class memory-write multiplexers (`Ram::write` hook) [closed]
+- **Status: CLOSED (Task 54 merge, 2026-07-14).** The remaining
+  `bifrost.tap` finding was solved by Task 54 (contention stretch table
+  had the wrong PERIOD + `AttributeMux::hc_fetch()` latch instants were
+  early and parity-blind): BIFROST is pixel-identical to real FUSE and
+  Nirvana renders correctly. Locked by the bifrost/nirvana/nirvanap
+  regression rows on 48K/128K/+3 (Tasks 55 + 59b). The Next-mode
+  column-18 nit was adjudicated hardware-consistent (Task 59,
+  G12-NIRVANA-STATUS-2026-07-13.md §10). Full history below.
 - **What**: Renderer reads ULA pixel/attribute bytes from physical
   bank 5/7 at frame-end. **Nirvana**, **BIFROST*2**, **multicolour**
   demos rewrite the same attribute byte multiple times per frame
@@ -888,13 +890,15 @@ where possible.
   `internal_port_enable(18)`), not bit 1 as originally recorded.
 - **Effort**: L.
 
-### G147. F8/F3/F5/F6 host hotkeys to NR 0x07 / 50-60 / expbus unwired
-- **What**: VHDL `zxnext.vhd:5790-5791,6342-6347` increments `nr_07_cpu_speed` from F8; F3 toggles 50/60Hz; gated by `nr_06_hotkey_*_en`. jnext: searched `src/input/` — no hotkey path; only F1 hard-reset.
-- **User impact**: users have no in-emulator way to cycle CPU speed / 50-60 / scandouble (GUI menu provides equivalents).
+### G147. F8/F3/F5/F6 host hotkeys to NR 0x07 / 50-60 / expbus unwired [closed]
+- **Status: CLOSED** (landed with the G132 emu_fnkeys work,
+  `src/input/emu_fnkeys.cpp`): F2/F3/F7/F8 rising-edge dispatch, each
+  gated on its `nr_06_hotkey_*_en` bit per VHDL (F3 → hotkey_5060,
+  zxnext.vhd:6342; F8 → cpu-speed cycle). The F3 path writes through
+  NR 0x05 bit 2 and, since Task 56 (2026-07-14), actually re-derives
+  video timing at the frame edge.
+- **What (original)**: VHDL `zxnext.vhd:5790-5791,6342-6347` increments `nr_07_cpu_speed` from F8; F3 toggles 50/60Hz; gated by `nr_06_hotkey_*_en`. jnext had no hotkey path at audit time.
 - **Source ref**: Wave-2 memory (NEW-MMU-7); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: distinct from G125 (NR 0x06 storage) and G132 (FSM); this is host-side dispatch.
-- **Effort**: M.
 
 ### G150. NR 0xFF write commits ULA/TM palette entry at bf3b-indexed slot
 - **What**: VHDL `zxnext.vhd:6957`: `nr_ulatm_we <= (nr_palette_we and not (nr_43_palette_write_select(1) xor sel(0))) or nr_ff_we`. NR 0xFF writes the ULA/TM palette RAM at `(0, sel(2), 1, 1, port_bf3b_ulap_index)` with the value derived from `nr_wr_dat`. jnext: no NR 0xFF write_handler; `regs_[0xFF]` storage only.
@@ -1525,22 +1529,22 @@ where possible.
   vector return-address inspection (rare).
 - **Effort**: H.
 
-### G50. Contention `delay()` runtime wiring (Phase 2)
-- **What**: `ContentionModel::delay(hc, vc)` is implemented
-  (`src/memory/contention.cpp:53`) but no runtime caller exists;
-  `src/cpu/z80_cpu.cpp:33-122` still uses FUSE's `ula_contention[]`
-  (48K-pattern, keyed off tstates not hc/vc). +3 `WAIT_n` path
-  unreachable. Verified — `delay_pattern[8]` lives at
-  `z80_cpu.cpp:451`; `ContentionModel` not consulted.
-- **User impact**: cycle-accurate contention wrong on +3, Pentagon
-  (zero by accident-of-table-shape), Next turbo. 48K contention-
-  timing demos misbehave.
-- **Coverage today**: 28 Phase-A `check()` rows live, ~40 Phase-B
-  `skip()` rows pending. Phase 2 currently in flight in this
-  session.
-- **Dependencies**: this session's Phase-2 wave should land most of
-  it; G51, G52, G53, G54 are downstream.
-- **Effort**: L (residual after current Phase 2).
+### G50. Contention `delay()` runtime wiring (Phase 2) [closed]
+- **Status: CLOSED.** The runtime wiring landed with G141's closure
+  (2026-05-01): all in-opcode contention goes through
+  `ContentionModel::contention_tick()` from `src/cpu/z80_cpu.cpp`
+  (legacy FUSE tables deleted — see G53). The remaining timing errors
+  in that path were fixed later: the window was displaced 64 scanlines
+  (Task 50, 2026-07-13 — raw vs ULA display-relative counters) and the
+  stretch table had the wrong period (`pattern[hc&7]` repeated the 8-T
+  table every 4 T; Task 54, 2026-07-14 — corrected to the 16-entry
+  `[hc&0xF]` tables incl. the +3 variant). Evidence: contention_test
+  97/97, BIFROST pixel-identical to real FUSE (48K/128K/+3 regression
+  rows).
+- **What (original, now obsolete)**: `ContentionModel::delay(hc, vc)`
+  had no runtime caller; `z80_cpu.cpp` used FUSE's `ula_contention[]`.
+- **Dependencies**: G51, G54 remain downstream (commit-edge and
+  port_7ffd_active refinements).
 
 ### G51. Contention NextREG NR 0x07/0x08 hc(8) commit edge (Phase 3)
 - **What**: NR 0x07 / NR 0x08 must land on

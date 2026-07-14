@@ -179,7 +179,7 @@ historical peripherals the project has decided not to model.
 | `device/im2_*.vhd`, `peripherals.vhd`           | yes     | `src/cpu/im2.*` + `im2_client.h`      | `Im2Controller` + `Im2Client` mixin landed 2026-04-21  |
 | `device/divmmc.vhd`                             | yes     | `src/peripheral/divmmc.*`             | Overlay + automap + NMI consumer                       |
 | `device/dma.vhd`                                | yes     | `src/peripheral/dma.*`                | Zilog/datagear DMA                                     |
-| `device/multiface.vhd`                          | **gap** | `src/peripheral/multiface.*` (Task 8) | Plan skeleton at `doc/design/TASK-8-MULTIFACE-PLAN.md` |
+| `device/multiface.vhd`                          | yes     | `src/peripheral/multiface.*`          | ROM+RAM window + NMI, VHDL-verified (Task 8, 2026-05)  |
 | `video/zxula*.vhd`                              | yes     | `src/video/ula.*` + `renderer.*`      | Classic ULA + Next timing                              |
 | `video/layer2.vhd`                              | yes     | `src/video/layer2.*`                  | Layer 2 256×192×256 / 320×256×16                       |
 | `video/sprites.vhd`                             | yes     | `src/video/sprites.*`                 | Hardware sprites                                       |
@@ -203,8 +203,10 @@ historical peripherals the project has decided not to model.
 | `serial/uart_old.vhd`                           | no      | —                                     | Legacy, superseded                                     |
 
 **Full audit record** (two independent critics, 2026-04-21) in memory
-at `project_vhdl_subsystem_coverage_audit_20260421.md`. One genuine
-missing subsystem remains: **Multiface** (Task 8 planned). The **IM2
+at `project_vhdl_subsystem_coverage_audit_20260421.md`. The **Multiface**
+(the one genuinely missing subsystem at audit time) was implemented in
+the Task 8 waves of 2026-05 (`src/peripheral/multiface.*`,
+`multiface_test` 49 rows). The **IM2
 interrupt fabric** (flagged as the second gap by that audit) was
 implemented in the Task 3 CTC+Interrupts SKIP-reduction plan landed
 2026-04-21 (merge `a397422`): `src/cpu/im2.*` expanded from a 45-line
@@ -1093,7 +1095,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. See `test/SUBSYSTEM-TESTS-STATUS.md` and `doc/testing/TRACEABILITY-MATRIX.md` for details.
 
-- [~] **Reduce SKIPs — implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`.
+- [x] **Reduce SKIPs — implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`.
   - [x] DMA
   - [x] Tilemap
   - [x] Sprites
@@ -1116,10 +1118,10 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Contention — 68/68 pass (closed 2026-04-26 via 3-phase wave). Runtime wiring residual tracked as G50/G141/G142 in [doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](../issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md). Plan [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md).
   - [x] VideoTiming Expansion — 22/22 pass (closed 2026-04-26). Plan [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md).
 
-- [ ] **Reduce SKIPs Wave 2 - Implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`. - Almost all subsystems have new SKIPs to be implemented.
+- [x] **Reduce SKIPs Wave 2 - Implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`. As of v0.98.0 (2026-07-14) the only remaining unit-suite SKIPs are the 10 rewind_test rows blocked on the Next-specific snapshot schema (G66/G67 — Phase 11 item, parked).
 
 - [ ] Integration test plan — document cross-subsystem interaction scenarios. Integration suites already exist per-subsystem (`uart_integration_test`, `ula_integration_test`, `nmi_integration_test`, `compositor_integration_test`, `ctc_interrupts_test`, `input_integration_test`, `audio_nextreg_test`, `audio_port_dispatch_test`, `nextreg_integration_test`); still missing a unifying design doc.
-- [ ] CI integration for golden-output visual regression tests (`test/regression.sh`).
+- [ ] CI integration for golden-output visual regression tests (`test/00regression/regression.sh`).
 
 - [ ] General optimization plan
   - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review by Ultraplan (/ultraplan)
@@ -1145,7 +1147,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Reset DivMMC automap state properly during soft_reset ✓ (soft reset re-arms EPs $83/$01/$00/$CD, preserves NR $0A bit 4 — VHDL-audited during the 2026-07 boot work)
 - ~~Verify replayed ROM data correctness~~ — obsolete (no replay; see above)
 - ~~Handle ULA screen RAM bank overlap during replay~~ — obsolete (no replay); the underlying bank-7 aliasing WAS the real bug and is fixed (dedicated BRAM buffer, 2026-07-10)
-- [ ] End-to-end test with screenshot comparison against reference image — planned as `.prompts/2026-07-10.md` Task 24 (welcome + menu references)
+- [x] End-to-end test with screenshot comparison against reference image — `boot-nextzxos-welcome` / `boot-nextzxos-menu` / `boot-nextzxos-splash` rows in `test/00regression/regression_tests.conf` (Task 24, 2026-07-10)
 - [ ] **Milestone**: v1.0 release (NextZXOS boots from SD image ✓ 2026-07-10, NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - Lots of bugs ironed out. 
 
 ### Phase 11 - New functions
@@ -1157,9 +1159,9 @@ Easy ones:
 - [ ] Redefinable debugger keys (or perhaps named key combinations? e.g. "borland", "cspect", "zesarux",...)
 - [ ] Save screenshots in .SCR format
 - [ ] Save screenshots with automatically generated name (without asking the user for the name - fast!)
-- [ ] Allow specifying automatic screenshot time in Frames and T-states (currently only in seconds)
-- [ ] "Unobservable" SKIP audit follow-ups. Two category-F rows still kept as `skip()` awaiting own-subsystem work: Copper ARB-06 (blocked on NR 0x02 NMI-request infrastructure, needs Input/CTC), Port Dispatch NR82-02 (blocked on Pentagon 0xDFFD handler stub). Also one weak-case documentation comment: Layer 2 G9-06 (`hc_eff <= hc + 1`, VHDL-internal pipeline signal) should become an observable per-column assertion if a cycle-accurate refactor lands.
-- [ ] Traceability matrix — close the VHDL-citation gap. `doc/testing/TRACEABILITY-MATRIX.md` shows many PASS rows with empty `—` VHDL citations because `test/refresh-traceability-matrix.py` only scans `check()` description strings, not block comments or plan-file entries. Teach the extractor to read the nearest preceding block comment, pull citations through from plan files when present, and add a tombstone marker (`(register declaration)` or `(round-trip)`) for genuinely citation-less rows. Cosmetic/doc quality, does not gate any feature.
+- [ ] Allow specifying automatic screenshot time in T-states (seconds and frames are done — `--delayed-screenshot-frames` / `--delayed-automatic-exit-frames`)
+- [ ] Layer 2 G9-06 weak-case documentation comment (`hc_eff <= hc + 1`, VHDL-internal pipeline signal) should become an observable per-column assertion if a cycle-accurate refactor lands. (The two category-F skips formerly tracked here — Copper ARB-06, Port Dispatch NR82-02 — are real `check()` rows now.)
+- [ ] Traceability matrix — close the VHDL-citation gap. `doc/testing/TRACEABILITY-MATRIX.md` shows many PASS rows with empty `—` VHDL citations because `test/refresh-traceability-matrix.pl` only scans `check()` description strings, not block comments or plan-file entries. Teach the extractor to read the nearest preceding block comment, pull citations through from plan files when present, and add a tombstone marker (`(register declaration)` or `(round-trip)`) for genuinely citation-less rows. Cosmetic/doc quality, does not gate any feature.
 - [ ] Specific test capture and playback workflow:
   I still need the ability to capture the time information from script during the test recording part of the process, and I need to save multiple screen captures, I'm not sure at the time of running the recording session what time I want the screen captures taken, it has to be interactive. Perhaps if I describe my ideal process in steps to see if that makes it easier to understand what I'm trying to achieve:
   - Create test in Kwyll that demonstrates a particular element of the functionality.
@@ -1178,9 +1180,9 @@ Complex ones:
 - [ ] ESP-01 Wifi emulation connected to host network (UART, AT commands, ...)
 - [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
 - [ ] Develop a new Z80N core derived directly from VHDL description, and make both cores selectable at runtime: FUSE-based with Z80N extensions (`fuse`), or VHDL-derived one (`internal`). Via CLI option --z80n-core or via GUI option. Use plan at document @INTERNAL-Z80N-CORE-PLAN.md
-- [ ] Multiface peripheral. Add a `Multiface` class in `src/peripheral/multiface.{h,cpp}` with ROM+RAM at 0x0000-0x1FFF, controlled by NR 0x02 (NMI request), an MF enable/disable NR, and the hardware NMI button. MF takes over on NMI: maps its ROM in, runs its menu, exits via a specific opcode sequence. Wire DivMMC's `button_nmi_` latch to the Multiface NMI input; also wire Copper NR 0x02 writes. Unblocks 8 DivMMC+SPI skips (NM-01..08) and Copper ARB-06. Priority low-medium — snapshot/cheat/monitor utility, not required for running software.
+- [x] Multiface peripheral. Add a `Multiface` class in `src/peripheral/multiface.{h,cpp}` with ROM+RAM at 0x0000-0x1FFF, controlled by NR 0x02 (NMI request), an MF enable/disable NR, and the hardware NMI button. MF takes over on NMI: maps its ROM in, runs its menu, exits via a specific opcode sequence. Wire DivMMC's `button_nmi_` latch to the Multiface NMI input; also wire Copper NR 0x02 writes. Unblocked 8 DivMMC+SPI rows (NM-01..08) and Copper ARB-06, all real `check()` rows now. (Task 8 waves, 2026-05; `multiface_test` 49 rows.)
 - [ ] Model cycle-accurate CPU/Copper NR write priority. VHDL `zxnext.vhd:4769,4775-4777` enforces Copper-wins priority on same-28 MHz-cycle NR writes with CPU deferred. JNEXT serializes CPU and Copper NR writes (no shared bus) — priority is implicit in tick-loop order, not emulator-enforced. Current ARB-01/02/03 tests satisfy the VHDL outcome by ordering stimulus manually; they do NOT prove the emulator would enforce priority under a cycle-accurate scheduler. Options: (a) leave priority as a test-harness convention documented as a known modeling limitation, or (b) add cycle-accurate CPU/Copper scheduling so the emulator itself enforces the VHDL priority. Revisit when tackling a cycle-accurate timing refactor.
-- [ ] Per-scanline display state replay — extend the palette change-log + replay pattern (TASK-PER-SCANLINE-PALETTE-PLAN.md, landed for beast.nex sky gradient) to the rest of the render-time state still read live: L2 X/Y scroll (NR 0x16/0x17/0x71 — needed for parallax demos), NR 0x15 sprite/LoRes/priority, NR 0x14/0x4B/0x4C transparency, clip windows, NR 0x68 other bits, NR 0x6B / 0x70, port 0xFF Timex mode, etc. Also Nirvana-class memory-write multiplexers (Ram::write hook for bank 5/7 attribute area) and sprite multiplexing. Driven by demo, not by completeness — full coverage matrix + cost classes in [doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md](PER-SCANLINE-DISPLAY-STATE-AUDIT.md).
+- [ ] Per-scanline display state replay — extend the palette change-log + replay pattern (TASK-PER-SCANLINE-PALETTE-PLAN.md, landed for beast.nex sky gradient) to the rest of the render-time state still read live: L2 X/Y scroll (NR 0x16/0x17/0x71 — needed for parallax demos), NR 0x15 sprite/LoRes/priority, NR 0x14/0x4B/0x4C transparency, clip windows, NR 0x68 other bits, NR 0x6B / 0x70, port 0xFF Timex mode, etc. Also sprite multiplexing. (The Nirvana-class attribute-write multiplexer is DONE — `AttributeMux`, G12, 2026-07-14.) Driven by demo, not by completeness — full coverage matrix + cost classes in [doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md](PER-SCANLINE-DISPLAY-STATE-AUDIT.md).
 - [x] Fast NextZXOS boot path bypassing tbblue firmware ✓ (implemented 2026-05-17 as the `--bypass-tbblue-fw` CLI option, Task 18; 2026-07-10: native firmware-faithful boot now works, making the bypass redundant; 2026-07-11: the flag and its C++ route were REMOVED per user decision — native boot is the only path). The removed bypass performed `boot.c::main`'s Z80-side work (SRAM ROM load, NR init, NR 0x03=0xB3 machine commit) directly in C++ and handed off to NextZXOS at PC=0x0000 with post-RESET_SOFT state pre-established. Historical design (4 incremental branches, handover modes, SRAM layout) retained for reference only in [doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md](FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md).
 - ~~Enhanced performance optimizations (evaluated and deferred indefinitely):~~
   - ~~Idea 1: Multithreaded Z80N CPU emulator~~ — Z80 has near-zero ILP; thread sync overhead exceeds instruction cost; side effects require strict ordering
@@ -1213,8 +1215,6 @@ Issues deferred to post-release for further debugging.
 |-------|--------|--------|
 | **DAC audio output buzzing** | Soundrive DAC demo produces a continuous buzz alongside the expected tones, even with interrupts disabled, 28 MHz CPU speed, and a pure-assembly playback loop with deterministic timing. Tested on both JNext and ZEsarUX with the same result. Needs investigation into whether the issue is in the demo code, the emulator's DAC/mixer sampling, or fundamental to software-driven DAC playback without hardware-level sample timing. DAC is rarely used by Next software, so this is low priority. | Open |
 | **Debugger window sticky positioning** | Debug sticky positioning of debugger window to emulator window. The debugger window should stay attached to the right side of the emulator window and move together when dragged. Currently the debugger window position is saved/restored via QSettings but does not track the emulator window in real time. | Open |
-| **TZX Direct Recording (DeciLoad)** | RESOLVED (Task 57, 2026-07-14). Root causes: frame-relative tape clock fed to ZOT's absolute timeline (froze ALL real-time TZX) + ZOT pause swallowing every block's terminating edge. Fixed via `Emulator::monotonic_tstates()` + an empirical 1 ms pause-hold of the block's final level. Xevious loads end-to-end (`xevious-deciload` regression row). See [doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md](../issues/deciload-tzx/DECILOAD-TZX-LOADING.md). | Closed |
-| **WAV DeciLoad loading** | RESOLVED (Task 57, 2026-07-14). Shared the G36 monotonic-clock fix, plus WAV-specific sub-sample interpolation of EAR threshold crossings (grid quantisation misclassified ~25% of DeciLoad long pulses). Dizzy WAV loads to title screen. | Closed |
 
 ---
 
