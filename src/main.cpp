@@ -73,6 +73,10 @@ static void print_usage(const char* prog) {
         "                       can measurably speed up CPU-bound runs. Tape loading\n"
         "                       (EAR input) is unaffected.\n"
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
+        "  --tape-save FILE         Append blocks SAVEd via the 48K ROM SA-BYTES routine\n"
+        "                       to FILE (.tap). Trap-based (G33 Phase 1): fires when the\n"
+        "                       ROM save routine at 0x04C2 runs with ROM paged at slot 0.\n"
+        "                       Without this option no SAVE capture happens.\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
         "  --esxdos-stub            Intercept RST $08 calls; let NEX games without\n"
         "                           NextZXOS-loaded esxdos boot through stubbed file I/O\n"
@@ -141,6 +145,7 @@ int main(int argc, char* argv[]) {
     bool        headless = false;
     bool        silent = false;
     bool        tape_realtime = false;
+    std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        esxdos_stub = false;
     bool        magic_port_enabled = false;
@@ -219,6 +224,8 @@ int main(int argc, char* argv[]) {
             silent = true;
         } else if (arg == "--tape-realtime") {
             tape_realtime = true;
+        } else if (arg == "--tape-save" && i + 1 < argc) {
+            tape_save_file = argv[++i];
         } else if (arg == "--magic-breakpoint") {
             magic_breakpoint = true;
         } else if (arg == "--esxdos-stub") {
@@ -397,6 +404,7 @@ int main(int argc, char* argv[]) {
         cfg.load_file = load_file;
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.esxdos_stub = esxdos_stub;
+        cfg.tape_save_file = tape_save_file;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;
