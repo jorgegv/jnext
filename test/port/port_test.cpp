@@ -983,40 +983,29 @@ static void test_group_registration() {
     {
         Emulator emu_local; build_next_emulator(emu_local);
         // SpriteEngine::write_pattern writes pattern_ram_[pattern_offset_]
-        // and increments. With slot-select untouched, pattern_offset_=0.
-        // A gated-off write must not change pattern RAM nor advance the
-        // offset. We observe by following the gated write with an open
-        // write of a known byte and reading via the sprite renderer — but
-        // pattern RAM has no public accessor. Instead we use the offset
-        // advance as the observable: write twice with the gate cleared,
-        // then re-open and write once with a sentinel; after a subsequent
-        // open write, the second sentinel must land at offset 1 (offset
-        // didn't advance during the gated writes). Pattern RAM is read
-        // by SpriteEngine via render; the simplest neutral observation is
-        // that the open sentinel pair must land at consecutive offsets.
-        //
-        // Approach: open gate, write A; close, write B (must be dropped);
-        // open, write C. With the bug, B advances pattern_offset_ → C
-        // lands at offset 2 (and reading back via a second sequence shows
-        // 0 at offset 1). With the fix, B does nothing → C lands at
-        // offset 1.
-        //
-        // Observation handle: emit a second slot-select to reset
-        // pattern_offset_ to a fresh point (0x303B bit-7=0 keeps low
-        // pattern slot, pattern_offset_ recomputed). Then sequence the
-        // ABC writes and check via re-render that the offset advanced by
-        // exactly 2 (A + C) not 3.
-        //
-        // SpriteEngine has no public pattern_offset accessor, so we
-        // observe through a chained 0x303B re-select after the writes:
-        // a 0x303B write resets pattern_offset_ and attr_byte_ to
-        // anchored values. We instead detect the bug via a different
-        // observable — the sprite attribute side already covers the
-        // write-gating semantics fully (NIT-01b). Skip the pattern row
-        // here (no exposed observable without adding a test seam).
-        skip("V18-NMP-NIT-01c",
-             "pattern_offset_ has no public accessor — NIT-01b covers "
-             "the structurally identical NR 0x83 b6 gate-clear path");
+        // and auto-increments the offset. A gated-off write (NR 0x83
+        // b6=0, same port_sprite_io_en gate as 01a/01b — VHDL :2423,
+        // :2681) must neither land a byte nor advance the offset.
+        // Observed via SpriteEngine::pattern_offset() (Task 58+ seam
+        // added for this row): open write A (offset 0→1), gated write B
+        // (offset must stay 1), re-open write C (offset 1→2). With the
+        // gate bug, B advances the offset and the final value is 3.
+        emu_local.port().out(0x303B, 0x00);              // slot 0 → offset 0
+        emu_local.port().out(0x005B, 0x11);              // A: open write
+        uint16_t off_a = emu_local.sprites().pattern_offset();
+        nr_write(emu_local, 0x83, 0xFF & ~0x40);         // clear gate
+        emu_local.port().out(0x005B, 0xBE);              // B: gated-off
+        uint16_t off_b = emu_local.sprites().pattern_offset();
+        nr_write(emu_local, 0x83, 0xFF);                 // re-open gate
+        emu_local.port().out(0x005B, 0x22);              // C: open write
+        uint16_t off_c = emu_local.sprites().pattern_offset();
+        check("V18-NMP-NIT-01c",
+              "NR 0x83 b6=0 silences sprite-pattern port 0x5B — gated "
+              "write neither lands nor advances pattern_offset_ "
+              "(VHDL :2423,:2681 port_sprite_io_en)",
+              off_a == 1 && off_b == 1 && off_c == 2,
+              DETAIL("offset after A/B/C = %u/%u/%u (expected 1/1/2)",
+                     off_a, off_b, off_c));
     }
 
     // V18-NMP-NIT-01d — Layer 2 port 0x123B (NR 0x83 b7).
