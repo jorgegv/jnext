@@ -1139,10 +1139,10 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Load config on start
 
 - [ ] Packaging
-  - [ ] Generate binary packages: Fedora, Debian/Ubuntu
+  - [ ] Generate Linux binary packages: Fedora, Debian, Ubuntu. Support policy: only versions currently supported by upstream (e.g. Fedora current and previous version; Debian Stable and OldStable; Ubuntu current and LTS)
+  - [ ] Generate Flatpak package
   - [ ] Generation of Windows version
   - [ ] Generation of MacOS version
-  - [ ] Generate AppImage/Flatpak/both?
 
 - [ ] Documentation
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
