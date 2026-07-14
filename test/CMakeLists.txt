@@ -77,9 +77,12 @@ target_link_libraries(copper_integration_test PRIVATE
 target_include_directories(copper_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME copper_integration_tests COMMAND copper_integration_test)
 
-# Memory/MMU compliance test
-add_executable(mmu_test mmu/mmu_test.cpp)
-target_link_libraries(mmu_test PRIVATE jnext_memory jnext_peripheral jnext_debug)
+# Memory/MMU compliance test.
+# src/core/wav_loader.cpp is compiled in directly (z80_loader.h-style
+# core-tier reuse without linking jnext_core) and zot_tzx supplies the
+# vendored TZX player — both for the Cat 25 BOOT-DECI rows (G36/G37).
+add_executable(mmu_test mmu/mmu_test.cpp ${CMAKE_SOURCE_DIR}/src/core/wav_loader.cpp)
+target_link_libraries(mmu_test PRIVATE jnext_memory jnext_peripheral jnext_debug zot_tzx)
 target_include_directories(mmu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME mmu_tests COMMAND mmu_test)
 

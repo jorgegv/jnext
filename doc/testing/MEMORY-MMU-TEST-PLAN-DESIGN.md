@@ -795,20 +795,27 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 
 ### Category 25: Tape DeciLoad / Real-time Loading (parked here as `BOOT-DECI-*`)
 
-> Note: G36 covers TZX block 0x15 (Direct-Recording, used by DeciLoad
-> and similar custom-loader schemes); G37 covers WAV-as-tape
-> real-time loading (the EAR-input pulse-train path, not file-format
-> instant-load). `tzx_loader.cpp` decodes Standard / Turbo / Pure
-> Tone / Pure Data / Pause blocks but does NOT decode block type
-> 0x15. `wav_loader.cpp` exists but real-time pulse-shaping into the
-> EAR latch is not yet audited.
+> Note: G36 covered TZX block 0x15 (Direct-Recording, used by DeciLoad
+> and similar custom-loader schemes); G37 covered WAV-as-tape
+> real-time loading. **Both CLOSED by Task 57 (2026-07-14)** — see
+> `doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md` §RESOLVED for the
+> three root causes (frame-relative tape clock; ZOT pause swallowing
+> the block-terminating edge; WAV edge quantisation to the sample
+> grid). Rows REDESIGNED at un-skip time to pin the decoder-level
+> contracts the fixes established (the original 01/03 end-to-end
+> "loader completes" shape lives in the `xevious-deciload` screenshot
+> regression row, which loads the full game through 0x11+0x15 blocks
+> in `--tape-realtime` mode; original 02 "malformed block tolerated"
+> was superseded — ZOT's parser already stops cleanly on a truncated
+> body, and the discriminative surface of the ACTUAL bugs is the pause
+> edge semantics now pinned by the new 02).
 
 | ID         | Test                                                            | Setup                                                                                          | Expected                                                                                                              |
 |------------|-----------------------------------------------------------------|------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| BOOT-DECI-01 | TZX 0x15 Direct-Recording block decoded                       | `--load fixture-deciload.tzx` (block list including a 0x15 block)                              | Pulses are streamed into the EAR latch at the block-encoded sample rate; ROM LD-BYTES routine completes. skip — TZX 0x15 not implemented (see G36) |
-| BOOT-DECI-02 | TZX 0x15 unknown / malformed block tolerated                  | TZX with malformed 0x15 (truncated body)                                                       | Loader skips block, surfaces warning, continues with next block. skip — TZX 0x15 not implemented (see G36)             |
-| BOOT-DECI-03 | WAV real-time DeciLoad loads via custom loader                | `--load fixture-deciload.wav`; custom loader running in 48K | Custom loader reads EAR pulses, decodes ZX0, and reaches its end-of-load entry-point. skip — WAV real-time path unverified (see G37) |
-| BOOT-DECI-04 | WAV resampling preserves pulse-edge timing within tolerance   | `--load fixture-44100.wav`; clock at 3.5 MHz                                                    | EAR-edge intervals match reference within ±2 cycles. skip — WAV real-time path unverified (see G37)                    |
+| BOOT-DECI-01 | TZX 0x15 Direct-Recording level-vs-time contract              | Synthetic in-memory TZX: one 0x15 block, 77 T/sample, 13 samples, used_bits=5                  | pass (Task 57) — EAR(t) = sample[(t-t0)/77] MSB-first for every 7 T probe across the block; honours used_bits; level 0 + stopped after the final sample (TZX spec v1.20 block 0x15) |
+| BOOT-DECI-02 | TZX pause preserves the block-terminating edge                | Synthetic 0x14 block ending low + 100 ms pause; 0x15 blocks ending high/low + 20 ms pause      | pass (Task 57) — pause holds the final level 3500 T (1 ms) then drops low (TZX spec pause semantics; libspectrum-equivalent); 0x15 final sample level survives un-inverted; no phantom high after a low final sample |
+| BOOT-DECI-03 | WAV real-time EAR threshold playback                          | Synthetic 8-bit mono 44.1 kHz WAV (high/low/high runs), `WavLoader::get_ear_bit()`             | pass (Task 57) — T-states map to sample frames against the 3.5 MHz clock; level = amplitude vs 128 centre; 0 before playback start and past end of data |
+| BOOT-DECI-04 | WAV sub-sample interpolation of edge timing                   | Synthetic WAV with a 96→160 crossing (threshold crossed halfway between frames)                | pass (Task 57) — EAR transitions at the linearly-interpolated crossing, not the 79.4 T grid: probe at frame 10.75 reads 1 where stepwise thresholding reads 0 (the DeciLoad short/long margin discriminator) |
 
 ### Category 26: `.dsk` / +3 FDC Loading (parked here as `BOOT-FDC-*`)
 
