@@ -39,9 +39,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 Task 8 Wave 1 (2026-05-04): all 7 MF-G48-* closed (-01 port table, -02/03/04 state machine, -05/07 +3 readback, -06 DivMMC retn AND-NOT mf_is_active). Remaining 5 SKIPs are BOOT-LOOP/LOGO/DOT + BYPASS-FAT/INI (G46/G47/G59/G60). |
+| NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 Zero skips. Task 57 (2026-07-14): BOOT-DOT-01 re-homed to the boot-nextzxos-dotls regression row (G47 closed); earlier BOOT/BYPASS rows closed or re-homed in Tasks 8/24. |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 Task 22a (2026-07-12): new suite. Panel-vs-compositor parity — rom_in_sram bank shift, bank-pinned ULA views, per-scanline replay, raw-VC→fb-row. |
-| **Total**             | **4338** | **4328** |  **0** |  **10** | **99%** | 🟡 38 SKIPs total (Rewind 10, Memory/MMU 22, NMI pipeline 5, port dispatch 1); 0 FAILs. |
+| **Total**             | **4338** | **4328** |  **0** |  **10** | **99%** | 🟢 10 SKIPs total, all Rewind (Task 13a / G66+G67 snapshot schema); 0 FAILs. Task 57 (2026-07-14) closed every mmu/nmi/port skip. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
