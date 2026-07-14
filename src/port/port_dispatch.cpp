@@ -68,19 +68,41 @@ uint8_t PortDispatch::read(uint16_t port) const {
 void PortDispatch::write(uint16_t port, uint8_t val) {
     Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
     for (const auto& obs : io_observers_) obs(port, /*is_read=*/false);
-    const PortHandler* best = nullptr;
-    int best_bits = -1;
-    for (const auto& h : handlers_) {
-        if ((port & h.mask) == h.value && h.write) {
-            int bits = mask_specificity(h.mask);
+    // Most-specific-match-wins, with decline fall-through: a handler whose
+    // hardware decode gate (io_en) is off may call decline_write() to have
+    // dispatch retry with the next-most-specific matching handler. This
+    // mirrors the VHDL parallel decodes, where a decode ANDed with a cleared
+    // internal_port_enable bit drops out and an overlapping decode fires
+    // instead (see decline_write() in port_dispatch.h; G146).
+    //
+    // Handler order: descending mask specificity; among equal specificity,
+    // registration order (same tie-break as the single-winner scan used
+    // before decline support: strict `bits > best_bits` keeps the earliest).
+    int prev_bits = 17;      // sentinel above any 16-bit mask specificity
+    size_t prev_idx = 0;
+    for (;;) {
+        const PortHandler* best = nullptr;
+        int best_bits = -1;
+        size_t best_idx = 0;
+        for (size_t i = 0; i < handlers_.size(); ++i) {
+            const auto& h = handlers_[i];
+            if ((port & h.mask) != h.value || !h.write) continue;
+            const int bits = mask_specificity(h.mask);
+            // Skip handlers already tried (ordered at or before the previous
+            // pick in the descending-specificity / registration order).
+            if (bits > prev_bits || (bits == prev_bits && i <= prev_idx)) continue;
             if (bits > best_bits) {
                 best = &h;
                 best_bits = bits;
+                best_idx = i;
             }
         }
-    }
-    if (best) {
+        if (!best) return;   // no (further) handler — write dropped
+        write_declined_ = false;
         best->write(port, val);
+        if (!write_declined_) return;   // handled
+        prev_bits = best_bits;
+        prev_idx = best_idx;
     }
 }
 

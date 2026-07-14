@@ -700,15 +700,32 @@ Physical address = `mmu_A21_A13 << 13`.
 
 ### Category 19: Soundrive Mode 2 vs Paging-Port Write Conflict (G146)
 
-VHDL `zxnext.vhd:2708, 2718-2720` suppresses `port_7ffd_wr` /
-`port_dffd_wr` / `port_1ffd_wr` when `port_fd_conflict_wr='1'` — i.e.
-the access targets 0xF1FD/0xF3FD/0xF9FD/0xFBFD AND a DAC SD2 channel
-is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
+VHDL `zxnext.vhd:2708` raises `port_fd_conflict_wr` when the OUT's **low
+byte** is 0xF1 or 0xF9 (`port_f1_lsb`/`port_f9_lsb` decode the full 8-bit
+`cpu_a(7:0)`, `zxnext.vhd:2508-2576`; high byte don't-care) AND the
+Soundrive-SD2 decode is enabled (`port_dac_sd2_ABCD_f1f3f9fb_io_en` =
+`internal_port_enable(18)` = **NR 0x84 bit 2**, `zxnext.vhd:2429-2430`).
+`zxnext.vhd:2718-2720, 2725` then suppress `port_7ffd_wr` / `port_dffd_wr`
+/ `port_1ffd_wr` / `port_3ffd_wr` entirely; the byte still reaches the
+Soundrive DAC channel (`zxnext.vhd:2775-2778`). 0xF3/0xFB (channels B/D)
+have A1:A0="11" and can never alias the FD family — the VHDL omits them.
+
+> **Correction (Task 57, 2026-07-14):** the original wording of these rows
+> ("0xF1FD/0xF3FD/0xF9FD/0xFBFD writes", "NR 0x84 b1") was wrong on both
+> counts — those addresses have low byte 0xFD and never conflict, and the
+> gate is bit 2, not bit 1. Colliding addresses are e.g. 0x7FF1 / 0xDFF9 /
+> 0x1FF1 (low byte F1/F9 + paging high bits).
+
+**Re-homed (Task 57, 2026-07-14):** the conflict lives in the
+port-dispatch layer (Emulator handler wiring); the bare-Mmu fixture of
+`mmu_test` cannot reach it. Both rows are implemented in
+`test/audio/audio_port_dispatch_test.cpp` (group SD2); `mmu_test` Cat 19
+carries COVERED-AT comments.
 
 | ID     | Test                                  | Setup                                                                  | Expected                                                                                          |
 |--------|---------------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| SD2-01 | SD2-on suppresses 0xF1FD paging       | NR 0x84 enable Soundrive Mode 2 (b1=1); set 7FFD bank=2; OUT 0xF1FD ← 0x03 | port_7ffd register stays at 0x02; VHDL `port_fd_conflict_wr` masks paging update (`zxnext.vhd:2708`). skip — Soundrive SD2 state not consulted by paging handlers (see G146) |
-| SD2-02 | SD2-off lets 0xF1FD paging through    | NR 0x84 b1 ← 0; OUT 0xF1FD ← 0x03                                      | port_7ffd register updates to 0x03; conflict gate inactive. skip — discriminative pair for SD2-01 (see G146) |
+| SD2-01 | SD2-on suppresses colliding paging writes | NR 0x84 b2=1; baseline 7FFD=0x02 / DFFD=0x03 / 1FFD=0x04 via low-byte-0xFD OUTs; OUT 0x7FF1←0x05, 0xDFF9←0x06, 0x1FF1←0x07 | 7FFD/DFFD/1FFD retain 0x02/0x03/0x04 (`zxnext.vhd:2708, 2718-2720`); bytes land on Soundrive ch A/C (`zxnext.vhd:2775-2778`). PASS — audio_port_dispatch_test SD2-01 |
+| SD2-02 | SD2-off lets the same writes through  | NR 0x84 b2=0 (0xFB); same three OUTs                                    | 7FFD=0x05, DFFD=0x06, 1FFD=0x04 (conflict term 0); DAC untouched. PASS — audio_port_dispatch_test SD2-02 |
 
 ### Category 20: NEX Loader (parked here as `BOOT-NEX-*`)
 

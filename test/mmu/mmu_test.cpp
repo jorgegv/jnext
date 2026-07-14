@@ -3379,14 +3379,26 @@ void test_boot_rom_overlay() {
 // ── Cat 19: Soundrive Mode 2 vs paging-port write conflict (G146) ────
 void test_soundrive_paging_conflict() {
     set_group("SD2");
-    // VHDL zxnext.vhd:2708,2718-2720 — port_fd_conflict_wr suppresses
-    // port_7ffd / port_dffd / port_1ffd writes when targeted addresses
-    // are 0xF1FD/0xF3FD/0xF9FD/0xFBFD AND a Soundrive SD2 channel is
-    // enabled. jnext paging handlers don't consult Soundrive SD2 state.
-    skip("SD2-01",
-         "Soundrive Mode 2 paging-suppression not modelled (see G146)");
-    skip("SD2-02",
-         "discriminative pair for SD2-01; needs SD2 wiring (see G146)");
+    // VHDL zxnext.vhd:2708 — port_fd_conflict_wr fires when the OUT's
+    // LOW BYTE is 0xF1 or 0xF9 (port_f1_lsb/port_f9_lsb decode the full
+    // 8-bit cpu_a(7:0), zxnext.vhd:2508-2576) AND the Soundrive-SD2
+    // decode is enabled (NR 0x84 bit 2 → internal_port_enable(18),
+    // zxnext.vhd:2429-2430); zxnext.vhd:2718-2720,2725 then suppress
+    // the 7FFD/DFFD/1FFD/3FFD paging writes. (0xF3/0xFB have A1:A0="11"
+    // and can never alias the FD family; the original wording of these
+    // rows — "0xF1FD/0xF9FD writes" — was wrong: those addresses have
+    // low byte 0xFD and never conflict. Colliding addresses are e.g.
+    // 0x7FF1 / 0xDFF9 / 0x1FF1.)
+    //
+    // SD2-01 — COVERED AT INTEGRATION TIER (not a skip). The conflict
+    // lives in the port-dispatch layer (Emulator handler wiring), which
+    // this bare-Mmu fixture cannot reach — Mmu::map_128k_bank() has no
+    // port decode. See test/audio/audio_port_dispatch_test.cpp row
+    // SD2-01 (gate SET ⇒ paging retained, byte lands on Soundrive).
+    //
+    // SD2-02 — COVERED AT INTEGRATION TIER (not a skip). Discriminative
+    // pair: see test/audio/audio_port_dispatch_test.cpp row SD2-02
+    // (gate CLEAR ⇒ the same OUTs reapply paging, DAC untouched).
 }
 
 // ── Cat 20: NEX Loader (BOOT-NEX-* parked here) (G155 / G156) ────────

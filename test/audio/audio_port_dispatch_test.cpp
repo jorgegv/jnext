@@ -762,6 +762,121 @@ static void test_ay_port_dispatch(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section SD2 — Soundrive Mode 2 vs FD-family paging write conflict (G146)
+// ══════════════════════════════════════════════════════════════════════
+//
+// VHDL zxnext.vhd:2708:
+//   port_fd_conflict_wr <= (port_f1_lsb and port_dac_sd2_ABCD_f1f3f9fb_io_en)
+//                       or (port_f9_lsb and port_dac_sd2_ABCD_f1f3f9fb_io_en);
+// and zxnext.vhd:2718-2720, 2725:
+//   port_7ffd_wr / port_dffd_wr / port_1ffd_wr / port_3ffd_wr
+//     <= iowr and port_X and NOT port_fd_conflict_wr;
+//
+// port_f1_lsb / port_f9_lsb decode the FULL 8-bit low byte cpu_a(7:0)
+// (zxnext.vhd:2508-2576, high byte don't-care), and the SD2 gate is
+// port_dac_sd2_ABCD_f1f3f9fb_io_en = internal_port_enable(18) = NR 0x84
+// bit 2 (zxnext.vhd:2392-2393, 2429-2430; nextreg.txt bit 18).
+//
+// Only low bytes 0xF1 and 0xF9 (SD2 channels A/C) can conflict: they have
+// A1:A0="01" so they ALSO satisfy the FD-family decode (port_fd,
+// zxnext.vhd:2578). 0xF3/0xFB (channels B/D) have A1:A0="11" and can never
+// alias a paging port — no address exists that hits both decodes, which is
+// why the VHDL conflict term omits them. Conversely the canonical paging
+// addresses (low byte 0xFD) never hit the SD2 decode.
+//
+// Colliding addresses used below (low byte F1/F9 + paging high bits):
+//   0x7FF1 → port 0x7FFD decode (A15=0, zxnext.vhd:2593)
+//   0xDFF9 → port 0xDFFD decode (A15:12="1101", zxnext.vhd:2596)
+//   0x1FF1 → port 0x1FFD decode (A15:12="0001", zxnext.vhd:2599)
+//
+// On a colliding write the conflict resolves in Soundrive's favour, always:
+// the byte reaches the DAC channel (zxnext.vhd:2775-2778, 2661-2663; subject
+// to nr_08_dac_en holding soundrive out of reset) and the paging register
+// retains its previous value. With the SD2 gate OFF the conflict term is 0
+// and the same OUT is a plain paging write.
+//
+// These rows were re-homed from test/mmu/mmu_test.cpp SD2-01/SD2-02 (Cat 19)
+// — the conflict lives in the port-dispatch layer, unreachable from the bare
+// Mmu fixture. See doc/testing/MEMORY-MMU-TEST-PLAN-DESIGN.md Category 19.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_sd2_paging_conflict(Emulator& emu) {
+    set_group("SD2");
+
+    // SD2-01 — SD2 gate ON: colliding OUTs leave paging untouched and land
+    // on the Soundrive channels instead.
+    {
+        fresh(emu);
+        enable_dac(emu);
+        // NR 0x84 resets to 0xFF (all internal decodes on, zxnext.vhd:
+        // 1226-1229, 5052-5057) — set it explicitly anyway so the row does
+        // not silently depend on the reset default.
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0xFF);
+        // Baseline paging via the canonical FD addresses (low byte 0xFD is
+        // NOT in the conflict term — these must land even with SD2 on).
+        emu.port().out(0x7FFD, 0x02);
+        emu.port().out(0xDFFD, 0x03);
+        emu.port().out(0x1FFD, 0x04);
+        const uint8_t base_7ffd = emu.mmu().port_7ffd();
+        const uint8_t base_dffd = emu.mmu().port_dffd_reg();
+        const uint8_t base_1ffd = emu.mmu().port_1ffd();
+        // Colliding writes: distinct values that would be visible in the
+        // paging registers if suppression failed.
+        emu.port().out(0x7FF1, 0x05);   // F1 lsb → SD2 ch A, 7FFD suppressed
+        emu.port().out(0xDFF9, 0x06);   // F9 lsb → SD2 ch C, DFFD suppressed
+        emu.port().out(0x1FF1, 0x07);   // F1 lsb → SD2 ch A, 1FFD suppressed
+        const uint8_t after_7ffd = emu.mmu().port_7ffd();
+        const uint8_t after_dffd = emu.mmu().port_dffd_reg();
+        const uint8_t after_1ffd = emu.mmu().port_1ffd();
+        // Soundrive won: ch A took 0x05 then 0x07, ch C took 0x06.
+        const uint16_t L = emu.dac().pcm_left();    // chA(0x07)+chB(0x80)
+        const uint16_t R = emu.dac().pcm_right();   // chC(0x06)+chD(0x80)
+        check("SD2-01",
+              "NR 0x84 b2 SET: OUT to 0x7FF1/0xDFF9/0x1FF1 (low byte F1/F9) "
+              "leaves 7FFD/DFFD/1FFD unchanged, byte goes to Soundrive "
+              "[zxnext.vhd:2708, 2718-2720; conflict resolves DAC-wards]",
+              base_7ffd == 0x02 && base_dffd == 0x03 && base_1ffd == 0x04
+                  && after_7ffd == 0x02 && after_dffd == 0x03
+                  && after_1ffd == 0x04
+                  && L == (0x07 + 0x80) && R == (0x06 + 0x80),
+              fmt("baseline 7ffd=0x%02x dffd=0x%02x 1ffd=0x%02x "
+                  "(want 02/03/04); after 7ffd=0x%02x dffd=0x%02x 1ffd=0x%02x "
+                  "(want 02/03/04); L=0x%03x (want 0x087) R=0x%03x (want 0x086)",
+                  base_7ffd, base_dffd, base_1ffd,
+                  after_7ffd, after_dffd, after_1ffd, L, R));
+    }
+
+    // SD2-02 — discriminative pair: SD2 gate CLEAR makes the same OUTs
+    // plain paging writes (port_fd_conflict_wr = 0), and the DAC does NOT
+    // take the bytes (the F1/F9 decode is gone entirely).
+    {
+        fresh(emu);
+        enable_dac(emu);
+        // Clear ONLY bit 2 of NR 0x84 (SD2 decode off, everything else on).
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0xFB);
+        emu.port().out(0x7FF1, 0x05);   // now a port 0x7FFD write
+        emu.port().out(0xDFF9, 0x06);   // now a port 0xDFFD write
+        emu.port().out(0x1FF1, 0x04);   // now a port 0x1FFD write
+        const uint8_t p7 = emu.mmu().port_7ffd();
+        const uint8_t pd = emu.mmu().port_dffd_reg();
+        const uint8_t p1 = emu.mmu().port_1ffd();
+        const uint16_t L = emu.dac().pcm_left();    // both channels at reset
+        const uint16_t R = emu.dac().pcm_right();   // 0x80 → 0x100 each side
+        check("SD2-02",
+              "NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO "
+              "reapply 7FFD/DFFD/1FFD paging, DAC untouched "
+              "[zxnext.vhd:2708 conflict term 0; :2718-2720 fire]",
+              p7 == 0x05 && pd == 0x06 && p1 == 0x04
+                  && L == 0x100 && R == 0x100,
+              fmt("7ffd=0x%02x (want 05) dffd=0x%02x (want 06) "
+                  "1ffd=0x%02x (want 04); L=0x%03x R=0x%03x (both want 0x100)",
+                  p7, pd, p1, L, R));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -783,6 +898,9 @@ int main() {
 
     test_ay_port_dispatch(emu);
     std::printf("  Group: IO  — done\n");
+
+    test_sd2_paging_conflict(emu);
+    std::printf("  Group: SD2 — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
