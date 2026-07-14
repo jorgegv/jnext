@@ -1120,8 +1120,11 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] **Reduce SKIPs Wave 2 - Implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`. As of v0.98.0 (2026-07-14) the only remaining unit-suite SKIPs are the 10 rewind_test rows blocked on the Next-specific snapshot schema (G66/G67 — Phase 11 item, parked).
 
-- [ ] Integration test plan — document cross-subsystem interaction scenarios. Integration suites already exist per-subsystem (`uart_integration_test`, `ula_integration_test`, `nmi_integration_test`, `compositor_integration_test`, `ctc_interrupts_test`, `input_integration_test`, `audio_nextreg_test`, `audio_port_dispatch_test`, `nextreg_integration_test`); still missing a unifying design doc.
-- [ ] CI integration for golden-output visual regression tests (`test/00regression/regression.sh`).
+- [ ] Integration test plan:
+  - [ ] Document cross-subsystem interaction scenarios. Integration suites already exist per-subsystem (`uart_integration_test`, `ula_integration_test`, `nmi_integration_test`, `compositor_integration_test`, `ctc_interrupts_test`, `input_integration_test`, `audio_nextreg_test`, `audio_port_dispatch_test`, `nextreg_integration_test`); still missing a unifying design doc.
+  - [ ] CI integration for golden-output visual regression tests (`test/00regression/regression.sh`).
+  - [ ] Create exhaustive CI plan for Github and automated release
+  - [ ] Add badges for test runs and others (license, architectures, etc.) in the main README
 
 - [ ] General optimization plan
   - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review by Ultraplan (/ultraplan)
@@ -1130,15 +1133,22 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
   - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
 
-- [ ] Generate binary packages: Fedora, Debian/Ubuntu
-- [ ] Generation of Windows version
-- [ ] Generation of MacOS version
+- [ ] Configurability
+  - [ ] Dialog for configuring options: paths, keyboard layouts, etc.
+  - [ ] Save configuration to disk
+  - [ ] Load config on start
+
+- [ ] Packaging
+  - [ ] Generate binary packages: Fedora, Debian/Ubuntu
+  - [ ] Generation of Windows version
+  - [ ] Generation of MacOS version
+  - [ ] Generate AppImage/Flatpak/both?
+
 - [ ] Documentation
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
   - [ ] Create USAGE document and man page for users — USAGE.md done (CLI + GUI); man page pending
 - [ ] Create static executables by downloading QT and SDL sources and building them
-- [ ] Create exhaustive CI plan for Github and automated release
 
 ### Phase 10 — NextZXOS Boot (v1.1)
 
