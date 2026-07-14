@@ -176,35 +176,35 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | ROM-07  | +3 ROM 3                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:1601 |
 | ROM-08  | ROM is read-only                                             | —               | pass    | test/mmu/mmu_test.cpp:1622 |
 | ROM-09  | ROM with altrom_rw = 1                                       | —               | pass    | test/mmu/mmu_test.cpp:1652 |
-| ALT-01  | Enable altrom                                                | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:2085 |
-| ALT-02  | Disable altrom                                               | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:2100 |
-| ALT-03  | Altrom read/write enable                                     | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:2111 |
-| ALT-04  | Altrom read-only                                             | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:2123 |
-| ALT-05  | Lock ROM1                                                    | zxnext.vhd:2264 | pass    | test/mmu/mmu_test.cpp:2136 |
-| ALT-06  | Lock ROM0                                                    | zxnext.vhd:2265 | pass    | test/mmu/mmu_test.cpp:2148 |
-| ALT-07  | Reset preserves bits 3:0                                     | zxnext.vhd:2254 | pass    | test/mmu/mmu_test.cpp:2166 |
-| ALT-08  | Altrom address 128K                                          | —               | pass    | test/mmu/mmu_test.cpp:2191 |
-| ALT-09  | Read-back                                                    | zxnext.vhd:6156 | pass    | test/mmu/mmu_test.cpp:2206 |
-| CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:2239 |
-| CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:2259 |
-| CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:2280 |
-| CFG-04  | Config mode at reset                                         | —               | pass    | test/mmu/mmu_test.cpp:2300 |
-| ADR-01  | 0x00                                                         | —               | pass    | test/mmu/mmu_test.cpp:2465 |
-| ADR-02  | 0x01                                                         | —               | pass    | test/mmu/mmu_test.cpp:2466 |
-| ADR-03  | 0x0A                                                         | —               | pass    | test/mmu/mmu_test.cpp:2467 |
-| ADR-04  | 0x0B                                                         | —               | pass    | test/mmu/mmu_test.cpp:2468 |
-| ADR-05  | 0x0E                                                         | —               | pass    | test/mmu/mmu_test.cpp:2471 |
-| ADR-06  | 0x10                                                         | —               | pass    | test/mmu/mmu_test.cpp:2472 |
-| ADR-07  | 0x20                                                         | —               | pass    | test/mmu/mmu_test.cpp:2473 |
-| ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:2474 |
-| ADR-09  | 0xE0                                                         | —               | pass    | test/mmu/mmu_test.cpp:2502 |
-| ADR-10  | 0xFF                                                         | —               | pass    | test/mmu/mmu_test.cpp:2512 |
-| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2550 |
-| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2569 |
-| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2593 |
-| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:2613 |
-| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:2630 |
-| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:2643 |
+| ALT-01  | Enable altrom                                                | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:2457 |
+| ALT-02  | Disable altrom                                               | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:2472 |
+| ALT-03  | Altrom read/write enable                                     | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:2483 |
+| ALT-04  | Altrom read-only                                             | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:2495 |
+| ALT-05  | Lock ROM1                                                    | zxnext.vhd:2264 | pass    | test/mmu/mmu_test.cpp:2508 |
+| ALT-06  | Lock ROM0                                                    | zxnext.vhd:2265 | pass    | test/mmu/mmu_test.cpp:2520 |
+| ALT-07  | Reset preserves bits 3:0                                     | zxnext.vhd:2254 | pass    | test/mmu/mmu_test.cpp:2538 |
+| ALT-08  | Altrom address 128K                                          | —               | pass    | test/mmu/mmu_test.cpp:2563 |
+| ALT-09  | Read-back                                                    | zxnext.vhd:6156 | pass    | test/mmu/mmu_test.cpp:2578 |
+| CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:2611 |
+| CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:2631 |
+| CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:2652 |
+| CFG-04  | Config mode at reset                                         | —               | pass    | test/mmu/mmu_test.cpp:2672 |
+| ADR-01  | 0x00                                                         | —               | pass    | test/mmu/mmu_test.cpp:2837 |
+| ADR-02  | 0x01                                                         | —               | pass    | test/mmu/mmu_test.cpp:2838 |
+| ADR-03  | 0x0A                                                         | —               | pass    | test/mmu/mmu_test.cpp:2839 |
+| ADR-04  | 0x0B                                                         | —               | pass    | test/mmu/mmu_test.cpp:2840 |
+| ADR-05  | 0x0E                                                         | —               | pass    | test/mmu/mmu_test.cpp:2843 |
+| ADR-06  | 0x10                                                         | —               | pass    | test/mmu/mmu_test.cpp:2844 |
+| ADR-07  | 0x20                                                         | —               | pass    | test/mmu/mmu_test.cpp:2845 |
+| ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:2846 |
+| ADR-09  | 0xE0                                                         | —               | pass    | test/mmu/mmu_test.cpp:2874 |
+| ADR-10  | 0xFF                                                         | —               | pass    | test/mmu/mmu_test.cpp:2884 |
+| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2922 |
+| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2941 |
+| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:2965 |
+| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:2985 |
+| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:3002 |
+| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:3015 |
 | CON-01  | 48K: bank 5 contended                                        | —               | missing | missing                   |
 | CON-02  | 48K: bank 5 hi contended                                     | —               | missing | missing                   |
 | CON-03  | 48K: bank 0 not contended                                    | —               | missing | missing                   |
@@ -217,77 +217,77 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CON-10  | NR 0x08 bit 6 disables contention                            | —               | missing | missing                   |
 | CON-11  | Speed > 3.5 MHz no contention                                | —               | missing | missing                   |
 | CON-12  | Pentagon timing no contention                                | —               | missing | missing                   |
-| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:2681 |
-| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:2700 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:2719 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:2762 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:2780 |
+| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:3053 |
+| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:3072 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:3091 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:3134 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:3152 |
 | L2M-05  | L2 bank from NR 0x12                                         | —               | missing | missing                   |
 | L2M-06  | L2 shadow bank from NR 0x13                                  | —               | missing | missing                   |
 | PRI-01  | DivMMC ROM overrides MMU                                     | —               | missing | missing                   |
 | PRI-02  | DivMMC RAM overrides MMU                                     | —               | missing | missing                   |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:2839 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:3211 |
 | PRI-04  | L2 does not override DivMMC                                  | —               | missing | missing                   |
-| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:2860 |
-| PRI-06  | Altrom overrides normal ROM                                  | —               | pass    | test/mmu/mmu_test.cpp:2885 |
-| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:2909 |
+| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:3232 |
+| PRI-06  | Altrom overrides normal ROM                                  | —               | pass    | test/mmu/mmu_test.cpp:3257 |
+| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:3281 |
 | P7F-16      | Shadow disables Timex `screen_mode`                                   | zxula.vhd:191        | pass    | test/mmu/mmu_test.cpp:516  |
 | P7F-17      | Bit 3 -> `Ula::set_shadow_screen_en` routing                          | zxnext.vhd:4453      | pass    | test/mmu/mmu_test.cpp:545  |
 | DFF-09      | DFFD bit 6 round-trip via Multiface readback                          | zxnext.vhd:877,3694  | pass    | test/mmu/mmu_test.cpp:755  |
 | EF7-06      | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes (G143 closed; RE-HOMED to mmu_integration_test; mapping corrected NR 0x84→0x85 2026-05-04) | zxnext.vhd:2604,2441,2392 | missing | missing                           |
 | CON-12a     | Pentagon timing: machine type falls through switch                    | —                    | missing | missing                    |
 | CON-12b     | Pentagon timing: gate zeros 48K bank 5 contention                     | —                    | missing | missing                    |
-| L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:2719 |
-| L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:2738 |
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2946 |
-| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:2967 |
-| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2994 |
-| SD2-01      | SD2-on suppresses 0xF1FD paging                                       | zxnext.vhd:2708      | skip    | test/mmu/mmu_test.cpp:3014 |
-| SD2-02      | SD2-off lets 0xF1FD paging through                                    | —                    | skip    | test/mmu/mmu_test.cpp:3016 |
-| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:3030 |
-| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:3051 |
-| BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | pass    | test/mmu/mmu_test.cpp:3098 |
-| BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | pass    | test/mmu/mmu_test.cpp:3144 |
-| BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | pass    | test/mmu/mmu_test.cpp:3160 |
-| BOOT-NEX-06 | Loading-bar colour honoured                                           | —                    | pass    | test/mmu/mmu_test.cpp:3128 |
-| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes       | —                    | pass    | test/mmu/mmu_test.cpp:3240 |
+| L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3091 |
+| L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:3110 |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3318 |
+| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:3339 |
+| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3366 |
+| SD2-01      | SD2-on suppresses 0xF1FD paging                                       | zxnext.vhd:2708      | missing | missing                    |
+| SD2-02      | SD2-off lets 0xF1FD paging through                                    | —                    | missing | missing                    |
+| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:3414 |
+| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:3435 |
+| BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | pass    | test/mmu/mmu_test.cpp:3482 |
+| BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | pass    | test/mmu/mmu_test.cpp:3528 |
+| BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | pass    | test/mmu/mmu_test.cpp:3544 |
+| BOOT-NEX-06 | Loading-bar colour honoured                                           | —                    | pass    | test/mmu/mmu_test.cpp:3512 |
+| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes       | —                    | pass    | test/mmu/mmu_test.cpp:3624 |
 | BOOT-SD-01  | mount -> unmount -> re-mount round-trip                               | —                    | missing | missing                    |
 | BOOT-SD-02  | unmount mid-transfer is safe                                          | —                    | missing | missing                    |
 | ROM-10           | 48K-mode sram_rom3 hardwire path untested                        | zxnext.vhd:2985      | pass    | test/mmu/mmu_test.cpp:1683 |
 | ROM-11           | NR 0x8C altrom factor in current_rom_bank                        | zxnext.vhd:3138      | pass    | test/mmu/mmu_test.cpp:1708 |
 | ROM-12           | port_1ffd b2 spurious ROM3 in Next mode                          | zxnext.vhd:3814      | pass    | test/mmu/mmu_test.cpp:1756 |
-| G12-MUX-01       | Ram::set_write_observer hook not implemented (Nirvana)           | —                    | skip    | test/mmu/mmu_test.cpp:1951 |
-| G12-MUX-02       | Per-write callback signature absent                              | —                    | skip    | test/mmu/mmu_test.cpp:1952 |
-| G12-MUX-03       | ULA mid-row recolour mux unwired                                 | —                    | skip    | test/mmu/mmu_test.cpp:1953 |
-| SHA-01           | NR 0x69 b6 alias to shadow-screen unwired                        | zxnext.vhd:3622      | pass    | test/mmu/mmu_test.cpp:1979 |
-| SHA-02           | Shadow read-side bank 7 routing untested                         | —                    | pass    | test/mmu/mmu_test.cpp:2005 |
-| SHA-03           | Shadow + Timex cross-state discriminative                        | —                    | pass    | test/mmu/mmu_test.cpp:2047 |
-| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                             | —                    | skip    | test/mmu/mmu_test.cpp:3265 |
-| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                             | —                    | skip    | test/mmu/mmu_test.cpp:3266 |
-| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)                       | —                    | skip    | test/mmu/mmu_test.cpp:3267 |
-| BOOT-Z80-01      | v1 (uncompressed) .z80 round-trip                                | —                    | pass    | test/mmu/mmu_test.cpp:3326 |
-| BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | pass    | test/mmu/mmu_test.cpp:3399 |
-| BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | pass    | test/mmu/mmu_test.cpp:3470 |
-| BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | pass    | test/mmu/mmu_test.cpp:3507 |
-| BOOT-Z80-05      | Structurally-valid .z80 with only foreign page numbers rejected  | —                    | pass    | test/mmu/mmu_test.cpp:3556 |
+| G12-MUX-01       | Ram::set_write_observer hook not implemented (Nirvana)           | —                    | pass    | test/mmu/mmu_test.cpp:1987 |
+| G12-MUX-02       | Per-write callback signature absent                              | —                    | pass    | test/mmu/mmu_test.cpp:2014 |
+| G12-MUX-03       | ULA mid-row recolour mux unwired                                 | —                    | pass    | test/mmu/mmu_test.cpp:2068 |
+| SHA-01           | NR 0x69 b6 alias to shadow-screen unwired                        | zxnext.vhd:3622      | pass    | test/mmu/mmu_test.cpp:2351 |
+| SHA-02           | Shadow read-side bank 7 routing untested                         | —                    | pass    | test/mmu/mmu_test.cpp:2377 |
+| SHA-03           | Shadow + Timex cross-state discriminative                        | —                    | pass    | test/mmu/mmu_test.cpp:2419 |
+| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                             | —                    | skip    | test/mmu/mmu_test.cpp:3649 |
+| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                             | —                    | skip    | test/mmu/mmu_test.cpp:3650 |
+| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)                       | —                    | skip    | test/mmu/mmu_test.cpp:3651 |
+| BOOT-Z80-01      | v1 (uncompressed) .z80 round-trip                                | —                    | pass    | test/mmu/mmu_test.cpp:3710 |
+| BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | pass    | test/mmu/mmu_test.cpp:3783 |
+| BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | pass    | test/mmu/mmu_test.cpp:3854 |
+| BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | pass    | test/mmu/mmu_test.cpp:3891 |
+| BOOT-Z80-05      | Structurally-valid .z80 with only foreign page numbers rejected  | —                    | pass    | test/mmu/mmu_test.cpp:3940 |
 | BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI                               | —                    | missing | missing                    |
-| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:3709 |
-| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:3889 |
+| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4085 |
+| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4308 |
 | BOOT-SNAPSAVE-04 | Save-As dialog exposes all three formats                         | —                    | missing | missing                    |
-| BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | skip    | test/mmu/mmu_test.cpp:3962 |
-| BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | skip    | test/mmu/mmu_test.cpp:3963 |
-| BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | skip    | test/mmu/mmu_test.cpp:3964 |
-| BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | skip    | test/mmu/mmu_test.cpp:3965 |
+| BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | skip    | test/mmu/mmu_test.cpp:4381 |
+| BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | skip    | test/mmu/mmu_test.cpp:4382 |
+| BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | skip    | test/mmu/mmu_test.cpp:4383 |
+| BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | skip    | test/mmu/mmu_test.cpp:4384 |
 | BOOT-FDC-01      | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive                   | —                    | missing | missing                    |
 | BOOT-FDC-02      | uPD765 motor-on / read-id behaviour                              | —                    | missing | missing                    |
 | BOOT-FDC-03      | NR 0x81 b3 (`fdc` clken) gates motor-on                          | NR 0x81 b3           | missing | missing                    |
-| CFG-05           | NR 0x88 reset-default (port_8x_disable_io_en)                    | zxnext.vhd:5060      | pass    | test/mmu/mmu_test.cpp:2319 |
-| CFG-06           | NR 0x89 reset-default                                            | zxnext.vhd:5061      | pass    | test/mmu/mmu_test.cpp:2343 |
-| CFG-07           | port_e3 conmem on RESET_HARD                                     | zxnext.vhd:1126      | pass    | test/mmu/mmu_test.cpp:2363 |
-| CFG-08           | port_e3 conmem on RESET_SOFT                                     | zxnext.vhd:1127      | pass    | test/mmu/mmu_test.cpp:2386 |
-| CFG-09           | nr_8c_altrom_lock_rom1 reset clears                              | zxnext.vhd:5099      | pass    | test/mmu/mmu_test.cpp:2408 |
-| CFG-10           | nr_8c_altrom_lock_rom0 reset clears                              | zxnext.vhd:5100      | pass    | test/mmu/mmu_test.cpp:2427 |
-| CFG-11           | NR 0x82-0x85 power-on default (all enables=1)                    | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2447 |
+| CFG-05           | NR 0x88 reset-default (port_8x_disable_io_en)                    | zxnext.vhd:5060      | pass    | test/mmu/mmu_test.cpp:2691 |
+| CFG-06           | NR 0x89 reset-default                                            | zxnext.vhd:5061      | pass    | test/mmu/mmu_test.cpp:2715 |
+| CFG-07           | port_e3 conmem on RESET_HARD                                     | zxnext.vhd:1126      | pass    | test/mmu/mmu_test.cpp:2735 |
+| CFG-08           | port_e3 conmem on RESET_SOFT                                     | zxnext.vhd:1127      | pass    | test/mmu/mmu_test.cpp:2758 |
+| CFG-09           | nr_8c_altrom_lock_rom1 reset clears                              | zxnext.vhd:5099      | pass    | test/mmu/mmu_test.cpp:2780 |
+| CFG-10           | nr_8c_altrom_lock_rom0 reset clears                              | zxnext.vhd:5100      | pass    | test/mmu/mmu_test.cpp:2799 |
+| CFG-11           | NR 0x82-0x85 power-on default (all enables=1)                    | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2819 |
 
 ### Extra coverage (not in plan)
 
@@ -511,28 +511,28 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 |---------|--------------------------------------------------------------|----------------------|---------|----------------------------------|
 | G1-01   | NR 0x12 default                                              | zxnext.vhd:4943      | pass    | test/layer2/layer2_test.cpp:243  |
 | G1-02   | NR 0x13 default                                              | zxnext.vhd:4944      | pass    | test/layer2/layer2_test.cpp:248  |
-| G1-03   | NR 0x14 default                                              | zxnext.vhd:4946      | pass    | test/layer2/layer2_test.cpp:1389 |
-| G1-04   | NR 0x16 default                                              | zxnext.vhd:4955      | pass    | test/layer2/layer2_test.cpp:1389 |
-| G1-05   | NR 0x17 default                                              | zxnext.vhd:4957      | pass    | test/layer2/layer2_test.cpp:1389 |
-| G1-06   | NR 0x18 defaults                                             | zxnext.vhd:4959-4962 | pass    | test/layer2/layer2_test.cpp:1389 |
-| G1-07   | NR 0x43[2] default                                           | zxnext.vhd:5007      | pass    | test/layer2/layer2_test.cpp:1389 |
-| G1-08   | NR 0x4A default                                              | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1389 |
+| G1-03   | NR 0x14 default                                              | zxnext.vhd:4946      | pass    | test/layer2/layer2_test.cpp:1391 |
+| G1-04   | NR 0x16 default                                              | zxnext.vhd:4955      | pass    | test/layer2/layer2_test.cpp:1391 |
+| G1-05   | NR 0x17 default                                              | zxnext.vhd:4957      | pass    | test/layer2/layer2_test.cpp:1391 |
+| G1-06   | NR 0x18 defaults                                             | zxnext.vhd:4959-4962 | pass    | test/layer2/layer2_test.cpp:1391 |
+| G1-07   | NR 0x43[2] default                                           | zxnext.vhd:5007      | pass    | test/layer2/layer2_test.cpp:1391 |
+| G1-08   | NR 0x4A default                                              | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1391 |
 | G1-09   | NR 0x70 default                                              | zxnext.vhd:5047-5048 | pass    | test/layer2/layer2_test.cpp:254  |
-| G1-10   | NR 0x71[0] default                                           | zxnext.vhd:5050      | pass    | test/layer2/layer2_test.cpp:1389 |
-| G1-11   | port 0x123B default                                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1389 |
+| G1-10   | NR 0x71[0] default                                           | zxnext.vhd:5050      | pass    | test/layer2/layer2_test.cpp:1391 |
+| G1-11   | port 0x123B default                                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1391 |
 | G1-12   | Layer 2 off after reset                                      | zxnext.vhd:3908      | pass    | test/layer2/layer2_test.cpp:261  |
 | G2-01   | 256x192 row-major address                                    | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:309  |
 | G2-02   | 256x192 row pitch = 256                                      | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:339  |
 | G2-03   | 256x192 y≥192 invisible                                      | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:355  |
-| G2-04   | 256x192 x wraparound at 256 is impossible (no stimulus rout… | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1391 |
+| G2-04   | 256x192 x wraparound at 256 is impossible (no stimulus rout… | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1393 |
 | G2-05   | 320x256 column-major address                                 | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:373  |
 | G2-06   | 320x256 column pitch = 256                                   | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:396  |
-| G2-07   | 320x256 x in [320,383] invisible                             | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1391 |
+| G2-07   | 320x256 x in [320,383] invisible                             | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1393 |
 | G2-08   | 320x256 y=255 visible                                        | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:406  |
 | G2-09   | 640x256 high nibble = left pixel                             | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:420  |
 | G2-10   | 640x256 only 4-bit index pre-offset                          | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:449  |
-| G2-11   | 640x256 shares 320 column layout                             | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1391 |
-| G2-12   | Lookahead one pixel                                          | layer2.vhd:148       | pass    | test/layer2/layer2_test.cpp:1391 |
+| G2-11   | 640x256 shares 320 column layout                             | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1393 |
+| G2-12   | Lookahead one pixel                                          | layer2.vhd:148       | pass    | test/layer2/layer2_test.cpp:1393 |
 | G3-01   | 256x192 scroll X=128                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:489  |
 | G3-02   | 256x192 scroll X=255                                         | layer2.vhd:152       | pass    | test/layer2/layer2_test.cpp:504  |
 | G3-03   | 256x192 scroll Y wrap from 192                               | layer2.vhd:156-158   | pass    | test/layer2/layer2_test.cpp:519  |
@@ -541,17 +541,17 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | G3-06   | Scroll X MSB (nr_71[0]) in 256 mode                          | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:555  |
 | G3-07   | 320x256 scroll X=160                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:574  |
 | G3-08   | 320x256 scroll X=319                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:589  |
-| G3-09   | 320x256 scroll X wrap arithmetic                             | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:1393 |
+| G3-09   | 320x256 scroll X wrap arithmetic                             | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:1395 |
 | G3-10   | 320x256 scroll Y=128                                         | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:603  |
-| G3-11   | 640x256 scroll X=160 byte-level                              | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1393 |
+| G3-11   | 640x256 scroll X=160 byte-level                              | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1395 |
 | G3-12   | Negative path: 320x256 scroll X wrap branch skipped when x_… | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:615  |
-| G4-01a  | Auto-index advances — slot 0 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1395 |
-| G4-01b  | Auto-index advances — slot 1 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1395 |
-| G4-01c  | Auto-index advances — slot 2 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1395 |
-| G4-01d  | Auto-index advances — slot 3 observable and wraps            | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1395 |
-| G4-02   | Auto-index wraps at 4                                        | zxnext.vhd:5249      | pass    | test/layer2/layer2_test.cpp:1395 |
-| G4-03   | NR 0x1C[0] resets L2 clip index                              | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1395 |
-| G4-04   | NR 0x1C[0]=0 leaves L2 index alone                           | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1395 |
+| G4-01a  | Auto-index advances — slot 0 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
+| G4-01b  | Auto-index advances — slot 1 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
+| G4-01c  | Auto-index advances — slot 2 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
+| G4-01d  | Auto-index advances — slot 3 observable and wraps            | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
+| G4-02   | Auto-index wraps at 4                                        | zxnext.vhd:5249      | pass    | test/layer2/layer2_test.cpp:1397 |
+| G4-03   | NR 0x1C[0] resets L2 clip index                              | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1397 |
+| G4-04   | NR 0x1C[0]=0 leaves L2 index alone                           | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1397 |
 | G4-05   | 256x192 default clip covers full area                        | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:663  |
 | G4-06   | 256x192 clip to centre 64x64                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:676  |
 | G4-07   | 256x192 clip x1==x2 single column                            | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:695  |
@@ -569,68 +569,68 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | G5-06   | 4-bit mode offset shifts into upper nibble                   | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:885  |
 | G5-07   | 4-bit mode low nibble is right pixel                         | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:895  |
 | G5-08   | Palette 0 vs Palette 1                                       | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:916  |
-| G5-09   | Palette select does not affect sprite/ula palette            | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:1397 |
+| G5-09   | Palette select does not affect sprite/ula palette            | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:1399 |
 | G6-01   | Index ≠ 0xE3, RGB = 0xE3 → transparent (would catch "index…  | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:962  |
 | G6-02   | Index = 0xE3, RGB ≠ 0xE3 → opaque (would catch "index check… | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:970  |
 | G6-03   | Identity palette, default NR 0x14                            | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:982  |
 | G6-04   | Change NR 0x14 to 0x00                                       | zxnext.vhd:5226      | pass    | test/layer2/layer2_test.cpp:992  |
 | G6-05   | Clip outside ⇒ transparent regardless of colour              | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1007 |
 | G6-06   | L2 disabled ⇒ all transparent                                | layer2.vhd:175       | pass    | test/layer2/layer2_test.cpp:1018 |
-| G6-07   | Fallback 0xE3 visible when every layer transparent           | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1399 |
-| G6-08   | Fallback colour follows NR 0x4A write                        | zxnext.vhd:5407      | pass    | test/layer2/layer2_test.cpp:1399 |
-| G6-09   | Priority bit gated by transparency                           | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1399 |
+| G6-07   | Fallback 0xE3 visible when every layer transparent           | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1401 |
+| G6-08   | Fallback colour follows NR 0x4A write                        | zxnext.vhd:5407      | pass    | test/layer2/layer2_test.cpp:1401 |
+| G6-09   | Priority bit gated by transparency                           | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1401 |
 | G6-10   | NR 0x44 second-write captures palette priority into bit 9    | zxnext.vhd:4920      | pass    | test/layer2/layer2_test.cpp:1037 |
 | G6-11   | Renderer populates `layer2_priority_[]` from palette priority slot | zxnext.vhd:7039-7050 | pass    | test/layer2/layer2_test.cpp:1059 |
 | G7-01   | Bank `+1` transform on default bank                          | layer2.vhd:172       | missing | missing                          |
 | G7-02   | Bank `+1` transform, nonzero high 3 bits                     | layer2.vhd:172       | missing | missing                          |
 | G7-03   | Bank `+1` transform, max legal                               | layer2.vhd:172-175   | missing | missing                          |
-| G7-04   | Out-of-range bank → no pixel                                 | layer2.vhd:173-175   | pass    | test/layer2/layer2_test.cpp:1401 |
+| G7-04   | Out-of-range bank → no pixel                                 | layer2.vhd:173-175   | pass    | test/layer2/layer2_test.cpp:1403 |
 | G7-05   | Address bits 16:14 select 16K page within 48K                | layer2.vhd:173       | missing | missing                          |
-| G7-06   | 320x256 uses 5 pages                                         | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1401 |
-| G7-07   | Port 0x123B bit 0 enables CPU writes                         | zxnext.vhd:3917      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G7-08   | Port 0x123B bit 2 enables CPU reads                          | zxnext.vhd:3918      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G7-09   | Port 0x123B bit 1 enables display                            | zxnext.vhd:3916      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G7-10   | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop         | zxnext.vhd:3924-3925 | pass    | test/layer2/layer2_test.cpp:1401 |
-| G7-11   | Port 0x123B bit 3 selects shadow bank for mapping only       | zxnext.vhd:2968      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G7-12   | Shadow bank data becomes visible after NR 0x12 rewrite       | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1402 |
-| G7-13   | Port 0x123B bits 7:6 select segment                          | zxnext.vhd:2966-2967 | pass    | test/layer2/layer2_test.cpp:1402 |
-| G7-14   | Port 0x123B segment=11 ⇒ A15:A14 selects page                | zxnext.vhd:2966      | pass    | test/layer2/layer2_test.cpp:1402 |
-| G7-15   | Port 0x123B bit 4 (offset latch)                             | zxnext.vhd:3922      | pass    | test/layer2/layer2_test.cpp:1402 |
-| G7-16   | Port 0x123B read-back formatting                             | zxnext.vhd:3933      | pass    | test/layer2/layer2_test.cpp:1402 |
+| G7-06   | 320x256 uses 5 pages                                         | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-07   | Port 0x123B bit 0 enables CPU writes                         | zxnext.vhd:3917      | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-08   | Port 0x123B bit 2 enables CPU reads                          | zxnext.vhd:3918      | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-09   | Port 0x123B bit 1 enables display                            | zxnext.vhd:3916      | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-10   | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop         | zxnext.vhd:3924-3925 | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-11   | Port 0x123B bit 3 selects shadow bank for mapping only       | zxnext.vhd:2968      | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-12   | Shadow bank data becomes visible after NR 0x12 rewrite       | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1404 |
+| G7-13   | Port 0x123B bits 7:6 select segment                          | zxnext.vhd:2966-2967 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G7-14   | Port 0x123B segment=11 ⇒ A15:A14 selects page                | zxnext.vhd:2966      | pass    | test/layer2/layer2_test.cpp:1404 |
+| G7-15   | Port 0x123B bit 4 (offset latch)                             | zxnext.vhd:3922      | pass    | test/layer2/layer2_test.cpp:1404 |
+| G7-16   | Port 0x123B read-back formatting                             | zxnext.vhd:3933      | pass    | test/layer2/layer2_test.cpp:1404 |
 | G7-17   | port 0x123B bit-4 latches offset, leaves enable/wr_en/rd_en/segment unchanged | zxnext.vhd:3914-3923 | pass    | test/layer2/layer2_test.cpp:1168 |
 | G7-18   | port 0x123B bit 3 routes CPU writes/reads to NR 0x13 shadow bank | zxnext.vhd:2968   | pass    | test/layer2/layer2_test.cpp:1193 |
 | G7-19   | port 0x123B read returns formatted control word, not 0xFF default | zxnext.vhd:3933, emulator.cpp:1178 | pass | test/layer2/layer2_test.cpp:1206 |
-| G8-01   | NR 0x15 priority SLU with L2 opaque over ULA                 | zxnext.vhd:7216      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G8-02   | L2 transparent ⇒ ULA shows through in SLU                    | zxnext.vhd:7121-7122 | pass    | test/layer2/layer2_test.cpp:1404 |
-| G8-03   | L2 priority bit promotes over sprite                         | zxnext.vhd:7050      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G8-04   | Priority bit suppressed when L2 pixel transparent            | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G8-05   | `layer2_rgb` zeroed when transparent                         | zxnext.vhd:7122      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G9-01   | Disable then re-enable via NR 0x69                           | zxnext.vhd:3924      | pass    | test/layer2/layer2_test.cpp:1406 |
-| G9-02   | Cold-reset port 0x123B read is 0x00                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1406 |
-| G9-03   | Clip y1 > y2 empties display                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1309 |
+| G8-01   | NR 0x15 priority SLU with L2 opaque over ULA                 | zxnext.vhd:7216      | pass    | test/layer2/layer2_test.cpp:1406 |
+| G8-02   | L2 transparent ⇒ ULA shows through in SLU                    | zxnext.vhd:7121-7122 | pass    | test/layer2/layer2_test.cpp:1406 |
+| G8-03   | L2 priority bit promotes over sprite                         | zxnext.vhd:7050      | pass    | test/layer2/layer2_test.cpp:1406 |
+| G8-04   | Priority bit suppressed when L2 pixel transparent            | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1406 |
+| G8-05   | `layer2_rgb` zeroed when transparent                         | zxnext.vhd:7122      | pass    | test/layer2/layer2_test.cpp:1406 |
+| G9-01   | Disable then re-enable via NR 0x69                           | zxnext.vhd:3924      | pass    | test/layer2/layer2_test.cpp:1408 |
+| G9-02   | Cold-reset port 0x123B read is 0x00                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1408 |
+| G9-03   | Clip y1 > y2 empties display                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1311 |
 | G9-04   | Scroll X with wide branch NOT fired                          | —                    | missing | missing                          |
-| G9-05   | Wide mode clip `x2=0xFF` ⇒ effective 511                     | layer2.vhd:134       | pass    | test/layer2/layer2_test.cpp:1331 |
+| G9-05   | Wide mode clip `x2=0xFF` ⇒ effective 511                     | layer2.vhd:134       | pass    | test/layer2/layer2_test.cpp:1333 |
 | G9-06   | `hc_eff = hc + 1` cannot be detected as a pure scroll (non-… | layer2.vhd:148       | missing | missing                          |
 | L2-G17-01  | Parallax.nex side-by-side duplication root cause (post-LoRes) | PARALLAX-NEX-INVESTIGATION.md | missing | missing                          |
 | G9-G28-01  | `hc_eff = hc + 1` per-column observable (cycle-accurate gate) | layer2.vhd:148      | missing | missing                          |
-| G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1434 |
-| G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1444 |
-| G10-03  | rewind_to_baseline restores live scroll_x to baseline        | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1449 |
-| G10-04a | apply_changes_for_line(0): no change applied → scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1455 |
-| G10-04b | apply_changes_for_line(49) before first change: scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1458 |
-| G10-04c | apply_changes_for_line(50) first change: scroll_x updated    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1461 |
-| G10-04d | apply_changes_for_line(99) between changes: scroll_x held    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1464 |
-| G10-04e | apply_changes_for_line(100): scroll_x advances to next       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1467 |
-| G10-04f | apply_changes_for_line(150): scroll_x advances to last       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1470 |
-| G10-05  | Change log capped at MAX_CHANGES_PER_FRAME (overflow drop)   | —                    | pass    | test/layer2/layer2_test.cpp:1479 |
-| L2P-G02-01 | NR 0x15 write logged with current scanline (sprite_en + priority) | zxnext.vhd:5232, 6799 | pass | test/layer2/layer2_test.cpp:1507 |
-| L2P-G02-02 | apply_changes_for_line replays NR 0x15 entries per scanline  | zxnext.vhd:6799      | pass    | test/layer2/layer2_test.cpp:1550 |
-| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243, 5278 | pass | test/layer2/layer2_test.cpp:1586 |
-| G10-G05-02 | Renderer replays clip-window snapshot per scanline           | layer2.vhd:134, 167  | pass    | test/layer2/layer2_test.cpp:1665 |
-| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220, 1135 | pass   | test/layer2/layer2_test.cpp:1694 |
-| G10-G09-02 | Renderer fetches L2 from old bank above flip-line, new below | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1754 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline        | zxnext.vhd:3916, 3924-3925 | pass | test/layer2/layer2_test.cpp:1781 |
-| G10-G14-02 | Renderer applies enable per scanline (above hidden, mid visible, post hidden) | layer2.vhd:175, 197-198 | pass | test/layer2/layer2_test.cpp:1851 |
+| G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1436 |
+| G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1446 |
+| G10-03  | rewind_to_baseline restores live scroll_x to baseline        | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1451 |
+| G10-04a | apply_changes_for_line(0): no change applied → scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1457 |
+| G10-04b | apply_changes_for_line(49) before first change: scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1460 |
+| G10-04c | apply_changes_for_line(50) first change: scroll_x updated    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1463 |
+| G10-04d | apply_changes_for_line(99) between changes: scroll_x held    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1466 |
+| G10-04e | apply_changes_for_line(100): scroll_x advances to next       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1469 |
+| G10-04f | apply_changes_for_line(150): scroll_x advances to last       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1472 |
+| G10-05  | Change log capped at MAX_CHANGES_PER_FRAME (overflow drop)   | —                    | pass    | test/layer2/layer2_test.cpp:1481 |
+| L2P-G02-01 | NR 0x15 write logged with current scanline (sprite_en + priority) | zxnext.vhd:5232, 6799 | pass | test/layer2/layer2_test.cpp:1509 |
+| L2P-G02-02 | apply_changes_for_line replays NR 0x15 entries per scanline  | zxnext.vhd:6799      | pass    | test/layer2/layer2_test.cpp:1552 |
+| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243, 5278 | pass | test/layer2/layer2_test.cpp:1588 |
+| G10-G05-02 | Renderer replays clip-window snapshot per scanline           | layer2.vhd:134, 167  | pass    | test/layer2/layer2_test.cpp:1667 |
+| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220, 1135 | pass   | test/layer2/layer2_test.cpp:1696 |
+| G10-G09-02 | Renderer fetches L2 from old bank above flip-line, new below | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1756 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline        | zxnext.vhd:3916, 3924-3925 | pass | test/layer2/layer2_test.cpp:1783 |
+| G10-G14-02 | Renderer applies enable per scanline (above hidden, mid visible, post hidden) | layer2.vhd:175, 197-198 | pass | test/layer2/layer2_test.cpp:1853 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 
@@ -1014,150 +1014,150 @@ Last-touch commit: `3fda139` (compositor 5-feature fix: sprite_en, L2 priority, 
 
 | Test ID            | Plan row title                                               | VHDL file:line   | Status  | Test file:line                           |
 |--------------------|--------------------------------------------------------------|------------------|---------|------------------------------------------|
-| TR-10              | ULA pixel with palette output ≠ NR 0x14 is opaque            | —                | pass    | test/compositor/compositor_test.cpp:194  |
-| TR-11              | ULA pixel with palette output = NR 0x14 is transparent; fal… | —                | pass    | test/compositor/compositor_test.cpp:217  |
-| TR-12              | ULA palette entry whose LSB differs from NR 0x14 LSB is sti… | —                | pass    | test/compositor/compositor_test.cpp:243  |
-| TR-13              | `ula_clipped_2=1` forces ULA transparent regardless of RGB   | —                | pass    | test/compositor/compositor_test.cpp:260  |
-| TR-14              | `ula_en_2=0` forces ULA transparent even if mix_transparent… | —                | pass    | test/compositor/compositor_test.cpp:274  |
-| TR-15              | Compositor is resolution-agnostic at the ULA input boundary… | —                | pass    | test/compositor/compositor_test.cpp:288  |
-| TR-16              | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → UL… | —                | pass    | test/compositor/compositor_test.cpp:307  |
-| TR-17              | `ula_border_2` is ignored by stage-2 mix in modes 000/001/0… | —                | pass    | test/compositor/compositor_test.cpp:325  |
-| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | —                | pass    | test/compositor/compositor_test.cpp:344  |
-| TR-20              | Tilemap text-mode RGB compare                                | —                | pass    | test/compositor/compositor_test.cpp:357  |
-| TR-21              | Tilemap non-text (attribute) ignores RGB compare             | —                | pass    | test/compositor/compositor_test.cpp:374  |
-| TR-22              | Tilemap `pixel_en=0` transparent regardless of mode          | —                | pass    | test/compositor/compositor_test.cpp:387  |
-| TR-23              | `tm_en_2=0` forces TM transparent                            | —                | pass    | test/compositor/compositor_test.cpp:400  |
-| TR-30              | Layer 2 RGB compare                                          | —                | pass    | test/compositor/compositor_test.cpp:413  |
-| TR-31              | Layer 2 `pixel_en=0` transparent                             | —                | pass    | test/compositor/compositor_test.cpp:425  |
-| TR-32              | Layer 2 opaque pixel with non-zero `layer2_priority_2` prop… | —                | pass    | test/compositor/compositor_test.cpp:443  |
-| TR-33              | Layer 2 priority forced to 0 when layer is transparent       | —                | pass    | test/compositor/compositor_test.cpp:458  |
-| TR-40              | Sprite `pixel_en=0` transparent                              | —                | pass    | test/compositor/compositor_test.cpp:470  |
-| TR-41              | Sprite `pixel_en=1` opaque regardless of NR 0x14             | —                | pass    | test/compositor/compositor_test.cpp:487  |
-| TRI-10             | Sprite index matching NR 0x4B produces pixel_en=0 → composi… | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:509  |
-| TRI-11             | Sprite index ≠ NR 0x4B and inside active area → pixel_en=1   | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:520  |
-| TRI-20             | Tilemap nibble matching NR 0x4C → pixel_en=0                 | zxnext.vhd:4395  | pass    | test/compositor/compositor_test.cpp:533  |
-| FB-10              | Fallback appears when all layers transparent (mode 000)      | —                | pass    | test/compositor/compositor_test.cpp:558  |
-| FB-11              | Fallback=0x00                                                | —                | pass    | test/compositor/compositor_test.cpp:568  |
-| FB-12              | Fallback=0x4A = `0100_1010`                                  | —                | pass    | test/compositor/compositor_test.cpp:578  |
-| FB-13              | Fallback=0x01 = `0000_0001`                                  | —                | pass    | test/compositor/compositor_test.cpp:586  |
-| FB-14              | Fallback=0x02 = `0000_0010`                                  | —                | pass    | test/compositor/compositor_test.cpp:594  |
-| FB-15              | Fallback not used when any layer opaque                      | —                | pass    | test/compositor/compositor_test.cpp:606  |
-| FB-16              | Reset default is 0xE3                                        | —                | pass    | test/compositor/compositor_test.cpp:615  |
-| FB-17              | All 8 priority modes converge on fallback when every layer…  | —                | pass    | test/compositor/compositor_test.cpp:635  |
-| PRI-010-SLU-3      | Mode 000, all three opaque                                   | —                | pass    | test/compositor/compositor_test.cpp:679  |
-| PRI-010-SLU-LU     | Mode 000, only L+U                                           | —                | pass    | test/compositor/compositor_test.cpp:680  |
-| PRI-010-SLU-U      | Mode 000, only U                                             | —                | pass    | test/compositor/compositor_test.cpp:681  |
-| PRI-010-SLU-0      | Mode 000, none                                               | —                | pass    | test/compositor/compositor_test.cpp:682  |
-| PRI-011-LSU-3      | Mode 001, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:685  |
-| PRI-011-LSU-SU     | Mode 001, S+U only                                           | —                | pass    | test/compositor/compositor_test.cpp:686  |
-| PRI-011-LSU-U      | Mode 001, U only                                             | —                | pass    | test/compositor/compositor_test.cpp:687  |
-| PRI-010-SUL-3      | Mode 010, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:690  |
-| PRI-010-SUL-UL     | Mode 010, U+L                                                | —                | pass    | test/compositor/compositor_test.cpp:691  |
-| PRI-010-SUL-L      | Mode 010, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:692  |
-| PRI-011-LUS-3      | Mode 011, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:695  |
-| PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | pass    | test/compositor/compositor_test.cpp:696  |
-| PRI-011-LUS-S      | Mode 011, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:697  |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | —                | pass    | test/compositor/compositor_test.cpp:720  |
-| PRI-100-USL-3      | Mode 100, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:700  |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | pass    | test/compositor/compositor_test.cpp:734  |
-| PRI-100-USL-L      | Mode 100, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:701  |
-| PRI-101-ULS-3      | Mode 101, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:704  |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | pass    | test/compositor/compositor_test.cpp:751  |
-| PRI-101-ULS-S      | Mode 101, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:705  |
-| PRI-B-0            | In every mode 000..101 with all three transparent, fallback… | —                | pass    | test/compositor/compositor_test.cpp:776  |
-| PRI-B-1            | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparen… | —                | pass    | test/compositor/compositor_test.cpp:787  |
-| PRI-B-2            | Mode 001: even if sprite opaque, L2 opaque beats it          | —                | pass    | test/compositor/compositor_test.cpp:799  |
-| L2P-10             | Promotion in mode 000 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:819  |
-| L2P-11             | Promotion in mode 010 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:820  |
-| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:821  |
-| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:822  |
-| L2P-14             | No-op in mode 001 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:823  |
-| L2P-15             | No-op in mode 011 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:824  |
-| L2P-16             | `layer2_transparent=1` suppresses promotion                  | —                | pass    | test/compositor/compositor_test.cpp:846  |
-| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:870  |
-| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:885  |
-| BL-10              | Add no clamp                                                 | —                | pass    | test/compositor/compositor_test.cpp:1000 |
-| BL-11              | Add clamp hi                                                 | —                | pass    | test/compositor/compositor_test.cpp:1013 |
-| BL-12              | Add 0+0                                                      | —                | pass    | test/compositor/compositor_test.cpp:1026 |
-| BL-13              | Add, `mix_top` opaque beats blend                            | —                | pass    | test/compositor/compositor_test.cpp:1042 |
-| BL-14              | Add, sprite between mix_top and mix_bot                      | —                | pass    | test/compositor/compositor_test.cpp:1056 |
-| BL-15              | Add, mix_bot wins after sprite transp                        | —                | pass    | test/compositor/compositor_test.cpp:1072 |
-| BL-16              | Add, final fallback to blend                                 | —                | pass    | test/compositor/compositor_test.cpp:1086 |
-| BL-20              | Sub, ≤4 clamps to 0                                          | —                | pass    | test/compositor/compositor_test.cpp:1100 |
-| BL-21              | Sub, ≥12 clamps to 7                                         | —                | pass    | test/compositor/compositor_test.cpp:1114 |
-| BL-22              | Sub, middle value                                            | —                | pass    | test/compositor/compositor_test.cpp:1128 |
-| BL-23              | Sub gated by `mix_rgb_transparent`                           | —                | pass    | test/compositor/compositor_test.cpp:1142 |
-| BL-24              | Sub, mix_top opaque wins over blend                          | —                | pass    | test/compositor/compositor_test.cpp:1155 |
-| BL-25              | Sub, sprite between                                          | —                | pass    | test/compositor/compositor_test.cpp:1167 |
-| BL-26              | Sub, mix_bot fallback                                        | —                | pass    | test/compositor/compositor_test.cpp:1179 |
-| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | pass    | test/compositor/compositor_test.cpp:1196 |
-| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | pass    | test/compositor/compositor_test.cpp:1212 |
-| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | pass    | test/compositor/compositor_test.cpp:1227 |
-| L2P-19             | Native 640: layer2_priority_[] not pixel-doubled (G93)       | zxnext.vhd:7039  | pass    | test/compositor/compositor_test.cpp:942  |
-| BL-30              | Mode 01 prio6: mix_bot=ULA wins (TM transp, tm_below=0)      | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1252 |
-| BL-31              | Mode 01 prio6: mix_top=TM (ULA masked, tm_below=0)           | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1275 |
-| BL-32              | Mode 01 prio6: tm_below=1 swap, mix_top=ULA wins             | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1298 |
-| BL-40              | Mode 10 prio6: mix_rgb=ula_final, add(L2,ULA)                | zxnext.vhd:7149  | pass    | test/compositor/compositor_test.cpp:1319 |
-| BL-41              | Mode 10 prio6: ulatm merge → TM (tm_below=1), add(L2,TM)     | zxnext.vhd:7115  | pass    | test/compositor/compositor_test.cpp:1341 |
-| BL-42              | Mode 10 prio6: stencil ULA&TM routes via ula_final_rgb       | zxnext.vhd:7130  | pass    | test/compositor/compositor_test.cpp:1366 |
-| BL-50              | Mode 11 prio6: mix_bot=ULA wins (tm_below=0)                 | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1392 |
-| BL-51              | Mode 11 prio6: tm_below=1, mix_top=ULA wins                  | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1415 |
-| BL-52              | Mode 11 prio6: TM as mix_rgb when ULA overlays transp        | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1439 |
-| BL-60              | Mode 11 prio7 (sub): sub(L2,TM) = (4,2,0) cascade-to-mixer   | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1462 |
+| TR-10              | ULA pixel with palette output ≠ NR 0x14 is opaque            | —                | pass    | test/compositor/compositor_test.cpp:212  |
+| TR-11              | ULA pixel with palette output = NR 0x14 is transparent; fal… | —                | pass    | test/compositor/compositor_test.cpp:235  |
+| TR-12              | ULA palette entry whose LSB differs from NR 0x14 LSB is sti… | —                | pass    | test/compositor/compositor_test.cpp:261  |
+| TR-13              | `ula_clipped_2=1` forces ULA transparent regardless of RGB   | —                | pass    | test/compositor/compositor_test.cpp:278  |
+| TR-14              | `ula_en_2=0` forces ULA transparent even if mix_transparent… | —                | pass    | test/compositor/compositor_test.cpp:292  |
+| TR-15              | Compositor is resolution-agnostic at the ULA input boundary… | —                | pass    | test/compositor/compositor_test.cpp:306  |
+| TR-16              | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → UL… | —                | pass    | test/compositor/compositor_test.cpp:325  |
+| TR-17              | `ula_border_2` is ignored by stage-2 mix in modes 000/001/0… | —                | pass    | test/compositor/compositor_test.cpp:343  |
+| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | —                | pass    | test/compositor/compositor_test.cpp:362  |
+| TR-20              | Tilemap text-mode RGB compare                                | —                | pass    | test/compositor/compositor_test.cpp:375  |
+| TR-21              | Tilemap non-text (attribute) ignores RGB compare             | —                | pass    | test/compositor/compositor_test.cpp:392  |
+| TR-22              | Tilemap `pixel_en=0` transparent regardless of mode          | —                | pass    | test/compositor/compositor_test.cpp:405  |
+| TR-23              | `tm_en_2=0` forces TM transparent                            | —                | pass    | test/compositor/compositor_test.cpp:418  |
+| TR-30              | Layer 2 RGB compare                                          | —                | pass    | test/compositor/compositor_test.cpp:431  |
+| TR-31              | Layer 2 `pixel_en=0` transparent                             | —                | pass    | test/compositor/compositor_test.cpp:443  |
+| TR-32              | Layer 2 opaque pixel with non-zero `layer2_priority_2` prop… | —                | pass    | test/compositor/compositor_test.cpp:461  |
+| TR-33              | Layer 2 priority forced to 0 when layer is transparent       | —                | pass    | test/compositor/compositor_test.cpp:476  |
+| TR-40              | Sprite `pixel_en=0` transparent                              | —                | pass    | test/compositor/compositor_test.cpp:488  |
+| TR-41              | Sprite `pixel_en=1` opaque regardless of NR 0x14             | —                | pass    | test/compositor/compositor_test.cpp:505  |
+| TRI-10             | Sprite index matching NR 0x4B produces pixel_en=0 → composi… | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:833  |
+| TRI-11             | Sprite index ≠ NR 0x4B and inside active area → pixel_en=1   | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:844  |
+| TRI-20             | Tilemap nibble matching NR 0x4C → pixel_en=0                 | zxnext.vhd:4395  | pass    | test/compositor/compositor_test.cpp:857  |
+| FB-10              | Fallback appears when all layers transparent (mode 000)      | —                | pass    | test/compositor/compositor_test.cpp:882  |
+| FB-11              | Fallback=0x00                                                | —                | pass    | test/compositor/compositor_test.cpp:892  |
+| FB-12              | Fallback=0x4A = `0100_1010`                                  | —                | pass    | test/compositor/compositor_test.cpp:902  |
+| FB-13              | Fallback=0x01 = `0000_0001`                                  | —                | pass    | test/compositor/compositor_test.cpp:910  |
+| FB-14              | Fallback=0x02 = `0000_0010`                                  | —                | pass    | test/compositor/compositor_test.cpp:918  |
+| FB-15              | Fallback not used when any layer opaque                      | —                | pass    | test/compositor/compositor_test.cpp:930  |
+| FB-16              | Reset default is 0xE3                                        | —                | pass    | test/compositor/compositor_test.cpp:939  |
+| FB-17              | All 8 priority modes converge on fallback when every layer…  | —                | pass    | test/compositor/compositor_test.cpp:959  |
+| PRI-010-SLU-3      | Mode 000, all three opaque                                   | —                | pass    | test/compositor/compositor_test.cpp:1003 |
+| PRI-010-SLU-LU     | Mode 000, only L+U                                           | —                | pass    | test/compositor/compositor_test.cpp:1004 |
+| PRI-010-SLU-U      | Mode 000, only U                                             | —                | pass    | test/compositor/compositor_test.cpp:1005 |
+| PRI-010-SLU-0      | Mode 000, none                                               | —                | pass    | test/compositor/compositor_test.cpp:1006 |
+| PRI-011-LSU-3      | Mode 001, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1009 |
+| PRI-011-LSU-SU     | Mode 001, S+U only                                           | —                | pass    | test/compositor/compositor_test.cpp:1010 |
+| PRI-011-LSU-U      | Mode 001, U only                                             | —                | pass    | test/compositor/compositor_test.cpp:1011 |
+| PRI-010-SUL-3      | Mode 010, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1014 |
+| PRI-010-SUL-UL     | Mode 010, U+L                                                | —                | pass    | test/compositor/compositor_test.cpp:1015 |
+| PRI-010-SUL-L      | Mode 010, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:1016 |
+| PRI-011-LUS-3      | Mode 011, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1019 |
+| PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | pass    | test/compositor/compositor_test.cpp:1020 |
+| PRI-011-LUS-S      | Mode 011, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:1021 |
+| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | —                | pass    | test/compositor/compositor_test.cpp:1044 |
+| PRI-100-USL-3      | Mode 100, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1024 |
+| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | pass    | test/compositor/compositor_test.cpp:1058 |
+| PRI-100-USL-L      | Mode 100, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:1025 |
+| PRI-101-ULS-3      | Mode 101, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1028 |
+| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | pass    | test/compositor/compositor_test.cpp:1075 |
+| PRI-101-ULS-S      | Mode 101, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:1029 |
+| PRI-B-0            | In every mode 000..101 with all three transparent, fallback… | —                | pass    | test/compositor/compositor_test.cpp:1100 |
+| PRI-B-1            | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparen… | —                | pass    | test/compositor/compositor_test.cpp:1111 |
+| PRI-B-2            | Mode 001: even if sprite opaque, L2 opaque beats it          | —                | pass    | test/compositor/compositor_test.cpp:1123 |
+| L2P-10             | Promotion in mode 000 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:1143 |
+| L2P-11             | Promotion in mode 010 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:1144 |
+| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:1145 |
+| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:1146 |
+| L2P-14             | No-op in mode 001 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:1147 |
+| L2P-15             | No-op in mode 011 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:1148 |
+| L2P-16             | `layer2_transparent=1` suppresses promotion                  | —                | pass    | test/compositor/compositor_test.cpp:1170 |
+| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:1194 |
+| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:1209 |
+| BL-10              | Add no clamp                                                 | —                | pass    | test/compositor/compositor_test.cpp:1324 |
+| BL-11              | Add clamp hi                                                 | —                | pass    | test/compositor/compositor_test.cpp:1337 |
+| BL-12              | Add 0+0                                                      | —                | pass    | test/compositor/compositor_test.cpp:1350 |
+| BL-13              | Add, `mix_top` opaque beats blend                            | —                | pass    | test/compositor/compositor_test.cpp:1366 |
+| BL-14              | Add, sprite between mix_top and mix_bot                      | —                | pass    | test/compositor/compositor_test.cpp:1380 |
+| BL-15              | Add, mix_bot wins after sprite transp                        | —                | pass    | test/compositor/compositor_test.cpp:1396 |
+| BL-16              | Add, final fallback to blend                                 | —                | pass    | test/compositor/compositor_test.cpp:1410 |
+| BL-20              | Sub, ≤4 clamps to 0                                          | —                | pass    | test/compositor/compositor_test.cpp:1424 |
+| BL-21              | Sub, ≥12 clamps to 7                                         | —                | pass    | test/compositor/compositor_test.cpp:1438 |
+| BL-22              | Sub, middle value                                            | —                | pass    | test/compositor/compositor_test.cpp:1452 |
+| BL-23              | Sub gated by `mix_rgb_transparent`                           | —                | pass    | test/compositor/compositor_test.cpp:1466 |
+| BL-24              | Sub, mix_top opaque wins over blend                          | —                | pass    | test/compositor/compositor_test.cpp:1479 |
+| BL-25              | Sub, sprite between                                          | —                | pass    | test/compositor/compositor_test.cpp:1491 |
+| BL-26              | Sub, mix_bot fallback                                        | —                | pass    | test/compositor/compositor_test.cpp:1503 |
+| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | pass    | test/compositor/compositor_test.cpp:1520 |
+| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | pass    | test/compositor/compositor_test.cpp:1536 |
+| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | pass    | test/compositor/compositor_test.cpp:1551 |
+| L2P-19             | Native 640: layer2_priority_[] not pixel-doubled (G93)       | zxnext.vhd:7039  | pass    | test/compositor/compositor_test.cpp:1266 |
+| BL-30              | Mode 01 prio6: mix_bot=ULA wins (TM transp, tm_below=0)      | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1576 |
+| BL-31              | Mode 01 prio6: mix_top=TM (ULA masked, tm_below=0)           | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1599 |
+| BL-32              | Mode 01 prio6: tm_below=1 swap, mix_top=ULA wins             | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1622 |
+| BL-40              | Mode 10 prio6: mix_rgb=ula_final, add(L2,ULA)                | zxnext.vhd:7149  | pass    | test/compositor/compositor_test.cpp:1643 |
+| BL-41              | Mode 10 prio6: ulatm merge → TM (tm_below=1), add(L2,TM)     | zxnext.vhd:7115  | pass    | test/compositor/compositor_test.cpp:1665 |
+| BL-42              | Mode 10 prio6: stencil ULA&TM routes via ula_final_rgb       | zxnext.vhd:7130  | pass    | test/compositor/compositor_test.cpp:1690 |
+| BL-50              | Mode 11 prio6: mix_bot=ULA wins (tm_below=0)                 | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1716 |
+| BL-51              | Mode 11 prio6: tm_below=1, mix_top=ULA wins                  | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1739 |
+| BL-52              | Mode 11 prio6: TM as mix_rgb when ULA overlays transp        | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1763 |
+| BL-60              | Mode 11 prio7 (sub): sub(L2,TM) = (4,2,0) cascade-to-mixer   | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1786 |
 | UB-G26-01          | UTB-40/41 mix_top/mix_bot swap on tm_pixel_below_2 (G26)     | zxnext.vhd:7163  | missing | missing                                  |
-| UB-G26-02          | L2 priority over opaque mix_top in modes 110/111 (G26)       | zxnext.vhd:7300  | pass    | test/compositor/compositor_test.cpp:1609 |
+| UB-G26-02          | L2 priority over opaque mix_top in modes 110/111 (G26)       | zxnext.vhd:7300  | pass    | test/compositor/compositor_test.cpp:1933 |
 | PFF-G108-01        | NR 0x69 b5:0 → port_ff_reg(5:0) fan-out missing (G108)       | zxnext.vhd:3617  | missing | missing                                  |
 | PFF-G108-02        | NR 0x22 b2 → port_ff_reg(6) fan-out missing (G108)           | zxnext.vhd:3619  | missing | missing                                  |
 | PFF-G108-03        | NR 0xC4 b0 → port_ff_reg(6) inverted fan-out missing (G108)  | zxnext.vhd:3621  | missing | missing                                  |
-| UDIS-03            | NR 0x68 b6:5 decode → Renderer::blend_mode (UDIS-03 closed)  | zxnext.vhd:7141  | pass    | test/compositor/compositor_test.cpp:1873 |
-| BLANK-G27-01       | rgb_blank_n_6 lockstep with rgb_out_6 pipeline (G27)         | zxnext.vhd:7395  | pass    | test/compositor/compositor_test.cpp:2072 |
-| PSCAN-01           | write_8bit appends change-log entry tagged with current_li…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2255 |
-| PSCAN-02           | rewind_to_baseline restores live palette to frame start      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2276 |
-| PSCAN-03           | apply_changes_for_line replays only matching lines, monoto…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2333 |
-| PSCAN-04           | change_log cap; overflow_warned_ latches once per frame      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2381 |
-| PSCAN-05           | Renderer::render_frame replays per-line palette mid-frame    | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2469 |
-| PSCAN-G04-01       | NR 0x14 per-scanline replay not implemented (G04)            | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2707 |
+| UDIS-03            | NR 0x68 b6:5 decode → Renderer::blend_mode (UDIS-03 closed)  | zxnext.vhd:7141  | pass    | test/compositor/compositor_test.cpp:2346 |
+| BLANK-G27-01       | rgb_blank_n_6 lockstep with rgb_out_6 pipeline (G27)         | zxnext.vhd:7395  | pass    | test/compositor/compositor_test.cpp:2545 |
+| PSCAN-01           | write_8bit appends change-log entry tagged with current_li…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2728 |
+| PSCAN-02           | rewind_to_baseline restores live palette to frame start      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2749 |
+| PSCAN-03           | apply_changes_for_line replays only matching lines, monoto…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2806 |
+| PSCAN-04           | change_log cap; overflow_warned_ latches once per frame      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2854 |
+| PSCAN-05           | Renderer::render_frame replays per-line palette mid-frame    | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2942 |
+| PSCAN-G04-01       | NR 0x14 per-scanline replay not implemented (G04)            | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3180 |
 | PSCAN-G04-02       | NR 0x4B per-scanline replay not implemented (G04)            | zxnext.vhd:5016  | missing | missing                                  |
 | PSCAN-G04-03       | NR 0x4C per-scanline replay not implemented (G04)            | zxnext.vhd:5018  | missing | missing                                  |
-| PSCAN-G11-01       | NR 0x68 b0 stencil per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:2761 |
-| PSCAN-G11-02       | NR 0x68 b6:5 blend per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:2789 |
-| PSCAN-G11-03       | NR 0x68 b3 ulap_en per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:2822 |
-| UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1492 |
-| UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1505 |
-| UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1518 |
-| UTB-30             | Mode 11, TM as U, ULA floats below                           | —                | pass    | test/compositor/compositor_test.cpp:1536 |
-| UTB-31             | Mode 11, TM as U, ULA floats above                           | —                | pass    | test/compositor/compositor_test.cpp:1551 |
-| UTB-40             | Mode 01 (`others`), below=0                                  | —                | pass    | test/compositor/compositor_test.cpp:1567 |
-| UTB-41             | Mode 01, below=1                                             | —                | pass    | test/compositor/compositor_test.cpp:1580 |
-| STEN-10            | Bitwise AND                                                  | —                | pass    | test/compositor/compositor_test.cpp:1662 |
-| STEN-11            | AND with zero                                                | —                | pass    | test/compositor/compositor_test.cpp:1679 |
-| STEN-12            | ULA transparent → stencil transparent                        | —                | pass    | test/compositor/compositor_test.cpp:1695 |
-| STEN-13            | TM transparent → stencil transparent                         | —                | pass    | test/compositor/compositor_test.cpp:1711 |
-| STEN-14            | Both transparent → transparent                               | —                | pass    | test/compositor/compositor_test.cpp:1724 |
-| STEN-15            | Stencil inactive if `tm_en=0` (even with bit set)            | —                | pass    | test/compositor/compositor_test.cpp:1739 |
-| STEN-16            | Stencil inactive if `ula_en=0`                               | —                | pass    | test/compositor/compositor_test.cpp:1752 |
-| STEN-17            | Stencil off (bit=0), both enabled                            | —                | pass    | test/compositor/compositor_test.cpp:1765 |
-| SOB-10             | Sprite rgb arrives at compositor with `sprite_pixel_en_2=1`… | —                | pass    | test/compositor/compositor_test.cpp:1899 |
-| LINE-10            | Write NR 0x15[4:2] mid-line                                  | —                | pass    | test/compositor/compositor_test.cpp:1930 |
-| LINE-11            | Write NR 0x14 mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:1947 |
-| LINE-12            | Write NR 0x4A mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:1961 |
-| LINE-13            | Copper write to NR 0x15 at end of line                       | —                | pass    | test/compositor/compositor_test.cpp:1974 |
-| LINE-14            | Two writes in one line: only the last is visible next line   | —                | pass    | test/compositor/compositor_test.cpp:1984 |
-| BLANK-10           | Active area passes through                                   | —                | pass    | test/compositor/compositor_test.cpp:2005 |
-| BLANK-11           | Horizontal blanking forces 0                                 | —                | pass    | test/compositor/compositor_test.cpp:2019 |
-| BLANK-12           | Vertical blanking forces 0                                   | —                | pass    | test/compositor/compositor_test.cpp:2022 |
-| BLANK-13           | Fallback colour is NOT shown during blank                    | —                | pass    | test/compositor/compositor_test.cpp:2025 |
-| PAL-10             | ULA pixel index → ULA/TM palette                             | —                | pass    | test/compositor/compositor_test.cpp:2100 |
-| PAL-11             | ULA background substitution uses fallback                    | —                | pass    | test/compositor/compositor_test.cpp:2118 |
-| PAL-12             | LoRes pixel overrides ULA background                         | —                | pass    | test/compositor/compositor_test.cpp:2131 |
-| PAL-13             | L2 palette select 0 vs 1 (NR 0x43[2])                        | —                | pass    | test/compositor/compositor_test.cpp:2148 |
-| PAL-14             | L2 palette bit 15 surfaces as `layer2_priority_2`            | —                | pass    | test/compositor/compositor_test.cpp:2164 |
-| PAL-15             | Sprite palette is L2/Sprite RAM `sc(0)=1`                    | —                | pass    | test/compositor/compositor_test.cpp:2176 |
-| RST-10             | After reset, all layers are transparent (TM disabled, S dis… | —                | pass    | test/compositor/compositor_test.cpp:2196 |
-| RST-11             | After reset, mode is 000 (SLU)                               | —                | pass    | test/compositor/compositor_test.cpp:2209 |
-| RST-12             | After reset, NR 0x4A = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2218 |
-| RST-13             | After reset, NR 0x14 = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2228 |
-| PRI-BOUND          | 3                                                            | —                | pass    | test/compositor/compositor_test.cpp:761  |
+| PSCAN-G11-01       | NR 0x68 b0 stencil per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3234 |
+| PSCAN-G11-02       | NR 0x68 b6:5 blend per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3262 |
+| PSCAN-G11-03       | NR 0x68 b3 ulap_en per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3295 |
+| UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1816 |
+| UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1829 |
+| UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1842 |
+| UTB-30             | Mode 11, TM as U, ULA floats below                           | —                | pass    | test/compositor/compositor_test.cpp:1860 |
+| UTB-31             | Mode 11, TM as U, ULA floats above                           | —                | pass    | test/compositor/compositor_test.cpp:1875 |
+| UTB-40             | Mode 01 (`others`), below=0                                  | —                | pass    | test/compositor/compositor_test.cpp:1891 |
+| UTB-41             | Mode 01, below=1                                             | —                | pass    | test/compositor/compositor_test.cpp:1904 |
+| STEN-10            | Bitwise AND                                                  | —                | pass    | test/compositor/compositor_test.cpp:2060 |
+| STEN-11            | AND with zero                                                | —                | pass    | test/compositor/compositor_test.cpp:2077 |
+| STEN-12            | ULA transparent → stencil transparent                        | —                | pass    | test/compositor/compositor_test.cpp:2093 |
+| STEN-13            | TM transparent → stencil transparent                         | —                | pass    | test/compositor/compositor_test.cpp:2109 |
+| STEN-14            | Both transparent → transparent                               | —                | pass    | test/compositor/compositor_test.cpp:2122 |
+| STEN-15            | Stencil inactive if `tm_en=0` (even with bit set)            | —                | pass    | test/compositor/compositor_test.cpp:2137 |
+| STEN-16            | Stencil inactive if `ula_en=0`                               | —                | pass    | test/compositor/compositor_test.cpp:2150 |
+| STEN-17            | Stencil off (bit=0), both enabled                            | —                | pass    | test/compositor/compositor_test.cpp:2163 |
+| SOB-10             | Sprite rgb arrives at compositor with `sprite_pixel_en_2=1`… | —                | pass    | test/compositor/compositor_test.cpp:2372 |
+| LINE-10            | Write NR 0x15[4:2] mid-line                                  | —                | pass    | test/compositor/compositor_test.cpp:2403 |
+| LINE-11            | Write NR 0x14 mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:2420 |
+| LINE-12            | Write NR 0x4A mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:2434 |
+| LINE-13            | Copper write to NR 0x15 at end of line                       | —                | pass    | test/compositor/compositor_test.cpp:2447 |
+| LINE-14            | Two writes in one line: only the last is visible next line   | —                | pass    | test/compositor/compositor_test.cpp:2457 |
+| BLANK-10           | Active area passes through                                   | —                | pass    | test/compositor/compositor_test.cpp:2478 |
+| BLANK-11           | Horizontal blanking forces 0                                 | —                | pass    | test/compositor/compositor_test.cpp:2492 |
+| BLANK-12           | Vertical blanking forces 0                                   | —                | pass    | test/compositor/compositor_test.cpp:2495 |
+| BLANK-13           | Fallback colour is NOT shown during blank                    | —                | pass    | test/compositor/compositor_test.cpp:2498 |
+| PAL-10             | ULA pixel index → ULA/TM palette                             | —                | pass    | test/compositor/compositor_test.cpp:2573 |
+| PAL-11             | ULA background substitution uses fallback                    | —                | pass    | test/compositor/compositor_test.cpp:2591 |
+| PAL-12             | LoRes pixel overrides ULA background                         | —                | pass    | test/compositor/compositor_test.cpp:2604 |
+| PAL-13             | L2 palette select 0 vs 1 (NR 0x43[2])                        | —                | pass    | test/compositor/compositor_test.cpp:2621 |
+| PAL-14             | L2 palette bit 15 surfaces as `layer2_priority_2`            | —                | pass    | test/compositor/compositor_test.cpp:2637 |
+| PAL-15             | Sprite palette is L2/Sprite RAM `sc(0)=1`                    | —                | pass    | test/compositor/compositor_test.cpp:2649 |
+| RST-10             | After reset, all layers are transparent (TM disabled, S dis… | —                | pass    | test/compositor/compositor_test.cpp:2669 |
+| RST-11             | After reset, mode is 000 (SLU)                               | —                | pass    | test/compositor/compositor_test.cpp:2682 |
+| RST-12             | After reset, NR 0x4A = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2691 |
+| RST-13             | After reset, NR 0x14 = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2701 |
+| PRI-BOUND          | 3                                                            | —                | pass    | test/compositor/compositor_test.cpp:1085 |
 
 ### Companion integration suite — `test/compositor/compositor_integration_test.cpp`
 
@@ -2357,16 +2357,16 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | PR-04         | Default-read used when no handler matches                    | —                    | pass    | test/port/port_test.cpp:1628 |
 | PR-05         | Default-read NOT used when any handler matches (even with 0… | —                    | pass    | test/port/port_test.cpp:1644 |
 | IORQ-01       | Interrupt ack not routed to `in`                             | zxnext.vhd:2705      | missing | missing                      |
-| IORQ-02       | Normal IN is routed                                          | zxnext.vhd:2705      | pass    | test/port/port_test.cpp:1672 |
-| RMW-01        | 0xFE border + beeper latch                                   | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:1692 |
+| IORQ-02       | Normal IN is routed                                          | zxnext.vhd:2705      | pass    | test/port/port_test.cpp:1722 |
+| RMW-01        | 0xFE border + beeper latch                                   | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:1742 |
 | CTN-01        | Contended-port timing on 0x4000-range port                   | —                    | missing | missing                      |
 | CTN-02        | Uncontended `IN A,(nn)` outside 0x4000 range                 | —                    | missing | missing                      |
 | AMAP-01       | DivMMC enable diff freezes expansion bus                     | zxnext.vhd:2180      | missing | missing                      |
-| AMAP-02       | 0xE3 writes honoured even when automap held                  | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:1717 |
-| AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1731 |
-| BUS-01        | Single-owner invariant over all registered                   | —                    | pass    | test/port/port_test.cpp:1762 |
-| BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1777 |
-| BUS-03        | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff… | zxnext.vhd:2813      | pass    | test/port/port_test.cpp:1911 |
+| AMAP-02       | 0xE3 writes honoured even when automap held                  | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:1767 |
+| AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1781 |
+| BUS-01        | Single-owner invariant over all registered                   | —                    | pass    | test/port/port_test.cpp:1812 |
+| BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1827 |
+| BUS-03        | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff… | zxnext.vhd:2813      | pass    | test/port/port_test.cpp:1961 |
 
 ### Extra coverage (not in plan)
 
@@ -2681,33 +2681,33 @@ Plan: `doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md`. The VideoTiming expansion p
 
 | Test ID | Plan row title                                                                                | VHDL file:line                  | Status | Test file:line                                       |
 |---------|------------------------------------------------------------------------------------------------|---------------------------------|--------|------------------------------------------------------|
-| VT-01   | 48K `hc_max()`/`vc_max()` after `init(ZX48K)` = 447, 311                                       | zxula_timing.vhd:262,270        | pass   | test/videotiming/videotiming_test.cpp:108            |
-| VT-02   | 128K `hc_max()`/`vc_max()` after `init(ZX128K)` = 455, 310                                     | zxula_timing.vhd:196,204        | pass   | test/videotiming/videotiming_test.cpp:116            |
+| VT-01   | 48K `hc_max()`/`vc_max()` after `init(ZX48K)` = 447, 311                                       | zxula_timing.vhd:262,270        | pass   | test/videotiming/videotiming_test.cpp:109            |
+| VT-02   | 128K `hc_max()`/`vc_max()` after `init(ZX128K)` = 455, 310                                     | zxula_timing.vhd:196,204        | pass   | test/videotiming/videotiming_test.cpp:117            |
 | VT-03   | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319                               | zxula_timing.vhd:160,168        | missing | missing                                              |
-| VT-04   | 128K `display_origin()` = {136, 64}                                                            | zxula_timing.vhd:195,203        | pass   | test/videotiming/videotiming_test.cpp:138            |
+| VT-04   | 128K `display_origin()` = {136, 64}                                                            | zxula_timing.vhd:195,203        | pass   | test/videotiming/videotiming_test.cpp:139            |
 | VT-05   | Pentagon `display_origin()` = {128, 80}                                                        | zxula_timing.vhd:159,167        | missing | missing                                              |
-| VT-06   | 48K `display_origin()` = {128, 64} — symmetry baseline                                         | zxula_timing.vhd:261,269        | pass   | test/videotiming/videotiming_test.cpp:147            |
-| VT-07   | 48K `ula_prefetch_origin_hc()` = 128 - 12 = 116                                                | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:166            |
-| VT-08   | 128K `ula_prefetch_origin_hc()` = 136 - 12 = 124                                               | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:173            |
+| VT-06   | 48K `display_origin()` = {128, 64} — symmetry baseline                                         | zxula_timing.vhd:261,269        | pass   | test/videotiming/videotiming_test.cpp:148            |
+| VT-07   | 48K `ula_prefetch_origin_hc()` = 128 - 12 = 116                                                | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:167            |
+| VT-08   | 128K `ula_prefetch_origin_hc()` = 136 - 12 = 124                                               | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:174            |
 | VT-09   | Pentagon `ula_prefetch_origin_hc()` = 128 - 12 = 116                                           | zxula_timing.vhd:423            | missing | missing                                              |
-| VT-10   | 48K `int_position()` = {116, 0}                                                                | zxula_timing.vhd:257,265        | pass   | test/videotiming/videotiming_test.cpp:192            |
-| VT-11   | 128K `int_position()` = {128, 1}                                                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:199            |
+| VT-10   | 48K `int_position()` = {116, 0}                                                                | zxula_timing.vhd:257,265        | pass   | test/videotiming/videotiming_test.cpp:193            |
+| VT-11   | 128K `int_position()` = {128, 1}                                                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:200            |
 | VT-12   | Pentagon `int_position()` = {439, 319}                                                         | zxula_timing.vhd:155,163        | missing | missing                                              |
-| VT-13   | +3 `int_position()` = {126, 1} — VHDL `i_timing(0)='1'` selects 126                            | zxula_timing.vhd:189,199        | pass   | test/videotiming/videotiming_test.cpp:207            |
-| VT-14   | 48K 60 Hz frame length = 448 * 264 / 2 = 59 136 T-states                                       | zxula_timing.vhd:290,298        | pass   | test/videotiming/videotiming_test.cpp:232            |
-| VT-15   | 128K 60 Hz frame length = 456 * 264 / 2 = 60 192 T-states                                      | zxula_timing.vhd:230,238        | pass   | test/videotiming/videotiming_test.cpp:242            |
-| VT-16   | 60 Hz `display_origin().vc` = 40 for both 48K and 128K                                         | zxula_timing.vhd:297,237        | pass   | test/videotiming/videotiming_test.cpp:253            |
-| VT-17   | 60 Hz `int_position().vc` = 0 for both 48K and 128K                                            | zxula_timing.vhd:293,233        | pass   | test/videotiming/videotiming_test.cpp:263            |
-| VT-17b  | +3 60 Hz `int_position().hc` = 126 vs 128K 60 Hz = 128 — `i_timing(0)='1'` split               | zxula_timing.vhd:221,223        | pass   | test/videotiming/videotiming_test.cpp:270            |
-| VT-18   | 48K target=0 → `int_line_num() == c_max_vc == 311`                                             | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:294            |
-| VT-19   | 128K target=0 → `int_line_num() == 310`                                                        | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:303            |
+| VT-13   | +3 `int_position()` = {126, 1} — VHDL `i_timing(0)='1'` selects 126                            | zxula_timing.vhd:189,199        | pass   | test/videotiming/videotiming_test.cpp:208            |
+| VT-14   | 48K 60 Hz frame length = 448 * 264 / 2 = 59 136 T-states                                       | zxula_timing.vhd:290,298        | pass   | test/videotiming/videotiming_test.cpp:233            |
+| VT-15   | 128K 60 Hz frame length = 456 * 264 / 2 = 60 192 T-states                                      | zxula_timing.vhd:230,238        | pass   | test/videotiming/videotiming_test.cpp:243            |
+| VT-16   | 60 Hz `display_origin().vc` = 40 for both 48K and 128K                                         | zxula_timing.vhd:297,237        | pass   | test/videotiming/videotiming_test.cpp:254            |
+| VT-17   | 60 Hz `int_position().vc` = 0 for both 48K and 128K                                            | zxula_timing.vhd:293,233        | pass   | test/videotiming/videotiming_test.cpp:264            |
+| VT-17b  | +3 60 Hz `int_position().hc` = 126 vs 128K 60 Hz = 128 — `i_timing(0)='1'` split               | zxula_timing.vhd:221,223        | pass   | test/videotiming/videotiming_test.cpp:271            |
+| VT-18   | 48K target=0 → `int_line_num() == c_max_vc == 311`                                             | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:295            |
+| VT-19   | 128K target=0 → `int_line_num() == 310`                                                        | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:304            |
 | VT-20   | Pentagon target=0 → `int_line_num() == 319`                                                    | zxula_timing.vhd:566-570        | missing | missing                                              |
-| VT-21   | Any machine: target=10 → `int_line_num() == 9`                                                 | zxula_timing.vhd:568            | pass   | test/videotiming/videotiming_test.cpp:313            |
-| VT-22   | 48K target=10: line-int fires at `cvc=9, hc_ula=255`                                           | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:362            |
-| VT-23   | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (target=0 wrap)                 | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:382            |
-| VT-24   | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v`                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:397            |
-| VT-25   | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc`                        | zxula_timing.vhd:577            | pass   | test/videotiming/videotiming_test.cpp:425            |
-| VT-26   | Walkback: pulse-counter accessors must be sole source — `Emulator::line_int_*` removed         | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:448            |
+| VT-21   | Any machine: target=10 → `int_line_num() == 9`                                                 | zxula_timing.vhd:568            | pass   | test/videotiming/videotiming_test.cpp:314            |
+| VT-22   | 48K target=10: line-int fires at `cvc=9, hc_ula=255`                                           | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:363            |
+| VT-23   | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (target=0 wrap)                 | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:383            |
+| VT-24   | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v`                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:398            |
+| VT-25   | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc`                        | zxula_timing.vhd:577            | pass   | test/videotiming/videotiming_test.cpp:426            |
+| VT-26   | Walkback: pulse-counter accessors must be sole source — `Emulator::line_int_*` removed         | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:449            |
 
 
 ## Contention — `test/contention/contention_test.cpp`
@@ -2760,53 +2760,53 @@ into this suite as part of the 2026-04-26 closure.
 | CT-IO-08     | port 0xFF3B (ULA+ data, odd) — contended via `port_ff3b` term       | zxnext.vhd:4496,2686                | pass   | test/contention/contention_test.cpp:476     |
 | CT-IO-09     | port 0xBF3B with `port_ulap_io_en=0` — masked                       | zxnext.vhd:4496,2685                | pass   | test/contention/contention_test.cpp:484     |
 | CT-WIN-01    | 48K, hc=0, vc=0 — `+1` offset prelude (wait_s=0)                    | zxula.vhd:582-583                   | pass   | test/contention/contention_test.cpp:512     |
-| CT-WIN-02    | 48K, hc=3, vc=100 — phase boundary, wait_s=1                        | zxula.vhd:582-583                   | pass   | test/contention/contention_test.cpp:524     |
-| CT-WIN-03    | 48K, hc=15, vc=100 — 4-bit wrap, wait_s=0                           | zxula.vhd:178,582-583               | pass   | test/contention/contention_test.cpp:536     |
-| CT-WIN-04    | 48K, hc=255, vc=100 — same wrap at high end                         | zxula.vhd:178,582-583               | pass   | test/contention/contention_test.cpp:548     |
-| CT-WIN-05    | 48K, hc=256, vc=100 — `hc(8)=1`, window OFF                         | zxula.vhd:583                       | pass   | test/contention/contention_test.cpp:559     |
-| CT-WIN-06    | 48K, hc=100, vc=192 — `border_active_v=1`, window OFF               | zxula.vhd:583                       | pass   | test/contention/contention_test.cpp:574     |
-| CT-WIN-07    | 48K, vc 0..191 sweep — per-phase pattern matches LUT                | zxula.vhd:579-583,587-595           | pass   | test/contention/contention_test.cpp:601     |
-| CT-WIN-08    | +3, `hc_adj(3:1)=000` extra-phase clause (pattern row 0)            | zxula.vhd:582-583                   | pass   | test/contention/contention_test.cpp:637     |
-| CT-WIN-09    | 48K, hc=16, vc=100 — pairs with WIN-04 to pin 4-bit-only wrap       | zxula.vhd:178,582-583               | pass   | test/contention/contention_test.cpp:653     |
-| CT-WIN-10    | 48K, hc=7, vc=100 — pattern[7]=0, pattern bit-3 input branch        | zxula.vhd:582-583,587-595           | pass   | test/contention/contention_test.cpp:666     |
-| CT-S48-01    | 48K, bank 5 mem read inside window, stretched phase — LUT delay    | zxula.vhd:587-595                   | pass   | test/contention/contention_test.cpp:698     |
-| CT-S48-02    | 48K, bank 5 mem read, non-stretched phase — zero added              | zxula.vhd:582-595                   | pass   | test/contention/contention_test.cpp:714     |
-| CT-S48-03    | 48K, bank 0 mem read (never contended page) — zero added            | zxula.vhd:595, zxnext.vhd:4490      | pass   | test/contention/contention_test.cpp:728     |
-| CT-S48-04    | 128K, bank 1 mem read, display+stretched — LUT delay                | zxula.vhd:587-595, zxnext.vhd:4491  | pass   | test/contention/contention_test.cpp:741     |
-| CT-S48-05    | 128K, bank 4 mem read (even bank, not contended) — zero added       | zxnext.vhd:4491                     | pass   | test/contention/contention_test.cpp:755     |
-| CT-S48-06    | 48K, port 0xFE (even, port_contend=1) display+stretched             | zxula.vhd:587-595, zxnext.vhd:4496  | pass   | test/contention/contention_test.cpp:770     |
-| CT-S48-07    | 48K, port 0xFF (odd, port_contend=0) — zero added                   | zxnext.vhd:4496                     | pass   | test/contention/contention_test.cpp:785     |
-| CT-S48-08    | 48K, mem read OUTSIDE display window — zero added                   | zxula.vhd:583                       | pass   | test/contention/contention_test.cpp:799     |
-| CT-SP3-01    | +3, bank 4 mem read inside window, stretched — WAIT_n LUT           | zxula.vhd:600                       | pass   | test/contention/contention_test.cpp:829     |
-| CT-SP3-02    | +3, bank 7 mem read inside window, stretched — LUT delay            | zxula.vhd:600, zxnext.vhd:4492      | pass   | test/contention/contention_test.cpp:846     |
-| CT-SP3-03    | +3, bank 0 mem read (bit(3)=0) — not contended                      | zxnext.vhd:4492                     | pass   | test/contention/contention_test.cpp:859     |
-| CT-SP3-04    | +3, bank 4 mem read OUTSIDE window — wait_s=0                       | zxula.vhd:583,600                   | pass   | test/contention/contention_test.cpp:873     |
-| CT-SP3-05    | +3, bank 4 with `contention_disable=1` — enable gate off            | zxnext.vhd:4481                     | pass   | test/contention/contention_test.cpp:887     |
-| CT-SP3-06    | +3, port 0xFE display window — WAIT path memory-only (zero added)   | zxula.vhd:599-600                   | pass   | test/contention/contention_test.cpp:907     |
-| CT-SP3-07    | +3, port 0xFE display window, contended bank in slot — same         | zxula.vhd:599-600                   | pass   | test/contention/contention_test.cpp:924     |
-| CT-SP3-08    | +3, `hc_adj(3:1)=000` extra phase, bank 4 read — stall asserts      | zxula.vhd:582-583,600               | pass   | test/contention/contention_test.cpp:952     |
+| CT-WIN-02    | 48K, hc=3, vc=100 — phase boundary, wait_s=1                        | zxula.vhd:582-583                   | pass   | test/contention/contention_test.cpp:528     |
+| CT-WIN-03    | 48K, hc=15, vc=100 — 4-bit wrap, wait_s=0                           | zxula.vhd:178,582-583               | pass   | test/contention/contention_test.cpp:540     |
+| CT-WIN-04    | 48K, hc=255, vc=100 — same wrap at high end                         | zxula.vhd:178,582-583               | pass   | test/contention/contention_test.cpp:552     |
+| CT-WIN-05    | 48K, hc=256, vc=100 — `hc(8)=1`, window OFF                         | zxula.vhd:583                       | pass   | test/contention/contention_test.cpp:563     |
+| CT-WIN-06    | 48K, hc=100, vc=192 — `border_active_v=1`, window OFF               | zxula.vhd:583                       | pass   | test/contention/contention_test.cpp:578     |
+| CT-WIN-07    | 48K, vc 0..191 sweep — per-phase pattern matches LUT                | zxula.vhd:579-583,587-595           | pass   | test/contention/contention_test.cpp:615     |
+| CT-WIN-08    | +3, `hc_adj(3:1)=000` extra-phase clause (pattern row 0)            | zxula.vhd:582-583                   | pass   | test/contention/contention_test.cpp:640     |
+| CT-WIN-09    | 48K, hc=16, vc=100 — pairs with WIN-04 to pin 4-bit-only wrap       | zxula.vhd:178,582-583               | pass   | test/contention/contention_test.cpp:656     |
+| CT-WIN-10    | 48K, hc=7, vc=100 — pattern[7]=0, pattern bit-3 input branch        | zxula.vhd:582-583,587-595           | pass   | test/contention/contention_test.cpp:672     |
+| CT-S48-01    | 48K, bank 5 mem read inside window, stretched phase — LUT delay    | zxula.vhd:587-595                   | pass   | test/contention/contention_test.cpp:707     |
+| CT-S48-02    | 48K, bank 5 mem read, non-stretched phase — zero added              | zxula.vhd:582-595                   | pass   | test/contention/contention_test.cpp:723     |
+| CT-S48-03    | 48K, bank 0 mem read (never contended page) — zero added            | zxula.vhd:595, zxnext.vhd:4490      | pass   | test/contention/contention_test.cpp:737     |
+| CT-S48-04    | 128K, bank 1 mem read, display+stretched — LUT delay                | zxula.vhd:587-595, zxnext.vhd:4491  | pass   | test/contention/contention_test.cpp:750     |
+| CT-S48-05    | 128K, bank 4 mem read (even bank, not contended) — zero added       | zxnext.vhd:4491                     | pass   | test/contention/contention_test.cpp:765     |
+| CT-S48-06    | 48K, port 0xFE (even, port_contend=1) display+stretched             | zxula.vhd:587-595, zxnext.vhd:4496  | pass   | test/contention/contention_test.cpp:780     |
+| CT-S48-07    | 48K, port 0xFF (odd, port_contend=0) — zero added                   | zxnext.vhd:4496                     | pass   | test/contention/contention_test.cpp:795     |
+| CT-S48-08    | 48K, mem read OUTSIDE display window — zero added                   | zxula.vhd:583                       | pass   | test/contention/contention_test.cpp:809     |
+| CT-SP3-01    | +3, bank 4 mem read inside window, stretched — WAIT_n LUT           | zxula.vhd:600                       | pass   | test/contention/contention_test.cpp:839     |
+| CT-SP3-02    | +3, bank 7 mem read inside window, stretched — LUT delay            | zxula.vhd:600, zxnext.vhd:4492      | pass   | test/contention/contention_test.cpp:857     |
+| CT-SP3-03    | +3, bank 0 mem read (bit(3)=0) — not contended                      | zxnext.vhd:4492                     | pass   | test/contention/contention_test.cpp:871     |
+| CT-SP3-04    | +3, bank 4 mem read OUTSIDE window — wait_s=0                       | zxula.vhd:583,600                   | pass   | test/contention/contention_test.cpp:885     |
+| CT-SP3-05    | +3, bank 4 with `contention_disable=1` — enable gate off            | zxnext.vhd:4481                     | pass   | test/contention/contention_test.cpp:899     |
+| CT-SP3-06    | +3, port 0xFE display window — WAIT path memory-only (zero added)   | zxula.vhd:599-600                   | pass   | test/contention/contention_test.cpp:919     |
+| CT-SP3-07    | +3, port 0xFE display window, contended bank in slot — same         | zxula.vhd:599-600                   | pass   | test/contention/contention_test.cpp:936     |
+| CT-SP3-08    | +3, `hc_adj(3:1)=000` extra phase, bank 4 read — stall asserts      | zxula.vhd:582-583,600               | pass   | test/contention/contention_test.cpp:959     |
 | CT-PENT-01   | Pentagon, page 0x0A — never contended (machine-type fallthrough)    | zxnext.vhd:4481,4489-4493           | missing | missing                                     |
 | CT-PENT-04   | Pentagon, full Emulator, port 0xFE — gate blocks before decode      | zxnext.vhd:4481                     | missing | missing                                     |
 | CT-PENT-05   | Pentagon, full-frame contended program — 71680 T-state budget       | zxnext.vhd:4481                     | missing | missing                                     |
-| CT-TURBO-01  | 48K, `cpu_speed=1` (7 MHz) bare-class — enable gate off             | zxnext.vhd:4481,5817                | pass   | test/contention/contention_test.cpp:991     |
-| CT-TURBO-04  | 48K, full Emulator, NR 0x07=0x01 → bank-5 read — zero added         | zxnext.vhd:5787-5790,5817           | pass   | test/contention/contention_test.cpp:1015    |
-| CT-TURBO-05  | 48K, full Emulator, NR 0x08 bit 6=1 → bank-5 read — zero added      | zxnext.vhd:4481,5823                | pass   | test/contention/contention_test.cpp:1065    |
-| CT-TURBO-06  | NR 0x08 bit 6 mid-line write — `hc(8)` rising-edge commit gate      | zxnext.vhd:5822-5823                | pass   | test/contention/contention_test.cpp:1130    |
-| CT-TURBO-07  | NR 0x07 bus-idle commit edge (G142)                                 | zxnext.vhd:5796-5828                | pass   | test/contention/contention_test.cpp:1197    |
-| CT-TURBO-08  | NR 0x08+0x07 combined commit ordering (G51)                         | zxnext.vhd:5796-5828, 5822-5823     | pass   | test/contention/contention_test.cpp:2086    |
-| CT-FB-01     | +3, mem read bank 4 — `p3_floating_bus_dat` equals byte read        | zxnext.vhd:4498-4505                | pass   | test/contention/contention_test.cpp:1241    |
-| CT-FB-02     | +3, mem write bank 4 — latch equals byte written                    | zxnext.vhd:4498-4508                | pass   | test/contention/contention_test.cpp:1271    |
-| CT-FB-03     | +3, pre-seed via contended write, then bank-0 read — latch held     | zxnext.vhd:4498-4501                | pass   | test/contention/contention_test.cpp:1297    |
-| CT-FB-04     | +3, I/O read (no MREQ) — latch unchanged (capture gated on MREQ)    | zxnext.vhd:4501                     | pass   | test/contention/contention_test.cpp:1326    |
-| CT-INT-01    | 48K, HALT-loop 1-frame, contention ON — frame T-states match LUT    | zxula.vhd:582-595, zxula_timing.vhd | pass   | test/contention/contention_test.cpp:1372    |
-| CT-INT-02    | 48K, same program, contention OFF via NR 0x08 bit 6 — 69888 baseline| zxnext.vhd:4481,5823                | pass   | test/contention/contention_test.cpp:1406    |
-| CT-INT-03    | Regression screenshot — 48K contention-sensitive demo               | —                                   | pass   | test/contention/contention_test.cpp:1477    |
-| CT-FUSE-01   | 48K, `LD A,(0x4000)` from page 0x0A — M1 fetch contention (G141)    | zxula.vhd:583,595; z80_macros.h:109 | pass   | test/contention/contention_test.cpp:1779    |
-| CT-FUSE-02   | 48K, `LDIR` over page 0x0A — no-MREQ tail contention (G141)         | zxula.vhd:583,595; z80_macros.h:118 | pass   | test/contention/contention_test.cpp:1857    |
+| CT-TURBO-01  | 48K, `cpu_speed=1` (7 MHz) bare-class — enable gate off             | zxnext.vhd:4481,5817                | pass   | test/contention/contention_test.cpp:998     |
+| CT-TURBO-04  | 48K, full Emulator, NR 0x07=0x01 → bank-5 read — zero added         | zxnext.vhd:5787-5790,5817           | pass   | test/contention/contention_test.cpp:1022    |
+| CT-TURBO-05  | 48K, full Emulator, NR 0x08 bit 6=1 → bank-5 read — zero added      | zxnext.vhd:4481,5823                | pass   | test/contention/contention_test.cpp:1072    |
+| CT-TURBO-06  | NR 0x08 bit 6 mid-line write — `hc(8)` rising-edge commit gate      | zxnext.vhd:5822-5823                | pass   | test/contention/contention_test.cpp:1137    |
+| CT-TURBO-07  | NR 0x07 bus-idle commit edge (G142)                                 | zxnext.vhd:5796-5828                | pass   | test/contention/contention_test.cpp:1204    |
+| CT-TURBO-08  | NR 0x08+0x07 combined commit ordering (G51)                         | zxnext.vhd:5796-5828, 5822-5823     | pass   | test/contention/contention_test.cpp:2103    |
+| CT-FB-01     | +3, mem read bank 4 — `p3_floating_bus_dat` equals byte read        | zxnext.vhd:4498-4505                | pass   | test/contention/contention_test.cpp:1248    |
+| CT-FB-02     | +3, mem write bank 4 — latch equals byte written                    | zxnext.vhd:4498-4508                | pass   | test/contention/contention_test.cpp:1278    |
+| CT-FB-03     | +3, pre-seed via contended write, then bank-0 read — latch held     | zxnext.vhd:4498-4501                | pass   | test/contention/contention_test.cpp:1304    |
+| CT-FB-04     | +3, I/O read (no MREQ) — latch unchanged (capture gated on MREQ)    | zxnext.vhd:4501                     | pass   | test/contention/contention_test.cpp:1333    |
+| CT-INT-01    | 48K, HALT-loop 1-frame, contention ON — frame T-states match LUT    | zxula.vhd:582-595, zxula_timing.vhd | pass   | test/contention/contention_test.cpp:1379    |
+| CT-INT-02    | 48K, same program, contention OFF via NR 0x08 bit 6 — 69888 baseline| zxnext.vhd:4481,5823                | pass   | test/contention/contention_test.cpp:1413    |
+| CT-INT-03    | Regression screenshot — 48K contention-sensitive demo               | —                                   | pass   | test/contention/contention_test.cpp:1492    |
+| CT-FUSE-01   | 48K, `LD A,(0x4000)` from page 0x0A — M1 fetch contention (G141)    | zxula.vhd:583,595; z80_macros.h:109 | pass   | test/contention/contention_test.cpp:1796    |
+| CT-FUSE-02   | 48K, `LDIR` over page 0x0A — no-MREQ tail contention (G141)         | zxula.vhd:583,595; z80_macros.h:118 | pass   | test/contention/contention_test.cpp:1874    |
 | CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (G141)| zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
 | CT-FUSE-04   | 48K, `IN A,(0xFE)` in display window — port-read contention (G141)  | zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
-| CT-FUSE-05   | FUSE-table retirement bypass-toggle (G53)                           | —                                   | pass   | test/contention/contention_test.cpp:1962    |
-| CT-DELAY-01  | Full-frame integration drift bound — 48K/128K/+3 ∈ (0, 6·N]; Pent=0 | zxula.vhd:582-595, zxnext.vhd:4481-4492 | pass   | test/contention/contention_test.cpp:1582    |
+| CT-FUSE-05   | FUSE-table retirement bypass-toggle (G53)                           | —                                   | pass   | test/contention/contention_test.cpp:1979    |
+| CT-DELAY-01  | Full-frame integration drift bound — 48K/128K/+3 ∈ (0, 6·N]; Pent=0 | zxula.vhd:582-595, zxnext.vhd:4481-4492 | pass   | test/contention/contention_test.cpp:1597    |
 
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
@@ -2893,7 +2893,7 @@ NMI Source Pipeline plan (`doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md`) closed
 | MF-G48-07       | Port 0xDFFD bit 6 storage for MF readback                                                     | multiface.vhd                                   | pass   | test/nmi/nmi_test.cpp:1087                  |
 | BOOT-LOOP-01    | NextZXOS RAM-test outer loop (208 passes × 112 banks over ~15 s)                              | n/a (end-to-end behavioural)                    | missing | missing                                     |
 | BOOT-LOGO-01    | NextZXOS loader logo + 4-entry log render                                                     | n/a (rendering)                                 | missing | missing                                     |
-| BOOT-DOT-01     | NextZXOS BASIC + dot-command surface                                                          | n/a (end-to-end)                                | skip   | test/nmi/nmi_test.cpp:1225                  |
+| BOOT-DOT-01     | NextZXOS BASIC + dot-command surface                                                          | n/a (end-to-end)                                | missing | missing                                     |
 | BYPASS-FAT-01   | Host-side FAT32 reader for direct enNextZX.rom load                                           | n/a (host-side)                                 | missing | missing                                     |
 | BYPASS-INI-01   | config.ini / menu.ini / menu.def parser                                                       | n/a (host-side)                                 | missing | missing                                     |
 | DIS-01          | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true)        | zxnext.vhd:2170 / divmmc.vhd:108-111            | pass   | test/nmi/nmi_test.cpp:1273                  |

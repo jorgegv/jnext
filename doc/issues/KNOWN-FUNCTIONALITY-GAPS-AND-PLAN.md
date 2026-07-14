@@ -1235,14 +1235,28 @@ where possible.
 - **Status (2026-05-04) — G46(c) CLOSED**: Cold-boot DivMMC automap was firing at PC=0x0000 because `DivMmc::set_enabled(bool)` flipped both `port_io_enable_` AND `nr_0a_4_enable_` from the `--divmmc-rom` startup path; VHDL `zxnext.vhd:1126` defaults `nr_0a_divmmc_automap_en` to '0' (only firmware writing NR 0x0A bit 4 should set it). With NR 0xB8 default 0x83 (RST 0 entry enabled, all-delayed timing), automap was active for the whole boot ROM phase — which the G87 alias-firing band-aid had been masking by clearing `automap_held` whenever tbblue.fw normal code happened to execute an undocumented RETN-alias byte. Fix: `set_enabled(true)` now flips only `port_io_enable_`. Discriminative regression test `NA-01b` added to divmmc_test (probes cold-boot equivalent state from `set_enabled(true)` alone, asserts no automap activates). Tbblue.fw splash logo now renders cleanly at f100 (3 colors, big blue "TBBlue"), spacebar prompt clean at f200, four-line ROM loader log clean at f250-f275. Boot now progresses past splash into the original G46(b) RAM-test loop. Commits `e9cbfd2` (`divmmc-enable-faithful-defaults`) + `d79d24b` (post-merge `nmi_test` fixture restore). divmmc_test 110/110, nmi_test 56/56, nmi_integration_test 9/9, full unit suite 33/0/0.
 - **Status (2026-05-04) — G46(b) shape unchanged**: After G46(c) landed, post-soft-reset boot reaches enNextZX.rom RAM-test pass-1 loop at PC=0x0139-0x013D (NEXTREG 0x56,A then NEXTREG 0x57,A — bank-switching slot 6/7 RAM banks for memory test). Trace shows firmware DOES reach pass 2 (PC 0x0196-0x01D7) and post-RAM-test init (0x0207-0x0217, 0x5B48 in slot 2) over a few seconds wall clock, but never reaches BASIC welcome screen. Same exit-predicate gap as the journal's 2026-04-25 analysis: "writes NR 0x56 with every even value from 0x00 to 0xDE, then wraps back to 0x00 and restarts ≈208 passes per bank in 15 s". Hypothesised NR 0x1E/0x1F (active video line) timing skew or peripheral status register that firmware polls but we don't update correctly. **Next investigation step**: RE the exit condition of the RAM-test outer loop in `enNextZX.rom` 0x0130-0x016C and 0x018E-0x01C9, identify which polled value our emulator returns wrong.
 
-### G47. NextZXOS post-boot regression / dot-command surface
-- **What**: Once boot lands (G46), no automated test or CLI surface
-  for "load NextZXOS, run dot command, screenshot result".
+### G47. NextZXOS post-boot regression / dot-command surface [closed]
+- **Status: CLOSED 2026-07-14** (Task 57). Screenshot regression row
+  `boot-nextzxos-dotls` (`test/00regression/regression_tests.conf`)
+  boots NextZXOS natively, drives the main menu with injected
+  keypresses (SPACE → DOWN → ENTER into "Command Line"), types `.ls`
+  + ENTER and pins the SD-root directory listing at frame 800 (settled
+  on the `scroll?` prompt; listing verified against the image's FAT32
+  root via mtools — 22 files, matching names/sizes; capture
+  byte-identical across repeated runs). Enabler:
+  `--delayed-keypress-frames` key names extended to named cursors
+  (up/down/left/right = CAPS SHIFT + 7/6/5/8), punctuation (`.` `,`
+  `;` `:` via their SYMBOL SHIFT compounds) and explicit
+  `sym+<char>` / `caps+<char>` compounds; unknown key names now fail
+  loudly at startup instead of being silently dropped at injection.
+  nmi_test BOOT-DOT-01 converted from skip() to a
+  COVERED-AT-regression-tier comment (nmi_test 58 → 57 rows).
+- **What was originally observed**: Once boot lands (G46), no
+  automated test or CLI surface for "load NextZXOS, run dot command,
+  screenshot result".
 - **Source ref**: `NEXTZXOS-BOOT-INVESTIGATION.md`; bypass plan
   §"Acceptance".
-- **Dependencies**: G46.
-- **Proposed**: `test/regression/nextzxos-boot.sh` once any boot
-  path lands.
+- **Dependencies**: G46 (boot landed 2026-07-10).
 - **Effort**: L.
 
 ### G48. Multiface peripheral (Task 8) [closed]

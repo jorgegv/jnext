@@ -89,7 +89,9 @@ static void print_usage(const char* prog) {
         "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
         "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (overrides SECS form)\n"
-        "                               KEY: single char, or symbolic ENTER / RETURN / SPACE (case-insensitive)\n"
+        "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
+        "                               ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT,\n"
+        "                               or a compound sym+<char> / caps+<char> (e.g. sym+m = '.')\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
         "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
         "  --profile               Enable the CPU T-state profiler (Task 21).\n"
@@ -162,7 +164,7 @@ int main(int argc, char* argv[]) {
     std::string profile_output_path = "profile.dat";
     std::string rtc_fixed_arg;
     std::tm     rtc_fixed_tm{};
-    struct DelayedKeyArg { int delay; char key; bool in_frames; };
+    struct DelayedKeyArg { int delay; std::string key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
 
     // Parse command-line arguments.
@@ -259,15 +261,12 @@ int main(int argc, char* argv[]) {
             const bool in_frames = (arg == "--delayed-keypress-frames");
             int dk_n = std::stoi(argv[++i]);
             std::string dk_key = argv[++i];
+            // Key-name parsing (single char, ENTER/SPACE/cursor names,
+            // punctuation, sym+X / caps+X compounds) lives in
+            // HeadlessApp::set_delayed_keypress, which rejects unknown
+            // names loudly (Task 57). Just store the raw name here.
             if (!dk_key.empty()) {
-                std::string upper;
-                upper.reserve(dk_key.size());
-                for (char c : dk_key) upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
-                char k;
-                if (upper == "ENTER" || upper == "RETURN") k = '\n';
-                else if (upper == "SPACE") k = ' ';
-                else k = static_cast<char>(std::tolower(static_cast<unsigned char>(dk_key[0])));
-                delayed_keys.push_back({dk_n, k, in_frames});
+                delayed_keys.push_back({dk_n, dk_key, in_frames});
             }
         } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
             rewind_buffer_frames = std::stoi(argv[++i]);
@@ -521,8 +520,16 @@ int main(int argc, char* argv[]) {
     if (headless) {
         HeadlessApp app;
         for (auto& dk : delayed_keys) {
-            if (dk.in_frames) app.set_delayed_keypress(dk.key, dk.delay);
-            else              app.set_delayed_keypress_seconds(dk.key, dk.delay);
+            const bool ok = dk.in_frames
+                ? app.set_delayed_keypress(dk.key, dk.delay)
+                : app.set_delayed_keypress_seconds(dk.key, dk.delay);
+            if (!ok) {
+                fprintf(stderr, "Unknown --delayed-keypress key name: '%s'\n"
+                        "Valid: single char (a-z 0-9 . , ; :), ENTER, SPACE, "
+                        "UP, DOWN, LEFT, RIGHT, sym+<char>, caps+<char>\n",
+                        dk.key.c_str());
+                return 1;
+            }
         }
         result = configure_and_run(app);
     } else {
