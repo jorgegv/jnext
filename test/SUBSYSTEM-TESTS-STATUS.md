@@ -11,8 +11,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Rewind                |       32 |       22 |      0 |      10 |     68% | 🟡 Task 7r2: G66/G67 SS-VER + RB-FRAME skips added. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU            |      238 |      216 |      0 |      22 |     90% | 🟡 Tier B 2026-05-04: G16 BOOT-NEX-07 closed (NEX bank-5 pre-zero); G35 BOOT-SNAPSAVE-01/04 closed (SnaSaver wired to GUI Ctrl+Shift+S). EF7-06 re-homed; BOOT-FDC → WONT. |
-| Memory/MMU (int)      |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU            |      252 |      246 |      0 |       6 |     97% | 🟡 Task 57: G33 Phase 1 — BOOT-TAPESAVE-01..03 closed (TapSaver). |
+| Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. Task 57: MMU-G33-TRAP-01..03 added. |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      279 |      279 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |

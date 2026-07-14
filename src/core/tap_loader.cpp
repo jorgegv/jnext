@@ -5,18 +5,6 @@
 #include <cstring>
 #include <fstream>
 
-/// Read a little-endian uint16_t from a byte buffer.
-static uint16_t read_u16(const uint8_t* p) {
-    return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
-}
-
-bool TapBlock::verify_checksum() const {
-    uint8_t xor_val = flag;
-    for (uint8_t b : data) xor_val ^= b;
-    xor_val ^= checksum;
-    return xor_val == 0;
-}
-
 bool TapLoader::load(const std::string& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) {
@@ -34,46 +22,10 @@ bool TapLoader::load(const std::string& path) {
     std::vector<uint8_t> file_data(static_cast<size_t>(file_size));
     f.read(reinterpret_cast<char*>(file_data.data()), file_size);
 
-    // Parse TAP blocks: each block is [2-byte LE length][length bytes of data]
-    // The data bytes are: [flag][payload...][checksum]
-    size_t pos = 0;
-    blocks_.clear();
-
-    while (pos + 2 <= file_data.size()) {
-        uint16_t block_len = read_u16(&file_data[pos]);
-        pos += 2;
-
-        if (block_len == 0) {
-            Log::emulator()->warn("TAP: zero-length block at offset {}", pos - 2);
-            continue;
-        }
-
-        if (pos + block_len > file_data.size()) {
-            Log::emulator()->warn("TAP: truncated block at offset {} (need {} bytes, have {})",
-                                   pos, block_len, file_data.size() - pos);
-            break;
-        }
-
-        TapBlock block;
-        block.flag = file_data[pos];
-
-        // Data is everything between flag and checksum
-        if (block_len >= 2) {
-            block.data.assign(&file_data[pos + 1], &file_data[pos + block_len - 1]);
-            block.checksum = file_data[pos + block_len - 1];
-        } else {
-            // Block with only flag byte (unusual but valid — checksum is flag itself)
-            block.checksum = block.flag;
-        }
-
-        if (!block.verify_checksum()) {
-            Log::emulator()->warn("TAP: checksum mismatch in block {} (flag={:#04x})",
-                                   blocks_.size(), block.flag);
-        }
-
-        blocks_.push_back(std::move(block));
-        pos += block_len;
-    }
+    // Parse the raw bytes — the loop lives inline in tap_loader.h
+    // (parse_blocks) so mmu_test can round-trip TapSaver output through it.
+    parse_blocks(file_data, blocks_,
+                 [](const std::string& msg) { Log::emulator()->warn("{}", msg); });
 
     Log::emulator()->info("TAP: loaded '{}' — {} blocks", path, blocks_.size());
 

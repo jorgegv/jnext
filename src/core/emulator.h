@@ -49,6 +49,7 @@
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
+#include "core/tap_saver.h"
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"
@@ -176,6 +177,10 @@ public:
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }
     const TapLoader& tape() const { return tape_; }
+
+    /// Access the tape saver (G33 Phase 1 — trap-based SAVE→TAP).
+    TapSaver& tap_saver() { return tap_saver_; }
+    const TapSaver& tap_saver() const { return tap_saver_; }
 
     /// Access the TZX loader.
     TzxLoader& tzx_tape() { return tzx_tape_; }
@@ -747,6 +752,9 @@ private:
     TraceLog        trace_log_;
     CallStack       call_stack_;
     TapLoader       tape_;
+    // G33 Phase 1 — trap-based SAVE→TAP. Inactive unless --tape-save
+    // supplied (EmulatorConfig::tape_save_file); armed via Emulator::init().
+    TapSaver        tap_saver_;
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;
     VideoRecorder   video_recorder_;

@@ -1323,6 +1323,171 @@ static void test_snapsave_nex_roundtrip() {
 }
 
 
+// ── G33 Phase 1 — SA-BYTES tape-SAVE trap (Task 57) ──────────────────
+//
+// Exercises the full-Emulator tier of the tape-SAVE feature: the trap
+// handler itself (TapSaver::handle_sa_bytes_trap) and the run_frame()
+// arming gate — --tape-save active + ROM in slot 0 + PC==0x04C2 + the
+// 48K SA-BYTES ROM-identity signature (21 3F 05 E5 = LD HL,0x053F /
+// PUSH HL, bytes verified against the extracted 48.rom). The identity
+// check exists because a plain PC gate fired during an ordinary
+// NextZXOS boot and corrupted it (Task 57 review finding); row 03 is
+// the discriminative negative: same PC, same ROM-in-slot-0, same armed
+// saver, different ROM bytes — trap must NOT fire.
+//
+// Expected TAP bytes are hand-computed from the TAP container spec
+// (LE length = payload+2, flag, payload, XOR checksum), never from
+// TapSaver's own output. mkstemp temp files, unlinked per row.
+
+static const uint8_t g33_payload[5] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x01 };
+// Hand-computed data block, flag 0xFF:
+// checksum FF^DE=0x21 ^AD=0x8C ^BE=0x32 ^EF=0xDD ^01=0xDC.
+static const uint8_t g33_expected_block[9] = {
+    0x07, 0x00, 0xFF, 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0xDC,
+};
+
+// Shared per-row setup: fresh Emulator, saver armed on a mkstemp path,
+// payload at 0x9000, return address 0x8123 planted at SP 0x7FF0, JR $
+// (18 FE) at 0x8123 to park the CPU after the trap.
+static bool g33_setup(Emulator& emu, char* tmp_path) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) return false;
+    close(fd);
+    if (!emu.tap_saver().set_output(tmp_path)) return false;
+    for (size_t i = 0; i < sizeof(g33_payload); ++i)
+        emu.mmu().write(static_cast<uint16_t>(0x9000 + i), g33_payload[i]);
+    emu.mmu().write(0x7FF0, 0x23);   // return address LE @ SP
+    emu.mmu().write(0x7FF1, 0x81);
+    emu.mmu().write(0x8123, 0x18);   // JR $
+    emu.mmu().write(0x8124, 0xFE);
+    auto regs = emu.cpu().get_registers();
+    regs.AF   = 0xFF00;              // A = flag 0xFF, carry clear
+    regs.IX   = 0x9000;
+    regs.DE   = 0x0005;
+    regs.SP   = 0x7FF0;
+    regs.IFF1 = 0;                   // no frame-interrupt redirect
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    return true;
+}
+
+static std::vector<uint8_t> g33_read_file(const char* path) {
+    std::vector<uint8_t> bytes;
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (f) {
+        bytes.resize(static_cast<size_t>(f.tellg()));
+        f.seekg(0);
+        f.read(reinterpret_cast<char*>(bytes.data()),
+               static_cast<std::streamsize>(bytes.size()));
+    }
+    return bytes;
+}
+
+static void test_g33_tapesave_trap() {
+    set_group("G33-TAPESAVE-TRAP");
+
+    // MMU-G33-TRAP-01 — the trap handler itself, called directly:
+    // reads A/IX/DE, appends the hand-computed TAP block, and exits with
+    // the LD-BYTES-trap return mechanics (IX advanced, DE=0, carry set,
+    // return address popped into PC, SP+=2).
+    {
+        Emulator emu;
+        char tmp_path[] = "/tmp/jnext-mmu-int-tapesave-XXXXXX";
+        bool ok = g33_setup(emu, tmp_path);
+        bool handled = ok && emu.tap_saver().handle_sa_bytes_trap(emu);
+        auto file = g33_read_file(tmp_path);
+        auto regs = emu.cpu().get_registers();
+        bool file_ok = file.size() == sizeof(g33_expected_block) &&
+                       std::memcmp(file.data(), g33_expected_block,
+                                   sizeof(g33_expected_block)) == 0;
+        bool regs_ok = regs.PC == 0x8123 && regs.SP == 0x7FF2 &&
+                       regs.IX == 0x9005 && regs.DE == 0x0000 &&
+                       (regs.AF & 0x0001) != 0;
+        check("MMU-G33-TRAP-01",
+              "handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on "
+              "file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set "
+              "(mirrors the LD-BYTES trap return mechanics)",
+              ok && handled && file_ok && regs_ok,
+              fmt("ok=%d handled=%d file_size=%zu file_ok=%d PC=0x%04X SP=0x%04X "
+                  "IX=0x%04X DE=0x%04X carry=%d",
+                  static_cast<int>(ok), static_cast<int>(handled), file.size(),
+                  static_cast<int>(file_ok), regs.PC, regs.SP, regs.IX, regs.DE,
+                  static_cast<int>(regs.AF & 1)));
+        unlink(tmp_path);
+    }
+
+    // MMU-G33-TRAP-02 — run_frame() gate, positive: slot-0 ROM carries
+    // the genuine SA-BYTES prologue at 0x04C2 (boot-ROM overlay used as
+    // the controllable ROM image; is_slot_rom(0) holds at reset). With
+    // PC=0x04C2 the trap must fire exactly once and park at the ret.
+    {
+        Emulator emu;
+        char tmp_path[] = "/tmp/jnext-mmu-int-tapesave-XXXXXX";
+        bool ok = g33_setup(emu, tmp_path);
+        std::vector<uint8_t> fake_rom(0x2000, 0x00);
+        fake_rom[0x04C2] = 0x21; fake_rom[0x04C3] = 0x3F;   // LD HL,0x053F
+        fake_rom[0x04C4] = 0x05; fake_rom[0x04C5] = 0xE5;   // PUSH HL
+        emu.mmu().set_boot_rom(fake_rom.data(), fake_rom.size());
+        emu.mmu().set_boot_rom_enabled(true);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = TapSaver::SA_BYTES_ADDR;
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        auto file = g33_read_file(tmp_path);
+        auto post = emu.cpu().get_registers();
+        bool file_ok = file.size() == sizeof(g33_expected_block) &&
+                       std::memcmp(file.data(), g33_expected_block,
+                                   sizeof(g33_expected_block)) == 0;
+        check("MMU-G33-TRAP-02",
+              "run_frame gate positive: SA-BYTES signature in slot-0 ROM + "
+              "PC=0x04C2 + armed saver -> trap fires once, block on file, "
+              "CPU parked at popped return address",
+              ok && emu.tap_saver().blocks_written() == 1 && file_ok &&
+                  post.PC == 0x8123,
+              fmt("ok=%d blocks=%zu file_size=%zu file_ok=%d PC=0x%04X",
+                  static_cast<int>(ok), emu.tap_saver().blocks_written(),
+                  file.size(), static_cast<int>(file_ok), post.PC));
+        unlink(tmp_path);
+    }
+
+    // MMU-G33-TRAP-03 — run_frame() gate negative (the NextZXOS-boot
+    // false-fire class): everything identical to row 02 EXCEPT the ROM
+    // bytes at 0x04C2 are not the SA-BYTES prologue (JR $ here — any
+    // non-48K ROM). The trap must NOT fire: zero blocks, empty file,
+    // and the CPU actually executes the ROM code at 0x04C2.
+    {
+        Emulator emu;
+        char tmp_path[] = "/tmp/jnext-mmu-int-tapesave-XXXXXX";
+        bool ok = g33_setup(emu, tmp_path);
+        std::vector<uint8_t> fake_rom(0x2000, 0x00);
+        fake_rom[0x04C2] = 0x18; fake_rom[0x04C3] = 0xFE;   // JR $
+        emu.mmu().set_boot_rom(fake_rom.data(), fake_rom.size());
+        emu.mmu().set_boot_rom_enabled(true);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = TapSaver::SA_BYTES_ADDR;
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        auto file = g33_read_file(tmp_path);
+        auto post = emu.cpu().get_registers();
+        check("MMU-G33-TRAP-03",
+              "run_frame gate negative: non-48K ROM bytes at 0x04C2 with the "
+              "saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, "
+              "empty file, CPU executes the real ROM code) — the ungated trap "
+              "corrupted a plain NextZXOS boot (Task 57 review)",
+              ok && emu.tap_saver().blocks_written() == 0 && file.empty() &&
+                  post.PC == TapSaver::SA_BYTES_ADDR,
+              fmt("ok=%d blocks=%zu file_size=%zu PC=0x%04X",
+                  static_cast<int>(ok), emu.tap_saver().blocks_written(),
+                  file.size(), post.PC));
+        unlink(tmp_path);
+    }
+}
+
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -1372,6 +1537,9 @@ int main() {
 
     test_snapsave_nex_roundtrip();
     std::printf("  Group: SNAPSAVE-NEX-RT (Task 13b .nex full round trip) — done\n");
+
+    test_g33_tapesave_trap();
+    std::printf("  Group: G33-TAPESAVE-TRAP (Task 57 SA-BYTES SAVE trap + gate) — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",

@@ -144,6 +144,11 @@ struct EmulatorConfig {
     // NextZXOS, so the real esxdos firmware isn't in DivMMC SRAM).
     bool esxdos_stub = false;
 
+    // --tape-save (G33 Phase 1): append blocks SAVEd via the 48K ROM
+    // SA-BYTES routine (trap at 0x04C2) to this .tap file. Empty = the
+    // SAVE trap is inactive (real-time MIC capture is G33 Phase 2).
+    std::string tape_save_file;
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)

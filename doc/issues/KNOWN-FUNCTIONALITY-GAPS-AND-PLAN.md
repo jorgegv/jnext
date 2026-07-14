@@ -1042,6 +1042,29 @@ where possible.
 - **Proposed**: Phase 1 trap-based SAVE→TAP (ROM 0x04C2); Phase 2
   analogue MIC→TZX 0x10/0x11; Phase 3 WAV writer.
 - **Effort**: M.
+- **Status: Phase 1 CLOSED (Task 57, 2026-07-14)**. `TapSaver`
+  (`src/core/tap_saver.{h,cpp}`) landed: SA-BYTES ROM trap at `0x04C2`
+  (entry bytes verified against the extracted 48.rom; A=flag, IX=start,
+  DE=length per the Complete Spectrum ROM Disassembly; same gating +
+  pop-return-address exit as the LD-BYTES fast-load trap), armed via
+  `--tape-save FILE` (append semantics; inactive without the flag).
+  Blocks are standard TAP (LE length = payload+2, flag, payload, XOR
+  checksum). Unblocked `mmu_test` BOOT-TAPESAVE-01..03 (byte-array
+  fixtures + TapLoader::parse_blocks round-trip). Foreign-reader
+  verified: a stub-driven `SAVE` produced a TAP that real FUSE 1.6.0
+  auto-loaded and ran ("Program: SAVETEST" / "0 OK, 10:1").
+  **Scope caveat**: the trap captures ONLY saves routed through the 48K
+  ROM SA-BYTES routine (48K BASIC; 128K/+3 when they page 48K BASIC in
+  for tape ops). Custom savers that bit-bang MIC directly are Phase 2
+  territory. The independent review caught a false-fire class — a plain
+  PC gate triggered 10× during an ordinary NextZXOS boot (other ROMs
+  execute at 0x04C2 too), corrupting the file and the boot — fixed by
+  the ROM-identity signature gate (`TapSaver::sa_bytes_rom_present`),
+  covered by `mmu_integration_test` MMU-G33-TRAP-01..03 and the
+  `tape-save-boot-func` regression row (NextZXOS boot with --tape-save
+  armed: pixel-identical boot, zero blocks).
+  **STILL OPEN**: Phase 2 (analogue MIC→TZX 0x10/0x11) and Phase 3
+  (WAV writer); GUI menu integration for `--tape-save` is a follow-up.
 
 ### G34. `.z80` snapshot loader
 - **What**: SNA + SZX supported; `.z80` (most-popular legacy

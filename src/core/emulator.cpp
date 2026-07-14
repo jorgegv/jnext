@@ -5100,6 +5100,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         });
 
+    // --- Tape SAVE (G33 Phase 1) ---
+    if (!cfg.tape_save_file.empty()) {
+        if (tap_saver_.set_output(cfg.tape_save_file)) {
+            Log::emulator()->info("Tape SAVE: appending SAVEd blocks to '{}'",
+                                  cfg.tape_save_file);
+        } else {
+            Log::emulator()->error("Tape SAVE: cannot open '{}' for append — SAVE trap disabled",
+                                   cfg.tape_save_file);
+        }
+    }
+
     // --- Magic Port (debug output) ---
     if (cfg.magic_port_enabled) {
         Log::emulator()->info("Magic port enabled at {:#06x}, mode={}",
@@ -6372,6 +6383,23 @@ void Emulator::run_frame()
             if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
                 pc == TzxLoader::LD_BYTES_ADDR) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
+                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
+                clock_.tick(fake_cycles);
+                scheduler_.run_until(clock_.get());
+                continue;
+            }
+
+            // Tape SAVE (G33 Phase 1): intercept SA-BYTES when --tape-save
+            // armed the saver. Gating: --tape-save present (intent, mirrors
+            // the loaders' tape_.is_loaded() gate) + ROM paged in at slot 0
+            // (outer if) + exact PC match + ROM identity — the bytes at
+            // 0x04C2 must be the 48K SA-BYTES prologue (21 3F 05 E5).
+            // Without the identity check this fired 10 times during a plain
+            // NextZXOS boot (other ROMs execute at 0x04C2 too), appending
+            // garbage blocks and corrupting the boot (Task 57 review).
+            if (tap_saver_.active() && pc == TapSaver::SA_BYTES_ADDR &&
+                TapSaver::sa_bytes_rom_present(mmu_)) {
+                tap_saver_.handle_sa_bytes_trap(*this);
                 uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
                 clock_.tick(fake_cycles);
                 scheduler_.run_until(clock_.get());

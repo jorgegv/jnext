@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,7 +16,16 @@ struct TapBlock {
     uint8_t checksum;                // XOR checksum from file
 
     /// Verify the XOR checksum (flag ^ data[0] ^ data[1] ^ ... == checksum).
-    bool verify_checksum() const;
+    /// Inline (not in tap_loader.cpp) so suites that cannot link
+    /// jnext_core — mmu_test, which round-trips TapSaver output through
+    /// this loader (BOOT-TAPESAVE-03) — can call it. Same precedent as
+    /// z80_loader.h.
+    bool verify_checksum() const {
+        uint8_t xor_val = flag;
+        for (uint8_t b : data) xor_val ^= b;
+        xor_val ^= checksum;
+        return xor_val == 0;
+    }
 };
 
 /// TAP file loader for the ZX Spectrum emulator.
@@ -32,6 +43,70 @@ class TapLoader {
 public:
     /// Parse a TAP file into blocks.  Returns true on success.
     bool load(const std::string& path);
+
+    /// Parse raw TAP file bytes into blocks — the exact loop load() runs
+    /// on the file contents. Defined inline here (not in tap_loader.cpp)
+    /// so suites that cannot link jnext_core (mmu_test — BOOT-TAPESAVE-03
+    /// round-trips TapSaver output through the real loader parse path)
+    /// can call it. Same precedent as z80_loader.h. Anomalies (zero-length
+    /// block, truncated block, checksum mismatch) are reported through the
+    /// optional `warn` callback — load() routes them to Log::emulator()
+    /// (this header cannot include core/log.h: spdlog's `namespace fmt`
+    /// collides with test-local fmt() helpers in TUs including emulator.h).
+    static void parse_blocks(const std::vector<uint8_t>& file_data,
+                             std::vector<TapBlock>& blocks,
+                             const std::function<void(const std::string&)>& warn = {}) {
+        char msg[128];
+        // Parse TAP blocks: each block is [2-byte LE length][length bytes of data]
+        // The data bytes are: [flag][payload...][checksum]
+        size_t pos = 0;
+        blocks.clear();
+
+        while (pos + 2 <= file_data.size()) {
+            uint16_t block_len = static_cast<uint16_t>(
+                file_data[pos] | (static_cast<uint16_t>(file_data[pos + 1]) << 8));
+            pos += 2;
+
+            if (block_len == 0) {
+                if (warn) {
+                    snprintf(msg, sizeof(msg), "TAP: zero-length block at offset %zu", pos - 2);
+                    warn(msg);
+                }
+                continue;
+            }
+
+            if (pos + block_len > file_data.size()) {
+                if (warn) {
+                    snprintf(msg, sizeof(msg),
+                             "TAP: truncated block at offset %zu (need %u bytes, have %zu)",
+                             pos, block_len, file_data.size() - pos);
+                    warn(msg);
+                }
+                break;
+            }
+
+            TapBlock block;
+            block.flag = file_data[pos];
+
+            // Data is everything between flag and checksum
+            if (block_len >= 2) {
+                block.data.assign(&file_data[pos + 1], &file_data[pos + block_len - 1]);
+                block.checksum = file_data[pos + block_len - 1];
+            } else {
+                // Block with only flag byte (unusual but valid — checksum is flag itself)
+                block.checksum = block.flag;
+            }
+
+            if (!block.verify_checksum() && warn) {
+                snprintf(msg, sizeof(msg), "TAP: checksum mismatch in block %zu (flag=0x%02x)",
+                         blocks.size(), block.flag);
+                warn(msg);
+            }
+
+            blocks.push_back(std::move(block));
+            pos += block_len;
+        }
+    }
 
     /// Number of blocks in the tape.
     size_t block_count() const { return blocks_.size(); }
