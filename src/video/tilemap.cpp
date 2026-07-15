@@ -405,6 +405,38 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // Output width is always 640 — no col-mode branch.
     const int out_width = 640;
 
+    // ----------------------------------------------------------------------
+    // C7 (Task 27) — per-tile hoist.
+    //
+    // The map fetch (tile index + attribute), the attribute decode, the
+    // 512-mode tile-bit merge, the ULA-over resolution and — for the safe
+    // non-rotate cases — the tile-definition ROW fetch, all depend ONLY on
+    // `tile_col` (given the per-scanline constants above).  They are the same
+    // for every one of the 8 source pixels of a tile.  The old code redid all
+    // of it (including 2× `vram_read` for index+attr, plus a `vram_read` for
+    // the pattern row) at EVERY output cell.  We now cache the per-tile block
+    // and recompute it only when `tile_col` changes.  Every per-pixel value
+    // below is byte-for-byte what the old loop produced — this is a pure
+    // memoisation, not a behaviour change.
+    //
+    // ROTATE is the one mode where the pattern-row fetch is genuinely
+    // per-pixel: rotation swaps eff_px/eff_py, so the def-memory ROW read
+    // depends on the pixel column within the tile.  For rotate we cache the
+    // map/decode block (still a win — index+attr hoisted) but leave the
+    // pattern fetch on the per-pixel path.  Text mode never rotates and
+    // standard non-rotate has a fixed row per tile, so both prefetch the row.
+    int      cached_tile_col = -1;
+    uint16_t full_tile_index = 0;
+    uint8_t  pal_offset      = 0;
+    bool     rotate          = false;
+    bool     eff_x_mirror    = false;   // x_mirror ^ rotate (non-rotate: == x_mirror)
+    bool     pixel_below     = false;
+    // Prefetched tile-definition row for the safe (non-rotate) fetch paths.
+    uint8_t  row_text        = 0;       // text mode: 1 byte  (bit per pixel)
+    uint8_t  row_std[4]      = {0,0,0,0}; // standard non-rotate: 4 bytes (2 px each)
+    // eff_py for the non-rotate standard path (y-mirror applied, per tile).
+    int      eff_py_tile     = 0;
+
     for (int screen_x = 0; screen_x < out_width; ++screen_x) {
         // Tile-fetch source-pixel index.
         //   80-col (VHDL tm_mode='1', 14 MHz tap): native 1:1 — each
@@ -430,85 +462,96 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         int abs_x = (tilemap_x + line_scroll_x) % wrap_x;
 
         // Tile column and pixel within tile (always 8 pixels per tile).
-        int tile_col = abs_x / 8;
-        int pixel_x  = abs_x % 8;
+        int tile_col = abs_x >> 3;   // abs_x / 8
+        int pixel_x  = abs_x & 7;    // abs_x % 8
 
-        // Read tile index from map memory.
-        uint32_t map_addr = map_base_addr_ + (map_row_offset + tile_col) * map_entry_size;
-        uint8_t tile_index = vram_read(ram, map_addr);
+        // --- Per-tile block: recompute only on a tile boundary. ---
+        if (tile_col != cached_tile_col) {
+            cached_tile_col = tile_col;
 
-        // Read or apply attribute.
-        uint8_t attr;
-        if (force_attr_) {
-            attr = default_attr_;
-        } else {
-            attr = vram_read(ram, map_addr + 1);
-        }
+            // Read tile index from map memory.
+            uint32_t map_addr = map_base_addr_ + (map_row_offset + tile_col) * map_entry_size;
+            uint8_t tile_index = vram_read(ram, map_addr);
 
-        // Decode attribute.
-        uint8_t pal_offset;
-        bool x_mirror, y_mirror, rotate;
-        bool tile_ula_over;
+            // Read or apply attribute.
+            uint8_t attr;
+            if (force_attr_) {
+                attr = default_attr_;
+            } else {
+                attr = vram_read(ram, map_addr + 1);
+            }
 
-        if (text_mode_) {
-            // Text mode: bits 7:1 = palette offset (7 bits), bit 0 = ULA-over / tile bit 8.
-            pal_offset = (attr >> 1) & 0x7F;
-            x_mirror   = false;
-            y_mirror   = false;
-            rotate     = false;
-            tile_ula_over = (attr & 0x01) != 0;
-        } else {
-            // Standard mode: bits 7:4 = palette offset, bit 3 = X mirror,
-            // bit 2 = Y mirror, bit 1 = rotate, bit 0 = ULA-over / tile bit 8.
-            pal_offset = (attr >> 4) & 0x0F;
-            x_mirror   = (attr & 0x08) != 0;
-            y_mirror   = (attr & 0x04) != 0;
-            rotate     = (attr & 0x02) != 0;
-            tile_ula_over = (attr & 0x01) != 0;
-        }
+            // Decode attribute.
+            bool x_mirror, y_mirror;
+            bool tile_ula_over;
 
-        // In 512-tile mode, attr bit 0 is tile index bit 8 instead of ULA-over.
-        uint16_t full_tile_index = tile_index;
-        if (mode_512_) {
-            full_tile_index |= (attr & 0x01) ? 0x100 : 0;
-            // In 512-tile mode, per-tile ULA-over is not available.
-            tile_ula_over = false;
-        }
+            if (text_mode_) {
+                // Text mode: bits 7:1 = palette offset (7 bits), bit 0 = ULA-over / tile bit 8.
+                pal_offset = (attr >> 1) & 0x7F;
+                x_mirror   = false;
+                y_mirror   = false;
+                rotate     = false;
+                tile_ula_over = (attr & 0x01) != 0;
+            } else {
+                // Standard mode: bits 7:4 = palette offset, bit 3 = X mirror,
+                // bit 2 = Y mirror, bit 1 = rotate, bit 0 = ULA-over / tile bit 8.
+                pal_offset = (attr >> 4) & 0x0F;
+                x_mirror   = (attr & 0x08) != 0;
+                y_mirror   = (attr & 0x04) != 0;
+                rotate     = (attr & 0x02) != 0;
+                tile_ula_over = (attr & 0x01) != 0;
+            }
 
-        // Determine the ULA-over flag for this pixel.
-        // From VHDL: pixel_below = (tm_tilemap_1(0) or mode_512_q) and not tm_on_top_q
-        // tile_ula_over is attr bit 0; in 512 mode it's always set (tile bit 8),
-        // but tm_on_top_q overrides.
-        bool pixel_below;
-        if (ula_on_top_) {
-            // Global ULA-on-top: tilemap is always below ULA.
-            pixel_below = false;
-        } else {
-            // Per-tile: below if ULA-over bit or 512-mode.
-            pixel_below = tile_ula_over || mode_512_;
-        }
+            // In 512-tile mode, attr bit 0 is tile index bit 8 instead of ULA-over.
+            full_tile_index = tile_index;
+            if (mode_512_) {
+                full_tile_index |= (attr & 0x01) ? 0x100 : 0;
+                // In 512-tile mode, per-tile ULA-over is not available.
+                tile_ula_over = false;
+            }
 
-        // Apply transforms to get the effective pixel coordinates within the tile.
-        int eff_px = pixel_x;  // 0-7
-        int eff_py = pixel_y;  // 0-7
+            // Determine the ULA-over flag for this tile.
+            // From VHDL: pixel_below = (tm_tilemap_1(0) or mode_512_q) and not tm_on_top_q
+            // tile_ula_over is attr bit 0; in 512 mode it's always set (tile bit 8),
+            // but tm_on_top_q overrides.
+            if (ula_on_top_) {
+                // Global ULA-on-top: tilemap is always below ULA.
+                pixel_below = false;
+            } else {
+                // Per-tile: below if ULA-over bit or 512-mode.
+                pixel_below = tile_ula_over || mode_512_;
+            }
 
-        if (!text_mode_) {
-            // VHDL transform chain:
-            // effective_x_mirror = x_mirror XOR rotate (rotation inverts x mirror)
-            // effective_x = x_mirror_effective ? (7 - abs_x[2:0]) : abs_x[2:0]
-            // effective_y = y_mirror ? (7 - abs_y[2:0]) : abs_y[2:0]
-            // transformed_x = rotate ? effective_y : effective_x
-            // transformed_y = rotate ? effective_x : effective_y
+            // Effective x-mirror for the non-rotate pattern path
+            // (VHDL: effective_x_mirror = x_mirror XOR rotate; rotate=0 here).
+            eff_x_mirror = x_mirror ^ rotate;
 
-            bool eff_x_mirror = x_mirror ^ rotate;
-            if (eff_x_mirror)
-                eff_px = 7 - eff_px;
-            if (y_mirror)
-                eff_py = 7 - eff_py;
-            if (rotate) {
-                int tmp = eff_px;
-                eff_px = eff_py;
-                eff_py = tmp;
+            // Prefetch the tile-definition ROW for the safe fetch paths.
+            //   - Text mode never rotates: 1 byte per tile row.
+            //   - Standard non-rotate: eff_py is fixed per tile (y-mirror
+            //     only), so all 4 row bytes are per-tile.
+            // Rotate keeps its fetch on the per-pixel path (eff_py depends
+            // on the pixel column), so we prefetch nothing for it.
+            if (text_mode_) {
+                // eff_py == pixel_y (no transform in text mode).
+                uint32_t def_addr = def_base_addr_
+                    + static_cast<uint32_t>(full_tile_index) * 8
+                    + static_cast<uint32_t>(pixel_y);
+                row_text = vram_read(ram, def_addr);
+            } else {
+                // eff_py is per-tile (y-mirror + per-scanline pixel_y); used by
+                // both the non-rotate prefetch below and the rotate per-pixel
+                // path (where it becomes transformed_x after the swap).
+                eff_py_tile = y_mirror ? (7 - pixel_y) : pixel_y;
+                if (!rotate) {
+                    uint32_t row_base = def_base_addr_
+                        + static_cast<uint32_t>(full_tile_index) * 32
+                        + static_cast<uint32_t>(eff_py_tile) * 4;
+                    row_std[0] = vram_read(ram, row_base + 0);
+                    row_std[1] = vram_read(ram, row_base + 1);
+                    row_std[2] = vram_read(ram, row_base + 2);
+                    row_std[3] = vram_read(ram, row_base + 3);
+                }
             }
         }
 
@@ -516,30 +559,36 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         uint8_t pixel_4bit;
 
         if (text_mode_) {
-            // Text mode: 1bpp, 8 bytes per tile (one byte per row).
-            // Each byte is a bitmask for 8 pixels; we shift to get the desired bit.
-            uint32_t def_addr = def_base_addr_
-                + static_cast<uint32_t>(full_tile_index) * 8
-                + eff_py;
-            uint8_t row_byte = vram_read(ram, def_addr);
-            // VHDL: shift_left by abs_x(2:0), then take bit 7.
-            // For 80-col, pixel_x is 0-3; for 40-col, 0-7.
-            // The original abs_x(2:0) in VHDL is the raw pixel position.
-            pixel_4bit = (row_byte >> (7 - pixel_x)) & 0x01;
+            // Text mode: 1bpp, 8 bytes per tile (one byte per row), row byte
+            // prefetched above.  VHDL: shift_left by abs_x(2:0), take bit 7.
+            pixel_4bit = (row_text >> (7 - pixel_x)) & 0x01;
+        } else if (!rotate) {
+            // Standard non-rotate: 4bpp, row prefetched above.
+            //   eff_px = eff_x_mirror ? (7 - pixel_x) : pixel_x
+            //   byte   = row_std[eff_px >> 1]
+            // High nibble when eff_px(0)==0, low nibble otherwise.
+            int eff_px = eff_x_mirror ? (7 - pixel_x) : pixel_x;
+            uint8_t pattern_byte = row_std[eff_px >> 1];
+            if ((eff_px & 1) == 0)
+                pixel_4bit = (pattern_byte >> 4) & 0x0F;
+            else
+                pixel_4bit = pattern_byte & 0x0F;
         } else {
-            // Standard mode: 4bpp, 32 bytes per tile (4 bytes per row).
-            // Layout: byte = tile_row[eff_py], column = eff_px / 2
-            // High nibble = even pixel (eff_px & 1 == 0), low nibble = odd pixel.
-            //
-            // VHDL address: (full_tile_index & transformed_y & transformed_x[2:1])
-            // That's: tile_index * 32 + eff_py * 4 + (eff_px >> 1)
+            // Standard rotate: pattern fetch is genuinely per-pixel — the
+            // def-memory ROW depends on the pixel column after the X/Y swap.
+            // VHDL transform chain:
+            //   effective_x = eff_x_mirror ? (7 - x) : x   (eff_x_mirror = x_mirror ^ rotate)
+            //   effective_y = y_mirror     ? (7 - y) : y
+            //   transformed_x = rotate ? effective_y : effective_x
+            //   transformed_y = rotate ? effective_x : effective_y
+            int eff_px = eff_x_mirror ? (7 - pixel_x) : pixel_x;
+            int eff_py = eff_py_tile;                 // = y_mirror ? 7-pixel_y : pixel_y
+            { int tmp = eff_px; eff_px = eff_py; eff_py = tmp; }  // rotate swap
             uint32_t def_addr = def_base_addr_
                 + static_cast<uint32_t>(full_tile_index) * 32
                 + static_cast<uint32_t>(eff_py) * 4
                 + (eff_px >> 1);
             uint8_t pattern_byte = vram_read(ram, def_addr);
-
-            // VHDL: high nibble when transformed_x(0) == 0, low nibble otherwise.
             if ((eff_px & 1) == 0)
                 pixel_4bit = (pattern_byte >> 4) & 0x0F;
             else
