@@ -30,6 +30,23 @@ if(NOT MSVC)
     string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -fno-omit-frame-pointer")
 endif()
 
+# LTO/IPO for the Release (gui-release) build ONLY (Task 27 B1). The 14
+# per-subsystem static libs mean every hot cross-TU call — CPU→Mmu::read,
+# CPU→PortDispatch — is un-inlinable and un-devirtualisable at compile time.
+# LTO lets the linker inline/devirtualise across those library boundaries.
+# Release-only (CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE): RelWithDebInfo
+# (the dev/profiling binary) and Debug stay LTO-free so dev iteration and
+# `perf` call-graphs are unaffected. Guarded by check_ipo_supported() so a
+# toolchain without working LTO configures and builds exactly as before.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT JNEXT_IPO_SUPPORTED OUTPUT JNEXT_IPO_ERROR LANGUAGES C CXX)
+if(JNEXT_IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+    message(STATUS "IPO/LTO supported — enabled for Release builds only")
+else()
+    message(STATUS "IPO/LTO not supported by toolchain — skipping (${JNEXT_IPO_ERROR})")
+endif()
+
 # ccache — makes the mandatory `make clean` + full-rebuild discipline cheap.
 # Reviewers rebuild the whole tree several times per review (revert a fix,
 # rebuild, run the suite, restore, rebuild, run); with ccache the revert and
