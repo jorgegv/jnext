@@ -232,10 +232,40 @@ until this task finishes. This is the single highest-value task in the plan.
 
 ## Phase C — Profile-guided optimizations
 
-> **Locked until P1 lands.** The order below is TASK27A's *predicted* value and is **expected to
-> change**. P1 rewrites this section; whatever P1 kills is deleted, not "kept just in case".
-> Each item: own branch, before/after measurement, full triplet, independent review, stop at
-> review-passed.
+> **P1 HAS LANDED (2026-07-15, merge fa26847d, two review rounds).** This section is now
+> profile-ranked, per doc/design/TASK27-PROFILE-REPORT.md. Measured shares are of the
+> boot-nextzxos frame unless stated.
+>
+> **EXECUTION ORDER (profile-decided):**
+> 1. **C-IM2** — `Im2Controller::tick` per-instruction `step_pulse`+`step_devices`: **14.1%
+>    measured**, the largest single subsystem on the target workload. (New — found by the
+>    profile, absent from every pre-P1 list.) Early-out when no device is armed; VHDL fidelity
+>    of the pulse fabric must be preserved (also mind Task 60d's open question on tick units).
+> 2. **C3 + C-DIV merged** — the contention/raster-math chain (`derive_hc_vc` +
+>    `to_ula_counters` + `get_page` before a gate that returns 0): **8.2% measured** at 28 MHz
+>    as pure dead work. One task, same code path.
+> 3. **C1** — CTC+UART O(master_cycles) loops: **7.0% measured** on boot-nextzxos (27-32% at
+>    3.5 MHz). Accumulator pattern per `md6_connector_x2.cpp:245`.
+> 4. **C10 + glue** — wrapper sync 5.95%, per-instruction `Z80Registers` copies, getenv guard,
+>    dead `on_contention` store.
+> 5. **C-M1** — the DivMMC-automap/Multiface/NmiSource per-M1-fetch chain: **7.7% measured**.
+>    (New — found by the profile.)
+> 6. **C6** (render skip at turbo), **B1** (LTO), **C9** (Copper div/mod — dominant on
+>    copper-demo, which sits at 46M).
+>
+> **KILLED by the profile (deleted, with evidence):** C11 (density mechanism real, ~51 ns/dispatch,
+> but bounded at ≤24% of the 48K gap and ~0% for real workloads — boot-48k is NOT HALT-bound,
+> 8.36 T/dispatch); C4 (port dispatch peaks 0.84%); C7/C8 (sub-relevant on the DoD workload;
+> 48K/beast-only effects). C5 stays parked-low.
+>
+> **DoD reality check (P1 §6):** the pre-P1 list alone projects ~90-95M — NOT enough. With
+> C-IM2 + C-M1 the realistic landing zone is **95-105M** vs the 113.5M target. boot-nextzxos is
+> also the EASIEST Next workload (copper-demo/beast sit at 43-46M and need 2.5×+; beast runs a
+> 264-line 60 Hz frame — NR 0x05=0x04 — so its fps target is 240, not 200). If after the list
+> is exhausted the target is unmet, §"Definition of done"'s escape hatch applies — honestly.
+>
+> Each item: own branch, before/after `make bench`, full triplet, independent review, manager
+> merges. Serialisation rule below still applies.
 
 **Serialise the branches that touch the same hot loop.** C5 (`:6911-6925`), C6 (`:6965-6972`),
 C9 (`:7815-7837`) and C10 all edit `emulator.cpp`'s inner loop. Their measured deltas are taken
