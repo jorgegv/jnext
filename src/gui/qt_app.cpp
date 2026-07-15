@@ -7,8 +7,10 @@
 #include "debugger/debugger_manager.h"
 #endif
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <QApplication>
 #include <QTimer>
 #include <SDL2/SDL.h>
@@ -47,9 +49,11 @@ void QtApp::set_speed_multiplier(double multiplier) {
     if (multiplier > 10.0) multiplier = 10.0;
     speed_multiplier_ = multiplier;
 
-    // Adjust frame timer: base interval is 20ms (50 Hz real-time).
-    // Higher multiplier = shorter interval = faster emulation.
-    int interval_ms = static_cast<int>(20.0 / multiplier);
+    // Adjust frame timer: base interval is the emulated video-refresh period
+    // (~20.26 ms at 50 Hz, ~17.20 ms at 60 Hz — issue #9), scaled by the speed
+    // multiplier. on_frame_tick() re-applies this every tick, so a runtime
+    // 50/60 Hz switch is picked up even without another speed change.
+    int interval_ms = static_cast<int>(std::lround(emulator_.frame_period_ms() / multiplier));
     if (interval_ms < 1) interval_ms = 1;
 
     if (frame_timer_) {
@@ -132,11 +136,14 @@ bool QtApp::init(int argc, char* argv[]) {
         main_window_->set_scale(main_window_->current_scale());
     });
 
-    // Set up a 20ms timer (50 Hz) to drive emulator frames.
+    // Drive emulator frames from a timer paced to the emulated video refresh
+    // (~20 ms at 50 Hz, ~17 ms at 60 Hz — issue #9). on_frame_tick() keeps the
+    // interval in sync as the mode changes at runtime.
     frame_timer_ = new QTimer(main_window_);
     frame_timer_->setTimerType(Qt::PreciseTimer);
     QObject::connect(frame_timer_, &QTimer::timeout, [this]() { on_frame_tick(); });
-    frame_timer_->start(20);
+    frame_timer_->start(
+        std::max(1, static_cast<int>(std::lround(emulator_.frame_period_ms()))));
 
     // Set up a 1-second timer for status bar updates (FPS counter).
     status_timer_ = new QTimer(main_window_);
@@ -200,6 +207,22 @@ void QtApp::shutdown() {
 }
 
 void QtApp::on_frame_tick() {
+    // Issue #9 — keep the frame timer aligned with the emulated video refresh
+    // (50 Hz ≈ 20.26 ms, 60 Hz ≈ 17.20 ms) and the speed multiplier. When a demo
+    // switches to 60 Hz (NR 0x05 bit 2) it then runs at 60 fps instead of the old
+    // hardcoded 50, and the present cadence follows emulation so motion stays
+    // smooth. Re-checked every tick because the mode can change at runtime.
+    if (frame_timer_) {
+        const int desired = std::max(1, static_cast<int>(
+            std::lround(emulator_.frame_period_ms() / speed_multiplier_)));
+        if (desired != frame_timer_->interval()) {
+            frame_timer_->setInterval(desired);
+            Log::platform()->info(
+                "frame pacing: {:.2f} Hz video refresh -> {} ms/frame timer",
+                1000.0 / emulator_.frame_period_ms(), desired);
+        }
+    }
+
     // Apply pending inject when countdown reaches zero.
     if (inject_countdown_ == 0) {
         emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);

@@ -89,6 +89,9 @@ private:
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending
 
+    // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
+    uint32_t    last_frame_ms_ = 0;
+
     // Emulator config (set via set_config() before init())
     EmulatorConfig config_;
     bool           config_set_ = false;
@@ -97,6 +100,6 @@ private:
     static constexpr int NATIVE_H = 256;
     /// Vertical 2× — square-pixel display height (Phase 7 wires the pipeline).
     static constexpr int DISPLAY_H = NATIVE_H * 2;
-    // Target: 50 Hz = 20 ms per frame
-    static constexpr uint32_t FRAME_MS = 20;
+    // Frame pacing follows the emulated video refresh via
+    // Emulator::frame_period_ms() (~20 ms at 50 Hz, ~17 ms at 60 Hz — issue #9).
 };

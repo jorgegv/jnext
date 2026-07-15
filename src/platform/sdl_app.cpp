@@ -1,6 +1,7 @@
 #include "sdl_app.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include <cmath>
 
 bool SdlApp::init(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -284,17 +285,26 @@ void SdlApp::run() {
             --exit_countdown_;
         }
 
-        // Frame pacing: target 50 Hz EXCEPT during fastload — when the
-        // phantom typist is armed or a fast-load tape is delivering
-        // data, skip the per-frame sleep and immediately run the next
-        // frame. Mirrors FUSE timer/timer.c:216 `timer_frame()`
-        // fast-path (no `sound_buffer_wait`, no `timer_check`).
-        // The moment fastload_active() flips back to false (typist
-        // fired AND tape at end), we re-engage 50 Hz pacing on the
-        // very next iteration.
+        // Frame pacing: target the emulated video refresh (~20 ms at 50 Hz,
+        // ~17 ms at 60 Hz — issue #9; a 60 Hz demo runs at 60 fps, not a
+        // hardcoded 50) EXCEPT during fastload — when the phantom typist is
+        // armed or a fast-load tape is delivering data, skip the per-frame
+        // sleep and immediately run the next frame. Mirrors FUSE
+        // timer/timer.c:216 `timer_frame()` fast-path (no `sound_buffer_wait`,
+        // no `timer_check`). The moment fastload_active() flips back to false
+        // (typist fired AND tape at end), we re-engage pacing on the very next
+        // iteration.
         if (!fastload) {
+            const uint32_t frame_ms = static_cast<uint32_t>(
+                std::lround(emulator_.frame_period_ms()));
+            if (frame_ms != last_frame_ms_) {
+                last_frame_ms_ = frame_ms;
+                Log::platform()->info(
+                    "frame pacing: {:.2f} Hz video refresh -> {} ms/frame",
+                    1000.0 / emulator_.frame_period_ms(), frame_ms);
+            }
             uint32_t elapsed = SDL_GetTicks() - frame_start;
-            if (elapsed < FRAME_MS) SDL_Delay(FRAME_MS - elapsed);
+            if (elapsed < frame_ms) SDL_Delay(frame_ms - elapsed);
         }
     }
 }
