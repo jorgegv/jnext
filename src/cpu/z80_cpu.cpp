@@ -71,6 +71,32 @@ static int              s_ula_vc_origin    = 64;    // 48K c_min_vactive
 static int              s_tstates_per_line = 224;
 static int              s_tstates_per_frame = 224 * 312;
 
+// ── C-DIV (Task 27) — geometry-derived invariants + line memo ──────────
+// s_tstates_per_line / s_tstates_per_frame change ONLY via
+// z80_set_contention_runtime() / z80_set_frame_geometry(); the quotients
+// below were previously recomputed with runtime divisions on EVERY bus
+// cycle (to_ula_counters + derive_hc_vc — measured 8.2% of the
+// boot-nextzxos frame as pure overhead, doc/design/TASK27-PROFILE-REPORT.md
+// §3). They are now updated once, at geometry-set time, by
+// update_frame_geometry_derived(). Defaults match the 224×312 defaults
+// above (FUSE Z80 standalone harness path, which never sets geometry).
+static int      s_line_ticks   = 224 * 2;   // hc_max + 1 (= per_line * 2)
+static int      s_frame_lines  = 312;       // vc_max + 1 (= per_frame / per_line)
+// Line memo for derive_hc_vc(): frame-relative T-state at the start of
+// the memoised line, and that line's index. Pure accelerator — every
+// path falls back to the exact division, so a stale memo can only cost
+// time, never change a result (rewind/replay/geometry-switch safe; the
+// geometry setters reset it anyway).
+static uint32_t s_line_base_ts = 0;
+static uint32_t s_line_index   = 0;
+
+static void update_frame_geometry_derived() {
+    s_line_ticks   = s_tstates_per_line * 2;
+    s_frame_lines  = s_tstates_per_frame / s_tstates_per_line;
+    s_line_base_ts = 0;
+    s_line_index   = 0;
+}
+
 namespace {
 
 /// Compute (hc, vc) in the 7 MHz pixel-tick domain from the FUSE
@@ -96,21 +122,49 @@ struct HcVc { uint16_t hc; uint16_t vc; };
 /// lines (raw vc 192..255). Task 50 — measured against real FUSE on
 /// bifrost.tap: 808 T-states of phantom contention per frame.
 inline HcVc to_ula_counters(HcVc p) {
-    const int line_ticks  = s_tstates_per_line * 2;               // hc_max + 1
-    const int frame_lines = s_tstates_per_frame / s_tstates_per_line;  // vc_max + 1
-    int h = (static_cast<int>(p.hc) - s_ula_hc_origin) % line_ticks;
-    int v = (static_cast<int>(p.vc) - s_ula_vc_origin) % frame_lines;
-    if (h < 0) h += line_ticks;
-    if (v < 0) v += frame_lines;
+    // C-DIV: the two `%` reductions here were divisions by runtime
+    // variables on every bus cycle. Both operands are strictly bounded —
+    // p.hc ∈ [0, s_line_ticks) (derive_hc_vc emits ts_in_line*2) and
+    // s_ula_hc_origin ∈ [0, s_line_ticks) (VideoTiming's
+    // ula_prefetch_origin_hc, a physical raster position); likewise
+    // p.vc / s_ula_vc_origin against s_frame_lines — so the difference
+    // lies in (-mod, mod) and a single conditional add is exactly the
+    // old `x % mod; if (x < 0) x += mod;` sequence.
+    int h = static_cast<int>(p.hc) - s_ula_hc_origin;
+    if (h < 0) h += s_line_ticks;
+    int v = static_cast<int>(p.vc) - s_ula_vc_origin;
+    if (v < 0) v += s_frame_lines;
     return {static_cast<uint16_t>(h), static_cast<uint16_t>(v)};
 }
 
 inline HcVc derive_hc_vc(uint32_t tstates) {
-    int frame_ts = static_cast<int>(tstates % static_cast<uint32_t>(s_tstates_per_frame));
-    int line     = frame_ts / s_tstates_per_line;
-    int ts_in_line = frame_ts - line * s_tstates_per_line;
-    int hc = ts_in_line * 2;          // 1 T-state = 2 pixel ticks
-    return {static_cast<uint16_t>(hc), static_cast<uint16_t>(line)};
+    // C-DIV: was `tstates % frame` + `frame_ts / line` — two divisions by
+    // runtime variables per bus cycle. The frame reduction is a
+    // conditional subtract (Emulator::run_frame() rebases tstates every
+    // frame, so at most one iteration outside the FUSE standalone
+    // harness); the line division is memoised — consecutive bus cycles
+    // land on the same or the next scanline, so the common path is one
+    // compare (same line) or one add (next line). Any other delta —
+    // frame wrap, rewind replay, geometry change — falls back to the
+    // exact division, so the memo can never alter a result.
+    uint32_t ft = tstates;
+    const uint32_t frame = static_cast<uint32_t>(s_tstates_per_frame);
+    while (ft >= frame) ft -= frame;
+    const uint32_t line_len = static_cast<uint32_t>(s_tstates_per_line);
+    uint32_t in_line = ft - s_line_base_ts;   // unsigned: ft < base wraps huge
+    if (in_line >= line_len) {
+        if (in_line < 2 * line_len) {         // next line (common case)
+            s_line_base_ts += line_len;
+            s_line_index   += 1;
+        } else {                              // exact fallback
+            s_line_index   = ft / line_len;
+            s_line_base_ts = s_line_index * line_len;
+        }
+        in_line = ft - s_line_base_ts;
+    }
+    // 1 T-state = 2 pixel ticks
+    return {static_cast<uint16_t>(in_line * 2),
+            static_cast<uint16_t>(s_line_index)};
 }
 
 /// VHDL `mem_active_page` — the MMU<i> register value for the 8K slot
@@ -154,7 +208,14 @@ libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address) {
 // Data memory read — adds contention + 3 T-states, matching original FUSE
 // readbyte() from memory_pages.c.  Used for instruction data operands.
 libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
-    if (s_contention) {
+    // C3 (Task 27): contention_possible() is the i_contention_en gate
+    // (zxnext.vhd:4481) hoisted ABOVE the raster math — when contention
+    // cannot fire (NR 0x08 bit 6 set, NR 0x07 speed != 3.5 MHz, or
+    // Pentagon timing) the derive_hc_vc/to_ula_counters/get_page work
+    // below is dead. The gate stays LIVE (evaluated per access): all
+    // three inputs are runtime-switchable. Same pattern at all seven
+    // bus-cycle sites in this file.
+    if (s_contention && s_contention->contention_possible()) {
         // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_rd_n='0'` — memory read.
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
@@ -170,7 +231,7 @@ libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
 // Data memory write — adds contention + 3 T-states, matching original FUSE
 // writebyte() from memory_pages.c.
 void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
-    if (s_contention) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_wr_n='0'` — memory write.
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
@@ -198,9 +259,11 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
     // Only wired when a production Mmu is attached — s_contention_mmu is null
     // in the FUSE Z80 opcode-test harness, which has no video timing to tag
     // against.
+    // (TASK27A §9 / C-DIV: the former attr_mux_set_current_hc(wpos.hc)
+    // call here was redundant — attr_mux_set_write_pos() sets the same
+    // attr_mux_current_hc_ field from the same wpos.hc.)
     if (s_contention_mmu) {
         const auto wpos = derive_hc_vc(tstates);
-        s_contention_mmu->attr_mux_set_current_hc(wpos.hc);
         s_contention_mmu->attr_mux_set_write_pos(wpos.vc, wpos.hc);
     }
     s_mem->write(address, b);
@@ -217,7 +280,7 @@ libspectrum_byte fuse_z80_readport(libspectrum_word port) {
     // `cpu_iorq_n` would go low.
     tstates++;
     libspectrum_byte val = s_io->in(port);
-    if (s_contention) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         // mem_active_page is irrelevant for port cycles (mem_contend=0);
         // contention_tick gates on port_contend internally.
         s_contention->set_mem_active_page(mem_active_page_for(port));
@@ -234,7 +297,7 @@ libspectrum_byte fuse_z80_readport(libspectrum_word port) {
 void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
     tstates++;
     s_io->out(port, b);
-    if (s_contention) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         s_contention->set_mem_active_page(mem_active_page_for(port));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
         tstates += s_contention->contention_tick(
@@ -288,7 +351,7 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
 // CPU happens to assert MREQ on the wire that exact T-state. This is the
 // same model the data callbacks above use.
 extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
-    if (s_contention) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
         tstates += s_contention->contention_tick(
@@ -300,7 +363,7 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
 }
 
 extern "C" void contend_read_no_mreq(libspectrum_word address, libspectrum_dword time) {
-    if (s_contention) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
         tstates += s_contention->contention_tick(
@@ -312,7 +375,7 @@ extern "C" void contend_read_no_mreq(libspectrum_word address, libspectrum_dword
 }
 
 extern "C" void contend_write_no_mreq(libspectrum_word address, libspectrum_dword time) {
-    if (s_contention) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         s_contention->set_mem_active_page(mem_active_page_for(address));
         auto pos = to_ula_counters(derive_hc_vc(tstates));
         tstates += s_contention->contention_tick(
@@ -1119,12 +1182,14 @@ void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machi
     const auto t = machine_timing(machine_type);
     s_tstates_per_line  = t.tstates_per_line;
     s_tstates_per_frame = t.tstates_per_frame;
+    update_frame_geometry_derived();
 }
 
 void z80_set_frame_geometry(int tstates_per_line, int tstates_per_frame)
 {
     s_tstates_per_line  = tstates_per_line;
     s_tstates_per_frame = tstates_per_frame;
+    update_frame_geometry_derived();
 }
 
 int z80_get_tstates_per_line()
