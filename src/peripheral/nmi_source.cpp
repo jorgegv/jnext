@@ -301,16 +301,8 @@ bool NmiSource::nmi_generate_n() const
 // Observers.
 // ---------------------------------------------------------------------
 
-void NmiSource::observe_m1_fetch(uint16_t pc, bool m1, bool mreq)
-{
-    // VHDL:2135-2138 — FSM advances FETCH -> HOLD on M1 fetch at 0x0066.
-    // Any other M1 fetch is ignored here; the DivMmc automap PC=0x0066
-    // path keeps its own watcher in `DivMmc::check_automap`.
-    if (state_ != State::Fetch) return;
-    if (!m1 || !mreq)            return;
-    if (pc != 0x0066)            return;
-    state_ = State::Hold;
-}
+// observe_m1_fetch() is defined inline in nmi_source.h (Task 27 C-M1) —
+// it runs on every M1 prefetch and its early-outs are call-site inlined.
 
 void NmiSource::observe_cpu_wr(bool wr_n)
 {

@@ -1332,6 +1332,122 @@ static void g_mf_overlay()
 }
 
 // =====================================================================
+// Group MF-M1G — Task 27 C-M1 per-M1 fast path (on_m1 quiescence gate).
+// on_m1() inlines to a no-op when m1_quiescent_() proves the clock edge
+// cannot change any FF (proof in multiface.h). These rows pin every FF
+// term of that predicate: a wrongly-widened predicate would skip an edge
+// that must act, and each row below fails for exactly one such term.
+// VHDL: cores/zxnext/src/device/multiface.vhd
+// =====================================================================
+
+static void g_mf_m1gate()
+{
+    set_group("MF-M1G");
+
+    // MF-M1G-01 — quiescent M1 at 0x0066 is a no-op: fetch_66 (vhd:169)
+    // requires nmi_active=1, so with the FFs at rest even the magic
+    // address changes nothing. This is the equivalence the skip relies on.
+    {
+        Multiface mf = make_mf();
+        mf.on_m1(0x0066, /*mreq_low=*/true);
+        check("MF-M1G-01",
+              "quiescent M1 at 0x0066: no FF changes (fetch_66 gated on "
+              "nmi_active, multiface.vhd:169)",
+              !mf.nmi_active() && mf.invisible() && !mf.mf_enable() &&
+                  !mf.port_io_dly() && !mf.is_mem_active() && !mf.mf_port_en(),
+              "multiface.vhd:169,176");
+    }
+
+    // MF-M1G-02 — port_io_dly term: a port strobe latches port_io_dly=1
+    // (vhd:122-131); the NEXT M1 edge must clock it back to 0. A fast
+    // path that omitted port_io_dly from the predicate would skip that
+    // edge and leave dly stuck at 1 (breaking the vhd:144 port-clear
+    // gating on the following port strobe).
+    {
+        Multiface mf = make_mf();
+        mf.on_port_enable_wr(true);      // latches port_io_dly=1
+        const bool dly_set = mf.port_io_dly();
+        mf.on_m1(0x1234, true);
+        check("MF-M1G-02",
+              "M1 after a port strobe clocks port_io_dly 1->0 "
+              "(multiface.vhd:122-131)",
+              dly_set && !mf.port_io_dly(),
+              "multiface.vhd:122-131");
+    }
+
+    // MF-M1G-03 — nmi_active term: with the NMI armed, the 0x0066 M1
+    // must take the slow path and latch mf_enable (vhd:169,176). A fast
+    // path that omitted nmi_active would skip the takeover fetch.
+    {
+        Multiface mf = make_mf();
+        mf.button_press();               // nmi_active=1, invisible=0
+        mf.on_m1(0x0066, /*mreq_low=*/true);
+        check("MF-M1G-03",
+              "NMI armed: 0x0066 M1 latches mf_enable through the gate "
+              "(multiface.vhd:169,176)",
+              mf.mf_enable() && mf.is_mem_active(),
+              "multiface.vhd:169,176");
+    }
+
+    // MF-M1G-04 — mf_port_en term: the combinational mf_port_en_o
+    // (vhd:195) is high only on the port_mf_enable_rd strobe cycle; the
+    // next clock edge must drop it (and port_io_dly). Sequence reaches
+    // mf_port_en=1 with nmi_active=0: button+retn clears invisible
+    // without leaving the NMI armed, then the enable-rd strobe raises
+    // mf_enable AND mf_port_en.
+    {
+        Multiface mf = make_mf(0x02);    // MF128
+        mf.button_press();               // invisible 1->0, nmi 0->1
+        mf.on_retn_seen();               // nmi 1->0, mf_enable ->0
+        mf.on_port_enable_rd(true);      // mf_enable=1, mf_port_en=1, dly=1
+        const bool armed = mf.mf_port_en() && mf.port_io_dly() &&
+                           mf.mf_enable() && !mf.nmi_active();
+        mf.on_m1(0x5000, true);          // must take the slow path
+        check("MF-M1G-04",
+              "M1 after enable-rd strobe drops combinational mf_port_en "
+              "and port_io_dly, preserves mf_enable (multiface.vhd:195)",
+              armed && !mf.mf_port_en() && !mf.port_io_dly() &&
+                  mf.mf_enable(),
+              "multiface.vhd:126,195");
+    }
+
+    // MF-M1G-05 — mf_enable=1 IS a quiescent state: once the overlay is
+    // mapped (and dly/port_en/fetch66/nmi all 0), further M1s — even at
+    // 0x0066 — change nothing and must preserve the mapping. Pins that
+    // the predicate correctly EXCLUDES mf_enable (vhd:171-184: no plain
+    // M1 input can alter it).
+    {
+        Multiface mf = make_mf(0x02);
+        mf.button_press();
+        mf.on_retn_seen();
+        mf.on_port_enable_rd(true);      // mf_enable=1
+        mf.on_m1(0x5000, true);          // drains dly/mf_port_en
+        mf.on_m1(0x0066, true);          // quiescent M1 (fast path)
+        mf.on_m1(0x8000, true);          // and another
+        check("MF-M1G-05",
+              "mapped overlay survives quiescent M1s (incl. 0x0066 with "
+              "nmi_active=0) — mf_enable untouched (multiface.vhd:171-184)",
+              mf.mf_enable() && mf.is_mem_active() && !mf.nmi_active(),
+              "multiface.vhd:169,171-184");
+    }
+
+    // MF-M1G-06 — disabled device: on_m1 keeps the VHDL reset state
+    // (vhd:103 reset = NOT enable_i). The disabled branch of the
+    // predicate requires the state to EQUAL the reset state before
+    // skipping, so a dirty disabled instance still gets forced to reset.
+    {
+        Multiface mf;                    // enabled_=false
+        mf.on_m1(0x0066, true);
+        check("MF-M1G-06",
+              "disabled: M1 preserves forced reset state "
+              "(multiface.vhd:103)",
+              !mf.nmi_active() && mf.invisible() && !mf.mf_enable() &&
+                  !mf.port_io_dly() && !mf.is_mem_active(),
+              "multiface.vhd:103,126,141,156,175");
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
@@ -1344,6 +1460,7 @@ int main()
     g_mf_port_dispatch(); std::printf("  MF-PORT dispatch       -- done\n");
     g_mf_mux();           std::printf("  MF-MUX +3 readback     -- done\n");
     g_mf_overlay();       std::printf("  MF-OVL Mmu overlay     -- done\n");
+    g_mf_m1gate();        std::printf("  MF-M1G C-M1 fast path  -- done\n");
 
     std::printf("\n==========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

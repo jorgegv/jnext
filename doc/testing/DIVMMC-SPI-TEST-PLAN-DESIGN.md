@@ -571,3 +571,32 @@ machine) and Branch D (NR 0x02 programmatic NMI) are marked *superseded
 by this plan* in `doc/design/TASK-8-MULTIFACE-PLAN.md` §5 (Phase 0 edit
 per plan Q2). Task 8 Branch C is scoped down to MF-button wiring only;
 the DivMMC-button wiring lives in this plan's Wave B.
+
+## Task 27 C-M1 — per-M1 fast-path gate (CM1-01..06)
+
+Task 27 C-M1 (2026-07-15) added `DivMmc::automap_m1_may_react(pc)` /
+`DivMmc::automap_pc_candidate(pc)`: the Emulator's `on_m1_prefetch`
+lambda skips `check_automap()` — and the per-M1 `sram_pre_override_*`
+computation — when the automap FF state is quiescent AND `pc` is outside
+the static entry-point candidate superset. The gate reads live FF state
+(no cached flag, no invalidation discipline). Full no-op proof with VHDL
+citations sits on the predicate in `src/peripheral/divmmc.h`.
+`on_m1_retn_delay()` also gained an inline no-op fast path (wrapper +
+out-of-line `on_m1_retn_delay_apply_`), behaviour-identical; its
+delayed-clear semantics stay pinned by DM-RETN-PROPER-01/02.
+
+Rows in `test/divmmc/divmmc_test.cpp` §20 (suite 140 → 146):
+
+| ID | Test | Notes |
+|------|------|-------|
+| CM1-01 | Candidate superset contains every VHDL entry-point address | RSTs 0x00-0x38, 0x0066, tape traps 0x04C6/0x04D7/0x0562/0x056A, 0x1FF8-0x1FFF, $3Dxx (divmmc.vhd:120,131 + zxnext.vhd:2892-2908) |
+| CM1-02 | Non-entry addresses rejected by the filter | Boundary-adjacent values incl. 0x0067/0x1FF7/0x3CFF/0x3E00 |
+| CM1-03 | Quiescent + non-candidate pc: gate=false AND check_automap is a state no-op | The skip-equivalence the production gate relies on |
+| CM1-04 | Pending hold: gate=true at non-candidate pc; hold→held promotion fires there | divmmc.vhd:141,148 — promotion acts at ANY pc |
+| CM1-05 | Active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates via gated path | divmmc.vhd:131 |
+| CM1-06 | button_nmi latched: gate conservatively passes any pc | Deliberate conservatism (no-op even then, proof stays local to FFs) |
+
+Mutation results: dropping the 0x1FF8 range or the 0x0066 boundary →
+CM1-01 fails; dropping the FF-state terms → CM1-04/05/06 fail; weakening
+the retn-delay wrapper's pending term → DM-RETN-PROPER-01 (here) and
+MF-G48-06 (nmi_test) fail.

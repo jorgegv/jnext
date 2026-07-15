@@ -497,3 +497,20 @@ behaviour more VHDL-faithful, that's bonus, not goal.
   applies to DivMMC + machine ROMs after Wave 0.3.
 - Priority vs. Task 9+ (NextZXOS RAM-test RE, Sinclair logo rendering,
   etc.) — decide when Task 8 becomes active.
+
+## Task 27 C-M1 addendum (2026-07-15) — on_m1 quiescent fast path
+
+`Multiface::on_m1()` is now an inline wrapper that skips the clock edge
+when `m1_quiescent_()` proves no FF or combinational output can change
+(per-FF proof with multiface.vhd citations in `src/peripheral/multiface.h`;
+the old body lives on as `on_m1_clock_`). Behaviour-identical except the
+trace-level clock_edge_ log is not emitted for provably state-preserving
+edges. `NmiSource::observe_m1_fetch()` moved inline to its header (body
+unchanged). Coverage: 6 new MF-M1G-01..06 rows in
+`test/multiface/multiface_test.cpp` (suite 49 → 55) pinning each
+predicate term (quiescent-0x0066 no-op, port_io_dly clear, NMI-armed
+takeover, mf_port_en/dly drop, mapped-overlay survival, disabled reset
+state). Mutations dropping the port_io_dly / nmi_active terms fail
+MF-M1G-02 / MF-M1G-03 (the latter plus 12 pre-existing rows); the
+mf_port_en term is redundant-by-invariant (documented on the predicate)
+and kept deliberately.

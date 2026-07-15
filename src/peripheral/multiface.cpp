@@ -229,8 +229,12 @@ void Multiface::button_press()
                 /*retn_seen=*/false);
 }
 
-void Multiface::on_m1(uint16_t pc, bool mreq_low)
+void Multiface::on_m1_clock_(uint16_t pc, bool mreq_low)
 {
+    // Out-of-line tail of the inline on_m1() (Task 27 C-M1) — reached
+    // only when m1_quiescent_() is false, i.e. when this clock edge can
+    // change at least one FF or combinational output.
+    //
     // VHDL `cpu_a_0066_i` is the "address bus equals 0x0066" comparator;
     // `cpu_m1_n_i='0'` is asserted during the M1 fetch's memory cycle.
     // We invoke clock_edge_ with the appropriate input pulses.

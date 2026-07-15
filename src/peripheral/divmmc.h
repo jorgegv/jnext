@@ -72,6 +72,57 @@ public:
                        bool sram_pre_override_2 = true,
                        bool sram_pre_override_0 = true);
 
+    /// Task 27 C-M1 — per-M1 fast-path gate for the production caller
+    /// (Emulator's `on_m1_prefetch` lambda). Returns true when a
+    /// `check_automap(pc, /*is_m1=*/true, …)` call could change ANY
+    /// DivMmc state (or emit a probe log); returns false only when that
+    /// call is a provable no-op, letting the caller skip both the call
+    /// and the per-M1 computation of the `sram_pre_override_*` gate
+    /// inputs. Reads live FF state — no cached quiescence flag, so no
+    /// invalidation discipline is required.
+    ///
+    /// No-op proof (check_automap body vs VHDL divmmc.vhd:107-148), for
+    /// the case all four FFs below are 0 AND `pc` is not a candidate:
+    ///   * Step 1 (held <= hold, vhd:141): 0 <= 0 — no change.
+    ///   * button_nmi while-held clear (vhd:112-113): held=0 — no fire.
+    ///   * Entry-point decode (vhd:120-131 + zxnext.vhd:2892-2908):
+    ///     `automap_pc_candidate` is a STATIC SUPERSET of every address
+    ///     any entry-point path can match — independent of the NR
+    ///     0xB8-0xBB enables and of the sram_pre_override gates (those
+    ///     only mask matches, never widen them) — so a non-candidate pc
+    ///     yields instant_match/delayed_match/off_match all 0.
+    ///   * Step 3 (hold <= match OR (held AND NOT off), vhd:128-131):
+    ///     0 OR (0 AND …) = 0 — no change.
+    ///   * Step 4 (automap <= held OR instant, vhd:148): 0 — no change.
+    ///   * Probe logs (JNEXT_BOOT_PROBE at pc<=0x38, G46B 3DXX trace at
+    ///     pc=0x3Dxx) fire only at candidate addresses.
+    /// When any FF is non-zero, the promotion/clear logic can act at
+    /// ANY pc (e.g. held→active promotion), so those always pass.
+    bool automap_m1_may_react(uint16_t pc) const {
+        return automap_hold_ || automap_held_ || automap_active_ ||
+               button_nmi_ || automap_pc_candidate(pc);
+    }
+
+    /// Static superset of every PC `check_automap` can react to (see
+    /// `automap_m1_may_react`). Sources:
+    ///   * 0x0000-0x0038 RST vectors (NR 0xB8, divmmc.vhd:120 via
+    ///     zxnext.vhd:2898-2902) + 0x0066 NMI (NR 0xBB bits 0-1,
+    ///     zxnext.vhd:2907-2908) — collapsed to pc <= 0x0066, which
+    ///     also covers the JNEXT_BOOT_PROBE range (pc <= 0x0038).
+    ///   * 0x04C6 / 0x04D7 / 0x0562 / 0x056A tape traps (NR 0xBB
+    ///     bits 2-5, zxnext.vhd:2902-2905).
+    ///   * 0x1FF8-0x1FFF auto-unmap range (NR 0xBB bit 6,
+    ///     divmmc.vhd:131).
+    ///   * 0x3D00-0x3DFF wildcard (NR 0xBB bit 7, zxnext.vhd:2898-2899).
+    static bool automap_pc_candidate(uint16_t pc) {
+        if (pc <= 0x0066) return true;
+        if (pc >= 0x3E00) return false;   // fast reject: bulk of exec
+        if ((pc & 0xFF00) == 0x3D00) return true;
+        if (pc >= 0x1FF8 && pc <= 0x1FFF) return true;
+        return pc == 0x04C6 || pc == 0x04D7 ||
+               pc == 0x0562 || pc == 0x056A;
+    }
+
     /// RETN hook — VHDL divmmc.vhd:108,126,139 clear
     /// `button_nmi`/`automap_hold`/`automap_held` on `i_retn_seen`. Must
     /// be invoked from the CPU M1 callback when a RETN (ED 45 — VHDL
@@ -102,7 +153,15 @@ public:
     /// for tests and direct callers that want the immediate-clear
     /// semantics; the Emulator's M1 lambda routes exclusively through
     /// this method to retire the pre-G87 RETN-alias band-aid.
-    void on_m1_retn_delay(bool retn_seen);
+    ///
+    /// Task 27 C-M1 — inline fast path: with `retn_seen`=false and no
+    /// pending clear latched, the out-of-line body is a provable no-op
+    /// (its two conditionals both fall through), so the almost-always
+    /// per-M1 call reduces to two byte loads. Behaviour is identical.
+    void on_m1_retn_delay(bool retn_seen) {
+        if (!retn_seen && !retn_pending_clear_) return;
+        on_m1_retn_delay_apply_(retn_seen);
+    }
 
     // ── Memory overlay interface ──────────────────────────────────
 
@@ -363,6 +422,11 @@ private:
     // overlay survives the RETN's own execution and drops on the first
     // M1 of the returned-to instruction. Reset clears it.
     bool retn_pending_clear_ = false;
+
+    /// Out-of-line tail of on_m1_retn_delay() (Task 27 C-M1 split —
+    /// same body as the pre-split method; see the .cpp for the G46(a)
+    /// sequencing comments).
+    void on_m1_retn_delay_apply_(bool retn_seen);
 
     // NextREG automap configuration (0xB8–0xBB)
     uint8_t entry_points_0_ = 0x83;    // soft reset default
