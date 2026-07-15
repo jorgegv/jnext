@@ -2,13 +2,12 @@
 
 ## 1. Executive summary
 
-Task 27 optimized the jnext emulation loop across two waves (Wave 1: profile-guided
-hot-loop fixes; Wave 2: LTO + copper/video hot-spot work). On the primary workload
-**boot-nextzxos** the frame loop went **57.4M → 114.8M → 161.0M T-states/s = +180%** end-to-end
-(≈2.8×), i.e. **101 → 202 → 284 fps at 400% speed** in Next mode. Every merged change was
-independently reviewed (7 REJECT rounds across both waves, all real bugs) and every regression
-screenshot stayed 0-pixel-diff. Single biggest lever: **enabling LTO (a 17-line CMake change)**,
-which alone beat every hand-tuned hot-spot optimization combined.
+- **Scope:** two waves — W1 profile-guided hot-loop fixes; W2 LTO + copper/video hot-spots.
+- **Result (boot-nextzxos):** 57.4M → 114.8M → **161.0M T-states/s = +180%** end-to-end (≈2.8×).
+- **At 400% speed (Next):** 101 → 202 → **284 fps** — DoD was 200, so **+42% margin**.
+- **Biggest lever:** LTO (a 17-line CMake change) alone beat all hand-tuned hot-spots combined.
+- **Quality:** every change independently reviewed (7 REJECT rounds, all real bugs); regression
+  stayed 0-pixel-diff throughout.
 
 ```
 boot-nextzxos T-states/s:  57.4M  ──Wave 1 (+100%)──▶  114.8M  ──Wave 2 (+40%)──▶  161.0M
@@ -19,13 +18,13 @@ boot-nextzxos T-states/s:  57.4M  ──Wave 1 (+100%)──▶  114.8M  ──W
 
 Settled P-core (4.9 GHz), median-of-5, `--benchmark`, T-states/sec (the only cross-CPU-speed metric):
 
-| workload | start | note |
-|---|---:|---|
+| workload                     | start | note                                              |
+|------------------------------|------:|---------------------------------------------------|
 | boot-nextzxos (Next, 28 MHz) | 57.4M | the OS/games path; 400% target = 113.5M / 200 fps |
-| copper-demo (Next) | 36.7M | copper-heavy |
-| beast (Next, 60 Hz) | 34.6M | tilemap + copper + layers |
-| bifrost (48K, 3.5 MHz) | 26.7M | busy-48K raster witness |
-| boot-48k | 25.9M | HALT-idle; persistently spread-VOID |
+| copper-demo (Next)           | 36.7M | copper-heavy                                      |
+| beast (Next, 60 Hz)          | 34.6M | tilemap + copper + layers                         |
+| bifrost (48K, 3.5 MHz)       | 26.7M | busy-48K raster witness                           |
+| boot-48k                     | 25.9M | HALT-idle; persistently spread-VOID               |
 
 Symptom that opened the task: at 400% speed the emulator reached only ~75 fps (100% CPU) instead
 of the expected 200 — the loop was doing far more per instruction than the guest demanded.
