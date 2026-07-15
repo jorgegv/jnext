@@ -8,7 +8,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 |-----------------------|---------:|---------:|-------:|--------:|--------:|--------------------------------------------------------|
 | FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |       35 |       25 |      0 |      10 |     71% | 🟡 Task 7r2: G66/G67 SS-VER + RB-FRAME skips added. |
+| Rewind                |       66 |       66 |      0 |       0 |    100% | 🟢 All pass. G67 closed (Task 60b); G66 SS-VER rows reclassified to Phase 11 (2026-07-15). |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -42,6 +42,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4338** | **4328** |  **0** |  **10** | **99%** | 🟡 10 SKIPs total, all Rewind (Task 13a / G66+G67 snapshot schema); 0 FAILs. Task 57 (2026-07-14) closed every mmu/nmi/port skip. |
+| **Total**             | **4369** | **4369** |  **0** |   **0** |    100% | 🟢 0 SKIPs, 0 FAILs suite-wide. Last skips gone 2026-07-15: G67 closed (Task 60b), G66 SS-VER reclassified to Phase 11. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

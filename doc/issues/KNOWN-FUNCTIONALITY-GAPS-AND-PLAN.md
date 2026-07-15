@@ -111,7 +111,7 @@ where possible.
 | G35 | Snapshot save (.sna out / .szx out / .nex out) wired       | Snapshot, GUI                    | B   |         | cannot save mid-game state to file                         | M      | High     |
 | G36 | TZX Direct-Recording (DeciLoad 0x15)                       | Tape                             | B   | Y       | fixed Task 57: monotonic tape clock + ZOT pause edge       | M      | High     |
 | G42 | Joystick / gamepad host wiring (Kempston/Sinclair/MD)      | Joystick, SDL, GUI               | B   |         | gamepad / USB joystick unusable; keyboard-only             | M      | High     |
-| G66 | Save-state schema versioning + per-subsystem framing       | Save-state                       | C,D |         | ANY save_state field reorder corrupts older snapshots      | M      | High     |
+| G66 | Save-state schema versioning + per-subsystem framing       | Save-state                       | C,D |         | RECLASSIFIED 2026-07-15: moved to Phase 11 New Functions   | M      | High     |
 | G126| NR 0x05 mode change does not propagate to MembraneStick    | Joystick, MembraneStick, NextREG | B   |         | Joy mode switch leaves membrane fold pinned to defaults    | L      | High     |
 | G32 | DAC continuous-buzz playback artefact                      | DAC, Audio                       | B   |         | audible quality degradation on DAC software                | H      | Medium   |
 | G37 | WAV DeciLoad real-time loading                             | Tape, WAV                        | B   | Y       | fixed Task 57: monotonic clock + sub-sample interpolation  | M      | Medium   |
@@ -1756,7 +1756,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
   refactor lands them, they may be `[merged]`-style closed together.
 - **Effort**: H (cycle-accurate scheduler refactor).
 
-### G66. Save-state schema versioning + per-subsystem framing [merged C20+D01+D02]
+### G66. Save-state schema versioning + per-subsystem framing [merged C20+D01+D02] — RECLASSIFIED (2026-07-15)
 - **What**: `src/core/saveable.h` exposes `StateWriter` / `StateReader`
   as raw byte streams. No magic, no schema version, no per-subsystem
   framing. Verified — no `SCHEMA_VERSION` / `schema_version` /
@@ -1778,6 +1778,15 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
   Update RZX-embedded SNA path (`sna_saver.cpp`). Add per-subsystem
   save→load round-trip lock test.
 - **Effort**: M.
+- **Status — RECLASSIFIED (2026-07-15, user decision)**: not a
+  functionality gap. The Next-specific snapshot schema does not exist
+  anywhere (only the NEX program format does); building it needs its own
+  design doc plus external/community comments. Moved to
+  `EMULATOR-DESIGN-PLAN.md` Phase 11 New Functions as "Next-specific
+  snapshot save/load format". The technical content above is retained as
+  the seed of that future design. The 7 pinned SS-VER-01..07 skip rows
+  were removed from `rewind_test` the same day — pinned SKIPs for a
+  nonexistent format were misclassified coverage debt.
 
 ### G67. Rewind buffer pre-allocated bound + assertion — CLOSED (Task 60b, 2026-07-15)
 - **What**: `src/debug/rewind_buffer.{h,cpp}`: ring of `max_frames *
@@ -2173,7 +2182,8 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **What**: RZX recording captures IN values + per-frame
   instruction count. No regression stresses long-form playback for
   drift — any subsystem with hidden host-time dep silently desyncs.
-- **Dependencies**: G66 (RZX embeds SNA snapshot).
+- **Dependencies**: G66 (RZX embeds SNA snapshot; G66 reclassified
+  2026-07-15 → Phase 11 "Next-specific snapshot format").
 - **Proposed**: 30-sec RZX of known demo, re-play headless,
   screenshot at frame 1500 must match baseline byte-for-byte.
 - **Effort**: M.
@@ -2333,6 +2343,7 @@ G50 ──── G86 FEATURES.md honesty
 G66 Save-state schema versioning ──── G35 Save Snapshot menu
                                   ──── G67 rewind buffer assertion
                                   ──── G76 RZX long-form regression
+  (G66 reclassified 2026-07-15 → Phase 11 Next-specific snapshot format)
 
 G42 Joystick host wiring ←── pulls G43 mouse, G24 settings persist (mapping)
 G44 issue-2 Beeper independent
