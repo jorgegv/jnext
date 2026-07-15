@@ -64,6 +64,38 @@ public:
     /// Returns true if this channel has interrupts enabled.
     bool int_enabled() const { return control_int_en_; }
 
+    /// True when tick() would do any work: timer mode in S_RUN/S_RUN_TC
+    /// (exact mirror of the guard at the top of tick()). Counter-mode
+    /// channels advance only via trigger(), never via tick().
+    bool timer_running() const {
+        return !control_counter_ && (state_ == State::RUN || state_ == State::RUN_TC);
+    }
+
+    /// Number of 28 MHz ticks until this channel's NEXT ZC/TO, assuming
+    /// timer_running(). Derived from ctc_chan.vhd: p_count counts up each
+    /// tick (:136-138) and prescaler_clk fires each time it wraps its
+    /// period P (16 or 256 per control bit 5, :143-146); ZC/TO fires on
+    /// the count step that takes the down-counter to 0 (:162-170;
+    /// counter value 0 means 256 steps).
+    uint32_t cycles_to_zc() const {
+        const uint32_t period = control_prescale_ ? 256u : 16u;
+        const uint32_t to_next_fire = period - (prescaler_ % period);  // in [1, period]
+        const uint32_t steps = (counter_ == 0) ? 256u : counter_;
+        return to_next_fire + (steps - 1u) * period;
+    }
+
+    /// Arithmetically advance the channel by n ticks, PRECONDITION
+    /// n < cycles_to_zc() (no ZC/TO occurs inside the window). Observably
+    /// identical to calling tick() n times: prescaler_ accumulates mod 256,
+    /// counter_ decrements once per prescaler wrap.
+    void advance(uint32_t n) {
+        const uint32_t period = control_prescale_ ? 256u : 16u;
+        const uint32_t phase = prescaler_ % period;  // ticks since last wrap
+        const uint32_t fires = (phase + n) / period;
+        prescaler_ = static_cast<uint8_t>(prescaler_ + n);
+        counter_   = static_cast<uint8_t>(counter_ - fires);
+    }
+
 private:
     enum class State { RESET, RESET_TC, TRIGGER, RUN, RUN_TC };
 

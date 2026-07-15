@@ -86,50 +86,69 @@ uint32_t UartChannel::byte_transfer_ticks() const {
     return ps * frame_bits();
 }
 
+void UartChannel::start_tx_from_fifo() {
+    // Pop the next byte and begin its transmission (byte-level engine).
+    uint8_t byte = tx_fifo_.pop();
+    tx_busy_ = true;
+    tx_timer_byte_ = byte_transfer_ticks();
+
+    if (on_tx_byte) {
+        on_tx_byte(byte);
+    } else {
+        // Loopback mode: feed TX output back into RX
+        inject_rx(byte);
+    }
+}
+
 void UartChannel::tick(uint32_t master_cycles) {
     // If framing bit 7 is set, the UART is in reset — do nothing
     if (framing_ & 0x80) return;
 
-    for (uint32_t i = 0; i < master_cycles; ++i) {
+    // Task 27 C1: the byte-level engine's only per-cycle work was the
+    // tx_timer_byte_ countdown; collapse it to arithmetic so the loop
+    // below iterates O(byte boundaries), not O(master_cycles). The RX
+    // side has no time-driven state at byte level (bytes arrive via
+    // inject_rx(); the bit-level engine is a separate, test-only,
+    // explicitly stepped path — tick_one_bit_clock()). Observable
+    // behaviour (byte pops, on_tx_byte/on_tx_empty/inject_rx calls and
+    // their order, final tx_busy_/tx_timer_byte_) is identical to the
+    // previous per-cycle loop, including spans that drain several FIFO
+    // bytes: back-to-back bytes stay exactly byte_transfer_ticks() apart.
+    uint32_t remaining = master_cycles;
+    while (remaining > 0) {
         if (tx_busy_) {
-            if (tx_timer_byte_ > 0) {
-                --tx_timer_byte_;
+            if (tx_timer_byte_ > remaining) {
+                // Countdown does not reach 0 within this span.
+                tx_timer_byte_ -= remaining;
+                return;
             }
             if (tx_timer_byte_ == 0) {
-                // Byte transmission complete
-                tx_busy_ = false;
-
-                // If TX FIFO has more bytes, start the next one immediately
-                if (!tx_fifo_.empty()) {
-                    uint8_t byte = tx_fifo_.pop();
-                    tx_busy_ = true;
-                    tx_timer_byte_ = byte_transfer_ticks();
-
-                    if (on_tx_byte) {
-                        on_tx_byte(byte);
-                    } else {
-                        // Loopback mode: feed TX output back into RX
-                        inject_rx(byte);
-                    }
-                } else {
-                    // TX FIFO is now empty and transmitter is idle
-                    if (on_tx_empty) {
-                        on_tx_empty();
-                    }
-                }
+                // Degenerate entry state (busy with expired timer, e.g.
+                // via load_state): the old loop spent one no-decrement
+                // cycle on this completion — preserve that.
+                --remaining;
+            } else {
+                remaining -= tx_timer_byte_;
+                tx_timer_byte_ = 0;
+            }
+            // Byte transmission complete.
+            tx_busy_ = false;
+            if (!tx_fifo_.empty()) {
+                // Next byte starts in the same cycle the previous one
+                // completed (no extra cycle consumed).
+                start_tx_from_fifo();
+            } else if (on_tx_empty) {
+                // TX FIFO is now empty and transmitter is idle
+                on_tx_empty();
             }
         } else if (!tx_fifo_.empty()) {
-            // Start transmitting the next byte from the FIFO
-            uint8_t byte = tx_fifo_.pop();
-            tx_busy_ = true;
-            tx_timer_byte_ = byte_transfer_ticks();
-
-            if (on_tx_byte) {
-                on_tx_byte(byte);
-            } else {
-                // Loopback mode
-                inject_rx(byte);
-            }
+            // Idle with data queued: the byte starts in the current
+            // cycle; its countdown begins on the next one (matches the
+            // old loop, where the start iteration did not decrement).
+            start_tx_from_fifo();
+            --remaining;
+        } else {
+            return;  // idle, FIFO empty: nothing can happen this span
         }
     }
 }

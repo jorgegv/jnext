@@ -424,6 +424,24 @@ dropped; `raise_req` invalidation dropped) were run and are caught.
 | CIM2-QUIESCE-01 | Pulse mode: 1000 quiescent ticks leave `save_state` byte-identical; a pulse raised after the stretch keeps the exact 36-CPU-cycle width (zxnext.vhd:2033-2044); a second edge after a stretch is not masked by a stale `int_req_d` (im2_peripheral.vhd:98-101, :154-162) | snapshots equal; pulse low through count 32, high at 36; `int_status` set by the post-stretch edge |
 | CIM2-QUIESCE-02 | IM2 mode: S_REQ and S_ISR are stable across quiescent stretches (byte-identical snapshots); IntAck after a stretch yields vector 0x06 for CTC0 (zxnext.vhd:1999); RETI decoded after a stretch still clears S_ISR via the tick path (im2_device.vhd:123-128) | snapshots equal; vec==0x06; S_ISR→S_0 on the RETI tick; fresh raise re-enters S_REQ |
 
+## Section 16: C1 CTC event-horizon tick() equivalence (Task 27 C1, 2026-07-15)
+
+`Ctc::tick(N)` was rewritten from an O(N×4) per-cycle loop to an
+O(ZC/TO events) event-horizon loop: gap cycles are applied in closed
+form by `CtcChannel::advance()`, and the cycle in which the earliest
+ZC/TO fires runs the original exact per-channel inner loop (validated
+by the pre-existing VHDL-cited rows). These rows pin the seam. Rows
+live in `test/ctc_interrupts/ctc_interrupts_test.cpp` (group
+CTC-C1-ACC), on a bare `Ctc`. All three designed mutations (advance()
+drops prescaler accumulation; advance() drops counter decrement; gap
+advance over-advances by one cycle) were run and are caught.
+
+| ID | Test | Expected |
+|----|------|----------|
+| CTC-C1-ACC-01 | Timer /16 TC=3: one tick(150) span crosses three ZC/TO events (ctc_chan.vhd:143-146 prescaler_clk, :162-170 zc_to); prescaler phase survives the closed-form jump | exactly 3 pulses in the span; counter reads 3; 4th pulse exactly at tick 192 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 daisy-chained into ch1 counter TC=2 (zxnext.vhd:4084); one tick(200) vs 200× tick(1) | both produce callback sequence 0,0,1,0,0,1 and identical final counters (3, 2) |
+| CTC-C1-ACC-03 | ch1 timer armed with D3=1 (S_TRIGGER) started mid-span by ch0's ZC/TO at 16; activation cycle still ticks the newly-RUN channel (established per-cycle model ordering) | ch1's first ZC/TO at tick 31 (sequence 0,1 in tick(31)); ch0's next at 32; tick(31) == 31× tick(1) |
+
 ## Special Handling
 
 ### Clock domain crossing
