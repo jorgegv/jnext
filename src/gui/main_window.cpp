@@ -1312,10 +1312,17 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 #ifdef ENABLE_DEBUGGER
     if (debugger_mgr_) {
-        debugger_mgr_->set_enabled(false);
-        auto* dbg_win = debugger_mgr_->debugger_window_ptr();
-        if (dbg_win)
-            dbg_win->close();
+        // Task 60e: set_enabled(false) prompts (and can be declined) when the
+        // machine is corrupt. Only force the debugger window closed if the
+        // disable actually happened — otherwise the forced close would
+        // re-trigger DebuggerWindow::closeEvent (a SECOND prompt) and hide a
+        // still-enabled debugger. The app itself still quits regardless.
+        bool disabled = debugger_mgr_->set_enabled(false);
+        if (disabled) {
+            auto* dbg_win = debugger_mgr_->debugger_window_ptr();
+            if (dbg_win)
+                dbg_win->close();
+        }
     }
 #endif
     QMainWindow::closeEvent(event);

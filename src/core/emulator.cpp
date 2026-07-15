@@ -7247,6 +7247,11 @@ void Emulator::reset()
     // the pre-reset speed would be swallowed as "unchanged" and never logged.
     last_logged_cpu_speed_ = 0;
 
+    // Task 60e: a hard reset re-establishes a clean machine, so any
+    // pending "corrupt after failed rewind" flag (Task 60b) is cleared —
+    // the recovery path the GUI tells the user to take.
+    last_state_error_.clear();
+
     // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
     // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
     // they are preserved. Save the port-enable state and reset_type before
@@ -7339,6 +7344,10 @@ void Emulator::soft_reset()
         pre_dump && trace_log_.enabled()) {
         trace_log_.export_to_file(pre_dump);
     }
+
+    // Task 60e: soft reset also re-establishes a runnable machine, so it
+    // clears the "corrupt after failed rewind" flag (Task 60b) too.
+    last_state_error_.clear();
 
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);
@@ -8203,6 +8212,7 @@ bool Emulator::load_state(StateReader& r)
         const uint32_t got     = r.read_u32();
         if (got != expect || r.out_of_bounds()) {
             last_state_error_ = name;
+            ++state_error_generation_;   // Task 60e: fresh corruption incident
             Log::emulator()->error(
                 "load_state: state sentinel mismatch after subsystem '{}' "
                 "(#{}: got 0x{:08X}, expected 0x{:08X}{}) — snapshot desynced, "
@@ -8582,6 +8592,7 @@ bool Emulator::load_state(StateReader& r)
     // belt-and-braces check) still fails the load loudly.
     if (r.out_of_bounds()) {
         last_state_error_ = "buffer-truncated";
+        ++state_error_generation_;   // Task 60e: fresh corruption incident
         Log::emulator()->error(
             "load_state: read past end of snapshot buffer ({} bytes) — "
             "restore aborted", r.capacity());

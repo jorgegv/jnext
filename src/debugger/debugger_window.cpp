@@ -65,8 +65,17 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
 }
 
 void DebuggerWindow::closeEvent(QCloseEvent* event) {
-    save_geometry();
+    // Task 60e: window_closed() runs DebuggerManager::set_enabled(false)
+    // synchronously (direct connection), which auto-resumes the machine. That
+    // path is gated — if the user declines to resume a corrupt machine the
+    // debugger stays enabled. Detect that via is_enabled() and keep this window
+    // OPEN (ignore the close) rather than hiding a still-live debugger.
     emit window_closed();
+    if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
+        event->ignore();
+        return;
+    }
+    save_geometry();
     event->accept();
 }
 

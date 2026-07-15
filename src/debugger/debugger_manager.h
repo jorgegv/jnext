@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "debug/symbol_table.h"
+#include "debug/resume_guard.h"
 
 class Emulator;
 class QMainWindow;
@@ -22,8 +23,12 @@ public:
     /// Is the debugger currently enabled (window visible, breakpoint checks active)?
     bool is_enabled() const { return enabled_; }
 
-    /// Enable or disable the debugger at runtime.
-    void set_enabled(bool enabled);
+    /// Enable or disable the debugger at runtime. Returns true if the
+    /// debugger is in the requested state afterwards; returns FALSE only when
+    /// a disable was DECLINED — the machine is corrupt (Task 60b) and the user
+    /// refused to resume it (Task 60e), so the debugger stays enabled + paused.
+    /// Callers that hide/close UI on disable must honour a false return.
+    bool set_enabled(bool enabled);
 
     /// Refresh all visible panels with current emulator state.
     /// Called from on_frame_tick() — does nothing when debugger is disabled.
@@ -70,6 +75,23 @@ private:
     void update_actions();
     void reposition_debugger_window();
 
+    /// Task 60e: if the emulator flagged a corrupt state after a failed
+    /// rewind/step-back (Emulator::last_state_error() non-empty), surface it
+    /// to the user (status bar + modal warning). No-op on a benign failure
+    /// (empty buffer, trace off, frame out of range) where no restore was
+    /// attempted. `op` names the operation for the message.
+    void warn_state_corrupt(const QString& op);
+
+    /// Task 60e — THE single choke point every resume/step/execute path must
+    /// pass through. Returns true if it is safe to proceed. If the machine is
+    /// corrupt (failed rewind, Task 60b) and this incident has not yet been
+    /// acknowledged, it shows a modal Yes/No warning (default No): on Yes it
+    /// records the acknowledgment and returns true; on No it returns false and
+    /// the caller MUST abort (stay paused). Every new corruption incident
+    /// re-prompts. When the machine is clean it is a cheap no-op returning
+    /// true. The pure policy lives in ResumeGuard so it can be unit-tested.
+    bool confirm_resume_if_corrupt();
+
     QMainWindow* main_window_;
     Emulator* emulator_;
 
@@ -85,6 +107,9 @@ private:
 
     // Symbol table for loaded MAP files
     SymbolTable symbol_table_;
+
+    // Task 60e — per-incident acknowledgment state for the corruption gate.
+    ResumeGuard resume_guard_;
 
     // Refresh throttle
     int refresh_counter_ = 0;

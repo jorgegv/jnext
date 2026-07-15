@@ -24,6 +24,7 @@
 #include <QPixmap>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QStatusBar>
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent)
     : QObject(parent)
@@ -80,9 +81,9 @@ void DebuggerManager::reposition_debugger_window() {
 // Enable / Disable
 // ---------------------------------------------------------------------------
 
-void DebuggerManager::set_enabled(bool enabled) {
+bool DebuggerManager::set_enabled(bool enabled) {
     if (enabled_ == enabled)
-        return;
+        return true;   // already in the requested state
 
     enabled_ = enabled;
 
@@ -121,6 +122,21 @@ void DebuggerManager::set_enabled(bool enabled) {
     } else {
         // Resume if paused, then deactivate.
         if (emulator_->debug_state().paused()) {
+            // Task 60e: disabling the debugger auto-resumes — route it through
+            // the same corruption gate. If the user declines, abort the disable
+            // and keep the debugger enabled + paused so they can reset. enabled_
+            // was already flipped to false above (and Qt flips the checkable
+            // action to unchecked BEFORE emitting triggered()), so restore both
+            // the state and every UI affordance, then report the decline so
+            // callers (both closeEvents) don't hide/close a still-live debugger.
+            if (!confirm_resume_if_corrupt()) {
+                enabled_ = true;
+                if (enable_action_)
+                    enable_action_->setChecked(true);
+                update_actions();
+                emit enabled_changed(true);   // re-check the toolbar Debug button
+                return false;
+            }
             emulator_->debug_state().resume();
             was_paused_ = false;
             emit resumed();
@@ -141,6 +157,7 @@ void DebuggerManager::set_enabled(bool enabled) {
 
     update_actions();
     emit enabled_changed(enabled);
+    return true;
 }
 
 void DebuggerManager::ensure_window() {
@@ -158,6 +175,8 @@ void DebuggerManager::ensure_window() {
     // Wire disasm panel "run to" signal and set symbol/watch pointers.
     if (auto* dp = debugger_window_->disasm_panel()) {
         connect(dp, &DisasmPanel::run_to_requested, this, [this, dp](uint16_t addr) {
+            // Task 60e: "Run to Here" resumes execution — gate it too.
+            if (!confirm_resume_if_corrupt()) return;
             emulator_->debug_state().run_to(addr);
             was_paused_ = false;
             dp->set_paused(false);
@@ -231,8 +250,61 @@ void DebuggerManager::create_debug_toolbar() {
 // Debug control slots
 // ---------------------------------------------------------------------------
 
+void DebuggerManager::warn_state_corrupt(const QString& op) {
+    // Only true corruption sets Emulator::last_state_error(); benign
+    // step-back/rewind failures (empty buffer, disabled trace, frame out of
+    // range) never attempt a restore and leave it empty.
+    if (emulator_->last_state_error().empty())
+        return;
+    const QString sub = QString::fromStdString(emulator_->last_state_error());
+    if (main_window_->statusBar()) {
+        main_window_->statusBar()->showMessage(
+            QObject::tr("%1 failed: snapshot restore desynced at '%2' — machine "
+                        "state is corrupt; reset to recover").arg(op, sub), 10000);
+    }
+    QMessageBox::warning(
+        main_window_,
+        QObject::tr("Rewind Failed"),
+        QObject::tr("%1 could not restore the machine snapshot (subsystem '%2' "
+                    "desynced).\n\nThe machine is now in a corrupt, partially-"
+                    "restored state and has been paused. Resuming may crash or "
+                    "behave unpredictably — reset the machine (Machine ▸ Reset) "
+                    "to recover cleanly.").arg(op, sub));
+}
+
+bool DebuggerManager::confirm_resume_if_corrupt() {
+    const bool corrupt = !emulator_->last_state_error().empty();
+    const uint64_t gen = emulator_->state_error_generation();
+    if (!resume_guard_.needs_confirmation(corrupt, gen))
+        return true;   // clean, or this incident already acknowledged
+
+    const QString sub = QString::fromStdString(emulator_->last_state_error());
+    QMessageBox::StandardButton btn = QMessageBox::warning(
+        main_window_,
+        QObject::tr("Machine State Corrupt"),
+        QObject::tr("The machine state is corrupt after a failed rewind/step-"
+                    "back (subsystem '%1' did not restore cleanly).\n\n"
+                    "Resuming or stepping may crash or behave unpredictably. "
+                    "Reset the machine (Machine ▸ Reset) to recover cleanly.\n\n"
+                    "Proceed anyway?").arg(sub),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (btn != QMessageBox::Yes)
+        return false;   // caller must abort
+
+    // Acknowledge THIS incident so we don't re-prompt on every following
+    // action — but leave last_state_error() set: acknowledging does not heal
+    // the desync, so the breadcrumb survives until an actual reset. A new
+    // corruption bumps the generation and re-prompts.
+    resume_guard_.record_ack(gen);
+    return true;
+}
+
 void DebuggerManager::on_run() {
     if (!enabled_) return;
+    // Task 60e: THE choke point — never silently resume a torn machine.
+    if (!confirm_resume_if_corrupt()) return;
+
     emulator_->debug_state().resume();
     was_paused_ = false;
     if (debugger_window_) {
@@ -273,6 +345,9 @@ void DebuggerManager::on_pause() {
 
 void DebuggerManager::on_step_into() {
     if (!enabled_) return;
+    // Task 60e: single-stepping executes a real instruction against the
+    // (possibly torn) CPU/MMU — gate it like every other execute path.
+    if (!confirm_resume_if_corrupt()) return;
 
     if (!emulator_->debug_state().paused()) {
         emulator_->debug_state().pause();
@@ -302,6 +377,7 @@ void DebuggerManager::on_step_into() {
 
 void DebuggerManager::on_step_over() {
     if (!enabled_) return;
+    if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
     if (!emulator_->debug_state().paused()) {
         emulator_->debug_state().pause();
@@ -338,6 +414,7 @@ void DebuggerManager::on_step_over() {
 
 void DebuggerManager::on_step_out() {
     if (!enabled_) return;
+    if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
     if (!emulator_->debug_state().paused()) {
         emulator_->debug_state().pause();
@@ -363,6 +440,7 @@ void DebuggerManager::on_step_out() {
 void DebuggerManager::on_run_to_eof() {
     if (!enabled_) return;
     if (!emulator_->debug_state().paused()) return;
+    if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
     // Target the midpoint of the last visible scanline, so that when the CPU
     // stops every framebuffer row has been rendered and the video panel shows
@@ -407,6 +485,7 @@ void DebuggerManager::on_run_to_eof() {
 void DebuggerManager::on_run_to_eosl() {
     if (!enabled_) return;
     if (!emulator_->debug_state().paused()) return;
+    if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
     // Calculate the cycle at the end of the current scanline.
     uint64_t frame_start = emulator_->current_frame_cycle();
@@ -450,7 +529,10 @@ void DebuggerManager::on_step_back() {
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
 
     bool ok = emulator_->step_back(1);
-    if (!ok) return;
+    if (!ok) {
+        warn_state_corrupt(QObject::tr("Step Back"));
+        return;
+    }
 
     was_paused_ = true;
     if (debugger_window_) {
@@ -476,7 +558,10 @@ void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
 
     bool ok = emulator_->rewind_to_frame(frame_num);
-    if (!ok) return;
+    if (!ok) {
+        warn_state_corrupt(QObject::tr("Rewind To Frame"));
+        return;
+    }
 
     was_paused_ = true;
     if (debugger_window_) {
