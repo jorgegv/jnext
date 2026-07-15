@@ -66,6 +66,7 @@ BEGIN {
     L["NMI (integration)"]     = "nmi_integration_test"
     L["Debugger Video Panel"]  = "debugger_video_panel_test"
     L["Debugger Audio Panel"]  = "debugger_audio_panel_test"
+    L["Debugger Quit Gate"]    = "debugger_quit_gate_test"
     L["CPU INT pulse"]         = "cpu_int_pulse_test"
     L["CPU/Z80N IM2 regr."]    = "cpu_z80n_im2_regressions_test"
     L["Phantom Typist"]        = "phantom_typist_test"
