@@ -344,9 +344,13 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` /
 - **Symbol table** — Z88DK MAP files; symbols appear inline in the disassembly
   and in watches
 - **Backwards execution (rewind)** — frame-snapshot ring buffer, with Step
-  Back, Frame Back and a rewind slider. Opt-in: start jnext with
-  `--rewind-buffer-size N` (e.g. 500) to enable it; the default is off
-  because rewind takes a full-machine snapshot every frame
+  Back, Frame Back and a rewind slider. Opt-in (default off, because rewind
+  takes a full-machine snapshot every frame): start jnext with
+  `--rewind-buffer-size N` (e.g. 500), or toggle it live from the debugger's
+  Debug > Rewind > Enable Rewind menu (no restart needed; allocates 500
+  frames, or the last size set via Rewind Buffer Size...). Unchecking the
+  toggle pauses snapshotting but keeps the recorded history; set the buffer
+  size to 0 to free the memory
 
 | Key | Action |
 |-----|--------|

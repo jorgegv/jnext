@@ -494,6 +494,72 @@ static int test_monotonic_tape_clock_roundtrip()
     return 0;
 }
 
+// ── Test 8: live enable/disable via resize_rewind_buffer (Task 27 A1b) ─────
+// The debugger's Enable Rewind toggle allocates the buffer live via
+// Emulator::resize_rewind_buffer() (no restart, mmap-backed after A1).
+// Verify the exact contract the GUI depends on:
+//   - with rewind_buffer_frames=0 no buffer exists (A1 default),
+//   - resize_rewind_buffer(N) mid-run allocates, enables snapshotting AND
+//     the instruction trace (step_back() needs it — Task 27 A2),
+//   - snapshots start from the next frame,
+//   - set_rewind_enabled(false) pauses snapshotting but keeps the history
+//     (the toggle's keep-but-pause disable semantics),
+//   - step_back() works after a live enable,
+//   - resize_rewind_buffer(0) frees the buffer and disables rewind.
+static int test_live_enable_resize()
+{
+    printf("\n--- Test 8: live enable via resize_rewind_buffer (A1b) ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 0);              // A1 default: rewind off
+    emu.trace_log().set_enabled(false);  // undo build_emulator's enable; the
+                                         // live path must switch it back on
+
+    emu.run_frame();
+    emu.run_frame();
+    CHECK(emu.rewind_buffer() == nullptr, "A1B-01 no buffer with frames=0");
+    CHECK(!emu.rewind_enabled(), "A1B-02 rewind disabled with frames=0");
+
+    // Live enable — exactly what the debugger toggle now does.
+    emu.resize_rewind_buffer(4);
+    REQUIRE(emu.rewind_buffer() != nullptr, "buffer allocated live");
+    CHECK(emu.rewind_buffer()->empty(), "A1B-03 buffer empty until next frame");
+    CHECK(emu.rewind_enabled(), "A1B-04 snapshotting enabled by resize");
+    CHECK(emu.trace_log().enabled(),
+          "A1B-05 trace enabled by resize (step_back dependency)");
+
+    emu.run_frame();
+    CHECK(emu.rewind_buffer()->depth() == 1,
+          "A1B-06 snapshot taken at next frame start");
+    emu.run_frame();
+
+    // Keep-but-pause: snapshotting stops, history retained.
+    emu.set_rewind_enabled(false);
+    size_t depth_at_pause = emu.rewind_buffer()->depth();
+    emu.run_frame();
+    emu.run_frame();
+    CHECK(emu.rewind_buffer()->depth() == depth_at_pause,
+          "A1B-07 pause: no new snapshots while disabled");
+    CHECK(!emu.rewind_buffer()->empty(),
+          "A1B-08 pause: recorded history retained");
+
+    // Resume.
+    emu.set_rewind_enabled(true);
+    emu.run_frame();
+    CHECK(emu.rewind_buffer()->depth() == depth_at_pause + 1,
+          "A1B-09 resume: snapshotting continues");
+
+    // step_back after a live enable must succeed.
+    CHECK(emu.step_back(1), "A1B-10 step_back works after live enable");
+
+    // Free: resize to 0 drops the buffer and disables rewind.
+    emu.resize_rewind_buffer(0);
+    CHECK(emu.rewind_buffer() == nullptr, "A1B-11 resize(0) frees the buffer");
+    CHECK(!emu.rewind_enabled(), "A1B-12 resize(0) disables rewind");
+
+    return 0;
+}
+
 static void test_ss_ver_skips()
 {
     skip("SS-VER-01", "schema magic + version head absent (see G66)");
@@ -526,6 +592,7 @@ int main()
     test_step_back_disabled();
     test_v16_cpu_01_load_state_repushes_port_ulap_io_en();
     test_monotonic_tape_clock_roundtrip();
+    test_live_enable_resize();
     test_ss_ver_skips();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

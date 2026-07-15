@@ -116,4 +116,9 @@ private:
     QLabel*   rewind_frame_label_ = nullptr;
     QPushButton* rewind_jump_btn_ = nullptr;
     bool      rewind_slider_dragging_ = false;
+
+    // Frame count used by the live Enable Rewind toggle (Task 27 A1b).
+    // Remembers the last size applied via the Rewind Buffer Size... dialog
+    // within this session; defaults to the pre-A1 CLI default of 500.
+    int       last_rewind_frames_ = 500;
 };

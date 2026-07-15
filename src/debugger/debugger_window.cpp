@@ -307,19 +307,30 @@ void DebuggerWindow::create_menus() {
         if (!emulator_) return;
         if (checked) {
             if (!emulator_->rewind_buffer()) {
-                // No buffer allocated — explain how to enable
-                QMessageBox::information(this, tr("Enable Rewind"),
-                    tr("Rewind requires pre-allocated memory.\n"
-                       "Restart the emulator with:\n\n"
-                       "  --rewind-buffer-size N\n\n"
-                       "where N is the number of frames to store (e.g. 500)."));
-                rewind_enable_action_->setChecked(false);
-                return;
+                // Live allocation (Task 27 A1b): no restart needed. The
+                // buffer is mmap-backed (Task 27 A1), so the memory is
+                // faulted lazily as snapshots are taken. This also enables
+                // snapshotting and the instruction trace (step_back() needs
+                // it) — see Emulator::resize_rewind_buffer(). Snapshots
+                // start from the next completed frame.
+                emulator_->resize_rewind_buffer(last_rewind_frames_);
+            } else {
+                // Buffer exists but snapshotting is paused — resume it.
+                emulator_->set_rewind_enabled(true);
+                // Re-assert the instruction trace: step_back() cannot work
+                // without it, and it may have been manually disabled via
+                // Debug > Trace while rewind was off.
+                emulator_->trace_log().set_enabled(true);
             }
-            emulator_->set_rewind_enabled(true);
+            update_trace_indicator();
         } else {
+            // Disable = keep-but-pause (the pre-A1b semantics of this
+            // toggle): snapshotting stops but the buffer and its recorded
+            // history are retained, so the user can still rewind into the
+            // past. To free the memory, use Rewind Buffer Size... = 0.
             emulator_->set_rewind_enabled(false);
         }
+        update_rewind_ui();
     });
 
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
@@ -378,14 +389,18 @@ void DebuggerWindow::update_actions(bool is_paused) {
     if (step_over_action_) step_over_action_->setEnabled(is_paused);
     if (step_out_action_)  step_out_action_->setEnabled(is_paused);
 
-    // Step Back is only available when paused, rewind buffer has snapshots,
-    // and RZX playback is not active.
+    // Rewinding (frame jump) is only available when paused, the rewind
+    // buffer has snapshots, and RZX playback is not active.
     bool can_rewind = is_paused
         && emulator_
         && emulator_->rewind_buffer()
         && !emulator_->rewind_buffer()->empty()
         && !emulator_->rzx_player().is_playing();
-    if (step_back_action_) step_back_action_->setEnabled(can_rewind);
+    // Step Back additionally needs the instruction trace to locate the
+    // target instruction's cycle — Emulator::step_back() fails loudly
+    // without it (Task 27 A2), so grey the action out instead.
+    bool can_step_back = can_rewind && emulator_->trace_log().enabled();
+    if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
 }
 
@@ -498,7 +513,7 @@ void DebuggerWindow::show_rewind_buffer_size_dialog() {
     // Show the max capacity (depth() is current fill, not capacity)
     // Use snapshot_bytes to estimate from allocated memory
     // Since we don't expose max_frames, use config value as best estimate
-    spin->setValue(current_frames > 0 ? current_frames : 500);
+    spin->setValue(current_frames > 0 ? current_frames : last_rewind_frames_);
 
     size_t snap_bytes = emulator_->rewind_buffer()
         ? emulator_->rewind_buffer()->snapshot_bytes() : 0;
@@ -536,6 +551,8 @@ void DebuggerWindow::show_rewind_buffer_size_dialog() {
     if (dlg.exec() != QDialog::Accepted) return;
 
     int new_frames = spin->value();
+    if (new_frames > 0)
+        last_rewind_frames_ = new_frames;  // Session default for Enable Rewind
     emulator_->resize_rewind_buffer(new_frames);
     update_rewind_ui();
 }
