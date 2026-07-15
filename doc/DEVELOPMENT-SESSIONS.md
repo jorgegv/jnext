@@ -90,61 +90,18 @@
 | 9/7    | 4h   | zx_go comparison: refutes G46(b) L6/L7 conclusions; boot verified in zx_go with our image + ROM      |
 | 10/7   | 7h   | **NextZXOS NATIVE BOOT ACHIEVED**: bank-7 BRAM/alt-ROM aliasing root-caused via symmetric trace      |
 |        |      | 3-round independent review (BLOCKER found+fixed); merged to main; v0.94.0                            |
-| 11/7   | 9h   | v0.95.0 batch (multi-agent, ~12 independent reviews): Task 25 bank-5 dedicated 16K VRAM (mid-boot    |
-|        |      | glitch), Task 28 --rtc fixed clock, Task 24 boot-to-menu regressions, Task 23 splash glitch fix      |
-|        |      | Task 18 --bypass-tbblue-fw route+tooling removed; Task 26 SPI Ncr/CMD58/CRC-16 + NR $03 + Multiface  |
-|        |      | external-SRAM conformance; Task 27 SD default-location + built-in download (vendored ChaN FatFs      |
-|        |      | f_mkfs + libcurl + SHA256 raw-integrity guard + Qt progress dialog); Task 29 doc drift + check       |
-|        |      | script; --sd-card→--sdcard rename (silent alias); Task 30 full-static feasibility (WONT). v0.95.0    |
-| 12/7   | 5h   | Task 23 audio (3 independent reviews). Root-caused the Cesare beeper clicking to audio-device        |
-|        |      | underruns — the SAME bug as issue #7 "constant noise": audio is synthesised on the emulated clock    |
-|        |      | but the frontends paced on the wall clock (48K frame 50.08Hz vs 20ms tick → 44030 samples/s fed vs   |
-|        |      | 44100 consumed), so the queue drained and SDL spliced ZEROS into the stream. Fixed by pacing         |
-|        |      | emulation on the audio device's clock. The v0.95.x DC-blocker "fix" for #7 only MASKED it (and       |
-|        |      | sagged beeper plateaus 8.6%) — reverted. Second, separate bug: the mixer was point-sampled once per  |
-|        |      | output sample, discarding most beeper toggles → aliasing ("higher pitch over the tune"); it now      |
-|        |      | integrates over each sample interval. Two speculative fixes built, measured as no-ops, deleted.      |
-|        |      |                                                                                                      |
-| 12/7   | 6h   | Tasks 32/35/37: the harness could silently run FEWER tests than it claimed — three suites had        |
-|        |      | vanished from the counts, all found by accident. Suites are now DECLARED (test/unit-tests.conf +     |
-|        |      | the two regression manifests) with per-suite row counts and manifest-count pins, cross-checked       |
-|        |      | against what CMake registered; anything missing is a loud refusal. cpu_int_pulse_test +              |
-|        |      | cpu_z80n_im2_regressions_test ran for the FIRST TIME (63 assertions, never once executed).           |
-|        |      | Four review rounds, each finding real bugs in the harness itself (a failing suite aborted the whole  |
-|        |      | run; the completeness check was a tautology; two guards were dead code), so the harness is now       |
-|        |      | itself under test: test/harness-selftest.sh, 26 cases, run by every regression.                      |
-|        |      | Also: LC_ALL=C pinned everywhere — Qt's QApplication calls setlocale(), so a strerror assertion      |
-|        |      | FAILed on a Spanish desktop and passed on an English one.                                            |
-| 12/7   | 4h   | Task 40 (beast.nex): FOUR reported symptoms, TWO causes, and two of the four were not bugs.          |
-|        |      | (1) The debugger read NextReg::cached() — the last byte written to a NextREG number — but Layer 2's  |
-|        |      | enable is one FF that port 0x123B also latches, so it reported Layer 2 OFF while showing its         |
-|        |      | graphics. Systemic: the NextREG panel showed all 256 registers from the stale cache. The first fix   |
-|        |      | made it WORSE (NR 0x2C/0x2E reads LATCH the Pi-I2S sample, and the panel sweeps 256 registers 4 Hz   |
-|        |      | while the guest runs — the debugger was writing to the machine), hence NextReg::peek().              |
-|        |      | (2) The REAL one: run_frame() RESTARTED a frame the debugger had paused instead of resuming it,      |
-|        |      | rewinding the Copper PC and clearing the per-scanline change logs — so beast's Copper-driven sky     |
-|        |      | gradient vanished, alternating between the panel and the emulator window on each step. Both halves   |
-|        |      | were the same disease: the debugger was altering the machine it was looking at.                      |
-|        |      | NOT bugs: the solid Background panel (NR 0x4A really is 0x00) and the garbage bank-5 ULA view        |
-|        |      | (beast draws in the shadow screen). Saying so was half the value.                                    |
-|        |      |                                                                                                      |
-| 13/7   | 10h  | Three sessions (day/night/overnight). Task 50: contention window displaced 64 SCANLINES since the    |
-|        |      | model was written — located by driving real FUSE headless+scripted (--debugger-command,             |
-|        |      | ula:tstates) as a T-state oracle: one number each side showed 808 T of phantom contention/frame.    |
-|        |      | Tasks 43/45/46/47 (per-line deferral class, --silent), Task 13b (.z80 machine-scoped), v0.97.0.     |
-|        |      | Overnight: Task 54 SOLVED Nirvana/BIFROST (G12): contention stretch table had the wrong PERIOD      |
-|        |      | (pattern[hc&7] repeated the 8-T table every 4 T) + AttributeMux fetch instants 8-12 ticks early     |
-|        |      | and parity-blind. BIFROST now pixel-identical to FUSE (0/49152 colour indices). Also Task 51        |
-|        |      | (runtime NR 0x03 re-push + Pentagon timing restored) and ULA clip NR 0x1A per-line (class 6/6).     |
-| 14/7   | 7h   | Agent-team day: 8 branches, 8 independent reviews (3 REJECT rounds, every one a real defect).        |
-|        |      | Task 55/59b: BIFROST/NIRVANA/NIRVANA+ pinned on 48k+128k+plus3 (12 FUSE-verified 0-px refs).        |
-|        |      | Task 56+58: NR 0x05 50/60 + scandouble are frame-edge-latched (write AND readback); Copper          |
-|        |      | c_max_vc re-pushed on runtime timing changes; 7 wrong-oracle rows corrected.                        |
-|        |      | Task 57 CLOSED: SD2 paging conflict (NR 0x84 b2, decline_write fall-through); tape SAVE→TAP         |
-|        |      | (SA-BYTES trap, ROM-identity gate after review caught NextZXOS boot corruption); .ls dot-command    |
-|        |      | e2e row; DeciLoad G36/G37 FIXED — 3 root causes (frame-relative tape clock froze ALL realtime       |
-|        |      | tape since 13/4; ZOT pause swallowed final edges; WAV edges quantised to sample grid). Xevious      |
-|        |      | TZX + Dizzy WAV load end-to-end. Task 59: Next-mode BIFROST col-18 adjudicated hardware-consistent  |
-|        |      | (equilibrium selection, G12 §10). Unit skips 21→10 (all remaining = Task 13a snapshot schema).      |
-|        |      |                                                                                                      |
-| TOTAL: | 355h |                                                                                                      |
+| 11/7   | 9h   | v0.95.0 batch (multi-agent): bank-5 VRAM, --rtc, boot regressions, SPI/Multiface conformance,        |
+|        |      | SD default location + built-in download (FatFs+curl+SHA256), --sd-card→--sdcard.                     |
+| 12/7   | 5h   | Audio: beeper clicking = audio underruns (== issue #7); paced emulation on the audio clock.          |
+|        |      | Mixer now integrates per sample (de-aliased). The v0.95.x DC-blocker "fix" reverted.                 |
+| 12/7   | 6h   | Tasks 32/35/37: declared-suite manifests + row-count pins + harness self-test (26 cases) —           |
+|        |      | the harness could silently run fewer tests than it claimed. Two suites ran for the first time.       |
+| 12/7   | 4h   | Task 40 (beast.nex): the debugger was altering the machine it observed (stale NextREG cache          |
+|        |      | → peek(); paused frame restarted not resumed). 2 of the 4 reported symptoms were not bugs.           |
+| 13/7   | 10h  | Task 50: contention window displaced 64 scanlines (FUSE headless as T-state oracle).                 |
+|        |      | Task 54 SOLVED Nirvana/BIFROST: wrong stretch period + early mux; pixel-exact vs FUSE. v0.97.0.      |
+| 14/7   | 7h   | Agent-team day, 8 reviewed branches (3 REJECT). 55/59b BIFROST/NIRVANA pinned 48k/128k/plus3;        |
+|        |      | 56/58 NR 0x05 frame-latched; 57 CLOSED (SD2, tape-save→TAP, DeciLoad 3 root causes). Skips 21→10.    |
+| 15/7   | 12h  | Task 27: emulation DOUBLED — boot-nextzxos 57.4→114.8M T/s, 202fps@400% (closes the 75fps gap).      |
+|        |      | 14 reviewed branches, profile-guided. Issue #8 crash; 60a/60b; 13a→0 skips; v0.99.0 ChangeLog.       |
+| TOTAL: | 367h |                                                                                                      |
