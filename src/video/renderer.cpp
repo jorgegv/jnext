@@ -522,7 +522,31 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b2) {
     return Renderer::rrrgggbb_to_argb(rgb8);
 }
 
+// composite_scanline — dispatch once per scanline on the (per-line constant)
+// NR 0x15 layer_priority_. Task 27 C8: the priority mode cannot change within a
+// scanline — nothing in composite_scanline_mode's inner loop mutates
+// layer_priority_, and the emulator commits NR 0x15 (renderer_.set_layer_priority,
+// emulator.cpp) before render_frame runs. Selecting the specialised loop here
+// hoists the former per-pixel `switch (layer_priority_)` (163,840×/frame) out of
+// the inner loop: PRIO is a compile-time constant inside the specialisation, so
+// the switch folds to the single taken arm with no per-pixel branch. Output is
+// byte-identical to the pre-hoist single-loop form.
 void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row)
+{
+    switch (layer_priority_) {
+        case 0: composite_scanline_mode<0>(dst, fallback_argb, row); break;
+        case 1: composite_scanline_mode<1>(dst, fallback_argb, row); break;
+        case 2: composite_scanline_mode<2>(dst, fallback_argb, row); break;
+        case 3: composite_scanline_mode<3>(dst, fallback_argb, row); break;
+        case 4: composite_scanline_mode<4>(dst, fallback_argb, row); break;
+        case 5: composite_scanline_mode<5>(dst, fallback_argb, row); break;
+        case 6: composite_scanline_mode<6>(dst, fallback_argb, row); break;
+        case 7: composite_scanline_mode<7>(dst, fallback_argb, row); break;
+    }
+}
+
+template<int PRIO>
+void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, int row)
 {
     // Pre-compute NR 0x14 transparency reference (RGB portion only).
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
@@ -654,7 +678,7 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
 
         uint32_t result = fallback_argb;
 
-        switch (layer_priority_) {
+        switch (PRIO) {
             case 0:  // SLU (VHDL 7218)
                 if (l2_prio)                result = l2_px;   // VHDL 7220
                 else if (!spr_transp)       result = spr_px;
@@ -780,7 +804,7 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
                 uint8_t b_sum = l2_b + mx_b;
 
                 uint32_t mixer_argb;
-                if (layer_priority_ == 6) {
+                if (PRIO == 6) {
                     // Additive with clamp (VHDL 7288-7298).
                     const uint8_t r_out = std::min<uint8_t>(r_sum, 7);
                     const uint8_t g_out = std::min<uint8_t>(g_sum, 7);

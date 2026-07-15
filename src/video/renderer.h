@@ -560,6 +560,15 @@ private:
     ///             (VHDL zxnext.vhd:7130 requires ula_en_2 = '1').
     void composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row);
 
+    /// Per-priority-mode specialisation of the compositor inner loop.
+    /// composite_scanline() dispatches once per scanline on the (per-line
+    /// constant) NR 0x15 layer_priority_ into one of these; PRIO is a
+    /// compile-time constant, so the priority `switch` folds away and the
+    /// per-pixel loop carries no per-pixel branch on layer_priority_ (Task 27
+    /// C8). Defined in renderer.cpp; only instantiated there (PRIO 0..7).
+    template<int PRIO>
+    void composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, int row);
+
     /// Check if a pixel is transparent (alpha channel = 0).
     static bool is_transparent(uint32_t argb) { return (argb & 0xFF000000) == 0; }
 };
