@@ -3,6 +3,20 @@
 **JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
 the people who write Next software.**
 
+<p align="center">
+  <a href="https://github.com/jorgegv/jnext/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/jorgegv/jnext/ci.yml?branch=main&label=CI" alt="CI status">
+  </a>
+  <a href="https://github.com/jorgegv/jnext/releases/latest">
+    <img src="https://img.shields.io/github/v/release/jorgegv/jnext?label=release" alt="Latest release">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License: GPLv3">
+  </a>
+  <img src="https://img.shields.io/badge/C%2B%2B-17-blue" alt="C++17">
+  <img src="https://img.shields.io/badge/platform-Linux-lightgrey" alt="Platform: Linux">
+</p>
+
 A comfortable machine to develop on: a debugger that shows you everything
 the hardware is doing — every layer, every sprite, every register, and the
 ability to step *backwards* — plus a headless mode that puts your program
