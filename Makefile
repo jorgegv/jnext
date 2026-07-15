@@ -133,14 +133,16 @@ unit-test: unit-test-build
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
-	@# a stale doc must not break the parallel-worktree test flow) when a suite's
-	@# count changed OR a live suite has no dashboard row. Fix: make unit-test-dashboard.
+	@# a stale doc must not break the parallel-worktree test flow) when regenerating
+	@# from test/unit-tests.conf + the live summary would change the committed dashboard
+	@# (stale-counts) OR a live suite is not declared in test/unit-tests.conf (no-row).
+	@# Both the generator and this guard key off test/unit-tests.conf. Fix: make unit-test-dashboard.
 	@if [ -s build/test-summary.tsv ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \
 		tmp=$$(mktemp); cp test/SUBSYSTEM-TESTS-STATUS.md $$tmp; \
 		bash test/refresh-subsystem-status.sh build/test-summary.tsv $$tmp >/dev/null 2>&1 || true; \
 		drift=""; \
 		diff -q $$tmp test/SUBSYSTEM-TESTS-STATUS.md >/dev/null 2>&1 || drift="stale-counts"; \
-		miss=$$(cut -f1 build/test-summary.tsv | while read b; do grep -q "\"$$b\"" test/refresh-subsystem-status.sh || echo $$b; done | tr '\n' ' '); \
+		miss=$$(cut -f1 build/test-summary.tsv | while read b; do grep -qE "^[?]?$$b[[:space:]]" test/unit-tests.conf || echo $$b; done | tr '\n' ' '); \
 		[ -n "$$miss" ] && drift="$$drift no-row:[$$miss]"; \
 		if [ -n "$$drift" ]; then \
 			printf "\n$(BADGE_SKIP) DASHBOARD STALE $(RESET) $$drift\n"; \
