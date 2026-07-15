@@ -291,6 +291,24 @@ public:
     /// trigger mem_contend='1' AND i_contention_en='1'.
     bool is_contended_access() const;
 
+    /// C3 (Task 27) — the `i_contention_en` enable gate (zxnext.vhd:4481)
+    /// evaluated standalone:
+    ///     i_contention_en = (not eff_nr_08_contention_disable)
+    ///                   AND (not machine_timing_pentagon)
+    ///                   AND (not cpu_speed(1)) AND (not cpu_speed(0))
+    /// Exactly the three early-outs at the top of contention_tick(), which
+    /// keeps them too (tests and non-CPU seams call it directly). Hot bus
+    /// callers (src/cpu/z80_cpu.cpp) test this FIRST so the per-cycle
+    /// raster math (derive_hc_vc / to_ula_counters / mem_active_page_for)
+    /// is skipped entirely when contention cannot fire. All three inputs
+    /// are runtime-switchable (NR 0x08 bit 6 / NR 0x07 / NR 0x03), so this
+    /// must stay a live per-access test — never cache it per machine type
+    /// (the poisoned prior-art "C2" mistake, TASK27 plan §0.3).
+    bool contention_possible() const {
+        return !contention_disable_ && cpu_speed_ == 0 &&
+               machine_timing_ != MachineTimingMode::TimingPentagon;
+    }
+
     // ── Per-cycle contention runtime API ──────────────────────────────
     /// VHDL `o_cpu_contend` / `o_cpu_wait_n` mirror (zxula.vhd:579-600 +
     /// zxnext.vhd:4481-4496). Returns the number of T-states the CPU
