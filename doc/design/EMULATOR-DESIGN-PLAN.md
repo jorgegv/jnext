@@ -1122,7 +1122,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] Integration test plan (Task 69):
   - [x] Document cross-subsystem interaction scenarios — [doc/testing/INTEGRATION-TEST-PLAN.md](../testing/INTEGRATION-TEST-PLAN.md) catalogs all 11 integration suites (row counts, VHDL-cited scenarios) plus a named "gaps/future" section (DMA bus arbitration, multi-layer render composition, full boot chain, RZX/rewind — none proven at the integration tier today).
-  - [x] CI integration for golden-output visual regression tests — `.github/workflows/ci.yml` runs `make regression` on every push/PR.
+  - [x] CI integration for golden-output visual regression tests — `.github/workflows/ci.yml` runs the golden-screenshot/functional regression on every push/PR, against a job-provisioned pristine SD image, with the single SD-content-dependent row `boot-nextzxos-dotls` excluded (it lists live SD-card contents; verified locally against the canonical fixture) and a preflight manifest-integrity check preceding the filtered run.
   - [x] Create exhaustive CI plan for Github and automated release — `.github/workflows/ci.yml` (build + full test triplet, including an honest SD-image provisioning step via jnext's own `--sdcard-download-confirm`) and `.github/workflows/release.yml` (publishes a GitHub Release from `packaging.yml`'s tag-triggered artifacts on `v*` push).
   - [x] Add badges for test runs and others (license, architectures, etc.) in the main README — CI status, latest release, GPLv3 license, C++17, platform badges added to `README.md`.
 

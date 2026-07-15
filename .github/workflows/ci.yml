@@ -126,8 +126,38 @@ jobs:
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
         run: LANG=C make unit-test 2>&1 | tail -60
 
-      - name: make regression (screenshot + functional suite)
-        run: LANG=C JNEXT_TEST_JOBS=4 make regression 2>&1 | tail -80
+      # Golden-screenshot + functional regression, in two steps.
+      #
+      # Step A (preflight) asserts the manifest pins agree — every declared
+      # screenshot has a checked-in reference and vice-versa, and the
+      # declared functional count matches — so CI still catches a
+      # silently-shrunk suite. It needs no SD image.
+      #
+      # Step B runs every declared screenshot + functional row EXCEPT
+      # boot-nextzxos-dotls. That one row types `.ls` in the NextZXOS
+      # command line and screenshots a LIVE SD-card directory listing, so
+      # its checked-in reference reflects the maintainer's local
+      # roms/nextzxos-1gb-fat32fix.img — which has accumulated dev-session
+      # files (DUMP.BAS, NRDUMP.BIN, ...) — and legitimately differs from
+      # the freshly-provisioned PRISTINE distro image this job downloads
+      # (fewer files → different listing → non-zero pixel diff at the
+      # suite's 0-tolerance). welcome/menu/splash are pixel-identical
+      # against the pristine image; only the directory-listing row is
+      # content-dependent, so it is verified locally by the maintainer
+      # against the canonical fixture instead of in hosted CI.
+      #
+      # Passing positional filter args makes regression.sh treat this as a
+      # PARTIAL run and skip its declared-grand-total witness (that witness
+      # is Step A's job here). The two steps together give CI both
+      # manifest-integrity AND golden-output regression signal.
+      - name: Regression preflight (manifest pins; no SD image needed)
+        run: bash test/00regression/regression.sh --preflight-only
+
+      - name: Regression (all rows except SD-content-dependent boot-nextzxos-dotls)
+        run: |
+          mapfile -t SROWS < <(grep -vE '^\s*(#|$)' test/00regression/regression_tests.conf | awk '{print $1}' | grep -vx boot-nextzxos-dotls)
+          mapfile -t FROWS < <(grep -vE '^\s*(#|$)' test/00regression/functional_tests.conf | awk '{print $1}')
+          LANG=C JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh "${SROWS[@]}" "${FROWS[@]}" 2>&1 | tail -90
 
       - name: Upload failure artifacts
         if: failure()

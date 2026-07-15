@@ -168,6 +168,18 @@ coverage-theatre rule:
   serialization round-trips rather than live signal wiring between two
   subsystems. Flagged here so its absence from §2/§3 above is not mistaken
   for an oversight.
+- **Repo-hygiene note on `boot-nextzxos-dotls`'s reference (maintainer
+  action, not this task's to fix).** The `boot-nextzxos-dotls` regression
+  row types `.ls` and screenshots a *live SD-card directory listing*, so
+  its checked-in `img/boot-nextzxos-dotls-reference.png` reflects the
+  maintainer's local `roms/nextzxos-1gb-fat32fix.img` — which has
+  accumulated dev-session files (DUMP.BAS, NRDUMP.BIN, SCREEN.BIN, …). A
+  freshly-provisioned pristine distro image lists fewer files, so that one
+  reference is not reproducible against a clean image. This is a
+  pre-existing repo-hygiene item (the reference was captured against a
+  non-pristine fixture), flagged here for the maintainer; regenerating any
+  reference PNG requires explicit user authorization and is out of scope
+  for the integration-plan task. See §6 for how hosted CI handles it.
 
 ## 5. The manifest guarantee — why an integration suite can't silently vanish
 
@@ -200,3 +212,36 @@ The regression suite's screenshot/functional manifests
 discipline one layer up, with the same "declared count must match observed
 count" assertion at the end of a full `regression.sh` run — see
 [REGRESSION-TEST-SUITE.md](REGRESSION-TEST-SUITE.md).
+
+## 6. What hosted CI runs (and the one row it excludes)
+
+`.github/workflows/ci.yml` runs the whole triplet on `ubuntu-latest`:
+`make unit-test` (all subsystem + integration suites), the FUSE Z80 suite,
+and the golden-screenshot/functional regression. Because `roms/*` is
+git-ignored, the workflow provisions the NextZXOS SD image at job time by
+running jnext's own `--sdcard-download-confirm` flow — the same sanctioned
+download+FAT32-patch path an end user hits — which yields a **pristine**
+distro image.
+
+The regression step there is deliberately two-phase:
+
+1. `regression.sh --preflight-only` — asserts the manifest pins agree
+   (every declared screenshot has a checked-in reference and vice-versa,
+   the declared functional count matches). This is the declared-total
+   integrity check; it needs no SD image.
+2. A **filtered** run of every declared screenshot + functional row
+   **except `boot-nextzxos-dotls`**. That single row screenshots a live SD
+   directory listing (see §4's repo-hygiene note), whose reference was
+   captured against the maintainer's non-pristine local fixture and
+   therefore legitimately diverges from a freshly-provisioned pristine
+   image at the suite's 0-pixel tolerance. welcome/menu/splash and every
+   other row are pixel-identical against the pristine image; only the
+   directory-listing row is content-dependent. It is verified locally by
+   the maintainer against the canonical fixture instead of in hosted CI.
+
+Passing positional filter args makes `regression.sh` treat step 2 as a
+partial run and skip its own grand-total witness — which is exactly why
+step 1 runs first, so manifest integrity is still asserted on every CI run.
+The maintainer's local **full** `make regression` (no filter) still runs
+all rows including `boot-nextzxos-dotls` and still enforces the full
+declared-total witness; nothing about the CI filter weakens the local gate.
