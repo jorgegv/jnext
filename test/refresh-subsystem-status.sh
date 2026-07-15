@@ -76,6 +76,7 @@ BEGIN {
     L["Logging"]               = "log_test"
     L["Logging (gate)"]        = "log_gate_test"
     L["Profiler"]              = "profiler_test"
+    L["Resume Guard"]          = "resume_guard_test"
 
     while ((getline line < summary) > 0) {
         n = split(line, f, "\t")

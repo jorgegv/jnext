@@ -477,6 +477,12 @@ target_link_libraries(profiler_test PRIVATE
 target_include_directories(profiler_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME profiler_tests COMMAND profiler_test)
 
+# Task 60e — ResumeGuard: pure corruption-gate policy behind the debugger's
+# single confirm_resume_if_corrupt() choke point. Header-only, no Qt/libs.
+add_executable(resume_guard_test debug/resume_guard_test.cpp)
+target_include_directories(resume_guard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME resume_guard_tests COMMAND resume_guard_test)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)

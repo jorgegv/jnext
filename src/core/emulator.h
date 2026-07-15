@@ -384,12 +384,17 @@ public:
     /// currently in a torn, partially-restored state after a failed
     /// rewind/step-back (Task 60b) and is NOT safe to resume — the GUI
     /// (Task 60e) uses this to warn before letting the user run again.
+    /// The flag is cleared by a hard/soft reset (the recovery path) and is
+    /// NOT cleared by merely acknowledging it: acknowledging does not heal
+    /// the desync, so the breadcrumb survives until the machine is actually
+    /// re-established clean.
     const std::string& last_state_error() const { return last_state_error_; }
 
-    /// Clear the corrupt-state flag. Called once the user has acknowledged
-    /// the corruption (e.g. confirmed a resume from the debugger) or after
-    /// a reset has re-established a clean machine (Task 60e).
-    void clear_state_error() { last_state_error_.clear(); }
+    /// Monotonic counter bumped every time a *fresh* corruption is latched
+    /// in load_state (Task 60e). Lets the GUI distinguish an incident the
+    /// user already acknowledged from a brand-new one that must be
+    /// re-confirmed, without clearing last_state_error(). Never decreases.
+    uint64_t state_error_generation() const { return state_error_generation_; }
 
     /// Access the rewind buffer (may be null if disabled).
     RewindBuffer* rewind_buffer() { return rewind_buffer_.get(); }
@@ -892,6 +897,10 @@ private:
     /// Task 60b — subsystem name of the sentinel that failed in the last
     /// load_state (empty when the last load succeeded). Not serialised.
     std::string last_state_error_;
+
+    /// Task 60e — monotonic corruption-incident counter, bumped whenever a
+    /// fresh corruption is latched into last_state_error_. Not serialised.
+    uint64_t state_error_generation_ = 0;
 
     /// Raster position snapshotted at pause time.
     int paused_vc_ = 0;

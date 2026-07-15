@@ -53,6 +53,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging               |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4642** | **4642** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **4653** | **4653** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

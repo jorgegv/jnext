@@ -8184,6 +8184,7 @@ bool Emulator::load_state(StateReader& r)
         const uint32_t got     = r.read_u32();
         if (got != expect || r.out_of_bounds()) {
             last_state_error_ = name;
+            ++state_error_generation_;   // Task 60e: fresh corruption incident
             Log::emulator()->error(
                 "load_state: state sentinel mismatch after subsystem '{}' "
                 "(#{}: got 0x{:08X}, expected 0x{:08X}{}) — snapshot desynced, "
@@ -8563,6 +8564,7 @@ bool Emulator::load_state(StateReader& r)
     // belt-and-braces check) still fails the load loudly.
     if (r.out_of_bounds()) {
         last_state_error_ = "buffer-truncated";
+        ++state_error_generation_;   // Task 60e: fresh corruption incident
         Log::emulator()->error(
             "load_state: read past end of snapshot buffer ({} bytes) — "
             "restore aborted", r.capacity());
