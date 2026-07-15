@@ -1130,6 +1130,31 @@ private:
     /// scanline. This helper restores per-cycle granularity.
     void tick_copper_for_master_cycles(uint64_t master_cycles);
 
+    /// Task 60a — the SINGLE shared per-instruction body: executes one
+    /// CPU instruction (or one DMA burst when the DMA holds the bus, or
+    /// one NOP-sized boot-hold step), including the trace record, the
+    /// IM2-controller tick + set_nmi_activated push, the IM2-mode and
+    /// pulse-mode /INT line polls, the RZX instruction count and the
+    /// real-time tape tick, then advances the master clock and the DMA
+    /// burst prescaler. Returns the 28 MHz master cycles consumed.
+    ///
+    /// Called by BOTH run_frame()'s inner loop and
+    /// execute_single_instruction() so the two paths cannot drift again:
+    /// the debugger single-step path used to hand-maintain a copy of
+    /// this cluster and had silently lost im2_.tick(), both /INT polls
+    /// and md6_.tick() — stepping through interrupt-driven code never
+    /// delivered CTC/UART/ULA-frame interrupts.
+    uint64_t step_one_instruction();
+
+    /// Task 60a — the shared post-instruction device-tick cluster:
+    /// Copper (G117), deferred CPU NR-write drain (G65), contention /
+    /// CPU-speed shadow commits, CTC + UART + MD6 ticks, IoMode UART
+    /// injectors (G72), the NMI source pipeline + /NMI edge, PSG +
+    /// audio, and the scheduler drain. run_frame() calls this AFTER its
+    /// data-breakpoint check (which early-returns without running this
+    /// tail — pre-existing behaviour, preserved).
+    void tick_devices_after_instruction(uint64_t master_cycles);
+
     /// G65 — deferred CPU NR-write commit. VHDL `zxnext.vhd:4769-4777`
     /// edge-detects CPU write requests (cpu_requester → cpu_requester_d
     /// → cpu_req latch), so CPU NR writes reach the bus 1+ cycles after

@@ -6385,10 +6385,6 @@ void Emulator::run_frame()
     }
 
 
-    // Audio timing constants.
-    // PSG clock = 28 MHz / 16 = 1.75 MHz → one PSG tick every 16 master cycles.
-    static constexpr uint64_t PSG_DIVISOR = 16;
-
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
         if (debug_state_.active()) {
@@ -6460,310 +6456,12 @@ void Emulator::run_frame()
 
         }
 
-        uint64_t master_cycles;
-
-        if (dma_.is_active()) {
-            // DMA takes the bus — CPU is stalled.
-            // Execute a burst of transfers; each byte ≈ 2 T-states.
-            int transferred = dma_.execute_burst(16);
-            master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
-            if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
-        } else if (boot_hold_frames_remaining_ > 0) {
-            // G156 — NEX loading_delay/start_delay hold: no CPU instruction
-            // is fetched or executed. Advance the clock in small NOP-sized
-            // steps so scanline rendering, the scheduler and audio still
-            // run every frame — VRAM already holds its final post-load
-            // state (bank data + any loading-bar marks), so it is composed
-            // into the framebuffer exactly like any other frame. NOTE: on
-            // a bare `--load file.nex` (CLI or GUI File>Load, no prior
-            // NextZXOS boot context) the loading bar is NOT visible on
-            // screen — nexload.asm never enables Layer 2 itself (NR 0x69
-            // bit 7); on real hardware the bar is only seen because
-            // whatever screen was showing before nexload.asm ran (e.g. the
-            // NextZXOS file browser) already had Layer 2 on. The bytes
-            // written by NexLoader::render_progress_mark() ARE correct;
-            // whether they are visible depends on that pre-existing state,
-            // same as real hardware.
-            //
-            // This branch skips this iteration's im2_.tick() / CTC / UART
-            // ticking and interrupt-line polling below (same treatment the
-            // pre-existing DMA-stall branch above already gets) — any
-            // interrupt source that would become due during a held frame
-            // is not serviced until the hold ends. This is believed to
-            // match real hardware for the default (preserve_regs=0) path,
-            // where nexload.asm's own unconditional `di` at its very entry
-            // (nexload.asm:250, BEFORE the header — hence before
-            // preserve_regs is even known) governs interrupts for the
-            // *entire* loader routine, regardless of preserve_regs — real
-            // nexload never re-enables interrupts before jumping to the
-            // loaded PC. CAVEAT: jnext's NexLoader is a C++ shortcut that
-            // does not execute nexload.asm's code, so for preserve_regs=1
-            // (register-preserving chain-load) it does not independently
-            // re-derive "IFF1=0 for the loader's own duration" — if the
-            // live emulator's IFF1 happens to be 1 when the hold begins
-            // (e.g. mid-session chain-load from a running, interrupt-
-            // enabled program), no interrupts fire during the held frames
-            // here either. Believed harmless (matches the DI-throughout
-            // real-hardware behaviour above) but not independently proven
-            // for that specific combination — flagged rather than assumed.
-            // boot_hold_frames_remaining_ is decremented once per
-            // completed frame, below.
-            master_cycles = 4ULL * clock_.cpu_divisor();
-        } else {
-            // Record trace entry before execution (captures pre-execution state).
-            // Enabled during replay so consecutive step-backs can look up target cycles.
-            if (trace_log_.enabled()) {
-                auto regs = cpu_.get_registers();
-                TraceEntry te;
-                te.cycle = clock_.get();
-                te.pc = regs.PC;
-                te.af = regs.AF; te.bc = regs.BC;
-                te.de = regs.DE; te.hl = regs.HL;
-                te.af2 = regs.AF2; te.bc2 = regs.BC2;
-                te.de2 = regs.DE2; te.hl2 = regs.HL2;
-                te.ix = regs.IX; te.iy = regs.IY;
-                te.sp = regs.SP;
-                for (int i = 0; i < 4; ++i)
-                    te.opcode_bytes[i] = mmu_.read(regs.PC + i);
-                // Captureless lambda decays to a raw function pointer — no
-                // per-instruction std::function construction (Task 27 A2).
-                te.opcode_len = z80_instruction_length(
-                    regs.PC,
-                    [](void* ctx, uint16_t a) {
-                        return static_cast<Mmu*>(ctx)->read(a);
-                    },
-                    &mmu_);
-                trace_log_.record(te);
-            }
-            // P0 boot probe trap detector: when the CPU enters the
-            // post-soft-reset $0000/$0001 spin, dump the trace ring while
-            // pre-trap history is still in it, then exit. Env-gated.
-            {
-                static const char* trap_dump =
-                    std::getenv("JNEXT_BOOT_PROBE_TRAP_DUMP");
-                if (trap_dump) {
-                    static int pc0_run = 0;
-                    const uint16_t cur_pc = cpu_.get_registers().PC;
-                    if (cur_pc <= 0x0001) {
-                        if (++pc0_run == 200) {
-                            Log::emulator()->info(
-                                "BOOT_PROBE trap detected (200 consecutive "
-                                "PC<=1 instructions); dumping trace to {}",
-                                trap_dump);
-                            trace_log_.export_to_file(trap_dump);
-                            std::exit(0);
-                        }
-                    } else {
-                        pc0_run = 0;
-                    }
-                }
-            }
-            // Call stack tracking (debugger only, gated by enabled flag).
-            if (call_stack_.enabled()) {
-                auto regs2 = cpu_.get_registers();
-                uint8_t op0 = mmu_.read(regs2.PC);
-                uint8_t op1 = mmu_.read(regs2.PC + 1);
-                uint8_t op2 = mmu_.read(regs2.PC + 2);
-                call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
-            }
-
-            // Execute one CPU instruction; returns T-states consumed.
-            // Memory contention is applied per-access via the
-            // ContentionModel::contention_tick() runtime path installed by
-            // z80_set_contention_runtime() in init() — the FUSE callbacks
-            // derive (hc, vc) from the FUSE tstates counter and feed them
-            // into contention_tick() per memory/IO bus cycle.
-            //
-            // G65 — set defer flag around the instruction so any port-0x253B
-            // CPU NR writes go to pending_cpu_nr_writes_ instead of
-            // committing synchronously. The queue is drained AFTER the
-            // Copper-loop runs (below), modeling VHDL's "Copper-wins on
-            // tied edge, CPU held over 1 cycle" behaviour as "CPU writes
-            // apply LAST in the instruction window".
-            defer_cpu_nr_writes_ = true;
-            // Task 21 — capture the PC of the instruction we're about to
-            // execute so the profiler can attribute the T-state cost to
-            // the right address. Reading regs.PC is O(1) (register-pair
-            // copy from a member array) — the cost is in the noise next
-            // to the surrounding scheduler/IM2/Copper work.
-            const uint16_t pc_pre_exec = cpu_.get_registers().PC;
-            int tstates = cpu_.execute();
-            defer_cpu_nr_writes_ = false;
-            if (profiler_.active()) {
-                profiler_.on_instruction(mmu_, pc_pre_exec,
-                                         static_cast<uint64_t>(tstates));
-            }
-
-            // Advance VideoTiming so test/debug observers see the post-
-            // instruction raster position. The contention path itself
-            // does NOT consult VideoTiming (it derives hc/vc from
-            // tstates directly to keep per-bus-cycle precision); this
-            // advance is purely the test/debug observable.
-            video_timing_.advance(tstates);
-
-            // Call stack tracking post-execution.
-            if (call_stack_.enabled()) {
-                auto post = cpu_.get_registers();
-                call_stack_.on_instruction_post(post.SP, post.PC);
-            }
-
-            // Convert T-states to 28 MHz master cycles.
-            master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
-
-            // Advance the IM2 controller one tick per instruction. This is
-            // coarser than the VHDL per-CLK_CPU-rising-edge model but is
-            // sufficient for:
-            //   - device state-machine transitions (S_0→S_REQ→S_ACK→S_ISR
-            //     → S_0), which react to per-M1 signals anyway;
-            //   - pulse fabric counter (coarser granularity stretches the
-            //     pulse duration beyond VHDL's 32/36 cycles but preserves
-            //     the outcome — INT low then high);
-            //   - DMA delay latch, which is sampled once per frame into
-            //     Dma::set_dma_delay at the top of run_frame().
-            // Test code that needs finer granularity can drive im2_.tick()
-            // directly (most ctc_test rows do).
-            //
-            // Wave E: push the current NMI-activated sample into
-            // Im2Controller before its tick so step_dma_delay() can evaluate
-            // VHDL:2007's second OR term (nmi_activated AND nr_cc_dma_int_en_0_7).
-            // NmiSource's own tick runs a few lines below (after the CTC /
-            // UART / Md6 cluster) — so this read-samples last tick's
-            // latched state, matching the VHDL synchronous-update rule where
-            // im2_dma_delay and nmi_activated both settle on the same rising
-            // edge of CLK_CPU.
-            im2_.set_nmi_activated(nmi_source_.is_activated());
-            im2_.tick(master_cycles);
-
-            // V19-IM2-04 fix: poll IM2 fabric INT line and assert CPU
-            // /INT request when an IM2 daisy-chain device has reached
-            // S_REQ with IEI=1.
-            //
-            // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
-            // im2_int_n) OR NOT expbus_disable_int) AND ...` — the Z80
-            // /INT pin is the AND of pulse_int_n (legacy pulse mode) and
-            // im2_int_n (IM2 hardware-priority mode). Either pulled low
-            // asserts the interrupt.
-            //
-            // Pre-fix jnext only called cpu_.request_interrupt(0xFF) for
-            // the legacy pulse-mode path (see FRAME / LINE / CTC scheduler
-            // callbacks). In IM2 mode (NR 0xC0 bit 0 = 1) the comment said
-            // the fabric's `int_line_asserted()` would drive the Z80 INT,
-            // but no code ever READ it. Result: in IM2 mode raise_req()
-            // entered the daisy chain correctly (im2_int_req latched →
-            // S_0 → S_REQ → int_line_asserted=true), but the CPU never
-            // saw the request — int_pending_ stayed false, on_int_ack was
-            // never called, and the IM2 priority chain remained latched
-            // forever (no RETI ever cleared S_REQ).
-            //
-            // Poll AFTER im2_.tick() so the wrapper edge-detect + state
-            // machine has had a chance to advance from S_0 → S_REQ since
-            // the most recent raise_req(). Idempotent: when int_pending_
-            // is already set, request_interrupt() simply re-stamps the
-            // pulse start time + vector — no double-fire.
-            //
-            // The vector returned at IntAck time is computed by
-            // im2_.ack_vector() via the on_int_ack callback (Emulator::init
-            // line 716), so the placeholder 0xFE here is a don't-care:
-            // ack_vector walks the priority chain, advances winning device
-            // S_REQ → S_ACK, and returns the composed VHDL vector
-            // `nr_c0_im2_vector & im2_vec & '0'` (zxnext.vhd:1999).
-            if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
-                cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
-            }
-
-            // V20-IM2-01 fix: pulse-mode CPU /INT polling.
-            //
-            // VHDL zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
-            // im2_int_n) OR NOT expbus_disable_int) AND ...`. In the
-            // default scenario (expbus_disable_int='1', the power-on
-            // value with no expansion bus), this simplifies to
-            // `z80_int_n <= pulse_int_n AND im2_int_n`. So when
-            // pulse_int_n drops low (any device's pulse_en fires via
-            // im2_peripheral.vhd:186-194), the Z80 /INT pin is asserted
-            // and the CPU should accept on the next instruction
-            // boundary (subject to iff1).
-            //
-            // Pre-fix jnext only called `cpu_.request_interrupt(0xFF)`
-            // from the ULA frame-INT scheduler callback (line 5443) and
-            // the LINE-INT scheduler callback (line 6655) — and only in
-            // pulse mode. CTC ZC/TO (ctc_.on_interrupt at line 4668),
-            // UART TX-empty (uart_.on_tx_interrupt at 4717), and UART
-            // RX-avail/near-full (uart_.on_rx_interrupt at 4722) all
-            // routed solely through `im2_.raise_req(DevIdx)`, which
-            // drives the fabric's pulse_int_n latch correctly via
-            // step_pulse() but never notified the CPU. Result: in pulse
-            // mode (the power-on default for NextZXOS / 48K / 128K boot
-            // ROMs), CTC and UART interrupts were SILENTLY DROPPED —
-            // the IM2 fabric's pulse_int_n dropped to 0 for 32/36
-            // cycles per VHDL, but the Z80 /INT pin was never wired.
-            //
-            // Fix: poll pulse_int_n() in pulse mode and request the CPU
-            // INT each tick the line is asserted. The 32/36-cycle
-            // window self-expires via Im2Controller::step_pulse()'s
-            // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
-            //
-            // Symmetric with the IM2-mode poll above. After
-            // V20R-CPU-NIT-02 (reviewer-recommended cleanup) the
-            // legacy `cpu_.request_interrupt(0xFF)` calls in the ULA
-            // FRAME-INT scheduler (line ~5443) and LINE-INT scheduler
-            // (`reschedule_line_interrupt()` at line ~6716) have been
-            // removed; this poll is now the SOLE driver of pulse-mode
-            // /INT — symmetric with the V19 IM2-mode poll above. That
-            // eliminates the latent double-INT trap where the legacy
-            // callback stamped `int_requested_at_=T0` at end of instr
-            // N, and this poll re-stamped `=T1` at end of instr N+1
-            // (T1 > T0 by tstates(N+1)); an ISR that did fast `EI`
-            // within the re-stamped window could accept a second INT
-            // that real hardware would not.
-            //
-            // The vector 0xFF is the standard pulse-mode bus-floating
-            // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
-            // mode vector) to the data bus during IntAck; for pulse-
-            // mode the bus is floating and the CPU reads 0xFF
-            // canonically. Real hardware behavior may differ (TBD per
-            // observed silicon), but 0xFF matches the existing
-            // ULA/LINE callback convention and is what real 48K boot
-            // ROMs expect.
-            //
-            // Edge detection on pulse_int_n: assert CPU /INT exactly
-            // ONCE per pulse, on the falling edge. Calling
-            // `request_interrupt` every tick during the pulse window
-            // would re-stamp `int_requested_at_` to the current
-            // tstates each tick, extending the effective 32/36-cycle
-            // window indefinitely and producing extra INT acceptances
-            // (observable by the contention regression test which
-            // depends on precise interrupt timing). The 32/36-cycle
-            // expiry in `Z80Cpu::execute()` then naturally drops the
-            // pending request — matching VHDL's pulse_count_end gate.
-            const bool cur_pulse_int_n = im2_.pulse_int_n();
-            if (!im2_.is_im2_mode()
-                && !cur_pulse_int_n && prev_pulse_int_n_) {
-                cpu_.request_interrupt(0xFF);
-            }
-            prev_pulse_int_n_ = cur_pulse_int_n;
-
-            // Count instructions for RZX recording.
-            if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
-
-            // Tick real-time tape playback (advances EAR bit state machine).
-            if (tape_.is_playing()) {
-                tape_.tick_realtime(static_cast<uint64_t>(tstates));
-                beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
-            } else if (tzx_tape_.is_playing()) {
-                // TZX real-time: ZOT models an absolute tape timeline, so
-                // it must see the monotonic clock, not the frame-relative
-                // FUSE counter (G36).
-                beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
-            } else if (wav_tape_.is_playing()) {
-                beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
-            } else {
-                beeper_.set_tape_ear(false);
-            }
-        }
-        clock_.tick(master_cycles);
-
-        // Tick DMA burst prescaler (counts down between burst-mode transfers).
-        dma_.tick_burst_wait(master_cycles);
+        // Task 60a — shared per-instruction body (CPU/DMA/boot-hold
+        // execute + trace + IM2 tick + /INT polls + clock advance +
+        // DMA burst prescaler). Shared verbatim with
+        // execute_single_instruction() so the free-running and
+        // debugger single-step paths cannot drift.
+        const uint64_t master_cycles = step_one_instruction();
 
         // Check if a data breakpoint was hit during this instruction.
         if (debug_state_.active() && debug_state_.data_bp_hit()) {
@@ -6772,176 +6470,12 @@ void Emulator::run_frame()
             return;
         }
 
-        // Execute the Copper at 28 MHz granularity over the master-cycle
-        // window covered by this CPU instruction (G117). Pre-G117 this
-        // path stepped the Copper exactly once per Z80 instruction, so
-        // dense Copper bursts (tilemap-class effects with 32 MOVEs per
-        // scanline) collapsed into 1-2 effective writes per scanline.
-        tick_copper_for_master_cycles(master_cycles);
-
-        // G65 — drain CPU NR writes deferred during the instruction.
-        // They commit AFTER the Copper-loop, so any same-NR collision
-        // ends with the CPU's value (VHDL: cpu_req held while
-        // copper_req=1, served the next cycle).
-        flush_pending_cpu_nr_writes();
-
-        // Commit ContentionModel's NR 0x08 bit-6 shadow when the live
-        // raster is in the `hc(8)='1'` window (phc >= 256), per VHDL
-        // zxnext.vhd:5822-5823. The VHDL latches every CPU-clock-rising
-        // bus-idle cycle while hc(8)='1'; a per-instruction call here
-        // approximates that — any instruction that ends with the beam
-        // in the right border / hblank promotes the shadow to the
-        // effective gate. CT-TURBO-06 pins this: a NR 0x08 write at
-        // phc < 256 does NOT change the gate until the next time the
-        // beam crosses 256.
-        contention_.commit_contention_disable_on_hc(
-            static_cast<uint16_t>(current_hc()));
-
-        // Commit NR 0x07 cpu_speed shadow → effective on bus-idle, per
-        // VHDL zxnext.vhd:5796-5828. The post-instruction tick is the
-        // natural bus-idle moment in jnext's per-instruction granularity
-        // (CPU is between bus cycles: mreq_n=1, iorq_n=1, m1_n=1).
-        // dma_holds_bus is false here because dma_.tick_burst_wait()
-        // above only counts down the burst-mode prescaler — it does not
-        // hold the bus. Distinct from NR 0x08 b6 which has the
-        // additional hc(8)='1' window gate; NR 0x07 commits on every
-        // bus-idle cycle. This pair of independent commit edges (NR 0x07
-        // bus-idle, NR 0x08 b6 bus-idle AND hc(8)) is the G51 / G142
-        // ordering: simultaneous mid-line writes commit on their own
-        // edges, not in lockstep.
-        const bool bus_idle = true;
-        const bool dma_holds_bus = false;
-        clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
-        contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
-
-        // Tick CTC and UART at 28 MHz rate.
-        ctc_.tick(static_cast<uint32_t>(master_cycles));
-        uart_.tick(static_cast<uint32_t>(master_cycles));
-        md6_.tick(static_cast<uint32_t>(master_cycles));
-
-        // G72 closure — per-tick injector callback feeding IoMode from
-        // the live UART TX lines. VHDL zxnext.vhd:3526-3531 wires
-        // `pin7 = uart0_tx` (when NR 0x0B mode=10/11, iomode_0=0) /
-        // `pin7 = uart1_tx` (iomode_0=1). The IoMode pin-7 mux is
-        // unit-correct (covered by IOMODE-05/06) but inert at runtime
-        // until something feeds the injectors. UART::channel(N).tx_line_out()
-        // is updated by the bit-level engine inside uart_.tick() above,
-        // so we sample it immediately afterwards. No-op when pin-7 is
-        // not in a UART mode — IoMode::pin7() reads pin7_ instead and
-        // these stored fields are consulted only under modes 10/11.
-        //
-        // Note (Tier 2 W1): the corresponding `set_joy_left_bit5()` /
-        // `set_joy_right_bit5()` injectors (VHDL i_JOY_LEFT(5) /
-        // i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT yet fed because
-        // Joystick currently has no public bit-5 accessor. That follow-
-        // up is owned by the Joystick agent in a later wave; UART
-        // injectors close G72's primary observable here.
-        iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
-        iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
-
-        // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
-        // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6
-        // in the per-instruction cluster; order among these is not
-        // load-bearing.
-        //
-        // Wave B — DivMMC consumer-feedback loop (VHDL:2107, 2118, 2098):
-        //   * `divmmc_nmi_hold`  = `o_disable_nmi` = automap_held OR
-        //                          button_nmi  (divmmc.vhd:150). Gates
-        //                          the HOLD→END transition for the
-        //                          DivMMC path AND blocks the MF latch
-        //                          set (VHDL:2107).
-        //   * `divmmc_conmem`    = port_e3_reg(7). Blocks the MF latch
-        //                          set (VHDL:2107, 2098 on the FPGA).
-        // Wave C — NR 0x03 config_mode gate (VHDL zxnext.vhd:2102-2105)
-        // force-clears all NMI latches. Push BEFORE tick() so the FSM
-        // sees the current value.
-        nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
-        nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
-        nmi_source_.set_config_mode(nextreg_.nr_03_config_mode());
-
-        // Wave 1 F-gate — Multiface consumer-feedback (replaces always-
-        // false stubs from TASK-NMI-SOURCE-PIPELINE-PLAN). VHDL refs:
-        //   zxnext.vhd:2099 — mf_is_active = mf_mem_en OR mf_nmi_hold.
-        //   zxnext.vhd:2105 — mf_is_active gates the DivMMC NMI latch
-        //                     in the priority arbiter (when MF is
-        //                     active, nmi_assert_divmmc cannot win).
-        //   zxnext.vhd:2118 — mf_nmi_hold drives nmi_hold when nmi_mf=1.
-        //   zxnext.vhd:4111 — divmmc_retn_seen AND-NOT mf_is_active
-        //                     (handled at the M1 retn-delay site above).
-        nmi_source_.set_mf_is_active(multiface_.is_active());
-        nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold());
-
-        nmi_source_.tick(static_cast<uint32_t>(master_cycles));
-
-        // Wave B — VHDL:2170 `nmi_divmmc_button` arbitration-strobe
-        // producer: when the FSM latched the DivMMC request this tick
-        // (IDLE→FETCH via the DivMMC path), pulse `set_button_nmi(true)`
-        // on the DivMMC peripheral. That latches `button_nmi_` which in
-        // turn re-feeds into `divmmc_nmi_hold` next tick (plus gates
-        // automap_nmi_instant_on at divmmc.vhd:120). The strobe is
-        // one-tick, cleared by NmiSource on its next `tick()` entry.
-        //
-        // Verify3-Audit fix (2026-05-09): VHDL divmmc.vhd:107-114 gates
-        // the FF set on `i_reset='0' AND i_automap_reset='0' AND
-        // i_retn_seen='0'`. NmiSource doesn't gate on
-        // `nr_0a_divmmc_automap_en` (= the second factor of
-        // divmmc_automap_reset, zxnext.vhd:4112), so the strobe can fire
-        // even when the divmmc module would suppress the latch. Mirror
-        // the VHDL gate here by checking `divmmc_.is_enabled()` (the
-        // composite of port_io AND nr_0a_4 — exactly what VHDL's
-        // `divmmc_automap_reset='0'` requires).
-        if (nmi_source_.divmmc_button_strobe() && divmmc_.is_enabled()) {
-            divmmc_.set_button_nmi(true);
-        }
-
-        // Verify-audit fix — VHDL:2169 `nmi_mf_button` arbitration-strobe
-        // producer (companion to :2170). VHDL line 4290 wires the
-        // Multiface entity's `button_i` to `nmi_mf_button` (= `nmi_mf AND
-        // nmi_state=S_NMI_IDLE`), so the Multiface only sees the press
-        // AFTER NmiSource has arbitrated the request through NR 0x06 bit
-        // 3, port_e3_reg(7) (CONMEM), divmmc_nmi_hold, and
-        // nr_03_config_mode. We mirror that contract here.
-        if (nmi_source_.mf_button_strobe()) {
-            multiface_.button_press();
-        }
-
-        // Edge-driven Z80 /NMI assertion. The NmiSource FSM drives
-        // `nmi_generate_n()` low when it wants the Z80 to take an NMI
-        // (VHDL:2164-2170). FUSE's Z80 core takes the NMI on the next
-        // instruction boundary via `request_nmi()` — a one-shot latch.
-        // We observe the falling edge here and fire the latch.
-        {
-            const bool nmi_n = nmi_source_.nmi_generate_n();
-            if (!nmi_n && prev_nmi_generate_n_) {
-                cpu_.request_nmi();
-            }
-            prev_nmi_generate_n_ = nmi_n;
-        }
-
-        // Task 47 (--silent): skip PSG ticking and mixer synthesis entirely —
-        // nothing reads their output (no audio device is opened, and the
-        // ring buffer is never drained), so doing the work is pure waste.
-        // Register writes to the AY/DAC/beeper ports above are unaffected;
-        // only the oscillator/mixer work that turns them into samples is
-        // skipped. See EmulatorConfig::silent doc comment.
-        if (!config_.silent) {
-            // Tick PSG (TurboSound) at 1.75 MHz rate.
-            psg_accum_ += master_cycles;
-            while (psg_accum_ >= PSG_DIVISOR) {
-                psg_accum_ -= PSG_DIVISOR;
-                turbosound_.tick();
-            }
-
-            // Feed this instruction's span to the mixer, which INTEGRATES the source
-            // levels across each output-sample interval rather than point-sampling
-            // them. Suppressed in replay mode (fast-forward rewind path).
-            if (!replay_mode_) {
-                advance_audio(master_cycles);
-            }
-        }
-
-        // Drain any scheduler events that have become due.
-        scheduler_.run_until(clock_.get());
+        // Task 60a — shared post-instruction device-tick cluster
+        // (Copper → NR drain → commits → CTC/UART/MD6 → IoMode →
+        // NMI pipeline → PSG/audio → scheduler). Runs only when no
+        // data breakpoint fired above (pre-existing early-return
+        // semantics preserved).
+        tick_devices_after_instruction(master_cycles);
     }
 
     // Save end-of-frame raster before advancing frame_cycle_, so snapshot_raster()
@@ -7049,30 +6583,144 @@ void Emulator::snapshot_raster()
     paused_hc_ = static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
 }
 
-int Emulator::execute_single_instruction()
+uint64_t Emulator::step_one_instruction()
 {
-    // Audio timing constants (same as in run_frame).
-    static constexpr uint64_t PSG_DIVISOR = 16;
-
+    // Task 60a — the ONE shared per-instruction body for run_frame()'s
+    // inner loop and the debugger's execute_single_instruction().
+    // Everything here runs exactly once per instruction slot: the CPU
+    // instruction (or DMA burst / boot-hold step), the trace record,
+    // the IM2 controller tick + both /INT line polls, the RZX count
+    // and real-time tape tick, then the master-clock advance and the
+    // DMA burst prescaler. Extracted verbatim from run_frame(); the
+    // former hand-maintained copy in execute_single_instruction() had
+    // drifted (missing im2_.tick(), both /INT polls, md6_.tick() and
+    // the trace record), silently dropping interrupts while stepping.
     uint64_t master_cycles;
+
     if (dma_.is_active()) {
+        // DMA takes the bus — CPU is stalled.
+        // Execute a burst of transfers; each byte ≈ 2 T-states.
         int transferred = dma_.execute_burst(16);
         master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
-        if (master_cycles == 0) master_cycles = clock_.cpu_divisor();
+        if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+    } else if (boot_hold_frames_remaining_ > 0) {
+        // G156 — NEX loading_delay/start_delay hold: no CPU instruction
+        // is fetched or executed. Advance the clock in small NOP-sized
+        // steps so scanline rendering, the scheduler and audio still
+        // run every frame — VRAM already holds its final post-load
+        // state (bank data + any loading-bar marks), so it is composed
+        // into the framebuffer exactly like any other frame. NOTE: on
+        // a bare `--load file.nex` (CLI or GUI File>Load, no prior
+        // NextZXOS boot context) the loading bar is NOT visible on
+        // screen — nexload.asm never enables Layer 2 itself (NR 0x69
+        // bit 7); on real hardware the bar is only seen because
+        // whatever screen was showing before nexload.asm ran (e.g. the
+        // NextZXOS file browser) already had Layer 2 on. The bytes
+        // written by NexLoader::render_progress_mark() ARE correct;
+        // whether they are visible depends on that pre-existing state,
+        // same as real hardware.
+        //
+        // This branch skips this iteration's im2_.tick() / CTC / UART
+        // ticking and interrupt-line polling below (same treatment the
+        // pre-existing DMA-stall branch above already gets) — any
+        // interrupt source that would become due during a held frame
+        // is not serviced until the hold ends. This is believed to
+        // match real hardware for the default (preserve_regs=0) path,
+        // where nexload.asm's own unconditional `di` at its very entry
+        // (nexload.asm:250, BEFORE the header — hence before
+        // preserve_regs is even known) governs interrupts for the
+        // *entire* loader routine, regardless of preserve_regs — real
+        // nexload never re-enables interrupts before jumping to the
+        // loaded PC. CAVEAT: jnext's NexLoader is a C++ shortcut that
+        // does not execute nexload.asm's code, so for preserve_regs=1
+        // (register-preserving chain-load) it does not independently
+        // re-derive "IFF1=0 for the loader's own duration" — if the
+        // live emulator's IFF1 happens to be 1 when the hold begins
+        // (e.g. mid-session chain-load from a running, interrupt-
+        // enabled program), no interrupts fire during the held frames
+        // here either. Believed harmless (matches the DI-throughout
+        // real-hardware behaviour above) but not independently proven
+        // for that specific combination — flagged rather than assumed.
+        // boot_hold_frames_remaining_ is decremented once per
+        // completed frame, at the end of run_frame().
+        master_cycles = 4ULL * clock_.cpu_divisor();
     } else {
-        // Call stack tracking (debugger single-step path).
-        if (call_stack_.enabled()) {
+        // Record trace entry before execution (captures pre-execution state).
+        // Enabled during replay so consecutive step-backs can look up target cycles.
+        if (trace_log_.enabled()) {
             auto regs = cpu_.get_registers();
-            uint8_t op0 = mmu_.read(regs.PC);
-            uint8_t op1 = mmu_.read(regs.PC + 1);
-            uint8_t op2 = mmu_.read(regs.PC + 2);
-            call_stack_.on_instruction_pre(regs.PC, regs.SP, op0, op1, op2);
+            TraceEntry te;
+            te.cycle = clock_.get();
+            te.pc = regs.PC;
+            te.af = regs.AF; te.bc = regs.BC;
+            te.de = regs.DE; te.hl = regs.HL;
+            te.af2 = regs.AF2; te.bc2 = regs.BC2;
+            te.de2 = regs.DE2; te.hl2 = regs.HL2;
+            te.ix = regs.IX; te.iy = regs.IY;
+            te.sp = regs.SP;
+            for (int i = 0; i < 4; ++i)
+                te.opcode_bytes[i] = mmu_.read(regs.PC + i);
+            // Captureless lambda decays to a raw function pointer — no
+            // per-instruction std::function construction (Task 27 A2).
+            te.opcode_len = z80_instruction_length(
+                regs.PC,
+                [](void* ctx, uint16_t a) {
+                    return static_cast<Mmu*>(ctx)->read(a);
+                },
+                &mmu_);
+            trace_log_.record(te);
+        }
+        // P0 boot probe trap detector: when the CPU enters the
+        // post-soft-reset $0000/$0001 spin, dump the trace ring while
+        // pre-trap history is still in it, then exit. Env-gated.
+        {
+            static const char* trap_dump =
+                std::getenv("JNEXT_BOOT_PROBE_TRAP_DUMP");
+            if (trap_dump) {
+                static int pc0_run = 0;
+                const uint16_t cur_pc = cpu_.get_registers().PC;
+                if (cur_pc <= 0x0001) {
+                    if (++pc0_run == 200) {
+                        Log::emulator()->info(
+                            "BOOT_PROBE trap detected (200 consecutive "
+                            "PC<=1 instructions); dumping trace to {}",
+                            trap_dump);
+                        trace_log_.export_to_file(trap_dump);
+                        std::exit(0);
+                    }
+                } else {
+                    pc0_run = 0;
+                }
+            }
+        }
+        // Call stack tracking (debugger only, gated by enabled flag).
+        if (call_stack_.enabled()) {
+            auto regs2 = cpu_.get_registers();
+            uint8_t op0 = mmu_.read(regs2.PC);
+            uint8_t op1 = mmu_.read(regs2.PC + 1);
+            uint8_t op2 = mmu_.read(regs2.PC + 2);
+            call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
         }
 
-        // G65 — see run_frame() primary path for rationale.
+        // Execute one CPU instruction; returns T-states consumed.
+        // Memory contention is applied per-access via the
+        // ContentionModel::contention_tick() runtime path installed by
+        // z80_set_contention_runtime() in init() — the FUSE callbacks
+        // derive (hc, vc) from the FUSE tstates counter and feed them
+        // into contention_tick() per memory/IO bus cycle.
+        //
+        // G65 — set defer flag around the instruction so any port-0x253B
+        // CPU NR writes go to pending_cpu_nr_writes_ instead of
+        // committing synchronously. The queue is drained AFTER the
+        // Copper-loop runs (below), modeling VHDL's "Copper-wins on
+        // tied edge, CPU held over 1 cycle" behaviour as "CPU writes
+        // apply LAST in the instruction window".
         defer_cpu_nr_writes_ = true;
-        // Task 21 — mirror the primary execute path: capture PC pre-exec
-        // for profiler attribution.
+        // Task 21 — capture the PC of the instruction we're about to
+        // execute so the profiler can attribute the T-state cost to
+        // the right address. Reading regs.PC is O(1) (register-pair
+        // copy from a member array) — the cost is in the noise next
+        // to the surrounding scheduler/IM2/Copper work.
         const uint16_t pc_pre_exec = cpu_.get_registers().PC;
         int tstates = cpu_.execute();
         defer_cpu_nr_writes_ = false;
@@ -7081,8 +6729,11 @@ int Emulator::execute_single_instruction()
                                      static_cast<uint64_t>(tstates));
         }
 
-        // Mirror video_timing_ advance from run_frame() — single-step
-        // path needs the same observable to stay in sync.
+        // Advance VideoTiming so test/debug observers see the post-
+        // instruction raster position. The contention path itself
+        // does NOT consult VideoTiming (it derives hc/vc from
+        // tstates directly to keep per-bus-cycle precision); this
+        // advance is purely the test/debug observable.
         video_timing_.advance(tstates);
 
         // Call stack tracking post-execution.
@@ -7091,66 +6742,316 @@ int Emulator::execute_single_instruction()
             call_stack_.on_instruction_post(post.SP, post.PC);
         }
 
+        // Convert T-states to 28 MHz master cycles.
         master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+
+        // Advance the IM2 controller one tick per instruction. This is
+        // coarser than the VHDL per-CLK_CPU-rising-edge model but is
+        // sufficient for:
+        //   - device state-machine transitions (S_0→S_REQ→S_ACK→S_ISR
+        //     → S_0), which react to per-M1 signals anyway;
+        //   - pulse fabric counter (coarser granularity stretches the
+        //     pulse duration beyond VHDL's 32/36 cycles but preserves
+        //     the outcome — INT low then high);
+        //   - DMA delay latch, which is sampled once per frame into
+        //     Dma::set_dma_delay at the top of run_frame().
+        // Test code that needs finer granularity can drive im2_.tick()
+        // directly (most ctc_test rows do).
+        //
+        // Wave E: push the current NMI-activated sample into
+        // Im2Controller before its tick so step_dma_delay() can evaluate
+        // VHDL:2007's second OR term (nmi_activated AND nr_cc_dma_int_en_0_7).
+        // NmiSource's own tick runs a few lines below (after the CTC /
+        // UART / Md6 cluster) — so this read-samples last tick's
+        // latched state, matching the VHDL synchronous-update rule where
+        // im2_dma_delay and nmi_activated both settle on the same rising
+        // edge of CLK_CPU.
+        im2_.set_nmi_activated(nmi_source_.is_activated());
+        im2_.tick(master_cycles);
+
+        // V19-IM2-04 fix: poll IM2 fabric INT line and assert CPU
+        // /INT request when an IM2 daisy-chain device has reached
+        // S_REQ with IEI=1.
+        //
+        // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+        // im2_int_n) OR NOT expbus_disable_int) AND ...` — the Z80
+        // /INT pin is the AND of pulse_int_n (legacy pulse mode) and
+        // im2_int_n (IM2 hardware-priority mode). Either pulled low
+        // asserts the interrupt.
+        //
+        // Pre-fix jnext only called cpu_.request_interrupt(0xFF) for
+        // the legacy pulse-mode path (see FRAME / LINE / CTC scheduler
+        // callbacks). In IM2 mode (NR 0xC0 bit 0 = 1) the comment said
+        // the fabric's `int_line_asserted()` would drive the Z80 INT,
+        // but no code ever READ it. Result: in IM2 mode raise_req()
+        // entered the daisy chain correctly (im2_int_req latched →
+        // S_0 → S_REQ → int_line_asserted=true), but the CPU never
+        // saw the request — int_pending_ stayed false, on_int_ack was
+        // never called, and the IM2 priority chain remained latched
+        // forever (no RETI ever cleared S_REQ).
+        //
+        // Poll AFTER im2_.tick() so the wrapper edge-detect + state
+        // machine has had a chance to advance from S_0 → S_REQ since
+        // the most recent raise_req(). Idempotent: when int_pending_
+        // is already set, request_interrupt() simply re-stamps the
+        // pulse start time + vector — no double-fire.
+        //
+        // The vector returned at IntAck time is computed by
+        // im2_.ack_vector() via the on_int_ack callback (Emulator::init
+        // line 716), so the placeholder 0xFE here is a don't-care:
+        // ack_vector walks the priority chain, advances winning device
+        // S_REQ → S_ACK, and returns the composed VHDL vector
+        // `nr_c0_im2_vector & im2_vec & '0'` (zxnext.vhd:1999).
+        if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
+            cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
+        }
+
+        // V20-IM2-01 fix: pulse-mode CPU /INT polling.
+        //
+        // VHDL zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+        // im2_int_n) OR NOT expbus_disable_int) AND ...`. In the
+        // default scenario (expbus_disable_int='1', the power-on
+        // value with no expansion bus), this simplifies to
+        // `z80_int_n <= pulse_int_n AND im2_int_n`. So when
+        // pulse_int_n drops low (any device's pulse_en fires via
+        // im2_peripheral.vhd:186-194), the Z80 /INT pin is asserted
+        // and the CPU should accept on the next instruction
+        // boundary (subject to iff1).
+        //
+        // Pre-fix jnext only called `cpu_.request_interrupt(0xFF)`
+        // from the ULA frame-INT scheduler callback (line 5443) and
+        // the LINE-INT scheduler callback (line 6655) — and only in
+        // pulse mode. CTC ZC/TO (ctc_.on_interrupt at line 4668),
+        // UART TX-empty (uart_.on_tx_interrupt at 4717), and UART
+        // RX-avail/near-full (uart_.on_rx_interrupt at 4722) all
+        // routed solely through `im2_.raise_req(DevIdx)`, which
+        // drives the fabric's pulse_int_n latch correctly via
+        // step_pulse() but never notified the CPU. Result: in pulse
+        // mode (the power-on default for NextZXOS / 48K / 128K boot
+        // ROMs), CTC and UART interrupts were SILENTLY DROPPED —
+        // the IM2 fabric's pulse_int_n dropped to 0 for 32/36
+        // cycles per VHDL, but the Z80 /INT pin was never wired.
+        //
+        // Fix: poll pulse_int_n() in pulse mode and request the CPU
+        // INT each tick the line is asserted. The 32/36-cycle
+        // window self-expires via Im2Controller::step_pulse()'s
+        // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
+        //
+        // Symmetric with the IM2-mode poll above. After
+        // V20R-CPU-NIT-02 (reviewer-recommended cleanup) the
+        // legacy `cpu_.request_interrupt(0xFF)` calls in the ULA
+        // FRAME-INT scheduler (line ~5443) and LINE-INT scheduler
+        // (`reschedule_line_interrupt()` at line ~6716) have been
+        // removed; this poll is now the SOLE driver of pulse-mode
+        // /INT — symmetric with the V19 IM2-mode poll above. That
+        // eliminates the latent double-INT trap where the legacy
+        // callback stamped `int_requested_at_=T0` at end of instr
+        // N, and this poll re-stamped `=T1` at end of instr N+1
+        // (T1 > T0 by tstates(N+1)); an ISR that did fast `EI`
+        // within the re-stamped window could accept a second INT
+        // that real hardware would not.
+        //
+        // The vector 0xFF is the standard pulse-mode bus-floating
+        // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
+        // mode vector) to the data bus during IntAck; for pulse-
+        // mode the bus is floating and the CPU reads 0xFF
+        // canonically. Real hardware behavior may differ (TBD per
+        // observed silicon), but 0xFF matches the existing
+        // ULA/LINE callback convention and is what real 48K boot
+        // ROMs expect.
+        //
+        // Edge detection on pulse_int_n: assert CPU /INT exactly
+        // ONCE per pulse, on the falling edge. Calling
+        // `request_interrupt` every tick during the pulse window
+        // would re-stamp `int_requested_at_` to the current
+        // tstates each tick, extending the effective 32/36-cycle
+        // window indefinitely and producing extra INT acceptances
+        // (observable by the contention regression test which
+        // depends on precise interrupt timing). The 32/36-cycle
+        // expiry in `Z80Cpu::execute()` then naturally drops the
+        // pending request — matching VHDL's pulse_count_end gate.
+        const bool cur_pulse_int_n = im2_.pulse_int_n();
+        if (!im2_.is_im2_mode()
+            && !cur_pulse_int_n && prev_pulse_int_n_) {
+            cpu_.request_interrupt(0xFF);
+        }
+        prev_pulse_int_n_ = cur_pulse_int_n;
+
+        // Count instructions for RZX recording.
+        if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
+
+        // Tick real-time tape playback (advances EAR bit state machine).
+        if (tape_.is_playing()) {
+            tape_.tick_realtime(static_cast<uint64_t>(tstates));
+            beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
+        } else if (tzx_tape_.is_playing()) {
+            // TZX real-time: ZOT models an absolute tape timeline, so
+            // it must see the monotonic clock, not the frame-relative
+            // FUSE counter (G36).
+            beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
+        } else if (wav_tape_.is_playing()) {
+            beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
+        } else {
+            beeper_.set_tape_ear(false);
+        }
     }
     clock_.tick(master_cycles);
+
+    // Tick DMA burst prescaler (counts down between burst-mode transfers).
     dma_.tick_burst_wait(master_cycles);
 
-    // Copper at 28 MHz granularity (G117). See run_frame() primary site
-    // for rationale; this is the debugger single-step / DMA-only path.
+    return master_cycles;
+}
+
+void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
+{
+    // Task 60a — shared post-instruction device-tick cluster; see the
+    // declaration comment in emulator.h. Shared by run_frame() (after
+    // its data-breakpoint early-return check) and
+    // execute_single_instruction().
+    //
+    // Audio timing constant: PSG clock = 28 MHz / 16 = 1.75 MHz → one
+    // PSG tick every 16 master cycles.
+    static constexpr uint64_t PSG_DIVISOR = 16;
+
+    // Execute the Copper at 28 MHz granularity over the master-cycle
+    // window covered by this CPU instruction (G117). Pre-G117 this
+    // path stepped the Copper exactly once per Z80 instruction, so
+    // dense Copper bursts (tilemap-class effects with 32 MOVEs per
+    // scanline) collapsed into 1-2 effective writes per scanline.
     tick_copper_for_master_cycles(master_cycles);
 
-    // G65 — drain deferred CPU NR writes (after Copper).
+    // G65 — drain CPU NR writes deferred during the instruction.
+    // They commit AFTER the Copper-loop, so any same-NR collision
+    // ends with the CPU's value (VHDL: cpu_req held while
+    // copper_req=1, served the next cycle).
     flush_pending_cpu_nr_writes();
 
-    // Commit shadow → effective for NR 0x08 b6 (hc(8) gate) and NR 0x07
-    // cpu_speed (bus-idle gate), per VHDL zxnext.vhd:5796-5828. Mirrors
-    // the run_frame() primary tick cluster — without it, debugger
-    // single-step paths would not commit deferred NR writes. NR 0x07
-    // commit is unconditional bus-idle (the post-instruction tick is
-    // bus-idle by construction); NR 0x08 b6 also requires hc(8)='1'.
+    // Commit ContentionModel's NR 0x08 bit-6 shadow when the live
+    // raster is in the `hc(8)='1'` window (phc >= 256), per VHDL
+    // zxnext.vhd:5822-5823. The VHDL latches every CPU-clock-rising
+    // bus-idle cycle while hc(8)='1'; a per-instruction call here
+    // approximates that — any instruction that ends with the beam
+    // in the right border / hblank promotes the shadow to the
+    // effective gate. CT-TURBO-06 pins this: a NR 0x08 write at
+    // phc < 256 does NOT change the gate until the next time the
+    // beam crosses 256.
     contention_.commit_contention_disable_on_hc(
         static_cast<uint16_t>(current_hc()));
-    {
-        const bool bus_idle = true;
-        const bool dma_holds_bus = false;
-        clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
-        contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
-    }
 
-    // CTC + UART.
+    // Commit NR 0x07 cpu_speed shadow → effective on bus-idle, per
+    // VHDL zxnext.vhd:5796-5828. The post-instruction tick is the
+    // natural bus-idle moment in jnext's per-instruction granularity
+    // (CPU is between bus cycles: mreq_n=1, iorq_n=1, m1_n=1).
+    // dma_holds_bus is false here because dma_.tick_burst_wait()
+    // above only counts down the burst-mode prescaler — it does not
+    // hold the bus. Distinct from NR 0x08 b6 which has the
+    // additional hc(8)='1' window gate; NR 0x07 commits on every
+    // bus-idle cycle. This pair of independent commit edges (NR 0x07
+    // bus-idle, NR 0x08 b6 bus-idle AND hc(8)) is the G51 / G142
+    // ordering: simultaneous mid-line writes commit on their own
+    // edges, not in lockstep.
+    const bool bus_idle = true;
+    const bool dma_holds_bus = false;
+    clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+    contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+
+    // Tick CTC and UART at 28 MHz rate.
     ctc_.tick(static_cast<uint32_t>(master_cycles));
     uart_.tick(static_cast<uint32_t>(master_cycles));
+    md6_.tick(static_cast<uint32_t>(master_cycles));
 
-    // G72 closure — mirror of the per-tick UART → IoMode injector
-    // wire from the run_frame() primary cluster. Keeps the debugger
-    // single-step path observably consistent with the bulk-tick path.
+    // G72 closure — per-tick injector callback feeding IoMode from
+    // the live UART TX lines. VHDL zxnext.vhd:3526-3531 wires
+    // `pin7 = uart0_tx` (when NR 0x0B mode=10/11, iomode_0=0) /
+    // `pin7 = uart1_tx` (iomode_0=1). The IoMode pin-7 mux is
+    // unit-correct (covered by IOMODE-05/06) but inert at runtime
+    // until something feeds the injectors. UART::channel(N).tx_line_out()
+    // is updated by the bit-level engine inside uart_.tick() above,
+    // so we sample it immediately afterwards. No-op when pin-7 is
+    // not in a UART mode — IoMode::pin7() reads pin7_ instead and
+    // these stored fields are consulted only under modes 10/11.
+    //
+    // Note (Tier 2 W1): the corresponding `set_joy_left_bit5()` /
+    // `set_joy_right_bit5()` injectors (VHDL i_JOY_LEFT(5) /
+    // i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT yet fed because
+    // Joystick currently has no public bit-5 accessor. That follow-
+    // up is owned by the Joystick agent in a later wave; UART
+    // injectors close G72's primary observable here.
     iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
     iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
 
-    // NMI source pipeline — mirrors the primary tick cluster above.
-    // Wave B: DivMMC consumer-feedback (hold + conmem) + button_nmi strobe.
-    // Wave C: config_mode gate. Wave 1 F-gate: MF consumer-feedback
-    // (mf_is_active + mf_nmi_hold per VHDL :2099/:2105/:2118).
-    // See primary cluster for full VHDL citations.
+    // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
+    // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6
+    // in the per-instruction cluster; order among these is not
+    // load-bearing.
+    //
+    // Wave B — DivMMC consumer-feedback loop (VHDL:2107, 2118, 2098):
+    //   * `divmmc_nmi_hold`  = `o_disable_nmi` = automap_held OR
+    //                          button_nmi  (divmmc.vhd:150). Gates
+    //                          the HOLD→END transition for the
+    //                          DivMMC path AND blocks the MF latch
+    //                          set (VHDL:2107).
+    //   * `divmmc_conmem`    = port_e3_reg(7). Blocks the MF latch
+    //                          set (VHDL:2107, 2098 on the FPGA).
+    // Wave C — NR 0x03 config_mode gate (VHDL zxnext.vhd:2102-2105)
+    // force-clears all NMI latches. Push BEFORE tick() so the FSM
+    // sees the current value.
     nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
     nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
     nmi_source_.set_config_mode(nextreg_.nr_03_config_mode());
+
+    // Wave 1 F-gate — Multiface consumer-feedback (replaces always-
+    // false stubs from TASK-NMI-SOURCE-PIPELINE-PLAN). VHDL refs:
+    //   zxnext.vhd:2099 — mf_is_active = mf_mem_en OR mf_nmi_hold.
+    //   zxnext.vhd:2105 — mf_is_active gates the DivMMC NMI latch
+    //                     in the priority arbiter (when MF is
+    //                     active, nmi_assert_divmmc cannot win).
+    //   zxnext.vhd:2118 — mf_nmi_hold drives nmi_hold when nmi_mf=1.
+    //   zxnext.vhd:4111 — divmmc_retn_seen AND-NOT mf_is_active
+    //                     (handled at the M1 retn-delay site above).
     nmi_source_.set_mf_is_active(multiface_.is_active());
     nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold());
+
     nmi_source_.tick(static_cast<uint32_t>(master_cycles));
-    // Verify3-Audit fix (2026-05-09): mirror the primary cluster's
-    // VHDL divmmc_automap_reset gate (zxnext.vhd:4112 + divmmc.vhd:107-114).
-    // NmiSource doesn't observe nr_0a_divmmc_automap_en; the divmmc.vhd
-    // FF holds button_nmi at '0' while i_automap_reset='1'.
+
+    // Wave B — VHDL:2170 `nmi_divmmc_button` arbitration-strobe
+    // producer: when the FSM latched the DivMMC request this tick
+    // (IDLE→FETCH via the DivMMC path), pulse `set_button_nmi(true)`
+    // on the DivMMC peripheral. That latches `button_nmi_` which in
+    // turn re-feeds into `divmmc_nmi_hold` next tick (plus gates
+    // automap_nmi_instant_on at divmmc.vhd:120). The strobe is
+    // one-tick, cleared by NmiSource on its next `tick()` entry.
+    //
+    // Verify3-Audit fix (2026-05-09): VHDL divmmc.vhd:107-114 gates
+    // the FF set on `i_reset='0' AND i_automap_reset='0' AND
+    // i_retn_seen='0'`. NmiSource doesn't gate on
+    // `nr_0a_divmmc_automap_en` (= the second factor of
+    // divmmc_automap_reset, zxnext.vhd:4112), so the strobe can fire
+    // even when the divmmc module would suppress the latch. Mirror
+    // the VHDL gate here by checking `divmmc_.is_enabled()` (the
+    // composite of port_io AND nr_0a_4 — exactly what VHDL's
+    // `divmmc_automap_reset='0'` requires).
     if (nmi_source_.divmmc_button_strobe() && divmmc_.is_enabled()) {
         divmmc_.set_button_nmi(true);
     }
-    // Verify-audit fix — VHDL:2169 `nmi_mf_button` consumer; mirrors the
-    // primary tick cluster above. See full rationale there.
+
+    // Verify-audit fix — VHDL:2169 `nmi_mf_button` arbitration-strobe
+    // producer (companion to :2170). VHDL line 4290 wires the
+    // Multiface entity's `button_i` to `nmi_mf_button` (= `nmi_mf AND
+    // nmi_state=S_NMI_IDLE`), so the Multiface only sees the press
+    // AFTER NmiSource has arbitrated the request through NR 0x06 bit
+    // 3, port_e3_reg(7) (CONMEM), divmmc_nmi_hold, and
+    // nr_03_config_mode. We mirror that contract here.
     if (nmi_source_.mf_button_strobe()) {
         multiface_.button_press();
     }
+
+    // Edge-driven Z80 /NMI assertion. The NmiSource FSM drives
+    // `nmi_generate_n()` low when it wants the Z80 to take an NMI
+    // (VHDL:2164-2170). FUSE's Z80 core takes the NMI on the next
+    // instruction boundary via `request_nmi()` — a one-shot latch.
+    // We observe the falling edge here and fire the latch.
     {
         const bool nmi_n = nmi_source_.nmi_generate_n();
         if (!nmi_n && prev_nmi_generate_n_) {
@@ -7159,21 +7060,49 @@ int Emulator::execute_single_instruction()
         prev_nmi_generate_n_ = nmi_n;
     }
 
-    // PSG. Task 47 (--silent): skip entirely — see run_frame() for rationale.
+    // Task 47 (--silent): skip PSG ticking and mixer synthesis entirely —
+    // nothing reads their output (no audio device is opened, and the
+    // ring buffer is never drained), so doing the work is pure waste.
+    // Register writes to the AY/DAC/beeper ports above are unaffected;
+    // only the oscillator/mixer work that turns them into samples is
+    // skipped. See EmulatorConfig::silent doc comment.
     if (!config_.silent) {
+        // Tick PSG (TurboSound) at 1.75 MHz rate.
         psg_accum_ += master_cycles;
         while (psg_accum_ >= PSG_DIVISOR) {
             psg_accum_ -= PSG_DIVISOR;
             turbosound_.tick();
         }
 
-        // Audio samples — see run_frame().
-        advance_audio(master_cycles);
+        // Feed this instruction's span to the mixer, which INTEGRATES the source
+        // levels across each output-sample interval rather than point-sampling
+        // them. Suppressed in replay mode (fast-forward rewind path).
+        if (!replay_mode_) {
+            advance_audio(master_cycles);
+        }
     }
 
-    // Scheduler.
+    // Drain any scheduler events that have become due.
     scheduler_.run_until(clock_.get());
+}
 
+int Emulator::execute_single_instruction()
+{
+    // Task 60a — delegate to the SAME shared per-instruction body that
+    // run_frame()'s inner loop uses. This function used to be a hand-
+    // maintained copy of that cluster and had drifted: it never called
+    // im2_.tick(), never polled the IM2-mode / pulse-mode /INT lines
+    // (so stepping through interrupt-driven code never delivered
+    // CTC/UART/ULA-frame interrupts), never ticked md6_, and never
+    // recorded trace entries. Sharing the body makes that drift
+    // structurally impossible.
+    //
+    // run_frame()'s per-frame surroundings (breakpoint checks, tape
+    // ROM traps, frame-end bookkeeping, the data-breakpoint early
+    // return) intentionally stay in run_frame() — the debugger caller
+    // owns pause semantics around a single step.
+    const uint64_t master_cycles = step_one_instruction();
+    tick_devices_after_instruction(master_cycles);
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 
