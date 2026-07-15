@@ -68,16 +68,20 @@ void Im2Controller::reset() {
 // drives state<=state_next on rising edge.
 // -----------------------------------------------------------------------------
 void Im2Controller::tick(uint32_t tstates_for_pulse) {
-    // EOD-30c (2026-05-14): the parameter is the number of CPU T-states
-    // (= CPU-clock rising edges) the just-completed Z80 instruction
-    // consumed at the active CPU speed. Per VHDL zxnext.vhd:2037-2044,
-    // `pulse_count` increments on each `rising_edge(i_CLK_CPU)` — one tick
-    // per T-state at the current CPU speed (3.5/7/14/28 MHz). The legacy
-    // name `master_cycles` in the public header is a misnomer; the caller
-    // (Emulator::run_frame inner loop, post-V18R-CPU-01 / EOD-30c fix) now
-    // passes `tstates`, not `tstates × cpu_divisor`. Tests calling
-    // `tick(1)` continue to mean "advance one CPU clock edge", matching
-    // the legacy semantic — only the production caller changed.
+    // The parameter is the number of CPU T-states (= i_CLK_CPU rising
+    // edges) the just-completed Z80 instruction consumed at the active CPU
+    // speed. Per VHDL zxnext.vhd:2035-2044, `pulse_count` increments on
+    // each `rising_edge(i_CLK_CPU)` — one increment per T-state at the
+    // current CPU speed (3.5/7/14/28 MHz), NOT per 28 MHz master cycle.
+    //
+    // Task 60d (2026-07-15): EOD-30c (2026-05-14) reworked step_pulse() to
+    // advance pulse_count_ by this argument and switched the terminal check
+    // to `count >= 32/36`, but its commit message wrongly claimed the
+    // Emulator caller had been changed to pass `tstates`. It had NOT: the
+    // call site kept passing `master_cycles` (= tstates × cpu_divisor), so
+    // the pulse ran cpu_divisor× too fast below 28 MHz (8× at 3.5 MHz).
+    // Task 60d fixed the call site to pass `tstates`. Tests calling
+    // `tick(1)` mean "advance one CPU clock edge".
     //
     // Stash for step_pulse(), which is the only consumer that needs the
     // T-state granularity (state-machine transitions in step_devices()

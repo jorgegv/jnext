@@ -48,9 +48,13 @@ public:
     Im2Controller();
     void reset();
 
-    // Per-cycle tick. Called from Emulator::run_frame inner loop.
-    // Phase 1 stub — empty body; Phase 2 Agent B fills in device state machine.
-    void tick(uint32_t master_cycles);
+    // Per-instruction tick. Called from Emulator::step_one_instruction().
+    // The argument is the number of CPU T-states (i_CLK_CPU rising edges)
+    // the just-completed Z80 instruction consumed at the active CPU speed;
+    // it is the per-tick advance for the pulse-fabric counter
+    // (zxnext.vhd:2035-2044). NOT 28 MHz master cycles. Tests that call
+    // tick(1) mean "advance one CPU clock edge".
+    void tick(uint32_t tstates_for_pulse);
 
     // ── Legacy API (retained as compatibility wrappers; new code should use the
     //    DevIdx-based methods below) ─────────────────────────────────────────
