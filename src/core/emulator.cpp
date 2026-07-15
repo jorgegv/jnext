@@ -8146,6 +8146,28 @@ void Emulator::save_state(StateWriter& w) const
     w.write_bool(prev_pulse_int_n_);
     put_sentinel();   // "tail" (nr_02_bus_reset_ + prev_pulse_int_n_)
 
+    // Task 60c — input subsystem state. Previously ABSENT from snapshots,
+    // so keyboard / joystick / mouse / MD6 state (including the live MD6
+    // FSM counter ticked every instruction, and the in-flight keyboard
+    // auto-type queue) was lost on every rewind and save/load. Appended as
+    // one stable sentinel block at the very end of the stream, AFTER "tail".
+    // Order here MUST match the load side exactly (paired check_sentinel).
+    // The non-owning back-pointers (membrane_stick_, dispatchers) are NOT
+    // serialised — they are rewired by init(). PhantomTypist, EmuFnKeys and
+    // the SDL/Qt host dispatchers are deliberately excluded: PhantomTypist
+    // belongs to the tape family (tape state is excluded from snapshots by
+    // design, see header comment above); EmuFnKeys is a host-transient FSM
+    // driven synchronously by host key events with no cross-frame evolution;
+    // the dispatchers are pure host-side event adapters whose emulated
+    // output already lives in Joystick / KempstonMouse (both serialised).
+    keyboard_.save_state(w);
+    joystick_.save_state(w);
+    mouse_.save_state(w);
+    md6_.save_state(w);
+    membrane_stick_.save_state(w);
+    iomode_.save_state(w);
+    put_sentinel();   // "input" (keyboard/joystick/mouse/md6/membrane/iomode)
+
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
     // StateWriter now suppresses the write and latches a sticky flag.
@@ -8539,6 +8561,18 @@ bool Emulator::load_state(StateReader& r)
         prev_pulse_int_n_ = r.read_bool();
     }
     if (!check_sentinel("tail")) return false;
+
+    // Task 60c — input subsystem state. Mirrors the save_state append order
+    // exactly (keyboard → joystick → mouse → md6 → membrane_stick → iomode),
+    // guarded by the paired "input" sentinel. See save_state() for the
+    // rationale on which classes are (and are NOT) serialised.
+    keyboard_.load_state(r);
+    joystick_.load_state(r);
+    mouse_.load_state(r);
+    md6_.load_state(r);
+    membrane_stick_.load_state(r);
+    iomode_.load_state(r);
+    if (!check_sentinel("input")) return false;
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
     // composite gate from the canonical loaded state (nr_03_config_mode +

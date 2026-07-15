@@ -119,6 +119,14 @@ public:
     /// Kempston2 (100) or Md3Right (110).
     bool port_37_hw_en() const;
 
+    // Task 60c — state serialisation. Persists the decoded connector modes,
+    // the raw NR 0x05 byte and the two 12-bit raw input vectors. The
+    // non-owning membrane_ back-pointer is NOT serialised (rewired by the
+    // Emulator). On load the modes are restored directly, so no NR 0x05
+    // re-fanout is required.
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     // Raw NR 0x05 byte (latched pre-decode so that set_nr_05 round-trips
     // the value for subsequent debug reads). 0x40 is the raw byte that

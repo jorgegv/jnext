@@ -98,6 +98,15 @@ public:
     void set_six_button_left_for_test(bool v)  { six_button_left_  = v; }
     void set_six_button_right_for_test(bool v) { six_button_right_ = v; }
 
+    // Task 60c — state serialisation. Persists the COMPLETE live FSM: the
+    // 9-bit state counter, the CLK_EN accumulator, the raw + latched
+    // per-connector words and the six-button-detect flags. The MD6 FSM is
+    // ticked every emulator instruction (Emulator::run_frame → md6_.tick()),
+    // so losing the counter mid-sequence corrupts the controller read — this
+    // is the core correctness fix of Task 60c.
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     /// Apply the case-phase action for a given 4-bit phase. Pure
     /// combinational in our model — no separate active-low register

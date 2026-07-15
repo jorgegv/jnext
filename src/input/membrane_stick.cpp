@@ -1,4 +1,5 @@
 #include "input/membrane_stick.h"
+#include "core/saveable.h"
 
 #include <cstddef>
 
@@ -299,4 +300,32 @@ void MembraneStick::write_nr_2b(uint8_t v)
     }
     // 2. Auto-increment the 9-bit addr (always, regardless of keymap_sel).
     keymap_addr_ = static_cast<uint16_t>((keymap_addr_ + 1u) & 0x01FFu);
+}
+
+// =============================================================================
+// Task 60c — state serialisation. The SDP-RAM keymap is runtime-
+// reprogrammable via NR 0x28/0x29/0x2B, so it (and the addr/select latches)
+// is genuine emulated state that must round-trip across rewind / save-load.
+// =============================================================================
+
+void MembraneStick::save_state(StateWriter& w) const
+{
+    w.write_u8(static_cast<uint8_t>(mode_left_));
+    w.write_u8(static_cast<uint8_t>(mode_right_));
+    w.write_u16(state_left_);
+    w.write_u16(state_right_);
+    w.write_bytes(keymap_.data(), keymap_.size());
+    w.write_u8(keymap_sel_);
+    w.write_u16(keymap_addr_);
+}
+
+void MembraneStick::load_state(StateReader& r)
+{
+    mode_left_   = static_cast<Joystick::Mode>(r.read_u8());
+    mode_right_  = static_cast<Joystick::Mode>(r.read_u8());
+    state_left_  = r.read_u16();
+    state_right_ = r.read_u16();
+    r.read_bytes(keymap_.data(), keymap_.size());
+    keymap_sel_  = r.read_u8();
+    keymap_addr_ = static_cast<uint16_t>(r.read_u16() & 0x01FFu);
 }

@@ -74,6 +74,12 @@ public:
     /// zxnext.vhd:1128. Composed into NR 0x0A reads at zxnext.vhd:5912.
     uint8_t dpi() const { return dpi_; }
 
+    // Task 60c — state serialisation. Persists the X/Y accumulators, the
+    // button mask, the wheel nibble and the NR 0x0A button-reverse / DPI
+    // latches so a rewind or save/load restores the exact mouse state.
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     uint8_t x_ = 0;             // i_MOUSE_X, driven by host adapter
     uint8_t y_ = 0;             // i_MOUSE_Y, driven by host adapter

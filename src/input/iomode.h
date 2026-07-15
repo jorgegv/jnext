@@ -126,6 +126,14 @@ public:
     /// it changes in response to NR 0x0B writes and CTC ch3 ZC/TO pulses.
     void set_pin7_for_load(bool v) { pin7_ = v; }
 
+    // Task 60c — state serialisation. Persists the full NR 0x0B mux state:
+    // the raw NR 0x0B byte, the clocked pin7 register and the injected
+    // UART-TX / joystick-bit-5 lines. NOTE: pin7 is ALSO round-tripped
+    // through the legacy single-bool slot in Emulator::save_state (kept for
+    // backwards-compat); restoring it twice to the same value is idempotent.
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     // Reset to the logical NR 0x0B value 0x01 (en=0, mode=00, iomode_0=1)
     // per zxnext.vhd:4939-4941. Pin7 starts at '1' per zxnext.vhd:3516.

@@ -1,5 +1,6 @@
 #include "input/joystick.h"
 #include "input/membrane_stick.h"
+#include "core/saveable.h"
 
 // =============================================================================
 // Phase 2 Agent A — NR 0x05 mode decoder implemented VHDL-faithfully per
@@ -252,4 +253,26 @@ bool Joystick::port_37_hw_en() const
         return m == Mode::Kempston2 || m == Mode::Md3Right;
     };
     return active(joy0_mode_) || active(joy1_mode_);
+}
+
+// =============================================================================
+// Task 60c — state serialisation
+// =============================================================================
+
+void Joystick::save_state(StateWriter& w) const
+{
+    w.write_u8(nr_05_raw_);
+    w.write_u8(static_cast<uint8_t>(joy0_mode_));
+    w.write_u8(static_cast<uint8_t>(joy1_mode_));
+    w.write_u16(joy_left_bits_);
+    w.write_u16(joy_right_bits_);
+}
+
+void Joystick::load_state(StateReader& r)
+{
+    nr_05_raw_      = r.read_u8();
+    joy0_mode_      = static_cast<Mode>(r.read_u8());
+    joy1_mode_      = static_cast<Mode>(r.read_u8());
+    joy_left_bits_  = r.read_u16();
+    joy_right_bits_ = r.read_u16();
 }
