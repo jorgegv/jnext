@@ -7852,28 +7852,37 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     const uint64_t post_clock = clock_.get();
     const uint64_t pre_clock  = post_clock - master_cycles;
 
+    // C9 (Task 27 Wave 2) — strength-reduce the per-master-cycle div/mod.
+    // The loop steps the absolute master-cycle counter by exactly 1 each
+    // iteration, so (hc, vc, cvc) advance deterministically. Establish the
+    // counters from the division ONCE at loop entry (for `pre_clock`), then
+    // increment: hc++ wrapping at master_cycles_per_line (on wrap, vc++),
+    // and cvc = (vc - origin) mod lines_per_frame — which advances by +1
+    // exactly when vc does, wrapping at lines_per_frame. This produces a
+    // byte-identical (hc, cvc) sequence to the old div/mod (proven below),
+    // with no divide in the hot loop.
+    //
+    // Copper vc origin: cvc=0 at the first active display line, mirroring
+    // VHDL `zxula_timing.vhd:455-472`. The first active display line in VHDL
+    // is vc=min_vactive (64 for NEXT 50Hz) — display_origin().vc. Using
+    // DISP_Y (32) instead would fire WAITs 32 lines too early (parallax.nex
+    // bottom-third banding); see G164v2 history.
+    const uint64_t mcpl = timing_.master_cycles_per_line;
+    const int lpf       = timing_.lines_per_frame;
+    const int origin_vc = static_cast<int>(video_timing_.display_origin().vc);
+
+    const uint64_t elapsed0 = pre_clock - frame_cycle_;
+    int hc  = static_cast<int>(elapsed0 % mcpl);
+    int vc0 = static_cast<int>(elapsed0 / mcpl);
+    int cvc = (vc0 - origin_vc + lpf) % lpf;
+    const int mcpl_i = static_cast<int>(mcpl);
+
     for (uint64_t c = 0; c < master_cycles; ++c) {
-        const uint64_t at = pre_clock + c;
-        const uint64_t elapsed = at - frame_cycle_;
-        const int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-        const int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
-        // Copper vc: cvc=0 at the first active display line, mirroring
-        // VHDL `zxula_timing.vhd:455-472`. The first active display line
-        // in VHDL is vc=min_vactive (64 for NEXT 50Hz). The previous
-        // implementation used DISP_Y (32), which is the FRAMEBUFFER-ROW
-        // origin for the display, NOT the VHDL VC origin — that
-        // off-by-32 made the Copper fire WAITs 32 lines too early.
-        // The bug was masked pre-G164v2 because the per-scanline
-        // change-log was also off by 32 in the same direction, so
-        // Copper-driven NR writes happened to land at the right
-        // framebuffer row by accident. After the change-log fix
-        // (this commit's parent) tagged writes in framebuffer-row
-        // space, the Copper-side miscount became visible (parallax.nex
-        // bottom-third banding).
-        const int cvc = (vc - static_cast<int>(video_timing_.display_origin().vc)
-                              + timing_.lines_per_frame)
-                            % timing_.lines_per_frame;
         copper_.execute(hc, cvc, nextreg_);
+        if (++hc == mcpl_i) {
+            hc = 0;
+            if (++cvc == lpf) cvc = 0;
+        }
     }
 }
 
