@@ -46,8 +46,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.zxjogv.jnex
 appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github.zxjogv.jnext.metainfo.xml
 
 %files
-%license LICENSE
-%doc USAGE.md
+%license %{_docdir}/%{name}/LICENSE
+%doc %{_docdir}/%{name}/USAGE.md
 %{_bindir}/jnext
 %{_datadir}/applications/io.github.zxjogv.jnext.desktop
 %{_datadir}/metainfo/io.github.zxjogv.jnext.metainfo.xml
