@@ -23,8 +23,9 @@
 Artifacts committed under `doc/perf/`:
 `<workload>-flat.txt` (flat self-cost, `--no-children -g none --percent-limit 0.1`) and
 `<workload>-folded.txt` (collapsed caller stacks, `--children -g folded,0.5,caller`), for the
-5 canonical workloads plus the 2 discriminator runs. Raw `perf.data` files (~1.3 GB total)
-were deliberately **not** committed.
+5 canonical workloads plus the 2 discriminator runs, and `exp3-density-bench.txt` (the
+density-controlled Experiment-1 rerun, added after the independent review). Raw `perf.data`
+files (~1.3 GB total) were deliberately **not** committed.
 
 **Caveats.** (a) Profile percentages include the ~0.25 s SD/ROM init that BENCH excludes —
 for run lengths of 1–5 s this dilutes hot-loop shares by a few percent uniformly; it does not
@@ -43,7 +44,7 @@ From `test/bench/baseline-732214d1.txt` (all spreads ≤ 4.82%, all OK):
 | workload | machine | fps | T-states/s | ms/frame |
 |---|---|---:|---:|---:|
 | boot-48k | 48k, idle prompt | 402.6 | 28.14 M | 2.484 |
-| bifrost | 48k, **busy** multicolour | 417.3 | 29.16 M | 2.396 |
+| bifrost | 48k, static "press any key" menu — **NOT busy** in this window, see §3.1 | 417.3 | 29.16 M | 2.396 |
 | boot-nextzxos | next @ 28 MHz | 128.5 | **72.87 M** | 7.782 |
 | copper-demo | next @ 28 MHz | 81.1 | 46.03 M | 12.33 |
 | beast | next @ 28 MHz | 89.3 | 43.02 M | 11.20 |
@@ -62,16 +63,50 @@ Three candidate mechanisms for "48K costs ~2.6× more per T-state than Next":
 **C1** (O(master_cycles) CTC/UART loops), **C3** (contention raster math), **C11**
 (HALT/dispatch density — idle 48K re-dispatches a 4-T HALT ~17.5k×/frame).
 
-### 3.1 Experiment 1 — dispatch density (idle vs busy 48K)
+### 3.1 Experiment 1 — dispatch density at constant divisor
 
-| workload | T-states/s | per-T-state cost |
-|---|---:|---:|
-| boot-48k (idle prompt, worst dispatch density) | 28.14 M | 35.5 ns |
-| bifrost (busy multicolour engine, high density) | 29.16 M | 34.3 ns |
+> **Revision after independent review (REJECT, 2026-07-15).** The first version of this
+> experiment compared boot-48k against bifrost and called bifrost "busy". That control was
+> **invalid**: in the measured 600-frame window bifrost sits on its static "press any key"
+> menu (the reviewer instruction-counted it: 82,885 instructions/10 frames vs boot-48k's
+> 83,591 — the same idle loop, 0.85% apart). Idle-vs-idle proves nothing about density.
+> The experiment below replaces it with density-**controlled** injected workloads.
+>
+> The reviewer's count also establishes a fact the C11 hypothesis got wrong: the idle 48K
+> prompt runs at 69,888 / 8,359 = **8.36 T-states per dispatch — it is a keyboard-scan loop,
+> not a HALT loop** (HALT density would be ~4.0). TASK27A's "~17,500 HALT re-dispatches per
+> frame" premise does not describe boot-48k.
 
-**The busy 48K workload is only 3.6% cheaper per T-state than the idle one.** If dispatch
-density were the mechanism, bifrost's per-T-state cost should have moved substantially toward
-Next's (13.7 ns). It did not move. **C11 is dead as an explanation.**
+Three hand-assembled programs injected on **--machine 48k** (divisor 8 throughout, same as
+boot-48k; inject at frame 150, `--benchmark 1800`, median-of-5, locked, core 0). Busy-frame
+cost = (wall − 150 × 2.484 ms boot frames) / 1650. Raw data:
+`doc/perf/exp3-density-bench.txt`.
+
+| workload | T-states/dispatch | dispatches/frame | ms/frame (busy) | ns/T-state |
+|---|---:|---:|---:|---:|
+| exp3-nopspin (200×NOP + JP) — HALT-density worst case | 4.03 | 17,342 | 2.807 | **40.2** |
+| boot-48k idle prompt (reference; measured density 8.36) | 8.36 | ~8,359 | 2.484 | **35.5** |
+| exp3-busy48 (the exp2 loop body, no NEXTREG) | 8.67 | ~8,062 | 2.573 | **36.8** |
+| exp3-exspin (200×`EX (SP),HL` + JP) — densest practical | 18.96 | 3,687 | 2.108 | **30.2** |
+| *(for scale)* exp2-next-28mhz | 8.67 | — | — | 13.5 |
+
+Findings:
+
+1. **The reviewer's requested A/B (busy-48k vs idle boot-48k at matched density): 36.8 vs
+   35.5 ns/T — within 4%.** A busy 48K workload of the *same* instruction density costs the
+   same as the idle prompt. The original bifrost "busy ≈ idle" result was an artifact of
+   comparing two idle loops, not evidence.
+2. **The density mechanism itself is real and now quantified.** nopspin vs exspin (a 4.7×
+   density swing, everything else identical — same machine, divisor, loop structure) moves
+   per-T-state cost 40.2 → 30.2 ns. The slope gives a **per-dispatch overhead of ≈ 51 ns**
+   (0.699 ms / 13,655 dispatches) — the per-instruction fabric (IM2 step, register sync,
+   M1 callback chain) measured a second, independent way.
+3. **But density is a minority contributor to the 48K penalty.** Even the densest workload
+   (30.2 ns/T) remains 2.2× the 28 MHz cost (13.5 ns/T). Of the idle-48K-vs-Next gap
+   (35.5 − 13.5 = 22.0 ns/T), an *extreme* density improvement recovers at most 5.3 ns/T
+   (~24%); at boot-48k's actual density the recoverable amount is ~0 (it already sits at the
+   matched-density busy control's cost). The dominant mechanism is §3.2/§3.3's
+   divisor-driven fixed-per-frame work, not dispatch density.
 
 ### 3.2 Experiment 2 — CPU-speed scaling, workload held constant
 
@@ -89,8 +124,12 @@ only the divisor differs. Median-of-5, core 0, lock held:
 **The 2.64× penalty reproduces exactly with the workload held constant** (48K vs Next was
 2.59×). The penalty follows the divisor, not the code. Additionally, the pinned-3.5 MHz
 run's per-T-state cost (35.7 ns) matches boot-48k's (35.5 ns) within 1%, and the pinned-28 MHz
-run matches boot-nextzxos within 2% — **the machine's per-T-state cost is essentially
-workload-independent at fixed divisor.**
+run matches boot-nextzxos within 2% — per-T-state cost at fixed divisor is insensitive to
+workload **within the class measured here: plain-CPU workloads of comparable instruction
+density, Copper off, ordinary render duty**. It is *not* workload-independent in general:
+§4's own data shows copper-demo (46.0 M) and beast (43.0 M) at the same 28 MHz divisor as
+boot-nextzxos (72.9 M) because Copper execution and render/copper duty add large per-frame
+cost, and §3.1 shows instruction density moves the 3.5 MHz cost by ±14%.
 
 ### 3.3 The two-component cost model
 
@@ -108,7 +147,14 @@ that **is** the 48K penalty (25.4 + 10.3 ≈ 35.7 ns measured). At 28 MHz M cost
 
 ### 3.4 Verdict
 
-- **C11 (dispatch density): KILLED.** Both experiments refute it independently.
+- **C11 (dispatch density as the 48K-penalty explanation): KILLED — now on valid evidence**
+  (the first version of this kill rested on the broken bifrost control; §3.1's
+  density-controlled pair replaces it). The *mechanism* is real — ≈ 51 ns per dispatch,
+  worth ±14% at 3.5 MHz across a 4.7× density swing — but it explains at most ~24% of the
+  48K-vs-Next gap in the extreme, and ~0% for the actual idle prompt, which is **not
+  HALT-bound in the first place** (8.36 T/dispatch measured, not ~4). The specific
+  optimization "fast-forward HALT" would therefore not even engage on boot-48k. The 51
+  ns/dispatch overhead itself is exactly what ranks 1/4/5 in §5 attack directly.
 - **C1 (O(master_cycles) tick loops): REAL and dominant for the 48K penalty.** CTC+UART self
   cost is 27–32% of every 3.5 MHz frame (0.69 ms of M's 1.80 ms). The rest of M is renderer
   (~13%), audio (~10–12%), and per-call loop overhead.
@@ -243,8 +289,12 @@ target.
 
 ### 6.3 Killed (measured < ~2% on the target workload, or refuted)
 
-- **C11 HALT fast-forward — KILLED** as a 48K-penalty fix (both discriminator experiments)
-  and not worth its Med risk for Next mode either.
+- **C11 HALT fast-forward — KILLED** as a 48K-penalty fix, on the §3.1 density-controlled
+  evidence (revised — the original bifrost control was invalid): the idle 48K prompt is not
+  HALT-bound (8.36 T/dispatch), so HALT fast-forwarding would not engage on it; an extreme
+  density improvement recovers ≤ ~24% of the gap on a mode that already exceeds its 400%
+  target; and it carries Med interrupt-timing risk. The underlying ≈ 51 ns/dispatch overhead
+  is better attacked head-on by C-IM2 / C10+glue / C-M1 (§5 ranks 1, 4, 5).
 - **C4 port-dispatch popcount — KILLED.** `PortDispatch::read/write` peaks at **0.84%**
   (boot-nextzxos) and is ≤ 0.35% everywhere else.
 - **C7 tilemap hoist — KILLED for the DoD target** (0% on boot-nextzxos; 4.3% on beast).
@@ -264,6 +314,17 @@ plus higher render/copper duty. Hitting 113.5 M on boot-nextzxos while games run
 at 400% is a true-but-misleading success; the plan should either add a second DoD line for a
 copper-active workload or state explicitly that 400% is a boot-workload metric.
 
+**Frame-geometry caveat on beast's ratio.** beast reports `tstates_per_frame=481536`
+(456 pixel ticks × 264 lines × 4 master cycles/tick), not boot-nextzxos's 567,264 (311-line
+50 Hz frame). Root cause: **beast itself writes NR 0x05 = 0x04** — bit 2 set = 60 Hz —
+observed directly (`--log-level nextreg=trace`: `NextREG write reg=0x05 val=0x04` during NEX
+startup), which switches the video timing to the 264-line 60 Hz frame. Its T-states/s figure
+is therefore earned on **~15% smaller frames at a 20% higher frame rate** than the DoD
+workload; the "needs 2.6×" ratio above compares T-state *throughputs*, which remains valid
+as a throughput statement, but the *fps* needed for beast at 400% is 240 (60 Hz × 4), not
+200 — the geometry difference should be kept in mind before quoting beast beside
+boot-nextzxos as if they shared a frame clock.
+
 ---
 
 ## 7. Reproduction
@@ -279,4 +340,8 @@ perf record -F 4000 -e cycles:u --call-graph dwarf,16384 -o <wl>.data -- \
 perf report --stdio --no-children -g none --percent-limit 0.1 -i <wl>.data
 # discriminator exp2 binaries (16 bytes, org 0x8000, --machine next --inject-delay 20):
 #   F3 ED 91 07 {00|03} 21 00 90 06 00 7E 23 10 FC 18 F5
+# density exp3 binaries (org 0x8000, --machine 48k --inject-delay 150 --benchmark 1800):
+#   busy48 : F3 21 00 90 06 00 7E 23 10 FC 18 F5      (8.67 T/dispatch)
+#   nopspin: F3, 200x 00, C3 01 80                     (4.03 T/dispatch)
+#   exspin : F3 31 00 90, 200x E3, C3 04 80            (18.96 T/dispatch)
 ```
