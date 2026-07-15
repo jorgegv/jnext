@@ -1120,11 +1120,11 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] **Reduce SKIPs Wave 2 - Implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`. As of 2026-07-15 the unit suites carry ZERO SKIPs: the 3 G67 rewind_test rows became real rows (Task 60b), and the 7 G66 SS-VER rows were removed — the Next-specific snapshot schema does not exist (only NEX does), so it was reclassified from a coverage gap to the Phase 11 "Next-specific snapshot save/load format" item (user decision, 2026-07-15).
 
-- [ ] Integration test plan:
-  - [ ] Document cross-subsystem interaction scenarios. Integration suites already exist per-subsystem (`uart_integration_test`, `ula_integration_test`, `nmi_integration_test`, `compositor_integration_test`, `ctc_interrupts_test`, `input_integration_test`, `audio_nextreg_test`, `audio_port_dispatch_test`, `nextreg_integration_test`); still missing a unifying design doc.
-  - [ ] CI integration for golden-output visual regression tests (`test/00regression/regression.sh`).
-  - [ ] Create exhaustive CI plan for Github and automated release
-  - [ ] Add badges for test runs and others (license, architectures, etc.) in the main README
+- [x] Integration test plan (Task 69):
+  - [x] Document cross-subsystem interaction scenarios — [doc/testing/INTEGRATION-TEST-PLAN.md](../testing/INTEGRATION-TEST-PLAN.md) catalogs all 11 integration suites (row counts, VHDL-cited scenarios) plus a named "gaps/future" section (DMA bus arbitration, multi-layer render composition, full boot chain, RZX/rewind — none proven at the integration tier today).
+  - [x] CI integration for golden-output visual regression tests — `.github/workflows/ci.yml` runs the golden-screenshot/functional regression on every push/PR, against a job-provisioned pristine SD image, with the single SD-content-dependent row `boot-nextzxos-dotls` excluded (it lists live SD-card contents; verified locally against the canonical fixture) and a preflight manifest-integrity check preceding the filtered run.
+  - [x] Create exhaustive CI plan for Github and automated release — `.github/workflows/ci.yml` (build + full test triplet, including an honest SD-image provisioning step via jnext's own `--sdcard-download-confirm`) and `.github/workflows/release.yml` (publishes a GitHub Release from `packaging.yml`'s tag-triggered artifacts on `v*` push).
+  - [x] Add badges for test runs and others (license, architectures, etc.) in the main README — CI status, latest release, GPLv3 license, C++17, platform badges added to `README.md`.
 
 - [ ] General optimization plan
   - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review by Ultraplan (/ultraplan)

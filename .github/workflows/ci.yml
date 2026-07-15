@@ -1,0 +1,170 @@
+name: CI
+
+# Task 69. Build + the full local test triplet (ctest unit/integration
+# suites, FUSE Z80 opcode suite, screenshot/functional regression) on
+# every push to main and every pull request.
+#
+# ── The SD-card image constraint (read before editing this file) ──────────
+#
+# `roms/*` is git-ignored (see .gitignore) — a fresh checkout has NO
+# NextZXOS SD-card image. jnext's own test harness treats a missing image
+# as a FATAL fault, never a silent skip:
+#   * test/sd_rom_extractor/sd_rom_extractor_test.cpp exits non-zero with
+#     no summary line if roms/nextzxos-1gb-fat32fix.img is absent — by
+#     design, so an unprovisioned worktree can never quietly report a
+#     smaller "still green" suite (see doc/testing/INTEGRATION-TEST-PLAN.md
+#     §5 and test/unit-tests.conf's own header comment for the incident
+#     that rule prevents).
+#   * `--sdcard` is mandatory on every jnext invocation (real hardware has
+#     no other ROM source), and test/00regression/regression.sh passes it
+#     on every single test row.
+# So EITHER `make unit-test` (via that one suite) OR `make regression`
+# fails outright without an image — there is no honest way to run "most of
+# it" and still call the job green. This workflow provisions the real
+# image rather than skip/fake the tests that need it.
+#
+# The image jnext needs (roms/nextzxos-1gb-fat32fix.img) is the FAT32-
+# patched form of cspect-next-1gb.img, the OFFICIAL public NextZXOS
+# distribution published at specnext.com (see kDistroUrl in
+# src/core/sdcard_provisioner.cpp). jnext ships its own provisioner for
+# exactly this — the same code path an end user hits via
+# `--sdcard-download-confirm` — so the "Provision NextZXOS SD image" step
+# below simply runs jnext itself to download + FAT32-patch that public
+# image, then points roms/ at the result. This is not a secret or
+# private asset and nothing here duplicates or bypasses the emulator's
+# own sanctioned download path. The download+patch is cached (keyed on
+# the distro URL) so the network is only actually hit once per cache
+# generation.
+#
+# Only ONE declared unit suite (sd_rom_extractor_test, 26 of 4728 rows)
+# reads the image directly; every other suite in test/unit-tests.conf,
+# including all the *_integration_test suites, is hermetic and needs
+# nothing beyond the checkout + submodules.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  LANG: C
+  LC_ALL: C
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Package set mirrors packaging.yml's linux job (verified to actually
+      # build on Fedora by the packaging task) plus the tools the test
+      # layers need on top: imagemagick (`compare`, screenshot diffing),
+      # xvfb (audio-underrun-func's real-audio-device functional test —
+      # every other GUI functional test uses QT_QPA_PLATFORM=offscreen and
+      # needs no display), python3 (check-audio-underruns.py), unzip (the
+      # SD-image provisioning step's own dependency, ultimately via
+      # libcurl inside jnext, not this step directly, but kept explicit).
+      - name: Install build + test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake g++ ccache \
+            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
+            qt6-base-dev \
+            imagemagick xvfb python3 unzip
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Cache NextZXOS SD-card image
+        id: sdcache
+        uses: actions/cache@v4
+        with:
+          path: ~/.jnext/sdcard
+          # kDistroUrl in src/core/sdcard_provisioner.cpp is versioned
+          # (.../distro/24.11/...) — bump this key if that constant changes,
+          # so a stale cached image is never reused silently.
+          key: sdcard-image-distro-24.11
+
+      # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
+      # `make gui-release` first, so regression.sh (which prefers
+      # build/gui-release/jnext) never picks up a stale binary.
+      - name: make clean && make gui-release
+        run: |
+          LANG=C make clean
+          LANG=C make gui-release 2>&1 | tail -30
+
+      - name: Provision NextZXOS SD image (public specnext.com distro; cached above)
+        if: steps.sdcache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.jnext/sdcard
+          timeout 600 ./build/gui-release/jnext --headless \
+            --sdcard-download-confirm --delayed-automatic-exit 1
+
+      - name: Point roms/ at the provisioned image
+        run: |
+          test -f ~/.jnext/sdcard/cspect-next-1gb-fixed.img
+          ln -sf ~/.jnext/sdcard/cspect-next-1gb-fixed.img roms/nextzxos-1gb-fat32fix.img
+
+      - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
+        run: LANG=C make unit-test 2>&1 | tail -60
+
+      # Golden-screenshot + functional regression, in two steps.
+      #
+      # Step A (preflight) asserts the manifest pins agree — every declared
+      # screenshot has a checked-in reference and vice-versa, and the
+      # declared functional count matches — so CI still catches a
+      # silently-shrunk suite. It needs no SD image.
+      #
+      # Step B runs every declared screenshot + functional row EXCEPT
+      # boot-nextzxos-dotls. That one row types `.ls` in the NextZXOS
+      # command line and screenshots a LIVE SD-card directory listing, so
+      # its checked-in reference reflects the maintainer's local
+      # roms/nextzxos-1gb-fat32fix.img — which has accumulated dev-session
+      # files (DUMP.BAS, NRDUMP.BIN, ...) — and legitimately differs from
+      # the freshly-provisioned PRISTINE distro image this job downloads
+      # (fewer files → different listing → non-zero pixel diff at the
+      # suite's 0-tolerance). welcome/menu/splash are pixel-identical
+      # against the pristine image; only the directory-listing row is
+      # content-dependent, so it is verified locally by the maintainer
+      # against the canonical fixture instead of in hosted CI.
+      #
+      # Passing positional filter args makes regression.sh treat this as a
+      # PARTIAL run and skip its declared-grand-total witness (that witness
+      # is Step A's job here). The two steps together give CI both
+      # manifest-integrity AND golden-output regression signal.
+      - name: Regression preflight (manifest pins; no SD image needed)
+        run: bash test/00regression/regression.sh --preflight-only
+
+      - name: Regression (all rows except SD-content-dependent boot-nextzxos-dotls)
+        run: |
+          mapfile -t SROWS < <(grep -vE '^\s*(#|$)' test/00regression/regression_tests.conf | awk '{print $1}' | grep -vx boot-nextzxos-dotls)
+          mapfile -t FROWS < <(grep -vE '^\s*(#|$)' test/00regression/functional_tests.conf | awk '{print $1}')
+          LANG=C JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh "${SROWS[@]}" "${FROWS[@]}" 2>&1 | tail -90
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jnext-ci-failure-artifacts
+          path: |
+            test/00regression/img/*-diff.png
+            build/test-summary.tsv
+          if-no-files-found: ignore
