@@ -66,8 +66,11 @@ BEGIN {
 
     # --- Test binary -> dashboard friendly name. ---
     # Keyed by BINARY (the name that appears in unit-tests.conf and summary.tsv).
-    # Binary names are quoted so the make-unit-test drift guard can still detect an
-    # unmapped live suite by grepping this file. Add a row here when you add a suite.
+    # This is purely the display-name lookup; the source of truth for which suites
+    # exist and how many rows each has is test/unit-tests.conf (which both this
+    # generator and the make-unit-test drift guard read). A suite missing here is
+    # NOT dropped — it is emitted under its binary name with a TODO marker.
+    # Add a row here when you add a suite.
     M["fuse_z80_test"]                 = "FUSE Z80"
     M["z80n_test"]                     = "Z80N CPU"
     M["cpu_int_pulse_test"]            = "CPU INT pulse"
