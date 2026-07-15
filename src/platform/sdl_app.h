@@ -89,6 +89,9 @@ private:
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;  // in frames; -1 = no pending
 
+    // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
+    uint32_t    last_frame_ms_ = 0;
+
     // Emulator config (set via set_config() before init())
     EmulatorConfig config_;
     bool           config_set_ = false;

@@ -297,6 +297,12 @@ void SdlApp::run() {
         if (!fastload) {
             const uint32_t frame_ms = static_cast<uint32_t>(
                 std::lround(emulator_.frame_period_ms()));
+            if (frame_ms != last_frame_ms_) {
+                last_frame_ms_ = frame_ms;
+                Log::platform()->info(
+                    "frame pacing: {:.2f} Hz video refresh -> {} ms/frame",
+                    1000.0 / emulator_.frame_period_ms(), frame_ms);
+            }
             uint32_t elapsed = SDL_GetTicks() - frame_start;
             if (elapsed < frame_ms) SDL_Delay(frame_ms - elapsed);
         }

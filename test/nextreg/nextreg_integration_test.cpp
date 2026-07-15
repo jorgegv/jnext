@@ -5896,6 +5896,64 @@ static void test_v22_nmp_01_nr_c2_c3_writable(Emulator& emu) {
     }
 }
 
+// ── Frame period follows 50/60 Hz (issue #9 / Task 56) ───────────────
+//
+// NR 0x05 bit 2 selects the video refresh; the 60 Hz geometry commits at
+// the next frame edge (zxnext.vhd:6697-6700 `eff_nr_05_5060`, modelled by
+// Emulator::repush_video_timing_from_machine_timing()). Emulator::
+// frame_period_ms() — which both interactive frontends pace from (issue #9)
+// — must track it: 50 Hz → 567264 master cycles/frame (20.26 ms), 60 Hz →
+// 481536 (17.20 ms). Discriminative: a regression that stopped honouring
+// bit 2, or broke the master_cycles_per_frame/28 MHz maths, flips a row.
+// Self-contained Emulator so the runtime timing switch does not perturb the
+// shared-emulator groups below.
+static void test_frame_period_5060hz() {
+    set_group("FramePeriod-5060Hz");
+
+    Emulator emu;
+    build_next_emulator(emu);
+
+    auto near = [](double a, double b) { return (a - b < 0.01) && (b - a < 0.01); };
+
+    // FP-01 — Next default is 50 Hz: 456 px * 4 * 311 lines = 567264 mc/frame,
+    //          567264 / 28e6 * 1000 = 20.259 ms.
+    {
+        uint64_t mc = emu.timing().master_cycles_per_frame;
+        double   p  = emu.frame_period_ms();
+        check("FP-01",
+              "50 Hz default: 567264 mc/frame, frame_period_ms=20.26 [issue #9]",
+              mc == 567264ULL && near(p, 20.2594),
+              "mc=" + std::to_string(mc) + " period_ms=" + std::to_string(p));
+    }
+
+    // FP-02 — NR 0x05 bit 2 = 1 commits 60 Hz at the frame edge: vc_max 263 →
+    //          264 lines → 456*4*264 = 481536 mc/frame → 17.198 ms.
+    nr_write(emu, 0x05, 0x04);
+    emu.run_frame();  // begin_new_frame() seam latches eff_nr_05_5060 (Task 56)
+    {
+        uint64_t mc = emu.timing().master_cycles_per_frame;
+        double   p  = emu.frame_period_ms();
+        check("FP-02",
+              "60 Hz (NR 0x05 bit2=1): 481536 mc/frame, frame_period_ms=17.20 "
+              "[Task 56 / issue #9]",
+              mc == 481536ULL && near(p, 17.1977),
+              "mc=" + std::to_string(mc) + " period_ms=" + std::to_string(p));
+    }
+
+    // FP-03 — clearing bit 2 returns to 50 Hz at the next frame edge.
+    nr_write(emu, 0x05, 0x00);
+    emu.run_frame();
+    {
+        uint64_t mc = emu.timing().master_cycles_per_frame;
+        double   p  = emu.frame_period_ms();
+        check("FP-03",
+              "clear NR 0x05 bit2 -> back to 50 Hz: 567264 mc/frame, 20.26 ms "
+              "[issue #9]",
+              mc == 567264ULL && near(p, 20.2594),
+              "mc=" + std::to_string(mc) + " period_ms=" + std::to_string(p));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -6016,6 +6074,9 @@ int main() {
 
     test_v22_nmp_01_nr_c2_c3_writable(emu);
     std::printf("  Group: V22-NMP-01-NRC2-C3-Writable — done\n");
+
+    test_frame_period_5060hz();
+    std::printf("  Group: FramePeriod-5060Hz — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

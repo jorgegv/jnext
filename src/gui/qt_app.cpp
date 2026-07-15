@@ -215,8 +215,12 @@ void QtApp::on_frame_tick() {
     if (frame_timer_) {
         const int desired = std::max(1, static_cast<int>(
             std::lround(emulator_.frame_period_ms() / speed_multiplier_)));
-        if (desired != frame_timer_->interval())
+        if (desired != frame_timer_->interval()) {
             frame_timer_->setInterval(desired);
+            Log::platform()->info(
+                "frame pacing: {:.2f} Hz video refresh -> {} ms/frame timer",
+                1000.0 / emulator_.frame_period_ms(), desired);
+        }
     }
 
     // Apply pending inject when countdown reaches zero.
