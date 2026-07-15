@@ -410,6 +410,24 @@ public:
                       SpriteEngine* sprites,
                       Tilemap* tilemap);
 
+    /// Task 27 C6 — sprites-only side-effect pass for frames whose render is
+    /// skipped by the frontend hint (Emulator::set_render_enabled(false)).
+    ///
+    /// Sprite collision (port 0x303B bit 0) and per-line budget overtime
+    /// (bit 1) — VHDL sprites.vhd:971-995 — are computed inside
+    /// SpriteEngine::render_scanline, i.e. inside the render chain. They are
+    /// SOFTWARE-VISIBLE machine state, so a skipped frame must still compute
+    /// them or software polling 0x303B misses real events (C6 review
+    /// BLOCKER, reproduced with two overlapping sprites).
+    ///
+    /// This runs the exact per-row sprite pipeline render_frame uses — the
+    /// sprite change-log rewind/apply/flush lifecycle plus the same
+    /// render_scanline call, pixels discarded into the internal scratch line
+    /// — so the flags are produced by the very code path a rendered frame
+    /// takes; there is no second sprite evaluator to drift. Near-free when
+    /// sprites are disabled (sprites_visible() gate, same as render_row).
+    void run_sprite_side_effects(SpriteEngine* sprites, PaletteManager& palette);
+
     /// Render every layer for ONE framebuffer row and composite it.
     ///
     /// This is render_frame's row body, lifted out verbatim (Task 36) so the
