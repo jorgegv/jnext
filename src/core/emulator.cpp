@@ -6525,9 +6525,44 @@ void Emulator::run_frame()
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
+    //
+    // Task 27 C6 — additionally suppressed when the frontend hinted that
+    // nobody will consume this frame (render_enabled_ == false; Qt GUI at
+    // speed > 1x). The hint is OVERRIDDEN — the frame is rendered anyway —
+    // when:
+    //   * video recording is active: capture_frame() below consumes the
+    //     framebuffer immediately after render, and a skipped render would
+    //     silently freeze/corrupt the --record MP4;
+    //   * the debugger is active: panels and the pause display read the
+    //     framebuffer, and stepping/breakpoints must always show the frame
+    //     that was actually emulated.
+    // Headless mode (incl. --benchmark, which must measure the real render
+    // workload) and the SDL frontend never clear render_enabled_, so their
+    // behaviour is bit-identical to before.
+    //
+    // Skipping render_frame() entirely is the established replay_mode_
+    // pattern (renderer.cpp render_frame() header comment): the per-scanline
+    // change logs populated during this frame are simply dropped — live
+    // subsystem state was mutated directly by the writers and is correct,
+    // and the next rendered frame's begin_new_frame()/start_frame() calls
+    // re-baseline the logs from that live state. The ONE piece of emulated-
+    // time state render_frame() owns is the ULA flash counter (advance_flash
+    // runs once per rendered frame), so a skipped frame must still advance
+    // it — otherwise FLASH would tick at the host display rate instead of
+    // the emulated frame rate.
+    const bool render_this_frame =
+        render_enabled_ || video_recorder_.is_recording() || debug_state_.active();
     if (!replay_mode_) {
-        renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                               layer2_, &sprites_, &tilemap_);
+        if (render_this_frame) {
+            renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                                   layer2_, &sprites_, &tilemap_);
+        } else {
+            renderer_.ula().advance_flash();
+            // Debug-level witness for the regression suite
+            // (render-skip-turbo-func): proves the skip engages, and that it
+            // NEVER engages while recording (the line must be absent then).
+            Log::video()->debug("render skipped for undisplayed frame (C6 frontend hint)");
+        }
     }
 
     // Capture frame for video recording (if active, not in replay).
