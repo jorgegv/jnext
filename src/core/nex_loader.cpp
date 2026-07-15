@@ -138,16 +138,33 @@ bool NexLoader::load(const std::string& path)
     // appended payload (every well-formed NEX matches its declared size exactly;
     // one 16 KB bank of slack tolerates any padding) and refuse with a clear
     // message instead. (GitHub issue #10)
+    // Count the banks the presence bitmap actually declares — apply() loads
+    // exactly these (header_.banks[bank] != 0). The header's num_banks scalar
+    // (offset 9) is decorative: the reference nexload.asm never reads it and
+    // jnext's apply() never has either, so trusting it here would false-reject
+    // a well-formed NEX whose num_banks disagrees with the bitmap. (issue #10)
+    size_t declared_banks = 0;
+    for (int b = 0; b < 112; ++b) {
+        if (header_.banks[b]) ++declared_banks;
+    }
+    // A well-formed NEX has num_banks (offset 9) equal to the bitmap count. A
+    // mismatch means the file is technically malformed; the bitmap is what
+    // apply() loads, so warn and proceed with the bitmap rather than reject.
+    if (header_.num_banks != declared_banks) {
+        Log::emulator()->warn(
+            "NEX: '{}' header num_banks={} disagrees with the bank bitmap ({} bank(s) present); "
+            "num_banks is decorative — loading the banks the bitmap declares and hoping for the best.",
+            path, header_.num_banks, declared_banks);
+    }
     const size_t expected_size =
-        512 + nex_screen_bytes(header_.screen_flags) +
-        static_cast<size_t>(header_.num_banks) * 16384;
+        512 + nex_screen_bytes(header_.screen_flags) + declared_banks * 16384;
     if (file_size > expected_size + 16384) {
         Log::emulator()->error(
             "NEX: '{}' is an extended NEX file — {} bytes follow the {} bank(s) its header "
             "describes (file {} bytes, expected {}). Files like NEXTEST.NEX stream this "
             "payload from themselves at runtime and must be run under NextZXOS: boot the SD "
             "card and launch it from the NextZXOS file browser, not with --load.",
-            path, file_size - expected_size, header_.num_banks, file_size, expected_size);
+            path, file_size - expected_size, declared_banks, file_size, expected_size);
         return false;
     }
 
