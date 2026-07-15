@@ -47,6 +47,17 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - When a bug is fixed in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test the fixed new code/interface. Modify the plan if needed and do an independent code review for the new test code.
 - For git commands that run against another directory (e.g. a worktree), always use `git -C /abs/path <cmd> ...` instead of `cd /abs/path && git <cmd> ...`. The `-C` flag avoids shell-state side effects and keeps the current working directory stable across tool calls. It also avoids needless permission prompts to the user.
 
+### Merging a completed feature/fix to `main`
+
+The single authoritative protocol for landing any implemented change on `main`:
+
+1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other).
+2. **Full test triplet green on the branch** before review: `make clean && make gui-release`, then `make unit-test`, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh`. No FAIL anywhere (SKIPs only where already declared).
+3. **Independent code review** by an agent/person that did NOT write the change — never self-review. The reviewer works in its own worktree, never the author's. Verdict is binary APPROVE / REJECT; on REJECT, fix and re-review.
+4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch.
+5. **Immediately after each merge to `main`, bump the patch version: `make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
+6. **Never push to origin** (see the push rule above) — local commits, merges, and the bump tag stay local until the user explicitly pushes.
+
 ## ChangeLog file
 
 - A ChangeLog file should exist at the root of the repository
