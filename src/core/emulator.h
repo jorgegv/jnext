@@ -360,6 +360,15 @@ public:
     const EmulatorConfig& config() const { return config_; }
     const MachineTiming& timing() const { return timing_; }
 
+    /// Real-time duration of one emulated frame, in milliseconds. Follows the
+    /// current video refresh (50 Hz → ~20.26 ms, 60 Hz → ~17.20 ms). Frontends
+    /// pace their frame timer from this so a 60 Hz demo (NR 0x05 bit 2) runs at
+    /// 60 fps instead of a hardcoded 50 Hz (GitHub issue #9).
+    double frame_period_ms() const {
+        return static_cast<double>(timing_.master_cycles_per_frame) * 1000.0 /
+               static_cast<double>(MASTER_CLOCK_HZ);
+    }
+
     // -----------------------------------------------------------------------
     // State serialisation (used by RewindBuffer)
     // -----------------------------------------------------------------------
