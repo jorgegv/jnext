@@ -56,8 +56,13 @@ Workers run **in parallel**; only performance measurements are exclusive:
    number may hold it concurrently. Regressions may overlap each other (user decision).
 2. **Measurements** (`make bench`, perf runs) take the same lock **exclusively** (the harness
    already does) — the kernel drains all shared holders first and blocks new heavy ops for the
-   duration. Additionally verify loadavg < 1.0 before measuring; the wait is bounded (20 min),
-   then report instead of stalling.
+   duration. **Preferred methodology while the wave keeps the box warm: interleaved A/B** —
+   byte-exact BEFORE and AFTER binaries, alternated runs (≥5 pairs, same pinned core, under the
+   exclusive lock). Steady background load hits both arms equally and cancels in the ratio;
+   erratic pairwise deltas mean the load was NOT steady — void and retry. Validated repeatedly
+   on 2026-07-15 (author + two reviewers, including a +8.5% reproduction at loadavg 8). Only
+   fall back to waiting-for-idle (loadavg < 1.0, bounded 20 min, then report) when an
+   interleaved design is impossible (e.g. absolute single-binary numbers for a baseline file).
 3. **Pacing-row safety valve**: `audio-underrun-func` and `screenshot-paused-func` are
    real-time-pacing bounded (Task 39) and may false-FAIL under parallel load. A FAIL on ONLY
    those rows in a parallel context gets ONE serialized re-run before being treated as real.
