@@ -11,6 +11,22 @@ static uint16_t read_u16(const uint8_t* p) {
     return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
 }
 
+/// Bytes of optional screen data a NEX header's screen_flags declares, in the
+/// exact order and sizes NexLoader::apply() consumes them. Lets load() compute
+/// the total the loader will read (header + screens + banks) so a file carrying
+/// substantially more — an "extended" NEX that streams extra payload from
+/// itself under NextZXOS, e.g. NEXTEST.NEX — is rejected up front (issue #10).
+static size_t nex_screen_bytes(uint8_t sf) {
+    size_t n = 0;
+    if ((sf & NexHeader::SCREEN_LAYER2) && !(sf & NexHeader::SCREEN_NO_PAL)) n += 512;
+    if (sf & NexHeader::SCREEN_LAYER2)   n += 49152;
+    if (sf & NexHeader::SCREEN_ULA)      n += 6912;
+    if (sf & NexHeader::SCREEN_LORES)    n += 12288;
+    if (sf & NexHeader::SCREEN_HIRES)    n += 12288;
+    if (sf & NexHeader::SCREEN_HICOLOUR) n += 12288;
+    return n;
+}
+
 // ram_required_kb / ram_required_fits — defined inline in nex_loader.h
 // (G155). Inline keeps unit tests linkable without jnext_core.
 
@@ -111,6 +127,28 @@ bool NexLoader::load(const std::string& path)
         std::memcmp(header_.version, "V1.2", 4) != 0) {
         Log::emulator()->warn("NEX: unrecognised version '{:.4s}' in '{}', attempting load anyway",
                               header_.version, path);
+    }
+
+    // Reject "extended" NEX files. A NEX describes a fixed machine state:
+    // header + optional screens + N×16 KB banks, and nothing more. NEXTEST.NEX
+    // and similar NextZXOS applications append megabytes of payload they stream
+    // from their own file at runtime via the NextZXOS API. Loaded directly
+    // (--load / File→Open) there is no NextZXOS and no file handle, so they die
+    // at their startup OS/SD check with a silent black screen. Detect the
+    // appended payload (every well-formed NEX matches its declared size exactly;
+    // one 16 KB bank of slack tolerates any padding) and refuse with a clear
+    // message instead. (GitHub issue #10)
+    const size_t expected_size =
+        512 + nex_screen_bytes(header_.screen_flags) +
+        static_cast<size_t>(header_.num_banks) * 16384;
+    if (file_size > expected_size + 16384) {
+        Log::emulator()->error(
+            "NEX: '{}' is an extended NEX file — {} bytes follow the {} bank(s) its header "
+            "describes (file {} bytes, expected {}). Files like NEXTEST.NEX stream this "
+            "payload from themselves at runtime and must be run under NextZXOS: boot the SD "
+            "card and launch it from the NextZXOS file browser, not with --load.",
+            path, file_size - expected_size, header_.num_banks, file_size, expected_size);
+        return false;
     }
 
     // Read remaining file data (screen + bank payloads)

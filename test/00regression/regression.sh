@@ -1317,6 +1317,51 @@ if want frame-pacing-func; then
     fi
 fi
 
+# nex-extended-reject-func (issue #10): NEXTEST.NEX and similar NextZXOS apps are
+# a small NEX with a large payload appended that they stream from their own file
+# at runtime. Loaded with --load there is no NextZXOS, so they black-screen. The
+# loader now rejects any NEX whose file is substantially larger than its header
+# (banks + screens) describes. Discriminative both ways: an extended NEX MUST be
+# rejected with the "extended NEX file" message, and a plain NEX of the exact
+# declared size MUST NOT be. Files are synthesised here (no 26 MB binary in git).
+if want nex-extended-reject-func; then
+    begin_func nex-extended-reject-func
+    ext_nex="$TMP_DIR/extended.nex"
+    plain_nex="$TMP_DIR/plain.nex"
+    python3 - "$ext_nex" "$plain_nex" <<'PY'
+import sys, struct
+def header(num_banks):
+    h = bytearray(512)
+    h[0:4] = b"Next"; h[4:8] = b"V1.2"
+    h[8] = 0            # ram_required
+    h[9] = num_banks    # banks
+    h[10] = 0           # screen_flags
+    h[12:14] = struct.pack("<H", 0x8000)  # SP
+    h[14:16] = struct.pack("<H", 0x8000)  # PC
+    h[18] = 1           # bank[0] present
+    return bytes(h)
+# extended: 1 declared bank (16384) + 200 KB of appended payload it can't describe
+open(sys.argv[1], "wb").write(header(1) + b"\x00"*16384 + b"\xAA"*200000)
+# plain: exactly header + 1 bank, no trailing data
+open(sys.argv[2], "wb").write(header(1) + b"\x00"*16384)
+PY
+    ext_out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --machine next --load "$ext_nex" \
+        --delayed-automatic-exit-frames 5 2>&1) || true
+    plain_out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --machine next --load "$plain_nex" \
+        --delayed-automatic-exit-frames 5 2>&1) || true
+    ext_hit=$(echo "$ext_out" | grep -cF "extended NEX file" || true)
+    plain_hit=$(echo "$plain_out" | grep -cF "extended NEX file" || true)
+    if [[ "$ext_hit" -ge 1 && "$plain_hit" -eq 0 ]]; then
+        echo -e "${GREEN}PASS${RESET} (extended NEX rejected; exact-size NEX accepted)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (extended reject count=$ext_hit (want >=1), plain count=$plain_hit (want 0))"
+        fail=$((fail + 1))
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
