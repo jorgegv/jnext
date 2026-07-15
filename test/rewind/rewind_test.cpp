@@ -398,11 +398,10 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
 
 // ── main ───────────────────────────────────────────────────────────────────
 
-// ── SS-VER (G66) + RB-FRAME (G67) skips ─────────────────────────────────
-//
-// Save-state schema versioning + per-subsystem framing (G66): no plan
-// doc exists today; pinned-skip rows live here until the plan and
-// SaveStateLoader land.
+// Save-state schema versioning (was SS-VER-01..07 / G66) is a Phase 11
+// future enhancement (EMULATOR-DESIGN-PLAN.md Phase 11), not a gap — the
+// schema does not exist yet (only NEX does). Rows removed 2026-07-15 per
+// user decision; see the G66 tombstone in the known-gaps doc.
 
 // ── Test: monotonic tape clock survives save/load (G36 review fix) ─────────
 //
@@ -805,22 +804,13 @@ static int test_rewind_chain_corrupted_slot()
     return 0;
 }
 
-static void test_ss_ver_skips()
-{
-    skip("SS-VER-01", "schema magic + version head absent (see G66)");
-    skip("SS-VER-02", "per-subsystem TLV framing absent (see G66)");
-    skip("SS-VER-03", "load_state magic-mismatch reject path (see G66)");
-    skip("SS-VER-04", "schema migrator registry absent (see G66)");
-    skip("SS-VER-05", "field-order round-trip lock absent (see G66)");
-    skip("SS-VER-06", "DivMmc pre-NA-03 silent-deserialise (see G66)");
-    skip("SS-VER-07", "RZX SNA path lacks schema head (see G66)");
-
-    // RB-FRAME-01..03 (G67) became real rows in Test 11 (Task 60b).
-
-    // WONT G68: rewind sub-frame granularity is an explicit design choice
-    // per EMULATOR-DESIGN-PLAN.md Phase 8 Step 4 (frame snapshots ring
-    // buffer). Will become a row only if a user asks; not a skip() entry.
-}
+// SS-VER-01..07 (G66) removed 2026-07-15 — reclassified as a Phase 11
+// future enhancement (see comment above test_monotonic_tape_clock_roundtrip).
+// RB-FRAME-01..03 (G67) became real rows in Test 11 (Task 60b).
+//
+// WONT G68: rewind sub-frame granularity is an explicit design choice
+// per EMULATOR-DESIGN-PLAN.md Phase 8 Step 4 (frame snapshots ring
+// buffer). Will become a row only if a user asks; not a skip() entry.
 
 int main()
 {
@@ -838,7 +828,6 @@ int main()
     test_state_sentinels();
     test_rb_frame_guard();
     test_rewind_chain_corrupted_slot();
-    test_ss_ver_skips();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),
