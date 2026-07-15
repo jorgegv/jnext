@@ -58,6 +58,13 @@
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
 - PNG screenshot (Ctrl+S, toolbar, `--delayed-screenshot`)
 - Video recording to MP4 via FFmpeg pipe (`--record`)
+- Preferences dialog (Settings → Preferences…): configure startup defaults (machine type, CPU speed, emulator speed, window scale, CRT filter, start-muted, tape fast-load) and remembered paths (last load dir, default SD image, screenshot dir); saved to `~/.config/JNEXT/jnext.conf` and applied on the next launch — CLI flags always override saved settings
+
+## Distribution / packaging
+- Native Linux packages via CMake CPack: TGZ, DEB, RPM; plus a Fedora `packaging/rpm/jnext.spec` and a Debian/Ubuntu `packaging/debian/` source package
+- Flatpak manifest (`packaging/flatpak/`)
+- Freedesktop integration: `.desktop` launcher, AppStream metainfo, application icon (installed via `make`/`cmake --install`)
+- GitHub Actions: CI (build + FUSE + unit + golden-screenshot regression against a provisioned SD image) and a release workflow that publishes packages on `v*` tags
 
 ## Debugger (Qt 6)
 - Separate debugger window with full panel layout

@@ -1133,16 +1133,16 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
   - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
 
-- [ ] Configurability
-  - [ ] Dialog for configuring options: paths, keyboard layouts, etc.
-  - [ ] Save configuration to disk
-  - [ ] Load config on start
+- [x] Configurability (Task 66, v0.98.6):
+  - [x] Dialog for configuring options — `src/gui/preferences_dialog.*` (Settings → Preferences…): Startup + Paths tabs. Keyboard-layout remapping deferred (no runtime remap engine exists; separate Phase 11 "redefinable keys" item).
+  - [x] Save configuration to disk — `src/gui/app_config.*` → `~/.config/JNEXT/jnext.conf` (QSettings INI, `config_version=1`).
+  - [x] Load config on start — applied at GUI launch; **CLI flags always take precedence** over saved values; headless never reads the config (test determinism). Unit suite `app_config_test` (39 rows).
 
-- [ ] Packaging
-  - [ ] Generate Linux binary packages: Fedora, Debian, Ubuntu. Support policy: only versions currently supported by upstream (e.g. Fedora current and previous version; Debian Stable and OldStable; Ubuntu current and LTS)
-  - [ ] Generate Flatpak package
-  - [ ] Generation of Windows version
-  - [ ] Generation of MacOS version
+- [x] Packaging (Task 67, v0.98.7):
+  - [x] Generate Linux binary packages: Fedora / Debian / Ubuntu — CMake `install()` rules + CPack (TGZ/DEB/RPM, all three produced on the Fedora dev host) + native `packaging/rpm/jnext.spec` and `packaging/debian/`. Support policy documented in `packaging/README.md`.
+  - [x] Generate Flatpak package — `packaging/flatpak/io.github.zxjogv.jnext.yml` (org.kde.Platform runtime; YAML-validated; `flatpak-builder` not run on the dev host — SDL2 module carries a placeholder sha256 to fill in).
+  - [~] Generation of Windows version — CI config only (`.github/workflows/packaging.yml` windows-latest leg via vcpkg/aqt); UNVERIFIED (no Windows runner on the dev host).
+  - [~] Generation of MacOS version — CI config only (packaging.yml macos-latest leg via brew + CPack DragNDrop); UNVERIFIED (no macOS runner on the dev host).
 
 - [ ] Documentation
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)

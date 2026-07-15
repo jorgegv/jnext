@@ -12,5 +12,11 @@
 - DAC audio buzzing: Soundrive DAC demo produces continuous buzz alongside expected tones
 
 ## Platform Ports
-- Windows port
-- macOS port
+- Windows port — packaging CI config exists (`packaging.yml` windows-latest leg) but is UNVERIFIED; needs a real build/test on Windows
+- macOS port — packaging CI config exists (`packaging.yml` macos-latest leg) but is UNVERIFIED; needs a real build/test on macOS
+
+## Configuration
+- Preferences dialog covers startup defaults + paths; keyboard-layout / redefinable-key remapping still pending (no runtime remap engine yet — tracked as the Phase 11 "redefinable keys" item)
+
+## Testing / CI
+- `boot-nextzxos-dotls` regression reference reflects a non-pristine local SD fixture (leftover dev-session files); excluded from hosted CI. Regenerate both the fixture and the reference from a pristine distro image, or keep it a local-only row
