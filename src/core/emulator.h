@@ -380,8 +380,16 @@ public:
     bool load_state(class StateReader& r);
 
     /// Name of the subsystem whose sentinel failed in the last load_state
-    /// (empty if the last load succeeded).
+    /// (empty if the last load succeeded). Non-empty means the machine is
+    /// currently in a torn, partially-restored state after a failed
+    /// rewind/step-back (Task 60b) and is NOT safe to resume — the GUI
+    /// (Task 60e) uses this to warn before letting the user run again.
     const std::string& last_state_error() const { return last_state_error_; }
+
+    /// Clear the corrupt-state flag. Called once the user has acknowledged
+    /// the corruption (e.g. confirmed a resume from the debugger) or after
+    /// a reset has re-established a clean machine (Task 60e).
+    void clear_state_error() { last_state_error_.clear(); }
 
     /// Access the rewind buffer (may be null if disabled).
     RewindBuffer* rewind_buffer() { return rewind_buffer_.get(); }

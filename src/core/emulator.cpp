@@ -7228,6 +7228,11 @@ void Emulator::reset()
     // the pre-reset speed would be swallowed as "unchanged" and never logged.
     last_logged_cpu_speed_ = 0;
 
+    // Task 60e: a hard reset re-establishes a clean machine, so any
+    // pending "corrupt after failed rewind" flag (Task 60b) is cleared —
+    // the recovery path the GUI tells the user to take.
+    last_state_error_.clear();
+
     // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
     // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
     // they are preserved. Save the port-enable state and reset_type before
@@ -7320,6 +7325,10 @@ void Emulator::soft_reset()
         pre_dump && trace_log_.enabled()) {
         trace_log_.export_to_file(pre_dump);
     }
+
+    // Task 60e: soft reset also re-establishes a runnable machine, so it
+    // clears the "corrupt after failed rewind" flag (Task 60b) too.
+    last_state_error_.clear();
 
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);

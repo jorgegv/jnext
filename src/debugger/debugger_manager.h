@@ -70,6 +70,13 @@ private:
     void update_actions();
     void reposition_debugger_window();
 
+    /// Task 60e: if the emulator flagged a corrupt state after a failed
+    /// rewind/step-back (Emulator::last_state_error() non-empty), surface it
+    /// to the user (status bar + modal warning). No-op on a benign failure
+    /// (empty buffer, trace off, frame out of range) where no restore was
+    /// attempted. `op` names the operation for the message.
+    void warn_state_corrupt(const QString& op);
+
     QMainWindow* main_window_;
     Emulator* emulator_;
 

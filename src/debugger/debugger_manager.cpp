@@ -24,6 +24,7 @@
 #include <QPixmap>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QStatusBar>
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent)
     : QObject(parent)
@@ -231,8 +232,52 @@ void DebuggerManager::create_debug_toolbar() {
 // Debug control slots
 // ---------------------------------------------------------------------------
 
+void DebuggerManager::warn_state_corrupt(const QString& op) {
+    // Only true corruption sets Emulator::last_state_error(); benign
+    // step-back/rewind failures (empty buffer, disabled trace, frame out of
+    // range) never attempt a restore and leave it empty.
+    if (emulator_->last_state_error().empty())
+        return;
+    const QString sub = QString::fromStdString(emulator_->last_state_error());
+    if (main_window_->statusBar()) {
+        main_window_->statusBar()->showMessage(
+            QObject::tr("%1 failed: snapshot restore desynced at '%2' — machine "
+                        "state is corrupt; reset to recover").arg(op, sub), 10000);
+    }
+    QMessageBox::warning(
+        main_window_,
+        QObject::tr("Rewind Failed"),
+        QObject::tr("%1 could not restore the machine snapshot (subsystem '%2' "
+                    "desynced).\n\nThe machine is now in a corrupt, partially-"
+                    "restored state and has been paused. Resuming may crash or "
+                    "behave unpredictably — reset the machine (Machine ▸ Reset) "
+                    "to recover cleanly.").arg(op, sub));
+}
+
 void DebuggerManager::on_run() {
     if (!enabled_) return;
+
+    // Task 60e: never silently resume a machine left in a torn state by a
+    // failed rewind/step-back (Task 60b). Force an explicit, informed choice.
+    if (!emulator_->last_state_error().empty()) {
+        const QString sub = QString::fromStdString(emulator_->last_state_error());
+        QMessageBox::StandardButton btn = QMessageBox::warning(
+            main_window_,
+            QObject::tr("Machine State Corrupt"),
+            QObject::tr("The machine state is corrupt after a failed rewind/step-"
+                        "back (subsystem '%1' did not restore cleanly).\n\n"
+                        "Resuming may crash or behave unpredictably. Reset the "
+                        "machine (Machine ▸ Reset) to recover cleanly.\n\n"
+                        "Resume anyway?").arg(sub),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (btn != QMessageBox::Yes)
+            return;   // stay paused
+        // User acknowledged the risk — clear the flag so we don't nag on
+        // every subsequent Run, then proceed.
+        emulator_->clear_state_error();
+    }
+
     emulator_->debug_state().resume();
     was_paused_ = false;
     if (debugger_window_) {
@@ -450,7 +495,10 @@ void DebuggerManager::on_step_back() {
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
 
     bool ok = emulator_->step_back(1);
-    if (!ok) return;
+    if (!ok) {
+        warn_state_corrupt(QObject::tr("Step Back"));
+        return;
+    }
 
     was_paused_ = true;
     if (debugger_window_) {
@@ -476,7 +524,10 @@ void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
 
     bool ok = emulator_->rewind_to_frame(frame_num);
-    if (!ok) return;
+    if (!ok) {
+        warn_state_corrupt(QObject::tr("Rewind To Frame"));
+        return;
+    }
 
     was_paused_ = true;
     if (debugger_window_) {
