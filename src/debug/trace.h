@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -17,8 +16,13 @@ struct TraceEntry {
 };
 
 /// Determine the byte length of a Z80/Z80N instruction starting at `addr`.
-/// `read` is a callback that reads a byte from memory at the given address.
-int z80_instruction_length(uint16_t addr, std::function<uint8_t(uint16_t)> read);
+/// `read` is a plain function pointer that reads a byte from memory at the
+/// given address; `ctx` is passed through opaquely (e.g. the Mmu instance).
+/// Raw pointer instead of std::function: this runs once per executed
+/// instruction whenever the trace log is enabled (Task 27 A2).
+int z80_instruction_length(uint16_t addr,
+                           uint8_t (*read)(void* ctx, uint16_t addr),
+                           void* ctx);
 
 class TraceLog {
 public:

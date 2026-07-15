@@ -136,6 +136,12 @@ struct EmulatorConfig {
     // ring-buffer memory, so it is off unless --rewind-buffer-size is given.
     int rewind_buffer_frames = 0;
 
+    // Instruction trace log (Task 27 A2): per-instruction recorder into the
+    // TraceLog ring. Own control (--trace CLI flag / debugger Enable Trace
+    // menu); rewind_buffer_frames > 0 also enables it, because step_back()
+    // needs the trace to locate the target instruction within a frame.
+    bool trace = false;
+
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 

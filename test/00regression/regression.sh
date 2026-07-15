@@ -1076,6 +1076,28 @@ if want benchmark-func; then
     fi
 fi
 
+# --trace CLI flag (Task 27 A2). The instruction trace log is decoupled from
+# rewind: --trace must enable it (the "Instruction trace log enabled (--trace)"
+# info line is the observable), and — the discriminating half — a default run
+# with no trace/rewind flags must NOT emit that line (trace off by default).
+if want trace-func; then
+    begin_func trace-func
+    tr_line="Instruction trace log enabled (--trace)"
+    tr_on=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
+        "${SD_CARD_ARGS[@]}" --trace --delayed-automatic-exit-frames 20 2>&1) || true
+    tr_off=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
+        "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 20 2>&1) || true
+    tr_on_count=$(echo "$tr_on" | grep -cF "$tr_line" || true)
+    tr_off_count=$(echo "$tr_off" | grep -cF "$tr_line" || true)
+    if [[ "$tr_on_count" -ge 1 && "$tr_off_count" -eq 0 ]]; then
+        echo -e "${GREEN}PASS${RESET} (--trace enables the trace log; default run leaves it off)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (enable-line count: with --trace=$tr_on_count (want >=1), default=$tr_off_count (want 0))"
+        fail=$((fail + 1))
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
