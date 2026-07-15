@@ -390,6 +390,24 @@ C3+C-DIV C1 C-M1 C6 60a 60b (+plan/docs commits). Remaining candidates — C10+g
 (copper's dominant cost), B1/LTO, 60c/60d/60e — are now about the copper/beast gap and
 margin, not the primary DoD.
 
+## WAVE 2 — PROPOSED, NOT LAUNCHED (awaiting user confirmation, 2026-07-15)
+
+Three independent tracks; the user chooses the subset. All run under §0.4b/§0.5 (parallel
+workers, interleaved A/B, independent review, manager merges).
+
+- **Track A — copper/beast gap** (their own 400% extrapolations are NOT met; user to decide if
+  they matter): first a small **P2 re-profile scoped to copper-demo/beast** (P1's kill of
+  C7/C8 was DoD-scoped and does not apply to these workloads), then **C9** (Copper per-master-
+  cycle div/mod — copper's dominant measured cost), then C7/C8 as the P2 profile ranks them.
+- **Track B — broad margin**: **C10+glue** (Z80Registers copies, getenv guard, dead
+  on_contention store, FUSE wrapper sync 5.95%) and **B1** (LTO/IPO, full triplet gate).
+- **Track C — correctness tail**: **60c** (input serialisation missing from snapshots),
+  **60d** (IM2 pulse-counter units — investigate zxnext.vhd:2037-2044, fix code or comment),
+  **60e** (GUI one-click-resumes a corruption-paused machine with no warning).
+
+File-disjointness allows all three tracks concurrently. Recommended order within the wave:
+P2 first (evidence before Track A), C9/C10/B1 sequenced merges, 60c/d/e interleaved.
+
 ## Definition of done for Task 27
 
 `make bench` on a P-core shows **≥ 113.5M T-states/s** on `boot-nextzxos` — i.e. 200 FPS at 400%
