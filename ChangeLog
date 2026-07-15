@@ -1,28 +1,33 @@
 # ChangeLog
 
-## v0.99.0 (unreleased — record still open)
+## v0.98.3 (2026-07-15)
 
 ### User Features
-- Emulation performance doubled: 400% turbo now reaches its full 200 FPS in Next mode
-- 48K-class machines (BIFROST/NIRVANA-style engines) run over twice as fast
+- Emulation ~2.8× faster end-to-end: 400% turbo now runs ~284 FPS in Next mode (was ~100), well past 200
+- 48K-class machines (BIFROST/NIRVANA-style engines) run over 2.7× as fast
 - Rewind is now opt-in (`--rewind-buffer-size N`): default runs use ~1 GB less RAM and start faster
 - Rewind can be switched on live from the debugger — no restart needed
 - At turbo speeds the GUI skips composing frames nobody sees, smoothing high-speed runs
+- Joystick, mouse and keyboard state now survive a rewind correctly
 
 ### Developer Features
 - `--benchmark N`: headless throughput measurement (T-states/sec), plus a `make bench` harness with locked, spread-checked medians
 - `--trace` enables the instruction trace log independently of rewind
+- Debugger refuses to resume/step a machine left corrupt by a failed rewind, warning first at every resume path
 
 ### Bug Fixes
 - GUI no longer crashes at startup on X11 desktops with a session manager (Ubuntu/LMDE, issue #8)
 - Debugger single-stepping now delivers CTC/UART/frame interrupts exactly like free-running execution
 - Corrupted rewind snapshots are detected (per-subsystem sentinels) and refuse to load a torn machine, pausing loudly instead
 - Sprite collision/overtime bits (port 0x303B) stay correct at turbo speeds
+- IM2 peripheral interrupt-pulse timing was 8× too fast below 28 MHz — now speed-invariant per the VHDL
 
 ### Internal JNEXT Development
-- Profile-guided optimization campaign: perf-attributed cost report, benchmark baselines, 14 independently reviewed merges
+- Profile-guided optimization campaign across two waves, 23 independently reviewed merges: LTO on release (the single biggest win), copper/compositor/tilemap hot-spot rewrites, per-instruction device-tick fixes
+- Final optimization report (`doc/design/TASK27-FINAL-OPTIMIZATION-REPORT.md`) with measured per-stage gains
 - Bare `cmake` builds can no longer silently produce an unoptimized (-O0) binary
 - State snapshots gained bounds checks; the dead Saveable interface removed
+- Test dashboard is now a deterministic artifact regenerated from the suite manifest (no more stale counts / merge conflicts)
 
 ## v0.98.0 (2026-07-14)
 

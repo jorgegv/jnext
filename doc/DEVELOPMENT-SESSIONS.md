@@ -103,5 +103,7 @@
 | 14/7   | 7h   | Agent-team day, 8 reviewed branches (3 REJECT). 55/59b BIFROST/NIRVANA pinned 48k/128k/plus3;        |
 |        |      | 56/58 NR 0x05 frame-latched; 57 CLOSED (SD2, tape-save→TAP, DeciLoad 3 root causes). Skips 21→10.    |
 | 15/7   | 12h  | Task 27: emulation DOUBLED — boot-nextzxos 57.4→114.8M T/s, 202fps@400% (closes the 75fps gap).      |
-|        |      | 14 reviewed branches, profile-guided. Issue #8 crash; 60a/60b; 13a→0 skips; v0.99.0 ChangeLog.       |
-| TOTAL: | 367h |                                                                                                      |
+|        |      | 14 reviewed branches, profile-guided. Issue #8 crash; 60a/60b; 13a→0 skips; v0.98.3 ChangeLog.       |
+| 15/7   | 8h   | Task 27 Wave 2 (Fable→Opus): LTO the single biggest win (+34.5%); 161M T/s, 284fps@400%; +180% e2e.  |
+|        |      | 13 reviewed merges, 6 REJECT→rework (all real bugs). 60c/d/e/f, 61 deterministic dashboard, 62 report. |
+| TOTAL: | 375h |                                                                                                      |
