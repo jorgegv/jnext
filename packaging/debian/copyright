@@ -1,0 +1,38 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: jnext
+Source: https://github.com/jorgegv/jnext
+
+Files: *
+Copyright: ZXjogv <zx@jogv.es>
+License: GPL-3
+
+Files: third_party/fuse-z80/*
+Copyright: The FUSE development team
+License: GPL-2
+
+Files: third_party/spdlog/*
+Copyright: Gabi Melman and spdlog contributors
+License: MIT
+
+Files: third_party/zot/*
+Copyright: Salvatore Sanfilippo
+License: MIT
+
+License: GPL-3
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: GPL-2
+ On Debian systems, the complete text of the GNU General Public License
+ version 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of this software and associated documentation files (the
+ "Software"), to deal in the Software without restriction, including
+ without limitation the rights to use, copy, modify, merge, publish,
+ distribute, sublicense, and/or sell copies of the Software, and to
+ permit persons to whom the Software is furnished to do so, subject to
+ the following conditions: the above copyright notice and this
+ permission notice shall be included in all copies or substantial
+ portions of the Software.
