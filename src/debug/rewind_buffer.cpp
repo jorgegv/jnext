@@ -1,5 +1,6 @@
 #include "debug/rewind_buffer.h"
 #include "core/emulator.h"
+#include "core/log.h"
 #include "core/saveable.h"
 
 #include <new>
@@ -38,25 +39,44 @@ RewindBuffer::~RewindBuffer()
 
 void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint32_t frame_num)
 {
-    // Determine write slot: always write to head_, then advance.
-    // When buffer is full (count_ == slots_.size()), head_ wraps and overwrites oldest.
-    size_t write_idx;
-    if (count_ < slots_.size()) {
-        // Buffer not yet full: write at position count_, head_ stays at 0 (oldest).
-        write_idx = count_;
-        ++count_;
-    } else {
-        // Buffer full: overwrite the oldest slot (at head_) and advance head_.
-        write_idx = head_;
-        head_ = (head_ + 1) % slots_.size();
-    }
+    // Determine write slot. Not full: the first free slot past the newest
+    // (slot_index(count_)). Full: overwrite the oldest slot (at head_).
+    const bool   full      = (count_ == slots_.size());
+    const size_t write_idx = full ? head_ : slot_index(count_);
 
     Slot& s = slots_[write_idx];
-    s.frame_cycle = frame_cycle;
-    s.frame_num   = frame_num;
-
     StateWriter w(s.data, snapshot_bytes_);
     emu.save_state(w);
+
+    // Task 60b (G67) — bound guard: the slot size was measured from
+    // save_state at construction; if the state stream has widened (or
+    // shrunk) since, the slot content is not a valid snapshot. The
+    // StateWriter's bounds check already prevented any out-of-slot write;
+    // here we refuse to publish the slot and fail loudly instead of
+    // letting a later rewind feed a garbled snapshot into load_state.
+    if (w.overflow() || w.position() != snapshot_bytes_) {
+        Log::emulator()->error(
+            "rewind: snapshot size mismatch (wrote {} bytes, slot is {}) — "
+            "snapshot dropped{}",
+            w.position(), snapshot_bytes_,
+            full ? "; oldest snapshot destroyed by the aborted write" : "");
+        if (full) {
+            // The aborted write scribbled over the oldest PUBLISHED slot —
+            // unpublish it so a rewind can never restore the garbled data.
+            head_ = (head_ + 1) % slots_.size();
+            --count_;
+        }
+        return;
+    }
+
+    // Publish the slot only after a size-exact write.
+    s.frame_cycle = frame_cycle;
+    s.frame_num   = frame_num;
+    if (full) {
+        head_ = (head_ + 1) % slots_.size();
+    } else {
+        ++count_;
+    }
 }
 
 uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) const
@@ -81,7 +101,17 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
 
     const Slot& s = slots_[best];
     StateReader r(s.data, snapshot_bytes_);
-    emu.load_state(r);
+    if (!emu.load_state(r)) {
+        // Task 60b: the snapshot failed sentinel/bounds verification.
+        // Emulator::load_state already logged the failing subsystem; the
+        // machine is partially restored and NOT trustworthy (documented
+        // limitation — no rollback). Report failure instead of a cycle
+        // value that claims success.
+        Log::emulator()->error(
+            "rewind: restore of snapshot @cycle {} failed verification — "
+            "machine state is not trustworthy", s.frame_cycle);
+        return UINT64_MAX;
+    }
     return s.frame_cycle;
 }
 
