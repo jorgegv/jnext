@@ -1327,6 +1327,177 @@ static void test_im2_decoder_gaps(Emulator& emu) {
     //   NMI fabric; cpu_speed=11 SRAM stalls belong to ContentionModel.
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 15 — Task 60a: debugger single-step must deliver interrupts
+// exactly like free-running execution.
+//
+// Bug: Emulator::execute_single_instruction() was a hand-maintained copy
+// of run_frame()'s per-instruction cluster and had drifted — it never
+// called im2_.tick(), never polled the IM2-mode / pulse-mode /INT lines
+// (VHDL zxnext.vhd:1840 `z80_int_n <= pulse_int_n AND im2_int_n` with
+// expbus_disable_int='1'), never ticked md6_ and never recorded trace
+// entries. Stepping through interrupt-driven code therefore never
+// delivered CTC/UART/ULA-frame interrupts. Fix: both paths now share
+// one body (Emulator::step_one_instruction +
+// tick_devices_after_instruction).
+//
+// These rows are the single-step analogues of CTC-INT-V20-IM2-01 /
+// ULA-INT-V19-IM2-04 above: identical stimulus, but driven through
+// execute_single_instruction() instead of run_frame(). Each row FAILS
+// on the pre-fix code (mutation-tested by reverting the fix).
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_single_step_int_delivery(Emulator& emu) {
+    set_group("SingleStep");
+
+    // SSTEP-01 — pulse-mode CTC INT delivered while single-stepping.
+    // Same fixture as CTC-INT-V20-IM2-01 (pulse mode is the power-on
+    // default; CTC0 int_en via NR 0xC5 bit 0; IFF1=1 + IM=1; ULA frame
+    // INT disabled via NR 0x22 bit 2 so it cannot mask the observation),
+    // but the CPU is advanced with execute_single_instruction() only.
+    // Post-fix: im2_.tick() advances the pulse fabric, pulse_int_n drops
+    // (im2_peripheral.vhd:186-194), the falling-edge poll fires
+    // cpu_.request_interrupt(0xFF), the CPU accepts in IM=1 → PC=0x0038.
+    // Pre-fix: single-step never ticks the fabric nor polls the line —
+    // PC stays in the 0x8000+ NOP field forever.
+    {
+        fresh(emu);
+        nr_write(emu, 0x22, 0x04);   // disable ULA frame INT
+        nr_write(emu, 0xC5, 0x01);   // CTC0 int_en
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;  // park PC in user RAM (zeros = NOPs)
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        const bool pulse_before = emu.im2().pulse_int_n();
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        int steps = 0;
+        uint16_t pc = regs.PC;
+        for (; steps < 100; ++steps) {
+            emu.execute_single_instruction();
+            pc = emu.cpu().get_registers().PC;
+            if (pc < 0x4000) break;  // IM1 vector 0x0038 reached (ROM)
+        }
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "pulse_before_raise=%d (must be 1); PC=0x%04X after "
+                      "%d single-steps (post-fix: <0x4000 via IM1 vector "
+                      "0x0038; pre-fix: stuck at 0x8000+)",
+                      pulse_before ? 1 : 0, pc, steps + 1);
+        check("SSTEP-01",
+              "Pulse-mode CTC INT delivered during debugger single-step "
+              "[zxnext.vhd:1840; im2_peripheral.vhd:186-194]",
+              pulse_before && pc < 0x4000, detail);
+    }
+
+    // SSTEP-02 — IM2-mode fabric INT delivered while single-stepping.
+    // Same fixture as ULA-INT-V19-IM2-04 but with the CTC0 device and
+    // execute_single_instruction(). Delivery proof is the daisy-chain
+    // device state: raise_req latches the request; im2_.tick() advances
+    // S_0 → S_REQ; the IM2-mode poll fires request_interrupt; the CPU
+    // IntAck calls ack_vector() which advances the winning device
+    // S_REQ → S_ACK (→ S_ISR on a later tick). Pre-fix: single-step
+    // never ticks the controller — CTC0 stays at S_0 forever.
+    {
+        fresh(emu);
+        nr_write(emu, 0x22, 0x04);   // disable ULA frame INT
+        nr_write(emu, 0xC0, 0x01);   // IM2 hardware mode (bit 0)
+        nr_write(emu, 0xC5, 0x01);   // CTC0 int_en
+        // Feed the IM2 controller's own IM-mode decoder (ED 5E = IM 2),
+        // mirroring ULA-INT-V19-IM2-04 — the FUSE-side regs.IM below is
+        // a separate shadow.
+        emu.im2().on_m1_cycle(0x0000, 0xED);
+        emu.im2().on_m1_cycle(0x0001, 0x5E);
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 2;
+        regs.PC   = 0x8000;
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        int st = 0;
+        int steps = 0;
+        for (; steps < 100; ++steps) {
+            emu.execute_single_instruction();
+            st = static_cast<int>(
+                emu.im2().state(Im2Controller::DevIdx::CTC0));
+            if (st >= 2) break;  // S_ACK reached — IntAck happened
+        }
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "CTC0 state=%d after %d single-steps (post-fix: >=2 "
+                      "[S_ACK=2/S_ISR=3 via IntAck+ack_vector]; pre-fix: "
+                      "0 [S_0, controller never ticked])",
+                      st, steps + 1);
+        check("SSTEP-02",
+              "IM2-mode CTC INT delivered during debugger single-step "
+              "[zxnext.vhd:1840, :1999 ack vector composition]",
+              st >= 2, detail);
+    }
+
+    // SSTEP-03 — trace log records entries during single-step. run_frame
+    // records a pre-execution TraceEntry per instruction when the trace
+    // is enabled; the pre-fix single-step path recorded nothing, so a
+    // stepped section of a program was invisible in the exported trace
+    // (and in the rewind lookup that consumes it).
+    {
+        fresh(emu);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        emu.trace_log().set_enabled(true);
+        const size_t size0 = emu.trace_log().size();
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        const size_t size1 = emu.trace_log().size();
+        emu.trace_log().set_enabled(false);
+        char detail[120];
+        std::snprintf(detail, sizeof(detail),
+                      "trace entries before=%zu after 3 steps=%zu "
+                      "(post-fix: +3; pre-fix: +0)", size0, size1);
+        check("SSTEP-03",
+              "Trace log records one entry per debugger single-step "
+              "(parity with run_frame's per-instruction record)",
+              size1 == size0 + 3, detail);
+    }
+
+    // SSTEP-04 — MD6 connector FSM advances during single-step. The MD6
+    // shared FSM (md6_joystick_connector_x2.vhd:103-114, one CLK_EN per
+    // 128 master cycles) latches the raw joystick inputs during its
+    // 16-phase sampling burst (phase 0110 latches left bits 5:0,
+    // :151-152). Pre-fix, md6_.tick() was missing from the single-step
+    // cluster entirely — the latched connector word stayed at its reset
+    // value 0 no matter how long the debugger stepped. 200 NOP steps at
+    // 3.5 MHz = 200×32 = 6400 master cycles = 50 CLK_ENs — the burst
+    // (states 0..15) completes and the FSM parks in the rest window
+    // (state(8:4) != 0, :100) where latches are frozen.
+    {
+        fresh(emu);
+        emu.md6().set_raw_left(0x003F);  // bits 5:0 pressed (active-high)
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        for (int s = 0; s < 200; ++s)
+            emu.execute_single_instruction();
+        const uint16_t L = emu.md6().joy_left_word();
+        char detail[120];
+        std::snprintf(detail, sizeof(detail),
+                      "joy_left_word=0x%03X after 200 single-steps "
+                      "(post-fix: bits 5:0 latched = 0x03F; pre-fix: 0)",
+                      L);
+        check("SSTEP-04",
+              "MD6 FSM latches raw inputs during debugger single-step "
+              "[md6_joystick_connector_x2.vhd:103-114, :151-152]",
+              (L & 0x003F) == 0x003F, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1351,6 +1522,9 @@ int main() {
 
     test_im2_decoder_gaps(emu);
     std::printf("  Group: IM2-Decoder-Gaps — done\n");
+
+    test_single_step_int_delivery(emu);
+    std::printf("  Group: SingleStep — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
