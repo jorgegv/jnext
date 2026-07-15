@@ -1,0 +1,38 @@
+# interleaved A/B  A=BEFORE(e596fa6a)  B=AFTER(C1)  core=0 pairs=5
+# load1 at start: 2.60
+## boot-48k
+  pair1: A=30537499 B=52983153 delta=+73.50%
+  pair2: A=29999128 B=53039361 delta=+76.80%
+  pair3: A=30706137 B=51377488 delta=+67.32%
+  pair4: A=30669313 B=52714439 delta=+71.88%
+  pair5: A=30246149 B=51873126 delta=+71.50%
+  MEDIAN boot-48k: A=30537499 B=52714439 delta=+72.62%
+## boot-nextzxos
+  pair1: A=81661844 B=93561701 delta=+14.57%
+  pair2: A=81950541 B=93952833 delta=+14.65%
+  pair3: A=81530851 B=79803133 delta=-2.12%
+  pair4: A=80972736 B=92368137 delta=+14.07%
+  pair5: A=81381784 B=91094049 delta=+11.93%
+  MEDIAN boot-nextzxos: A=81530851 B=92368137 delta=+13.29%
+## copper-demo
+  pair1: A=52999475 B=57085858 delta=+7.71%
+  pair2: A=52041929 B=57327629 delta=+10.16%
+  pair3: A=52903235 B=56961212 delta=+7.67%
+  pair4: A=52794941 B=57421332 delta=+8.76%
+  pair5: A=53314690 B=54257148 delta=+1.77%
+  MEDIAN copper-demo: A=52903235 B=57085858 delta=+7.91%
+## beast
+  pair1: A=48622454 B=50390869 delta=+3.64%
+  pair2: A=48717852 B=52463704 delta=+7.69%
+  pair3: A=49122250 B=51985490 delta=+5.83%
+  pair4: A=49005621 B=52625156 delta=+7.39%
+  pair5: A=47012027 B=47913222 delta=+1.92%
+  MEDIAN beast: A=48717852 B=51985490 delta=+6.71%
+## bifrost
+  pair1: A=28245975 B=52992563 delta=+87.61%
+  pair2: A=30476199 B=53009828 delta=+73.94%
+  pair3: A=30614999 B=53024905 delta=+73.20%
+  pair4: A=29767245 B=53649964 delta=+80.23%
+  pair5: A=30115843 B=53292504 delta=+76.96%
+  MEDIAN bifrost: A=30115843 B=53024905 delta=+76.07%
+# load1 at end: 1.95

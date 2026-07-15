@@ -426,6 +426,21 @@ has no handler; UART1/I2C1 routing always on. SPI fan-out dormant
 | NR_A0-02 | Write NR 0xA0 = 0x10 (bit 4): `pi_uart_en` asserted | UART1 RX/TX exposed to Pi GPIO. skip — fan-out missing (see G135) |
 | NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 | `pi_uart_en` gates egress (`zxnext.vhd:2278-2281`). skip — integration tier; Pi-GPIO mux + NR 0xA0 handler missing (see G135) |
 
+### Group 15: Task 27 C1 — byte-level tick() accumulator seam (2026-07-15)
+
+`UartChannel::tick(N)` was rewritten from a per-master-cycle countdown
+loop to closed-form arithmetic iterating once per byte boundary. Rows
+live in `test/uart/uart_test.cpp` (group TX-C1), on a bare
+`UartChannel` at hard-reset defaults (prescaler 243, uart.vhd:318-320;
+frame 0x18 = 8N1, uart.vhd:297-299 → byte time 2430 master cycles).
+Both designed mutations (idle-start consumes no cycle; completion at
+timer==remaining missed via `>=`) were run and are caught.
+
+| ID | Test | Expected |
+|----|------|----------|
+| TX-C1-ACC-01 | Single tick span crossing a byte boundary; subsequent boundaries probed to the single cycle | byte 2 emitted inside the span; byte 3 exactly at 2T; on_tx_empty exactly at 3T; tx_empty status bit set at end |
+| TX-C1-ACC-02 | One tick(4T) span drains 4 queued FIFO bytes | 4 on_tx_byte inside the span (starts 0/T/2T/3T), still busy at 4T-1; completion + on_tx_empty exactly at 4T |
+
 ## Special Handling
 
 ### FIFO Edge-Triggered Semantics
