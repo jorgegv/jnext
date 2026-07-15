@@ -27,6 +27,16 @@ void MouseDispatcher::reset()
     mouse_.set_wheel(0);
 }
 
+void MouseDispatcher::resync()
+{
+    // Adopt the bound KempstonMouse's canonical (just-restored) button mask
+    // and wheel nibble as our shadow accumulators, so a subsequent event
+    // builds on the restored value rather than a stale one. Deliberately no
+    // set_buttons()/set_wheel() re-emit: the mouse is already correct.
+    button_mask_  = mouse_.buttons();
+    wheel_nibble_ = static_cast<uint8_t>(mouse_.wheel() & 0x0F);
+}
+
 void MouseDispatcher::handle_motion(int dx, int dy)
 {
     // Kempston mouse Y register convention (per specnext.dev wiki and real

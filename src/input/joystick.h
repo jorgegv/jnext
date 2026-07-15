@@ -69,6 +69,14 @@ public:
     Mode mode_left()  const { return joy0_mode_; }   ///< joy0
     Mode mode_right() const { return joy1_mode_; }   ///< joy1
 
+    /// Raw 12-bit connector input vectors (as last installed by the host
+    /// adapter / restored by load_state). Exposed so JoystickDispatcher can
+    /// re-seed its shadow copy from the canonical state after a rewind /
+    /// save-load restore (Task 60c resync — otherwise the dispatcher's stale
+    /// `bits_` shadow would stomp the restored vector on the next event).
+    uint16_t joy_left_bits()  const { return joy_left_bits_; }
+    uint16_t joy_right_bits() const { return joy_right_bits_; }
+
     /// Raw NR 0x05 last-write byte. Pass-8: used by Emulator::init() to
     /// detect whether the cached NR 0x05 byte (preserved across reset by
     /// NextReg) is in sync with the joystick subsystem state, so the

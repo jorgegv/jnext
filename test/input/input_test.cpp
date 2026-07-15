@@ -27,6 +27,7 @@
 #include "input/membrane_stick.h"
 #include "input/mouse.h"
 #include "input/mouse_dispatcher.h"
+#include "input/joystick_dispatcher.h"
 #include "input/iomode.h"
 #include "input/joystick.h"
 #include "input/md6_connector_x2.h"
@@ -3286,6 +3287,54 @@ static void test_saveload() {
               ok && emu.md6().state_for_test() == md6_a && emu.mouse().x() == x_a,
               DETAIL("ok=%d md6=%03X/%03X x=%u/%u", ok,
                      emu.md6().state_for_test(), md6_a, emu.mouse().x(), x_a));
+    }
+
+    // ── Dispatcher shadow resync (Task 60c review Finding 1) ────────────────
+    // The host dispatchers keep their OWN shadow of the connector/wheel/button
+    // vector. After a restore overwrites Joystick/KempstonMouse, the NEXT host
+    // event must build on the restored value, not the stale shadow. resync()
+    // (fired from the on_input_state_restored callback in production) reseeds
+    // the shadow. These tests drive the dispatchers directly — no SDL loop.
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);   // shadow bits_[0]=B(0x10)
+        // Simulate a rewind/load_state restoring a DIFFERENT connector vector.
+        joy.set_joy_left(0x005);                              // R|L
+        jd.resync();                                          // reseed shadow from joy
+        // A new event toggles ONE bit; it must OR against the restored 0x005.
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_START, true);  // add START(0x80)
+        const uint16_t got = joy.joy_left_bits();
+        check("SL-DISP-01",
+              "JoystickDispatcher::resync stops stale bits_ stomping restored vector",
+              got == static_cast<uint16_t>(0x005 | 0x80),
+              DETAIL("joy_left=%03X expected=%03X (stale-stomp would give 0x090)",
+                     got, 0x005 | 0x80));
+    }
+    {
+        KempstonMouse mo; mo.reset();
+        MouseDispatcher md(mo);
+        md.handle_wheel(3);                 // shadow wheel_nibble_=3
+        mo.set_wheel(0x0A);                 // restore wheel to 0x0A
+        md.resync();                        // reseed shadow from mouse (cumulative!)
+        md.handle_wheel(1);                 // must be 0x0A+1, not stale 3+1
+        check("SL-DISP-02",
+              "MouseDispatcher::resync stops cumulative wheel shadow stomping restore",
+              mo.wheel() == 0x0B,
+              DETAIL("wheel=%X expected=0xB (stale-stomp would give 0x4)", mo.wheel()));
+    }
+    {
+        KempstonMouse mo; mo.reset();
+        MouseDispatcher md(mo);
+        md.handle_button(SDL_BUTTON_LEFT, true);  // shadow mask=0x02 (L)
+        mo.set_buttons(0x05);                     // restore R|M
+        md.resync();                              // reseed shadow from mouse
+        md.handle_button(SDL_BUTTON_LEFT, true);  // add L → must be 0x05|0x02
+        check("SL-DISP-03",
+              "MouseDispatcher::resync stops stale button mask stomping restore",
+              mo.buttons() == 0x07,
+              DETAIL("buttons=%02X expected=0x07 (stale-stomp would give 0x02)",
+                     mo.buttons()));
     }
 }
 

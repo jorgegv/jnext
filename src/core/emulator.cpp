@@ -7945,11 +7945,18 @@ void Emulator::on_vsync()
 // into the scheduler_), so the scheduler queue is always empty here.
 // Subsystem order must be identical in save_state and load_state.
 //
+// Input subsystem (keyboard_/joystick_/mouse_/md6_/membrane_stick_/iomode_)
+// IS serialised — Task 60c — in the appended "input" sentinel block at the
+// end of the stream (the MD6 FSM is ticked every instruction, so it must
+// round-trip). The host-side dispatchers that FEED joystick_/mouse_
+// (JoystickDispatcher/MouseDispatcher) are platform-owned, not Emulator
+// members, so they are re-seeded via the on_input_state_restored callback
+// rather than serialised (see load_state tail + input/*_dispatcher.cpp).
+//
 // NOT serialised (rewired by init() / not part of emulated state):
 //   rom_          — loaded from file at startup, never changes
 //   contention_   — rebuilt from config.type by build()
 //   port_         — lambda callbacks only; rewired in init()
-//   keyboard_     — user input, not CPU state
 //   mixer_        — output path, discarded on rewind by design
 //   debug_state_  — debugger transient state
 //   trace_log_    — debug trace, not emulated state
@@ -8152,14 +8159,15 @@ void Emulator::save_state(StateWriter& w) const
     // auto-type queue) was lost on every rewind and save/load. Appended as
     // one stable sentinel block at the very end of the stream, AFTER "tail".
     // Order here MUST match the load side exactly (paired check_sentinel).
-    // The non-owning back-pointers (membrane_stick_, dispatchers) are NOT
-    // serialised — they are rewired by init(). PhantomTypist, EmuFnKeys and
-    // the SDL/Qt host dispatchers are deliberately excluded: PhantomTypist
-    // belongs to the tape family (tape state is excluded from snapshots by
-    // design, see header comment above); EmuFnKeys is a host-transient FSM
-    // driven synchronously by host key events with no cross-frame evolution;
-    // the dispatchers are pure host-side event adapters whose emulated
-    // output already lives in Joystick / KempstonMouse (both serialised).
+    // Excluded: PhantomTypist belongs to the tape family (tape state is
+    // excluded from snapshots by design, see header comment above); EmuFnKeys
+    // is a host-transient FSM driven synchronously by host key events with no
+    // cross-frame evolution. The SDL/Qt host dispatchers (JoystickDispatcher /
+    // MouseDispatcher) are NOT Emulator members (they are platform-owned) so
+    // they cannot travel through this stream; crucially they keep their OWN
+    // shadow of the connector/wheel/button vector that would stomp a restore,
+    // so they are re-seeded from the restored Joystick / KempstonMouse via the
+    // on_input_state_restored callback fired at the end of load_state().
     keyboard_.save_state(w);
     joystick_.save_state(w);
     mouse_.save_state(w);
@@ -8592,6 +8600,19 @@ bool Emulator::load_state(StateReader& r)
             "load_state: read past end of snapshot buffer ({} bytes) — "
             "restore aborted", r.capacity());
         return false;
+    }
+
+    // Task 60c — the input subsystem (keyboard/joystick/mouse/md6/…) has now
+    // been restored to the snapshot's canonical state. The host-side input
+    // dispatchers (JoystickDispatcher / MouseDispatcher) keep their OWN shadow
+    // of the connector/wheel/button vectors and are NOT part of this stream
+    // (they are platform-owned, not Emulator members). Notify the host so it
+    // can re-seed those shadows from the restored Joystick / KempstonMouse —
+    // otherwise the next live controller/wheel/button event would push the
+    // dispatcher's stale shadow back over the restore. No-op when unset
+    // (headless / unit tests / GUI-less builds).
+    if (on_input_state_restored) {
+        on_input_state_restored();
     }
     return true;
 }

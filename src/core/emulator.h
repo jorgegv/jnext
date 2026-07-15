@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -382,6 +383,18 @@ public:
     /// Name of the subsystem whose sentinel failed in the last load_state
     /// (empty if the last load succeeded).
     const std::string& last_state_error() const { return last_state_error_; }
+
+    /// Task 60c — fired at the end of every SUCCESSFUL load_state() (which is
+    /// the single funnel for all state restores: step_back, rewind_to_frame,
+    /// rewind_to_cycle via RewindBuffer::restore_nearest, and any direct
+    /// snapshot load). The host input layer registers a callback here to
+    /// re-seed its host-side dispatchers (JoystickDispatcher / MouseDispatcher)
+    /// from the just-restored canonical Joystick / KempstonMouse state — those
+    /// dispatchers hold their OWN shadow of the connector/wheel/button vector,
+    /// so without the resync the next live host event would stomp the restore.
+    /// Empty by default (headless / unit tests / SDL builds without a GUI);
+    /// invoked only when set. No SDL/Qt type crosses this boundary.
+    std::function<void()> on_input_state_restored;
 
     /// Access the rewind buffer (may be null if disabled).
     RewindBuffer* rewind_buffer() { return rewind_buffer_.get(); }

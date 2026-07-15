@@ -76,6 +76,15 @@ public:
     /// the bound Joystick — callers manage that lifecycle.
     void reset();
 
+    /// Task 60c — re-seed this dispatcher's shadow (`bits_` + `axis_state_`)
+    /// from the bound Joystick's CURRENT canonical vectors. Call after a
+    /// rewind / save-load restore has overwritten the Joystick state:
+    /// without it, the next controller event's `emit_to_joystick()` would
+    /// push this dispatcher's STALE `bits_` back into the Joystick,
+    /// silently stomping the restored value. Does NOT emit to the Joystick
+    /// (it reads FROM it) and does NOT touch the device_map_.
+    void resync();
+
     // ── Transport-agnostic API ──────────────────────────────────────────
 
     /// SDL_CONTROLLERBUTTONDOWN/UP → set/clear the corresponding 12-bit

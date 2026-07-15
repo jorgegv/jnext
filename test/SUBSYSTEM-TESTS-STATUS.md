@@ -15,7 +15,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      280 |      280 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input                 |      180 |      180 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input                 |      183 |      183 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -53,6 +53,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging               |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4661** | **4661** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **4664** | **4664** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
