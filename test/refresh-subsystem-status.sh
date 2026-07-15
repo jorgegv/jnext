@@ -117,6 +117,7 @@ BEGIN {
     M["nmi_integration_test"]          = "NMI (integration)"
     M["profiler_test"]                 = "Profiler"
     M["resume_guard_test"]             = "Resume Guard"
+    M["app_config_test"]               = "GUI Preferences (AppConfig)"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"
     M["debugger_quit_gate_test"]       = "Debugger Quit Gate"
