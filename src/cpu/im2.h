@@ -219,6 +219,33 @@ private:
     // Legacy-API compatibility state (mask of Im2Level bits).
     uint16_t legacy_mask_ = 0xFFFF;
 
+    // Task 27 C-IM2 — quiescence cache for the tick() early-out.
+    //
+    // True ⟺ the tick() body past the early-out point (step_pulse +
+    // step_devices + step_dma_delay + the int_unq/int_req end-of-tick
+    // clears) is a provable state no-op, PROVIDED reti_seen_pulse_ is
+    // false (that last condition is checked live in tick() because
+    // on_m1_cycle() — a per-instruction decoder entry point — must not
+    // invalidate this cache). See tick() for the full field-by-field
+    // equivalence proof with VHDL citations, and compute_quiescent()
+    // for the predicate.
+    //
+    // Invalidation rule: EVERY public mutator of fabric state consumed
+    // by tick() sets quiescent_ = false (raise/clear/raise_req/
+    // clear_req/raise_unq/clear_status/set_int_en(+c4/c5/c6)/set_mode/
+    // set_dma_int_en_mask/set_nr_cc_dma_int_en_0_7/
+    // set_machine_timing_48_or_p3/ack_vector/on_reti/reset/load_state).
+    // The two per-instruction entry points are deliberate exceptions:
+    //   - on_m1_cycle(): exempt — proof at the tick() early-out.
+    //   - set_nmi_activated(): invalidates only on VALUE CHANGE (it is
+    //     called once per instruction with an almost-always-unchanged
+    //     sample; a value-identical store cannot alter any tick fixed
+    //     point).
+    // NOT serialized in save_state (derived cache); load_state resets
+    // it to false so the first post-load tick recomputes it.
+    bool quiescent_ = false;
+    bool compute_quiescent() const;
+
     // Helpers — all stubs in Phase 1; filled in by Phase 2 agents.
     DevIdx to_devidx(Im2Level lvl) const;
     void advance_decoder(uint8_t opcode);

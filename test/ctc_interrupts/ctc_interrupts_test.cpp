@@ -1498,6 +1498,169 @@ static void test_single_step_int_delivery(Emulator& emu) {
     }
 }
 
+// ── Group: C-IM2 quiescent early-out equivalence (Task 27 C-IM2) ──────
+//
+// Im2Controller::tick() early-outs when the fabric is quiescent (see
+// im2.cpp tick() for the field-by-field proof). These rows pin the
+// contract on a bare Im2Controller:
+//   - a quiescent stretch of ticks must leave the ENTIRE serialized
+//     controller state byte-identical (skipped ticks are provable
+//     no-ops), and
+//   - activity arriving after a long quiescent stretch must behave
+//     exactly as if every tick had run: the pulse fires with the exact
+//     VHDL width (zxnext.vhd:2033-2044: terminal 36 CPU cycles in
+//     non-48K/+3 timing), the wrapper edge detector is not left with a
+//     stale int_req_d (im2_peripheral.vhd:98-101 — a stale delayed copy
+//     would mask the next edge), and the im2-mode daisy chain still
+//     ACKs and clears on RETI (im2_device.vhd:111-128).
+
+namespace {
+std::vector<uint8_t> im2_snapshot(const Im2Controller& im2) {
+    StateWriter measure;
+    im2.save_state(measure);
+    std::vector<uint8_t> buf(measure.position(), 0);
+    StateWriter w(buf.data(), buf.size());
+    im2.save_state(w);
+    return buf;
+}
+}  // namespace
+
+void test_cim2_quiescence() {
+    set_group("CIM2-Quiescence");
+
+    // CIM2-QUIESCE-01 — pulse mode (the boot-nextzxos shape).
+    {
+        Im2Controller im2;                       // reset: pulse mode, idle
+        im2.set_int_en(Im2Controller::DevIdx::ULA, true);
+        im2.tick(4);                             // settle (recompute cache)
+
+        // (a) 1000 quiescent ticks leave serialized state byte-identical.
+        const auto snap_a = im2_snapshot(im2);
+        for (int i = 0; i < 1000; ++i) im2.tick(7);
+        const auto snap_b = im2_snapshot(im2);
+        const bool identical = (snap_a == snap_b);
+
+        // (b) pulse fires after the stretch with the exact VHDL width:
+        // terminal 36 (machine_48_or_p3=false), advance 4 T/tick →
+        // low for the start tick + 8 counting ticks (count 4..32),
+        // terminates on the 9th counting tick (count 36).
+        im2.raise_req(Im2Controller::DevIdx::ULA);
+        im2.tick(4);
+        const bool started = !im2.pulse_int_n();
+        bool low_through_32 = true;
+        for (int i = 0; i < 8; ++i) {
+            im2.tick(4);
+            if (im2.pulse_int_n()) low_through_32 = false;
+        }
+        im2.tick(4);
+        const bool ended_at_36 = im2.pulse_int_n();
+
+        // (c) stale-int_req_d guard: an edge on a DISABLED device sets
+        // int_status only (im2_peripheral.vhd:154-162; no pulse, no
+        // im2_int_req in pulse mode). After a quiescent stretch — whose
+        // FIRST tick must have run the delayed-copy update int_req_d :=
+        // int_req (vhdl:98) before the cache engages — a fresh edge must
+        // still be detected. A wrong early-out that skips with
+        // int_req_d==true masks the second edge and int_status stays 0.
+        im2.raise_req(Im2Controller::DevIdx::CTC0);   // int_en=false
+        im2.tick(4);                                  // edge → int_status
+        const bool status_first =
+            im2.int_status(Im2Controller::DevIdx::CTC0);
+        for (int i = 0; i < 50; ++i) im2.tick(4);     // quiescent stretch
+        im2.clear_status(Im2Controller::DevIdx::CTC0);
+        im2.raise_req(Im2Controller::DevIdx::CTC0);
+        im2.tick(4);                                  // second edge
+        const bool status_second =
+            im2.int_status(Im2Controller::DevIdx::CTC0);
+
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "identical=%d started=%d low_through_32=%d "
+                      "ended_at_36=%d status_first=%d status_second=%d",
+                      identical, started, low_through_32, ended_at_36,
+                      status_first, status_second);
+        check("CIM2-QUIESCE-01",
+              "pulse mode: quiescent ticks are serialized no-ops; pulse "
+              "after stretch keeps exact 36-cycle width "
+              "[zxnext.vhd:2033-2044] and edge detect is not masked by a "
+              "stale int_req_d [im2_peripheral.vhd:98-101]",
+              identical && started && low_through_32 && ended_at_36
+                  && status_first && status_second,
+              detail);
+    }
+
+    // CIM2-QUIESCE-02 — im2 mode: S_REQ / S_ISR are stable quiescent
+    // states; ACK and RETI still work after long skipped stretches.
+    {
+        Im2Controller im2;
+        im2.set_mode(true);                      // NR 0xC0 b0=1
+        im2.on_m1_cycle(0, 0xED);                // IM 2 → im_mode_=2
+        im2.on_m1_cycle(0, 0x5E);                // (im2_control.vhd:218-227)
+        im2.set_int_en(Im2Controller::DevIdx::CTC0, true);
+
+        im2.raise_req(Im2Controller::DevIdx::CTC0);
+        im2.tick(1);                             // edge → latch → S_REQ
+        im2.tick(1);                             // settle int_req_d
+        const bool req_state =
+            im2.state(Im2Controller::DevIdx::CTC0)
+                == Im2Controller::DevState::S_REQ
+            && im2.int_line_asserted();
+
+        // S_REQ pending across a quiescent stretch: byte-identical.
+        const auto snap_a = im2_snapshot(im2);
+        for (int i = 0; i < 1000; ++i) im2.tick(3);
+        const auto snap_b = im2_snapshot(im2);
+        const bool identical_req = (snap_a == snap_b);
+
+        // IntAck after the stretch: CTC0 (DevIdx 3) vector = 3<<1 = 0x06
+        // (zxnext.vhd:1999, base 0).
+        const uint8_t vec = im2.ack_vector();
+        im2.tick(1);                             // S_ACK → S_ISR
+        const bool isr_state =
+            im2.state(Im2Controller::DevIdx::CTC0)
+                == Im2Controller::DevState::S_ISR;
+
+        // S_ISR latched across a quiescent stretch: byte-identical.
+        const auto snap_c = im2_snapshot(im2);
+        for (int i = 0; i < 500; ++i) im2.tick(9);
+        const auto snap_d = im2_snapshot(im2);
+        const bool identical_isr = (snap_c == snap_d);
+
+        // RETI after the stretch, via the TICK path (not on_reti()):
+        // the live reti_seen_pulse_ check must force a full tick whose
+        // S_ISR branch clears the device (im2_device.vhd:123-128).
+        im2.on_m1_cycle(0, 0xED);
+        im2.on_m1_cycle(0, 0x4D);                // reti_seen pulse live
+        im2.tick(1);
+        const bool cleared =
+            im2.state(Im2Controller::DevIdx::CTC0)
+                == Im2Controller::DevState::S_0;
+
+        // A fresh request after everything must re-enter S_REQ.
+        im2.on_m1_cycle(0, 0x00);                // drop the RETI pulse
+        im2.raise_req(Im2Controller::DevIdx::CTC0);
+        im2.tick(1);
+        const bool re_req =
+            im2.state(Im2Controller::DevIdx::CTC0)
+                == Im2Controller::DevState::S_REQ;
+
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "req_state=%d identical_req=%d vec=0x%02X "
+                      "isr_state=%d identical_isr=%d cleared=%d re_req=%d",
+                      req_state, identical_req, vec, isr_state,
+                      identical_isr, cleared, re_req);
+        check("CIM2-QUIESCE-02",
+              "im2 mode: S_REQ/S_ISR stable across quiescent stretches "
+              "(serialized no-ops); ACK vector [zxnext.vhd:1999] and "
+              "RETI clear via tick [im2_device.vhd:123-128] still exact "
+              "after skipped stretches",
+              req_state && identical_req && vec == 0x06 && isr_state
+                  && identical_isr && cleared && re_req,
+              detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1525,6 +1688,9 @@ int main() {
 
     test_single_step_int_delivery(emu);
     std::printf("  Group: SingleStep — done\n");
+
+    test_cim2_quiescence();
+    std::printf("  Group: CIM2-Quiescence — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

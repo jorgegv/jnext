@@ -408,6 +408,22 @@ ULA-INT-V19-IM2-04.
 | SSTEP-03 | Trace log records one entry per single-step (parity with run_frame) | +1 entry per step; pre-fix +0 |
 | SSTEP-04 | MD6 FSM advances during single-step (md6_joystick_connector_x2.vhd:103-114, :151-152) | raw bits 5:0 latched into joy_left_word; pre-fix latch stays 0 |
 
+## Section 15: C-IM2 quiescent early-out equivalence (Task 27 C-IM2, 2026-07-15)
+
+`Im2Controller::tick()` early-outs when the fabric is quiescent (Task 27
+optimization; field-by-field equivalence proof at the early-out in
+`src/cpu/im2.cpp`). These rows pin the contract: a skipped tick must be
+observably identical to an executed one. Rows live in
+`test/ctc_interrupts/ctc_interrupts_test.cpp` (group CIM2-Quiescence),
+on a bare `Im2Controller`. All four designed mutations (predicate
+always-true; live `reti_seen_pulse_` check dropped; `int_req_d` clause
+dropped; `raise_req` invalidation dropped) were run and are caught.
+
+| ID | Test | Expected |
+|----|------|----------|
+| CIM2-QUIESCE-01 | Pulse mode: 1000 quiescent ticks leave `save_state` byte-identical; a pulse raised after the stretch keeps the exact 36-CPU-cycle width (zxnext.vhd:2033-2044); a second edge after a stretch is not masked by a stale `int_req_d` (im2_peripheral.vhd:98-101, :154-162) | snapshots equal; pulse low through count 32, high at 36; `int_status` set by the post-stretch edge |
+| CIM2-QUIESCE-02 | IM2 mode: S_REQ and S_ISR are stable across quiescent stretches (byte-identical snapshots); IntAck after a stretch yields vector 0x06 for CTC0 (zxnext.vhd:1999); RETI decoded after a stretch still clears S_ISR via the tick path (im2_device.vhd:123-128) | snapshots equal; vec==0x06; S_ISR→S_0 on the RETI tick; fresh raise re-enters S_REQ |
+
 ## Special Handling
 
 ### Clock domain crossing

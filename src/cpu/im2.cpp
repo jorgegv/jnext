@@ -49,6 +49,10 @@ void Im2Controller::reset() {
 
     last_acked_  = -1;
     legacy_mask_ = 0xFFFF;
+
+    // C-IM2: conservative — the first tick after reset runs in full and
+    // recomputes the cache.
+    quiescent_ = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -80,6 +84,78 @@ void Im2Controller::tick(uint32_t tstates_for_pulse) {
     // remain one-per-instruction by design; VHDL state changes are tied to
     // M1 transitions which step_devices() approximates per Z80 instruction).
     pulse_count_advance_ = tstates_for_pulse;
+
+    // ── Task 27 C-IM2: quiescent early-out ─────────────────────────────
+    //
+    // tick() is called once per Z80 instruction (Emulator::
+    // step_one_instruction) and measured at 14.1% of the boot-nextzxos
+    // frame (TASK27-PROFILE-REPORT.md §4) even though for ~99% of
+    // instructions the fabric is completely idle. When quiescent_ holds
+    // (see compute_quiescent() below) AND no RETI decode pulse is live,
+    // the remainder of this function is a provable state no-op, so we
+    // return. NOTE the skip decision never reads the tick argument —
+    // whatever units the caller passes (Task 60d's open master_cycles-
+    // vs-tstates question), skipping a no-op is valid; the argument was
+    // already stored into pulse_count_advance_ above, exactly as a full
+    // tick would (the field is intra-tick scratch, not serialized).
+    //
+    // EQUIVALENCE PROOF — every field the skipped code can write, and why
+    // each is a fixed point under the predicate (Q = compute_quiescent()
+    // conditions; R = reti_seen_pulse_ == false, checked live):
+    //
+    //   Per device d (VHDL im2_peripheral.vhd / im2_device.vhd):
+    //   - d.int_status   — written only on `edge = int_req AND NOT
+    //     int_req_d` (vhdl:154-162) or int_unq (vhdl:160). Q forces
+    //     int_req == int_unq == false ⇒ never written.
+    //   - d.im2_int_req  — im2 mode: set only on (edge AND int_en) or
+    //     int_unq (vhdl:167-178) ⇒ never (no edge, no unq). Pulse mode:
+    //     forced to 0 (im2_reset_n, vhdl:105+170-171) — Q requires it
+    //     already false in pulse mode ⇒ value-identical.
+    //   - d.int_req_d    — assigned int_req (vhdl:98, delayed copy). Q
+    //     requires both false ⇒ false := false.
+    //   - d.state        — im2 mode (im2_device.vhd:102-132): S_0→S_REQ
+    //     needs im2_int_req (Q: excluded when state==S_0); S_REQ has no
+    //     plain-tick transition (S_ACK is entered only inside
+    //     ack_vector()); S_ACK→S_ISR is unconditional (Q: no device in
+    //     S_ACK); S_ISR→S_0 needs i_reti_seen (vhdl:123) — excluded by
+    //     R. Pulse mode: forced S_0 (Q: already S_0) ⇒ value-identical.
+    //   - d.int_unq / d.int_req — end-of-tick clears (V19-IM2-03 /
+    //     V19R-CPU-01): Q forces both already false ⇒ no-ops.
+    //
+    //   Pulse fabric (zxnext.vhd:2012-2044):
+    //   - pulse_en OR-reduction needs a qualified edge or int_unq
+    //     (im2_peripheral.vhd:184-194) ⇒ false under Q regardless of
+    //     im2_mode_/im_mode_ (the exception-device gate is AND-ed with
+    //     the qualification, which is already false).
+    //   - pulse_int_n_/pulse_count_ — Q requires pulse_int_n_ == true
+    //     (idle); with pulse_en false the idle branch writes nothing.
+    //     (Mid-pulse, pulse_int_n_ == false, is never skipped — the
+    //     counter must advance every tick, zxnext.vhd:2035-2044.)
+    //
+    //   DMA-delay latch (zxnext.vhd:2001-2010):
+    //     latched' = A OR B OR (latched AND C) with A = dma_int_pending()
+    //     (function of device states + dma_int_en, both unchanged under
+    //     Q), B = nmi_activated_ AND nr_cc_dma_int_en_0_7_, C =
+    //     dma_delay_ctrl_. Q requires latched == (A OR B), which makes
+    //     latched' == latched FOR EITHER VALUE OF C:
+    //       latched==1 ⇒ A|B==1 ⇒ latched' = 1;
+    //       latched==0 ⇒ A|B==0 ⇒ latched' = 0 OR (0 AND C) = 0.
+    //     C-independence matters because C is rewritten by on_m1_cycle()
+    //     every instruction and must not invalidate the cache.
+    //
+    //   on_m1_cycle() exemption — it writes dec_state_, reti_seen_pulse_,
+    //   retn_seen_pulse_, reti_decode_, dma_delay_ctrl_, im_mode_:
+    //   - reti_seen_pulse_: guarded live by R below.
+    //   - dma_delay_ctrl_ (C): fixed point is C-independent, above.
+    //   - im_mode_: read by tick only at the S_ISR clear gate (needs R)
+    //     and the exception-device pulse path (needs a qualified edge,
+    //     excluded by Q).
+    //   - reti_decode_: consumed by the IEI snapshot, itself consumed
+    //     only by the S_ISR clear gate (needs R).
+    //   - dec_state_/retn_seen_pulse_: not read by tick() at all.
+    if (quiescent_ && !reti_seen_pulse_) {
+        return;
+    }
 
     // Pulse fabric runs BEFORE the wrapper/state-machine step because it
     // needs to observe the rising edge of int_req, which is defined (VHDL
@@ -156,6 +232,52 @@ void Im2Controller::tick(uint32_t tstates_for_pulse) {
     // behaviour on each tick — auto-clear at end of tick does not
     // perturb persisted state any more than the existing int_unq clear.
     for (int k = 0; k < N; ++k) dev_[k].int_req = false;
+
+    // Task 27 C-IM2 — after a full tick, decide whether the fabric has
+    // settled into a state where subsequent ticks are no-ops.
+    quiescent_ = compute_quiescent();
+}
+
+// -----------------------------------------------------------------------------
+// Task 27 C-IM2 — quiescence predicate.
+//
+// Returns true iff the post-early-out tick() body is a state no-op (given
+// reti_seen_pulse_ == false, which tick() checks live). Each condition maps
+// 1:1 to a clause of the equivalence proof at the tick() early-out:
+//
+//   1. pulse_int_n_ == true          — no pulse mid-flight; a low pulse
+//      must advance pulse_count_ every tick (zxnext.vhd:2035-2044).
+//   2. im2_dma_delay_latched_ == (A OR B) — the latch (zxnext.vhd:2001-
+//      2010) is at a fixed point independent of the decoder's
+//      dma_delay_ctrl_ window (derivation at the tick() early-out).
+//   3. Per device: int_req, int_req_d, int_unq all false — no pending
+//      edge, no stale delayed copy (a stale int_req_d==true would both
+//      be cleared by a full tick AND mask the next raise's edge,
+//      im2_peripheral.vhd:101), no unqualified one-shot.
+//   4. Per device state: pulse mode — S_0 with im2_int_req false (both
+//      are forced every tick, im2_peripheral.vhd:105+170-171); im2 mode
+//      — no S_ACK (unconditional S_ACK→S_ISR, im2_device.vhd:117) and
+//      no S_0-with-latched-request (S_0→S_REQ, im2_device.vhd:106).
+//      S_REQ and S_ISR are stable under a plain tick (transitions only
+//      via ack_vector() / a live RETI pulse, both of which run the full
+//      path — ack_vector() invalidates, RETI is the live R check).
+// -----------------------------------------------------------------------------
+bool Im2Controller::compute_quiescent() const {
+    if (!pulse_int_n_) return false;
+    const bool ab = dma_int_pending()
+                 || (nmi_activated_ && nr_cc_dma_int_en_0_7_);
+    if (im2_dma_delay_latched_ != ab) return false;
+    for (int i = 0; i < N; ++i) {
+        const Device& d = dev_[i];
+        if (d.int_req || d.int_req_d || d.int_unq) return false;
+        if (!im2_mode_) {
+            if (d.state != DevState::S_0 || d.im2_int_req) return false;
+        } else {
+            if (d.state == DevState::S_ACK) return false;
+            if (d.state == DevState::S_0 && d.im2_int_req) return false;
+        }
+    }
+    return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -235,6 +357,7 @@ void Im2Controller::raise(Im2Level level) {
     const int i = static_cast<int>(dev);
     if (i >= 0 && i < N) {
         dev_[i].int_req = true;
+        quiescent_ = false;   // C-IM2 mutator invalidation
     }
 }
 
@@ -252,6 +375,7 @@ void Im2Controller::clear(Im2Level level) {
     const int i = static_cast<int>(dev);
     if (i >= 0 && i < N) {
         dev_[i].int_req = false;
+        quiescent_ = false;   // C-IM2 mutator invalidation
     }
 }
 
@@ -342,6 +466,10 @@ void Im2Controller::on_reti() {
             iei = ieo;
         }
     }
+    // C-IM2 mutator invalidation: the walk below can change device state
+    // and the im2_int_req latch (both feed dma_int_pending() and the
+    // per-device fixed-point conditions). Rare path (once per RETI).
+    quiescent_ = false;
     for (int i = 0; i < N; ++i) {
         if (dev_[i].state == DevState::S_ISR && iei_snap[i]) {
             dev_[i].state = DevState::S_0;
@@ -401,11 +529,13 @@ void Im2Controller::on_retn() {
 // wrapper step, not immediately on input assertion. See step_devices().
 void Im2Controller::raise_req(DevIdx d) {
     dev_[static_cast<int>(d)].int_req = true;
+    quiescent_ = false;   // C-IM2 mutator invalidation
 }
 
 // clear_req(): peripheral deasserts i_int_req. Normally paired with isr_serviced.
 void Im2Controller::clear_req(DevIdx d) {
     dev_[static_cast<int>(d)].int_req = false;
+    quiescent_ = false;   // C-IM2 mutator invalidation
 }
 
 // raise_unq(): unqualified one-shot pulse. Per VHDL im2_peripheral.vhd:160
@@ -422,6 +552,7 @@ void Im2Controller::raise_unq(DevIdx d) {
     dv.int_unq     = true;    // one-shot latch
     dv.int_status  = true;    // vhdl:160  int_status <= (int_req or i_int_unq) | ...
     dv.im2_int_req = true;    // vhdl:172  bypasses i_int_en
+    quiescent_ = false;       // C-IM2 mutator invalidation
 }
 
 // clear_status(): i_int_status_clear one-shot from NR 0xC8/C9/CA writes.
@@ -433,6 +564,7 @@ void Im2Controller::clear_status(DevIdx d) {
     Device& dv = dev_[static_cast<int>(d)];
     dv.int_status = false;
     // im2_int_req: INTENTIONALLY not cleared here. See VHDL :175.
+    quiescent_ = false;   // C-IM2 mutator invalidation
 }
 
 // int_status(): o_int_status composite per VHDL im2_peripheral.vhd:180
@@ -517,6 +649,7 @@ uint8_t Im2Controller::int_status_mask_ca() const {
 // -----------------------------------------------------------------------------
 void Im2Controller::set_int_en(DevIdx d, bool en) {
     dev_[static_cast<int>(d)].int_en = en;
+    quiescent_ = false;   // C-IM2 mutator invalidation (covers c4/c5/c6 too)
 }
 
 // NR 0xC4 — writes only bit 7 (expbus, out of fabric) and bit 1 (LINE enable,
@@ -574,7 +707,10 @@ void Im2Controller::set_vector_base(uint8_t msb3) {
 }
 uint8_t Im2Controller::vector_base() const { return vector_base_msb3_; }
 
-void Im2Controller::set_mode(bool im2_mode) { im2_mode_ = im2_mode; }
+void Im2Controller::set_mode(bool im2_mode) {
+    im2_mode_  = im2_mode;
+    quiescent_ = false;   // C-IM2: mode flips change per-device fixed points
+}
 bool Im2Controller::is_im2_mode() const    { return im2_mode_; }
 
 void Im2Controller::set_stackless_nmi(bool v) { stackless_nmi_ = v; }
@@ -597,6 +733,7 @@ void Im2Controller::set_dma_int_en_mask(uint16_t mask14) {
     for (int i = 0; i < N; ++i) {
         dev_[i].dma_int_en = (dma_int_en_mask14_ >> i) & 0x1;
     }
+    quiescent_ = false;   // C-IM2: dma_int_en feeds the latch fixed point
 }
 
 // dma_int_pending() — VHDL im2_device.vhd:151 + peripherals.vhd OR-reduction.
@@ -631,8 +768,21 @@ bool Im2Controller::dma_delay() const {
 // second term of the im2_dma_delay OR chain.  Both are plain setters / store-
 // backed accessors; the logical combination happens inside step_dma_delay().
 // -----------------------------------------------------------------------------
-void Im2Controller::set_nmi_activated(bool v)        { nmi_activated_ = v; }
-void Im2Controller::set_nr_cc_dma_int_en_0_7(bool v) { nr_cc_dma_int_en_0_7_ = v; }
+// C-IM2: set_nmi_activated() is called once per instruction (Emulator's
+// step body, just before im2_.tick()) — invalidate only on VALUE CHANGE
+// or the early-out would never engage. A value-identical store cannot
+// alter any tick fixed point (nmi_activated_ only feeds the B term of the
+// dma-delay latch equation, and B is unchanged).
+void Im2Controller::set_nmi_activated(bool v) {
+    if (v != nmi_activated_) {
+        nmi_activated_ = v;
+        quiescent_     = false;
+    }
+}
+void Im2Controller::set_nr_cc_dma_int_en_0_7(bool v) {
+    nr_cc_dma_int_en_0_7_ = v;
+    quiescent_ = false;   // C-IM2: feeds the latch fixed point (B term)
+}
 bool Im2Controller::nmi_activated() const            { return nmi_activated_; }
 bool Im2Controller::nr_cc_dma_int_en_0_7() const     { return nr_cc_dma_int_en_0_7_; }
 
@@ -712,6 +862,7 @@ uint8_t Im2Controller::ack_vector() {
         if (!iei) continue;
         dev_[i].state = DevState::S_ACK;
         last_acked_   = i;
+        quiescent_    = false;   // C-IM2: S_ACK must advance next tick
         return compute_vector();
     }
     return 0xFF;
@@ -769,7 +920,10 @@ uint8_t Im2Controller::im_mode() const { return im_mode_; }
 // -----------------------------------------------------------------------------
 bool Im2Controller::pulse_int_n() const { return pulse_int_n_; }
 
-void Im2Controller::set_machine_timing_48_or_p3(bool v) { machine_48_or_p3_ = v; }
+void Im2Controller::set_machine_timing_48_or_p3(bool v) {
+    machine_48_or_p3_ = v;
+    quiescent_ = false;   // C-IM2 mutator invalidation
+}
 
 // -----------------------------------------------------------------------------
 // Debug accessors.
@@ -1390,4 +1544,8 @@ void Im2Controller::load_state(StateReader& r) {
 
     last_acked_  = r.read_i32();
     legacy_mask_ = r.read_u16();
+
+    // C-IM2: derived cache, not part of the schema — recomputed by the
+    // first post-load tick.
+    quiescent_ = false;
 }
