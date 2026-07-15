@@ -164,6 +164,7 @@ with `-` is treated as an option, never as a filename.
 | `--rzx-play FILE` | Play back an RZX recording |
 | `--rzx-record FILE` | Record input to an RZX file |
 | `--rewind-buffer-size N` | Frame-snapshot ring buffer for backwards execution (opt-in; default 0 = off) |
+| `--trace` | Enable the per-instruction trace log (also enabled implicitly by `--rewind-buffer-size N`, and toggleable in the debugger) |
 
 ### Headless and automation
 
@@ -337,7 +338,9 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` /
 - **NextREG panel** — all 256 registers, named, editable inline
 - **Audio panel** — AY register state for the 3 TurboSound chips, per-source
   mute
-- **Trace log** — circular instruction trace buffer, exportable to a file
+- **Trace log** — circular instruction trace buffer, exportable to a file.
+  Off by default; enable with `--trace`, the debugger's Enable Trace menu
+  item, or implicitly by enabling rewind (rewind needs it for Step Back)
 - **Symbol table** — Z88DK MAP files; symbols appear inline in the disassembly
   and in watches
 - **Backwards execution (rewind)** — frame-snapshot ring buffer, with Step

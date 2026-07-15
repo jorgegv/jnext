@@ -7,16 +7,18 @@
 // z80_instruction_length — returns the byte length of the instruction at addr
 // ---------------------------------------------------------------------------
 
-int z80_instruction_length(uint16_t addr, std::function<uint8_t(uint16_t)> read)
+int z80_instruction_length(uint16_t addr,
+                           uint8_t (*read)(void* ctx, uint16_t addr),
+                           void* ctx)
 {
-    uint8_t op = read(addr);
+    uint8_t op = read(ctx, addr);
 
     // CB prefix: all CB xx instructions are 2 bytes
     if (op == 0xCB) return 2;
 
     // ED prefix
     if (op == 0xED) {
-        uint8_t op2 = read(addr + 1);
+        uint8_t op2 = read(ctx, addr + 1);
         // Z80N extended opcodes and standard ED opcodes
         // Most ED xx are 2 bytes; a few take an immediate word (3 or 4 bytes)
         switch (op2) {
@@ -46,7 +48,7 @@ int z80_instruction_length(uint16_t addr, std::function<uint8_t(uint16_t)> read)
 
     // DD/FD prefix (IX/IY)
     if (op == 0xDD || op == 0xFD) {
-        uint8_t op2 = read(addr + 1);
+        uint8_t op2 = read(ctx, addr + 1);
         if (op2 == 0xCB) {
             // DD CB dd oo / FD CB dd oo — always 4 bytes
             return 4;

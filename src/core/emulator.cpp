@@ -5709,6 +5709,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         rewind_buffer_ = std::make_unique<RewindBuffer>(
             static_cast<size_t>(cfg.rewind_buffer_frames), snap_bytes);
         rewind_enabled_ = true;
+        // Rewind implies the instruction trace: step_back() needs it to
+        // locate the target instruction's cycle within a frame (Task 27 A2).
         trace_log_.set_enabled(true);
         Log::emulator()->info("Rewind buffer: {} frames × {} bytes = {} KB",
             cfg.rewind_buffer_frames, snap_bytes,
@@ -5717,6 +5719,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         rewind_buffer_.reset();
         rewind_enabled_ = false;
         Log::emulator()->debug("Rewind buffer: disabled");
+    }
+
+    // Instruction trace log (Task 27 A2): own opt-in, decoupled from rewind.
+    // Only ever enables here — never disables — so a debugger Enable Trace
+    // toggle survives a soft reset, matching the pre-A2 behaviour.
+    if (cfg.trace) {
+        trace_log_.set_enabled(true);
+        Log::emulator()->info("Instruction trace log enabled (--trace)");
     }
 
     // -----------------------------------------------------------------------
@@ -6515,8 +6525,14 @@ void Emulator::run_frame()
                 te.sp = regs.SP;
                 for (int i = 0; i < 4; ++i)
                     te.opcode_bytes[i] = mmu_.read(regs.PC + i);
-                te.opcode_len = z80_instruction_length(regs.PC,
-                    [this](uint16_t a) { return mmu_.read(a); });
+                // Captureless lambda decays to a raw function pointer — no
+                // per-instruction std::function construction (Task 27 A2).
+                te.opcode_len = z80_instruction_length(
+                    regs.PC,
+                    [](void* ctx, uint16_t a) {
+                        return static_cast<Mmu*>(ctx)->read(a);
+                    },
+                    &mmu_);
                 trace_log_.record(te);
             }
             // P0 boot probe trap detector: when the CPU enters the
@@ -8525,7 +8541,15 @@ bool Emulator::step_back(int n)
     }
 
     if (!trace_log_.enabled() || trace_log_.size() == 0) {
-        Log::emulator()->warn("step_back: trace log not enabled or empty");
+        // Loud failure (Task 27 A2): rewind is on but the instruction trace
+        // is not — step_back cannot locate the target instruction without
+        // it. This only happens if the trace was manually disabled after
+        // rewind was enabled (rewind enable always switches the trace on).
+        Log::emulator()->error(
+            "step_back: instruction trace log is {} — cannot locate the "
+            "target instruction; re-enable it (debugger: Debug > Enable "
+            "Trace) and execute forward before stepping back",
+            trace_log_.enabled() ? "empty" : "disabled");
         return false;
     }
 

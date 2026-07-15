@@ -94,6 +94,8 @@ static void print_usage(const char* prog) {
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
         "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 0=off)\n"
+        "  --trace                 Enable the per-instruction trace log (10K-entry ring;\n"
+        "                          implied by --rewind-buffer-size N with N>0)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
         "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (overrides SECS form)\n"
         "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
@@ -168,6 +170,7 @@ int main(int argc, char* argv[]) {
     std::string rzx_record_file;
     int         speed_percent = 100;
     int         rewind_buffer_frames = 0;
+    bool        trace_enabled = false;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        profile_enabled = false;
@@ -299,6 +302,8 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
             rewind_buffer_frames = std::stoi(argv[++i]);
             if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
+        } else if (arg == "--trace") {
+            trace_enabled = true;
         } else if (arg == "--compositor-trace" && i + 1 < argc) {
             compositor_trace_path = argv[++i];
         } else if (arg == "--compositor-trace-frame" && i + 1 < argc) {
@@ -447,6 +452,7 @@ int main(int argc, char* argv[]) {
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;
         cfg.rewind_buffer_frames = rewind_buffer_frames;
+        cfg.trace = trace_enabled;
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;
