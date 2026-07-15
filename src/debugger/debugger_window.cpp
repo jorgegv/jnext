@@ -91,6 +91,9 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         if (trace_enable_action_)
             trace_enable_action_->setChecked(new_state);
         update_trace_indicator();
+        // Step Back's enabled-state is gated on the trace (Task 27 A1b) —
+        // refresh it now rather than waiting for the next pause/step.
+        update_actions(emulator_->debug_state().paused());
     });
     toolbar->addWidget(trace_toggle_btn_);
 
@@ -271,6 +274,8 @@ void DebuggerWindow::create_menus() {
         if (emulator_) {
             emulator_->trace_log().set_enabled(checked);
             update_trace_indicator();
+            // Step Back's enabled-state is gated on the trace (Task 27 A1b).
+            update_actions(emulator_->debug_state().paused());
         }
     });
 
@@ -331,6 +336,9 @@ void DebuggerWindow::create_menus() {
             emulator_->set_rewind_enabled(false);
         }
         update_rewind_ui();
+        // The toggle can flip the trace on (resume branch), which gates
+        // Step Back's enabled-state — refresh it immediately.
+        update_actions(emulator_->debug_state().paused());
     });
 
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
