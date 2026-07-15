@@ -1,0 +1,55 @@
+app-id: io.github.zxjogv.jnext
+# KDE runtime chosen over org.freedesktop.Platform because jnext's Qt6 GUI
+# (ENABLE_QT_UI=ON, ENABLE_DEBUGGER=ON) needs Qt6::Widgets; the KDE runtime
+# ships a full Qt6 stack out of the box, so it doesn't need to be built as
+# a separate module the way SDL2 does. Bump the branch to whatever KDE
+# runtime is current when this manifest is actually built.
+runtime: org.kde.Platform
+runtime-version: '6.7'
+sdk: org.kde.Sdk
+command: jnext
+
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=home
+
+modules:
+  # SDL2 is not part of the KDE runtime; built from source. Version should
+  # track whatever CMakeLists.txt's find_package(SDL2 REQUIRED) resolves to
+  # on the dev host (2.32.x at the time of writing).
+  - name: sdl2
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDL_STATIC=OFF
+    sources:
+      - type: archive
+        url: https://github.com/libsdl-org/SDL/releases/download/release-2.32.6/SDL2-2.32.6.tar.gz
+        # Placeholder — fill in the real sha256 for the pinned release
+        # before running flatpak-builder for real (not verifiable on this
+        # host, no flatpak-builder / network fetch available).
+        sha256: REPLACE_WITH_REAL_SHA256
+
+  - name: jnext
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DENABLE_QT_UI=ON
+      - -DENABLE_TESTS=OFF
+    sources:
+      - type: git
+        url: https://github.com/jorgegv/jnext.git
+        tag: v0.98.5
+        # Submodules (third_party/spdlog, third_party/zot) are pulled by
+        # CMakeLists.txt's `git submodule update --init --recursive` step
+        # when a .git directory is present, which a `type: git` flatpak
+        # source provides (unlike a plain archive tarball — see
+        # packaging/make-dist-tarball.sh for why that matters).
+    # No post-install needed: CMakeLists.txt's own install() rules (Task 67)
+    # already place the .desktop/metainfo/icon files under the standard
+    # freedesktop paths, which cmake-ninja installs to $FLATPAK_DEST (/app)
+    # the same as any other `ninja install` target.

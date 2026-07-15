@@ -1,0 +1,31 @@
+Source: jnext
+Section: games
+Priority: optional
+Maintainer: ZXjogv <zx@jogv.es>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.16),
+               g++,
+               git,
+               libsdl2-dev,
+               zlib1g-dev,
+               libcurl4-openssl-dev,
+               libssl-dev,
+               libpng-dev,
+               qt6-base-dev,
+               desktop-file-utils,
+               appstream
+Standards-Version: 4.6.2
+Homepage: https://github.com/jorgegv/jnext
+Rules-Requires-Root: no
+
+Package: jnext
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: ffmpeg
+Description: real-time ZX Spectrum Next emulator with an integrated debugger
+ JNEXT is a real-time, cross-platform ZX Spectrum Next emulator written in
+ C++17, based on the official VHDL sources for the ZX Spectrum Next FPGA
+ core. It targets developers writing Next software: a debugger showing
+ CPU, memory, video layers, sprites, audio and NextREG state live, with
+ breakpoints, watches and step-backward execution, plus a headless mode
+ for running programs under CI.

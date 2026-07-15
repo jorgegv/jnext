@@ -1,0 +1,115 @@
+name: Packaging
+
+# Task 67. Builds native packages on each OS's real CI runner. Linux was
+# verified to actually produce packages on the dev host (Fedora 44, see
+# packaging/README.md); Windows and macOS jobs mirror the real build
+# commands (CMake + Qt6 + SDL2) but are UNTESTED — this dev host is Linux
+# only and cannot run them. Treat the Windows/macOS jobs as a faithful
+# starting point, not a proven-green pipeline.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ \
+            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
+            qt6-base-dev \
+            rpm
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Package (TGZ, DEB, RPM)
+        working-directory: build
+        run: cpack -G "TGZ;DEB;RPM"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-linux-packages
+          path: |
+            build/*.tar.gz
+            build/*.deb
+            build/*.rpm
+
+  # UNTESTED on the dev host (no Windows runner available locally). Mirrors
+  # the CMake/Qt6/SDL2 build the project actually uses; vcpkg supplies both
+  # dependencies. Packaged as a ZIP via CPack (NSIS would need an installer
+  # script this project doesn't have yet).
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          modules: 'qtbase'
+
+      - name: Install SDL2 (vcpkg)
+        run: |
+          vcpkg install sdl2:x64-windows curl:x64-windows openssl:x64-windows zlib:x64-windows libpng:x64-windows
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Package (ZIP)
+        working-directory: build
+        run: cpack -G ZIP -C Release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-windows-package
+          path: build/*.zip
+
+  # UNTESTED on the dev host (no macOS runner available locally). Mirrors
+  # BUILD.md's `brew install sdl2 qt6 curl openssl`. Packaged as a .dmg via
+  # CPack's DragNDrop generator.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
+
+      - name: Build
+        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: Package (DragNDrop)
+        working-directory: build
+        run: cpack -G DragNDrop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-macos-package
+          path: build/*.dmg

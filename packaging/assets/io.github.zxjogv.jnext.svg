@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2b2b"/>
+      <stop offset="1" stop-color="#141414"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="36" fill="url(#bg)"/>
+  <!-- Spectrum-style rainbow stripe, echoing the ZX Spectrum keyboard band -->
+  <g>
+    <rect x="40" y="176" width="176" height="10" fill="#cc0000"/>
+    <rect x="40" y="186" width="176" height="10" fill="#cc7700"/>
+    <rect x="40" y="196" width="176" height="10" fill="#cccc00"/>
+    <rect x="40" y="206" width="176" height="10" fill="#00aa00"/>
+    <rect x="40" y="216" width="176" height="10" fill="#0044cc"/>
+  </g>
+  <!-- Bold "N" mark for jNext -->
+  <path d="M 56 150 L 56 62 L 84 62 L 172 138 L 172 62 L 200 62 L 200 150 L 172 150 L 84 74 L 84 150 Z"
+        fill="#ffffff"/>
+</svg>
