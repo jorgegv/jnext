@@ -65,6 +65,17 @@ BEGIN {
     L["NMI Source Pipeline"]   = "nmi_test"
     L["NMI (integration)"]     = "nmi_integration_test"
     L["Debugger Video Panel"]  = "debugger_video_panel_test"
+    L["Debugger Audio Panel"]  = "debugger_audio_panel_test"
+    L["CPU INT pulse"]         = "cpu_int_pulse_test"
+    L["CPU/Z80N IM2 regr."]    = "cpu_z80n_im2_regressions_test"
+    L["Phantom Typist"]        = "phantom_typist_test"
+    L["SD ROM Extractor"]      = "sd_rom_extractor_test"
+    L["FAT32 Image"]           = "fat32_image_test"
+    L["SD Card Provisioner"]   = "sdcard_provisioner_test"
+    L["Audio (pacing)"]        = "audio_pacing_test"
+    L["Logging"]               = "log_test"
+    L["Logging (gate)"]        = "log_gate_test"
+    L["Profiler"]              = "profiler_test"
 
     while ((getline line < summary) > 0) {
         n = split(line, f, "\t")

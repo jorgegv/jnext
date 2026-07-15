@@ -1,5 +1,14 @@
 # Phase 9: Performance Profiling & Optimization Plan
 
+> **⛔ OBSOLETE (2026-07-15) — superseded by [TASK27-OPTIMIZATION-PLAN.md](TASK27-OPTIMIZATION-PLAN.md)
+> and [TASK27-PROFILE-REPORT.md](TASK27-PROFILE-REPORT.md).**
+> Task 27 (2026-07-14/15) executed the optimization campaign: the measurement
+> infrastructure below (Phase A) is realized as `--benchmark`/`make bench` +
+> `perf`-attributed profiling; Phase B/C/D were re-ranked from an actual profile.
+> **Do NOT implement item C2 ("null the contention callback per machine type") — it
+> is WRONG and would break Next-mode contention** (NR 0x07 is runtime-switchable;
+> contention is live at 3.5 MHz in Next mode — Tasks 50/54). Retained for history only.
+
 ## Context
 
 Originally planned for Phase 7.8, this work is deferred to Phase 9 to run after the general code audit, refactor, and reorganization. Profiling clean code gives more meaningful results, and refactoring often eliminates inefficiencies naturally before targeted optimization begins.

@@ -42,6 +42,17 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4392** | **4392** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CPU/Z80N IM2 regr.    |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (pacing)        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Logging               |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **4642** | **4642** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

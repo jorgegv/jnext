@@ -131,6 +131,23 @@ regression: unit-test-build
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
 unit-test: unit-test-build
 	@bash test/run-unit-tests.sh build
+	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
+	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
+	@# a stale doc must not break the parallel-worktree test flow) when a suite's
+	@# count changed OR a live suite has no dashboard row. Fix: make unit-test-dashboard.
+	@if [ -s build/test-summary.tsv ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \
+		tmp=$$(mktemp); cp test/SUBSYSTEM-TESTS-STATUS.md $$tmp; \
+		bash test/refresh-subsystem-status.sh build/test-summary.tsv $$tmp >/dev/null 2>&1 || true; \
+		drift=""; \
+		diff -q $$tmp test/SUBSYSTEM-TESTS-STATUS.md >/dev/null 2>&1 || drift="stale-counts"; \
+		miss=$$(cut -f1 build/test-summary.tsv | while read b; do grep -q "\"$$b\"" test/refresh-subsystem-status.sh || echo $$b; done | tr '\n' ' '); \
+		[ -n "$$miss" ] && drift="$$drift no-row:[$$miss]"; \
+		if [ -n "$$drift" ]; then \
+			printf "\n$(BADGE_SKIP) DASHBOARD STALE $(RESET) $$drift\n"; \
+			printf "  test/SUBSYSTEM-TESTS-STATUS.md is out of date — run '$(BOLD)make unit-test-dashboard$(RESET)' and commit.\n\n"; \
+		fi; \
+		rm -f $$tmp; \
+	fi
 
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
 harness-selftest:
