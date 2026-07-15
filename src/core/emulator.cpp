@@ -6818,21 +6818,28 @@ uint64_t Emulator::step_one_instruction()
             call_stack_.on_instruction_post(post.SP, post.PC);
         }
 
-        // Convert T-states to 28 MHz master cycles.
+        // Convert T-states to 28 MHz master cycles for the master-clock
+        // advance and the CTC / UART / md6 / nmi device ticks below.
         master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
 
-        // Advance the IM2 controller one tick per instruction. This is
-        // coarser than the VHDL per-CLK_CPU-rising-edge model but is
-        // sufficient for:
-        //   - device state-machine transitions (S_0→S_REQ→S_ACK→S_ISR
-        //     → S_0), which react to per-M1 signals anyway;
-        //   - pulse fabric counter (coarser granularity stretches the
-        //     pulse duration beyond VHDL's 32/36 cycles but preserves
-        //     the outcome — INT low then high);
-        //   - DMA delay latch, which is sampled once per frame into
-        //     Dma::set_dma_delay at the top of run_frame().
-        // Test code that needs finer granularity can drive im2_.tick()
-        // directly (most ctc_test rows do).
+        // Advance the IM2 controller one tick per instruction. The device
+        // state-machine transitions (S_0→S_REQ→S_ACK→S_ISR→S_0) react to
+        // per-M1 signals and are modeled one-per-instruction (coarse, by
+        // design — see Im2Controller::step_devices()).
+        //
+        // Task 60d — the pulse-fabric counter MUST be advanced by the CPU
+        // T-state count (`tstates`), NOT by `master_cycles` (= tstates ×
+        // cpu_divisor, the 28 MHz-domain figure). Per VHDL zxnext.vhd:
+        // 2035-2044 the pulse counter increments on each
+        // `rising_edge(i_CLK_CPU)` — one increment per CPU T-state at the
+        // active CPU speed — and the pulse lasts 32 (48K/+3) or 36 (128K/
+        // Pentagon/Next) CPU cycles (zxnext.vhd:2014-2015,2033). i_CLK_CPU
+        // is the CPU clock, not the 28 MHz master clock, so the pulse width
+        // is speed-INVARIANT in T-states. Passing `master_cycles` here made
+        // the counter run cpu_divisor× too fast (8× at 3.5 MHz), collapsing
+        // the pulse to a single instruction below 28 MHz. tick() stashes
+        // this argument into pulse_count_advance_, consumed only by
+        // step_pulse(); the state-machine half ignores it.
         //
         // Wave E: push the current NMI-activated sample into
         // Im2Controller before its tick so step_dma_delay() can evaluate
@@ -6843,7 +6850,7 @@ uint64_t Emulator::step_one_instruction()
         // im2_dma_delay and nmi_activated both settle on the same rising
         // edge of CLK_CPU.
         im2_.set_nmi_activated(nmi_source_.is_activated());
-        im2_.tick(master_cycles);
+        im2_.tick(static_cast<uint32_t>(tstates));
 
         // V19-IM2-04 fix: poll IM2 fabric INT line and assert CPU
         // /INT request when an IM2 daisy-chain device has reached

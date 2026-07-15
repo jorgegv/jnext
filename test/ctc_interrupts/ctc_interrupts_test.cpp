@@ -21,6 +21,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "cpu/im2.h"
 #include "peripheral/ctc.h"
 
 #include <cstdio>
@@ -1814,6 +1815,116 @@ void test_c1_ctc_accumulator() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Task 60d — IM2 pulse-width CPU-speed invariance
+// ══════════════════════════════════════════════════════════════════════
+//
+// VHDL zxnext.vhd:2035-2044 — the pulse_int_n LOW counter increments on
+// each `rising_edge(i_CLK_CPU)` (one increment per CPU T-state), and the
+// pulse lasts 32 (48K/+3) or 36 (128K/Pentagon/Next) CPU cycles
+// (zxnext.vhd:2014-2015, terminal gate :2033). i_CLK_CPU is the CPU clock,
+// NOT the 28 MHz master clock, so the pulse LOW width in T-states is
+// INVARIANT across the 3.5/7/14/28 MHz CPU speeds.
+//
+// Regression guard for the Task 60d units bug: Emulator::step_one_instruction
+// called `im2_.tick(master_cycles)` (= tstates × cpu_divisor, a 28 MHz-domain
+// figure) instead of `im2_.tick(tstates)`. Below 28 MHz the counter advanced
+// cpu_divisor× too fast, collapsing the pulse to a single instruction (8× fast
+// at 3.5 MHz). These rows measure the pulse LOW width in T-states through the
+// production step path at two speeds; the 3.5 MHz row is the discriminative
+// one (pre-fix width ≈ 4-8, post-fix == terminal).
+
+static bool build_emulator(Emulator& emu, MachineType type) {
+    EmulatorConfig cfg;
+    cfg.type = type;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+// Start a pulse-mode interrupt via CTC0 and step NOPs through the real
+// Emulator::step_one_instruction() path until pulse_int_n() rises again,
+// returning the LOW width in CPU T-states. Negative sentinel on setup
+// failure. `speed` selects the CPU clock.
+static int measure_pulse_width_tstates(MachineType type, CpuSpeed speed) {
+    Emulator emu;
+    if (!build_emulator(emu, type)) return -1;
+    emu.clock().set_cpu_speed(speed);
+
+    // Uncontended NOP field at 0x8000 (RAM on both machines at reset); PC
+    // pointed there; CPU interrupts disabled (IFF1=IFF2=0) so the pulse is
+    // never serviced — we observe pulse_int_n() directly.
+    for (uint16_t a = 0x8000; a < 0x8080; ++a) emu.mmu().write(a, 0x00);
+    if (emu.mmu().read(0x8000) != 0x00) return -5;   // 0x8000 not writable RAM
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    // Pulse mode (NR 0xC0 bit0 = 0). Silence every real interrupt-source
+    // enable so a scheduled ULA/line/UART interrupt cannot start a competing
+    // pulse; enable + raise CTC0 as the sole (non-exception) pulse source.
+    auto& im2 = emu.im2();
+    im2.set_mode(false);
+    im2.set_int_en_c4(0);
+    im2.set_int_en_c5(0);
+    im2.set_int_en_c6(0);
+    im2.set_int_en(Im2Controller::DevIdx::CTC0, true);
+    im2.raise_req(Im2Controller::DevIdx::CTC0);
+
+    // First step: the tick observes the int_req rising edge → pulse starts
+    // (pulse_int_n LOW, counter reset). The starting tick does NOT advance
+    // the counter (VHDL:2038 holds it 0 while pulse_int_n='1' at tick entry).
+    emu.execute_single_instruction();
+    if (im2.pulse_int_n()) return -2;   // pulse never started
+
+    int width = 0;
+    for (int guard = 0; guard < 500 && !im2.pulse_int_n(); ++guard) {
+        width += emu.execute_single_instruction();   // returns CPU T-states
+    }
+    return im2.pulse_int_n() ? width : -3;            // -3 = never terminated
+}
+
+static void test_pulse_width_speed_invariance() {
+    set_group("Pulse-Width-60d");
+
+    struct Case { const char* id; MachineType type; int terminal; };
+    const Case cases[] = {
+        {"PW-48K",  MachineType::ZX48K,      32},
+        {"PW-NEXT", MachineType::ZXN_ISSUE2, 36},
+    };
+
+    for (const auto& c : cases) {
+        const int w_slow = measure_pulse_width_tstates(c.type, CpuSpeed::MHZ_3_5);
+        const int w_fast = measure_pulse_width_tstates(c.type, CpuSpeed::MHZ_28);
+
+        const std::string d =
+            std::string("3.5MHz=") + std::to_string(w_slow)
+            + " 28MHz=" + std::to_string(w_fast)
+            + " terminal=" + std::to_string(c.terminal);
+
+        // Discriminative row: pre-fix the 3.5 MHz pulse collapsed to a
+        // single instruction (~4-8 T), so this flips to FAIL if the call
+        // site reverts to master_cycles.
+        check((std::string(c.id) + "-35").c_str(),
+              "pulse LOW width at 3.5 MHz == terminal CPU T-states "
+              "[zxnext.vhd:2035-2044,2014-2015,2033]",
+              w_slow == c.terminal, d);
+
+        // Reference row: at 28 MHz master_cycles == tstates, so this held
+        // both pre- and post-fix — pins the terminal value.
+        check((std::string(c.id) + "-28").c_str(),
+              "pulse LOW width at 28 MHz == terminal CPU T-states "
+              "[zxnext.vhd:2035-2044]",
+              w_fast == c.terminal, d);
+
+        // Speed-invariance: identical width across the CPU speeds (i_CLK_CPU
+        // domain), and equal to the VHDL terminal.
+        check((std::string(c.id) + "-INV").c_str(),
+              "pulse LOW width is CPU-speed invariant "
+              "[zxnext.vhd:2035-2044 i_CLK_CPU domain]",
+              w_slow == w_fast && w_slow == c.terminal, d);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1847,6 +1958,9 @@ int main() {
 
     test_c1_ctc_accumulator();
     std::printf("  Group: CTC-C1-ACC — done\n");
+
+    test_pulse_width_speed_invariance();
+    std::printf("  Group: Pulse-Width-60d — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
