@@ -1,4 +1,5 @@
 #include "input/md6_connector_x2.h"
+#include "core/saveable.h"
 
 // =============================================================================
 // Md6ConnectorX2 — dual-connector MD 3/6-button joystick FSM.
@@ -270,4 +271,38 @@ void Md6ConnectorX2::step_fsm_once_for_test()
         apply_phase_action(static_cast<uint8_t>(state_ & 0x0Fu));
     }
     state_ = (state_ + 1u) & 0x01FFu;
+}
+
+// =============================================================================
+// Task 60c — state serialisation
+//
+// The MD6 FSM is ticked every emulator instruction, so its complete live
+// state MUST round-trip: the 9-bit state counter, the CLK_EN accumulator,
+// the raw + latched per-connector words and the six-button-detect flags.
+// Losing any of these mid-scan corrupts the next NR 0xB2 / port 0x1F/0x37
+// read — the core correctness fix of Task 60c.
+// =============================================================================
+
+void Md6ConnectorX2::save_state(StateWriter& w) const
+{
+    w.write_u16(raw_left_);
+    w.write_u16(raw_right_);
+    w.write_u16(latched_left_);
+    w.write_u16(latched_right_);
+    w.write_u16(state_);
+    w.write_bool(six_button_left_);
+    w.write_bool(six_button_right_);
+    w.write_u32(clk_en_accum_);
+}
+
+void Md6ConnectorX2::load_state(StateReader& r)
+{
+    raw_left_         = r.read_u16();
+    raw_right_        = r.read_u16();
+    latched_left_     = static_cast<uint16_t>(r.read_u16() & 0x0FFFu);
+    latched_right_    = static_cast<uint16_t>(r.read_u16() & 0x0FFFu);
+    state_            = static_cast<uint16_t>(r.read_u16() & 0x01FFu);
+    six_button_left_  = r.read_bool();
+    six_button_right_ = r.read_bool();
+    clk_en_accum_     = r.read_u32();
 }

@@ -27,12 +27,14 @@
 #include "input/membrane_stick.h"
 #include "input/mouse.h"
 #include "input/mouse_dispatcher.h"
+#include "input/joystick_dispatcher.h"
 #include "input/iomode.h"
 #include "input/joystick.h"
 #include "input/md6_connector_x2.h"
 #include "port/nextreg.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -2964,6 +2966,378 @@ static void test_fnkeys() {
 
 // ── main ────────────────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════════════
+// 3.16 Input state serialisation — save_state / load_state (SL-*)
+//
+// Task 60c. Before this task the whole src/input/ subsystem was ABSENT from
+// emulator snapshots, so keyboard / joystick / mouse / MD6 / membrane-stick /
+// IoMode state was silently lost on every rewind and save/load-state — most
+// damagingly the live MD6 FSM counter that is ticked every instruction.
+//
+// Each row mutates a leaf class to a KNOWN non-default state, saves it,
+// PERTURBS the object (reset() → defaults), then loads and asserts the exact
+// saved state came back. The perturb step makes every row discriminative: a
+// no-op load_state would leave the defaults in place and fail the assert.
+// SL-EMU-* exercise the full Emulator::save_state/load_state stream (the
+// paired "input" sentinel + all six classes wired in order). SL-REW-*
+// confirm the identical path used by backward execution (rewind) round-trips
+// input state.
+// ══════════════════════════════════════════════════════════════════════════
+
+// Round-trip a Saveable-style object through a fixed buffer.
+template <typename T>
+static size_t rt_save(const T& obj, uint8_t* buf, size_t cap) {
+    StateWriter w(buf, cap);
+    obj.save_state(w);
+    return w.position();
+}
+template <typename T>
+static void rt_load(T& obj, const uint8_t* buf, size_t n) {
+    StateReader r(buf, n);
+    obj.load_state(r);
+}
+
+// A minimal ZX48K emulator with rewind + a tiny NOP-loop program, mirroring
+// test/rewind/rewind_test.cpp::build_emulator. No ROM / SD required.
+static bool build_emulator_for_saveload(Emulator& emu, int rewind_frames) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = rewind_frames;
+    emu.init(cfg);
+    emu.trace_log().set_enabled(true);   // required for step_back / rewind
+    // LD HL,0x1234 / LD BC,0x5678 / NOP×20 / JP 0x8000
+    std::vector<uint8_t> prog = {0x21,0x34,0x12, 0x01,0x78,0x56};
+    for (int i = 0; i < 20; ++i) prog.push_back(0x00);
+    prog.push_back(0xC3); prog.push_back(0x00); prog.push_back(0x80);
+    for (size_t i = 0; i < prog.size(); ++i)
+        emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    return true;
+}
+
+static void test_saveload() {
+    set_group("SL");
+    uint8_t buf[8192];
+
+    // ── Keyboard ──────────────────────────────────────────────────────────
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(sc_for(3, 2), true);           // press "3" (row 3, col 2)
+        kb.set_key(sc_for(6, 0), true);           // press ENTER (row 6, col 0)
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::DELETE), true);
+        kb.tick_scan();                            // populate shift-hysteresis
+        std::vector<Keyboard::AutoKey> seq = {{3, 2, -1, -1, 4}, {6, 0, 7, 1, 3}};
+        kb.queue_auto_type(seq);                   // in-flight auto-type FSM
+        const uint8_t  row3_saved = kb.read_rows(row_addr(3));
+        const uint8_t  row6_saved = kb.read_rows(row_addr(6));
+        const uint8_t  b0_saved   = kb.nr_b0_byte();
+        const uint8_t  b1_saved   = kb.nr_b1_byte();
+        const bool     at_saved   = kb.auto_typing();
+
+        const size_t n = rt_save(kb, buf, sizeof buf);
+        kb.reset();                                // perturb → all released, no queue
+        rt_load(kb, buf, n);
+
+        check("SL-KBD-01", "Keyboard membrane matrix restored",
+              kb.read_rows(row_addr(3)) == row3_saved &&
+              kb.read_rows(row_addr(6)) == row6_saved,
+              DETAIL("r3=%02X/%02X r6=%02X/%02X",
+                     kb.read_rows(row_addr(3)), row3_saved,
+                     kb.read_rows(row_addr(6)), row6_saved));
+        check("SL-KBD-02", "Keyboard extended-key register (NR 0xB0/0xB1) restored",
+              kb.nr_b0_byte() == b0_saved && kb.nr_b1_byte() == b1_saved,
+              DETAIL("b0=%02X/%02X b1=%02X/%02X",
+                     kb.nr_b0_byte(), b0_saved, kb.nr_b1_byte(), b1_saved));
+        check("SL-KBD-03", "Keyboard in-flight auto-type queue restored",
+              kb.auto_typing() == at_saved && kb.auto_typing() == true,
+              DETAIL("auto_typing=%d saved=%d", kb.auto_typing(), at_saved));
+    }
+
+    // ── Joystick ──────────────────────────────────────────────────────────
+    {
+        Joystick joy; joy.reset();
+        joy.set_nr_05(0x8A);                        // arbitrary non-reset byte
+        joy.set_joy_left(0x0F5);
+        joy.set_joy_right(0x0A3);
+        const Joystick::Mode ml = joy.mode_left();
+        const Joystick::Mode mr = joy.mode_right();
+        const uint8_t raw = joy.nr_05_raw();
+        const uint8_t p1f = joy.read_port_1f();
+        const uint8_t p37 = joy.read_port_37();
+
+        const size_t n = rt_save(joy, buf, sizeof buf);
+        joy.reset();                               // perturb → K1/S2, raw 0x40, bits 0
+        rt_load(joy, buf, n);
+
+        check("SL-JOY-01", "Joystick NR 0x05 modes + raw byte restored",
+              joy.mode_left() == ml && joy.mode_right() == mr &&
+              joy.nr_05_raw() == raw,
+              DETAIL("raw=%02X/%02X", joy.nr_05_raw(), raw));
+        check("SL-JOY-02", "Joystick raw 12-bit connector vectors restored",
+              joy.read_port_1f() == p1f && joy.read_port_37() == p37,
+              DETAIL("1f=%02X/%02X 37=%02X/%02X",
+                     joy.read_port_1f(), p1f, joy.read_port_37(), p37));
+    }
+
+    // ── Kempston mouse ───────────────────────────────────────────────────
+    {
+        KempstonMouse mo; mo.reset();
+        mo.inject_delta(37, -12);                  // X=37, Y=244 (mod 256)
+        mo.set_buttons(0x05);                      // R + M
+        mo.set_wheel(0x0B);
+        mo.set_button_reverse(true);
+        mo.set_dpi(0x02);
+        const uint8_t fadf = mo.read_port_fadf();
+        const uint8_t x = mo.x(), y = mo.y();
+        const bool rev = mo.button_reverse();
+        const uint8_t dpi = mo.dpi();
+
+        const size_t n = rt_save(mo, buf, sizeof buf);
+        mo.reset();                                // perturb → 0/0/no-btn/dpi=1
+        rt_load(mo, buf, n);
+
+        check("SL-MOU-01", "Kempston mouse X/Y counters restored",
+              mo.x() == x && mo.y() == y,
+              DETAIL("x=%u/%u y=%u/%u", mo.x(), x, mo.y(), y));
+        check("SL-MOU-02", "Kempston mouse buttons/wheel (port 0xFADF) restored",
+              mo.read_port_fadf() == fadf,
+              DETAIL("fadf=%02X/%02X", mo.read_port_fadf(), fadf));
+        check("SL-MOU-03", "Kempston mouse NR 0x0A button-reverse + DPI restored",
+              mo.button_reverse() == rev && mo.dpi() == dpi,
+              DETAIL("rev=%d/%d dpi=%02X/%02X", mo.button_reverse(), rev, mo.dpi(), dpi));
+    }
+
+    // ── MD6 FSM (the core Task-60c correctness fix) ─────────────────────────
+    {
+        // Realistic mid-sequence: advance the shared FSM through several
+        // CLK_EN enables so state_ and the latches are genuinely mid-scan.
+        Md6ConnectorX2 md6; md6.reset();
+        md6.set_raw_left(0x0FF);
+        md6.set_raw_right(0x0FF);
+        for (int i = 0; i < 21; ++i) md6.tick(128);   // 21 enables → state=21, latches evolve
+        const uint16_t s   = md6.state_for_test();
+        const uint16_t ll  = md6.joy_left_word();
+        const uint16_t lr  = md6.joy_right_word();
+        const uint8_t  b2  = md6.nr_b2_byte();
+
+        const size_t n = rt_save(md6, buf, sizeof buf);
+        md6.reset();                               // perturb → state 0, latches 0
+        rt_load(md6, buf, n);
+
+        check("SL-MD6-01", "MD6 FSM state counter restored mid-sequence",
+              md6.state_for_test() == s && s != 0,
+              DETAIL("state=%03X/%03X", md6.state_for_test(), s));
+        check("SL-MD6-02", "MD6 latched connector words + NR 0xB2 restored",
+              md6.joy_left_word() == ll && md6.joy_right_word() == lr &&
+              md6.nr_b2_byte() == b2,
+              DETAIL("L=%03X/%03X R=%03X/%03X b2=%02X/%02X",
+                     md6.joy_left_word(), ll, md6.joy_right_word(), lr,
+                     md6.nr_b2_byte(), b2));
+    }
+    {
+        // Seeded latched words + six-button flags: guaranteed non-default so
+        // the round-trip is unambiguously discriminative.
+        Md6ConnectorX2 md6; md6.reset();
+        md6.set_latched_left_for_test(0x0F5);
+        md6.set_latched_right_for_test(0x0A3);
+        md6.set_six_button_left_for_test(true);
+        md6.set_six_button_right_for_test(false);
+        md6.set_state_for_test(0x1AA);
+        const size_t n = rt_save(md6, buf, sizeof buf);
+        md6.reset();
+        rt_load(md6, buf, n);
+        check("SL-MD6-03", "MD6 six-button-detect flags + seeded latches restored",
+              md6.six_button_left_for_test() == true &&
+              md6.six_button_right_for_test() == false &&
+              md6.joy_left_word() == 0x0F5 && md6.joy_right_word() == 0x0A3 &&
+              md6.state_for_test() == 0x1AA,
+              DETAIL("sbl=%d sbr=%d L=%03X R=%03X st=%03X",
+                     md6.six_button_left_for_test(), md6.six_button_right_for_test(),
+                     md6.joy_left_word(), md6.joy_right_word(), md6.state_for_test()));
+    }
+    {
+        // clk_en_accum_ round-trip is observable behaviourally: a partial
+        // accumulator makes the NEXT tick cross a CLK_EN boundary sooner.
+        Md6ConnectorX2 a; a.reset();
+        a.tick(100);                               // accum=100 (<128, no enable), state=0
+        const size_t n = rt_save(a, buf, sizeof buf);
+        Md6ConnectorX2 b; b.reset();               // fresh, accum=0
+        rt_load(b, buf, n);
+        b.tick(28);                                // 100+28=128 → 1 enable → state=1
+        Md6ConnectorX2 c; c.reset();
+        c.tick(28);                                // 28 only → no enable → state=0
+        check("SL-MD6-04", "MD6 CLK_EN accumulator restored (phase-accurate tick)",
+              b.state_for_test() == 1 && c.state_for_test() == 0,
+              DETAIL("loaded+28=%u fresh+28=%u (expect 1 and 0)",
+                     b.state_for_test(), c.state_for_test()));
+    }
+
+    // ── MembraneStick (reprogrammable SDP-RAM keymap) ───────────────────────
+    {
+        MembraneStick ms; ms.reset();
+        ms.set_mode(0, Joystick::Mode::Sinclair1);
+        ms.set_mode(1, Joystick::Mode::Cursor);
+        // Reprogram a User-Defined-Keymap cell via NR 0x28/0x29/0x2B.
+        ms.write_nr_28(0x80);                      // keymap_sel=1, addr(8)=0
+        ms.write_nr_29(0x00);                      // addr low = 0 → UDK cell 16
+        ms.write_nr_2b(0x2A);                      // write cell + auto-inc
+        const uint8_t cell16 = ms.keymap_cell(16);
+        const uint8_t sel    = ms.keymap_sel();
+        const uint16_t addr  = ms.keymap_addr();
+
+        const size_t n = rt_save(ms, buf, sizeof buf);
+        ms.reset();                                // perturb → COE defaults, sel 0, addr 0
+        rt_load(ms, buf, n);
+
+        check("SL-MEM-01", "MembraneStick reprogrammed keymap cell restored",
+              ms.keymap_cell(16) == cell16 && cell16 == 0x2A,
+              DETAIL("cell16=%02X/%02X", ms.keymap_cell(16), cell16));
+        check("SL-MEM-02", "MembraneStick NR 0x28/0x29 sel + auto-inc addr restored",
+              ms.keymap_sel() == sel && ms.keymap_addr() == addr,
+              DETAIL("sel=%u/%u addr=%03X/%03X", ms.keymap_sel(), sel,
+                     ms.keymap_addr(), addr));
+    }
+
+    // ── IoMode (NR 0x0B pin-7 mux) ──────────────────────────────────────────
+    {
+        IoMode io; io.reset();
+        io.set_nr_0b(0x11);                        // mode 01 (CTC-toggled), iomode_0=1
+        io.tick_ctc_zc3();                          // may toggle pin7 per guard
+        io.set_uart0_tx(false);
+        io.set_uart1_tx(false);
+        io.set_joy_left_bit5(false);
+        io.set_joy_right_bit5(false);
+        const uint8_t raw = io.nr_0b_raw();
+        const bool pin7 = io.pin7();
+        const bool jrx = io.joy_uart_rx();
+
+        const size_t n = rt_save(io, buf, sizeof buf);
+        io.reset();                                // perturb → raw 0x01, pin7 1, lines 1
+        rt_load(io, buf, n);
+
+        check("SL-IOM-01", "IoMode NR 0x0B raw byte + pin7 register restored",
+              io.nr_0b_raw() == raw && io.pin7() == pin7,
+              DETAIL("raw=%02X/%02X pin7=%d/%d", io.nr_0b_raw(), raw, io.pin7(), pin7));
+        check("SL-IOM-02", "IoMode injected UART-TX / joystick-bit5 lines restored",
+              io.joy_uart_rx() == jrx,
+              DETAIL("joy_uart_rx=%d/%d", io.joy_uart_rx(), jrx));
+    }
+
+    // ── Emulator full-stream round-trip (paired "input" sentinel) ───────────
+    {
+        Emulator emu;
+        build_emulator_for_saveload(emu, 0);
+        emu.mouse().inject_delta(19, 71);
+        emu.md6().set_state_for_test(0x0C4);
+        emu.keyboard().set_extended_key(
+            static_cast<int>(Keyboard::ExtKey::LEFT), true);
+        const uint8_t mx = emu.mouse().x(), my = emu.mouse().y();
+        const uint16_t md6s = emu.md6().state_for_test();
+        const uint8_t kb_b0 = emu.keyboard().nr_b0_byte();
+
+        StateWriter measure;
+        emu.save_state(measure);
+        const size_t sz = measure.position();
+        std::vector<uint8_t> snap(sz, 0);
+        StateWriter w(snap.data(), sz);
+        emu.save_state(w);
+
+        // Perturb the live input state to something different.
+        emu.mouse().reset();
+        emu.md6().set_state_for_test(0x000);
+        emu.keyboard().reset();
+
+        StateReader r(snap.data(), sz);
+        const bool ok = emu.load_state(r);
+
+        check("SL-EMU-01", "Emulator::load_state accepts the input sentinel block",
+              ok == true, DETAIL("load_state returned %d", ok));
+        check("SL-EMU-02", "Emulator save/load restores mouse + MD6 + keyboard input",
+              emu.mouse().x() == mx && emu.mouse().y() == my &&
+              emu.md6().state_for_test() == md6s &&
+              emu.keyboard().nr_b0_byte() == kb_b0,
+              DETAIL("x=%u/%u y=%u/%u md6=%03X/%03X b0=%02X/%02X",
+                     emu.mouse().x(), mx, emu.mouse().y(), my,
+                     emu.md6().state_for_test(), md6s,
+                     emu.keyboard().nr_b0_byte(), kb_b0));
+    }
+
+    // ── Rewind (backward execution shares the same save/load path) ──────────
+    {
+        Emulator emu;
+        build_emulator_for_saveload(emu, 8);
+        // Frame 0 start snapshot will capture this MD6/mouse state.
+        emu.md6().set_state_for_test(0x0AA);
+        emu.mouse().inject_delta(55, 0);            // X=55
+        const uint16_t md6_a = emu.md6().state_for_test();
+        const uint8_t  x_a   = emu.mouse().x();
+        const uint32_t frame_a = emu.frame_num();
+        emu.run_frame();                            // snapshots state A at start of frame_a
+
+        // Perturb to a clearly different state for the next frame.
+        emu.md6().set_state_for_test(0x055);
+        emu.mouse().inject_delta(40, 0);            // X now 95
+        emu.run_frame();                            // snapshots state B
+
+        const bool ok = emu.rewind_to_frame(frame_a);   // restore to frame A start
+        check("SL-REW-01", "rewind_to_frame restores MD6 FSM + mouse input state",
+              ok && emu.md6().state_for_test() == md6_a && emu.mouse().x() == x_a,
+              DETAIL("ok=%d md6=%03X/%03X x=%u/%u", ok,
+                     emu.md6().state_for_test(), md6_a, emu.mouse().x(), x_a));
+    }
+
+    // ── Dispatcher shadow resync (Task 60c review Finding 1) ────────────────
+    // The host dispatchers keep their OWN shadow of the connector/wheel/button
+    // vector. After a restore overwrites Joystick/KempstonMouse, the NEXT host
+    // event must build on the restored value, not the stale shadow. resync()
+    // (fired from the on_input_state_restored callback in production) reseeds
+    // the shadow. These tests drive the dispatchers directly — no SDL loop.
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);   // shadow bits_[0]=B(0x10)
+        // Simulate a rewind/load_state restoring a DIFFERENT connector vector.
+        joy.set_joy_left(0x005);                              // R|L
+        jd.resync();                                          // reseed shadow from joy
+        // A new event toggles ONE bit; it must OR against the restored 0x005.
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_START, true);  // add START(0x80)
+        const uint16_t got = joy.joy_left_bits();
+        check("SL-DISP-01",
+              "JoystickDispatcher::resync stops stale bits_ stomping restored vector",
+              got == static_cast<uint16_t>(0x005 | 0x80),
+              DETAIL("joy_left=%03X expected=%03X (stale-stomp would give 0x090)",
+                     got, 0x005 | 0x80));
+    }
+    {
+        KempstonMouse mo; mo.reset();
+        MouseDispatcher md(mo);
+        md.handle_wheel(3);                 // shadow wheel_nibble_=3
+        mo.set_wheel(0x0A);                 // restore wheel to 0x0A
+        md.resync();                        // reseed shadow from mouse (cumulative!)
+        md.handle_wheel(1);                 // must be 0x0A+1, not stale 3+1
+        check("SL-DISP-02",
+              "MouseDispatcher::resync stops cumulative wheel shadow stomping restore",
+              mo.wheel() == 0x0B,
+              DETAIL("wheel=%X expected=0xB (stale-stomp would give 0x4)", mo.wheel()));
+    }
+    {
+        KempstonMouse mo; mo.reset();
+        MouseDispatcher md(mo);
+        md.handle_button(SDL_BUTTON_LEFT, true);  // shadow mask=0x02 (L)
+        mo.set_buttons(0x05);                     // restore R|M
+        md.resync();                              // reseed shadow from mouse
+        md.handle_button(SDL_BUTTON_LEFT, true);  // add L → must be 0x05|0x02
+        check("SL-DISP-03",
+              "MouseDispatcher::resync stops stale button mask stomping restore",
+              mo.buttons() == 0x07,
+              DETAIL("buttons=%02X expected=0x07 (stale-stomp would give 0x02)",
+                     mo.buttons()));
+    }
+}
+
 int main() {
     printf("Input Subsystem Compliance Tests (VHDL-derived plan)\n");
     printf("=====================================================\n\n");
@@ -2983,6 +3357,7 @@ int main() {
     test_mouse();           printf("  Group: MOUSE  done\n");
     test_nmi();             printf("  Group: NMI    done\n");
     test_port_fe_format();  printf("  Group: FE     done\n");
+    test_saveload();        printf("  Group: SL     done\n");
 
     printf("\n=====================================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

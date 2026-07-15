@@ -43,6 +43,16 @@ public:
     /// bound KempstonMouse — callers manage that lifecycle.
     void reset();
 
+    /// Task 60c — re-seed this dispatcher's cumulative shadow accumulators
+    /// (`button_mask_` + `wheel_nibble_`) from the bound KempstonMouse's
+    /// CURRENT canonical state. Call after a rewind / save-load restore:
+    /// without it, the next wheel event computes `wheel_nibble_ + delta`
+    /// from the STALE (un-rewound) accumulator and re-emits it, silently
+    /// stomping the restored wheel — and because the wheel accumulator is
+    /// cumulative it would NEVER self-heal. Does NOT re-emit to the mouse
+    /// (it reads FROM it).
+    void resync();
+
     // ── Transport-agnostic API ──────────────────────────────────────────
 
     /// SDL_MOUSEMOTION → inject relative delta into KempstonMouse counters.

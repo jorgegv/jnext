@@ -147,6 +147,13 @@ public:
         return keymap_[static_cast<size_t>(idx)];
     }
 
+    // Task 60c — state serialisation. Persists the per-connector modes and
+    // stored state, plus the runtime-reprogrammable SDP-RAM keymap and its
+    // NR 0x28/0x29/0x2B address/select latches (a program can rewrite the
+    // User-Defined keymap at runtime, so it is genuine emulated state).
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     Joystick::Mode mode_left_  = Joystick::Mode::Kempston1;
     Joystick::Mode mode_right_ = Joystick::Mode::Sinclair2;

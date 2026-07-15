@@ -133,6 +133,16 @@ public:
     /// behave exactly as before.
     void set_membrane_stick(MembraneStick* ms) { membrane_stick_ = ms; }
 
+    // -----------------------------------------------------------------------
+    // Task 60c — state serialisation. Persists the live membrane matrix,
+    // the extended-key register, the two-scan shift-hysteresis buffer and
+    // the in-flight auto-type queue/FSM so a rewind or save/load restores
+    // the exact keyboard state. The non-owning membrane_stick_ back-pointer
+    // is NOT serialised (it is rewired by the Emulator on construction).
+    // -----------------------------------------------------------------------
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     /// matrix_[row]: 5-bit state; bit N = 0 means column N key is pressed.
     uint8_t matrix_[8];

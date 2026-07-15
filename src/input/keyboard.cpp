@@ -1,6 +1,7 @@
 #include "input/keyboard.h"
 #include "input/membrane_stick.h"
 #include "core/log.h"
+#include "core/saveable.h"
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -364,4 +365,55 @@ uint8_t Keyboard::nr_b1_byte() const {
     // Mapped 1:1 onto ExtKey IDs 15..8 (DELETE..EXTEND), so the high
     // byte of ex_matrix_ IS the NR 0xB1 byte (active-high).
     return static_cast<uint8_t>((ex_matrix_ >> 8) & 0x00FFu);
+}
+
+// ---------------------------------------------------------------------------
+// Task 60c — state serialisation
+// ---------------------------------------------------------------------------
+
+void Keyboard::save_state(StateWriter& w) const
+{
+    // 8-row membrane matrix (active-low, bit N=0 ⇒ col N pressed).
+    w.write_bytes(matrix_, 8);
+    // 16-bit extended-key register (active-high).
+    w.write_u16(ex_matrix_);
+    // Two-scan shift-hysteresis buffer (active-low).
+    w.write_bytes(shift_hist_, 2);
+    // Auto-type FSM: the in-flight queue plus the frame counter and the
+    // inter-key gap flag. The queue can be non-empty mid-play (e.g. an
+    // instant-TAP LOAD"" sequence), so it must travel with the snapshot.
+    w.write_u32(static_cast<uint32_t>(auto_queue_.size()));
+    for (const auto& k : auto_queue_) {
+        w.write_i32(k.row1);
+        w.write_i32(k.col1);
+        w.write_i32(k.row2);
+        w.write_i32(k.col2);
+        w.write_i32(k.frames);
+    }
+    w.write_i32(auto_frame_count_);
+    w.write_bool(auto_gap_);
+}
+
+void Keyboard::load_state(StateReader& r)
+{
+    r.read_bytes(matrix_, 8);
+    ex_matrix_ = r.read_u16();
+    r.read_bytes(shift_hist_, 2);
+    const uint32_t n = r.read_u32();
+    auto_queue_.clear();
+    // Guard against a corrupt count causing a pathological loop: each entry
+    // consumes 20 bytes, so a bad `n` exhausts the buffer within
+    // capacity/20 iterations and out_of_bounds() latches — bail then. The
+    // sentinel check in Emulator::load_state reports the corruption loudly.
+    for (uint32_t i = 0; i < n && !r.out_of_bounds(); ++i) {
+        AutoKey k;
+        k.row1   = r.read_i32();
+        k.col1   = r.read_i32();
+        k.row2   = r.read_i32();
+        k.col2   = r.read_i32();
+        k.frames = r.read_i32();
+        auto_queue_.push_back(k);
+    }
+    auto_frame_count_ = r.read_i32();
+    auto_gap_         = r.read_bool();
 }

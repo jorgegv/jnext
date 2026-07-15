@@ -66,6 +66,16 @@ public:
     uint8_t x() const { return x_; }
     uint8_t y() const { return y_; }
 
+    /// 3-bit button mask (bit 0=R, 1=L, 2=M) and 4-bit wheel nibble, as last
+    /// set by the host adapter / restored by load_state. Exposed so
+    /// MouseDispatcher can re-seed its cumulative shadow accumulators from the
+    /// canonical state after a rewind / save-load restore (Task 60c resync —
+    /// otherwise the dispatcher's stale wheel/button shadow would stomp the
+    /// restored value on the next event; the wheel is cumulative so it would
+    /// never self-heal).
+    uint8_t buttons() const { return buttons_; }
+    uint8_t wheel()   const { return wheel_; }
+
     /// G56 read-back: NR 0x0A bit 3 (mouse_button_reverse).
     /// VHDL zxnext.vhd:5912 composes this back into NR 0x0A reads.
     bool    button_reverse() const { return button_reverse_; }
@@ -73,6 +83,12 @@ public:
     /// G56 read-back: NR 0x0A bits 1:0 (mouse_dpi). Default "01" per
     /// zxnext.vhd:1128. Composed into NR 0x0A reads at zxnext.vhd:5912.
     uint8_t dpi() const { return dpi_; }
+
+    // Task 60c — state serialisation. Persists the X/Y accumulators, the
+    // button mask, the wheel nibble and the NR 0x0A button-reverse / DPI
+    // latches so a rewind or save/load restores the exact mouse state.
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
 
 private:
     uint8_t x_ = 0;             // i_MOUSE_X, driven by host adapter

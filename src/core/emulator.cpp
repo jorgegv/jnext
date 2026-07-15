@@ -7982,11 +7982,18 @@ void Emulator::on_vsync()
 // into the scheduler_), so the scheduler queue is always empty here.
 // Subsystem order must be identical in save_state and load_state.
 //
+// Input subsystem (keyboard_/joystick_/mouse_/md6_/membrane_stick_/iomode_)
+// IS serialised — Task 60c — in the appended "input" sentinel block at the
+// end of the stream (the MD6 FSM is ticked every instruction, so it must
+// round-trip). The host-side dispatchers that FEED joystick_/mouse_
+// (JoystickDispatcher/MouseDispatcher) are platform-owned, not Emulator
+// members, so they are re-seeded via the on_input_state_restored callback
+// rather than serialised (see load_state tail + input/*_dispatcher.cpp).
+//
 // NOT serialised (rewired by init() / not part of emulated state):
 //   rom_          — loaded from file at startup, never changes
 //   contention_   — rebuilt from config.type by build()
 //   port_         — lambda callbacks only; rewired in init()
-//   keyboard_     — user input, not CPU state
 //   mixer_        — output path, discarded on rewind by design
 //   debug_state_  — debugger transient state
 //   trace_log_    — debug trace, not emulated state
@@ -8182,6 +8189,29 @@ void Emulator::save_state(StateWriter& w) const
     // tolerance so prior snapshots load with the reset default.
     w.write_bool(prev_pulse_int_n_);
     put_sentinel();   // "tail" (nr_02_bus_reset_ + prev_pulse_int_n_)
+
+    // Task 60c — input subsystem state. Previously ABSENT from snapshots,
+    // so keyboard / joystick / mouse / MD6 state (including the live MD6
+    // FSM counter ticked every instruction, and the in-flight keyboard
+    // auto-type queue) was lost on every rewind and save/load. Appended as
+    // one stable sentinel block at the very end of the stream, AFTER "tail".
+    // Order here MUST match the load side exactly (paired check_sentinel).
+    // Excluded: PhantomTypist belongs to the tape family (tape state is
+    // excluded from snapshots by design, see header comment above); EmuFnKeys
+    // is a host-transient FSM driven synchronously by host key events with no
+    // cross-frame evolution. The SDL/Qt host dispatchers (JoystickDispatcher /
+    // MouseDispatcher) are NOT Emulator members (they are platform-owned) so
+    // they cannot travel through this stream; crucially they keep their OWN
+    // shadow of the connector/wheel/button vector that would stomp a restore,
+    // so they are re-seeded from the restored Joystick / KempstonMouse via the
+    // on_input_state_restored callback fired at the end of load_state().
+    keyboard_.save_state(w);
+    joystick_.save_state(w);
+    mouse_.save_state(w);
+    md6_.save_state(w);
+    membrane_stick_.save_state(w);
+    iomode_.save_state(w);
+    put_sentinel();   // "input" (keyboard/joystick/mouse/md6/membrane/iomode)
 
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
@@ -8578,6 +8608,18 @@ bool Emulator::load_state(StateReader& r)
     }
     if (!check_sentinel("tail")) return false;
 
+    // Task 60c — input subsystem state. Mirrors the save_state append order
+    // exactly (keyboard → joystick → mouse → md6 → membrane_stick → iomode),
+    // guarded by the paired "input" sentinel. See save_state() for the
+    // rationale on which classes are (and are NOT) serialised.
+    keyboard_.load_state(r);
+    joystick_.load_state(r);
+    mouse_.load_state(r);
+    md6_.load_state(r);
+    membrane_stick_.load_state(r);
+    iomode_.load_state(r);
+    if (!check_sentinel("input")) return false;
+
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
     // composite gate from the canonical loaded state (nr_03_config_mode +
     // reset_type bit 2). The gate itself is NOT persisted — it's a
@@ -8597,6 +8639,19 @@ bool Emulator::load_state(StateReader& r)
             "load_state: read past end of snapshot buffer ({} bytes) — "
             "restore aborted", r.capacity());
         return false;
+    }
+
+    // Task 60c — the input subsystem (keyboard/joystick/mouse/md6/…) has now
+    // been restored to the snapshot's canonical state. The host-side input
+    // dispatchers (JoystickDispatcher / MouseDispatcher) keep their OWN shadow
+    // of the connector/wheel/button vectors and are NOT part of this stream
+    // (they are platform-owned, not Emulator members). Notify the host so it
+    // can re-seed those shadows from the restored Joystick / KempstonMouse —
+    // otherwise the next live controller/wheel/button event would push the
+    // dispatcher's stale shadow back over the restore. No-op when unset
+    // (headless / unit tests / GUI-less builds).
+    if (on_input_state_restored) {
+        on_input_state_restored();
     }
     return true;
 }

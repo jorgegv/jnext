@@ -1,4 +1,5 @@
 #include "input/mouse.h"
+#include "core/saveable.h"
 
 // =============================================================================
 // Phase 2 Agent H — Kempston mouse port composers per zxnext.vhd:3543-3561.
@@ -125,4 +126,28 @@ uint8_t KempstonMouse::read_port_ffdf() const
 {
     // VHDL zxnext.vhd:3553 : port_ffdf_dat <= i_MOUSE_Y.
     return y_;
+}
+
+// =============================================================================
+// Task 60c — state serialisation
+// =============================================================================
+
+void KempstonMouse::save_state(StateWriter& w) const
+{
+    w.write_u8(x_);
+    w.write_u8(y_);
+    w.write_u8(buttons_);
+    w.write_u8(wheel_);
+    w.write_bool(button_reverse_);
+    w.write_u8(dpi_);
+}
+
+void KempstonMouse::load_state(StateReader& r)
+{
+    x_              = r.read_u8();
+    y_              = r.read_u8();
+    buttons_        = r.read_u8();
+    wheel_          = r.read_u8();
+    button_reverse_ = r.read_bool();
+    dpi_            = r.read_u8();
 }

@@ -63,6 +63,27 @@ void JoystickDispatcher::reset()
     }
 }
 
+void JoystickDispatcher::resync()
+{
+    // Read the canonical (just-restored) 12-bit vectors back from the bound
+    // Joystick and adopt them as our shadow, so a subsequent single-bit
+    // controller event OR/ANDs against the restored vector rather than a
+    // stale one. Also re-seed axis_state_ from the direction bits so a later
+    // partial axis update resolves L/R/U/D consistently.
+    bits_[0] = joy_.joy_left_bits();
+    bits_[1] = joy_.joy_right_bits();
+    for (int i = 0; i < NUM_CONNECTORS; ++i) {
+        const uint16_t v = bits_[static_cast<size_t>(i)];
+        auto& st = axis_state_[static_cast<size_t>(i)];
+        st.left_active  = (v & JBIT_L) != 0;
+        st.right_active = (v & JBIT_R) != 0;
+        st.up_active    = (v & JBIT_U) != 0;
+        st.down_active  = (v & JBIT_D) != 0;
+    }
+    // Deliberately no emit_to_joystick(): the Joystick is already correct;
+    // we are syncing FROM it, not TO it.
+}
+
 void JoystickDispatcher::emit_to_joystick(int idx)
 {
     // JOY-WIRE-04 routing policy: connector 0 → left, connector 1 → right.

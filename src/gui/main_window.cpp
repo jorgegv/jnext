@@ -192,6 +192,16 @@ void MainWindow::set_emulator(Emulator* emu) {
     // G43 closure for the Qt UI path (default build).
     if (emu) {
         mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emu->mouse());
+        // Task 60c — after a rewind / save-load restore, re-seed the mouse
+        // dispatcher's cumulative shadow (wheel/button) from the restored
+        // KempstonMouse so the next Qt wheel/button event does not stomp the
+        // restore. (The Qt path has no joystick dispatcher; gamepad input is
+        // SDL-only. See src/input/mouse_dispatcher.cpp::resync.)
+        emu->on_input_state_restored = [this]() {
+            if (mouse_dispatcher_) {
+                mouse_dispatcher_->resync();
+            }
+        };
     } else {
         mouse_dispatcher_.reset();
     }

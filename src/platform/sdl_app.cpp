@@ -41,6 +41,16 @@ bool SdlApp::init(int argc, char* argv[]) {
     // CONTROLLERDEVICEADDED handler below opens up to two devices and
     // routes them to slots 0 / 1.
     joystick_dispatcher_ = std::make_unique<JoystickDispatcher>(emulator_.joystick());
+
+    // Task 60c — after any state restore (rewind / snapshot load) re-seed both
+    // host dispatchers' shadows from the restored canonical Joystick /
+    // KempstonMouse, so the next live controller/mouse event does not push a
+    // stale shadow back over the restore. Fired from Emulator::load_state.
+    emulator_.on_input_state_restored = [this]() {
+        if (mouse_dispatcher_)    mouse_dispatcher_->resync();
+        if (joystick_dispatcher_) joystick_dispatcher_->resync();
+    };
+
     input_.on_controller = [this](const SDL_Event& e) {
         if (e.type == SDL_CONTROLLERDEVICEADDED) {
             // e.cdevice.which is the device-index here (NOT the

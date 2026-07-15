@@ -1,4 +1,5 @@
 #include "input/iomode.h"
+#include "core/saveable.h"
 
 // =============================================================================
 // Phase 2 Wave 2 Agent E — NR 0x0B pin-7 mux for modes 00 (static) and 01
@@ -56,4 +57,31 @@ void IoMode::tick_ctc_zc3()
     if (iomode_0() || !pin7_) {
         pin7_ = !pin7_;
     }
+}
+
+// =============================================================================
+// Task 60c — state serialisation. Persists the full NR 0x0B mux state. The
+// pin7 register is ALSO round-tripped through the legacy single-bool slot in
+// Emulator::save_state (kept for save-format backwards-compat); restoring it
+// twice to the same value is idempotent.
+// =============================================================================
+
+void IoMode::save_state(StateWriter& w) const
+{
+    w.write_u8(nr_0b_raw_);
+    w.write_bool(pin7_);
+    w.write_bool(uart0_tx_);
+    w.write_bool(uart1_tx_);
+    w.write_bool(joy_left_bit5_);
+    w.write_bool(joy_right_bit5_);
+}
+
+void IoMode::load_state(StateReader& r)
+{
+    nr_0b_raw_      = r.read_u8();
+    pin7_           = r.read_bool();
+    uart0_tx_       = r.read_bool();
+    uart1_tx_       = r.read_bool();
+    joy_left_bit5_  = r.read_bool();
+    joy_right_bit5_ = r.read_bool();
 }
