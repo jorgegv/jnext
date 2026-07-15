@@ -23,8 +23,12 @@ public:
     /// Is the debugger currently enabled (window visible, breakpoint checks active)?
     bool is_enabled() const { return enabled_; }
 
-    /// Enable or disable the debugger at runtime.
-    void set_enabled(bool enabled);
+    /// Enable or disable the debugger at runtime. Returns true if the
+    /// debugger is in the requested state afterwards; returns FALSE only when
+    /// a disable was DECLINED — the machine is corrupt (Task 60b) and the user
+    /// refused to resume it (Task 60e), so the debugger stays enabled + paused.
+    /// Callers that hide/close UI on disable must honour a false return.
+    bool set_enabled(bool enabled);
 
     /// Refresh all visible panels with current emulator state.
     /// Called from on_frame_tick() — does nothing when debugger is disabled.

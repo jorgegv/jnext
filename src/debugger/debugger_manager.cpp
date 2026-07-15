@@ -81,9 +81,9 @@ void DebuggerManager::reposition_debugger_window() {
 // Enable / Disable
 // ---------------------------------------------------------------------------
 
-void DebuggerManager::set_enabled(bool enabled) {
+bool DebuggerManager::set_enabled(bool enabled) {
     if (enabled_ == enabled)
-        return;
+        return true;   // already in the requested state
 
     enabled_ = enabled;
 
@@ -124,11 +124,18 @@ void DebuggerManager::set_enabled(bool enabled) {
         if (emulator_->debug_state().paused()) {
             // Task 60e: disabling the debugger auto-resumes — route it through
             // the same corruption gate. If the user declines, abort the disable
-            // and keep the debugger enabled + paused so they can reset (enabled_
-            // was already flipped to false above, so restore it).
+            // and keep the debugger enabled + paused so they can reset. enabled_
+            // was already flipped to false above (and Qt flips the checkable
+            // action to unchecked BEFORE emitting triggered()), so restore both
+            // the state and every UI affordance, then report the decline so
+            // callers (both closeEvents) don't hide/close a still-live debugger.
             if (!confirm_resume_if_corrupt()) {
                 enabled_ = true;
-                return;
+                if (enable_action_)
+                    enable_action_->setChecked(true);
+                update_actions();
+                emit enabled_changed(true);   // re-check the toolbar Debug button
+                return false;
             }
             emulator_->debug_state().resume();
             was_paused_ = false;
@@ -150,6 +157,7 @@ void DebuggerManager::set_enabled(bool enabled) {
 
     update_actions();
     emit enabled_changed(enabled);
+    return true;
 }
 
 void DebuggerManager::ensure_window() {
