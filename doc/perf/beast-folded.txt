@@ -1,0 +1,113 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 17K of event 'cycles:u'
+# Event count (approx.): 20686098130
+#
+# Children      Self  Command  Shared Object             Symbol                                                                                                                                                                                                                                                                         
+# ........  ........  .......  ........................  ...............................................................................................................................................................................................................................................................................
+#
+    99.11%    21.11%  jnext    jnext                     [.] Emulator::run_frame()
+21.11% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame()
+9.18% Emulator::run_frame();Z80Cpu::execute();Mmu::read(unsigned short)
+6.05% Emulator::run_frame();Z80Cpu::execute()
+5.67% Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+5.50% Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read
+4.81% Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+4.28% Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+3.84% Emulator::run_frame();Copper::execute(int, int, NextReg&)
+3.70% Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+3.53% Emulator::run_frame();Im2Controller::tick(unsigned int)
+3.33% Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_pulse()
+2.42% Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+2.03% Emulator::run_frame();Z80Cpu::execute();Multiface::on_m1(unsigned short, bool)
+    99.01%     0.00%  jnext    jnext                     [.] main
+21.11% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame()
+9.18% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Mmu::read(unsigned short)
+6.04% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+5.67% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+5.50% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read
+4.81% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+4.28% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+3.84% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Copper::execute(int, int, NextReg&)
+3.70% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+3.53% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+3.33% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_pulse()
+2.42% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+2.03% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Multiface::on_m1(unsigned short, bool)
+    99.00%     0.00%  jnext    jnext                     [.] int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const
+21.11% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame()
+9.18% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Mmu::read(unsigned short)
+6.04% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+5.67% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+5.50% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read
+4.81% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+4.28% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+3.84% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Copper::execute(int, int, NextReg&)
+3.70% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+3.53% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+3.33% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_pulse()
+2.42% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+2.03% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Multiface::on_m1(unsigned short, bool)
+    98.99%     0.00%  jnext    jnext                     [.] HeadlessApp::run()
+21.11% HeadlessApp::run();Emulator::run_frame()
+9.18% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Mmu::read(unsigned short)
+6.04% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+5.67% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+5.50% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read
+4.81% HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+4.28% HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+3.84% HeadlessApp::run();Emulator::run_frame();Copper::execute(int, int, NextReg&)
+3.70% HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+3.53% HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+3.33% HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_pulse()
+2.42% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+2.03% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Multiface::on_m1(unsigned short, bool)
+    39.03%     6.05%  jnext    jnext                     [.] Z80Cpu::execute()
+9.69% Z80Cpu::execute();Mmu::read(unsigned short)
+6.04% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+5.82% Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+5.50% Z80Cpu::execute();fuse_z80_execute_one;contend_read
+2.42% Z80Cpu::execute();std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+2.03% Z80Cpu::execute();Multiface::on_m1(unsigned short, bool)
+    11.67%     3.53%  jnext    jnext                     [.] Im2Controller::tick(unsigned int)
+4.81% Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+3.53% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+3.33% Im2Controller::tick(unsigned int);Im2Controller::step_pulse()
+    11.15%     0.01%  jnext    jnext                     [.] Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*)
+4.28% Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+3.70% Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+     9.72%     9.72%  jnext    jnext                     [.] Mmu::read(unsigned short)
+9.18% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Mmu::read(unsigned short)
+     7.76%     5.82%  jnext    jnext                     [.] std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+5.67% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+     7.66%     0.50%  jnext    jnext                     [.] fuse_z80_execute_one
+5.50% fuse_z80_execute_one;contend_read
+     7.39%     0.02%  jnext    jnext                     [.] Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*)
+4.28% Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+     5.56%     5.52%  jnext    jnext                     [.] contend_read
+5.50% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read
+     4.81%     4.81%  jnext    jnext                     [.] Im2Controller::step_devices()
+4.81% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+     4.37%     1.72%  jnext    jnext                     [.] std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&)
+2.42% std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+     4.28%     4.28%  jnext    jnext                     [.] Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+4.28% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Tilemap::render_scanline(unsigned int*, bool*, int, Ram const&, PaletteManager const&, bool*) const
+     3.84%     3.84%  jnext    jnext                     [.] Copper::execute(int, int, NextReg&)
+3.84% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Copper::execute(int, int, NextReg&)
+     3.70%     3.70%  jnext    jnext                     [.] Renderer::composite_scanline(unsigned int*, unsigned int, int)
+3.70% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+     3.33%     3.33%  jnext    jnext                     [.] Im2Controller::step_pulse()
+3.33% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_pulse()
+     2.42%     2.42%  jnext    jnext                     [.] Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+2.42% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&);Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+     2.40%     0.76%  jnext    jnext                     [.] TurboSound::tick()
+     2.10%     2.03%  jnext    jnext                     [.] Multiface::on_m1(unsigned short, bool)
+2.03% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();Multiface::on_m1(unsigned short, bool)
+
+
+#
+# (Tip: System-wide collection from all CPUs: perf record -a)
+#

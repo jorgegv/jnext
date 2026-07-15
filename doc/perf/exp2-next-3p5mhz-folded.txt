@@ -1,0 +1,115 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 4K of event 'cycles:u'
+# Event count (approx.): 4895350143
+#
+# Children      Self  Command  Shared Object             Symbol                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ........  .......  ........................  ...............................................................................................................................................................................................................................................................................................................................................................................
+#
+    98.91%     9.68%  jnext    jnext                     [.] Emulator::run_frame()
+11.47% Emulator::run_frame();Ctc::tick(unsigned int)
+10.04% Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+9.68% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame()
+7.56% Emulator::run_frame();UartChannel::tick(unsigned int) [clone .part.0]
+7.41% Emulator::run_frame();Uart::tick(unsigned int);UartChannel::tick(unsigned int) [clone .part.0]
+3.55% Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+3.52% Emulator::run_frame();Z80Cpu::execute()
+3.19% Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+2.92% Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read_no_mreq
+2.89% Emulator::run_frame();TurboSound::tick();AyChip::update_output()
+2.63% Emulator::run_frame();TurboSound::tick()
+2.58% Emulator::run_frame();Im2Controller::tick(unsigned int)
+2.49% Emulator::run_frame();Z80Cpu::execute();sync_regs_from_fuse(Z80Registers&)
+2.22% Emulator::run_frame();TurboSound::tick();AyChip::tick()
+    98.61%     0.00%  jnext    jnext                     [.] main
+11.47% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Ctc::tick(unsigned int)
+10.04% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+9.68% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame()
+7.51% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();UartChannel::tick(unsigned int) [clone .part.0]
+7.41% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Uart::tick(unsigned int);UartChannel::tick(unsigned int) [clone .part.0]
+3.55% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+3.21% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+3.19% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+2.92% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read_no_mreq
+2.89% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::update_output()
+2.63% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick()
+2.58% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+2.49% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();sync_regs_from_fuse(Z80Registers&)
+2.22% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::tick()
+    98.59%     0.00%  jnext    jnext                     [.] int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const
+11.47% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Ctc::tick(unsigned int)
+10.04% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+9.68% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame()
+7.51% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();UartChannel::tick(unsigned int) [clone .part.0]
+7.41% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Uart::tick(unsigned int);UartChannel::tick(unsigned int) [clone .part.0]
+3.55% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+3.21% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+3.19% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+2.92% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read_no_mreq
+2.89% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::update_output()
+2.63% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick()
+2.58% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+2.49% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();sync_regs_from_fuse(Z80Registers&)
+2.22% int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::tick()
+    98.57%     0.00%  jnext    jnext                     [.] HeadlessApp::run()
+11.47% HeadlessApp::run();Emulator::run_frame();Ctc::tick(unsigned int)
+10.04% HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+9.68% HeadlessApp::run();Emulator::run_frame()
+7.51% HeadlessApp::run();Emulator::run_frame();UartChannel::tick(unsigned int) [clone .part.0]
+7.41% HeadlessApp::run();Emulator::run_frame();Uart::tick(unsigned int);UartChannel::tick(unsigned int) [clone .part.0]
+3.55% HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+3.21% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+3.19% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+2.92% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read_no_mreq
+2.89% HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::update_output()
+2.63% HeadlessApp::run();Emulator::run_frame();TurboSound::tick()
+2.58% HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+2.49% HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();sync_regs_from_fuse(Z80Registers&)
+2.22% HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::tick()
+    23.41%     3.52%  jnext    jnext                     [.] Z80Cpu::execute()
+3.31% Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+3.21% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute()
+2.92% Z80Cpu::execute();fuse_z80_execute_one;contend_read_no_mreq
+2.49% Z80Cpu::execute();sync_regs_from_fuse(Z80Registers&)
+    14.99%    14.97%  jnext    jnext                     [.] UartChannel::tick(unsigned int) [clone .part.0]
+7.51% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();UartChannel::tick(unsigned int) [clone .part.0]
+7.41% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Uart::tick(unsigned int);UartChannel::tick(unsigned int) [clone .part.0]
+    14.12%     0.05%  jnext    jnext                     [.] Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*)
+10.04% Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+    11.49%    11.47%  jnext    jnext                     [.] Ctc::tick(unsigned int)
+11.47% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Ctc::tick(unsigned int)
+    10.06%    10.04%  jnext    jnext                     [.] Renderer::composite_scanline(unsigned int*, unsigned int, int)
+10.04% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Renderer::render_frame(unsigned int*, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*);Renderer::composite_scanline(unsigned int*, unsigned int, int)
+     8.01%     0.85%  jnext    jnext                     [.] fuse_z80_execute_one
+2.92% fuse_z80_execute_one;contend_read_no_mreq
+     7.89%     2.63%  jnext    jnext                     [.] TurboSound::tick()
+2.89% TurboSound::tick();AyChip::update_output()
+2.63% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick()
+2.22% TurboSound::tick();AyChip::tick()
+     7.77%     0.36%  jnext    jnext                     [.] Uart::tick(unsigned int)
+7.41% Uart::tick(unsigned int);UartChannel::tick(unsigned int) [clone .part.0]
+     7.12%     2.58%  jnext    jnext                     [.] Im2Controller::tick(unsigned int)
+3.55% Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+2.58% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int)
+     5.22%     3.31%  jnext    jnext                     [.] std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+3.19% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+     3.79%     0.07%  jnext    jnext                     [.] Renderer::render_row(unsigned int*, int, Mmu&, Ram&, PaletteManager&, Layer2&, SpriteEngine*, Tilemap*)
+     3.74%     2.92%  jnext    jnext                     [.] contend_read_no_mreq
+2.92% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();fuse_z80_execute_one;contend_read_no_mreq
+     3.55%     3.55%  jnext    jnext                     [.] Im2Controller::step_devices()
+3.55% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Im2Controller::tick(unsigned int);Im2Controller::step_devices()
+     3.33%     1.84%  jnext    jnext                     [.] Mixer::accumulate(Beeper const&, TurboSound const&, Dac const&, unsigned int)
+     2.92%     2.89%  jnext    jnext                     [.] AyChip::update_output()
+2.89% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::update_output()
+     2.49%     2.49%  jnext    jnext                     [.] sync_regs_from_fuse(Z80Registers&)
+2.49% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();Z80Cpu::execute();sync_regs_from_fuse(Z80Registers&)
+     2.34%     2.22%  jnext    jnext                     [.] AyChip::tick()
+2.22% main;int main::{lambda(auto:1&)#1}::operator()<HeadlessApp>(HeadlessApp&) const;HeadlessApp::run();Emulator::run_frame();TurboSound::tick();AyChip::tick()
+
+
+#
+# (Tip: For latency profiling, try: perf record/report --latency)
+#
