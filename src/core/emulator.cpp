@@ -6809,8 +6809,20 @@ uint64_t Emulator::step_one_instruction()
         // instruction raster position. The contention path itself
         // does NOT consult VideoTiming (it derives hc/vc from
         // tstates directly to keep per-bus-cycle precision); this
-        // advance is purely the test/debug observable.
-        video_timing_.advance(tstates);
+        // advance is purely the debug observable.
+        //
+        // Task 27 C10: gate it behind an attached debugger. No
+        // production path reads the counters advance() mutates
+        // (hc_/vc_/frame_done_/pulse counts): the compositor and
+        // scheduler derive raster from the clock, the debugger's
+        // HC/VC readout uses clock-derived paused_vc_/paused_hc_
+        // (snapshot_raster()), and NR 0x1E/0x1F likewise. Only a
+        // human inspecting emulator.video_timing().pos() in the
+        // debugger could observe it, so the free-running production
+        // hot loop (headless/GUI, debug_state_ inactive) skips the
+        // per-instruction raster walk entirely.
+        if (debug_state_.active())
+            video_timing_.advance(tstates);
 
         // Call stack tracking post-execution.
         if (call_stack_.enabled()) {
