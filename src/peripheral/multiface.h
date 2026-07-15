@@ -105,7 +105,16 @@ public:
     ///
     /// `pc` is the address being fetched; `mreq_low` mirrors VHDL's
     /// `cpu_mreq_n_i='0'` (true during the fetch's memory cycle).
-    void on_m1(uint16_t pc, bool mreq_low);
+    ///
+    /// Task 27 C-M1 — inline fast path: when `m1_quiescent_()` proves
+    /// the clock edge cannot change any FF (see the predicate for the
+    /// per-FF proof), the call reduces to a few byte loads. Behaviour
+    /// is identical except that the trace-level clock_edge_ log line is
+    /// not emitted for these provably state-preserving edges.
+    void on_m1(uint16_t pc, bool mreq_low) {
+        if (m1_quiescent_()) return;
+        on_m1_clock_(pc, mreq_low);
+    }
 
     /// VHDL `cpu_retn_seen_i` pulse. Clears nmi_active (line 144) AND
     /// mf_enable (line 178) for one cycle. Driven from the same source
@@ -288,4 +297,45 @@ private:
     /// VHDL signal is purely combinational and falls back to '0' between
     /// strobes).
     void update_mf_port_en_(bool port_en_rd);
+
+    /// Task 27 C-M1 — true iff an on_m1() clock edge (button=0, all four
+    /// port pulses=0, retn=0, m1_low=1, any pc/mreq) is a provable no-op
+    /// on every FF and combinational output, so the edge may be skipped.
+    ///
+    /// Enabled case (clock_edge_ body vs multiface.vhd):
+    ///   * fetch_66 (vhd:169) = a_0066 AND m1 AND nmi_active_prev — with
+    ///     nmi_active_=0 it is 0 REGARDLESS of pc, so no pc term needed.
+    ///   * port_io_dly (vhd:122-131) <= OR(port pulses)=0 — no-op iff
+    ///     already 0 (gated below).
+    ///   * nmi_active (vhd:137-148): button_pulse=0; clear path needs
+    ///     retn OR port pulses — all 0 — unchanged.
+    ///   * invisible (vhd:152-163): button_pulse=0, inv_set needs port
+    ///     pulses — unchanged.
+    ///   * mf_enable (vhd:171-184): fetch_66=0, port/retn inputs 0 —
+    ///     unchanged (any current value, 0 or 1, is preserved).
+    ///   * fetch_66_live_ <= fetch_66=0 — no-op iff already 0 (gated).
+    ///   * mf_port_en_ (vhd:195) <= port_en_rd AND … = 0 — no-op iff
+    ///     already 0 (gated). NOTE: this term is redundant-by-invariant
+    ///     (mf_port_en_=1 only arises on a port-strobe edge, which also
+    ///     latches port_io_dly_=1 on the SAME edge, and both are cleared
+    ///     together by the next edge — so !port_io_dly_ already covers
+    ///     it; mutation-equivalent). Kept deliberately: the predicate's
+    ///     safety argument stays local to the FF list instead of
+    ///     depending on a cross-field invariant that future strobe
+    ///     plumbing could break.
+    /// Disabled case (vhd:103 reset = NOT enable_i): clock_edge_ forces
+    /// the reset state {nmi=0, invisible=1, mf_enable=0, dly=0,
+    /// fetch66=0, port_en=0} — no-op iff the state already equals it.
+    bool m1_quiescent_() const {
+        if (enabled_) {
+            return !nmi_active_ && !port_io_dly_ &&
+                   !fetch_66_live_ && !mf_port_en_;
+        }
+        return !nmi_active_ && invisible_ && !mf_enable_ &&
+               !port_io_dly_ && !fetch_66_live_ && !mf_port_en_;
+    }
+
+    /// Out-of-line tail of on_m1() (Task 27 C-M1 split): the original
+    /// clock_edge_ dispatch, unchanged.
+    void on_m1_clock_(uint16_t pc, bool mreq_low);
 };

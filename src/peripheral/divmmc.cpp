@@ -20,6 +20,13 @@ static std::shared_ptr<spdlog::logger>& divmmc_log() {
     return l;
 }
 
+// P0 boot probe env gate (JNEXT_BOOT_PROBE) — shared by the two probe
+// blocks in check_automap(). Function-local static: getenv runs once.
+static bool boot_probe_env() {
+    static const bool v = std::getenv("JNEXT_BOOT_PROBE") != nullptr;
+    return v;
+}
+
 // ─── DivMmc implementation ────────────────────────────────────────────
 
 DivMmc::DivMmc()
@@ -224,8 +231,12 @@ void DivMmc::on_retn() {
     retn_pending_clear_ = false;
 }
 
-void DivMmc::on_m1_retn_delay(bool retn_seen) {
-    // G46(a) — proper VHDL-faithful RETN clear sequencing. Called from
+void DivMmc::on_m1_retn_delay_apply_(bool retn_seen) {
+    // G46(a) — proper VHDL-faithful RETN clear sequencing. Reached via
+    // the inline on_m1_retn_delay() wrapper (divmmc.h, Task 27 C-M1),
+    // which early-outs when retn_seen=false AND retn_pending_clear_=false
+    // — exactly the case where both conditionals below fall through, so
+    // the split is behaviour-identical. Called from
     // Emulator's on_m1_cycle lambda on every M1 byte fetch (so twice for
     // ED-prefix instructions: once for the ED byte, once for the ext
     // byte). `retn_seen` mirrors Im2Controller::retn_seen_this_cycle(),
@@ -263,22 +274,25 @@ void DivMmc::on_m1_retn_delay(bool retn_seen) {
 void DivMmc::check_automap(uint16_t pc, bool is_m1,
                            bool sram_pre_override_2,
                            bool sram_pre_override_0) {
-    // P0 boot probe: log even when the enable gate rejects the call, so a
-    // "$0000 fetch with automap disabled" is visible (env-gated, capped).
-    static const bool boot_probe_env =
-        std::getenv("JNEXT_BOOT_PROBE") != nullptr;
-    if (pc <= 0x0038 && is_m1 && !enabled_ && boot_probe_env) {
-        static int gate_probe_count = 0;
-        if (gate_probe_count < 20) {
-            ++gate_probe_count;
-            divmmc_log()->info(
-                "BOOT_PROBE check_automap pc={:#06x} REJECTED by enable gate "
-                "(port_io_enable={} nr_0a_4_enable={})",
-                pc, port_io_enable_, nr_0a_4_enable_);
+    if (!is_m1 || !enabled_) {
+        // P0 boot probe: log when the enable gate rejects the call, so a
+        // "$0000 fetch with automap disabled" is visible (env-gated,
+        // capped). Task 27 C-M1 moved this below the early-out check so
+        // the rejected path costs two compares when the env var is
+        // unset; the probe condition (pc<=0x38 AND is_m1 AND !enabled_)
+        // is unchanged, so it fires identically when SET.
+        if (pc <= 0x0038 && is_m1 && !enabled_ && boot_probe_env()) {
+            static int gate_probe_count = 0;
+            if (gate_probe_count < 20) {
+                ++gate_probe_count;
+                divmmc_log()->info(
+                    "BOOT_PROBE check_automap pc={:#06x} REJECTED by enable gate "
+                    "(port_io_enable={} nr_0a_4_enable={})",
+                    pc, port_io_enable_, nr_0a_4_enable_);
+            }
         }
+        return;
     }
-
-    if (!is_m1 || !enabled_) return;
 
     // VHDL divmmc.vhd:123-148 two-stage automap pipeline.
     //
@@ -367,7 +381,7 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
     // env-gated, capped; logs automap decision inputs at RST vectors to
     // diagnose the post-soft-reset $0000 trap.
-    if (pc <= 0x0038 && boot_probe_env) {
+    if (pc <= 0x0038 && boot_probe_env()) {
         static int probe_count = 0;
         if (probe_count < 60) {
             ++probe_count;

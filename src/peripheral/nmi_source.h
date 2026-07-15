@@ -199,8 +199,19 @@ public:
 
     /// Observe an M1 fetch. When `pc == 0x0066 AND m1 AND mreq`, the
     /// FSM advances FETCH -> HOLD (VHDL:2135-2138). Other M1 fetches
-    /// are ignored.
-    void observe_m1_fetch(uint16_t pc, bool m1, bool mreq);
+    /// are ignored; the DivMmc automap PC=0x0066 path keeps its own
+    /// watcher in `DivMmc::check_automap`.
+    ///
+    /// Defined inline (Task 27 C-M1): this runs on every M1 prefetch
+    /// and its common case is the first early-out (state_ != Fetch),
+    /// which inlines to one compare at the call site. Body unchanged
+    /// from the previous out-of-line definition.
+    void observe_m1_fetch(uint16_t pc, bool m1, bool mreq) {
+        if (state_ != State::Fetch) return;
+        if (!m1 || !mreq)            return;
+        if (pc != 0x0066)            return;
+        state_ = State::Hold;
+    }
 
     /// Observe the CPU `WR_n` line. A rising edge drives END -> IDLE
     /// per VHDL:2149-2162 (the handler's last bus cycle completes).

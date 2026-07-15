@@ -734,26 +734,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // wired yet), so this call is inert; it's in place so Waves A/B/E
     // don't need to touch Emulator plumbing.
     cpu_.on_m1_prefetch = [this](uint16_t pc) {
-        // G46(b) — compute the VHDL `sram_pre_override(2)` and `(0)`
-        // priority-arbiter bits for this M1 fetch so DivMmc::check_automap
-        // can apply the gates from zxnext.vhd:3137-3138 (i_automap_active
-        // = sram_divmmc_automap_en, i_automap_rom3_active =
-        // sram_divmmc_automap_rom3_en). Without these gates jnext fires
-        // the ROM3-conditional AUTOMAP trap during the NextZXOS supervisor's
-        // config_mode window and gets stuck in the boot loop tracked as
-        // G46(b). VHDL inputs:
-        //   * mf_mem_en       — Multiface::is_mem_active()
-        //   * nr_03_config_mode — NextReg::nr_03_config_mode()
-        //   * mmu_A21_A13(8)  — Mmu::slot_in_rom_area(slot)
-        const bool mf_active = multiface_.is_mem_active();
-        const bool config_mode = nextreg_.nr_03_config_mode();
-        const bool sram_pre_override_2 =
-            mmu_.sram_pre_override_divmmc_eligible(pc, mf_active);
-        const bool sram_pre_override_0 =
-            mmu_.sram_pre_override_romcs_priority(pc, mf_active, config_mode);
-        divmmc_.check_automap(pc, true,
-                              sram_pre_override_2,
-                              sram_pre_override_0);
+        // Task 27 C-M1 — fast-path gate: DivMmc::automap_m1_may_react()
+        // proves (VHDL-cited proof in divmmc.h) that when the automap
+        // FF state is quiescent AND pc is outside the static entry-point
+        // candidate superset, check_automap() is a no-op — so both the
+        // call and the per-M1 sram_pre_override_* computation below can
+        // be skipped. The gate reads live DivMmc state; no invalidation
+        // discipline is needed. The gate inputs (mf_active/config_mode/
+        // override bits) are consumed ONLY by check_automap, so hoisting
+        // their computation inside the gate is behaviour-preserving.
+        if (divmmc_.automap_m1_may_react(pc)) {
+            // G46(b) — compute the VHDL `sram_pre_override(2)` and `(0)`
+            // priority-arbiter bits for this M1 fetch so DivMmc::check_automap
+            // can apply the gates from zxnext.vhd:3137-3138 (i_automap_active
+            // = sram_divmmc_automap_en, i_automap_rom3_active =
+            // sram_divmmc_automap_rom3_en). Without these gates jnext fires
+            // the ROM3-conditional AUTOMAP trap during the NextZXOS supervisor's
+            // config_mode window and gets stuck in the boot loop tracked as
+            // G46(b). VHDL inputs:
+            //   * mf_mem_en       — Multiface::is_mem_active()
+            //   * nr_03_config_mode — NextReg::nr_03_config_mode()
+            //   * mmu_A21_A13(8)  — Mmu::slot_in_rom_area(slot)
+            const bool mf_active = multiface_.is_mem_active();
+            const bool config_mode = nextreg_.nr_03_config_mode();
+            const bool sram_pre_override_2 =
+                mmu_.sram_pre_override_divmmc_eligible(pc, mf_active);
+            const bool sram_pre_override_0 =
+                mmu_.sram_pre_override_romcs_priority(pc, mf_active,
+                                                      config_mode);
+            divmmc_.check_automap(pc, true,
+                                  sram_pre_override_2,
+                                  sram_pre_override_0);
+        }
         // m1 / mreq are both true during the M1 prefetch M-cycle.
         nmi_source_.observe_m1_fetch(pc, true, true);
         // Wave 1 B1 — feed the Multiface FSM. VHDL `cpu_a_0066_i`

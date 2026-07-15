@@ -3692,6 +3692,145 @@ static void group_rb() {
     }
 }
 
+// ── §20  Task 27 C-M1 per-M1 fast-path gate ───────────────────────────
+//
+// The production caller (Emulator's on_m1_prefetch lambda) skips
+// check_automap() — and the per-M1 sram_pre_override_* computation —
+// whenever DivMmc::automap_m1_may_react(pc) is false. These rows pin the
+// two halves of that gate's safety argument:
+//   (a) the candidate superset covers EVERY address any entry-point path
+//       can match (so a skip can never lose a trigger), and
+//   (b) with any automap FF non-zero the gate always passes (so a skip
+//       can never lose a promotion/clear that acts at arbitrary pc).
+// Plus the no-op equivalence the skip relies on.
+static void group_m1gate() {
+    set_group("20. C-M1 M1 gate");
+
+    // CM1-01: every real entry-point address is a candidate. Sources:
+    // RST vectors (divmmc.vhd:120 via zxnext.vhd:2898-2902), NMI 0x0066
+    // (zxnext.vhd:2907-2908), tape traps (zxnext.vhd:2902-2905),
+    // auto-unmap 0x1FF8-0x1FFF (divmmc.vhd:131), $3Dxx wildcard
+    // (zxnext.vhd:2898-2899).
+    {
+        static constexpr uint16_t entry_pcs[] = {
+            0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030,
+            0x0038, 0x0066, 0x04C6, 0x04D7, 0x0562, 0x056A,
+            0x1FF8, 0x1FFB, 0x1FFF, 0x3D00, 0x3D80, 0x3DFF,
+        };
+        bool all = true;
+        uint16_t first_bad = 0;
+        for (uint16_t pc : entry_pcs) {
+            if (!DivMmc::automap_pc_candidate(pc)) {
+                all = false; first_bad = pc; break;
+            }
+        }
+        check("CM1-01",
+              "candidate superset contains every VHDL entry-point address "
+              "(RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx)",
+              all, fmt("first miss pc=0x%04X", first_bad));
+    }
+
+    // CM1-02: representative non-entry addresses are rejected, so the
+    // gate actually skips (a superset equal to 'everything' would be
+    // correct but useless). Adjacent-to-boundary values included.
+    {
+        static constexpr uint16_t non_entry_pcs[] = {
+            0x0067, 0x04C5, 0x04C7, 0x04D6, 0x0561, 0x0563, 0x0569,
+            0x056B, 0x1FF7, 0x2000, 0x3CFF, 0x3E00, 0x4000, 0x8000,
+            0xC000, 0xFFFF,
+        };
+        bool none = true;
+        uint16_t first_bad = 0;
+        for (uint16_t pc : non_entry_pcs) {
+            if (DivMmc::automap_pc_candidate(pc)) {
+                none = false; first_bad = pc; break;
+            }
+        }
+        check("CM1-02",
+              "non-entry addresses are rejected by the candidate filter",
+              none, fmt("false candidate pc=0x%04X", first_bad));
+    }
+
+    // CM1-03: gated-skip equivalence — in quiescent FF state at a
+    // non-candidate pc, may_react()=false AND check_automap() is a
+    // provable no-op on all observable state (the exact claim the
+    // production skip relies on; VHDL divmmc.vhd:112-148 walk in
+    // divmmc.h).
+    {
+        DivMmc d = make_divmmc();       // all EPs armed, all-instant
+        d.set_entry_points_0(0xFF);
+        d.set_entry_points_1(0xFF);     // every path armed — worst case
+        d.set_rom3_active(true);
+        const bool gate = d.automap_m1_may_react(0x8000);
+        d.check_automap(0x8000, true, true, true);
+        const bool unchanged = !d.automap_active() && !d.automap_hold() &&
+                               !d.automap_held() && !d.button_nmi() &&
+                               !d.is_active();
+        check("CM1-03",
+              "quiescent + non-candidate pc: may_react=false and "
+              "check_automap is a state no-op (skip equivalence)",
+              !gate && unchanged,
+              fmt("gate=%d active=%d hold=%d held=%d", gate,
+                  d.automap_active(), d.automap_hold(), d.automap_held()));
+    }
+
+    // CM1-04: FF-state term — a DELAYED entry latched at a candidate pc
+    // must still promote hold→held→active on a later M1 at a NON-candidate
+    // pc (VHDL divmmc.vhd:141 held<=hold happens on every M1). The gate
+    // must pass that M1 through even though the pc is filtered out.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);     // RST 0x00
+        d.set_entry_valid_0(0x01);      // main path
+        d.set_entry_timing_0(0x00);     // DELAYED timing
+        d.check_automap(0x0000, true, true, true);   // latch hold
+        const bool hold_latched = d.automap_hold() && !d.automap_active();
+        const bool gate_next = d.automap_m1_may_react(0x8000);
+        d.check_automap(0x8000, true, true, true);   // promotion M1
+        check("CM1-04",
+              "pending hold: may_react=true at non-candidate pc and the "
+              "hold→held promotion fires there (divmmc.vhd:141,148)",
+              hold_latched && gate_next && d.automap_held() &&
+                  d.automap_active(),
+              fmt("hold0=%d gate=%d held=%d active=%d", hold_latched,
+                  gate_next, d.automap_held(), d.automap_active()));
+    }
+
+    // CM1-05: active overlay + auto-unmap — while active, the gate passes
+    // every pc (state term), and the 0x1FF8 off-trigger (candidate) still
+    // deactivates through the gated path (divmmc.vhd:131).
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);     // RST 0x00, instant
+        d.set_entry_valid_0(0x01);
+        d.set_entry_points_1(0x40);     // auto-unmap range enabled
+        d.check_automap(0x0000, true, true, true);   // instant map
+        const bool active_and_gated =
+            d.automap_active() && d.automap_m1_may_react(0x9000);
+        d.check_automap(0x1FF8, true, true, true);   // off-fire
+        d.check_automap(0x9000, true, true, true);   // drain held
+        check("CM1-05",
+              "active overlay: gate passes any pc; 0x1FF8 off-trigger "
+              "deactivates through the gated path (divmmc.vhd:131)",
+              active_and_gated && !d.automap_active(),
+              fmt("gated=%d active_after=%d", active_and_gated,
+                  d.automap_active()));
+    }
+
+    // CM1-06: button_nmi conservative term — with button_nmi latched the
+    // gate passes every pc. (check_automap at a non-candidate pc is a
+    // no-op even then, but the term keeps the predicate's safety proof
+    // local to the four FFs; deliberate conservatism, cheap.)
+    {
+        DivMmc d = make_divmmc();
+        d.set_button_nmi(true);
+        check("CM1-06",
+              "button_nmi latched: gate conservatively passes any pc",
+              d.automap_m1_may_react(0x8000),
+              fmt("may_react=%d", d.automap_m1_may_react(0x8000)));
+    }
+}
+
 int main() {
     std::printf("DivMMC + SPI Compliance Tests (rewritten Task 1 Wave 2)\n");
     std::printf("======================================================\n\n");
@@ -3715,6 +3854,7 @@ int main() {
     group_in();  std::printf("  §17 Integration          done\n");
     group_po();  std::printf("  §18 PriOverride G46(b)   done\n");
     group_rb();  std::printf("  §19 RAM SRAM backing     done\n");
+    group_m1gate(); std::printf("  §20 C-M1 M1 gate         done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
