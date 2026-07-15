@@ -312,7 +312,7 @@ void DebuggerWindow::create_menus() {
                     tr("Rewind requires pre-allocated memory.\n"
                        "Restart the emulator with:\n\n"
                        "  --rewind-buffer-size N\n\n"
-                       "where N is the number of frames to store (default 500)."));
+                       "where N is the number of frames to store (e.g. 500)."));
                 rewind_enable_action_->setChecked(false);
                 return;
             }

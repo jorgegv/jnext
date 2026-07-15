@@ -93,7 +93,7 @@ static void print_usage(const char* prog) {
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
-        "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n"
+        "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 0=off)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
         "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (overrides SECS form)\n"
         "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
     std::string rzx_play_file;
     std::string rzx_record_file;
     int         speed_percent = 100;
-    int         rewind_buffer_frames = 500;
+    int         rewind_buffer_frames = 0;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        profile_enabled = false;
