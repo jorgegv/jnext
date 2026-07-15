@@ -47,6 +47,24 @@ timing and contention *is* live). Do not implement it. Do not trust that documen
 - **Never benchmark while another agent is building or testing.** Serialise.
 - Primary metric is **T-states/sec**, not FPS (FPS is not comparable across guest CPU speeds).
 
+### 0.4b Concurrency protocol (user-authorized, 2026-07-15)
+
+Workers run **in parallel**; only performance measurements are exclusive:
+
+1. **Heavy non-measurement ops** (builds, unit tests, FUSE, regressions) run under a **shared**
+   lock: `flock -s /home/jorgegv/src/spectrum/jnext/test/bench/.lock -c "<command>"`. Any
+   number may hold it concurrently. Regressions may overlap each other (user decision).
+2. **Measurements** (`make bench`, perf runs) take the same lock **exclusively** (the harness
+   already does) — the kernel drains all shared holders first and blocks new heavy ops for the
+   duration. Additionally verify loadavg < 1.0 before measuring; the wait is bounded (20 min),
+   then report instead of stalling.
+3. **Pacing-row safety valve**: `audio-underrun-func` and `screenshot-paused-func` are
+   real-time-pacing bounded (Task 39) and may false-FAIL under parallel load. A FAIL on ONLY
+   those rows in a parallel context gets ONE serialized re-run before being treated as real.
+   Any other FAIL is real immediately — no retries.
+4. **Merges stay one-at-a-time**: rebase onto current main → fresh BEFORE/AFTER under the
+   exclusive lock (short window) → merge. Development parallelizes; delta accounting does not.
+
 ### 0.5 Per-task workflow (every task, no exceptions)
 
 1. Branch off current `main`: `git checkout -b task27-<id>` — **never commit to `main`.**
