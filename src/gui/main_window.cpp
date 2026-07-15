@@ -1,6 +1,7 @@
 #include "gui/main_window.h"
 #include "version.h"
 #include "gui/emulator_widget.h"
+#include "gui/preferences_dialog.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -32,6 +33,7 @@
 #include <QApplication>
 #include <QInputDialog>
 #include <QStyle>
+#include <QFileInfo>
 
 // ---------------------------------------------------------------------------
 // Qt::Key -> SDL_Scancode mapping
@@ -137,6 +139,15 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setWindowTitle("JNEXT \u2014 ZX Spectrum Next Emulator");
+
+    // Task 66 \u2014 load persisted GUI preferences. This is the production
+    // AppConfig ctor (QSettings("JNEXT", "jnext")); MainWindow is only ever
+    // constructed by the real (non-headless) GUI path (QtApp::init()), so
+    // headless/unit-test runs never touch the user's real config file. The
+    // regression suite additionally isolates $XDG_CONFIG_HOME so its handful
+    // of non-headless invocations stay deterministic (test/00regression/
+    // regression.sh).
+    app_config_.load();
 
     // Central widget: the emulator display (fixed-size, pixel-perfect).
     emulator_widget_ = new EmulatorWidget(this);
@@ -361,11 +372,14 @@ void MainWindow::create_menus() {
     connect(screenshot_action_, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
         QString path = QFileDialog::getSaveFileName(
-            this, tr("Save Screenshot"), QString(),
+            this, tr("Save Screenshot"), app_config_.data().screenshot_dir,
             tr("PNG Images (*.png);;All Files (*)"));
         if (path.isEmpty()) return;
         if (!path.endsWith(".png", Qt::CaseInsensitive))
             path += ".png";
+        // Task 66 — remember the containing directory for the next dialog.
+        app_config_.data().screenshot_dir = QFileInfo(path).absolutePath();
+        app_config_.save();
         // The framebuffer is canonical 640×256 in-memory; save_screenshot_png
         // vertically doubles to a 640×512 PNG with square pixels (G104).
         bool ok = save_screenshot_png(path.toStdString(),
@@ -565,6 +579,13 @@ void MainWindow::create_menus() {
     debugger_action_->setCheckable(true);
 #endif
 
+    // --- Settings menu (Task 66) ---
+    QMenu* settings_menu = menuBar()->addMenu(tr("&Settings"));
+
+    QAction* preferences = settings_menu->addAction(tr("&Preferences..."));
+    preferences->setShortcut(QKeySequence::Preferences);
+    connect(preferences, &QAction::triggered, this, &MainWindow::on_open_preferences);
+
     // --- Help menu ---
     QMenu* help_menu = menuBar()->addMenu(tr("&Help"));
 
@@ -678,9 +699,12 @@ void MainWindow::update_status(double fps, int cpu_speed_idx, double emu_speed) 
 
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Load Program"), QString(),
+        this, tr("Load Program"), app_config_.data().last_load_dir,
         tr("Spectrum Files (*.nex *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;All Files (*)"));
     if (!path.isEmpty()) {
+        // Task 66 — remember the containing directory for the next dialog.
+        app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
+        app_config_.save();
         if (emulator_) {
             if (path.toLower().endsWith(".tap")) {
                 emulator_->load_tap(path.toStdString());
@@ -705,14 +729,20 @@ void MainWindow::on_load_nex() {
 }
 
 void MainWindow::on_mount_sd() {
+    QString start_dir = QFileInfo(app_config_.data().sd_card_path).absolutePath();
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Mount SD Card Image"), QString(),
+        this, tr("Mount SD Card Image"), start_dir,
         tr("Disk Images (*.img *.bin);;All Files (*)"));
     if (!path.isEmpty()) {
         // SD card mounting requires restart; just store and inform user.
+        // Task 66 — also remember it as the default --sdcard for future
+        // launches that don't pass --sdcard explicitly.
+        app_config_.data().sd_card_path = path;
+        app_config_.save();
         QMessageBox::information(this, tr("SD Card"),
             tr("SD card image selected:\n%1\n\n"
-               "Restart the emulator with --sdcard to use this image.").arg(path));
+               "Restart the emulator with --sdcard to use this image "
+               "(or just restart — it is now the default).").arg(path));
         emit sd_card_selected(path);
     }
 }
@@ -766,9 +796,12 @@ void MainWindow::on_about() {
 
 void MainWindow::on_tape_open() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Open Tape File"), QString(),
+        this, tr("Open Tape File"), app_config_.data().last_load_dir,
         tr("Tape Files (*.tap *.tzx *.wav);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
+
+    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
+    app_config_.save();
 
     if (path.toLower().endsWith(".tzx")) {
         emulator_->load_tzx(path.toStdString());
@@ -941,6 +974,75 @@ void MainWindow::on_save_snapshot() {
     Log::emulator()->info("Snapshot saved to '{}' ({} bytes)",
                           path.toStdString(), bytes.size());
     statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
+}
+
+// ---------------------------------------------------------------------------
+// Preferences (Task 66 — Configurability)
+// ---------------------------------------------------------------------------
+
+void MainWindow::apply_startup_config(const AppConfigData& cfg) {
+    // Machine type and silent are deliberately NOT applied here: main.cpp
+    // already merged them into the EmulatorConfig used for Emulator::init()
+    // (CLI wins when given), so re-applying the raw AppConfigData value here
+    // would re-open the machine-type/silent precedence bug — this method
+    // only sees the persisted value, not whether the CLI overrode it.
+    if (emulator_) {
+        emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
+        emulator_->tape().set_fast_load(cfg.tape_fast_load);
+        emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
+    }
+    if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
+
+    set_scale(cfg.window_scale);
+    set_crt_filter(cfg.crt_filter);
+
+    if (speed_callback_) speed_callback_(cfg.emulator_speed_percent / 100.0);
+
+    // Sync the CPU-speed / emulator-speed menu radio groups to match.
+    if (speed_group_) {
+        for (QAction* a : speed_group_->actions()) {
+            if (a->data().toInt() == static_cast<int>(cfg.cpu_speed)) {
+                a->setChecked(true);
+                break;
+            }
+        }
+    }
+    if (emu_speed_group_) {
+        bool matched = false;
+        for (QAction* a : emu_speed_group_->actions()) {
+            if (std::abs(a->data().toDouble() - cfg.emulator_speed_percent / 100.0) < 0.01) {
+                a->setChecked(true);
+                matched = true;
+                break;
+            }
+        }
+        if (!matched && emu_speed_group_->checkedAction())
+            emu_speed_group_->checkedAction()->setChecked(false);
+    }
+}
+
+void MainWindow::apply_preferences(const AppConfigData& cfg) {
+    // Interactive change from the Preferences dialog: unlike
+    // apply_startup_config(), this is the ONLY place the raw machine type is
+    // applied, so it's always the user's explicit choice right now — no CLI
+    // precedence to respect. Mirrors the Machine menu's on_machine_type().
+    if (emulator_) on_machine_type(cfg.machine_type);
+
+    apply_startup_config(cfg);
+
+    // cfg.silent has no live setter (the SDL audio device is opened once at
+    // QtApp::init() time and MainWindow has no handle to it) — persisted
+    // only, applied on next launch. The dialog's tooltip says so.
+}
+
+void MainWindow::on_open_preferences() {
+    PreferencesDialog dlg(app_config_.data(), this);
+    connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
+        app_config_.data() = cfg;
+        app_config_.save();
+        apply_preferences(cfg);
+    });
+    dlg.exec();
 }
 
 // ---------------------------------------------------------------------------

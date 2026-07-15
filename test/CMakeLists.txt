@@ -483,6 +483,18 @@ add_executable(resume_guard_test debug/resume_guard_test.cpp)
 target_include_directories(resume_guard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME resume_guard_tests COMMAND resume_guard_test)
 
+# Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
+# CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
+# usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the
+# library itself. No display needed — only QSettings is exercised, always
+# against a temp INI file, never the real user config.
+if(ENABLE_QT_UI)
+    add_executable(app_config_test gui/app_config_test.cpp)
+    target_link_libraries(app_config_test PRIVATE jnext_gui)
+    target_include_directories(app_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME app_config_tests COMMAND app_config_test)
+endif()
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)

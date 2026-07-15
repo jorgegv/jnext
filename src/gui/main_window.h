@@ -8,6 +8,7 @@
 #include <memory>
 #include <SDL2/SDL.h>
 #include "core/emulator_config.h"
+#include "gui/app_config.h"
 
 class Emulator;
 class EmulatorWidget;
@@ -74,6 +75,16 @@ public:
     /// Update status bar information.  Called once per second from the frame timer.
     void update_status(double fps, int cpu_speed_idx, double emu_speed = 1.0);
 
+    /// Task 66 — apply the subset of saved GUI preferences that have no CLI
+    /// competitor and are not already baked into the EmulatorConfig used for
+    /// Emulator::init() (machine type and silent are — see main.cpp's CLI/
+    /// AppConfig merge). Called once at startup, after set_emulator().
+    void apply_startup_config(const AppConfigData& cfg);
+
+    /// Access to the live, on-disk-backed preferences (Preferences dialog
+    /// reads/writes through this).
+    AppConfig& app_config() { return app_config_; }
+
 signals:
     /// Emitted when a scale factor is selected from the View menu.
     void scale_requested(int factor);
@@ -127,6 +138,13 @@ private:
 
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();
+
+    // Preferences dialog (Task 66).
+    void on_open_preferences();
+    // Live-applies AND persists an edited AppConfigData from the Preferences
+    // dialog. Unlike apply_startup_config(), this also live-switches machine
+    // type (an explicit interactive change, same effect as the Machine menu).
+    void apply_preferences(const AppConfigData& cfg);
 
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
@@ -194,4 +212,10 @@ private:
 
     // Screenshot action
     QAction* screenshot_action_ = nullptr;
+
+    // Task 66 — persisted GUI preferences (~/.config/JNEXT/jnext.conf).
+    // Loaded in the constructor; saved whenever the Preferences dialog is
+    // applied, and write-through updated by file dialogs that remember a
+    // directory (Load Program, Open Tape, Save Screenshot, Mount SD Card).
+    AppConfig app_config_;
 };
