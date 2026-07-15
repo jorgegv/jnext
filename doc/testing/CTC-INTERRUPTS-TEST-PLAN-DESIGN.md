@@ -387,6 +387,27 @@ Tests based on zxnext.vhd joystick IO mode wiring.
 | JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | ctc_zc_to(3) toggles joy_iomode_pin7 |
 | JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | Guard condition for toggle |
 
+### Section 18: Debugger Single-Step Interrupt Delivery (Task 60a)
+
+Regression rows for the Task 60a bug: `Emulator::execute_single_instruction()`
+(the debugger step path) was a hand-maintained copy of `run_frame()`'s
+per-instruction cluster and had drifted — it never called `im2_.tick()`,
+never polled the IM2-mode / pulse-mode /INT lines (VHDL zxnext.vhd:1840
+`z80_int_n <= pulse_int_n AND im2_int_n` with expbus_disable_int='1'),
+never ticked `md6_` and never recorded trace entries. Interrupts were
+silently dropped while stepping. Fix: both paths share one body
+(`step_one_instruction()` + `tick_devices_after_instruction()`).
+Rows live in `test/ctc_interrupts/ctc_interrupts_test.cpp` (group
+SingleStep) and are the single-step analogues of CTC-INT-V20-IM2-01 /
+ULA-INT-V19-IM2-04.
+
+| ID | Test | Expected |
+|----|------|----------|
+| SSTEP-01 | Pulse-mode CTC INT delivered via execute_single_instruction loop (zxnext.vhd:1840; im2_peripheral.vhd:186-194) | PC reaches IM1 vector 0x0038 (<0x4000); pre-fix stuck at 0x8000+ |
+| SSTEP-02 | IM2-mode CTC INT delivered via single-step (zxnext.vhd:1840, :1999) | CTC0 device state >= S_ACK after IntAck; pre-fix stuck at S_0 |
+| SSTEP-03 | Trace log records one entry per single-step (parity with run_frame) | +1 entry per step; pre-fix +0 |
+| SSTEP-04 | MD6 FSM advances during single-step (md6_joystick_connector_x2.vhd:103-114, :151-152) | raw bits 5:0 latched into joy_left_word; pre-fix latch stays 0 |
+
 ## Special Handling
 
 ### Clock domain crossing
