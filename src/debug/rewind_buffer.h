@@ -38,7 +38,9 @@ public:
 
     /// Restore the nearest snapshot with frame_cycle <= target_cycle.
     /// Deserialises into emu.  Returns the frame_cycle of the restored snapshot,
-    /// or UINT64_MAX if no snapshot is available.
+    /// or UINT64_MAX if no snapshot is available OR the restore failed
+    /// sentinel/bounds verification (Task 60b) — in the latter case the
+    /// machine is partially restored and must not be reported as rewound.
     uint64_t restore_nearest(uint64_t target_cycle, Emulator& emu) const;
 
     /// Number of snapshots currently stored (0..max_frames).
@@ -63,6 +65,22 @@ public:
 
     /// Byte size of each snapshot slot (computed once at construction).
     size_t snapshot_bytes() const { return snapshot_bytes_; }
+
+    // ── Test-only hooks (rewind_test, Task 60b) ────────────────────────
+
+    /// Direct access to stored slot bytes (i: 0=oldest .. depth()-1) so
+    /// tests can corrupt a snapshot in place (sentinel-chain rows).
+    uint8_t* slot_data_for_test(size_t i) { return slots_[slot_index(i)].data; }
+
+    /// Pretend the expected snapshot size shrank after construction —
+    /// simulates post-construction save_state schema drift (RB-FRAME-04
+    /// eviction row). The real state-stream size is compile-time-fixed,
+    /// so the mismatch cannot be produced any other way. Shrink only:
+    /// the mmap slots keep their construction-time size, so a smaller
+    /// claim makes writes overflow the CLAIM, never the allocation.
+    void shrink_expected_snapshot_bytes_for_test(size_t n) {
+        if (n < snapshot_bytes_) snapshot_bytes_ = n;
+    }
 
 private:
     struct Slot {

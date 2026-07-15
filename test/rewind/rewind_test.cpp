@@ -728,6 +728,80 @@ static int test_rb_frame_guard()
         CHECK(rb.empty(), "RB-FRAME-03 slot/measured size mismatch: snapshot dropped");
     }
 
+    // Eviction branch: a mismatched write over a FULL ring scribbles the
+    // oldest PUBLISHED slot — take_snapshot must unpublish exactly that
+    // slot (depth -1, oldest advances) and not publish the failed one.
+    // The size mismatch is injected via the shrink test hook because the
+    // real state-stream size is compile-time-fixed (see rewind_buffer.h).
+    {
+        RewindBuffer rb(2, snap);
+        rb.take_snapshot(emu, 100, 1);
+        rb.take_snapshot(emu, 200, 2);
+        CHECK(rb.depth() == 2, "RB-FRAME-04a ring filled with 2 good snapshots");
+        rb.shrink_expected_snapshot_bytes_for_test(snap - 16);
+        rb.take_snapshot(emu, 300, 3);   // overflows the shrunk claim, ring full
+        CHECK(rb.depth() == 1,
+              "RB-FRAME-04 failed write over full ring evicts exactly the destroyed oldest");
+        CHECK(rb.oldest_frame_cycle() == 200 && rb.oldest_frame_num() == 2,
+              "RB-FRAME-05 survivor is the second-oldest snapshot");
+        CHECK(rb.newest_frame_cycle() == 200,
+              "RB-FRAME-06 failed snapshot is not published as newest");
+    }
+
+    return 0;
+}
+
+// ── Test 12: rewind chain fails loudly on a corrupted slot (Task 60b) ──────
+//
+// The blocker case: a sentinel mismatch during a REAL rewind (RewindBuffer →
+// Emulator::load_state → rewind_to_cycle → step_back / rewind_to_frame) must
+// propagate — pre-fix, restore_nearest dropped load_state's bool and
+// step_back()/rewind_to_frame() returned true unconditionally, so the
+// debugger reported success over a torn machine.
+
+static int test_rewind_chain_corrupted_slot()
+{
+    printf("\n--- Test 12: rewind chain fails on corrupted slot (Task 60b) ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 5);   // rewind on (instruction trace auto-enabled)
+    emu.run_frame();
+    emu.run_frame();
+    emu.run_frame();
+
+    RewindBuffer* rb = emu.rewind_buffer();
+    REQUIRE(rb != nullptr && rb->depth() >= 2, "rewind buffer holds >= 2 real snapshots");
+
+    // Corrupt the 'mmu' sentinel (ordinal 2) in EVERY stored slot, so
+    // whichever snapshot the rewind selects fails verification.
+    const uint32_t mmu_sentinel = Emulator::kStateSentinelMagic ^ 2u;
+    size_t corrupted = 0;
+    for (size_t i = 0; i < rb->depth(); ++i) {
+        uint8_t* d = rb->slot_data_for_test(i);
+        for (size_t off = 0; off + 4 <= rb->snapshot_bytes(); ++off) {
+            uint32_t v;
+            std::memcpy(&v, d + off, 4);
+            if (v == mmu_sentinel) { d[off] ^= 0xFF; ++corrupted; break; }
+        }
+    }
+    CHECK(corrupted == rb->depth(),
+          "SENT-CHAIN-00 mmu sentinel corrupted in every stored slot");
+
+    // step_back must fail through the whole chain, not pause-as-successful.
+    const bool sb = emu.step_back(1);
+    CHECK(!sb, "SENT-CHAIN-01 step_back returns false on corrupted slot");
+    CHECK(emu.last_state_error() == "mmu",
+          "SENT-CHAIN-02 chain failure names subsystem 'mmu'");
+
+    // rewind_to_frame must fail the same way.
+    const bool rf = emu.rewind_to_frame(rb->oldest_frame_num());
+    CHECK(!rf, "SENT-CHAIN-03 rewind_to_frame returns false on corrupted slot");
+
+    // rewind_to_cycle is the shared workhorse — verify its own contract.
+    const uint64_t rc = emu.rewind_to_cycle(rb->newest_frame_cycle());
+    CHECK(rc == UINT64_MAX,
+          "SENT-CHAIN-04 rewind_to_cycle returns UINT64_MAX on corrupted slot");
+
     return 0;
 }
 
@@ -763,6 +837,7 @@ int main()
     test_state_bounds();
     test_state_sentinels();
     test_rb_frame_guard();
+    test_rewind_chain_corrupted_slot();
     test_ss_ver_skips();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

@@ -101,7 +101,17 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
 
     const Slot& s = slots_[best];
     StateReader r(s.data, snapshot_bytes_);
-    emu.load_state(r);
+    if (!emu.load_state(r)) {
+        // Task 60b: the snapshot failed sentinel/bounds verification.
+        // Emulator::load_state already logged the failing subsystem; the
+        // machine is partially restored and NOT trustworthy (documented
+        // limitation — no rollback). Report failure instead of a cycle
+        // value that claims success.
+        Log::emulator()->error(
+            "rewind: restore of snapshot @cycle {} failed verification — "
+            "machine state is not trustworthy", s.frame_cycle);
+        return UINT64_MAX;
+    }
     return s.frame_cycle;
 }
 

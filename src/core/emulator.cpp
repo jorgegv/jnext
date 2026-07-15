@@ -8521,6 +8521,19 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     // Restore the nearest snapshot at or before target_cycle.
     uint64_t snap_cycle = rewind_buffer_->restore_nearest(target_cycle, *this);
 
+    // Task 60b: the restore failed sentinel/bounds verification — do NOT
+    // replay and pause-as-successful. The machine is partially restored
+    // (documented limitation, no rollback): pause it so the torn state
+    // cannot keep executing, and surface the failure to the caller.
+    if (snap_cycle == UINT64_MAX) {
+        Log::emulator()->error(
+            "rewind_to_cycle: snapshot restore failed — rewind aborted, "
+            "machine paused in a non-trustworthy state");
+        debug_state_.set_active(true);
+        debug_state_.pause();
+        return UINT64_MAX;
+    }
+
     Log::emulator()->debug("rewind_to_cycle: target={} snap_cycle={}", target_cycle, snap_cycle);
 
     if (snap_cycle > target_cycle) {
@@ -8607,7 +8620,13 @@ bool Emulator::step_back(int n)
     // Clear the trace before rewind: entries above target_idx are stale "future" state.
     trace_log_.clear();
 
-    rewind_to_cycle(target_cycle);
+    // Task 60b: propagate a failed restore — pre-fix this returned true
+    // unconditionally, so the debugger reported a successful step while
+    // the machine held a torn, partially-restored state.
+    if (rewind_to_cycle(target_cycle) == UINT64_MAX) {
+        Log::emulator()->error("step_back: snapshot restore failed — step aborted");
+        return false;
+    }
     return true;
 }
 
@@ -8632,6 +8651,16 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     // restore_nearest will land us at the start of that frame.
     uint64_t snap_cycle = rewind_buffer_->restore_nearest(
         rewind_buffer_->newest_frame_cycle(), *this);
+    // Task 60b: propagate a failed restore (pre-fix the result was
+    // discarded and the function returned true regardless).
+    if (snap_cycle == UINT64_MAX) {
+        Log::emulator()->error(
+            "rewind_to_frame: snapshot restore failed — rewind aborted, "
+            "machine paused in a non-trustworthy state");
+        debug_state_.set_active(true);
+        debug_state_.pause();
+        return false;
+    }
 
     // We need the exact frame_cycle for frame target_frame_num.
     // Use restore_nearest with a cycle one frame before the target to find it.
@@ -8655,7 +8684,16 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     // Restore the snapshot and pause right at frame start (no fast-forward needed —
     // frame snapshots are taken at the exact cycle before any execution).
     uint64_t snap = rewind_buffer_->restore_nearest(target_cycle, *this);
-    (void)snap;
+    if (snap == UINT64_MAX) {
+        // Task 60b: same propagation as above — never pause-as-successful
+        // on a failed restore.
+        Log::emulator()->error(
+            "rewind_to_frame: snapshot restore failed — rewind aborted, "
+            "machine paused in a non-trustworthy state");
+        debug_state_.set_active(true);
+        debug_state_.pause();
+        return false;
+    }
 
     // Re-render so the main window framebuffer reflects the restored state.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
