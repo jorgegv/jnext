@@ -106,6 +106,13 @@ public:
     Z80Registers get_registers() const { return regs_; }
     void set_registers(const Z80Registers& r) { regs_ = r; }
 
+    // Cheap read-only accessors (Task 27 C10): avoid a full Z80Registers
+    // by-value copy on the per-instruction hot path when only the PC — or
+    // a read-only view — is needed. get_registers() copies the whole
+    // struct; these return the member directly.
+    uint16_t pc() const { return regs_.PC; }
+    const Z80Registers& registers() const { return regs_; }
+
     void request_interrupt(uint8_t vector);
     void request_nmi();
     bool is_halted() const { return regs_.halted; }
