@@ -373,6 +373,23 @@ Task 60a-d ───────┘                                             
 - Every task stops at **review-passed**; the user merges. (Change this line if merge-on-green is
   ever authorised.)
 
+## WAVE 1 RESULT (2026-07-15): DoD MET on the primary workload
+
+Official settled-box baseline (`test/bench/baseline-db3f2136.txt`, spread-valid rows):
+
+| workload | Wave-1 start | Wave-1 end | delta | own 400% target | met? |
+|---|---|---|---|---|---|
+| **boot-nextzxos** | 57.4M / 101 fps | **114.8M / 202.4 fps** (1.19%) | **+100%** | 113.5M / 200 fps | **YES** |
+| copper-demo | 36.7M | 62.2M (2.92%) | +69% | 113.5M | no (1.83× to go) |
+| beast (60 Hz) | 34.6M | 55.9M (0.78%) | +62% | 115.6M (240 fps) | no (2.07× to go) |
+| bifrost (3.5 MHz) | 26.7M | 58.0M (3.13%) | +117% | 14.0M | yes (4.1×) |
+| boot-48k | 25.9M | ~58M (persistently spread-VOID: 1.4 s workload, first-run freq ramp — bifrost is the valid 3.5 MHz witness) | ~+124% | 14.0M | yes |
+
+Merged (all independently reviewed; 4 REJECT rounds, all real): T0 T1 A1 A1b A2 P1 C-IM2
+C3+C-DIV C1 C-M1 C6 60a 60b (+plan/docs commits). Remaining candidates — C10+glue, C9
+(copper's dominant cost), B1/LTO, 60c/60d/60e — are now about the copper/beast gap and
+margin, not the primary DoD.
+
 ## Definition of done for Task 27
 
 `make bench` on a P-core shows **≥ 113.5M T-states/s** on `boot-nextzxos` — i.e. 200 FPS at 400%
