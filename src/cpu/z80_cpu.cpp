@@ -48,9 +48,12 @@ extern "C" {
 static MemoryInterface* s_mem = nullptr;
 static IoInterface*     s_io  = nullptr;
 
-// Contention callback: called on each memory access to a potentially
-// contended address. The callback adds the contention delay to tstates.
-static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
+// Task 27 C10: the former `s_contention_cb` static (a pointer to the
+// Z80Cpu::on_contention std::function) was stored on every execute() but
+// read nowhere — the contention path runs entirely through
+// ContentionModel::contention_tick() via the FUSE read/write overrides
+// below (Phase-2 wiring + G141), and on_contention is left null in
+// Emulator::init(). The dead per-instruction store has been removed.
 
 // ── Phase-2 contention runtime (2026-04-26) + G141 (2026-05-01) ────────
 // Per-cycle VHDL-faithful contention via ContentionModel::contention_tick().
@@ -522,7 +525,6 @@ void Z80Cpu::reset(bool hard) {
 int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
-    s_contention_cb = &on_contention;
 
     // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);

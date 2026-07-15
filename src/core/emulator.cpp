@@ -6404,7 +6404,7 @@ void Emulator::run_frame()
             // paused the emulator during the previous instruction's execute().
             if (debug_state_.paused())
                 return;
-            uint16_t pc = cpu_.get_registers().PC;
+            uint16_t pc = cpu_.pc();
             if (debug_state_.should_break(pc)) {
                 debug_state_.pause();
                 // Early return: leave frame_cycle_ as-is so resume continues
@@ -6427,7 +6427,7 @@ void Emulator::run_frame()
 
         // Tape ROM traps — only when ROM is paged in at slot 0.
         if (mmu_.is_slot_rom(0)) {
-            uint16_t pc = cpu_.get_registers().PC;
+            uint16_t pc = cpu_.pc();
 
             // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
             if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
@@ -6724,7 +6724,7 @@ uint64_t Emulator::step_one_instruction()
         // Record trace entry before execution (captures pre-execution state).
         // Enabled during replay so consecutive step-backs can look up target cycles.
         if (trace_log_.enabled()) {
-            auto regs = cpu_.get_registers();
+            const Z80Registers& regs = cpu_.registers();
             TraceEntry te;
             te.cycle = clock_.get();
             te.pc = regs.PC;
@@ -6754,7 +6754,7 @@ uint64_t Emulator::step_one_instruction()
                 std::getenv("JNEXT_BOOT_PROBE_TRAP_DUMP");
             if (trap_dump) {
                 static int pc0_run = 0;
-                const uint16_t cur_pc = cpu_.get_registers().PC;
+                const uint16_t cur_pc = cpu_.pc();
                 if (cur_pc <= 0x0001) {
                     if (++pc0_run == 200) {
                         Log::emulator()->info(
@@ -6771,7 +6771,7 @@ uint64_t Emulator::step_one_instruction()
         }
         // Call stack tracking (debugger only, gated by enabled flag).
         if (call_stack_.enabled()) {
-            auto regs2 = cpu_.get_registers();
+            const Z80Registers& regs2 = cpu_.registers();
             uint8_t op0 = mmu_.read(regs2.PC);
             uint8_t op1 = mmu_.read(regs2.PC + 1);
             uint8_t op2 = mmu_.read(regs2.PC + 2);
@@ -6797,7 +6797,7 @@ uint64_t Emulator::step_one_instruction()
         // the right address. Reading regs.PC is O(1) (register-pair
         // copy from a member array) — the cost is in the noise next
         // to the surrounding scheduler/IM2/Copper work.
-        const uint16_t pc_pre_exec = cpu_.get_registers().PC;
+        const uint16_t pc_pre_exec = cpu_.pc();
         int tstates = cpu_.execute();
         defer_cpu_nr_writes_ = false;
         if (profiler_.active()) {
@@ -6809,12 +6809,24 @@ uint64_t Emulator::step_one_instruction()
         // instruction raster position. The contention path itself
         // does NOT consult VideoTiming (it derives hc/vc from
         // tstates directly to keep per-bus-cycle precision); this
-        // advance is purely the test/debug observable.
-        video_timing_.advance(tstates);
+        // advance is purely the debug observable.
+        //
+        // Task 27 C10: gate it behind an attached debugger. No
+        // production path reads the counters advance() mutates
+        // (hc_/vc_/frame_done_/pulse counts): the compositor and
+        // scheduler derive raster from the clock, the debugger's
+        // HC/VC readout uses clock-derived paused_vc_/paused_hc_
+        // (snapshot_raster()), and NR 0x1E/0x1F likewise. Only a
+        // human inspecting emulator.video_timing().pos() in the
+        // debugger could observe it, so the free-running production
+        // hot loop (headless/GUI, debug_state_ inactive) skips the
+        // per-instruction raster walk entirely.
+        if (debug_state_.active())
+            video_timing_.advance(tstates);
 
         // Call stack tracking post-execution.
         if (call_stack_.enabled()) {
-            auto post = cpu_.get_registers();
+            const Z80Registers& post = cpu_.registers();
             call_stack_.on_instruction_post(post.SP, post.PC);
         }
 
