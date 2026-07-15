@@ -1322,17 +1322,21 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 #ifdef ENABLE_DEBUGGER
     if (debugger_mgr_) {
-        // Task 60e: set_enabled(false) prompts (and can be declined) when the
-        // machine is corrupt. Only force the debugger window closed if the
-        // disable actually happened — otherwise the forced close would
-        // re-trigger DebuggerWindow::closeEvent (a SECOND prompt) and hide a
-        // still-enabled debugger. The app itself still quits regardless.
-        bool disabled = debugger_mgr_->set_enabled(false);
-        if (disabled) {
-            auto* dbg_win = debugger_mgr_->debugger_window_ptr();
-            if (dbg_win)
-                dbg_win->close();
-        }
+        // Task 60f: the app is quitting — the whole machine is about to be
+        // destroyed, so the Task 60e corruption resume-gate does NOT apply
+        // here (quitting protects nothing, and a prompt that could be declined
+        // would leave a hidden main window + an orphaned, still-open debugger
+        // window that keeps lastWindowClosed from firing — the process would
+        // never terminate). Disable the debugger WITHOUT the resume prompt
+        // (prompt_on_corrupt=false → always succeeds) and close its window so
+        // the last top-level window is gone and the app actually quits.
+        //
+        // Live-session gating is unchanged: F5/Run/Step/RunTo*, the Debug-menu
+        // toggle and the debugger window [X] all still gate (prompt defaults
+        // true) — only this quit path opts out.
+        debugger_mgr_->set_enabled(false, /*prompt_on_corrupt=*/false);
+        if (auto* dbg_win = debugger_mgr_->debugger_window_ptr())
+            dbg_win->close();
     }
 #endif
     QMainWindow::closeEvent(event);

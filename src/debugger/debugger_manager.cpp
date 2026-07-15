@@ -81,7 +81,7 @@ void DebuggerManager::reposition_debugger_window() {
 // Enable / Disable
 // ---------------------------------------------------------------------------
 
-bool DebuggerManager::set_enabled(bool enabled) {
+bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
     if (enabled_ == enabled)
         return true;   // already in the requested state
 
@@ -129,7 +129,11 @@ bool DebuggerManager::set_enabled(bool enabled) {
             // action to unchecked BEFORE emitting triggered()), so restore both
             // the state and every UI affordance, then report the decline so
             // callers (both closeEvents) don't hide/close a still-live debugger.
-            if (!confirm_resume_if_corrupt()) {
+            //
+            // Task 60f: the app-quit path passes prompt_on_corrupt=false — the
+            // machine is being destroyed, so the gate does not apply and the
+            // disable proceeds unconditionally (never returns false).
+            if (prompt_on_corrupt && !confirm_resume_if_corrupt()) {
                 enabled_ = true;
                 if (enable_action_)
                     enable_action_->setChecked(true);

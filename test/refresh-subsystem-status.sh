@@ -119,6 +119,7 @@ BEGIN {
     M["resume_guard_test"]             = "Resume Guard"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"
+    M["debugger_quit_gate_test"]       = "Debugger Quit Gate"
 
     # --- Live results (annotation only; never a source of counts). ---
     while ((getline line < summary) > 0) {

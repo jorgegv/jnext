@@ -528,6 +528,21 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_audio_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_audio_panel_tests COMMAND debugger_audio_panel_test)
+
+    # Debugger Quit-Gate test (Task 60f — "app-quit must not be trapped by the
+    # corruption resume-prompt"). Drives the real DebuggerManager::set_enabled
+    # against a headless Emulator forced into the corrupt+enabled+paused state,
+    # auto-answering the confirm-resume modal. Needs Qt but no display — same
+    # offscreen QPA idiom as the panel suites above.
+    add_executable(debugger_quit_gate_test debugger/quit_gate_test.cpp)
+    set_target_properties(debugger_quit_gate_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_quit_gate_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_quit_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
 endif()
 
 # Pin the C locale for every registered test, so `ctest` matches what

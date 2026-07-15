@@ -28,7 +28,13 @@ public:
     /// a disable was DECLINED — the machine is corrupt (Task 60b) and the user
     /// refused to resume it (Task 60e), so the debugger stays enabled + paused.
     /// Callers that hide/close UI on disable must honour a false return.
-    bool set_enabled(bool enabled);
+    ///
+    /// Task 60f: `prompt_on_corrupt` (default true) applies the Task 60e
+    /// resume-gate on the disable/auto-resume path. Pass FALSE only from the
+    /// app-quit path (MainWindow::closeEvent): quitting destroys the whole
+    /// machine, so there is nothing to protect — the gate must not fire (it
+    /// cannot be declined) and the disable always succeeds and returns true.
+    bool set_enabled(bool enabled, bool prompt_on_corrupt = true);
 
     /// Refresh all visible panels with current emulator state.
     /// Called from on_frame_tick() — does nothing when debugger is disabled.
