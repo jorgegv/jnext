@@ -1,5 +1,29 @@
 # ChangeLog
 
+## v0.99.0 (unreleased — record still open)
+
+### User Features
+- Emulation performance doubled: 400% turbo now reaches its full 200 FPS in Next mode
+- 48K-class machines (BIFROST/NIRVANA-style engines) run over twice as fast
+- Rewind is now opt-in (`--rewind-buffer-size N`): default runs use ~1 GB less RAM and start faster
+- Rewind can be switched on live from the debugger — no restart needed
+- At turbo speeds the GUI skips composing frames nobody sees, smoothing high-speed runs
+
+### Developer Features
+- `--benchmark N`: headless throughput measurement (T-states/sec), plus a `make bench` harness with locked, spread-checked medians
+- `--trace` enables the instruction trace log independently of rewind
+
+### Bug Fixes
+- GUI no longer crashes at startup on X11 desktops with a session manager (Ubuntu/LMDE, issue #8)
+- Debugger single-stepping now delivers CTC/UART/frame interrupts exactly like free-running execution
+- Corrupted rewind snapshots are detected (per-subsystem sentinels) and refuse to load a torn machine, pausing loudly instead
+- Sprite collision/overtime bits (port 0x303B) stay correct at turbo speeds
+
+### Internal JNEXT Development
+- Profile-guided optimization campaign: perf-attributed cost report, benchmark baselines, 14 independently reviewed merges
+- Bare `cmake` builds can no longer silently produce an unoptimized (-O0) binary
+- State snapshots gained bounds checks; the dead Saveable interface removed
+
 ## v0.98.0 (2026-07-14)
 
 ### User Features
