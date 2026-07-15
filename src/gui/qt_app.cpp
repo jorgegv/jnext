@@ -8,6 +8,7 @@
 #endif
 
 #include <cctype>
+#include <chrono>
 #include <QApplication>
 #include <QTimer>
 #include <SDL2/SDL.h>
@@ -256,6 +257,32 @@ void QtApp::on_frame_tick() {
     // that would silently hand the user a picture with the wrong layers in it.
     int frames_rendered = 0;
 
+    // Task 27 C6 — compositor throttle at speed > 1x. At --speed 400 the
+    // 5 ms QTimer emulates up to 200 frames/s while the display presents
+    // ~50-60, so most composited frames are thrown away unseen. Throttle the
+    // render hint to ~50 Hz wall-clock: the emulator core still runs every
+    // frame, it just skips the end-of-frame compositing pass for frames
+    // nobody will consume. Emulator::run_frame() re-forces the render when a
+    // consumer the frontend cannot see is active (video recording, debugger).
+    // Frontend-side forcing:
+    //   * speed <= 1x: never skip — 1x behaviour stays bit-identical
+    //     (including the audio-pacing multi-frame bursts and fastload);
+    //   * screenshot due this tick (countdown == 0): the captured frame MUST
+    //     have gone through the compositor with the layer mask armed above,
+    //     so the whole tick renders.
+    bool render_this_tick = true;
+    if (speed_multiplier_ > 1.0 && screenshot_countdown_ != 0) {
+        constexpr int64_t RENDER_INTERVAL_MS = 20;  // ~50 Hz presentation
+        const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (now_ms - last_render_ms_ < RENDER_INTERVAL_MS) {
+            render_this_tick = false;
+        } else {
+            last_render_ms_ = now_ms;
+        }
+    }
+    emulator_.set_render_enabled(render_this_tick);
+
     // Run one emulator frame (skip if debugger has paused).
     if (!emulator_.debug_state().paused()) {
         // Pace emulation against the sound card, not the wall clock. The 20 ms
@@ -328,11 +355,21 @@ void QtApp::on_frame_tick() {
         audio_->push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/true);
     }
 
+    // Task 27 C6 — the hint is per-tick: restore the default (always render)
+    // so any run_frame() caller outside this tick (debugger actions, future
+    // paths) is unaffected. The next tick re-decides.
+    emulator_.set_render_enabled(true);
+
     // Update the display widget with the in-memory framebuffer (640×256).
     // The widget vertically doubles to 640×512 internally during prescale.
-    main_window_->emulator_widget()->update_frame(
-        emulator_.get_framebuffer(),
-        emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height());
+    // Task 27 C6 — skipped on throttled ticks: the framebuffer was not
+    // re-composited, so re-copying/prescaling the identical stale frame into
+    // the widget would be pure waste.
+    if (render_this_tick) {
+        main_window_->emulator_widget()->update_frame(
+            emulator_.get_framebuffer(),
+            emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height());
+    }
 
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the

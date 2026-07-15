@@ -6525,9 +6525,73 @@ void Emulator::run_frame()
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
+    //
+    // Task 27 C6 — additionally suppressed when the frontend hinted that
+    // nobody will consume this frame (render_enabled_ == false; Qt GUI at
+    // speed > 1x). The hint is OVERRIDDEN — the frame is rendered anyway —
+    // when:
+    //   * video recording is active: capture_frame() below consumes the
+    //     framebuffer immediately after render, and a skipped render would
+    //     silently freeze/corrupt the --record MP4;
+    //   * the debugger is active: panels and the pause display read the
+    //     framebuffer, and stepping/breakpoints must always show the frame
+    //     that was actually emulated.
+    // Headless mode (incl. --benchmark, which must measure the real render
+    // workload) and the SDL frontend never clear render_enabled_, so their
+    // behaviour is bit-identical to before.
+    //
+    // Enumeration of EVERY side effect of render_frame() and its callees,
+    // with its guard or benign-skip argument (C6 review, 2026-07-15):
+    //
+    //   side effect                          | on a skipped frame
+    //   -------------------------------------|--------------------------------
+    //   framebuffer_ pixels                  | stale; every consumer guarded
+    //                                        | (hint override for recorder +
+    //                                        | debugger below; frontend forces
+    //                                        | render on screenshot ticks)
+    //   sprite collision_ / max_sprites_     | SOFTWARE-VISIBLE (port 0x303B,
+    //   (SpriteEngine::render_scanline,      | sprites.vhd:971-995) — MUST run:
+    //    mutable, sprites.h:449-450)         | run_sprite_side_effects() below
+    //   ULA flash counter (advance_flash)    | emulated-time state — advanced
+    //                                        | explicitly below
+    //   per-scanline change-log lifecycles   | sprites: full rewind/apply/flush
+    //   (palette/L2/sprites/ULA×3/tilemap-   | via the side-effect pass; all
+    //    NR6B/attr-mux rewind+apply+flush)   | others dropped — benign,
+    //                                        | display-only: live state was
+    //                                        | mutated directly by the writers
+    //                                        | and the next begin_new_frame()
+    //                                        | re-baselines (replay_mode_
+    //                                        | precedent, renderer.cpp:171-174)
+    //   Ula::render_scanline border_colour_  | save/restore transients inside
+    //   + Tilemap/Sprite debug-view enable   | one call (or debug-view-only) —
+    //   save/restores                        | net-zero, nothing to do
+    //   compositor trace (trace_frame_       | debug CLI tool (--compositor-
+    //   counter_ / trace_fp_ / trace_active_)| trace) counting RENDERED frames;
+    //                                        | headless-only workflow, benign
+    //   Layer2 / Tilemap / compositor pixel  | pure reads, no member writes
+    //   paths                                | (audited 2026-07-15)
+    //
+    // GUI "Save Screenshot" (Ctrl+S) at speed > 1x captures the last RENDERED
+    // frame — consistent with what the window shows, at most ~20 ms stale.
+    // Acknowledged benign consumer (C6 review MINOR).
+    const bool render_this_frame =
+        render_enabled_ || video_recorder_.is_recording() || debug_state_.active();
     if (!replay_mode_) {
-        renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                               layer2_, &sprites_, &tilemap_);
+        if (render_this_frame) {
+            renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                                   layer2_, &sprites_, &tilemap_);
+        } else {
+            // C6 review BLOCKER fix: sprite collision + line-budget overtime
+            // (port 0x303B) must be computed every emulated frame regardless
+            // of rendering — run the sprites-only pass through the SAME code
+            // path render_frame uses.
+            renderer_.run_sprite_side_effects(&sprites_, palette_);
+            renderer_.ula().advance_flash();
+            // Debug-level witness for the regression suite
+            // (render-skip-turbo-func): proves the skip engages, and that it
+            // NEVER engages while recording (the line must be absent then).
+            Log::video()->debug("render skipped for undisplayed frame (C6 frontend hint)");
+        }
     }
 
     // Capture frame for video recording (if active, not in replay).

@@ -264,6 +264,36 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 }
 
 // ---------------------------------------------------------------------------
+// run_sprite_side_effects — sprites-only pass for render-skipped frames
+// ---------------------------------------------------------------------------
+//
+// See the header comment: sprite collision (port 0x303B bit 0) and per-line
+// budget overtime (bit 1) — VHDL sprites.vhd:971-995 — are computed inside
+// SpriteEngine::render_scanline, so a frame skipped by the C6 frontend hint
+// must still run the sprite pipeline or software polling 0x303B misses real
+// events. Mirrors render_frame's sprite handling exactly: the same
+// rewind/apply/flush change-log lifecycle, the same per-row sprites_visible()
+// gate, the same render_scanline call. Pixels land in sprite_line_ and are
+// discarded (render_row refills it to TRANSPARENT before every use, so no
+// stale pixel leaks into the next rendered frame).
+
+void Renderer::run_sprite_side_effects(SpriteEngine* sprites,
+                                       PaletteManager& palette)
+{
+    if (!sprites)
+        return;
+
+    sprites->rewind_to_baseline();
+    for (int row = 0; row < FB_HEIGHT; ++row) {
+        sprites->apply_changes_for_line(row);
+        if (sprites->sprites_visible()) {
+            sprites->render_scanline(sprite_line_.data(), row, palette);
+        }
+    }
+    sprites->flush_remaining_changes();
+}
+
+// ---------------------------------------------------------------------------
 // render_row — render every layer for one row and composite it
 // ---------------------------------------------------------------------------
 //

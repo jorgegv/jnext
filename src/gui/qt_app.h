@@ -129,6 +129,16 @@ private:
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;
 
+    // Task 27 C6 — wall-clock throttle for the compositor at speed > 1x.
+    // Monotonic ms timestamp (std::chrono::steady_clock in qt_app.cpp) of the
+    // last tick whose frames were rendered. Initialised to 0, NOT INT64_MIN:
+    // steady_clock counts from boot, so `now - 0` is host uptime (>> 20 ms)
+    // and the first tick always renders. An INT64_MIN sentinel overflows the
+    // `now - last` subtraction (UB, observed negative), which made EVERY
+    // frame skip forever — caught by render-skip-turbo-func's engagement
+    // count (601 skips in 601 frames, i.e. zero renders).
+    int64_t last_render_ms_ = 0;
+
     static constexpr int NATIVE_W = 640;
     static constexpr int NATIVE_H = 256;
     /// Vertical 2× — square-pixel display height (Phase 7 wires the pipeline).
