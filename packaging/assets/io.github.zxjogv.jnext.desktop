@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=JNEXT
+GenericName=ZX Spectrum Next Emulator
+Comment=Real-time ZX Spectrum Next emulator with an integrated debugger
+Exec=jnext %f
+TryExec=jnext
+Icon=io.github.zxjogv.jnext
+Terminal=false
+Categories=Game;Emulator;
+Keywords=ZX Spectrum;Sinclair;Z80;Retro;Emulator;
+StartupNotify=true

@@ -172,3 +172,49 @@ if(ENABLE_TESTS)
     enable_testing()
     add_subdirectory(test)
 endif()
+
+# --- Packaging (Task 67) ------------------------------------------------
+# install() rules + CPack config. Additive only: does not affect
+# `make gui-release` / `make unit-test` / plain `cmake --build`.
+include(GNUInstallDirs)
+
+install(TARGETS jnext RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(FILES packaging/assets/io.github.zxjogv.jnext.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES packaging/assets/io.github.zxjogv.jnext.metainfo.xml
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+install(FILES packaging/assets/io.github.zxjogv.jnext.svg
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+if(EXISTS "${CMAKE_SOURCE_DIR}/packaging/assets/io.github.zxjogv.jnext.png")
+    install(FILES packaging/assets/io.github.zxjogv.jnext.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
+endif()
+
+install(FILES LICENSE USAGE.md
+    DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+# CPack: source-agnostic TGZ/DEB/RPM package generation (`cpack -G <gen>`
+# from the build dir). Runtime deps below are the direct link-time
+# libraries (see packaging/README.md for how they were derived); the
+# rest of each binary's shared-lib closure is picked up by the
+# native dpkg-shlibdeps / rpm auto-requires generators.
+set(CPACK_PACKAGE_NAME "jnext")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VENDOR "ZXjogv")
+set(CPACK_PACKAGE_CONTACT "zx@jogv.es")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Real-time ZX Spectrum Next emulator with an integrated debugger")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/jorgegv/jnext")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+set(CPACK_GENERATOR "TGZ")
+
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ZXjogv <zx@jogv.es>")
+set(CPACK_DEBIAN_PACKAGE_SECTION "games")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+
+set(CPACK_RPM_PACKAGE_LICENSE "GPLv3")
+set(CPACK_RPM_PACKAGE_GROUP "Amusements/Emulators")
+set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+
+include(CPack)

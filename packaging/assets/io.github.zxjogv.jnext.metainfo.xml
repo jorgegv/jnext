@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.zxjogv.jnext</id>
+  <name>JNEXT</name>
+  <summary>Real-time ZX Spectrum Next emulator with an integrated debugger</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer id="io.github.zxjogv">
+    <name>ZXjogv</name>
+  </developer>
+  <description>
+    <p>
+      JNEXT is a real-time, cross-platform ZX Spectrum Next emulator written
+      in C++17, based on the official VHDL sources for the ZX Spectrum Next
+      FPGA core. It targets developers writing Next software: a debugger
+      that shows CPU, memory, video layers, sprites, audio and NextREG
+      state live, with breakpoints, watches, and step-backward execution,
+      plus a headless mode for running programs under CI.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Full ULA, Layer 2, Sprites, Tilemap and Copper video emulation</li>
+      <li>AY-3-8910/YM2149 (TurboSound), DAC and beeper audio</li>
+      <li>DivMMC, CTC, UART, SPI, I2C, DMA and IM2 interrupt peripherals</li>
+      <li>A Qt6 debugger window with dockable panels and rewind support</li>
+      <li>NEX, TAP, TZX, WAV, SNA, SZX and Z80 file loading</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.zxjogv.jnext.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/jorgegv/jnext/main/doc/SCREENSHOT.png</image>
+      <caption>JNEXT with the debugger open</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/jorgegv/jnext/main/doc/JNEXT-NEXTZXOS-BOOT.png</image>
+      <caption>JNEXT cold-booting NextZXOS</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/jorgegv/jnext</url>
+  <url type="bugtracker">https://github.com/jorgegv/jnext/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.98.5" date="2026-07-15"/>
+  </releases>
+</component>
