@@ -1,0 +1,34 @@
+# Task 27 P1 revision — exp3 density discriminator raw results (2026-07-15)
+# --machine 48k (divisor 8 throughout), --inject-org 8000 --inject-delay 150,
+# --benchmark 1800, core 0 @ 4900000 kHz, flock held, box idle (load1 0.44).
+# Injected programs (hand-assembled):
+#   exp3-busy48 : F3 21 00 90 06 00 7E 23 10 FC 18 F5
+#                 (DI; loop: LD HL,9000; LD B,0; inner: LD A,(HL); INC HL; DJNZ inner; JR loop)
+#                 avg 8.67 T-states/dispatch — matches the idle prompt's measured 8.36
+#   exp3-nopspin: F3, 200x NOP, C3 01 80          — avg 4.03 T/dispatch (HALT-like worst case,
+#                 17,342 dispatches/frame ~= TASK27A's hypothesised ~17.5k)
+#   exp3-exspin : F3 31 00 90, 200x E3 (EX (SP),HL), C3 04 80 — avg 18.96 T/dispatch (3,687/frame)
+# Boot contamination: frames 0-149 are 48K ROM boot; busy ms/frame below is
+# (wall - 150 x 2.484ms) / 1650, using boot-48k's median idle frame cost.
+
+## exp3-busy48
+  run1: BENCH workload=exp3-busy48 frames=1800 wall=4.703 fps=382.7 tstates_per_sec=26746211 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=exp3-busy48 frames=1800 wall=4.563 fps=394.5 tstates_per_sec=27569644 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=exp3-busy48 frames=1800 wall=4.563 fps=394.5 tstates_per_sec=27571519 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=exp3-busy48 frames=1800 wall=4.718 fps=381.5 tstates_per_sec=26663918 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=exp3-busy48 frames=1800 wall=4.618 fps=389.8 tstates_per_sec=27239382 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  MEDIAN exp3-busy48: wall=4.618  -> busy 2.573 ms/frame = 36.8 ns/T-state
+## exp3-nopspin
+  run1: BENCH workload=exp3-nopspin frames=1800 wall=5.220 fps=344.8 tstates_per_sec=24100256 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=exp3-nopspin frames=1800 wall=5.031 fps=357.8 tstates_per_sec=25006425 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=exp3-nopspin frames=1800 wall=4.986 fps=361.0 tstates_per_sec=25232770 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=exp3-nopspin frames=1800 wall=4.950 fps=363.6 tstates_per_sec=25413441 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=exp3-nopspin frames=1800 wall=5.004 fps=359.7 tstates_per_sec=25139731 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  MEDIAN exp3-nopspin: wall=5.004  -> busy 2.807 ms/frame = 40.2 ns/T-state
+## exp3-exspin
+  run1: BENCH workload=exp3-exspin frames=1800 wall=3.851 fps=467.5 tstates_per_sec=32670457 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=exp3-exspin frames=1800 wall=3.829 fps=470.1 tstates_per_sec=32856492 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=exp3-exspin frames=1800 wall=3.855 fps=466.9 tstates_per_sec=32632772 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=exp3-exspin frames=1800 wall=3.854 fps=467.0 tstates_per_sec=32640544 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=exp3-exspin frames=1800 wall=3.824 fps=470.7 tstates_per_sec=32894295 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  MEDIAN exp3-exspin: wall=3.851  -> busy 2.108 ms/frame = 30.2 ns/T-state

@@ -1,0 +1,72 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 12K of event 'cycles:u'
+# Event count (approx.): 14741598274
+#
+# Overhead  Command  Shared Object         Symbol                                                                                                                                                                                                                       
+# ........  .......  ....................  .............................................................................................................................................................................................................................
+#
+    12.52%  jnext    jnext                 [.] Emulator::run_frame()
+     7.26%  jnext    jnext                 [.] Mmu::read(unsigned short)
+     6.19%  jnext    jnext                 [.] Z80Cpu::execute()
+     5.95%  jnext    jnext                 [.] sync_regs_from_fuse(Z80Registers&)
+     4.98%  jnext    jnext                 [.] Im2Controller::step_devices()
+     4.87%  jnext    jnext                 [.] Im2Controller::tick(unsigned int)
+     4.67%  jnext    jnext                 [.] Ctc::tick(unsigned int)
+     4.23%  jnext    jnext                 [.] contend_read
+     3.64%  jnext    jnext                 [.] Im2Controller::step_pulse()
+     3.39%  jnext    jnext                 [.] contend_read_no_mreq
+     3.20%  jnext    jnext                 [.] std::_Function_handler<void (unsigned short, unsigned char), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short, unsigned char)#1}>::_M_invoke(std::_Any_data const&, unsigned short&&, unsigned char&&)
+     3.12%  jnext    jnext                 [.] Renderer::composite_scanline(unsigned int*, unsigned int, int)
+     2.98%  jnext    jnext                 [.] DivMmc::check_automap(unsigned short, bool, bool, bool)
+     2.45%  jnext    jnext                 [.] Multiface::on_m1(unsigned short, bool)
+     2.26%  jnext    jnext                 [.] std::_Function_handler<void (unsigned short), Emulator::init(EmulatorConfig const&, bool)::{lambda(unsigned short)#5}>::_M_invoke(std::_Any_data const&, unsigned short&&)
+     1.94%  jnext    jnext                 [.] UartChannel::tick(unsigned int) [clone .part.0]
+     1.80%  jnext    jnext                 [.] fuse_z80_readbyte
+     1.78%  jnext    jnext                 [.] Dma::tick_burst_wait(unsigned long)
+     1.66%  jnext    jnext                 [.] fuse_z80_readbyte_raw
+     1.62%  jnext    jnext                 [.] fuse_z80_execute_one
+     1.52%  jnext    jnext                 [.] Scheduler::run_until(unsigned long)
+     1.49%  jnext    jnext                 [.] VideoTiming::advance(int)
+     1.47%  jnext    jnext                 [.] AyChip::update_output()
+     1.16%  jnext    jnext                 [.] Mmu::divmmc_read(unsigned short, unsigned char&) const
+     1.11%  jnext    jnext                 [.] DivMmc::on_m1_retn_delay(bool)
+     0.90%  jnext    jnext                 [.] NmiSource::tick(unsigned int)
+     0.84%  jnext    jnext                 [.] PortDispatch::read(unsigned short) const
+     0.74%  jnext    jnext                 [.] Mixer::accumulate(Beeper const&, TurboSound const&, Dac const&, unsigned int)
+     0.70%  jnext    jnext                 [.] AyChip::tick()
+     0.67%  jnext    jnext                 [.] TurboSound::tick()
+     0.60%  jnext    jnext                 [.] Im2Controller::on_m1_cycle(unsigned short, unsigned char)
+     0.55%  jnext    jnext                 [.] fuse_z80_writebyte
+     0.54%  jnext    jnext                 [.] ContentionModel::contention_tick(bool, bool, bool, bool, unsigned short, unsigned short, unsigned short, bool) const
+     0.48%  jnext    jnext                 [.] Renderer::apply_ula_clip(unsigned int*, int) const
+     0.40%  jnext    jnext                 [.] Uart::tick(unsigned int)
+     0.36%  jnext    jnext                 [.] Clock::commit_pending_cpu_speed_on_bus_idle(bool, bool)
+     0.33%  jnext    jnext                 [.] sync_fuse_from_regs(Z80Registers const&)
+     0.32%  jnext    libc.so.6             [.] __memset_avx512_unaligned_erms
+     0.31%  jnext    jnext                 [.] Md6ConnectorX2::tick(unsigned int)
+     0.31%  jnext    jnext                 [.] fuse_z80_readport
+     0.31%  jnext    jnext                 [.] I2s::pi_audio_L() const
+     0.30%  jnext    jnext                 [.] void spdlog::logger::log_<unsigned short&, unsigned char&>(spdlog::source_loc, spdlog::level::level_enum, fmt::v12::basic_string_view<char>, unsigned short&, unsigned char&)
+     0.28%  jnext    jnext                 [.] mf_log()
+     0.27%  jnext    jnext                 [.] Ula::render_display_line(unsigned int*, int, unsigned short, unsigned short, Mmu&, bool*)
+     0.25%  jnext    jnext                 [.] TzxLoader::is_playing() const
+     0.22%  jnext    jnext                 [.] PortDispatch::write(unsigned short, unsigned char)
+     0.19%  jnext    jnext                 [.] Clock::tick(int)
+     0.18%  jnext    jnext                 [.] DivMmc::read(unsigned short) const
+     0.16%  jnext    jnext                 [.] NmiSource::is_activated() const
+     0.15%  jnext    jnext                 [.] I2s::pi_audio_R() const
+     0.14%  jnext    jnext                 [.] SpiMaster::read_data()
+     0.13%  jnext    jnext                 [.] NmiSource::nmi_generate_n() const
+     0.12%  jnext    jnext                 [.] Keyboard::read_rows(unsigned char) const
+     0.11%  jnext    jnext                 [.] AyChip::update_envelope()
+     0.11%  jnext    jnext                 [.] TraceLog::enabled() const
+     0.11%  jnext    jnext                 [.] Mmu::write(unsigned short, unsigned char)
+
+
+#
+# (Tip: When collecting LBR backtraces use --stitch-lbr to handle more than 32 deep entries: perf record --call-graph lbr ; perf report --stitch-lbr)
+#
