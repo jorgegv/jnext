@@ -2,12 +2,37 @@
 #include "core/emulator.h"
 #include "core/saveable.h"
 
+#include <new>
+#include <sys/mman.h>
+
 RewindBuffer::RewindBuffer(size_t max_frames, size_t snapshot_bytes)
     : snapshot_bytes_(snapshot_bytes)
 {
+    // One anonymous mapping for all slots: the kernel zero-fills pages and
+    // faults them in lazily on first write, so a large buffer (e.g. 500
+    // frames × 2.29 MB ≈ 1.09 GB) costs no startup memset and no RSS until
+    // snapshots are actually taken (same strategy as Profiler::init()).
+    block_bytes_ = max_frames * snapshot_bytes;
+    void* p = ::mmap(nullptr, block_bytes_,
+                     PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS,
+                     -1, 0);
+    if (p == MAP_FAILED) {
+        block_bytes_ = 0;
+        throw std::bad_alloc();   // matches the old vector::resize failure mode
+    }
+    block_ = static_cast<uint8_t*>(p);
+
     slots_.resize(max_frames);
-    for (auto& s : slots_) {
-        s.data.resize(snapshot_bytes, 0);
+    for (size_t i = 0; i < max_frames; ++i) {
+        slots_[i].data = block_ + i * snapshot_bytes;
+    }
+}
+
+RewindBuffer::~RewindBuffer()
+{
+    if (block_) {
+        ::munmap(block_, block_bytes_);
     }
 }
 
@@ -30,7 +55,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     s.frame_cycle = frame_cycle;
     s.frame_num   = frame_num;
 
-    StateWriter w(s.data.data(), snapshot_bytes_);
+    StateWriter w(s.data, snapshot_bytes_);
     emu.save_state(w);
 }
 
@@ -55,7 +80,7 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
     }
 
     const Slot& s = slots_[best];
-    StateReader r(s.data.data(), snapshot_bytes_);
+    StateReader r(s.data, snapshot_bytes_);
     emu.load_state(r);
     return s.frame_cycle;
 }

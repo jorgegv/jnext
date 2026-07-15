@@ -163,7 +163,7 @@ with `-` is treated as an option, never as a filename.
 | `--record FILE` | Record video + audio to an MP4 (requires `ffmpeg` on the PATH) |
 | `--rzx-play FILE` | Play back an RZX recording |
 | `--rzx-record FILE` | Record input to an RZX file |
-| `--rewind-buffer-size N` | Frame-snapshot ring buffer for backwards execution (default 500, 0 = off) |
+| `--rewind-buffer-size N` | Frame-snapshot ring buffer for backwards execution (opt-in; default 0 = off) |
 
 ### Headless and automation
 
@@ -340,8 +340,10 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` /
 - **Trace log** — circular instruction trace buffer, exportable to a file
 - **Symbol table** — Z88DK MAP files; symbols appear inline in the disassembly
   and in watches
-- **Backwards execution (rewind)** — frame-snapshot ring buffer (sized by
-  `--rewind-buffer-size`), with Step Back, Frame Back and a rewind slider
+- **Backwards execution (rewind)** — frame-snapshot ring buffer, with Step
+  Back, Frame Back and a rewind slider. Opt-in: start jnext with
+  `--rewind-buffer-size N` (e.g. 500) to enable it; the default is off
+  because rewind takes a full-machine snapshot every frame
 
 | Key | Action |
 |-----|--------|

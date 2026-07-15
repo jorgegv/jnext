@@ -131,8 +131,10 @@ struct EmulatorConfig {
     // out when --sdcard is missing).
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
 
-    // Rewind buffer: number of frame snapshots to keep (0 = disabled)
-    int rewind_buffer_frames = 500;
+    // Rewind buffer: number of frame snapshots to keep (0 = disabled).
+    // Opt-in: rewind costs a full-machine save_state every frame plus the
+    // ring-buffer memory, so it is off unless --rewind-buffer-size is given.
+    int rewind_buffer_frames = 0;
 
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;

@@ -19,8 +19,15 @@ class StateReader;
 class RewindBuffer {
 public:
     /// Allocate ring buffer with max_frames slots of snapshot_bytes each.
-    /// All memory is pre-allocated here — no allocation during normal execution.
+    /// All memory is reserved here — no allocation during normal execution.
+    /// The backing store is a single mmap(MAP_ANONYMOUS) region: pages are
+    /// zero-filled by the kernel and faulted in lazily on first write, so
+    /// construction does not eagerly memset the (potentially ~1 GB) buffer.
     RewindBuffer(size_t max_frames, size_t snapshot_bytes);
+    ~RewindBuffer();
+
+    RewindBuffer(const RewindBuffer&) = delete;
+    RewindBuffer& operator=(const RewindBuffer&) = delete;
 
     /// Take a snapshot of the current emulator state.
     /// Called at the top of Emulator::run_frame(), before scheduling events.
@@ -56,12 +63,14 @@ public:
 
 private:
     struct Slot {
-        uint64_t             frame_cycle = 0;
-        uint32_t             frame_num   = 0;
-        std::vector<uint8_t> data;          ///< Pre-allocated snapshot bytes
+        uint64_t frame_cycle = 0;
+        uint32_t frame_num   = 0;
+        uint8_t* data        = nullptr;  ///< Points into block_ (mmap region)
     };
 
     std::vector<Slot> slots_;
+    uint8_t* block_       = nullptr;  ///< mmap(MAP_ANONYMOUS) backing store
+    size_t   block_bytes_ = 0;        ///< Total bytes mapped
     size_t head_          = 0;   ///< Next write index (oldest overwritten first)
     size_t count_         = 0;   ///< Number of valid snapshots stored
     size_t snapshot_bytes_;
