@@ -376,6 +376,11 @@ private:
     /// Compute the number of 28 MHz ticks for one complete byte transfer.
     uint32_t byte_transfer_ticks() const;
 
+    /// Pop the next TX FIFO byte and begin its transmission (byte-level
+    /// engine): sets tx_busy_, arms tx_timer_byte_, emits via on_tx_byte
+    /// or loopback inject_rx(). Caller guarantees !tx_fifo_.empty().
+    void start_tx_from_fifo();
+
     /// Full 17-bit prescaler value.
     uint32_t prescaler() const {
         return (static_cast<uint32_t>(prescaler_msb_) << 14) | prescaler_lsb_;

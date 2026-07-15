@@ -2312,6 +2312,89 @@ static void test_group14_esp() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Group 15: Task 27 C1 — byte-level tick() accumulator seam
+// ══════════════════════════════════════════════════════════════════════
+//
+// UartChannel::tick(N) was rewritten from a per-master-cycle countdown
+// loop to closed-form arithmetic that iterates once per byte boundary.
+// These rows pin the seam with exact byte-boundary positions: at the
+// default hard-reset configuration the byte time is prescaler 243
+// (uart.vhd:318-320 hard-reset value, 115200 @ 28 MHz) x 10 frame bits
+// (8N1: start + 8 data + 1 stop; frame hard-reset 0x18, uart.vhd:297-299)
+// = 2430 master cycles, and back-to-back FIFO bytes are exactly one
+// byte time apart.
+
+static void test_group15_c1_accumulator() {
+    set_group("TX-C1");
+    constexpr uint32_t T = 243 * 10;   // byte time in 28 MHz master cycles
+
+    // TX-C1-ACC-01 — a single span crossing a byte boundary emits the
+    // next byte inside the span; the following boundary is exact to the
+    // single cycle; on_tx_empty fires exactly at the last byte's end.
+    {
+        UartChannel ch;
+        ch.hard_reset();
+        int tx = 0, empty = 0;
+        ch.on_tx_byte  = [&](uint8_t) { ++tx; };
+        ch.on_tx_empty = [&]() { ++empty; };
+        ch.write_tx(0x11);
+        ch.write_tx(0x22);
+        ch.write_tx(0x33);
+
+        ch.tick(1);                    // byte 1 starts (cycle 0)
+        const bool started_one = (tx == 1);
+        ch.tick(T + T / 2);            // one span across the boundary at T
+        const bool two_after_span = (tx == 2);
+        ch.tick(T / 2 - 1);            // one cycle short of boundary at 2T
+        const bool still_two = (tx == 2);
+        ch.tick(1);                    // exactly cycle 2T: byte 3 starts
+        const bool three_at_edge = (tx == 3 && empty == 0);
+        ch.tick(T - 1);                // one short of byte 3's end at 3T
+        const bool no_early_empty = (empty == 0);
+        ch.tick(1);                    // cycle 3T: done, FIFO drained
+        const uint8_t status = ch.read_status();
+        const bool drained = (tx == 3 && empty == 1
+                              && !ch.tx_busy() && (status & 0x10) != 0);
+
+        check("TX-C1-ACC-01",
+              "single tick span across a byte boundary: bytes exactly "
+              "prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,"
+              "318-320]; boundaries exact to one cycle; tx_empty at end",
+              started_one && two_after_span && still_two && three_at_edge
+                  && no_early_empty && drained,
+              fmt("tx=%d empty=%d started=%d span2=%d still2=%d edge3=%d "
+                  "noearly=%d status=0x%02x",
+                  tx, empty, started_one, two_after_span, still_two,
+                  three_at_edge, no_early_empty, status));
+    }
+
+    // TX-C1-ACC-02 — one span draining several FIFO bytes: 4 queued
+    // bytes all start within a single tick(4T) call (starts at 0, T,
+    // 2T, 3T); the last completion lands exactly one cycle later.
+    {
+        UartChannel ch;
+        ch.hard_reset();
+        int tx = 0, empty = 0;
+        ch.on_tx_byte  = [&](uint8_t) { ++tx; };
+        ch.on_tx_empty = [&]() { ++empty; };
+        for (uint8_t b : {0x10, 0x20, 0x30, 0x40}) ch.write_tx(b);
+
+        ch.tick(4 * T);                // cycles 0..4T-1
+        const bool four_started = (tx == 4 && empty == 0 && ch.tx_busy());
+        ch.tick(1);                    // cycle 4T: byte 4 completes
+        const bool done = (tx == 4 && empty == 1 && !ch.tx_busy());
+
+        check("TX-C1-ACC-02",
+              "one tick(4*2430) span drains 4 FIFO bytes back-to-back "
+              "(starts at 0/T/2T/3T); last completion exactly at 4T "
+              "[uart.vhd:297-299,318-320]",
+              four_started && done,
+              fmt("tx=%d empty=%d four_started=%d done=%d",
+                  tx, empty, four_started, done));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Main
 // ══════════════════════════════════════════════════════════════════════
 
@@ -2333,6 +2416,7 @@ int main() {
     test_group12_gating();      std::printf("  Group GATE  done\n");
     test_group13_nr_a0();       std::printf("  Group NR-A0 done\n");
     test_group14_esp();         std::printf("  Group ESP   done\n");
+    test_group15_c1_accumulator(); std::printf("  Group TX-C1 done\n");
 
     std::printf("\n===============================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

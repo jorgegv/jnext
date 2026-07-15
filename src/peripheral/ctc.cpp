@@ -226,12 +226,61 @@ uint8_t Ctc::read(int channel) const {
 }
 
 void Ctc::tick(uint32_t master_cycles) {
-    for (uint32_t i = 0; i < master_cycles; ++i) {
+    // Task 27 C1: event-horizon loop, O(ZC/TO events) instead of
+    // O(master_cycles * 4). Semantics are identical to the original
+    // per-cycle loop (`for cycle { for ch { tick() } }`):
+    //   - only timer-mode channels in S_RUN/S_RUN_TC do work in tick()
+    //     (ctc_chan.vhd:117,136-138: reset_soft holds p_count at 0
+    //     outside S_RUN/S_RUN_TC; :150 t_count_en comes from clk_trg_edge,
+    //     not the prescaler, in counter mode) — if none is running the
+    //     whole span is a no-op;
+    //   - between ZC/TO events the only state change is prescaler_
+    //     accumulation + counter_ decrement per prescaler wrap, which
+    //     CtcChannel::advance() applies in closed form;
+    //   - the cycle in which the earliest ZC/TO fires is executed with
+    //     the ORIGINAL exact inner loop, so daisy-chain effects keep
+    //     their per-cycle ordering: handle_zc_to() may TRIGGER->RUN a
+    //     later channel (trigger() on a timer waiting for CLK/TRG),
+    //     which must still receive that same cycle's tick when its
+    //     index is higher than the firing channel's — the inner loop
+    //     provides exactly that, as before.
+    uint32_t remaining = master_cycles;
+    while (remaining > 0) {
+        // Earliest possible ZC/TO among running timer channels.
+        uint32_t d = 0;
+        bool any_running = false;
+        for (const auto& ch : channels_) {
+            if (!ch.timer_running()) continue;
+            const uint32_t c = ch.cycles_to_zc();
+            if (!any_running || c < d) d = c;
+            any_running = true;
+        }
+        if (!any_running) return;  // idle CTC: nothing can happen this span
+
+        if (d > remaining) {
+            // No ZC/TO can occur within the span: closed-form advance.
+            for (auto& ch : channels_) {
+                if (ch.timer_running()) ch.advance(remaining);
+            }
+            return;
+        }
+
+        // Jump to one cycle before the earliest event (no ZC/TO in the
+        // gap for ANY channel, since d is the minimum over all)...
+        if (d > 1) {
+            for (auto& ch : channels_) {
+                if (ch.timer_running()) ch.advance(d - 1);
+            }
+            remaining -= d - 1;
+        }
+
+        // ...then execute the event cycle exactly as before.
         for (int ch = 0; ch < 4; ++ch) {
             if (channels_[ch].tick()) {
                 handle_zc_to(ch);
             }
         }
+        --remaining;
     }
 }
 

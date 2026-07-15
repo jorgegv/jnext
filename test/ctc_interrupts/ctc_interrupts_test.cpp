@@ -21,6 +21,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "peripheral/ctc.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -1661,6 +1662,158 @@ void test_cim2_quiescence() {
     }
 }
 
+// ── Task 27 C1: CTC event-horizon tick() equivalence ─────────────────
+//
+// Ctc::tick(N) was rewritten from an O(N*4) per-cycle loop to an
+// O(ZC/TO events) event-horizon loop: gap cycles are applied in closed
+// form by CtcChannel::advance(), and the cycle in which the earliest
+// ZC/TO fires runs the ORIGINAL exact per-channel inner loop (which is
+// what the pre-existing 36 VHDL-cited rows validate). These rows pin
+// the seam: a single tick(N) span must be observably identical to N
+// sequential tick(1) calls, with absolute event positions derived from
+// ctc_chan.vhd prescaler/counter semantics (p_count :136-138,
+// prescaler_clk :143-146, t_count/zc_to :150-170).
+
+void test_c1_ctc_accumulator() {
+    set_group("CTC-C1-ACC");
+
+    // Program a channel: control word, then time constant.
+    const auto prog = [](Ctc& ctc, int ch, uint8_t cw, uint8_t tc) {
+        ctc.write(ch, cw);
+        ctc.write(ch, tc);
+    };
+
+    // CTC-C1-ACC-01 — one tick(150) span crossing three ZC/TO events,
+    // and prescaler-phase continuity across the closed-form jump.
+    // Timer mode, prescaler 16, TC=3: prescaler_clk every 16 ticks
+    // (ctc_chan.vhd:143-146), ZC/TO on every 3rd count step (:162-170)
+    // → events at ticks 48, 96, 144; the 4th lands at 192, exactly 42
+    // ticks after the 150-span (phase 150 mod 16 = 6 must survive).
+    {
+        Ctc ctc;
+        std::vector<int> seq;
+        ctc.on_zc_to = [&](int ch) { seq.push_back(ch); };
+        prog(ctc, 0, 0x07, 3);   // int off, timer, /16, auto-start, TC=3
+
+        ctc.tick(150);                            // one span, 3 events
+        const size_t after_span     = seq.size();
+        const uint8_t counter_after = ctc.read(0);  // reloaded to 3 at 144
+        ctc.tick(41);                             // ticks 151..191: none
+        const size_t before_edge    = seq.size();
+        ctc.tick(1);                              // tick 192: 4th ZC/TO
+        const size_t at_edge        = seq.size();
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "after_span=%zu counter=%u before_edge=%zu at_edge=%zu",
+                      after_span, counter_after, before_edge, at_edge);
+        check("CTC-C1-ACC-01",
+              "timer /16 TC=3: single tick(150) span fires exactly the 3 "
+              "ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; "
+              "prescaler phase survives the closed-form jump (4th ZC/TO "
+              "exactly at 192)",
+              after_span == 3 && counter_after == 3
+                  && before_edge == 3 && at_edge == 4,
+              detail);
+    }
+
+    // CTC-C1-ACC-02 — daisy-chain inside one span + span-splitting
+    // invariance. ch0 timer /16 TC=3 (ZC/TO at 48/96/144/192); ch1
+    // counter mode TC=2 fed by the ch0→ch1 daisy-chain (zxnext.vhd:4084)
+    // → ch1 fires on every 2nd ch0 pulse (96, 192). One tick(200) call
+    // and 200 tick(1) calls on identically-programmed instances must
+    // produce the same absolute callback sequence 0,0,1,0,0,1 and the
+    // same final counter values.
+    {
+        const std::vector<int> expected = {0, 0, 1, 0, 0, 1};
+
+        const auto run = [&](Ctc& ctc, std::vector<int>& seq, bool stepped) {
+            ctc.on_zc_to = [&seq](int ch) { seq.push_back(ch); };
+            prog(ctc, 0, 0x07, 3);   // timer, /16, auto, TC=3
+            prog(ctc, 1, 0x47, 2);   // counter mode, TC=2
+            if (stepped) {
+                for (int i = 0; i < 200; ++i) ctc.tick(1);
+            } else {
+                ctc.tick(200);
+            }
+        };
+
+        Ctc ctc_span, ctc_step;
+        std::vector<int> seq_span, seq_step;
+        run(ctc_span, seq_span, false);
+        run(ctc_step, seq_step, true);
+
+        const bool seq_ok      = (seq_span == expected);
+        const bool split_ok    = (seq_step == expected);
+        const bool counters_ok = ctc_span.read(0) == ctc_step.read(0)
+                              && ctc_span.read(1) == ctc_step.read(1)
+                              && ctc_span.read(0) == 3    // reloaded at 192
+                              && ctc_span.read(1) == 2;   // reloaded at 192
+
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "span_n=%zu step_n=%zu seq_ok=%d split_ok=%d "
+                      "cnt0=%u/%u cnt1=%u/%u",
+                      seq_span.size(), seq_step.size(), seq_ok, split_ok,
+                      ctc_span.read(0), ctc_step.read(0),
+                      ctc_span.read(1), ctc_step.read(1));
+        check("CTC-C1-ACC-02",
+              "ch0 timer /16 TC=3 chained into ch1 counter TC=2 "
+              "[zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls "
+              "— sequence 0,0,1,0,0,1 and identical counters",
+              seq_ok && split_ok && counters_ok,
+              detail);
+    }
+
+    // CTC-C1-ACC-03 — mid-span TRIGGER→RUN activation ordering. ch0
+    // timer /16 TC=1 auto-start (ZC/TO at 16/32/...); ch1 timer /16
+    // TC=1 with D3=1 (waits for CLK/TRG — ctc_chan.vhd S_TRIGGER). The
+    // ch0 pulse at tick 16 starts ch1 via the daisy-chain with its
+    // prescaler cleared, and ch1 (index > firing channel) still counts
+    // that same cycle — established per-cycle model semantics — so
+    // ch1's first ZC/TO lands at tick 31, one BEFORE ch0's at 32. The
+    // event-horizon loop must reproduce this exactly, and the stepped
+    // twin must agree.
+    {
+        const auto run = [&](Ctc& ctc, std::vector<int>& seq, bool stepped) {
+            ctc.on_zc_to = [&seq](int ch) { seq.push_back(ch); };
+            prog(ctc, 0, 0x07, 1);   // timer, /16, auto-start, TC=1
+            prog(ctc, 1, 0x0F, 1);   // timer, /16, CLK/TRG-start, TC=1
+            if (stepped) {
+                for (int i = 0; i < 31; ++i) ctc.tick(1);
+            } else {
+                ctc.tick(31);
+            }
+        };
+
+        Ctc ctc_span, ctc_step;
+        std::vector<int> seq_span, seq_step;
+        run(ctc_span, seq_span, false);
+        run(ctc_step, seq_step, true);
+
+        const std::vector<int> expected = {0, 1};  // ch0@16, ch1@31
+        const bool span_ok = (seq_span == expected);
+        const bool step_ok = (seq_step == expected);
+
+        // One more tick: ch0's second ZC/TO at 32 (ch1's next is at 47).
+        seq_span.clear();
+        ctc_span.tick(1);
+        const bool edge_ok = (seq_span == std::vector<int>{0});
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "span=[%s] step=[%s] edge_ok=%d",
+                      span_ok ? "0,1" : "?", step_ok ? "0,1" : "?", edge_ok);
+        check("CTC-C1-ACC-03",
+              "timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO "
+              "at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires "
+              "at 31: activation cycle still ticks the newly-RUN channel; "
+              "tick(31) == 31x tick(1)",
+              span_ok && step_ok && edge_ok,
+              detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1691,6 +1844,9 @@ int main() {
 
     test_cim2_quiescence();
     std::printf("  Group: CIM2-Quiescence — done\n");
+
+    test_c1_ctc_accumulator();
+    std::printf("  Group: CTC-C1-ACC — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
