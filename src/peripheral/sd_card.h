@@ -170,7 +170,7 @@ private:
     std::fstream file_;
     uint64_t file_size_ = 0;
 
-    // NOTE: SdCardDevice is intentionally NOT a Saveable.  The rewind
+    // NOTE: SdCardDevice intentionally has NO save_state/load_state.  The rewind
     // snapshot ring currently skips the SD back end.  If this class is
     // ever serialised, the CMD18 stream state (multi_block_,
     // multi_block_sector_, plus state_/resp_buf_/resp_idx_/data_idx_/

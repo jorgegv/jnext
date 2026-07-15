@@ -31,6 +31,9 @@ public:
 
     /// Take a snapshot of the current emulator state.
     /// Called at the top of Emulator::run_frame(), before scheduling events.
+    /// Task 60b (G67): if save_state does not write exactly snapshot_bytes
+    /// (schema drift since construction), the slot is NOT published and an
+    /// error is logged — a rewind can never restore a garbled snapshot.
     void take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint32_t frame_num);
 
     /// Restore the nearest snapshot with frame_cycle <= target_cycle.

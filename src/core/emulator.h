@@ -363,8 +363,25 @@ public:
     // State serialisation (used by RewindBuffer)
     // -----------------------------------------------------------------------
 
+    /// Per-subsystem desync sentinel (Task 60b): save_state writes
+    /// `kStateSentinelMagic ^ ordinal` (u32) after every subsystem block;
+    /// load_state verifies each one and fails loudly (error log naming the
+    /// subsystem + returns false) on mismatch, instead of silently feeding
+    /// desynced bytes into every subsystem downstream of an asymmetric
+    /// save/load edit. The snapshot byte stream is in-process only (the
+    /// rewind ring is its sole consumer); it is never written to disk.
+    static constexpr uint32_t kStateSentinelMagic = 0x4A4E5354; // "JNST"
+
     void save_state(class StateWriter& w) const;
-    void load_state(class StateReader& r);
+
+    /// Returns false (and logs an error naming the subsystem) on sentinel
+    /// mismatch or out-of-bounds read; the restore is aborted at that point
+    /// and the machine state is NOT trustworthy.
+    bool load_state(class StateReader& r);
+
+    /// Name of the subsystem whose sentinel failed in the last load_state
+    /// (empty if the last load succeeded).
+    const std::string& last_state_error() const { return last_state_error_; }
 
     /// Access the rewind buffer (may be null if disabled).
     RewindBuffer* rewind_buffer() { return rewind_buffer_.get(); }
@@ -846,6 +863,10 @@ private:
     /// non-superseded line-int callback. Public accessor
     /// `line_int_fire_count()` is used by VT-G163-* rows.
     uint64_t line_int_fire_count_ = 0;
+
+    /// Task 60b — subsystem name of the sentinel that failed in the last
+    /// load_state (empty when the last load succeeded). Not serialised.
+    std::string last_state_error_;
 
     /// Raster position snapshotted at pause time.
     int paused_vc_ = 0;

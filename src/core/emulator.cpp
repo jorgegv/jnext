@@ -7888,35 +7888,50 @@ void Emulator::on_vsync()
 
 void Emulator::save_state(StateWriter& w) const
 {
+    // Task 60b — per-subsystem desync sentinels. A u32 of
+    // kStateSentinelMagic ^ ordinal is written after every subsystem block;
+    // load_state checks the same sequence (same order, same ordinals) and
+    // fails loudly with the subsystem name on the first mismatch.
+    //
+    // Adding a subsystem to the snapshot (e.g. Task 60c input state) means:
+    // append its save_state call here followed by put_sentinel(), and the
+    // matching load call followed by check_sentinel("name") at the SAME
+    // position in load_state — the shared ordinal counter keeps both sides
+    // in lockstep automatically.
+    uint32_t sentinel_ordinal = 0;
+    auto put_sentinel = [&w, &sentinel_ordinal]() {
+        w.write_u32(kStateSentinelMagic ^ sentinel_ordinal++);
+    };
+
     // Core subsystems.
-    clock_.save_state(w);
-    ram_.save_state(w);
-    mmu_.save_state(w);
-    nextreg_.save_state(w);
-    cpu_.save_state(w);
-    im2_.save_state(w);
+    clock_.save_state(w);      put_sentinel();
+    ram_.save_state(w);        put_sentinel();
+    mmu_.save_state(w);        put_sentinel();
+    nextreg_.save_state(w);    put_sentinel();
+    cpu_.save_state(w);        put_sentinel();
+    im2_.save_state(w);        put_sentinel();
 
     // Video subsystems.
-    palette_.save_state(w);
-    layer2_.save_state(w);
-    sprites_.save_state(w);
-    tilemap_.save_state(w);
-    renderer_.save_state(w);   // includes ULA
+    palette_.save_state(w);    put_sentinel();
+    layer2_.save_state(w);     put_sentinel();
+    sprites_.save_state(w);    put_sentinel();
+    tilemap_.save_state(w);    put_sentinel();
+    renderer_.save_state(w);   put_sentinel();   // includes ULA
 
     // Peripheral subsystems.
-    copper_.save_state(w);
-    ctc_.save_state(w);
-    dma_.save_state(w);
-    spi_.save_state(w);
-    i2c_.save_state(w);
-    rtc_.save_state(w);
-    uart_.save_state(w);
-    divmmc_.save_state(w);
+    copper_.save_state(w);     put_sentinel();
+    ctc_.save_state(w);        put_sentinel();
+    dma_.save_state(w);        put_sentinel();
+    spi_.save_state(w);        put_sentinel();
+    i2c_.save_state(w);        put_sentinel();
+    rtc_.save_state(w);        put_sentinel();
+    uart_.save_state(w);       put_sentinel();
+    divmmc_.save_state(w);     put_sentinel();
 
     // Audio subsystems.
-    beeper_.save_state(w);
-    turbosound_.save_state(w);
-    dac_.save_state(w);
+    beeper_.save_state(w);     put_sentinel();
+    turbosound_.save_state(w); put_sentinel();
+    dac_.save_state(w);        put_sentinel();
 
     // Emulator private state.
     w.write_u64(frame_cycle_);
@@ -7972,17 +7987,20 @@ void Emulator::save_state(StateWriter& w) const
     // single-bool save-state slot for binary compatibility with prior saves
     // and just sample/restore through the IoMode accessor.
     w.write_bool(iomode_.pin7());
+    put_sentinel();   // "emulator" scalar block
 
     // Audio Phase 1: I2s stub latched sample pair. Appended at the END
     // of the save stream (NOT interleaved with the other audio
     // subsystems) so prior saves that predate this field remain
     // readable up to the pin7 slot.
     i2s_.save_state(w);
+    put_sentinel();   // "i2s"
 
     // NMI pipeline Phase 1 scaffold — appended after i2s for the same
     // reason (backwards-compatible append-only save layout).
     nmi_source_.save_state(w);
     w.write_bool(prev_nmi_generate_n_);
+    put_sentinel();   // "nmi_source"
 
     // G108 — port_ff_reg storage. Appended at the very end so old
     // saves that predate the field deserialise cleanly (load_state
@@ -8021,6 +8039,7 @@ void Emulator::save_state(StateWriter& w) const
     // G112 / G113 slots above). Older snapshots leave the field at its
     // reset default of 0, matching VHDL zxnext.vhd:5080.
     w.write_u8(nr_a0_pi_peripheral_en_);
+    put_sentinel();   // "nextreg_appends" (G108/G56-B/G55/G112/G113/G135)
 
     // Wave 1 B1 — Multiface subsystem state (FFs + RAM, ~16 bytes header
     // + 8 KB RAM). Append-only: writes a sentinel `1` byte first so the
@@ -8028,6 +8047,7 @@ void Emulator::save_state(StateWriter& w) const
     // its constructor-init defaults (reset() called from constructor).
     w.write_u8(0x01);
     multiface_.save_state(w);
+    put_sentinel();   // "multiface"
 
     // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
     // VHDL zxnext.vhd:1095 has no reset clause for this signal, so the
@@ -8048,10 +8068,48 @@ void Emulator::save_state(StateWriter& w) const
     // invariant is locally violated. End-of-stream append + eof()
     // tolerance so prior snapshots load with the reset default.
     w.write_bool(prev_pulse_int_n_);
+    put_sentinel();   // "tail" (nr_02_bus_reset_ + prev_pulse_int_n_)
+
+    // Task 60b — bounds check: a snapshot buffer smaller than the state
+    // stream would previously scribble past the allocation silently; the
+    // StateWriter now suppresses the write and latches a sticky flag.
+    if (w.overflow()) {
+        Log::emulator()->error(
+            "save_state: buffer overflow — snapshot needs {} bytes but the "
+            "buffer is smaller; snapshot is truncated and NOT usable",
+            w.position());
+    }
 }
 
-void Emulator::load_state(StateReader& r)
+bool Emulator::load_state(StateReader& r)
 {
+    // Task 60b — mirror of save_state's per-subsystem sentinels. Each
+    // check consumes one u32 and verifies it equals
+    // kStateSentinelMagic ^ ordinal for the SAME ordinal sequence as
+    // save_state. On mismatch (or an out-of-bounds read, e.g. a truncated
+    // buffer) the restore is aborted with an error naming the subsystem —
+    // the machine is left in a partially-restored, non-trustworthy state,
+    // which is strictly better than silently loading desynced garbage
+    // into every subsystem downstream.
+    last_state_error_.clear();
+    uint32_t sentinel_ordinal = 0;
+    auto check_sentinel = [this, &r, &sentinel_ordinal](const char* name) -> bool {
+        const uint32_t ordinal = sentinel_ordinal++;
+        const uint32_t expect  = kStateSentinelMagic ^ ordinal;
+        const uint32_t got     = r.read_u32();
+        if (got != expect || r.out_of_bounds()) {
+            last_state_error_ = name;
+            Log::emulator()->error(
+                "load_state: state sentinel mismatch after subsystem '{}' "
+                "(#{}: got 0x{:08X}, expected 0x{:08X}{}) — snapshot desynced, "
+                "aborting restore",
+                name, ordinal, got, expect,
+                r.out_of_bounds() ? ", read past end of buffer" : "");
+            return false;
+        }
+        return true;
+    };
+
     // Snapshots are only ever taken at a frame boundary (begin_new_frame()), so a
     // restored machine has no frame in flight — the next run_frame() must start one.
     // Without this, restoring while the debugger had a frame paused would leave the
@@ -8060,9 +8118,13 @@ void Emulator::load_state(StateReader& r)
 
     // Core subsystems.
     clock_.load_state(r);
+    if (!check_sentinel("clock")) return false;
     ram_.load_state(r);
+    if (!check_sentinel("ram")) return false;
     mmu_.load_state(r);
+    if (!check_sentinel("mmu")) return false;
     nextreg_.load_state(r);
+    if (!check_sentinel("nextreg")) return false;
     // Task 58 — re-derive the effective NR 0x05 bit-0 latch from the
     // restored pending cache instead of serialising it (keeps the
     // snapshot format stable — same pattern as the Z80Cpu /INT-window
@@ -8071,6 +8133,7 @@ void Emulator::load_state(StateReader& r)
     // zxnext.vhd:6696-6703.
     eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     cpu_.load_state(r);
+    if (!check_sentinel("cpu")) return false;
     // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
     // (zxnext.vhd:2033). The flag is intentionally not serialised in
     // Z80Cpu::save_state (would shift all later subsystem blocks and
@@ -8083,26 +8146,40 @@ void Emulator::load_state(StateReader& r)
         cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
     }
     im2_.load_state(r);
+    if (!check_sentinel("im2")) return false;
 
     // Video subsystems.
     palette_.load_state(r);
+    if (!check_sentinel("palette")) return false;
     layer2_.load_state(r);
+    if (!check_sentinel("layer2")) return false;
     sprites_.load_state(r);
+    if (!check_sentinel("sprites")) return false;
     tilemap_.load_state(r);
+    if (!check_sentinel("tilemap")) return false;
     renderer_.load_state(r);   // includes ULA
+    if (!check_sentinel("renderer")) return false;
 
     // Peripheral subsystems.
     copper_.load_state(r);
+    if (!check_sentinel("copper")) return false;
     // G109: mirror the just-loaded NR 0x64 cu_offset onto VideoTiming so
     // the line-int comparator stays consistent with Copper across save/load.
     video_timing_.set_cu_offset(copper_.offset());
     ctc_.load_state(r);
+    if (!check_sentinel("ctc")) return false;
     dma_.load_state(r);
+    if (!check_sentinel("dma")) return false;
     spi_.load_state(r);
+    if (!check_sentinel("spi")) return false;
     i2c_.load_state(r);
+    if (!check_sentinel("i2c")) return false;
     rtc_.load_state(r);
+    if (!check_sentinel("rtc")) return false;
     uart_.load_state(r);
+    if (!check_sentinel("uart")) return false;
     divmmc_.load_state(r);
+    if (!check_sentinel("divmmc")) return false;
     // Pass-10 verify-audit fix (2026-05-09): re-sync DivMmc::rom3_active_
     // from the canonical loaded MMU state. The flag is a feeder shadow of
     // VHDL `sram_pre_rom3` (zxnext.vhd:2981-3008,:3138) and is NOT
@@ -8232,8 +8309,11 @@ void Emulator::load_state(StateReader& r)
 
     // Audio subsystems.
     beeper_.load_state(r);
+    if (!check_sentinel("beeper")) return false;
     turbosound_.load_state(r);
+    if (!check_sentinel("turbosound")) return false;
     dac_.load_state(r);
+    if (!check_sentinel("dac")) return false;
 
     // Emulator private state.
     frame_cycle_      = r.read_u64();
@@ -8284,15 +8364,18 @@ void Emulator::load_state(StateReader& r)
     // Phase 2 Wave 2 Agent E: pin7 now lives in IoMode; restore via the
     // dedicated save-state setter to keep the single-bool slot intact.
     iomode_.set_pin7_for_load(r.read_bool());
+    if (!check_sentinel("emulator")) return false;
 
     // Audio Phase 1: I2s stub latched sample pair — appended at the
     // END matching save_state().
     i2s_.load_state(r);
+    if (!check_sentinel("i2s")) return false;
 
     // NMI pipeline Phase 1 scaffold — matches the append order in
     // save_state().
     nmi_source_.load_state(r);
     prev_nmi_generate_n_ = r.read_bool();
+    if (!check_sentinel("nmi_source")) return false;
 
     // G108 — port_ff_reg storage. Appended after prev_nmi_generate_n_.
     // Tolerate older saves that predate the field by checking eof()
@@ -8341,6 +8424,7 @@ void Emulator::load_state(StateReader& r)
     if (!r.eof()) {
         nr_a0_pi_peripheral_en_ = r.read_u8();
     }
+    if (!check_sentinel("nextreg_appends")) return false;
     // G138 — re-sync the I2cController gate from the loaded byte. Older
     // snapshots fall through with nr_a0_pi_peripheral_en_ == 0, matching
     // the i2c_.reset() default of pi_i2c1_en_ = false.
@@ -8355,6 +8439,7 @@ void Emulator::load_state(StateReader& r)
             multiface_.load_state(r);
         }
     }
+    if (!check_sentinel("multiface")) return false;
 
     // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
     // Saves predating this slot leave the field at its constructor default
@@ -8377,6 +8462,7 @@ void Emulator::load_state(StateReader& r)
     if (!r.eof()) {
         prev_pulse_int_n_ = r.read_bool();
     }
+    if (!check_sentinel("tail")) return false;
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
     // composite gate from the canonical loaded state (nr_03_config_mode +
@@ -8386,6 +8472,18 @@ void Emulator::load_state(StateReader& r)
     spi_.set_flash_cs_enable(
         nextreg_.nr_03_config_mode()
         || ((nmi_source_.reset_type() & 0x04) != 0));
+
+    // Task 60b — any out-of-bounds read that slipped between sentinels
+    // (all trailing fields are sentinel-guarded above, so this is a
+    // belt-and-braces check) still fails the load loudly.
+    if (r.out_of_bounds()) {
+        last_state_error_ = "buffer-truncated";
+        Log::emulator()->error(
+            "load_state: read past end of snapshot buffer ({} bytes) — "
+            "restore aborted", r.capacity());
+        return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------

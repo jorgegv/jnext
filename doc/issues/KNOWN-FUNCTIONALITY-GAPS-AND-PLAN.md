@@ -121,7 +121,7 @@ where possible.
 | G48 | Multiface peripheral (Task 8) + RETN-alias band-aid        | Multiface, NMI, DivMMC           | B,C |         | no NMI freeze/cheat menu; 8 DivMMC + Copper rows skipped   | M      | Medium   |
 | G56 | NextReg `regs_[]` shadow-store systemic bug (option a partial — option b pending) | NextREG                          | C,D |         | per-NR read_handlers landed for ~24 NRs; `NextReg::write` contract unfixed | M | Medium |
 | G59 | NextZXOS bypass-tbblue-fw boot path                        | Boot, NextREG, MMU               | C   |         | pragmatic instant-boot mitigation for G46                  | H      | Medium   |
-| G67 | Rewind buffer pre-allocated bound + assertion              | Rewind                           | C   |         | save-state widening silently overflows ring slots          | L      | Medium   |
+| G67 | Rewind buffer pre-allocated bound + assertion              | Rewind                           | C   |         | fixed Task 60b: bounds+sentinels; mismatched slots dropped | L      | Medium   |
 | G69 | Traceability matrix structurally stale + extractor         | Test/Matrix                      | D   |         | audit / theatre-detection get wrong numbers                | M      | Medium   |
 | G74 | No CI pipeline; regression depends on dev discipline       | CI, Test                         | D   |         | visual regressions can slip past PR review                 | M      | Medium   |
 | G75 | Regression tolerance hard-zero; perceptual diff missing    | Test/Regression                  | D   |         | spurious diff failures; no incremental change signal       | M      | Medium   |
@@ -1779,7 +1779,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
   save→load round-trip lock test.
 - **Effort**: M.
 
-### G67. Rewind buffer pre-allocated bound + assertion
+### G67. Rewind buffer pre-allocated bound + assertion — CLOSED (Task 60b, 2026-07-15)
 - **What**: `src/debug/rewind_buffer.{h,cpp}`: ring of `max_frames *
   snapshot_bytes`. `snapshot_bytes` computed once at construction;
   if subsystem `save_state` widens, bound goes stale silently and
@@ -1787,9 +1787,16 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
   cpp:224 snap_size < 2 MB` had to be widened to 3 MB on Ram-2 MB
   bump. Combined with G66, schema drift here causes corrupt
   restores instead of clean rejects.
-- **Proposed**: runtime assertion in `take_snapshot` that measured
-  size matches construction-time `snapshot_bytes_`.
-- **Effort**: L.
+- **Resolution (Task 60b)**: `StateWriter`/`StateReader` now enforce
+  bounds (sticky `overflow()` / `out_of_bounds()` flags; out-of-slot
+  writes suppressed, out-of-buffer reads zero-filled);
+  `take_snapshot` refuses to publish any slot where the written size
+  differs from construction-time `snapshot_bytes_` (loud error, slot
+  dropped). Per-subsystem sentinels in `Emulator::save_state`/
+  `load_state` additionally name the first desynced subsystem on
+  restore. Rows RB-FRAME-01..03 un-skipped in `rewind_test` (+ SW-BND/
+  SR-BND/SENT rows). G66 (schema versioning for cross-version
+  snapshots) remains open and separate.
 
 ### G68. Rewind sub-frame granularity
 - **What**: Snapshots at frame boundaries only; rewind cannot stop

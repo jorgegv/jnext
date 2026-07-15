@@ -560,6 +560,177 @@ static int test_live_enable_resize()
     return 0;
 }
 
+// ── Test 9: StateWriter/StateReader bounds (Task 60b) ──────────────────────
+//
+// capacity_ used to be stored and never consulted: a write past the buffer
+// end memcpy'd into whatever followed the allocation, and a read past the
+// end returned adjacent heap bytes. Both are now suppressed + latched into
+// a sticky flag (saveable.h).
+
+static int test_state_bounds()
+{
+    printf("\n--- Test 9: StateWriter/StateReader bounds (Task 60b) ---\n");
+
+    // StateWriter: oversized write is caught and cannot corrupt memory.
+    {
+        uint8_t buf[16];
+        std::memset(buf, 0xAA, sizeof(buf));
+        StateWriter w(buf, 4);            // capacity 4; bytes 4..15 are guards
+        w.write_u32(0x11223344);          // fills the buffer exactly
+        CHECK(!w.overflow(), "SW-BND-00 in-bounds write does not trip overflow");
+        w.write_u64(0xDEADBEEFCAFEF00DULL);  // would cross capacity
+        CHECK(w.overflow(), "SW-BND-01 write past capacity latches overflow flag");
+        bool guards_intact = true;
+        for (int i = 4; i < 16; ++i) guards_intact = guards_intact && (buf[i] == 0xAA);
+        CHECK(guards_intact, "SW-BND-02 overflowing write leaves adjacent bytes untouched");
+        CHECK(w.position() == 12, "SW-BND-03 position keeps counting intended stream offset");
+    }
+
+    // Measure mode (buf=nullptr) can never overflow regardless of capacity 0.
+    {
+        StateWriter m;
+        m.write_u64(1); m.write_u64(2);
+        CHECK(!m.overflow() && m.position() == 16,
+              "SW-BND-04 measure mode never overflows");
+    }
+
+    // StateReader: read past the end is caught and zero-filled.
+    {
+        const uint8_t buf[4] = {1, 2, 3, 4};
+        StateReader r(buf, 4);
+        (void)r.read_u32();               // consumes the whole buffer
+        CHECK(!r.out_of_bounds(), "SR-BND-00 in-bounds read does not trip flag");
+        uint64_t v = r.read_u64();        // past the end
+        CHECK(r.out_of_bounds(), "SR-BND-01 read past end latches out_of_bounds flag");
+        CHECK(v == 0, "SR-BND-02 out-of-bounds read returns zero, not adjacent memory");
+    }
+
+    return 0;
+}
+
+// ── Test 10: per-subsystem state sentinels (Task 60b) ──────────────────────
+//
+// Emulator::save_state writes kStateSentinelMagic ^ ordinal (u32) after
+// every subsystem block; load_state verifies the same sequence and fails
+// loudly with the subsystem NAME on the first mismatch. This converts
+// "asymmetric save/load edit silently corrupts every downstream subsystem"
+// into an immediate named error.
+
+static int test_state_sentinels()
+{
+    printf("\n--- Test 10: per-subsystem state sentinels (Task 60b) ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 0);
+    emu.run_frame();
+    emu.run_frame();
+
+    StateWriter measure;
+    emu.save_state(measure);
+    const size_t snap = measure.position();
+    std::vector<uint8_t> buf(snap, 0);
+    StateWriter w(buf.data(), snap);
+    emu.save_state(w);
+    CHECK(!w.overflow() && w.position() == snap,
+          "SENT-00 exact-size save fills the buffer without overflow");
+
+    // Pristine buffer restores cleanly (round-trip still works).
+    {
+        StateReader r(buf.data(), snap);
+        const bool ok = emu.load_state(r);
+        CHECK(ok, "SENT-OK-01 pristine snapshot: load_state returns true");
+        CHECK(emu.last_state_error().empty(),
+              "SENT-OK-02 pristine snapshot: last_state_error is empty");
+    }
+
+    // Corrupt the 'mmu' sentinel (ordinal 2 in the save_state sequence) and
+    // the load must fail naming exactly that subsystem.
+    {
+        const uint32_t mmu_sentinel = Emulator::kStateSentinelMagic ^ 2u;
+        size_t off  = 0;
+        int    hits = 0;
+        for (size_t i = 0; i + 4 <= snap; ++i) {
+            uint32_t v;
+            std::memcpy(&v, buf.data() + i, 4);
+            if (v == mmu_sentinel) { off = i; ++hits; }
+        }
+        CHECK(hits == 1, "SENT-CORRUPT-00 mmu sentinel value occurs exactly once in the snapshot");
+
+        std::vector<uint8_t> bad(buf);
+        bad[off] ^= 0xFF;
+        StateReader r(bad.data(), snap);
+        const bool ok = emu.load_state(r);
+        CHECK(!ok, "SENT-CORRUPT-01 corrupted mmu sentinel: load_state returns false");
+        CHECK(emu.last_state_error() == "mmu",
+              "SENT-CORRUPT-02 corrupted mmu sentinel: error names subsystem 'mmu'");
+
+        // Restore a pristine snapshot so the emulator is consistent again.
+        StateReader r2(buf.data(), snap);
+        CHECK(emu.load_state(r2), "SENT-CORRUPT-03 pristine reload after failed load succeeds");
+    }
+
+    // A truncated buffer (simulates a desynced/short snapshot) fails loudly
+    // instead of silently zero-loading the missing half.
+    {
+        StateReader r(buf.data(), snap / 2);
+        const bool ok = emu.load_state(r);
+        CHECK(!ok, "SENT-TRUNC-01 truncated snapshot: load_state returns false");
+        CHECK(!emu.last_state_error().empty(),
+              "SENT-TRUNC-02 truncated snapshot: failing subsystem is named");
+
+        StateReader r2(buf.data(), snap);
+        emu.load_state(r2);
+    }
+
+    return 0;
+}
+
+// ── Test 11: RewindBuffer size-bound guard (G67 / Task 60b) ────────────────
+//
+// snapshot_bytes_ is measured once at construction; if save_state widens
+// (or shrinks) afterwards, take_snapshot must refuse to publish the slot
+// (RB-FRAME-01..03, formerly skipped under G67).
+
+static int test_rb_frame_guard()
+{
+    printf("\n--- Test 11: RewindBuffer size-bound guard (G67) ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 0);
+    emu.run_frame();
+
+    StateWriter measure;
+    emu.save_state(measure);
+    const size_t snap = measure.position();
+
+    // Undersized slots (simulated post-construction widening): the write
+    // overflows the slot and the snapshot must be dropped, not published.
+    {
+        RewindBuffer rb(3, snap - 16);
+        rb.take_snapshot(emu, 100, 1);
+        CHECK(rb.empty(), "RB-FRAME-01 undersized slot: snapshot dropped, not published");
+    }
+
+    // Clean error path: a correctly-sized buffer still publishes normally
+    // (the guard refuses only mismatched writes; it is not sticky).
+    {
+        RewindBuffer rb(3, snap);
+        rb.take_snapshot(emu, 100, 1);
+        CHECK(rb.depth() == 1, "RB-FRAME-02 exact-size slot: snapshot publishes normally");
+    }
+
+    // Construction-vs-measured mismatch in the other direction (oversized
+    // slots, i.e. save_state shrank): also refused — the slot would carry
+    // trailing stale bytes and the size claim would be a lie.
+    {
+        RewindBuffer rb(3, snap + 16);
+        rb.take_snapshot(emu, 100, 1);
+        CHECK(rb.empty(), "RB-FRAME-03 slot/measured size mismatch: snapshot dropped");
+    }
+
+    return 0;
+}
+
 static void test_ss_ver_skips()
 {
     skip("SS-VER-01", "schema magic + version head absent (see G66)");
@@ -570,11 +741,7 @@ static void test_ss_ver_skips()
     skip("SS-VER-06", "DivMmc pre-NA-03 silent-deserialise (see G66)");
     skip("SS-VER-07", "RZX SNA path lacks schema head (see G66)");
 
-    // RB-FRAME-01..03 — G67: runtime size-bound assertion guard for
-    // take_snapshot when subsystem widening occurs.
-    skip("RB-FRAME-01", "take_snapshot bound assertion absent (see G67)");
-    skip("RB-FRAME-02", "post-widening clean error path absent (see G67)");
-    skip("RB-FRAME-03", "construction-vs-measured size match check (see G67)");
+    // RB-FRAME-01..03 (G67) became real rows in Test 11 (Task 60b).
 
     // WONT G68: rewind sub-frame granularity is an explicit design choice
     // per EMULATOR-DESIGN-PLAN.md Phase 8 Step 4 (frame snapshots ring
@@ -593,6 +760,9 @@ int main()
     test_v16_cpu_01_load_state_repushes_port_ulap_io_en();
     test_monotonic_tape_clock_roundtrip();
     test_live_enable_resize();
+    test_state_bounds();
+    test_state_sentinels();
+    test_rb_frame_guard();
     test_ss_ver_skips();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
