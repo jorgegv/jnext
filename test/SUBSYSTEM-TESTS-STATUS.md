@@ -8,7 +8,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 |-----------------------|---------:|---------:|-------:|--------:|--------:|--------------------------------------------------------|
 | FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |       66 |       66 |      0 |       0 |    100% | 🟢 All pass. G67 closed (Task 60b); G66 SS-VER rows reclassified to Phase 11 (2026-07-15). |
+| Rewind                |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -18,12 +18,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input                 |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CTC (integration)     |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CTC (integration)     |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART + I2C/RTC        |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DivMMC + SPI          |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Multiface (core)      |       49 |       49 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      197 |      197 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      196 |      196 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -42,6 +42,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NMI Source Pipeline   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4369** | **4369** |  **0** |   **0** |    100% | 🟢 0 SKIPs, 0 FAILs suite-wide. Last skips gone 2026-07-15: G67 closed (Task 60b), G66 SS-VER reclassified to Phase 11. |
+| **Total**             | **4392** | **4392** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
