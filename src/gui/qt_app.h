@@ -73,6 +73,10 @@ public:
 
     Emulator& emulator() { return emulator_; }
 
+    /// Task 66 — access to the main window for applying saved GUI
+    /// preferences after init(). Valid only after a successful init().
+    MainWindow* main_window() { return main_window_; }
+
 private:
     void on_frame_tick();
     void on_status_tick();

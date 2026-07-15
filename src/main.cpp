@@ -14,6 +14,8 @@
 #ifdef ENABLE_QT_UI
 #include "gui/qt_app.h"
 #include "gui/sdcard_download_dialog.h"
+#include "gui/main_window.h"
+#include "gui/app_config.h"
 #else
 #include "platform/sdl_app.h"
 #endif
@@ -169,6 +171,7 @@ int main(int argc, char* argv[]) {
     std::string rzx_play_file;
     std::string rzx_record_file;
     int         speed_percent = 100;
+    bool        speed_percent_set = false;  // Task 66: was --speed given?
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
     std::string compositor_trace_path;
@@ -284,6 +287,7 @@ int main(int argc, char* argv[]) {
             speed_percent = std::stoi(argv[++i]);
             if (speed_percent < 10) speed_percent = 10;
             if (speed_percent > 1000) speed_percent = 1000;
+            speed_percent_set = true;
         } else if ((arg == "--delayed-keypress" || arg == "--delayed-keypress-frames")
                    && i + 2 < argc) {
             // SECS form: stored as-is; HeadlessApp converts to frames at
@@ -377,6 +381,24 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Task 66 (Configurability) — load saved GUI preferences once, early
+    // enough to seed the SD-card resolution below. Only ever done for the
+    // real (non-headless) Qt GUI path: HeadlessApp never runs through here
+    // with headless==false, and the SDL-only build has no AppConfig at all.
+    // CLI always wins: sd_card_path only fills in when --sdcard was NOT
+    // given (sd_card_image still empty at this point). The regression suite
+    // isolates $XDG_CONFIG_HOME so this never reads a developer's real
+    // ~/.config/JNEXT/jnext.conf during automated non-headless runs.
+#ifdef ENABLE_QT_UI
+    AppConfig gui_app_config;
+    if (!headless) {
+        gui_app_config.load();
+        if (sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
+            sd_card_image = gui_app_config.data().sd_card_path.toStdString();
+        }
+    }
+#endif
+
     // --sdcard is mandatory at the CLI level: jnext is a ZX Spectrum Next
     // emulator and the SD-card image is the canonical source for all peripheral
     // ROMs (DivMMC, Multiface, NextZXOS) and machine ROMs (48K, 128K, +3) —
@@ -460,9 +482,40 @@ int main(int argc, char* argv[]) {
         cfg.rtc_fixed              = !rtc_fixed_arg.empty();
         cfg.rtc_fixed_tm           = rtc_fixed_tm;
         cfg.silent                 = silent;
+
+        // Task 66 — saved GUI preferences fill in fields the CLI left at
+        // their default; merge_cli_precedence() (src/gui/app_config.h) always
+        // prefers the CLI value when it was explicitly provided. `silent` can
+        // only ever be set to true by --silent (never explicitly back to
+        // false), so `silent` itself doubles as both the "was --silent given"
+        // flag and its own CLI value.
+#ifdef ENABLE_QT_UI
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
+            cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
+                                               gui_app_config.data().machine_type);
+            cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
+        }
+#endif
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) return 1;
+
+        // Task 66 — apply the saved GUI preferences that have no CLI
+        // competitor (CPU speed, window scale, CRT filter, tape fast-load)
+        // now that the main window exists. Machine type/silent were already
+        // merged into cfg above (or overridden by the CLI) before init().
+        // Emulator speed DOES have a CLI competitor (--speed): resolve it
+        // here too (CLI wins when speed_percent_set) so apply_startup_config
+        // gets one already-merged value instead of applying the saved one
+        // and then having the later --speed handling silently re-override it
+        // (or fail to, when --speed happened to repeat the default 100).
+#ifdef ENABLE_QT_UI
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
+            gui_app_config.data().emulator_speed_percent = merge_cli_precedence(
+                speed_percent_set, speed_percent, gui_app_config.data().emulator_speed_percent);
+            if (auto* mw = app.main_window()) mw->apply_startup_config(gui_app_config.data());
+        }
+#endif
 
         if (!screenshot_file.empty()) {
             int frames = (screenshot_delay_frames >= 0) ? screenshot_delay_frames
@@ -530,14 +583,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Apply emulator speed if not default (only meaningful for QtApp).
-#ifdef ENABLE_QT_UI
-        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
-            if (speed_percent != 100) {
-                app.set_speed_multiplier(speed_percent / 100.0);
-            }
-        }
-#endif
+        // Emulator speed (--speed / saved default) was already resolved and
+        // applied via MainWindow::apply_startup_config() above (Task 66).
 
         // Set up RZX playback or recording.
         if (!rzx_play_file.empty()) {
