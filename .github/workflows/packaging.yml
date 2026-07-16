@@ -1,11 +1,19 @@
 name: Packaging
 
-# Task 67. Builds native packages on each OS's real CI runner. Linux was
-# verified to actually produce packages on the dev host (Fedora 44, see
-# packaging/README.md); Windows and macOS jobs mirror the real build
-# commands (CMake + Qt6 + SDL2) but are UNTESTED — this dev host is Linux
-# only and cannot run them. Treat the Windows/macOS jobs as a faithful
-# starting point, not a proven-green pipeline.
+# Task 67 / Task 69. Builds native packages on CI.
+#
+# Linux and Windows both go through the project's own Makefile targets so CI
+# builds the SAME artifact a developer builds locally — a single build path to
+# maintain, no CI-only divergence:
+#   * Linux   → cpack (verified on the Fedora dev host; see packaging/README.md)
+#   * Windows → `make package-win`, a MinGW cross-build run in a Fedora
+#               container. This is byte-for-byte the local path (Qt6/SDL2/SDL3
+#               DLLs + qwindows plugin bundled by packaging/windows/bundle-dlls.sh);
+#               it was proven in a fedora:44 container locally and end-to-end
+#               under wine. NOT windows-latest+vcpkg — that was a second, divergent
+#               build that never bundled the runtime DLLs.
+# macOS still builds natively on macos-latest and is UNTESTED (no Mac on the
+# dev host); treat that job as a faithful starting point, not proven-green.
 
 on:
   workflow_dispatch:
@@ -48,41 +56,41 @@ jobs:
             build/*.deb
             build/*.rpm
 
-  # UNTESTED on the dev host (no Windows runner available locally). Mirrors
-  # the CMake/Qt6/SDL2 build the project actually uses; vcpkg supplies both
-  # dependencies. Packaged as a ZIP via CPack (NSIS would need an installer
-  # script this project doesn't have yet).
+  # Windows: the SAME path as a local `make package-win` — a MinGW cross-build
+  # in a Fedora container (Ubuntu/Debian do not package MinGW-Qt6 at all; only
+  # Fedora's mingw64-* stack does). The resulting zip bundles the Qt6/SDL2/SDL3
+  # runtime DLLs + qwindows plugin exactly as the local build does. Pinned to
+  # fedora:44 to match the verified dev host; bump when the dev host does.
+  # This exact recipe (package list + `make package-win`) was proven in a
+  # fedora:44 docker container locally and the produced exe runs under wine.
   windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    container: fedora:44
     steps:
+      # git is needed for actions/checkout's submodule fetch; the rest is the
+      # MinGW cross toolchain + host Qt6 tools (moc/rcc/uic from qt6-qtbase-devel)
+      # that `make package-win` requires. mingw64-cmake ships in mingw64-filesystem.
+      - name: Install MinGW cross toolchain + build tools
+        run: |
+          dnf install -y \
+            make git findutils gawk grep coreutils diffutils zip \
+            mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
+            mingw64-qt6-qtbase mingw64-sdl2-compat mingw64-curl \
+            mingw64-openssl mingw64-zlib mingw64-libpng mingw64-winpthreads \
+            qt6-qtbase-devel
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install Qt6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.*'
-          modules: 'qtbase'
-
-      - name: Install SDL2 (vcpkg)
-        run: |
-          vcpkg install sdl2:x64-windows curl:x64-windows openssl:x64-windows zlib:x64-windows libpng:x64-windows
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-
-      - name: Build
-        run: cmake --build build --config Release -j
-
-      - name: Package (ZIP)
-        working-directory: build
-        run: cpack -G ZIP -C Release
+      # Same target a developer runs: MinGW cross-build + bundle-dlls.sh + zip.
+      - name: make package-win
+        run: make package-win
 
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
-          path: build/*.zip
+          path: build/gui-release-win/*.zip
 
   # UNTESTED on the dev host (no macOS runner available locally). Mirrors
   # BUILD.md's `brew install sdl2 qt6 curl openssl`. Packaged as a .dmg via
