@@ -260,6 +260,15 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 120L);  // stream stalls
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "jnext-sdcard-provisioner");
     // TLS verification stays at libcurl defaults (peer + host on).
+#ifdef _WIN32
+    // The MinGW libcurl is OpenSSL-backed, and OpenSSL has no CA bundle on
+    // Windows — its compiled-in default path (a Unix sysroot dir) does not
+    // exist there, so every HTTPS download fails with "Problem with the SSL CA
+    // cert". Tell it to use the Windows system certificate store (CRYPT32)
+    // instead of a bundle file. Windows-only: the Linux build keeps OpenSSL's
+    // working system-CA default.
+    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
+#endif
 
     const CURLcode rc = curl_easy_perform(curl);
     long http_code = 0;
