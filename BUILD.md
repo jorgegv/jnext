@@ -84,6 +84,26 @@ cmake --build build -j$(nproc)
 A container recipe that needs nothing on the host but Docker is described in
 [doc/LINUX-BUILD-DOCKER.md](doc/LINUX-BUILD-DOCKER.md).
 
+## Building packages
+
+Packages are the recommended way for end users to install JNEXT (see the main
+[README](README.md#install)). To build them yourself:
+
+| Target | Produces |
+|--------|----------|
+| `make package-rpm` | Fedora/RHEL `.rpm` |
+| `make package-deb` | Debian/Ubuntu `.deb` |
+| `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + the KDE runtime) |
+| `make package-win` | Windows `.zip` (cross-compiled with Fedora MinGW — see below) |
+| `make package-src` | source tarball |
+| `make package-test` | build every package above (except macOS) and check each artifact |
+
+A **Windows** executable can be cross-compiled on Fedora with MinGW
+(`make gui-release-win` for just `jnext.exe`, or `make package-win` for the
+zip). See [packaging/README.md](packaging/README.md) for the exact MinGW
+package list, the macOS notes, and per-distro maintainer packaging
+(`packaging/rpm`, `packaging/debian`, `packaging/flatpak`).
+
 ## Tests
 
 Two suites, and they are complementary:

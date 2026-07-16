@@ -1,9 +1,6 @@
 # JNEXT — a ZX Spectrum Next emulator for developers
 
-**JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
-the people who write Next software.**
-
-<p align="center">
+<p align="left">
   <a href="https://github.com/jorgegv/jnext/actions/workflows/ci.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/jorgegv/jnext/ci.yml?branch=main&label=CI" alt="CI status">
   </a>
@@ -16,6 +13,9 @@ the people who write Next software.**
   <img src="https://img.shields.io/badge/C%2B%2B-17-blue" alt="C++17">
   <img src="https://img.shields.io/badge/platform-Linux-lightgrey" alt="Platform: Linux">
 </p>
+
+**JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
+the people who write Next software.**
 
 A comfortable machine to develop on: a debugger that shows you everything
 the hardware is doing — every layer, every sprite, every register, and the
@@ -74,28 +74,41 @@ rough or missing; they are listed, not hidden:
 
 Linux only for now; Windows and macOS ports are pending.
 
-## Quick start
+## Install
+
+**Installing a package is the recommended way to get JNEXT.** Download the one
+for your system from the
+[latest release](https://github.com/jorgegv/jnext/releases/latest):
+
+| System | Install |
+|--------|---------|
+| **Fedora / RHEL** | `sudo dnf install ./jnext-*.x86_64.rpm` |
+| **Debian / Ubuntu** | `sudo apt install ./jnext_*_amd64.deb` |
+| **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak` |
+
+That puts a `jnext` command on your `PATH`. Prefer to build it yourself, or on
+a platform without a package yet? See **[BUILD.md](BUILD.md)** — it also covers
+building the packages above (`make package-rpm` / `package-deb` /
+`package-flatpak`).
+
+## Run
 
 ```sh
-git clone --recursive https://github.com/jorgegv/jnext.git
-cd jnext
-make gui-release            # Qt6 GUI build → build/gui-release/jnext
-
-# Boot NextZXOS (jnext offers to download an SD-card image on first run)
-./build/gui-release/jnext
+# First launch boots NextZXOS; jnext offers to download an SD-card image
+jnext
 
 # Run a program — a bare filename is all it takes
-./build/gui-release/jnext game.tap
+jnext game.tap
 ```
 
-Build details in **[BUILD.md](BUILD.md)**; everything you can do with it in
-**[USAGE.md](USAGE.md)**.
+Everything you can do with it — every CLI option, the GUI, the debugger, the
+SD card and ROMs — is in **[USAGE.md](USAGE.md)**.
 
 ## Documentation
 
 | Document | What's in it |
 |----------|--------------|
-| [BUILD.md](BUILD.md) | Prerequisites, build targets, CMake options, running the tests |
+| [BUILD.md](BUILD.md) | Building from source and building packages: prerequisites, targets, CMake options, tests |
 | [USAGE.md](USAGE.md) | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map |
 | [FEATURES.md](FEATURES.md) | Full feature list |
 | [TODO.md](TODO.md) | Pending features and known issues |
@@ -110,7 +123,7 @@ plan.
 
 ## About this project
 
-JNEXT is being fully developed by Claude (Anthropic's AI), with human guidance
+JNEXT is being fully developed using Claude (Anthropic's AI), with human guidance
 and supervision. The complete prompt history, design documents, daily task
 files and development documentation are in the repository — which makes JNEXT
 not just an emulator, but a practical case study in building a large, complex
@@ -118,7 +131,7 @@ piece of software with AI-assisted programming.
 
 ## License
 
-Copyright (C) 2026 Jorge Gonzalez Villalonga
+Copyright (C) 2026 Jorge Gonzalez Villalonga, aka ZXjogv
 
 JNEXT is free software: you can redistribute it and/or modify it under the
 terms of the **GNU General Public License** as published by the Free Software
