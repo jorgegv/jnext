@@ -1126,12 +1126,12 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Create exhaustive CI plan for Github and automated release — `.github/workflows/ci.yml` (build + full test triplet, including an honest SD-image provisioning step via jnext's own `--sdcard-download-confirm`) and `.github/workflows/release.yml` (one tag-triggered workflow: a `gate` job reads `releases.yaml` and only builds + publishes a GitHub Release for **listed** tags — see [doc/RELEASE-PROTOCOL.md](../RELEASE-PROTOCOL.md)).
   - [x] Add badges for test runs and others (license, architectures, etc.) in the main README — CI status, latest release, GPLv3 license, C++17, platform badges added to `README.md`.
 
-- [ ] General optimization plan
-  - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review by Ultraplan (/ultraplan)
-  - [ ] General code refactor and tidy up (/simplify) - Probably subsystem by subsystem, then globallly
-  - [ ] Replacement of magic number with named constants where possible
-  - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
-  - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
+- [~] General optimization plan (architecture + profiling done; refactor/magic-numbers/residual-tail open as Task 65)
+  - [x] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture — done via Task 27a (`doc/design/TASK27A-ARCHITECTURE-ASSESSMENT.md`)
+  - [ ] General code refactor and tidy up (/simplify) - Probably subsystem by subsystem, then globallly — **pending (Task 65)**
+  - [ ] Replacement of magic number with named constants where possible — **pending (Task 65)**
+  - [x] Performance profiling and optimization — done via Task 27 (two waves; `doc/PROFILING-OPTIMIZATION-PLAN.md` + `TASK27-*` reports); emulation ~2.8× faster, LTO the single biggest win
+  - **Note (RESOLVED):** the 75 FPS @ 400% bottleneck is fixed — boot-nextzxos now runs ~284 FPS @ 400% (161M T/s), well past the 200 FPS target. Residual: the copper-demo / beast running their *own* content at 400% still fall short; that needs a cycle-accurate / core change, not hot-spot tuning (parked under Task 65).
 
 - [x] Configurability (Task 66, v0.98.6):
   - [x] Dialog for configuring options — `src/gui/preferences_dialog.*` (Settings → Preferences…): Startup + Paths tabs. Keyboard-layout remapping deferred (no runtime remap engine exists; separate Phase 11 "redefinable keys" item).
@@ -1140,15 +1140,15 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] Packaging (Task 67, v0.98.7):
   - [x] Generate Linux binary packages: Fedora / Debian / Ubuntu — CMake `install()` rules + CPack (TGZ/DEB/RPM, all three produced on the Fedora dev host) + native `packaging/rpm/jnext.spec` and `packaging/debian/`. Support policy documented in `packaging/README.md`.
-  - [x] Generate Flatpak package — `packaging/flatpak/io.github.zxjogv.jnext.yml` (org.kde.Platform runtime; YAML-validated; `flatpak-builder` not run on the dev host — SDL2 module carries a placeholder sha256 to fill in).
-  - [~] Generation of Windows version — `.github/workflows/release.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. Proven in a fedora:44 container and the exe runs under wine; a real GitHub Actions run is still pending.
+  - [x] Generate Flatpak package — `packaging/flatpak/io.github.zxjogv.jnext.yml` (org.kde.Platform//6.8 runtime; SDL2 sha256 verified real, not a placeholder). Builds green with `flatpak-builder` (org.kde.Sdk//6.8) and installs/runs; the app module builds from the local checkout (no pushed-tag dependency); published by CI in the gated release.
+  - [x] Generation of Windows version — `.github/workflows/release.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. **Ran on a real GitHub Actions runner (v0.98.19 release): the `windows` job succeeded and published `jnext-0.98.19-windows-x64.zip`; confirmed working on real Windows hardware.** GUI-subsystem build (no stray console window) added v0.98.21. Residual: the >2 MB pre-`main` stack frame is worked around (16 MB reserve), not root-caused — see §11.
   - [~] Generation of MacOS version — CI config only (release.yml macos-latest leg via brew + CPack DragNDrop, `continue-on-error`); UNVERIFIED (no macOS runner on the dev host).
 
 - [ ] Documentation
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
   - [ ] Create USAGE document and man page for users — USAGE.md done (CLI + GUI); man page pending
-- [ ] Create static executables by downloading QT and SDL sources and building them
+- [-] Create static executables by downloading QT and SDL sources and building them - WONT do for the moment.
 
 ### Phase 10 — NextZXOS Boot (v1.1)
 
