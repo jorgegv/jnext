@@ -315,6 +315,23 @@ void HeadlessApp::run() {
         bench_start = bench_clock::now();
 
     while (running_) {
+        // TEMPORARY (Task 70 reproduction, remove before merge): env-gated
+        // post-boot reset/load so the reset-after-boot crash is reproducible
+        // headlessly. JNEXT_DELAYED_RESET_FRAMES=N with JNEXT_DELAYED_RESET_TYPE
+        // = hard (default) | soft | loadnex:/path/to.nex
+        static int t70_countdown = []() {
+            const char* e = std::getenv("JNEXT_DELAYED_RESET_FRAMES");
+            return e ? std::atoi(e) : -1;
+        }();
+        if (t70_countdown == 0) {
+            const char* ty = std::getenv("JNEXT_DELAYED_RESET_TYPE");
+            std::string t = ty ? ty : "hard";
+            if (t == "soft") { Log::platform()->warn("T70: soft_reset()"); emulator_.soft_reset(); }
+            else if (t.rfind("loadnex:", 0) == 0) { Log::platform()->warn("T70: load_nex({})", t.substr(8)); emulator_.load_nex(t.substr(8)); }
+            else { Log::platform()->warn("T70: reset()"); emulator_.reset(); }
+            t70_countdown = -1;
+        } else if (t70_countdown > 0) { --t70_countdown; }
+
         // Apply pending inject.
         if (inject_countdown_ == 0) {
             emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
