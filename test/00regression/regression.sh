@@ -41,15 +41,20 @@ if [[ -z "${JNEXT:-}" ]]; then
     done
     JNEXT="${JNEXT:-$PROJECT_DIR/build/jnext}"
 fi
-# Wave 0.1 follow-up (2026-05-04): jnext now requires --sdcard at the CLI
-# level (mandatory for every invocation, like real Next hardware). All
-# regression invocations therefore include the canonical TBBlue/NextZXOS
-# image as a shared shell array. When the boot-ROM auto-load gate is
-# active (Next + sd_card non-empty + load_file empty), `BOOT` rows
+# SD-card image: the suite does NOT pass --sdcard at all (SD_CARD_ARGS is
+# always empty). jnext falls back to the pristine, self-provisioned image at
+# $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img (see sdcard::provision_sd_card,
+# src/core/sdcard_provisioner.*) — the same FAT32-patched canonical distro
+# image an end user gets via `--sdcard-download-confirm`. The suite provisions
+# it itself, once, below (the "[sdcard-provision]" row), before any test row
+# runs. This replaced forcing `roms/nextzxos-1gb-fat32fix.img` (a local,
+# git-ignored fixture that had accumulated dev-session leftover files and
+# made `boot-nextzxos-dotls`, which screenshots a live SD directory listing,
+# unreproducible against a clean checkout). When the boot-ROM auto-load gate
+# is active (Next + sd_card non-empty + load_file empty), `BOOT` rows
 # exercise the firmware path; rows with --load NEX skip the boot ROM via
 # the cfg.load_file gate (Emulator::init).
-SD_IMAGE="$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img"
-SD_CARD_ARGS=(--sdcard "$SD_IMAGE")
+SD_CARD_ARGS=()
 # rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON, i.e. via
 # `make unit-test-build`, which `make regression` now depends on). If it is
 # missing the rewind functional test FAILS LOUDLY — it used to print no row at
@@ -117,14 +122,10 @@ if [[ ! -x "$JNEXT" ]]; then
     exit 1
 fi
 
-# Every screenshot test mounts this image, and so does sd_rom_extractor_test.
-# In a worktree it is a git-ignored symlink that must be provisioned; without it
-# all 46 screenshot rows would FAIL for a reason none of them would name.
-if [[ ! -f "$SD_IMAGE" ]]; then
-    harness_fault "SD-card fixture missing: ${BOLD}$SD_IMAGE${RESET}" \
-                  "Every screenshot test mounts it, so the whole suite is meaningless without it." \
-                  "In an agent worktree, provision it with: ${BOLD}make worktree-bootstrap${RESET}"
-fi
+# No SD-card fixture existence check here: the suite self-provisions the
+# fallback image (see the "[sdcard-provision]" row below) after the lint row
+# and before the screenshot launch, once the manifest/preflight checks below
+# have passed. --preflight-only never needs an SD image at all.
 
 # A manifest that is not there must say so, not be diagnosed as "missing its pin".
 for conf in "$CONF" "$FUNC_CONF"; do
@@ -241,6 +242,34 @@ if bash "$PROJECT_DIR/test/lint-assertions.sh"; then
 else
     echo -e "  ${RED}FAIL${RESET}: new tautological assertions detected (see above)"
     fail=$((fail + 1))
+fi
+echo ""
+
+# --- SD-card image self-provisioning (must run before ANY row that needs it) ---
+# Every screenshot test and several functional tests need a NextZXOS SD image.
+# The suite no longer forces a local, git-ignored fixture (which had
+# accumulated dev-session leftover files and made boot-nextzxos-dotls
+# unreproducible against a clean checkout, see SD_CARD_ARGS above); instead it
+# ensures jnext's own pristine fallback image is present, exactly once, right
+# here — before the screenshot tests launch in parallel below (all of them
+# would race to provision it otherwise). If it is already present (the common
+# case — provisioning is a one-time, machine-wide cost, not a per-run one),
+# this is instant.
+echo -e "${BOLD}[sdcard-provision] Ensuring NextZXOS SD image is provisioned...${RESET}"
+FALLBACK_SD_IMAGE="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+if [[ -f "$FALLBACK_SD_IMAGE" ]]; then
+    echo -e "  ${GREEN}PASS${RESET}: already present ($FALLBACK_SD_IMAGE)"
+    pass=$((pass + 1))
+else
+    echo "  not present — provisioning via jnext's own download+patch path (one-time)..."
+    "$JNEXT" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
+    if [[ -f "$FALLBACK_SD_IMAGE" ]]; then
+        echo -e "  ${GREEN}PASS${RESET}: provisioned $FALLBACK_SD_IMAGE"
+        pass=$((pass + 1))
+    else
+        echo -e "  ${RED}FAIL${RESET}: provisioning failed — $FALLBACK_SD_IMAGE still missing"
+        fail=$((fail + 1))
+    fi
 fi
 echo ""
 
@@ -1392,8 +1421,9 @@ echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip
 # --- Completeness: prove the suite ran everything it declares ---
 # A green result is only as trustworthy as its denominator. On a full run, every
 # declared functional test must have reported exactly one row, no undeclared row
-# may appear, and the grand total must equal 1 (lint) + screenshots + functional.
-# Anything else means a test went missing, which is a harness fault, not a pass.
+# may appear, and the grand total must equal 1 (lint) + 1 (sdcard-provision) +
+# screenshots + functional. Anything else means a test went missing, which is a
+# harness fault, not a pass.
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
     faults=()
     for name in "${DECLARED_FUNC[@]}"; do
@@ -1404,10 +1434,10 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
         printf '%s\n' "${DECLARED_FUNC[@]}" | grep -qx "$name" \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
     done
-    expected=$(( 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
+    expected=$(( 1 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
     actual=$(( pass + fail + skip ))
     [[ "$actual" -eq "$expected" ]] \
-        || faults+=("row count is ${BOLD}$actual${RESET}, but 1 lint + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
+        || faults+=("row count is ${BOLD}$actual${RESET}, but 1 lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
     if [[ ${#faults[@]} -gt 0 ]]; then
         harness_fault "${faults[@]}" "" \
             "The suite did not run what it says it ran. Treat this as RED, not as a pass."
