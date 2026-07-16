@@ -245,8 +245,11 @@ policy. The per-OS build jobs, when they run:
 
 | Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
 |-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
-| `linux`   | `ubuntu-latest`               | apt deps + CPack                                      | TGZ + DEB + RPM (CPack)        | Yes, same commands proven on Fedora 44 here |
+| `linux`   | `ubuntu-latest`               | apt deps + CPack                                      | DEB (CPack)                    | Yes, same commands proven on Fedora 44 here |
+| `rpm`     | `ubuntu-latest` + `fedora:44` | dnf deps + CPack (in a Fedora container)             | RPM (CPack)                    | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
+| `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
+| `flatpak` | `ubuntu-latest` + KDE 6.8     | `flatpak-builder` (org.kde.Sdk//6.8)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
 | `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally (`continue-on-error`) |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).

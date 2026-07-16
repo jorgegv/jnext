@@ -106,11 +106,16 @@ CI runs these same targets — one build path, no CI-only divergence (§5).
   a **`v*` tag push**. Jobs:
   1. **`gate`** — reads `releases.yaml` from the tag's own commit and checks
      whether `$GITHUB_REF_NAME` is listed → outputs `build` / `publish`.
-  2. **`linux` / `windows` / `macos`** — run only when `build == true`. Linux
-     packages via CPack; Windows via `make package-win` in a `fedora:44`
-     container; macOS native on `macos-latest` (`continue-on-error`, UNTESTED —
-     never blocks a Linux+Windows release). Each uploads its packages as an
-     artifact.
+  2. **`linux` / `rpm` / `src` / `windows` / `flatpak` / `macos`** — run only
+     when `build == true`. `linux` builds the DEB via CPack on Ubuntu (so its
+     shlibdeps are Debian-native); `rpm` builds the RPM via CPack inside a
+     `fedora:44` container (so its deps are Fedora-native, not the Ubuntu
+     `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
+     submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win` in a
+     `fedora:44` container; `flatpak` via `flatpak-builder` in the KDE 6.8
+     container (`continue-on-error`); macOS native on `macos-latest`
+     (`continue-on-error`, UNTESTED — never blocks a Linux+Windows release).
+     Each uploads its packages as an artifact.
   3. **`publish`** — runs only when `publish == true`; downloads the artifacts
      and creates a **GitHub Release**.
 
