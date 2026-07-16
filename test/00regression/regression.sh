@@ -68,14 +68,16 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 # Task 66 (Configurability) — isolate GUI preferences from the developer's
-# real ~/.config/JNEXT/jnext.conf. Every NON-headless $JNEXT invocation below
-# (audio-underrun-func, silent-func, and the offscreen-Qt functional tests)
-# constructs the real MainWindow, which loads AppConfig unconditionally for
-# fields with no CLI flag (CPU speed, window scale, CRT filter, tape
-# fast-load) — a stray real config file could silently change CPU speed and
-# perturb timing-sensitive pixel comparisons. QSettings honours
-# $XDG_CONFIG_HOME on Linux, so pointing it at a fresh, never-created
-# directory makes every load() see clean AppConfigData defaults.
+# real config. Every NON-headless $JNEXT invocation below (audio-underrun-func,
+# silent-func, and the offscreen-Qt functional tests) constructs the real
+# MainWindow, which loads AppConfig unconditionally for fields with no CLI flag
+# (CPU speed, window scale, CRT filter, tape fast-load) — a stray real config
+# file could silently change CPU speed and perturb timing-sensitive pixel
+# comparisons. jnext stores its config at ~/.jnext/jnext.conf (an absolute path,
+# not under $XDG_CONFIG_HOME); JNEXT_CONFIG_DIR overrides that directory, so
+# pointing it at a fresh, never-created directory makes every load() see clean
+# AppConfigData defaults. (XDG_CONFIG_HOME is kept for any other Qt state.)
+export JNEXT_CONFIG_DIR="$TMP_DIR/jnext-config-home"
 export XDG_CONFIG_HOME="$TMP_DIR/xdg-config-home"
 
 # Pixel difference tolerance (0 = exact match)

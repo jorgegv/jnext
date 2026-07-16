@@ -230,6 +230,25 @@ static void test_merge_precedence() {
           merge_cli_precedence(/*silent=*/true, true, /*saved=*/false) == true);
 }
 
+// ── AC-PATH: the production config lives under ~/.jnext, not ~/.config ──
+
+static void test_default_path() {
+    set_group("AC-PATH");
+
+    const QString p = AppConfig::default_config_path();
+    check("AC-40", "default config path is ~/.jnext/jnext.conf",
+          p.endsWith(QStringLiteral("/.jnext/jnext.conf")), p.toStdString());
+    check("AC-41", "default config path is not under ~/.config",
+          !p.contains(QStringLiteral("/.config/")), p.toStdString());
+
+    // JNEXT_CONFIG_DIR override (used by regression.sh for test isolation).
+    qputenv("JNEXT_CONFIG_DIR", "/tmp/jnext-cfg-test");
+    const QString over = AppConfig::default_config_path();
+    qunsetenv("JNEXT_CONFIG_DIR");
+    check("AC-42", "JNEXT_CONFIG_DIR overrides the config directory",
+          over == QStringLiteral("/tmp/jnext-cfg-test/jnext.conf"), over.toStdString());
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -242,6 +261,7 @@ int main() {
     test_partial_file(dir);
     test_malformed_values(dir);
     test_merge_precedence();
+    test_default_path();
 
     std::printf("\n");
     for (const auto& r : g_results) {

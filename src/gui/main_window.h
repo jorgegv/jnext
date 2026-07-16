@@ -213,7 +213,7 @@ private:
     // Screenshot action
     QAction* screenshot_action_ = nullptr;
 
-    // Task 66 — persisted GUI preferences (~/.config/JNEXT/jnext.conf).
+    // Task 66 — persisted GUI preferences (~/.jnext/jnext.conf).
     // Loaded in the constructor; saved whenever the Preferences dialog is
     // applied, and write-through updated by file dialogs that remember a
     // directory (Load Program, Open Tape, Save Screenshot, Mount SD Card).

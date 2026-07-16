@@ -1,6 +1,7 @@
 #include "gui/app_config.h"
 #include "gui/emulator_widget.h"
 
+#include <QDir>
 #include <QFileInfo>
 
 namespace {
@@ -21,8 +22,19 @@ QString machine_type_to_key(MachineType t) {
 
 } // namespace
 
+QString AppConfig::default_config_path() {
+    // ~/.jnext by default (the same home dir jnext uses for the SD image).
+    // JNEXT_CONFIG_DIR overrides the directory so automated tests
+    // (test/00regression/regression.sh) can isolate the config from a
+    // developer's real ~/.jnext/jnext.conf and stay deterministic.
+    QString dir = qEnvironmentVariable("JNEXT_CONFIG_DIR");
+    if (dir.isEmpty())
+        dir = QDir::homePath() + QStringLiteral("/.jnext");
+    return dir + QStringLiteral("/jnext.conf");
+}
+
 AppConfig::AppConfig()
-    : settings_("JNEXT", "jnext")
+    : settings_(default_config_path(), QSettings::IniFormat)
 {
 }
 
@@ -77,6 +89,10 @@ void AppConfig::load() {
 }
 
 void AppConfig::save() const {
+    // Ensure the parent directory (~/.jnext) exists — on a fresh machine it
+    // may not yet, and QSettings will not persist to a missing directory.
+    QDir().mkpath(QFileInfo(settings_.fileName()).absolutePath());
+
     settings_.setValue("config_version", AppConfigData::CONFIG_VERSION);
 
     settings_.beginGroup("startup");

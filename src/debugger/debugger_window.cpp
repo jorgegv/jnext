@@ -41,6 +41,24 @@
 #include <QSlider>
 #include <QStatusBar>
 #include <QSpinBox>
+#include <QDir>
+
+namespace {
+// Debugger window geometry lives alongside the main GUI config under ~/.jnext
+// (see src/gui/app_config.cpp), a plain INI file rather than the platform
+// default (~/.config/JNEXT/...), so all of jnext's state sits in one place.
+// JNEXT_CONFIG_DIR overrides the directory (matches AppConfig) for test
+// isolation.
+QString jnext_config_dir() {
+    QString dir = qEnvironmentVariable("JNEXT_CONFIG_DIR");
+    if (dir.isEmpty())
+        dir = QDir::homePath() + QStringLiteral("/.jnext");
+    return dir;
+}
+QString debugger_config_path() {
+    return jnext_config_dir() + QStringLiteral("/Debugger.conf");
+}
+} // namespace
 
 DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     : QMainWindow(parent)
@@ -53,7 +71,7 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     resize(1170, 900);
 
     // Restore saved size (not position — position is controlled by the main window).
-    QSettings settings("JNEXT", "Debugger");
+    QSettings settings(debugger_config_path(), QSettings::IniFormat);
     QByteArray saved_size = settings.value("debugger/size").toByteArray();
     if (!saved_size.isEmpty()) {
         QDataStream ds(saved_size);
@@ -426,7 +444,9 @@ void DebuggerWindow::save_position() {
 }
 
 void DebuggerWindow::save_geometry() {
-    QSettings settings("JNEXT", "Debugger");
+    // Ensure the config dir exists — QSettings will not persist to a missing dir.
+    QDir().mkpath(jnext_config_dir());
+    QSettings settings(debugger_config_path(), QSettings::IniFormat);
     QByteArray data;
     QDataStream ds(&data, QIODevice::WriteOnly);
     ds << width() << height();
