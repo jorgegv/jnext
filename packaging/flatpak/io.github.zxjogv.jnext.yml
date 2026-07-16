@@ -23,6 +23,9 @@ modules:
   # on the dev host (2.32.x at the time of writing).
   - name: sdl2
     buildsystem: cmake-ninja
+    # SDL2's CMakeLists.txt refuses an in-tree build; flatpak-builder's
+    # cmake-ninja default builds in the source dir, so force a separate one.
+    builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DSDL_STATIC=OFF

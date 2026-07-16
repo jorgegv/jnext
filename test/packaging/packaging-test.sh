@@ -132,7 +132,12 @@ if command -v flatpak-builder >/dev/null 2>&1; then
         bad package-flatpak "manifest failed to validate (flatpak-builder --show-manifest)"
     elif flatpak list 2>/dev/null | grep -q "org.kde.Sdk"; then
         if make package-flatpak >"$LOGDIR/flatpak.log" 2>&1; then
-            ok package-flatpak "built (org.kde.Sdk present)"
+            b=$(ls -1 build/jnext-*-x86_64.flatpak 2>/dev/null | head -1)
+            if [ -n "$b" ] && [ -s "$b" ]; then
+                ok package-flatpak "$(basename "$b")"
+            else
+                bad package-flatpak "no .flatpak bundle produced (see $LOGDIR/flatpak.log)"
+            fi
         else
             bad package-flatpak "make package-flatpak failed (see $LOGDIR/flatpak.log)"
         fi
