@@ -11,6 +11,10 @@
 #include <vector>
 #include <type_traits>
 
+#ifdef _WIN32
+#include "platform/win_console.h"
+#endif
+
 #include "platform/headless_app.h"
 #ifdef ENABLE_QT_UI
 #include "gui/qt_app.h"
@@ -127,6 +131,11 @@ static uint16_t parse_hex16(const char* s) {
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    // Must run before any stdout/stderr output and before Qt/SDL init.
+    win_attach_parent_console();
+#endif
+
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
     signal(SIGFPE,  crash_handler);

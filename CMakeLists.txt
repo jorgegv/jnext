@@ -188,6 +188,13 @@ endif()
 # reserve is address space only; pages commit lazily.
 if(WIN32)
     target_link_options(jnext PRIVATE -Wl,--stack,16777216)
+    # Link as a GUI-subsystem binary so a double-click launch from Explorer
+    # opens no console window. CLI/headless stdout/stderr still work when the
+    # exe is run from an existing console: main() calls
+    # AttachConsole(ATTACH_PARENT_PROCESS) and reopens the stdio streams onto it
+    # (win_attach_parent_console(), src/platform/win_console.cpp). Qt6::EntryPointPrivate
+    # (linked below) supplies the WinMain -> main() bridge the GUI subsystem needs.
+    target_link_options(jnext PRIVATE -Wl,--subsystem,windows)
 endif()
 
 if(ENABLE_QT_UI)
@@ -195,9 +202,10 @@ if(ENABLE_QT_UI)
     target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
     # On Windows (MinGW cross-build) the Qt6 CRT startup calls WinMain() rather
     # than main(); Qt6::EntryPointPrivate supplies the WinMain -> main() bridge.
-    # Without it the link fails with "undefined reference to WinMain". The
-    # resulting jnext.exe is a console-subsystem binary, so --headless/--version
-    # stdout/stderr work. Windows-only (a no-op on the Linux build).
+    # Without it the link fails with "undefined reference to WinMain". jnext.exe
+    # is linked as a GUI-subsystem binary (see the --subsystem,windows option
+    # above); --headless/--version stdout/stderr still reach a parent console via
+    # win_attach_parent_console(). Windows-only (a no-op on the Linux build).
     if(WIN32)
         find_package(Qt6 REQUIRED COMPONENTS Core)   # provides the entry point
         target_link_libraries(jnext PRIVATE Qt6::EntryPointPrivate)
