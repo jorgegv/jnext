@@ -23,6 +23,9 @@ modules:
   # on the dev host (2.32.x at the time of writing).
   - name: sdl2
     buildsystem: cmake-ninja
+    # SDL2's CMakeLists.txt refuses an in-tree build; flatpak-builder's
+    # cmake-ninja default builds in the source dir, so force a separate one.
+    builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DSDL_STATIC=OFF
@@ -40,7 +43,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/jorgegv/jnext.git
-        tag: v0.98.19
+        tag: v0.98.20
         # Submodules (third_party/spdlog, third_party/zot) are pulled by
         # CMakeLists.txt's `git submodule update --init --recursive` step
         # when a .git directory is present, which a `type: git` flatpak

@@ -15,6 +15,8 @@ name: Release
 #   * windows → `make package-win` (MinGW cross-build + DLL bundling) in a
 #               fedora:44 container — the one Windows build path (proven in a
 #               fedora:44 container, exe runs under wine)
+#   * flatpak → flatpak-builder against org.kde.Sdk//6.8 (same manifest +
+#               runtime as a local `make package-flatpak`); bundle built locally
 #   * macos   → native on macos-latest (UNTESTED — no Mac on the dev host; the
 #               job is continue-on-error so it never blocks a Linux+Windows release)
 #
@@ -123,6 +125,39 @@ jobs:
           name: jnext-windows-package
           path: build/gui-release-win/*.zip
 
+  # ---- Flatpak: flatpak-builder in the KDE 6.8 container ------------------
+  # Uses the community flatpak-builder action (flatpak/flatpak-github-actions,
+  # formerly bilelmoussaoui/…) inside its kde-6.8 image, which ships
+  # flatpak-builder + org.kde.Sdk//6.8 + org.kde.Platform//6.8 — the exact
+  # runtime/SDK packaging/flatpak/*.yml targets. The kde-6.8 image is published
+  # at ghcr.io/flathub-infra/flatpak-github-actions (Docker Hub only has the old
+  # pre-rename kde-6.7). This is the SAME manifest + runtime version as a local
+  # `make package-flatpak`, mirroring how the windows job mirrors `make package-win`.
+  # The manifest's `type: git` source builds jnext from the pushed release tag, so
+  # CI fetches the same tagged source a developer's local build would. The action
+  # produces the .flatpak bundle and uploads it as an artifact, which `publish`
+  # then attaches.
+  # continue-on-error until one real CI run is green: this job has never run on a
+  # GitHub runner, and as a blocking dep it would otherwise stall publishing the
+  # already-working linux/windows/rpm packages. `publish` attaches whatever
+  # artifacts exist, so a skipped flatpak just omits that one bundle. Tighten back
+  # to blocking (drop continue-on-error) after the first green run.
+  flatpak:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: jnext.flatpak
+          manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
   # ---- macOS: native CPack DragNDrop (UNTESTED, best-effort) ---------------
   macos:
     needs: gate
@@ -153,7 +188,7 @@ jobs:
   # Only for listed tags (publish==true). Waits for the build jobs; macOS is
   # continue-on-error so a macOS failure still lets a Linux+Windows release out.
   publish:
-    needs: [gate, linux, windows, macos]
+    needs: [gate, linux, windows, flatpak, macos]
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
