@@ -109,6 +109,28 @@ gui-release:
 		-DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
 
+# Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
+# Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
+gui-release-win:
+	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
+	@# actual cross toolchain/libraries. Check the cross gcc and mingw Qt6 too,
+	@# so a missing package is a clear "install these" message, not a cryptic
+	@# "compiler not found" from deep inside CMake's project() call.
+	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
+	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
+	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain/libraries incomplete.\n"; \
+		printf "  Install them all:\n"; \
+		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \\\\\n"; \
+		printf "    mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \\\\\n"; \
+		printf "    mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
+		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
+		exit 1; \
+	fi
+	mingw64-cmake -S . -B $(PKG_BUILD_WIN) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(PKG_BUILD_WIN) -j$(JOBS)
+	@printf "$(BOLD)Windows executable:$(RESET) $(PKG_BUILD_WIN)/jnext.exe\n"
+
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
 	$(BUILD_DIR_GUI_RELEASE)/jnext
@@ -341,28 +363,6 @@ package-flatpak:
 	fi
 	flatpak-builder --force-clean --user build/flatpak \
 		packaging/flatpak/io.github.zxjogv.jnext.yml
-
-# Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
-# Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
-gui-release-win:
-	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
-	@# actual cross toolchain/libraries. Check the cross gcc and mingw Qt6 too,
-	@# so a missing package is a clear "install these" message, not a cryptic
-	@# "compiler not found" from deep inside CMake's project() call.
-	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
-	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
-	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake ]; then \
-		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain/libraries incomplete.\n"; \
-		printf "  Install them all:\n"; \
-		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \\\\\n"; \
-		printf "    mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \\\\\n"; \
-		printf "    mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
-		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
-		exit 1; \
-	fi
-	mingw64-cmake -S . -B $(PKG_BUILD_WIN) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(PKG_BUILD_WIN) -j$(JOBS)
-	@printf "$(BOLD)Windows executable:$(RESET) $(PKG_BUILD_WIN)/jnext.exe\n"
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
 package-win: gui-release-win
