@@ -231,20 +231,24 @@ exact recipe (package list + `make package-win`) was proven in a `fedora:44`
 container and the produced `jnext.exe` runs under wine; only a real GitHub
 Actions run remains unexercised.
 
-**macOS** has no build host in this environment — `.github/workflows/packaging.yml`
-builds it natively on `macos-latest` (Homebrew + CPack's `DragNDrop` generator),
-but that job is **unverified** until it's actually run on GitHub Actions.
+**macOS** has no build host in this environment — the `macos` job builds it
+natively on `macos-latest` (Homebrew + CPack's `DragNDrop` generator), but is
+**unverified** until it's actually run on GitHub Actions (it is
+`continue-on-error`, so a macOS failure never blocks a Linux+Windows release).
 
-## CI: `.github/workflows/packaging.yml`
+## CI: `.github/workflows/release.yml`
 
-Three jobs, all producing packages as workflow artifacts on `workflow_dispatch`
-or a `v*` tag push:
+One tag-triggered workflow — a `gate` job reads `releases.yaml` (from the tag's
+own commit) and only lets the build + publish run for **listed** tags. See
+[doc/RELEASE-PROTOCOL.md](../doc/RELEASE-PROTOCOL.md) for the full gated-release
+policy. The per-OS build jobs, when they run:
 
 | Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
 |-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
 | `linux`   | `ubuntu-latest`               | apt deps + CPack                                      | TGZ + DEB + RPM (CPack)        | Yes, same commands proven on Fedora 44 here |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
-| `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally |
+| `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally (`continue-on-error`) |
 
-This workflow is separate from `ci.yml`/`release.yml` (owned elsewhere) —
-it only builds and packages, it does not run the test suite.
+This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
+`release.yml` does not run tests — it builds packages and, for tags listed in
+`releases.yaml`, publishes them as a GitHub Release.

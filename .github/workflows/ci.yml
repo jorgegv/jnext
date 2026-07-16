@@ -74,7 +74,7 @@ jobs:
         with:
           submodules: recursive
 
-      # Package set mirrors packaging.yml's linux job (verified to actually
+      # Package set mirrors release.yml's linux job (verified to actually
       # build on Fedora by the packaging task) plus the tools the test
       # layers need on top: imagemagick (`compare`, screenshot diffing),
       # xvfb (audio-underrun-func's real-audio-device functional test —

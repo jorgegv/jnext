@@ -1,79 +1,172 @@
 name: Release
 
-# Task 69. Publishes a GitHub Release with downloadable packages whenever a
-# `v*` tag is pushed.
+# Tag-triggered build + gated publish. One workflow: a `v*` tag push runs the
+# `gate` job, which reads releases.yaml FROM THE TAG'S OWN COMMIT and decides
+# whether this tag is a public release. If it is, the per-OS build jobs run and
+# the `publish` job attaches their packages to a GitHub Release. If the tag is
+# not in releases.yaml, nothing builds — it stays a private history tag.
 #
-# This workflow does NOT rebuild anything — the "Packaging" workflow
-# (.github/workflows/packaging.yml, Task 67) already triggers on the same
-# `v*` tag push and builds+uploads the Linux (.deb/.rpm/.tar.gz), Windows
-# (.zip) and macOS (.dmg) artifacts via CPack. Duplicating those build
-# steps here would mean two independent builds of the same tag with two
-# chances to disagree. Instead this workflow waits for that workflow to
-# finish, downloads ITS artifacts by run id, and turns them into a Release.
+# See doc/RELEASE-PROTOCOL.md. This replaces the old packaging.yml + release.yml
+# workflow_run hand-off (a single workflow avoids that fragility).
 #
-# Ownership note: packaging.yml and packaging/ belong to a sibling task and
-# are referenced, not modified, here.
+# Build paths mirror the project's own Makefile / CPack so CI builds the SAME
+# artifact a developer builds locally:
+#   * linux   → CPack TGZ/DEB/RPM (verified on the Fedora dev host)
+#   * windows → `make package-win` (MinGW cross-build + DLL bundling) in a
+#               fedora:44 container — the one Windows build path (proven in a
+#               fedora:44 container, exe runs under wine)
+#   * macos   → native on macos-latest (UNTESTED — no Mac on the dev host; the
+#               job is continue-on-error so it never blocks a Linux+Windows release)
 #
-# CAVEAT — unverifiable locally: this repo has no local GitHub Actions
-# runner, so the workflow_run hand-off below (and the Windows/macOS legs it
-# depends on, which packaging.yml's own header already marks UNTESTED on
-# this dev host) cannot be exercised end-to-end outside GitHub. The YAML is
-# validated for syntax; its runtime behaviour is not.
+# workflow_dispatch builds all packages for testing but never publishes.
 
 on:
-  workflow_run:
-    workflows: ["Packaging"]
-    types: [completed]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 jobs:
-  publish:
-    # Only publish when the triggering Packaging run itself succeeded, and
-    # only for the tag-push trigger (head_branch is the tag name in that
-    # case) — not for an ad-hoc `workflow_dispatch` run of Packaging on an
-    # arbitrary branch, which must never produce a public Release.
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
+  # ---- decide whether this tag is a public release ------------------------
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      publish: ${{ steps.decide.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4   # checks out the tag's own commit on a tag push
+      - id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build=true"    >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::workflow_dispatch — building packages for testing, not publishing a release"
+            exit 0
+          fi
+          tag="${GITHUB_REF_NAME}"
+          esc=$(printf '%s' "$tag" | sed 's/[.]/\\./g')   # treat dots literally
+          if grep -qE "^[[:space:]]*-[[:space:]]*${esc}[[:space:]]*$" releases.yaml; then
+            echo "build=true"   >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${tag} is listed in releases.yaml — building + publishing a GitHub Release"
+          else
+            echo "build=false"   >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${tag} is not in releases.yaml — private tag, nothing built"
+          fi
+
+  # ---- Linux: CPack TGZ/DEB/RPM ------------------------------------------
+  linux:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Download Linux packages (.deb/.rpm/.tar.gz)
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ \
+            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
+            qt6-base-dev \
+            rpm
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+      - name: Package (TGZ, DEB, RPM)
+        working-directory: build
+        run: cpack -G "TGZ;DEB;RPM"
+      - uses: actions/upload-artifact@v4
         with:
           name: jnext-linux-packages
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: dist
+          path: |
+            build/*.tar.gz
+            build/*.deb
+            build/*.rpm
 
-      # Windows/macOS jobs in packaging.yml are marked UNTESTED (no runner
-      # available on the dev host that wrote them). Downloaded best-effort
-      # so a Release still publishes with just the Linux packages if either
-      # leg fails or its artifact is absent.
-      - name: Download Windows package (best-effort)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
+  # ---- Windows: make package-win in a Fedora container --------------------
+  # The SAME path as a local `make package-win` — a MinGW cross-build in a
+  # Fedora container (Ubuntu/Debian do not package MinGW-Qt6; only Fedora does).
+  # The zip bundles the Qt6/SDL2/SDL3 runtime DLLs + qwindows plugin via
+  # packaging/windows/bundle-dlls.sh. Pinned to fedora:44 to match the verified
+  # dev host. Proven in a fedora:44 docker container; the exe runs under wine.
+  windows:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      # git is needed for actions/checkout's submodule fetch; the rest is the
+      # MinGW cross toolchain + host Qt6 tools (moc/rcc/uic from qt6-qtbase-devel)
+      # that make package-win needs. mingw64-cmake ships in mingw64-filesystem.
+      - name: Install MinGW cross toolchain + build tools
+        run: |
+          dnf install -y \
+            make git findutils gawk grep coreutils diffutils zip \
+            mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
+            mingw64-qt6-qtbase mingw64-sdl2-compat mingw64-curl \
+            mingw64-openssl mingw64-zlib mingw64-libpng mingw64-winpthreads \
+            qt6-qtbase-devel
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: make package-win
+        run: make package-win
+      - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: dist
+          path: build/gui-release-win/*.zip
 
-      - name: Download macOS package (best-effort)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
+  # ---- macOS: native CPack DragNDrop (UNTESTED, best-effort) ---------------
+  macos:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: macos-latest
+    continue-on-error: true   # UNTESTED — never block a Linux+Windows release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
+      - name: Build
+        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+      - name: Package (DragNDrop)
+        working-directory: build
+        run: cpack -G DragNDrop
+      - uses: actions/upload-artifact@v4
         with:
           name: jnext-macos-package
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: dist
+          path: build/*.dmg
 
+  # ---- publish: attach all built packages to a GitHub Release -------------
+  # Only for listed tags (publish==true). Waits for the build jobs; macOS is
+  # continue-on-error so a macOS failure still lets a Linux+Windows release out.
+  publish:
+    needs: [gate, linux, windows, macos]
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.workflow_run.head_branch }}
+          tag_name: ${{ github.ref_name }}
           files: dist/**/*
           generate_release_notes: true
           fail_on_unmatched_files: false
