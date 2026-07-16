@@ -223,24 +223,28 @@ SDL2 release or KDE runtime branch is targeted.
 
 ## Windows / macOS
 
-No Windows or macOS build host is available in this environment, so neither
-was built or run locally. `.github/workflows/packaging.yml` (see below) has
-a best-effort CI job for each, using the real dependency set (Qt6 + SDL2 +
-curl + OpenSSL + zlib + libpng) via `aqt`/vcpkg (Windows) and Homebrew
-(macOS), packaged via CPack's `ZIP` and `DragNDrop` generators respectively.
-Treat those two jobs as **unverified** until they've actually run on GitHub
-Actions.
+**Windows** is cross-built through the project's own `make package-win` target
+— a MinGW cross-build run in a Fedora container — so CI produces byte-for-byte
+the same artifact a developer builds locally, with the Qt6/SDL2/SDL3 runtime
+DLLs + the `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh`. The
+exact recipe (package list + `make package-win`) was proven in a `fedora:44`
+container and the produced `jnext.exe` runs under wine; only a real GitHub
+Actions run remains unexercised.
+
+**macOS** has no build host in this environment — `.github/workflows/packaging.yml`
+builds it natively on `macos-latest` (Homebrew + CPack's `DragNDrop` generator),
+but that job is **unverified** until it's actually run on GitHub Actions.
 
 ## CI: `.github/workflows/packaging.yml`
 
-Three jobs, one per OS, all producing packages as workflow artifacts on
-`workflow_dispatch` or a `v*` tag push:
+Three jobs, all producing packages as workflow artifacts on `workflow_dispatch`
+or a `v*` tag push:
 
-| Job       | Runner           | Deps                                   | Package(s)             | Verified locally? |
-|-----------|------------------|-----------------------------------------|-------------------------|--------------------|
-| `linux`   | `ubuntu-latest`  | apt: SDL2/Qt6/curl/OpenSSL/zlib/libpng  | TGZ + DEB + RPM (CPack) | Yes, same commands proven on Fedora 44 here |
-| `windows` | `windows-latest` | aqt (Qt6) + vcpkg (SDL2 + friends)      | ZIP (CPack)             | No — no Windows runner locally |
-| `macos`   | `macos-latest`   | Homebrew (Qt6 + SDL2 + friends)         | DragNDrop `.dmg` (CPack)| No — no macOS runner locally |
+| Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
+|-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
+| `linux`   | `ubuntu-latest`               | apt deps + CPack                                      | TGZ + DEB + RPM (CPack)        | Yes, same commands proven on Fedora 44 here |
+| `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
+| `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally |
 
 This workflow is separate from `ci.yml`/`release.yml` (owned elsewhere) —
 it only builds and packages, it does not run the test suite.

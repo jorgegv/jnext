@@ -1141,7 +1141,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Packaging (Task 67, v0.98.7):
   - [x] Generate Linux binary packages: Fedora / Debian / Ubuntu — CMake `install()` rules + CPack (TGZ/DEB/RPM, all three produced on the Fedora dev host) + native `packaging/rpm/jnext.spec` and `packaging/debian/`. Support policy documented in `packaging/README.md`.
   - [x] Generate Flatpak package — `packaging/flatpak/io.github.zxjogv.jnext.yml` (org.kde.Platform runtime; YAML-validated; `flatpak-builder` not run on the dev host — SDL2 module carries a placeholder sha256 to fill in).
-  - [~] Generation of Windows version — CI config only (`.github/workflows/packaging.yml` windows-latest leg via vcpkg/aqt); UNVERIFIED (no Windows runner on the dev host).
+  - [~] Generation of Windows version — `.github/workflows/packaging.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. Proven in a fedora:44 container and the exe runs under wine; a real GitHub Actions run is still pending.
   - [~] Generation of MacOS version — CI config only (packaging.yml macos-latest leg via brew + CPack DragNDrop); UNVERIFIED (no macOS runner on the dev host).
 
 - [ ] Documentation
