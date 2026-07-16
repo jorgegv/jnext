@@ -42,6 +42,47 @@ correctly via `${shlibs:Depends}` and is the one to actually ship.
 DESTDIR=/tmp/stage cmake --install build
 ```
 
+## Building each package
+
+The root `Makefile` wraps every packaging path in a `make package-*` target
+(each configures its own git-ignored build dir, so they don't disturb
+`build/`):
+
+| Target             | Produces                          | Tooling needed                                  | Verified on the Linux dev host? |
+|--------------------|-----------------------------------|-------------------------------------------------|---------------------------------|
+| `make package-src` | source tarball (`build/dist/v<ver>.tar.gz`) — vendors submodule content | git                                             | Yes                             |
+| `make package-rpm` | `.rpm` (via CPack, in `build/package-rpm/`) | `cpack` + `rpmbuild`                             | Yes                             |
+| `make package-deb` | `.deb` (via CPack, in `build/package-deb/`) | `cpack` + `dpkg`                                 | Yes (deps weak off-Debian, see above) |
+| `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder`                               | **No** — flatpak-builder not installed; the target checks for it and prints an install hint |
+| `make package-win` | Windows `.zip` (via CPack, in `build-win/`) | Fedora MinGW cross toolchain (see below)        | **No** — MinGW runtime packages not installed; the target checks for them and lists what to install |
+| `make package-macos` | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
+
+The three Linux-native targets were run end-to-end and each produced its
+artifact. The other three cannot be produced on this Linux dev host: each
+target detects the missing tooling/platform and exits with a clear message
+(what to install, or that a Mac/CI runner is required) instead of a cryptic
+mid-build failure.
+
+### Windows cross-build (Fedora MinGW)
+
+`make package-win` cross-compiles with Fedora's MinGW wrapper `mingw64-cmake`
+(which sets `CMAKE_OBJCOPY` to the cross objcopy — `src/core/CMakeLists.txt`
+now selects `--output-target=pe-x86-64` for a Windows target so the embedded
+`nextboot.rom` object links). Install the full toolchain + libraries first:
+
+```sh
+sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
+  mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \
+  mingw64-libpng mingw64-winpthreads
+```
+
+`mingw64-filesystem` supplies `mingw64-cmake`; the native `qt6-qtbase-devel`
+supplies the host `moc`/`rcc`/`uic` used during the cross-build;
+`mingw64-qt6-qttools` is optional. **DLL bundling is a known follow-up:** the
+ZIP does not yet copy the Qt6/SDL2 runtime DLLs from
+`/usr/x86_64-w64-mingw32/sys-root/mingw/bin`, so the produced `jnext.exe`
+would need those alongside it to run.
+
 ## Runtime dependencies — how they were derived
 
 Not guessed: `ldd build/gui-release/jnext` was run on this host and the
