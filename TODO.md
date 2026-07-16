@@ -12,7 +12,7 @@
 - DAC audio buzzing: Soundrive DAC demo produces continuous buzz alongside expected tones
 
 ## Platform Ports
-- Windows port — packaging CI config exists (`packaging.yml` windows-latest leg) but is UNVERIFIED; needs a real build/test on Windows
+- Windows port — self-contained MinGW cross-build works (`make package-win`; Qt6/SDL2/SDL3 DLLs + qwindows plugin bundled; native cert store for the SD download; 16 MB stack reserve). Verified end-to-end under wine (GUI, ROM load, SD-image download). Still pending: a smoke test on real Windows hardware, and the `packaging.yml` windows-latest CI leg is still UNVERIFIED
 - macOS port — packaging CI config exists (`packaging.yml` macos-latest leg) but is UNVERIFIED; needs a real build/test on macOS
 
 ## Configuration
