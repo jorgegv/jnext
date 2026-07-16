@@ -1,5 +1,28 @@
 # ChangeLog
 
+## v0.98.24 (2026-07-16)
+
+### User Features
+- Install packages for every supported platform: Fedora/RHEL (RPM), Debian/Ubuntu 24.04 & 26.04 (DEB), Flatpak, and a self-contained Windows (x64) zip
+- Windows build is portable (all Qt/SDL runtime bundled) and no longer opens a stray console window
+- Preferences dialog (Settings → Preferences) with settings saved to `~/.jnext`
+- New application icon
+
+### Developer Features
+- `make package-{rpm,deb,flatpak,win,src}` build every distributable locally; documented in BUILD.md
+
+### Bug Fixes
+- RPM now installs on Fedora (was linked against the wrong libcurl); DEB now installs on Ubuntu 26 (built per-LTS for 24.04 and 26.04)
+- Frame pacing follows the emulated 50/60 Hz video refresh (issue #9)
+- Oversized/extended NEX files are rejected with a clear message instead of misbehaving (issue #10)
+- Windows: SD-image download no longer fails certificate verification; fixed a startup stack overflow
+
+### Internal JNEXT Development
+- Gated release protocol: `releases.yaml` allowlist, one consolidated CI release workflow, and RELEASE-PROTOCOL.md
+- `version.yaml` is the single source of truth; every bump propagates the version into all packaging files
+- Each package builds on its native distro; Flatpak and Windows build inside Fedora containers in CI, Flatpak from the local checkout
+- Task 69 integration test plan + CI with honest SD-image provisioning + README status badges; config relocated to `~/.jnext`
+
 ## v0.98.3 (2026-07-15)
 
 ### User Features

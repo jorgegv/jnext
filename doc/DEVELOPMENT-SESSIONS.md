@@ -106,4 +106,8 @@
 |        |      | 14 reviewed branches, profile-guided. Issue #8 crash; 60a/60b; 13a→0 skips; v0.98.3 ChangeLog.       |
 | 15/7   | 8h   | Task 27 Wave 2 (Fable→Opus): LTO the single biggest win (+34.5%); 161M T/s, 284fps@400%; +180% e2e.  |
 |        |      | 13 reviewed merges, 6 REJECT→rework (all real bugs). 60c/d/e/f, 61 deterministic dashboard, 62 report. |
+| 16/7   |      | Phase 9 packaging: CPack RPM/DEB/Flatpak + MinGW Windows cross-build; Task 66 Preferences + config→~/.jnext; Task 69 CI + integration plan + badges. |
+|        |      | Windows self-contained zip works under wine (DLL closure, SDL3, 16 MB stack, native CA); gated releases (releases.yaml + RELEASE-PROTOCOL). v0.98.4→.19 |
+| 16/7   |      | Packaging correctness, 6 reviewed merges (5 REJECT→fix, all real): RPM built on Fedora, DEB matrix Ubuntu 24.04+26.04, Windows GUI-subsystem (no console), |
+|        |      | Flatpak CI + build-from-local, src.zip, drop -Linux.tar.gz, README Windows install. v0.98.20→.24 |
 | TOTAL: | 375h |                                                                                                      |
