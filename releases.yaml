@@ -4,4 +4,5 @@
 #
 # `make bump-patch` NEVER adds a tag here. `make bump-minor` / `make bump-major`
 # ask whether to add the new tag. See doc/RELEASE-PROTOCOL.md.
-releases: []
+releases:
+  - v0.98.19
