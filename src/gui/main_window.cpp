@@ -141,7 +141,7 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("JNEXT \u2014 ZX Spectrum Next Emulator");
 
     // Task 66 \u2014 load persisted GUI preferences. This is the production
-    // AppConfig ctor (QSettings("JNEXT", "jnext")); MainWindow is only ever
+    // AppConfig ctor (~/.jnext/jnext.conf); MainWindow is only ever
     // constructed by the real (non-headless) GUI path (QtApp::init()), so
     // headless/unit-test runs never touch the user's real config file. The
     // regression suite additionally isolates $XDG_CONFIG_HOME so its handful

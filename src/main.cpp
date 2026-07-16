@@ -387,8 +387,8 @@ int main(int argc, char* argv[]) {
     // with headless==false, and the SDL-only build has no AppConfig at all.
     // CLI always wins: sd_card_path only fills in when --sdcard was NOT
     // given (sd_card_image still empty at this point). The regression suite
-    // isolates $XDG_CONFIG_HOME so this never reads a developer's real
-    // ~/.config/JNEXT/jnext.conf during automated non-headless runs.
+    // sets $JNEXT_CONFIG_DIR so this never reads a developer's real
+    // ~/.jnext/jnext.conf during automated non-headless runs.
 #ifdef ENABLE_QT_UI
     AppConfig gui_app_config;
     if (!headless) {

@@ -1135,7 +1135,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] Configurability (Task 66, v0.98.6):
   - [x] Dialog for configuring options — `src/gui/preferences_dialog.*` (Settings → Preferences…): Startup + Paths tabs. Keyboard-layout remapping deferred (no runtime remap engine exists; separate Phase 11 "redefinable keys" item).
-  - [x] Save configuration to disk — `src/gui/app_config.*` → `~/.config/JNEXT/jnext.conf` (QSettings INI, `config_version=1`).
+  - [x] Save configuration to disk — `src/gui/app_config.*` → `~/.jnext/jnext.conf` (QSettings INI, `config_version=1`).
   - [x] Load config on start — applied at GUI launch; **CLI flags always take precedence** over saved values; headless never reads the config (test determinism). Unit suite `app_config_test` (39 rows).
 
 - [x] Packaging (Task 67, v0.98.7):

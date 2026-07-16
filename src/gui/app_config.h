@@ -38,11 +38,11 @@ inline T merge_cli_precedence(bool cli_provided, const T& cli_value, const T& sa
 
 /// Loads/saves AppConfigData via QSettings.
 ///
-/// The production constructor uses QSettings("JNEXT", "jnext"), which on
-/// Linux resolves to ~/.config/JNEXT/jnext.conf — the same
-/// organisation/QSettings convention already used for the debugger window's
-/// geometry (QSettings("JNEXT", "Debugger"), src/debugger/debugger_window.cpp),
-/// just a different application name so the two files stay separate.
+/// The production constructor stores an INI file at ~/.jnext/jnext.conf —
+/// the same ~/.jnext home directory jnext already uses for the SD-card image
+/// (~/.jnext/sdcard/...). The debugger window's geometry lives alongside it
+/// at ~/.jnext/Debugger.conf (src/debugger/debugger_window.cpp), a separate
+/// file so the two stay independent.
 ///
 /// A second constructor points at an explicit INI file so unit tests never
 /// touch the real user config.
@@ -50,6 +50,10 @@ class AppConfig {
 public:
     AppConfig();
     explicit AppConfig(const QString& ini_path);
+
+    /// Absolute path of the production config file (~/.jnext/jnext.conf).
+    /// Exposed so it can be asserted without touching the real user config.
+    static QString default_config_path();
 
     /// (Re)load from the backing QSettings. Missing or malformed keys fall
     /// back to the AppConfigData default for that field; a value out of its
