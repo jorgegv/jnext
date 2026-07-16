@@ -38,11 +38,25 @@ endif()
 # (the dev/profiling binary) and Debug stay LTO-free so dev iteration and
 # `perf` call-graphs are unaffected. Guarded by check_ipo_supported() so a
 # toolchain without working LTO configures and builds exactly as before.
+#
+# JNEXT_ENABLE_LTO lets a specific build opt out of LTO. It exists for the
+# Flatpak build ONLY: the org.kde.Sdk GCC miscompiles the QApplication init
+# path under whole-program LTO (SIGSEGV at GUI launch, inside the QApplication
+# constructor — a null-sender screenAdded emission). This was bisected to the
+# LTO *process* in that toolchain, not any single unit or transform (per-target
+# LTO, -fno-devirtualize/-fno-ipa-icf, and -O2 all still crashed); only fully
+# disabling LTO fixes it. The native host GCC does not miscompile, so every
+# other build (native, DEB, RPM, gui-release) keeps LTO and its full perf. The
+# option defaults ON and is flipped OFF solely in packaging/flatpak/*.yml.
+# Full analysis + bisection record: doc/FLATPAK-LTO-PROBLEMS.md.
+option(JNEXT_ENABLE_LTO "Enable LTO/IPO for Release builds (Flatpak sets OFF; see comment)" ON)
 include(CheckIPOSupported)
 check_ipo_supported(RESULT JNEXT_IPO_SUPPORTED OUTPUT JNEXT_IPO_ERROR LANGUAGES C CXX)
-if(JNEXT_IPO_SUPPORTED)
+if(JNEXT_IPO_SUPPORTED AND JNEXT_ENABLE_LTO)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
     message(STATUS "IPO/LTO supported — enabled for Release builds only")
+elseif(NOT JNEXT_ENABLE_LTO)
+    message(STATUS "IPO/LTO disabled via JNEXT_ENABLE_LTO=OFF (Flatpak toolchain workaround)")
 else()
     message(STATUS "IPO/LTO not supported by toolchain — skipping (${JNEXT_IPO_ERROR})")
 endif()

@@ -90,6 +90,11 @@ for your system from the
 
 The Linux packages put a `jnext` command on your `PATH`.
 
+> **Note (Flatpak only):** the Flatpak build ships without LTO — its runtime's
+> compiler miscompiles the GUI startup under LTO. This only reduces top turbo-speed
+> throughput; normal (100 %) speed is unaffected. For maximum turbo performance use
+> the native RPM/DEB packages, which keep LTO.
+
 The **Windows** build is a self-contained, portable zip — no installer, with
 all the Qt and SDL runtime DLLs bundled. Unzip it anywhere and run `jnext.exe`;
 delete the folder to uninstall. On first launch Windows SmartScreen may warn

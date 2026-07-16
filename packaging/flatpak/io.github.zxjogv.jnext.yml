@@ -40,6 +40,11 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DENABLE_QT_UI=ON
       - -DENABLE_TESTS=OFF
+      # LTO OFF for Flatpak ONLY: the org.kde.Sdk GCC miscompiles the
+      # QApplication init under whole-program LTO (SIGSEGV at GUI launch).
+      # Bisected to the LTO process in that toolchain, not any single unit.
+      # Native/DEB/RPM/gui-release builds keep full LTO. See CMakeLists.txt.
+      - -DJNEXT_ENABLE_LTO=OFF
     sources:
       # Build from the LOCAL checkout, not a pushed remote tag. This project
       # bumps the version locally and pushes tags in batches, so the current
