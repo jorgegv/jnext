@@ -1299,6 +1299,38 @@ if want reset-to-nextzxos-func; then
     fi
 fi
 
+# Task 70 review (BLOCKER guard) — a menu / cold-boot file-load must route by
+# extension through the SHARED dispatch (platform/emulator_boot.h ::
+# emulator_apply_load), so .rzx reaches load_rzx, not load_nex. The first cut
+# copy-pasted the dispatch into three frontends and the Qt copy silently dropped
+# .rzx (fell through to load_nex, which rejects an RZX). Record a short RZX, then
+# cold-boot-LOAD it via the headless reset facility (the SAME shared dispatch the
+# Qt menu uses) and assert RZX playback started — misrouting to load_nex leaves
+# no "RZX: playback started" line.
+if want cold-boot-load-rzx-func; then
+    begin_func cold-boot-load-rzx-func
+    cb_rzx="$TMP_DIR/cold_boot_test.rzx"
+    rm -f "$cb_rzx"
+    timeout --foreground --kill-after=5s 40s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        --rzx-record "$cb_rzx" --delayed-automatic-exit-frames 120 >/dev/null 2>&1 || true
+    cb_out=""
+    if [[ -f "$cb_rzx" ]]; then
+        cb_out=$(JNEXT_DELAYED_RESET_FRAMES=420 JNEXT_DELAYED_RESET_TYPE="loadnex:$cb_rzx" \
+            timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next \
+            "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+            --delayed-automatic-exit-frames 520 2>&1 || true)
+    fi
+    if echo "$cb_out" | grep -q "RZX: playback started"; then
+        echo -e "${GREEN}PASS${RESET} (cold-boot .rzx load routed to RZX playback via shared dispatch)"
+        pass=$((pass + 1))
+        rm -f "$cb_rzx"
+    else
+        echo -e "${RED}FAIL${RESET} (cold-boot .rzx misrouted — shared load dispatch dropped .rzx? [Task 70 review])"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests.
 # This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
 # the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that

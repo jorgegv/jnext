@@ -101,7 +101,17 @@ public:
     ///     audio samples, checks interrupts.
     void run_frame();
 
-    /// Perform a hard reset: reinitialize all subsystems, clear RAM, reload ROM.
+    /// In-place hard reinit: reinitialize all subsystems, clear RAM, reload ROM
+    /// (calls init(config_)). NOTE (Task 70): this is NOT the machine's
+    /// power-on "reset button" behaviour. A booted Next reset in place does not
+    /// re-engage the FPGA boot ROM (config_mode is preserved), so it does NOT
+    /// re-boot NextZXOS — it would fall through to 48K BASIC. The physical reset
+    /// button / F1 / a program's NR 0x02 bit 1 are modelled as a power-on COLD
+    /// BOOT the host frontend performs by RECONSTRUCTING the emulator and
+    /// re-running init() (platform/emulator_boot.h::emulator_cold_boot). This
+    /// method survives only as the reinit used by the file loaders
+    /// (load_nex/load_sna/...) on a fresh-at-startup machine and by unit-test
+    /// setup. Do not call it expecting a NextZXOS re-boot.
     void reset();
 
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).

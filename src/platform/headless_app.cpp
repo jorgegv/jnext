@@ -1,4 +1,5 @@
 #include "headless_app.h"
+#include "platform/emulator_boot.h"
 #include "core/log.h"
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
@@ -316,28 +317,20 @@ void HeadlessApp::run() {
         bench_start = bench_clock::now();
 
     // Task 70 — power-on cold boot: reconstruct the emulator in place and
-    // re-run the proven startup init() path. Placement-new keeps &emulator_
-    // stable (no external holders in headless). Empty load_file => clean
-    // NextZXOS boot; non-empty => boot as if launched with --load <file>.
+    // re-run the proven startup init() path (shared with the Qt/SDL frontends,
+    // platform/emulator_boot.h). Empty load_file => clean NextZXOS boot;
+    // non-empty => boot as if launched with --load <file>.
     auto cold_boot = [this](const std::string& load_file) {
         Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                               load_file.empty() ? "(none)" : load_file.c_str());
         EmulatorConfig cfg = config_;
         cfg.load_file = load_file;
-        emulator_.~Emulator();
-        new (&emulator_) Emulator();
-        emulator_.init(cfg);
+        emulator_cold_boot(emulator_, cfg);
         inject_countdown_ = -1;
         load_countdown_   = -1;
         if (!load_file.empty()) {
-            std::string ext;
-            auto dot = load_file.rfind('.');
-            if (dot != std::string::npos) {
-                ext = load_file.substr(dot);
-                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            }
             load_file_      = load_file;
-            load_countdown_ = (ext == ".tzx" || ext == ".wav") ? 100 : 0;
+            load_countdown_ = emulator_load_delay_frames(load_file);
         }
     };
 
@@ -367,42 +360,23 @@ void HeadlessApp::run() {
             --inject_countdown_;
         }
 
-        // Apply pending load (auto-detect format by extension).
+        // Apply pending load (shared format dispatch, incl. .rzx — see
+        // platform/emulator_boot.h).
         if (load_countdown_ == 0) {
-            std::string ext;
-            auto dot = load_file_.rfind('.');
-            if (dot != std::string::npos) {
-                ext = load_file_.substr(dot);
-                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            }
-            if (ext == ".tap") {
-                emulator_.load_tap(load_file_, !tape_realtime_);
-            } else if (ext == ".tzx") {
-                emulator_.load_tzx(load_file_, !tape_realtime_);
-            } else if (ext == ".sna") {
-                emulator_.load_sna(load_file_);
-            } else if (ext == ".szx") {
-                // Task 13b review round 2: this used to discard the bool
-                // return, so a load FAILURE (corrupt/rejected file) fell
-                // through silently to whatever the process happened to
-                // render next, with exit 0 — a script had no way to tell
-                // "loaded fine" from "failed to load, ran anyway". The
-                // other --load branches here have the same discarded-
-                // return-value shape; only .szx is fixed (that is what
-                // this task touches — see snapshot-save-func, which now
-                // depends on this to detect a corrupt reload).
-                if (!emulator_.load_szx(load_file_)) {
-                    Log::platform()->error("--load: failed to load '{}' as .szx", load_file_);
-                    exit_code_ = 1;
+            const bool ok = emulator_apply_load(emulator_, load_file_, tape_realtime_);
+            if (!ok) {
+                Log::platform()->error("--load: failed to load '{}'", load_file_);
+                // Task 13b review round 2: a corrupt/rejected .szx reload must
+                // set a non-zero exit so a script can tell "loaded fine" from
+                // "failed to load, ran anyway" (snapshot-save-func depends on
+                // this). Scope the exit to .szx to preserve the prior contract.
+                std::string ext;
+                auto dot = load_file_.rfind('.');
+                if (dot != std::string::npos) {
+                    ext = load_file_.substr(dot);
+                    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                 }
-            } else if (ext == ".z80") {
-                emulator_.load_z80(load_file_);
-            } else if (ext == ".wav") {
-                emulator_.load_wav(load_file_);
-            } else if (ext == ".rzx") {
-                emulator_.load_rzx(load_file_);
-            } else {
-                emulator_.load_nex(load_file_);
+                if (ext == ".szx") exit_code_ = 1;
             }
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {

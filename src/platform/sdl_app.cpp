@@ -1,9 +1,8 @@
 #include "sdl_app.h"
+#include "platform/emulator_boot.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
-#include <cctype>
 #include <cmath>
-#include <new>
 
 bool SdlApp::init(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -164,15 +163,14 @@ void SdlApp::cold_boot(const std::string& load_file) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
-    // Reconstruct the emulator in place: restores every power-on default so the
-    // machine is byte-identical to a fresh startup. Placement-new keeps
-    // &emulator_ stable; the host adapters below re-bind to the (stable-address)
-    // sub-objects and the emulator-side callback.
+    // Reconstruct the emulator in place (shared with the Qt/headless frontends,
+    // platform/emulator_boot.h) and re-run init(), preserving debugger
+    // breakpoints. Placement-new keeps &emulator_ stable; the host adapters
+    // below re-bind to the (stable-address) sub-objects and the emulator-side
+    // callback.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
     cfg.load_file = load_file;
-    emulator_.~Emulator();
-    new (&emulator_) Emulator();
-    emulator_.init(cfg);
+    emulator_cold_boot(emulator_, cfg);
 
     // Re-run the emulator-bound wiring init() does at startup.
     mouse_dispatcher_    = std::make_unique<MouseDispatcher>(emulator_.mouse());
@@ -185,14 +183,8 @@ void SdlApp::cold_boot(const std::string& load_file) {
     // Schedule the load exactly as the CLI startup does (same per-format delay).
     load_countdown_ = -1;
     if (!load_file.empty()) {
-        std::string ext;
-        auto dot = load_file.rfind('.');
-        if (dot != std::string::npos) {
-            ext = load_file.substr(dot);
-            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
         load_file_      = load_file;
-        load_countdown_ = (ext == ".tzx" || ext == ".wav") ? 100 : 0;
+        load_countdown_ = emulator_load_delay_frames(load_file);
     }
 }
 
@@ -228,7 +220,11 @@ void SdlApp::run() {
 
         // Apply pending load when countdown reaches zero.
         if (load_countdown_ == 0) {
-            emulator_.load_nex(load_file_);
+            // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
+            // SDL has no --tape-realtime toggle; fast tape load (false).
+            if (!emulator_apply_load(emulator_, load_file_, /*tape_realtime=*/false)) {
+                Log::platform()->error("load: failed to load '{}'", load_file_);
+            }
             load_countdown_ = -1;  // done
         } else if (load_countdown_ > 0) {
             --load_countdown_;

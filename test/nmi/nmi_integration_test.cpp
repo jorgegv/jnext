@@ -461,10 +461,12 @@ static void g_host_hotkey()
         const uint16_t pc_pre  = emu.cpu().get_registers().PC;
         emu.on_hotkey_f1_hard_reset();                 // dispatcher seam -> request
         const bool     requested = emu.take_hard_reset_request();
-        // Since Task 70 the hard reset is a HOST cold boot (reconstruct +
-        // init). A stack-local Emulator can't be reconstructed here, so drive
-        // its reinit path (emu.reset() — the same init() the cold boot runs)
-        // to observe the power-on effects the cold boot produces.
+        // Since Task 70 the hard reset is a HOST cold boot (reconstruct + init).
+        // A stack-local Emulator can't be reconstructed here, so drive the
+        // in-place reinit (emu.reset()) to observe the power-on effects init()
+        // produces (PC=0, mf_enable cleared). This is NOT the cold-boot path
+        // itself (which reconstructs) — the end-to-end cold boot is covered by
+        // the reset-to-nextzxos-func regression row.
         emu.reset();
         const bool     mf_post = emu.nmi_source().mf_enable();
         const uint16_t pc_post = emu.cpu().get_registers().PC;

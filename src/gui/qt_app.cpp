@@ -1,6 +1,7 @@
 #include "gui/qt_app.h"
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
+#include "platform/emulator_boot.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
 #ifdef ENABLE_DEBUGGER
@@ -217,21 +218,15 @@ void QtApp::cold_boot(const std::string& load_file) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
-    // Reconstruct the emulator in place. This restores every power-on default
-    // (config_mode, NextReg, MMU slots, ...) so the machine is byte-identical
-    // to a fresh startup — the whole point of Task 70. Placement-new keeps
-    // &emulator_ stable, so main_window_'s pointer, the debugger, and the
-    // mouse dispatcher (all bound to the stable address / its sub-objects)
-    // stay valid; only the emulator-side callback needs re-binding below.
-    emulator_.~Emulator();
-    new (&emulator_) Emulator();
-
+    // Reconstruct the emulator in place (restores every power-on default so
+    // the machine is byte-identical to a fresh startup) and re-run init(),
+    // preserving debugger breakpoints. Placement-new keeps &emulator_ stable,
+    // so main_window_'s pointer, the debugger, and the mouse dispatcher (all
+    // bound to the stable address / its sub-objects) stay valid; only the
+    // emulator-side callback needs re-binding below.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
     cfg.load_file = load_file;   // empty => clean NextZXOS boot
-    if (!emulator_.init(cfg)) {
-        Log::platform()->error("Cold boot: emulator init failed");
-        return;
-    }
+    emulator_cold_boot(emulator_, cfg);
 
     // Re-run the post-init wiring init() does at startup: re-binds the
     // emulator-side on_input_state_restored callback and the mouse dispatcher.
@@ -243,14 +238,7 @@ void QtApp::cold_boot(const std::string& load_file) {
     inject_countdown_ = -1;
     load_countdown_   = -1;
     if (!load_file.empty()) {
-        std::string ext;
-        auto dot = load_file.rfind('.');
-        if (dot != std::string::npos) {
-            ext = load_file.substr(dot);
-            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        const int delay = (ext == ".tzx" || ext == ".wav") ? 100 : 0;
-        set_pending_load(load_file, delay);
+        set_pending_load(load_file, emulator_load_delay_frames(load_file));
     }
 
     // Re-align the frame timer to the (possibly changed) refresh rate.
@@ -296,26 +284,9 @@ void QtApp::on_frame_tick() {
 
     // Apply pending load when countdown reaches zero (auto-detect format).
     if (load_countdown_ == 0) {
-        std::string ext;
-        auto dot = load_file_.rfind('.');
-        if (dot != std::string::npos) {
-            ext = load_file_.substr(dot);
-            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        if (ext == ".tap") {
-            emulator_.load_tap(load_file_, !tape_realtime_);
-        } else if (ext == ".tzx") {
-            emulator_.load_tzx(load_file_, !tape_realtime_);
-        } else if (ext == ".sna") {
-            emulator_.load_sna(load_file_);
-        } else if (ext == ".szx") {
-            emulator_.load_szx(load_file_);
-        } else if (ext == ".z80") {
-            emulator_.load_z80(load_file_);
-        } else if (ext == ".wav") {
-            emulator_.load_wav(load_file_);
-        } else {
-            emulator_.load_nex(load_file_);
+        // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
+        if (!emulator_apply_load(emulator_, load_file_, tape_realtime_)) {
+            Log::platform()->error("load: failed to load '{}'", load_file_);
         }
         load_countdown_ = -1;
     } else if (load_countdown_ > 0) {
