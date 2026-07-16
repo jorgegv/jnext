@@ -5,7 +5,7 @@ app-id: io.github.zxjogv.jnext
 # a separate module the way SDL2 does. Bump the branch to whatever KDE
 # runtime is current when this manifest is actually built.
 runtime: org.kde.Platform
-runtime-version: '6.7'
+runtime-version: '6.8'
 sdk: org.kde.Sdk
 command: jnext
 
@@ -29,10 +29,7 @@ modules:
     sources:
       - type: archive
         url: https://github.com/libsdl-org/SDL/releases/download/release-2.32.6/SDL2-2.32.6.tar.gz
-        # Placeholder — fill in the real sha256 for the pinned release
-        # before running flatpak-builder for real (not verifiable on this
-        # host, no flatpak-builder / network fetch available).
-        sha256: REPLACE_WITH_REAL_SHA256
+        sha256: 6a7a40d6c2e00016791815e1a9f4042809210bdf10cc78d2c75b45c4f52f93ad
 
   - name: jnext
     buildsystem: cmake-ninja
