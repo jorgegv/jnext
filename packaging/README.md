@@ -245,7 +245,7 @@ policy. The per-OS build jobs, when they run:
 
 | Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
 |-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
-| `linux`   | `ubuntu-latest`               | apt deps + CPack                                      | DEB (CPack)                    | Yes, same commands proven on Fedora 44 here |
+| `deb`     | `ubuntu-latest` + `ubuntu:24.04`/`ubuntu:26.04` (matrix) | apt deps + CPack (in each pinned container) | 2× DEB (CPack), one per LTS, named `jnext_<ver>_ubuntu<rel>_amd64.deb` | Yes — both built + `apt install`ed in their own containers; the 24.04 deps carry the t64 names, 26.04's differ |
 | `rpm`     | `ubuntu-latest` + `fedora:44` | dnf deps + CPack (in a Fedora container)             | RPM (CPack)                    | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |

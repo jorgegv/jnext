@@ -110,9 +110,13 @@ CI runs these same targets — one build path, no CI-only divergence (§5).
   a **`v*` tag push**. Jobs:
   1. **`gate`** — reads `releases.yaml` from the tag's own commit and checks
      whether `$GITHUB_REF_NAME` is listed → outputs `build` / `publish`.
-  2. **`linux` / `rpm` / `src` / `windows` / `flatpak` / `macos`** — run only
-     when `build == true`. `linux` builds the DEB via CPack on Ubuntu (so its
-     shlibdeps are Debian-native); `rpm` builds the RPM via CPack inside a
+  2. **`deb` / `rpm` / `src` / `windows` / `flatpak` / `macos`** — run only
+     when `build == true`. `deb` is a **matrix** over `ubuntu:24.04` and
+     `ubuntu:26.04` pinned containers: CPack's `dpkg-shlibdeps` bakes in the
+     container's library package names, so each LTS gets its own deb (the 24.04
+     `t64` names are unsatisfiable on 26.04), renamed
+     `jnext_<ver>_ubuntu<rel>_amd64.deb` and shipped as two assets; `rpm` builds
+     the RPM via CPack inside a
      `fedora:44` container (so its deps are Fedora-native, not the Ubuntu
      `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
      submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win` in a

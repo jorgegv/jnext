@@ -11,7 +11,10 @@ name: Release
 #
 # Build paths mirror the project's own Makefile / CPack so CI builds the SAME
 # artifact a developer builds locally:
-#   * linux   → CPack DEB on Ubuntu (Debian-native deps)
+#   * deb     → CPack DEB in pinned ubuntu:24.04 AND ubuntu:26.04 containers
+#               (matrix). shlibdeps bakes in the container's library package
+#               names, so each LTS gets its own per-release-named deb (the
+#               24.04 t64 names are unsatisfiable on 26.04, hence two debs).
 #   * rpm     → CPack RPM in a fedora:44 container (Fedora-native deps — building
 #               the RPM on Ubuntu bakes in an incompatible libcurl symbol node)
 #   * src     → `make package-src` → jnext-<ver>-src.zip (submodule-aware)
@@ -63,28 +66,41 @@ jobs:
             echo "::notice::${tag} is not in releases.yaml — private tag, nothing built"
           fi
 
-  # ---- Linux DEB: CPack DEB on Ubuntu (Debian-native deps) ----------------
+  # ---- Linux DEB: CPack DEB in pinned Ubuntu containers (matrix) -----------
   # DEB only. The .deb's dependency autodetection (CPACK_DEBIAN_PACKAGE_SHLIBDEPS)
-  # must run on Debian/Ubuntu so the baked-in deps are Debian-native. The RPM is
-  # built in a separate Fedora-container job (see `rpm` below) so ITS deps are
-  # Fedora-native — building the RPM here bakes in Ubuntu's libcurl symbol node
+  # runs dpkg-shlibdeps, which bakes in the LIBRARY PACKAGE NAMES of the Ubuntu
+  # it runs on. ubuntu-latest (24.04) produces the t64-transition names
+  # (libcurl4t64, libpng16-16t64, libssl3t64, libqt6core6t64/gui6t64/widgets6t64,
+  # libsdl2-2.0-0); Ubuntu 26.04 renamed/bumped several of them, so a single
+  # 24.04-built deb is UNINSTALLABLE on 26. Fix: build one deb PER supported LTS
+  # in its own PINNED container (mirrors the `rpm` job's fedora:44 container),
+  # rename each with its Ubuntu release, and ship both. The RPM is built in a
+  # separate Fedora-container job (see `rpm` below) so ITS deps are Fedora-native
+  # — building the RPM on Ubuntu bakes in Ubuntu's libcurl symbol node
   # (libcurl.so.4(CURL_OPENSSL_4)) which Fedora does not provide. The TGZ tarball
   # was dropped (deb+rpm cover Linux; user decision).
-  linux:
+  deb:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rel: ["24.04", "26.04"]
+    container: ubuntu:${{ matrix.rel }}
     steps:
+      # Install deps FIRST (git is needed for actions/checkout's submodule
+      # fetch; dpkg-dev+file are needed by dpkg-shlibdeps inside a bare
+      # container — the ubuntu-latest runner had them preinstalled).
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            cmake ninja-build g++ git file dpkg-dev \
+            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
+            qt6-base-dev
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake ninja-build g++ \
-            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
-            qt6-base-dev
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
       - name: Build
@@ -92,11 +108,20 @@ jobs:
       - name: Package (DEB)
         working-directory: build
         run: cpack -G DEB
+      # CPack emits jnext_<ver>_amd64.deb; tag it with the Ubuntu release so the
+      # two matrix legs' artifacts don't collide (version derived, not hardcoded).
+      - name: Rename deb per Ubuntu release
+        working-directory: build
+        run: |
+          src=$(ls -1 jnext_*_amd64.deb | head -1)
+          dst="${src%_amd64.deb}_ubuntu${{ matrix.rel }}_amd64.deb"
+          mv "$src" "$dst"
+          echo "Renamed $src -> $dst"
       - uses: actions/upload-artifact@v4
         with:
-          name: jnext-linux-deb
+          name: jnext-deb-${{ matrix.rel }}
           path: |
-            build/*.deb
+            build/jnext_*_ubuntu*_amd64.deb
 
   # ---- Linux RPM: CPack RPM in a Fedora container (Fedora-native deps) -----
   # Mirrors the `windows` job's pattern: ubuntu-latest runner + fedora:44
@@ -261,7 +286,7 @@ jobs:
   # Only for listed tags (publish==true). Waits for the build jobs; macOS is
   # continue-on-error so a macOS failure still lets a Linux+Windows release out.
   publish:
-    needs: [gate, linux, rpm, src, windows, flatpak, macos]
+    needs: [gate, deb, rpm, src, windows, flatpak, macos]
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:

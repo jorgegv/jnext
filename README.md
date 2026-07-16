@@ -83,7 +83,8 @@ for your system from the
 | System                   | Install                                                    |
 |--------------------------|------------------------------------------------------------|
 | **Fedora / RHEL**        | `sudo dnf install ./jnext-*.x86_64.rpm`                    |
-| **Debian / Ubuntu**      | `sudo apt install ./jnext_*_amd64.deb`                     |
+| **Ubuntu 24.04 / 22.04** | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb`        |
+| **Ubuntu 26.04+ / Debian** | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`      |
 | **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak`         |
 | **Windows (x64)**        | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe` |
 
