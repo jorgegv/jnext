@@ -77,17 +77,19 @@ fi
 # --- package-win (MinGW cross-build ZIP) -------------------------------------
 if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT6" ]; then
     if make package-win >"$LOGDIR/win.log" 2>&1; then
-        z=$(ls -1 build-win/*.zip 2>/dev/null | head -1)
-        # The ZIP must contain the exe AND its bundled runtime — the Qt6 core DLL
-        # and, critically, the platforms/qwindows.dll plugin (no GUI without it).
+        z=$(ls -1 build/gui-release-win/*.zip 2>/dev/null | head -1)
+        # The ZIP must contain the exe AND its bundled runtime — the Qt6 core DLL,
+        # the platforms/qwindows.dll plugin (no GUI without it), and SDL3.dll (the
+        # sdl2-compat SDL2.dll runtime-loads it; missing it → "Failed loading SDL3").
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             if printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt6Core.dll" \
-               && printf '%s' "$list" | grep -q "platforms/qwindows.dll"; then
-                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL2 DLLs + qwindows plugin)"
+               && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
+               && printf '%s' "$list" | grep -qi "SDL3.dll"; then
+                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL2/SDL3 DLLs + qwindows plugin)"
             else
-                bad package-win ".zip missing bundled DLLs or qwindows plugin (see $LOGDIR/win.log)"
+                bad package-win ".zip missing bundled DLLs, qwindows plugin, or SDL3.dll (see $LOGDIR/win.log)"
             fi
         else
             bad package-win "no .zip produced (see $LOGDIR/win.log)"

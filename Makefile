@@ -334,7 +334,7 @@ bump: bump-minor
 
 PKG_BUILD_RPM := build/package-rpm
 PKG_BUILD_DEB := build/package-deb
-PKG_BUILD_WIN := build-win
+PKG_BUILD_WIN := build/gui-release-win
 
 # Build a source tarball (vendors submodule content, unlike a plain git archive)
 package-src:
