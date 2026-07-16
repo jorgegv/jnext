@@ -180,6 +180,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(jnext PRIVATE -Wl,-z,noexecstack)
 endif()
 
+# Windows main-thread stack reserve. MinGW defaults to 2 MB; jnext is built
+# assuming the generous stack Linux gives by default (8 MB), and an early
+# large-frame code path overflows the 2 MB reserve on startup (observed as an
+# immediate stack-overflow under wine/Windows, in __chkstk before main runs).
+# Reserve 16 MB to match Linux's headroom. Harmless on real Windows — the
+# reserve is address space only; pages commit lazily.
+if(WIN32)
+    target_link_options(jnext PRIVATE -Wl,--stack,16777216)
+endif()
+
 if(ENABLE_QT_UI)
     target_link_libraries(jnext PRIVATE jnext_gui)
     target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
