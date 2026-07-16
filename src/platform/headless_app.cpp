@@ -103,9 +103,13 @@ void HeadlessApp::print_benchmark_result(double wall_seconds) {
 
     // Host core the run ended on + its scaling_max_freq (kHz). Different
     // core classes on hybrid CPUs differ ~40%, so numbers are only
-    // comparable when this field matches.
-    const int core = sched_getcpu();
-    long khz = 0;
+    // comparable when this field matches. Both sched_getcpu() and the
+    // /sys cpufreq node are Linux-only; on other platforms (Windows/MinGW)
+    // these fields are simply reported as -1 / 0.
+    int  core = -1;
+    long khz  = 0;
+#if defined(__linux__)
+    core = sched_getcpu();
     if (core >= 0) {
         char path[128];
         std::snprintf(path, sizeof(path),
@@ -113,6 +117,7 @@ void HeadlessApp::print_benchmark_result(double wall_seconds) {
         std::ifstream f(path);
         if (f) f >> khz;
     }
+#endif
 
     std::printf("BENCH workload=%s frames=%d wall=%.3f fps=%.1f "
                 "tstates_per_sec=%.0f tstates_per_frame=%llu cpu=%s core=%d@%ldkHz build=%s\n",

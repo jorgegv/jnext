@@ -48,20 +48,25 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 (each configures its own git-ignored build dir, so they don't disturb
 `build/`):
 
-| Target             | Produces                          | Tooling needed                                  | Verified on the Linux dev host? |
-|--------------------|-----------------------------------|-------------------------------------------------|---------------------------------|
-| `make package-src` | source tarball (`build/dist/v<ver>.tar.gz`) — vendors submodule content | git                                             | Yes                             |
-| `make package-rpm` | `.rpm` (via CPack, in `build/package-rpm/`) | `cpack` + `rpmbuild`                             | Yes                             |
-| `make package-deb` | `.deb` (via CPack, in `build/package-deb/`) | `cpack` + `dpkg`                                 | Yes (deps weak off-Debian, see above) |
-| `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder`                               | **No** — flatpak-builder not installed; the target checks for it and prints an install hint |
-| `make package-win` | Windows `.zip` (via CPack, in `build-win/`) | Fedora MinGW cross toolchain (see below)        | **No** — MinGW runtime packages not installed; the target checks for them and lists what to install |
-| `make package-macos` | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
+| Target                 | Produces                          | Tooling needed                                  | Verified on the Linux dev host? |
+|------------------------|-----------------------------------|-------------------------------------------------|---------------------------------|
+| `make package-src`     | source tarball (`build/dist/v<ver>.tar.gz`) — vendors submodule content | git                     | Yes                             |
+| `make package-rpm`     | `.rpm` (via CPack, in `build/package-rpm/`), named `jnext-<ver>-<rel>.<arch>.rpm` | `cpack` + `rpmbuild` | Yes                     |
+| `make package-deb`     | `.deb` (via CPack, in `build/package-deb/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
+| `make gui-release-win` | Windows `jnext.exe` only (no packaging), in `build-win/` | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make package-win`     | Windows `.zip` (via CPack, in `build-win/`) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.8`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
+| `make package-macos`   | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
-The three Linux-native targets were run end-to-end and each produced its
-artifact. The other three cannot be produced on this Linux dev host: each
-target detects the missing tooling/platform and exits with a clear message
-(what to install, or that a Mac/CI runner is required) instead of a cryptic
-mid-build failure.
+`make package-test` (`test/packaging/packaging-test.sh`) runs every package
+target above except macOS and asserts each produces a correctly-named artifact
+containing the `jnext` binary. It is **tooling-guarded**: a package whose build
+tool is absent SKIPs rather than FAILs, so the same test runs meaningfully on
+any dev box. On this host src/rpm/deb/win PASS and flatpak SKIPs (manifest
+validated; the full `flatpak-builder` run needs `org.kde.Sdk`). Every target
+that cannot run detects the missing tooling/platform and exits with a clear
+message (what to install, or that a Mac/CI runner is required) instead of a
+cryptic mid-build failure.
 
 ### Windows cross-build (Fedora MinGW)
 
@@ -78,10 +83,16 @@ sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
 
 `mingw64-filesystem` supplies `mingw64-cmake`; the native `qt6-qtbase-devel`
 supplies the host `moc`/`rcc`/`uic` used during the cross-build;
-`mingw64-qt6-qttools` is optional. **DLL bundling is a known follow-up:** the
-ZIP does not yet copy the Qt6/SDL2 runtime DLLs from
-`/usr/x86_64-w64-mingw32/sys-root/mingw/bin`, so the produced `jnext.exe`
-would need those alongside it to run.
+`mingw64-qt6-qttools` is optional.
+
+The cross-build produces a **console-subsystem** `jnext.exe` (so `--headless`/
+`--version` stdout works). Making it link required a few portability fixes:
+`src/core/anon_mem.h` (VirtualAlloc vs `mmap` for the rewind/profiler buffers),
+gating Linux-only `sched_getcpu`, `std::filesystem` instead of POSIX `mkdir`,
+and linking `Qt6::EntryPointPrivate` on Windows to supply the `WinMain`→`main`
+bridge. **DLL bundling is a known follow-up:** the ZIP does not yet copy the
+Qt6/SDL2 runtime DLLs from `/usr/x86_64-w64-mingw32/sys-root/mingw/bin`, so the
+produced `jnext.exe` needs those alongside it to run.
 
 ## Runtime dependencies — how they were derived
 
@@ -171,16 +182,21 @@ CMakeLists.txt's existing `git submodule update --init --recursive` logic,
 same submodule gotcha as the RPM case above — a `git` flatpak source has a
 real `.git`, an `archive`/tarball source would not).
 
-`flatpak-builder` is **not installed on this dev host** — this manifest was
-authored and YAML-validated (`python3 -c "import yaml; yaml.safe_load(...)"`)
-but not build-tested. Before using it for a real release: fill in the
-placeholder `sha256` for the pinned SDL2 tarball, and confirm the
-`runtime-version` against whatever KDE runtime branch is current on
-Flathub.
+The manifest carries the **real** SDL2 tarball `sha256` and pins
+`runtime-version: '6.8'` (the KDE runtime branch installed here). It validates
+with `flatpak-builder --show-manifest`. A full `flatpak-builder` run additionally
+needs `org.kde.Sdk//6.8` installed (a large runtime) and the `flathub` remote
+enabled — neither is set up on this dev host, so `make package-flatpak` /
+`make package-test` validate the manifest and SKIP the actual build here. To
+build it for real:
 
 ```sh
+flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8
 flatpak-builder --user --install build-dir packaging/flatpak/io.github.zxjogv.jnext.yml
 ```
+
+Bump both the SDL2 pin (URL + `sha256`) and the `runtime-version` when a newer
+SDL2 release or KDE runtime branch is targeted.
 
 ## Windows / macOS
 

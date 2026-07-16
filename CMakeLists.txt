@@ -134,6 +134,18 @@ endif()
 
 add_executable(jnext src/main.cpp)
 
+# GCC emits a spurious -Wstringop-overflow inside the vendored fmt bundled in
+# spdlog (fmt/bundled/format.h write2digits(): "writing 2 bytes into a region
+# of size 0"). It is a known GCC/fmt false positive in third-party code we
+# don't own. Because Release builds enable LTO/IPO (Task 27 B1), it surfaces at
+# the LTO *link* step — not a per-TU compile — so it must be silenced on both
+# the compile and link of the jnext target (GCC only). Our own code keeps the
+# warning; only this third-party false positive is suppressed.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(jnext PRIVATE -Wno-stringop-overflow)
+    target_link_options(jnext PRIVATE -Wno-stringop-overflow)
+endif()
+
 # SDL2 linking: prefer SDL2-static when building statically.
 if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
     set(SDL2_LINK_TARGET SDL2::SDL2-static)
@@ -161,6 +173,15 @@ endif()
 if(ENABLE_QT_UI)
     target_link_libraries(jnext PRIVATE jnext_gui)
     target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
+    # On Windows (MinGW cross-build) the Qt6 CRT startup calls WinMain() rather
+    # than main(); Qt6::EntryPointPrivate supplies the WinMain -> main() bridge.
+    # Without it the link fails with "undefined reference to WinMain". The
+    # resulting jnext.exe is a console-subsystem binary, so --headless/--version
+    # stdout/stderr work. Windows-only (a no-op on the Linux build).
+    if(WIN32)
+        find_package(Qt6 REQUIRED COMPONENTS Core)   # provides the entry point
+        target_link_libraries(jnext PRIVATE Qt6::EntryPointPrivate)
+    endif()
 endif()
 
 if(ENABLE_DEBUGGER)
@@ -212,9 +233,15 @@ set(CPACK_GENERATOR "TGZ")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ZXjogv <zx@jogv.es>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "games")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# Name the .deb the Debian way: <name>_<version>-<release>_<arch>.deb
+# (DEB-DEFAULT), instead of CPack's default "jnext-<version>-Linux.deb".
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
 
 set(CPACK_RPM_PACKAGE_LICENSE "GPLv3")
 set(CPACK_RPM_PACKAGE_GROUP "Amusements/Emulators")
 set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+# Name the .rpm the RPM way: <name>-<version>-<release>.<arch>.rpm
+# (RPM-DEFAULT), instead of CPack's default "jnext-<version>-Linux.rpm".
+set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
 
 include(CPack)
