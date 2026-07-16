@@ -459,20 +459,26 @@ static void g_host_hotkey()
         emu.nmi_source().set_mf_enable(true);          // dirty observable
         const bool     mf_pre  = emu.nmi_source().mf_enable();
         const uint16_t pc_pre  = emu.cpu().get_registers().PC;
-        emu.on_hotkey_f1_hard_reset();                 // dispatcher seam
+        emu.on_hotkey_f1_hard_reset();                 // dispatcher seam -> request
+        const bool     requested = emu.take_hard_reset_request();
+        // Since Task 70 the hard reset is a HOST cold boot (reconstruct +
+        // init). A stack-local Emulator can't be reconstructed here, so drive
+        // its reinit path (emu.reset() — the same init() the cold boot runs)
+        // to observe the power-on effects the cold boot produces.
+        emu.reset();
         const bool     mf_post = emu.nmi_source().mf_enable();
         const uint16_t pc_post = emu.cpu().get_registers().PC;
         const auto     fsm     = emu.nmi_source().state();
 
         check("HK-09-INT",
-              "F1 dispatcher → full Emulator::reset() → CPU PC=0x0000, "
-              "NmiSource mf_enable cleared, FSM idle (no config_mode gate) "
-              "(VHDL zxnext.vhd:6371, :1109-1110, :2120)",
-              mf_pre && !mf_post && pc_pre == 0xC000 && pc_post == 0x0000
+              "F1 dispatcher requests a host cold boot (deferred); its reinit "
+              "path → CPU PC=0x0000, NmiSource mf_enable cleared, FSM idle "
+              "(no config_mode gate) [Task 70; VHDL zxnext.vhd:6371, :1109-1110, :2120]",
+              requested && mf_pre && !mf_post && pc_pre == 0xC000 && pc_post == 0x0000
                      && fsm == NmiSource::State::Idle,
-              fmt("mf_pre=%d mf_post=%d pc_pre=0x%04x pc_post=0x%04x "
+              fmt("requested=%d mf_pre=%d mf_post=%d pc_pre=0x%04x pc_post=0x%04x "
                   "fsm_idle=%d",
-                  mf_pre, mf_post, pc_pre, pc_post,
+                  requested, mf_pre, mf_post, pc_pre, pc_post,
                   fsm == NmiSource::State::Idle));
     }
 }
