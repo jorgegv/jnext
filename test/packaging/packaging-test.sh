@@ -46,13 +46,28 @@ else
     bad add-release "contract test failed (see $LOGDIR/addrel.log)"
 fi
 
-# --- package-src (source tarball) --------------------------------------------
+# --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)
     if [ -n "$tb" ] && [ -s "$tb" ] && tar tzf "$tb" 2>/dev/null | grep -q "/CMakeLists.txt$"; then
         ok package-src "$(basename "$tb")"
     else
         bad package-src "no tarball, empty, or missing CMakeLists.txt (see $LOGDIR/src.log)"
+    fi
+    # The release source zip: jnext-<ver>-src.zip must exist, be a valid zip,
+    # contain the top-level CMakeLists.txt AND the vendored submodule content
+    # (third_party/spdlog/CMakeLists.txt) a naive `git archive` would drop.
+    z=$(ls -1 build/dist/jnext-*-src.zip 2>/dev/null | head -1)
+    if [ -n "$z" ] && [ -s "$z" ]; then
+        zl=$(unzip -l "$z" 2>/dev/null)
+        if printf '%s' "$zl" | grep -q "/CMakeLists.txt$" \
+           && printf '%s' "$zl" | grep -q "third_party/spdlog/CMakeLists.txt$"; then
+            ok package-src-zip "$(basename "$z")"
+        else
+            bad package-src-zip "zip missing CMakeLists.txt or vendored submodule content (see $LOGDIR/src.log)"
+        fi
+    else
+        bad package-src-zip "no jnext-<ver>-src.zip produced (see $LOGDIR/src.log)"
     fi
 else
     bad package-src "make package-src failed (see $LOGDIR/src.log)"

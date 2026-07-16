@@ -11,7 +11,10 @@ name: Release
 #
 # Build paths mirror the project's own Makefile / CPack so CI builds the SAME
 # artifact a developer builds locally:
-#   * linux   → CPack TGZ/DEB/RPM (verified on the Fedora dev host)
+#   * linux   → CPack DEB on Ubuntu (Debian-native deps)
+#   * rpm     → CPack RPM in a fedora:44 container (Fedora-native deps — building
+#               the RPM on Ubuntu bakes in an incompatible libcurl symbol node)
+#   * src     → `make package-src` → jnext-<ver>-src.zip (submodule-aware)
 #   * windows → `make package-win` (MinGW cross-build + DLL bundling) in a
 #               fedora:44 container — the one Windows build path (proven in a
 #               fedora:44 container, exe runs under wine)
@@ -60,7 +63,13 @@ jobs:
             echo "::notice::${tag} is not in releases.yaml — private tag, nothing built"
           fi
 
-  # ---- Linux: CPack TGZ/DEB/RPM ------------------------------------------
+  # ---- Linux DEB: CPack DEB on Ubuntu (Debian-native deps) ----------------
+  # DEB only. The .deb's dependency autodetection (CPACK_DEBIAN_PACKAGE_SHLIBDEPS)
+  # must run on Debian/Ubuntu so the baked-in deps are Debian-native. The RPM is
+  # built in a separate Fedora-container job (see `rpm` below) so ITS deps are
+  # Fedora-native — building the RPM here bakes in Ubuntu's libcurl symbol node
+  # (libcurl.so.4(CURL_OPENSSL_4)) which Fedora does not provide. The TGZ tarball
+  # was dropped (deb+rpm cover Linux; user decision).
   linux:
     needs: gate
     if: needs.gate.outputs.build == 'true'
@@ -75,22 +84,79 @@ jobs:
           sudo apt-get install -y \
             cmake ninja-build g++ \
             libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
-            qt6-base-dev \
-            rpm
+            qt6-base-dev
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
       - name: Build
         run: cmake --build build -j"$(nproc)"
-      - name: Package (TGZ, DEB, RPM)
+      - name: Package (DEB)
         working-directory: build
-        run: cpack -G "TGZ;DEB;RPM"
+        run: cpack -G DEB
       - uses: actions/upload-artifact@v4
         with:
-          name: jnext-linux-packages
+          name: jnext-linux-deb
           path: |
-            build/*.tar.gz
             build/*.deb
+
+  # ---- Linux RPM: CPack RPM in a Fedora container (Fedora-native deps) -----
+  # Mirrors the `windows` job's pattern: ubuntu-latest runner + fedora:44
+  # container. Building the RPM on genuine Fedora makes CPack's RPM
+  # auto-dependency generator resolve Fedora-native provides — the .rpm requires
+  # `libcurl.so.4()(64bit)` (which Fedora provides) instead of the Ubuntu-baked
+  # `libcurl.so.4(CURL_OPENSSL_4)(64bit)` (which Fedora does NOT provide, so
+  # `dnf install` failed with "nothing provides ..."). PROVEN root cause.
+  rpm:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y \
+            cmake ninja-build gcc-c++ git \
+            SDL2-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
+            qt6-qtbase-devel rpm-build
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+      - name: Package (RPM)
+        working-directory: build
+        run: cpack -G RPM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-linux-rpm
+          path: |
             build/*.rpm
+
+  # ---- Source: submodule-aware jnext-<ver>-src.zip ------------------------
+  # `make package-src` runs packaging/make-dist-tarball.sh, which vendors the
+  # git-submodule content (a naive `git archive` drops it) and emits the
+  # jnext-<ver>-src.zip that `publish` attaches. The version comes from
+  # version.yaml (single source of truth).
+  src:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make git zip
+      - name: Build source zip
+        run: make package-src
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-source-zip
+          path: |
+            build/dist/jnext-*-src.zip
 
   # ---- Windows: make package-win in a Fedora container --------------------
   # The SAME path as a local `make package-win` — a MinGW cross-build in a
@@ -188,7 +254,7 @@ jobs:
   # Only for listed tags (publish==true). Waits for the build jobs; macOS is
   # continue-on-error so a macOS failure still lets a Linux+Windows release out.
   publish:
-    needs: [gate, linux, windows, flatpak, macos]
+    needs: [gate, linux, rpm, src, windows, flatpak, macos]
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:

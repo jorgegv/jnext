@@ -355,7 +355,7 @@ PKG_BUILD_RPM := build/package-rpm
 PKG_BUILD_DEB := build/package-deb
 PKG_BUILD_WIN := build/gui-release-win
 
-# Build a source tarball (vendors submodule content, unlike a plain git archive)
+# Build source packages: v<ver>.tar.gz (rpm/deb source) + jnext-<ver>-src.zip (release); vendors submodules
 package-src:
 	@mkdir -p build/dist
 	bash packaging/make-dist-tarball.sh build/dist
