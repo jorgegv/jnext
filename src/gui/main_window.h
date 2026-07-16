@@ -72,6 +72,12 @@ public:
     using SpeedCallback = std::function<void(double)>;
     void set_speed_callback(SpeedCallback cb) { speed_callback_ = std::move(cb); }
 
+    // Task 70 — file load from the menu triggers a full cold boot (as if the
+    // file had been passed with --load at startup). The frontend (QtApp)
+    // supplies this; MainWindow does not touch the emulator directly for loads.
+    using LoadFileCallback = std::function<void(const std::string&)>;
+    void set_load_file_callback(LoadFileCallback cb) { load_file_callback_ = std::move(cb); }
+
     /// Update status bar information.  Called once per second from the frame timer.
     void update_status(double fps, int cpu_speed_idx, double emu_speed = 1.0);
 
@@ -151,8 +157,9 @@ private:
 
     EmulatorWidget* emulator_widget_ = nullptr;
     Emulator*       emulator_        = nullptr;
-    KeyCallback     key_callback_;
-    SpeedCallback   speed_callback_;
+    KeyCallback      key_callback_;
+    SpeedCallback    speed_callback_;
+    LoadFileCallback load_file_callback_;
 
     // Kempston-mouse host adapter (G43). Mirrors SdlApp's wiring pattern;
     // owned here because MainWindow is the GUI's host event source. Created

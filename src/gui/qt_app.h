@@ -77,6 +77,12 @@ public:
     /// preferences after init(). Valid only after a successful init().
     MainWindow* main_window() { return main_window_; }
 
+    /// Task 70 — power-on cold boot: reconstruct the emulator in place and
+    /// re-run the proven startup init() path. `load_file` empty = clean
+    /// NextZXOS boot (Reset button / F1 / a program's NR 0x02 hard reset);
+    /// non-empty = boot as if launched with --load <file> (menu file load).
+    void cold_boot(const std::string& load_file = std::string());
+
 private:
     void on_frame_tick();
     void on_status_tick();

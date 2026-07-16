@@ -11,6 +11,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <new>
 #include <QApplication>
 #include <QTimer>
 #include <SDL2/SDL.h>
@@ -127,6 +128,12 @@ bool QtApp::init(int argc, char* argv[]) {
         set_speed_multiplier(multiplier);
     });
 
+    // Task 70 — route menu file-loads through a full cold boot (reconstruct +
+    // init as if launched with --load <file>).
+    main_window_->set_load_file_callback([this](const std::string& file) {
+        cold_boot(file);
+    });
+
     main_window_->show();
 
     // Re-apply scale after the window is mapped so devicePixelRatio is correct.
@@ -206,7 +213,63 @@ void QtApp::shutdown() {
     qapp_ = nullptr;
 }
 
+void QtApp::cold_boot(const std::string& load_file) {
+    Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
+                          load_file.empty() ? "(none)" : load_file.c_str());
+
+    // Reconstruct the emulator in place. This restores every power-on default
+    // (config_mode, NextReg, MMU slots, ...) so the machine is byte-identical
+    // to a fresh startup — the whole point of Task 70. Placement-new keeps
+    // &emulator_ stable, so main_window_'s pointer, the debugger, and the
+    // mouse dispatcher (all bound to the stable address / its sub-objects)
+    // stay valid; only the emulator-side callback needs re-binding below.
+    emulator_.~Emulator();
+    new (&emulator_) Emulator();
+
+    EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
+    cfg.load_file = load_file;   // empty => clean NextZXOS boot
+    if (!emulator_.init(cfg)) {
+        Log::platform()->error("Cold boot: emulator init failed");
+        return;
+    }
+
+    // Re-run the post-init wiring init() does at startup: re-binds the
+    // emulator-side on_input_state_restored callback and the mouse dispatcher.
+    if (main_window_) main_window_->set_emulator(&emulator_);
+
+    // Drop any stale pending work, then schedule the load exactly as the CLI
+    // startup does (same per-format delay) so a menu load == launching with
+    // --load <file>.
+    inject_countdown_ = -1;
+    load_countdown_   = -1;
+    if (!load_file.empty()) {
+        std::string ext;
+        auto dot = load_file.rfind('.');
+        if (dot != std::string::npos) {
+            ext = load_file.substr(dot);
+            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        const int delay = (ext == ".tzx" || ext == ".wav") ? 100 : 0;
+        set_pending_load(load_file, delay);
+    }
+
+    // Re-align the frame timer to the (possibly changed) refresh rate.
+    if (frame_timer_) {
+        frame_timer_->setInterval(std::max(1, static_cast<int>(
+            std::lround(emulator_.frame_period_ms() / speed_multiplier_))));
+    }
+}
+
 void QtApp::on_frame_tick() {
+    // Task 70 — a hard reset (Reset button / F1 / a program's NR 0x02 bit 1)
+    // is a power-on cold boot and cannot run inside run_frame(); it is
+    // performed here between frames. cold_boot() reconstructs the emulator, so
+    // return immediately and let the next tick run the fresh machine.
+    if (emulator_.take_hard_reset_request()) {
+        cold_boot();
+        return;
+    }
+
     // Issue #9 — keep the frame timer aligned with the emulated video refresh
     // (50 Hz ≈ 20.26 ms, 60 Hz ≈ 17.20 ms) and the speed multiplier. When a demo
     // switches to 60 Hz (NR 0x05 bit 2) it then runs at 60 fps instead of the old

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <new>
 #include <sched.h>
 
 // Build type baked in by src/platform/CMakeLists.txt (Task 27 T1) so the
@@ -314,11 +315,37 @@ void HeadlessApp::run() {
     if (benchmark_frames_ > 0)
         bench_start = bench_clock::now();
 
+    // Task 70 — power-on cold boot: reconstruct the emulator in place and
+    // re-run the proven startup init() path. Placement-new keeps &emulator_
+    // stable (no external holders in headless). Empty load_file => clean
+    // NextZXOS boot; non-empty => boot as if launched with --load <file>.
+    auto cold_boot = [this](const std::string& load_file) {
+        Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
+                              load_file.empty() ? "(none)" : load_file.c_str());
+        EmulatorConfig cfg = config_;
+        cfg.load_file = load_file;
+        emulator_.~Emulator();
+        new (&emulator_) Emulator();
+        emulator_.init(cfg);
+        inject_countdown_ = -1;
+        load_countdown_   = -1;
+        if (!load_file.empty()) {
+            std::string ext;
+            auto dot = load_file.rfind('.');
+            if (dot != std::string::npos) {
+                ext = load_file.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            load_file_      = load_file;
+            load_countdown_ = (ext == ".tzx" || ext == ".wav") ? 100 : 0;
+        }
+    };
+
     while (running_) {
-        // TEMPORARY (Task 70 reproduction, remove before merge): env-gated
-        // post-boot reset/load so the reset-after-boot crash is reproducible
-        // headlessly. JNEXT_DELAYED_RESET_FRAMES=N with JNEXT_DELAYED_RESET_TYPE
-        // = hard (default) | soft | loadnex:/path/to.nex
+        // Headless reset facility (env-gated, zero cost when unset): --headless
+        // has no Reset button, so this exercises the Task 70 cold-boot paths for
+        // tests. JNEXT_DELAYED_RESET_FRAMES=N, JNEXT_DELAYED_RESET_TYPE =
+        // hard (default) | soft | loadnex:/path.nex
         static int t70_countdown = []() {
             const char* e = std::getenv("JNEXT_DELAYED_RESET_FRAMES");
             return e ? std::atoi(e) : -1;
@@ -326,9 +353,9 @@ void HeadlessApp::run() {
         if (t70_countdown == 0) {
             const char* ty = std::getenv("JNEXT_DELAYED_RESET_TYPE");
             std::string t = ty ? ty : "hard";
-            if (t == "soft") { Log::platform()->warn("T70: soft_reset()"); emulator_.soft_reset(); }
-            else if (t.rfind("loadnex:", 0) == 0) { Log::platform()->warn("T70: load_nex({})", t.substr(8)); emulator_.load_nex(t.substr(8)); }
-            else { Log::platform()->warn("T70: reset()"); emulator_.reset(); }
+            if (t == "soft") emulator_.soft_reset();
+            else if (t.rfind("loadnex:", 0) == 0) cold_boot(t.substr(8));
+            else emulator_.request_hard_reset();  // flag -> polled after run_frame
             t70_countdown = -1;
         } else if (t70_countdown > 0) { --t70_countdown; }
 
@@ -405,6 +432,14 @@ void HeadlessApp::run() {
             emulator_.renderer().set_layer_mask(screenshot_layers_);
 
         emulator_.run_frame();
+
+        // Task 70 — a program's NR 0x02 hard reset (set during run_frame) is a
+        // power-on cold boot done here between frames. cold_boot() reconstructs
+        // the emulator, so continue to the next iteration with the fresh machine.
+        if (emulator_.take_hard_reset_request()) {
+            cold_boot(std::string());
+            continue;
+        }
 
         // --benchmark: stop after exactly N frames and report.
         if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {
