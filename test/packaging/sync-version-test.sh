@@ -13,6 +13,8 @@
 #      a half-synced file
 #   6. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
 #      `&&`, so a sync failure aborts the bump (never commits a broken state)
+#   7. the flatpak manifest (local-source, no version tag) is left untouched —
+#      the script neither requires a `tag:` nor rewrites the manifest
 #
 set -u
 
@@ -29,15 +31,15 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Build a fake root that mirrors the layout sync-version.sh expects
 # ($root = dirname(script)/.. , then $root/packaging/...).
-mkdir -p "$tmp/packaging/rpm" "$tmp/packaging/flatpak" "$tmp/packaging/assets" "$tmp/packaging/debian"
+# The flatpak manifest is intentionally NOT copied: it builds from the local
+# checkout and carries no version tag, so sync-version.sh must not touch it.
+mkdir -p "$tmp/packaging/rpm" "$tmp/packaging/assets" "$tmp/packaging/debian"
 cp "$repo/packaging/sync-version.sh"                          "$tmp/packaging/"
 cp "$repo/packaging/rpm/jnext.spec"                           "$tmp/packaging/rpm/"
-cp "$repo/packaging/flatpak/io.github.zxjogv.jnext.yml"       "$tmp/packaging/flatpak/"
 cp "$repo/packaging/assets/io.github.zxjogv.jnext.metainfo.xml" "$tmp/packaging/assets/"
 cp "$repo/packaging/debian/changelog"                        "$tmp/packaging/debian/"
 
 spec="$tmp/packaging/rpm/jnext.spec"
-flatpak="$tmp/packaging/flatpak/io.github.zxjogv.jnext.yml"
 metainfo="$tmp/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
 deb="$tmp/packaging/debian/changelog"
 sync="$tmp/packaging/sync-version.sh"
@@ -48,10 +50,9 @@ printf "${BOLD}=== sync-version.sh contract tests ===${RESET}\n\n"
 bash "$sync" 9.9.9 >/dev/null 2>&1
 if grep -qE '^Version:[[:space:]]*9\.9\.9$' "$spec" \
    && grep -qE '^\* .* - 9\.9\.9-1$'        "$spec" \
-   && grep -qE 'tag:[[:space:]]*v9\.9\.9'   "$flatpak" \
    && grep -qE '<release version="9\.9\.9"' "$metainfo" \
    && head -n1 "$deb" | grep -qE '^jnext \(9\.9\.9-1\)'; then
-    ok "run aligns spec/flatpak/metainfo/debian to the new version"
+    ok "run aligns spec/metainfo/debian to the new version"
 else
     bad "a field was not updated to 9.9.9"
 fi
@@ -65,9 +66,9 @@ else
 fi
 
 # 3 — idempotency
-before=$(cat "$spec" "$flatpak" "$metainfo" "$deb")
+before=$(cat "$spec" "$metainfo" "$deb")
 bash "$sync" 9.9.9 >/dev/null 2>&1
-after=$(cat "$spec" "$flatpak" "$metainfo" "$deb")
+after=$(cat "$spec" "$metainfo" "$deb")
 if [ "$before" = "$after" ]; then
     ok "second run with the same version is a no-op (idempotent)"
 else
@@ -84,6 +85,21 @@ if grep -qE '^Version:[[:space:]]*9\.9\.10$' "$spec" \
     ok "new version prepends its entry and keeps the previous one"
 else
     bad "new version did not preserve prior history"
+fi
+
+# 7 — the real flatpak manifest carries no version tag and must be left alone:
+# the script must SUCCEED with it present and leave it byte-identical (no tag
+# requirement, no rewrite). Discriminative: re-adding a `tag:` require-check or
+# a sed rewrite would flip this to FAIL.
+mkdir -p "$tmp/packaging/flatpak"
+realmanifest="$repo/packaging/flatpak/io.github.zxjogv.jnext.yml"
+cp "$realmanifest" "$tmp/packaging/flatpak/"
+fpk="$tmp/packaging/flatpak/io.github.zxjogv.jnext.yml"
+fpk_before=$(cat "$fpk")
+if bash "$sync" 9.9.12 >/dev/null 2>&1 && [ "$fpk_before" = "$(cat "$fpk")" ]; then
+    ok "tag-less flatpak manifest untouched (no tag requirement, no rewrite)"
+else
+    bad "script failed with the local-source flatpak manifest, or rewrote it"
 fi
 
 # 5 — fail loud on a missing anchor (remove %changelog from the spec)

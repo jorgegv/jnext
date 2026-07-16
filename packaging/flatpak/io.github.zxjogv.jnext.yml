@@ -41,14 +41,21 @@ modules:
       - -DENABLE_QT_UI=ON
       - -DENABLE_TESTS=OFF
     sources:
+      # Build from the LOCAL checkout, not a pushed remote tag. This project
+      # bumps the version locally and pushes tags in batches, so the current
+      # tag is frequently NOT yet on origin; a `type: git` + remote `tag:`
+      # source therefore breaks `make package-flatpak` locally with
+      # "unknown revision". `path` points flatpak-builder at this repo's
+      # working tree (relative to the manifest dir packaging/flatpak/ → repo
+      # root) and it clones the checked-out HEAD. Because it is still a
+      # `type: git` source, flatpak-builder also mirrors the spdlog submodule
+      # during the network-enabled source phase, so CMakeLists.txt's
+      # `git submodule update` is a no-op inside the network-less build
+      # sandbox. In CI, actions/checkout leaves the release tag checked out,
+      # so this same mechanism builds exactly that tag — equivalent provenance,
+      # no dependency on the tag having been pushed.
       - type: git
-        url: https://github.com/jorgegv/jnext.git
-        tag: v0.98.22
-        # Submodules (third_party/spdlog, third_party/zot) are pulled by
-        # CMakeLists.txt's `git submodule update --init --recursive` step
-        # when a .git directory is present, which a `type: git` flatpak
-        # source provides (unlike a plain archive tarball — see
-        # packaging/make-dist-tarball.sh for why that matters).
+        path: ../..
     # No post-install needed: CMakeLists.txt's own install() rules (Task 67)
     # already place the .desktop/metainfo/icon files under the standard
     # freedesktop paths, which cmake-ninja installs to $FLATPAK_DEST (/app)

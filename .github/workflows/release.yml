@@ -199,10 +199,13 @@ jobs:
   # at ghcr.io/flathub-infra/flatpak-github-actions (Docker Hub only has the old
   # pre-rename kde-6.7). This is the SAME manifest + runtime version as a local
   # `make package-flatpak`, mirroring how the windows job mirrors `make package-win`.
-  # The manifest's `type: git` source builds jnext from the pushed release tag, so
-  # CI fetches the same tagged source a developer's local build would. The action
-  # produces the .flatpak bundle and uploads it as an artifact, which `publish`
-  # then attaches.
+  # The manifest's `type: git` source now builds jnext from the LOCAL checkout
+  # (`path: ../..`) rather than cloning a pushed remote tag, so it no longer
+  # depends on the release tag having been pushed. actions/checkout leaves the
+  # release tag checked out (with submodules), and flatpak-builder clones that
+  # tree + mirrors the spdlog submodule — equivalent provenance to a local build.
+  # The action produces the .flatpak bundle and uploads it as an artifact, which
+  # `publish` then attaches.
   # continue-on-error until one real CI run is green: this job has never run on a
   # GitHub runner, and as a blocking dep it would otherwise stall publishing the
   # already-working linux/windows/rpm packages. `publish` attaches whatever
@@ -217,7 +220,11 @@ jobs:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
       options: --privileged
     steps:
+      # Local-source manifest (`type: git` + `path: ../..`) builds from this
+      # checkout, so the tree + submodules must be present here.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: jnext.flatpak
