@@ -56,6 +56,11 @@ modules:
       # no dependency on the tag having been pushed.
       - type: git
         path: ../..
+        # `branch: HEAD` builds whatever this checkout currently has checked
+        # out — a branch tip locally, the detached release tag in CI — so the
+        # same manifest is portable across both without a hard-coded ref (the
+        # git source otherwise defaults to `master`, which this repo lacks).
+        branch: HEAD
     # No post-install needed: CMakeLists.txt's own install() rules (Task 67)
     # already place the .desktop/metainfo/icon files under the standard
     # freedesktop paths, which cmake-ninja installs to $FLATPAK_DEST (/app)
