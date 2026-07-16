@@ -9,12 +9,12 @@
 #   2. the rpm spec's Version: and %changelog top entry stay consistent
 #   3. running twice with the same version is idempotent (no further change)
 #   4. a different version prepends new entries and preserves the old ones
-#   5. a missing anchor makes the script FAIL LOUD (non-zero) rather than write
-#      a half-synced file
-#   6. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
-#      `&&`, so a sync failure aborts the bump (never commits a broken state)
-#   7. the flatpak manifest (local-source, no version tag) is left untouched —
+#   5. the flatpak manifest (local-source, no version tag) is left untouched —
 #      the script neither requires a `tag:` nor rewrites the manifest
+#   6. a missing anchor makes the script FAIL LOUD (non-zero) rather than write
+#      a half-synced file
+#   7. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
+#      `&&`, so a sync failure aborts the bump (never commits a broken state)
 #
 set -u
 
@@ -87,7 +87,7 @@ else
     bad "new version did not preserve prior history"
 fi
 
-# 7 — the real flatpak manifest carries no version tag and must be left alone:
+# 5 — the real flatpak manifest carries no version tag and must be left alone:
 # the script must SUCCEED with it present and leave it byte-identical (no tag
 # requirement, no rewrite). Discriminative: re-adding a `tag:` require-check or
 # a sed rewrite would flip this to FAIL.
@@ -102,7 +102,7 @@ else
     bad "script failed with the local-source flatpak manifest, or rewrote it"
 fi
 
-# 5 — fail loud on a missing anchor (remove %changelog from the spec)
+# 6 — fail loud on a missing anchor (remove %changelog from the spec)
 grep -v '^%changelog$' "$spec" > "$spec.tmp" && mv "$spec.tmp" "$spec"
 verbefore=$(grep -m1 -E '^Version:' "$spec")
 if bash "$sync" 9.9.11 >/dev/null 2>&1; then
@@ -116,7 +116,7 @@ else
     fi
 fi
 
-# 6 — Makefile gates the bump commit/tag on sync-version.sh with &&
+# 7 — Makefile gates the bump commit/tag on sync-version.sh with &&
 # shellcheck disable=SC2016  # the $$newver literal is what we grep for, not a var to expand
 if grep -qE 'bash packaging/sync-version\.sh "\$\$newver" &&' "$repo/Makefile"; then
     ok "bump-* recipes chain sync-version.sh with && (abort on failure)"
