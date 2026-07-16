@@ -48,6 +48,7 @@ endif()
 # disabling LTO fixes it. The native host GCC does not miscompile, so every
 # other build (native, DEB, RPM, gui-release) keeps LTO and its full perf. The
 # option defaults ON and is flipped OFF solely in packaging/flatpak/*.yml.
+# Full analysis + bisection record: doc/FLATPAK-LTO-PROBLEMS.md.
 option(JNEXT_ENABLE_LTO "Enable LTO/IPO for Release builds (Flatpak sets OFF; see comment)" ON)
 include(CheckIPOSupported)
 check_ipo_supported(RESULT JNEXT_IPO_SUPPORTED OUTPUT JNEXT_IPO_ERROR LANGUAGES C CXX)
