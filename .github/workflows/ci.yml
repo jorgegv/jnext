@@ -15,26 +15,32 @@ name: CI
 #     smaller "still green" suite (see doc/testing/INTEGRATION-TEST-PLAN.md
 #     §5 and test/unit-tests.conf's own header comment for the incident
 #     that rule prevents).
-#   * `--sdcard` is mandatory on every jnext invocation (real hardware has
-#     no other ROM source), and test/00regression/regression.sh passes it
-#     on every single test row.
+#   * regression.sh self-provisions jnext's pristine fallback SD image
+#     (see the "[sdcard-provision]" row in every regression.sh run) —
+#     no test row passes `--sdcard` any more; every screenshot/functional
+#     test relies on jnext's own default-location lookup.
 # So EITHER `make unit-test` (via that one suite) OR `make regression`
 # fails outright without an image — there is no honest way to run "most of
 # it" and still call the job green. This workflow provisions the real
 # image rather than skip/fake the tests that need it.
 #
-# The image jnext needs (roms/nextzxos-1gb-fat32fix.img) is the FAT32-
-# patched form of cspect-next-1gb.img, the OFFICIAL public NextZXOS
-# distribution published at specnext.com (see kDistroUrl in
-# src/core/sdcard_provisioner.cpp). jnext ships its own provisioner for
-# exactly this — the same code path an end user hits via
+# The image jnext needs is the FAT32-patched form of cspect-next-1gb.img,
+# the OFFICIAL public NextZXOS distribution published at specnext.com (see
+# kDistroUrl in src/core/sdcard_provisioner.cpp). jnext ships its own
+# provisioner for exactly this — the same code path an end user hits via
 # `--sdcard-download-confirm` — so the "Provision NextZXOS SD image" step
 # below simply runs jnext itself to download + FAT32-patch that public
-# image, then points roms/ at the result. This is not a secret or
-# private asset and nothing here duplicates or bypasses the emulator's
-# own sanctioned download path. The download+patch is cached (keyed on
-# the distro URL) so the network is only actually hit once per cache
-# generation.
+# image into its default location ($HOME/.jnext/sdcard/), which both
+# `make unit-test` (via the roms/ symlink below, for sd_rom_extractor_test)
+# and `make regression` (via its own self-provisioning step, which finds
+# the image already there and does nothing) then use. This is not a secret
+# or private asset and nothing here duplicates or bypasses the emulator's
+# own sanctioned download path. The download+patch is cached (keyed on the
+# distro URL) so the network is only actually hit once per cache
+# generation. Because the image is now always the pristine distro copy
+# (never a locally-contaminated fixture), the regression suite runs EVERY
+# declared row, including `boot-nextzxos-dotls` (its SD-listing screenshot
+# reference was regenerated against this same pristine image).
 #
 # Only ONE declared unit suite (sd_rom_extractor_test, 26 of 4728 rows)
 # reads the image directly; every other suite in test/unit-tests.conf,
@@ -133,31 +139,20 @@ jobs:
       # declared functional count matches — so CI still catches a
       # silently-shrunk suite. It needs no SD image.
       #
-      # Step B runs every declared screenshot + functional row EXCEPT
-      # boot-nextzxos-dotls. That one row types `.ls` in the NextZXOS
-      # command line and screenshots a LIVE SD-card directory listing, so
-      # its checked-in reference reflects the maintainer's local
-      # roms/nextzxos-1gb-fat32fix.img — which has accumulated dev-session
-      # files (DUMP.BAS, NRDUMP.BIN, ...) — and legitimately differs from
-      # the freshly-provisioned PRISTINE distro image this job downloads
-      # (fewer files → different listing → non-zero pixel diff at the
-      # suite's 0-tolerance). welcome/menu/splash are pixel-identical
-      # against the pristine image; only the directory-listing row is
-      # content-dependent, so it is verified locally by the maintainer
-      # against the canonical fixture instead of in hosted CI.
-      #
-      # Passing positional filter args makes regression.sh treat this as a
-      # PARTIAL run and skip its declared-grand-total witness (that witness
-      # is Step A's job here). The two steps together give CI both
-      # manifest-integrity AND golden-output regression signal.
+      # Step B runs the FULL declared suite (every screenshot + functional
+      # row, no exclusions). regression.sh self-provisions the pristine SD
+      # image itself (the "[sdcard-provision]" row), finds it already
+      # present from the "Provision NextZXOS SD image" step above, and
+      # every row — including boot-nextzxos-dotls, whose SD-listing
+      # reference is now captured against this same pristine image — runs
+      # against identical, reproducible SD-card content. This also means
+      # the full grand-total witness (declared == reported) is enforced in
+      # CI exactly as it is locally; no filtering, no partial-run carve-out.
       - name: Regression preflight (manifest pins; no SD image needed)
         run: bash test/00regression/regression.sh --preflight-only
 
-      - name: Regression (all rows except SD-content-dependent boot-nextzxos-dotls)
-        run: |
-          mapfile -t SROWS < <(grep -vE '^\s*(#|$)' test/00regression/regression_tests.conf | awk '{print $1}' | grep -vx boot-nextzxos-dotls)
-          mapfile -t FROWS < <(grep -vE '^\s*(#|$)' test/00regression/functional_tests.conf | awk '{print $1}')
-          LANG=C JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh "${SROWS[@]}" "${FROWS[@]}" 2>&1 | tail -90
+      - name: Regression (full suite, pristine self-provisioned SD image)
+        run: LANG=C JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh 2>&1 | tail -100
 
       - name: Upload failure artifacts
         if: failure()
