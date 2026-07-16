@@ -1,7 +1,9 @@
 #include "sdl_app.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include <cctype>
 #include <cmath>
+#include <new>
 
 bool SdlApp::init(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -158,6 +160,42 @@ void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
+void SdlApp::cold_boot(const std::string& load_file) {
+    Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
+                          load_file.empty() ? "(none)" : load_file.c_str());
+
+    // Reconstruct the emulator in place: restores every power-on default so the
+    // machine is byte-identical to a fresh startup. Placement-new keeps
+    // &emulator_ stable; the host adapters below re-bind to the (stable-address)
+    // sub-objects and the emulator-side callback.
+    EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
+    cfg.load_file = load_file;
+    emulator_.~Emulator();
+    new (&emulator_) Emulator();
+    emulator_.init(cfg);
+
+    // Re-run the emulator-bound wiring init() does at startup.
+    mouse_dispatcher_    = std::make_unique<MouseDispatcher>(emulator_.mouse());
+    joystick_dispatcher_ = std::make_unique<JoystickDispatcher>(emulator_.joystick());
+    emulator_.on_input_state_restored = [this]() {
+        if (mouse_dispatcher_)    mouse_dispatcher_->resync();
+        if (joystick_dispatcher_) joystick_dispatcher_->resync();
+    };
+
+    // Schedule the load exactly as the CLI startup does (same per-format delay).
+    load_countdown_ = -1;
+    if (!load_file.empty()) {
+        std::string ext;
+        auto dot = load_file.rfind('.');
+        if (dot != std::string::npos) {
+            ext = load_file.substr(dot);
+            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        load_file_      = load_file;
+        load_countdown_ = (ext == ".tzx" || ext == ".wav") ? 100 : 0;
+    }
+}
+
 void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                                     uint8_t layer_mask) {
     screenshot_file_ = file;
@@ -225,6 +263,14 @@ void SdlApp::run() {
                 emulator_.run_frame();
                 ++frames_rendered;
             }
+        }
+
+        // Task 70 — a hard reset (F1 / a program's NR 0x02 bit 1) is a power-on
+        // cold boot done here between frames. cold_boot() reconstructs the
+        // emulator, so restart the loop with the fresh machine.
+        if (emulator_.take_hard_reset_request()) {
+            cold_boot(std::string());
+            continue;
         }
 
         // Task 19 fastload follow-up — when the phantom typist is

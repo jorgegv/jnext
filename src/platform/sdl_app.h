@@ -22,6 +22,11 @@ public:
     /// Set emulator config before calling init().
     void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
 
+    /// Task 70 — power-on cold boot: reconstruct the emulator in place and
+    /// re-run the proven startup init() path (F1 / a program's NR 0x02 hard
+    /// reset). `load_file` empty = clean boot.
+    void cold_boot(const std::string& load_file = std::string());
+
     /// Schedule a binary injection after `delay_frames` frames.
     void set_pending_inject(const std::string& file, uint16_t org,
                             uint16_t pc, int delay_frames);
