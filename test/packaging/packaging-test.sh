@@ -117,6 +117,26 @@ else
     skp package-win "MinGW Qt6 cross toolchain not installed"
 fi
 
+# --- package-win subsystem (GUI, not console) --------------------------------
+# jnext.exe must be linked as a GUI-subsystem binary (PE Subsystem field = 2,
+# IMAGE_SUBSYSTEM_WINDOWS_GUI) so a double-click launch opens no console window.
+# A revert of -Wl,--subsystem,windows would silently drop back to console (3,
+# which objdump prints as "Windows CUI"); this row makes that regression a FAIL.
+# Discriminative: it requires "Windows GUI" and explicitly rejects the console
+# "CUI" string.
+WIN_EXE=build/gui-release-win/jnext.exe
+if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1 && [ -f "$WIN_EXE" ]; then
+    subsys=$(x86_64-w64-mingw32-objdump -p "$WIN_EXE" 2>/dev/null | grep -i "^Subsystem")
+    if printf '%s' "$subsys" | grep -qi "Windows GUI" \
+       && ! printf '%s' "$subsys" | grep -qi "CUI"; then
+        ok package-win-subsys "GUI subsystem ($(printf '%s' "$subsys" | tr -s ' '))"
+    else
+        bad package-win-subsys "not GUI subsystem — got: ${subsys:-<none>}"
+    fi
+else
+    skp package-win-subsys "objdump or jnext.exe absent (package-win not built here)"
+fi
+
 # --- package-flatpak ---------------------------------------------------------
 # A full flatpak-builder run needs org.kde.Sdk installed (a large runtime) and
 # network access, so it is only attempted when the SDK is present. Always at
