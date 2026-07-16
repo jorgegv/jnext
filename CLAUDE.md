@@ -87,7 +87,15 @@ When the user asks to bump the version, follow these steps in order:
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
 5. Update the ChangeLog using the future version that will be bumped to
 6. Commit all the above changes
-7. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this will bump the version in `version.yaml`, commit, and create a new git tag
+7. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, **propagates the new version into every other version-bearing file** (via `packaging/sync-version.sh`), stages them all, commits, and creates the git tag
+
+**`version.yaml` is the single source of truth for the version.** The CPack-generated
+packages derive it automatically from `version.yaml` via CMake's `PROJECT_VERSION`; the
+hand-maintained packaging files (`packaging/rpm/jnext.spec` `Version:` + `%changelog`,
+`packaging/flatpak/*.yml` `tag:`, `packaging/assets/*.metainfo.xml` `<releases>`,
+`packaging/debian/changelog`) are kept in lockstep by `packaging/sync-version.sh`, which the
+`bump-*` targets call automatically. **When adding a new file that hard-codes the version,
+add it to `sync-version.sh` too** — that script is the one place that must know all of them.
 
 ## Building
 

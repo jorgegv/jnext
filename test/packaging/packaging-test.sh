@@ -30,6 +30,15 @@ MINGW_QT6=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake
 
 printf "${BOLD}=== jnext packaging integration tests ===${RESET}\n\n"
 
+# --- sync-version.sh contract (fast; runs on a throwaway copy) ----------------
+# The version-consistency script the bump-* targets rely on. Kept first so a
+# broken sync surfaces before the slow package builds.
+if bash test/packaging/sync-version-test.sh >"$LOGDIR/syncver.log" 2>&1; then
+    ok sync-version "idempotent, consistent, fails loud (see log for detail)"
+else
+    bad sync-version "contract test failed (see $LOGDIR/syncver.log)"
+fi
+
 # --- package-src (source tarball) --------------------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)
