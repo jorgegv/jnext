@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License: GPLv3">
   </a>
   <img src="https://img.shields.io/badge/C%2B%2B-17-blue" alt="C++17">
-  <img src="https://img.shields.io/badge/platform-Linux-lightgrey" alt="Platform: Linux">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey" alt="Platform: Linux and Windows">
 </p>
 
 **JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
@@ -72,7 +72,7 @@ rough or missing; they are listed, not hidden:
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
-Linux only for now; Windows and macOS ports are pending.
+Linux and Windows (x64) are supported; a macOS build is not yet available.
 
 ## Install
 
@@ -85,11 +85,19 @@ for your system from the
 | **Fedora / RHEL** | `sudo dnf install ./jnext-*.x86_64.rpm` |
 | **Debian / Ubuntu** | `sudo apt install ./jnext_*_amd64.deb` |
 | **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak` |
+| **Windows (x64)** | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe` |
 
-That puts a `jnext` command on your `PATH`. Prefer to build it yourself, or on
-a platform without a package yet? See **[BUILD.md](BUILD.md)** — it also covers
-building the packages above (`make package-rpm` / `package-deb` /
-`package-flatpak`).
+The Linux packages put a `jnext` command on your `PATH`.
+
+The **Windows** build is a self-contained, portable zip — no installer, with
+all the Qt and SDL runtime DLLs bundled. Unzip it anywhere and run `jnext.exe`;
+delete the folder to uninstall. On first launch Windows SmartScreen may warn
+about an unrecognized publisher — the executable is not yet code-signed — so
+click **More info → Run anyway**.
+
+Prefer to build it yourself, or on a platform without a package yet (macOS)? See
+**[BUILD.md](BUILD.md)** — it also covers building the packages above
+(`make package-rpm` / `package-deb` / `package-flatpak` / `package-win`).
 
 ## Run
 
