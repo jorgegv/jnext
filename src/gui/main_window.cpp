@@ -144,7 +144,7 @@ MainWindow::MainWindow(QWidget* parent)
     // AppConfig ctor (~/.jnext/jnext.conf); MainWindow is only ever
     // constructed by the real (non-headless) GUI path (QtApp::init()), so
     // headless/unit-test runs never touch the user's real config file. The
-    // regression suite additionally isolates $XDG_CONFIG_HOME so its handful
+    // regression suite additionally isolates $JNEXT_CONFIG_DIR so its handful
     // of non-headless invocations stay deterministic (test/00regression/
     // regression.sh).
     app_config_.load();
