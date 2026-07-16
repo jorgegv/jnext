@@ -385,13 +385,13 @@ package-flatpak:
 		printf "  (or 'sudo apt install flatpak-builder'), then re-run 'make package-flatpak'.\n"; \
 		exit 1; \
 	fi
-	@# The manifest builds against org.kde.Sdk//6.8 and runs on org.kde.Platform//6.8.
+	@# The manifest builds against org.kde.Sdk//6.10 and runs on org.kde.Platform//6.10.
 	@# Pre-check both so a missing runtime is a clear "install this" message rather
-	@# than a cryptic "org.kde.Sdk/x86_64/6.8 not installed" from deep inside
+	@# than a cryptic "org.kde.Sdk/x86_64/6.10 not installed" from deep inside
 	@# flatpak-builder (which is what the user hit).
 	@miss=""; \
-	 flatpak info org.kde.Platform//6.8 >/dev/null 2>&1 || miss="$$miss org.kde.Platform//6.8"; \
-	 flatpak info org.kde.Sdk//6.8      >/dev/null 2>&1 || miss="$$miss org.kde.Sdk//6.8"; \
+	 flatpak info org.kde.Platform//6.10 >/dev/null 2>&1 || miss="$$miss org.kde.Platform//6.10"; \
+	 flatpak info org.kde.Sdk//6.10      >/dev/null 2>&1 || miss="$$miss org.kde.Sdk//6.10"; \
 	 if [ -n "$$miss" ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Flatpak runtime/SDK missing:$$miss\n"; \
 		printf "  Install from Flathub, then re-run 'make package-flatpak':\n"; \
