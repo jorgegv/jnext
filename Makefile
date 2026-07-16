@@ -400,8 +400,16 @@ package-flatpak:
 		printf "    flathub https://flathub.org/repo/flathub.flatpakrepo)\n"; \
 		exit 1; \
 	 fi
-	flatpak-builder --force-clean --user build/flatpak \
+	@# Build into a local repo, then export a single-file .flatpak bundle so
+	@# this target yields a shippable artifact like package-rpm/deb/win do.
+	rm -rf build/flatpak build/flatpak-repo
+	flatpak-builder --force-clean --user --repo=build/flatpak-repo build/flatpak \
 		packaging/flatpak/io.github.zxjogv.jnext.yml
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 bundle="build/jnext-$$ver-x86_64.flatpak"; \
+	 rm -f "$$bundle"; \
+	 flatpak build-bundle build/flatpak-repo "$$bundle" io.github.zxjogv.jnext; \
+	 printf "$(BOLD)Flatpak bundle produced:$(RESET)\n"; ls -1 "$$bundle"
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
 # gui-release-win already bundled the DLLs into $(PKG_BUILD_WIN); we stage a
