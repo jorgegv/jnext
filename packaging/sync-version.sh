@@ -11,9 +11,11 @@
 # their version from version.yaml via CMake's PROJECT_VERSION, so they are NOT
 # touched here. This script handles only the files a person wrote by hand:
 #   - packaging/rpm/jnext.spec          Version: + a matching %changelog entry
-#   - packaging/flatpak/*.jnext.yml     the `tag: vX.Y.Z` the build checks out
 #   - packaging/assets/*.metainfo.xml   the AppStream <releases> history
 #   - packaging/debian/changelog        the Debian changelog
+#
+# The flatpak manifest is NOT listed: it builds from the local checkout
+# (`type: git` + `path`), carrying no `tag: vX.Y.Z` to keep in sync.
 #
 # Idempotent: re-running with the same version is a no-op (each field is only
 # updated/prepended when it does not already reflect <version>).
@@ -24,7 +26,6 @@ ver=${1:?usage: sync-version.sh <version>}
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 spec="$root/packaging/rpm/jnext.spec"
-flatpak="$root/packaging/flatpak/io.github.zxjogv.jnext.yml"
 metainfo="$root/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
 debchangelog="$root/packaging/debian/changelog"
 
@@ -33,12 +34,11 @@ debchangelog="$root/packaging/debian/changelog"
 # `Version:` rewritten but not its changelog — a silently inconsistent file
 # (rpmbuild warns/errors when the top %changelog version != Version:). Better
 # to abort the whole bump than to commit a half-synced tree.
-for f in "$spec" "$flatpak" "$metainfo" "$debchangelog"; do
+for f in "$spec" "$metainfo" "$debchangelog"; do
     [ -f "$f" ] || { echo "sync-version: missing file: $f" >&2; exit 1; }
 done
 grep -qE '^Version:'                              "$spec"     || { echo "sync-version: no 'Version:' line in $spec" >&2; exit 1; }
 grep -qE '^%changelog$'                           "$spec"     || { echo "sync-version: no '%changelog' line in $spec" >&2; exit 1; }
-grep -qE '(^|[[:space:]])tag:[[:space:]]*v[0-9]'  "$flatpak"  || { echo "sync-version: no 'tag: vX.Y.Z' line in $flatpak" >&2; exit 1; }
 grep -qE '<releases>'                             "$metainfo" || { echo "sync-version: no '<releases>' element in $metainfo" >&2; exit 1; }
 
 maint="ZXjogv <zx@jogv.es>"
@@ -64,9 +64,6 @@ if ! grep -qE "^\* .* - ${ver}-1\$" "$spec"; then
     ' "$spec" > "$spec.tmp" && mv "$spec.tmp" "$spec"
 fi
 
-# --- flatpak manifest: the git tag the app module builds from ----------------
-sed -i -E "s/(tag:[[:space:]]*)v[0-9][0-9.]*/\1v$ver/" "$flatpak"
-
 # --- AppStream metainfo: prepend a <release> to the history ------------------
 if ! grep -qE "<release version=\"$ver\"" "$metainfo"; then
     sed -i -E "s#([[:space:]]*)(<releases>)#\1\2\n\1  <release version=\"$ver\" date=\"$d_iso\"/>#" "$metainfo"
@@ -81,4 +78,4 @@ if ! head -n1 "$debchangelog" | grep -qE "^jnext \(${ver}-1\)"; then
     mv "$debchangelog.tmp" "$debchangelog"
 fi
 
-echo "sync-version: aligned $ver into spec, flatpak, metainfo, debian changelog"
+echo "sync-version: aligned $ver into spec, metainfo, debian changelog"

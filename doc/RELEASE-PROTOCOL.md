@@ -69,9 +69,13 @@ tagged** (no half-synced release).
 files a person maintains by hand (the CPack path needs none of this):
 
 - `packaging/rpm/jnext.spec` — `Version:` + a matching `%changelog` entry
-- `packaging/flatpak/*.jnext.yml` — the `tag: vX.Y.Z` the build checks out
 - `packaging/assets/*.metainfo.xml` — the AppStream `<releases>` history
 - `packaging/debian/changelog` — the Debian changelog
+
+The flatpak manifest (`packaging/flatpak/*.yml`) is **not** in this list: it
+builds from the local checkout (`type: git`, `path: ../..`, `branch: HEAD`)
+and carries no version tag, so there is nothing for `sync-version.sh` to
+rewrite.
 
 It is idempotent, fails loud if a target file or its anchor is missing, and is
 covered by `test/packaging/sync-version-test.sh` (run inside `make package-test`).
@@ -140,8 +144,10 @@ CI runs these same targets — one build path, no CI-only divergence (§5).
   pushed — harmless, but pointless. Push the branch, then push only the
   release tag(s) you actually intend to publish.
 
-- The **Flatpak** build checks out the app from its git tag, so a Flatpak
-  release requires that tag to be pushed to the origin.
+- The **Flatpak** build builds the app from the local checkout (`type: git`,
+  `path: ../..`, `branch: HEAD`), not a pushed git tag, so it does **not**
+  require the release tag to be on origin. In CI, `actions/checkout` leaves the
+  release tag checked out and flatpak-builder builds exactly that tree.
 
 ---
 

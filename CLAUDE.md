@@ -101,7 +101,7 @@ When the user asks to bump the version, follow these steps in order:
 **`version.yaml` is the single source of truth for the version.** The CPack-generated
 packages derive it automatically from `version.yaml` via CMake's `PROJECT_VERSION`; the
 hand-maintained packaging files (`packaging/rpm/jnext.spec` `Version:` + `%changelog`,
-`packaging/flatpak/*.yml` `tag:`, `packaging/assets/*.metainfo.xml` `<releases>`,
+`packaging/assets/*.metainfo.xml` `<releases>`,
 `packaging/debian/changelog`) are kept in lockstep by `packaging/sync-version.sh`, which the
 `bump-*` targets call automatically. **When adding a new file that hard-codes the version,
 add it to `sync-version.sh` too** — that script is the one place that must know all of them.
