@@ -357,7 +357,8 @@ package-deb:
 	cd $(PKG_BUILD_DEB) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_DEB)/*.deb
 
-# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder)
+# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the
+# org.kde.Platform//6.8 runtime and org.kde.Sdk//6.8 SDK the manifest targets)
 package-flatpak:
 	@if ! command -v flatpak-builder >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) flatpak-builder not found.\n"; \
@@ -365,6 +366,21 @@ package-flatpak:
 		printf "  (or 'sudo apt install flatpak-builder'), then re-run 'make package-flatpak'.\n"; \
 		exit 1; \
 	fi
+	@# The manifest builds against org.kde.Sdk//6.8 and runs on org.kde.Platform//6.8.
+	@# Pre-check both so a missing runtime is a clear "install this" message rather
+	@# than a cryptic "org.kde.Sdk/x86_64/6.8 not installed" from deep inside
+	@# flatpak-builder (which is what the user hit).
+	@miss=""; \
+	 flatpak info org.kde.Platform//6.8 >/dev/null 2>&1 || miss="$$miss org.kde.Platform//6.8"; \
+	 flatpak info org.kde.Sdk//6.8      >/dev/null 2>&1 || miss="$$miss org.kde.Sdk//6.8"; \
+	 if [ -n "$$miss" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Flatpak runtime/SDK missing:$$miss\n"; \
+		printf "  Install from Flathub, then re-run 'make package-flatpak':\n"; \
+		printf "  $(BOLD)flatpak install flathub$$miss$(RESET)\n"; \
+		printf "  (add the remote first if needed: flatpak remote-add --if-not-exists \\\\\n"; \
+		printf "    flathub https://flathub.org/repo/flathub.flatpakrepo)\n"; \
+		exit 1; \
+	 fi
 	flatpak-builder --force-clean --user build/flatpak \
 		packaging/flatpak/io.github.zxjogv.jnext.yml
 
