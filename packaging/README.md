@@ -60,8 +60,8 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make package-src`     | source tarball (`build/dist/v<ver>.tar.gz`) — vendors submodule content | git                     | Yes                             |
 | `make package-rpm`     | `.rpm` (via CPack, in `build/package-rpm/`), named `jnext-<ver>-<rel>.<arch>.rpm` | `cpack` + `rpmbuild` | Yes                     |
 | `make package-deb`     | `.deb` (via CPack, in `build/package-deb/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
-| `make gui-release-win` | Windows `jnext.exe` only (no packaging), in `build-win/` | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
-| `make package-win`     | Windows `.zip` (via CPack, in `build-win/`) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make gui-release-win` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build-win/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build-win/`) — exe + bundled Qt6/SDL2 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.8`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
 | `make package-macos`   | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
@@ -97,9 +97,20 @@ The cross-build produces a **console-subsystem** `jnext.exe` (so `--headless`/
 `src/core/anon_mem.h` (VirtualAlloc vs `mmap` for the rewind/profiler buffers),
 gating Linux-only `sched_getcpu`, `std::filesystem` instead of POSIX `mkdir`,
 and linking `Qt6::EntryPointPrivate` on Windows to supply the `WinMain`→`main`
-bridge. **DLL bundling is a known follow-up:** the ZIP does not yet copy the
-Qt6/SDL2 runtime DLLs from `/usr/x86_64-w64-mingw32/sys-root/mingw/bin`, so the
-produced `jnext.exe` needs those alongside it to run.
+bridge.
+
+**DLL bundling** is handled by `packaging/windows/bundle-dlls.sh`. `jnext.exe`
+cannot start on a stock Windows box on its own — it needs the Qt6/SDL2 runtime
+DLLs and, critically, the `platforms/qwindows.dll` Qt platform plugin (without
+it Qt aborts with "no Qt platform plugin could be initialized"). The script
+resolves the transitive DLL closure of the exe and the shipped Qt plugins from
+`/usr/x86_64-w64-mingw32/sys-root/mingw/bin` (skipping the DLLs Windows itself
+provides), adds the jnext-built `libspdlog.dll`, copies the Qt plugins into
+`platforms/`/`styles/`/`imageformats/` with a `qt.conf`, and **fails the build**
+if any required non-system DLL is missing. `gui-release-win` runs it against
+`build-win/` (exe runnable in place); `package-win` runs it into a clean,
+correctly-named staging dir and zips that (not CPack `-G ZIP`, whose `/usr`
+install prefix would give a broken `usr/bin/jnext.exe` layout on Windows).
 
 ## Runtime dependencies — how they were derived
 

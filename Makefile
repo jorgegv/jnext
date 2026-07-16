@@ -129,7 +129,11 @@ gui-release-win:
 	fi
 	mingw64-cmake -S . -B $(PKG_BUILD_WIN) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(PKG_BUILD_WIN) -j$(JOBS)
-	@printf "$(BOLD)Windows executable:$(RESET) $(PKG_BUILD_WIN)/jnext.exe\n"
+	@# Bundle the Qt6/SDL2 runtime DLLs + Qt plugins next to the exe so it runs
+	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
+	@# the DLLs, the platforms/qwindows.dll plugin).
+	bash packaging/windows/bundle-dlls.sh $(PKG_BUILD_WIN)/jnext.exe $(PKG_BUILD_WIN)
+	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(PKG_BUILD_WIN)/jnext.exe\n"
 
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
@@ -353,7 +357,8 @@ package-deb:
 	cd $(PKG_BUILD_DEB) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_DEB)/*.deb
 
-# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder)
+# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the
+# org.kde.Platform//6.8 runtime and org.kde.Sdk//6.8 SDK the manifest targets)
 package-flatpak:
 	@if ! command -v flatpak-builder >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) flatpak-builder not found.\n"; \
@@ -361,15 +366,39 @@ package-flatpak:
 		printf "  (or 'sudo apt install flatpak-builder'), then re-run 'make package-flatpak'.\n"; \
 		exit 1; \
 	fi
+	@# The manifest builds against org.kde.Sdk//6.8 and runs on org.kde.Platform//6.8.
+	@# Pre-check both so a missing runtime is a clear "install this" message rather
+	@# than a cryptic "org.kde.Sdk/x86_64/6.8 not installed" from deep inside
+	@# flatpak-builder (which is what the user hit).
+	@miss=""; \
+	 flatpak info org.kde.Platform//6.8 >/dev/null 2>&1 || miss="$$miss org.kde.Platform//6.8"; \
+	 flatpak info org.kde.Sdk//6.8      >/dev/null 2>&1 || miss="$$miss org.kde.Sdk//6.8"; \
+	 if [ -n "$$miss" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Flatpak runtime/SDK missing:$$miss\n"; \
+		printf "  Install from Flathub, then re-run 'make package-flatpak':\n"; \
+		printf "  $(BOLD)flatpak install flathub$$miss$(RESET)\n"; \
+		printf "  (add the remote first if needed: flatpak remote-add --if-not-exists \\\\\n"; \
+		printf "    flathub https://flathub.org/repo/flathub.flatpakrepo)\n"; \
+		exit 1; \
+	 fi
 	flatpak-builder --force-clean --user build/flatpak \
 		packaging/flatpak/io.github.zxjogv.jnext.yml
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
+# gui-release-win already bundled the DLLs into $(PKG_BUILD_WIN); we stage a
+# cleanly-named top-level layout (exe + DLLs + plugin subdirs + qt.conf + docs,
+# no CMake build junk) and zip that. Not CPack -G ZIP: CPack would apply the
+# Unix /usr install prefix, giving a broken usr/bin/jnext.exe layout on Windows.
 package-win: gui-release-win
-	@# NOTE: this ZIP does NOT yet bundle the Qt6/SDL2 runtime DLLs from
-	@# /usr/x86_64-w64-mingw32/sys-root/mingw/bin — a known follow-up.
-	cd $(PKG_BUILD_WIN) && cpack -G ZIP
-	@printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 name="jnext-$$ver-windows-x64"; \
+	 stage="$(PKG_BUILD_WIN)/dist/$$name"; \
+	 rm -rf "$(PKG_BUILD_WIN)/dist"; mkdir -p "$$stage"; \
+	 bash packaging/windows/bundle-dlls.sh $(PKG_BUILD_WIN)/jnext.exe "$$stage"; \
+	 cp LICENSE USAGE.md "$$stage"/; \
+	 rm -f "$(PKG_BUILD_WIN)/$$name.zip"; \
+	 ( cd "$(PKG_BUILD_WIN)/dist" && zip -rq "../$$name.zip" "$$name" ); \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip
 
 # The whole recipe is one shell invocation so the non-Darwin early-exit
 # actually stops it — a bare `exit 0` on its own recipe line would only end
