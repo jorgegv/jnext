@@ -40,7 +40,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/jorgegv/jnext.git
-        tag: v0.98.16
+        tag: v0.98.17
         # Submodules (third_party/spdlog, third_party/zot) are pulled by
         # CMakeLists.txt's `git submodule update --init --recursive` step
         # when a .git directory is present, which a `type: git` flatpak
