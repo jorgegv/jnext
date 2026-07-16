@@ -2,9 +2,9 @@
 #include "core/emulator.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "core/anon_mem.h"
 
 #include <new>
-#include <sys/mman.h>
 
 RewindBuffer::RewindBuffer(size_t max_frames, size_t snapshot_bytes)
     : snapshot_bytes_(snapshot_bytes)
@@ -14,11 +14,8 @@ RewindBuffer::RewindBuffer(size_t max_frames, size_t snapshot_bytes)
     // frames × 2.29 MB ≈ 1.09 GB) costs no startup memset and no RSS until
     // snapshots are actually taken (same strategy as Profiler::init()).
     block_bytes_ = max_frames * snapshot_bytes;
-    void* p = ::mmap(nullptr, block_bytes_,
-                     PROT_READ | PROT_WRITE,
-                     MAP_PRIVATE | MAP_ANONYMOUS,
-                     -1, 0);
-    if (p == MAP_FAILED) {
+    void* p = anon_mem::alloc(block_bytes_);
+    if (!p) {
         block_bytes_ = 0;
         throw std::bad_alloc();   // matches the old vector::resize failure mode
     }
@@ -33,7 +30,7 @@ RewindBuffer::RewindBuffer(size_t max_frames, size_t snapshot_bytes)
 RewindBuffer::~RewindBuffer()
 {
     if (block_) {
-        ::munmap(block_, block_bytes_);
+        anon_mem::free(block_, block_bytes_);
     }
 }
 

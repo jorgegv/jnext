@@ -1,12 +1,10 @@
 #include "profiler/profiler.h"
 
 #include "core/log.h"
+#include "core/anon_mem.h"
 
 #include <algorithm>
-#include <cerrno>
 #include <cstdio>
-#include <cstring>
-#include <sys/mman.h>
 
 Profiler::Profiler() = default;
 
@@ -17,27 +15,24 @@ Profiler::~Profiler() {
 bool Profiler::init() {
     if (entries_) return true;   // idempotent
     bytes_alloc_ = static_cast<size_t>(kNumEntries) * sizeof(Entry);
-    void* p = ::mmap(nullptr, bytes_alloc_,
-                     PROT_READ | PROT_WRITE,
-                     MAP_PRIVATE | MAP_ANONYMOUS,
-                     -1, 0);
-    if (p == MAP_FAILED) {
-        Log::emulator()->error("profiler: mmap({} bytes) failed: {}",
-                               bytes_alloc_, std::strerror(errno));
+    void* p = anon_mem::alloc(bytes_alloc_);
+    if (!p) {
+        Log::emulator()->error("profiler: anon allocation of {} bytes failed",
+                               bytes_alloc_);
         entries_     = nullptr;
         bytes_alloc_ = 0;
         return false;
     }
     entries_ = static_cast<Entry*>(p);
-    // MAP_ANONYMOUS pages are zero-filled by the kernel; no memset needed.
-    Log::emulator()->info("profiler: allocated {} MB (mmap MAP_ANONYMOUS)",
+    // Anonymous pages are zero-filled by the OS; no memset needed.
+    Log::emulator()->info("profiler: allocated {} MB (anonymous mapping)",
                           bytes_alloc_ / (1024 * 1024));
     return true;
 }
 
 void Profiler::shutdown() {
     if (!entries_) return;
-    ::munmap(entries_, bytes_alloc_);
+    anon_mem::free(entries_, bytes_alloc_);
     entries_     = nullptr;
     bytes_alloc_ = 0;
 }

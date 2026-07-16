@@ -35,18 +35,12 @@ std::string home_dir() {
     return ".";
 }
 // Create a directory path recursively (best effort). Returns true if the
-// final directory exists afterwards.
+// final directory exists afterwards. Uses std::filesystem so it is portable
+// (POSIX mkdir() takes a mode argument; MinGW/Windows mkdir() does not).
 bool make_dirs(const std::string& path) {
-    std::string cur;
-    for (size_t i = 0; i < path.size(); ++i) {
-        cur.push_back(path[i]);
-        if (path[i] == '/' && cur.size() > 1) {
-            ::mkdir(cur.c_str(), 0755); // ignore EEXIST
-        }
-    }
-    ::mkdir(path.c_str(), 0755);
-    struct stat st{};
-    return ::stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec); // no error if it exists
+    return std::filesystem::is_directory(path);
 }
 bool file_exists(const std::string& path) {
     struct stat st{};

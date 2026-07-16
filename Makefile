@@ -34,7 +34,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest worktree-bootstrap bench \
        bump bump-patch bump-minor bump-major version \
-       package-src package-rpm package-deb package-flatpak package-win package-macos
+       package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -343,7 +343,8 @@ package-flatpak:
 		packaging/flatpak/io.github.zxjogv.jnext.yml
 
 # Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
-package-win:
+# Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
+gui-release-win:
 	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
 	@# actual cross toolchain/libraries. Check the cross gcc and mingw Qt6 too,
 	@# so a missing package is a clear "install these" message, not a cryptic
@@ -359,10 +360,14 @@ package-win:
 		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
 		exit 1; \
 	fi
-	@# NOTE: this ZIP does NOT yet bundle the Qt6/SDL2 runtime DLLs from
-	@# /usr/x86_64-w64-mingw32/sys-root/mingw/bin — a known follow-up.
 	mingw64-cmake -S . -B $(PKG_BUILD_WIN) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(PKG_BUILD_WIN) -j$(JOBS)
+	@printf "$(BOLD)Windows executable:$(RESET) $(PKG_BUILD_WIN)/jnext.exe\n"
+
+# Cross-compile + ZIP the Windows build (Fedora MinGW)
+package-win: gui-release-win
+	@# NOTE: this ZIP does NOT yet bundle the Qt6/SDL2 runtime DLLs from
+	@# /usr/x86_64-w64-mingw32/sys-root/mingw/bin — a known follow-up.
 	cd $(PKG_BUILD_WIN) && cpack -G ZIP
 	@printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip
 
@@ -382,3 +387,7 @@ package-macos:
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF && \
 	$(CMAKE) --build build/package-macos -j$(JOBS) && \
 	( cd build/package-macos && cpack -G DragNDrop )
+
+# Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded
+package-test:
+	bash test/packaging/packaging-test.sh
