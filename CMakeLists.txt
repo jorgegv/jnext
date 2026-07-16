@@ -146,7 +146,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(jnext PRIVATE -Wno-stringop-overflow)
 endif()
 
-
 # SDL2 linking: prefer SDL2-static when building statically.
 if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
     set(SDL2_LINK_TARGET SDL2::SDL2-static)

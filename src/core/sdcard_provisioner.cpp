@@ -38,6 +38,10 @@ std::string home_dir() {
 // final directory exists afterwards. Uses std::filesystem so it is portable
 // (POSIX mkdir() takes a mode argument; MinGW/Windows mkdir() does not).
 bool make_dirs(const std::string& path) {
+    // create_directories applies the OS default mode (0777 & ~umask, normally
+    // 0755) — same result as the previous explicit mkdir(..., 0755) under a
+    // typical umask of 022. This is a private per-user cache dir, not a
+    // permission-sensitive location, so the umask default is fine.
     std::error_code ec;
     std::filesystem::create_directories(path, ec); // no error if it exists
     return std::filesystem::is_directory(path);
