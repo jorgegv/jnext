@@ -11,10 +11,10 @@
     <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License: GPLv3">
   </a>
   <img src="https://img.shields.io/badge/C%2B%2B-17-blue" alt="C++17">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey" alt="Platform: Linux and Windows">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-white" alt="Platform: Linux and Windows">
 </p>
 
-**JNEXT is a real-time ZX Spectrum Next emulator, written in C++17, built for
+**JNEXT is a real-time ZX Spectrum Next emulator, built for
 the people who write Next software.**
 
 A comfortable machine to develop on: a debugger that shows you everything
@@ -80,12 +80,12 @@ Linux and Windows (x64) are supported; a macOS build is not yet available.
 for your system from the
 [latest release](https://github.com/jorgegv/jnext/releases/latest):
 
-| System | Install |
-|--------|---------|
-| **Fedora / RHEL** | `sudo dnf install ./jnext-*.x86_64.rpm` |
-| **Debian / Ubuntu** | `sudo apt install ./jnext_*_amd64.deb` |
-| **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak` |
-| **Windows (x64)** | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe` |
+| System                   | Install                                                    |
+|--------------------------|------------------------------------------------------------|
+| **Fedora / RHEL**        | `sudo dnf install ./jnext-*.x86_64.rpm`                    |
+| **Debian / Ubuntu**      | `sudo apt install ./jnext_*_amd64.deb`                     |
+| **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak`         |
+| **Windows (x64)**        | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe` |
 
 The Linux packages put a `jnext` command on your `PATH`.
 
@@ -114,16 +114,16 @@ SD card and ROMs — is in **[USAGE.md](USAGE.md)**.
 
 ## Documentation
 
-| Document | What's in it |
-|----------|--------------|
-| [BUILD.md](BUILD.md) | Building from source and building packages: prerequisites, targets, CMake options, tests |
-| [USAGE.md](USAGE.md) | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map |
-| [FEATURES.md](FEATURES.md) | Full feature list |
-| [TODO.md](TODO.md) | Pending features and known issues |
-| [ChangeLog](ChangeLog) | What changed in each release |
-| [CREDITS.md](CREDITS.md) | Third-party libraries, references and acknowledgments |
-| [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md) | The development plan: real status, implemented features, roadmap |
-| [CURRENT-REGRESSION-STATE.md](doc/CURRENT-REGRESSION-STATE.md) | Current state of the screenshot regression suite |
+| Document                                                       | What's in it                                                                             |
+|----------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| [BUILD.md](BUILD.md)                                           | Building from source and building packages: prerequisites, targets, CMake options, tests |
+| [USAGE.md](USAGE.md)                                           | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map                  |
+| [FEATURES.md](FEATURES.md)                                     | Full feature list                                                                        |
+| [TODO.md](TODO.md)                                             | Pending features and known issues                                                        |
+| [ChangeLog](ChangeLog)                                         | What changed in each release                                                             |
+| [CREDITS.md](CREDITS.md)                                       | Third-party libraries, references and acknowledgments                                    |
+| [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md)  | The development plan: real status, implemented features, roadmap                         |
+| [CURRENT-REGRESSION-STATE.md](doc/CURRENT-REGRESSION-STATE.md) | Current state of the screenshot regression suite                                         |
 
 Issues and pull requests will be welcome once the repository is in a somewhat
 stable state; for now, waiting for a mostly working emulator is the better
