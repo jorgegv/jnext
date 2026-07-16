@@ -1,5 +1,6 @@
 #include "core/log.h"
 #include "core/sdcard_provisioner.h"
+#include "core/video_recorder.h"
 #include "video/renderer.h"
 #include "version.h"
 #include <csignal>
@@ -133,6 +134,13 @@ int main(int argc, char* argv[]) {
     // Initialize all loggers at default level (info).
     Log::init();
     Log::emulator()->info("jnext {}", JNEXT_VERSION_STRING);
+
+    // Packaging Task 67 follow-up: warn once, in every mode (headless
+    // included), when ffmpeg is not on PATH — --record / File > Record
+    // MPEG4 Video will not work without it.
+    if (!VideoRecorder::ffmpeg_available()) {
+        Log::emulator()->warn("ffmpeg not found in PATH; MPEG4 video recording will be unavailable.");
+    }
 
     std::string inject_file;
     uint16_t inject_org = 0x8000;
