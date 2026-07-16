@@ -41,17 +41,53 @@ initialise submodules itself if they are missing.)
 
 ### Make targets
 
+This is a **semantic Makefile**: every target carries a one-line description,
+and running `make` with **no arguments** prints the full, always-up-to-date list
+of targets and what each one does — so you never have to read the Makefile to
+find out what is available:
+
+```sh
+make            # print every target with its description
+```
+
+Because that listing is generated from the Makefile itself, it is authoritative:
+if a target exists, `make` shows it. The table below is a curated subset of the
+most representative targets — run `make` for the complete list (currently ~40
+targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioning).
+
+**Build**
+
 | Target | Description |
 |--------|-------------|
-| `make` | List all targets with their descriptions |
-| `make gui-release` | Qt6 GUI, release (optimised) |
+| `make gui-release` | Qt6 GUI + debugger, release (optimised) → `build/gui-release/jnext` |
 | `make gui-debug` | Qt6 GUI, debug (sanitisers + debug symbols) |
-| `make release` | SDL-only, release |
+| `make release` | SDL-only, release → `build/release/jnext` |
 | `make debug` | SDL-only, debug |
+| `make gui-release-win` | Cross-compile the Windows `jnext.exe` (Fedora MinGW), DLLs bundled beside it |
 | `make gui-release-run` / `gui-debug-run` / `release-run` / `debug-run` | Build, then run |
+
+**Test**
+
+| Target | Description |
+|--------|-------------|
 | `make unit-test` | Build `build/` and run every subsystem unit-test suite in parallel |
 | `make unit-test-dashboard` | `unit-test`, then refresh `test/SUBSYSTEM-TESTS-STATUS.md` |
 | `make regression` | Run the screenshot + functional regression suite |
+| `make harness-selftest` | Prove the test harness fails loudly on injected faults |
+
+**Package** (details under [Building packages](#building-packages))
+
+| Target | Description |
+|--------|-------------|
+| `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` |
+| `make package-win` | Windows `.zip` (exe + bundled Qt6/SDL2 DLLs + plugins) |
+| `make package-flatpak` / `package-src` | Flatpak bundle / source tarball |
+| `make package-test` | Build every package (except macOS) and check each artifact |
+
+**Clean / housekeeping**
+
+| Target | Description |
+|--------|-------------|
 | `make gui-clean` | Remove the GUI build directories |
 | `make unit-test-clean` | Remove the `build/` directory |
 | `make clean` | Remove all build directories |
@@ -63,14 +99,14 @@ initialise submodules itself if they are missing.)
 
 The `make` targets pass these for you; use them when invoking CMake directly.
 
-| Option | Default | Meaning |
-|--------|---------|---------|
-| `ENABLE_QT_UI` | **OFF** | Build the Qt6 native UI. `make gui-*` turns it on — a plain `cmake` without it gives the SDL frontend |
-| `ENABLE_DEBUGGER` | **ON** | Include the Qt debugger UI. It is opened from the Qt main window, so it is only reachable in a build that also has `ENABLE_QT_UI=ON` |
-| `ENABLE_TESTS` | ON | Build the unit-test binaries |
-| `USE_CCACHE` | ON | Use ccache as the compiler launcher when it is found (no-op if it is not) |
-| `CYCLE_ACCURATE` | OFF | 28 MHz cycle-accurate mode |
-| `STATIC_BUILD` | OFF | Link statically (needs static SDL2/Qt6 builds) |
+| Option            | Default | Meaning                                                                                                                              |
+|-------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `ENABLE_QT_UI`    | **OFF** | Build the Qt6 native UI. `make gui-*` turns it on — a plain `cmake` without it gives the SDL frontend                                |
+| `ENABLE_DEBUGGER` | **ON**  | Include the Qt debugger UI. It is opened from the Qt main window, so it is only reachable in a build that also has `ENABLE_QT_UI=ON` |
+| `ENABLE_TESTS`    | ON      | Build the unit-test binaries                                                                                                         |
+| `USE_CCACHE`      | ON      | Use ccache as the compiler launcher when it is found (no-op if it is not)                                                            |
+| `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode                                                                                                           |
+| `STATIC_BUILD`    | OFF     | Link statically (needs static SDL2/Qt6 builds)                                                                                       |
 
 Directly, without the Makefile:
 
