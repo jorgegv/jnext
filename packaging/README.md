@@ -17,10 +17,16 @@ exact string.
 
 `CMakeLists.txt` gained `install()` rules (Task 67) that are always present
 (they don't gate any build option): the `jnext` binary, the `.desktop`
-launcher, the AppStream metainfo, a scalable SVG + 256×256 PNG icon under
+launcher, the AppStream metainfo, a scalable SVG + 512×512 PNG icon under
 `hicolor`, and `LICENSE`/`USAGE.md` under `share/doc/jnext`. `include(CPack)`
 at the end of the same file wires up TGZ/DEB/RPM package generation from any
 configured build directory — no separate CPack config file.
+
+The `packaging/assets/` icons are all derived from one artwork (source bundle
+`jnext-icons.zip`, git-ignored): `io.github.zxjogv.jnext.{svg,png}` (Linux
+freedesktop), `jnext.ico` (embedded into `jnext.exe` on Windows via `jnext.rc`
++ windres), and `jnext.icns` (macOS `.app`/`.dmg`, via `CPACK_BUNDLE_ICON` —
+unverified on the Linux dev host).
 
 ```sh
 cmake -B build -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release

@@ -29,3 +29,4 @@ tools/cspect_dzrp/__pycache__/
 
 # Task 27 T1 benchmark harness lock (runtime artifact)
 test/bench/.lock
+packaging/assets/*.zip

@@ -146,6 +146,16 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(jnext PRIVATE -Wno-stringop-overflow)
 endif()
 
+# Windows: embed the application icon into jnext.exe via a resource script
+# compiled by windres. jnext.rc references "jnext.ico" relative to the assets
+# dir (added to the RC include path). No-op on other platforms.
+if(WIN32)
+    enable_language(RC)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/assets/jnext.rc
+        PROPERTIES INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/packaging/assets)
+    target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/packaging/assets/jnext.rc)
+endif()
+
 # SDL2 linking: prefer SDL2-static when building statically.
 if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
     set(SDL2_LINK_TARGET SDL2::SDL2-static)
@@ -208,8 +218,9 @@ install(FILES packaging/assets/io.github.zxjogv.jnext.metainfo.xml
 install(FILES packaging/assets/io.github.zxjogv.jnext.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 if(EXISTS "${CMAKE_SOURCE_DIR}/packaging/assets/io.github.zxjogv.jnext.png")
+    # 512x512 raster icon (the scalable SVG above covers every other size).
     install(FILES packaging/assets/io.github.zxjogv.jnext.png
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps)
 endif()
 
 install(FILES LICENSE USAGE.md
@@ -243,5 +254,11 @@ set(CPACK_RPM_PACKAGE_AUTOREQ ON)
 # Name the .rpm the RPM way: <name>-<version>-<release>.<arch>.rpm
 # (RPM-DEFAULT), instead of CPack's default "jnext-<version>-Linux.rpm".
 set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
+
+# macOS: icon for the .app/.dmg produced by the Bundle/DragNDrop generators.
+# Unverified on this Linux dev host (macOS packaging is CI/Mac-only).
+set(CPACK_BUNDLE_NAME "jnext")
+set(CPACK_BUNDLE_ICON "${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns")
+set(CPACK_DMG_VOLUME_NAME "jnext")
 
 include(CPack)
