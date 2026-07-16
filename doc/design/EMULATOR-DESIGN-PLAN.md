@@ -1123,7 +1123,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Integration test plan (Task 69):
   - [x] Document cross-subsystem interaction scenarios — [doc/testing/INTEGRATION-TEST-PLAN.md](../testing/INTEGRATION-TEST-PLAN.md) catalogs all 11 integration suites (row counts, VHDL-cited scenarios) plus a named "gaps/future" section (DMA bus arbitration, multi-layer render composition, full boot chain, RZX/rewind — none proven at the integration tier today).
   - [x] CI integration for golden-output visual regression tests — `.github/workflows/ci.yml` runs the golden-screenshot/functional regression on every push/PR, with `regression.sh` itself self-provisioning jnext's pristine fallback SD image (no test row passes `--sdcard` any more) and running the FULL declared suite, no exclusions — `boot-nextzxos-dotls`'s SD-listing reference was regenerated against that same pristine image, closing the earlier local-fixture-contamination gap.
-  - [x] Create exhaustive CI plan for Github and automated release — `.github/workflows/ci.yml` (build + full test triplet, including an honest SD-image provisioning step via jnext's own `--sdcard-download-confirm`) and `.github/workflows/release.yml` (publishes a GitHub Release from `packaging.yml`'s tag-triggered artifacts on `v*` push).
+  - [x] Create exhaustive CI plan for Github and automated release — `.github/workflows/ci.yml` (build + full test triplet, including an honest SD-image provisioning step via jnext's own `--sdcard-download-confirm`) and `.github/workflows/release.yml` (one tag-triggered workflow: a `gate` job reads `releases.yaml` and only builds + publishes a GitHub Release for **listed** tags — see [doc/RELEASE-PROTOCOL.md](../RELEASE-PROTOCOL.md)).
   - [x] Add badges for test runs and others (license, architectures, etc.) in the main README — CI status, latest release, GPLv3 license, C++17, platform badges added to `README.md`.
 
 - [ ] General optimization plan
@@ -1141,8 +1141,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Packaging (Task 67, v0.98.7):
   - [x] Generate Linux binary packages: Fedora / Debian / Ubuntu — CMake `install()` rules + CPack (TGZ/DEB/RPM, all three produced on the Fedora dev host) + native `packaging/rpm/jnext.spec` and `packaging/debian/`. Support policy documented in `packaging/README.md`.
   - [x] Generate Flatpak package — `packaging/flatpak/io.github.zxjogv.jnext.yml` (org.kde.Platform runtime; YAML-validated; `flatpak-builder` not run on the dev host — SDL2 module carries a placeholder sha256 to fill in).
-  - [~] Generation of Windows version — `.github/workflows/packaging.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. Proven in a fedora:44 container and the exe runs under wine; a real GitHub Actions run is still pending.
-  - [~] Generation of MacOS version — CI config only (packaging.yml macos-latest leg via brew + CPack DragNDrop); UNVERIFIED (no macOS runner on the dev host).
+  - [~] Generation of Windows version — `.github/workflows/release.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. Proven in a fedora:44 container and the exe runs under wine; a real GitHub Actions run is still pending.
+  - [~] Generation of MacOS version — CI config only (release.yml macos-latest leg via brew + CPack DragNDrop, `continue-on-error`); UNVERIFIED (no macOS runner on the dev host).
 
 - [ ] Documentation
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)

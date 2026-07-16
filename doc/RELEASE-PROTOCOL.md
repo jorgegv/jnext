@@ -101,17 +101,22 @@ CI runs these same targets — one build path, no CI-only divergence (§5).
   (not on tags). Runs the full triplet (unit + FUSE + screenshot regression),
   self-provisioning the SD image.
 
-- **The release workflow** (`.github/workflows/packaging.yml` /
-  `release.yml`) — triggers on a **`v*` tag push**. It:
-  1. **Gates** on `releases.yaml`: reads the tag's own commit, checks whether
-     `$GITHUB_REF_NAME` is listed. If **not listed → nothing builds, no
-     release** (just a "skipped, not a release" notice).
-  2. If listed → builds the packages (Linux via CPack; Windows via
-     `make package-win` in a `fedora:44` container; macOS on `macos-latest`)
-     and publishes a **GitHub Release** with them attached.
+- **`.github/workflows/release.yml`** — one tag-triggered workflow (it replaced
+  the old `packaging.yml` + `release.yml` `workflow_run` hand-off). Triggers on
+  a **`v*` tag push**. Jobs:
+  1. **`gate`** — reads `releases.yaml` from the tag's own commit and checks
+     whether `$GITHUB_REF_NAME` is listed → outputs `build` / `publish`.
+  2. **`linux` / `windows` / `macos`** — run only when `build == true`. Linux
+     packages via CPack; Windows via `make package-win` in a `fedora:44`
+     container; macOS native on `macos-latest` (`continue-on-error`, UNTESTED —
+     never blocks a Linux+Windows release). Each uploads its packages as an
+     artifact.
+  3. **`publish`** — runs only when `publish == true`; downloads the artifacts
+     and creates a **GitHub Release**.
 
-  So the expensive build + the public Release only happen for the curated tags
-  in `releases.yaml`; every other pushed tag is a no-op.
+  So a tag **not** in `releases.yaml` → the gate says "private tag", nothing
+  builds. A **`workflow_dispatch`** run builds all packages for testing but
+  never publishes.
 
 ---
 

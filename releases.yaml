@@ -1,0 +1,7 @@
+# Tags listed here get a public GitHub Release (packages built + published by
+# CI) when the tag is pushed. Everything else is a private history tag that
+# builds nothing.
+#
+# `make bump-patch` NEVER adds a tag here. `make bump-minor` / `make bump-major`
+# ask whether to add the new tag. See doc/RELEASE-PROTOCOL.md.
+releases: []

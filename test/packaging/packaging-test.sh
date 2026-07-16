@@ -39,6 +39,13 @@ else
     bad sync-version "contract test failed (see $LOGDIR/syncver.log)"
 fi
 
+# --- add-release.sh contract (releases.yaml allowlist helper) ----------------
+if bash test/packaging/add-release-test.sh >"$LOGDIR/addrel.log" 2>&1; then
+    ok add-release "starts/append/idempotent/fail-loud (see log for detail)"
+else
+    bad add-release "contract test failed (see $LOGDIR/addrel.log)"
+fi
+
 # --- package-src (source tarball) --------------------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)
