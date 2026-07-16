@@ -62,7 +62,7 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make package-deb`     | `.deb` (via CPack, in `build/package-deb/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
 | `make gui-release-win` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/gui-release-win/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/gui-release-win/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
-| `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.8`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
+| `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
 | `make package-macos`   | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
 `make package-test` (`test/packaging/packaging-test.sh`) runs every package
@@ -206,15 +206,15 @@ same submodule gotcha as the RPM case above — a `git` flatpak source has a
 real `.git`, an `archive`/tarball source would not).
 
 The manifest carries the **real** SDL2 tarball `sha256` and pins
-`runtime-version: '6.8'` (the KDE runtime branch installed here). It validates
+`runtime-version: '6.10'` (the KDE runtime branch installed here). It validates
 with `flatpak-builder --show-manifest`. A full `flatpak-builder` run additionally
-needs `org.kde.Sdk//6.8` installed (a large runtime) and the `flathub` remote
+needs `org.kde.Sdk//6.10` installed (a large runtime) and the `flathub` remote
 enabled — neither is set up on this dev host, so `make package-flatpak` /
 `make package-test` validate the manifest and SKIP the actual build here. To
 build it for real:
 
 ```sh
-flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8
+flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
 flatpak-builder --user --install build-dir packaging/flatpak/io.github.zxjogv.jnext.yml
 ```
 
@@ -249,7 +249,7 @@ policy. The per-OS build jobs, when they run:
 | `rpm`     | `ubuntu-latest` + `fedora:44` | dnf deps + CPack (in a Fedora container)             | RPM (CPack)                    | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
-| `flatpak` | `ubuntu-latest` + KDE 6.8     | `flatpak-builder` (org.kde.Sdk//6.8)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
+| `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
 | `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally (`continue-on-error`) |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).

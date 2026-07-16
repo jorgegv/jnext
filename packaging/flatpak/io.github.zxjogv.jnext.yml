@@ -2,10 +2,11 @@ app-id: io.github.zxjogv.jnext
 # KDE runtime chosen over org.freedesktop.Platform because jnext's Qt6 GUI
 # (ENABLE_QT_UI=ON, ENABLE_DEBUGGER=ON) needs Qt6::Widgets; the KDE runtime
 # ships a full Qt6 stack out of the box, so it doesn't need to be built as
-# a separate module the way SDL2 does. Bump the branch to whatever KDE
-# runtime is current when this manifest is actually built.
+# a separate module the way SDL2 does. 6.10 is the newest KDE runtime the CI
+# flatpak-builder image (ghcr…:kde-6.10) provides; 6.8 is deprecated on flathub
+# and kde-6.11 has no CI image yet. Bump both this and the CI image together.
 runtime: org.kde.Platform
-runtime-version: '6.8'
+runtime-version: '6.10'
 sdk: org.kde.Sdk
 command: jnext
 
