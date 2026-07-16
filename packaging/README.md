@@ -23,7 +23,8 @@ at the end of the same file wires up TGZ/DEB/RPM package generation from any
 configured build directory — no separate CPack config file.
 
 The `packaging/assets/` icons are all derived from one artwork (source bundle
-`jnext-icons.zip`, git-ignored): `io.github.zxjogv.jnext.{svg,png}` (Linux
+`jnext-icons.zip`, kept in `packaging/assets/` for reference):
+`io.github.zxjogv.jnext.{svg,png}` (Linux
 freedesktop), `jnext.ico` (embedded into `jnext.exe` on Windows via `jnext.rc`
 + windres), and `jnext.icns` (macOS `.app`/`.dmg`, via `CPACK_BUNDLE_ICON` —
 unverified on the Linux dev host).
