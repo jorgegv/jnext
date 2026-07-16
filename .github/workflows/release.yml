@@ -292,6 +292,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Check out the repo (at the release tag) so the ChangeLog is available
+      # to attach — the package jobs upload only build artifacts, so without a
+      # checkout this job's workspace has no ChangeLog. Runs first: a later
+      # checkout would wipe the downloaded dist/.
+      - name: Check out (for the ChangeLog)
+        uses: actions/checkout@v4
       - name: Download all package artifacts
         uses: actions/download-artifact@v4
         with:
@@ -300,6 +306,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: dist/**/*
+          files: |
+            dist/**/*
+            ChangeLog
           generate_release_notes: true
           fail_on_unmatched_files: false
