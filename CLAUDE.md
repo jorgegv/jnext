@@ -79,6 +79,15 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 ## Version bumping
 
+> **Read [doc/RELEASE-PROTOCOL.md](doc/RELEASE-PROTOCOL.md) whenever the user
+> asks to release or bump a version.** It is the authoritative process:
+> `version.yaml` as single source of truth, the `make bump-patch/minor/major`
+> semantics (patch = private per-merge tag; minor/major = deliberate release
+> that prompts whether to add the tag to `releases.yaml`), `packaging/sync-version.sh`,
+> the `releases.yaml` allowlist that gates public GitHub Releases, the
+> `make package-*` targets, the CI release gate, and the push rules (incl. the
+> GitHub ≤3-tags-per-push limit).
+
 When the user asks to bump the version, follow these steps in order:
 
 1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL (SKIPs are acceptable)
