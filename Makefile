@@ -291,8 +291,11 @@ bump-patch:
 	 patch=$$(echo $$ver | cut -d. -f3); \
 	 patch=$$((patch + 1)); \
 	 newver="$$major.$$minor.$$patch"; \
-	 printf "version: $$newver\n" > version.yaml; \
-	 git add version.yaml && git commit -m "chore: bump version to $$newver" && git tag "v$$newver"; \
+	 printf "version: $$newver\n" > version.yaml && \
+	 bash packaging/sync-version.sh "$$newver" && \
+	 git add version.yaml packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
+	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
+	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
 # Bump minor version (x.Y.z → x.Y+1.0)
@@ -305,8 +308,11 @@ bump-minor:
 	 minor=$$(echo $$ver | cut -d. -f2); \
 	 minor=$$((minor + 1)); \
 	 newver="$$major.$$minor.0"; \
-	 printf "version: $$newver\n" > version.yaml; \
-	 git add version.yaml && git commit -m "chore: bump version to $$newver" && git tag "v$$newver"; \
+	 printf "version: $$newver\n" > version.yaml && \
+	 bash packaging/sync-version.sh "$$newver" && \
+	 git add version.yaml packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
+	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
+	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
 # Bump major version (X.y.z → X+1.0.0)
@@ -318,8 +324,11 @@ bump-major:
 	 major=$$(echo $$ver | cut -d. -f1); \
 	 major=$$((major + 1)); \
 	 newver="$$major.0.0"; \
-	 printf "version: $$newver\n" > version.yaml; \
-	 git add version.yaml && git commit -m "chore: bump version to $$newver" && git tag "v$$newver"; \
+	 printf "version: $$newver\n" > version.yaml && \
+	 bash packaging/sync-version.sh "$$newver" && \
+	 git add version.yaml packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
+	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
+	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
 # Alias: bump → bump-minor
