@@ -33,7 +33,8 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest worktree-bootstrap bench \
-       bump bump-patch bump-minor bump-major version
+       bump bump-patch bump-minor bump-major version \
+       package-src package-rpm package-deb package-flatpak package-win package-macos
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -297,3 +298,87 @@ bump-major:
 
 # Alias: bump → bump-minor
 bump: bump-minor
+
+# ---------------------------------------------------------------------------
+# Packaging (Task 67 follow-up). Each target wraps the packaging inputs under
+# packaging/ and CMake's install()/CPack config (see packaging/README.md).
+# Linux native targets (src/rpm/deb) are verified on the Fedora dev host;
+# win/macos/flatpak guard-and-exit when their tooling/platform is absent.
+# ---------------------------------------------------------------------------
+
+PKG_BUILD_RPM := build/package-rpm
+PKG_BUILD_DEB := build/package-deb
+PKG_BUILD_WIN := build-win
+
+# Build a source tarball (vendors submodule content, unlike a plain git archive)
+package-src:
+	@mkdir -p build/dist
+	bash packaging/make-dist-tarball.sh build/dist
+
+# Build an RPM package via CPack (Fedora/RHEL); needs rpmbuild
+package-rpm:
+	$(CMAKE) -B $(PKG_BUILD_RPM) -S . \
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(PKG_BUILD_RPM) -j$(JOBS)
+	cd $(PKG_BUILD_RPM) && cpack -G RPM
+	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_RPM)/*.rpm
+
+# Build a DEB package via CPack (Debian/Ubuntu); dep autodetection is weak off-Debian
+package-deb:
+	$(CMAKE) -B $(PKG_BUILD_DEB) -S . \
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(PKG_BUILD_DEB) -j$(JOBS)
+	cd $(PKG_BUILD_DEB) && cpack -G DEB
+	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_DEB)/*.deb
+
+# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder)
+package-flatpak:
+	@if ! command -v flatpak-builder >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) flatpak-builder not found.\n"; \
+		printf "  Install it first, e.g.: $(BOLD)sudo dnf install flatpak-builder$(RESET)\n"; \
+		printf "  (or 'sudo apt install flatpak-builder'), then re-run 'make package-flatpak'.\n"; \
+		exit 1; \
+	fi
+	flatpak-builder --force-clean --user build/flatpak \
+		packaging/flatpak/io.github.zxjogv.jnext.yml
+
+# Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
+package-win:
+	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
+	@# actual cross toolchain/libraries. Check the cross gcc and mingw Qt6 too,
+	@# so a missing package is a clear "install these" message, not a cryptic
+	@# "compiler not found" from deep inside CMake's project() call.
+	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
+	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
+	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain/libraries incomplete.\n"; \
+		printf "  Install them all:\n"; \
+		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \\\\\n"; \
+		printf "    mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \\\\\n"; \
+		printf "    mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
+		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
+		exit 1; \
+	fi
+	@# NOTE: this ZIP does NOT yet bundle the Qt6/SDL2 runtime DLLs from
+	@# /usr/x86_64-w64-mingw32/sys-root/mingw/bin — a known follow-up.
+	mingw64-cmake -S . -B $(PKG_BUILD_WIN) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(PKG_BUILD_WIN) -j$(JOBS)
+	cd $(PKG_BUILD_WIN) && cpack -G ZIP
+	@printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip
+
+# The whole recipe is one shell invocation so the non-Darwin early-exit
+# actually stops it — a bare `exit 0` on its own recipe line would only end
+# that line and make would still run the build+cpack lines that follow.
+#
+# Build a macOS .dmg via CPack DragNDrop (Darwin only)
+package-macos:
+	@if [ "$$(uname -s)" != "Darwin" ]; then \
+		printf "$(BADGE_SKIP) SKIP $(RESET) macOS packaging requires a Mac (or the GitHub Actions\n"; \
+		printf "  macos-latest runner — see the macos leg in .github/workflows/packaging.yml).\n"; \
+		printf "  It cannot be produced on this $$(uname -s) host.\n"; \
+		exit 0; \
+	fi; \
+	$(CMAKE) -B build/package-macos -S . \
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF && \
+	$(CMAKE) --build build/package-macos -j$(JOBS) && \
+	( cd build/package-macos && cpack -G DragNDrop )

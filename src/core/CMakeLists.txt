@@ -14,10 +14,16 @@ file(GLOB_RECURSE SOURCES "*.cpp")
 #   _binary_roms_nextboot_rom_size
 #
 # We pass --output-target / --binary-architecture so the produced object
-# matches the host ELF format. jnext currently only builds for Linux x86-64;
-# if cross-compilation is added later, parameterise these with
-# ${CMAKE_*_SYSTEM_PROCESSOR} or drop them and let objcopy infer.
+# matches the target object format. Native Linux x86-64 uses ELF; a MinGW
+# Windows/PE cross-build (e.g. via mingw64-cmake, which sets CMAKE_OBJCOPY to
+# the cross objcopy) needs pe-x86-64 instead, or the link fails with an
+# object-format mismatch. Select on the target platform.
 # ---------------------------------------------------------------------------
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(NEXTBOOT_ROM_OUTPUT_TARGET pe-x86-64)
+else()
+    set(NEXTBOOT_ROM_OUTPUT_TARGET elf64-x86-64)
+endif()
 set(NEXTBOOT_ROM_SRC ${CMAKE_SOURCE_DIR}/roms/nextboot.rom)
 set(NEXTBOOT_ROM_OBJ ${CMAKE_CURRENT_BINARY_DIR}/nextboot_rom.o)
 
@@ -29,7 +35,7 @@ add_custom_command(
     OUTPUT  ${NEXTBOOT_ROM_OBJ}
     COMMAND ${CMAKE_OBJCOPY}
             --input-target=binary
-            --output-target=elf64-x86-64
+            --output-target=${NEXTBOOT_ROM_OUTPUT_TARGET}
             --binary-architecture=i386:x86-64
             roms/nextboot.rom
             ${NEXTBOOT_ROM_OBJ}

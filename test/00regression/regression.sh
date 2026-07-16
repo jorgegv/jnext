@@ -1416,6 +1416,47 @@ PY
     fi
 fi
 
+# ffmpeg-missing-warn-func (packaging Task 67 follow-up): jnext shells out to
+# ffmpeg for --record / File > Record MPEG4 Video. At startup it probes for
+# ffmpeg and, if absent, warns once (in EVERY mode, headless included) so the
+# user is not surprised only when a recording silently fails. Discriminative
+# both ways: with ffmpeg masked from PATH the warning MUST fire; with ffmpeg
+# present it MUST NOT. The masked run points PATH at a directory with no
+# executables (so `ffmpeg -version` cannot resolve); the control run uses the
+# real PATH. Both use --headless so no display is needed.
+if want ffmpeg-missing-warn-func; then
+    begin_func ffmpeg-missing-warn-func
+    warn_line="ffmpeg not found in PATH"
+    # jnext is addressed by absolute path, so a stripped PATH does not stop it
+    # launching — only its own ffmpeg probe fails. `env` sets PATH for the jnext
+    # child ONLY; it must come AFTER timeout, or `env PATH=... timeout` would
+    # leave `timeout` itself unresolvable on the stripped PATH.
+    ff_masked=$(timeout --foreground --kill-after=5s 20s \
+        env PATH=/nonexistent-jnext-ffmpeg-test "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 5 2>&1) || true
+    ff_present=$(timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 5 2>&1) || true
+    masked_hit=$(echo "$ff_masked" | grep -cF "$warn_line" || true)
+    present_hit=$(echo "$ff_present" | grep -cF "$warn_line" || true)
+    if ! command -v ffmpeg &>/dev/null; then
+        # ffmpeg genuinely absent on this host — the control run cannot prove the
+        # negative, so only assert the masked run warns. Loud, not silent.
+        if [[ "$masked_hit" -ge 1 ]]; then
+            echo -e "${GREEN}PASS${RESET} (warns when ffmpeg absent; control skipped — no ffmpeg on host)"
+            pass=$((pass + 1))
+        else
+            echo -e "${RED}FAIL${RESET} (masked run did not warn: masked_hit=$masked_hit want>=1)"
+            fail=$((fail + 1))
+        fi
+    elif [[ "$masked_hit" -ge 1 && "$present_hit" -eq 0 ]]; then
+        echo -e "${GREEN}PASS${RESET} (warns when ffmpeg masked from PATH; silent when present)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (masked_hit=$masked_hit want>=1, present_hit=$present_hit want0)"
+        fail=$((fail + 1))
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"

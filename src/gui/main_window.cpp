@@ -332,6 +332,17 @@ void MainWindow::create_menus() {
     record_start_action_ = file_menu->addAction(tr("Record &MPEG4 Video..."));
     record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
     connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
+    // Packaging Task 67 follow-up: grey the option out entirely when ffmpeg
+    // is missing, instead of only failing after the user picks a save path
+    // (on_record_start's existing check stays as a fallback in case ffmpeg
+    // is installed/removed while jnext is running).
+    if (!VideoRecorder::ffmpeg_available()) {
+        record_start_action_->setEnabled(false);
+        record_start_action_->setToolTip(tr("FFmpeg is required for video recording but was not found in PATH.\n"
+                                             "Install it with your package manager, e.g. 'sudo dnf install ffmpeg' "
+                                             "or 'sudo apt install ffmpeg'."));
+        record_start_action_->setStatusTip(record_start_action_->toolTip());
+    }
 
     record_stop_action_ = file_menu->addAction(tr("Sto&p MPEG4 Recording"));
     record_stop_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
