@@ -6,3 +6,4 @@
 # ask whether to add the new tag. See doc/RELEASE-PROTOCOL.md.
 releases:
   - v0.98.19
+  - v0.98.24
