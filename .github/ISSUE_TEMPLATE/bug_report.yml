@@ -51,6 +51,17 @@ body:
         - Not sure / not relevant
     validations:
       required: false
+  - type: dropdown
+    id: real-hardware
+    attributes:
+      label: Happens on real hardware?
+      description: Reproduced on a physical ZX Spectrum Next? Helps tell an emulator bug from genuine hardware behaviour.
+      options:
+        - "Yes"
+        - "No"
+        - Not tested
+    validations:
+      required: false
   - type: textarea
     id: what-happened
     attributes:
