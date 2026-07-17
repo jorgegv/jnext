@@ -278,9 +278,10 @@ canonical source for **all** ROMs jnext needs at runtime, mirroring real
 ZX Spectrum Next hardware. There are two parts:
 
 1. **FPGA boot ROM (`nextboot.rom`, 8 KB)** is silicon-baked: embedded
-   into the jnext binary at link time via `objcopy --input-target=binary`
-   in `src/core/CMakeLists.txt`. No CLI flag, no SD lookup. Mirrors the
-   on-FPGA flash IPL of real Next hardware.
+   into the jnext binary as a generated C byte array (`src/core/embed_rom.cmake`
+   invoked from `src/core/CMakeLists.txt` — portable across Linux/Windows/macOS,
+   no objcopy). No CLI flag, no SD lookup. Mirrors the on-FPGA flash IPL of real
+   Next hardware.
 
 2. **All other ROMs** are extracted from the SD image (supplied via
    `--sdcard`, or the `~/.jnext/sdcard/` fallback) at canonical TBBlue

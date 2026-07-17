@@ -77,10 +77,10 @@ cryptic mid-build failure.
 
 ### Windows cross-build (Fedora MinGW)
 
-`make package-win` cross-compiles with Fedora's MinGW wrapper `mingw64-cmake`
-(which sets `CMAKE_OBJCOPY` to the cross objcopy — `src/core/CMakeLists.txt`
-now selects `--output-target=pe-x86-64` for a Windows target so the embedded
-`nextboot.rom` object links). Install the full toolchain + libraries first:
+`make package-win` cross-compiles with Fedora's MinGW wrapper `mingw64-cmake`.
+(The embedded `nextboot.rom` is generated as a portable C array by
+`src/core/embed_rom.cmake`, so there is no objcopy/object-format dependency on
+any target.) Install the full toolchain + libraries first:
 
 ```sh
 sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \

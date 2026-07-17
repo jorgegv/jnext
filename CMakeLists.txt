@@ -186,10 +186,11 @@ target_link_libraries(jnext PRIVATE
     ${SDL2_LINK_TARGET})
 target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 
-# nextboot_rom.o is an objcopy'd binary blob (roms/nextboot.rom) with no
-# .note.GNU-stack marker, so GNU ld conservatively marks the whole binary's
-# stack executable and warns. The blob is inert data, so force a
-# non-executable stack — silences the warning and hardens the binary.
+# Force a non-executable stack — general hardening; jnext never needs an
+# executable stack. (Historically this also silenced a GNU ld warning about
+# the objcopy'd nextboot.rom blob lacking a .note.GNU-stack marker; the ROM is
+# now a normal compiled C object that carries the marker, so the flag is pure
+# hardening today.)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(jnext PRIVATE -Wl,-z,noexecstack)
 endif()

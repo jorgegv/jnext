@@ -8,45 +8,28 @@ file(GLOB_RECURSE SOURCES "*.cpp")
 # accessor and Emulator::init for default-load behaviour. User decision
 # 2026-05-04 (Task 8 Multiface plan, Wave 0.1).
 #
-# objcopy --input-target=binary auto-generates three symbols:
-#   _binary_roms_nextboot_rom_start
-#   _binary_roms_nextboot_rom_end
-#   _binary_roms_nextboot_rom_size
-#
-# We pass --output-target / --binary-architecture so the produced object
-# matches the target object format. Native Linux x86-64 uses ELF; a MinGW
-# Windows/PE cross-build (e.g. via mingw64-cmake, which sets CMAKE_OBJCOPY to
-# the cross objcopy) needs pe-x86-64 instead, or the link fails with an
-# object-format mismatch. Select on the target platform.
+# We generate a C byte array (embed_rom.cmake) rather than objcopy'ing the
+# ROM into an object file. objcopy --input-target=binary is not portable:
+# macOS ships no GNU objcopy that can emit a Mach-O object with the
+# `_binary_*` symbols, and the arm64 macOS runner also rejects the
+# i386:x86-64 arch flag. A generated C array compiles identically on Linux,
+# Windows (MinGW) and macOS — and drops the CMAKE_OBJCOPY dependency entirely.
+# The array is exposed via `nextboot_rom_data` / `nextboot_rom_size`
+# (see embedded_nextboot_rom.h).
 # ---------------------------------------------------------------------------
-if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(NEXTBOOT_ROM_OUTPUT_TARGET pe-x86-64)
-else()
-    set(NEXTBOOT_ROM_OUTPUT_TARGET elf64-x86-64)
-endif()
 set(NEXTBOOT_ROM_SRC ${CMAKE_SOURCE_DIR}/roms/nextboot.rom)
-set(NEXTBOOT_ROM_OBJ ${CMAKE_CURRENT_BINARY_DIR}/nextboot_rom.o)
-
-# objcopy derives the three `_binary_<path>_*` symbol names from the input
-# path (each non-alphanumeric char becomes `_`). To get the clean
-# `_binary_roms_nextboot_rom_*` names that embedded_nextboot_rom.h declares,
-# we run objcopy with a relative input path from the source-tree root.
+set(NEXTBOOT_ROM_GEN ${CMAKE_CURRENT_BINARY_DIR}/nextboot_rom.c)
 add_custom_command(
-    OUTPUT  ${NEXTBOOT_ROM_OBJ}
-    COMMAND ${CMAKE_OBJCOPY}
-            --input-target=binary
-            --output-target=${NEXTBOOT_ROM_OUTPUT_TARGET}
-            --binary-architecture=i386:x86-64
-            roms/nextboot.rom
-            ${NEXTBOOT_ROM_OBJ}
-    DEPENDS ${NEXTBOOT_ROM_SRC}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Embedding nextboot.rom into jnext binary"
+    OUTPUT  ${NEXTBOOT_ROM_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DROM_IN=${NEXTBOOT_ROM_SRC}
+            -DROM_OUT=${NEXTBOOT_ROM_GEN}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/embed_rom.cmake
+    DEPENDS ${NEXTBOOT_ROM_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/embed_rom.cmake
+    COMMENT "Embedding nextboot.rom into jnext binary (portable C array)"
     VERBATIM
 )
-set_source_files_properties(${NEXTBOOT_ROM_OBJ} PROPERTIES
-    EXTERNAL_OBJECT TRUE
-    GENERATED TRUE)
+set_source_files_properties(${NEXTBOOT_ROM_GEN} PROPERTIES GENERATED TRUE)
 
 # ---------------------------------------------------------------------------
 # Vendored ChaN FatFs R0.15b (third_party/fatfs). Used by the SD-card
@@ -57,7 +40,7 @@ set_source_files_properties(${NEXTBOOT_ROM_OBJ} PROPERTIES
 set(FATFS_DIR ${CMAKE_SOURCE_DIR}/third_party/fatfs)
 set(FATFS_SOURCES ${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c)
 
-add_library(jnext_core STATIC ${SOURCES} ${FATFS_SOURCES} ${NEXTBOOT_ROM_OBJ})
+add_library(jnext_core STATIC ${SOURCES} ${FATFS_SOURCES} ${NEXTBOOT_ROM_GEN})
 # ${CMAKE_SOURCE_DIR} is on the path so that #include "third_party/fatfs/ff.h"
 # resolves now that FatFs sits with the other vendored libraries at the root.
 target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})

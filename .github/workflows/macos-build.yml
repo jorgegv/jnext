@@ -1,0 +1,50 @@
+# Standalone macOS build, triggered by hand from the GitHub Actions UI
+# (Actions → "macOS Build (manual)" → Run workflow). Lets the macOS build be
+# exercised WITHOUT cutting a release — the macos leg in release.yml only runs
+# on a published tag and is continue-on-error, so failures there are easy to
+# miss. This workflow is NOT continue-on-error: a broken macOS build fails the
+# run, loud and visible.
+name: macOS Build (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Also build the .dmg package (CPack DragNDrop)'
+        type: boolean
+        default: true
+
+jobs:
+  macos-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
+
+      - name: Build
+        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: Smoke test (--version)
+        run: ./build/jnext --version
+
+      - name: Package (DragNDrop)
+        if: ${{ inputs.package }}
+        working-directory: build
+        run: cpack -G DragNDrop
+
+      - name: Upload package
+        if: ${{ inputs.package }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: jnext-macos-package
+          path: build/*.dmg
+          if-no-files-found: warn
