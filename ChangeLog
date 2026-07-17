@@ -1,5 +1,15 @@
 # ChangeLog
 
+## v0.98.34 (2026-07-17)
+
+### User Features
+- macOS support: jnext now builds and runs natively on macOS (the macOS build previously failed to compile)
+
+### Internal JNEXT Development
+- macOS build fixes: debug library links SDL2 for Homebrew's header layout; boot ROM embedded as a portable C array (no objcopy) so it builds on Linux, Windows and macOS alike
+- New manual "macOS Build" CI workflow to test the macOS build without cutting a release
+- `make publish-release`: pushes commits plus only the newest tag so a GitHub Release reliably triggers
+
 ## v0.98.29 (2026-07-17)
 
 ### Bug Fixes
