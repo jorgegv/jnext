@@ -1242,6 +1242,12 @@ private:
     /// Schedule a full frame's worth of SCANLINE events into the scheduler.
     void schedule_frame_events();
 
+    /// Current VHDL `cvc` counter (o_vc_cu) at the present master cycle:
+    /// the copper-offset raster line, origin = first paper line, wrapping at
+    /// c_max_vc, shifted by NR 0x64 cu_offset (zxula_timing.vhd:455-472).
+    /// Read back by NR 0x1E/0x1F and used by the line-interrupt comparator.
+    int current_cvc() const;
+
     /// Called by the SCANLINE event handler for scanline `line`.
     void on_scanline(int line);
 

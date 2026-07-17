@@ -2169,16 +2169,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --- NextREG read handlers (dynamic registers) ---
 
     // Registers 0x1E/0x1F: Active video line (read-only, computed from cycle count).
-    // Returns the current raster line (vc) relative to display start.
+    //
+    // VHDL zxnext.vhd:5982-5986 wires BOTH read handlers to `cvc` — the
+    // copper-offset counter (o_vc_cu), NOT the raw frame vc:
+    //     when X"1E" => port_253b_dat <= "0000000" & cvc(8);
+    //     when X"1F" => port_253b_dat <= std_logic_vector(cvc(7 downto 0));
+    // `cvc` (zxula_timing.vhd:455-472) is reset to `i_cu_offset` at the first
+    // active PAPER line (`ula_min_vactive`, raw vc == c_min_vactive) and
+    // increments each line, wrapping at c_max_vc. So its origin is the first
+    // paper row (with cu_offset=0), NOT the frame top — the same origin the
+    // line-interrupt comparator uses (:577 `cvc == int_line_num`).
+    //
+    // Bug (GH #16 / Task 76): the old handler returned the RAW frame vc
+    // (0 = frame top), 64 lines off from `cvc` for 128K/Next timing. Any
+    // code polling NR 0x1E/0x1F for a raster line — e.g. z88dk's
+    // waitForScanline() / getActiveVideoLineWord() — therefore matched its
+    // target 64 lines (8 tile rows) too early, so a scroll write meant for
+    // the top of the frame landed ~24 rows down (David Crespo's videoint
+    // test: 24 fixed + 6 scrolling + 2 fixed instead of 30 scrolling + 2).
+    // See the line-interrupt firing math in line_int_master_cycle_offset()
+    // and begin_new_frame(), which already use this exact cvc origin.
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
-        uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-        return static_cast<uint8_t>((vc >> 8) & 0x01);
+        return static_cast<uint8_t>((current_cvc() >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
-        uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-        return static_cast<uint8_t>(vc & 0xFF);
+        return static_cast<uint8_t>(current_cvc() & 0xFF);
     });
 
     // Register 0x22: Line interrupt control
@@ -6642,10 +6657,17 @@ void Emulator::run_frame()
         --boot_hold_frames_remaining_;
     }
 
-    // Snapshot the fallback/border/ULA-enable colour and tilemap scroll
-    // for the last visible framebuffer row. G164v2 — these arrays are
-    // indexed by fb_row in [0, FB_HEIGHT), so the end-of-frame snapshot
-    // must use FB_HEIGHT-1 (=255), not the raw last VC line.
+    // Snapshot the fallback/border/ULA-enable colour for the last visible
+    // framebuffer row. G164v2 — these arrays are indexed by fb_row in
+    // [0, FB_HEIGHT), so the end-of-frame snapshot must use FB_HEIGHT-1
+    // (=255), not the raw last VC line.
+    //
+    // Tilemap scroll is deliberately NOT re-snapshotted here (GH #16 /
+    // Task 76): with the start-of-scanline latch in on_scanline(), row 255
+    // is already captured by on_scanline(287) with the value in effect as
+    // that row begins. Re-snapshotting FB_HEIGHT-1 at end-of-frame would
+    // overwrite it with the frame's FINAL scroll value — leaking a HUD-zone
+    // re-scroll onto the last visible row.
     renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
@@ -6653,7 +6675,6 @@ void Emulator::run_frame()
     renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
-    tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -8030,6 +8051,23 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     }
 }
 
+int Emulator::current_cvc() const
+{
+    // cvc = (raw_vc - c_min_vactive + cu_offset) mod (c_max_vc + 1)
+    // (zxula_timing.vhd:455-472). raw_vc uses the SAME frame origin the
+    // line-interrupt scheduler assumes (frame int at raw vc==c_int_v), so
+    // this matches begin_new_frame()/line_int_master_cycle_offset() exactly.
+    const uint64_t elapsed = clock_.get() - frame_cycle_;
+    const int raw_vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+    const int lines_per_frame = video_timing_.vc_max() + 1;
+    const int min_vactive     = video_timing_.display_origin().vc;
+    const int cu_offset       = video_timing_.cu_offset();
+    int cvc = (raw_vc - min_vactive + cu_offset) % lines_per_frame;
+    if (cvc < 0)
+        cvc += lines_per_frame;
+    return cvc;
+}
+
 void Emulator::on_scanline(int line)
 {
     // Snapshot the fallback colour / ULA-enable / border / tilemap scroll
@@ -8054,8 +8092,28 @@ void Emulator::on_scanline(int line)
             renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
             renderer_.snapshot_ula_clip_for_line(prev_fb_row);
             renderer_.ula().snapshot_border_for_line(prev_fb_row);
-            tilemap_.snapshot_scroll_for_line(prev_fb_row);
         }
+    }
+
+    // Tilemap X/Y scroll latches at the START of each scanline, not the end
+    // (GH #16 / Task 76). on_scanline(line) fires at the start of raw scanline
+    // `line`, so the live scroll here is the value in effect as the tilemap
+    // begins fetching THIS scanline (fb_row = line - vblank_top). A CPU write
+    // that lands mid-scanline therefore affects the NEXT displayed row, which
+    // is what real hardware / CSpect do.
+    //
+    // The other per-scanline snapshots above deliberately use `prev_fb_row`
+    // (end-of-N-1 = "reflect Copper MOVE writes that landed in vc=N-1"); the
+    // tilemap scroll was sharing that origin and so applied one row too early:
+    // a HUD split reset via a line interrupt appeared at fb_row 239 instead of
+    // 240, and the re-scroll leaked onto the last visible row (255). Latching
+    // at the current row fixes both boundaries. Row 255 is now covered by
+    // on_scanline(287); the redundant end-of-frame snapshot_scroll_for_line()
+    // that used to clobber it with the frame's FINAL scroll value is removed.
+    {
+        const int cur_fb_row = line - video_timing_.vblank_top();
+        if (cur_fb_row >= 0 && cur_fb_row < Renderer::FB_HEIGHT)
+            tilemap_.snapshot_scroll_for_line(cur_fb_row);
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging
     // per-scanline change-log entries. Renderer::render_frame iterates
