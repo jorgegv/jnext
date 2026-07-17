@@ -48,7 +48,6 @@ body:
         - 48K
         - 128K
         - "+3"
-        - Pentagon
         - Not sure / not relevant
     validations:
       required: false
@@ -74,7 +73,7 @@ body:
     id: media
     attributes:
       label: Program / media
-      description: The file or SD image involved (NEX/TAP/TZX/SNA/SZX/Z80), if any. Attach it if you can share it.
+      description: The file or SD image involved (NEX/TAP/TZX/SNA/SZX/Z80/WAV/RZX), if any. Attach it if you can share it.
     validations:
       required: false
   - type: textarea
