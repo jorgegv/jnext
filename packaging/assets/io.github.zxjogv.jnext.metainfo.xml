@@ -40,20 +40,11 @@
   <url type="homepage">https://github.com/jorgegv/jnext</url>
   <url type="bugtracker">https://github.com/jorgegv/jnext/issues</url>
   <content_rating type="oars-1.1"/>
+  <!-- Public releases only — must mirror releases.yaml. Private per-merge
+       patch tags are NOT listed here (sync-version.sh gates this on
+       releases.yaml membership). -->
   <releases>
-    <release version="0.98.28" date="2026-07-17"/>
-    <release version="0.98.27" date="2026-07-17"/>
-    <release version="0.98.26" date="2026-07-16"/>
-    <release version="0.98.25" date="2026-07-16"/>
     <release version="0.98.24" date="2026-07-16"/>
-    <release version="0.98.23" date="2026-07-16"/>
-    <release version="0.98.22" date="2026-07-16"/>
-    <release version="0.98.21" date="2026-07-16"/>
-    <release version="0.98.20" date="2026-07-16"/>
     <release version="0.98.19" date="2026-07-16"/>
-    <release version="0.98.18" date="2026-07-16"/>
-    <release version="0.98.17" date="2026-07-16"/>
-    <release version="0.98.16" date="2026-07-16"/>
-    <release version="0.98.5" date="2026-07-15"/>
   </releases>
 </component>

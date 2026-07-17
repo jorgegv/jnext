@@ -291,9 +291,14 @@ bump-patch:
 	 patch=$$(echo $$ver | cut -d. -f3); \
 	 patch=$$((patch + 1)); \
 	 newver="$$major.$$minor.$$patch"; \
+	 rel=""; \
+	 if [ -t 0 ]; then \
+	   printf "Add v$$newver to releases.yaml (build a public GitHub Release)? [y/N] "; read ans || ans=n; \
+	 else ans=n; fi; \
+	 case "$$ans" in [yY]*) bash packaging/add-release.sh "v$$newver" && rel="releases.yaml" ;; *) : ;; esac && \
 	 printf "version: $$newver\n" > version.yaml && \
 	 bash packaging/sync-version.sh "$$newver" && \
-	 git add version.yaml packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
+	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
 	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"

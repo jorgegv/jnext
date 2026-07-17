@@ -12,6 +12,8 @@
 # touched here. This script handles only the files a person wrote by hand:
 #   - packaging/rpm/jnext.spec          Version: + a matching %changelog entry
 #   - packaging/assets/*.metainfo.xml   the AppStream <releases> history
+#                                       (PUBLIC releases only — gated on
+#                                        releases.yaml; private patch tags skip)
 #   - packaging/debian/changelog        the Debian changelog
 #
 # The flatpak manifest is NOT listed: it builds from the local checkout
@@ -64,9 +66,21 @@ if ! grep -qE "^\* .* - ${ver}-1\$" "$spec"; then
     ' "$spec" > "$spec.tmp" && mv "$spec.tmp" "$spec"
 fi
 
-# --- AppStream metainfo: prepend a <release> to the history ------------------
-if ! grep -qE "<release version=\"$ver\"" "$metainfo"; then
-    sed -i -E "s#([[:space:]]*)(<releases>)#\1\2\n\1  <release version=\"$ver\" date=\"$d_iso\"/>#" "$metainfo"
+# --- AppStream metainfo: prepend a <release> for PUBLIC releases only ---------
+# The metainfo <releases> is the AppStream release history shown in software
+# centres / Flathub. It must list ONLY the public releases — the tags in
+# releases.yaml — not the private per-merge patch tags, otherwise every
+# bump-patch pollutes the history with a version that was never published.
+# bump-minor/major add the tag to releases.yaml BEFORE calling this script (when
+# the user opts in), so a public release is already listed there by the time we
+# get here; a private bump-patch never is.
+releases_yaml="$root/releases.yaml"
+if grep -qE "^[[:space:]]*-[[:space:]]*v${ver}([[:space:]]|\$)" "$releases_yaml" 2>/dev/null; then
+    if ! grep -qE "<release version=\"$ver\"" "$metainfo"; then
+        sed -i -E "s#([[:space:]]*)(<releases>)#\1\2\n\1  <release version=\"$ver\" date=\"$d_iso\"/>#" "$metainfo"
+    fi
+else
+    echo "sync-version: v$ver not in releases.yaml (private tag) — metainfo <releases> left unchanged"
 fi
 
 # --- Debian changelog: prepend a new entry -----------------------------------

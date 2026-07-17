@@ -2,8 +2,10 @@
 # CI) when the tag is pushed. Everything else is a private history tag that
 # builds nothing.
 #
-# `make bump-patch` NEVER adds a tag here. `make bump-minor` / `make bump-major`
-# ask whether to add the new tag. See doc/RELEASE-PROTOCOL.md.
+# Every `make bump-*` (patch, minor and major) asks whether to add the new tag
+# here (default No — a private history tag). Answer yes to make that version a
+# public GitHub Release. See doc/RELEASE-PROTOCOL.md.
 releases:
+  - v0.98.29
   - v0.98.19
   - v0.98.24
