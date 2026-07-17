@@ -3,6 +3,8 @@
 ## Unreleased (2026-07-17)
 
 ### User Features
+- Per-connector joystick input mapping: each of the Next's two joystick ports can be driven by an autodetected gamepad or by the host cursor keys + Space (fire); selectable in the new Input menu, in Preferences, via `--joy1-source`/`--joy2-source`, and remembered across sessions
+- The Qt GUI now supports USB gamepads (previously only the SDL-only build did)
 - `--esxdos-stub`: esxDOS `run NAME.nex` now chain-loads a sibling NEX (game selectors / multi-part games run without booting NextZXOS); adds in-memory esxDOS file I/O so games can read/write a config or score file
 
 ### Bug Fixes

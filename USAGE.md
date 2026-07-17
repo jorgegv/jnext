@@ -148,6 +148,8 @@ with `-` is treated as an option, never as a filename.
 | `--sdcard-download-confirm` | Skip the download prompt for the default-location image and proceed |
 | `--sdcard-download-force` | Force re-download + re-patch of the default-location image (ignored when `--sdcard` is given) |
 | `--speed PERCENT` | Emulator throttle: 50 = half, 100 = normal, 200 = 2×, 400 = 4× (clamped to 10..1000) |
+| `--joy1-source SRC` | Host source for Joy 1 (port 0x1F): `sdl` (autodetected gamepad, default) or `keys` (cursor keys + Space = fire) |
+| `--joy2-source SRC` | Host source for Joy 2 (port 0x37): `sdl` (default) or `keys`. Only one connector may use `keys` |
 | `--tape-realtime` | Real-time tape loading instead of fast load |
 | `--esxdos-stub` | Provide basic `RST $08` file I/O and sibling-NEX chaining |
 | `--rtc "YYYY-MM-DD HH:MM:SS"` | Pin the RTC to a fixed date/time (frozen clock) instead of following the host clock. The ISO `YYYY-MM-DDTHH:MM:SS` form is also accepted |
@@ -307,8 +309,16 @@ emulator runs relative to real time.
 | Space               | Space                    |
 
 Up to two USB gamepads are picked up automatically (hot-plug) and mapped to the
-Next's MD6 joystick ports; the joystick mode (Kempston / Sinclair / Cursor /
+Next's two joystick ports; the joystick mode (Kempston / Sinclair / Cursor /
 MD) follows NextREG 0x05, as on real hardware.
+
+Either joystick port can instead be driven by the **host cursor keys** (arrows
+for direction, **Space** for fire) — useful for the many games that read the
+Kempston joystick when you have no gamepad. Choose the source per connector in
+the **Input** menu (or **Settings > Preferences > Input**, or with
+`--joy1-source keys` / `--joy2-source keys`); the choice is remembered across
+sessions. Only one connector may use the cursor keys at a time, and while it
+does, the arrows and Space stop acting as ZX keys.
 
 ## The debugger
 
