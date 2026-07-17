@@ -107,19 +107,19 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
             case 2: { // DJNZ d
                 int8_t d = static_cast<int8_t>(read_fn(static_cast<uint16_t>(addr + 1)));
                 uint16_t target = static_cast<uint16_t>(addr + 2 + d);
-                std::sprintf(buf, "DJNZ $%04X", target);
+                std::snprintf(buf, sizeof(buf), "DJNZ $%04X", target);
                 return make_line(addr, 2, read_fn, buf);
             }
             case 3: { // JR d
                 int8_t d = static_cast<int8_t>(read_fn(static_cast<uint16_t>(addr + 1)));
                 uint16_t target = static_cast<uint16_t>(addr + 2 + d);
-                std::sprintf(buf, "JR $%04X", target);
+                std::snprintf(buf, sizeof(buf), "JR $%04X", target);
                 return make_line(addr, 2, read_fn, buf);
             }
             default: { // JR cc,d (y=4..7 → cc=y-4)
                 int8_t d = static_cast<int8_t>(read_fn(static_cast<uint16_t>(addr + 1)));
                 uint16_t target = static_cast<uint16_t>(addr + 2 + d);
-                std::sprintf(buf, "JR %s,$%04X", cc_names[y - 4], target);
+                std::snprintf(buf, sizeof(buf), "JR %s,$%04X", cc_names[y - 4], target);
                 return make_line(addr, 2, read_fn, buf);
             }
             }
@@ -128,11 +128,11 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
             if (q == 0) {
                 // LD rp,nn
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                std::sprintf(buf, "LD %s,$%04X", rp_names[p], nn);
+                std::snprintf(buf, sizeof(buf), "LD %s,$%04X", rp_names[p], nn);
                 return make_line(addr, 3, read_fn, buf);
             } else {
                 // ADD HL,rp
-                std::sprintf(buf, "ADD HL,%s", rp_names[p]);
+                std::snprintf(buf, sizeof(buf), "ADD HL,%s", rp_names[p]);
                 return make_line(addr, 1, read_fn, buf);
             }
             break;
@@ -143,12 +143,12 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
                 case 1: return make_line(addr, 1, read_fn, "LD (DE),A");
                 case 2: {
                     uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                    std::sprintf(buf, "LD ($%04X),HL", nn);
+                    std::snprintf(buf, sizeof(buf), "LD ($%04X),HL", nn);
                     return make_line(addr, 3, read_fn, buf);
                 }
                 case 3: {
                     uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                    std::sprintf(buf, "LD ($%04X),A", nn);
+                    std::snprintf(buf, sizeof(buf), "LD ($%04X),A", nn);
                     return make_line(addr, 3, read_fn, buf);
                 }
                 }
@@ -158,12 +158,12 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
                 case 1: return make_line(addr, 1, read_fn, "LD A,(DE)");
                 case 2: {
                     uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                    std::sprintf(buf, "LD HL,($%04X)", nn);
+                    std::snprintf(buf, sizeof(buf), "LD HL,($%04X)", nn);
                     return make_line(addr, 3, read_fn, buf);
                 }
                 case 3: {
                     uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                    std::sprintf(buf, "LD A,($%04X)", nn);
+                    std::snprintf(buf, sizeof(buf), "LD A,($%04X)", nn);
                     return make_line(addr, 3, read_fn, buf);
                 }
                 }
@@ -171,21 +171,21 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
             break;
         case 3:
             if (q == 0) {
-                std::sprintf(buf, "INC %s", rp_names[p]);
+                std::snprintf(buf, sizeof(buf), "INC %s", rp_names[p]);
             } else {
-                std::sprintf(buf, "DEC %s", rp_names[p]);
+                std::snprintf(buf, sizeof(buf), "DEC %s", rp_names[p]);
             }
             return make_line(addr, 1, read_fn, buf);
         case 4:
-            std::sprintf(buf, "INC %s", r_names[y]);
+            std::snprintf(buf, sizeof(buf), "INC %s", r_names[y]);
             return make_line(addr, 1, read_fn, buf);
         case 5:
-            std::sprintf(buf, "DEC %s", r_names[y]);
+            std::snprintf(buf, sizeof(buf), "DEC %s", r_names[y]);
             return make_line(addr, 1, read_fn, buf);
         case 6: {
             // LD r,n
             uint8_t n = read_fn(static_cast<uint16_t>(addr + 1));
-            std::sprintf(buf, "LD %s,$%02X", r_names[y], n);
+            std::snprintf(buf, sizeof(buf), "LD %s,$%02X", r_names[y], n);
             return make_line(addr, 2, read_fn, buf);
         }
         case 7:
@@ -207,23 +207,23 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
         if (z == 6 && y == 6) {
             return make_line(addr, 1, read_fn, "HALT");
         }
-        std::sprintf(buf, "LD %s,%s", r_names[y], r_names[z]);
+        std::snprintf(buf, sizeof(buf), "LD %s,%s", r_names[y], r_names[z]);
         return make_line(addr, 1, read_fn, buf);
 
     case 2:
         // ALU A,r
-        std::sprintf(buf, "%s%s", alu_names[y], r_names[z]);
+        std::snprintf(buf, sizeof(buf), "%s%s", alu_names[y], r_names[z]);
         return make_line(addr, 1, read_fn, buf);
 
     case 3:
         switch (z) {
         case 0:
             // RET cc
-            std::sprintf(buf, "RET %s", cc_names[y]);
+            std::snprintf(buf, sizeof(buf), "RET %s", cc_names[y]);
             return make_line(addr, 1, read_fn, buf);
         case 1:
             if (q == 0) {
-                std::sprintf(buf, "POP %s", rp2_names[p]);
+                std::snprintf(buf, sizeof(buf), "POP %s", rp2_names[p]);
                 return make_line(addr, 1, read_fn, buf);
             } else {
                 switch (p) {
@@ -237,26 +237,26 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
         case 2: {
             // JP cc,nn
             uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-            std::sprintf(buf, "JP %s,$%04X", cc_names[y], nn);
+            std::snprintf(buf, sizeof(buf), "JP %s,$%04X", cc_names[y], nn);
             return make_line(addr, 3, read_fn, buf);
         }
         case 3:
             switch (y) {
             case 0: {
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                std::sprintf(buf, "JP $%04X", nn);
+                std::snprintf(buf, sizeof(buf), "JP $%04X", nn);
                 return make_line(addr, 3, read_fn, buf);
             }
             case 1: // CB prefix — handled above, but just in case
                 return disasm_cb(addr, read_fn);
             case 2: {
                 uint8_t n = read_fn(static_cast<uint16_t>(addr + 1));
-                std::sprintf(buf, "OUT ($%02X),A", n);
+                std::snprintf(buf, sizeof(buf), "OUT ($%02X),A", n);
                 return make_line(addr, 2, read_fn, buf);
             }
             case 3: {
                 uint8_t n = read_fn(static_cast<uint16_t>(addr + 1));
-                std::sprintf(buf, "IN A,($%02X)", n);
+                std::snprintf(buf, sizeof(buf), "IN A,($%02X)", n);
                 return make_line(addr, 2, read_fn, buf);
             }
             case 4: return make_line(addr, 1, read_fn, "EX (SP),HL");
@@ -268,18 +268,18 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
         case 4: {
             // CALL cc,nn
             uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-            std::sprintf(buf, "CALL %s,$%04X", cc_names[y], nn);
+            std::snprintf(buf, sizeof(buf), "CALL %s,$%04X", cc_names[y], nn);
             return make_line(addr, 3, read_fn, buf);
         }
         case 5:
             if (q == 0) {
-                std::sprintf(buf, "PUSH %s", rp2_names[p]);
+                std::snprintf(buf, sizeof(buf), "PUSH %s", rp2_names[p]);
                 return make_line(addr, 1, read_fn, buf);
             } else {
                 switch (p) {
                 case 0: {
                     uint16_t nn = read16(static_cast<uint16_t>(addr + 1), read_fn);
-                    std::sprintf(buf, "CALL $%04X", nn);
+                    std::snprintf(buf, sizeof(buf), "CALL $%04X", nn);
                     return make_line(addr, 3, read_fn, buf);
                 }
                 case 1: // DD prefix
@@ -294,12 +294,12 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
         case 6: {
             // ALU A,n
             uint8_t n = read_fn(static_cast<uint16_t>(addr + 1));
-            std::sprintf(buf, "%s$%02X", alu_names[y], n);
+            std::snprintf(buf, sizeof(buf), "%s$%02X", alu_names[y], n);
             return make_line(addr, 2, read_fn, buf);
         }
         case 7: {
             // RST y*8
-            std::sprintf(buf, "RST $%02X", y * 8);
+            std::snprintf(buf, sizeof(buf), "RST $%02X", y * 8);
             return make_line(addr, 1, read_fn, buf);
         }
         }
@@ -307,7 +307,7 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn) {
     }
 
     // Fallback: should not reach here
-    std::sprintf(buf, "DB $%02X", op);
+    std::snprintf(buf, sizeof(buf), "DB $%02X", op);
     return make_line(addr, 1, read_fn, buf);
 }
 
@@ -325,19 +325,19 @@ static DisasmLine disasm_cb(uint16_t addr, DisasmReadFn const& read_fn) {
     switch (x) {
     case 0:
         // Rotation/shift: rot[y] r[z]
-        std::sprintf(buf, "%s %s", rot_names[y], r_names[z]);
+        std::snprintf(buf, sizeof(buf), "%s %s", rot_names[y], r_names[z]);
         break;
     case 1:
         // BIT y,r[z]
-        std::sprintf(buf, "BIT %d,%s", y, r_names[z]);
+        std::snprintf(buf, sizeof(buf), "BIT %d,%s", y, r_names[z]);
         break;
     case 2:
         // RES y,r[z]
-        std::sprintf(buf, "RES %d,%s", y, r_names[z]);
+        std::snprintf(buf, sizeof(buf), "RES %d,%s", y, r_names[z]);
         break;
     case 3:
         // SET y,r[z]
-        std::sprintf(buf, "SET %d,%s", y, r_names[z]);
+        std::snprintf(buf, sizeof(buf), "SET %d,%s", y, r_names[z]);
         break;
     }
 
@@ -357,7 +357,7 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
     case 0x24: return make_line(addr, 2, read_fn, "MIRROR A");
     case 0x27: {
         uint8_t n = read_fn(static_cast<uint16_t>(addr + 2));
-        std::sprintf(buf, "TEST $%02X", n);
+        std::snprintf(buf, sizeof(buf), "TEST $%02X", n);
         return make_line(addr, 3, read_fn, buf);
     }
     case 0x28: return make_line(addr, 2, read_fn, "BSLA DE,B");
@@ -371,17 +371,17 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
     case 0x33: return make_line(addr, 2, read_fn, "ADD BC,A");
     case 0x34: {
         uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-        std::sprintf(buf, "ADD HL,$%04X", nn);
+        std::snprintf(buf, sizeof(buf), "ADD HL,$%04X", nn);
         return make_line(addr, 4, read_fn, buf);
     }
     case 0x35: {
         uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-        std::sprintf(buf, "ADD DE,$%04X", nn);
+        std::snprintf(buf, sizeof(buf), "ADD DE,$%04X", nn);
         return make_line(addr, 4, read_fn, buf);
     }
     case 0x36: {
         uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-        std::sprintf(buf, "ADD BC,$%04X", nn);
+        std::snprintf(buf, sizeof(buf), "ADD BC,$%04X", nn);
         return make_line(addr, 4, read_fn, buf);
     }
     case 0x8A: {
@@ -389,19 +389,19 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
         uint8_t hi = read_fn(static_cast<uint16_t>(addr + 2));
         uint8_t lo = read_fn(static_cast<uint16_t>(addr + 3));
         uint16_t nn = static_cast<uint16_t>((hi << 8) | lo);
-        std::sprintf(buf, "PUSH $%04X", nn);
+        std::snprintf(buf, sizeof(buf), "PUSH $%04X", nn);
         return make_line(addr, 4, read_fn, buf);
     }
     case 0x90: return make_line(addr, 2, read_fn, "OUTINB");
     case 0x91: {
         uint8_t reg = read_fn(static_cast<uint16_t>(addr + 2));
         uint8_t val = read_fn(static_cast<uint16_t>(addr + 3));
-        std::sprintf(buf, "NEXTREG $%02X,$%02X", reg, val);
+        std::snprintf(buf, sizeof(buf), "NEXTREG $%02X,$%02X", reg, val);
         return make_line(addr, 4, read_fn, buf);
     }
     case 0x92: {
         uint8_t reg = read_fn(static_cast<uint16_t>(addr + 2));
-        std::sprintf(buf, "NEXTREG $%02X,A", reg);
+        std::snprintf(buf, sizeof(buf), "NEXTREG $%02X,A", reg);
         return make_line(addr, 3, read_fn, buf);
     }
     case 0x93: return make_line(addr, 2, read_fn, "PIXELDN");
@@ -430,29 +430,29 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
             if (y == 6) {
                 return make_line(addr, 2, read_fn, "IN (C)");
             }
-            std::sprintf(buf, "IN %s,(C)", r_names[y]);
+            std::snprintf(buf, sizeof(buf), "IN %s,(C)", r_names[y]);
             return make_line(addr, 2, read_fn, buf);
         case 1:
             if (y == 6) {
                 return make_line(addr, 2, read_fn, "OUT (C),0");
             }
-            std::sprintf(buf, "OUT (C),%s", r_names[y]);
+            std::snprintf(buf, sizeof(buf), "OUT (C),%s", r_names[y]);
             return make_line(addr, 2, read_fn, buf);
         case 2:
             if (q == 0) {
-                std::sprintf(buf, "SBC HL,%s", rp_names[p]);
+                std::snprintf(buf, sizeof(buf), "SBC HL,%s", rp_names[p]);
             } else {
-                std::sprintf(buf, "ADC HL,%s", rp_names[p]);
+                std::snprintf(buf, sizeof(buf), "ADC HL,%s", rp_names[p]);
             }
             return make_line(addr, 2, read_fn, buf);
         case 3:
             if (q == 0) {
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-                std::sprintf(buf, "LD ($%04X),%s", nn, rp_names[p]);
+                std::snprintf(buf, sizeof(buf), "LD ($%04X),%s", nn, rp_names[p]);
                 return make_line(addr, 4, read_fn, buf);
             } else {
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-                std::sprintf(buf, "LD %s,($%04X)", rp_names[p], nn);
+                std::snprintf(buf, sizeof(buf), "LD %s,($%04X)", rp_names[p], nn);
                 return make_line(addr, 4, read_fn, buf);
             }
         case 4:
@@ -498,7 +498,7 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
     }
 
     // Undefined ED opcode — treat as NOP (Z80 behavior)
-    std::sprintf(buf, "DB $ED,$%02X", op);
+    std::snprintf(buf, sizeof(buf), "DB $ED,$%02X", op);
     return make_line(addr, 2, read_fn, buf);
 }
 
@@ -524,35 +524,35 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
 
         char disp_str[16];
         if (d >= 0) {
-            std::sprintf(disp_str, "(%s+$%02X)", ireg, static_cast<uint8_t>(d));
+            std::snprintf(disp_str, sizeof(disp_str), "(%s+$%02X)", ireg, static_cast<uint8_t>(d));
         } else {
-            std::sprintf(disp_str, "(%s-$%02X)", ireg, static_cast<uint8_t>(-d));
+            std::snprintf(disp_str, sizeof(disp_str), "(%s-$%02X)", ireg, static_cast<uint8_t>(-d));
         }
 
         switch (x) {
         case 0:
             if (z == 6) {
-                std::sprintf(buf, "%s %s", rot_names[y_val], disp_str);
+                std::snprintf(buf, sizeof(buf), "%s %s", rot_names[y_val], disp_str);
             } else {
                 // Undocumented: result also stored in r[z]
-                std::sprintf(buf, "%s %s,%s", rot_names[y_val], disp_str, r_names[z]);
+                std::snprintf(buf, sizeof(buf), "%s %s,%s", rot_names[y_val], disp_str, r_names[z]);
             }
             break;
         case 1:
-            std::sprintf(buf, "BIT %d,%s", y_val, disp_str);
+            std::snprintf(buf, sizeof(buf), "BIT %d,%s", y_val, disp_str);
             break;
         case 2:
             if (z == 6) {
-                std::sprintf(buf, "RES %d,%s", y_val, disp_str);
+                std::snprintf(buf, sizeof(buf), "RES %d,%s", y_val, disp_str);
             } else {
-                std::sprintf(buf, "RES %d,%s,%s", y_val, disp_str, r_names[z]);
+                std::snprintf(buf, sizeof(buf), "RES %d,%s,%s", y_val, disp_str, r_names[z]);
             }
             break;
         case 3:
             if (z == 6) {
-                std::sprintf(buf, "SET %d,%s", y_val, disp_str);
+                std::snprintf(buf, sizeof(buf), "SET %d,%s", y_val, disp_str);
             } else {
-                std::sprintf(buf, "SET %d,%s,%s", y_val, disp_str, r_names[z]);
+                std::snprintf(buf, sizeof(buf), "SET %d,%s,%s", y_val, disp_str, r_names[z]);
             }
             break;
         }
@@ -561,12 +561,12 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
     }
 
     // Helper: format displacement string for (IX+d)/(IY+d)
-    auto fmt_disp = [&](uint16_t disp_addr, char* out) {
+    auto fmt_disp = [&](uint16_t disp_addr, char (&out)[16]) {
         int8_t d = static_cast<int8_t>(read_fn(disp_addr));
         if (d >= 0) {
-            std::sprintf(out, "(%s+$%02X)", ireg, static_cast<uint8_t>(d));
+            std::snprintf(out, sizeof(out), "(%s+$%02X)", ireg, static_cast<uint8_t>(d));
         } else {
-            std::sprintf(out, "(%s-$%02X)", ireg, static_cast<uint8_t>(-d));
+            std::snprintf(out, sizeof(out), "(%s-$%02X)", ireg, static_cast<uint8_t>(-d));
         }
     };
 
@@ -598,32 +598,32 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
             if (q == 0) {
                 // LD rp,nn (with HL→IX/IY)
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-                std::sprintf(buf, "LD %s,$%04X", rp_name_ix(p), nn);
+                std::snprintf(buf, sizeof(buf), "LD %s,$%04X", rp_name_ix(p), nn);
                 return make_line(addr, 4, read_fn, buf);
             } else {
                 // ADD IX/IY,rp
-                std::sprintf(buf, "ADD %s,%s", ireg, rp_name_ix(p));
+                std::snprintf(buf, sizeof(buf), "ADD %s,%s", ireg, rp_name_ix(p));
                 return make_line(addr, 2, read_fn, buf);
             }
         case 2:
             if (q == 0 && p == 2) {
                 // LD (nn),IX/IY
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-                std::sprintf(buf, "LD ($%04X),%s", nn, ireg);
+                std::snprintf(buf, sizeof(buf), "LD ($%04X),%s", nn, ireg);
                 return make_line(addr, 4, read_fn, buf);
             } else if (q == 1 && p == 2) {
                 // LD IX/IY,(nn)
                 uint16_t nn = read16(static_cast<uint16_t>(addr + 2), read_fn);
-                std::sprintf(buf, "LD %s,($%04X)", ireg, nn);
+                std::snprintf(buf, sizeof(buf), "LD %s,($%04X)", ireg, nn);
                 return make_line(addr, 4, read_fn, buf);
             }
             break;
         case 3:
             if (p == 2) {
                 if (q == 0) {
-                    std::sprintf(buf, "INC %s", ireg);
+                    std::snprintf(buf, sizeof(buf), "INC %s", ireg);
                 } else {
-                    std::sprintf(buf, "DEC %s", ireg);
+                    std::snprintf(buf, sizeof(buf), "DEC %s", ireg);
                 }
                 return make_line(addr, 2, read_fn, buf);
             }
@@ -633,10 +633,10 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
             if (y == 6) {
                 char disp_str[16];
                 fmt_disp(static_cast<uint16_t>(addr + 2), disp_str);
-                std::sprintf(buf, "INC %s", disp_str);
+                std::snprintf(buf, sizeof(buf), "INC %s", disp_str);
                 return make_line(addr, 3, read_fn, buf);
             } else if (y == 4 || y == 5) {
-                std::sprintf(buf, "INC %s", r_name_ix(y));
+                std::snprintf(buf, sizeof(buf), "INC %s", r_name_ix(y));
                 return make_line(addr, 2, read_fn, buf);
             }
             break;
@@ -645,10 +645,10 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
             if (y == 6) {
                 char disp_str[16];
                 fmt_disp(static_cast<uint16_t>(addr + 2), disp_str);
-                std::sprintf(buf, "DEC %s", disp_str);
+                std::snprintf(buf, sizeof(buf), "DEC %s", disp_str);
                 return make_line(addr, 3, read_fn, buf);
             } else if (y == 4 || y == 5) {
-                std::sprintf(buf, "DEC %s", r_name_ix(y));
+                std::snprintf(buf, sizeof(buf), "DEC %s", r_name_ix(y));
                 return make_line(addr, 2, read_fn, buf);
             }
             break;
@@ -659,11 +659,11 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
                 char disp_str[16];
                 fmt_disp(static_cast<uint16_t>(addr + 2), disp_str);
                 uint8_t n = read_fn(static_cast<uint16_t>(addr + 3));
-                std::sprintf(buf, "LD %s,$%02X", disp_str, n);
+                std::snprintf(buf, sizeof(buf), "LD %s,$%02X", disp_str, n);
                 return make_line(addr, 4, read_fn, buf);
             } else if (y == 4 || y == 5) {
                 uint8_t n = read_fn(static_cast<uint16_t>(addr + 2));
-                std::sprintf(buf, "LD %s,$%02X", r_name_ix(y), n);
+                std::snprintf(buf, sizeof(buf), "LD %s,$%02X", r_name_ix(y), n);
                 return make_line(addr, 3, read_fn, buf);
             }
             break;
@@ -682,14 +682,14 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
             // LD (IX+d),r
             char disp_str[16];
             fmt_disp(static_cast<uint16_t>(addr + 2), disp_str);
-            std::sprintf(buf, "LD %s,%s", disp_str, r_names[z]); // src uses plain register
+            std::snprintf(buf, sizeof(buf), "LD %s,%s", disp_str, r_names[z]); // src uses plain register
             return make_line(addr, 3, read_fn, buf);
         }
         if (z == 6) {
             // LD r,(IX+d)
             char disp_str[16];
             fmt_disp(static_cast<uint16_t>(addr + 2), disp_str);
-            std::sprintf(buf, "LD %s,%s", r_names[y], disp_str); // dst uses plain register
+            std::snprintf(buf, sizeof(buf), "LD %s,%s", r_names[y], disp_str); // dst uses plain register
             return make_line(addr, 3, read_fn, buf);
         }
         // Both are non-(HL) registers — H/L get substituted
@@ -699,7 +699,7 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
             // Special: if both are H/L variants, both get substituted (undocumented)
             // But if one is H/L and the other isn't, the non-H/L stays plain
             // r_name_ix already handles this correctly
-            std::sprintf(buf, "LD %s,%s", dst, src);
+            std::snprintf(buf, sizeof(buf), "LD %s,%s", dst, src);
             return make_line(addr, 2, read_fn, buf);
         }
 
@@ -708,44 +708,44 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
         if (z == 6) {
             char disp_str[16];
             fmt_disp(static_cast<uint16_t>(addr + 2), disp_str);
-            std::sprintf(buf, "%s%s", alu_names[y], disp_str);
+            std::snprintf(buf, sizeof(buf), "%s%s", alu_names[y], disp_str);
             return make_line(addr, 3, read_fn, buf);
         }
         if (z == 4 || z == 5) {
-            std::sprintf(buf, "%s%s", alu_names[y], r_name_ix(z));
+            std::snprintf(buf, sizeof(buf), "%s%s", alu_names[y], r_name_ix(z));
             return make_line(addr, 2, read_fn, buf);
         }
         // Other registers: prefix ignored, 2-byte instruction
-        std::sprintf(buf, "%s%s", alu_names[y], r_names[z]);
+        std::snprintf(buf, sizeof(buf), "%s%s", alu_names[y], r_names[z]);
         return make_line(addr, 2, read_fn, buf);
 
     case 3:
         switch (z) {
         case 1:
             if (q == 0 && p == 2) {
-                std::sprintf(buf, "POP %s", ireg);
+                std::snprintf(buf, sizeof(buf), "POP %s", ireg);
                 return make_line(addr, 2, read_fn, buf);
             }
             if (q == 1) {
                 switch (p) {
                 case 2:
-                    std::sprintf(buf, "JP (%s)", ireg);
+                    std::snprintf(buf, sizeof(buf), "JP (%s)", ireg);
                     return make_line(addr, 2, read_fn, buf);
                 case 3:
-                    std::sprintf(buf, "LD SP,%s", ireg);
+                    std::snprintf(buf, sizeof(buf), "LD SP,%s", ireg);
                     return make_line(addr, 2, read_fn, buf);
                 }
             }
             break;
         case 3:
             if (y == 4) {
-                std::sprintf(buf, "EX (SP),%s", ireg);
+                std::snprintf(buf, sizeof(buf), "EX (SP),%s", ireg);
                 return make_line(addr, 2, read_fn, buf);
             }
             break;
         case 5:
             if (q == 0 && p == 2) {
-                std::sprintf(buf, "PUSH %s", ireg);
+                std::snprintf(buf, sizeof(buf), "PUSH %s", ireg);
                 return make_line(addr, 2, read_fn, buf);
             }
             break;
