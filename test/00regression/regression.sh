@@ -1481,6 +1481,70 @@ PY
     fi
 fi
 
+# esxdos-chain-{red,blue,return}-func (PR #15): the --esxdos-stub M_EXECCMD
+# ".RUN <name>.nex" path lets a selector NEX chain-load a SIBLING NEX (same
+# directory) without booting NextZXOS. menu.nex shows white and, on key 1/2,
+# runs red.nex/blue.nex; red/blue on key M run menu.nex back. Driven headlessly
+# with --delayed-keypress-frames and asserted on the stub's .RUN request + the
+# resulting NEX load. The keypress schedule and frame counter live in the
+# frontend and survive the cold boot the chain triggers, so a second hop (the
+# return) is observable in the same run.
+MENU_NEX="$PROJECT_DIR/test/00regression/nex/menu.nex"
+
+if want esxdos-chain-red-func; then
+    begin_func esxdos-chain-red-func
+    out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --esxdos-stub --load "$MENU_NEX" \
+        --delayed-keypress-frames 100 1 \
+        --delayed-automatic-exit-frames 220 2>&1) || true
+    req=$(echo "$out" | grep -cE "requested \.RUN '.*red\.nex'" || true)
+    got=$(echo "$out" | grep -cE "NEX: loaded '.*red\.nex'" || true)
+    if [[ "$req" -ge 1 && "$got" -ge 1 ]]; then
+        echo -e "${GREEN}PASS${RESET} (menu -> key 1 -> chain-loaded red.nex)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (red .RUN=$req want>=1, red load=$got want>=1)"
+        fail=$((fail + 1))
+    fi
+fi
+
+if want esxdos-chain-blue-func; then
+    begin_func esxdos-chain-blue-func
+    out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --esxdos-stub --load "$MENU_NEX" \
+        --delayed-keypress-frames 100 2 \
+        --delayed-automatic-exit-frames 220 2>&1) || true
+    req=$(echo "$out" | grep -cE "requested \.RUN '.*blue\.nex'" || true)
+    got=$(echo "$out" | grep -cE "NEX: loaded '.*blue\.nex'" || true)
+    if [[ "$req" -ge 1 && "$got" -ge 1 ]]; then
+        echo -e "${GREEN}PASS${RESET} (menu -> key 2 -> chain-loaded blue.nex)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (blue .RUN=$req want>=1, blue load=$got want>=1)"
+        fail=$((fail + 1))
+    fi
+fi
+
+if want esxdos-chain-return-func; then
+    begin_func esxdos-chain-return-func
+    out=$(timeout --foreground --kill-after=5s 40s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --esxdos-stub --load "$MENU_NEX" \
+        --delayed-keypress-frames 80 2 --delayed-keypress-frames 200 m \
+        --delayed-automatic-exit-frames 320 2>&1) || true
+    to_blue=$(echo "$out" | grep -cE "requested \.RUN '.*blue\.nex'" || true)
+    back=$(echo "$out" | grep -cE "requested \.RUN '.*menu\.nex'" || true)
+    # menu.nex loads once at the initial --load and again on the return hop, so
+    # a count of >=2 is what proves the round-trip actually chained back.
+    menu_loads=$(echo "$out" | grep -cE "NEX: loaded '.*menu\.nex'" || true)
+    if [[ "$to_blue" -ge 1 && "$back" -ge 1 && "$menu_loads" -ge 2 ]]; then
+        echo -e "${GREEN}PASS${RESET} (menu -> blue -> menu round-trip via .RUN)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (blue .RUN=$to_blue want>=1, menu .RUN=$back want>=1, menu loads=$menu_loads want>=2)"
+        fail=$((fail + 1))
+    fi
+fi
+
 # ffmpeg-missing-warn-func (packaging Task 67 follow-up): jnext shells out to
 # ffmpeg for --record / File > Record MPEG4 Video. At startup it probes for
 # ffmpeg and, if absent, warns once (in EVERY mode, headless included) so the

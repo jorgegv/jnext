@@ -145,11 +145,8 @@ struct EmulatorConfig {
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 
-    // esxdos shim. When true, jnext intercepts RST $08 (esxdos entry) at
-    // PC=$0008 and returns benign errors for known function codes (F_OPEN
-    // returns ENOENT, F_CLOSE returns success, etc.). Lets z88dk-built
-    // NEX games that depend on esxdos boot under --load (which bypasses
-    // NextZXOS, so the real esxdos firmware isn't in DivMMC SRAM).
+    // Host-side esxDOS compatibility for directly loaded NEX programs.
+    // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;
 
     // --tape-save (G33 Phase 1): append blocks SAVEd via the 48K ROM

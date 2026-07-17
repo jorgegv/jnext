@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "audio/audio_mute.h"
@@ -75,6 +76,11 @@
 ///   Phase 5 — DivMMC, CTC, UART, DMA, full NextREG file
 class Emulator {
 public:
+    struct EsxdosStubState {
+        std::string filename;
+        std::vector<uint8_t> file;
+    };
+
     Emulator();
     ~Emulator();
 
@@ -134,6 +140,13 @@ public:
         hard_reset_requested_ = false;
         return r;
     }
+
+    /// Consume a sibling-NEX request raised by the esxDOS callback.
+    std::string take_nex_load_request();
+
+    /// Preserve the stub's in-memory file across a frontend cold boot.
+    EsxdosStubState esxdos_stub_state() const;
+    void restore_esxdos_stub_state(EsxdosStubState state);
 
     /// Load a raw binary file into RAM at `org` and set PC to `pc`.
     /// Called after init() when --inject is used.  Returns true on success.
@@ -748,6 +761,15 @@ private:
     static constexpr int FRAMEBUFFER_PIXELS = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
+    // Host-side state used only by --esxdos-stub.
+    std::string nex_load_request_;
+    std::string active_nex_path_;
+    std::string esxdos_stub_filename_;
+    std::vector<uint8_t> esxdos_stub_file_;
+    std::size_t esxdos_stub_file_pos_ = 0;
+    uint8_t esxdos_stub_handle_ = 1;
+    bool esxdos_stub_file_open_ = false;
+    bool esxdos_stub_file_write_ = false;
     MachineTiming  timing_;          // per-machine timing from VHDL
     Clock          clock_;
     Scheduler      scheduler_;

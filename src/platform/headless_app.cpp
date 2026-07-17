@@ -407,6 +407,11 @@ void HeadlessApp::run() {
 
         emulator_.run_frame();
 
+        if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
+            cold_boot(load_file);
+            continue;
+        }
+
         // Task 70 — a program's NR 0x02 hard reset (set during run_frame) is a
         // power-on cold boot done here between frames. cold_boot() reconstructs
         // the emulator, so continue to the next iteration with the fresh machine.

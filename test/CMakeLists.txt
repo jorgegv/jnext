@@ -116,6 +116,14 @@ target_link_libraries(nextreg_integration_test PRIVATE
 target_include_directories(nextreg_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nextreg_integration_tests COMMAND nextreg_integration_test)
 
+add_executable(esxdos_stub_test esxdos_stub/esxdos_stub_test.cpp)
+target_link_libraries(esxdos_stub_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(esxdos_stub_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME esxdos_stub_tests COMMAND esxdos_stub_test)
+
 # Input subsystem compliance test
 # 2026-04-21 (Phase 2 Agent I): NMI-01..07 use a full headless Emulator
 # to write NR 0x06 bits 3/4 through the real port path and read back the

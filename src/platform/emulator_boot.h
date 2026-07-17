@@ -66,6 +66,7 @@ inline int emulator_load_delay_frames(const std::string& file) {
 inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     BreakpointSet saved_bps    = emu.debug_state().breakpoints();
     const bool    saved_active = emu.debug_state().active();
+    auto saved_esxdos_state    = emu.esxdos_stub_state();
 
     emu.~Emulator();
     new (&emu) Emulator();
@@ -73,4 +74,5 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
 
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);
+    emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
 }

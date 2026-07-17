@@ -82,6 +82,7 @@ BEGIN {
     M["mmu_integration_test"]          = "Memory/MMU (int)"
     M["nextreg_test"]                  = "NextREG (bare)"
     M["nextreg_integration_test"]      = "NextREG (integration)"
+    M["esxdos_stub_test"]              = "esxDOS stub"
     M["input_test"]                    = "Input"
     M["input_integration_test"]        = "Input (integration)"
     M["phantom_typist_test"]           = "Phantom Typist"

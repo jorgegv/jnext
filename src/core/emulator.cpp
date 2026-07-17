@@ -7,8 +7,10 @@
 #include "core/sna_saver.h"
 #include "core/saveable.h"
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 // ---------------------------------------------------------------------------
@@ -878,43 +880,147 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         };
     }
 
-    // esxdos shim. When enabled, RST $08 calls are intercepted and the
-    // known function codes get benign error results so z88dk-built NEX
-    // games boot through their "no esxdos" / "file not found" branches.
+    // Host-side compatibility for directly loaded NEX programs.
     //
     // Function codes (per z88dk libsrc + esxdos spec):
-    //   $88 M_DOSVERSION : fail with HL=-1, A=14 (ENXIO) → wrapper takes
-    //                      the "esxdos<=0.8.6" branch; many games' high-level
-    //                      check use this to disable persistence.
-    //   $9A F_OPEN       : fail with carry set, A=5 (ENOENT).
-    //   $9B F_CLOSE      : succeed (carry clear).
-    //   $9D F_READ       : fail with carry set, A=5 (ENOENT).
-    //   $9E F_WRITE      : fail with carry set, A=5 (ENOENT).
+    //   $88 M_DOSVERSION : report a NextZXOS-compatible signature.
+    //   $8F M_EXECCMD    : support "run sibling.nex" at the next frame edge.
+    //   $9A F_OPEN       : open the stub's one in-memory file.
+    //   $9B F_CLOSE      : close that file.
+    //   $9D F_READ       : read the in-memory file.
+    //   $9E F_WRITE      : write the in-memory file.
     //   $9F F_SEEK       : fail with carry set, A=5 (ENOENT).
     //   default          : not handled — RST $08 runs normal $0008 code.
     //
-    // Helper: set/clear the carry flag (bit 0 of F).
     if (cfg.esxdos_stub) {
-        cpu_.on_esxdos_call = [](uint8_t defb, Z80Registers& r) -> bool {
+        cpu_.on_esxdos_call = [this](uint8_t defb, Z80Registers& r) -> bool {
             auto set_a_and_carry = [&](uint8_t a, bool carry_set) {
                 uint8_t f = static_cast<uint8_t>(r.AF & 0xFF);
                 if (carry_set) f |= 0x01; else f &= 0xFE;
                 r.AF = static_cast<uint16_t>((static_cast<uint16_t>(a) << 8) | f);
             };
+            auto read_zstr = [this](uint16_t address) {
+                std::string value;
+                for (int i = 0; i < 255; ++i) {
+                    const char ch = static_cast<char>(mmu_.read(
+                        static_cast<uint16_t>(address + i)));
+                    if (ch == '\0' || ch == '\r' || ch == ':') break;
+                    value.push_back(ch);
+                }
+                return value;
+            };
+            auto resolve_sibling = [this](const std::string& name) {
+                const std::filesystem::path target(name);
+                std::string extension = target.extension().string();
+                std::transform(extension.begin(), extension.end(), extension.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (target.empty() || target.is_absolute() || target.has_parent_path() ||
+                    extension != ".nex")
+                    return std::string{};
+
+                const std::filesystem::path active = active_nex_path_.empty()
+                    ? std::filesystem::path(config_.load_file)
+                    : std::filesystem::path(active_nex_path_);
+                return std::filesystem::absolute(active.parent_path() / target)
+                    .lexically_normal().string();
+            };
             switch (defb) {
                 case 0x88:  // M_DOSVERSION
-                    r.HL = 0xFFFF;
-                    set_a_and_carry(0x0E, true);  // A=14 (ENXIO)
+                    r.BC = 0x4E58;               // B='N', C='X'
+                    r.DE = 0x0194;               // compatible NextZXOS version
+                    r.HL = 0x6E65;               // H='n', L='e' (English)
+                    set_a_and_carry(0x00, false);
+                    r.AF = static_cast<uint16_t>(r.AF | 0x0040); // Z set
                     return true;
-                case 0x9A:  // F_OPEN
-                    r.HL = 0xFFFF;
-                    set_a_and_carry(0x05, true);  // A=5 (ENOENT)
+                case 0x8F: { // M_EXECCMD — support .RUN sibling.nex
+                    std::string command = read_zstr(r.IX);
+                    while (!command.empty() && command.front() == ' ') command.erase(0, 1);
+                    if (command.size() < 4 ||
+                        (command[0] != 'r' && command[0] != 'R') ||
+                        (command[1] != 'u' && command[1] != 'U') ||
+                        (command[2] != 'n' && command[2] != 'N') || command[3] != ' ') {
+                        set_a_and_carry(0x05, true);
+                        return true;
+                    }
+                    std::string target = command.substr(4);
+                    while (!target.empty() && target.front() == ' ') target.erase(0, 1);
+                    while (!target.empty() && target.back() == ' ') target.pop_back();
+                    if (target.size() >= 2 && target.front() == '"' && target.back() == '"')
+                        target = target.substr(1, target.size() - 2);
+                    nex_load_request_ = resolve_sibling(target);
+                    if (nex_load_request_.empty()) {
+                        set_a_and_carry(0x05, true);
+                        return true;
+                    }
+                    Log::emulator()->info("esxdos stub: requested .RUN '{}'", nex_load_request_);
+                    set_a_and_carry(0x00, false);
                     return true;
+                }
+                case 0x9A: { // F_OPEN — one in-memory file, persistent across NEX reset
+                    const std::string filename = read_zstr(r.IX);
+                    const uint8_t mode = static_cast<uint8_t>(r.BC >> 8);
+                    if ((mode & 0x02) != 0) {
+                        esxdos_stub_filename_ = filename;
+                        esxdos_stub_file_.clear();
+                        esxdos_stub_file_pos_ = 0;
+                        esxdos_stub_file_open_ = true;
+                        esxdos_stub_file_write_ = true;
+                        set_a_and_carry(esxdos_stub_handle_, false);
+                    } else if ((mode & 0x01) != 0 &&
+                               filename == esxdos_stub_filename_ &&
+                               !esxdos_stub_filename_.empty()) {
+                        esxdos_stub_file_pos_ = 0;
+                        esxdos_stub_file_open_ = true;
+                        esxdos_stub_file_write_ = false;
+                        set_a_and_carry(esxdos_stub_handle_, false);
+                    } else {
+                        r.HL = 0xFFFF;
+                        set_a_and_carry(0x05, true);
+                    }
+                    return true;
+                }
                 case 0x9B:  // F_CLOSE
+                    esxdos_stub_file_open_ = false;
                     set_a_and_carry(0x00, false); // success
                     return true;
-                case 0x9D:  // F_READ
-                case 0x9E:  // F_WRITE
+                case 0x9D: { // F_READ
+                    const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
+                    if (!esxdos_stub_file_open_ || esxdos_stub_file_write_ ||
+                        handle != esxdos_stub_handle_) {
+                        set_a_and_carry(0x05, true);
+                        return true;
+                    }
+                    const uint16_t requested = r.BC;
+                    uint16_t actual = 0;
+                    while (actual < requested && esxdos_stub_file_pos_ < esxdos_stub_file_.size()) {
+                        mmu_.write(static_cast<uint16_t>(r.IX + actual),
+                                   esxdos_stub_file_[esxdos_stub_file_pos_++]);
+                        ++actual;
+                    }
+                    r.BC = actual;
+                    r.DE = actual;
+                    r.HL = static_cast<uint16_t>(r.IX + actual);
+                    set_a_and_carry(handle, false);
+                    return true;
+                }
+                case 0x9E: { // F_WRITE
+                    const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
+                    if (!esxdos_stub_file_open_ || !esxdos_stub_file_write_ ||
+                        handle != esxdos_stub_handle_) {
+                        set_a_and_carry(0x05, true);
+                        return true;
+                    }
+                    const uint16_t actual = r.BC;
+                    esxdos_stub_file_.reserve(esxdos_stub_file_.size() + actual);
+                    for (uint16_t i = 0; i < actual; ++i)
+                        esxdos_stub_file_.push_back(mmu_.read(static_cast<uint16_t>(r.IX + i)));
+                    esxdos_stub_file_pos_ = esxdos_stub_file_.size();
+                    r.BC = actual;
+                    r.DE = actual;
+                    r.HL = static_cast<uint16_t>(r.IX + actual);
+                    set_a_and_carry(handle, false);
+                    return true;
+                }
                 case 0x9F:  // F_SEEK
                     set_a_and_carry(0x05, true);  // A=5 (ENOENT)
                     return true;
@@ -5852,7 +5958,30 @@ bool Emulator::load_nex(const std::string& path)
     // the emulator was already running or freshly started.
     reset();
 
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
+    return true;
+}
+
+std::string Emulator::take_nex_load_request()
+{
+    std::string request = std::move(nex_load_request_);
+    nex_load_request_.clear();
+    return request;
+}
+
+Emulator::EsxdosStubState Emulator::esxdos_stub_state() const
+{
+    return {esxdos_stub_filename_, esxdos_stub_file_};
+}
+
+void Emulator::restore_esxdos_stub_state(EsxdosStubState state)
+{
+    esxdos_stub_filename_ = std::move(state.filename);
+    esxdos_stub_file_ = std::move(state.file);
+    esxdos_stub_file_pos_ = 0;
+    esxdos_stub_file_open_ = false;
+    esxdos_stub_file_write_ = false;
 }
 
 bool Emulator::load_sna(const std::string& path)

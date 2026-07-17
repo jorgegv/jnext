@@ -121,8 +121,8 @@ RZX recordings are not loaded with `--load`: use `--rzx-play FILE` (playback)
 and `--rzx-record FILE` (recording). The GUI's **File > Load NEX File...**
 dialog does accept `.rzx` as well as all of the above.
 
-`--esxdos-stub` stubs the `RST $08` esxdos calls, so NEX games that expect
-NextZXOS's esxdos to be resident boot anyway.
+`--esxdos-stub` handles the common `RST $08` calls used by directly loaded NEX
+programs. It provides one in-memory file and `run sibling.nex` chaining.
 
 Raw binaries can be injected straight into RAM with `--inject FILE`
 (`--inject-org` load address, `--inject-pc` entry point, `--inject-delay` a
@@ -149,7 +149,7 @@ with `-` is treated as an option, never as a filename.
 | `--sdcard-download-force` | Force re-download + re-patch of the default-location image (ignored when `--sdcard` is given) |
 | `--speed PERCENT` | Emulator throttle: 50 = half, 100 = normal, 200 = 2×, 400 = 4× (clamped to 10..1000) |
 | `--tape-realtime` | Real-time tape loading instead of fast load |
-| `--esxdos-stub` | Stub `RST $08` esxdos calls so NEX games boot without NextZXOS |
+| `--esxdos-stub` | Provide basic `RST $08` file I/O and sibling-NEX chaining |
 | `--rtc "YYYY-MM-DD HH:MM:SS"` | Pin the RTC to a fixed date/time (frozen clock) instead of following the host clock. The ISO `YYYY-MM-DDTHH:MM:SS` form is also accepted |
 | `--inject FILE` | Load a raw binary into RAM |
 | `--inject-org ADDR` | Load address for `--inject` (hex, default `8000`) |
