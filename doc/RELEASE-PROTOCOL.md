@@ -41,22 +41,37 @@ feature/fix to `main`" and "Version bumping" sections in
 
 | Target | When | Public release? | Touches `releases.yaml`? |
 |--------|------|-----------------|--------------------------|
-| `make bump-patch` | After **every** merge to `main` (per the merge protocol) | **No** — private history tag | **Never** |
-| `make bump-minor` | A deliberate release with new user-facing features | Your choice | **Asks** you `y/N` |
-| `make bump-major` | A deliberate release with breaking / milestone changes | Your choice | **Asks** you `y/N` |
+| `make bump-patch` | After **every** merge to `main` (per the merge protocol) | **Asks** you `y/N` (default No) | **Asks** you `y/N` |
+| `make bump-minor` | A deliberate release with new user-facing features | **Asks** you `y/N` | **Asks** you `y/N` |
+| `make bump-major` | A deliberate release with breaking / milestone changes | **Asks** you `y/N` | **Asks** you `y/N` |
 
 All three, in order:
 1. Refuse if the working tree is dirty (commit/stash first).
-2. Compute the new version and write `version.yaml`.
-3. Run `packaging/sync-version.sh <newver>` to propagate the version into every
-   hand-maintained packaging file (§3).
-4. **`bump-minor`/`bump-major` only:** prompt
-   `Add vX.Y.0 to releases.yaml (build a public release)? [y/N]`. On `y`, add the
-   new tag to `releases.yaml` **now, before tagging**, so the tag's commit lists
-   itself. On `N` (or a non-interactive shell), leave `releases.yaml` untouched.
+2. Compute the new version.
+3. **All three** prompt `Add vX.Y.Z to releases.yaml (build a public GitHub
+   Release)? [y/N]`. On `y`, add the new tag to `releases.yaml` **now, before
+   tagging**, so the tag's commit lists itself (and `sync-version.sh` will add
+   the version to the AppStream metainfo — §3). On `N` (or a non-interactive
+   shell), leave `releases.yaml` untouched — a private history tag.
+   **Before answering `y`, the ChangeLog MUST be up to date — see §2.1.**
+4. Write `version.yaml`, then run `packaging/sync-version.sh <newver>` to
+   propagate the version into every hand-maintained packaging file (§3).
 5. Stage `version.yaml`, the synced packaging files, and (if added)
    `releases.yaml`; commit `chore: bump version to <newver>`; create tag
    `v<newver>`.
+
+### 2.1 A public release MUST update the ChangeLog
+
+Whenever a bump is going to be **public** (you answer `y` to the prompt above,
+i.e. the tag is added to `releases.yaml`), the **`ChangeLog` MUST be updated
+before the bump commit**, so the released tag carries its own ChangeLog entry.
+
+- The new entry is **differential**: it describes only what changed **since the
+  previous ChangeLog record** (the last public release), not the whole history.
+- Follow the ChangeLog rules in `CLAUDE.md` (4 sections — User Features,
+  Developer Features, Bug Fixes, Internal JNEXT Development; terse one-line
+  items; no trivial fixes; no commit IDs; coalesce similar items).
+- Private patch bumps (answered `N`) do **not** require a ChangeLog entry.
 
 Every step is `&&`-chained — if the sync fails, **nothing is committed or
 tagged** (no half-synced release).
@@ -70,6 +85,9 @@ files a person maintains by hand (the CPack path needs none of this):
 
 - `packaging/rpm/jnext.spec` — `Version:` + a matching `%changelog` entry
 - `packaging/assets/*.metainfo.xml` — the AppStream `<releases>` history
+  (**public releases only** — `sync-version.sh` adds an entry only when the
+  version is listed in `releases.yaml`, so private per-merge patch tags never
+  appear here)
 - `packaging/debian/changelog` — the Debian changelog
 
 The flatpak manifest (`packaging/flatpak/*.yml`) is **not** in this list: it

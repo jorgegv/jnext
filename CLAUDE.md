@@ -82,11 +82,13 @@ The single authoritative protocol for landing any implemented change on `main`:
 > **Read [doc/RELEASE-PROTOCOL.md](doc/RELEASE-PROTOCOL.md) whenever the user
 > asks to release or bump a version.** It is the authoritative process:
 > `version.yaml` as single source of truth, the `make bump-patch/minor/major`
-> semantics (patch = private per-merge tag; minor/major = deliberate release
-> that prompts whether to add the tag to `releases.yaml`), `packaging/sync-version.sh`,
-> the `releases.yaml` allowlist that gates public GitHub Releases, the
-> `make package-*` targets, the CI release gate, and the push rules (incl. the
-> GitHub ≤3-tags-per-push limit).
+> semantics (ALL three prompt `y/N` whether to make the tag a public release by
+> adding it to `releases.yaml`; default No = private history tag), the rule that
+> **a public release MUST update the ChangeLog first** (differential from the
+> previous record), `packaging/sync-version.sh` (which adds the version to the
+> AppStream metainfo `<releases>` only for public releases), the `releases.yaml`
+> allowlist that gates public GitHub Releases, the `make package-*` targets, the
+> CI release gate, and the push rules (incl. the GitHub ≤3-tags-per-push limit).
 
 When the user asks to bump the version, follow these steps in order:
 

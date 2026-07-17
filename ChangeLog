@@ -1,5 +1,16 @@
 # ChangeLog
 
+## v0.98.29 (2026-07-17)
+
+### Bug Fixes
+- Reset (Reset button / F1 / a program's own reset) now re-boots to NextZXOS instead of crashing to 48K BASIC; loading a program from the menu resets the machine to a clean state first
+- Flatpak GUI now launches (its runtime's compiler miscompiled the Qt startup under LTO)
+
+### Internal JNEXT Development
+- Reset modelled as a host power-on cold boot (reconstruct + re-run the startup path); debugger breakpoints survive a reset
+- Flatpak: LTO disabled as a documented toolchain workaround and moved to the org.kde 6.10 runtime; CI bundle is versioned
+- Release protocol: AppStream metainfo lists only public releases; every bump prompts whether to publish; a public release requires a differential ChangeLog entry
+
 ## v0.98.24 (2026-07-16)
 
 ### User Features
