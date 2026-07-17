@@ -1149,6 +1149,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
   - [ ] Create USAGE document and man page for users — USAGE.md done (CLI + GUI); man page pending
+
 - [-] Create static executables by downloading QT and SDL sources and building them - WONT do for the moment.
 
 ### Phase 10 — NextZXOS Boot (v1.1)
