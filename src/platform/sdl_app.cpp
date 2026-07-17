@@ -261,6 +261,11 @@ void SdlApp::run() {
             }
         }
 
+        if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
+            cold_boot(load_file);
+            continue;
+        }
+
         // Task 70 — a hard reset (F1 / a program's NR 0x02 bit 1) is a power-on
         // cold boot done here between frames. cold_boot() reconstructs the
         // emulator, so restart the loop with the fresh machine.

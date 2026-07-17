@@ -249,6 +249,12 @@ void QtApp::cold_boot(const std::string& load_file) {
 }
 
 void QtApp::on_frame_tick() {
+    // M_EXECCMD requests use the same cold-boot path as menu loads.
+    if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
+        cold_boot(load_file);
+        return;
+    }
+
     // Task 70 — a hard reset (Reset button / F1 / a program's NR 0x02 bit 1)
     // is a power-on cold boot and cannot run inside run_frame(); it is
     // performed here between frames. cold_boot() reconstructs the emulator, so
