@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License: GPLv3">
   </a>
   <img src="https://img.shields.io/badge/C%2B%2B-17-blue" alt="C++17">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-white" alt="Platform: Linux and Windows">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-white" alt="Platform: Linux, Windows and macOS">
 </p>
 
 **JNEXT is a real-time ZX Spectrum Next emulator, built for
@@ -72,7 +72,7 @@ rough or missing; they are listed, not hidden:
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
-Linux and Windows (x64) are supported; a macOS build is not yet available.
+Linux, Windows (x64), and macOS are supported.
 
 ## Install
 
@@ -87,6 +87,7 @@ for your system from the
 | **Ubuntu 26.04**         | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`        |
 | **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak`         |
 | **Windows (x64)**        | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe` |
+| **macOS**                | Download `jnext-*-Darwin.dmg`, open it, drag **jnext** to Applications |
 
 The Linux packages put a `jnext` command on your `PATH`.
 
@@ -101,9 +102,14 @@ delete the folder to uninstall. On first launch Windows SmartScreen may warn
 about an unrecognized publisher — the executable is not yet code-signed — so
 click **More info → Run anyway**.
 
-Prefer to build it yourself, or on a platform without a package yet (macOS)? See
-**[BUILD.md](BUILD.md)** — it also covers building the packages above
-(`make package-rpm` / `package-deb` / `package-flatpak` / `package-win`).
+The **macOS** build is a `.dmg`; open it and drag **jnext** to Applications. On
+first launch macOS Gatekeeper may refuse to open it because the app is not yet
+code-signed or notarized — right-click the app and choose **Open**, then confirm
+**Open** in the dialog (or allow it under **System Settings → Privacy & Security**).
+
+Prefer to build it yourself? See **[BUILD.md](BUILD.md)** — it also covers
+building the packages above (`make package-rpm` / `package-deb` /
+`package-flatpak` / `package-win` / `package-macos`).
 
 ## Run
 
