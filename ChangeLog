@@ -1,9 +1,12 @@
 # ChangeLog
 
-## Unreleased (YYYY-MM-DD)
+## v0.98.36 (2026-07-17)
 
 ### User Features
 - `--esxdos-stub`: esxDOS `run NAME.nex` now chain-loads a sibling NEX (game selectors / multi-part games run without booting NextZXOS); adds in-memory esxDOS file I/O so games can read/write a config or score file
+
+### Bug Fixes
+- Tilemap raster-split effects (a scrolling play area with a fixed HUD, split at a line interrupt) now land on the exact scanline, matching real hardware (issue #16)
 
 ## v0.98.34 (2026-07-17)
 
