@@ -91,6 +91,8 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-06", "crt_filter defaults to false", d.crt_filter == def.crt_filter);
     check("AC-07", "silent defaults to false", d.silent == def.silent);
     check("AC-08", "tape_fast_load defaults to true", d.tape_fast_load == def.tape_fast_load);
+    check("AC-43", "joy_source defaults to Sdl/Sdl",
+          d.joy_source[0] == JoySource::Sdl && d.joy_source[1] == JoySource::Sdl);
     check("AC-09", "last_load_dir defaults to empty", d.last_load_dir.isEmpty());
     check("AC-10", "sd_card_path defaults to empty", d.sd_card_path.isEmpty());
     check("AC-11", "screenshot_dir defaults to empty", d.screenshot_dir.isEmpty());
@@ -114,6 +116,8 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().crt_filter             = true;
         writer.data().silent                 = true;
         writer.data().tape_fast_load         = false;
+        writer.data().joy_source[0]          = JoySource::CursorKeys;
+        writer.data().joy_source[1]          = JoySource::Sdl;
         writer.data().last_load_dir          = "/home/user/games";
         writer.data().sd_card_path           = "/home/user/sd/next.img";
         writer.data().screenshot_dir         = "/home/user/shots";
@@ -140,6 +144,9 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-23", "screenshot_dir round-trips", d.screenshot_dir == written.screenshot_dir);
     check("AC-24", "loaded_from_existing_file() is true once a file was written",
           reader.loaded_from_existing_file());
+    check("AC-44", "joy_source round-trips (Joy 1 keys, Joy 2 sdl)",
+          d.joy_source[0] == written.joy_source[0] &&
+          d.joy_source[1] == written.joy_source[1]);
 }
 
 // ── AC-PARTIAL: a file with only SOME keys present ─────────────────────
@@ -189,6 +196,9 @@ static void test_malformed_values(QTemporaryDir& dir) {
         raw.setValue("emulator_speed_percent", 999999);   // out of [10,1000]
         raw.setValue("window_scale", 0);                  // out of [MIN_SCALE,MAX_SCALE]
         raw.endGroup();
+        raw.beginGroup("input");
+        raw.setValue("joy1_source", "not-a-source");      // parse_joy_source() rejects
+        raw.endGroup();
         raw.sync();
     }
 
@@ -205,6 +215,8 @@ static void test_malformed_values(QTemporaryDir& dir) {
           d.emulator_speed_percent == def.emulator_speed_percent);
     check("AC-33", "out-of-range window_scale falls back to default",
           d.window_scale == def.window_scale);
+    check("AC-45", "unparseable joy1_source string falls back to default",
+          d.joy_source[0] == def.joy_source[0]);
 }
 
 // ── AC-PRECEDENCE: merge_cli_precedence<T> — CLI always wins when given ─
