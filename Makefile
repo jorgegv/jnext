@@ -358,7 +358,8 @@ publish-release:
 	 tag=$$(git tag -l 'v*' | sort -V | tail -1); \
 	 if [ -z "$$tag" ]; then printf "$(BOLD)Error: no v* tag found.$(RESET)\n"; exit 1; fi; \
 	 public=no; \
-	 if grep -qE "^[[:space:]]*-[[:space:]]*$$tag[[:space:]]*$$" releases.yaml; then public=yes; fi; \
+	 tagre=$$(printf '%s' "$$tag" | sed 's/\./\\./g'); \
+	 if grep -qE "^[[:space:]]*-[[:space:]]*$$tagre[[:space:]]*$$" releases.yaml; then public=yes; fi; \
 	 onorigin=no; \
 	 if git ls-remote --tags origin "refs/tags/$$tag" 2>/dev/null | grep -q .; then onorigin=yes; fi; \
 	 printf "$(BOLD)Publish plan:$(RESET)\n"; \
