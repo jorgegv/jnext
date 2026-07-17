@@ -491,6 +491,91 @@ if want video-record-func; then
     fi
 fi
 
+# Direct WAV capture must use the mixed-audio path in headless mode and remain
+# attached when sibling-NEX chaining reconstructs the Emulator. The selector
+# chains at frame 100; a recording substantially longer than that first leg
+# proves capture resumed after the cold boot.
+if want wav-record-func; then
+    begin_func wav-record-func
+    wav_file="$TMP_DIR/direct_audio.wav"
+    menu_nex="$PROJECT_DIR/test/00regression/nex/menu.nex"
+    if reject_out=$("$JNEXT" --headless --silent --wav-record "$wav_file" 2>&1); then
+        reject_status=0
+    else
+        reject_status=$?
+    fi
+    out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --esxdos-stub --load "$menu_nex" \
+        --wav-record "$wav_file" --delayed-keypress-frames 100 1 \
+        --delayed-automatic-exit-frames 220 2>&1) || true
+    chained=$(echo "$out" | grep -cE "NEX: loaded '.*red\.nex'" || true)
+    if [[ "$reject_status" -eq 0 ]] ||
+       ! echo "$reject_out" | grep -q -- "--wav-record cannot be combined with --silent"; then
+        echo -e "${RED}FAIL${RESET} (--silent conflict was not rejected clearly)"
+        fail=$((fail + 1))
+    elif [[ "$chained" -lt 1 ]]; then
+        echo -e "${RED}FAIL${RESET} (selector did not chain-load red.nex)"
+        fail=$((fail + 1))
+    elif ! command -v python3 &>/dev/null; then
+        echo -e "${YELLOW}SKIP${RESET} (python3 not available for WAV validation)"
+        skip=$((skip + 1))
+    elif wav_out=$(python3 - "$wav_file" <<'PY'
+import struct
+import sys
+
+path = sys.argv[1]
+with open(path, "rb") as wav:
+    data = wav.read()
+if len(data) < 44:
+    raise SystemExit("WAV is shorter than its header")
+if data[:4] != b"RIFF" or data[8:12] != b"WAVE" or data[36:40] != b"data":
+    raise SystemExit("invalid WAV container")
+rate, channels, bits, payload = (
+    struct.unpack_from("<I", data, 24)[0],
+    struct.unpack_from("<H", data, 22)[0],
+    struct.unpack_from("<H", data, 34)[0],
+    struct.unpack_from("<I", data, 40)[0],
+)
+if (rate, channels, bits) != (44100, 2, 16):
+    raise SystemExit(f"unexpected format {rate} Hz/{channels} ch/{bits} bit")
+if payload != len(data) - 44 or payload < 600000:
+    raise SystemExit(f"capture stopped early ({payload} payload bytes)")
+print(f"{payload} payload bytes across selector cold boot")
+PY
+    ); then
+        echo -e "${GREEN}PASS${RESET} ($wav_out)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} ($wav_out)"
+        fail=$((fail + 1))
+    fi
+fi
+
+# Exercise --dac-trace through the real port-dispatch path. The injected Z80N
+# program runs DI; NEXTREG $08,$08; writes $11/$22/$33/$44
+# to Soundrive A/B/C/D, then idles.
+if want dac-trace-func; then
+    begin_func dac-trace-func
+    dac_bin="$TMP_DIR/dac_trace.bin"
+    dac_csv="$TMP_DIR/dac_trace.csv"
+    printf '\xF3\xED\x91\x08\x08\x3E\x11\xD3\x1F\x3E\x22\xD3\x0F\x3E\x33\xD3\x4F\x3E\x44\xD3\x5F\x18\xFE' > "$dac_bin"
+    if timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --inject "$dac_bin" --inject-org 8000 \
+        --inject-pc 8000 --dac-trace "$dac_csv" \
+        --delayed-automatic-exit-frames 30 &>/dev/null &&
+       [[ $(head -n 1 "$dac_csv" 2>/dev/null) == "segment,tstate,channel,value" ]] &&
+       grep -qE '^[0-9]+,[0-9]+,0,17$' "$dac_csv" &&
+       grep -qE '^[0-9]+,[0-9]+,1,34$' "$dac_csv" &&
+       grep -qE '^[0-9]+,[0-9]+,2,51$' "$dac_csv" &&
+       grep -qE '^[0-9]+,[0-9]+,3,68$' "$dac_csv"; then
+        echo -e "${GREEN}PASS${RESET} (physical DAC channels A-D traced through CLI)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (missing or incorrect DAC CSV rows)"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Task 27 C6 — render-skip at turbo speed (Qt frontend only). At --speed 400
 # the Qt tick throttles Emulator::render_frame() to ~50 Hz wall-clock for
 # frames nobody displays. This row proves the three load-bearing guarantees:

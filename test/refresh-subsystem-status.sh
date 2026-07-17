@@ -110,6 +110,7 @@ BEGIN {
     M["audio_nextreg_test"]            = "Audio (NextREG)"
     M["audio_port_dispatch_test"]      = "Audio (port dispatch)"
     M["audio_pacing_test"]             = "Audio (pacing)"
+    M["audio_capture_test"]            = "Audio (capture)"
     M["present_cadence_test"]          = "Present cadence"
     M["tick_stats_test"]               = "Tick-delivery stats"
     M["present_count_test"]            = "Present count (widget)"

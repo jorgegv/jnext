@@ -1,3 +1,5 @@
+#include "audio/audio_recorder.h"
+#include "audio/dac_trace_recorder.h"
 #include "core/log.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
@@ -97,6 +99,9 @@ static void print_usage(const char* prog) {
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
+        "  --wav-record FILE        Record mixed stereo audio to a 44.1 kHz PCM WAV;\n"
+        "                           works headless and does not require ffmpeg\n"
+        "  --dac-trace FILE         Record timestamped physical DAC writes to CSV\n"
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
@@ -189,6 +194,8 @@ int main(int argc, char* argv[]) {
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
     std::string record_file;
+    std::string wav_record_file;
+    std::string dac_trace_file;
     std::string rzx_play_file;
     std::string rzx_record_file;
     int         speed_percent = 100;
@@ -304,6 +311,10 @@ int main(int argc, char* argv[]) {
             else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", argv[i]); return 1; }
         } else if (arg == "--record" && i + 1 < argc) {
             record_file = argv[++i];
+        } else if (arg == "--wav-record" && i + 1 < argc) {
+            wav_record_file = argv[++i];
+        } else if (arg == "--dac-trace" && i + 1 < argc) {
+            dac_trace_file = argv[++i];
         } else if (arg == "--rzx-play" && i + 1 < argc) {
             rzx_play_file = argv[++i];
         } else if (arg == "--rzx-record" && i + 1 < argc) {
@@ -415,6 +426,11 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "--benchmark-label requires --benchmark N.\n");
         return 1;
     }
+    if (silent && !wav_record_file.empty()) {
+        fprintf(stderr,
+                "--wav-record cannot be combined with --silent because --silent disables mixer synthesis.\n");
+        return 1;
+    }
 
     // Task 66 (Configurability) — load saved GUI preferences once, early
     // enough to seed the SD-card resolution below. Only ever done for the
@@ -509,6 +525,8 @@ int main(int argc, char* argv[]) {
             "(the host cursor keys can drive only one connector).\n");
         return 1;
     }
+    AudioRecorder audio_recorder;
+    DacTraceRecorder dac_trace_recorder;
 
     // Helper lambda: configure and run any app object with the common interface.
     auto configure_and_run = [&](auto& app) -> int {
@@ -567,9 +585,41 @@ int main(int argc, char* argv[]) {
             }
         }
 #endif
+        if (cfg.silent && !wav_record_file.empty()) {
+            fprintf(stderr,
+                    "--wav-record cannot be used while audio is disabled in preferences.\n");
+            return 1;
+        }
+        if (!wav_record_file.empty()) {
+            if (!audio_recorder.start(wav_record_file)) {
+                Log::audio()->error("Failed to start WAV recording: {}",
+                                    audio_recorder.last_error());
+                return 1;
+            }
+            cfg.audio_capture_callback = [&audio_recorder](const int16_t* samples,
+                                                           int count) {
+                audio_recorder.capture(samples, count);
+            };
+        }
+        if (!dac_trace_file.empty()) {
+            if (!dac_trace_recorder.start(dac_trace_file)) {
+                Log::audio()->error("Failed to start DAC trace: {}",
+                                    dac_trace_recorder.last_error());
+                audio_recorder.stop();
+                return 1;
+            }
+            cfg.dac_write_callback = [&dac_trace_recorder]
+                                     (uint64_t tstate, int channel, uint8_t value) {
+                dac_trace_recorder.capture(tstate, channel, value);
+            };
+        }
         app.set_config(cfg);
 
-        if (!app.init(argc, argv)) return 1;
+        if (!app.init(argc, argv)) {
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
 
         // Task 66 — apply the saved GUI preferences that have no CLI
         // competitor (CPU speed, window scale, CRT filter, tape fast-load)
@@ -643,6 +693,8 @@ int main(int argc, char* argv[]) {
                 app.set_tape_realtime(true);
             } else {
                 Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx)", ext);
+                audio_recorder.stop();
+                dac_trace_recorder.stop();
                 return 1;
             }
         }
@@ -672,11 +724,30 @@ int main(int argc, char* argv[]) {
             app.emulator().stop_recording();
         }
 
+        bool capture_ok = true;
+        if (audio_recorder.is_recording()) {
+            app.emulator().mixer().set_capture_callback({});
+            capture_ok = audio_recorder.stop();
+            if (!capture_ok) {
+                Log::audio()->error("Failed to finalize WAV recording: {}",
+                                    audio_recorder.last_error());
+            }
+        }
+        if (dac_trace_recorder.is_recording()) {
+            app.emulator().dac().set_write_callback({});
+            const bool trace_ok = dac_trace_recorder.stop();
+            capture_ok = capture_ok && trace_ok;
+            if (!trace_ok) {
+                Log::audio()->error("Failed to finalize DAC trace: {}",
+                                    dac_trace_recorder.last_error());
+            }
+        }
+
         app.shutdown();
         // shutdown() decides the status: a --delayed-screenshot that was
         // requested and never written exits non-zero, so a CI script cannot
         // mistake a missing PNG for success.
-        return app.exit_code();
+        return capture_ok ? app.exit_code() : 1;
     };
 
     int result;

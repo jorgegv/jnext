@@ -84,6 +84,10 @@ public:
     using RecordCallback = std::function<void(const int16_t*, int)>;
     void set_record_callback(RecordCallback cb) { record_callback_ = std::move(cb); }
 
+    /// Independent mixed-audio capture, usable alongside video recording.
+    using CaptureCallback = std::function<void(const int16_t*, int)>;
+    void set_capture_callback(CaptureCallback cb) { capture_callback_ = std::move(cb); }
+
     /// Wire the I2s source (not owned). When set, generate_sample() adds
     /// the latched 10-bit L/R pair (zero-extended) into the 13-bit sum,
     /// mirroring audio_mixer.vhd:89-90,99-100.
@@ -123,6 +127,7 @@ private:
     int count_ = 0;
 
     RecordCallback record_callback_;
+    CaptureCallback capture_callback_;
 
     I2s* i2s_{nullptr};  // Not owned; Emulator owns the I2s instance.
 
