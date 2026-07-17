@@ -171,3 +171,41 @@ perf report --stdio -n --no-children -g none --sort symoff -i cd.data \
   | grep tick_devices_after_instruction                                       # per-offset (C9 = +0x40..+0x89)
 objdump -d -C build/gui-release/jnext | grep -A400 tick_devices_after_instruction # locate divq/idiv
 ```
+
+---
+
+## 8. Final decision — Task 65 (2026-07-17): **WONT**
+
+Re-measured live on the same host (core-0 pinned, machine quiet), current `main`:
+
+| workload | own 400% target | Wave-2 report | **now** | short by |
+|---|---|---:|---:|---:|
+| copper-demo | 200 fps | 159 fps | **163.5 fps** (92.7M T/s) | **1.22×** (~327% eff.) |
+| beast (60 Hz) | 240 fps | 168 fps | **178.0 fps** (85.7M T/s) | **1.35×** (~297% eff.) |
+
+The modest gain over the Wave-2 report is because `VideoTiming::advance` was since **gated out of the
+free-running loop** (`emulator.cpp` — `if (debug_state_.active()) video_timing_.advance(...)`), removing
+§6's 6.7%-copper-demo newcomer **and** its per-instruction `std::function` thunk (lambda#5, ~5.8%). That
+was the single largest safe lever §5/§6 flagged, and it is now spent.
+
+### Ways forward evaluated (and why none is taken)
+
+| option | effort | risk | expected gain | reaches 400%? |
+|---|---|---|---|---|
+| Devirtualise the remaining per-cycle **contention** thunk (Track B, lambda#1) | Med | Med (hot loop + FUSE callback boundary) | ~2–3% | No |
+| Faster/alternative Z80 core (internal VHDL-derived core, INTERNAL-Z80N-CORE-PLAN) | Weeks | High | **Negative** — cycle-accurate microcode stepping is ~4× *slower* per that plan | No (hurts) |
+| Z80N JIT | 6–12 mo | High | ~10%, fragmented by contention/interrupts | No (already rejected) |
+| Cycle-accurate rewrite | Months | Very high | Negative — more work per cycle | No (counterproductive) |
+
+Even summing every remaining **safe** lever, best case is ≈ +15%: copper-demo grazes ~190 fps (near its
+200 target), beast reaches ~200 fps — **still short of 240**. beast cannot reach 240 without making the
+Copper do less work, which is impossible without breaking accuracy (`Copper::execute`'s own 8%/12% WAIT/MOVE
+cost is irreducible — it is the emulation of what the demo asks the hardware to do).
+
+### Verdict
+
+**NOT WORTH IT.** User impact is negligible — both demos run flawlessly at 100% real-time; the shortfall is
+confined to *fast-forward on the two heaviest demos*, where they still achieve ~3×, and every other workload
+(boot-nextzxos 284 fps, ordinary games) already exceeds 400%. The only remaining safe lever (~2–3%) does not
+close the gap, and every gap-closing option is a months-long, high-risk core change with uncertain or
+*negative* payoff. Marked **WONT**; no code change. This closes Task 65.
