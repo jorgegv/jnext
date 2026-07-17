@@ -132,10 +132,11 @@ struct ColdBootHooks {
 ///
 /// Order is the contract:
 ///   1. the load file goes into the config;
-///   2. the LIVE per-connector joystick sources are carried across — they are
-///      host-side mappings, not machine state, so a source picked from the
-///      Input menu must survive the boot (carrying `base_cfg`'s startup values
-///      instead would silently revert it);
+///   2. the LIVE per-connector joystick sources and the LIVE host output gain
+///      are carried across — they are host-side settings, not machine state,
+///      so a source picked from the Input menu or a gain set in Preferences
+///      must survive the boot (carrying `base_cfg`'s startup values instead
+///      would silently revert them);
 ///   3. the machine is reconstructed;
 ///   4. the frontend re-binds and re-wires its host adapters;
 ///   5. stale pending work is dropped BEFORE new work is scheduled;
@@ -148,6 +149,7 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
     cfg.load_file      = load_file;
     cfg.joy_source[0]  = emu.joystick_source(0);
     cfg.joy_source[1]  = emu.joystick_source(1);
+    cfg.audio_gain_db  = emu.mixer().output_gain_db();
 
     emulator_cold_boot(emu, cfg);
 

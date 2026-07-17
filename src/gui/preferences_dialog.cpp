@@ -3,6 +3,7 @@
 
 #include <QComboBox>
 #include <QSpinBox>
+#include <QSlider>
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QLabel>
@@ -13,6 +14,8 @@
 #include <QTabWidget>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+
+#include <cmath>
 
 PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* parent)
     : QDialog(parent)
@@ -25,6 +28,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     auto* tabs = new QTabWidget(this);
     tabs->addTab(build_startup_tab(), tr("Startup"));
     tabs->addTab(build_input_tab(), tr("Input"));
+    tabs->addTab(build_audio_tab(), tr("Audio"));
     tabs->addTab(build_paths_tab(), tr("Paths"));
 
     // --- Fill from `current` ---
@@ -35,6 +39,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     crt_check_->setChecked(current.crt_filter);
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
+    audio_gain_slider_->setValue(static_cast<int>(std::lround(current.audio_gain_db)));
     joy1_source_combo_->setCurrentIndex(
         joy1_source_combo_->findData(static_cast<int>(current.joy_source[0])));
     joy2_source_combo_->setCurrentIndex(
@@ -138,6 +143,49 @@ QWidget* PreferencesDialog::build_input_tab() {
     return tab;
 }
 
+QWidget* PreferencesDialog::build_audio_tab() {
+    auto* tab = new QWidget(this);
+    auto* form = new QFormLayout(tab);
+
+    // Slider rather than a numeric field (PR #41 review): the range is
+    // symmetric so the 0 dB default sits at the centre; the label beside it
+    // carries the exact value.
+    auto* row = new QWidget(tab);
+    auto* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, 0, 0, 0);
+    audio_gain_slider_ = new QSlider(Qt::Horizontal, row);
+    audio_gain_slider_->setObjectName(QStringLiteral("audioGainDbSlider"));
+    audio_gain_slider_->setRange(-24, 24);
+    audio_gain_slider_->setSingleStep(1);
+    audio_gain_slider_->setPageStep(6);
+    audio_gain_slider_->setTickPosition(QSlider::TicksBelow);
+    audio_gain_slider_->setTickInterval(6);
+    audio_gain_slider_->setToolTip(
+        tr("Host output gain after the emulated hardware mix; applies live to playback and recordings."));
+    auto* value = new QLabel(row);
+    value->setObjectName(QStringLiteral("audioGainDbValue"));
+    value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    value->setMinimumWidth(value->fontMetrics().horizontalAdvance(QStringLiteral("-24 dB")));
+    auto update_value = [value](int db) {
+        value->setText(QStringLiteral("%1%2 dB")
+                           .arg(db > 0 ? QStringLiteral("+") : QString())
+                           .arg(db));
+    };
+    connect(audio_gain_slider_, &QSlider::valueChanged, value, update_value);
+    update_value(audio_gain_slider_->value());
+    h->addWidget(audio_gain_slider_, 1);
+    h->addWidget(value);
+    form->addRow(tr("Output gain:"), row);
+
+    auto* note = new QLabel(
+        tr("0 dB preserves the emulated mix. Positive values boost quiet software; "
+           "large boosts may clip."), tab);
+    note->setWordWrap(true);
+    form->addRow(QString(), note);
+
+    return tab;
+}
+
 QWidget* PreferencesDialog::build_paths_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
@@ -188,6 +236,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.crt_filter   = crt_check_->isChecked();
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();
+    cfg.audio_gain_db = static_cast<float>(audio_gain_slider_->value());
     cfg.joy_source[0] = static_cast<JoySource>(joy1_source_combo_->currentData().toInt());
     cfg.joy_source[1] = static_cast<JoySource>(joy2_source_combo_->currentData().toInt());
     cfg.last_load_dir  = last_load_dir_edit_->text();

@@ -5,10 +5,11 @@
 // emulator_frontend_cold_boot() (src/platform/emulator_boot.h):
 //
 //   1. the load file goes into the config the machine is rebuilt with;
-//   2. the LIVE per-connector joystick sources are carried across, because they
-//      are host-side mappings, not machine state — a source picked from the
-//      Input menu must survive a boot, so carrying the STARTUP config's values
-//      would silently revert it;
+//   2. the LIVE per-connector joystick sources and the LIVE host output gain
+//      are carried across, because they are host-side settings, not machine
+//      state — a source picked from the Input menu or a gain set in
+//      Preferences must survive a boot, so carrying the STARTUP config's
+//      values would silently revert them;
 //   3. the machine is reconstructed (power-on defaults restored);
 //   4. the frontend re-binds / re-wires / re-enumerates its host adapters;
 //   5. stale pending work is dropped BEFORE new work is scheduled;
@@ -301,8 +302,9 @@ int main()
     }
 
     // --- EB-13: the rest of the base config survives the boot ---------------
-    // Only load_file and joy_source are overwritten; the frontend's startup
-    // config is otherwise the config the machine is rebuilt with.
+    // Only load_file, joy_source and audio_gain_db are overwritten; the
+    // frontend's startup config is otherwise the config the machine is
+    // rebuilt with.
     {
         Emulator emu;
         emu.init(base_config());
@@ -391,6 +393,27 @@ int main()
         h.on_booted = [&booted]() { booted = true; };
         emulator_frontend_cold_boot(emu, base_config(), "game.nex", h);
         check("EB-16", "on_booted runs even when every other hook is empty", booted);
+    }
+
+    // --- EB-17: the LIVE host output gain is carried across (PR #41) --------
+    // Same reason as EB-10: gain is a host-side setting, not machine state. A
+    // Preferences change goes straight to the live Mixer, so carrying the
+    // STARTUP config's value would silently revert it on every cold boot,
+    // Machine > Reset and File > Load.
+    {
+        Emulator emu;
+        emu.init(base_config());
+        emu.mixer().set_output_gain_db(6.0f);      // live Preferences change
+        EmulatorConfig startup = base_config();
+        startup.audio_gain_db = 0.0f;              // stale startup value
+        FakeFrontend fe;
+        emulator_frontend_cold_boot(emu, startup, "", fe.hooks());
+        check("EB-17a", "the live output gain is carried, not the startup one",
+              fe.rewire_seen && fe.rewire_cfg.audio_gain_db == 6.0f,
+              "got " + std::to_string(fe.rewire_cfg.audio_gain_db));
+        check("EB-17b", "the booted machine's mixer runs at the live gain",
+              emu.mixer().output_gain_db() == 6.0f,
+              "got " + std::to_string(emu.mixer().output_gain_db()));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

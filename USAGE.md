@@ -178,6 +178,11 @@ headless and requires neither an audio device nor ffmpeg.
 Record `segment,tstate,channel,value` rows for physical DAC writes. A
 cold boot starts a new segment.
 
+**--audio-gain-db** *DB*  
+Set host audio gain from -24 dB to +24 dB (default 0 dB). The gain is
+applied after the emulated hardware mix; overflow saturates at the
+16-bit PCM limits.
+
 **--rzx-play** *FILE*  
 Play back an RZX recording.
 
@@ -410,6 +415,11 @@ Notes worth knowing:
 - DAC tracing (**--dac-trace** *FILE*) records guest DAC writes before
   mixing. Channels are numbered 0-3 (A-D) and timestamps are CPU
   T-states.
+- Host audio gain is available under **Settings \> Preferences \>
+  Audio**, or for one run with **--audio-gain-db** *DB*. It is applied
+  after the emulated hardware mix, changes playback and recording volume
+  without changing guest-visible audio state, and survives cold boots.
+  An explicit CLI value overrides the saved preference.
 
 ## LOGGING
 
@@ -473,9 +483,9 @@ Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
 (Ctrl+D).
 
 **Settings**  
-Preferences…, which opens the settings dialog (Startup, Input and Paths
-tabs). Its values are saved to the configuration file; command-line
-options always take precedence over them.
+Preferences…, which opens the settings dialog (Startup, Input, Audio and
+Paths tabs). Its values are saved to the configuration file;
+command-line options always take precedence over them.
 
 **Help**  
 About.
@@ -646,8 +656,9 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 `~/.jnext/jnext.conf`  
 GUI configuration, in INI format. Written by **Settings \>
-Preferences**. CLI options always take precedence over saved values, and
-headless runs never read it.
+Preferences**. Host output gain is stored as `gain_db` under `[audio]`.
+CLI options always take precedence over saved values, and headless runs
+never read it.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
 The default SD-card image, used when **--sdcard** is not given.

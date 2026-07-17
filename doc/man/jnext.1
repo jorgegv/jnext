@@ -130,6 +130,11 @@ Record \f[CR]segment,tstate,channel,value\f[R] rows for physical DAC
 writes.
 A cold boot starts a new segment.
 .TP
+\f[B]\-\-audio\-gain\-db\f[R] \f[I]DB\f[R]
+Set host audio gain from \-24 dB to +24 dB (default 0 dB).
+The gain is applied after the emulated hardware mix; overflow saturates
+at the 16\-bit PCM limits.
+.TP
 \f[B]\-\-rzx\-play\f[R] \f[I]FILE\f[R]
 Play back an RZX recording.
 .TP
@@ -392,6 +397,14 @@ zero\-length data header even though PCM follows it.
 DAC tracing (\f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]) records guest DAC
 writes before mixing.
 Channels are numbered 0\-3 (A\-D) and timestamps are CPU T\-states.
+.IP \(bu 2
+Host audio gain is available under \f[B]Settings > Preferences >
+Audio\f[R], or for one run with \f[B]\-\-audio\-gain\-db\f[R]
+\f[I]DB\f[R].
+It is applied after the emulated hardware mix, changes playback and
+recording volume without changing guest\-visible audio state, and
+survives cold boots.
+An explicit CLI value overrides the saved preference.
 .SH LOGGING
 \f[B]\-\-log\-level\f[R] \f[I]SPEC\f[R] sets per\-subsystem log levels.
 A bare level sets every subsystem; a
@@ -459,8 +472,8 @@ Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
 (Ctrl+D).
 .TP
 \f[B]Settings\f[R]
-Preferences\&..., which opens the settings dialog (Startup, Input and
-Paths tabs).
+Preferences\&..., which opens the settings dialog (Startup, Input, Audio
+and Paths tabs).
 Its values are saved to the configuration file; command\-line options
 always take precedence over them.
 .TP
@@ -786,6 +799,8 @@ jnext \-\-headless game.nex \-\-delayed\-screenshot us.png \(rs
 \f[CR]\(ti/.jnext/jnext.conf\f[R]
 GUI configuration, in INI format.
 Written by \f[B]Settings > Preferences\f[R].
+Host output gain is stored as \f[CR]gain_db\f[R] under
+\f[CR][audio]\f[R].
 CLI options always take precedence over saved values, and headless runs
 never read it.
 .TP

@@ -176,6 +176,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     i2s_.reset();
     mixer_.reset();
+    mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_capture_callback(cfg.audio_capture_callback);
     ctc_.reset();
     dma_.reset();

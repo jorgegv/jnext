@@ -39,6 +39,7 @@
 - SDL audio output at 44100 Hz stereo
 - Direct 44.1 kHz stereo PCM WAV recording (`--wav-record`), including headless runs and sibling-NEX chaining
 - Timestamped physical DAC write tracing (`--dac-trace` CSV)
+- Configurable host output gain (Preferences slider or `--audio-gain-db`, -24 dB to +24 dB; persisted and live-applied)
 
 ## File format support
 - NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header; saving (V1.2, PC/SP/border/RAM banks — see class doc-comment for honest register limitations)
@@ -63,7 +64,7 @@
 - PNG screenshot (Ctrl+S, toolbar, `--delayed-screenshot`)
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
-- Preferences dialog (Settings → Preferences…): configure startup defaults (machine type, CPU speed, emulator speed, window scale, CRT filter, start-muted, tape fast-load) and remembered paths (last load dir, default SD image, screenshot dir); saved to `~/.config/JNEXT/jnext.conf` and applied on the next launch — CLI flags always override saved settings
+- Preferences dialog (Settings → Preferences…): configure startup defaults, input sources, live host audio gain and remembered paths; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings
 
 ## Distribution / packaging
 - Native Linux packages via CMake CPack: TGZ, DEB, RPM; plus a Fedora `packaging/rpm/jnext.spec` and a Debian/Ubuntu `packaging/debian/` source package
@@ -93,7 +94,7 @@
 - `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
 - `--sdcard-readonly` (open the SD image read-only; the emulated machine sees a write-protected card and the host file is never modified, so a run cannot disturb an image other runs share)
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
-- `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, `--rzx-play`, `--rzx-record`
+- `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, `--audio-gain-db`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` — compose only the named layers into the screenshot (default all), for capturing each graphics layer in isolation
 - `--log-level` per subsystem (cpu, video, audio, etc.)

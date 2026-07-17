@@ -21,6 +21,11 @@ struct AppConfigData {
     bool        silent                 = false; // matches --silent's default
     bool        tape_fast_load         = true;  // matches the Tape menu's default
 
+    // Host-side gain applied after the emulated hardware mix. Unlike
+    // `silent`, this can be changed live from Preferences. The CLI option
+    // wins for the current run when explicitly supplied.
+    float       audio_gain_db          = 0.0f;  // -24..+24 dB
+
     // Task 79 — per-connector host input source (index 0 = Joy 1, 1 = Joy 2).
     // Default Sdl/Sdl reproduces the historical behaviour. Persisted as the
     // "sdl"/"keys" strings via joy_source_str()/parse_joy_source().

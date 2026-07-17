@@ -14,3 +14,7 @@ keeps its own layout separately in `~/.jnext/Debugger.conf`.
 Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.
+
+Host audio gain is stored as `gain_db` in the `[audio]` section. It accepts
+-24 through +24; an invalid value falls back to 0 dB. An explicit
+`--audio-gain-db` value overrides the saved setting for that run.

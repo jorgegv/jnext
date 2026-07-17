@@ -1,8 +1,15 @@
 #include "audio/mixer.h"
 #include "audio/i2s.h"
 #include <algorithm>
+#include <cmath>
 
 Mixer::Mixer() : buffer_(RING_BUFFER_SIZE * 2, 0) { reset(); }
+
+void Mixer::set_output_gain_db(float db)
+{
+    output_gain_db_ = db;
+    output_gain_ = std::pow(10.0f, db / 20.0f);
+}
 
 void Mixer::reset()
 {
@@ -139,6 +146,11 @@ void Mixer::emit_sample()
     // midpoint.  Scale by 4 to use more of the int16 dynamic range.
     int32_t sL = avg4_L - DAC_REST_LEVEL * 4;
     int32_t sR = avg4_R - DAC_REST_LEVEL * 4;
+
+    if (output_gain_ != 1.0f) {
+        sL = static_cast<int32_t>(std::lround(static_cast<float>(sL) * output_gain_));
+        sR = static_cast<int32_t>(std::lround(static_cast<float>(sR) * output_gain_));
+    }
 
     // Clamp to int16_t range
     sL = std::clamp(sL, static_cast<int32_t>(-32768), static_cast<int32_t>(32767));

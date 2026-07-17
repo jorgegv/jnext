@@ -24,6 +24,7 @@
 #include <QTemporaryDir>
 
 #include <cstdio>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -91,6 +92,7 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-06", "crt_filter defaults to false", d.crt_filter == def.crt_filter);
     check("AC-07", "silent defaults to false", d.silent == def.silent);
     check("AC-08", "tape_fast_load defaults to true", d.tape_fast_load == def.tape_fast_load);
+    check("AC-46", "audio_gain_db defaults to 0 dB", d.audio_gain_db == 0.0f);
     check("AC-43", "joy_source defaults to Sdl/Sdl",
           d.joy_source[0] == JoySource::Sdl && d.joy_source[1] == JoySource::Sdl);
     check("AC-09", "last_load_dir defaults to empty", d.last_load_dir.isEmpty());
@@ -116,6 +118,7 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().crt_filter             = true;
         writer.data().silent                 = true;
         writer.data().tape_fast_load         = false;
+        writer.data().audio_gain_db          = -12.5f;
         writer.data().joy_source[0]          = JoySource::CursorKeys;
         writer.data().joy_source[1]          = JoySource::Sdl;
         writer.data().last_load_dir          = "/home/user/games";
@@ -139,6 +142,8 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-18", "crt_filter round-trips", d.crt_filter == written.crt_filter);
     check("AC-19", "silent round-trips", d.silent == written.silent);
     check("AC-20", "tape_fast_load round-trips", d.tape_fast_load == written.tape_fast_load);
+    check("AC-47", "audio_gain_db round-trips",
+          std::abs(d.audio_gain_db - written.audio_gain_db) < 0.001f);
     check("AC-21", "last_load_dir round-trips", d.last_load_dir == written.last_load_dir);
     check("AC-22", "sd_card_path round-trips", d.sd_card_path == written.sd_card_path);
     check("AC-23", "screenshot_dir round-trips", d.screenshot_dir == written.screenshot_dir);
@@ -180,6 +185,8 @@ static void test_partial_file(QTemporaryDir& dir) {
           d.tape_fast_load == def.tape_fast_load);
     check("AC-29", "an entirely absent group (paths/*) falls back to default",
           d.last_load_dir.isEmpty() && d.sd_card_path.isEmpty() && d.screenshot_dir.isEmpty());
+    check("AC-48", "an absent audio/gain_db falls back to 0 dB",
+          d.audio_gain_db == def.audio_gain_db);
 }
 
 // ── AC-MALFORMED: garbage / out-of-range values must not be accepted ───
@@ -199,6 +206,9 @@ static void test_malformed_values(QTemporaryDir& dir) {
         raw.beginGroup("input");
         raw.setValue("joy1_source", "not-a-source");      // parse_joy_source() rejects
         raw.endGroup();
+        raw.beginGroup("audio");
+        raw.setValue("gain_db", 25.0);                     // out of [-24,+24]
+        raw.endGroup();
         raw.sync();
     }
 
@@ -217,6 +227,23 @@ static void test_malformed_values(QTemporaryDir& dir) {
           d.window_scale == def.window_scale);
     check("AC-45", "unparseable joy1_source string falls back to default",
           d.joy_source[0] == def.joy_source[0]);
+    check("AC-49", "out-of-range audio gain falls back to default",
+          d.audio_gain_db == def.audio_gain_db);
+
+    // The slider narrowed the range to +/-24 dB (PR #41): a formerly-valid
+    // deep attenuation must now fall back as well.
+    const QString below = fresh_ini_path(dir, "below-range-gain");
+    {
+        QSettings raw(below, QSettings::IniFormat);
+        raw.beginGroup("audio");
+        raw.setValue("gain_db", -24.5);                    // out of [-24,+24]
+        raw.endGroup();
+        raw.sync();
+    }
+    AppConfig below_cfg(below);
+    below_cfg.load();
+    check("AC-52", "below-range audio gain falls back to default",
+          below_cfg.data().audio_gain_db == def.audio_gain_db);
 }
 
 // ── AC-PRECEDENCE: merge_cli_precedence<T> — CLI always wins when given ─
@@ -240,6 +267,10 @@ static void test_merge_precedence() {
           merge_cli_precedence(/*silent=*/false, true, /*saved=*/false) == false);
     check("AC-39", "--silent semantics: passed -> true wins regardless of saved",
           merge_cli_precedence(/*silent=*/true, true, /*saved=*/false) == true);
+    check("AC-50", "explicit CLI audio gain wins over saved gain",
+          merge_cli_precedence(true, 6.0f, -12.0f) == 6.0f);
+    check("AC-51", "saved audio gain wins when CLI option is absent",
+          merge_cli_precedence(false, 6.0f, -12.0f) == -12.0f);
 }
 
 // ── AC-PATH: the production config lives under ~/.jnext, not ~/.config ──
