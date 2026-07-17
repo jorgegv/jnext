@@ -30,10 +30,6 @@ public:
     /// On a real Spectrum, the EAR input is AC-coupled to the speaker.
     void set_tape_ear(bool on) { tape_ear_ = on; }
 
-    /// Return the current beeper level as a 13-bit unsigned value,
-    /// matching the VHDL mixer scaling (EAR=256, MIC=32).
-    uint16_t current_level() const;
-
     /// Get current EAR state.
     bool ear() const { return ear_; }
 

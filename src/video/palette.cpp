@@ -535,16 +535,6 @@ uint16_t PaletteManager::rrrgggbb_to_rgb333(uint8_t val)
     return static_cast<uint16_t>((r3 << 6) | (g3 << 3) | b3);
 }
 
-// ---------------------------------------------------------------------------
-// Unused rebuild helper (reserved for future bulk updates)
-// ---------------------------------------------------------------------------
-
-void PaletteManager::rebuild_argb(PaletteId /*id*/, uint8_t /*idx*/)
-{
-    // Individual entries are updated inline in write_entry().
-    // This is reserved for potential bulk rebuild operations.
-}
-
 void PaletteManager::save_state(StateWriter& w) const
 {
     // G102 — single 256-entry × 2-bank ULA palette store.

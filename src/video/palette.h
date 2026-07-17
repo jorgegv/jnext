@@ -433,7 +433,6 @@ private:
     // Helpers
     void write_entry(uint16_t rgb333, uint8_t priority = 0);
     void advance_index();
-    void rebuild_argb(PaletteId id, uint8_t idx);
 
     /// Convert 8-bit RRRGGGBB to 9-bit RGB333.
     /// Blue LSB is derived as (B1 | B0) per hardware spec.
