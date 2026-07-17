@@ -6,6 +6,7 @@
 # here (default No — a private history tag). Answer yes to make that version a
 # public GitHub Release. See doc/RELEASE-PROTOCOL.md.
 releases:
+  - v0.98.34
   - v0.98.32
   - v0.98.29
   - v0.98.19
