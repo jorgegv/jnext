@@ -812,17 +812,33 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x00, detail_eq(got, 0x00));
     }
 
-    // RO-06 — NR 0x1E/0x1F active video line. VHDL computes cvc from the
-    // raster counter; JNEXT wires read_handlers at emulator.cpp:405-414.
-    // At frame-start the line counter is 0 on both 0x1E and 0x1F.
+    // RO-06 — NR 0x1E/0x1F active video line. VHDL zxnext.vhd:5982-5986
+    // wires BOTH read handlers to `cvc` (o_vc_cu), the copper-offset raster
+    // counter whose ORIGIN is the first active PAPER line: cvc is reset to
+    // `i_cu_offset` when raw vc == c_min_vactive (zxula_timing.vhd:462) and
+    // wraps at c_max_vc. It is the SAME counter the line-interrupt compare
+    // uses (:577 `cvc == int_line_num`).
+    //
+    // GH #16 / Task 76 (discriminative): the pre-fix handler returned the
+    // RAW frame vc (0 = frame top). For 128K/ZXN timing (c_min_vactive=64,
+    // c_max_vc=310 → lines_per_frame=311), at frame start (raw vc == 0)
+    //     cvc = (0 - 64 + cu_offset[=0]) mod 311 = 247 (= 0xF7).
+    // The buggy raw-vc path returned 0. So this row PINS the origin: it
+    // fails (got 0) against the old code and passes (got 247) against the
+    // cvc-faithful read. Because getActiveVideoLineWord()/waitForScanline()
+    // poll exactly these registers, the 64-line (8 tile-row) origin error
+    // shifted David Crespo's videoint scroll write ~24 rows down-screen.
     {
         uint8_t got1e = nr_read(emu, 0x1E);
         uint8_t got1f = nr_read(emu, 0x1F);
+        uint16_t cvc = static_cast<uint16_t>((got1e << 8) | got1f);
         check("RO-06",
-              "NR 0x1E/0x1F active video line readable via port path "
-              "[emulator.cpp:405-414 computes vc from elapsed cycles]",
-              got1e <= 0x01 && got1f <= 0xFF,
-              "0x1E=" + hex2(got1e) + " 0x1F=" + hex2(got1f));
+              "NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: "
+              "frame-start cvc == 247 for 128K timing "
+              "[zxnext.vhd:5982-5986, zxula_timing.vhd:455-472]",
+              cvc == 247,
+              "0x1E=" + hex2(got1e) + " 0x1F=" + hex2(got1f) +
+              " cvc=" + std::to_string(cvc) + " (expected 247)");
     }
 }
 
