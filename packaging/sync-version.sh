@@ -75,7 +75,11 @@ fi
 # the user opts in), so a public release is already listed there by the time we
 # get here; a private bump-patch never is.
 releases_yaml="$root/releases.yaml"
-if grep -qE "^[[:space:]]*-[[:space:]]*v${ver}([[:space:]]|\$)" "$releases_yaml" 2>/dev/null; then
+# Escape dots so the version can't regex-match a sibling (same discipline as
+# packaging/add-release.sh). The trailing anchor rejects prefix matches
+# (v0.98.2 must not match v0.98.29).
+ver_esc=$(printf '%s' "$ver" | sed 's/[.]/\\./g')
+if grep -qE "^[[:space:]]*-[[:space:]]*v${ver_esc}([[:space:]]|\$)" "$releases_yaml" 2>/dev/null; then
     if ! grep -qE "<release version=\"$ver\"" "$metainfo"; then
         sed -i -E "s#([[:space:]]*)(<releases>)#\1\2\n\1  <release version=\"$ver\" date=\"$d_iso\"/>#" "$metainfo"
     fi
