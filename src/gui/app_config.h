@@ -21,6 +21,11 @@ struct AppConfigData {
     bool        silent                 = false; // matches --silent's default
     bool        tape_fast_load         = true;  // matches the Tape menu's default
 
+    // Task 79 — per-connector host input source (index 0 = Joy 1, 1 = Joy 2).
+    // Default Sdl/Sdl reproduces the historical behaviour. Persisted as the
+    // "sdl"/"keys" strings via joy_source_str()/parse_joy_source().
+    JoySource   joy_source[2]          = { JoySource::Sdl, JoySource::Sdl };
+
     // --- Paths (remembered across sessions) ---
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."
     QString sd_card_path;     // default --sdcard when the CLI gives none

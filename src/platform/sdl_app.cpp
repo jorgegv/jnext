@@ -42,55 +42,32 @@ bool SdlApp::init(int argc, char* argv[]) {
     // have been explicitly opened via SDL_GameControllerOpen — the
     // CONTROLLERDEVICEADDED handler below opens up to two devices and
     // routes them to slots 0 / 1.
-    joystick_dispatcher_ = std::make_unique<JoystickDispatcher>(emulator_.joystick());
+    gamepad_host_ = std::make_unique<GamepadHost>(emulator_.joystick());
 
     // Task 60c — after any state restore (rewind / snapshot load) re-seed both
     // host dispatchers' shadows from the restored canonical Joystick /
     // KempstonMouse, so the next live controller/mouse event does not push a
     // stale shadow back over the restore. Fired from Emulator::load_state.
     emulator_.on_input_state_restored = [this]() {
-        if (mouse_dispatcher_)    mouse_dispatcher_->resync();
-        if (joystick_dispatcher_) joystick_dispatcher_->resync();
+        if (mouse_dispatcher_) mouse_dispatcher_->resync();
+        if (gamepad_host_)     gamepad_host_->resync();
     };
 
+    // Task 79 — cursor-keys-as-joystick + per-connector source wiring. The
+    // Keyboard routes arrows/Space into the dispatcher when a connector is
+    // cursor-key-sourced; the Emulator pushes any source change to the
+    // dispatcher's per-slot gate. refresh_joystick_sources() applies the
+    // CLI-resolved sources (config_.joy_source) once everything is wired.
+    emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
+    emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
+        if (gamepad_host_) gamepad_host_->set_source(slot, src);
+    };
+    emulator_.set_joystick_source(0, config_.joy_source[0]);
+    emulator_.set_joystick_source(1, config_.joy_source[1]);
+    emulator_.refresh_joystick_sources();
+
     input_.on_controller = [this](const SDL_Event& e) {
-        if (e.type == SDL_CONTROLLERDEVICEADDED) {
-            // e.cdevice.which is the device-index here (NOT the
-            // instance-id). Open it, then resolve the instance-id and
-            // map it to the first free connector slot.
-            const int dev_idx = e.cdevice.which;
-            if (SDL_IsGameController(dev_idx)) {
-                int slot = -1;
-                if (controllers_[0] == nullptr)      slot = 0;
-                else if (controllers_[1] == nullptr) slot = 1;
-                if (slot >= 0) {
-                    controllers_[slot] = SDL_GameControllerOpen(dev_idx);
-                    if (controllers_[slot]) {
-                        SDL_Joystick* js = SDL_GameControllerGetJoystick(controllers_[slot]);
-                        if (js) {
-                            const SDL_JoystickID iid = SDL_JoystickInstanceID(js);
-                            joystick_dispatcher_->map_instance_to_slot(iid, slot);
-                        }
-                    }
-                }
-            }
-        } else if (e.type == SDL_CONTROLLERDEVICEREMOVED) {
-            // e.cdevice.which is the instance-id here.
-            const SDL_JoystickID iid = e.cdevice.which;
-            for (int s = 0; s < 2; ++s) {
-                if (controllers_[s]) {
-                    SDL_Joystick* js = SDL_GameControllerGetJoystick(controllers_[s]);
-                    if (js && SDL_JoystickInstanceID(js) == iid) {
-                        joystick_dispatcher_->map_instance_to_slot(iid, -1);
-                        SDL_GameControllerClose(controllers_[s]);
-                        controllers_[s] = nullptr;
-                        break;
-                    }
-                }
-            }
-        } else {
-            joystick_dispatcher_->handle_sdl_event(e);
-        }
+        if (gamepad_host_) gamepad_host_->handle_event(e);
     };
 
     input_.on_quit = [this]() { running_ = false; };
@@ -173,12 +150,21 @@ void SdlApp::cold_boot(const std::string& load_file) {
     emulator_cold_boot(emulator_, cfg);
 
     // Re-run the emulator-bound wiring init() does at startup.
-    mouse_dispatcher_    = std::make_unique<MouseDispatcher>(emulator_.mouse());
-    joystick_dispatcher_ = std::make_unique<JoystickDispatcher>(emulator_.joystick());
+    mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
+    gamepad_host_     = std::make_unique<GamepadHost>(emulator_.joystick());
     emulator_.on_input_state_restored = [this]() {
-        if (mouse_dispatcher_)    mouse_dispatcher_->resync();
-        if (joystick_dispatcher_) joystick_dispatcher_->resync();
+        if (mouse_dispatcher_) mouse_dispatcher_->resync();
+        if (gamepad_host_)     gamepad_host_->resync();
     };
+    // Task 79 — re-apply the per-connector source wiring (the reconstructed
+    // Emulator/Keyboard start at defaults).
+    emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
+    emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
+        if (gamepad_host_) gamepad_host_->set_source(slot, src);
+    };
+    emulator_.set_joystick_source(0, cfg.joy_source[0]);
+    emulator_.set_joystick_source(1, cfg.joy_source[1]);
+    emulator_.refresh_joystick_sources();
 
     // Schedule the load exactly as the CLI startup does (same per-format delay).
     load_countdown_ = -1;
@@ -369,13 +355,9 @@ void SdlApp::shutdown() {
         exit_code_ = 1;
     }
 
-    // Close any open game-controllers (G42).
-    for (int s = 0; s < 2; ++s) {
-        if (controllers_[s]) {
-            SDL_GameControllerClose(controllers_[s]);
-            controllers_[s] = nullptr;
-        }
-    }
+    // Close any open game-controllers (G42): GamepadHost owns their lifecycle
+    // now (Task 79), so destroying it here (before SDL_Quit) closes them.
+    gamepad_host_.reset();
     audio_.shutdown();
     display_.shutdown();
     SDL_Quit();

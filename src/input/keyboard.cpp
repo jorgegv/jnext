@@ -1,5 +1,6 @@
 #include "input/keyboard.h"
 #include "input/membrane_stick.h"
+#include "input/joystick_dispatcher.h"
 #include "core/log.h"
 #include "core/saveable.h"
 #include <cstring>
@@ -127,6 +128,25 @@ void Keyboard::reset() {
 
 void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
     if (sc < 0 || sc >= SDL_NUM_SCANCODES) return;
+
+    // Task 79 — cursor-keys-as-Kempston-joystick. When a connector is the
+    // cursor-key target, the arrows drive its direction bits and Space is
+    // Fire; the keys are consumed here and do NOT touch the ZX matrix (so the
+    // two behaviours are mutually exclusive). The dispatcher re-checks its own
+    // per-connector source gate, so this stays correct even if the target and
+    // the source momentarily disagree.
+    if (cursor_target_slot_ >= 0 && joy_dispatcher_) {
+        using CB = JoystickDispatcher::CursorBit;
+        switch (sc) {
+            case SDL_SCANCODE_UP:    joy_dispatcher_->set_cursor_bit(cursor_target_slot_, CB::Up,    pressed); return;
+            case SDL_SCANCODE_DOWN:  joy_dispatcher_->set_cursor_bit(cursor_target_slot_, CB::Down,  pressed); return;
+            case SDL_SCANCODE_LEFT:  joy_dispatcher_->set_cursor_bit(cursor_target_slot_, CB::Left,  pressed); return;
+            case SDL_SCANCODE_RIGHT: joy_dispatcher_->set_cursor_bit(cursor_target_slot_, CB::Right, pressed); return;
+            case SDL_SCANCODE_SPACE: joy_dispatcher_->set_cursor_bit(cursor_target_slot_, CB::Fire,  pressed); return;
+            default: break;   // all other keys fall through to the ZX matrix
+        }
+    }
+
     // Check compound map first (e.g. DELETE = Caps Shift + 0).
     const CompoundPos& cp = s_compound[sc];
     if (cp.a.row >= 0) {

@@ -100,6 +100,10 @@ static void print_usage(const char* prog) {
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
+        "  --joy1-source SRC       Host source for Joy 1 (port 0x1F): 'sdl' (autodetected\n"
+        "                          gamepad, default) or 'keys' (host arrow keys + Space=fire)\n"
+        "  --joy2-source SRC       Host source for Joy 2 (port 0x37): 'sdl' (default) or 'keys'\n"
+        "                          (only one connector may use 'keys')\n"
         "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 0=off)\n"
         "  --trace                 Enable the per-instruction trace log (10K-entry ring;\n"
         "                          implied by --rewind-buffer-size N with N>0)\n"
@@ -197,6 +201,10 @@ int main(int argc, char* argv[]) {
     std::string profile_output_path = "profile.dat";
     std::string rtc_fixed_arg;
     std::tm     rtc_fixed_tm{};
+    // Task 79 — per-connector host input source (Joy 1 / Joy 2). Defaults Sdl;
+    // *_set tracks whether the CLI gave a value (for CLI-wins config merge).
+    JoySource   joy_source[2]   = { JoySource::Sdl, JoySource::Sdl };
+    bool        joy_source_set[2] = { false, false };
     struct DelayedKeyArg { int delay; std::string key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
 
@@ -305,6 +313,16 @@ int main(int argc, char* argv[]) {
             if (speed_percent < 10) speed_percent = 10;
             if (speed_percent > 1000) speed_percent = 1000;
             speed_percent_set = true;
+        } else if ((arg == "--joy1-source" || arg == "--joy2-source") && i + 1 < argc) {
+            const int idx = (arg == "--joy1-source") ? 0 : 1;
+            JoySource src;
+            if (!parse_joy_source(argv[++i], src)) {
+                std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl' or 'keys')\n",
+                             arg.c_str(), argv[i]);
+                return 1;
+            }
+            joy_source[idx]     = src;
+            joy_source_set[idx] = true;
         } else if ((arg == "--delayed-keypress" || arg == "--delayed-keypress-frames")
                    && i + 2 < argc) {
             // SECS form: stored as-is; HeadlessApp converts to frames at
@@ -470,6 +488,14 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Task 79 — cursor keys can drive only one connector.
+    if (joy_source[0] == JoySource::CursorKeys && joy_source[1] == JoySource::CursorKeys) {
+        std::fprintf(stderr,
+            "error: --joy1-source and --joy2-source cannot both be 'keys' "
+            "(the host cursor keys can drive only one connector).\n");
+        return 1;
+    }
+
     // Helper lambda: configure and run any app object with the common interface.
     auto configure_and_run = [&](auto& app) -> int {
         // Configure emulator before init.
@@ -499,6 +525,8 @@ int main(int argc, char* argv[]) {
         cfg.rtc_fixed              = !rtc_fixed_arg.empty();
         cfg.rtc_fixed_tm           = rtc_fixed_tm;
         cfg.silent                 = silent;
+        cfg.joy_source[0]          = joy_source[0];   // Task 79 (CLI value)
+        cfg.joy_source[1]          = joy_source[1];
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -511,6 +539,18 @@ int main(int argc, char* argv[]) {
             cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
                                                gui_app_config.data().machine_type);
             cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
+            // Task 79 — per-connector input source: CLI wins, else saved config.
+            cfg.joy_source[0] = merge_cli_precedence(joy_source_set[0], joy_source[0],
+                                                     gui_app_config.data().joy_source[0]);
+            cfg.joy_source[1] = merge_cli_precedence(joy_source_set[1], joy_source[1],
+                                                     gui_app_config.data().joy_source[1]);
+            // The merged pair could disagree with the one-cursor rule (e.g.
+            // saved keys on Joy 2 + CLI keys on Joy 1); resolve to CLI intent
+            // by keeping the CLI-provided connector and reverting the other.
+            if (cfg.joy_source[0] == JoySource::CursorKeys &&
+                cfg.joy_source[1] == JoySource::CursorKeys) {
+                cfg.joy_source[joy_source_set[0] ? 1 : 0] = JoySource::Sdl;
+            }
         }
 #endif
         app.set_config(cfg);

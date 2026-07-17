@@ -11,11 +11,11 @@ class QLineEdit;
 
 /// Preferences dialog (Task 66 — Configurability).
 ///
-/// Two tabs: **Startup** (machine type, CPU speed, emulator speed, window
-/// scale, CRT filter, start muted, tape fast-load) and **Paths** (last load
-/// directory, default SD card image, screenshot directory). No Input tab:
-/// there is no existing runtime keyboard/joystick-remapping setting to bind
-/// one to (redefinable keys is a separate, unimplemented Phase 11 item).
+/// Three tabs: **Startup** (machine type, CPU speed, emulator speed, window
+/// scale, CRT filter, start muted, tape fast-load), **Input** (Task 79 —
+/// per-connector Joy 1 / Joy 2 host source: SDL gamepad vs cursor keys), and
+/// **Paths** (last load directory, default SD card image, screenshot
+/// directory).
 ///
 /// The dialog only edits an in-memory copy; OK/Apply emit apply_requested()
 /// with the edited data so the caller (MainWindow) decides how to persist it
@@ -31,6 +31,7 @@ signals:
 
 private:
     QWidget* build_startup_tab();
+    QWidget* build_input_tab();
     QWidget* build_paths_tab();
     AppConfigData collect() const;
     void browse_directory(QLineEdit* target);
@@ -43,6 +44,9 @@ private:
     QCheckBox* crt_check_        = nullptr;
     QCheckBox* silent_check_     = nullptr;
     QCheckBox* tape_fast_check_  = nullptr;
+
+    QComboBox* joy1_source_combo_ = nullptr;   // Task 79
+    QComboBox* joy2_source_combo_ = nullptr;
 
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;

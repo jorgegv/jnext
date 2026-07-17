@@ -86,6 +86,20 @@ void AppConfig::load() {
     data_.sd_card_path   = settings_.value("sd_card_path", data_.sd_card_path).toString();
     data_.screenshot_dir = settings_.value("screenshot_dir", data_.screenshot_dir).toString();
     settings_.endGroup();
+
+    // Task 79 — per-connector input source. Unknown/malformed values keep the
+    // default (Sdl). The one-cursor rule is enforced by the UI and by the
+    // Emulator coordinator, so a hand-edited both-"keys" file resolves cleanly
+    // at wire-up time rather than being rejected here.
+    settings_.beginGroup("input");
+    const char* keys[2] = { "joy1_source", "joy2_source" };
+    for (int i = 0; i < 2; ++i) {
+        const QString v = settings_.value(keys[i], joy_source_str(data_.joy_source[i])).toString();
+        JoySource parsed;
+        if (parse_joy_source(v.toStdString().c_str(), parsed))
+            data_.joy_source[i] = parsed;
+    }
+    settings_.endGroup();
 }
 
 void AppConfig::save() const {
@@ -109,6 +123,11 @@ void AppConfig::save() const {
     settings_.setValue("last_load_dir", data_.last_load_dir);
     settings_.setValue("sd_card_path", data_.sd_card_path);
     settings_.setValue("screenshot_dir", data_.screenshot_dir);
+    settings_.endGroup();
+
+    settings_.beginGroup("input");   // Task 79
+    settings_.setValue("joy1_source", QString::fromLatin1(joy_source_str(data_.joy_source[0])));
+    settings_.setValue("joy2_source", QString::fromLatin1(joy_source_str(data_.joy_source[1])));
     settings_.endGroup();
 
     settings_.sync();

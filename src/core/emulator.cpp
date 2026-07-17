@@ -7393,6 +7393,57 @@ void Emulator::advance_audio(uint64_t master_cycles)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Task 79 — per-connector host input source coordination.
+// ---------------------------------------------------------------------------
+
+void Emulator::update_cursor_key_target()
+{
+    // The Keyboard drives at most one connector from the arrow keys. Pick the
+    // connector whose source is CursorKeys (set_joystick_source guarantees at
+    // most one), or -1 if neither uses cursor keys.
+    int target = -1;
+    for (int s = 0; s < 2; ++s) {
+        if (joy_source_[s] == JoySource::CursorKeys) target = s;
+    }
+    keyboard_.set_cursor_key_target(target);
+}
+
+void Emulator::set_joystick_source(int connector, JoySource src)
+{
+    if (connector < 0 || connector > 1) return;
+    const int other = connector ^ 1;
+    bool changed[2] = { false, false };
+
+    if (joy_source_[connector] != src) {
+        joy_source_[connector] = src;
+        changed[connector] = true;
+    }
+    // Mutual exclusion: at most one connector may use cursor keys.
+    if (src == JoySource::CursorKeys && joy_source_[other] == JoySource::CursorKeys) {
+        joy_source_[other] = JoySource::Sdl;
+        changed[other] = true;
+    }
+
+    update_cursor_key_target();
+
+    if (on_joystick_source_changed) {
+        for (int s = 0; s < 2; ++s) {
+            if (changed[s]) on_joystick_source_changed(s, joy_source_[s]);
+        }
+    }
+}
+
+void Emulator::refresh_joystick_sources()
+{
+    update_cursor_key_target();
+    if (on_joystick_source_changed) {
+        for (int s = 0; s < 2; ++s) {
+            on_joystick_source_changed(s, joy_source_[s]);
+        }
+    }
+}
+
 void Emulator::reset()
 {
     // NR 0x07 returns to its power-on value (3.5 MHz) across a reset, so the log

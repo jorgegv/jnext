@@ -9,6 +9,13 @@
 // Keyboard objects leave it null and bypass the fold.
 class MembraneStick;
 
+// Forward decl: JoystickDispatcher (Task 79) is the host-side joystick
+// adapter. When a connector's input source is CursorKeys, set_key() routes
+// the arrow keys + Space into it instead of the ZX key matrix. Runtime wires
+// a pointer via set_joystick_dispatcher(); unit tests that construct a bare
+// Keyboard leave it null and keep the classic ZX-cursor behaviour.
+class JoystickDispatcher;
+
 /// ZX Spectrum keyboard matrix (8 rows x 5 columns).
 ///
 /// Row selection: upper byte of port address, active-low.
@@ -30,6 +37,25 @@ public:
 
     /// Called from the SDL input handler on each KEYDOWN/KEYUP event.
     void set_key(SDL_Scancode sc, bool pressed);
+
+    // -----------------------------------------------------------------------
+    // Task 79 — cursor-keys-as-Kempston-joystick routing.
+    //
+    // Wire the host-side joystick dispatcher once at Emulator construction
+    // (non-owning, like membrane_stick_). Then set_cursor_key_target() selects
+    // which connector (if any) the host arrow keys + Space drive:
+    //   -1 (default) — arrows act as ZX cursor keys (Caps Shift + 5/6/7/8),
+    //                  Space acts as the ZX SPACE key (the historical map);
+    //    0 — arrows/Space drive Joy 1 (dispatcher slot 0, port 0x1F);
+    //    1 — arrows/Space drive Joy 2 (dispatcher slot 1, port 0x37).
+    // While a connector is targeted, the arrows and Space are consumed by the
+    // joystick and produce NO ZX key matrix change (mutually exclusive, as the
+    // task requires). The dispatcher enforces its own source gate, so a stale
+    // target is a harmless no-op there too.
+    // -----------------------------------------------------------------------
+    void set_joystick_dispatcher(JoystickDispatcher* d) { joy_dispatcher_ = d; }
+    void set_cursor_key_target(int slot) { cursor_target_slot_ = slot; }
+    int  cursor_key_target() const { return cursor_target_slot_; }
 
     /// Called by port 0xFE read.
     /// addr_high = upper byte of the 16-bit port address.
@@ -168,6 +194,12 @@ private:
     /// tests — read_rows() guards for this. See VHDL
     /// `zxnext_top_issue4.vhd:1843` for the AND-merge semantics.
     MembraneStick* membrane_stick_ = nullptr;
+
+    /// Task 79 — non-owning host joystick adapter + cursor-key target slot.
+    /// Both are host wiring/config, NOT machine state: reset() must not clear
+    /// them (mirrors membrane_stick_), and save_state/load_state ignore them.
+    JoystickDispatcher* joy_dispatcher_    = nullptr;
+    int                 cursor_target_slot_ = -1;   // -1 = ZX cursor keys
 
     /// Two-scan shift hysteresis buffer. Active-LOW, matching VHDL
     /// membrane.vhd:184-186 (`matrix_state_ex_0/1 <= (others => '1')`

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <SDL2/SDL.h>
+#include "input/joy_source.h"
 
 class Joystick;
 
@@ -72,9 +73,41 @@ public:
     /// the dispatcher.
     explicit JoystickDispatcher(Joystick& joy) : joy_(joy) {}
 
+    /// Logical cursor-key direction/fire bits (Task 79). Mapped internally
+    /// to the Kempston/MD6 12-bit layout (U/D/L/R + Fire 1).
+    enum class CursorBit : uint8_t { Up, Down, Left, Right, Fire };
+
     /// Reset internal per-connector bit vectors to zero. Does NOT reset
-    /// the bound Joystick — callers manage that lifecycle.
+    /// the bound Joystick — callers manage that lifecycle. The per-connector
+    /// input SOURCE (set_source) is a host configuration, not machine state,
+    /// so it is preserved across reset() (mirrors the Joystick NR 0x05
+    /// mode-preservation posture in joystick.cpp).
     void reset();
+
+    /// Task 79 — select the host input source for connector `slot` (0 = Joy 1,
+    /// 1 = Joy 2). Changing the source clears that connector's current bit
+    /// vector (so a held SDL direction or cursor key does not linger under
+    /// the new source) and re-emits. Out-of-range slots are ignored.
+    ///
+    /// The gate is enforced on BOTH input paths: SDL controller events
+    /// (handle_button / handle_axis, reached via handle_sdl_event) are dropped
+    /// for a slot whose source is CursorKeys; cursor-key events
+    /// (set_cursor_bit) are dropped for a slot whose source is Sdl. Because at
+    /// most one source is ever live per slot, the shared `bits_[slot]` shadow
+    /// never has two writers.
+    void set_source(int slot, JoySource src);
+
+    /// Current source for connector `slot`. Out-of-range slots return Sdl.
+    JoySource source(int slot) const {
+        if (slot < 0 || slot >= NUM_CONNECTORS) return JoySource::Sdl;
+        return source_[static_cast<size_t>(slot)];
+    }
+
+    /// Task 79 — cursor-key input path. Sets/clears the direction/fire bit for
+    /// connector `slot`. Ignored unless that slot's source is CursorKeys (so a
+    /// stray call while the connector is SDL-sourced is a harmless no-op). The
+    /// updated 12-bit vector is re-emitted to the bound Joystick on any change.
+    void set_cursor_bit(int slot, CursorBit b, bool pressed);
 
     /// Task 60c — re-seed this dispatcher's shadow (`bits_` + `axis_state_`)
     /// from the bound Joystick's CURRENT canonical vectors. Call after a
@@ -147,6 +180,16 @@ public:
 private:
     Joystick& joy_;
     std::array<uint16_t, NUM_CONNECTORS> bits_{};
+
+    // Task 79 — per-connector host input source. Default Sdl for both keeps
+    // the historical behaviour (pads auto-map to slots). Not serialised /
+    // not touched by reset() — it is host configuration owned by the
+    // Emulator's set_joystick_source() coordinator.
+    std::array<JoySource, NUM_CONNECTORS> source_{ {JoySource::Sdl, JoySource::Sdl} };
+
+    // Shared helper: OR/AND `jbit` into bits_[idx] and emit on change.
+    // Used by both the SDL button path and the cursor-key path.
+    void apply_bit(int idx, uint16_t jbit, bool pressed);
 
     // Sticky per-connector axis-state cache. We need it because SDL emits
     // axis events as absolute positions (not deltas), and a single axis
