@@ -101,7 +101,17 @@ public:
     ///     audio samples, checks interrupts.
     void run_frame();
 
-    /// Perform a hard reset: reinitialize all subsystems, clear RAM, reload ROM.
+    /// In-place hard reinit: reinitialize all subsystems, clear RAM, reload ROM
+    /// (calls init(config_)). NOTE (Task 70): this is NOT the machine's
+    /// power-on "reset button" behaviour. A booted Next reset in place does not
+    /// re-engage the FPGA boot ROM (config_mode is preserved), so it does NOT
+    /// re-boot NextZXOS — it would fall through to 48K BASIC. The physical reset
+    /// button / F1 / a program's NR 0x02 bit 1 are modelled as a power-on COLD
+    /// BOOT the host frontend performs by RECONSTRUCTING the emulator and
+    /// re-running init() (platform/emulator_boot.h::emulator_cold_boot). This
+    /// method survives only as the reinit used by the file loaders
+    /// (load_nex/load_sna/...) on a fresh-at-startup machine and by unit-test
+    /// setup. Do not call it expecting a NextZXOS re-boot.
     void reset();
 
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
@@ -110,6 +120,20 @@ public:
     /// boot-ROM overlay state, and other non-FF state. Matches VHDL
     /// zxnext_top_issue5.vhd:836-880 (soft reset domain subset).
     void soft_reset();
+
+    /// Task 70 — a HARD reset (physical reset button / F1 / NR 0x02 bit 1) is
+    /// modelled by the host frontend as a power-on cold boot: it reconstructs
+    /// the emulator and re-runs init() (the proven startup path). That cannot
+    /// happen from inside run_frame() (a program's own NR 0x02 write), so the
+    /// emulator only RECORDS the request here; the frontend polls
+    /// take_hard_reset_request() after each run_frame() and performs the cold
+    /// boot. Soft reset (bit 0) is unaffected — the NextZXOS boot uses it.
+    void request_hard_reset() { hard_reset_requested_ = true; }
+    bool take_hard_reset_request() {
+        bool r = hard_reset_requested_;
+        hard_reset_requested_ = false;
+        return r;
+    }
 
     /// Load a raw binary file into RAM at `org` and set PC to `pc`.
     /// Called after init() when --inject is used.  Returns true on success.
@@ -860,6 +884,10 @@ private:
 
     /// When true, suppresses audio/video output during fast-forward replay.
     bool replay_mode_ = false;
+
+    /// Task 70 — set by request_hard_reset() (NR 0x02 bit 1 / F1); consumed by
+    /// the host frontend after run_frame() to perform a cold boot.
+    bool hard_reset_requested_ = false;
 
     /// Task 27 C6 — frontend render hint (see set_render_enabled()). NOT
     /// serialised: it is host-presentation state, not machine state.

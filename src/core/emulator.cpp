@@ -2241,9 +2241,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
         if (v & 0x02) {
             const auto regs = cpu_.get_registers();
-            Log::emulator()->debug("Hard reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
+            Log::emulator()->debug("Hard reset requested via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x} - deferred to host cold boot",
                                   v, regs.PC, mmu_.current_rom_bank(), mmu_.get_page(7));
-            reset();
+            // Task 70: a hard reset is a power-on cold boot performed by the
+            // host (reconstruct + init) — it cannot run from inside run_frame().
+            // Record the request; the frontend performs it after run_frame().
+            request_hard_reset();
         } else if (v & 0x01) {
             const auto regs = cpu_.get_registers();
             Log::emulator()->debug("Soft reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
@@ -7501,8 +7504,11 @@ void Emulator::on_hotkey_f1_hard_reset()
     // (nr_02_we and nr_wr_dat(1))`. No config_mode gate (hard reset is
     // unconditional). Hard reset does NOT advance the reset_type FSM
     // (FSM advance is only on the soft_reset edge per VHDL:1735).
-    Log::emulator()->info("Hard reset triggered via host F1 (hotkey_hard_reset)");
-    reset();
+    Log::emulator()->info("Hard reset requested via host F1 (hotkey_hard_reset) - deferred to host cold boot");
+    // Task 70: model the physical reset button as a power-on cold boot done by
+    // the host frontend (reconstruct + init). Record the request; the frontend
+    // polls take_hard_reset_request() and performs it between frames.
+    request_hard_reset();
 }
 
 // ---------------------------------------------------------------------------

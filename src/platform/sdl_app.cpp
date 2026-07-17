@@ -1,4 +1,5 @@
 #include "sdl_app.h"
+#include "platform/emulator_boot.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -158,6 +159,35 @@ void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
+void SdlApp::cold_boot(const std::string& load_file) {
+    Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
+                          load_file.empty() ? "(none)" : load_file.c_str());
+
+    // Reconstruct the emulator in place (shared with the Qt/headless frontends,
+    // platform/emulator_boot.h) and re-run init(), preserving debugger
+    // breakpoints. Placement-new keeps &emulator_ stable; the host adapters
+    // below re-bind to the (stable-address) sub-objects and the emulator-side
+    // callback.
+    EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
+    cfg.load_file = load_file;
+    emulator_cold_boot(emulator_, cfg);
+
+    // Re-run the emulator-bound wiring init() does at startup.
+    mouse_dispatcher_    = std::make_unique<MouseDispatcher>(emulator_.mouse());
+    joystick_dispatcher_ = std::make_unique<JoystickDispatcher>(emulator_.joystick());
+    emulator_.on_input_state_restored = [this]() {
+        if (mouse_dispatcher_)    mouse_dispatcher_->resync();
+        if (joystick_dispatcher_) joystick_dispatcher_->resync();
+    };
+
+    // Schedule the load exactly as the CLI startup does (same per-format delay).
+    load_countdown_ = -1;
+    if (!load_file.empty()) {
+        load_file_      = load_file;
+        load_countdown_ = emulator_load_delay_frames(load_file);
+    }
+}
+
 void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                                     uint8_t layer_mask) {
     screenshot_file_ = file;
@@ -190,7 +220,11 @@ void SdlApp::run() {
 
         // Apply pending load when countdown reaches zero.
         if (load_countdown_ == 0) {
-            emulator_.load_nex(load_file_);
+            // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
+            // SDL has no --tape-realtime toggle; fast tape load (false).
+            if (!emulator_apply_load(emulator_, load_file_, /*tape_realtime=*/false)) {
+                Log::platform()->error("load: failed to load '{}'", load_file_);
+            }
             load_countdown_ = -1;  // done
         } else if (load_countdown_ > 0) {
             --load_countdown_;
@@ -225,6 +259,14 @@ void SdlApp::run() {
                 emulator_.run_frame();
                 ++frames_rendered;
             }
+        }
+
+        // Task 70 — a hard reset (F1 / a program's NR 0x02 bit 1) is a power-on
+        // cold boot done here between frames. cold_boot() reconstructs the
+        // emulator, so restart the loop with the fresh machine.
+        if (emulator_.take_hard_reset_request()) {
+            cold_boot(std::string());
+            continue;
         }
 
         // Task 19 fastload follow-up — when the phantom typist is

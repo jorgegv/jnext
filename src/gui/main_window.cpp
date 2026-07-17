@@ -716,24 +716,12 @@ void MainWindow::on_load_nex() {
         // Task 66 — remember the containing directory for the next dialog.
         app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
         app_config_.save();
-        if (emulator_) {
-            if (path.toLower().endsWith(".tap")) {
-                emulator_->load_tap(path.toStdString());
-            } else if (path.toLower().endsWith(".tzx")) {
-                emulator_->load_tzx(path.toStdString());
-            } else if (path.toLower().endsWith(".sna")) {
-                emulator_->load_sna(path.toStdString());
-            } else if (path.toLower().endsWith(".szx")) {
-                emulator_->load_szx(path.toStdString());
-            } else if (path.toLower().endsWith(".z80")) {
-                emulator_->load_z80(path.toStdString());
-            } else if (path.toLower().endsWith(".wav")) {
-                emulator_->load_wav(path.toStdString());
-            } else if (path.toLower().endsWith(".rzx")) {
-                emulator_->load_rzx(path.toStdString());
-            } else {
-                emulator_->load_nex(path.toStdString());
-            }
+        // Task 70 — a menu file-load is a full cold boot as if the file had
+        // been passed with --load at startup (reset the Next to a known state,
+        // then load and run). QtApp performs the reconstruct+init+load; the
+        // per-format loader dispatch lives in the shared startup path.
+        if (load_file_callback_) {
+            load_file_callback_(path.toStdString());
         }
         emit load_nex_requested(path);
     }
@@ -759,8 +747,12 @@ void MainWindow::on_mount_sd() {
 }
 
 void MainWindow::on_reset() {
+    // Task 70 — the Reset button/menu models the physical reset button: a
+    // power-on cold boot. It cannot run inside run_frame(), so request it and
+    // let QtApp perform the reconstruct+init between frames (same as F1 and a
+    // program's own NR 0x02 hard reset).
     if (emulator_) {
-        emulator_->reset();
+        emulator_->request_hard_reset();
     }
 }
 

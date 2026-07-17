@@ -18,6 +18,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "debug/debug_state.h"
+#include "platform/emulator_boot.h"
 #include "input/joystick.h"
 #include "input/mouse.h"
 #include "peripheral/divmmc.h"
@@ -585,19 +587,26 @@ static void test_soft_reset(Emulator& emu) {
               before == 0xA5 && after == 0xA5, detail);
     }
 
-    // SR-02: same marker location, trigger NR 0x02=RESET_HARD, observe
-    // SRAM is zeroed. Hard reset returns the emulator to power-on state.
+    // SR-02: NR 0x02=RESET_HARD is a power-on cold boot performed by the HOST
+    // (Task 70): the emulator only RECORDS the request (a hard reset cannot run
+    // from inside run_frame — it reconstructs the machine); the frontend polls
+    // take_hard_reset_request() after run_frame and reconstructs + re-inits.
+    // So the write sets the request flag and does NOT zero SRAM synchronously.
+    // The actual power-on reinit (SRAM re-seed) is covered by SR-07 via the
+    // reinit path emu.reset() runs.
     {
         emu.mmu().write(0x8000, 0x5A);
         const uint8_t before = emu.mmu().read(0x8000);
         nr_write(emu, 0x02, 0x02);              // RESET_HARD
-        const uint8_t after = emu.mmu().read(0x8000);
+        const bool requested = emu.take_hard_reset_request();
+        const uint8_t after = emu.mmu().read(0x8000);   // NOT zeroed synchronously
         char detail[128];
-        snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
+        snprintf(detail, sizeof(detail), "before=0x%02X requested=%d after=0x%02X",
+                 before, requested ? 1 : 0, after);
         check("SR-02",
-              "NR 0x02=0x02 (RESET_HARD) zeroes SRAM "
-              "[full power-on reinit]",
-              before == 0x5A && after == 0x00, detail);
+              "NR 0x02=0x02 (RESET_HARD) requests a host cold boot (deferred); "
+              "SRAM untouched synchronously [Task 70]",
+              before == 0x5A && requested && after == 0x5A, detail);
     }
 
     // SR-03: boot_rom_en_ must survive soft reset even when a boot ROM is
@@ -641,14 +650,19 @@ static void test_soft_reset(Emulator& emu) {
     }
 
     // SR-05: hard-reset wins over soft when both bits are set (bit 1 | bit 0).
-    // VHDL SRAM is zeroed on hard reset — verify the hard path is taken.
+    // Hard reset is deferred to a host cold boot (Task 70): the hard path is
+    // taken (take_hard_reset_request true) rather than the synchronous soft
+    // path, so SRAM is not zeroed synchronously here.
     {
         emu.mmu().write(0x8000, 0xC3);
         nr_write(emu, 0x02, 0x03);              // RESET_HARD | RESET_SOFT
-        const uint8_t after = emu.mmu().read(0x8000);
+        const bool requested = emu.take_hard_reset_request();
+        char detail[64];
+        snprintf(detail, sizeof(detail), "requested=%d", requested ? 1 : 0);
         check("SR-05",
-              "NR 0x02=0x03 (RESET_HARD|RESET_SOFT): hard wins, SRAM zeroed",
-              after == 0x00, detail_eq(after, uint8_t{0x00}));
+              "NR 0x02=0x03 (RESET_HARD|RESET_SOFT): hard wins — host cold boot "
+              "requested [Task 70]",
+              requested, detail);
     }
 
     // SR-06: the Next ROM-in-SRAM window (ram_ pages 0..7) is the CORE
@@ -668,20 +682,58 @@ static void test_soft_reset(Emulator& emu) {
               after == 0xEE, detail_eq(after, uint8_t{0xEE}));
     }
 
-    // SR-07: hard reset re-seeds the ROM-in-SRAM window from rom_ (which
-    // for the Next fixture has 0xFF for pages 2..7 — only 48.rom pages
-    // 0..1 were loaded). After RESET_HARD, ram_ page 4 byte should revert
-    // to the seed value (0xFF), confirming the full reinit path runs.
+    // SR-07: the ROM-in-SRAM window is re-seeded from rom_ (0xFF for pages
+    // 2..7 in the Next fixture) by init()'s Branch-2 seed loop. Since Task 70 a
+    // hard reset defers to a host COLD BOOT (which reconstructs the emulator
+    // and runs init() on the fresh object), NR 0x02 no longer re-seeds
+    // synchronously. This row checks the SEED LOOP itself: emu.reset() runs the
+    // same init() in place — NOT the cold-boot path, but the identical seed
+    // code — and page 4 must revert to the seed value.
     {
         uint8_t* p4 = emu.ram().page_ptr(4);
         if (p4) p4[0x0100] = 0x5A;              // Pollute with non-seed value.
-        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        emu.reset();                            // in-place reinit -> init() re-seed
         const uint8_t after = emu.ram().page_ptr(4)[0x0100];
         check("SR-07",
-              "ROM-in-SRAM window re-seeded from rom_ on RESET_HARD "
-              "[Branch 2 seed loop runs on hard reset but not soft]",
+              "init() re-seeds the ROM-in-SRAM window from rom_ "
+              "[Branch 2 seed loop; exercised via in-place emu.reset()]",
               after == 0xFF, detail_eq(after, uint8_t{0xFF}));
     }
+}
+
+// ── Cold boot preserves debugger breakpoints (Task 70 review) ─────────
+//
+// A hard reset is a host COLD BOOT (emulator_cold_boot: reconstruct the
+// Emulator in place + re-run init()). Breakpoints live in DebugState, an
+// Emulator member, so a naive reconstruct would wipe them. Like a real
+// hardware debugger, a target reset must PRESERVE host breakpoints — so
+// emulator_cold_boot save/restores them (and the debugger active flag).
+// Hermetic: builds its OWN emulator (reconstruct would disturb the shared one).
+static void test_cold_boot_preserves_breakpoints() {
+    set_group("Cold-Boot");
+    Emulator emu;
+    build_next_emulator(emu);
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+
+    emu.debug_state().breakpoints().add_pc(0x8000);
+    emu.debug_state().breakpoints().add_pc(0xC000);
+    emu.debug_state().set_active(true);
+
+    emulator_cold_boot(emu, cfg);   // the host cold-boot path
+
+    const auto& bps = emu.debug_state().breakpoints().pc_breakpoints();
+    const bool kept = bps.count(0x8000) && bps.count(0xC000) &&
+                      emu.debug_state().active();
+    char detail[96];
+    snprintf(detail, sizeof(detail), "bp8000=%d bpC000=%d active=%d n=%zu",
+             (int)bps.count(0x8000), (int)bps.count(0xC000),
+             emu.debug_state().active() ? 1 : 0, bps.size());
+    check("CB-BP-01",
+          "host cold boot (reconstruct+init) preserves debugger PC "
+          "breakpoints + active flag [Task 70 review]",
+          kept, detail);
 }
 
 // ── Read-only registers (RO-01..06) ──────────────────────────────────
@@ -2132,7 +2184,12 @@ static void test_n8e_ram_gate(Emulator& emu) {
     // through font-data garbage into the soft-reset loop tracked as
     // G46(b)-v2.
     {
-        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        // Setup: return to power-on state. Since Task 70, NR 0x02=RESET_HARD is
+        // deferred to a host cold boot (it only sets a request flag), so call
+        // the in-place reinit (emu.reset()) directly to get the synchronous
+        // reset this setup needs (clears port_7ffd / port_1ffd). This is setup,
+        // not the behaviour under test.
+        emu.reset();
         // Reset clears port_7ffd / port_1ffd. ZXN_ISSUE2 `sram_rom3()`
         // reduces to `port_7ffd(4)` (no altrom lock) — must be false
         // immediately after reset.
@@ -6014,6 +6071,9 @@ int main() {
 
     test_soft_reset(emu);
     std::printf("  Group: Soft-Reset — done\n");
+
+    test_cold_boot_preserves_breakpoints();
+    std::printf("  Group: Cold-Boot — done\n");
 
     test_n8e_ram_gate(emu);
     std::printf("  Group: N8E-RAM-Gate — done\n");

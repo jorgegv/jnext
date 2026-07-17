@@ -1266,6 +1266,71 @@ if want tape-save-boot-func; then
     fi
 fi
 
+# Task 70 — reset after boot must re-boot to NextZXOS, not fall to 48K BASIC.
+# The Reset button (and F1 / a program's NR 0x02 hard reset) is a power-on cold
+# boot the host performs by reconstructing the emulator and re-running init()
+# (the proven startup path). Pre-fix, Emulator::reset() did a partial in-place
+# reset that left the boot ROM overlay off and re-seeded the 48K fallback, so a
+# reset landed on "© 1982 Sinclair Research Ltd". Boot, hard-reset via the
+# headless reset facility once the welcome is up, and assert the re-booted
+# screen is PIXEL-IDENTICAL to the fresh boot-nextzxos-welcome reference
+# (cold boot == startup).
+if want reset-to-nextzxos-func; then
+    begin_func reset-to-nextzxos-func
+    rst_png="/tmp/jnext_test_reset_nextzxos.png"
+    rm -f "$rst_png"
+    JNEXT_DELAYED_RESET_FRAMES=450 JNEXT_DELAYED_RESET_TYPE=hard \
+    timeout --foreground --kill-after=5s 150s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        --delayed-screenshot "$rst_png" --delayed-screenshot-frames 900 \
+        --delayed-automatic-exit-frames 920 >/dev/null 2>&1 || true
+    rst_diff=999999
+    if [[ -f "$rst_png" ]]; then
+        rst_diff_raw=$(compare -metric AE "$rst_png" "$IMG_DIR/boot-nextzxos-welcome-reference.png" /dev/null 2>&1) || true
+        rst_diff=$(echo "$rst_diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+    fi
+    if [[ "$rst_diff" -le "$TOLERANCE" ]]; then
+        echo -e "${GREEN}PASS${RESET} (reset after boot re-booted to NextZXOS: ${rst_diff} px diff vs welcome)"
+        pass=$((pass + 1))
+        rm -f "$rst_png"
+    else
+        echo -e "${RED}FAIL${RESET} (px_diff=$rst_diff — reset did not re-boot to NextZXOS? [Task 70])"
+        fail=$((fail + 1))
+    fi
+fi
+
+# Task 70 review (BLOCKER guard) — a menu / cold-boot file-load must route by
+# extension through the SHARED dispatch (platform/emulator_boot.h ::
+# emulator_apply_load), so .rzx reaches load_rzx, not load_nex. The first cut
+# copy-pasted the dispatch into three frontends and the Qt copy silently dropped
+# .rzx (fell through to load_nex, which rejects an RZX). Record a short RZX, then
+# cold-boot-LOAD it via the headless reset facility (the SAME shared dispatch the
+# Qt menu uses) and assert RZX playback started — misrouting to load_nex leaves
+# no "RZX: playback started" line.
+if want cold-boot-load-rzx-func; then
+    begin_func cold-boot-load-rzx-func
+    cb_rzx="$TMP_DIR/cold_boot_test.rzx"
+    rm -f "$cb_rzx"
+    timeout --foreground --kill-after=5s 40s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        --rzx-record "$cb_rzx" --delayed-automatic-exit-frames 120 >/dev/null 2>&1 || true
+    cb_out=""
+    if [[ -f "$cb_rzx" ]]; then
+        cb_out=$(JNEXT_DELAYED_RESET_FRAMES=420 JNEXT_DELAYED_RESET_TYPE="loadnex:$cb_rzx" \
+            timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next \
+            "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+            --delayed-automatic-exit-frames 520 2>&1 || true)
+    fi
+    if echo "$cb_out" | grep -q "RZX: playback started"; then
+        echo -e "${GREEN}PASS${RESET} (cold-boot .rzx load routed to RZX playback via shared dispatch)"
+        pass=$((pass + 1))
+        rm -f "$cb_rzx"
+    else
+        echo -e "${RED}FAIL${RESET} (cold-boot .rzx misrouted — shared load dispatch dropped .rzx? [Task 70 review])"
+        fail=$((fail + 1))
+    fi
+fi
+
 # Rewind / backwards execution unit tests.
 # This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
 # the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that

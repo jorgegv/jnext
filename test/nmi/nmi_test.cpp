@@ -636,26 +636,21 @@ static void g_hotkey()
                   + " rt1=" + std::to_string(rt1));
     }
     {
-        // HK-09 — F1 -> hotkey_hard_reset -> full Emulator reset.
-        // VHDL zxnext.vhd:6371 has no config_mode gate. Verify by
-        // dirtying CPU state then checking it returns to power-on PC=0.
+        // HK-09 — F1 -> hotkey_hard_reset -> requests a host cold boot.
+        // Since Task 70 a hard reset is a power-on cold boot the HOST performs
+        // (reconstruct + init) — it cannot run inside the emulator, so the F1
+        // dispatcher only RECORDS the request; the frontend polls
+        // take_hard_reset_request() and reconstructs. VHDL zxnext.vhd:6371 has
+        // no config_mode gate: the request fires unconditionally.
         Emulator emu;
         build_next_emulator(emu);
-        // Dirty something observable: write NR 0x06 bit 3 (MF-enable)
-        // and verify the value is mirrored, then hard-reset and confirm
-        // it's wiped (NextReg::reset() clears the register file).
-        emu.nmi_source().set_mf_enable(true);
-        const bool pre = emu.nmi_source().mf_enable();
+        const bool before    = emu.take_hard_reset_request();  // false initially
         emu.on_hotkey_f1_hard_reset();
-        const bool post = emu.nmi_source().mf_enable();
-        // After hard reset NmiSource gates default to false (VHDL:1109-
-        // 1110 power-on '0'); reset_type FSM is preserved (VHDL has no
-        // reset branch for nr_02_reset_type).
-        const bool ok = pre && !post
-                        && emu.nmi_source().state() == NmiSource::State::Idle;
+        const bool requested = emu.take_hard_reset_request();
         check("HK-09",
-              "F1 dispatcher triggers hard reset (mf_enable cleared, FSM idle)",
-              ok,
+              "F1 dispatcher requests a host cold boot (deferred hard reset) "
+              "[Task 70]",
+              !before && requested,
               "zxnext.vhd:6371 (hotkey_hard_reset)");
     }
 }
