@@ -41,6 +41,7 @@
   <url type="bugtracker">https://github.com/jorgegv/jnext/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.98.28" date="2026-07-17"/>
     <release version="0.98.27" date="2026-07-17"/>
     <release version="0.98.26" date="2026-07-16"/>
     <release version="0.98.25" date="2026-07-16"/>
