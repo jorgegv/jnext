@@ -62,6 +62,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 - A ChangeLog file should exist at the root of the repository
 - It should contain entries for the different tagged versions, in reverse chronological order (most recent at the top of the file)
+- **Version headers correspond to PUBLIC RELEASE tags only** (the tags listed in `releases.yaml`), NEVER intermediate/private `make bump-patch` tags. A private patch bump does NOT get its own ChangeLog entry. Accumulate all changes since the last public release under a single top `## Unreleased (YYYY-MM-DD)` header; when a public release is actually cut, rename that `Unreleased` header to the released version + date. So most feature/fix bumps land under `Unreleased` and only coalesce into a versioned header at the next public release.
 - Each entry should consist of the version tag, and below it, an extremely terse description of the new features and fixes of that version, up to the previous version. There should be 4 sections:
   - User Features: new features oriented to users who just run games and programs: GUI, emulation features, main menu, etc.
   - Developer Features: new features oriented to developers: in general, all debugger and instrospection features
