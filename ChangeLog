@@ -1,5 +1,10 @@
 # ChangeLog
 
+## Unreleased (YYYY-MM-DD)
+
+### User Features
+- `--esxdos-stub`: esxDOS `run NAME.nex` now chain-loads a sibling NEX (game selectors / multi-part games run without booting NextZXOS); adds in-memory esxDOS file I/O so games can read/write a config or score file
+
 ## v0.98.34 (2026-07-17)
 
 ### User Features
