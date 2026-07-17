@@ -360,6 +360,11 @@ publish-release:
 	 public=no; \
 	 tagre=$$(printf '%s' "$$tag" | sed 's/\./\\./g'); \
 	 if grep -qE "^[[:space:]]*-[[:space:]]*$$tagre[[:space:]]*$$" releases.yaml; then public=yes; fi; \
+	 if [ "$$public" = "yes" ] && ! grep -qE "^##[[:space:]]+$$tagre([[:space:]]|\()" ChangeLog; then \
+	   printf "$(BOLD)Error:$(RESET) %s is a public release (listed in releases.yaml) but has no ChangeLog entry.\n" "$$tag"; \
+	   printf "  Add a '## %s' section to ChangeLog first (differential since the previous public release — see doc/RELEASE-PROTOCOL.md).\n" "$$tag"; \
+	   exit 1; \
+	 fi; \
 	 onorigin=no; \
 	 if git ls-remote --tags origin "refs/tags/$$tag" 2>/dev/null | grep -q .; then onorigin=yes; fi; \
 	 printf "$(BOLD)Publish plan:$(RESET)\n"; \
