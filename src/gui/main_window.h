@@ -42,6 +42,16 @@ public:
     /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager.
     void set_emulator(Emulator* emu);
 
+    /// Task 60c/79 — re-seed this window's host input dispatchers (Kempston
+    /// mouse) from the restored emulator state after a rewind / save-load.
+    /// Invoked from QtApp's combined on_input_state_restored fan-out.
+    void resync_input_dispatchers();
+
+    /// Task 79 — refresh the Input-menu checkmarks from the emulator's
+    /// effective per-connector sources. Called by QtApp after it has wired the
+    /// sources (startup + cold boot) so the menu reflects the live state.
+    void sync_joy_source_menu();
+
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_manager() { return debugger_mgr_; }
 #endif
@@ -216,6 +226,12 @@ private:
     // Emulator speed action group
     QActionGroup* emu_speed_group_ = nullptr;
     QLabel* emu_speed_label_ = nullptr;
+
+    // Task 79 — Input menu: per-connector source radio actions.
+    // joy_source_action_[conn][0] = SDL gamepad, [conn][1] = cursor keys.
+    QAction* joy_source_action_[2][2] = { { nullptr, nullptr }, { nullptr, nullptr } };
+    // Live-apply + persist a per-connector source change from the Input menu.
+    void on_joy_source_selected(int connector, JoySource src);
 
     // Screenshot action
     QAction* screenshot_action_ = nullptr;

@@ -8,7 +8,7 @@
 - Accurate memory contention for 48K, 128K, and +3 timing models
 - IM1/IM2 interrupt controller with all 14 Next interrupt levels
 - Z80 CTC, UART, DMA, SPI, I2C/RTC peripherals (VHDL-verified)
-- Host USB gamepads (up to 2, hot-plug) mapped to the Next's MD6 joystick connectors; mode via NR 0x05 (Kempston/Sinclair/Cursor/MD)
+- Host USB gamepads (up to 2, hot-plug) mapped to the Next's two joystick connectors; mode via NR 0x05 (Kempston/Sinclair/Cursor/MD). Either connector can instead be driven by the host cursor keys + Space (fire), selectable per connector (`--joy1-source`/`--joy2-source`, Input menu, Preferences; persisted)
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Floating bus emulation (48K/128K modes)
 - Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F (Next FPGA feature)

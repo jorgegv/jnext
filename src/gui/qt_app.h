@@ -6,6 +6,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "input/gamepad_host.h"
 #include "platform/screenshot.h"
 #include "video/renderer.h"
 
@@ -87,6 +88,11 @@ private:
     void on_frame_tick();
     void on_status_tick();
 
+    // Task 79 — (re)create the gamepad host and wire the per-connector input
+    // sources (cursor-keys routing + SDL pad gating) to the current emulator.
+    // Shared by init() and cold_boot() (which reconstructs the emulator).
+    void wire_gamepad_and_sources(const EmulatorConfig& cfg);
+
     Emulator emulator_;
 
     // QApplication holds a reference to argc (and may write through it), so the
@@ -100,6 +106,11 @@ private:
     QTimer*       frame_timer_ = nullptr;
     QTimer*       status_timer_ = nullptr;
     std::unique_ptr<SdlAudio> audio_;
+
+    // Task 79 — SDL gamepad host (autodetected pads → Joy 1 / Joy 2) plus the
+    // per-connector cursor-key routing. Created in init() once the emulator is
+    // bound; SDL controller events are polled in on_frame_tick().
+    std::unique_ptr<GamepadHost> gamepad_host_;
 
     // Pending --inject state
     std::string inject_file_;

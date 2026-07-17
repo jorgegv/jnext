@@ -8,6 +8,7 @@
 // MachineType is the canonical shared enum; defined once in contention.h.
 // All emulator modules that need the machine type include this header.
 #include "memory/contention.h"
+#include "input/joy_source.h"   // Task 79 — per-connector host input source
 
 // ---------------------------------------------------------------------------
 // Emulator configuration
@@ -120,6 +121,13 @@ struct EmulatorConfig {
 
     // --load: load a file (e.g. .nex) into the emulator.
     std::string load_file;                // path to .nex file (empty = disabled)
+
+    // Task 79 — host input source for each Next joystick connector
+    // (index 0 = Joy 1 / port 0x1F, index 1 = Joy 2 / port 0x37). Resolved
+    // from --joy1-source/--joy2-source and (Qt build) ~/.jnext config with
+    // CLI-wins precedence. Default Sdl/Sdl = historical behaviour. At most
+    // one may be CursorKeys (main.cpp enforces it before this is populated).
+    JoySource joy_source[2] = { JoySource::Sdl, JoySource::Sdl };
 
     // SD card image. Wave 0.3 (Task 8 Multiface plan, 2026-05-04) made this
     // the canonical source for ALL non-embedded ROMs (DivMMC, NextZXOS,

@@ -24,6 +24,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     // reads if a future field is added to one tab but not the other).
     auto* tabs = new QTabWidget(this);
     tabs->addTab(build_startup_tab(), tr("Startup"));
+    tabs->addTab(build_input_tab(), tr("Input"));
     tabs->addTab(build_paths_tab(), tr("Paths"));
 
     // --- Fill from `current` ---
@@ -34,6 +35,10 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     crt_check_->setChecked(current.crt_filter);
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
+    joy1_source_combo_->setCurrentIndex(
+        joy1_source_combo_->findData(static_cast<int>(current.joy_source[0])));
+    joy2_source_combo_->setCurrentIndex(
+        joy2_source_combo_->findData(static_cast<int>(current.joy_source[1])));
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
@@ -96,6 +101,43 @@ QWidget* PreferencesDialog::build_startup_tab() {
     return tab;
 }
 
+QWidget* PreferencesDialog::build_input_tab() {
+    auto* tab = new QWidget(this);
+    auto* form = new QFormLayout(tab);
+
+    auto make_source_combo = [&]() {
+        auto* c = new QComboBox(tab);
+        c->addItem(tr("SDL Gamepad"),        static_cast<int>(JoySource::Sdl));
+        c->addItem(tr("Cursor Keys + Space"), static_cast<int>(JoySource::CursorKeys));
+        return c;
+    };
+    joy1_source_combo_ = make_source_combo();
+    joy2_source_combo_ = make_source_combo();
+    form->addRow(tr("Joy 1 source (port 0x1F):"), joy1_source_combo_);
+    form->addRow(tr("Joy 2 source (port 0x37):"), joy2_source_combo_);
+
+    // The host cursor keys can drive only one connector. When one combo is set
+    // to cursor keys, force the other back to SDL so the pair stays valid.
+    auto enforce_one_cursor = [this](QComboBox* changed, QComboBox* other) {
+        if (static_cast<JoySource>(changed->currentData().toInt()) == JoySource::CursorKeys &&
+            static_cast<JoySource>(other->currentData().toInt()) == JoySource::CursorKeys) {
+            other->setCurrentIndex(other->findData(static_cast<int>(JoySource::Sdl)));
+        }
+    };
+    connect(joy1_source_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [=]() { enforce_one_cursor(joy1_source_combo_, joy2_source_combo_); });
+    connect(joy2_source_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [=]() { enforce_one_cursor(joy2_source_combo_, joy1_source_combo_); });
+
+    auto* note = new QLabel(
+        tr("Cursor keys drive one connector's directions with Space as fire;\n"
+           "while active, the arrows and Space stop acting as ZX keys."), tab);
+    note->setWordWrap(true);
+    form->addRow(QString(), note);
+
+    return tab;
+}
+
 QWidget* PreferencesDialog::build_paths_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
@@ -146,6 +188,8 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.crt_filter   = crt_check_->isChecked();
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();
+    cfg.joy_source[0] = static_cast<JoySource>(joy1_source_combo_->currentData().toInt());
+    cfg.joy_source[1] = static_cast<JoySource>(joy2_source_combo_->currentData().toInt());
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();

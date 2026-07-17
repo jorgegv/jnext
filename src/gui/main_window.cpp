@@ -203,16 +203,12 @@ void MainWindow::set_emulator(Emulator* emu) {
     // G43 closure for the Qt UI path (default build).
     if (emu) {
         mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emu->mouse());
-        // Task 60c — after a rewind / save-load restore, re-seed the mouse
-        // dispatcher's cumulative shadow (wheel/button) from the restored
-        // KempstonMouse so the next Qt wheel/button event does not stomp the
-        // restore. (The Qt path has no joystick dispatcher; gamepad input is
-        // SDL-only. See src/input/mouse_dispatcher.cpp::resync.)
-        emu->on_input_state_restored = [this]() {
-            if (mouse_dispatcher_) {
-                mouse_dispatcher_->resync();
-            }
-        };
+        // Task 60c — after a rewind / save-load restore, the mouse dispatcher's
+        // cumulative shadow (wheel/button) must be re-seeded from the restored
+        // KempstonMouse. Task 79 added the SDL gamepad host on the same restore
+        // hook, so QtApp now owns emu->on_input_state_restored and fans it out
+        // to BOTH (gamepad host + this window's mouse via
+        // resync_input_dispatchers()). See QtApp::wire_gamepad_and_sources().
     } else {
         mouse_dispatcher_.reset();
     }
@@ -222,6 +218,32 @@ void MainWindow::set_emulator(Emulator* emu) {
         // Debugger starts disabled — main window stays fixed-size.
     }
 #endif
+}
+
+void MainWindow::resync_input_dispatchers() {
+    if (mouse_dispatcher_) mouse_dispatcher_->resync();
+}
+
+void MainWindow::on_joy_source_selected(int connector, JoySource src) {
+    if (!emulator_) return;
+    // set_joystick_source enforces the one-cursor-connector rule (it may flip
+    // the other connector back to SDL), so read the effective state back for
+    // both the menu checkmarks and the persisted config.
+    emulator_->set_joystick_source(connector, src);
+    sync_joy_source_menu();
+    app_config_.data().joy_source[0] = emulator_->joystick_source(0);
+    app_config_.data().joy_source[1] = emulator_->joystick_source(1);
+    app_config_.save();
+}
+
+void MainWindow::sync_joy_source_menu() {
+    if (!emulator_) return;
+    for (int conn = 0; conn < 2; ++conn) {
+        const JoySource s = emulator_->joystick_source(conn);
+        const int idx = (s == JoySource::CursorKeys) ? 1 : 0;
+        if (joy_source_action_[conn][idx])
+            joy_source_action_[conn][idx]->setChecked(true);
+    }
 }
 
 void MainWindow::toggle_fullscreen() {
@@ -515,6 +537,37 @@ void MainWindow::create_menus() {
             }
         }
     });
+
+    // --- Input menu (Task 79) ---
+    // Per-connector host input source. Each Next joystick connector can be
+    // driven by an autodetected SDL gamepad or by the host cursor keys + Space
+    // (only one connector may use the cursor keys at a time). Changes apply
+    // live and persist to ~/.jnext/jnext.conf.
+    QMenu* input_menu = menuBar()->addMenu(tr("&Input"));
+    struct JoyEntry { const char* label; JoySource src; };
+    const JoyEntry joy_entries[2] = {
+        { "&SDL Gamepad",        JoySource::Sdl },
+        { "Cursor &Keys + Space", JoySource::CursorKeys },
+    };
+    for (int conn = 0; conn < 2; ++conn) {
+        QMenu* sub = input_menu->addMenu(conn == 0 ? tr("Joy &1 Source (port 0x1F)")
+                                                   : tr("Joy &2 Source (port 0x37)"));
+        auto* group = new QActionGroup(this);
+        group->setExclusive(true);
+        for (int e = 0; e < 2; ++e) {
+            QAction* a = sub->addAction(tr(joy_entries[e].label));
+            a->setCheckable(true);
+            group->addAction(a);
+            joy_source_action_[conn][e] = a;
+            const JoySource src = joy_entries[e].src;
+            connect(a, &QAction::triggered, this, [this, conn, src](bool checked) {
+                if (checked) on_joy_source_selected(conn, src);
+            });
+        }
+    }
+    // Default state before set_emulator() syncs from the effective sources.
+    joy_source_action_[0][0]->setChecked(true);
+    joy_source_action_[1][0]->setChecked(true);
 
     // --- Tape menu ---
     QMenu* tape_menu = menuBar()->addMenu(tr("&Tape"));
@@ -1032,6 +1085,15 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     if (emulator_) on_machine_type(cfg.machine_type);
 
     apply_startup_config(cfg);
+
+    // Task 79 — live-apply the per-connector input sources. The dialog already
+    // enforces the one-cursor rule, so these two calls never conflict; sync the
+    // Input-menu checkmarks to the (now effective) state.
+    if (emulator_) {
+        emulator_->set_joystick_source(0, cfg.joy_source[0]);
+        emulator_->set_joystick_source(1, cfg.joy_source[1]);
+        sync_joy_source_menu();
+    }
 
     // cfg.silent has no live setter (the SDL audio device is opened once at
     // QtApp::init() time and MainWindow has no handle to it) — persisted

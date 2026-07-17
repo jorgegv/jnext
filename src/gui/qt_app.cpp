@@ -70,10 +70,39 @@ void QtApp::set_delayed_exit(int delay_frames) {
                            delay_frames);
 }
 
+void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
+    // (Re)create the SDL gamepad host bound to the (possibly reconstructed)
+    // emulator's Joystick, then wire the Task 79 input plumbing:
+    //   - Keyboard routes arrows/Space into the dispatcher for a cursor-key
+    //     connector;
+    //   - the Emulator pushes any source change to the dispatcher's per-slot
+    //     gate via on_joystick_source_changed;
+    //   - on_input_state_restored re-seeds the dispatcher shadow after rewind.
+    // refresh_joystick_sources() then applies the CLI/config-resolved sources.
+    gamepad_host_ = std::make_unique<GamepadHost>(emulator_.joystick());
+    emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
+    emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
+        if (gamepad_host_) gamepad_host_->set_source(slot, src);
+    };
+    // Single restore hook fans out to BOTH host input owners: the gamepad host
+    // (this class) and the window's Kempston mouse dispatcher (MainWindow).
+    emulator_.on_input_state_restored = [this]() {
+        if (gamepad_host_) gamepad_host_->resync();
+        if (main_window_)  main_window_->resync_input_dispatchers();
+    };
+    emulator_.set_joystick_source(0, cfg.joy_source[0]);
+    emulator_.set_joystick_source(1, cfg.joy_source[1]);
+    emulator_.refresh_joystick_sources();
+    if (main_window_) main_window_->sync_joy_source_menu();
+}
+
 bool QtApp::init(int argc, char* argv[]) {
-    // Initialize SDL for audio only (no video, no window).
-    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
-        Log::platform()->error("SDL_Init(AUDIO): {}", SDL_GetError());
+    // Initialize SDL for audio + gamepads (no video, no window). Task 79 adds
+    // SDL_INIT_GAMECONTROLLER so autodetected pads can drive the two Next
+    // joystick connectors in the GUI; controller events are polled each frame
+    // in on_frame_tick() (Qt owns the event loop, so SDL never runs its own).
+    if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
+        Log::platform()->error("SDL_Init(AUDIO|GAMECONTROLLER): {}", SDL_GetError());
         return false;
     }
 
@@ -123,6 +152,9 @@ bool QtApp::init(int argc, char* argv[]) {
     main_window_->set_key_callback([this](SDL_Scancode sc, bool pressed) {
         emulator_.keyboard().set_key(sc, pressed);
     });
+
+    // Task 79 — SDL gamepad host + per-connector input-source wiring.
+    wire_gamepad_and_sources(cfg);
 
     // Route emulator speed changes from the menu to the frame timer.
     main_window_->set_speed_callback([this](double multiplier) {
@@ -204,6 +236,8 @@ void QtApp::shutdown() {
         status_timer_->stop();
     }
 
+    // Task 79 — close SDL_GameControllers before SDL_Quit().
+    gamepad_host_.reset();
     audio_.reset();
     SDL_Quit();
 
@@ -226,11 +260,20 @@ void QtApp::cold_boot(const std::string& load_file) {
     // emulator-side callback needs re-binding below.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
     cfg.load_file = load_file;   // empty => clean NextZXOS boot
+    // Task 79 — the per-connector input source is a host-side mapping, not
+    // machine state, so it must survive a cold boot (Reset / F1 / NEX load)
+    // including any live change made via the Input menu. Carry the emulator's
+    // CURRENT effective sources through the reconstruction rather than the
+    // startup config's.
+    cfg.joy_source[0] = emulator_.joystick_source(0);
+    cfg.joy_source[1] = emulator_.joystick_source(1);
     emulator_cold_boot(emulator_, cfg);
 
-    // Re-run the post-init wiring init() does at startup: re-binds the
-    // emulator-side on_input_state_restored callback and the mouse dispatcher.
+    // Re-run the post-init wiring init() does at startup: the reconstructed
+    // emulator/keyboard start at defaults, so rebind the window pointer and
+    // re-create + re-wire the gamepad host and per-connector input sources.
     if (main_window_) main_window_->set_emulator(&emulator_);
+    wire_gamepad_and_sources(cfg);
 
     // Drop any stale pending work, then schedule the load exactly as the CLI
     // startup does (same per-format delay) so a menu load == launching with
@@ -249,6 +292,17 @@ void QtApp::cold_boot(const std::string& load_file) {
 }
 
 void QtApp::on_frame_tick() {
+    // Task 79 — Qt owns the event loop, so SDL never runs its own; drain the
+    // SDL event queue each frame and feed controller add/remove/button/axis
+    // events to the gamepad host (all other SDL events are ignored — SDL is
+    // audio + gamepads only in the GUI build).
+    if (gamepad_host_) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            gamepad_host_->handle_event(e);
+        }
+    }
+
     // M_EXECCMD requests use the same cold-boot path as menu loads.
     if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
         cold_boot(load_file);

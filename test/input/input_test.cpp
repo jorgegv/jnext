@@ -3338,6 +3338,182 @@ static void test_saveload() {
     }
 }
 
+// ===========================================================================
+// Task 79 — per-connector host input source (JSRC group).
+//
+// No new VHDL surface: the source selection is host-adapter policy (which host
+// device feeds a connector's raw 12-bit vector). The oracle is the vector that
+// lands in Joystick (zxnext.vhd:3441-3442) and its port 0x1F composition
+// (Kempston1, zxnext.vhd:3470-3479, bit0=R bit1=L bit2=D bit3=U bit4=Fire1).
+// ===========================================================================
+static void test_joy_source() {
+    // --- JoystickDispatcher source gate + cursor-key path -------------------
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        check("JSRC-D01", "default source is Sdl for both connectors",
+              jd.source(0) == JoySource::Sdl && jd.source(1) == JoySource::Sdl, "");
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        // In the default Sdl mode, a cursor-key call is gated out (no-op).
+        jd.set_cursor_bit(0, JoystickDispatcher::CursorBit::Up, true);
+        check("JSRC-D02", "cursor-key input ignored while source is Sdl",
+              joy.joy_left_bits() == 0, DETAIL("joy_left=%03X", joy.joy_left_bits()));
+    }
+    {
+        // joy0 defaults to Kempston1, so port 0x1F reflects the cursor bits.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        using CB = JoystickDispatcher::CursorBit;
+        jd.set_cursor_bit(0, CB::Right, true);
+        jd.set_cursor_bit(0, CB::Left,  true);
+        jd.set_cursor_bit(0, CB::Down,  true);
+        jd.set_cursor_bit(0, CB::Up,    true);
+        jd.set_cursor_bit(0, CB::Fire,  true);
+        // R|L|D|U|Fire1 = 0x01|0x02|0x04|0x08|0x10 = 0x1F on port 0x1F.
+        check("JSRC-D03", "cursor keys drive Kempston1 port 0x1F (R/L/D/U/Fire)",
+              joy.read_port_1f() == 0x1F, DETAIL("0x1F read=0x%02X", joy.read_port_1f()));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        // An SDL controller event on a cursor-key connector is gated out.
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_UP, true);
+        check("JSRC-D04", "SDL controller input ignored while source is CursorKeys",
+              joy.joy_left_bits() == 0, DETAIL("joy_left=%03X", joy.joy_left_bits()));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        jd.set_cursor_bit(0, JoystickDispatcher::CursorBit::Up, true);   // held
+        jd.set_source(0, JoySource::Sdl);                               // release
+        check("JSRC-D05", "changing source clears the held vector",
+              joy.joy_left_bits() == 0, DETAIL("joy_left=%03X", joy.joy_left_bits()));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(1, JoySource::CursorKeys);
+        jd.set_cursor_bit(1, JoystickDispatcher::CursorBit::Right, true);
+        // Connector 1 → right vector; check the raw bit (joy1 mode is Sinclair2
+        // by default so port 0x37 would mask it — assert the raw vector).
+        check("JSRC-D06", "cursor keys route to the selected connector (Joy 2)",
+              (joy.joy_right_bits() & 0x01) != 0 && joy.joy_left_bits() == 0,
+              DETAIL("right=%03X left=%03X", joy.joy_right_bits(), joy.joy_left_bits()));
+    }
+
+    // --- Keyboard cursor-key routing ---------------------------------------
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        Keyboard kb; kb.reset();
+        kb.set_joystick_dispatcher(&jd);
+        kb.set_cursor_key_target(0);
+        kb.set_key(SDL_SCANCODE_UP, true);
+        const bool joy_ok  = (joy.read_port_1f() & 0x08) != 0;         // U → bit3
+        const bool row4_ok = kb.read_rows(0xEF) == 0x1F;               // '7' not pressed
+        const bool row0_ok = kb.read_rows(0xFE) == 0x1F;               // CS not pressed
+        check("JSRC-K01", "arrow key drives joystick, not the ZX matrix, in cursor mode",
+              joy_ok && row4_ok && row0_ok,
+              DETAIL("0x1F=0x%02X row4=0x%02X row0=0x%02X",
+                     joy.read_port_1f(), kb.read_rows(0xEF), kb.read_rows(0xFE)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        Keyboard kb; kb.reset();
+        kb.set_joystick_dispatcher(&jd);
+        kb.set_cursor_key_target(0);
+        kb.set_key(SDL_SCANCODE_SPACE, true);
+        const bool fire_ok  = (joy.read_port_1f() & 0x10) != 0;        // Space → Fire1
+        const bool space_ok = kb.read_rows(0x7F) == 0x1F;             // row7 SPACE not pressed
+        check("JSRC-K02", "Space is Fire in cursor mode, not the ZX SPACE key",
+              fire_ok && space_ok,
+              DETAIL("0x1F=0x%02X row7=0x%02X", joy.read_port_1f(), kb.read_rows(0x7F)));
+    }
+    {
+        // target == -1 (default) preserves the classic ZX-cursor behaviour.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        Keyboard kb; kb.reset();
+        kb.set_joystick_dispatcher(&jd);   // wired, but target stays -1
+        kb.set_key(SDL_SCANCODE_UP, true); // UP = Caps Shift + 7
+        const bool row0 = (kb.read_rows(0xFE) & 0x01) == 0;           // CS pressed
+        const bool row4 = (kb.read_rows(0xEF) & 0x08) == 0;           // '7' pressed
+        check("JSRC-K03", "with no cursor target, arrows remain ZX cursor keys",
+              row0 && row4 && joy.joy_left_bits() == 0,
+              DETAIL("row0=0x%02X row4=0x%02X joy=%03X",
+                     kb.read_rows(0xFE), kb.read_rows(0xEF), joy.joy_left_bits()));
+    }
+    {
+        // Non-arrow keys always reach the matrix, even in cursor-joystick mode.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        Keyboard kb; kb.reset();
+        kb.set_joystick_dispatcher(&jd);
+        kb.set_cursor_key_target(0);
+        kb.set_key(SDL_SCANCODE_A, true);            // A = row1 col0
+        check("JSRC-K04", "non-arrow keys still reach the ZX matrix in cursor mode",
+              (kb.read_rows(0xFD) & 0x01) == 0 && joy.joy_left_bits() == 0,
+              DETAIL("row1=0x%02X", kb.read_rows(0xFD)));
+    }
+
+    // --- Emulator source coordination + mutual exclusion -------------------
+    {
+        Emulator emu;
+        check("JSRC-E01", "emulator default sources are Sdl/Sdl",
+              emu.joystick_source(0) == JoySource::Sdl &&
+              emu.joystick_source(1) == JoySource::Sdl, "");
+    }
+    {
+        Emulator emu;
+        emu.set_joystick_source(0, JoySource::CursorKeys);
+        check("JSRC-E02", "setting a connector to CursorKeys sets the keyboard target",
+              emu.joystick_source(0) == JoySource::CursorKeys &&
+              emu.keyboard().cursor_key_target() == 0,
+              DETAIL("target=%d", emu.keyboard().cursor_key_target()));
+    }
+    {
+        Emulator emu;
+        emu.set_joystick_source(0, JoySource::CursorKeys);
+        emu.set_joystick_source(1, JoySource::CursorKeys);   // must evict connector 0
+        check("JSRC-E03", "only one connector may use cursor keys (mutual exclusion)",
+              emu.joystick_source(0) == JoySource::Sdl &&
+              emu.joystick_source(1) == JoySource::CursorKeys &&
+              emu.keyboard().cursor_key_target() == 1,
+              DETAIL("s0=%d s1=%d target=%d",
+                     (int)emu.joystick_source(0), (int)emu.joystick_source(1),
+                     emu.keyboard().cursor_key_target()));
+    }
+    {
+        Emulator emu;
+        int cb_slot = -1; JoySource cb_src = JoySource::Sdl; int cb_calls = 0;
+        emu.on_joystick_source_changed = [&](int slot, JoySource src) {
+            cb_slot = slot; cb_src = src; ++cb_calls;
+        };
+        emu.set_joystick_source(1, JoySource::CursorKeys);
+        check("JSRC-E04", "source change notifies the frontend callback",
+              cb_calls == 1 && cb_slot == 1 && cb_src == JoySource::CursorKeys,
+              DETAIL("calls=%d slot=%d src=%d", cb_calls, cb_slot, (int)cb_src));
+    }
+    {
+        Emulator emu;
+        int calls = 0;
+        emu.on_joystick_source_changed = [&](int, JoySource) { ++calls; };
+        emu.refresh_joystick_sources();
+        check("JSRC-E05", "refresh re-pushes both connectors to the frontend",
+              calls == 2, DETAIL("calls=%d", calls));
+    }
+}
+
 int main() {
     printf("Input Subsystem Compliance Tests (VHDL-derived plan)\n");
     printf("=====================================================\n\n");
@@ -3358,6 +3534,7 @@ int main() {
     test_nmi();             printf("  Group: NMI    done\n");
     test_port_fe_format();  printf("  Group: FE     done\n");
     test_saveload();        printf("  Group: SL     done\n");
+    test_joy_source();      printf("  Group: JSRC   done\n");
 
     printf("\n=====================================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

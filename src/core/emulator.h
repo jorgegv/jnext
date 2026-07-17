@@ -36,6 +36,7 @@
 #include "peripheral/sd_card.h"
 #include "input/keyboard.h"
 #include "input/joystick.h"
+#include "input/joy_source.h"
 #include "input/mouse.h"
 #include "input/md6_connector_x2.h"
 #include "input/membrane_stick.h"
@@ -322,6 +323,36 @@ public:
         return false;
     }
     Joystick&       joystick()       { return joystick_; }
+
+    // --- Task 79: per-connector host input source ---------------------------
+    // Which host source drives each Next joystick connector (0 = Joy 1,
+    // 1 = Joy 2). See input/joy_source.h. The Emulator is the single
+    // coordinator: it enforces the "at most one CursorKeys connector" rule,
+    // keeps the Keyboard's cursor-key target in sync, and notifies the host
+    // frontend (which owns the JoystickDispatcher) via
+    // on_joystick_source_changed. No SDL/Qt type crosses this boundary.
+    JoySource joystick_source(int connector) const {
+        if (connector < 0 || connector > 1) return JoySource::Sdl;
+        return joy_source_[connector];
+    }
+    /// Set connector `connector` (0/1) to `src`. If `src` is CursorKeys and
+    /// the other connector was also CursorKeys, the other reverts to Sdl
+    /// (mutually exclusive). Updates the Keyboard target and fires
+    /// on_joystick_source_changed for every connector whose source changed.
+    void set_joystick_source(int connector, JoySource src);
+    /// Re-push the current sources to the Keyboard target and the frontend
+    /// callback unconditionally. The frontend calls this once, after it has
+    /// wired the dispatcher + on_joystick_source_changed, so CLI/config
+    /// sources set before that wiring take effect.
+    void refresh_joystick_sources();
+
+    /// Set by the host frontend that owns the JoystickDispatcher; the
+    /// Emulator calls it with (connector, new-source) whenever a source
+    /// changes so the dispatcher's per-slot gate stays in sync. Empty by
+    /// default (headless / SDL builds without a dispatcher). No SDL/Qt type
+    /// crosses this boundary.
+    std::function<void(int connector, JoySource src)> on_joystick_source_changed;
+
     KempstonMouse&  mouse()          { return mouse_; }
     Md6ConnectorX2& md6()            { return md6_; }
     MembraneStick&  membrane_stick() { return membrane_stick_; }
@@ -753,6 +784,10 @@ public:
     }
 
 private:
+    // Task 79 — recompute the Keyboard cursor-key target from joy_source_:
+    // the connector (0/1) whose source is CursorKeys, or -1 for none.
+    void update_cursor_key_target();
+
     // Canonical 640×256 ARGB framebuffer (G104). Vertical 2× scaling for
     // square-pixel display (640×512) is applied at the GUI/screenshot layer
     // (Phase 7).
@@ -856,6 +891,9 @@ private:
     PhantomTypist   phantom_typist_;
     // Input subsystem — Phase 1 scaffold (Task 3). See src/input/*.
     Joystick        joystick_;
+    // Task 79 — per-connector host input source. Default Sdl/Sdl reproduces
+    // the historical behaviour (SDL pads → slots, arrows → ZX cursor keys).
+    JoySource       joy_source_[2] = { JoySource::Sdl, JoySource::Sdl };
     KempstonMouse   mouse_;
     Md6ConnectorX2  md6_;
     MembraneStick   membrane_stick_;

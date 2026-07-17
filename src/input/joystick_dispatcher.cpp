@@ -98,11 +98,61 @@ void JoystickDispatcher::emit_to_joystick(int idx)
     }
 }
 
+void JoystickDispatcher::set_source(int slot, JoySource src)
+{
+    if (slot < 0 || slot >= NUM_CONNECTORS) return;
+    auto& cur = source_[static_cast<size_t>(slot)];
+    if (cur == src) return;
+    cur = src;
+    // Releasing the connector: a direction/fire held under the old source
+    // must not linger. Clear the shadow (+ axis latches) and push the zero.
+    bits_[static_cast<size_t>(slot)] = 0;
+    axis_state_[static_cast<size_t>(slot)] = AxisState{};
+    emit_to_joystick(slot);
+}
+
+void JoystickDispatcher::apply_bit(int idx, uint16_t jbit, bool pressed)
+{
+    auto& v = bits_[static_cast<size_t>(idx)];
+    const uint16_t prev = v;
+    if (pressed) {
+        v = static_cast<uint16_t>(v | jbit);
+    } else {
+        v = static_cast<uint16_t>(v & ~jbit);
+    }
+    if (v != prev) {
+        emit_to_joystick(idx);
+    }
+}
+
+void JoystickDispatcher::set_cursor_bit(int slot, CursorBit b, bool pressed)
+{
+    if (slot < 0 || slot >= NUM_CONNECTORS) return;
+    // Gate: cursor-key input only reaches a connector whose source is
+    // CursorKeys. This is the other half of the SDL-vs-keys mutual exclusion
+    // (the SDL path checks source == Sdl below).
+    if (source_[static_cast<size_t>(slot)] != JoySource::CursorKeys) return;
+    uint16_t jbit = 0;
+    switch (b) {
+        case CursorBit::Up:    jbit = JBIT_U; break;
+        case CursorBit::Down:  jbit = JBIT_D; break;
+        case CursorBit::Left:  jbit = JBIT_L; break;
+        case CursorBit::Right: jbit = JBIT_R; break;
+        case CursorBit::Fire:  jbit = JBIT_B; break;   // Fire 1 → port 0x1F bit 4
+    }
+    apply_bit(slot, jbit, pressed);
+}
+
 void JoystickDispatcher::handle_button(int controller_idx, uint8_t sdl_button, bool pressed)
 {
     if (controller_idx < 0 || controller_idx >= NUM_CONNECTORS) {
         // JOY-WIRE-04: indices 2+ are silently ignored. Real hardware has
         // exactly two physical pad headers.
+        return;
+    }
+    // Task 79 gate: SDL input is dropped for a connector the user has
+    // assigned to cursor keys.
+    if (source_[static_cast<size_t>(controller_idx)] != JoySource::Sdl) {
         return;
     }
     const uint16_t bit = sdl_button_to_jbit(sdl_button);
@@ -112,21 +162,16 @@ void JoystickDispatcher::handle_button(int controller_idx, uint8_t sdl_button, b
         // the 9 buttons enumerated above.
         return;
     }
-    auto& v = bits_[static_cast<size_t>(controller_idx)];
-    const uint16_t prev = v;
-    if (pressed) {
-        v = static_cast<uint16_t>(v | bit);
-    } else {
-        v = static_cast<uint16_t>(v & ~bit);
-    }
-    if (v != prev) {
-        emit_to_joystick(controller_idx);
-    }
+    apply_bit(controller_idx, bit, pressed);
 }
 
 void JoystickDispatcher::handle_axis(int controller_idx, uint8_t sdl_axis, int16_t value)
 {
     if (controller_idx < 0 || controller_idx >= NUM_CONNECTORS) {
+        return;
+    }
+    // Task 79 gate: SDL axes are dropped for a cursor-key connector.
+    if (source_[static_cast<size_t>(controller_idx)] != JoySource::Sdl) {
         return;
     }
     auto& st = axis_state_[static_cast<size_t>(controller_idx)];

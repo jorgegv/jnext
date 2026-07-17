@@ -8,7 +8,7 @@
 #include "screenshot.h"
 #include "core/emulator.h"
 #include "video/renderer.h"
-#include "input/joystick_dispatcher.h"
+#include "input/gamepad_host.h"
 #include "input/mouse_dispatcher.h"
 
 class SdlApp {
@@ -66,12 +66,11 @@ private:
     std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
 
     // Joystick / gamepad host adapter — wires SDL_CONTROLLER* events into
-    // the emulator's Joystick. Created in init() once emulator_ is bound.
-    // Closes G42 (JOY-WIRE-02/03/04). Tracks open SDL_GameController
-    // handles so the events get dispatched (SDL only emits CONTROLLER*
-    // events for opened controllers).
-    std::unique_ptr<JoystickDispatcher> joystick_dispatcher_;
-    SDL_GameController* controllers_[2] = { nullptr, nullptr };
+    // the emulator's Joystick and owns the SDL_GameController lifecycle for
+    // the two Next pad headers. Created in init() once emulator_ is bound.
+    // Closes G42 (JOY-WIRE-02/03/04); Task 79 moved the controller
+    // open/close/route logic into the shared GamepadHost.
+    std::unique_ptr<GamepadHost> gamepad_host_;
 
     // Pending --inject state
     std::string inject_file_;
