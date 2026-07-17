@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage question / help
+    url: https://github.com/jorgegv/jnext/blob/main/README.md
+    about: How to install, run, and use jnext — please check the README (and USAGE.md / BUILD.md) first.

@@ -1,0 +1,103 @@
+name: Bug report
+description: Report incorrect emulation, a crash, or other broken behaviour
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. The **version**, **platform** and **emulated
+        machine** are the most useful fields for triage — please fill them in.
+  - type: input
+    id: version
+    attributes:
+      label: jnext version
+      description: Output of `jnext --version` (or the release/package you installed).
+      placeholder: e.g. 0.98.34
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform / package
+      description: How you got jnext.
+      options:
+        - Linux — RPM (Fedora/RHEL)
+        - Linux — DEB (Debian/Ubuntu)
+        - Linux — Flatpak
+        - Windows (x64 zip)
+        - macOS (.dmg)
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / version
+      description: Operating system and version.
+      placeholder: e.g. Fedora 44, Windows 11, macOS 15
+    validations:
+      required: true
+  - type: dropdown
+    id: machine
+    attributes:
+      label: Emulated machine
+      description: The `--machine` type in use, if relevant.
+      options:
+        - Next (default)
+        - 48K
+        - 128K
+        - "+3"
+        - Pentagon
+        - Not sure / not relevant
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, including the full command line if you used the CLI.
+      placeholder: |
+        1. Run `jnext --machine next --load game.nex`
+        2. ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: media
+    attributes:
+      label: Program / media
+      description: The file or SD image involved (NEX/TAP/TZX/SNA/SZX/Z80), if any. Attach it if you can share it.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: Relevant stderr output. Re-running with e.g. `--log-level cpu=debug,video=debug` often helps.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag-and-drop images that show the problem (a wrong render is worth a screenshot).
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I'm on the latest release, or I've stated my version above.
+          required: true
