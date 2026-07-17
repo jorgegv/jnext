@@ -33,7 +33,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest worktree-bootstrap bench \
-       bump bump-patch bump-minor bump-major version \
+       bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
 
@@ -348,6 +348,33 @@ bump-major:
 
 # Alias: bump → bump-minor
 bump: bump-minor
+
+# Publish the latest release: push commits, then push ONLY the newest tag alone
+publish-release:
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
+	 fi
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	 tag=$$(git tag -l 'v*' | sort -V | tail -1); \
+	 if [ -z "$$tag" ]; then printf "$(BOLD)Error: no v* tag found.$(RESET)\n"; exit 1; fi; \
+	 public=no; \
+	 if grep -qE "^[[:space:]]*-[[:space:]]*$$tag[[:space:]]*$$" releases.yaml; then public=yes; fi; \
+	 onorigin=no; \
+	 if git ls-remote --tags origin "refs/tags/$$tag" 2>/dev/null | grep -q .; then onorigin=yes; fi; \
+	 printf "$(BOLD)Publish plan:$(RESET)\n"; \
+	 printf "  push commits : origin %s\n" "$$branch"; \
+	 printf "  push tag     : %s (in releases.yaml: %s)\n" "$$tag" "$$public"; \
+	 if [ "$$public" != "yes" ]; then \
+	   printf "  $(BOLD)WARNING:$(RESET) %s is NOT in releases.yaml — the CI gate will build NO public GitHub Release.\n" "$$tag"; \
+	 fi; \
+	 if [ "$$onorigin" = "yes" ]; then \
+	   printf "  $(BOLD)WARNING:$(RESET) %s already on origin — re-pushing sends no create event and will NOT re-trigger a Release.\n" "$$tag"; \
+	 fi; \
+	 if [ -t 0 ]; then printf "Proceed? [y/N] "; read ans || ans=n; else ans=n; fi; \
+	 case "$$ans" in [yY]*) : ;; *) printf "Aborted.\n"; exit 1 ;; esac; \
+	 git push origin "$$branch" && \
+	 git push origin "refs/tags/$$tag" && \
+	 printf "$(BOLD)Pushed %s + tag %s. Single-tag push triggers the GH Release gate.$(RESET)\n" "$$branch" "$$tag"
 
 # ---------------------------------------------------------------------------
 # Packaging (Task 67 follow-up). Each target wraps the packaging inputs under
