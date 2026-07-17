@@ -18,7 +18,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      284 |      284 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input                 |      183 |      183 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input                 |      198 |      198 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -53,10 +53,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4742** | **4742** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **4760** | **4760** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

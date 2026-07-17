@@ -488,6 +488,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Task 79 — --joyN-source only has an effect in the interactive frontends
+    // (SDL / Qt); headless has no host input dispatcher, so warn loudly rather
+    // than silently accepting an inert flag.
+    if (headless && (joy_source_set[0] || joy_source_set[1])) {
+        std::fprintf(stderr,
+            "warning: --joy1-source/--joy2-source have no effect with --headless "
+            "(no host joystick input in headless mode); ignoring.\n");
+    }
+
     // Task 79 — cursor keys can drive only one connector.
     if (joy_source[0] == JoySource::CursorKeys && joy_source[1] == JoySource::CursorKeys) {
         std::fprintf(stderr,

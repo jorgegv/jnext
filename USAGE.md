@@ -149,7 +149,7 @@ with `-` is treated as an option, never as a filename.
 | `--sdcard-download-force` | Force re-download + re-patch of the default-location image (ignored when `--sdcard` is given) |
 | `--speed PERCENT` | Emulator throttle: 50 = half, 100 = normal, 200 = 2×, 400 = 4× (clamped to 10..1000) |
 | `--joy1-source SRC` | Host source for Joy 1 (port 0x1F): `sdl` (autodetected gamepad, default) or `keys` (cursor keys + Space = fire) |
-| `--joy2-source SRC` | Host source for Joy 2 (port 0x37): `sdl` (default) or `keys`. Only one connector may use `keys` |
+| `--joy2-source SRC` | Host source for Joy 2 (port 0x37): `sdl` (default) or `keys`. Only one connector may use `keys`. Interactive (SDL/Qt) frontends only — inert under `--headless` |
 | `--tape-realtime` | Real-time tape loading instead of fast load |
 | `--esxdos-stub` | Provide basic `RST $08` file I/O and sibling-NEX chaining |
 | `--rtc "YYYY-MM-DD HH:MM:SS"` | Pin the RTC to a fixed date/time (frozen clock) instead of following the host clock. The ISO `YYYY-MM-DDTHH:MM:SS` form is also accepted |
