@@ -47,6 +47,15 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - When a bug is fixed in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test the fixed new code/interface. Modify the plan if needed and do an independent code review for the new test code.
 - For git commands that run against another directory (e.g. a worktree), always use `git -C /abs/path <cmd> ...` instead of `cd /abs/path && git <cmd> ...`. The `-C` flag avoids shell-state side effects and keeps the current working directory stable across tool calls. It also avoids needless permission prompts to the user.
 
+### Pull requests
+
+> **Read [doc/PULL-REQUEST-PROTOCOL.md](doc/PULL-REQUEST-PROTOCOL.md) whenever a
+> pull request is being reviewed or merged — especially an external one from a
+> third-party contributor.** It is the authoritative, strictly-enforced gate:
+> Bugfix vs Feature flows, the tests-included / no-existing-test-modification /
+> license-clean-fixtures / no-new-dependency rules, and the design-doc + use-case
+> requirement for features. A non-compliant PR is not merged.
+
 ### Merging a completed feature/fix to `main`
 
 The single authoritative protocol for landing any implemented change on `main`:
