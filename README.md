@@ -157,7 +157,7 @@ A **bugfix** PR also needs a full bug description (or a linked bug issue); a
 **feature** PR also needs an explicit use case and a design document under
 `doc/`.
 
-Full rules: **[doc/PULL-REQUEST-PROTOCOL.md](doc/PULL-REQUEST-PROTOCOL.md)**.
+Full rules: **[PULL-REQUEST-PROTOCOL.md](doc/PULL-REQUEST-PROTOCOL.md)**.
 
 ## About this project
 
