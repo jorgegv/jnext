@@ -55,8 +55,20 @@ inline uint16_t sdl_button_to_jbit(uint8_t sdl_button) {
     case SDL_CONTROLLER_BUTTON_A:             return JBIT_B;
     case SDL_CONTROLLER_BUTTON_B:             return JBIT_C;
     case SDL_CONTROLLER_BUTTON_X:             return JBIT_A;
-    case SDL_CONTROLLER_BUTTON_Y:             return JBIT_MODE;
+    // Y is a FACE button, so it must land on a port-visible bit. Only four
+    // non-directional bits ever reach port 0x1F / 0x37 — B(4), C(5), A(6),
+    // START(7) (zxnext.vhd:3477-3479) — and A/B/X already take three of them,
+    // so Y takes START. This deliberately ALIASES Y with the pad's dedicated
+    // START button: with five buttons and four reachable bits an alias is
+    // unavoidable, and making the fourth face button invisible to every guest
+    // program is the worse of the two outcomes.
+    case SDL_CONTROLLER_BUTTON_Y:             return JBIT_START;
     case SDL_CONTROLLER_BUTTON_START:         return JBIT_START;
+    // MODE (bit 11) reaches no port under any mode — it is an MD6 latch bit
+    // that only surfaces via NR 0xB2 (issue #32, unimplemented). Park it on
+    // BACK, a non-face button, so nothing a player reaches for is dead and
+    // the bit still has a binding for when #32 lands.
+    case SDL_CONTROLLER_BUTTON_BACK:          return JBIT_MODE;
     case SDL_CONTROLLER_BUTTON_DPAD_UP:       return JBIT_U;
     case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return JBIT_D;
     case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return JBIT_L;
@@ -309,13 +321,27 @@ void JoystickDispatcher::handle_raw_button(int connector_idx, uint8_t raw_button
     // semantics attached, so there is nothing better available than "first
     // button is Fire 1". Deliberately conservative: buttons past index 4 are
     // dropped rather than guessed at.
+    //
+    // Indices 0..3 take the four bits that actually reach a port. Per
+    // zxnext.vhd:3477-3479 the ONLY non-directional bits ever driven onto
+    // port 0x1F / 0x37 are B(4), C(5) — Kempston or MD — plus A(6) and
+    // START(7), which are driven in MD mode only. Every other bit of the
+    // 12-bit vector (MODE(11), X(10), Z(9), Y(8)) is unreachable from any
+    // port under any NR 0x05 mode, so a button mapped there is invisible to
+    // every guest program. A four-face-button pad must therefore land on
+    // exactly B, C, A, START — index 3 previously sat on MODE and was dead.
+    //
+    // Index 4 is a FIFTH button, past the four reachable bits, so it takes
+    // MODE: still port-invisible today, but it is a genuine MD6 latch bit
+    // that surfaces via NR 0xB2 (issue #32), so the binding becomes live if
+    // that lands. Better there than on a button players reach for.
     uint16_t bit = 0;
     switch (raw_button) {
-    case 0: bit = JBIT_B;     break;   // Fire 1
-    case 1: bit = JBIT_C;     break;   // Fire 2
-    case 2: bit = JBIT_A;     break;   // MD3 A
-    case 3: bit = JBIT_MODE;  break;   // MD6 MODE
-    case 4: bit = JBIT_START; break;   // START
+    case 0: bit = JBIT_B;     break;   // Fire 1  → port bit 4
+    case 1: bit = JBIT_C;     break;   // Fire 2  → port bit 5
+    case 2: bit = JBIT_A;     break;   // MD3 A   → port bit 6 (MD mode only)
+    case 3: bit = JBIT_START; break;   // START   → port bit 7 (MD mode only)
+    case 4: bit = JBIT_MODE;  break;   // MD6 MODE — no port, NR 0xB2 only
     default: return;
     }
     apply_bit(connector_idx, bit, pressed);

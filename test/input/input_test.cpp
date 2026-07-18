@@ -3550,15 +3550,20 @@ static void test_joy_source() {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         jd.handle_raw_button(0, 3, true);
-        check("JRAW-04", "raw button 3 -> MODE (bit 11)",
-              jd.bits12(0) == 0x800, DETAIL("bits=%03X", jd.bits12(0)));
+        // Task 77: raw button 3 moved MODE(11) -> START(7). MODE reaches no
+        // port under any NR 0x05 mode (zxnext.vhd:3477-3479 drive bits 7:0
+        // only), so a face button parked there was invisible to every guest.
+        check("JRAW-04", "raw button 3 -> START (bit 7)",
+              jd.bits12(0) == 0x080, DETAIL("bits=%03X", jd.bits12(0)));
     }
     {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         jd.handle_raw_button(0, 4, true);
-        check("JRAW-05", "raw button 4 -> START (bit 7)",
-              jd.bits12(0) == 0x080, DETAIL("bits=%03X", jd.bits12(0)));
+        // Task 77: index 4 is the FIFTH button, past the four port-reachable
+        // bits, so it inherits MODE (NR 0xB2 only — issue #32).
+        check("JRAW-05", "raw button 4 -> MODE (bit 11)",
+              jd.bits12(0) == 0x800, DETAIL("bits=%03X", jd.bits12(0)));
     }
     {
         Joystick joy; joy.reset();
@@ -4037,6 +4042,400 @@ static void test_joy_source() {
     }
 }
 
+// ===========================================================================
+// Task 77 — host-adapter button remap (T77J) and compound-key map (T77K).
+//
+// T77J expectations are derived from zxnext.vhd:3470-3479, NOT from the
+// dispatcher's own table:
+//
+//   joyL_1f(7 downto 6) <= i_JOY_LEFT(7 downto 6) when mdL_1f_en = '1'
+//                          else (others => '0');
+//   joyL_1f(5 downto 0) <= i_JOY_LEFT(5 downto 0) when joyL_1f_en = '1'
+//                          else (others => '0');
+//   mdL_1f_en  <= '1' when nr_05_joy0 = "101"                  -- Md3Left
+//   joyL_1f_en <= '1' when nr_05_joy0 = "001" or mdL_1f_en     -- Kempston1
+//
+// So bits 5:0 are driven in Kempston1 OR Md3Left, bits 7:6 in Md3Left ONLY,
+// and bits 11..8 (MODE/X/Z/Y) reach no port under any mode. Every row below
+// asserts that reachability, which is what makes a face button useful.
+// ===========================================================================
+static void test_t77_joy() {
+    set_group("T77J");
+
+    // Helper: press one raw button on connector 0, read port 0x1F in `m`.
+    auto raw_1f = [](Joystick::Mode m, uint8_t raw) {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        j.set_mode_direct(m, Joystick::Mode::Sinclair2);
+        jd.handle_raw_button(0, raw, true);
+        return j.read_port_1f();
+    };
+    auto btn_1f = [](Joystick::Mode m, uint8_t sdl_btn) {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        j.set_mode_direct(m, Joystick::Mode::Sinclair2);
+        jd.handle_button(0, sdl_btn, true);
+        return j.read_port_1f();
+    };
+
+    // --- raw pad, bits 5:0 — driven in BOTH Kempston1 and Md3Left ---------
+    // T77J-01/02: raw 0 → B (bit 4). zxnext.vhd:3479 (joyL_1f(5 downto 0)).
+    {
+        uint8_t k = raw_1f(Joystick::Mode::Kempston1, 0);
+        uint8_t d = raw_1f(Joystick::Mode::Md3Left,   0);
+        check("T77J-01", "raw btn0 → B, port 0x1F bit4, Kempston1",
+              k == 0x10, DETAIL("got=0x%02X", k));
+        check("T77J-02", "raw btn0 → B, port 0x1F bit4, Md3Left",
+              d == 0x10, DETAIL("got=0x%02X", d));
+    }
+    // T77J-03/04: raw 1 → C (bit 5). zxnext.vhd:3479.
+    {
+        uint8_t k = raw_1f(Joystick::Mode::Kempston1, 1);
+        uint8_t d = raw_1f(Joystick::Mode::Md3Left,   1);
+        check("T77J-03", "raw btn1 → C, port 0x1F bit5, Kempston1",
+              k == 0x20, DETAIL("got=0x%02X", k));
+        check("T77J-04", "raw btn1 → C, port 0x1F bit5, Md3Left",
+              d == 0x20, DETAIL("got=0x%02X", d));
+    }
+
+    // --- raw pad, bits 7:6 — driven in Md3Left ONLY (the gating) ----------
+    // T77J-05/06: raw 2 → A (bit 6). zxnext.vhd:3477-3478: bits 7:6 pass only
+    // when mdL_1f_en; in Kempston1 they are tied to '0'.
+    {
+        uint8_t d = raw_1f(Joystick::Mode::Md3Left,   2);
+        uint8_t k = raw_1f(Joystick::Mode::Kempston1, 2);
+        check("T77J-05", "raw btn2 → A, port 0x1F bit6 set in Md3Left",
+              d == 0x40, DETAIL("got=0x%02X", d));
+        check("T77J-06", "raw btn2 → A, port 0x1F bit6 GATED OFF in Kempston1",
+              k == 0x00, DETAIL("got=0x%02X", k));
+    }
+    // T77J-07/08: raw 3 → START (bit 7). This is the Task 77 remap: index 3
+    // previously sat on MODE (bit 11), which reaches no port at all, so the
+    // fourth face button of a pad was invisible to every guest program.
+    {
+        uint8_t d = raw_1f(Joystick::Mode::Md3Left,   3);
+        uint8_t k = raw_1f(Joystick::Mode::Kempston1, 3);
+        check("T77J-07", "raw btn3 → START, port 0x1F bit7 set in Md3Left",
+              d == 0x80, DETAIL("got=0x%02X", d));
+        check("T77J-08", "raw btn3 → START, port 0x1F bit7 GATED OFF in Kempston1",
+              k == 0x00, DETAIL("got=0x%02X", k));
+    }
+    // T77J-09: the four raw face buttons together light exactly bits 7:4 in
+    // MD mode — i.e. all four reachable bits, none colliding.
+    {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        for (uint8_t b = 0; b < 4; ++b) jd.handle_raw_button(0, b, true);
+        uint8_t v = j.read_port_1f();
+        check("T77J-09", "raw btn0..3 → distinct bits 7:4 (0xF0) in Md3Left",
+              v == 0xF0, DETAIL("got=0x%02X", v));
+    }
+
+    // T77J-10/11: raw 4 → MODE (bit 11) — set in the 12-bit vector, but
+    // reaching NO port in either mode (zxnext.vhd:3477-3479 drive only 7:0).
+    {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        jd.handle_raw_button(0, 4, true);
+        check("T77J-10", "raw btn4 → MODE, bit 11 of the 12-bit vector",
+              jd.bits12(0) == 0x800, DETAIL("bits=%03X", jd.bits12(0)));
+        uint8_t d = raw_1f(Joystick::Mode::Md3Left,   4);
+        uint8_t k = raw_1f(Joystick::Mode::Kempston1, 4);
+        check("T77J-11", "raw btn4 (MODE) reaches no port in either mode",
+              d == 0x00 && k == 0x00, DETAIL("md=0x%02X kemp=0x%02X", d, k));
+    }
+
+    // T77J-12: release clears the remapped bit (no stuck START).
+    {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        jd.handle_raw_button(0, 3, true);
+        jd.handle_raw_button(0, 3, false);
+        uint8_t v = j.read_port_1f();
+        check("T77J-12", "raw btn3 release clears START", v == 0x00,
+              DETAIL("got=0x%02X", v));
+    }
+
+    // --- controller (SDL game-controller DB) path -------------------------
+    // T77J-13/14: SDL_CONTROLLER_BUTTON_Y → START (bit 7), Md3Left-gated.
+    // Y is a FACE button; it previously sat on MODE and was equally dead.
+    {
+        uint8_t d = btn_1f(Joystick::Mode::Md3Left,   SDL_CONTROLLER_BUTTON_Y);
+        uint8_t k = btn_1f(Joystick::Mode::Kempston1, SDL_CONTROLLER_BUTTON_Y);
+        check("T77J-13", "controller Y → START, bit7 set in Md3Left",
+              d == 0x80, DETAIL("got=0x%02X", d));
+        check("T77J-14", "controller Y → START, bit7 GATED OFF in Kempston1",
+              k == 0x00, DETAIL("got=0x%02X", k));
+    }
+    // T77J-15: the four controller FACE buttons cover exactly bits 7:4.
+    {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_B, true);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_X, true);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_Y, true);
+        uint8_t v = j.read_port_1f();
+        check("T77J-15", "controller A/B/X/Y → bits 7:4 (0xF0) in Md3Left",
+              v == 0xF0, DETAIL("got=0x%02X", v));
+    }
+    // T77J-16: BACK now carries MODE (bit 11), keeping the MD6 latch bound
+    // to a non-face button now that Y took START.
+    {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(0, JoySource::Sdl);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_BACK, true);
+        check("T77J-16", "controller BACK → MODE, bit 11 of the vector",
+              jd.bits12(0) == 0x800, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    // T77J-17: START button still drives START (Y aliases onto it, it is not
+    // displaced by it).
+    {
+        uint8_t d = btn_1f(Joystick::Mode::Md3Left, SDL_CONTROLLER_BUTTON_START);
+        check("T77J-17", "controller START still → START bit7 in Md3Left",
+              d == 0x80, DETAIL("got=0x%02X", d));
+    }
+    // T77J-18: right connector, port 0x37 — the same remap on the other
+    // connector/port pair (zxnext.vhd:3489-3494, joyR_37).
+    {
+        Joystick j; j.reset();
+        JoystickDispatcher jd(j);
+        jd.set_source(1, JoySource::Sdl);
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Md3Right);
+        jd.handle_raw_button(1, 3, true);
+        uint8_t v = j.read_port_37();
+        check("T77J-18", "raw btn3 → START on port 0x37, Md3Right",
+              v == 0x80, DETAIL("got=0x%02X", v));
+    }
+}
+
+// ===========================================================================
+// Task 77 — Spectrum compound keys (T77K).
+//
+// ZX-side halves are the VHDL extended-key set, membrane.vhd:180-240: real
+// hardware synthesises each of these into the classic 48K two-key compound.
+// Every row asserts BOTH matrix bits, because a compound that only asserts
+// one half is not the key at all (CS+3 without CS is just "3").
+//
+// Matrix rows are ACTIVE-LOW and read via read_rows(addr_high), where a 0 bit
+// in addr_high selects that row. Row select bytes used below:
+//   row 0 (CS/Z/X/C/V)      0xFE      row 4 (0/9/8/7/6)   0xEF
+//   row 3 (1/2/3/4/5)       0xF7      row 5 (P/O/I/U/Y)   0xDF
+//   row 7 (SPACE/SS/M/N/B)  0x7F
+// ===========================================================================
+static void test_t77_kbd() {
+    set_group("T77K");
+
+    // Assert that scancode `sc` pulls col `ca` of row `ra` AND col `cb` of
+    // row `rb` low, and that release restores both. Rows are read
+    // independently so a compound spanning two rows is fully checked.
+    auto compound = [](const char* id, const char* desc, SDL_Scancode sc,
+                       int ra, int ca, int rb, int cb,
+                       bool alt) {
+        Keyboard kb; kb.reset();
+        static const uint8_t sel[8] =
+            {0xFE, 0xFD, 0xFB, 0xF7, 0xEF, 0xDF, 0xBF, 0x7F};
+        if (alt) kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(sc, true);
+        const uint8_t ra_v = kb.read_rows(sel[ra]);
+        const uint8_t rb_v = kb.read_rows(sel[rb]);
+        const bool a_down = (ra_v & (1u << ca)) == 0;
+        const bool b_down = (rb_v & (1u << cb)) == 0;
+        // Release the key FIRST, with Alt still held, then Alt — the
+        // ordinary order. (T77K-REL-ORDER below covers the reverse.)
+        kb.set_key(sc, false);
+        if (alt) kb.set_key(SDL_SCANCODE_LALT, false);
+        const uint8_t ra_r = kb.read_rows(sel[ra]);
+        const uint8_t rb_r = kb.read_rows(sel[rb]);
+        const bool cleared = (ra_r & (1u << ca)) && (rb_r & (1u << cb));
+        check(id, desc, a_down && b_down && cleared,
+              DETAIL("r%d=0x%02X r%d=0x%02X rel r%d=0x%02X r%d=0x%02X",
+                     ra, ra_v, rb, rb_v, ra, ra_r, rb, rb_r));
+    };
+
+    // membrane.vhd:240 — EXTEND MODE is CS + Symbol Shift (row 7 col 1).
+    // Tab, per the FUSE / ZEsarUX convention.
+    compound("T77K-01", "Tab → EXTEND MODE = CS + SYM SHIFT",
+             SDL_SCANCODE_TAB, 0, 0, 7, 1, false);
+    // membrane.vhd:240 — BREAK folds onto row 7 col 0 (SPACE) + Caps Shift.
+    // Esc, per the ZEsarUX / Spectaculator convention.
+    compound("T77K-19", "Esc → BREAK = CS + SPACE",
+             SDL_SCANCODE_ESCAPE, 0, 0, 7, 0, false);
+    // membrane.vhd:237 — TRUE VIDEO folds onto row 3 col 2 (key '3') + CS.
+    compound("T77K-02", "grave (key left of 1) → TRUE VIDEO = CS + 3",
+             SDL_SCANCODE_GRAVE, 0, 0, 3, 2, false);
+    // membrane.vhd:237 — INV VIDEO folds onto row 3 col 3 (key '4') + CS.
+    compound("T77K-03", "Alt+grave → INV VIDEO = CS + 4",
+             SDL_SCANCODE_GRAVE, 0, 0, 3, 3, true);
+    // membrane.vhd:237 — EDIT folds onto row 3 col 0 (key '1') + CS.
+    compound("T77K-05", "Alt+E → EDIT = CS + 1",
+             SDL_SCANCODE_E, 0, 0, 3, 0, true);
+    // membrane.vhd:238 — GRAPH folds onto row 4 col 1 (key '9') + CS.
+    compound("T77K-20", "Alt+G → GRAPH = CS + 9",
+             SDL_SCANCODE_G, 0, 0, 4, 1, true);
+    // membrane.vhd:237 — CAPS LOCK folds onto row 3 col 1 (key '2') + CS.
+    compound("T77K-21", "Alt+C → CAPS LOCK = CS + 2",
+             SDL_SCANCODE_C, 0, 0, 3, 1, true);
+    // membrane.vhd:239 — '"' folds onto row 5 col 0 (key 'P') + Symbol Shift.
+    compound("T77K-06", "apostrophe → '\"' = SS + P",
+             SDL_SCANCODE_APOSTROPHE, 7, 1, 5, 0, false);
+    // membrane.vhd:239 — ';' folds onto row 5 col 1 (key 'O') + Symbol Shift.
+    compound("T77K-07", "semicolon → ';' = SS + O",
+             SDL_SCANCODE_SEMICOLON, 7, 1, 5, 1, false);
+    // membrane.vhd:240 — '.' folds onto row 7 col 2 (key 'M') + Symbol Shift.
+    compound("T77K-08", "period → '.' = SS + M",
+             SDL_SCANCODE_PERIOD, 7, 1, 7, 2, false);
+    // membrane.vhd:240 — ',' folds onto row 7 col 3 (key 'N') + Symbol Shift.
+    compound("T77K-09", "comma → ',' = SS + N",
+             SDL_SCANCODE_COMMA, 7, 1, 7, 3, false);
+
+    // T77K-10: DELETE = Caps Shift + 0 on Backspace — the pre-existing
+    // mapping, pinned here so the Task 77 resolution rewrite cannot silently
+    // regress it (it shares the same set_key() path).
+    compound("T77K-10", "Backspace → DELETE = CS + 0 (unchanged)",
+             SDL_SCANCODE_BACKSPACE, 0, 0, 4, 0, false);
+
+    // T77K-11: an Alt combination must NOT leak the key's unmodified meaning.
+    // Alt+E is EDIT, so the ZX 'E' key (row 2 col 2) must stay UP.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_E, true);
+        const uint8_t r2 = kb.read_rows(0xFB);
+        check("T77K-11", "Alt+E does not leak the plain ZX 'E' key",
+              (r2 & (1u << 2)) != 0, DETAIL("row2=0x%02X", r2));
+    }
+    // T77K-22/23: the same no-leak rule for the two new Alt chords. Plain 'G'
+    // is row 1 col 4 and plain 'C' is row 0 col 3; neither may go down while
+    // Alt is held, and the compound's own bits must be the only ones set.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_G, true);
+        const uint8_t r1 = kb.read_rows(0xFD);
+        check("T77K-22", "Alt+G does not leak the plain ZX 'G' key",
+              (r1 & (1u << 4)) != 0, DETAIL("row1=0x%02X", r1));
+    }
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_C, true);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        // row 0 col 0 is Caps Shift (part of the compound, so DOWN);
+        // col 3 is the plain 'C' key, which must stay UP.
+        check("T77K-23", "Alt+C does not leak the plain ZX 'C' key",
+              (r0 & (1u << 3)) != 0 && (r0 & 1u) == 0,
+              DETAIL("row0=0x%02X", r0));
+    }
+    // T77K-12: without Alt, the same key is still plain 'E' and asserts
+    // NEITHER half of the Alt compound.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_E, true);
+        const uint8_t r2 = kb.read_rows(0xFB);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        const uint8_t r3 = kb.read_rows(0xF7);
+        check("T77K-12", "plain E is still ZX 'E' and asserts no CS/1",
+              (r2 & (1u << 2)) == 0 && (r0 & 1u) != 0 && (r3 & 1u) != 0,
+              DETAIL("row2=0x%02X row0=0x%02X row3=0x%02X", r2, r0, r3));
+    }
+    // T77K-13: Alt released BEFORE the key. The press latched the Alt
+    // variant, so the release must clear the SAME pair — otherwise CS/SS
+    // would stay stuck down for the rest of the session.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_E, true);
+        kb.set_key(SDL_SCANCODE_LALT, false);   // Alt goes up first
+        kb.set_key(SDL_SCANCODE_E, false);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        const uint8_t r3 = kb.read_rows(0xF7);
+        const uint8_t r2 = kb.read_rows(0xFB);
+        check("T77K-13", "Alt released before key still clears CS+1",
+              (r0 & 1u) != 0 && (r3 & 1u) != 0 && (r2 & (1u << 2)) != 0,
+              DETAIL("row0=0x%02X row3=0x%02X row2=0x%02X", r0, r3, r2));
+    }
+    // T77K-14: the reverse latch — key pressed WITHOUT Alt, Alt pressed while
+    // it is held, then released. The plain meaning must be what is cleared.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_E, true);        // plain 'E' down
+        kb.set_key(SDL_SCANCODE_LALT, true);     // Alt arrives late
+        kb.set_key(SDL_SCANCODE_E, false);
+        const uint8_t r2 = kb.read_rows(0xFB);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        check("T77K-14", "Alt pressed mid-hold still clears the plain key",
+              (r2 & (1u << 2)) != 0 && (r0 & 1u) != 0,
+              DETAIL("row2=0x%02X row0=0x%02X", r2, r0));
+    }
+    // T77K-15: host Alt is a modifier, never a ZX key — on its own it must
+    // disturb no row at all.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        bool all_up = true;
+        static const uint8_t sel[8] =
+            {0xFE, 0xFD, 0xFB, 0xF7, 0xEF, 0xDF, 0xBF, 0x7F};
+        for (int r = 0; r < 8; ++r) if (kb.read_rows(sel[r]) != 0x1F) all_up = false;
+        check("T77K-15", "Alt alone presses no ZX key", all_up, DETAIL(""));
+    }
+    // T77K-16: right Alt behaves identically to left Alt.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_RALT, true);
+        kb.set_key(SDL_SCANCODE_E, true);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        const uint8_t r3 = kb.read_rows(0xF7);
+        check("T77K-16", "RAlt+E → EDIT = CS + 1, same as LAlt",
+              (r0 & 1u) == 0 && (r3 & 1u) == 0,
+              DETAIL("row0=0x%02X row3=0x%02X", r0, r3));
+    }
+    // T77K-17: reset() clears the host Alt MODIFIER state, so a reset taken
+    // with Alt physically held does not keep resolving Alt variants
+    // afterwards. (This row does NOT cover the per-scancode alt_variant_
+    // latch — that is unobservable; see the note in Keyboard::reset().)
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_E, true);
+        kb.reset();
+        kb.set_key(SDL_SCANCODE_E, true);        // no Alt now → plain 'E'
+        const uint8_t r2 = kb.read_rows(0xFB);   // row 2: Q W E R T
+        const uint8_t r0 = kb.read_rows(0xFE);
+        check("T77K-17", "reset clears held Alt; E resolves plain again",
+              (r2 & (1u << 2)) == 0 && (r0 & 1u) != 0,
+              DETAIL("row2=0x%02X row0=0x%02X", r2, r0));
+    }
+    // T77K-18: Task 79 guard — when a connector is the cursor-key target the
+    // arrows are consumed by the joystick path, and Task 77's resolution
+    // rewrite must not have moved that interception. Arrows must NOT reach
+    // the ZX matrix (they would otherwise assert CS + 5).
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        Keyboard kb; kb.reset();
+        kb.set_joystick_dispatcher(&jd);
+        kb.set_cursor_key_target(0);
+        kb.set_key(SDL_SCANCODE_LEFT, true);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        const uint8_t r3 = kb.read_rows(0xF7);
+        check("T77K-18", "cursor-target arrows still bypass the ZX matrix",
+              (r0 & 1u) != 0 && (r3 & (1u << 4)) != 0 && (jd.bits12(0) & 0x002),
+              DETAIL("row0=0x%02X row3=0x%02X bits=%03X", r0, r3, jd.bits12(0)));
+    }
+}
+
 int main() {
     printf("Input Subsystem Compliance Tests (VHDL-derived plan)\n");
     printf("=====================================================\n\n");
@@ -4058,6 +4457,8 @@ int main() {
     test_port_fe_format();  printf("  Group: FE     done\n");
     test_saveload();        printf("  Group: SL     done\n");
     test_joy_source();      printf("  Group: JSRC   done\n");
+    test_t77_joy();         printf("  Group: T77J   done\n");
+    test_t77_kbd();         printf("  Group: T77K   done\n");
 
     printf("\n=====================================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

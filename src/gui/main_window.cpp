@@ -88,6 +88,17 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_Control: return SDL_SCANCODE_LCTRL;
         case Qt::Key_Alt:     return SDL_SCANCODE_LALT;
 
+        // Task 77 — host keys for the Spectrum compound keys wired in
+        // Keyboard::init_map(). Without these the mappings are unreachable
+        // from the Qt GUI (this table is the only route to set_key()).
+        case Qt::Key_Tab:        return SDL_SCANCODE_TAB;         // BREAK
+        case Qt::Key_Backtab:    return SDL_SCANCODE_TAB;         // Shift+Tab
+        case Qt::Key_QuoteLeft:  return SDL_SCANCODE_GRAVE;       // TRUE/INV VIDEO
+        case Qt::Key_Apostrophe: return SDL_SCANCODE_APOSTROPHE;  // '"' (SS+P)
+        case Qt::Key_Semicolon:  return SDL_SCANCODE_SEMICOLON;   // ';' (SS+O)
+        case Qt::Key_Period:     return SDL_SCANCODE_PERIOD;      // '.' (SS+M)
+        case Qt::Key_Comma:      return SDL_SCANCODE_COMMA;       // ',' (SS+N)
+
         // Special keys
         case Qt::Key_Return: return SDL_SCANCODE_RETURN;
         case Qt::Key_Enter:  return SDL_SCANCODE_KP_ENTER;
@@ -622,8 +633,11 @@ void MainWindow::create_menus() {
     view_menu->addSeparator();
 
     fullscreen_action_ = view_menu->addAction(tr("&Fullscreen"));
-    // F11 toggles fullscreen; when debugger is enabled, F11 is intercepted
-    // for Step Into and Ctrl+F11 is used for fullscreen instead (handled in keyPressEvent).
+    // F11 toggles fullscreen, unconditionally — the debugger's step shortcuts
+    // are F6/F7/F8, so F11 is never intercepted. This matters since Task 77:
+    // Esc became the ZX BREAK key, making F11 the ONLY way out of fullscreen.
+    // (A previous comment here claimed F11 was taken by Step Into and that
+    // fullscreen moved to Ctrl+F11; neither was true of the code.)
     fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
     fullscreen_action_->setCheckable(true);
     connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
@@ -1169,13 +1183,9 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             toggle_fullscreen();
             event->accept();
             return;
-        case Qt::Key_Escape:
-            if (is_fullscreen_) {
-                toggle_fullscreen();
-                event->accept();
-                return;
-            }
-            break;
+        // Task 77 — Esc is the ZX BREAK key (Caps Shift + Space) and is NO
+        // LONGER a fullscreen toggle; F11 above is the only one. It therefore
+        // has no case here at all: it falls straight through to handle_key().
         case Qt::Key_F2:
             cycle_scale();
             event->accept();
@@ -1289,7 +1299,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     // Consume release events for keys we handle in keyPressEvent.
     if (!event->isAutoRepeat()) {
         int key = event->key();
-        if (key == Qt::Key_F11 || key == Qt::Key_F2 || key == Qt::Key_Escape) {
+        if (key == Qt::Key_F11 || key == Qt::Key_F2) {
             event->accept();
             return;
         }
@@ -1332,6 +1342,26 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     }
 
     handle_key(event, false);
+}
+
+bool MainWindow::event(QEvent* ev) {
+    // Task 77 — Tab is the host key for ZX EXTEND MODE (Caps Shift + Symbol
+    // Shift), but QWidget::event() consumes Tab/Backtab for focus nav BEFORE
+    // keyPressEvent() is ever reached, which would leave the mapping dead in
+    // the GUI. Intercept it here and hand it to the normal key path.
+    //
+    // Nothing is lost: the main window's focus chain is the emulator viewport
+    // alone, so there is no meaningful Tab traversal to preserve. Dialogs and
+    // the debugger window are separate top-level widgets and are unaffected.
+    const QEvent::Type t = ev->type();
+    if (t == QEvent::KeyPress || t == QEvent::KeyRelease) {
+        auto* ke = static_cast<QKeyEvent*>(ev);
+        if (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab) {
+            handle_key(ke, t == QEvent::KeyPress);
+            return true;
+        }
+    }
+    return QMainWindow::event(ev);
 }
 
 void MainWindow::handle_key(QKeyEvent* event, bool pressed) {

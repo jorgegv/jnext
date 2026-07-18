@@ -35,17 +35,39 @@ class Joystick;
 ///   bit  5 = C(F2)  bit  4 = B(F1)
 ///   bit  3 = U      bit  2 = D     bit  1 = L   bit  0 = R
 ///
+/// **Port reachability** (zxnext.vhd:3477-3479) — the constraint that drives
+/// the button mapping below. Of the 12 logical bits, only six ever reach
+/// port 0x1F / 0x37, and two of those only conditionally:
+///
+///   bits 3..0 (U/D/L/R) and 5..4 (C/B)  — driven in Kempston OR MD mode
+///   bits 7..6 (START/A)                 — driven in MD mode ONLY; hard-tied
+///                                         to 0 in Kempston
+///   bits 11, 10, 9, 8 (MODE, X, Z, Y)   — reach NO port under ANY mode
+///
+/// So a guest reading port 0x1F sees at most four non-directional buttons,
+/// and only two of those unless NR 0x05 selects an MD mode. The four face
+/// buttons of a host pad are therefore mapped onto B, C, A, START — the four
+/// reachable bits — and never onto MODE/X/Z/Y, which would be dead.
+///
 /// **Button mapping** (SDL → Kempston/MD6 logical bits):
 ///
 ///   SDL_CONTROLLER_BUTTON_A             → bit 4  (B / Fire 1)
 ///   SDL_CONTROLLER_BUTTON_B             → bit 5  (C / Fire 2)
 ///   SDL_CONTROLLER_BUTTON_X             → bit 6  (A — MD3 lower-row)
-///   SDL_CONTROLLER_BUTTON_Y             → bit 11 (MODE — MD6 latch)
+///   SDL_CONTROLLER_BUTTON_Y             → bit 7  (START — aliased with the
+///                                         START button; see the .cpp note)
 ///   SDL_CONTROLLER_BUTTON_START         → bit 7  (START)
+///   SDL_CONTROLLER_BUTTON_BACK          → bit 11 (MODE — MD6 latch, no port)
 ///   SDL_CONTROLLER_BUTTON_DPAD_UP       → bit 3  (U)
 ///   SDL_CONTROLLER_BUTTON_DPAD_DOWN     → bit 2  (D)
 ///   SDL_CONTROLLER_BUTTON_DPAD_LEFT     → bit 1  (L)
 ///   SDL_CONTROLLER_BUTTON_DPAD_RIGHT    → bit 0  (R)
+///
+/// **Raw (non-controller-DB) pads** — `handle_raw_button()` maps button
+/// INDICES positionally onto the same four reachable bits:
+///
+///   raw 0 → bit 4 (B)   raw 1 → bit 5 (C)   raw 2 → bit 6 (A)
+///   raw 3 → bit 7 (START)                   raw 4 → bit 11 (MODE)
 ///
 /// **Axis mapping** (SDL_CONTROLLERAXISMOTION):
 ///

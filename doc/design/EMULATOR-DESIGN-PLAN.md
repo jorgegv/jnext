@@ -858,14 +858,14 @@ endif()
 - [x] Menu bar: **File** (Load NEX, Mount SD image, Quit), **Machine** (Reset, CPU speed submenu), **View** (2×/3×/4× scaling, Fullscreen, CRT filter), **Help** (About)
 - [x] Toolbar: **Reset** + **Load** buttons with standard icons
 - [x] Emulator viewport: `EmulatorWidget` (QWidget) with QImage-based ARGB8888 rendering, software pre-scaled nearest-neighbour at exact integer multiples of 320×256
-- [x] Fullscreen mode: true fullscreen (chrome hidden) via F11; ESC or F11 to exit; aspect ratio preserved with letterbox black bars at largest integer scale
+- [x] Fullscreen mode: true fullscreen (chrome hidden) via F11; F11 to exit (ESC also exited it until Task 77, which made ESC the ZX BREAK key); aspect ratio preserved with letterbox black bars at largest integer scale
 - [x] Status bar: FPS counter (1s timer), CPU speed (from NextREG 0x07), machine mode label
 - [x] CRT scanline filter: semi-transparent dark lines overlay in EmulatorWidget::paintEvent(), toggled from View menu; respects image bounds in fullscreen
 - [x] SDL remains for audio output only; keyboard input via Qt key events mapped to SDL scancodes
 - [x] Additional restriction: the final emulator file must be linked statically and have no dynamic library dependencies — `STATIC_BUILD` CMake option added; requires static Qt6/SDL2 builds (system packages are dynamic-only)
 - [x] Hi-DPI pixel-perfect rendering: DPR-aware widget sizing deferred to first visible frame; software pre-scaling eliminates all QPainter/GPU artifacts
 - [x] Window non-resizable; scale changed via View menu (2×/3×/4×) or F2 key cycle
-- [x] ESC exits fullscreen in both GUI and SDL builds
+- [x] ~~ESC exits fullscreen in both GUI and SDL builds~~ — superseded by Task 77: ESC is now the ZX BREAK key (Caps Shift + Space) in both frontends, and F11 is the only fullscreen toggle
 - [x] **Milestone**: Native application window with menu bar, toolbar, and fullscreen toggle
 
 ### Phase 7 — Debugger Window ✓ COMPLETE
