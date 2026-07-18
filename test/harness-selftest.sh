@@ -356,6 +356,60 @@ out=$(run_preflight "$T/nopin.conf" "$REG_FUNC"); rc=$?
 check "HS-24" "regression preflight: a manifest with NO pin is rejected, loudly" 2 $rc "$out" \
     "HARNESS FAULT" "expect: N"
 
+# ---------------- membership checks must never lose to SIGPIPE (Task 88b) ----------------
+# regression.sh asks "is this name in that list?" in three places: the rewind-func build
+# guard, want(), and the end-of-run completeness cross-check. All three used
+# `printf '%s\n' "${LIST[@]}" | grep -qx "$name"`, which is unsound under the
+# `set -o pipefail` that script sets: grep -q exits the instant it matches, the printf
+# subshell can then die of SIGPIPE (141), and pipefail promotes 141 to the PIPELINE's
+# status — so a name that IS present reports as absent.
+#
+# Why these rows exist at all, given the real completeness check cannot be driven here:
+# that check only runs on a FULL suite (no filter, not update mode), and this self-test is
+# itself invoked BY the suite as harness-selftest-func — driving a second full run from
+# here would recurse. So HS-28/29 pin the SEMANTICS of the membership pattern in isolation
+# (bash-only, no jnext binary, sub-second), and HS-30 is what BINDS regression.sh to them
+# by refusing the unsound idiom textually. The pair matters: without HS-30 these rows test
+# a copy of the pattern and would happily stay green while regression.sh regressed.
+#
+# Determinism comes from SIZE, not from repetition. The writer must be BLOCKED in write()
+# for SIGPIPE to land, so the payload has to exceed the pipe buffer (65536 on Linux):
+# measured on this host at 0/60 false absents with a 32 KB payload, 13/60 at 64 KB and
+# 60/60 at 130 KB. 200 KB is used here and was measured at 20/20 discrimination. If this
+# row ever flaps, the fix is MORE padding, never fewer iterations.
+membership_probe() {   # membership_probe <hash|pipe> <target> -> FOUND | ABSENT
+    ( set -euo pipefail
+      local pad; pad=$(head -c 200000 /dev/zero | tr '\0' 'z')
+      local LIST=(alpha-func beta-func "pad_$pad")
+      if [[ "$1" == hash ]]; then
+          declare -A H; local n; for n in "${LIST[@]}"; do H["$n"]=1; done
+          if [[ -n "${H[$2]:-}" ]]; then echo FOUND; else echo ABSENT; fi
+      else
+          if printf '%s\n' "${LIST[@]}" | grep -qx "$2"; then echo FOUND; else echo ABSENT; fi
+      fi )
+}
+probe_count() {        # probe_count <impl> <target> <n> -> "<found>/<n>"
+    local f=0 i
+    for ((i = 0; i < $3; i++)); do [[ "$(membership_probe "$1" "$2")" == FOUND ]] && f=$((f + 1)); done
+    echo "$f/$3"
+}
+
+got=$(probe_count hash alpha-func 20)
+check "HS-28" "membership: a PRESENT name is found every time, at any list size" 0 0 "$got" "20/20"
+
+# Both directions, so a membership check that simply always says "yes" cannot pass.
+present=$(probe_count hash beta-func 5)
+absent=$(probe_count hash not-a-test-func 5)
+check "HS-29" "membership: present name found, absent name NOT found (no blanket yes)" 0 0 \
+    "present=$present absent=$absent" "present=5/5" "absent=0/5"
+
+# The binding guard: regression.sh must not reintroduce the unsound idiom. Comments are
+# stripped first so the explanatory text above each fixed site does not self-trigger.
+REG_SH="$PROJECT_DIR/test/00regression/regression.sh"
+offenders=$(sed -E 's/^[[:space:]]*#.*$//' "$REG_SH" | grep -nE "printf.*\|[[:space:]]*grep[[:space:]]+-q" || true)
+check "HS-30" "regression.sh does not reintroduce 'printf ... | grep -q' membership" 0 0 \
+    "offenders=[${offenders}]" "offenders=[]"
+
 echo ""
 echo "====================================="
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" "$total" "$pass" "$fail" 0
