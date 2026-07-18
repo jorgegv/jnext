@@ -325,6 +325,23 @@ version gate is independent; and the multi-entry `refill_map` path must still be
 
 **Read off the oracle, not verified by a running experiment.** Deferred to milestone v1.1.
 
+**Scope consequence (user decision, 2026-07-18):** issue #29 was re-scoped a second time to
+**include the streaming API** — `DISK_FILEMAP` / `DISK_STRMSTART` / `DISK_STRMEND` plus the
+port `$EB` diversion — which puts NEXTEST.NEX back in reach. The `$EB` hook point was
+subsequently checked and is clean: `Spi::read_data()` (`src/peripheral/spi.h:90`) is the
+single entry point for every port `$EB` read, so the diversion has one chokepoint rather
+than scattered call sites.
+
+This does NOT reverse the §0.1 decision in the Task 89 note: the synthetic FAT32 block
+device stays declined. Streaming is served by intercepting three `RST $08` calls jnext
+already hooks and diverting one port read — no FAT structures, no involvement of NextZXOS's
+own block driver.
+
+**"Streaming works" still does not imply "NEXTEST runs":** the NextZXOS ≥ 2.01 version gate
+is an independent blocker, and NEXTEST's startup OS/SD verification remains uncharacterised
+beyond the version string. NEXTEST is a stretch goal; the acceptance criteria rest on
+synthetic fixtures.
+
 ---
 
 ## 5. Sandboxing — reusing the `resolve_sibling()` precedent
