@@ -269,20 +269,22 @@ int main() {
 
     {
         const std::string log = trace_out.str();
-        check("ESXT-24", "unserviced call is traced by name as NOT IMPLEMENTED",
+        check("ESXT-24", "unserviced call is traced by name as not serviced",
               log.find("-> $88 M_DOSVERSION") != std::string::npos &&
               log.find("<- $88 M_DOSVERSION") != std::string::npos &&
-              log.find("NOT IMPLEMENTED") != std::string::npos,
+              log.find("not serviced by jnext") != std::string::npos,
               log);
     }
 
+    // $96 is IN the esxdos code space (so it can actually reach the hook —
+    // see ESXT-29..36) but is assigned by neither oracle, so it has no name.
     trace_out.str("");
     Z80Registers unk{};
-    traced_call(0x7F, unk);
+    traced_call(0x96, unk);
     {
         const std::string log = trace_out.str();
-        check("ESXT-25", "a code with no name is traced as (unknown)",
-              log.find("$7F (unknown)") != std::string::npos, log);
+        check("ESXT-25", "an in-range but unassigned code is traced as (unknown)",
+              log.find("$96 (unknown)") != std::string::npos, log);
     }
 
     // Stub AND tracing: the wrapper must delegate, not swallow the result.
@@ -299,7 +301,7 @@ int main() {
         const std::string log = trace_out.str();
         check("ESXT-27", "a serviced call is traced as ok, not NOT IMPLEMENTED",
               log.find("<- $88 M_DOSVERSION ok") != std::string::npos &&
-              log.find("NOT IMPLEMENTED") == std::string::npos, log);
+              log.find("not serviced by jnext") == std::string::npos, log);
     }
 
     // The "->" line must report the registers as they were ON ENTRY, and the
@@ -330,6 +332,139 @@ int main() {
               in_line.find("BC=4E58")  == std::string::npos &&
               out_line.find("BC=4E58") != std::string::npos,
               log);
+    }
+
+    // ── CPU-driven trigger rows (ESXT-29..36) ──────────────────────────
+    //
+    // Everything above calls on_esxdos_call() directly with a hand-picked
+    // code. That leaves the TRIGGER — the decision, taken in Z80Cpu, of
+    // whether an arrival at $0008 is an esxdos call at all — completely
+    // untested. These rows assemble a real `RST $08 : DEFB n` in RAM and
+    // execute it.
+    //
+    // Spec (NOT read off the implementation):
+    //   $0008 is the ZX Spectrum ROM's ERROR restart. The published calling
+    //   convention there is `RST $08 : DEFB errcode` with the error report
+    //   code inline (e.g. $00 "NEXT without FOR", $0D "BREAK - CONT
+    //   repeats", $22 an in-range report code). esxdos SHARES that vector
+    //   and is distinguished solely by an inline code >= $80:
+    //     tbblue   src/asm/dot_commands/esxapi.def:11-14 — callesx macro
+    //              is `rst $8` / `defb hook_code`; hooks span $85..$b1
+    //     z88dk-2.3 lib/target/zx/def/esxdos.def:104-162 — same span,
+    //              __ESX_DISK_FILEMAP=0x85 .. __ESX_F_GETFREE=0xb1
+    //   Neither oracle assigns any hook below $80, so a sub-$80 inline byte
+    //   is a ROM error report and MUST NOT be reported as an esxdos call.
+    constexpr uint16_t code_addr  = 0x8000;   // RST $08 lives here
+    constexpr uint16_t stack_top  = 0x9000;
+
+    struct Probe { int fires = 0; uint8_t code = 0; };
+
+    // Executes `RST $08 : DEFB inline` at code_addr and reports whether the
+    // esxdos trigger fired. `hijack` selects what the hook claims: false =
+    // observe only (tracing), true = service it (stub).
+    auto run_rst08 = [&](Emulator& e, uint8_t inline_byte, bool hijack,
+                         Probe& p, Z80Registers& out) {
+        e.mmu().write(code_addr, 0xCF);            // RST $08
+        e.mmu().write(code_addr + 1, inline_byte); // DEFB n
+        e.cpu().on_esxdos_call = [&p, hijack](uint8_t c, Z80Registers&) {
+            ++p.fires; p.code = c; return hijack;
+        };
+        Z80Registers r{};
+        r.PC = code_addr;
+        r.SP = stack_top;
+        e.cpu().set_registers(r);
+        e.cpu().execute();      // RST $08 → pushes $8001, PC = $0008
+        e.cpu().execute();      // the arrival at $0008 the trigger inspects
+        out = e.cpu().get_registers();
+    };
+
+    Emulator cpu_emu;
+    cpu_emu.init(plain);        // stub off — trigger behaviour only
+
+    // ROM error reports: three real inline error codes. None is an esxdos
+    // call, so none may be traced as one.
+    {
+        Probe p; Z80Registers out{};
+        run_rst08(cpu_emu, 0x0D, false, p, out);
+        check("ESXT-29", "RST $08 : DEFB $0D (ROM error report) is not an esxdos call",
+              p.fires == 0, "fires=" + std::to_string(p.fires));
+    }
+    {
+        Probe p; Z80Registers out{};
+        run_rst08(cpu_emu, 0x00, false, p, out);
+        check("ESXT-30", "RST $08 : DEFB $00 (ROM error report) is not an esxdos call",
+              p.fires == 0, "fires=" + std::to_string(p.fires));
+    }
+    {
+        Probe p; Z80Registers out{};
+        run_rst08(cpu_emu, 0x22, false, p, out);
+        // Not hijacked: execution continued into the $0008 handler rather
+        // than resuming after the DEFB.
+        check("ESXT-31", "RST $08 : DEFB $22 runs the ROM $0008 handler, not the shim",
+              p.fires == 0 && out.PC != code_addr + 2,
+              "fires=" + std::to_string(p.fires) +
+              " PC=" + std::to_string(out.PC));
+    }
+
+    // A genuine esxdos call on the very same vector must still be seen.
+    {
+        Probe p; Z80Registers out{};
+        run_rst08(cpu_emu, 0x9D, false, p, out);   // [1][2] f_read
+        check("ESXT-32", "RST $08 : DEFB $9D (F_READ) is an esxdos call",
+              p.fires == 1 && p.code == 0x9D,
+              "fires=" + std::to_string(p.fires) +
+              " code=" + std::to_string(p.code));
+    }
+
+    // The $80 boundary itself, from both sides.
+    {
+        Probe p; Z80Registers out{};
+        run_rst08(cpu_emu, 0x7F, false, p, out);
+        check("ESXT-33", "$7F is below the esxdos code space and does not trigger",
+              p.fires == 0, "fires=" + std::to_string(p.fires));
+    }
+    {
+        Probe p; Z80Registers out{};
+        run_rst08(cpu_emu, 0x80, false, p, out);
+        check("ESXT-34", "$80 is the first esxdos code and does trigger",
+              p.fires == 1 && p.code == 0x80,
+              "fires=" + std::to_string(p.fires) +
+              " code=" + std::to_string(p.code));
+    }
+
+    // Arrival sanity: reaching $0008 other than by RST $08 (here: the top of
+    // stack does not point one past a $CF opcode) is not an API call, even
+    // when the byte at the "return address" happens to be a valid hook code.
+    {
+        Probe p;
+        cpu_emu.mmu().write(code_addr, 0x00);          // NOP, not RST $08
+        cpu_emu.mmu().write(code_addr + 1, 0x9D);      // looks like F_READ
+        cpu_emu.cpu().on_esxdos_call = [&p](uint8_t c, Z80Registers&) {
+            ++p.fires; p.code = c; return false;
+        };
+        Z80Registers r{};
+        r.PC = 0x0008;
+        r.SP = stack_top - 2;
+        cpu_emu.mmu().write(stack_top - 2, 0x01);      // pushed word = $8001
+        cpu_emu.mmu().write(stack_top - 1, 0x80);
+        cpu_emu.cpu().set_registers(r);
+        cpu_emu.cpu().execute();
+        check("ESXT-35", "arrival at $0008 not preceded by an RST $08 opcode does not trigger",
+              p.fires == 0, "fires=" + std::to_string(p.fires));
+    }
+
+    // With the stub live, a sub-$80 inline byte must never be hijacked: the
+    // shim must not rewrite PC/SP past the DEFB and swallow a ROM error.
+    {
+        Emulator stub_emu;
+        stub_emu.init(cfg);          // cfg.esxdos_stub == true
+        Probe p; Z80Registers out{};
+        run_rst08(stub_emu, 0x0D, true, p, out);
+        check("ESXT-36", "a servicing hook is unreachable for a sub-$80 ROM error code",
+              p.fires == 0 && out.PC != code_addr + 2 && out.SP != stack_top,
+              "fires=" + std::to_string(p.fires) +
+              " PC=" + std::to_string(out.PC) +
+              " SP=" + std::to_string(out.SP));
     }
 
     Log::esxdos()->set_level(spdlog::level::info);

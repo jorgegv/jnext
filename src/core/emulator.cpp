@@ -1079,8 +1079,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     a, r.BC, r.DE, r.HL);
             } else {
                 Log::esxdos()->trace(
-                    "<- ${:02X} {:<12} NOT IMPLEMENTED by jnext — falling "
-                    "through to $0008", defb, name ? name : "(unknown)");
+                    "<- ${:02X} {:<12} not serviced by jnext — dispatched to "
+                    "the ROM at $0008", defb, name ? name : "(unknown)");
             }
             return handled;
         };

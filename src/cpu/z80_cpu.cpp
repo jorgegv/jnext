@@ -652,22 +652,43 @@ int Z80Cpu::execute() {
     // of the DEFB esxdos function code). We pop it, read the DEFB, and
     // let the shim fake a result; PC and SP are then updated to land at
     // the byte after the DEFB. See on_esxdos_call doc in z80_cpu.h.
+    //
+    // $0008 is NOT an esxdos-only vector: it is the ZX Spectrum ROM's ERROR
+    // restart, and esxdos merely SHARES it. The two are disambiguated by the
+    // byte that follows the RST opcode:
+    //   - ROM error report: `RST $08 : DEFB errcode`, errcode < $80
+    //   - esxdos API call:  `RST $08 : DEFB hook_code`, hook_code >= $80
+    // Oracles — assigned hook codes span $85..$B1 in BOTH, and neither
+    // assigns anything below $80:
+    //   tbblue   src/asm/dot_commands/esxapi.def:11-14 (callesx macro),
+    //            :30-128 (hook codes, $85 disk_filemap .. $af/$b1)
+    //   z88dk-2.3 lib/target/zx/def/esxdos.def:104-162
+    //            (__ESX_DISK_FILEMAP=0x85 .. __ESX_F_GETFREE=0xb1)
+    // Without this gate every BASIC error report was traced as an esxdos
+    // call (a 25 s NextZXOS boot produced 221 traps, 0 of them esxdos).
     if (pc == 0x0008 && on_esxdos_call) {
         uint16_t sp = z80.sp.w;
         uint16_t ret_addr = static_cast<uint16_t>(
             mem_.read(sp) | (mem_.read(static_cast<uint16_t>(sp + 1)) << 8));
         uint8_t defb = mem_.read(ret_addr);
-        sync_regs_from_fuse(regs_);
-        Z80Registers r = regs_;
-        if (on_esxdos_call(defb, r)) {
-            r.PC = static_cast<uint16_t>(ret_addr + 1);
-            r.SP = static_cast<uint16_t>(sp + 2);
-            regs_ = r;
-            sync_fuse_from_regs(regs_);
-            // Approximate timing: RST $08 (11 T-states) + the body the
-            // shim is replacing. Use 50 as a coarse average so frame
-            // pacing isn't wildly disturbed by intercepted calls.
-            return 50;
+        // Arrival sanity: the pushed word must point just past an RST $08
+        // opcode ($CF). Reaching $0008 by any other route (JP/CALL, or a
+        // stack whose top is not our return address) is not an API call.
+        const bool from_rst08 =
+            mem_.read(static_cast<uint16_t>(ret_addr - 1)) == 0xCF;
+        if (from_rst08 && defb >= 0x80) {
+            sync_regs_from_fuse(regs_);
+            Z80Registers r = regs_;
+            if (on_esxdos_call(defb, r)) {
+                r.PC = static_cast<uint16_t>(ret_addr + 1);
+                r.SP = static_cast<uint16_t>(sp + 2);
+                regs_ = r;
+                sync_fuse_from_regs(regs_);
+                // Approximate timing: RST $08 (11 T-states) + the body the
+                // shim is replacing. Use 50 as a coarse average so frame
+                // pacing isn't wildly disturbed by intercepted calls.
+                return 50;
+            }
         }
     }
 
