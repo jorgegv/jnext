@@ -307,6 +307,22 @@ emulator runs relative to real time.
 | Arrow keys          | Cursor keys (Caps Shift + 5/6/7/8) |
 | Enter               | Enter                    |
 | Space               | Space                    |
+| Esc                 | Break (Caps Shift + Space) |
+| Tab                 | Extend Mode (Caps Shift + Symbol Shift) |
+| Key left of `1`     | True Video (Caps Shift + 3) |
+| Alt + key left of `1` | Inverse Video (Caps Shift + 4) |
+| Alt + E             | Edit (Caps Shift + 1)    |
+| `'`                 | `"` (Symbol Shift + P)   |
+| `;`                 | `;` (Symbol Shift + O)   |
+| `.`                 | `.` (Symbol Shift + M)   |
+| `,`                 | `,` (Symbol Shift + N)   |
+
+**Esc is the Spectrum's Break key, not a fullscreen shortcut.** Fullscreen is
+toggled with **F11** only (it used to also be exited with Esc). Graph mode and
+Caps Lock have no host key yet.
+
+Alt is a modifier here, never a Spectrum key. Only Alt + E and Alt + the key
+left of `1` are used, because the menu bar claims Alt + F/M/I/T/D/V/S/H.
 
 Up to two USB gamepads are picked up automatically (hot-plug) and mapped to the
 Next's two joystick ports; the joystick mode (Kempston / Sinclair / Cursor /

@@ -4263,21 +4263,29 @@ static void test_t77_kbd() {
                      ra, ra_v, rb, rb_v, ra, ra_r, rb, rb_r));
     };
 
+    // membrane.vhd:240 — EXTEND MODE is CS + Symbol Shift (row 7 col 1).
+    // Tab, per the FUSE / ZEsarUX convention.
+    compound("T77K-01", "Tab → EXTEND MODE = CS + SYM SHIFT",
+             SDL_SCANCODE_TAB, 0, 0, 7, 1, false);
     // membrane.vhd:240 — BREAK folds onto row 7 col 0 (SPACE) + Caps Shift.
-    compound("T77K-01", "Tab → BREAK = CS + SPACE",
-             SDL_SCANCODE_TAB, 0, 0, 7, 0, false);
+    // Esc, per the ZEsarUX / Spectaculator convention.
+    compound("T77K-19", "Esc → BREAK = CS + SPACE",
+             SDL_SCANCODE_ESCAPE, 0, 0, 7, 0, false);
     // membrane.vhd:237 — TRUE VIDEO folds onto row 3 col 2 (key '3') + CS.
     compound("T77K-02", "grave (key left of 1) → TRUE VIDEO = CS + 3",
              SDL_SCANCODE_GRAVE, 0, 0, 3, 2, false);
     // membrane.vhd:237 — INV VIDEO folds onto row 3 col 3 (key '4') + CS.
     compound("T77K-03", "Alt+grave → INV VIDEO = CS + 4",
              SDL_SCANCODE_GRAVE, 0, 0, 3, 3, true);
-    // membrane.vhd:240 — EXTEND MODE is CS + Symbol Shift (row 7 col 1).
-    compound("T77K-04", "Alt+E → EXTEND MODE = CS + SYM SHIFT",
-             SDL_SCANCODE_E, 0, 0, 7, 1, true);
     // membrane.vhd:237 — EDIT folds onto row 3 col 0 (key '1') + CS.
-    compound("T77K-05", "Alt+D → EDIT = CS + 1",
-             SDL_SCANCODE_D, 0, 0, 3, 0, true);
+    compound("T77K-05", "Alt+E → EDIT = CS + 1",
+             SDL_SCANCODE_E, 0, 0, 3, 0, true);
+    // membrane.vhd:238 — GRAPH folds onto row 4 col 1 (key '9') + CS.
+    compound("T77K-20", "Alt+G → GRAPH = CS + 9",
+             SDL_SCANCODE_G, 0, 0, 4, 1, true);
+    // membrane.vhd:237 — CAPS LOCK folds onto row 3 col 1 (key '2') + CS.
+    compound("T77K-21", "Alt+C → CAPS LOCK = CS + 2",
+             SDL_SCANCODE_C, 0, 0, 3, 1, true);
     // membrane.vhd:239 — '"' folds onto row 5 col 0 (key 'P') + Symbol Shift.
     compound("T77K-06", "apostrophe → '\"' = SS + P",
              SDL_SCANCODE_APOSTROPHE, 7, 1, 5, 0, false);
@@ -4298,7 +4306,7 @@ static void test_t77_kbd() {
              SDL_SCANCODE_BACKSPACE, 0, 0, 4, 0, false);
 
     // T77K-11: an Alt combination must NOT leak the key's unmodified meaning.
-    // Alt+E is EXTEND MODE, so the ZX 'E' key (row 2 col 2) must stay UP.
+    // Alt+E is EDIT, so the ZX 'E' key (row 2 col 2) must stay UP.
     {
         Keyboard kb; kb.reset();
         kb.set_key(SDL_SCANCODE_LALT, true);
@@ -4307,6 +4315,28 @@ static void test_t77_kbd() {
         check("T77K-11", "Alt+E does not leak the plain ZX 'E' key",
               (r2 & (1u << 2)) != 0, DETAIL("row2=0x%02X", r2));
     }
+    // T77K-22/23: the same no-leak rule for the two new Alt chords. Plain 'G'
+    // is row 1 col 4 and plain 'C' is row 0 col 3; neither may go down while
+    // Alt is held, and the compound's own bits must be the only ones set.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_G, true);
+        const uint8_t r1 = kb.read_rows(0xFD);
+        check("T77K-22", "Alt+G does not leak the plain ZX 'G' key",
+              (r1 & (1u << 4)) != 0, DETAIL("row1=0x%02X", r1));
+    }
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LALT, true);
+        kb.set_key(SDL_SCANCODE_C, true);
+        const uint8_t r0 = kb.read_rows(0xFE);
+        // row 0 col 0 is Caps Shift (part of the compound, so DOWN);
+        // col 3 is the plain 'C' key, which must stay UP.
+        check("T77K-23", "Alt+C does not leak the plain ZX 'C' key",
+              (r0 & (1u << 3)) != 0 && (r0 & 1u) == 0,
+              DETAIL("row0=0x%02X", r0));
+    }
     // T77K-12: without Alt, the same key is still plain 'E' and asserts
     // NEITHER half of the Alt compound.
     {
@@ -4314,10 +4344,10 @@ static void test_t77_kbd() {
         kb.set_key(SDL_SCANCODE_E, true);
         const uint8_t r2 = kb.read_rows(0xFB);
         const uint8_t r0 = kb.read_rows(0xFE);
-        const uint8_t r7 = kb.read_rows(0x7F);
-        check("T77K-12", "plain E is still ZX 'E' and asserts no CS/SS",
-              (r2 & (1u << 2)) == 0 && (r0 & 1u) != 0 && (r7 & (1u << 1)) != 0,
-              DETAIL("row2=0x%02X row0=0x%02X row7=0x%02X", r2, r0, r7));
+        const uint8_t r3 = kb.read_rows(0xF7);
+        check("T77K-12", "plain E is still ZX 'E' and asserts no CS/1",
+              (r2 & (1u << 2)) == 0 && (r0 & 1u) != 0 && (r3 & 1u) != 0,
+              DETAIL("row2=0x%02X row0=0x%02X row3=0x%02X", r2, r0, r3));
     }
     // T77K-13: Alt released BEFORE the key. The press latched the Alt
     // variant, so the release must clear the SAME pair — otherwise CS/SS
@@ -4329,11 +4359,11 @@ static void test_t77_kbd() {
         kb.set_key(SDL_SCANCODE_LALT, false);   // Alt goes up first
         kb.set_key(SDL_SCANCODE_E, false);
         const uint8_t r0 = kb.read_rows(0xFE);
-        const uint8_t r7 = kb.read_rows(0x7F);
+        const uint8_t r3 = kb.read_rows(0xF7);
         const uint8_t r2 = kb.read_rows(0xFB);
-        check("T77K-13", "Alt released before key still clears CS+SS",
-              (r0 & 1u) != 0 && (r7 & (1u << 1)) != 0 && (r2 & (1u << 2)) != 0,
-              DETAIL("row0=0x%02X row7=0x%02X row2=0x%02X", r0, r7, r2));
+        check("T77K-13", "Alt released before key still clears CS+1",
+              (r0 & 1u) != 0 && (r3 & 1u) != 0 && (r2 & (1u << 2)) != 0,
+              DETAIL("row0=0x%02X row3=0x%02X row2=0x%02X", r0, r3, r2));
     }
     // T77K-14: the reverse latch — key pressed WITHOUT Alt, Alt pressed while
     // it is held, then released. The plain meaning must be what is cleared.
@@ -4363,10 +4393,10 @@ static void test_t77_kbd() {
     {
         Keyboard kb; kb.reset();
         kb.set_key(SDL_SCANCODE_RALT, true);
-        kb.set_key(SDL_SCANCODE_D, true);
+        kb.set_key(SDL_SCANCODE_E, true);
         const uint8_t r0 = kb.read_rows(0xFE);
         const uint8_t r3 = kb.read_rows(0xF7);
-        check("T77K-16", "RAlt+D → EDIT = CS + 1, same as LAlt",
+        check("T77K-16", "RAlt+E → EDIT = CS + 1, same as LAlt",
               (r0 & 1u) == 0 && (r3 & 1u) == 0,
               DETAIL("row0=0x%02X row3=0x%02X", r0, r3));
     }
@@ -4377,14 +4407,14 @@ static void test_t77_kbd() {
     {
         Keyboard kb; kb.reset();
         kb.set_key(SDL_SCANCODE_LALT, true);
-        kb.set_key(SDL_SCANCODE_D, true);
+        kb.set_key(SDL_SCANCODE_E, true);
         kb.reset();
-        kb.set_key(SDL_SCANCODE_D, true);        // no Alt now → plain 'D'
-        const uint8_t r1 = kb.read_rows(0xFD);   // row 1: A S D F G
+        kb.set_key(SDL_SCANCODE_E, true);        // no Alt now → plain 'E'
+        const uint8_t r2 = kb.read_rows(0xFB);   // row 2: Q W E R T
         const uint8_t r0 = kb.read_rows(0xFE);
-        check("T77K-17", "reset clears held Alt; D resolves plain again",
-              (r1 & (1u << 2)) == 0 && (r0 & 1u) != 0,
-              DETAIL("row1=0x%02X row0=0x%02X", r1, r0));
+        check("T77K-17", "reset clears held Alt; E resolves plain again",
+              (r2 & (1u << 2)) == 0 && (r0 & 1u) != 0,
+              DETAIL("row2=0x%02X row0=0x%02X", r2, r0));
     }
     // T77K-18: Task 79 guard — when a connector is the cursor-key target the
     // arrows are consumed by the joystick path, and Task 77's resolution

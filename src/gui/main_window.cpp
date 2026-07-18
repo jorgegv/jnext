@@ -633,8 +633,11 @@ void MainWindow::create_menus() {
     view_menu->addSeparator();
 
     fullscreen_action_ = view_menu->addAction(tr("&Fullscreen"));
-    // F11 toggles fullscreen; when debugger is enabled, F11 is intercepted
-    // for Step Into and Ctrl+F11 is used for fullscreen instead (handled in keyPressEvent).
+    // F11 toggles fullscreen, unconditionally — the debugger's step shortcuts
+    // are F6/F7/F8, so F11 is never intercepted. This matters since Task 77:
+    // Esc became the ZX BREAK key, making F11 the ONLY way out of fullscreen.
+    // (A previous comment here claimed F11 was taken by Step Into and that
+    // fullscreen moved to Ctrl+F11; neither was true of the code.)
     fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
     fullscreen_action_->setCheckable(true);
     connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
@@ -1180,13 +1183,9 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             toggle_fullscreen();
             event->accept();
             return;
-        case Qt::Key_Escape:
-            if (is_fullscreen_) {
-                toggle_fullscreen();
-                event->accept();
-                return;
-            }
-            break;
+        // Task 77 — Esc is the ZX BREAK key (Caps Shift + Space) and is NO
+        // LONGER a fullscreen toggle; F11 above is the only one. It therefore
+        // has no case here at all: it falls straight through to handle_key().
         case Qt::Key_F2:
             cycle_scale();
             event->accept();
@@ -1300,7 +1299,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     // Consume release events for keys we handle in keyPressEvent.
     if (!event->isAutoRepeat()) {
         int key = event->key();
-        if (key == Qt::Key_F11 || key == Qt::Key_F2 || key == Qt::Key_Escape) {
+        if (key == Qt::Key_F11 || key == Qt::Key_F2) {
             event->accept();
             return;
         }
@@ -1346,8 +1345,8 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::event(QEvent* ev) {
-    // Task 77 — Tab is the host key for ZX BREAK (Caps Shift + Space), but
-    // QWidget::event() consumes Tab/Backtab for focus navigation BEFORE
+    // Task 77 — Tab is the host key for ZX EXTEND MODE (Caps Shift + Symbol
+    // Shift), but QWidget::event() consumes Tab/Backtab for focus nav BEFORE
     // keyPressEvent() is ever reached, which would leave the mapping dead in
     // the GUI. Intercept it here and hand it to the normal key path.
     //

@@ -83,10 +83,8 @@ bool SdlApp::init(int argc, char* argv[]) {
                 display_.toggle_fullscreen();
                 return;
             }
-            if (sc == SDL_SCANCODE_ESCAPE && display_.is_fullscreen()) {
-                display_.toggle_fullscreen();
-                return;
-            }
+            // Task 77 — Esc is the ZX BREAK key (Caps Shift + Space) and is
+            // NO LONGER a fullscreen toggle; F11 above is the only one.
             if (sc == SDL_SCANCODE_F2) {
                 int next_scale = display_.get_scale() + 1; // 2→3→4→2
                 if (next_scale > 4) next_scale = 2;

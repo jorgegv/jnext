@@ -119,7 +119,7 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     /// Task 77 — intercepts Tab/Backtab before Qt's focus-navigation
-    /// handling can swallow them, so Tab can act as the ZX BREAK key.
+    /// handling can swallow them, so Tab can act as ZX EXTEND MODE.
     bool event(QEvent* event) override;
     // Kempston-mouse host-event handlers (G43 closure). Each forwards into
     // the MouseDispatcher's transport-agnostic API after translating Qt

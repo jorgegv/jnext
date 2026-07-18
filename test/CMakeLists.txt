@@ -516,6 +516,16 @@ if(ENABLE_QT_UI)
     target_link_libraries(present_count_test PRIVATE jnext_gui)
     target_include_directories(present_count_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME present_count_tests COMMAND present_count_test)
+
+    # Task 77 — Esc is the ZX BREAK key in both window states, and F11 is the
+    # only fullscreen toggle (pinned both ways: it is now the only escape).
+    # Lives in MainWindow's event path, so it needs a real MainWindow; no
+    # display required (offscreen QPA forced in main()).
+    add_executable(esc_break_test gui/esc_break_test.cpp)
+    set_target_properties(esc_break_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(esc_break_test PRIVATE jnext_gui)
+    target_include_directories(esc_break_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME esc_break_tests COMMAND esc_break_test)
 endif()
 
 # GoogleTest-based tests (if available)

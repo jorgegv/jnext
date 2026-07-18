@@ -115,21 +115,27 @@ static void init_map() {
     // real Next hardware synthesises each of these into exactly the classic
     // 48K two-key compound, which is what we assert here directly.
     //
-    //   BREAK       = CS + SPACE      GRAPH      = CS + 9   (no host key yet)
-    //   DELETE      = CS + 0          CAPS LOCK  = CS + 2   (no host key yet)
+    //   BREAK       = CS + SPACE (Esc)  GRAPH    = CS + 9   (Alt+G)
+    //   DELETE      = CS + 0          CAPS LOCK  = CS + 2   (Alt+C)
     //   EDIT        = CS + 1          '"'        = SS + P
     //   TRUE VIDEO  = CS + 3          ';'        = SS + O
     //   INV  VIDEO  = CS + 4          '.'        = SS + M
     //   EXTEND MODE = CS + SS         ','        = SS + N
     //
-    // GRAPH and CAPS LOCK are deliberately left unbound — no host key was
-    // specified for them, and inventing one is worse than leaving it open.
     //
     // Host-side choices are the project owner's (see the commit message for
     // the FUSE / ZEsarUX convention survey that informed them).
 
-    // BREAK = Caps Shift + SPACE. Tab is free (it has no ZX key of its own).
-    s_compound[SDL_SCANCODE_TAB]    = {{0, 0}, {7, 0}};
+    // EXTEND MODE = Caps Shift + Symbol Shift, on Tab — the strongest
+    // cross-emulator convention in this set (FUSE and ZEsarUX both use Tab
+    // for EXTEND MODE; neither uses it for BREAK).
+    s_compound[SDL_SCANCODE_TAB]    = {{0, 0}, {7, 1}};
+
+    // BREAK = Caps Shift + SPACE, on Esc (ZEsarUX / Spectaculator convention).
+    // Esc is UNCONDITIONAL — it no longer exits fullscreen in either frontend
+    // (F11 is now the only fullscreen toggle), so BREAK behaves identically
+    // windowed and fullscreen.
+    s_compound[SDL_SCANCODE_ESCAPE] = {{0, 0}, {7, 0}};
 
     // TRUE VIDEO = Caps Shift + 3, on the key immediately LEFT of "1".
     // SDL scancodes are PHYSICAL positions, so SDL_SCANCODE_GRAVE is that
@@ -139,10 +145,18 @@ static void init_map() {
     // INV VIDEO = Caps Shift + 4, same key with Alt.
     s_alt_compound[SDL_SCANCODE_GRAVE] = {{0, 0}, {3, 3}};
 
-    // EXTEND MODE = Caps Shift + Symbol Shift (Alt+E).
-    s_alt_compound[SDL_SCANCODE_E]  = {{0, 0}, {7, 1}};
-    // EDIT = Caps Shift + 1 (Alt+D).
-    s_alt_compound[SDL_SCANCODE_D]  = {{0, 0}, {3, 0}};
+    // EDIT = Caps Shift + 1 (Alt+E). Alt+D is NOT usable: the Qt main window
+    // has a top-level "&Debug" menu whose mnemonic consumes Alt+D before any
+    // key event reaches the emulator. Taken mnemonics are &File &Machine
+    // &Input &Tape &Debug &View &Settings &Help, so Alt + F/M/I/T/D/V/S/H are
+    // all unavailable; E and the grave key are free.
+    s_alt_compound[SDL_SCANCODE_E]  = {{0, 0}, {3, 0}};
+    // GRAPH = Caps Shift + 9 (Alt+G); CAPS LOCK = Caps Shift + 2 (Alt+C).
+    // Same VHDL fold table as the rest — see the clear_if() rows in
+    // read_rows(): GRAPH folds onto row 4 col 1 (key '9'), CAPS LOCK onto
+    // row 3 col 1 (key '2'). G and C are both free of menu mnemonics.
+    s_alt_compound[SDL_SCANCODE_G]  = {{0, 0}, {4, 1}};
+    s_alt_compound[SDL_SCANCODE_C]  = {{0, 0}, {3, 1}};
 
     // Symbol-shifted punctuation, on the natural PC key for each glyph.
     s_compound[SDL_SCANCODE_APOSTROPHE] = {{7, 1}, {5, 0}};  // SS + P  → '"'
