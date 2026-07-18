@@ -189,6 +189,16 @@ private:
     /// nr_b1_byte() for NR readbacks.
     uint16_t ex_matrix_ = 0x0000;
 
+    /// Task 77 — host-side Alt modifier state, and the per-scancode latch
+    /// recording whether a held key was resolved through the Alt-modified
+    /// table. Both are HOST input state, not machine state: like
+    /// membrane_stick_ and cursor_target_slot_ they are deliberately absent
+    /// from save_state()/load_state(), because a snapshot describes the
+    /// Spectrum's membrane, not which physical host keys happen to be down.
+    /// reset() clears them so a machine reset cannot leave a stale latch.
+    bool alt_held_ = false;
+    bool alt_variant_[SDL_NUM_SCANCODES] = {};
+
     /// Non-owning back-pointer to the owning MembraneStick (installed by
     /// Emulator via set_membrane_stick()). Null in bare-Keyboard unit
     /// tests — read_rows() guards for this. See VHDL

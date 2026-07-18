@@ -88,6 +88,17 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_Control: return SDL_SCANCODE_LCTRL;
         case Qt::Key_Alt:     return SDL_SCANCODE_LALT;
 
+        // Task 77 — host keys for the Spectrum compound keys wired in
+        // Keyboard::init_map(). Without these the mappings are unreachable
+        // from the Qt GUI (this table is the only route to set_key()).
+        case Qt::Key_Tab:        return SDL_SCANCODE_TAB;         // BREAK
+        case Qt::Key_Backtab:    return SDL_SCANCODE_TAB;         // Shift+Tab
+        case Qt::Key_QuoteLeft:  return SDL_SCANCODE_GRAVE;       // TRUE/INV VIDEO
+        case Qt::Key_Apostrophe: return SDL_SCANCODE_APOSTROPHE;  // '"' (SS+P)
+        case Qt::Key_Semicolon:  return SDL_SCANCODE_SEMICOLON;   // ';' (SS+O)
+        case Qt::Key_Period:     return SDL_SCANCODE_PERIOD;      // '.' (SS+M)
+        case Qt::Key_Comma:      return SDL_SCANCODE_COMMA;       // ',' (SS+N)
+
         // Special keys
         case Qt::Key_Return: return SDL_SCANCODE_RETURN;
         case Qt::Key_Enter:  return SDL_SCANCODE_KP_ENTER;
@@ -1332,6 +1343,26 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     }
 
     handle_key(event, false);
+}
+
+bool MainWindow::event(QEvent* ev) {
+    // Task 77 — Tab is the host key for ZX BREAK (Caps Shift + Space), but
+    // QWidget::event() consumes Tab/Backtab for focus navigation BEFORE
+    // keyPressEvent() is ever reached, which would leave the mapping dead in
+    // the GUI. Intercept it here and hand it to the normal key path.
+    //
+    // Nothing is lost: the main window's focus chain is the emulator viewport
+    // alone, so there is no meaningful Tab traversal to preserve. Dialogs and
+    // the debugger window are separate top-level widgets and are unaffected.
+    const QEvent::Type t = ev->type();
+    if (t == QEvent::KeyPress || t == QEvent::KeyRelease) {
+        auto* ke = static_cast<QKeyEvent*>(ev);
+        if (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab) {
+            handle_key(ke, t == QEvent::KeyPress);
+            return true;
+        }
+    }
+    return QMainWindow::event(ev);
 }
 
 void MainWindow::handle_key(QKeyEvent* event, bool pressed) {

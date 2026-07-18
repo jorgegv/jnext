@@ -21,13 +21,20 @@ static MatrixPos s_map[SDL_NUM_SCANCODES];
 struct CompoundPos { MatrixPos a; MatrixPos b; };
 static CompoundPos s_compound[SDL_NUM_SCANCODES];
 
+// Task 77 — Alt-modified compounds. A scancode present here resolves to THIS
+// compound while a host Alt key is held, and to its s_compound / s_map entry
+// otherwise. Kept as a separate table (rather than a modifier field on
+// CompoundPos) so every existing lookup is untouched.
+static CompoundPos s_alt_compound[SDL_NUM_SCANCODES];
+
 static bool      s_map_init = false;
 
 static void init_map() {
     if (s_map_init) return;
     // Fill all positions as invalid.
-    std::memset(s_map,      -1, sizeof(s_map));
-    std::memset(s_compound, -1, sizeof(s_compound));
+    std::memset(s_map,          -1, sizeof(s_map));
+    std::memset(s_compound,     -1, sizeof(s_compound));
+    std::memset(s_alt_compound, -1, sizeof(s_alt_compound));
 
     // Row 0: CAPS-SHIFT  Z  X  C  V
     // Ctrl keys map to Caps Shift (row 0, col 0).
@@ -101,6 +108,48 @@ static void init_map() {
     s_compound[SDL_SCANCODE_UP]    = {{0, 0}, {4, 3}};  // Caps Shift + 7
     s_compound[SDL_SCANCODE_RIGHT] = {{0, 0}, {4, 2}};  // Caps Shift + 8
 
+    // -----------------------------------------------------------------------
+    // Task 77 — the remaining Spectrum compound keys.
+    //
+    // The ZX-side halves are the VHDL extended-key set (membrane.vhd:180-240):
+    // real Next hardware synthesises each of these into exactly the classic
+    // 48K two-key compound, which is what we assert here directly.
+    //
+    //   BREAK       = CS + SPACE      GRAPH      = CS + 9   (no host key yet)
+    //   DELETE      = CS + 0          CAPS LOCK  = CS + 2   (no host key yet)
+    //   EDIT        = CS + 1          '"'        = SS + P
+    //   TRUE VIDEO  = CS + 3          ';'        = SS + O
+    //   INV  VIDEO  = CS + 4          '.'        = SS + M
+    //   EXTEND MODE = CS + SS         ','        = SS + N
+    //
+    // GRAPH and CAPS LOCK are deliberately left unbound — no host key was
+    // specified for them, and inventing one is worse than leaving it open.
+    //
+    // Host-side choices are the project owner's (see the commit message for
+    // the FUSE / ZEsarUX convention survey that informed them).
+
+    // BREAK = Caps Shift + SPACE. Tab is free (it has no ZX key of its own).
+    s_compound[SDL_SCANCODE_TAB]    = {{0, 0}, {7, 0}};
+
+    // TRUE VIDEO = Caps Shift + 3, on the key immediately LEFT of "1".
+    // SDL scancodes are PHYSICAL positions, so SDL_SCANCODE_GRAVE is that
+    // key on every layout — the owner's "\" label describes an ISO keycap,
+    // the position is what is actually being specified.
+    s_compound[SDL_SCANCODE_GRAVE]  = {{0, 0}, {3, 2}};
+    // INV VIDEO = Caps Shift + 4, same key with Alt.
+    s_alt_compound[SDL_SCANCODE_GRAVE] = {{0, 0}, {3, 3}};
+
+    // EXTEND MODE = Caps Shift + Symbol Shift (Alt+E).
+    s_alt_compound[SDL_SCANCODE_E]  = {{0, 0}, {7, 1}};
+    // EDIT = Caps Shift + 1 (Alt+D).
+    s_alt_compound[SDL_SCANCODE_D]  = {{0, 0}, {3, 0}};
+
+    // Symbol-shifted punctuation, on the natural PC key for each glyph.
+    s_compound[SDL_SCANCODE_APOSTROPHE] = {{7, 1}, {5, 0}};  // SS + P  → '"'
+    s_compound[SDL_SCANCODE_SEMICOLON]  = {{7, 1}, {5, 1}};  // SS + O  → ';'
+    s_compound[SDL_SCANCODE_PERIOD]     = {{7, 1}, {7, 2}};  // SS + M  → '.'
+    s_compound[SDL_SCANCODE_COMMA]      = {{7, 1}, {7, 3}};  // SS + N  → ','
+
     s_map_init = true;
 }
 
@@ -121,6 +170,10 @@ void Keyboard::reset() {
     // Shift-hysteresis scan buffers — initial "all released" state.
     shift_hist_[0]   = 0xFF;
     shift_hist_[1]   = 0xFF;
+    // Task 77 — host Alt modifier + per-scancode Alt latch. Cleared so a
+    // reset taken with Alt down cannot strand a latched Alt variant.
+    alt_held_        = false;
+    std::memset(alt_variant_, 0, sizeof(alt_variant_));
     // NOTE: `membrane_stick_` is lifetime-bound wiring from the owning
     // Emulator (see Emulator ctor). It must NOT be cleared here — a soft
     // reset does not rebuild the Emulator's member graph.
@@ -145,6 +198,42 @@ void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
             case SDL_SCANCODE_SPACE: joy_dispatcher_->set_cursor_bit(cursor_target_slot_, CB::Fire,  pressed); return;
             default: break;   // all other keys fall through to the ZX matrix
         }
+    }
+
+    // Task 77 — host Alt is a MODIFIER, never a ZX key. Track it and consume
+    // it: it has no s_map/s_compound entry, so falling through would be a
+    // no-op anyway, but returning here makes the intent explicit.
+    if (sc == SDL_SCANCODE_LALT || sc == SDL_SCANCODE_RALT) {
+        alt_held_ = pressed;
+        return;
+    }
+
+    // Task 77 — resolve which mapping this scancode means RIGHT NOW. A key
+    // with an Alt variant means one thing with Alt held and another without,
+    // so the choice must be latched at press time and reused at release time:
+    // the user may well release Alt before the key, and clearing a different
+    // pair of matrix bits than were set would strand a key down forever.
+    //
+    // Only the press edge consults alt_held_; the release edge replays the
+    // latch. `alt_variant_[]` is therefore the authoritative record of what
+    // this scancode actually asserted.
+    bool use_alt;
+    if (pressed) {
+        use_alt = alt_held_ && s_alt_compound[sc].a.row >= 0;
+        alt_variant_[sc] = use_alt;
+    } else {
+        use_alt = alt_variant_[sc];
+        alt_variant_[sc] = false;
+    }
+
+    // Alt-modified compound (e.g. EXTEND MODE = Alt+E = Caps Shift + Sym
+    // Shift). Resolved BEFORE the plain tables so the unmodified meaning of
+    // the key cannot leak: Alt+E asserts CS+SS and never the ZX 'E' key.
+    if (use_alt) {
+        const CompoundPos& acp = s_alt_compound[sc];
+        set_matrix_bit(acp.a.row, acp.a.col, pressed);
+        set_matrix_bit(acp.b.row, acp.b.col, pressed);
+        return;
     }
 
     // Check compound map first (e.g. DELETE = Caps Shift + 0).
