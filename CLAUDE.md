@@ -15,11 +15,10 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 
 ### External references
 
-- NextREG Machine ID register reference: <https://wiki.specnext.dev/Machine_ID_Register>
-- Boot sequence (authoritative): <https://wiki.specnext.dev/Boot_Sequence>
-- TBBlue machine-config boot files (`config.ini` / `menu.ini` / `menu.def`): <https://gitlab.com/thesmog358/tbblue/-/blob/master/docs/config/config.txt>
-- TBBlue firmware source (GPLv3): <https://gitlab.com/thesmog358/tbblue/-/tree/master>
-  - Contains the `TBBLUE.FW` / `TBBLUE.TBU` source: the IPL + boot module that reads the SD and shows the "Press SPACEBAR for menu" / Configuration screens.
+**All external URLs live in [REFERENCES.md](REFERENCES.md)** — Next wiki pages
+(boot sequence, NextREG, NEX file format), TBBlue firmware source, and the
+emulators used as oracles. Add new external links there, not here or inline in
+code comments.
 
 ## General guidance
 

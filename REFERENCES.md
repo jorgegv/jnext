@@ -1,0 +1,48 @@
+# External References
+
+Authoritative external sources jnext development depends on. Keep every
+external URL the project relies on here rather than scattered across docs and
+code comments, so there is one place to check when a link rots or a spec moves.
+
+> The **VHDL source is the authority** for hardware behaviour, not any web page
+> (see [CLAUDE.md](CLAUDE.md)). Where a wiki page and the VHDL disagree, the
+> VHDL wins. These references are for things the VHDL does not specify: file
+> formats, firmware behaviour, and host-side conventions.
+
+## ZX Spectrum Next hardware and firmware
+
+| Reference | URL |
+|---|---|
+| NextREG Machine ID register | <https://wiki.specnext.dev/Machine_ID_Register> |
+| Boot sequence (authoritative) | <https://wiki.specnext.dev/Boot_Sequence> |
+| TBBlue firmware source (GPLv3) — `TBBLUE.FW` / `TBBLUE.TBU`, the IPL + boot module | <https://gitlab.com/thesmog358/tbblue/-/tree/master> |
+| TBBlue machine-config boot files (`config.ini` / `menu.ini` / `menu.def`) | <https://gitlab.com/thesmog358/tbblue/-/blob/master/docs/config/config.txt> |
+
+## File formats
+
+| Reference | URL |
+|---|---|
+| NEX file format — header layout, bank bitmap, file-handle field | <https://wiki.specnext.dev/NEX_file_format> |
+| Alternative NEX file formats — appended-payload / self-streaming conventions | <https://wiki.specnext.dev/Alternative_NEX_file_formats> |
+
+**NEX header, offset 140 (`file_handle`)** — worth recording inline because it
+is easy to get wrong and jnext did:
+
+| Value | Loader behaviour |
+|---|---|
+| `0` | close the file after loading |
+| `1` | keep it open, pass the handle in `BC` (the recommended value) |
+| `0x4000`–`0xFFFF` | keep it open, write the handle to that memory address |
+
+## Emulators used as oracles / comparison
+
+| Reference | URL |
+|---|---|
+| FUSE — Z80 core (vendored, GPLv2-or-later) and behavioural oracle | <https://fuse-emulator.sourceforge.net/> |
+
+## Adding to this file
+
+Add the URL here **and** link to this file rather than pasting the URL again
+elsewhere. If a page's content is load-bearing for a decision, quote the
+essential part inline (as with the file-handle table above) so the project
+still has the fact if the page disappears.
