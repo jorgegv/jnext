@@ -355,7 +355,27 @@ void JoystickDispatcher::handle_raw_hat(int connector_idx, uint8_t hat_index, ui
     if (hat_value & SDL_HAT_LEFT)  m |= JBIT_L;
     if (hat_value & SDL_HAT_RIGHT) m |= JBIT_R;
 
-    drop_restored_directions(connector_idx, DIR_MASK);   // hat = absolute, all four
+    // A hat reports ABSOLUTE position for all four directions at once, so it
+    // legitimately supersedes both axis pairs — hence the whole DIR_MASK.
+    //
+    // KNOWN, ACCEPTED LIMITATION (single-hat assumption; pinned by JRST-12).
+    // The drop is per-CONNECTOR, not per-hat. On a device with two hats, an
+    // event from EITHER hat clears the entire restored mask, including bits
+    // the other hat would have spoken for — so hat 1 moving cancels a
+    // direction restored while hat 0 was the one actually held.
+    //
+    // This is accepted rather than fixed. `dir_restored_` is a post-rewind
+    // GUESS, not ground truth: after a state restore the holding source is
+    // genuinely unknowable, which is the whole reason the mask exists. Adding
+    // per-hat confirmation tracking would attach false precision to a guess,
+    // and the bits self-correct anyway — the next real event from whichever
+    // source is actually held re-asserts the direction through its own mask.
+    // Two-hat devices are also rare, and the window is only the interval
+    // between a rewind and the next event.
+    //
+    // If this drop's scope is ever narrowed, JRST-12 fails: update it and
+    // this comment together.
+    drop_restored_directions(connector_idx, DIR_MASK);
     dir_hat_[static_cast<size_t>(connector_idx)][hat_index] = m;
     recompute(connector_idx);
 }

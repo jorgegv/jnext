@@ -4011,6 +4011,30 @@ static void test_joy_source() {
         check("JRST-11", "pressing the opposing direction replaces its pair only",
               jd.bits12(0) == 0x009, DETAIL("bits=%03X", jd.bits12(0)));
     }
+    {
+        // PIN of an accepted limitation, NOT of desirable behaviour.
+        //
+        // The restored-direction drop performed on a hat event is per-
+        // CONNECTOR, not per-hat, so on a two-hat device an event from hat 1
+        // clears restored bits that hat 0 would have spoken for. The user
+        // decision (Task 83 review Finding 1) was to document the single-hat
+        // assumption rather than add per-axis-pair confirmation tracking to a
+        // mask that is a post-rewind guess in the first place — see the
+        // comment at the drop site in joystick_dispatcher.cpp.
+        //
+        // Discriminative: hat 1 has never been touched and contributes no
+        // direction of its own, so ANY narrowing of the drop's scope (per-hat
+        // ownership, per-pair confirmation) leaves the restored 0x00A intact
+        // and this row FAILS with bits=00A. It passes only while an untouched
+        // hat is still allowed to speak for the whole connector.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x00A);                       // UP+LEFT restored
+        jd.resync();
+        jd.handle_raw_hat(0, 1, SDL_HAT_CENTERED);     // a DIFFERENT hat reports
+        check("JRST-12", "accepted: a second hat's event clobbers all restored bits",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
 }
 
 int main() {
