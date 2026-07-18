@@ -21,12 +21,19 @@
 ///   [1] tbblue firmware, esxDOS API definitions:
 ///       src/asm/dot_commands/esxapi.def  — hook codes $85..$95, $9A..$B1
 ///   [2] z88dk (2.3) ZX target:
-///       lib/target/zx/def/esxdos.def     — hook codes $80..$8E, $98..$B1
+///       lib/target/zx/def/esxdos.def     — TWO separate constant blocks:
+///         `__ESXDOS_SYS_*` (lines 7..44)   $80..$8E, $98..$B1
+///         `__ESX_*`        (lines 104..182) $85..$8F, $91..$95, $9A..$B1
 ///
-/// The two overlap on $85..$8E and $9A..$B1 and agree exactly there. Neither
-/// is a superset: [1] alone carries $8F..$95, [2] alone carries the low-level
-/// disk calls $80..$84 and the mount calls $98/$99. This table is their union.
-/// $96 and $97 are assigned by neither and are deliberately absent.
+/// Where they overlap ($85..$8F, $91..$95, $9A..$B1) all three blocks agree
+/// exactly — the per-row citations below name the `__ESXDOS_SYS_*` decimals
+/// because that block came first, but most of those rows are corroborated a
+/// third time by `__ESX_*`.
+///
+/// Neither file is a superset. [1] alone carries $90 M_AUTOLOAD. [2] alone
+/// carries the low-level disk calls $80..$84, $8A M_DRIVEINFO, and the mount
+/// calls $98/$99. This table is their union: 48 entries. $96 and $97 are
+/// assigned by none of the blocks and are deliberately absent.
 ///
 /// Anything not listed is reported by number.
 inline const char* esxdos_call_name(uint8_t code) {
