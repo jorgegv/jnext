@@ -3634,7 +3634,7 @@ static void test_joy_source() {
     {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
-        jd.handle_raw_hat(0, SDL_HAT_UP);
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);
         check("JRAW-15", "raw hat UP -> bit 3",
               jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -3643,15 +3643,15 @@ static void test_joy_source() {
         // per-direction test of the mask handles all eight positions.
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
-        jd.handle_raw_hat(0, SDL_HAT_RIGHTUP);
+        jd.handle_raw_hat(0, 0, SDL_HAT_RIGHTUP);
         check("JRAW-16", "raw hat diagonal sets both directions",
               jd.bits12(0) == 0x009, DETAIL("bits=%03X", jd.bits12(0)));
     }
     {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
-        jd.handle_raw_hat(0, SDL_HAT_LEFTDOWN);
-        jd.handle_raw_hat(0, SDL_HAT_CENTERED);
+        jd.handle_raw_hat(0, 0, SDL_HAT_LEFTDOWN);
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);
         check("JRAW-17", "raw hat centred clears every direction",
               jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -3660,7 +3660,7 @@ static void test_joy_source() {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         jd.handle_raw_button(0, 0, true);
-        jd.handle_raw_hat(0, SDL_HAT_CENTERED);
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);
         check("JRAW-18", "raw hat centred leaves button bits untouched",
               jd.bits12(0) == 0x010, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -3684,7 +3684,7 @@ static void test_joy_source() {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         jd.set_source(0, JoySource::CursorKeys);
-        jd.handle_raw_hat(0, SDL_HAT_UP);
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);
         check("JRAW-21", "raw hat gated out on a CursorKeys connector",
               jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -3692,7 +3692,7 @@ static void test_joy_source() {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         jd.handle_raw_button(5, 0, true);     // connector 5 does not exist
-        jd.handle_raw_hat(-1, SDL_HAT_UP);
+        jd.handle_raw_hat(-1, 0, SDL_HAT_UP);
         check("JRAW-22", "out-of-range connector index is ignored on raw paths",
               jd.bits12(0) == 0x000 && jd.bits12(1) == 0x000, "");
     }
@@ -3764,6 +3764,115 @@ static void test_joy_source() {
         check("JRAW-28", "raw event from an unmapped device is refused",
               !consumed && jd.bits12(0) == 0x000 && jd.bits12(1) == 0x000,
               DETAIL("consumed=%d", (int)consumed));
+    }
+
+    // --- Task 83: multi-source direction merge ------------------------------
+    //
+    // A pad can steer from the analogue stick, the D-pad and one or more hats
+    // at once, and all of them collapse onto the same four digital bits (the
+    // Next's DB9 ports carry nothing else). Each source therefore keeps its
+    // own mask and the emitted direction is their UNION.
+    //
+    // Before this, every source wrote one shared mask, so releasing ANY of
+    // them cleared the direction even while another was still held — and the
+    // analogue path then stayed silent until the axis re-crossed its
+    // threshold, leaving a held stick dead. These rows are the regression.
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 0, -32768);              // stick held LEFT
+        jd.handle_raw_hat(0, 0, SDL_HAT_RIGHT);        // hat pushed RIGHT
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);     // hat released
+        check("JMRG-01", "hat release keeps a direction the analogue stick still holds",
+              jd.bits12(0) == 0x002, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, -32768);   // stick LEFT
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, true);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, false);
+        check("JMRG-02", "D-pad release keeps a direction the analogue stick still holds",
+              jd.bits12(0) == 0x002, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);
+        jd.handle_raw_hat(0, 1, SDL_HAT_CENTERED);
+        check("JMRG-03", "centring one hat does not cancel another still held",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);
+        jd.handle_raw_hat(0, 1, SDL_HAT_RIGHT);
+        check("JMRG-04", "two hats OR their directions together",
+              jd.bits12(0) == 0x009, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // Both sources holding the same direction: releasing one keeps it.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 1, -32768);              // stick UP
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);           // hat UP too
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);     // hat released
+        check("JMRG-05", "shared direction survives while one source still holds it",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // ...and clearing the LAST holder does release it.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 1, -32768);
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);
+        jd.handle_raw_axis(0, 1, 0);                   // stick centred
+        check("JMRG-06", "direction clears once every source has released it",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_hat(0, JoystickDispatcher::MAX_HATS, SDL_HAT_UP);
+        check("JMRG-07", "hat index past MAX_HATS is ignored, not aliased to hat 0",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // Fire is not a direction and must be untouched by the merge.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 0, true);              // Fire 1
+        jd.handle_raw_axis(0, 0, -32768);
+        jd.handle_raw_axis(0, 0, 0);
+        check("JMRG-08", "direction churn leaves the fire button held",
+              jd.bits12(0) == 0x010, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // set_source must drop every source mask, not just the shared vector.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 0, -32768);
+        jd.handle_raw_hat(0, 0, SDL_HAT_UP);
+        jd.set_source(0, JoySource::CursorKeys);
+        jd.set_source(0, JoySource::Sdl);
+        check("JMRG-09", "switching source clears every held direction source",
+              jd.bits12(0) == 0x000 && joy.joy_left_bits() == 0x000,
+              DETAIL("bits=%03X joy=%03X", jd.bits12(0), joy.joy_left_bits()));
+    }
+    {
+        // Cursor keys are their own direction source and must merge/clear
+        // exactly like the others.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        using CB = JoystickDispatcher::CursorBit;
+        jd.set_cursor_bit(0, CB::Up, true);
+        jd.set_cursor_bit(0, CB::Fire, true);
+        jd.set_cursor_bit(0, CB::Up, false);
+        check("JMRG-10", "cursor direction release leaves fire held",
+              jd.bits12(0) == 0x010, DETAIL("bits=%03X", jd.bits12(0)));
     }
 }
 
