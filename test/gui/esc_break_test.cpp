@@ -121,11 +121,24 @@ void test_esc() {
         check("T77E-05", "F11 toggles fullscreen without touching the ZX matrix",
               seen.empty(), fmt(seen));
     }
-    // --- Tab reaches the matrix (EXTEND MODE), not Qt focus navigation ----
+    // --- Tab is translated and delivered as EXTEND MODE -------------------
+    // SCOPE, stated precisely: this covers the qt_key_to_sdl() Tab entry,
+    // which is load-bearing (without it Tab is simply dead in the GUI —
+    // mutation-verified: removing the case fails this row).
+    //
+    // It does NOT cover MainWindow::event()'s Tab/Backtab interception.
+    // That exists because QWidget::event() consumes Tab for
+    // focusNextPrevChild() before keyPressEvent() runs — but this harness
+    // cannot reproduce that contention: with the offscreen QPA platform and
+    // a synthetic sendEvent(), the row passes with the interception removed,
+    // with or without show()/setFocus(). Rather than ship a row that passes
+    // both ways, the claim is narrowed to what is actually proven. The
+    // interception itself is unverified by any automated test and wants
+    // manual GUI confirmation.
     {
         MainWindow w;
         auto seen = send(w, Qt::Key_Tab);
-        check("T77E-06", "Tab reaches the ZX matrix instead of moving focus",
+        check("T77E-06", "Tab is translated to SDL_SCANCODE_TAB and delivered",
               both_edges(seen, SDL_SCANCODE_TAB), fmt(seen));
     }
 }
