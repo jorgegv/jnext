@@ -1039,38 +1039,51 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         };
 
-        if (esxdos_tracing) {
-            // Wrap the handler so BOTH the call and its result are recorded.
-            // The result matters as much as the call: "F_SEEK -> FAIL A=5" is
-            // the line that explains a program giving up, and an unhandled
-            // call is reported explicitly rather than just missing.
-            cpu_.on_esxdos_call = [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
-                const char* name = esxdos_call_name(defb);
+        // Wrap the handler so BOTH the call and its result are recorded. The
+        // result matters as much as the call: "F_SEEK -> FAIL A=5" is the line
+        // that explains a program giving up, and an unhandled call is reported
+        // explicitly rather than just missing.
+        //
+        // The wrapper is installed UNCONDITIONALLY here, not only when tracing
+        // was on at init(): `trace()` performs its own inline level check, so
+        // with the level at info this costs one integer compare per RST $08 and
+        // emits nothing. Installing it always is what makes `--log-level
+        // esxdos=trace` work when it is raised at RUNTIME (from the debugger)
+        // rather than on the command line.
+        //
+        // Residual limitation, deliberate: whether the hook EXISTS is still an
+        // init()-time decision (see the `if` above). With both the stub and
+        // tracing off at init there is no hook at all, and raising the level
+        // later traces nothing — jnext must be restarted with either flag. The
+        // hook cannot be installed unconditionally because its mere presence
+        // changes RST $08 dispatch for every program.
+        cpu_.on_esxdos_call = [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
+            const char* name = esxdos_call_name(defb);
+            // Logged BEFORE handle_esxdos runs: the stub mutates r in place, so
+            // capturing the arguments afterwards would report the results as if
+            // they had been the inputs. Pinned by ESXT-28.
+            Log::esxdos()->trace(
+                "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
+                defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
+
+            const bool handled = handle_esxdos(defb, r);
+
+            if (handled) {
+                // esxdos convention: carry CLEAR = success, SET = error
+                // with the code in A.
+                const bool error = (r.AF & 0x0001) != 0;
+                const uint8_t a  = static_cast<uint8_t>(r.AF >> 8);
                 Log::esxdos()->trace(
-                    "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
-                    defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
-
-                const bool handled = handle_esxdos(defb, r);
-
-                if (handled) {
-                    // esxdos convention: carry CLEAR = success, SET = error
-                    // with the code in A.
-                    const bool error = (r.AF & 0x0001) != 0;
-                    const uint8_t a  = static_cast<uint8_t>(r.AF >> 8);
-                    Log::esxdos()->trace(
-                        "<- ${:02X} {:<12} {} A={:02X} BC={:04X} DE={:04X} HL={:04X}",
-                        defb, name ? name : "(unknown)", error ? "ERROR" : "ok   ",
-                        a, r.BC, r.DE, r.HL);
-                } else {
-                    Log::esxdos()->trace(
-                        "<- ${:02X} {:<12} NOT IMPLEMENTED by jnext — falling "
-                        "through to $0008", defb, name ? name : "(unknown)");
-                }
-                return handled;
-            };
-        } else {
-            cpu_.on_esxdos_call = handle_esxdos;
-        }
+                    "<- ${:02X} {:<12} {} A={:02X} BC={:04X} DE={:04X} HL={:04X}",
+                    defb, name ? name : "(unknown)", error ? "ERROR" : "ok   ",
+                    a, r.BC, r.DE, r.HL);
+            } else {
+                Log::esxdos()->trace(
+                    "<- ${:02X} {:<12} NOT IMPLEMENTED by jnext — falling "
+                    "through to $0008", defb, name ? name : "(unknown)");
+            }
+            return handled;
+        };
 
         if (cfg.esxdos_stub) Log::emulator()->info("esxdos shim enabled (--esxdos-stub)");
         if (esxdos_tracing)  Log::emulator()->info("esxdos syscall tracing enabled (--log-level esxdos=trace)");
