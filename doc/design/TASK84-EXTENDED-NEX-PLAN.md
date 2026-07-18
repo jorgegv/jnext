@@ -272,6 +272,35 @@ honour, not to get past a check.
 
 ---
 
+## 3.9 DOWNGRADED (2026-07-18) — the `F_SEEK` "mode=0x80" finding is weakly grounded
+
+Recorded above as an open unknown ("`L=0x80` matches none of `set`/`fwd`/`bwd`"). On
+re-examination it is **probably an artifact**, and in any case does not block
+implementation.
+
+**Neither oracle documents a bit 7.** `esxapi.def:143-145` and `esxdos.def:62-64` define
+exactly three modes (`set=0`, `fwd=1`, `bwd=2`), and every in-tree caller loads one of them
+directly (`fragmentation.asm:129`, `defrag.asm:143-149`, `createp3d.asm:125`,
+`uninstall.asm:381`). `L` is genuinely the mode register — that part is correct.
+
+**Why the observation is suspect.** Across the three traced calls `HL` reads
+`9F80` → `9F80` → `9F81`: it increments by one after a one-byte read. That is the signature
+of a **pointer NEXTEST is carrying in `HL`**, not a mode byte — code intending a mode emits
+`ld l,0`, leaving `HL=xx00`. Additionally the patch logged `F_READ buf=0x9f80` while the
+same trace line shows `IX=8000`, and jnext's stub takes the F_READ buffer from `IX`; those
+disagree, so the throwaway patch may have misread parameters, and `mode=128` came from that
+same patch. The patch was reverted and never committed, so it cannot be re-inspected.
+
+**Why it does not block implementation.** `0x80 & 0x03 == 0` = `esx_seek_set`, which is
+exactly the documented intent of the preamble: "the filepointer should be reset to the start
+using F_SEEK" (`stream.asm:88-93`), with offset `BC:DE = 0`.
+
+**Guidance for issue #29:** mask `L` to its low two bits, and **log loudly** whenever any
+high bit is set. That yields correct behaviour for the observed case while turning a genuine
+undocumented flag — if one exists — into a visible diagnostic instead of silent divergence.
+
+---
+
 ## 4. What this means for issue #29's four work items
 
 | # | Issue's item | Verdict against the evidence |
