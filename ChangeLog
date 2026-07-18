@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 - Tilemap raster-split effects (a scrolling play area with a fixed HUD, split at a line interrupt) now land on the exact scanline, matching real hardware (issue #16)
+- Downloading the SD-card image at first start no longer looks frozen: an animated "Fixing downloaded image…" dialog is shown while the image is patched (a few seconds after the download bar completes)
 
 ## v0.98.34 (2026-07-17)
 

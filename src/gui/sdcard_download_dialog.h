@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -34,6 +35,13 @@ public:
     // ProgressFn seam: shows/updates a modal QProgressDialog with a bar.
     // Returns false when the user cancels (which aborts the download).
     bool progress(uint64_t downloaded, uint64_t total);
+
+    // BusyFn seam: run `work` (the multi-second copy+FAT32-patch) on a worker
+    // thread while a modal, indeterminate "<phase>…" progress dialog animates
+    // on the GUI thread — so the user sees jnext is busy, not hung. Not
+    // cancellable (aborting mid-patch would leave a corrupt image). Returns
+    // whatever `work` returns.
+    bool busy(const std::string& phase, const std::function<bool()>& work);
 
 private:
     void ensure_app();

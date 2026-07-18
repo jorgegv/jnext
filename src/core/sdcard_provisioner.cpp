@@ -323,6 +323,18 @@ bool cli_progress(uint64_t downloaded, uint64_t total) {
     return true; // CLI progress never cancels
 }
 
+bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
+    // The download bar ends on its own newline; print the phase on a fresh line
+    // (no trailing newline yet) so the terminal shows work is in progress, then
+    // run it and finish the line with the outcome.
+    std::fprintf(stderr, "%s (this can take a few seconds)... ", phase.c_str());
+    std::fflush(stderr);
+    const bool ok = work ? work() : true;
+    std::fprintf(stderr, "%s\n", ok ? "done" : "failed");
+    std::fflush(stderr);
+    return ok;
+}
+
 bool cli_confirm(const std::string& message) {
     std::fprintf(stderr, "%s [y/N] ", message.c_str());
     std::fflush(stderr);
@@ -636,17 +648,23 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     // Produce the fixed image from the pristine raw one: copy, then FAT32
     // recluster the COPY in place (the raw official image is left untouched).
+    // Both steps run over a ~1 GB image and take several seconds with no
+    // natural progress hook (f_mkfs is one blocking call), so they are wrapped
+    // in the BusyFn seam: the GUI animates a "Fixing downloaded image…" dialog
+    // on a worker thread; the CLI prints a one-line message; tests (no busy)
+    // run the work inline unchanged.
     CopyFn copy = opts.copy ? opts.copy : CopyFn(default_copy_file);
-    if (!copy(raw, fixed, err)) {
-        std::remove(fixed.c_str()); // never leave a truncated fixed image
+    auto do_fix = [&]() -> bool {
+        if (!copy(raw, fixed, err)) { err = "cannot produce fixed image: " + err; return false; }
+        if (!patch_image_fat32(fixed, err)) { err = "patch failed: " + err;       return false; }
+        return true;
+    };
+    const bool fixed_ok = opts.busy ? opts.busy("Fixing downloaded image", do_fix)
+                                     : do_fix();
+    if (!fixed_ok) {
+        std::remove(fixed.c_str()); // never leave a truncated / half-patched image
         r.status = ProvisionStatus::Failed;
-        r.error  = "cannot produce fixed image: " + err;
-        return r;
-    }
-    if (!patch_image_fat32(fixed, err)) {
-        std::remove(fixed.c_str()); // do not leave a half-patched fixed image
-        r.status = ProvisionStatus::Failed;
-        r.error  = "patch failed: " + err;
+        r.error  = err;             // do_fix() already prefixed the failing step
         return r;
     }
 

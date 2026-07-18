@@ -463,13 +463,18 @@ int main(int argc, char* argv[]) {
         if (!headless) {
             opts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
             opts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
+            opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
+                return gui_prov.busy(p, w);
+            };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::cli_progress;
+            opts.busy     = sdcard::cli_busy;
         }
 #else
         opts.confirm  = sdcard::cli_confirm;
         opts.progress = sdcard::cli_progress;
+        opts.busy     = sdcard::cli_busy;
 #endif
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
         if (res.status == sdcard::ProvisionStatus::Ok) {
