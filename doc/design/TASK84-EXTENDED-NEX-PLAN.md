@@ -290,6 +290,43 @@ honour.
 
 ---
 
+## 4.3 CORRECTION (2026-07-18, user challenge) — `DISK_FILEMAP` redirection is cheap
+
+§4.1 framed answering `DISK_FILEMAP` as "either synthesise a card address space that the
+SPI layer serves, or use the synthetic FAT32 block device". That is wrong: it presents two
+options as comparable when they differ by an order of magnitude.
+
+Re-reading `stream.asm`, **three of the four streaming steps are `RST $08` calls jnext
+already intercepts** — `DISK_FILEMAP` ($85), `DISK_STRMSTART` ($86), `DISK_STRMEND` ($87).
+Only the `INIR` pump reads port `$EB`.
+
+- Card addresses are **opaque cookies**. The only arithmetic the guest is documented to do
+  is `+512` or `+1` per block per bit 1 of the flags jnext itself returns
+  (`stream.asm:115-119`), so synthetic addresses that are plain file offsets work.
+- One filemap entry spanning the whole file is legitimate — files are "often unfragmented,
+  and so will use only 1 entry" (`stream.asm:107-110`), and a host file is contiguous by
+  construction.
+- `BC` (block count) on `DISK_STRMSTART` is explicitly ignored by the SD/MMC protocol
+  (`stream.asm:176-178`).
+- The per-block stream on `$EB` is fully specified at `stream.asm:241-259`:
+  **512 data bytes, 2 CRC bytes (read but never checked), then a `$FE` token**
+  (guest polls, `$FF` = not ready, anything else = error).
+
+**No boot sector, no FAT tables, no directory entries, no cluster chains, and NextZXOS's
+own block driver is never involved** — the real ROM code for those three calls never runs.
+This is NOT the synthetic FAT32 volume of
+[TASK89-ESXDOS-HOST-FILESYSTEM.md](TASK89-ESXDOS-HOST-FILESYSTEM.md) §2.3 and carries none
+of its boot-path risk.
+
+Remaining blockers, none of them retired by this correction: jnext needs a hook in the port
+`$EB` read path (`src/peripheral/spi.cpp`, **unexamined**); the v2.01 "bit 7 = don't wait
+for token" mode moves the token wait into the guest (`stream.asm:187-193`); the 2.01
+version gate is independent; and the multi-entry `refill_map` path must still behave.
+
+**Read off the oracle, not verified by a running experiment.** Deferred to milestone v1.1.
+
+---
+
 ## 5. Sandboxing — reusing the `resolve_sibling()` precedent
 
 `resolve_sibling()` (`src/core/emulator.cpp:914-927`) is the existing precedent, currently
