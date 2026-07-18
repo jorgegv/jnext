@@ -390,6 +390,12 @@ add_executable(audio_pacing_test audio/audio_pacing_test.cpp)
 target_include_directories(audio_pacing_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_pacing_tests COMMAND audio_pacing_test)
 
+# Present-cadence accounting test (issue #9 / Task 63). Header-only accounting
+# under test (src/platform/present_cadence.h) — no Qt, no SDL, no emulator core.
+add_executable(present_cadence_test platform/present_cadence_test.cpp)
+target_include_directories(present_cadence_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME present_cadence_tests COMMAND present_cadence_test)
+
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
 # NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds
@@ -501,6 +507,15 @@ if(ENABLE_QT_UI)
     target_link_libraries(app_config_test PRIVATE jnext_gui)
     target_include_directories(app_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME app_config_tests COMMAND app_config_test)
+
+    # Task 63 (issue #9) — EmulatorWidget's present-count gate: the rule that
+    # decides what counts as a frame reaching the screen. Needs jnext_gui (a
+    # real QWidget) so it is gated on ENABLE_QT_UI; no display needed, main()
+    # forces the offscreen QPA platform like the debugger suites.
+    add_executable(present_count_test gui/present_count_test.cpp)
+    target_link_libraries(present_count_test PRIVATE jnext_gui)
+    target_include_directories(present_count_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME present_count_tests COMMAND present_count_test)
 endif()
 
 # GoogleTest-based tests (if available)

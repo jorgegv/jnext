@@ -21,7 +21,17 @@ public:
     /// @param framebuffer  Pointer to w*h uint32_t pixels in ARGB8888 format.
     /// @param w            Framebuffer width in pixels.
     /// @param h            Framebuffer height in pixels.
-    void update_frame(const uint32_t* framebuffer, int w, int h);
+    /// @param new_content  Task 63 (issue #9) — whether this call carries a
+    ///        NEWLY composited frame. The copy, the prescale and the repaint
+    ///        request are IDENTICAL either way: this flag affects only
+    ///        present_count() accounting. Pass false when the caller is
+    ///        re-pushing an unchanged framebuffer (debugger paused, or a tick
+    ///        that emulated no frame) so a stale re-present is not counted as
+    ///        a frame reaching the screen. The widget cannot determine this
+    ///        itself without a per-frame pixel compare, which would cost more
+    ///        than the diagnostic is worth.
+    void update_frame(const uint32_t* framebuffer, int w, int h,
+                      bool new_content = true);
 
     /// Set the integer scale factor (2-4).  Resizes the widget to NATIVE_W*s x DISPLAY_H*s.
     void set_scale(int factor);
@@ -30,6 +40,18 @@ public:
     /// Enable or disable the CRT scanline filter overlay.
     void set_crt_filter(bool enabled);
     bool crt_filter() const { return crt_filter_; }
+
+    /// Task 63 (issue #9) — total frames actually PRESENTED: paintEvents that
+    /// served a framebuffer handed to this widget and not yet painted.
+    /// Deliberately NOT a raw paintEvent count — Qt also paints on
+    /// expose/resize/move/repaint, and counting those as presented frames is
+    /// what drove the old `dropped` figure negative. Nor does a stale re-push
+    /// of an unchanged framebuffer count — the caller declares freshness via
+    /// update_frame()'s `new_content`, which is what keeps a reporting window
+    /// straddling a debugger pause/resume from under-reporting lost frames
+    /// (see src/platform/present_cadence.h). QtApp differences this each
+    /// status tick. Pinned by test/gui/present_count_test.cpp.
+    uint64_t present_count() const { return present_count_; }
 
     /// Set fullscreen mode.  In fullscreen the widget fills the screen but
     /// the framebuffer is rendered at the largest integer scale that fits,
@@ -75,4 +97,6 @@ private:
     bool fullscreen_mode_ = false;
     bool dpr_valid_ = false;  ///< True once DPR has been verified on-screen.
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.
+    bool frame_pending_ = false;   ///< Task 63 — a new frame awaits its first paint.
+    uint64_t present_count_ = 0;   ///< Task 63 — frames actually presented.
 };
