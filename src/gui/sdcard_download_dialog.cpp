@@ -102,6 +102,11 @@ bool SdcardGuiProvisioner::busy(const std::string& phase,
     dlg.setWindowTitle(QStringLiteral("jnext — Preparing SD card image"));
     dlg.setWindowModality(Qt::ApplicationModal);
     dlg.setCancelButton(nullptr);
+    // Also drop the window-manager close (X) so the "not cancellable" intent
+    // holds via the title bar too (best-effort — some WMs still show it; the
+    // pump loop ignores wasCanceled() regardless, so the outcome is unaffected).
+    dlg.setWindowFlags((dlg.windowFlags() | Qt::CustomizeWindowHint)
+                       & ~Qt::WindowCloseButtonHint);
     dlg.setMinimumDuration(0);   // show immediately
     dlg.setAutoClose(false);
     dlg.setAutoReset(false);

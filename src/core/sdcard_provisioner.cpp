@@ -324,9 +324,12 @@ bool cli_progress(uint64_t downloaded, uint64_t total) {
 }
 
 bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
-    // The download bar ends on its own newline; print the phase on a fresh line
-    // (no trailing newline yet) so the terminal shows work is in progress, then
-    // run it and finish the line with the outcome.
+    // Print the phase (no trailing newline yet) so the terminal shows work is
+    // in progress, then run it and finish the line with the outcome. When a
+    // download preceded this, cli_progress ends its bar with a newline only in
+    // the Content-Length branch (the common case for the distro URL); the rare
+    // no-Content-Length path would leave this appended to the "N MiB" line — a
+    // cosmetic wart, not a correctness issue.
     std::fprintf(stderr, "%s (this can take a few seconds)... ", phase.c_str());
     std::fflush(stderr);
     const bool ok = work ? work() : true;
