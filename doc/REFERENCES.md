@@ -5,7 +5,7 @@ external URL the project relies on here rather than scattered across docs and
 code comments, so there is one place to check when a link rots or a spec moves.
 
 > The **VHDL source is the authority** for hardware behaviour, not any web page
-> (see [CLAUDE.md](CLAUDE.md)). Where a wiki page and the VHDL disagree, the
+> (see [CLAUDE.md](../CLAUDE.md)). Where a wiki page and the VHDL disagree, the
 > VHDL wins. These references are for things the VHDL does not specify: file
 > formats, firmware behaviour, and host-side conventions.
 

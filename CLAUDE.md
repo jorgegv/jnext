@@ -15,7 +15,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 
 ### External references
 
-**All external URLs live in [REFERENCES.md](REFERENCES.md)** — Next wiki pages
+**All external URLs live in [REFERENCES.md](doc/REFERENCES.md)** — Next wiki pages
 (boot sequence, NextREG, NEX file format), TBBlue firmware source, and the
 emulators used as oracles. Add new external links there, not here or inline in
 code comments.
