@@ -3512,6 +3512,259 @@ static void test_joy_source() {
         check("JSRC-E05", "refresh re-pushes both connectors to the frontend",
               calls == 2, DETAIL("calls=%d", calls));
     }
+
+    // --- Task 83: raw SDL_Joystick path (issue #13) -------------------------
+    //
+    // Devices with no SDL game-controller mapping emit only the SDL_JOY*
+    // family. Before Task 83 they were dropped at SDL_IsGameController() and
+    // never reached the dispatcher at all, so a plugged-in stick did nothing
+    // and said nothing. These rows pin the positional raw mapping, the shared
+    // axis/threshold behaviour, the hat decode, and the source gate on all
+    // three raw entry points.
+    //
+    // Bit layout (zxnext.vhd:3441-3442): R=0x001 L=0x002 D=0x004 U=0x008
+    //                                    B=0x010 C=0x020 A=0x040 START=0x080
+    //                                    MODE=0x800
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 0, true);
+        check("JRAW-01", "raw button 0 -> Fire 1 (bit 4)",
+              jd.bits12(0) == 0x010, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 1, true);
+        check("JRAW-02", "raw button 1 -> Fire 2 (bit 5)",
+              jd.bits12(0) == 0x020, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 2, true);
+        check("JRAW-03", "raw button 2 -> MD A (bit 6)",
+              jd.bits12(0) == 0x040, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 3, true);
+        check("JRAW-04", "raw button 3 -> MODE (bit 11)",
+              jd.bits12(0) == 0x800, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 4, true);
+        check("JRAW-05", "raw button 4 -> START (bit 7)",
+              jd.bits12(0) == 0x080, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 5, true);
+        jd.handle_raw_button(0, 200, true);
+        check("JRAW-06", "raw buttons past the mapped range are dropped",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 0, true);
+        jd.handle_raw_button(0, 0, false);
+        check("JRAW-07", "raw button release clears its bit",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // Axis 0 is X by universal stick convention: negative = left.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 0, -32768);
+        check("JRAW-08", "raw axis 0 full negative -> LEFT (bit 1)",
+              jd.bits12(0) == 0x002, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 0, 32767);
+        check("JRAW-09", "raw axis 0 full positive -> RIGHT (bit 0)",
+              jd.bits12(0) == 0x001, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // SDL Y is screen-down: negative = up.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 1, -32768);
+        check("JRAW-10", "raw axis 1 full negative -> UP (bit 3)",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 1, 32767);
+        check("JRAW-11", "raw axis 1 full positive -> DOWN (bit 2)",
+              jd.bits12(0) == 0x004, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 0, -32768);
+        jd.handle_raw_axis(0, 0, 0);          // returned to centre
+        check("JRAW-12", "raw axis returning to the deadzone clears its bit",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // Just inside the threshold must NOT fire — the deadzone is what stops
+        // a slightly-off-centre analogue stick reading as a held direction.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 0, JoystickDispatcher::AXIS_THRESHOLD - 1);
+        check("JRAW-13", "raw axis inside the deadzone does not fire",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_axis(0, 2, -32768);     // throttle / twist
+        jd.handle_raw_axis(0, 5, 32767);
+        check("JRAW-14", "raw axes past index 1 are unmapped",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_hat(0, SDL_HAT_UP);
+        check("JRAW-15", "raw hat UP -> bit 3",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // SDL_HAT_RIGHTUP is literally SDL_HAT_RIGHT|SDL_HAT_UP, so a
+        // per-direction test of the mask handles all eight positions.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_hat(0, SDL_HAT_RIGHTUP);
+        check("JRAW-16", "raw hat diagonal sets both directions",
+              jd.bits12(0) == 0x009, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_hat(0, SDL_HAT_LEFTDOWN);
+        jd.handle_raw_hat(0, SDL_HAT_CENTERED);
+        check("JRAW-17", "raw hat centred clears every direction",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // A hat must not disturb the fire buttons.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(0, 0, true);
+        jd.handle_raw_hat(0, SDL_HAT_CENTERED);
+        check("JRAW-18", "raw hat centred leaves button bits untouched",
+              jd.bits12(0) == 0x010, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        jd.handle_raw_button(0, 0, true);
+        check("JRAW-19", "raw button gated out on a CursorKeys connector",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        jd.handle_raw_axis(0, 0, -32768);
+        check("JRAW-20", "raw axis gated out on a CursorKeys connector",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        jd.handle_raw_hat(0, SDL_HAT_UP);
+        check("JRAW-21", "raw hat gated out on a CursorKeys connector",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(5, 0, true);     // connector 5 does not exist
+        jd.handle_raw_hat(-1, SDL_HAT_UP);
+        check("JRAW-22", "out-of-range connector index is ignored on raw paths",
+              jd.bits12(0) == 0x000 && jd.bits12(1) == 0x000, "");
+    }
+    {
+        // Connector 1 lands on the RIGHT lane (JOY-WIRE-04 routing).
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.handle_raw_button(1, 0, true);
+        check("JRAW-23", "raw input on connector 1 drives the right lane",
+              joy.joy_right_bits() == 0x010 && joy.joy_left_bits() == 0x000,
+              DETAIL("L=%03X R=%03X", joy.joy_left_bits(), joy.joy_right_bits()));
+    }
+    // --- raw events through the SDL event entry point ----------------------
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(77, 0);
+        SDL_Event e{};
+        e.type = SDL_JOYBUTTONDOWN; e.jbutton.which = 77; e.jbutton.button = 0;
+        const bool consumed = jd.handle_sdl_event(e);
+        check("JRAW-24", "SDL_JOYBUTTONDOWN routes via the instance map",
+              consumed && jd.bits12(0) == 0x010,
+              DETAIL("consumed=%d bits=%03X", (int)consumed, jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(77, 0);
+        SDL_Event down{}; down.type = SDL_JOYBUTTONDOWN;
+        down.jbutton.which = 77; down.jbutton.button = 0;
+        jd.handle_sdl_event(down);
+        SDL_Event up{}; up.type = SDL_JOYBUTTONUP;
+        up.jbutton.which = 77; up.jbutton.button = 0;
+        jd.handle_sdl_event(up);
+        check("JRAW-25", "SDL_JOYBUTTONUP clears the bit",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(77, 1);
+        SDL_Event e{};
+        e.type = SDL_JOYAXISMOTION; e.jaxis.which = 77; e.jaxis.axis = 1;
+        e.jaxis.value = -32768;
+        const bool consumed = jd.handle_sdl_event(e);
+        check("JRAW-26", "SDL_JOYAXISMOTION routes to the mapped connector",
+              consumed && jd.bits12(1) == 0x008,
+              DETAIL("consumed=%d bits=%03X", (int)consumed, jd.bits12(1)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(77, 0);
+        SDL_Event e{};
+        e.type = SDL_JOYHATMOTION; e.jhat.which = 77; e.jhat.value = SDL_HAT_LEFT;
+        const bool consumed = jd.handle_sdl_event(e);
+        check("JRAW-27", "SDL_JOYHATMOTION routes to the mapped connector",
+              consumed && jd.bits12(0) == 0x002,
+              DETAIL("consumed=%d bits=%03X", (int)consumed, jd.bits12(0)));
+    }
+    {
+        // An unmapped instance id must be refused, not silently applied to
+        // connector 0 — that is what keeps a third pad off the Next.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        SDL_Event e{};
+        e.type = SDL_JOYBUTTONDOWN; e.jbutton.which = 999; e.jbutton.button = 0;
+        const bool consumed = jd.handle_sdl_event(e);
+        check("JRAW-28", "raw event from an unmapped device is refused",
+              !consumed && jd.bits12(0) == 0x000 && jd.bits12(1) == 0x000,
+              DETAIL("consumed=%d", (int)consumed));
+    }
 }
 
 int main() {

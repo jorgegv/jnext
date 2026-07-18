@@ -144,6 +144,43 @@ public:
     /// either stick can drive the digital direction.
     void handle_axis(int controller_idx, uint8_t sdl_axis, int16_t value);
 
+    // ── Raw SDL_Joystick path (Task 83) ─────────────────────────────────
+    //
+    // Devices SDL has no game-controller mapping for (older USB sticks, many
+    // generic pads, the Logitech WingMan Precision, …) never produce
+    // SDL_CONTROLLER* events at all — SDL_IsGameController() is false and only
+    // the raw SDL_JOY* event family is emitted. Before Task 83 those devices
+    // were dropped outright, which is issue #13: the pad is plugged in, and
+    // jnext neither uses nor mentions it.
+    //
+    // A raw joystick has no semantic button names — just indices — so the
+    // mapping is positional and deliberately conservative:
+    //
+    //   button 0 → bit 4  (B / Fire 1)      button 3 → bit 11 (MODE)
+    //   button 1 → bit 5  (C / Fire 2)      button 4 → bit 7  (START)
+    //   button 2 → bit 6  (A / MD3)         button 5+ → unmapped
+    //
+    //   axis 0   → digital L/R              axis 1   → digital U/D
+    //   axis 2+  → unmapped (throttles, twist, extra sticks)
+    //
+    //   hat 0    → U/D/R/L, the usual D-pad on sticks that have one
+    //
+    // Axis and hat both fold into the SAME direction bits as the controller
+    // path, so a stick with both a hat and an X/Y axis pair works either way.
+
+    /// SDL_JOYBUTTONDOWN/UP → set/clear the logical bit for `raw_button`
+    /// (a positional index, not an SDL_GameControllerButton). Buttons beyond
+    /// the mapped range are ignored.
+    void handle_raw_button(int connector_idx, uint8_t raw_button, bool pressed);
+
+    /// SDL_JOYAXISMOTION → digital threshold on raw axis index `raw_axis`
+    /// (0 = X, 1 = Y). Other axes are ignored.
+    void handle_raw_axis(int connector_idx, uint8_t raw_axis, int16_t value);
+
+    /// SDL_JOYHATMOTION → set the four direction bits from an SDL_HAT_* mask.
+    /// A centred hat (SDL_HAT_CENTERED) clears all four.
+    void handle_raw_hat(int connector_idx, uint8_t hat_value);
+
     // ── Production wiring ───────────────────────────────────────────────
 
     /// Convenience entry point for the SDL event loop: dispatches any of

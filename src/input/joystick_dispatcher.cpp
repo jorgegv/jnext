@@ -234,6 +234,60 @@ void JoystickDispatcher::handle_axis(int controller_idx, uint8_t sdl_axis, int16
     }
 }
 
+void JoystickDispatcher::handle_raw_button(int connector_idx, uint8_t raw_button, bool pressed)
+{
+    if (connector_idx < 0 || connector_idx >= NUM_CONNECTORS) {
+        return;
+    }
+    if (source_[static_cast<size_t>(connector_idx)] != JoySource::Sdl) {
+        return;
+    }
+    // Positional mapping — a raw SDL_Joystick reports button INDICES with no
+    // semantics attached, so there is nothing better available than "first
+    // button is Fire 1". Deliberately conservative: buttons past index 4 are
+    // dropped rather than guessed at.
+    uint16_t bit = 0;
+    switch (raw_button) {
+    case 0: bit = JBIT_B;     break;   // Fire 1
+    case 1: bit = JBIT_C;     break;   // Fire 2
+    case 2: bit = JBIT_A;     break;   // MD3 A
+    case 3: bit = JBIT_MODE;  break;   // MD6 MODE
+    case 4: bit = JBIT_START; break;   // START
+    default: return;
+    }
+    apply_bit(connector_idx, bit, pressed);
+}
+
+void JoystickDispatcher::handle_raw_axis(int connector_idx, uint8_t raw_axis, int16_t value)
+{
+    // Raw axis 0/1 are X/Y by universal convention (the SDL joystick API
+    // guarantees nothing, but every stick and pad follows it). Fold them onto
+    // the same code path as the controller left stick so the threshold,
+    // deadzone and sticky axis_state_ logic are shared rather than duplicated.
+    switch (raw_axis) {
+    case 0: handle_axis(connector_idx, SDL_CONTROLLER_AXIS_LEFTX, value); break;
+    case 1: handle_axis(connector_idx, SDL_CONTROLLER_AXIS_LEFTY, value); break;
+    default: break;   // throttle / twist / extra sticks — unmapped
+    }
+}
+
+void JoystickDispatcher::handle_raw_hat(int connector_idx, uint8_t hat_value)
+{
+    if (connector_idx < 0 || connector_idx >= NUM_CONNECTORS) {
+        return;
+    }
+    if (source_[static_cast<size_t>(connector_idx)] != JoySource::Sdl) {
+        return;
+    }
+    // SDL_HAT_* is a bitmask; the diagonals are just the two adjacent bits
+    // OR'd together, so testing each direction independently handles all
+    // nine positions including centred (mask 0 → every direction cleared).
+    apply_bit(connector_idx, JBIT_U, (hat_value & SDL_HAT_UP)    != 0);
+    apply_bit(connector_idx, JBIT_D, (hat_value & SDL_HAT_DOWN)  != 0);
+    apply_bit(connector_idx, JBIT_L, (hat_value & SDL_HAT_LEFT)  != 0);
+    apply_bit(connector_idx, JBIT_R, (hat_value & SDL_HAT_RIGHT) != 0);
+}
+
 void JoystickDispatcher::map_instance_to_slot(int32_t sdl_instance_id, int slot)
 {
     if (slot >= NUM_CONNECTORS) {
@@ -285,6 +339,29 @@ bool JoystickDispatcher::handle_sdl_event(const SDL_Event& e)
         const int slot = resolve_instance_to_slot(e.caxis.which);
         if (slot < 0) return false;
         handle_axis(slot, e.caxis.axis, e.caxis.value);
+        return true;
+    }
+    // Raw SDL_Joystick events (Task 83). Only devices GamepadHost opened as
+    // raw joysticks reach here: for a device that IS a game controller SDL
+    // emits BOTH families, and GamepadHost filters the JOY* copies out so a
+    // single physical press cannot be applied twice.
+    case SDL_JOYBUTTONDOWN:
+    case SDL_JOYBUTTONUP: {
+        const int slot = resolve_instance_to_slot(e.jbutton.which);
+        if (slot < 0) return false;
+        handle_raw_button(slot, e.jbutton.button, e.type == SDL_JOYBUTTONDOWN);
+        return true;
+    }
+    case SDL_JOYAXISMOTION: {
+        const int slot = resolve_instance_to_slot(e.jaxis.which);
+        if (slot < 0) return false;
+        handle_raw_axis(slot, e.jaxis.axis, e.jaxis.value);
+        return true;
+    }
+    case SDL_JOYHATMOTION: {
+        const int slot = resolve_instance_to_slot(e.jhat.which);
+        if (slot < 0) return false;
+        handle_raw_hat(slot, e.jhat.value);
         return true;
     }
     default:
