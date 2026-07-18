@@ -34,6 +34,10 @@ constexpr uint16_t JBIT_A     = 1u << 6;   // MD A
 constexpr uint16_t JBIT_START = 1u << 7;   // START
 constexpr uint16_t JBIT_MODE  = 1u << 11;  // MODE (MD6 latch)
 
+// The four digital direction bits — every direction source contributes to
+// exactly these, because the Next's DB9 ports carry nothing else.
+constexpr uint16_t DIR_MASK = JBIT_R | JBIT_L | JBIT_D | JBIT_U;
+
 // Map an SDL_GameControllerButton to the corresponding 12-bit logical bit.
 // Returns 0 for unmapped buttons (LEFTSHOULDER, RIGHTSHOULDER, GUIDE,
 // triggers-as-buttons, paddle buttons, …).
@@ -58,8 +62,9 @@ void JoystickDispatcher::reset()
 {
     for (int i = 0; i < NUM_CONNECTORS; ++i) {
         const size_t s = static_cast<size_t>(i);
-        bits_[s]  = 0;
-        held_[s]  = 0;
+        bits_[s]         = 0;
+        held_[s]         = 0;
+        dir_restored_[s] = 0;
         dir_hat_[s].fill(0);
         axis_state_[s] = AxisState{};
         emit_to_joystick(i);
@@ -78,19 +83,25 @@ void JoystickDispatcher::resync()
     for (int i = 0; i < NUM_CONNECTORS; ++i) {
         const size_t s = static_cast<size_t>(i);
         const uint16_t v = bits_[s];
-        // Split the restored vector back across the source masks. We cannot
-        // know WHICH source was holding a restored direction, so it is
-        // attributed to the axis latches: that is the only source whose
-        // events are absolute positions, so it self-corrects on the next
-        // report (a D-pad or hat, being edge-driven, would leave a restored
-        // direction stuck until its own next event). Buttons are unambiguous.
-        held_[s] = static_cast<uint16_t>(v & ~(JBIT_L | JBIT_R | JBIT_U | JBIT_D));
+        // Buttons are unambiguous — they belong to held_. Directions are NOT:
+        // we cannot know which source was holding one. Attributing them to any
+        // real source strands them, because that source then owns a bit it
+        // never set and only IT can clear: attribute to the axis latches and a
+        // D-pad/hat release no longer releases (the latch never updates
+        // without genuine axis motion); attribute to held_ and a hat release
+        // has the same problem. Either way a rewind performed with a direction
+        // held could leave it stuck ON for the rest of the session.
+        //
+        // So restored directions go in their own mask, owned by nobody, and
+        // the FIRST direction event from ANY source drops it — at that moment
+        // the live device state is authoritative and the restored guess is
+        // worthless. Plain button events deliberately do NOT drop it, so a
+        // fire press right after a rewind cannot cancel a restored direction
+        // (that is the SL-DISP-01 guarantee).
+        held_[s]         = static_cast<uint16_t>(v & ~DIR_MASK);
+        dir_restored_[s] = static_cast<uint16_t>(v & DIR_MASK);
         dir_hat_[s].fill(0);
-        auto& st = axis_state_[s];
-        st.left_active  = (v & JBIT_L) != 0;
-        st.right_active = (v & JBIT_R) != 0;
-        st.up_active    = (v & JBIT_U) != 0;
-        st.down_active  = (v & JBIT_D) != 0;
+        axis_state_[s] = AxisState{};
     }
     // Deliberately no emit_to_joystick(): the Joystick is already correct;
     // we are syncing FROM it, not TO it.
@@ -119,8 +130,9 @@ void JoystickDispatcher::set_source(int slot, JoySource src)
     // Releasing the connector: a direction/fire held under the old source
     // must not linger. Clear every contribution and push the zero.
     const size_t s = static_cast<size_t>(slot);
-    bits_[s]  = 0;
-    held_[s]  = 0;
+    bits_[s]         = 0;
+    held_[s]         = 0;
+    dir_restored_[s] = 0;
     dir_hat_[s].fill(0);
     axis_state_[s] = AxisState{};
     emit_to_joystick(slot);
@@ -142,13 +154,20 @@ void JoystickDispatcher::recompute(int idx)
     const size_t i = static_cast<size_t>(idx);
     // Union of every contribution. Directions OR together so any source can
     // steer and releasing one never cancels another that is still held.
-    uint16_t v = static_cast<uint16_t>(held_[i] | dir_from_axes(idx));
+    uint16_t v = static_cast<uint16_t>(held_[i] | dir_restored_[i] | dir_from_axes(idx));
     for (uint16_t hat : dir_hat_[i]) v = static_cast<uint16_t>(v | hat);
 
     if (v != bits_[i]) {
         bits_[i] = v;
         emit_to_joystick(idx);
     }
+}
+
+void JoystickDispatcher::drop_restored_directions(int idx)
+{
+    // Called by every DIRECTION source before it updates its own mask: once a
+    // real device reports a direction, the post-rewind guess is superseded.
+    dir_restored_[static_cast<size_t>(idx)] = 0;
 }
 
 void JoystickDispatcher::apply_bit(int idx, uint16_t jbit, bool pressed)
@@ -173,6 +192,7 @@ void JoystickDispatcher::set_cursor_bit(int slot, CursorBit b, bool pressed)
         case CursorBit::Right: jbit = JBIT_R; break;
         case CursorBit::Fire:  jbit = JBIT_B; break;   // Fire 1 → port 0x1F bit 4
     }
+    if (jbit & DIR_MASK) drop_restored_directions(slot);
     apply_bit(slot, jbit, pressed);
 }
 
@@ -189,6 +209,7 @@ void JoystickDispatcher::handle_button(int controller_idx, uint8_t sdl_button, b
         return;
     }
     const uint16_t bit = sdl_button_to_jbit(sdl_button);
+    if (bit & DIR_MASK) drop_restored_directions(controller_idx);
     if (bit == 0) {
         // Unmapped buttons (shoulders, guide, triggers-as-button, …)
         // are silently dropped. The Kempston/MD6 protocol exposes only
@@ -243,6 +264,7 @@ void JoystickDispatcher::handle_axis(int controller_idx, uint8_t sdl_axis, int16
         st.down_active  = (value > +AXIS_THRESHOLD);
     }
 
+    drop_restored_directions(controller_idx);
     // The latches ARE this source's mask (dir_from_axes reads them), so the
     // union recompute below both merges with the other sources and decides
     // whether anything actually changed.
@@ -307,6 +329,7 @@ void JoystickDispatcher::handle_raw_hat(int connector_idx, uint8_t hat_index, ui
     if (hat_value & SDL_HAT_LEFT)  m |= JBIT_L;
     if (hat_value & SDL_HAT_RIGHT) m |= JBIT_R;
 
+    drop_restored_directions(connector_idx);
     dir_hat_[static_cast<size_t>(connector_idx)][hat_index] = m;
     recompute(connector_idx);
 }

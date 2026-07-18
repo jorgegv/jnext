@@ -251,6 +251,11 @@ private:
     //                reports on a threshold CROSSING and so cannot restore a
     //                direction another source wrongly cleared.
     std::array<uint16_t, NUM_CONNECTORS> held_{};
+
+    // Directions restored by resync() after a rewind / save-state load, whose
+    // originating source is unknowable. Owned by no source; dropped by the
+    // first direction event from ANY source (see resync()).
+    std::array<uint16_t, NUM_CONNECTORS> dir_restored_{};
     std::array<std::array<uint16_t, MAX_HATS>, NUM_CONNECTORS> dir_hat_{};
 
     // Task 79 — per-connector host input source. Default Sdl for both keeps
@@ -268,6 +273,10 @@ private:
 
     // Direction bits derived from the analogue axis latches below.
     uint16_t dir_from_axes(int idx) const;
+
+    // Discard the post-rewind restored directions for `idx`: a live source
+    // has spoken and is now authoritative.
+    void drop_restored_directions(int idx);
 
     // Sticky per-connector axis-state cache. We need it because SDL emits
     // axis events as absolute positions (not deltas), and a single axis

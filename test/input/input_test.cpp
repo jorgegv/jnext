@@ -3874,6 +3874,82 @@ static void test_joy_source() {
         check("JMRG-10", "cursor direction release leaves fire held",
               jd.bits12(0) == 0x010, DETAIL("bits=%03X", jd.bits12(0)));
     }
+
+    // --- Task 83: restored directions after resync() (rewind / state load) ---
+    //
+    // resync() adopts the just-restored Joystick vector as this dispatcher's
+    // shadow. It cannot know WHICH host source was holding a restored
+    // direction, and attributing the guess to a real source strands it: that
+    // source then owns a bit it never set and only IT can clear, so releasing
+    // the direction that is actually held does nothing and the direction is
+    // stuck ON for the rest of the session.
+    //
+    // Found by independent review of this branch: the first implementation
+    // attributed restored directions to the analogue axis latches, which
+    // breaks exactly the D-pad / hat / cursor-key cases below (a regression
+    // versus main). Restored directions now live in their own mask that the
+    // first direction event from ANY source drops.
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        // Restore with LEFT held, as a rewind mid-press would.
+        joy.set_joy_left(0x002);
+        jd.resync();
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, false);   // release
+        check("JRST-01", "D-pad release after resync clears a restored direction",
+              jd.bits12(0) == 0x000 && joy.joy_left_bits() == 0x000,
+              DETAIL("bits=%03X joy=%03X", jd.bits12(0), joy.joy_left_bits()));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x008);                                        // UP held
+        jd.resync();
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);                      // release
+        check("JRST-02", "hat centring after resync clears a restored direction",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        joy.set_joy_left(0x001);                                        // RIGHT held
+        jd.resync();
+        jd.set_cursor_bit(0, JoystickDispatcher::CursorBit::Right, false);
+        check("JRST-03", "cursor-key release after resync clears a restored direction",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x002);                                        // LEFT held
+        jd.resync();
+        jd.handle_raw_axis(0, 0, 0);                                    // stick centred
+        check("JRST-04", "axis returning to centre after resync clears it too",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // The SL-DISP-01 guarantee: a BUTTON event right after a rewind must
+        // NOT cancel a restored direction — only direction sources supersede it.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x002);                                        // LEFT held
+        jd.resync();
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);             // fire
+        check("JRST-05", "fire press after resync preserves the restored direction",
+              jd.bits12(0) == 0x012, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // A restored direction must not survive a live direction that
+        // contradicts it: pressing RIGHT after a restored LEFT gives RIGHT only.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x002);                                        // LEFT held
+        jd.resync();
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+        check("JRST-06", "a live direction supersedes the restored guess entirely",
+              jd.bits12(0) == 0x001, DETAIL("bits=%03X", jd.bits12(0)));
+    }
 }
 
 int main() {
