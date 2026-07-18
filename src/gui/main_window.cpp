@@ -699,8 +699,16 @@ void MainWindow::create_toolbar() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::create_statusbar() {
-    fps_label_ = new QLabel(tr("FPS: --"));
-    fps_label_->setMinimumWidth(100);
+    fps_label_ = new QLabel(tr("FPS: -- emu / -- shown"));
+    fps_label_->setMinimumWidth(190);
+    // Task 63 (issue #9) — the two numbers mean different things and the
+    // status bar used to show only the first, labelled ambiguously "FPS".
+    fps_label_->setToolTip(tr(
+        "emu:   emulated frames per second (how fast the machine is simulated)\n"
+        "shown: frames per second that actually reached the screen\n\n"
+        "'shown' below 'emu' means frames are not being presented — deliberately "
+        "(audio catch-up, speed > 1x) or otherwise. Run with "
+        "--log-level platform=info for the full cadence breakdown."));
 
     speed_label_ = new QLabel(tr("3.5 MHz"));
     speed_label_->setMinimumWidth(100);
@@ -729,9 +737,15 @@ void MainWindow::create_statusbar() {
 // Status update
 // ---------------------------------------------------------------------------
 
-void MainWindow::update_status(double fps, int cpu_speed_idx, double emu_speed) {
+void MainWindow::update_status(double fps, double presented_fps,
+                               int cpu_speed_idx, double emu_speed) {
+    // Task 63 (issue #9) — show BOTH figures, each labelled. Reporting only
+    // the emulated rate under the bare name "FPS" is what made every user
+    // report of judder ("but it says 59 fps") impossible to interpret.
     if (fps_label_)
-        fps_label_->setText(QString("FPS: %1").arg(fps, 0, 'f', 1));
+        fps_label_->setText(QString("FPS: %1 emu / %2 shown")
+                                .arg(fps, 0, 'f', 1)
+                                .arg(presented_fps, 0, 'f', 1));
 
     const char* spd = speed_name(cpu_speed_idx);
     if (speed_label_)

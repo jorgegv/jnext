@@ -110,6 +110,7 @@ BEGIN {
     M["audio_nextreg_test"]            = "Audio (NextREG)"
     M["audio_port_dispatch_test"]      = "Audio (port dispatch)"
     M["audio_pacing_test"]             = "Audio (pacing)"
+    M["present_cadence_test"]          = "Present cadence"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
     M["dma_test"]                      = "DMA"

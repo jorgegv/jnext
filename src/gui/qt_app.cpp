@@ -196,6 +196,12 @@ bool QtApp::init(int argc, char* argv[]) {
     // Set up a 1-second timer for status bar updates (FPS counter).
     status_timer_ = new QTimer(main_window_);
     QObject::connect(status_timer_, &QTimer::timeout, [this]() { on_status_tick(); });
+    // Task 63 — seed the cadence window's start NOW, not on the first tick.
+    // Without this the first report covers "since epoch 0" and printed the
+    // nonsense `over 0ms`; with it the first window is a genuine measurement
+    // from timer start to first tick.
+    last_status_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     status_timer_->start(1000);
 
     // Apply RZX play/record if requested via CLI.
@@ -437,6 +443,12 @@ void QtApp::on_frame_tick() {
             ++frame_count_;
             ++frames_rendered;
         }
+        // Task 63 (issue #9) — record how often the audio pacer ran 0 or 2+
+        // frames in one tick. The resulting frame losses are EXPECTED, and the
+        // cadence report must attribute them as such rather than lumping them
+        // in with presents the window system actually swallowed.
+        if (frames >= 2)      ++audio_doubles_;
+        else if (frames == 0) ++audio_skips_;
 
         // Task 19 fastload follow-up — when the phantom typist is
         // armed or a fast-load tape is delivering data, sprint
@@ -495,6 +507,17 @@ void QtApp::on_frame_tick() {
             emulator_.get_framebuffer(),
             emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height());
     }
+
+    // Task 63 (issue #9) — accumulate this tick into the cadence window.
+    // `frames_rendered` is every run_frame() of this tick (pacing burst +
+    // fastload burst); only the LAST of them can possibly be presented,
+    // because they all composite into the same framebuffer and update_frame()
+    // is called once, after the loops. See src/platform/present_cadence.h.
+    cadence_.emulated += static_cast<uint64_t>(frames_rendered);
+    cadence_.superseded +=
+        present_cadence::superseded_in_tick(frames_rendered, render_this_tick);
+    cadence_.unrendered +=
+        present_cadence::unrendered_in_tick(frames_rendered, render_this_tick);
 
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the
@@ -569,8 +592,42 @@ void QtApp::on_status_tick() {
     double fps = static_cast<double>(frame_count_);
     frame_count_ = 0;
 
+    // Task 63 (issue #9) — drain the present-cadence window.
+    //
+    // The two figures answer different questions and MUST NOT be conflated:
+    // `emulated` says how fast the machine is being simulated, `presented`
+    // says how much of that the user actually saw. Issue #9 is entirely about
+    // the second, and the old instruments only ever reported the first.
+    if (main_window_->emulator_widget()) {
+        const uint64_t pc = main_window_->emulator_widget()->present_count();
+        cadence_.presented = pc - last_present_count_;
+        last_present_count_ = pc;
+    }
+    const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const present_cadence::Report cad =
+        present_cadence::summarize(cadence_, now_ms - last_status_ms_);
+    last_status_ms_ = now_ms;
+    cadence_ = {};
+
+    // A window with no duration is not a measurement — do not print one.
+    // (last_status_ms_ is seeded when the timer starts, so this only guards
+    // a clock anomaly, not the ordinary first tick.)
+    if (cad.reportable) {
+        Log::platform()->info(
+            "cadence: emulated={} presented={} dropped={} "
+            "(superseded={} unrendered={} lost={}) over {}ms | "
+            "audio-catchup: {} doubles, {} skips",
+            cad.emulated, cad.presented, cad.dropped,
+            cad.superseded, cad.unrendered, cad.lost, cad.elapsed_ms,
+            audio_doubles_, audio_skips_);
+    }
+    audio_doubles_ = 0;
+    audio_skips_   = 0;
+
     // Read current CPU speed from NextREG 0x07 (bits 1:0).
     int speed_idx = emulator_.nextreg().cached(0x07) & 0x03;
 
-    main_window_->update_status(fps, speed_idx, speed_multiplier_);
+    main_window_->update_status(fps, static_cast<double>(cad.presented),
+                                speed_idx, speed_multiplier_);
 }

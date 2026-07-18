@@ -89,7 +89,11 @@ public:
     void set_load_file_callback(LoadFileCallback cb) { load_file_callback_ = std::move(cb); }
 
     /// Update status bar information.  Called once per second from the frame timer.
-    void update_status(double fps, int cpu_speed_idx, double emu_speed = 1.0);
+    /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
+    /// calls/s); `presented_fps` is the rate at which frames actually reached
+    /// the screen. Both are shown — see Task 63 / issue #9.
+    void update_status(double fps, double presented_fps, int cpu_speed_idx,
+                       double emu_speed = 1.0);
 
     /// Task 66 — apply the subset of saved GUI preferences that have no CLI
     /// competitor and are not already baked into the EmulatorConfig used for

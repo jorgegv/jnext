@@ -7,6 +7,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "input/gamepad_host.h"
+#include "platform/present_cadence.h"
 #include "platform/screenshot.h"
 #include "video/renderer.h"
 
@@ -144,8 +145,17 @@ private:
     std::string    rzx_play_file_;
     std::string    rzx_record_file_;
 
-    // FPS tracking
+    // FPS tracking — EMULATED frames (run_frame() calls) per status window.
     int frame_count_ = 0;
+
+    // Task 63 (issue #9) present-cadence diagnostics. See
+    // src/platform/present_cadence.h for what each figure means and why the
+    // previous instrument (dropped == audio double-step count) was useless.
+    present_cadence::Counters cadence_;
+    uint64_t last_present_count_ = 0;  ///< EmulatorWidget::present_count() at last drain
+    int64_t  last_status_ms_ = 0;      ///< steady_clock ms at last drain (real window)
+    int      audio_doubles_ = 0;       ///< ticks that ran 2+ frames (audio catch-up)
+    int      audio_skips_ = 0;         ///< ticks that ran 0 frames (audio ahead)
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;

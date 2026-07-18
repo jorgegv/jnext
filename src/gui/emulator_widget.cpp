@@ -38,6 +38,13 @@ void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
     // Pre-scale in software to the widget's physical pixel dimensions.
     prescale();
 
+    // Task 63 (issue #9) — a NEW frame is now waiting to be shown. paintEvent()
+    // clears this and counts one present. Marking it here (not in paintEvent
+    // unconditionally) is what makes `present_count_` mean "distinct emulated
+    // frames that reached the screen": an expose/resize repaint that re-blits
+    // an image already shown finds the flag clear and is correctly not counted.
+    frame_pending_ = true;
+
     update();  // schedule repaint
 }
 
@@ -132,6 +139,13 @@ void EmulatorWidget::prescale() {
 
 void EmulatorWidget::paintEvent(QPaintEvent* /*event*/) {
     if (scaled_.isNull()) return;
+
+    // Task 63 — count this as a PRESENT only if it is serving a frame not yet
+    // shown. See frame_pending_ in update_frame().
+    if (frame_pending_) {
+        frame_pending_ = false;
+        ++present_count_;
+    }
 
     QPainter painter(this);
 

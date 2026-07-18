@@ -390,6 +390,12 @@ add_executable(audio_pacing_test audio/audio_pacing_test.cpp)
 target_include_directories(audio_pacing_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_pacing_tests COMMAND audio_pacing_test)
 
+# Present-cadence accounting test (issue #9 / Task 63). Header-only accounting
+# under test (src/platform/present_cadence.h) — no Qt, no SDL, no emulator core.
+add_executable(present_cadence_test platform/present_cadence_test.cpp)
+target_include_directories(present_cadence_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME present_cadence_tests COMMAND present_cadence_test)
+
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
 # NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds

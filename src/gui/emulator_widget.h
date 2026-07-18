@@ -31,6 +31,14 @@ public:
     void set_crt_filter(bool enabled);
     bool crt_filter() const { return crt_filter_; }
 
+    /// Task 63 (issue #9) — total frames actually PRESENTED: paintEvents that
+    /// served a framebuffer not previously shown. Deliberately NOT a raw
+    /// paintEvent count — Qt also paints on expose/resize/move, and counting
+    /// those as presented frames is what drove the old `dropped` figure
+    /// negative. QtApp differences this each status tick; the accounting and
+    /// its rationale live in src/platform/present_cadence.h.
+    uint64_t present_count() const { return present_count_; }
+
     /// Set fullscreen mode.  In fullscreen the widget fills the screen but
     /// the framebuffer is rendered at the largest integer scale that fits,
     /// centered with black bars (letterboxing).
@@ -75,4 +83,6 @@ private:
     bool fullscreen_mode_ = false;
     bool dpr_valid_ = false;  ///< True once DPR has been verified on-screen.
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.
+    bool frame_pending_ = false;   ///< Task 63 — a new frame awaits its first paint.
+    uint64_t present_count_ = 0;   ///< Task 63 — frames actually presented.
 };
