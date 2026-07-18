@@ -144,6 +144,46 @@ public:
     /// either stick can drive the digital direction.
     void handle_axis(int controller_idx, uint8_t sdl_axis, int16_t value);
 
+    // ── Raw SDL_Joystick path (Task 83) ─────────────────────────────────
+    //
+    // Devices SDL has no game-controller mapping for (older USB sticks, many
+    // generic pads, the Logitech WingMan Precision, …) never produce
+    // SDL_CONTROLLER* events at all — SDL_IsGameController() is false and only
+    // the raw SDL_JOY* event family is emitted. Before Task 83 those devices
+    // were dropped outright, which is issue #13: the pad is plugged in, and
+    // jnext neither uses nor mentions it.
+    //
+    // A raw joystick has no semantic button names — just indices — so the
+    // mapping is positional and deliberately conservative:
+    //
+    //   button 0 → bit 4  (B / Fire 1)      button 3 → bit 11 (MODE)
+    //   button 1 → bit 5  (C / Fire 2)      button 4 → bit 7  (START)
+    //   button 2 → bit 6  (A / MD3)         button 5+ → unmapped
+    //
+    //   axis 0   → digital L/R              axis 1   → digital U/D
+    //   axis 2+  → unmapped (throttles, twist, extra sticks)
+    //
+    //   hat 0    → U/D/R/L, the usual D-pad on sticks that have one
+    //
+    // Axis and hat both fold into the SAME direction bits as the controller
+    // path, so a stick with both a hat and an X/Y axis pair works either way.
+
+    /// SDL_JOYBUTTONDOWN/UP → set/clear the logical bit for `raw_button`
+    /// (a positional index, not an SDL_GameControllerButton). Buttons beyond
+    /// the mapped range are ignored.
+    void handle_raw_button(int connector_idx, uint8_t raw_button, bool pressed);
+
+    /// SDL_JOYAXISMOTION → digital threshold on raw axis index `raw_axis`
+    /// (0 = X, 1 = Y). Other axes are ignored.
+    void handle_raw_axis(int connector_idx, uint8_t raw_axis, int16_t value);
+
+    /// SDL_JOYHATMOTION → set the four direction bits from an SDL_HAT_* mask.
+    /// A centred hat (SDL_HAT_CENTERED) clears that hat's contribution only.
+    /// `hat_index` is SDL's per-device hat number: a device with several hats
+    /// keeps one mask each and they OR together, so centring one does not
+    /// cancel another still held. Indices >= MAX_HATS are ignored.
+    void handle_raw_hat(int connector_idx, uint8_t hat_index, uint8_t hat_value);
+
     // ── Production wiring ───────────────────────────────────────────────
 
     /// Convenience entry point for the SDL event loop: dispatches any of
@@ -177,9 +217,46 @@ public:
         return bits_[static_cast<size_t>(idx)];
     }
 
+    /// Maximum hats tracked per connector. Sticks with more than this are
+    /// rare to nonexistent; extra hats are ignored rather than aliased onto
+    /// hat 0 (which would make them fight).
+    static constexpr int MAX_HATS = 4;
+
 private:
     Joystick& joy_;
+
+    // Last vector emitted to the Joystick — the union of every contribution
+    // below. Kept so we only emit on an actual change.
     std::array<uint16_t, NUM_CONNECTORS> bits_{};
+
+    // ── Per-source contributions (Task 83) ──────────────────────────────
+    //
+    // A pad can steer from several places at once: analogue stick, D-pad,
+    // and one or more hats. They all collapse onto the SAME four direction
+    // bits, because the Next's DB9 ports are digital U/D/L/R and nothing
+    // else. The old code wrote every source into one shared vector, which
+    // loses track of WHO set a bit: releasing any one source cleared the
+    // direction even while another was still deflected — hold the stick left,
+    // tap and release the D-pad, and left died until the stick re-crossed its
+    // threshold. Two hats fought the same way.
+    //
+    // The fix is to keep each source separately and emit their UNION:
+    //
+    //   held_        edge-driven bits — buttons, D-pad, cursor keys. One mask
+    //                is enough for all of them: they set and clear their own
+    //                bits, so they cannot lose each other's state.
+    //   dir_hat_     one mask PER HAT, so centring hat 1 cannot cancel hat 0.
+    //   axis_state_  the analogue latches (read via dir_from_axes) — these
+    //                are the ones that needed rescuing, since an axis only
+    //                reports on a threshold CROSSING and so cannot restore a
+    //                direction another source wrongly cleared.
+    std::array<uint16_t, NUM_CONNECTORS> held_{};
+
+    // Directions restored by resync() after a rewind / save-state load, whose
+    // originating source is unknowable. Owned by no source; dropped by the
+    // first direction event from ANY source (see resync()).
+    std::array<uint16_t, NUM_CONNECTORS> dir_restored_{};
+    std::array<std::array<uint16_t, MAX_HATS>, NUM_CONNECTORS> dir_hat_{};
 
     // Task 79 — per-connector host input source. Default Sdl for both keeps
     // the historical behaviour (pads auto-map to slots). Not serialised /
@@ -187,9 +264,20 @@ private:
     // Emulator's set_joystick_source() coordinator.
     std::array<JoySource, NUM_CONNECTORS> source_{ {JoySource::Sdl, JoySource::Sdl} };
 
-    // Shared helper: OR/AND `jbit` into bits_[idx] and emit on change.
-    // Used by both the SDL button path and the cursor-key path.
+    // Set/clear `jbit` in the edge-driven mask, then recompute + emit.
     void apply_bit(int idx, uint16_t jbit, bool pressed);
+
+    // Recompute bits_[idx] as the union of every contribution and emit if it
+    // changed. The single place the merge policy lives.
+    void recompute(int idx);
+
+    // Direction bits derived from the analogue axis latches below.
+    uint16_t dir_from_axes(int idx) const;
+
+    // Discard the post-rewind restored directions for `idx` that `reported`
+    // covers — a live source is authoritative only for the bits its event
+    // actually speaks for, never for the whole mask.
+    void drop_restored_directions(int idx, uint16_t reported);
 
     // Sticky per-connector axis-state cache. We need it because SDL emits
     // axis events as absolute positions (not deltas), and a single axis

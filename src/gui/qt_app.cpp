@@ -94,6 +94,14 @@ void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
     emulator_.set_joystick_source(1, cfg.joy_source[1]);
     emulator_.refresh_joystick_sources();
     if (main_window_) main_window_->sync_joy_source_menu();
+
+    // Task 83 — adopt pads that are ALREADY plugged in. SDL only emits
+    // DEVICEADDED for arrivals after the subsystem is up, so without this a
+    // host built while a pad is connected never sees it. That is why the pad
+    // died on every cold boot (which rebuilds this host): issue #13 point 3.
+    // Runs last, so the per-connector sources above are already applied and a
+    // CursorKeys connector is correctly skipped.
+    gamepad_host_->enumerate_existing_devices();
 }
 
 bool QtApp::init(int argc, char* argv[]) {

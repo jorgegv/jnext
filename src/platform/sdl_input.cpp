@@ -24,6 +24,20 @@ bool SdlInput::poll() {
         case SDL_CONTROLLERAXISMOTION:
         case SDL_CONTROLLERDEVICEADDED:
         case SDL_CONTROLLERDEVICEREMOVED:
+        // Task 83 — the raw SDL_JOY* family must be forwarded too. Devices
+        // with no SDL game-controller mapping emit ONLY these, so without
+        // them a raw pad is opened and logged but never produces input; and
+        // since GamepadHost now opens devices on JOYDEVICEADDED (one path for
+        // mapped and unmapped alike), dropping them here would also break
+        // hot-plug for ordinary mapped controllers. The Qt frontend pumps
+        // SDL_PollEvent itself and gets all of this for free — this switch is
+        // the SDL-only frontend's equivalent and must stay in step with it.
+        case SDL_JOYDEVICEADDED:
+        case SDL_JOYDEVICEREMOVED:
+        case SDL_JOYBUTTONDOWN:
+        case SDL_JOYBUTTONUP:
+        case SDL_JOYAXISMOTION:
+        case SDL_JOYHATMOTION:
             // Host adapter for joystick / gamepad — forward to
             // JoystickDispatcher via the on_controller callback (set by
             // SdlApp). Closes G42 (JOY-WIRE-02/03/04).

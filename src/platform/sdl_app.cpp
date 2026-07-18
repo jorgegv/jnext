@@ -66,6 +66,11 @@ bool SdlApp::init(int argc, char* argv[]) {
     emulator_.set_joystick_source(1, config_.joy_source[1]);
     emulator_.refresh_joystick_sources();
 
+    // Task 83 — adopt pads already plugged in (SDL only emits DEVICEADDED for
+    // later arrivals). Runs after the sources are applied so a CursorKeys
+    // connector is skipped.
+    gamepad_host_->enumerate_existing_devices();
+
     input_.on_controller = [this](const SDL_Event& e) {
         if (gamepad_host_) gamepad_host_->handle_event(e);
     };
@@ -165,6 +170,11 @@ void SdlApp::cold_boot(const std::string& load_file) {
     emulator_.set_joystick_source(0, cfg.joy_source[0]);
     emulator_.set_joystick_source(1, cfg.joy_source[1]);
     emulator_.refresh_joystick_sources();
+
+    // Task 83 — adopt pads already plugged in (SDL only emits DEVICEADDED for
+    // later arrivals). Runs after the sources are applied so a CursorKeys
+    // connector is skipped.
+    gamepad_host_->enumerate_existing_devices();
 
     // Schedule the load exactly as the CLI startup does (same per-format delay).
     load_countdown_ = -1;
