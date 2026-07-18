@@ -150,7 +150,8 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         DisasmEntry entry;
         entry.line = disasm_one(cur, read_fn);
         entry.is_current_pc = (cur == current_pc);
-        entry.has_breakpoint = bps.has_pc(cur);
+        const uint8_t page = emulator_->mmu().get_effective_page(cur >> 13);
+        entry.has_breakpoint = bps.has_pc(page, cur);
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -360,23 +361,29 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     }
 }
 
+void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
+{
+    const uint8_t page = emulator_->mmu().get_effective_page(addr >> 13);
+    auto& breakpoints = emulator_->debug_state().breakpoints();
+    if (breakpoints.has_pc_exact(page, addr)) {
+        breakpoints.remove_pc(page, addr);
+    } else if (breakpoints.has_pc(addr)) {
+        breakpoints.remove_pc(addr);
+    } else {
+        breakpoints.add_pc(page, addr);
+    }
+    entries_[line].has_breakpoint = breakpoints.has_pc(page, addr);
+    emit breakpoint_toggled(addr);
+    update();
+}
+
 void DisasmPanel::mousePressEvent(QMouseEvent* event)
 {
     int line = line_at_y(static_cast<int>(event->position().y()));
     if (line < 0) return;
 
     if (static_cast<int>(event->position().x()) < GUTTER_WIDTH) {
-        // Toggle breakpoint
-        uint16_t addr = entries_[line].line.addr;
-        auto& bps = emulator_->debug_state().breakpoints();
-        if (bps.has_pc(addr)) {
-            bps.remove_pc(addr);
-        } else {
-            bps.add_pc(addr);
-        }
-        entries_[line].has_breakpoint = bps.has_pc(addr);
-        emit breakpoint_toggled(addr);
-        update();
+        toggle_breakpoint(entries_[line].line.addr, line);
     } else {
         // Select line
         selected_line_ = line;
@@ -535,15 +542,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
 
     auto* toggle_bp = menu.addAction("Toggle Breakpoint");
     connect(toggle_bp, &QAction::triggered, this, [this, addr, line]() {
-        auto& bps = emulator_->debug_state().breakpoints();
-        if (bps.has_pc(addr)) {
-            bps.remove_pc(addr);
-        } else {
-            bps.add_pc(addr);
-        }
-        entries_[line].has_breakpoint = bps.has_pc(addr);
-        emit breakpoint_toggled(addr);
-        update();
+        toggle_breakpoint(addr, line);
     });
 
     auto* run_to = menu.addAction("Run to Here");

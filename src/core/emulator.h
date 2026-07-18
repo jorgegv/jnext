@@ -398,6 +398,7 @@ public:
 
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
+    const CallStack& call_stack() const { return call_stack_; }
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }
     const Profiler& profiler() const { return profiler_; }

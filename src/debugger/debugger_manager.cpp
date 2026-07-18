@@ -4,14 +4,18 @@
 #include "debugger/disasm_panel.h"
 #include "debugger/watch_panel.h"
 #include "debugger/breakpoint_panel.h"
+#include "core/log.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/source_panel.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "video/renderer.h"
 #include "core/clock.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
+#include "debug/sld_loader.h"
+#include "debug/symbol_loaders.h"
 
 #include <QMainWindow>
 #include <QMenuBar>
@@ -202,12 +206,21 @@ void DebuggerManager::ensure_window() {
     // Wire call stack panel with symbol table.
     if (auto* cs = debugger_window_->callstack_panel()) {
         cs->set_symbol_table(&symbol_table_);
+        cs->set_source_map(&source_map_);
+    }
+
+    if (auto* wp = debugger_window_->watch_panel()) {
+        wp->set_symbol_table(&symbol_table_);
     }
 
     // Wire breakpoint panel with symbol table and disasm panel.
     if (auto* bp = debugger_window_->breakpoint_panel()) {
         bp->set_symbol_table(&symbol_table_);
+        bp->set_source_map(&source_map_);
         bp->set_disasm_panel(debugger_window_->disasm_panel());
+    }
+    if (auto* source = debugger_window_->source_panel()) {
+        source->set_source_map(&source_map_);
     }
 }
 
@@ -557,6 +570,160 @@ void DebuggerManager::on_step_back() {
     update_actions();
 }
 
+std::optional<SourceLocation> DebuggerManager::current_source_location() const
+{
+    if (source_map_.empty()) return std::nullopt;
+    const uint16_t pc = emulator_->cpu().get_registers().PC;
+    const uint8_t page = emulator_->mmu().get_effective_page(pc >> 13);
+    return source_map_.lookup(page, pc);
+}
+
+void DebuggerManager::finish_source_step()
+{
+    emulator_->debug_state().pause();
+    was_paused_ = true;
+    if (debugger_window_) {
+        if (debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(true);
+        if (debugger_window_->cpu_panel())
+            debugger_window_->cpu_panel()->set_paused(true);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(true);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(true);
+        debugger_window_->activate_follow_pc();
+        debugger_window_->refresh_panels();
+    }
+    emit paused();
+    update_actions();
+}
+
+void DebuggerManager::run_source_step(SourceStepKind kind)
+{
+    if (!enabled_ || source_map_.empty()) return;
+    if (!confirm_resume_if_corrupt()) return;
+    if (!emulator_->debug_state().paused()) emulator_->debug_state().pause();
+    emulator_->debug_state().set_data_bp_hit(false);
+
+    const auto initial = current_source_location();
+    if (!initial) {
+        // Start with one instruction when no source record covers the PC.
+        on_step_into();
+        return;
+    }
+    const size_t initial_depth = emulator_->call_stack().frames().size();
+    if (kind == SourceStepKind::Out && initial_depth == 0) {
+        on_step_into();
+        return;
+    }
+
+    static constexpr int MAX_SOURCE_STEP_INSTRUCTIONS = 1000000;
+    for (int count = 0; count < MAX_SOURCE_STEP_INSTRUCTIONS; ++count) {
+        emulator_->execute_single_instruction();
+        const auto current = current_source_location();
+        const size_t depth = emulator_->call_stack().frames().size();
+        // Skip unmapped compiler/runtime instructions between statements.
+        const bool changed = current &&
+                             (current->file != initial->file ||
+                              current->line != initial->line ||
+                              current->column != initial->column);
+        bool stop = false;
+        if (kind == SourceStepKind::Into) {
+            stop = changed;
+        } else if (kind == SourceStepKind::Over) {
+            stop = changed && depth <= initial_depth;
+        } else {
+            stop = current && depth < initial_depth;
+        }
+        const uint16_t pc = emulator_->cpu().get_registers().PC;
+        const uint8_t page = emulator_->mmu().get_effective_page(pc >> 13);
+        const bool data_breakpoint = emulator_->debug_state().data_bp_hit();
+        if (stop || data_breakpoint ||
+            emulator_->debug_state().breakpoints().has_pc(page, pc)) {
+            if (data_breakpoint)
+                emulator_->debug_state().set_data_bp_hit(false);
+            finish_source_step();
+            return;
+        }
+    }
+
+    if (main_window_->statusBar()) {
+        main_window_->statusBar()->showMessage(
+            QObject::tr("Source step stopped after safety limit; use disassembly"), 5000);
+    }
+    finish_source_step();
+}
+
+void DebuggerManager::on_source_step_into()
+{
+    run_source_step(SourceStepKind::Into);
+}
+
+void DebuggerManager::on_source_step_over()
+{
+    run_source_step(SourceStepKind::Over);
+}
+
+void DebuggerManager::on_source_step_out()
+{
+    run_source_step(SourceStepKind::Out);
+}
+
+void DebuggerManager::on_source_step_back()
+{
+    if (!enabled_ || source_map_.empty() || !emulator_->rewind_buffer() ||
+        emulator_->rewind_buffer()->empty() || !emulator_->trace_log().enabled()) {
+        return;
+    }
+    const auto current = current_source_location();
+    const auto& trace = emulator_->trace_log();
+    for (size_t i = trace.size(); i > 0; --i) {
+        const auto& entry = trace.at(i - 1);
+        const auto candidate = source_map_.lookup(entry.page, entry.pc);
+        if (!candidate) continue;
+        if (current && candidate->file == current->file &&
+            candidate->line == current->line &&
+            candidate->column == current->column) {
+            continue;
+        }
+        const int count = static_cast<int>(trace.size() - (i - 1));
+        if (!emulator_->step_back(count)) {
+            warn_state_corrupt(QObject::tr("Source Step Back"));
+            return;
+        }
+        finish_source_step();
+        return;
+    }
+    if (main_window_->statusBar())
+        main_window_->statusBar()->showMessage(
+            QObject::tr("No earlier mapped source statement in retained trace"), 4000);
+}
+
+void DebuggerManager::on_source_reverse_continue()
+{
+    if (!enabled_ || source_map_.empty() || !emulator_->rewind_buffer() ||
+        emulator_->rewind_buffer()->empty() || !emulator_->trace_log().enabled()) {
+        return;
+    }
+    const auto& trace = emulator_->trace_log();
+    const auto& breakpoints = emulator_->debug_state().breakpoints();
+    for (size_t i = trace.size(); i > 0; --i) {
+        const auto& entry = trace.at(i - 1);
+        if (!breakpoints.has_pc(entry.page, entry.pc) ||
+            !source_map_.lookup(entry.page, entry.pc)) continue;
+        const int count = static_cast<int>(trace.size() - (i - 1));
+        if (!emulator_->step_back(count)) {
+            warn_state_corrupt(QObject::tr("Reverse Continue"));
+            return;
+        }
+        finish_source_step();
+        return;
+    }
+    if (main_window_->statusBar())
+        main_window_->statusBar()->showMessage(
+            QObject::tr("No earlier source breakpoint in retained trace"), 4000);
+}
+
 void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!enabled_) return;
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
@@ -593,7 +760,8 @@ void DebuggerManager::on_load_map_z88dk() {
     if (path.isEmpty())
         return;
 
-    if (symbol_table_.load_z88dk_map(path.toStdString())) {
+    const int count = load_z88dk_map(symbol_table_, path.toStdString());
+    if (count >= 0) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(symbol_table_.size())
@@ -611,7 +779,7 @@ void DebuggerManager::on_load_map_simple() {
     if (path.isEmpty())
         return;
 
-    int count = symbol_table_.load_simple_map(path.toStdString());
+    const int count = load_simple_map(symbol_table_, path.toStdString());
     if (count >= 0) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
@@ -620,6 +788,82 @@ void DebuggerManager::on_load_map_simple() {
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
+    }
+}
+
+void DebuggerManager::on_load_nextbuild_memory() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load NextBuild Symbols"), QString(),
+        QObject::tr("NextBuild Memory File (Memory.txt *.Memory.txt);;Text Files (*.txt);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    const int count = load_nextbuild_memory(symbol_table_, path.toStdString());
+    if (count >= 0) {
+        QMessageBox::information(main_window_, QObject::tr("Symbols Loaded"),
+            QObject::tr("Loaded %1 symbols from:\n%2")
+                .arg(symbol_table_.size())
+                .arg(path));
+        refresh_panels();
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load NextBuild symbols from:\n%1").arg(path));
+    }
+}
+
+void DebuggerManager::on_load_sld() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load Source Map"), QString(),
+        QObject::tr("SLD Source Map (*.sld *.sld.txt);;All Files (*)"));
+    if (path.isEmpty()) return;
+
+    const auto result = load_sld(source_map_, path.toStdString());
+    if (result) {
+        const auto identity = source_map_.verify_program(
+            [this](uint16_t address) { return emulator_->mmu().read(address); });
+        if (identity && !*identity) {
+            source_map_.clear();
+            QMessageBox::warning(main_window_, QObject::tr("Source Map Rejected"),
+                QObject::tr("The SLD source map belongs to a different program binary."));
+            return;
+        }
+        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
+            QObject::tr("Loaded %1 source traces from:\n%2").arg(result.count).arg(path));
+        refresh_panels();
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load SLD source map:\n%1\n\n%2")
+                .arg(path, QString::fromStdString(result.error)));
+    }
+}
+
+void DebuggerManager::load_debug_sidecars_for_program(const std::string& program_path)
+{
+    const int count = load_nextbuild_sidecar(symbol_table_, program_path);
+    if (count >= 0) {
+        Log::platform()->info("Loaded {} NextBuild symbols from '{}'",
+                              symbol_table_.size(), symbol_table_.loaded_file());
+        refresh_panels();
+    } else {
+        symbol_table_.clear();
+    }
+    const auto source_result = load_sld_sidecar(source_map_, program_path);
+    if (source_result) {
+        const auto identity = source_map_.verify_program(
+            [this](uint16_t address) { return emulator_->mmu().read(address); });
+        if (identity && !*identity) {
+            Log::platform()->error(
+                "Rejected SLD source map '{}': loaded program hash differs",
+                source_map_.loaded_file());
+            source_map_.clear();
+        } else {
+            Log::platform()->info("Loaded {} SLD source traces from '{}'{}",
+                                  source_result.count, source_map_.loaded_file(),
+                                  identity ? " (program identity verified)" : "");
+            refresh_panels();
+        }
+    } else {
+        source_map_.clear();
     }
 }
 

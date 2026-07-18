@@ -20,6 +20,7 @@ class BreakpointPanel;
 class MmuPanel;
 class StackPanel;
 class CallStackPanel;
+class SourcePanel;
 class QPushButton;
 class QSplitter;
 class QTabWidget;
@@ -66,6 +67,7 @@ public:
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
     StackPanel* stack_panel() { return stack_panel_; }
     CallStackPanel* callstack_panel() { return callstack_panel_; }
+    SourcePanel* source_panel() { return source_panel_; }
 
 signals:
     void window_closed();
@@ -109,6 +111,7 @@ private:
     MmuPanel* mmu_panel_ = nullptr;
     StackPanel* stack_panel_ = nullptr;
     CallStackPanel* callstack_panel_ = nullptr;
+    SourcePanel* source_panel_ = nullptr;
 
     // Issue #39 — window attachment. `attach_enabled_` is the user's toggle,
     // persisted alongside the window size. `attach_supported_` says whether the
@@ -147,6 +150,11 @@ private:
     QAction* step_over_action_ = nullptr;
     QAction* step_out_action_ = nullptr;
     QAction* step_back_action_ = nullptr;
+    QAction* source_step_into_action_ = nullptr;
+    QAction* source_step_over_action_ = nullptr;
+    QAction* source_step_out_action_ = nullptr;
+    QAction* source_step_back_action_ = nullptr;
+    QAction* source_reverse_continue_action_ = nullptr;
     QAction* rewind_enable_action_ = nullptr;
 
     // Rewind toolbar (second bottom toolbar, shown when rewind buffer has data)

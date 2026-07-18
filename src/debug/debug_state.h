@@ -30,7 +30,7 @@ public:
 
     /// Called before each CPU instruction in the hot loop.
     /// Returns true if execution should break (pause).
-    bool should_break(uint16_t pc) const;
+    bool should_break(uint8_t page, uint16_t pc) const;
 
     /// Called after a step-out instruction completes to check RET condition.
     /// Returns true if the step-out is satisfied (should re-pause).

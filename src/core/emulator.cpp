@@ -6774,7 +6774,8 @@ void Emulator::run_frame()
             if (debug_state_.paused())
                 return;
             uint16_t pc = cpu_.pc();
-            if (debug_state_.should_break(pc)) {
+            const uint8_t page = mmu_.get_effective_page(pc >> 13);
+            if (debug_state_.should_break(page, pc)) {
                 debug_state_.pause();
                 // Early return: leave frame_cycle_ as-is so resume continues
                 // from this point.  The display shows the previous frame.
@@ -7105,6 +7106,7 @@ uint64_t Emulator::step_one_instruction()
             TraceEntry te;
             te.cycle = clock_.get();
             te.pc = regs.PC;
+            te.page = mmu_.get_effective_page(regs.PC >> 13);
             te.af = regs.AF; te.bc = regs.BC;
             te.de = regs.DE; te.hl = regs.HL;
             te.af2 = regs.AF2; te.bc2 = regs.BC2;
@@ -7152,7 +7154,9 @@ uint64_t Emulator::step_one_instruction()
             uint8_t op0 = mmu_.read(regs2.PC);
             uint8_t op1 = mmu_.read(regs2.PC + 1);
             uint8_t op2 = mmu_.read(regs2.PC + 2);
-            call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
+            const uint8_t page = mmu_.get_effective_page(regs2.PC >> 13);
+            call_stack_.on_instruction_pre(page, regs2.PC, regs2.SP,
+                                           op0, op1, op2);
         }
 
         // Execute one CPU instruction; returns T-states consumed.
@@ -7204,7 +7208,8 @@ uint64_t Emulator::step_one_instruction()
         // Call stack tracking post-execution.
         if (call_stack_.enabled()) {
             const Z80Registers& post = cpu_.registers();
-            call_stack_.on_instruction_post(post.SP, post.PC);
+            const uint8_t page = mmu_.get_effective_page(post.PC >> 13);
+            call_stack_.on_instruction_post(page, post.SP, post.PC);
         }
 
         // Convert T-states to 28 MHz master cycles for the master-clock

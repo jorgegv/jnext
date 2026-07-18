@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "debug/call_stack.h"
+
 class Emulator;
 class StateWriter;
 class StateReader;
@@ -116,6 +118,7 @@ private:
         uint64_t frame_cycle = 0;
         uint32_t frame_num   = 0;
         uint8_t* data        = nullptr;  ///< Points into block_ (mmap region)
+        std::vector<CallFrame> call_frames;
     };
 
     std::vector<Slot> slots_;

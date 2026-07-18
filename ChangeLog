@@ -70,6 +70,8 @@
 - `--dac-trace FILE`: timestamped DAC channel writes to CSV
 - Per-second frame tick diagnostics (interval, emulation, queue, paint) for stutter analysis
 - `tools/extract-sdcard-nex.sh`: extract every NEX on an SD image into a testable tree
+- Debugger: load Boriel/NextBuild `Memory.txt` symbols and use symbol names in breakpoint and watch address fields
+- Debugger: load page-aware SLD v1 source maps, show the current source line, retain physical pages in `file:line` breakpoints and call frames, and step through source forward or backward
 
 ### Bug Fixes
 - Mouse reached only a small part of the screen, and varied with where the pointer entered

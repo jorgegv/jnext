@@ -439,6 +439,10 @@ bool QtApp::TickEffects::pre_frames() {
         // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
         if (!emulator_apply_load(a.emulator_, a.load_file_, a.tape_realtime_)) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
+#ifdef ENABLE_DEBUGGER
+        } else if (auto* mgr = a.main_window_->debugger_manager()) {
+            mgr->load_debug_sidecars_for_program(a.load_file_);
+#endif
         }
         a.load_countdown_ = -1;
     } else if (a.load_countdown_ > 0) {

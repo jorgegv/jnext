@@ -3,6 +3,7 @@
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/symbol_table.h"
+#include "debug/source_map.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -43,7 +44,7 @@ BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
 
     // Table
     table_ = new QTableWidget(0, 3, this);
-    table_->setHorizontalHeaderLabels({tr("Type"), tr("Address"), tr("Symbol")});
+    table_->setHorizontalHeaderLabels({tr("Type"), tr("Address"), tr("Symbol / Source")});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true);
@@ -51,7 +52,7 @@ BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->verticalHeader()->setVisible(false);
     table_->setColumnWidth(0, 90);
-    table_->setColumnWidth(1, 70);
+    table_->setColumnWidth(1, 95);
 
     QFont mono("Monospace", 10);
     mono.setStyleHint(QFont::Monospace);
@@ -83,7 +84,11 @@ void BreakpointPanel::rebuild_entries()
 
     // Execute (PC) breakpoints
     for (uint16_t addr : bps.pc_breakpoints()) {
-        entries_.push_back({addr, 0});
+        entries_.push_back({addr, -1, 0});
+    }
+    for (uint32_t key : bps.banked_pc_breakpoints()) {
+        entries_.push_back({static_cast<uint16_t>(key),
+                            static_cast<int>((key >> 16) & 0xFF), 0});
     }
 
     // Data (watchpoint) breakpoints
@@ -95,12 +100,15 @@ void BreakpointPanel::rebuild_entries()
             case WatchType::READ_WRITE: ti = 3; break;
             default: ti = 1; break;
         }
-        entries_.push_back({wp.addr, ti});
+        entries_.push_back({wp.addr, -1, ti});
     }
 
     // Sort by address
     std::sort(entries_.begin(), entries_.end(),
-        [](const BpEntry& a, const BpEntry& b) { return a.addr < b.addr; });
+        [](const BpEntry& a, const BpEntry& b) {
+            if (a.addr != b.addr) return a.addr < b.addr;
+            return a.page < b.page;
+        });
 }
 
 void BreakpointPanel::refresh()
@@ -115,7 +123,10 @@ void BreakpointPanel::refresh()
         auto* type_item = new QTableWidgetItem(type_name(e.type_index));
         table_->setItem(i, 0, type_item);
 
-        auto* addr_item = new QTableWidgetItem(QString::asprintf("$%04X", e.addr));
+        const QString address = e.page >= 0
+            ? QString::asprintf("$%04X @%02X", e.addr, e.page)
+            : QString::asprintf("$%04X", e.addr);
+        auto* addr_item = new QTableWidgetItem(address);
         table_->setItem(i, 1, addr_item);
 
         QString sym;
@@ -123,12 +134,22 @@ void BreakpointPanel::refresh()
             auto s = symbol_table_->lookup(e.addr);
             if (s) sym = QString::fromStdString(*s);
         }
+        if (sym.isEmpty() && source_map_) {
+            const uint8_t page = e.page >= 0
+                ? static_cast<uint8_t>(e.page)
+                : emulator_->mmu().get_effective_page(e.addr >> 13);
+            if (const auto source = source_map_->lookup(page, e.addr)) {
+                sym = QString::fromStdString(source->file) + ":" +
+                      QString::number(source->line);
+            }
+        }
         auto* sym_item = new QTableWidgetItem(sym);
         table_->setItem(i, 2, sym_item);
     }
 }
 
-bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& type_index)
+bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr,
+                                    int& page, int& type_index)
 {
     QDialog dlg(this);
     dlg.setWindowTitle(title);
@@ -145,9 +166,19 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& 
     form->addRow(tr("Type:"), type_combo);
 
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
-    addr_edit->setText(QString::asprintf("%04X", addr));
-    form->addRow(tr("Address (hex):"), addr_edit);
+    addr_edit->setPlaceholderText("e.g. 4000, symbol_name, or file.bas:line");
+    if (page >= 0 && source_map_) {
+        const auto location = source_map_->lookup(static_cast<uint8_t>(page), addr);
+        if (location) {
+            addr_edit->setText(QString::fromStdString(location->file) + ":" +
+                               QString::number(location->line));
+        } else {
+            addr_edit->setText(QString::asprintf("%04X", addr));
+        }
+    } else {
+        addr_edit->setText(QString::asprintf("%04X", addr));
+    }
+    form->addRow(tr("Address or symbol:"), addr_edit);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -157,28 +188,30 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& 
 
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
-
-    bool ok = false;
-    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return false;
-
+    const std::string expression = addr_edit->text().trimmed().toStdString();
     type_index = type_combo->currentIndex();
+    const auto symbol = symbol_table_ ? symbol_table_->resolve(expression) : std::nullopt;
+    const auto source = type_index == 0 && !symbol && source_map_
+        ? source_map_->resolve(expression) : std::nullopt;
+    if (!symbol && !source) return false;
+    addr = symbol ? *symbol : source->address;
+    page = source && source->page ? static_cast<int>(*source->page) : -1;
+
     return true;
 }
 
 void BreakpointPanel::on_add()
 {
     uint16_t addr = 0;
+    int page = -1;
     int type_index = 0;
-    if (!show_bp_dialog(tr("Add Breakpoint"), addr, type_index))
+    if (!show_bp_dialog(tr("Add Breakpoint"), addr, page, type_index))
         return;
 
     auto& bps = emulator_->debug_state().breakpoints();
     if (type_index == 0) {
-        bps.add_pc(addr);
+        if (page >= 0) bps.add_pc(static_cast<uint8_t>(page), addr);
+        else bps.add_pc(addr);
     } else {
         WatchType wt = WatchType::READ;
         if (type_index == 2) wt = WatchType::WRITE;
@@ -197,15 +230,19 @@ void BreakpointPanel::on_edit()
 
     auto old = entries_[row];
     uint16_t addr = old.addr;
+    int page = old.page;
     int type_index = old.type_index;
 
-    if (!show_bp_dialog(tr("Edit Breakpoint"), addr, type_index))
+    if (!show_bp_dialog(tr("Edit Breakpoint"), addr, page, type_index))
         return;
 
     // Remove old
     auto& bps = emulator_->debug_state().breakpoints();
     if (old.type_index == 0) {
-        bps.remove_pc(old.addr);
+        if (old.page >= 0)
+            bps.remove_pc(static_cast<uint8_t>(old.page), old.addr);
+        else
+            bps.remove_pc(old.addr);
     } else {
         WatchType wt = WatchType::READ;
         if (old.type_index == 2) wt = WatchType::WRITE;
@@ -215,7 +252,8 @@ void BreakpointPanel::on_edit()
 
     // Add new
     if (type_index == 0) {
-        bps.add_pc(addr);
+        if (page >= 0) bps.add_pc(static_cast<uint8_t>(page), addr);
+        else bps.add_pc(addr);
     } else {
         WatchType wt = WatchType::READ;
         if (type_index == 2) wt = WatchType::WRITE;
@@ -236,7 +274,10 @@ void BreakpointPanel::on_remove()
     auto& bps = emulator_->debug_state().breakpoints();
 
     if (e.type_index == 0) {
-        bps.remove_pc(e.addr);
+        if (e.page >= 0)
+            bps.remove_pc(static_cast<uint8_t>(e.page), e.addr);
+        else
+            bps.remove_pc(e.addr);
     } else {
         WatchType wt = WatchType::READ;
         if (e.type_index == 2) wt = WatchType::WRITE;

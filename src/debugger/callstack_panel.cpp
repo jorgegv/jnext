@@ -2,6 +2,7 @@
 #include "core/emulator.h"
 #include "debug/call_stack.h"
 #include "debug/symbol_table.h"
+#include "debug/source_map.h"
 
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -21,9 +22,9 @@ void CallStackPanel::create_ui() {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    table_ = new QTableWidget(0, 4, this);
+    table_ = new QTableWidget(0, 5, this);
     table_->setFont(mono);
-    table_->setHorizontalHeaderLabels({"#", "Type", "Caller", "Target"});
+    table_->setHorizontalHeaderLabels({"#", "Type", "Caller", "Target", "Source"});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -32,8 +33,8 @@ void CallStackPanel::create_ui() {
 
     table_->setColumnWidth(0, 30);   // depth number
     table_->setColumnWidth(1, 50);   // type
-    table_->setColumnWidth(2, 70);   // caller PC
-    table_->setColumnWidth(3, 70);   // target PC
+    table_->setColumnWidth(2, 95);   // caller PC + physical page
+    table_->setColumnWidth(3, 110);  // target PC/symbol + physical page
     table_->horizontalHeader()->setStretchLastSection(true);
 
     layout->addWidget(table_);
@@ -76,16 +77,27 @@ void CallStackPanel::refresh() {
             case CallType::NMI:  type_str = "NMI";  break;
         }
         set_cell(1, type_str);
-        set_cell(2, QString::asprintf("%04X", f.caller_pc));
+        set_cell(2, QString::asprintf("%04X @%02X", f.caller_pc, f.caller_page));
 
         // Show symbol name for target if available
-        QString target_text = QString::asprintf("%04X", f.target_pc);
+        QString target_text = QString::asprintf("%04X @%02X",
+                                                f.target_pc, f.target_page);
         if (symbol_table_) {
             auto sym = symbol_table_->lookup(f.target_pc);
             if (sym)
-                target_text = QString::fromStdString(*sym);
+                target_text = QString::fromStdString(*sym) +
+                              QString::asprintf(" @%02X", f.target_page);
         }
         set_cell(3, target_text);
+
+        QString source_text;
+        if (source_map_) {
+            if (const auto source = source_map_->lookup(f.target_page, f.target_pc)) {
+                source_text = QString::fromStdString(source->file) + ":" +
+                              QString::number(source->line);
+            }
+        }
+        set_cell(4, source_text);
 
         table_->setRowHeight(i, 20);
     }

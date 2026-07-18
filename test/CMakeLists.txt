@@ -614,6 +614,18 @@ add_executable(resume_guard_test debug/resume_guard_test.cpp)
 target_include_directories(resume_guard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME resume_guard_tests COMMAND resume_guard_test)
 
+# Boriel/NextBuild Memory.txt symbols and symbol-aware debugger addresses.
+add_executable(symbol_table_test debug/symbol_table_test.cpp)
+target_link_libraries(symbol_table_test PRIVATE jnext_debug)
+target_include_directories(symbol_table_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME symbol_table_tests COMMAND symbol_table_test)
+
+# Standard sjasmplus SLD v1 address-to-source metadata.
+add_executable(source_map_test debug/source_map_test.cpp)
+target_link_libraries(source_map_test PRIVATE jnext_debug)
+target_include_directories(source_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME source_map_tests COMMAND source_map_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the
@@ -717,6 +729,17 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_quit_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
+
+    # Source-level stepping through the real debugger manager and emulator.
+    add_executable(debugger_source_step_test debugger/source_step_test.cpp)
+    set_target_properties(debugger_source_step_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_source_step_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_source_step_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_source_step_tests COMMAND debugger_source_step_test)
 endif()
 
 # LoRes pixel-generator compliance tests (GH #63).

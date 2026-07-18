@@ -55,6 +55,7 @@ private:
     uint16_t clamp_view_addr(uint16_t addr) const;
     int line_at_y(int y) const;
     void navigate_to_address(const QString& text);
+    void toggle_breakpoint(uint16_t addr, int line);
     static uint16_t extract_immediate16(const char* mnemonic);
 
     Emulator* emulator_;

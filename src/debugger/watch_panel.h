@@ -7,6 +7,7 @@
 #include <string>
 
 class Emulator;
+class SymbolTable;
 
 /// Watch panel showing memory values at watched addresses.
 class WatchPanel : public QWidget {
@@ -19,6 +20,9 @@ public:
 
     /// Add a watch entry.
     void add_watch(uint16_t addr, const std::string& label, int type = 0);
+
+    /// Set symbol table for resolving names entered in the address field.
+    void set_symbol_table(SymbolTable* st) { symbol_table_ = st; }
 
     /// Remove the currently selected watch.
     void remove_selected();
@@ -39,6 +43,7 @@ private:
                            std::string& label, int& type);
 
     Emulator* emulator_;
+    SymbolTable* symbol_table_ = nullptr;
     QTableWidget* table_ = nullptr;
 
     enum WatchType { BYTE = 0, WORD = 1, LONG = 2 };

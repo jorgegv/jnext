@@ -6,16 +6,33 @@ void BreakpointSet::add_pc(uint16_t addr) {
     pc_bps_.insert(addr);
 }
 
+void BreakpointSet::add_pc(uint8_t page, uint16_t addr) {
+    banked_pc_bps_.insert(banked_key(page, addr));
+}
+
 void BreakpointSet::remove_pc(uint16_t addr) {
     pc_bps_.erase(addr);
+}
+
+void BreakpointSet::remove_pc(uint8_t page, uint16_t addr) {
+    banked_pc_bps_.erase(banked_key(page, addr));
 }
 
 bool BreakpointSet::has_pc(uint16_t addr) const {
     return pc_bps_.count(addr) > 0;
 }
 
+bool BreakpointSet::has_pc(uint8_t page, uint16_t addr) const {
+    return has_pc(addr) || has_pc_exact(page, addr);
+}
+
+bool BreakpointSet::has_pc_exact(uint8_t page, uint16_t addr) const {
+    return banked_pc_bps_.count(banked_key(page, addr)) > 0;
+}
+
 void BreakpointSet::clear_all_pc() {
     pc_bps_.clear();
+    banked_pc_bps_.clear();
 }
 
 void BreakpointSet::add_watchpoint(uint16_t addr, WatchType type) {
@@ -63,5 +80,6 @@ void BreakpointSet::clear_oneshot() {
 }
 
 bool BreakpointSet::empty() const {
-    return pc_bps_.empty() && watchpoints_.empty() && !oneshot_active_;
+    return pc_bps_.empty() && banked_pc_bps_.empty()
+        && watchpoints_.empty() && !oneshot_active_;
 }

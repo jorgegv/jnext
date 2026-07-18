@@ -8,6 +8,7 @@
 struct TraceEntry {
     uint64_t cycle;           // master cycle count
     uint16_t pc;              // PC at start of instruction
+    uint8_t  page;            // effective 8K page containing PC
     uint16_t af, bc, de, hl;  // main register values before execution
     uint16_t af2, bc2, de2, hl2; // alternate register set
     uint16_t ix, iy, sp;

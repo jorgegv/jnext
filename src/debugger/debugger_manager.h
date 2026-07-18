@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "debug/symbol_table.h"
+#include "debug/source_map.h"
 #include "debug/resume_guard.h"
 
 class Emulator;
@@ -50,9 +51,14 @@ public:
     /// Access the symbol table.
     SymbolTable& symbol_table() { return symbol_table_; }
     const SymbolTable& symbol_table() const { return symbol_table_; }
+    SourceMap& source_map() { return source_map_; }
+    const SourceMap& source_map() const { return source_map_; }
 
     /// Access emulator (for debugger window menu actions).
     Emulator* emulator() const { return emulator_; }
+
+    /// Load debugger sidecars associated with a program.
+    void load_debug_sidecars_for_program(const std::string& program_path);
 
 public slots:
     void on_run();
@@ -63,9 +69,16 @@ public slots:
     void on_run_to_eof();
     void on_run_to_eosl();
     void on_step_back();
+    void on_source_step_into();
+    void on_source_step_over();
+    void on_source_step_out();
+    void on_source_step_back();
+    void on_source_reverse_continue();
     void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
+    void on_load_nextbuild_memory();
+    void on_load_sld();
 
     /// Issue #39: re-snap the debugger window to the emulator window's edge.
     /// Called on every main-window Move/Resize, and by the debugger's own
@@ -83,6 +96,11 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    enum class SourceStepKind { Into, Over, Out };
+    std::optional<SourceLocation> current_source_location() const;
+    void run_source_step(SourceStepKind kind);
+    void finish_source_step();
+
     void create_debug_toolbar();
     void ensure_window();
     void update_actions();
@@ -119,6 +137,7 @@ private:
 
     // Symbol table for loaded MAP files
     SymbolTable symbol_table_;
+    SourceMap source_map_;
 
     // Task 60e — per-incident acknowledgment state for the corruption gate.
     ResumeGuard resume_guard_;

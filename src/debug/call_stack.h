@@ -14,7 +14,9 @@ enum class CallType : uint8_t {
 
 /// A single entry on the call stack tracker.
 struct CallFrame {
+    uint8_t caller_page;   // Physical 8K page mapped at the caller
     uint16_t caller_pc;    // PC of the CALL/RST/INT instruction
+    uint8_t target_page;   // Physical 8K page mapped at the target
     uint16_t target_pc;    // Target address jumped to
     uint16_t sp_at_call;   // SP value after push (return address on stack)
     CallType type;
@@ -27,19 +29,25 @@ struct CallFrame {
 class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.
-    void on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3);
+    void on_instruction_pre(uint8_t page, uint16_t pc, uint16_t sp,
+                            uint8_t opcode, uint8_t op2, uint8_t op3);
 
     /// Call after instruction execution with the new SP.
     /// Compares with pre-SP to determine if a CALL/RET was actually taken.
-    void on_instruction_post(uint16_t new_sp, uint16_t new_pc);
+    void on_instruction_post(uint8_t new_page, uint16_t new_sp, uint16_t new_pc);
 
     /// Notify of an interrupt being taken (hardware push of PC).
-    void on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp);
+    void on_interrupt(uint8_t caller_page, uint16_t caller_pc,
+                      uint8_t target_page, uint16_t target_pc, uint16_t new_sp);
 
     /// Get the current call stack (most recent first).
     const std::vector<CallFrame>& frames() const { return frames_; }
 
-    void clear() { frames_.clear(); }
+    void clear() { frames_.clear(); have_pre_ = false; }
+    void restore_frames(const std::vector<CallFrame>& frames) {
+        frames_ = frames;
+        have_pre_ = false;
+    }
 
     bool enabled() const { return enabled_; }
     void set_enabled(bool e) { enabled_ = e; }
@@ -47,13 +55,16 @@ public:
     static constexpr size_t MAX_DEPTH = 256;
 
 private:
-    void push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type);
+    void push_frame(uint8_t caller_page, uint16_t caller,
+                    uint8_t target_page, uint16_t target,
+                    uint16_t sp, CallType type);
     void pop_frames_to_sp(uint16_t sp);
 
     std::vector<CallFrame> frames_;
     bool enabled_ = false;
 
     // Pre-execution state captured by on_instruction_pre()
+    uint8_t pre_page_ = 0;
     uint16_t pre_pc_ = 0;
     uint16_t pre_sp_ = 0;
     uint8_t pre_opcode_ = 0;

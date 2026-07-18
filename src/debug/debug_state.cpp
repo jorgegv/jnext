@@ -41,13 +41,9 @@ void DebugState::run_to_cycle(uint64_t target_cycle) {
     step_mode_ = StepMode::RUN_TO_CYCLE;
 }
 
-bool DebugState::should_break(uint16_t pc) const {
-    // Check PC breakpoints.
-    if (breakpoints_.has_pc(pc)) return true;
-
-    // Check one-shot breakpoint.
+bool DebugState::should_break(uint8_t page, uint16_t pc) const {
+    if (breakpoints_.has_pc(page, pc)) return true;
     if (breakpoints_.has_oneshot() && breakpoints_.oneshot_addr() == pc) return true;
-
     return false;
 }
 

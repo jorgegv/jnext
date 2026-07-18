@@ -1,6 +1,7 @@
 #include "debugger/watch_panel.h"
 #include "core/emulator.h"
 #include "memory/mmu.h"
+#include "debug/symbol_table.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -121,9 +122,9 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     auto* form = new QFormLayout(&dlg);
 
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
+    addr_edit->setPlaceholderText("e.g. 4000, $4000, or symbol_name");
     addr_edit->setText(QString::asprintf("%04X", addr));
-    form->addRow(tr("Address (hex):"), addr_edit);
+    form->addRow(tr("Address or symbol:"), addr_edit);
 
     auto* label_edit = new QLineEdit(&dlg);
     label_edit->setPlaceholderText("(optional)");
@@ -144,15 +145,15 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
 
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
-
-    bool ok = false;
-    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return false;
+    if (!symbol_table_) return false;
+    const QString entered = addr_edit->text().trimmed();
+    const auto resolved = symbol_table_->resolve(entered.toStdString());
+    if (!resolved) return false;
+    addr = *resolved;
 
     label = label_edit->text().trimmed().toStdString();
+    if (label.empty() && symbol_table_->lookup_name(entered.toStdString()))
+        label = entered.toStdString();
     type = type_combo->currentIndex();
     return true;
 }

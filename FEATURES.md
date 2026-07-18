@@ -80,7 +80,8 @@
 - Video panel "Background" view: the NR 0x4A fallback colour the compositor emits where every layer is transparent, shown per scanline (Copper gradients appear as bands)
 - Audio panel per-source mute: AY #0/#1/#2, DAC and Beeper can each be silenced independently to isolate what a program is playing. Gates the output stages only — the AY chips keep running and their registers keep reading back, so muting is invisible to the Z80 and cannot change emulation
 - PC/data/read/write breakpoints with watchpoints
-- Symbol table from Z88DK MAP files; inline symbol names in disassembly
+- Symbol tables from Z88DK MAP and Boriel/NextBuild `Memory.txt` files; automatic NextBuild sidecar loading and inline names in disassembly, call stacks, breakpoints and watches
+- Page-aware SLD v1 source maps with automatic sidecar loading, current-line source display, bank-qualified `file:line` breakpoints and call frames, source Step Into/Over/Out, Source Step Back and reverse continue
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
 - Backwards execution (rewind): frame snapshots ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider

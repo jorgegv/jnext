@@ -2,42 +2,35 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <map>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
-/// Symbol table loaded from a MAP file (e.g. Z88DK linker output).
-/// Pure C++ — no GUI dependency.
+struct SymbolDefinition {
+    uint16_t address = 0;
+    std::string display_name;
+    std::vector<std::string> aliases;
+};
+
+/// Compiler-neutral symbol names indexed by logical address.
 class SymbolTable {
 public:
-    /// Load symbols from a Z88DK .map file (only "; addr" lines).
-    /// Returns number of symbols loaded, or -1 on error.
-    int load_z88dk_map(const std::string& path);
+    void replace(std::vector<SymbolDefinition> definitions,
+                 std::string loaded_file);
 
-    /// Load symbols from a simple map file (SYMBOL = $ADDR format).
-    /// Lines starting with ';' are comments. No metadata filtering.
-    /// Returns number of symbols loaded, or -1 on error.
-    int load_simple_map(const std::string& path);
-
-    /// Look up a symbol name by its address. Returns nullopt if not found.
-    std::optional<std::string> lookup(uint16_t addr) const;
-
-    /// Look up an address by symbol name. Returns nullopt if not found.
+    std::optional<std::string> lookup(uint16_t address) const;
     std::optional<uint16_t> lookup_name(const std::string& name) const;
 
-    /// Get all symbols (address -> name).
+    /// Resolve a loaded symbol or a hexadecimal address. Numeric forms are
+    /// 4000, $4000 and 0x4000.
+    std::optional<uint16_t> resolve(std::string_view text) const;
+
     const std::map<uint16_t, std::string>& symbols() const { return addr_to_name_; }
-
-    /// Clear all loaded symbols.
     void clear();
-
-    /// Returns true if no symbols are loaded.
     bool empty() const { return addr_to_name_.empty(); }
-
-    /// Number of symbols loaded.
     size_t size() const { return addr_to_name_.size(); }
-
-    /// Get the loaded file path (empty if none loaded).
     const std::string& loaded_file() const { return loaded_file_; }
 
 private:

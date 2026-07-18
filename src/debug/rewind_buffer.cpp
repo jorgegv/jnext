@@ -69,6 +69,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     // Publish the slot only after a size-exact write.
     s.frame_cycle = frame_cycle;
     s.frame_num   = frame_num;
+    s.call_frames = emu.call_stack().frames();
     if (full) {
         head_ = (head_ + 1) % slots_.size();
     } else {
@@ -109,6 +110,7 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
             "machine state is not trustworthy", s.frame_cycle);
         return UINT64_MAX;
     }
+    emu.call_stack().restore_frames(s.call_frames);
     return s.frame_cycle;
 }
 

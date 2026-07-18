@@ -1,185 +1,80 @@
-#include "symbol_table.h"
+#include "debug/symbol_table.h"
 
-#include <fstream>
-#include <sstream>
 #include <algorithm>
+#include <charconv>
+#include <cctype>
 
-int SymbolTable::load_z88dk_map(const std::string& path)
+namespace {
+
+std::string trim(std::string_view text)
 {
-    std::ifstream file(path);
-    if (!file.is_open())
-        return -1;
-
-    clear();
-
-    int count = 0;
-    std::string line;
-
-    while (std::getline(file, line)) {
-        // Only keep lines with "; addr" qualifier — these are actual memory
-        // addresses. Lines with "; const" are compile-time constants and
-        // not useful for symbol resolution in the disassembler.
-        auto semi = line.find(';');
-        if (semi == std::string::npos)
-            continue;
-        std::string metadata = line.substr(semi + 1);
-        // Trim leading whitespace from metadata
-        auto md_start = metadata.find_first_not_of(" \t");
-        if (md_start == std::string::npos)
-            continue;
-        metadata = metadata.substr(md_start);
-        if (metadata.substr(0, 4) != "addr")
-            continue;
-
-        // Strip metadata for value parsing
-        std::string def_part = line.substr(0, semi);
-
-        // Find '=' separator
-        auto eq = def_part.find('=');
-        if (eq == std::string::npos)
-            continue;
-
-        // Extract symbol name (first non-whitespace token before '=')
-        std::string name_part = def_part.substr(0, eq);
-        // Trim trailing whitespace
-        auto end = name_part.find_last_not_of(" \t\r\n");
-        if (end == std::string::npos)
-            continue;
-        // Trim leading whitespace
-        auto start = name_part.find_first_not_of(" \t\r\n");
-        if (start == std::string::npos)
-            continue;
-        std::string name = name_part.substr(start, end - start + 1);
-        if (name.empty())
-            continue;
-
-        // Extract hex value after '=' — look for '$' prefix
-        std::string val_part = def_part.substr(eq + 1);
-        auto dollar = val_part.find('$');
-        if (dollar == std::string::npos)
-            continue;
-
-        std::string hex_str;
-        for (size_t i = dollar + 1; i < val_part.size(); ++i) {
-            char c = val_part[i];
-            if (std::isxdigit(static_cast<unsigned char>(c)))
-                hex_str += c;
-            else
-                break;
-        }
-
-        if (hex_str.empty())
-            continue;
-
-        // Parse hex value — skip addresses that don't fit in 16 bits
-        unsigned long addr_val = 0;
-        try {
-            addr_val = std::stoul(hex_str, nullptr, 16);
-        } catch (...) {
-            continue;
-        }
-
-        if (addr_val > 0xFFFF)
-            continue;
-
-        auto addr = static_cast<uint16_t>(addr_val);
-
-        // First occurrence wins for both maps
-        if (addr_to_name_.find(addr) == addr_to_name_.end())
-            addr_to_name_[addr] = name;
-
-        if (name_to_addr_.find(name) == name_to_addr_.end())
-            name_to_addr_[name] = addr;
-
-        ++count;
-    }
-
-    loaded_file_ = path;
-    return count;
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos) return {};
+    const auto last = text.find_last_not_of(" \t\r\n");
+    return std::string(text.substr(first, last - first + 1));
 }
 
-int SymbolTable::load_simple_map(const std::string& path)
+} // namespace
+
+void SymbolTable::replace(std::vector<SymbolDefinition> definitions,
+                          std::string loaded_file)
 {
-    std::ifstream file(path);
-    if (!file.is_open())
-        return -1;
-
-    clear();
-
-    int count = 0;
-    std::string line;
-
-    while (std::getline(file, line)) {
-        // Skip comment lines
-        auto first = line.find_first_not_of(" \t");
-        if (first == std::string::npos || line[first] == ';')
-            continue;
-
-        // Find '=' separator
-        auto eq = line.find('=');
-        if (eq == std::string::npos)
-            continue;
-
-        // Extract symbol name
-        std::string name_part = line.substr(0, eq);
-        auto end = name_part.find_last_not_of(" \t\r\n");
-        if (end == std::string::npos) continue;
-        auto start = name_part.find_first_not_of(" \t\r\n");
-        if (start == std::string::npos) continue;
-        std::string name = name_part.substr(start, end - start + 1);
-        if (name.empty()) continue;
-
-        // Extract hex value after '=' — look for '$' prefix
-        std::string val_part = line.substr(eq + 1);
-        auto dollar = val_part.find('$');
-        if (dollar == std::string::npos) continue;
-
-        std::string hex_str;
-        for (size_t i = dollar + 1; i < val_part.size(); ++i) {
-            char c = val_part[i];
-            if (std::isxdigit(static_cast<unsigned char>(c)))
-                hex_str += c;
-            else
-                break;
+    std::map<uint16_t, std::string> by_address;
+    std::map<std::string, uint16_t> by_name;
+    for (auto& definition : definitions) {
+        if (definition.display_name.empty()) continue;
+        by_address.try_emplace(definition.address, definition.display_name);
+        by_name.try_emplace(definition.display_name, definition.address);
+        for (auto& alias : definition.aliases) {
+            if (!alias.empty()) by_name.try_emplace(std::move(alias), definition.address);
         }
-        if (hex_str.empty()) continue;
-
-        unsigned long addr_val = 0;
-        try {
-            addr_val = std::stoul(hex_str, nullptr, 16);
-        } catch (...) {
-            continue;
-        }
-        if (addr_val > 0xFFFF) continue;
-
-        auto addr = static_cast<uint16_t>(addr_val);
-
-        if (addr_to_name_.find(addr) == addr_to_name_.end())
-            addr_to_name_[addr] = name;
-        if (name_to_addr_.find(name) == name_to_addr_.end())
-            name_to_addr_[name] = addr;
-
-        ++count;
     }
-
-    loaded_file_ = path;
-    return count;
+    addr_to_name_ = std::move(by_address);
+    name_to_addr_ = std::move(by_name);
+    loaded_file_ = std::move(loaded_file);
 }
 
-std::optional<std::string> SymbolTable::lookup(uint16_t addr) const
+std::optional<std::string> SymbolTable::lookup(uint16_t address) const
 {
-    auto it = addr_to_name_.find(addr);
-    if (it != addr_to_name_.end())
-        return it->second;
-    return std::nullopt;
+    const auto found = addr_to_name_.find(address);
+    return found == addr_to_name_.end()
+        ? std::nullopt : std::optional<std::string>(found->second);
 }
 
 std::optional<uint16_t> SymbolTable::lookup_name(const std::string& name) const
 {
-    auto it = name_to_addr_.find(name);
-    if (it != name_to_addr_.end())
-        return it->second;
-    return std::nullopt;
+    const auto found = name_to_addr_.find(name);
+    return found == name_to_addr_.end()
+        ? std::nullopt : std::optional<uint16_t>(found->second);
+}
+
+std::optional<uint16_t> SymbolTable::resolve(std::string_view text) const
+{
+    std::string value = trim(text);
+    if (value.empty()) return std::nullopt;
+    if (const auto symbol = lookup_name(value)) return symbol;
+
+    if (value.front() == '$') {
+        value.erase(value.begin());
+    } else if (value.size() > 2 && value[0] == '0'
+               && (value[1] == 'x' || value[1] == 'X')) {
+        value.erase(0, 2);
+    }
+    if (value.empty()
+        || !std::all_of(value.begin(), value.end(), [](unsigned char c) {
+               return std::isxdigit(c) != 0;
+           })) {
+        return std::nullopt;
+    }
+
+    unsigned int address = 0;
+    const auto [end, error] = std::from_chars(
+        value.data(), value.data() + value.size(), address, 16);
+    if (error != std::errc{} || end != value.data() + value.size()
+        || address > 0xFFFF) {
+        return std::nullopt;
+    }
+    return static_cast<uint16_t>(address);
 }
 
 void SymbolTable::clear()

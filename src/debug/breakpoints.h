@@ -16,10 +16,17 @@ struct Watchpoint {
 class BreakpointSet {
 public:
     void add_pc(uint16_t addr);
+    void add_pc(uint8_t page, uint16_t addr);
     void remove_pc(uint16_t addr);
+    void remove_pc(uint8_t page, uint16_t addr);
     bool has_pc(uint16_t addr) const;
+    bool has_pc(uint8_t page, uint16_t addr) const;
+    bool has_pc_exact(uint8_t page, uint16_t addr) const;
     void clear_all_pc();
     const std::unordered_set<uint16_t>& pc_breakpoints() const { return pc_bps_; }
+    const std::unordered_set<uint32_t>& banked_pc_breakpoints() const {
+        return banked_pc_bps_;
+    }
 
     void add_watchpoint(uint16_t addr, WatchType type);
     void remove_watchpoint(uint16_t addr, WatchType type);
@@ -39,7 +46,12 @@ public:
 
 private:
     std::unordered_set<uint16_t> pc_bps_;
+    std::unordered_set<uint32_t> banked_pc_bps_;
     std::vector<Watchpoint> watchpoints_;
     bool oneshot_active_ = false;
     uint16_t oneshot_addr_ = 0;
+
+    static uint32_t banked_key(uint8_t page, uint16_t addr) {
+        return (static_cast<uint32_t>(page) << 16) | addr;
+    }
 };

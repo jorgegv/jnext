@@ -8,6 +8,7 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/watch_panel.h"
+#include "debugger/source_panel.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/mmu_panel.h"
 #include "debugger/stack_panel.h"
@@ -323,6 +324,31 @@ void DebuggerWindow::create_menus() {
     step_back_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F7));
     connect(step_back_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_back);
 
+    QMenu* source_menu = debug_menu->addMenu(tr("&Source Step"));
+    source_step_into_action_ = source_menu->addAction(tr("Step &Into"));
+    source_step_into_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
+    connect(source_step_into_action_, &QAction::triggered,
+            debugger_mgr_, &DebuggerManager::on_source_step_into);
+    source_step_over_action_ = source_menu->addAction(tr("Step &Over"));
+    source_step_over_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F7));
+    connect(source_step_over_action_, &QAction::triggered,
+            debugger_mgr_, &DebuggerManager::on_source_step_over);
+    source_step_out_action_ = source_menu->addAction(tr("Step Ou&t"));
+    source_step_out_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F8));
+    connect(source_step_out_action_, &QAction::triggered,
+            debugger_mgr_, &DebuggerManager::on_source_step_out);
+    source_step_back_action_ = source_menu->addAction(tr("Step &Back"));
+    source_step_back_action_->setShortcut(
+        QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F7));
+    connect(source_step_back_action_, &QAction::triggered,
+            debugger_mgr_, &DebuggerManager::on_source_step_back);
+    source_reverse_continue_action_ =
+        source_menu->addAction(tr("Reverse Continue to Breakpoint"));
+    source_reverse_continue_action_->setShortcut(
+        QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F5));
+    connect(source_reverse_continue_action_, &QAction::triggered,
+            debugger_mgr_, &DebuggerManager::on_source_reverse_continue);
+
     debug_menu->addSeparator();
 
     QAction* run_to_eof_action = debug_menu->addAction(tr("Run to End of &Frame"));
@@ -416,11 +442,15 @@ void DebuggerWindow::create_menus() {
     // --- Map menu ---
     QMenu* map_menu = bar->addMenu(tr("&Map"));
 
-    QMenu* load_map_menu = map_menu->addMenu(tr("&Load MAP File"));
+    QMenu* load_map_menu = map_menu->addMenu(tr("&Load Symbols"));
     QAction* z88dk_action = load_map_menu->addAction(tr("&Z88DK Format..."));
     connect(z88dk_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_z88dk);
+    QAction* nextbuild_action = load_map_menu->addAction(tr("&Boriel/NextBuild Memory.txt..."));
+    connect(nextbuild_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_nextbuild_memory);
     QAction* simple_action = load_map_menu->addAction(tr("&Simple Format (48K ROM)..."));
     connect(simple_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_simple);
+    QAction* source_action = map_menu->addAction(tr("Load &SLD Source Map..."));
+    connect(source_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_sld);
 
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
@@ -486,6 +516,13 @@ void DebuggerWindow::update_actions(bool is_paused) {
     if (step_into_action_) step_into_action_->setEnabled(is_paused);
     if (step_over_action_) step_over_action_->setEnabled(is_paused);
     if (step_out_action_)  step_out_action_->setEnabled(is_paused);
+    const bool has_source = debugger_mgr_ && !debugger_mgr_->source_map().empty();
+    if (source_step_into_action_)
+        source_step_into_action_->setEnabled(is_paused && has_source);
+    if (source_step_over_action_)
+        source_step_over_action_->setEnabled(is_paused && has_source);
+    if (source_step_out_action_)
+        source_step_out_action_->setEnabled(is_paused && has_source);
 
     // Rewinding (frame jump) is only available when paused, the rewind
     // buffer has snapshots, and RZX playback is not active.
@@ -499,6 +536,10 @@ void DebuggerWindow::update_actions(bool is_paused) {
     // without it (Task 27 A2), so grey the action out instead.
     bool can_step_back = can_rewind && emulator_->trace_log().enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
+    if (source_step_back_action_)
+        source_step_back_action_->setEnabled(can_step_back && has_source);
+    if (source_reverse_continue_action_)
+        source_reverse_continue_action_->setEnabled(can_step_back && has_source);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
 }
 
@@ -819,6 +860,7 @@ void DebuggerWindow::create_panels() {
     nextreg_panel_ = new NextRegPanel(emulator_);
     audio_panel_ = new AudioPanel(emulator_);
     watch_panel_ = new WatchPanel(emulator_);
+    source_panel_ = new SourcePanel(emulator_);
 
     // --- Helper: wrap a widget in a titled QGroupBox ---
     auto make_group = [](const QString& title, QWidget* content) -> QGroupBox* {
@@ -843,6 +885,7 @@ void DebuggerWindow::create_panels() {
     tab_widget_->addTab(copper_panel_, tr("Copper"));
     tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
     tab_widget_->addTab(audio_panel_, tr("Audio"));
+    tab_widget_->addTab(source_panel_, tr("Source"));
 
     tab_widget_->setMinimumWidth(380);
 
@@ -944,8 +987,8 @@ void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
 
     auto* form = new QFormLayout(&dlg);
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
-    form->addRow(tr("Address (hex):"), addr_edit);
+    addr_edit->setPlaceholderText("e.g. 4000, $4000, or symbol_name");
+    form->addRow(tr("Address or symbol:"), addr_edit);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -955,15 +998,11 @@ void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
+    const auto addr = debugger_mgr_->symbol_table().resolve(
+        addr_edit->text().trimmed().toStdString());
+    if (!addr) return;
 
-    bool ok = false;
-    uint16_t addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return;
-
-    emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
+    emulator_->debug_state().breakpoints().add_watchpoint(*addr, type);
 }
 
 void DebuggerWindow::refresh_panels() {
@@ -980,5 +1019,6 @@ void DebuggerWindow::refresh_panels() {
     if (stack_panel_) stack_panel_->refresh();
     if (callstack_panel_) callstack_panel_->refresh();
     if (breakpoint_panel_) breakpoint_panel_->refresh();
+    if (source_panel_) source_panel_->refresh();
     update_rewind_ui();
 }
