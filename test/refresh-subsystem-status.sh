@@ -112,6 +112,7 @@ BEGIN {
     M["audio_pacing_test"]             = "Audio (pacing)"
     M["present_cadence_test"]          = "Present cadence"
     M["present_count_test"]            = "Present count (widget)"
+    M["esc_break_test"]                = "Esc/BREAK + fullscreen routing"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
     M["dma_test"]                      = "DMA"

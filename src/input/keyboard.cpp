@@ -247,9 +247,9 @@ void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
         alt_variant_[sc] = false;
     }
 
-    // Alt-modified compound (e.g. EXTEND MODE = Alt+E = Caps Shift + Sym
-    // Shift). Resolved BEFORE the plain tables so the unmodified meaning of
-    // the key cannot leak: Alt+E asserts CS+SS and never the ZX 'E' key.
+    // Alt-modified compound (e.g. EDIT = Alt+E = Caps Shift + 1). Resolved
+    // BEFORE the plain tables so the unmodified meaning of the key cannot
+    // leak: Alt+E asserts CS+1 and never the ZX 'E' key.
     if (use_alt) {
         const CompoundPos& acp = s_alt_compound[sc];
         set_matrix_bit(acp.a.row, acp.a.col, pressed);
