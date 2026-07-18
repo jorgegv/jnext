@@ -34,6 +34,50 @@ Every claim below is tagged:
 
 ---
 
+## 0.1 DECISION — user, 2026-07-18
+
+This document's recommendation was reviewed and **accepted with a tighter scope**. The
+decisions below are settled; the rest of this document is the evidence behind them, not a
+menu of open options.
+
+1. **No new CLI flag for the feature itself.** The existing `--esxdos-stub` is *enhanced*
+   with real host-backed file semantics, rather than introducing a separate `--hostfs`
+   mount. The stub is already the thing that intercepts `RST $08`; this makes it do its job
+   properly instead of against an anonymous in-memory buffer.
+
+2. **`--esxdos-stub-root DIR` (optional)** sets the host directory the stub serves. When
+   omitted, behaviour stays as close to today's as is sensible (see §5 for the sandboxing
+   rules that apply once a root exists).
+
+3. **Scope is strictly NEX programs and dot commands** — the paths §2 PROVES go through
+   `RST $08`. This is the whole feature. It is not a general filesystem redirection layer.
+
+4. **Booting NextZXOS is explicitly out of scope, permanently, at this layer.** When
+   NextZXOS boots, the **SD card image is the only disk**, and file access goes through the
+   existing, proven code paths (its own in-ROM SD/SPI block driver — §2.2). jnext does not
+   attempt to intervene there. This is not a limitation to be lifted later by widening this
+   feature; it is a deliberate boundary drawn along the evidence in §2.
+
+5. **The synthetic FAT32 block device (§2.3, §7) is NOT pursued.** The 6-10 session,
+   high-risk work to make the NextZXOS Browser see host files is declined. `mcopy` into the
+   image remains the way to get files to the Browser.
+
+6. **This boundary must be documented exhaustively for the user.** The single largest risk
+   of this feature is a user reasonably assuming `--esxdos-stub-root` means "my host
+   directory is the SD card" and then finding the NextZXOS Browser cannot see any of it.
+   The user-facing documentation must state plainly, in the places a user actually looks
+   (`USAGE.md`, the man page when it exists, and `--help`), which programs see the host
+   directory and which do not, and why. Documentation is a deliverable of this feature, not
+   a follow-up.
+
+**Consequence for §7's phasing:** phases 1 and 2 stand as written. The block-device phase
+is struck. **The §2.3 verification step still gates the work** — boot NextZXOS with the
+`esxdos` trace channel (#30, merged 2026-07-18 in v0.98.40) at TRACE, drive the Browser,
+and confirm no `RST $08` traffic appears. Decision 4 is drawn on an *inference* until that
+experiment is run; running it is cheap and it is the load-bearing claim.
+
+---
+
 ## 1. How jnext intercepts esxdos today — PROVEN
 
 ### 1.1 The hook site
