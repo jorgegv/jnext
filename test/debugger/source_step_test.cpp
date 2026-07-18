@@ -158,6 +158,13 @@ int main(int argc, char** argv)
     check("step into skips instructions on the same source line",
           emulator.cpu().get_registers().PC == 0x8002);
 
+    set_pc(emulator, 0x8000);
+    breakpoints.set_oneshot(0x8001);
+    manager.on_source_step_into();
+    check("source step honors one-shot breakpoint on the same source line",
+          emulator.cpu().get_registers().PC == 0x8001);
+    breakpoints.clear_oneshot();
+
     set_pc(emulator, 0x8050);
     manager.on_source_step_into();
     check("source step crosses unmapped compiler-generated code",

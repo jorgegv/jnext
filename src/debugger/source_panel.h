@@ -27,4 +27,5 @@ private:
     QLabel* location_label_ = nullptr;
     QPlainTextEdit* editor_ = nullptr;
     QString loaded_source_;
+    qint64 loaded_mtime_ = -1;
 };

@@ -4,6 +4,8 @@
 #include "debug/source_map.h"
 
 #include <QFile>
+#include <QDateTime>
+#include <QFileInfo>
 #include <QFont>
 #include <QLabel>
 #include <QPlainTextEdit>
@@ -58,6 +60,7 @@ void SourcePanel::show_message(const QString& message)
     if (!loaded_source_.isEmpty()) {
         editor_->clear();
         loaded_source_.clear();
+        loaded_mtime_ = -1;
     }
     editor_->setExtraSelections({});
 }
@@ -86,7 +89,8 @@ void SourcePanel::refresh()
                          .arg(location->line));
         return;
     }
-    if (source_path != loaded_source_) {
+    const qint64 source_mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
+    if (source_path != loaded_source_ || source_mtime != loaded_mtime_) {
         QFile file(source_path);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             show_message(tr("Could not open %1").arg(source_path));
@@ -94,6 +98,7 @@ void SourcePanel::refresh()
         }
         editor_->setPlainText(QString::fromUtf8(file.readAll()));
         loaded_source_ = source_path;
+        loaded_mtime_ = source_mtime;
     }
 
     location_label_->setText(
@@ -108,7 +113,8 @@ void SourcePanel::refresh()
     QTextEdit::ExtraSelection selection;
     selection.cursor = QTextCursor(block);
     selection.cursor.clearSelection();
-    selection.format.setBackground(QColor(255, 245, 160));
+    selection.format.setBackground(editor_->palette().highlight());
+    selection.format.setForeground(editor_->palette().highlightedText());
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
     editor_->setExtraSelections({selection});
     editor_->setTextCursor(selection.cursor);

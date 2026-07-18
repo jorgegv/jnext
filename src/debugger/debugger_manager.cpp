@@ -639,7 +639,7 @@ void DebuggerManager::run_source_step(SourceStepKind kind)
         const uint8_t page = emulator_->mmu().get_effective_page(pc >> 13);
         const bool data_breakpoint = emulator_->debug_state().data_bp_hit();
         if (stop || data_breakpoint ||
-            emulator_->debug_state().breakpoints().has_pc(page, pc)) {
+            emulator_->debug_state().should_break(page, pc)) {
             if (data_breakpoint)
                 emulator_->debug_state().set_data_bp_hit(false);
             finish_source_step();
@@ -817,16 +817,23 @@ void DebuggerManager::on_load_sld() {
         QObject::tr("SLD Source Map (*.sld *.sld.txt);;All Files (*)"));
     if (path.isEmpty()) return;
 
-    const auto result = load_sld(source_map_, path.toStdString());
+    SourceMap candidate;
+    const auto result = load_sld(candidate, path.toStdString());
     if (result) {
-        const auto identity = source_map_.verify_program(
+        const auto identity = candidate.verify_program(
             [this](uint16_t address) { return emulator_->mmu().read(address); });
         if (identity && !*identity) {
-            source_map_.clear();
-            QMessageBox::warning(main_window_, QObject::tr("Source Map Rejected"),
-                QObject::tr("The SLD source map belongs to a different program binary."));
-            return;
+            const auto answer = QMessageBox::warning(
+                main_window_, QObject::tr("Source Map Identity Mismatch"),
+                QObject::tr(
+                    "The loaded program memory no longer matches this source map. "
+                    "This can happen when the program stores variables in its binary "
+                    "address range, but it can also mean the SLD belongs to another "
+                    "build.\n\nLoad it anyway?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (answer != QMessageBox::Yes) return;
         }
+        source_map_ = std::move(candidate);
         QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
             QObject::tr("Loaded %1 source traces from:\n%2").arg(result.count).arg(path));
         refresh_panels();

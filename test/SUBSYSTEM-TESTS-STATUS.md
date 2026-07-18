@@ -77,7 +77,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compiler Symbols      |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source Maps           |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source Debugging      |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5583** | **5580** |  **0** |   **3** | **99%** | 🟡 3 test(s) skipped. |
+| Source Debugging      |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **5584** | **5581** |  **0** |   **3** | **99%** | 🟡 3 test(s) skipped. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
