@@ -70,6 +70,20 @@ menu of open options.
    directory and which do not, and why. Documentation is a deliverable of this feature, not
    a follow-up.
 
+**Independent corroboration (Task 84, same day):** tracing NEXTEST.NEX established that it
+reaches its appended payload through the esxdos *block* API — `DISK_FILEMAP` returns
+**physical SD card sector addresses**, then the transfer is raw `INIR` from port `$EB`
+between `DISK_STRMSTART`/`DISK_STRMEND`, never touching `RST $08`. See
+[TASK84-EXTENDED-NEX-PLAN.md](TASK84-EXTENDED-NEX-PLAN.md) §3. This *strengthens* §2's
+conclusion from a second, independent direction: real Next software genuinely does bypass
+the syscall layer for bulk data.
+
+It also sharpens the price of decision 5: declining the synthetic FAT32 block device means
+issue #29 cannot run NEXTEST from the CLI either, and #29 was re-scoped accordingly
+(2026-07-18) to serve only extended NEX files that stream via the *file* API. The decision
+stands — the block device remains declined — but it is now declined with that cost known
+and written down, rather than as an unexamined saving.
+
 **Consequence for §7's phasing:** phases 1 and 2 stand as written. The block-device phase
 is struck. **The §2.3 verification step still gates the work** — boot NextZXOS with the
 `esxdos` trace channel (#30, merged 2026-07-18 in v0.98.40) at TRACE, drive the Browser,
