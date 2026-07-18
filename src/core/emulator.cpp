@@ -2,6 +2,7 @@
 
 #include "core/embedded_nextboot_rom.h"
 #include "core/log.h"
+#include "core/esxdos_trace.h"
 #include "core/nex_loader.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sna_saver.h"
@@ -892,8 +893,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   $9F F_SEEK       : fail with carry set, A=5 (ENOENT).
     //   default          : not handled — RST $08 runs normal $0008 code.
     //
-    if (cfg.esxdos_stub) {
-        cpu_.on_esxdos_call = [this](uint8_t defb, Z80Registers& r) -> bool {
+    // Task 85 — the hook is installed when the stub is enabled OR when esxdos
+    // tracing is on. Tracing must not require the stub: the most informative
+    // case is a NextZXOS-expecting program running WITHOUT the stub, where
+    // every call falls through unhandled and is otherwise invisible.
+    const bool esxdos_tracing = Log::esxdos()->should_log(spdlog::level::trace);
+    if (cfg.esxdos_stub || esxdos_tracing) {
+        // `stub_enabled` is captured BY VALUE: this lambda is stored on the CPU
+        // and long outlives init(), so a reference to cfg would dangle.
+        const bool stub_enabled = cfg.esxdos_stub;
+        auto handle_esxdos = [this, stub_enabled](uint8_t defb, Z80Registers& r) -> bool {
+            if (!stub_enabled) return false;   // tracing only — service nothing
             auto set_a_and_carry = [&](uint8_t a, bool carry_set) {
                 uint8_t f = static_cast<uint8_t>(r.AF & 0xFF);
                 if (carry_set) f |= 0x01; else f &= 0xFE;
@@ -1028,7 +1038,55 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     return false;  // not handled — fall through to $0008 code
             }
         };
-        Log::emulator()->info("esxdos shim enabled (--esxdos-stub)");
+
+        // Wrap the handler so BOTH the call and its result are recorded. The
+        // result matters as much as the call: "F_SEEK -> FAIL A=5" is the line
+        // that explains a program giving up, and an unhandled call is reported
+        // explicitly rather than just missing.
+        //
+        // The wrapper is installed UNCONDITIONALLY here, not only when tracing
+        // was on at init(): `trace()` performs its own inline level check, so
+        // with the level at info this costs one integer compare per RST $08 and
+        // emits nothing. Installing it always is what makes `--log-level
+        // esxdos=trace` work when it is raised at RUNTIME (from the debugger)
+        // rather than on the command line.
+        //
+        // Residual limitation, deliberate: whether the hook EXISTS is still an
+        // init()-time decision (see the `if` above). With both the stub and
+        // tracing off at init there is no hook at all, and raising the level
+        // later traces nothing — jnext must be restarted with either flag. The
+        // hook cannot be installed unconditionally because its mere presence
+        // changes RST $08 dispatch for every program.
+        cpu_.on_esxdos_call = [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
+            const char* name = esxdos_call_name(defb);
+            // Logged BEFORE handle_esxdos runs: the stub mutates r in place, so
+            // capturing the arguments afterwards would report the results as if
+            // they had been the inputs. Pinned by ESXT-28.
+            Log::esxdos()->trace(
+                "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
+                defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
+
+            const bool handled = handle_esxdos(defb, r);
+
+            if (handled) {
+                // esxdos convention: carry CLEAR = success, SET = error
+                // with the code in A.
+                const bool error = (r.AF & 0x0001) != 0;
+                const uint8_t a  = static_cast<uint8_t>(r.AF >> 8);
+                Log::esxdos()->trace(
+                    "<- ${:02X} {:<12} {} A={:02X} BC={:04X} DE={:04X} HL={:04X}",
+                    defb, name ? name : "(unknown)", error ? "ERROR" : "ok   ",
+                    a, r.BC, r.DE, r.HL);
+            } else {
+                Log::esxdos()->trace(
+                    "<- ${:02X} {:<12} NOT IMPLEMENTED by jnext — falling "
+                    "through to $0008", defb, name ? name : "(unknown)");
+            }
+            return handled;
+        };
+
+        if (cfg.esxdos_stub) Log::emulator()->info("esxdos shim enabled (--esxdos-stub)");
+        if (esxdos_tracing)  Log::emulator()->info("esxdos syscall tracing enabled (--log-level esxdos=trace)");
     }
 
     // --- NextREG write handlers ---
