@@ -301,15 +301,20 @@ check "HS-26" "an add_test() line the parser cannot read is a refusal, not a sil
 # looked like a fix. That reflex is the real damage: it is exactly how a REAL mismatch
 # would get waved through.
 #
-# The race is made DETERMINISTIC here by size, not by luck. Two enormous (unregistered,
-# optional) filler names push the declared list past the 64 KB pipe buffer, so the writer
-# is guaranteed to still be blocked in write() when grep matches the FIRST entry and
-# exits. Pre-fix this refused to run 300/300; post-fix it must pass, because membership is
-# an in-shell hash lookup with no second process whose death can be mistaken for an answer.
+# Provoking the race on purpose is a matter of MARGIN, and the margin has to clear two
+# things, not one: the pipe capacity (64 KB on Linux) AND however much grep's first read()
+# drains before it matches the FIRST entry and exits. Only if the writer is still blocked
+# after that does SIGPIPE fire. Sizing to just past the pipe buffer is NOT enough — two
+# 40 KB fillers were measured here at 25/50 false passes against the broken guard, i.e. a
+# coin flip, which would have let the bug back in half the time it was reintroduced.
+# 200 KB per filler clears both and was measured at 0/50 false passes (and 0/50 again post-
+# fix, correctly passing). Treat that figure as the empirical floor, not as a proof: it is
+# a race, so the honest claim is a large measured margin, not a guarantee. If this row ever
+# flaps, the fix is MORE padding, never fewer iterations.
 stub good_test 10 0
 register good_test
-filler_a="pad_a_$(head -c 40000 /dev/zero | tr '\0' 'a')"
-filler_b="pad_b_$(head -c 40000 /dev/zero | tr '\0' 'b')"
+filler_a="pad_a_$(head -c 200000 /dev/zero | tr '\0' 'a')"
+filler_b="pad_b_$(head -c 200000 /dev/zero | tr '\0' 'b')"
 manifest "good_test 10" "?$filler_a 1" "?$filler_b 1"
 out=$(run_harness); rc=$?
 check "HS-27" "manifest/build AGREEMENT is never reported as drift (no SIGPIPE race)" 0 $rc "$out" \
