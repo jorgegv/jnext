@@ -73,6 +73,15 @@ using DownloadFn = std::function<bool(const std::string& url,
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
 
+// Busy-operation seam: run the slow post-download work (`work` — the raw→fixed
+// copy plus the multi-second FAT32 patch) while giving the user feedback under
+// the label `phase` (e.g. "Fixing downloaded image…"), so the app never looks
+// hung during it. Returns whatever `work` returns. May be empty → the caller
+// runs `work` directly with no UI. The GUI wires this to a busy dialog animated
+// on a worker thread; the CLI wires `cli_busy` (a one-line message).
+using BusyFn = std::function<bool(const std::string& phase,
+                                  const std::function<bool()>& work)>;
+
 // Copy seam: byte-copy `src` to `dst`, verifying completeness. Returns true on
 // success, else sets `err`. Default impl streams and checks the copied size
 // against the source size. Behind a seam so the failure path is unit-testable.
@@ -84,6 +93,10 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
 bool cli_confirm(const std::string& message);
 // Lightweight textual (\r NN%) progress for the CLI/headless path.
 bool cli_progress(uint64_t downloaded, uint64_t total);
+// Default CLI BusyFn: prints "<phase>… " to stderr, runs `work`, then prints
+// "done"/"failed". No thread/spinner (a terminal user tolerates a short wait,
+// and the message alone shows the app is working).
+bool cli_busy(const std::string& phase, const std::function<bool()>& work);
 // Real copy implementation (default CopyFn). Streams in chunks and fails on a
 // short/incomplete copy (removing the partial destination).
 bool default_copy_file(const std::string& src, const std::string& dst,
@@ -114,6 +127,7 @@ struct ProvisionOptions {
     ConfirmFn   confirm;            // defaults to cli_confirm
     ProgressFn  progress;           // optional; passed into the download
     CopyFn      copy;               // defaults to default_copy_file
+    BusyFn      busy;               // optional; wraps the copy+patch step
 };
 
 enum class ProvisionStatus { Ok, Declined, Failed };

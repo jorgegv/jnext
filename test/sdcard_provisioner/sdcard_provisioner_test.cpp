@@ -396,11 +396,21 @@ int main() {
         sdcard::ProvisionOptions o;
         o.download = recording_dl; // must NOT be called (skip-redownload)
         o.confirm  = [](const std::string&) { return true; };
+        // Busy seam spy: records the phase label and that it wrapped the slow
+        // copy+patch, then runs the real work so provisioning still succeeds.
+        bool busy_called = false;
+        std::string busy_phase;
+        o.busy = [&](const std::string& p, const std::function<bool()>& w) {
+            busy_called = true; busy_phase = p; return w();
+        };
         auto r = src_ok ? sdcard::provision_sd_card(o) : sdcard::ProvisionResult{};
 
         check("PROV-FIXED-01", "provision Ok, path is the fixed image",
               src_ok && r.status == sdcard::ProvisionStatus::Ok &&
               r.path == fixed, r.path);
+        check("PROV-BUSY-01", "busy seam wraps the copy+patch step", busy_called);
+        check("PROV-BUSY-01", "busy phase label is 'Fixing downloaded image'",
+              busy_phase == "Fixing downloaded image", busy_phase);
         check("PROV-SHA-MATCH-01", "no download when raw SHA256 matches",
               !download_called);
         check("PROV-FIXED-01", "fixed image produced", file_exists(fixed));
@@ -408,6 +418,35 @@ int main() {
         // Pristine: raw bytes unchanged (would fail if code patched raw).
         check("PROV-FIXED-01", "raw is byte-identical (pristine)",
               !h_before.empty() && sdcard::sha256_file(raw) == h_before);
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+    }
+
+    // -- PROV-BUSY-02: a BusyFn that fails (short-circuits the work) makes
+    //    provisioning Failed and leaves no fixed image — proves the seam's
+    //    return value is honoured, not ignored. --
+    {
+        std::remove(fixed.c_str());
+        std::string berr;
+        bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
+        check("PROV-BUSY-02", "raw FAT32 source built", src_ok, berr);
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); // trusted raw
+
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl; // must NOT be called (skip-redownload)
+        o.confirm  = [](const std::string&) { return true; };
+        bool work_ran = false;
+        o.busy = [&](const std::string&, const std::function<bool()>&) {
+            work_ran = true;    // simulate a UI-side failure before running work
+            return false;
+        };
+        auto r = src_ok ? sdcard::provision_sd_card(o) : sdcard::ProvisionResult{};
+        check("PROV-BUSY-02", "busy returning false => Failed",
+              r.status == sdcard::ProvisionStatus::Failed);
+        check("PROV-BUSY-02", "no fixed image left when busy fails",
+              !file_exists(fixed) && work_ran);
 
         std::remove(raw.c_str());
         std::remove(raw_sha.c_str());

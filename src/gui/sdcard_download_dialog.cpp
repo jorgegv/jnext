@@ -1,10 +1,15 @@
 #include "gui/sdcard_download_dialog.h"
 
 #include <QApplication>
+#include <QEventLoop>
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QString>
 #include <Qt>
+
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 SdcardGuiProvisioner::SdcardGuiProvisioner() = default;
 
@@ -80,4 +85,49 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
         return false; // ProgressFn false → curl aborts the transfer
     }
     return true;
+}
+
+bool SdcardGuiProvisioner::busy(const std::string& phase,
+                                const std::function<bool()>& work) {
+    ensure_app();
+
+    // Replace the (now-complete) download bar with an indeterminate "busy"
+    // dialog. Range (0,0) is Qt's standard busy indicator: an animated marquee
+    // rather than a fillable bar, which is exactly the "something is happening"
+    // cue we want during the copy+patch. No cancel button — aborting a
+    // half-written FAT would corrupt the image.
+    dialog_.reset();
+    QProgressDialog dlg(QString::fromStdString(phase) + QStringLiteral("…"),
+                        QString(), 0, 0);
+    dlg.setWindowTitle(QStringLiteral("jnext — Preparing SD card image"));
+    dlg.setWindowModality(Qt::ApplicationModal);
+    dlg.setCancelButton(nullptr);
+    // Also drop the window-manager close (X) so the "not cancellable" intent
+    // holds via the title bar too (best-effort — some WMs still show it; the
+    // pump loop ignores wasCanceled() regardless, so the outcome is unaffected).
+    dlg.setWindowFlags((dlg.windowFlags() | Qt::CustomizeWindowHint)
+                       & ~Qt::WindowCloseButtonHint);
+    dlg.setMinimumDuration(0);   // show immediately
+    dlg.setAutoClose(false);
+    dlg.setAutoReset(false);
+    dlg.show();
+
+    // Run the blocking work on a worker thread (filesystem only — no Qt), and
+    // keep pumping the GUI event loop here so the marquee animates. The worker
+    // touches no Qt objects, so this is thread-safe.
+    std::atomic<bool> done{false};
+    bool result = false;
+    std::thread worker([&]() {
+        result = work ? work() : true;
+        done.store(true, std::memory_order_release);
+    });
+    while (!done.load(std::memory_order_acquire)) {
+        QApplication::processEvents(QEventLoop::AllEvents, 50);
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    }
+    worker.join();
+
+    dlg.close();
+    QApplication::processEvents();
+    return result;
 }
