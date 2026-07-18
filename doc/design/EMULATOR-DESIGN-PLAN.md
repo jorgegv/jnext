@@ -1145,10 +1145,11 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Generation of Windows version — `.github/workflows/release.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. **Ran on a real GitHub Actions runner (v0.98.19 release): the `windows` job succeeded and published `jnext-0.98.19-windows-x64.zip`; confirmed working on real Windows hardware.** GUI-subsystem build (no stray console window) added v0.98.21. Residual: the >2 MB pre-`main` stack frame is worked around (16 MB reserve), not root-caused — see §11.
   - [x] Generation of MacOS version — `.github/workflows/release.yml` macos-latest leg (brew deps + CPack DragNDrop). **VERIFIED: the v0.98.34 release ran the `macos` job green on a real macos-latest runner and published `jnext-0.98.34-Darwin.dmg`; user confirmed the build works.** Two fixes made it build: the debug lib now links `SDL2::SDL2` for Homebrew's header layout (Task 71, v0.98.30), and the boot ROM is embedded as a portable C array instead of via `objcopy` (Task 73, v0.98.33 — macOS has no GNU objcopy). A manual `workflow_dispatch` workflow (`.github/workflows/macos-build.yml`) exercises the macOS build without cutting a release. The release.yml leg keeps `continue-on-error` as a belt-and-braces guard (no macOS runner on the dev host to pre-verify locally).
 
-- [ ] Documentation
+- [ ] Documentation — [issue #28](https://github.com/jorgegv/jnext/issues/28)
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
-  - [ ] Create USAGE document and man page for users — USAGE.md done (CLI + GUI); man page pending
+  - [ ] Create USER MANUAL (task-oriented: loading programs, SD/NextZXOS, machine types, debugger, recording, config)
+  - [ ] Create man page for users; USAGE.md becomes a markdown render of it (single source — evaluate pandoc/ronn/scdoc; any such tool is a new dev requirement, and doc generation must be a separate opt-in make target so a plain code build never needs the doc toolchain)
 
 - [-] Create static executables by downloading QT and SDL sources and building them - WONT do for the moment.
 
