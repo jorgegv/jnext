@@ -96,6 +96,14 @@ for arg in "$@"; do
         FILTER_TESTS+=("$arg")
     fi
 done
+# Membership is an in-shell hash lookup, NEVER `printf ... | grep -qx`. That idiom is
+# unsound under `set -o pipefail` (which this script sets on line 17): `grep -q` exits
+# the instant it matches, the `printf` subshell can then die of SIGPIPE (141), and
+# pipefail makes 141 the PIPELINE's status — so a name that IS present reports as
+# absent. See the block above the completeness check at the end of this file for the
+# measured reachability analysis and the two distinct failure directions.
+declare -A IS_FILTERED
+for arg in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do IS_FILTERED["$arg"]=1; done
 
 # Colour output
 RED='\033[0;31m'
@@ -138,7 +146,7 @@ echo -e "  manifests: $(basename "$CONF") + $(basename "$FUNC_CONF")"
 # rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE, in the
 # first second, not five minutes into the run: an incomplete build is a harness fault,
 # not a code regression — and never, as it once was, an absent row (Task 35).
-if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx rewind-func; then
+if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[rewind-func]:-}" ]]; then
     if [[ ! -x "$REWIND_TEST" ]]; then
         harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
                       "The suite runs it, so it cannot report a rewind result without it." \
@@ -201,6 +209,8 @@ while read -r name _; do
     DECLARED_FUNC+=("$name")
 done < "$FUNC_CONF"
 [[ ${#DECLARED_FUNC[@]} -gt 0 ]] || harness_fault "No functional tests declared in $FUNC_CONF"
+declare -A IS_DECLARED_FUNC
+for name in "${DECLARED_FUNC[@]}"; do IS_DECLARED_FUNC["$name"]=1; done
 REPORTED_FUNC=()
 
 # Every preflight guard has now run. --preflight-only exists so the self-test can drive
@@ -215,7 +225,7 @@ fi
 # want <name> — should this test run? (no filter given, or explicitly named)
 want() {
     [[ ${#FILTER_TESTS[@]} -eq 0 ]] && return 0
-    printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx "$1"
+    [[ -n "${IS_FILTERED[$1]:-}" ]]
 }
 
 # begin_func <name> — register the row and print its label.
@@ -1602,8 +1612,24 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
         n=$(printf '%s\n' "${REPORTED_FUNC[@]}" | grep -cx "$name" || true)
         [[ "$n" -eq 1 ]] || faults+=("declared in functional_tests.conf but reported $n rows: ${BOLD}$name${RESET}")
     done
+    # Membership via hash lookup, not `printf ... | grep -qx`. Under this script's
+    # `set -o pipefail`, that idiom can report a PRESENT name as absent: grep -q exits
+    # on match, printf then dies of SIGPIPE (141), pipefail promotes 141. Measured
+    # mechanism (this host, 64 KB pipe): the writer must be BLOCKED in write() for the
+    # signal to land, so it needs total output to exceed the pipe buffer — 0/60 false
+    # absents at a 32 KB payload, 13/60 at 64 KB, 60/60 at 130 KB. The purely
+    # scheduling-driven window (bash printf emits one write() per argument, so grep
+    # could in principle match on chunk 1 and exit before chunk 2) is real but was
+    # unobservable: 0 in 3000 idle, 0 in 1500 under 8x CPU load, 0 in 2000 matching the
+    # LAST entry. DECLARED_FUNC is ~30 names / 592 bytes, i.e. ~110x under the pipe
+    # buffer, so this was NOT a live flake here — it is an unsound idiom removed on
+    # principle, at zero cost, before someone grows the manifest or lands it somewhere
+    # the volume is large. Note the two directions differ: HERE a false absent would
+    # invent a harness fault (false RED, never a silent pass, since a genuinely
+    # undeclared name makes grep read to EOF and exit 1 honestly); in want() it would
+    # instead SKIP a requested test. Neither is acceptable.
     for name in "${REPORTED_FUNC[@]}"; do
-        printf '%s\n' "${DECLARED_FUNC[@]}" | grep -qx "$name" \
+        [[ -n "${IS_DECLARED_FUNC[$name]:-}" ]] \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
     done
     expected=$(( 1 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
