@@ -289,6 +289,37 @@ out=$(run_harness); rc=$?
 check "HS-26" "an add_test() line the parser cannot read is a refusal, not a silent drop" 2 $rc "$out" \
     "REFUSES TO RUN" "Parsed"
 
+# ------------------------------------- agreement must NEVER be reported as drift (Task 88)
+# The guard's contract has two sides, and this is the side nobody tested: when the
+# manifest and the build DO agree, it must say so — every time, on every machine, under
+# any load. It did not. Membership was `printf '%s\n' "${LIST[@]}" | grep -qx "$name"`,
+# and this script sets `set -o pipefail`: `grep -q` exits the moment it matches, `printf`
+# then dies of SIGPIPE (141), and pipefail promotes 141 to the pipeline's status — so a
+# suite that IS declared reported as MISSING. Whether printf had finished writing before
+# grep exited is a scheduling race, which is why it fired ~4% of the time on a loaded box,
+# named a random suite, and pointed in a random direction — and why "just re-run it"
+# looked like a fix. That reflex is the real damage: it is exactly how a REAL mismatch
+# would get waved through.
+#
+# Provoking the race on purpose is a matter of MARGIN, and the margin has to clear two
+# things, not one: the pipe capacity (64 KB on Linux) AND however much grep's first read()
+# drains before it matches the FIRST entry and exits. Only if the writer is still blocked
+# after that does SIGPIPE fire. Sizing to just past the pipe buffer is NOT enough — two
+# 40 KB fillers were measured here at 25/50 false passes against the broken guard, i.e. a
+# coin flip, which would have let the bug back in half the time it was reintroduced.
+# 200 KB per filler clears both and was measured at 0/50 false passes (and 0/50 again post-
+# fix, correctly passing). Treat that figure as the empirical floor, not as a proof: it is
+# a race, so the honest claim is a large measured margin, not a guarantee. If this row ever
+# flaps, the fix is MORE padding, never fewer iterations.
+stub good_test 10 0
+register good_test
+filler_a="pad_a_$(head -c 200000 /dev/zero | tr '\0' 'a')"
+filler_b="pad_b_$(head -c 200000 /dev/zero | tr '\0' 'b')"
+manifest "good_test 10" "?$filler_a 1" "?$filler_b 1"
+out=$(run_harness); rc=$?
+check "HS-27" "manifest/build AGREEMENT is never reported as drift (no SIGPIPE race)" 0 $rc "$out" \
+    "Total: 10  Passed: 10  Failed: 0  Skipped: 0" "Suites: 1 pass, 0 fail"
+
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).
 # It had ZERO test coverage, and that is precisely where two guards shipped DEAD: a grep

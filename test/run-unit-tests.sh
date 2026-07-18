@@ -138,12 +138,22 @@ pin=$(grep -oP '^#\s*expect:\s*\K[0-9]+' "$CONF" | head -1 || true)
     || die "$CONF declares ${BOLD}${#DECLARED[@]}${RESET} suites but pins ${BOLD}# expect: $pin${RESET}." \
            "A suite was added or removed without updating the pin. If deliberate, update it."
 
-is_registered() { printf '%s\n' "${REGISTERED[@]}" | grep -qx "$1"; }
+# Membership is an in-shell hash lookup, NEVER `printf ... | grep -q`. That idiom is
+# unsound under `set -o pipefail` (which this script sets): `grep -q` exits the instant
+# it matches, `printf` then dies of SIGPIPE (141), and pipefail makes 141 the PIPELINE's
+# status — so a suite that IS present reports as absent. It is a race, so it fires only
+# sometimes and names a random suite in a random direction; measured at ~4% of runs on a
+# loaded 12-core box and 0% idle, which is exactly the "fails right after a parallel
+# build, passes on re-run" shape reported in Task 88. A guard that cries wolf trains
+# everyone to re-run until green, which would let a REAL mismatch through.
+declare -A IS_DECLARED IS_REGISTERED
+for name in "${DECLARED[@]}";   do IS_DECLARED["$name"]=1;   done
+for name in "${REGISTERED[@]}"; do IS_REGISTERED["$name"]=1; done
 
 # --- Cross-check both directions, plus buildness. Any drift is fatal. ---
 errors=(); notices=(); RUNNABLE=()
 for name in "${DECLARED[@]}"; do
-    if ! is_registered "$name"; then
+    if [[ -z "${IS_REGISTERED[$name]:-}" ]]; then
         if [[ "${OPTIONAL[$name]}" == "1" ]]; then
             # A legitimate build configuration may not register it (e.g.
             # -DENABLE_DEBUGGER=OFF). Skipped — but never silently.
@@ -160,7 +170,7 @@ for name in "${DECLARED[@]}"; do
     RUNNABLE+=("$name")
 done
 for name in "${REGISTERED[@]}"; do
-    printf '%s\n' "${DECLARED[@]}" | grep -qx "$name" \
+    [[ -n "${IS_DECLARED[$name]:-}" ]] \
         || errors+=("registered by CMake but MISSING from $CONF: ${BOLD}$name${RESET} — it would never run")
 done
 if (( ${#errors[@]} )); then
