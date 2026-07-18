@@ -53,11 +53,22 @@
 ///               it is the only figure a healthy machine must keep at zero.
 ///
 /// COUNTING `presented` HONESTLY. The widget counts a present only when a
-/// paintEvent consumes a framebuffer it has not painted before (see
+/// paintEvent consumes a framebuffer HANDED TO IT and not yet painted (see
 /// EmulatorWidget::frame_pending_). A spontaneous expose/resize repaint that
 /// re-blits an image already shown is NOT a new frame reaching the screen,
 /// and must not inflate the count — that over-counting is what drove the old
-/// `dropped` negative.
+/// `dropped` negative. Pinned by test/gui/present_count_test.cpp.
+///
+/// ONE DOCUMENTED LIMITATION. "Handed over" is not "visibly different": the
+/// widget does not compare pixels, so two byte-identical frames count as two
+/// presents. This matters in exactly one place — while the debugger is PAUSED
+/// the frontend still calls update_frame() every tick (qt_app.cpp, predating
+/// this diagnostic), re-presenting an unchanged framebuffer, so `presented`
+/// climbs while `emulated` stays 0. It is left as-is deliberately: gating it
+/// would change presentation behaviour, and this is a measurement, not a
+/// mitigation. It cannot corrupt the report — a paused window emulates
+/// nothing, so `dropped` floors at 0 rather than going negative — and issue #9
+/// is about unpaused gameplay. Pinned by PC-G06.
 namespace present_cadence {
 
 /// Raw tallies accumulated over one reporting window (one status tick).
@@ -65,7 +76,10 @@ namespace present_cadence {
 struct Counters {
     /// `run_frame()` calls — emulated frames.
     uint64_t emulated = 0;
-    /// Fresh frames actually served by a paintEvent.
+    /// Frames handed to the widget and actually served by a paintEvent.
+    /// See the "ONE DOCUMENTED LIMITATION" note above: not a pixel-difference
+    /// count, so a paused frontend re-presenting a static framebuffer inflates
+    /// this. `dropped` floors at 0, so that cannot produce a negative report.
     uint64_t presented = 0;
     /// Frames overwritten by a later frame in the same tick before any
     /// paint could serve them (multi-frame ticks).

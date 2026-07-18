@@ -32,11 +32,14 @@ public:
     bool crt_filter() const { return crt_filter_; }
 
     /// Task 63 (issue #9) — total frames actually PRESENTED: paintEvents that
-    /// served a framebuffer not previously shown. Deliberately NOT a raw
-    /// paintEvent count — Qt also paints on expose/resize/move, and counting
-    /// those as presented frames is what drove the old `dropped` figure
-    /// negative. QtApp differences this each status tick; the accounting and
-    /// its rationale live in src/platform/present_cadence.h.
+    /// served a framebuffer handed to this widget and not yet painted.
+    /// Deliberately NOT a raw paintEvent count — Qt also paints on
+    /// expose/resize/move/repaint, and counting those as presented frames is
+    /// what drove the old `dropped` figure negative. Equally, it is NOT a
+    /// pixel-difference count: identical consecutive frames count twice (see
+    /// the limitation note in src/platform/present_cadence.h). QtApp
+    /// differences this each status tick; the accounting and its rationale
+    /// live in that header. Pinned by test/gui/present_count_test.cpp.
     uint64_t present_count() const { return present_count_; }
 
     /// Set fullscreen mode.  In fullscreen the widget fills the screen but
