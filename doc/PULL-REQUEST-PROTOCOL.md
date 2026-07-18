@@ -45,8 +45,9 @@ requirements plus the ones for its type.
 
 ## Merge gate
 
-A maintainer reviews the PR against this document. Non-compliance is a
-**REJECT** with the failing rule cited; compliance is required before merge.
-The rest of the landing flow (branch, green test triplet, independent review,
-bump) follows [../CLAUDE.md](../CLAUDE.md) → "Merging a completed feature/fix to
-`main`".
+- A maintainer reviews the PR against this document.
+- Non-compliance is a **REJECT** with the failing rule cited; compliance is
+  required before merge.
+- The rest of the landing flow (branch, green test triplet, independent review,
+  bump) follows [../CLAUDE.md](../CLAUDE.md) → "Merging a completed feature/fix
+  to `main`".
