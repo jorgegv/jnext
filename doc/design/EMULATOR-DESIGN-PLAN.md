@@ -1150,6 +1150,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
   - [ ] Create USER MANUAL (task-oriented: loading programs, SD/NextZXOS, machine types, debugger, recording, config)
   - [ ] Create man page for users; USAGE.md becomes a markdown render of it (single source — evaluate pandoc/ronn/scdoc; any such tool is a new dev requirement, and doc generation must be a separate opt-in make target so a plain code build never needs the doc toolchain; generated man page + USAGE.md are committed, so source-only builds ship complete docs)
+  - [ ] Ship the docs in the binary packages — packages currently install only `LICENSE` + `USAGE.md`; add the man page (`${CMAKE_INSTALL_MANDIR}/man1`) and review README/ChangeLog, updating every manifest in step (CMake install rules, RPM `%files`, Debian, Flatpak/macOS/Windows bundles)
 
 - [-] Create static executables by downloading QT and SDL sources and building them - WONT do for the moment.
 
