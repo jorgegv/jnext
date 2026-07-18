@@ -170,9 +170,16 @@ void Keyboard::reset() {
     // Shift-hysteresis scan buffers — initial "all released" state.
     shift_hist_[0]   = 0xFF;
     shift_hist_[1]   = 0xFF;
-    // Task 77 — host Alt modifier + per-scancode Alt latch. Cleared so a
-    // reset taken with Alt down cannot strand a latched Alt variant.
+    // Task 77 — host Alt modifier state. Clearing alt_held_ is load-bearing:
+    // a reset taken with Alt physically down would otherwise keep resolving
+    // Alt variants afterwards (covered by T77K-17).
     alt_held_        = false;
+    // The per-scancode latch is cleared for hygiene only, and is deliberately
+    // NOT claimed as tested: it is unobservable. Every press edge overwrites
+    // alt_variant_[sc] before any release reads it, so the only path that
+    // could see a stale entry is a release with no intervening press — which
+    // clears matrix bits that reset() has already cleared. Verified by
+    // mutation: removing this line fails no row, in either direction.
     std::memset(alt_variant_, 0, sizeof(alt_variant_));
     // NOTE: `membrane_stick_` is lifetime-bound wiring from the owning
     // Emulator (see Emulator ctor). It must NOT be cleared here — a soft

@@ -4370,8 +4370,10 @@ static void test_t77_kbd() {
               (r0 & 1u) == 0 && (r3 & 1u) == 0,
               DETAIL("row0=0x%02X row3=0x%02X", r0, r3));
     }
-    // T77K-17: reset() clears the Alt latch, so a reset taken mid-chord
-    // cannot strand a variant and mis-clear on the later release.
+    // T77K-17: reset() clears the host Alt MODIFIER state, so a reset taken
+    // with Alt physically held does not keep resolving Alt variants
+    // afterwards. (This row does NOT cover the per-scancode alt_variant_
+    // latch — that is unobservable; see the note in Keyboard::reset().)
     {
         Keyboard kb; kb.reset();
         kb.set_key(SDL_SCANCODE_LALT, true);
@@ -4380,7 +4382,7 @@ static void test_t77_kbd() {
         kb.set_key(SDL_SCANCODE_D, true);        // no Alt now → plain 'D'
         const uint8_t r1 = kb.read_rows(0xFD);   // row 1: A S D F G
         const uint8_t r0 = kb.read_rows(0xFE);
-        check("T77K-17", "reset clears the Alt latch; D is plain again",
+        check("T77K-17", "reset clears held Alt; D resolves plain again",
               (r1 & (1u << 2)) == 0 && (r0 & 1u) != 0,
               DETAIL("row1=0x%02X row0=0x%02X", r1, r0));
     }
