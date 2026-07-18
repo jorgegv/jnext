@@ -78,6 +78,11 @@ public:
     static std::shared_ptr<spdlog::logger>& ctc()        { static auto l = make("ctc");        return l; }
     static std::shared_ptr<spdlog::logger>& i2c()        { static auto l = make("i2c");        return l; }
     static std::shared_ptr<spdlog::logger>& multiface()  { static auto l = make("multiface");  return l; }
+    /// esxdos / NextZXOS syscall tracing (Task 85). At TRACE level every
+    /// RST $08 call is logged with its arguments and result, including calls
+    /// jnext does NOT implement — those are the interesting ones when working
+    /// out why a program that expects NextZXOS fails under `--load`.
+    static std::shared_ptr<spdlog::logger>& esxdos()     { static auto l = make("esxdos");     return l; }
 
     /// Set the log level for a specific subsystem by name.
     /// Returns false if the logger name is unknown.
@@ -154,7 +159,7 @@ public:
     static void init() {
         cpu(); memory(); ula(); video(); audio(); port(); nextreg();
         dma(); copper(); uart(); input(); platform(); emulator();
-        sdcard(); divmmc(); spi(); ctc(); i2c(); multiface();
+        sdcard(); divmmc(); spi(); ctc(); i2c(); multiface(); esxdos();
     }
 
 private:
