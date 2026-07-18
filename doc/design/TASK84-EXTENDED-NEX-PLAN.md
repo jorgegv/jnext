@@ -239,6 +239,39 @@ Bank order on disk is `5, 2, 0` (`nex_loader.h:235-236`), so this cluster is in 
 
 ---
 
+
+## 3.8 RESOLVED (2026-07-18) — the `M_DOSVERSION` encoding IS in the oracle
+
+Recorded as NOT PROVEN above; the citation was simply not found at the time. It is in the
+tbblue dot-command sources, `src/asm/dot_commands/makelnk.asm:30-36`:
+
+```asm
+        ld      hl,'N'<<8+'X'
+        sbc     hl,bc                   ; check NextZXOS signature
+        jr      nz,bad_nextzxos
+        ld      hl,$0206
+        ex      de,hl
+        sbc     hl,de                   ; check version number >= 2.06
+        jr      c,bad_nextzxos
+```
+
+The same pattern appears in `crc32.asm:61-65` and `$.asm:26-30`. Therefore:
+
+- **`BC` = `'N'<<8 | 'X'` = `$4E58`** is the NextZXOS signature. jnext already returns this
+  (`emulator.cpp:939`) and it is correct.
+- **`DE` = version, major in hex, minor in BCD.** `$0206` is compared as "2.06", so `$0194`
+  is 1.94 and `$0201` is 2.01. The empirically-chosen `$0201` in §3.3 was right.
+- Callers test with `sbc hl,de` + `jr c` — i.e. a `>=` threshold comparison.
+
+**The gate is not a file-access problem.** NEXTEST issues `M_DOSVERSION` first and stops
+before any file call if the version is too low, which is why item 6 of issue #29 is
+independent of the streaming work. Raising `emulator.cpp:940` is a one-line change, but the
+value is a **behaviour claim**: a program that sees 2.01 may assume 2.01 semantics from a
+stub servicing a handful of calls. It should be raised deliberately, to a version jnext can
+honour, not to get past a check.
+
+---
+
 ## 4. What this means for issue #29's four work items
 
 | # | Issue's item | Verdict against the evidence |
