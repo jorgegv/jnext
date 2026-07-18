@@ -292,6 +292,60 @@ int main()
               h.lost != b.lost);
     }
 
+    // --- PC-13: a window straddling pause -> resume ---------------------------
+    // THE REGRESSION ROW FOR A REJECTED REVIEW. Nothing flushes the reporting
+    // window on a pause/resume transition — on_status_tick drains purely on
+    // its 1000 ms timer — so a window can span both segments.
+    //
+    // The defect, when stale re-presents were counted: while paused the
+    // frontend re-pushes the same framebuffer every tick, so `presented`
+    // climbed with no new content. A window with 40 such paused ticks plus a
+    // resumed segment of 10 emulated frames of which 2 were genuinely lost
+    // gave presented=48 > emulated=10, and the non-negative floor on `dropped`
+    // absorbed BOTH real drops:
+    //
+    //     emulated=10 presented=48  ->  dropped=0 ... lost=0
+    //
+    // i.e. the instrument read "nothing lost" while frames were being lost,
+    // in exactly the debugger-driven session it exists to support. The floor
+    // was offered as the safeguard and was in fact the mechanism of the loss.
+    //
+    // The fix is at source: stale re-pushes are declared new_content=false and
+    // are not counted (PC-G08), so the paused segment contributes 0 emulated
+    // and 0 presented. Only the resumed segment reaches the arithmetic.
+    {
+        Counters c;
+        // 40 paused ticks: no run_frame(), and the stale re-presents they
+        // trigger are not counted. They contribute nothing at all.
+        for (int i = 0; i < 40; i++) tick(c, 0, /*present_requested=*/true,
+                                          /*painted=*/false);
+        // Resumed segment: 10 emulated frames, 8 presented, 2 genuinely lost.
+        for (int i = 0; i < 8; i++) tick(c, 1, true, /*painted=*/true);
+        for (int i = 0; i < 2; i++) tick(c, 1, true, /*painted=*/false);
+
+        const auto r = summarize(c, 1000);
+        check("PC-13a", "straddling window: only the resumed segment is counted",
+              r.emulated == 10 && r.presented == 8, dump(r));
+        check("PC-13b", "straddling window: the 2 real drops are REPORTED, not absorbed",
+              r.dropped == 2 && r.lost == 2, dump(r));
+        check("PC-13c", "straddling window: the drops are not misfiled as explained",
+              r.superseded == 0 && r.unrendered == 0, dump(r));
+    }
+
+    // --- PC-14: the freshness declaration --------------------------------------
+    // The one-line rule the frontend uses to tell the widget whether its push
+    // carries new content. It is the input to everything PC-13 depends on, so
+    // it is pinned here rather than left inline in qt_app where no unit test
+    // can reach it.
+    {
+        check("PC-14a", "a tick that emulated nothing carries no new content",
+              !present_cadence::carries_new_content(0));
+        check("PC-14b", "a tick that emulated at least one frame carries new content",
+              present_cadence::carries_new_content(1) &&
+              present_cadence::carries_new_content(2) &&
+              present_cadence::carries_new_content(200));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

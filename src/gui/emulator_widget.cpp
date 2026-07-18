@@ -18,7 +18,8 @@ EmulatorWidget::EmulatorWidget(QWidget* parent)
     set_scale(scale_);
 }
 
-void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
+void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h,
+                                  bool new_content) {
     if (!framebuffer || w <= 0 || h <= 0) return;
 
     // On the first frame the widget is visible and devicePixelRatioF()
@@ -43,8 +44,18 @@ void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
     // unconditionally) is what makes `present_count_` mean "distinct emulated
     // frames that reached the screen": an expose/resize repaint that re-blits
     // an image already shown finds the flag clear and is correctly not counted.
-    frame_pending_ = true;
+    //
+    // A stale re-push (new_content == false) must not arm the flag — otherwise
+    // a paused frontend, which re-pushes the same framebuffer every tick,
+    // inflates present_count_ with frames that showed nothing new, and a
+    // reporting window straddling pause->resume then under-reports genuinely
+    // lost frames. Note this only ever LEAVES the flag alone: a frame pushed
+    // earlier and not yet painted stays pending, so it is still counted when
+    // its paint finally arrives.
+    if (new_content) frame_pending_ = true;
 
+    // Unconditional, and identical for both values of new_content: the
+    // repaint request is presentation, and this diagnostic does not alter it.
     update();  // schedule repaint
 }
 

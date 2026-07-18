@@ -59,16 +59,33 @@
 /// and must not inflate the count — that over-counting is what drove the old
 /// `dropped` negative. Pinned by test/gui/present_count_test.cpp.
 ///
-/// ONE DOCUMENTED LIMITATION. "Handed over" is not "visibly different": the
-/// widget does not compare pixels, so two byte-identical frames count as two
-/// presents. This matters in exactly one place — while the debugger is PAUSED
-/// the frontend still calls update_frame() every tick (qt_app.cpp, predating
-/// this diagnostic), re-presenting an unchanged framebuffer, so `presented`
-/// climbs while `emulated` stays 0. It is left as-is deliberately: gating it
-/// would change presentation behaviour, and this is a measurement, not a
-/// mitigation. It cannot corrupt the report — a paused window emulates
-/// nothing, so `dropped` floors at 0 rather than going negative — and issue #9
-/// is about unpaused gameplay. Pinned by PC-G06.
+/// STALE RE-PRESENTS ARE NOT COUNTED, AND THIS IS LOAD-BEARING. The frontend
+/// re-pushes the SAME framebuffer whenever a tick composited nothing — the
+/// debugger is paused, or the audio pacer skipped the tick. Those pushes are
+/// declared `new_content = false` (see EmulatorWidget::update_frame) and do
+/// not arm the pending flag, so they are painted exactly as before but not
+/// counted.
+///
+/// An earlier revision of this file counted them and claimed the inflation
+/// "cannot corrupt the report, because a paused window emulates nothing so
+/// `dropped` floors at 0". That claim was FALSE, and review caught it: it
+/// holds only for a window lying entirely inside a pause. Nothing flushes the
+/// window on a pause/resume transition, so a window can straddle one — and
+/// then the pause segment's inflated `presented` cancels the resume segment's
+/// real drops through the very floor that was offered as the safeguard:
+///
+///     emulated=10, presented=48 (40 stale + 8 real), 2 genuinely lost
+///       -> dropped=0, lost=0            // two real drops, silently absorbed
+///
+/// A developer stepping and resuming around a suspect frame is precisely the
+/// session this instrument exists to serve, so that is the worst possible
+/// place to under-report. Not counting stale pushes fixes it at source: the
+/// paused segment now contributes 0 emulated and 0 presented, so the same
+/// window reports emulated=10, presented=8, lost=2. Pinned by PC-13
+/// (arithmetic) and PC-G08 (widget).
+///
+/// The non-negative floor on `dropped` remains, but as a pure arithmetic
+/// guarantee against inconsistent inputs — NOT as a correctness argument.
 namespace present_cadence {
 
 /// Raw tallies accumulated over one reporting window (one status tick).
@@ -76,10 +93,9 @@ namespace present_cadence {
 struct Counters {
     /// `run_frame()` calls — emulated frames.
     uint64_t emulated = 0;
-    /// Frames handed to the widget and actually served by a paintEvent.
-    /// See the "ONE DOCUMENTED LIMITATION" note above: not a pixel-difference
-    /// count, so a paused frontend re-presenting a static framebuffer inflates
-    /// this. `dropped` floors at 0, so that cannot produce a negative report.
+    /// Frames carrying NEW content that were actually served by a paintEvent.
+    /// Stale re-pushes of an unchanged framebuffer are excluded — see the
+    /// "STALE RE-PRESENTS" note above for why that exclusion is load-bearing.
     uint64_t presented = 0;
     /// Frames overwritten by a later frame in the same tick before any
     /// paint could serve them (multi-frame ticks).
@@ -105,6 +121,18 @@ struct Report {
     /// window — reporting rates "over 0ms" is nonsense, not diagnostics.
     bool reportable = false;
 };
+
+/// Whether a tick's push to the widget carries NEWLY composited content.
+///
+/// A tick that ran no run_frame() at all — the debugger is paused, or the
+/// audio pacer skipped the tick because the device queue is high — re-pushes
+/// the framebuffer byte-for-byte as already shown. Declaring that honestly is
+/// what keeps a window straddling pause->resume from cancelling real drops
+/// against stale re-presents (see the note above and PC-13).
+constexpr bool carries_new_content(int frames_this_tick)
+{
+    return frames_this_tick > 0;
+}
 
 /// Frames a tick supersedes: every frame but the last, and only when the tick
 /// actually asked for a present (otherwise they are `unrendered`, not

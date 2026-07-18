@@ -154,26 +154,60 @@ int main(int argc, char* argv[])
               w.present_count() == before + 1, got(w.present_count()));
     }
 
-    // --- PC-G06: identical content still counts (the documented caveat) -------
-    // The widget counts frames HANDED OVER AND PAINTED, not distinct images:
-    // it does not compare pixels (a per-frame memcmp would cost more than the
-    // diagnostic is worth). This matters because while the debugger is PAUSED
-    // the frontend re-presents the same unchanged framebuffer every tick, so
-    // `presented` climbs with no new content shown.
-    //
-    // That is a real limitation, pinned here deliberately rather than left as
-    // an accident, and documented at src/platform/present_cadence.h. It is
-    // harmless for issue #9 (unpaused gameplay) and cannot corrupt the report:
-    // a paused window emulates nothing, so `dropped` floors at 0 (PC-04 in the
-    // arithmetic suite) rather than going negative.
+    // --- PC-G06: freshness is DECLARED by the caller, not inferred -------------
+    // The widget does not compare pixels (a per-frame memcmp would cost more
+    // than the diagnostic is worth), so two byte-identical frames declared as
+    // new content count twice. That is the contract: the caller knows whether
+    // it composited anything, and says so.
     {
         const uint64_t before = w.present_count();
-        w.update_frame(frame_a.data(), FB_W, FB_H);
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/true);
         settle();
-        w.update_frame(frame_a.data(), FB_W, FB_H);  // byte-identical content
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/true);
         settle();
-        check("PC-G06", "identical consecutive frames each count (no pixel compare)",
+        check("PC-G06", "identical frames declared new both count (no pixel compare)",
               w.present_count() == before + 2, got(w.present_count()));
+    }
+
+    // --- PC-G08: a STALE re-push is painted but not counted --------------------
+    // THE ROW THAT CLOSES THE PAUSE/RESUME HOLE. While the debugger is paused
+    // (or the audio pacer skips a tick) the frontend re-pushes the SAME
+    // framebuffer every tick. Counting those inflates `presented`, and a
+    // reporting window straddling pause->resume then cancels real drops
+    // against that inflation — `lost` reads 0 while frames are being lost.
+    // See the arithmetic-side reconstruction in PC-13.
+    //
+    // Mutate update_frame() to arm frame_pending_ unconditionally (i.e. ignore
+    // new_content) and this row fails.
+    {
+        const uint64_t before = w.present_count();
+        for (int i = 0; i < 5; i++) {
+            w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/false);
+            settle();
+        }
+        check("PC-G08a", "stale re-pushes present nothing, however many",
+              w.present_count() == before, got(w.present_count()));
+
+        // ...and the presentation itself is NOT suppressed: a genuinely new
+        // frame straight after a stale run still reaches the screen normally.
+        w.update_frame(frame_b.data(), FB_W, FB_H, /*new_content=*/true);
+        settle();
+        check("PC-G08b", "a new frame after stale re-pushes still presents",
+              w.present_count() == before + 1, got(w.present_count()));
+    }
+
+    // --- PC-G09: a stale re-push must not swallow a frame already pending -----
+    // The flag is sticky until served. A frame pushed at the end of one tick
+    // may still be unpainted when the next tick re-pushes it as stale; that
+    // pending frame must still be counted when its paint finally arrives.
+    // Guards against "clear the flag" rather than "don't set it".
+    {
+        const uint64_t before = w.present_count();
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/true);
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/false);
+        settle();
+        check("PC-G09", "a stale re-push does not cancel a frame already pending",
+              w.present_count() == before + 1, got(w.present_count()));
     }
 
     // --- PC-G07: a rejected frame presents nothing ----------------------------

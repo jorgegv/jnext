@@ -503,9 +503,20 @@ void QtApp::on_frame_tick() {
     // re-composited, so re-copying/prescaling the identical stale frame into
     // the widget would be pure waste.
     if (render_this_tick) {
+        // Task 63 (issue #9) — declare whether this push carries a newly
+        // composited frame. `frames_rendered == 0` means no run_frame() ran
+        // this tick (debugger paused, or the audio pacer skipping a tick
+        // because the device queue is high), so the framebuffer is byte-for-
+        // byte what was already shown. Presentation is unaffected either way;
+        // only present_count() accounting changes. Without this, a paused
+        // frontend re-presenting a static screen every tick inflates
+        // `presented`, and a window straddling pause->resume then floors
+        // `dropped` at 0 and reports lost=0 while frames really were lost.
+        const bool new_content = present_cadence::carries_new_content(frames_rendered);
         main_window_->emulator_widget()->update_frame(
             emulator_.get_framebuffer(),
-            emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height());
+            emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height(),
+            new_content);
     }
 
     // Task 63 (issue #9) — accumulate this tick into the cadence window.
