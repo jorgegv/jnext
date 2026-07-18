@@ -134,7 +134,6 @@ SD card and ROMs — is in **[USAGE.md](USAGE.md)**.
 | [TODO.md](TODO.md)                                             | Pending features and known issues                                                        |
 | [ChangeLog](ChangeLog)                                         | What changed in each release                                                             |
 | [CREDITS.md](CREDITS.md)                                       | Third-party libraries, references and acknowledgments                                    |
-| [CONTRIBUTORS.md](CONTRIBUTORS.md)                             | How to contribute; the strict pull-request review & merge protocol                       |
 | [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md)  | The development plan: real status, implemented features, roadmap                         |
 | [CURRENT-REGRESSION-STATE.md](doc/CURRENT-REGRESSION-STATE.md) | Current state of the screenshot regression suite                                         |
 
@@ -144,8 +143,21 @@ Contributions are welcome — shared effort is how software gets better, and eve
 good fix or feature makes the program better for everyone who uses it.
 
 Bug reports, feature requests and pull requests are all appreciated. Pull
-requests follow a defined review & merge protocol; see
-**[CONTRIBUTORS.md](CONTRIBUTORS.md)**.
+requests are reviewed strictly against a fixed protocol — a PR that does not
+comply is not merged. In short, every PR must:
+
+- ship **discriminative tests** for its change (they fail without the change and
+  pass with it);
+- **not modify existing tests** (without owner approval);
+- use only **license-clean fixtures**;
+- match the project's **code style**;
+- **not add dependencies** (without owner approval).
+
+A **bugfix** PR also needs a full bug description (or a linked bug issue); a
+**feature** PR also needs an explicit use case and a design document under
+`doc/`.
+
+Full rules: **[doc/PULL-REQUEST-PROTOCOL.md](doc/PULL-REQUEST-PROTOCOL.md)**.
 
 ## About this project
 
