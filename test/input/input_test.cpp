@@ -3950,6 +3950,67 @@ static void test_joy_source() {
         check("JRST-06", "a live direction supersedes the restored guess entirely",
               jd.bits12(0) == 0x001, DETAIL("bits=%03X", jd.bits12(0)));
     }
+    // --- restored DIAGONALS: only the reported pair is superseded -----------
+    //
+    // Found by independent review. Dropping the WHOLE restored mask on the
+    // first direction event looks reasonable until two directions were
+    // restored: release one and the other vanishes, even though nothing
+    // reported it changing. SDL never re-fires an event for an axis or button
+    // that did not move, so the lost direction never comes back.
+    //
+    // The rule is that an event speaks for the AXIS PAIR it belongs to and
+    // nothing else — pressing RIGHT asserts "not LEFT", but says nothing
+    // whatever about UP/DOWN.
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x00A);                       // UP+LEFT held (diagonal)
+        jd.resync();
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, false);   // release LEFT
+        check("JRST-07", "D-pad release supersedes only its own pair, UP survives",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x00A);                       // UP+LEFT
+        jd.resync();
+        jd.handle_raw_axis(0, 0, 0);                   // X centred; Y never moved
+        check("JRST-08", "X-axis centring leaves a restored UP untouched",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::CursorKeys);
+        joy.set_joy_left(0x00A);                       // UP+LEFT
+        jd.resync();
+        jd.set_cursor_bit(0, JoystickDispatcher::CursorBit::Left, false);
+        check("JRST-09", "cursor-key release supersedes only its own pair",
+              jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // A hat is the exception: its event reports absolute position for all
+        // four directions at once, so centring one legitimately supersedes
+        // both pairs.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x00A);                       // UP+LEFT
+        jd.resync();
+        jd.handle_raw_hat(0, 0, SDL_HAT_CENTERED);
+        check("JRST-10", "a hat speaks for both pairs, so it supersedes all four",
+              jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
+    }
+    {
+        // Opposite direction on the SAME pair must still supersede.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        joy.set_joy_left(0x00A);                       // UP+LEFT
+        jd.resync();
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+        check("JRST-11", "pressing the opposing direction replaces its pair only",
+              jd.bits12(0) == 0x009, DETAIL("bits=%03X", jd.bits12(0)));
+    }
 }
 
 int main() {

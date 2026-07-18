@@ -274,9 +274,10 @@ private:
     // Direction bits derived from the analogue axis latches below.
     uint16_t dir_from_axes(int idx) const;
 
-    // Discard the post-rewind restored directions for `idx`: a live source
-    // has spoken and is now authoritative.
-    void drop_restored_directions(int idx);
+    // Discard the post-rewind restored directions for `idx` that `reported`
+    // covers — a live source is authoritative only for the bits its event
+    // actually speaks for, never for the whole mask.
+    void drop_restored_directions(int idx, uint16_t reported);
 
     // Sticky per-connector axis-state cache. We need it because SDL emits
     // axis events as absolute positions (not deltas), and a single axis

@@ -38,6 +38,15 @@ constexpr uint16_t JBIT_MODE  = 1u << 11;  // MODE (MD6 latch)
 // exactly these, because the Next's DB9 ports carry nothing else.
 constexpr uint16_t DIR_MASK = JBIT_R | JBIT_L | JBIT_D | JBIT_U;
 
+// The opposing-direction pair a given direction bit belongs to. A D-pad or a
+// cursor key asserting LEFT is also asserting "not RIGHT" — they are the same
+// physical axis — but says nothing at all about UP/DOWN.
+inline uint16_t axis_pair_of(uint16_t dir_bit) {
+    if (dir_bit & (JBIT_L | JBIT_R)) return JBIT_L | JBIT_R;
+    if (dir_bit & (JBIT_U | JBIT_D)) return JBIT_U | JBIT_D;
+    return 0;
+}
+
 // Map an SDL_GameControllerButton to the corresponding 12-bit logical bit.
 // Returns 0 for unmapped buttons (LEFTSHOULDER, RIGHTSHOULDER, GUIDE,
 // triggers-as-buttons, paddle buttons, …).
@@ -163,11 +172,24 @@ void JoystickDispatcher::recompute(int idx)
     }
 }
 
-void JoystickDispatcher::drop_restored_directions(int idx)
+void JoystickDispatcher::drop_restored_directions(int idx, uint16_t reported)
 {
-    // Called by every DIRECTION source before it updates its own mask: once a
-    // real device reports a direction, the post-rewind guess is superseded.
-    dir_restored_[static_cast<size_t>(idx)] = 0;
+    // Called by every DIRECTION source before it updates its own mask, with
+    // the direction bits THAT EVENT actually speaks for.
+    //
+    // Only those bits are superseded. Dropping the whole restored mask would
+    // spuriously clear directions the event says nothing about: restore a
+    // diagonal UP+LEFT across a rewind, release LEFT, and UP would vanish even
+    // though nothing reported it changing — SDL never re-fires an event for an
+    // axis or button that did not move, so UP would be lost for good.
+    //
+    // What each source speaks for:
+    // The rule is uniform: an event speaks for the AXIS PAIR it belongs to.
+    //   D-pad button / cursor key  its pair (pressing RIGHT means not LEFT —
+    //                              one pad or key cannot assert both)
+    //   hat                        both pairs (a hat reports absolute position)
+    //   X axis                     L|R            Y axis   U|D
+    dir_restored_[static_cast<size_t>(idx)] &= static_cast<uint16_t>(~reported);
 }
 
 void JoystickDispatcher::apply_bit(int idx, uint16_t jbit, bool pressed)
@@ -192,7 +214,7 @@ void JoystickDispatcher::set_cursor_bit(int slot, CursorBit b, bool pressed)
         case CursorBit::Right: jbit = JBIT_R; break;
         case CursorBit::Fire:  jbit = JBIT_B; break;   // Fire 1 → port 0x1F bit 4
     }
-    if (jbit & DIR_MASK) drop_restored_directions(slot);
+    if (jbit & DIR_MASK) drop_restored_directions(slot, axis_pair_of(jbit));
     apply_bit(slot, jbit, pressed);
 }
 
@@ -209,7 +231,7 @@ void JoystickDispatcher::handle_button(int controller_idx, uint8_t sdl_button, b
         return;
     }
     const uint16_t bit = sdl_button_to_jbit(sdl_button);
-    if (bit & DIR_MASK) drop_restored_directions(controller_idx);
+    if (bit & DIR_MASK) drop_restored_directions(controller_idx, axis_pair_of(bit));
     if (bit == 0) {
         // Unmapped buttons (shoulders, guide, triggers-as-button, …)
         // are silently dropped. The Kempston/MD6 protocol exposes only
@@ -264,7 +286,11 @@ void JoystickDispatcher::handle_axis(int controller_idx, uint8_t sdl_axis, int16
         st.down_active  = (value > +AXIS_THRESHOLD);
     }
 
-    drop_restored_directions(controller_idx);
+    // An axis reports absolute position for ONE pair: X speaks for L|R, Y for
+    // U|D. It says nothing about the other pair, which must survive.
+    drop_restored_directions(controller_idx,
+                             is_x ? static_cast<uint16_t>(JBIT_L | JBIT_R)
+                                  : static_cast<uint16_t>(JBIT_U | JBIT_D));
     // The latches ARE this source's mask (dir_from_axes reads them), so the
     // union recompute below both merges with the other sources and decides
     // whether anything actually changed.
@@ -329,7 +355,7 @@ void JoystickDispatcher::handle_raw_hat(int connector_idx, uint8_t hat_index, ui
     if (hat_value & SDL_HAT_LEFT)  m |= JBIT_L;
     if (hat_value & SDL_HAT_RIGHT) m |= JBIT_R;
 
-    drop_restored_directions(connector_idx);
+    drop_restored_directions(connector_idx, DIR_MASK);   // hat = absolute, all four
     dir_hat_[static_cast<size_t>(connector_idx)][hat_index] = m;
     recompute(connector_idx);
 }
