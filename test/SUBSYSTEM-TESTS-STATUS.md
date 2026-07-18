@@ -17,7 +17,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      284 |      284 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub           |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub           |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      198 |      198 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -57,6 +57,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4787** | **4787** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **4793** | **4793** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
