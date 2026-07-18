@@ -1,5 +1,5 @@
 Name:           jnext
-Version:        0.98.37
+Version:        0.98.38
 Release:        1%{?dist}
 Summary:        Real-time ZX Spectrum Next emulator with an integrated debugger
 
@@ -55,6 +55,9 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 %{_datadir}/icons/hicolor/512x512/apps/io.github.zxjogv.jnext.png
 
 %changelog
+* Sat Jul 18 2026 ZXjogv <zx@jogv.es> - 0.98.38-1
+- New release 0.98.38.
+
 * Fri Jul 17 2026 ZXjogv <zx@jogv.es> - 0.98.37-1
 - New release 0.98.37.
 
