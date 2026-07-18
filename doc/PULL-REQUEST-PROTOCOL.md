@@ -43,11 +43,49 @@ requirements plus the ones for its type.
   with it**, and the PR must demonstrate this. A test that passes with or
   without the feature does not qualify.
 
+## Requirement checklist on the PR
+
+Every review records its result **in the PR description**, as a checklist of the
+requirements above. This is what tells the contributor exactly what is still
+missing, in their own PR, without reading a review thread.
+
+- The reviewer **adds** the section on first review and **updates** it on every
+  subsequent review. It is never left stale — an out-of-date checklist is worse
+  than none.
+- Tick only what is verified. Unticked items name what blocks the merge.
+- If the PR description cannot be edited, post the same checklist as a review
+  comment and keep updating that comment.
+
+Template (drop the flow that does not apply):
+
+```markdown
+## Review checklist (maintainer-maintained — updated at each review)
+
+**Common**
+- [ ] Tests included that exercise the change
+- [ ] No existing tests modified (or: justified + owner-approved)
+- [ ] Fixtures license-clean (GPLv3-compatible, nothing proprietary)
+- [ ] Code quality / style consistent with the project
+- [ ] No new dependencies (or: owner-approved)
+
+**Bugfix PR**
+- [ ] Bug description complete (all bug-template fields), or a linked bug issue
+- [ ] Tests are discriminative: FAIL before the fix, PASS after — demonstrated
+
+**Feature PR**
+- [ ] Functionality description with an explicit use case, or a linked issue
+- [ ] Design document under `doc/`, following existing conventions
+- [ ] Tests are discriminative: FAIL without the feature, PASS with it — demonstrated
+
+_Reviewed at commit `<sha>` on `<date>`. Verdict: **APPROVE / REJECT**._
+```
+
 ## Merge gate
 
 - A maintainer reviews the PR against this document.
 - Non-compliance is a **REJECT** with the failing rule cited; compliance is
   required before merge.
+- The checklist above is added or refreshed as part of every review.
 - The rest of the landing flow (branch, green test triplet, independent review,
   bump) follows [../CLAUDE.md](../CLAUDE.md) → "Merging a completed feature/fix
   to `main`".
