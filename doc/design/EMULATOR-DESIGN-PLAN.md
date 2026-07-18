@@ -1059,9 +1059,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] 05-dapr-print - verified and fixed
   - [x] 10-dapr-tilemapper - verified and fixed - split in 2 tests
 
-- [ ] Manual verification needed (moved to `interactive`):
-  - [ ] 06-dapr-keyb - currently not working OK
-  - [ ] 07-dapr-joystick - currently not working OK
+- [x] Manual verification needed (moved to `interactive`):
+  - [x] 06-dapr-keyb - verified and fixed (Task 77, v0.98.44) - all 16 VHDL extended keys bound; Esc=BREAK + Tab=EXTEND MODE match FUSE/ZEsarUX; arrows already correct (hardware synthesises CS+5678 itself, `membrane.vhd:180-240`)
+  - [x] 07-dapr-joystick - verified and fixed (Task 77, v0.98.44) - raw button 3 / controller Y moved off the unreachable `JBIT_MODE` to `JBIT_START`. NOTE: buttons 3/4 additionally require MD mode (NR 0x05 = 101/110); Kempston exposes only 2 fire bits (`zxnext.vhd:3470-3494`), and CSpect does not model that gating
   - [x] 08-dapr-covox - verified and fixed - ZesarUX bug
   - [x] 09-dapr-videoint - verified and fixed - ZesarUX bug
   - [x] 11-dapr-isometric - verified and fixed

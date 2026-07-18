@@ -625,7 +625,7 @@ void QtApp::on_status_tick() {
     // (last_status_ms_ is seeded when the timer starts, so this only guards
     // a clock anomaly, not the ordinary first tick.)
     if (cad.reportable) {
-        Log::platform()->info(
+        Log::platform()->debug(
             "cadence: emulated={} presented={} dropped={} "
             "(superseded={} unrendered={} lost={}) over {}ms | "
             "audio-catchup: {} doubles, {} skips",
