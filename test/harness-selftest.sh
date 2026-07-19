@@ -378,20 +378,22 @@ check "HS-32" "regression preflight: a stray scripts/*.sh not declared in the co
     "HARNESS FAULT" "bogus-func" "NOT declared"
 
 # ---------------- membership checks must never lose to SIGPIPE (Task 88b) ----------------
-# regression.sh asks "is this name in that list?" in three places: the rewind-func build
-# guard, want(), and the end-of-run completeness cross-check. All three used
+# The suite asks "is this name in that list?" in three places: want() in
+# test-functions.inc, plus the rewind-func build guard and the end-of-run completeness
+# cross-check in regression.sh. All three used
 # `printf '%s\n' "${LIST[@]}" | grep -qx "$name"`, which is unsound under the
-# `set -o pipefail` that script sets: grep -q exits the instant it matches, the printf
-# subshell can then die of SIGPIPE (141), and pipefail promotes 141 to the PIPELINE's
-# status — so a name that IS present reports as absent.
+# `set -o pipefail` those files run under: grep -q exits the instant it matches, the
+# printf subshell can then die of SIGPIPE (141), and pipefail promotes 141 to the
+# PIPELINE's status — so a name that IS present reports as absent.
 #
 # Why these rows exist at all, given the real completeness check cannot be driven here:
 # that check only runs on a FULL suite (no filter, not update mode), and this self-test is
 # itself invoked BY the suite as harness-selftest-func — driving a second full run from
 # here would recurse. So HS-28/29 pin the SEMANTICS of the membership pattern in isolation
-# (bash-only, no jnext binary, sub-second), and HS-30 is what BINDS regression.sh to them
-# by refusing the unsound idiom textually. The pair matters: without HS-30 these rows test
-# a copy of the pattern and would happily stay green while regression.sh regressed.
+# (bash-only, no jnext binary, sub-second), and HS-30 is what BINDS every suite source —
+# the driver, test-functions.inc and each scripts/*.sh — to them by refusing the unsound
+# idiom textually. The pair matters: without HS-30 these rows test a copy of the pattern
+# and would happily stay green while the suite regressed.
 #
 # Determinism comes from SIZE, not from repetition. The writer must be BLOCKED in write()
 # for SIGPIPE to land, so the payload has to exceed the pipe buffer (65536 on Linux):
@@ -424,11 +426,17 @@ absent=$(probe_count hash not-a-test-func 5)
 check "HS-29" "membership: present name found, absent name NOT found (no blanket yes)" 0 0 \
     "present=$present absent=$absent" "present=5/5" "absent=0/5"
 
-# The binding guard: regression.sh must not reintroduce the unsound idiom. Comments are
-# stripped first so the explanatory text above each fixed site does not self-trigger.
-REG_SH="$PROJECT_DIR/test/00regression/regression.sh"
-offenders=$(sed -E 's/^[[:space:]]*#.*$//' "$REG_SH" | grep -nE "printf.*\|[[:space:]]*grep[[:space:]]+-q" || true)
-check "HS-30" "regression.sh does not reintroduce 'printf ... | grep -q' membership" 0 0 \
+# The binding guard: no suite source may reintroduce the unsound idiom — the scan covers
+# the driver, the shared lib and every scripts/*.sh. Comments are stripped first so the
+# explanatory text above each fixed site does not self-trigger.
+offenders=""
+for src in "$REG" \
+           "$PROJECT_DIR/test/00regression/test-functions.inc" \
+           "$PROJECT_DIR"/test/00regression/scripts/*.sh; do
+    hits=$(sed -E 's/^[[:space:]]*#.*$//' "$src" | grep -nE "printf.*\|[[:space:]]*grep[[:space:]]+-q" || true)
+    [[ -z "$hits" ]] || offenders+="${src##*/}: ${hits}"$'\n'
+done
+check "HS-30" "no suite source reintroduces 'printf ... | grep -q' membership" 0 0 \
     "offenders=[${offenders}]" "offenders=[]"
 
 echo ""

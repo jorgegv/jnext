@@ -18,6 +18,9 @@
 #      manifests; JNEXT_REGRESSION_SCRIPTS_DIR overrides the test-script
 #      directory (the self-test uses these to inject a truncated or unpinned
 #      manifest, a declared test with no script, or a stray undeclared script).
+#      JNEXT_REGRESSION_SCRIPTS_DIR is usable with --preflight-only ONLY: a
+#      full run sources the override's scripts, which resolve
+#      ../test-functions.inc relative to their own directory and die loudly.
 
 set -euo pipefail
 
