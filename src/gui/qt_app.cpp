@@ -387,12 +387,8 @@ void QtApp::on_frame_tick() {
     // Task 91 — the tick's order and its cross-tick state live in
     // frame_sequencer::Sequencer, under unit test (frame_sequencer_test).
     // This is the whole of the Qt-side frame tick.
-    static int probe_calls = 0; ++probe_calls;
     TickEffects fx{*this};
     seq_.tick(fx);
-    if (probe_calls % 50 == 0)
-        std::fprintf(stderr, "PROBE tick#%d seq=%p stats.ticks=%llu\n", probe_calls,
-                     (void*)&seq_, (unsigned long long)seq_.stats().ticks);
 }
 
 // --- TickEffects: the frontend work the sequencer drives -------------------
@@ -603,8 +599,6 @@ void QtApp::on_status_tick() {
     if (main_window_->emulator_widget()) {
         seq_.stats().paint_us = main_window_->emulator_widget()->take_paint_stats();
     }
-    std::fprintf(stderr, "PROBE status seq=%p stats.ticks=%llu\n", (void*)&seq_,
-                 (unsigned long long)seq_.stats().ticks);
     const tick_stats::Report ts = tick_stats::summarize(seq_.stats());
     seq_.reset_stats();
     if (cad.reportable) {

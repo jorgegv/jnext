@@ -115,6 +115,7 @@ BEGIN {
     M["render_policy_test"]            = "Render-skip policy"
     M["frame_deadline_test"]           = "Frame-deadline scheduler"
     M["tick_stats_test"]               = "Tick-delivery stats"
+    M["frame_sequencer_test"]          = "Frame-tick sequencer (wiring)"
     M["present_count_test"]            = "Present count (widget)"
     M["esc_break_test"]                = "Esc/BREAK + fullscreen routing"
     M["log_test"]                      = "Logging"
