@@ -2938,6 +2938,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // VHDL :4550-4551 — bit 3 unconditionally latches ulap_en (a second
         // writer to the same register the port-0xFF3B path drives).
         renderer_.ula().set_ulap_en((v & 0x08) != 0);
+        // Bit 4 = cancel extended-key entries in the 8x5 matrix
+        // (zxnext.vhd:5447 -> :1584 o_KBD_CANCEL, acted on at
+        // membrane.vhd:183-186). A level: while set, the extended keys stop
+        // folding into the matrix but NR 0xB0/0xB1 keep reporting them.
+        keyboard_.set_cancel_extended_entries((v & 0x10) != 0);
         return v;
     });
     // VHDL zxnext.vhd:6093 reads NR 0x68 by composing bit 3 from the live

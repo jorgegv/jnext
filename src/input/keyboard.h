@@ -131,14 +131,15 @@ public:
     /// consults these to hold a releasing CS/SYM bit for one extra scan.
     void tick_scan();
 
-    /// Called by external logic (e.g. a DivMMC hotkey handler) to cancel
-    /// all extended-key entries for this scan. Per membrane.vhd:183-186
-    /// (the reset/cancel branch of the matrix_state_ex process):
-    /// matrix_state_ex_{0,1} and matrix_work_ex are forced to '1' i.e.
-    /// all-released in the VHDL's internal active-low representation.
-    /// In our active-high C++ model (NR 0xB0/0xB1 bit=1 => pressed, per
-    /// Phase-1 polarity fix) that corresponds to ex_matrix_ = 0x0000.
-    void cancel_extended_entries();
+    /// NR 0x68 bit 4 — "cancel entries in the 8x5 matrix for extended keys".
+    /// A LEVEL, not an edge: while set, the extended keys stop folding into
+    /// the membrane matrix (both their digit column AND the Caps/Symbol
+    /// Shift they synthesise), but NR 0xB0/0xB1 keep reporting them. See
+    /// set_cancel_extended_entries() for the two-signal VHDL derivation this
+    /// mirrors; the short version is that the cancel bit gates the FOLD and
+    /// leaves the RAW register alone.
+    void set_cancel_extended_entries(bool on);
+    bool cancel_extended_entries() const { return cancel_extended_; }
 
     /// NR 0xB0 readback (ACTIVE-HIGH): low 8 bits of ex_matrix_ — bits
     /// ';' '"' ',' '.' UP DOWN LEFT RIGHT (7..0) per zxnext.vhd:6208.
@@ -188,6 +189,11 @@ private:
     /// membrane folding (membrane.vhd:236-240) and by nr_b0_byte() /
     /// nr_b1_byte() for NR readbacks.
     uint16_t ex_matrix_ = 0x0000;
+
+    /// NR 0x68 bit 4 mirror. Gates the extended-key fold in read_rows();
+    /// never gates nr_b0_byte()/nr_b1_byte(). Machine state (a register
+    /// bit), so it is serialised.
+    bool cancel_extended_ = false;
 
     /// Task 77 — host-side Alt modifier state, and the per-scancode latch
     /// recording whether a held key was resolved through the Alt-modified
