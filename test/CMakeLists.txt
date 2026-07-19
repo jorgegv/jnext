@@ -450,6 +450,10 @@ add_test(NAME frame_deadline_tests COMMAND frame_deadline_test)
 # under test (src/platform/tick_stats.h) — no Qt, no SDL, no emulator core.
 # Discriminates the four issue-#9 mechanisms (late callbacks / slow emulation /
 # slow paint / audio-queue starvation) behind the per-second `ticks:` line.
+add_executable(frame_sequencer_test platform/frame_sequencer_test.cpp)
+target_include_directories(frame_sequencer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME frame_sequencer_tests COMMAND frame_sequencer_test)
+
 add_executable(tick_stats_test platform/tick_stats_test.cpp)
 target_include_directories(tick_stats_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tick_stats_tests COMMAND tick_stats_test)
