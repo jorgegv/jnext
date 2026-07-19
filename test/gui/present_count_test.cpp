@@ -210,6 +210,82 @@ int main(int argc, char* argv[])
               w.present_count() == before + 1, got(w.present_count()));
     }
 
+    // --- PC-G10..G14: the paint-cost samples (Task 63 tick-stats) --------------
+    // Spec (tick-delivery diagnostics): the widget accumulates the duration of
+    // each paintEvent that CONSUMES a pending new frame, drained via
+    // take_paint_stats(). Spontaneous repaints of an already-shown frame and
+    // stale re-pushes must NOT pollute the stats — mechanism (c) of issue #9
+    // is "presenting a NEW frame is too slow", and re-blit costs of frames the
+    // emulator is not producing would dilute exactly the ticks under
+    // suspicion.
+
+    // --- PC-G10: one served frame, one sample; draining resets ----------------
+    {
+        w.take_paint_stats();  // discard everything the rows above accumulated
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/true);
+        settle();
+        const tick_stats::Stat s = w.take_paint_stats();
+        check("PC-G10a", "one served frame yields exactly one paint sample",
+              s.count == 1, "count=" + std::to_string(s.count));
+        check("PC-G10b", "the sample is a sane duration (0 <= min <= max)",
+              s.min >= 0 && s.min <= s.max,
+              "min=" + std::to_string(s.min) + " max=" + std::to_string(s.max));
+        const tick_stats::Stat drained = w.take_paint_stats();
+        check("PC-G10c", "take_paint_stats() drains: a second take is empty",
+              drained.count == 0, "count=" + std::to_string(drained.count));
+    }
+
+    // --- PC-G11: spontaneous repaints add no sample ---------------------------
+    // A bare repaint() is a real paintEvent that serves no new frame — the
+    // discriminative stimulus of PC-G03, applied to the paint stats.
+    {
+        w.repaint();
+        w.repaint();
+        settle();
+        const tick_stats::Stat s = w.take_paint_stats();
+        check("PC-G11", "repaint() of an already-shown frame samples nothing",
+              s.count == 0, "count=" + std::to_string(s.count));
+    }
+
+    // --- PC-G12: stale re-pushes add no sample --------------------------------
+    // A paused frontend re-pushes the same framebuffer every tick
+    // (new_content=false). Those paints happen, but they present nothing new
+    // and must not be sampled.
+    {
+        for (int i = 0; i < 5; i++) {
+            w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/false);
+            settle();
+        }
+        const tick_stats::Stat s = w.take_paint_stats();
+        check("PC-G12", "stale re-pushes are painted but never sampled",
+              s.count == 0, "count=" + std::to_string(s.count));
+    }
+
+    // --- PC-G13: one sample per served frame ----------------------------------
+    {
+        for (int i = 0; i < 3; i++) {
+            w.update_frame(i % 2 ? frame_a.data() : frame_b.data(), FB_W, FB_H,
+                           /*new_content=*/true);
+            settle();
+        }
+        const tick_stats::Stat s = w.take_paint_stats();
+        check("PC-G13", "three frames served one by one yield three samples",
+              s.count == 3, "count=" + std::to_string(s.count));
+    }
+
+    // --- PC-G14: coalesced pushes yield one sample ----------------------------
+    // Three pushes, one paint (Qt coalesces update()): only the frame that is
+    // actually served is sampled — the widget-level mirror of PC-G05.
+    {
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/true);
+        w.update_frame(frame_b.data(), FB_W, FB_H, /*new_content=*/true);
+        w.update_frame(frame_a.data(), FB_W, FB_H, /*new_content=*/true);
+        settle();
+        const tick_stats::Stat s = w.take_paint_stats();
+        check("PC-G14", "three coalesced pushes painted once sample once",
+              s.count == 1, "count=" + std::to_string(s.count));
+    }
+
     // --- PC-G07: a rejected frame presents nothing ----------------------------
     // update_frame() ignores a null/degenerate framebuffer. Nothing was handed
     // over, so nothing may be counted — and no stale pending flag may leak

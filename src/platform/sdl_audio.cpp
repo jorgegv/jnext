@@ -35,8 +35,14 @@ bool SdlAudio::init()
     SDL_PauseAudioDevice(device_, 0);
 
     initialized_ = true;
-    Log::platform()->info("Audio: {}Hz {}ch format={:#06x}",
-                           have.freq, have.channels, have.format);
+    // Task 63 (issue #9) — name the SDL audio backend (pulseaudio / pipewire /
+    // alsa / dsp ...) so a reporter's log answers the backend question without
+    // an extra run. Null only if SDL audio somehow closed again — print it
+    // honestly rather than crash fmt with a nullptr.
+    const char* audio_driver = SDL_GetCurrentAudioDriver();
+    Log::platform()->info("Audio: {}Hz {}ch format={:#06x} driver={}",
+                           have.freq, have.channels, have.format,
+                           audio_driver ? audio_driver : "(unknown)");
     return true;
 }
 
