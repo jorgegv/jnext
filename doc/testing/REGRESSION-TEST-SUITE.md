@@ -176,3 +176,50 @@ so pacing emulation on a wall-clock timer starves (48K: 50.08 Hz frame vs 50.00
 Hz timer) or floods (128K/Next: 49.36 Hz) the device queue. See
 `src/platform/audio_pacing.h`. On the pre-fix binary this test reports 25
 underruns; the fix reports none.
+
+## Design notes
+
+Load-bearing rationale that used to live as long comments inside
+`regression.sh`; the script now carries only terse functional comments.
+
+- **Why the `# expect: N` pins exist.** Without a pinned count, deleting a
+  test row shrinks the declared and reported sides of the completeness check
+  in lockstep: a review experiment removed one screenshot row plus its
+  reference image and got a green run whose smaller total matched a previously
+  published baseline. The pin forces the denominator to be stated out loud.
+- **Why the preflight is itself under test** (`--preflight-only` +
+  `test/harness-selftest.sh`). Two preflight guards once shipped dead — a grep
+  exiting 1 under `set -e` killed the script before the fault could print —
+  and the unit-test harness once shipped a bug that appeared only when a suite
+  failed. Untested guards ship broken; the self-test injects each fault and
+  asserts the refusal.
+- **Why the suite self-provisions the SD image instead of a repo fixture.**
+  The earlier git-ignored local fixture (`roms/nextzxos-1gb-fat32fix.img`) had
+  accumulated dev-session leftover files, which made `boot-nextzxos-dotls`
+  (which screenshots a live SD directory listing) unreproducible against a
+  clean checkout. The pristine self-provisioned `~/.jnext/sdcard/` image is
+  the same one an end user gets, so references stay reproducible.
+- **Why membership/count checks are pure-bash hashes.**
+  `printf ... | grep -q` over a list is unsound under `set -o pipefail`: grep
+  exits on match, printf can die of SIGPIPE (141), and pipefail promotes 141 —
+  a present name reports as absent. The measured capacity-vs-scheduling
+  analysis lives in the Task 88 write-up (`.prompts/2026-07-18.md`); the idiom
+  is also textually banned by harness-selftest HS-30.
+- **render-skip engagement upper bound (590).** An early throttle bug (an
+  INT64_MIN sentinel overflow in the now-last subtraction) skipped every
+  single frame — 601 skips in 601 frames, frozen display. The `<= 590` bound
+  rejects that skip-everything mode while leaving room for the fastest
+  plausible tick rate.
+- **Snapshot reload is pixel-verified.** A review mutation wrote all-zero RAM
+  into every ZXSTRAMPAGE payload: structurally valid, loads fine, renders
+  garbage — "a PNG came out" passes, the pixel comparison does not.
+- **Tape-save boot guard.** An ungated SA-BYTES trap fired 10 times during a
+  normal NextZXOS boot, appending ~327 KB of garbage and breaking the boot;
+  the ROM-identity gate (48K prologue bytes at 0x04C2) plus the
+  `tape-save-boot-func` row keep it fixed.
+- **audio-underrun under Xvfb/Wayland.** The stray-desktop-window fix (unset
+  `WAYLAND_DISPLAY`, force the X11 backends) was verified by strace (two
+  connects to `wayland-0` pre-fix). Pointing `WAYLAND_DISPLAY` at a dead
+  socket instead makes SDL fail to open an audio backend and the row SKIPs —
+  a silently-disabled test is the worse trade versus a harmless residual
+  probe connect.
