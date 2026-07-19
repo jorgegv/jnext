@@ -161,6 +161,19 @@ int main()
               m.forward && m.dx == 6 && m.dy == 3, fmt(m));
     }
 
+    // PC-10: the echo check must compare BOTH axes. PC-07 covers horizontal
+    // motion at the vertical centre; this is its mirror — vertical motion
+    // while x happens to equal the centre's x. Without it, an echo check that
+    // tested only x would treat every such event as the warp echo and drop
+    // real vertical motion. (Found by review mutation: that exact defect
+    // passed all previous rows.)
+    {
+        auto p = settled(CX, CY);
+        const auto m = p.on_motion(CX, CY - 6, CX, CY);
+        check("PC-10", "vertical motion at the centre's x is real motion, not the echo",
+              m.forward && m.dx == 0 && m.dy == -6 && m.recentre, fmt(m));
+    }
+
     std::printf("\n==============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

@@ -97,7 +97,8 @@ bool SdlApp::init(int argc, char* argv[]) {
                 const SDL_Keymod m = SDL_GetModState();
                 if ((m & KMOD_CTRL) && (m & KMOD_ALT)) {
                     set_mouse_captured(false);
-                    return;
+                    // Not consumed — see the Qt handler: swallowing the Alt
+                    // key-down would desync Keyboard's host Alt-modifier state.
                 }
             }
             if (sc == SDL_SCANCODE_F11) {
@@ -416,11 +417,24 @@ void SdlApp::set_mouse_captured(bool on)
 {
     if (on == mouse_captured_) return;
     if (SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE) != 0) {
-        Log::platform()->warn("Mouse capture {} failed: {}",
-                              on ? "enable" : "disable", SDL_GetError());
-        if (on) return;
+        // Enable failing means the pointer is NOT captured, so leave the flag
+        // false rather than claim it. Disable failing is worse — SDL still
+        // holds the pointer — but clearing the flag anyway at least stops
+        // feeding the guest, and says so loudly.
+        if (on) {
+            Log::platform()->warn("Mouse capture failed: {}", SDL_GetError());
+            return;
+        }
+        Log::platform()->error("Mouse release failed, pointer may stay grabbed: {}",
+                               SDL_GetError());
     }
     mouse_captured_ = on;
+    if (!on && mouse_dispatcher_) {
+        // Same stuck-button hazard as the Qt frontend: buttons are only
+        // forwarded while captured, so one held as capture ends would never
+        // have its release delivered.
+        mouse_dispatcher_->reset();
+    }
     Log::platform()->info("Mouse {} ({})", on ? "captured" : "released",
                           on ? "Ctrl+Alt to release" : "click the window to capture");
 }

@@ -2398,6 +2398,46 @@ static void test_mouse() {
                      consumed_mot, consumed_bdn, consumed_whl, consumed_other,
                      fbdf, ffdf, fadf));
     }
+
+    // ── MOUSE-16/17: capture-drop button hygiene (issue #37) ──────────────
+    //
+    // Both frontends forward mouse buttons ONLY while the pointer is
+    // captured. A button still held when capture ends therefore never has its
+    // release delivered, so without an explicit clear the guest's Kempston
+    // register latches "pressed" for ever — and the auto-release-on-focus-loss
+    // path makes that a one-alt-tab accident mid-drag. MouseDispatcher::reset()
+    // is what the frontends call on that transition; these rows pin its
+    // contract. (Regression found in review; the frontends had no caller.)
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+        d.handle_button(SDL_BUTTON_LEFT, true);
+        const uint8_t held = m.read_port_fadf();
+        d.reset();                       // capture drops here
+        const uint8_t after = m.read_port_fadf();
+        check("MOUSE-16",
+              "reset() clears a held button so it cannot latch across a "
+              "capture drop  (issue #37)",
+              (held & 0x02) == 0 &&      // L pressed → bit 1 low (active-low)
+              (after & 0x02) != 0,       // released after the drop
+              DETAIL("held=0x%02X after=0x%02X", held, after));
+    }
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+        d.handle_button(SDL_BUTTON_LEFT,   true);
+        d.handle_button(SDL_BUTTON_RIGHT,  true);
+        d.handle_button(SDL_BUTTON_MIDDLE, true);
+        d.handle_wheel(3);
+        d.reset();
+        const uint8_t after = m.read_port_fadf();
+        check("MOUSE-17",
+              "reset() clears EVERY button and the wheel, not just one  "
+              "(issue #37)",
+              (after & 0x07) == 0x07 &&          // all three released
+              ((after >> 4) & 0x0F) == 0x00,     // wheel zeroed
+              DETAIL("after=0x%02X (want low 3 bits set, hi nibble 0)", after));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

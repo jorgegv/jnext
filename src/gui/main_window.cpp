@@ -1172,8 +1172,13 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             ((key == Qt::Key_Alt     && (modifiers & Qt::ControlModifier)) ||
              (key == Qt::Key_Control && (modifiers & Qt::AltModifier)))) {
             set_mouse_captured(false);
-            event->accept();
-            return;
+            // Deliberately NOT consumed: fall through to normal key handling.
+            // Keyboard::set_key() treats Alt as a host modifier (never a ZX
+            // key) and swallowing it here would leave alt_held_ false, so the
+            // Alt-compounds (EDIT = Alt+E, GRAPH = Alt+G, CAPS LOCK = Alt+C)
+            // would silently resolve to their unmodified meaning until Alt was
+            // released and pressed again. Ctrl was already forwarded on its own
+            // key-down, so falling through changes nothing for it.
         }
 
 #ifdef ENABLE_DEBUGGER
@@ -1462,6 +1467,11 @@ void MainWindow::set_mouse_captured(bool on) {
         statusBar()->showMessage(tr("Mouse captured — Ctrl+Alt to release"), 4000);
     } else {
         releaseMouse();
+        // Drop any latched button/wheel state. Buttons are only forwarded
+        // while captured, so a button still held as capture ends would never
+        // have its release delivered — the guest would see it pressed for
+        // ever. Easy to hit: alt-tab mid-drag (that path auto-releases too).
+        if (mouse_dispatcher_) mouse_dispatcher_->reset();
         if (emulator_widget_) emulator_widget_->unsetCursor();
         setWindowTitle(base_window_title_);
         statusBar()->showMessage(tr("Mouse released"), 2000);
