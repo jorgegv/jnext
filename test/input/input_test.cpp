@@ -523,6 +523,73 @@ static void test_kbdhys() {
               DETAIL("down=0x%02X up=0x%02X", b0_down, b0_up));
     }
 
+    // EXTC-08a..d: every cursor key, end to end from the host scancode to the
+    // matrix. UP alone was exercised by the rows above, which left LEFT, DOWN
+    // and RIGHT with no discriminative coverage at all: disabling their
+    // routing entries, or pointing their fold at the wrong column, passed the
+    // whole suite (found by review mutation). Each row drives set_key() and
+    // reads the folded matrix, so it fails on either mistake.
+    {
+        struct Arrow {
+            const char*   id;
+            SDL_Scancode  sc;
+            int           row;      // membrane row the digit lands in
+            int           col;      // column within that row
+            const char*   what;
+        };
+        static const Arrow arrows[] = {
+            {"EXTC-08a", SDL_SCANCODE_LEFT,  3, 4, "LEFT  folds to CAPS SHIFT + 5 (row 3 col 4)"},
+            {"EXTC-08b", SDL_SCANCODE_DOWN,  4, 4, "DOWN  folds to CAPS SHIFT + 6 (row 4 col 4)"},
+            {"EXTC-08c", SDL_SCANCODE_UP,    4, 3, "UP    folds to CAPS SHIFT + 7 (row 4 col 3)"},
+            {"EXTC-08d", SDL_SCANCODE_RIGHT, 4, 2, "RIGHT folds to CAPS SHIFT + 8 (row 4 col 2)"},
+        };
+        for (const Arrow& a : arrows) {
+            Keyboard kb = fresh_keyboard();
+            kb.set_key(a.sc, true);
+            const uint8_t row0  = kb.read_rows(row_addr(0));         // Caps Shift
+            const uint8_t rowN  = kb.read_rows(row_addr(a.row));     // the digit
+            // Every other row must be untouched — a fold aimed at the wrong
+            // row would otherwise hide behind the two rows we do check.
+            bool others_clean = true;
+            for (int r = 0; r < 8; ++r) {
+                if (r == 0 || r == a.row) continue;
+                if (kb.read_rows(row_addr(r)) != 0x1F) others_clean = false;
+            }
+            check(a.id, a.what,
+                  (row0 & 0x01u) == 0 &&
+                  (rowN & (1u << a.col)) == 0 &&
+                  // only that one column in the digit row
+                  (rowN | static_cast<uint8_t>(1u << a.col)) == 0x1F &&
+                  others_clean,
+                  DETAIL("row0=0x%02X row%d=0x%02X others_clean=%d",
+                         row0, a.row, rowN, others_clean ? 1 : 0));
+        }
+    }
+
+    // EXTC-09: the cancel bit is machine state (a register bit the guest
+    // sets), so it must survive a save/load — jnext snapshots every frame for
+    // rewind, so losing it would silently re-enable the fold mid-game. Its
+    // doc comment claimed it was serialised while it was not (found by review).
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_cancel_extended_entries(true);
+
+        StateWriter measure;
+        kb.save_state(measure);
+        std::vector<uint8_t> snap(measure.position(), 0);
+        StateWriter w(snap.data(), snap.size());
+        kb.save_state(w);
+
+        Keyboard kb2 = fresh_keyboard();
+        StateReader r(snap.data(), snap.size());
+        kb2.load_state(r);
+        check("EXTC-09",
+              "the NR 0x68 bit 4 cancel state survives save/load (rewind-safe)",
+              kb2.cancel_extended_entries(),
+              DETAIL("after load = %d, want 1",
+                     kb2.cancel_extended_entries() ? 1 : 0));
+    }
+
     // EXTC-07: the GUEST-REACHABLE path. Everything above drives
     // set_cancel_extended_entries() directly on a bare Keyboard, which leaves
     // the NR 0x68 write handler itself untested — remove that one line from

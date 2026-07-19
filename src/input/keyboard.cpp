@@ -561,6 +561,10 @@ void Keyboard::save_state(StateWriter& w) const
     }
     w.write_i32(auto_frame_count_);
     w.write_bool(auto_gap_);
+    // NR 0x68 bit 4 mirror. Machine state — a register bit the guest sets —
+    // so it must travel with the snapshot. Written LAST so the field order of
+    // every pre-existing reader is untouched.
+    w.write_bool(cancel_extended_);
 }
 
 void Keyboard::load_state(StateReader& r)
@@ -585,4 +589,5 @@ void Keyboard::load_state(StateReader& r)
     }
     auto_frame_count_ = r.read_i32();
     auto_gap_         = r.read_bool();
+    cancel_extended_  = r.read_bool();
 }

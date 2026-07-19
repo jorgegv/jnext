@@ -2919,7 +2919,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 6:5 = ula_blend_mode_2 — feeds mix_rgb / mix_top / mix_bot
     //            selection for priority modes 6/7 (VHDL zxnext.vhd:7141-7178).
     //            Encoding: 00 default, 10 ula_final as U, 11 TM as U, 01 transp.
-    //   bit 4 = cancel extended keys (not wired here)
+    //   bit 4 = cancel extended keys (wired below to Keyboard; issue #33)
     //   bit 3 = ULA+ enable (VHDL zxnext.vhd:4550-4551 — any NR 0x68 write
     //           unconditionally latches nr_wr_dat(3) into port_ff3b_ulap_en,
     //           distinct from the port-0xFF3B path at :4547-4554 which gates
