@@ -85,6 +85,10 @@ export XDG_CONFIG_HOME="$TMP_DIR/xdg-config-home"
 # Pixel difference tolerance (0 = exact match)
 TOLERANCE=${JNEXT_TEST_TOLERANCE:-0}
 
+# Pinned RTC for deterministic NextZXOS boot screenshots (must match the
+# checked-in boot-nextzxos-* references).
+NEXTZXOS_RTC="2026-07-10T08:55:00"
+
 # Parse arguments
 UPDATE_MODE=false
 PREFLIGHT_ONLY=false
@@ -1205,7 +1209,7 @@ if want tape-save-boot-func; then
     ts_png="/tmp/jnext_test_tapesave_boot.png"
     rm -f "$ts_tap" "$ts_png"
     ts_out=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
-        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
         --tape-save "$ts_tap" \
         --delayed-screenshot "$ts_png" --delayed-screenshot-frames 400 \
         --delayed-automatic-exit-frames 420 2>&1) || true
@@ -1238,7 +1242,7 @@ if want reset-to-nextzxos-func; then
     rm -f "$rst_png"
     JNEXT_DELAYED_RESET_FRAMES=450 JNEXT_DELAYED_RESET_TYPE=hard \
     timeout --foreground --kill-after=5s 150s "$JNEXT" --headless --machine next \
-        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
         --delayed-screenshot "$rst_png" --delayed-screenshot-frames 900 \
         --delayed-automatic-exit-frames 920 >/dev/null 2>&1 || true
     rst_diff=999999
@@ -1266,13 +1270,13 @@ if want cold-boot-load-rzx-func; then
     cb_rzx="$TMP_DIR/cold_boot_test.rzx"
     rm -f "$cb_rzx"
     timeout --foreground --kill-after=5s 40s "$JNEXT" --headless --machine next \
-        "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+        "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
         --rzx-record "$cb_rzx" --delayed-automatic-exit-frames 120 >/dev/null 2>&1 || true
     cb_out=""
     if [[ -f "$cb_rzx" ]]; then
         cb_out=$(JNEXT_DELAYED_RESET_FRAMES=420 JNEXT_DELAYED_RESET_TYPE="loadnex:$cb_rzx" \
             timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next \
-            "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
+            "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
             --delayed-automatic-exit-frames 520 2>&1 || true)
     fi
     if echo "$cb_out" | grep -q "RZX: playback started"; then
