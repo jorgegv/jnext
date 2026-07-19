@@ -2,6 +2,7 @@
 #include "version.h"
 #include "gui/emulator_widget.h"
 #include "gui/preferences_dialog.h"
+#include "gui/preferences_apply_policy.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -856,10 +857,33 @@ void MainWindow::on_reset() {
 
 void MainWindow::on_machine_type(MachineType type) {
     if (!emulator_) return;
-    // Machine type change requires full reinit — update config and reset
-    EmulatorConfig cfg = emulator_->config();
-    cfg.type = type;
-    emulator_->init(cfg);
+
+    // Issue #40 — a machine type that is already running needs nothing done to
+    // it. This used to reinit unconditionally, which is what let an unrelated
+    // Preferences Apply nuke the machine.
+    //
+    // DELIBERATE UX CHANGE, slightly beyond the issue's literal ask: this also
+    // makes the Machine menu a no-op when you pick the machine you are already
+    // running (it used to reboot). Chosen over special-casing the menu because
+    // "select 48K while running 48K" is not a request to restart — Machine >
+    // Reset (and F1) is, and it remains the way to do it. Keeping the reboot
+    // here would also mean the menu and Preferences disagree about what
+    // selecting an unchanged machine type means. Pinned by PA-05/PA-06.
+    if (!preferences_restart_required(emulator_->config().type, type)) {
+        machine_label_->setText(tr(machine_type_str(type)));
+        return;
+    }
+
+    // A real change is a power cycle, and it goes through the frontend's ONE
+    // canonical cold-boot path (reconstruct + init + re-wire the host), not a
+    // bare Emulator::init() from here.
+    if (!reboot_callback_) {
+        Log::platform()->error(
+            "Machine type change to {} ignored: no reboot callback installed "
+            "(the frontend owns the cold-boot path).", machine_type_str(type));
+        return;
+    }
+    reboot_callback_(type);
     machine_label_->setText(tr(machine_type_str(type)));
 }
 
@@ -1122,13 +1146,59 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     }
 }
 
-void MainWindow::apply_preferences(const AppConfigData& cfg) {
-    // Interactive change from the Preferences dialog: unlike
-    // apply_startup_config(), this is the ONLY place the raw machine type is
-    // applied, so it's always the user's explicit choice right now — no CLI
-    // precedence to respect. Mirrors the Machine menu's on_machine_type().
-    if (emulator_) on_machine_type(cfg.machine_type);
+bool MainWindow::confirm_machine_restart_dialog(MachineType requested) {
+    const auto answer = QMessageBox::question(
+        this, tr("Change Machine Type"),
+        tr("Switching to %1 restarts the emulator — anything currently "
+           "running will be lost.\n\nRestart now?\n\n"
+           "(Choosing No keeps the machine running and applies the new "
+           "machine type the next time jnext starts.)")
+            .arg(tr(machine_type_str(requested))),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    return answer == QMessageBox::Yes;
+}
 
+void MainWindow::apply_preferences(const AppConfigData& cfg) {
+    // Issue #40 — "Apply" applies settings to the RUNNING machine. Everything
+    // in this dialog can be pushed live except the machine type, which is a
+    // power cycle. So: only act on the machine type when it actually differs
+    // from what is running, and when it does, ask first — the user came here
+    // to change a joypad source, not to lose what they were running.
+    //
+    // This is deliberately asymmetric with the Machine menu, which reboots
+    // without asking: picking "48K" from a menu called Machine IS the explicit
+    // request. Here the machine type is one field among many on a tab the user
+    // may not even have touched, so a silent reboot is a surprise.
+    //
+    // Declining leaves the machine running and the new type persisted (the
+    // dialog saved it before calling us), so it takes effect on next launch.
+    const bool restart_required =
+        emulator_ && preferences_restart_required(emulator_->config().type,
+                                                  cfg.machine_type);
+    bool confirmed = false;
+    if (restart_required) {
+        confirmed = confirm_restart_callback_
+                        ? confirm_restart_callback_(cfg.machine_type)
+                        : confirm_machine_restart_dialog(cfg.machine_type);
+    }
+
+    switch (preferences_apply_outcome(restart_required, confirmed)) {
+    case PreferencesApplyOutcome::RebootThenApplyLive:
+        on_machine_type(cfg.machine_type);
+        break;
+    case PreferencesApplyOutcome::DeferMachineType:
+        Log::platform()->info(
+            "Preferences: machine type {} saved but NOT applied (restart "
+            "declined); it takes effect on next launch.",
+            machine_type_str(cfg.machine_type));
+        break;
+    case PreferencesApplyOutcome::ApplyLiveOnly:
+        break;
+    }
+
+    // Every other setting applies live and silently, in every outcome above —
+    // declining the restart must not also discard the joypad change that the
+    // user actually came here to make.
     apply_startup_config(cfg);
 
     // Task 79 — live-apply the per-connector input sources. The dialog already
