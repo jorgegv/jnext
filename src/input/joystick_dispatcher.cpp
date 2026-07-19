@@ -32,6 +32,11 @@ constexpr uint16_t JBIT_B     = 1u << 4;   // Fire 1 (B)
 constexpr uint16_t JBIT_C     = 1u << 5;   // Fire 2 (C)
 constexpr uint16_t JBIT_A     = 1u << 6;   // MD A
 constexpr uint16_t JBIT_START = 1u << 7;   // START
+// The MD6 top-row extras. None of these reach port 0x1F / 0x37 under any
+// mode — NR 0xB2 (zxnext.vhd:6214-6215) is their only path to a guest.
+constexpr uint16_t JBIT_Y     = 1u << 8;   // MD Y
+constexpr uint16_t JBIT_Z     = 1u << 9;   // MD Z
+constexpr uint16_t JBIT_X     = 1u << 10;  // MD X
 constexpr uint16_t JBIT_MODE  = 1u << 11;  // MODE (MD6 latch)
 
 // The four digital direction bits — every direction source contributes to
@@ -48,8 +53,8 @@ inline uint16_t axis_pair_of(uint16_t dir_bit) {
 }
 
 // Map an SDL_GameControllerButton to the corresponding 12-bit logical bit.
-// Returns 0 for unmapped buttons (LEFTSHOULDER, RIGHTSHOULDER, GUIDE,
-// triggers-as-buttons, paddle buttons, …).
+// Returns 0 for unmapped buttons (GUIDE, triggers-as-buttons, paddle
+// buttons, …).
 inline uint16_t sdl_button_to_jbit(uint8_t sdl_button) {
     switch (sdl_button) {
     case SDL_CONTROLLER_BUTTON_A:             return JBIT_B;
@@ -65,10 +70,17 @@ inline uint16_t sdl_button_to_jbit(uint8_t sdl_button) {
     case SDL_CONTROLLER_BUTTON_Y:             return JBIT_START;
     case SDL_CONTROLLER_BUTTON_START:         return JBIT_START;
     // MODE (bit 11) reaches no port under any mode — it is an MD6 latch bit
-    // that only surfaces via NR 0xB2 (issue #32, unimplemented). Park it on
-    // BACK, a non-face button, so nothing a player reaches for is dead and
-    // the bit still has a binding for when #32 lands.
+    // that surfaces only via NR 0xB2. Parked on BACK, a non-face button, so
+    // nothing a player reaches for is dead.
     case SDL_CONTROLLER_BUTTON_BACK:          return JBIT_MODE;
+    // MD6 top-row X / Z on the shoulders — the only free buttons left, and
+    // like MODE they are readable solely through NR 0xB2. The top row's Y has
+    // no binding here: the one remaining candidate is the Y face button, and
+    // that is deliberately left aliased to START above, where it stays visible
+    // to ordinary port-reading guests. A raw pad with >5 buttons does reach
+    // all three (see handle_raw_button).
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return JBIT_X;
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return JBIT_Z;
     case SDL_CONTROLLER_BUTTON_DPAD_UP:       return JBIT_U;
     case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return JBIT_D;
     case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return JBIT_L;
@@ -319,7 +331,7 @@ void JoystickDispatcher::handle_raw_button(int connector_idx, uint8_t raw_button
     }
     // Positional mapping — a raw SDL_Joystick reports button INDICES with no
     // semantics attached, so there is nothing better available than "first
-    // button is Fire 1". Deliberately conservative: buttons past index 4 are
+    // button is Fire 1". Deliberately conservative: buttons past index 7 are
     // dropped rather than guessed at.
     //
     // Indices 0..3 take the four bits that actually reach a port. Per
@@ -331,10 +343,10 @@ void JoystickDispatcher::handle_raw_button(int connector_idx, uint8_t raw_button
     // every guest program. A four-face-button pad must therefore land on
     // exactly B, C, A, START — index 3 previously sat on MODE and was dead.
     //
-    // Index 4 is a FIFTH button, past the four reachable bits, so it takes
-    // MODE: still port-invisible today, but it is a genuine MD6 latch bit
-    // that surfaces via NR 0xB2 (issue #32), so the binding becomes live if
-    // that lands. Better there than on a button players reach for.
+    // Indices 4..7 are past the four reachable bits, so they take the MD6
+    // latch bits, which reach no port but ARE readable through NR 0xB2
+    // (zxnext.vhd:6214-6215). That covers a true 8-button MD6 pad: the
+    // bottom row plus START on 0..3, then MODE and the X / Y / Z top row.
     uint16_t bit = 0;
     switch (raw_button) {
     case 0: bit = JBIT_B;     break;   // Fire 1  → port bit 4
@@ -342,6 +354,9 @@ void JoystickDispatcher::handle_raw_button(int connector_idx, uint8_t raw_button
     case 2: bit = JBIT_A;     break;   // MD3 A   → port bit 6 (MD mode only)
     case 3: bit = JBIT_START; break;   // START   → port bit 7 (MD mode only)
     case 4: bit = JBIT_MODE;  break;   // MD6 MODE — no port, NR 0xB2 only
+    case 5: bit = JBIT_X;     break;   // MD6 X    — no port, NR 0xB2 only
+    case 6: bit = JBIT_Y;     break;   // MD6 Y    — no port, NR 0xB2 only
+    case 7: bit = JBIT_Z;     break;   // MD6 Z    — no port, NR 0xB2 only
     default: return;
     }
     apply_bit(connector_idx, bit, pressed);

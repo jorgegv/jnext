@@ -66,7 +66,7 @@ under CI.
 *not* a goal; "good enough to develop games on" is. Some things are still
 rough or missing; they are listed, not hidden:
 
-- [TODO.md](TODO.md) — known issues and pending features
+- [GitHub issues](https://github.com/jorgegv/jnext/issues) — known issues and pending features
 - [KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)
   — every subsystem-level gap, sorted by display impact
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
@@ -131,7 +131,7 @@ SD card and ROMs — is in **[USAGE.md](USAGE.md)**.
 | [BUILD.md](BUILD.md)                                           | Building from source and building packages: prerequisites, targets, CMake options, tests |
 | [USAGE.md](USAGE.md)                                           | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map                  |
 | [FEATURES.md](FEATURES.md)                                     | Full feature list                                                                        |
-| [TODO.md](TODO.md)                                             | Pending features and known issues                                                        |
+| [TODO.md](TODO.md)                                             | Pointer to GitHub issues, where pending features and known issues live                   |
 | [ChangeLog](ChangeLog)                                         | What changed in each release                                                             |
 | [CREDITS.md](CREDITS.md)                                       | Third-party libraries, references and acknowledgments                                    |
 | [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md)  | The development plan: real status, implemented features, roadmap                         |

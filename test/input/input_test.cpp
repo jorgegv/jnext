@@ -3608,7 +3608,13 @@ static void test_joy_source() {
     {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
-        jd.handle_raw_button(0, 5, true);
+        // The mapped range now ends at index 7, not 4: indices 5..7 took the
+        // MD6 X / Y / Z latch bits once NR 0xB2 made them readable (issue
+        // #32) — the extension the JRAW-05 comment above anticipates. The
+        // row's intent is unchanged (out-of-range indices are dropped, not
+        // guessed at); only the boundary it probes moved, so it now uses the
+        // first index past the new range.
+        jd.handle_raw_button(0, 8, true);
         jd.handle_raw_button(0, 200, true);
         check("JRAW-06", "raw buttons past the mapped range are dropped",
               jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
@@ -4476,6 +4482,213 @@ static void test_t77_kbd() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// 3.x NR 0xB2 — Extended MD Pad Buttons (NRB2-*)
+// VHDL: zxnext.vhd:6214-6215 (read mux), 3441-3442 (12-bit vector layout),
+//       3470-3494 (the port lanes that do NOT carry these bits).
+//
+//   port_253b_dat <= i_JOY_RIGHT(10 downto 8) & i_JOY_RIGHT(11)
+//                 &  i_JOY_LEFT (10 downto 8) & i_JOY_LEFT (11);
+//
+// so bit 7..0 = R.X R.Z R.Y R.MODE L.X L.Z L.Y L.MODE, sourced from bits
+// 11:8 of the same connector vectors the port composers read. Issue #32.
+// ══════════════════════════════════════════════════════════════════════════
+
+static void test_nr_b2() {
+    set_group("NRB2");
+
+    // Bit position (in the 12-bit connector vector) for each MD6 latch bit,
+    // per zxnext.vhd:3441-3442.
+    constexpr uint16_t V_Y    = 1u << 8;
+    constexpr uint16_t V_Z    = 1u << 9;
+    constexpr uint16_t V_X    = 1u << 10;
+    constexpr uint16_t V_MODE = 1u << 11;
+
+    // NRB2-01..04: each LEFT-connector bit independently → low nibble.
+    struct Row { const char* id; uint16_t vec; uint8_t expect; const char* what; };
+    static const Row left_rows[] = {
+        {"NRB2-01", V_MODE, 0x01, "L.MODE → NR 0xB2 bit 0  (zxnext.vhd:6215)"},
+        {"NRB2-02", V_Y,    0x02, "L.Y    → NR 0xB2 bit 1  (zxnext.vhd:6215)"},
+        {"NRB2-03", V_Z,    0x04, "L.Z    → NR 0xB2 bit 2  (zxnext.vhd:6215)"},
+        {"NRB2-04", V_X,    0x08, "L.X    → NR 0xB2 bit 3  (zxnext.vhd:6215)"},
+    };
+    for (const Row& r : left_rows) {
+        Joystick j;
+        j.set_joy_left(r.vec);
+        const uint8_t v = j.nr_b2_byte();
+        check(r.id, r.what, v == r.expect,
+              DETAIL("got=0x%02X want=0x%02X", v, r.expect));
+    }
+
+    // NRB2-05..08: each RIGHT-connector bit independently → high nibble.
+    static const Row right_rows[] = {
+        {"NRB2-05", V_MODE, 0x10, "R.MODE → NR 0xB2 bit 4  (zxnext.vhd:6215)"},
+        {"NRB2-06", V_Y,    0x20, "R.Y    → NR 0xB2 bit 5  (zxnext.vhd:6215)"},
+        {"NRB2-07", V_Z,    0x40, "R.Z    → NR 0xB2 bit 6  (zxnext.vhd:6215)"},
+        {"NRB2-08", V_X,    0x80, "R.X    → NR 0xB2 bit 7  (zxnext.vhd:6215)"},
+    };
+    for (const Row& r : right_rows) {
+        Joystick j;
+        j.set_joy_right(r.vec);
+        const uint8_t v = j.nr_b2_byte();
+        check(r.id, r.what, v == r.expect,
+              DETAIL("got=0x%02X want=0x%02X", v, r.expect));
+    }
+
+    // NRB2-09: both pads, all four extras each → 0xFF.
+    {
+        Joystick j;
+        j.set_joy_left (V_MODE | V_Y | V_Z | V_X);
+        j.set_joy_right(V_MODE | V_Y | V_Z | V_X);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-09", "both pads, all extras → 0xFF  (zxnext.vhd:6215)",
+              v == 0xFF, DETAIL("got=0x%02X", v));
+    }
+
+    // NRB2-10: nothing pressed → 0x00 (also the no-pad-attached case, since
+    // an absent pad never installs a vector).
+    {
+        Joystick j;
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-10", "no buttons / no pad → 0x00",
+              v == 0x00, DETAIL("got=0x%02X", v));
+    }
+
+    // NRB2-11: the low 8 bits of the connector vector (directions, B, C, A,
+    // START) must NOT leak into NR 0xB2 — the mux takes only bits 11:8.
+    {
+        Joystick j;
+        j.set_joy_left (0x00FFu);
+        j.set_joy_right(0x00FFu);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-11", "bits 7:0 of the vector do not leak into NR 0xB2  "
+              "(mux reads only 11:8, zxnext.vhd:6215)",
+              v == 0x00, DETAIL("got=0x%02X", v));
+    }
+
+    // NRB2-12: MODE-INDEPENDENT. zxnext.vhd:6214-6215 reads i_JOY_* directly
+    // with no NR 0x05 gating, unlike the port lanes at :3470-3494. Kempston
+    // (001/001) is the strictest case: it masks even bits 7:6 off the port,
+    // yet NR 0xB2 still reports the extras.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston1);
+        j.set_joy_left(V_X);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-12", "Kempston mode does not gate NR 0xB2  (no NR 0x05 "
+              "term at zxnext.vhd:6214-6215)",
+              v == 0x08, DETAIL("got=0x%02X", v));
+    }
+
+    // NRB2-13: and the same extras remain invisible on the port lanes under
+    // that mode — the complement of NRB2-12, and the reason NR 0xB2 is the
+    // ONLY path to these four bits (zxnext.vhd:3477-3479 drives at most 7:0).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston1);
+        j.set_joy_left(V_MODE | V_Y | V_Z | V_X);
+        const uint8_t p1f = j.read_port_1f();
+        const uint8_t p37 = j.read_port_37();
+        check("NRB2-13", "MD6 extras reach no port lane  (zxnext.vhd:3470-3494)",
+              p1f == 0x00 && p37 == 0x00,
+              DETAIL("0x1F=0x%02X 0x37=0x%02X", p1f, p37));
+    }
+
+    // NRB2-14: the guest-visible path. A read of NR 0xB2 through the NextReg
+    // file must return the composed byte — this is the row that proves the
+    // register is actually reachable by a program, which is the whole point
+    // of issue #32 (the handler previously read a source nothing fed, so it
+    // returned 0 no matter what the host pad did).
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        emu.joystick().set_joy_left(V_X | V_MODE);
+        emu.joystick().set_joy_right(V_Y);
+        const uint8_t v = emu.nextreg().read(0xB2);
+        check("NRB2-14", "guest read of NR 0xB2 returns the live pad extras",
+              v == (0x08 | 0x01 | 0x20),
+              DETAIL("got=0x%02X want=0x%02X", v, 0x08 | 0x01 | 0x20));
+    }
+
+    // NRB2-15: end-to-end from a host pad. A raw SDL_Joystick button index
+    // past the four port-reachable bits lands on an MD6 latch bit and shows
+    // up in NR 0xB2 — the host-side half of issue #32 (before this, the MD6
+    // bits had no host binding at all beyond MODE).
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_raw_button(0, 5, true);    // index 5 → X  (bit 10)
+        jd.handle_raw_button(1, 7, true);    // index 7 → Z  (bit 9), right pad
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-15", "host raw pad buttons 5 / 7 reach NR 0xB2 as L.X / R.Z",
+              v == (0x08 | 0x40), DETAIL("got=0x%02X want=0x%02X", v, 0x08 | 0x40));
+    }
+
+    // NRB2-17: raw index 6 -> Y. Split out from NRB2-15 because that row
+    // exercises only indices 5 and 7: with 6 unasserted, its binding could be
+    // changed to any other bit and every row still passed.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_raw_button(0, 6, true);    // index 6 → Y (bit 8)
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-17", "host raw pad button 6 reaches NR 0xB2 as L.Y",
+              v == 0x02, DETAIL("got=0x%02X want=0x02", v));
+    }
+
+    // NRB2-18: the whole raw MD6 block at once, so no index in the 5..7 range
+    // can be dropped or aliased onto another without a row moving.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_raw_button(0, 5, true);    // X → bit 3
+        jd.handle_raw_button(0, 6, true);    // Y → bit 1
+        jd.handle_raw_button(0, 7, true);    // Z → bit 2
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-18", "raw indices 5/6/7 map onto distinct X/Y/Z bits",
+              v == 0x0E, DETAIL("got=0x%02X want=0x0E", v));
+    }
+
+    // NRB2-16: the SDL game-controller path binds the two spare shoulders to
+    // X / Z. Face buttons must NOT land here — they stay on the port-visible
+    // bits — so pressing A (→ B, bit 4) leaves NR 0xB2 untouched.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER,  true);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, true);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A,             true);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-16", "controller shoulders → L.X / L.Z; face button does not",
+              v == (0x08 | 0x04), DETAIL("got=0x%02X want=0x%02X", v, 0x08 | 0x04));
+    }
+
+    // NRB2-19/20: each shoulder ALONE. NRB2-16 presses both at once, so the
+    // OR of {L.X, L.Z} is the same byte whichever shoulder carries which bit —
+    // it cannot tell the mapping from its own transposition. Same blind spot
+    // NRB2-17 closed for the raw path.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, true);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-19", "LEFTSHOULDER alone → L.X (bit 3)",
+              v == 0x08, DETAIL("got=0x%02X want=0x08", v));
+    }
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, true);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-20", "RIGHTSHOULDER alone → L.Z (bit 2)",
+              v == 0x04, DETAIL("got=0x%02X want=0x04", v));
+    }
+}
+
 int main() {
     printf("Input Subsystem Compliance Tests (VHDL-derived plan)\n");
     printf("=====================================================\n\n");
@@ -4487,6 +4700,7 @@ int main() {
     test_kemp();            printf("  Group: KEMP   done\n");
     test_md3();             printf("  Group: MD3    done\n");
     test_md6();             printf("  Group: MD6    done\n");
+    test_nr_b2();           printf("  Group: NRB2   done\n");
     test_sinclair();        printf("  Group: SINC   done\n");
     test_cursor();          printf("  Group: CURS   done\n");
     test_iomode();          printf("  Group: IOMODE done\n");
