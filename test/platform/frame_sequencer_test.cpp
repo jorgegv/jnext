@@ -31,6 +31,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -81,6 +82,11 @@ struct FakeFrontend {
     int     fastload_frames   = 0;    ///< frames of fastload left; run_frame decrements
     bool    shot_due          = false;
     bool    pre_frames_result = true;
+    /// Simulate a breakpoint firing mid-tick: once this many run_frame()
+    /// calls have been made, the machine reports itself paused. -1 disables.
+    /// This is what makes the fastload burst's pause re-checks testable at
+    /// all — without it nothing can become paused inside a burst.
+    int     pause_after_frames = -1;
 
     // --- fake audio device -------------------------------------------------
     // The device consumes in ~23.2 ms chunks (1024 frames at 44100 Hz), which
@@ -128,8 +134,21 @@ struct FakeFrontend {
 
     int queued_ms()
     {
-        int q;
+        // MIRRORS THE REAL ADAPTER'S CRASH. QtApp::TickEffects::queued_ms()
+        // dereferences app.audio_ unconditionally, so calling this without
+        // first checking audio_present() is a NULL DEREFERENCE in the real
+        // GUI (verified live: --silent + an unguarded read => "signal 11
+        // received", exit 1). A fake that quietly answered -1 here would make
+        // that crash invisible to this suite, which is the exact failure mode
+        // Task 91 exists to eliminate — so abort instead.
         if (!has_audio) {
+            std::printf("  FAIL FS-GUARD: queued_ms() called with NO audio device "
+                        "— in the real frontend this is a null dereference\n");
+            std::fflush(stdout);
+            std::abort();
+        }
+        int q;
+        if (false) {
             q = -1;
         } else if (!scripted_queue.empty()) {
             q = scripted_queue[scripted_pos % scripted_queue.size()];
@@ -154,6 +173,11 @@ struct FakeFrontend {
         advance(run_frame_cost_us);
         if (fastload_frames > 0) --fastload_frames;
         ++pending_frames;
+        // A breakpoint firing mid-frame: the machine is paused from here on.
+        if (pause_after_frames >= 0 &&
+            static_cast<int>(composites.size()) >= pause_after_frames) {
+            is_paused = true;
+        }
     }
 
     void reset_render_hint() { ++reset_hints; }
@@ -626,6 +650,17 @@ int main()
         check("FS-PACE-04c", "no audio device: no queue-depth sample is recorded",
               seq.stats().queue_ms.count == 0,
               "count=" + s_int(seq.stats().queue_ms.count));
+        // THE GUARD ITSELF, not merely its downstream effect. queued_ms() must
+        // never be CALLED without a device: the real Qt adapter dereferences
+        // its SdlAudio pointer unconditionally, so an unguarded read is a null
+        // dereference that kills the GUI on the first --silent tick. Asserting
+        // only "no sample was recorded" would still pass if the call happened
+        // and returned -1, which is exactly how that crash stayed invisible.
+        // (FakeFrontend::queued_ms() aborts if this is ever violated, so the
+        // suite dies loudly rather than reporting a tidy failure.)
+        check("FS-PACE-04e", "no audio device: queued_ms() is never CALLED",
+              fx.queue_reads.empty(),
+              "reads=" + s_int(static_cast<long long>(fx.queue_reads.size())));
         check("FS-PACE-04d", "no audio device: nothing is pushed to it",
               fx.pushes == 0, "pushes=" + s_int(fx.pushes));
     }
@@ -682,6 +717,43 @@ int main()
               seq.stats().queue_ms.count == 1 && seq.stats().queue_ms.min == pre_depth,
               "recorded=" + s_int(seq.stats().queue_ms.min) + " pre=" + s_int(pre_depth) +
                   " post=" + s_int(post_depth));
+    }
+
+    // The diagnostic read and the pacer read are TWO SEPARATE readings, by
+    // design (frame_sequencer.h step 3): the diagnostic samples the depth at
+    // tick entry, the pacer samples it at the moment it decides. Collapsing
+    // them into one shared read would change what the pacer acts on. Asserted
+    // directly here rather than inferred from a downstream count.
+    {
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model = false;
+        fx.queue_ms    = 65.0;
+        start(seq, fx);
+        seq.tick(fx);
+        check("FS-QUEUE-02a",
+              "an audio-paced tick makes exactly two queued_ms() reads",
+              fx.queue_reads.size() == 2,
+              "reads=" + s_int(static_cast<long long>(fx.queue_reads.size())));
+        check("FS-QUEUE-02b",
+              "exactly one of those reads is recorded as the diagnostic sample",
+              seq.stats().queue_ms.count == 1,
+              "samples=" + s_int(seq.stats().queue_ms.count));
+    }
+    {
+        // A tick that does NOT consult the pacer (speed != 1x) makes only the
+        // diagnostic read — proving the second read belongs to the pacer.
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model = false;
+        fx.queue_ms    = 65.0;
+        fx.speed       = 2.0;
+        start(seq, fx);
+        seq.tick(fx);
+        check("FS-QUEUE-02c",
+              "an unpaced tick makes only the diagnostic read (the pacer's is absent)",
+              fx.queue_reads.size() == 1,
+              "reads=" + s_int(static_cast<long long>(fx.queue_reads.size())));
     }
 
     // =====================================================================
@@ -1028,6 +1100,68 @@ int main()
         const frame_sequencer::TickResult r = seq.tick(fx);
         check("FS-BURST-03", "no fastload: the tick runs only its paced frames",
               r.frames_rendered == 1, "frames=" + s_int(r.frames_rendered));
+    }
+
+    // A breakpoint firing INSIDE a fastload burst must stop the sprint on the
+    // tick it happens. Both re-checks in step 8 are load-bearing and are
+    // pinned SEPARATELY here, because a single stimulus that trips both cannot
+    // tell which one is missing.
+    {
+        // (i) THE WHILE-GUARD. Pause lands well before the tape ends, so the
+        // burst loop is the thing that must notice. Without this guard the
+        // sprint would run to the 200-frame limit through a paused machine —
+        // hundreds of frames past the breakpoint the user stopped at.
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model        = false;
+        fx.queue_ms           = 65.0;
+        fx.fastload_frames    = 100000;   // tape would outlast the tick
+        fx.pause_after_frames = 5;        // breakpoint fires on frame 5
+        start(seq, fx);
+        const frame_sequencer::TickResult r = seq.tick(fx);
+        check("FS-BURST-04a",
+              "a breakpoint mid-burst stops the sprint on that tick",
+              r.frames_rendered == 5,
+              "frames=" + s_int(r.frames_rendered) + " (limit would be " +
+                  s_int(frame_sequencer::FASTLOAD_BURST_LIMIT + 1) + ")");
+        check("FS-BURST-04b",
+              "no frame runs after the machine reports itself paused",
+              fx.composites.size() == 5,
+              "frames=" + s_int(static_cast<long long>(fx.composites.size())));
+    }
+    {
+        // (ii) THE CLOSING-FRAME GUARD, in isolation. The tape ends on the
+        // very frame the breakpoint fires, so the while-loop exits on
+        // fastload_active() alone and only the closing-frame check can
+        // suppress the extra frame.
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model        = false;
+        fx.queue_ms           = 65.0;
+        fx.fastload_frames    = 3;        // tape ends on frame 3
+        fx.pause_after_frames = 3;        // ...which is also when we pause
+        start(seq, fx);
+        const frame_sequencer::TickResult r = seq.tick(fx);
+        check("FS-BURST-05",
+              "a pause on the burst's last frame suppresses the closing frame",
+              r.frames_rendered == 3,
+              "frames=" + s_int(r.frames_rendered) + " (unguarded would be 4)");
+    }
+    {
+        // Control: the SAME tape length with no pause DOES run the closing
+        // frame. Without this, FS-BURST-05 could pass for the wrong reason
+        // (e.g. the closing frame never running at all).
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model     = false;
+        fx.queue_ms        = 65.0;
+        fx.fastload_frames = 3;
+        start(seq, fx);
+        const frame_sequencer::TickResult r = seq.tick(fx);
+        check("FS-BURST-05c",
+              "control: with no pause the same tape runs its closing frame",
+              r.frames_rendered == 4,
+              "frames=" + s_int(r.frames_rendered));
     }
 
     // =====================================================================
