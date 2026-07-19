@@ -362,7 +362,7 @@ held an extra scan).
 |----|----------|----------|------|
 | KBDHYS-01 | Pulse CS for one scan, then release; read the next scan | CS still reads pressed | 190, 232 |
 | KBDHYS-02 | Hold CS continuously across 3 scans | Reads pressed every scan | 190 |
-| KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan | ex matrix forced to all 1s | 183-186 |
+| KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan | the 8x5 FOLD is suppressed; NR 0xB0/0xB1 are UNCHANGED (they come from `o_extended_keys`, membrane.vhd:253, which the cancel branch never touches) | 183-186, 253 |
 | KBDHYS-04 | Production: `Emulator` main loop must call `Keyboard::tick_scan()` each membrane scan-cycle; assert via instrumented spy that tick fires N times across an N-frame run | `membrane.vhd:178-191`; `keyboard.cpp:312/334` exist as methods but production `emulator.cpp` does NOT call them. skip — production wire missing (see G133) |
 
 ### 3.3 Extended keys (EXT-*)
@@ -391,6 +391,37 @@ Coverage of `membrane.vhd` 159-254 and `zxnext.vhd` 6206-6212.
 | EXT-18 | Press ','; read 0xDFFE (row 5) | Row 5 unchanged — `,` is sampled into `ex(16)` at index 5 col 5 (`membrane.vhd:214-216`) and folds into row 7 bit 3 via `matrix_state_7 AND ex(16..13)`; row 5 only folds `ex(12:11)` = O/P (`membrane.vhd:239`), so `,` alone is invisible on row 5 | 239 + 214-216 |
 | EXT-19 | Press LEFT; read 0x7FFE (row 7) | Row 7 unchanged — LEFT is sampled into `ex(5)` at index 7 col 5 (`membrane.vhd:223-225`) and folds into row 3 bit 4 via `matrix_state_3 AND ex(5..1)`; row 7 only folds `ex(16..13)` = N/M/SYM-hyst/SPC (`membrane.vhd:240`), so LEFT alone is invisible on row 7 | 240 + 223-225 |
 | EXT-20 | UP + DOWN + LEFT + RIGHT | NR 0xB0 low nibble = 0x0F | 6208 |
+
+#### 3.3a NR 0x68 bit 4 — cancel extended entries (EXTC-*)
+
+Issue #33. The extended keys are the classic 48K compounds: the hardware
+drives the SHIFT half as well as the digit half (`membrane.vhd:236` ANDs
+`matrix_state_ex(0)` into row 0 bit 0 = Caps Shift, `:240` ANDs
+`matrix_state_ex(14)` into row 7 bit 1 = Symbol Shift). Which key drives which
+comes from the per-index case block at `:193-226`: every index accumulates into
+`work_ex(0)` EXCEPT indices 4 and 5 — the punctuation rows — which accumulate
+into `work_ex(14)`. Index 0 drives both from its col-5 key, which is why EXTEND
+MODE is CS+SS.
+
+NR 0x68 bit 4 (`zxnext.vhd:5447` -> `:1584` `o_KBD_CANCEL`) gates that fold as a
+LEVEL. It does NOT clear the raw register: the readback and the fold are two
+independent derivations in the VHDL, and cancelling only touches the fold.
+
+| ID | Stimulus | Expected | Cite |
+|----|----------|----------|------|
+| EXTC-01 | UP pressed, cancel clear | CAPS SHIFT + 7 in the matrix | 236 + 238 |
+| EXTC-02 | UP pressed, cancel set | compound GONE from rows 0 and 4, NR 0xB0 bit 3 still 1 | 183-186 + 253 |
+| EXTC-03 | cancel set then cleared, key still held | fold returns — the bit is a level, not a latch | 183-186 |
+| EXTC-04 | `"` pressed | SYMBOL SHIFT + P; Caps Shift NOT driven | 239-240 |
+| EXTC-05 | EXTEND MODE pressed | CAPS SHIFT + SYMBOL SHIFT, no digit column | 195-197 |
+| EXTC-06 | host key press/release | NR 0xB0 follows the key | 6208 |
+| EXTC-07 | guest writes NR 0x68 bit 4 through the NextReg file | fold cancelled, NR 0xB0 unchanged | 5447 + 1584 |
+
+EXTC-02 is the row the issue names as the one that actually proves the feature:
+without it an implementation can pass every bit-level readback row and still
+have shipped dead code. EXTC-07 is its wiring counterpart — every other row
+drives `Keyboard` directly, so removing the NR 0x68 write handler's call left
+all of them passing (verified by mutation).
 
 ### 3.4 Joystick mode select (JMODE-*)
 
@@ -777,6 +808,7 @@ specific default and fails loudly if any reset path silently zeroes
 | 3.1 Keyboard standard | 23 |
 | 3.2 Keyboard shift hysteresis | 4 (+KBDHYS-04 G133) |
 | 3.3 Extended keys | 20 |
+| 3.3a NR 0x68 bit 4 cancel (EXTC) | 7 (issue #33) |
 | 3.4 Joystick mode select | 10 (+JMODE-09 G126) |
 | 3.5 Kempston 1/2 | 17 (+KEMP-16/17 G128/G129) |
 | 3.6 MD 3-button | 9 |

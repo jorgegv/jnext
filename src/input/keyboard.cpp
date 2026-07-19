@@ -27,6 +27,16 @@ static CompoundPos s_compound[SDL_NUM_SCANCODES];
 // CompoundPos) so every existing lookup is untouched.
 static CompoundPos s_alt_compound[SDL_NUM_SCANCODES];
 
+// Task 90 / issue #33 — host scancode -> extended-key ID. These 16 keys go
+// through the extended-key register, NOT s_compound: the hardware routes them
+// down a separate path where they set a raw readback (NR 0xB0/0xB1) AND fold
+// into the 8x5 matrix as their classic compound, and NR 0x68 bit 4 cancels
+// only the fold. Asserting the compound directly, as jnext used to, cannot
+// express that split. -1 = not an extended key.
+static int8_t s_extkey[SDL_NUM_SCANCODES];
+// Alt-modified variants, same idea as s_alt_compound.
+static int8_t s_alt_extkey[SDL_NUM_SCANCODES];
+
 static bool      s_map_init = false;
 
 static void init_map() {
@@ -35,6 +45,8 @@ static void init_map() {
     std::memset(s_map,          -1, sizeof(s_map));
     std::memset(s_compound,     -1, sizeof(s_compound));
     std::memset(s_alt_compound, -1, sizeof(s_alt_compound));
+    std::memset(s_extkey,       -1, sizeof(s_extkey));
+    std::memset(s_alt_extkey,   -1, sizeof(s_alt_extkey));
 
     // Row 0: CAPS-SHIFT  Z  X  C  V
     // Ctrl keys map to Caps Shift (row 0, col 0).
@@ -98,71 +110,54 @@ static void init_map() {
     s_map[SDL_SCANCODE_N]      = {7, 3};
     s_map[SDL_SCANCODE_B]      = {7, 4};
 
-    // Compound keys: BACKSPACE = Caps Shift (row 0, col 0) + 0 (row 4, col 0)
-    // This produces the ZX Spectrum RUBOUT/DELETE function.
-    s_compound[SDL_SCANCODE_BACKSPACE] = {{0, 0}, {4, 0}};
-
-    // Cursor keys: PC arrows → Caps Shift + 5/6/7/8
-    s_compound[SDL_SCANCODE_LEFT]  = {{0, 0}, {3, 4}};  // Caps Shift + 5
-    s_compound[SDL_SCANCODE_DOWN]  = {{0, 0}, {4, 4}};  // Caps Shift + 6
-    s_compound[SDL_SCANCODE_UP]    = {{0, 0}, {4, 3}};  // Caps Shift + 7
-    s_compound[SDL_SCANCODE_RIGHT] = {{0, 0}, {4, 2}};  // Caps Shift + 8
-
-    // -----------------------------------------------------------------------
-    // Task 77 — the remaining Spectrum compound keys.
+    // ── The 16 extended keys (issue #33) ──────────────────────────────
     //
-    // The ZX-side halves are the VHDL extended-key set (membrane.vhd:180-240):
-    // real Next hardware synthesises each of these into exactly the classic
-    // 48K two-key compound, which is what we assert here directly.
+    // Host key -> ExtKey ID. read_rows() folds each into exactly the classic
+    // 48K compound it used to assert directly here — the digit/letter column
+    // plus the synthesised Caps or Symbol Shift — so the default behaviour is
+    // unchanged. What the indirection buys is the other two halves the
+    // hardware has: the raw NR 0xB0/0xB1 readback, and NR 0x68 bit 4 being
+    // able to cancel the fold while the readback survives.
     //
-    //   BREAK       = CS + SPACE (Esc)  GRAPH    = CS + 9   (Alt+G)
-    //   DELETE      = CS + 0          CAPS LOCK  = CS + 2   (Alt+C)
-    //   EDIT        = CS + 1          '"'        = SS + P
-    //   TRUE VIDEO  = CS + 3          ';'        = SS + O
-    //   INV  VIDEO  = CS + 4          '.'        = SS + M
-    //   EXTEND MODE = CS + SS         ','        = SS + N
-    //
-    //
-    // Host-side choices are the project owner's (see the commit message for
-    // the FUSE / ZEsarUX convention survey that informed them).
+    // Host-side choices are the project owner's and are unchanged from the
+    // Task 77 mapping (see the commit message there for the FUSE / ZEsarUX
+    // convention survey that informed them).
+    using EK = Keyboard::ExtKey;
+    auto ek = [](EK k) { return static_cast<int8_t>(static_cast<int>(k)); };
 
-    // EXTEND MODE = Caps Shift + Symbol Shift, on Tab — the strongest
-    // cross-emulator convention in this set (FUSE and ZEsarUX both use Tab
-    // for EXTEND MODE; neither uses it for BREAK).
-    s_compound[SDL_SCANCODE_TAB]    = {{0, 0}, {7, 1}};
+    // Cursor keys.                                    fold: CS + 5/6/7/8
+    s_extkey[SDL_SCANCODE_LEFT]       = ek(EK::LEFT);
+    s_extkey[SDL_SCANCODE_DOWN]       = ek(EK::DOWN);
+    s_extkey[SDL_SCANCODE_UP]         = ek(EK::UP);
+    s_extkey[SDL_SCANCODE_RIGHT]      = ek(EK::RIGHT);
 
-    // BREAK = Caps Shift + SPACE, on Esc (ZEsarUX / Spectaculator convention).
-    // Esc is UNCONDITIONAL — it no longer exits fullscreen in either frontend
-    // (F11 is now the only fullscreen toggle), so BREAK behaves identically
-    // windowed and fullscreen.
-    s_compound[SDL_SCANCODE_ESCAPE] = {{0, 0}, {7, 0}};
+    s_extkey[SDL_SCANCODE_BACKSPACE]  = ek(EK::DELETE);      // CS + 0
+    // EXTEND MODE on Tab — the strongest cross-emulator convention in this
+    // set (FUSE and ZEsarUX both use Tab; neither uses it for BREAK).
+    s_extkey[SDL_SCANCODE_TAB]        = ek(EK::EXTEND);      // CS + SS
+    // BREAK on Esc (ZEsarUX / Spectaculator convention). Esc is unconditional
+    // — it does not exit fullscreen in either frontend (F11 is the only
+    // toggle), so BREAK behaves identically windowed and fullscreen.
+    s_extkey[SDL_SCANCODE_ESCAPE]     = ek(EK::BREAK);       // CS + SPACE
 
-    // TRUE VIDEO = Caps Shift + 3, on the key immediately LEFT of "1".
-    // SDL scancodes are PHYSICAL positions, so SDL_SCANCODE_GRAVE is that
-    // key on every layout — the owner's "\" label describes an ISO keycap,
-    // the position is what is actually being specified.
-    s_compound[SDL_SCANCODE_GRAVE]  = {{0, 0}, {3, 2}};
-    // INV VIDEO = Caps Shift + 4, same key with Alt.
-    s_alt_compound[SDL_SCANCODE_GRAVE] = {{0, 0}, {3, 3}};
+    // TRUE VIDEO on the key immediately LEFT of "1". SDL scancodes are
+    // PHYSICAL positions, so SDL_SCANCODE_GRAVE is that key on every layout.
+    s_extkey[SDL_SCANCODE_GRAVE]      = ek(EK::TRUE_VIDEO);  // CS + 3
+    s_alt_extkey[SDL_SCANCODE_GRAVE]  = ek(EK::INV_VIDEO);   // CS + 4
 
-    // EDIT = Caps Shift + 1 (Alt+E). Alt+D is NOT usable: the Qt main window
-    // has a top-level "&Debug" menu whose mnemonic consumes Alt+D before any
-    // key event reaches the emulator. Taken mnemonics are &File &Machine
-    // &Input &Tape &Debug &View &Settings &Help, so Alt + F/M/I/T/D/V/S/H are
-    // all unavailable; E and the grave key are free.
-    s_alt_compound[SDL_SCANCODE_E]  = {{0, 0}, {3, 0}};
-    // GRAPH = Caps Shift + 9 (Alt+G); CAPS LOCK = Caps Shift + 2 (Alt+C).
-    // Same VHDL fold table as the rest — see the clear_if() rows in
-    // read_rows(): GRAPH folds onto row 4 col 1 (key '9'), CAPS LOCK onto
-    // row 3 col 1 (key '2'). G and C are both free of menu mnemonics.
-    s_alt_compound[SDL_SCANCODE_G]  = {{0, 0}, {4, 1}};
-    s_alt_compound[SDL_SCANCODE_C]  = {{0, 0}, {3, 1}};
+    // EDIT / GRAPH / CAPS LOCK on Alt+E / Alt+G / Alt+C. Alt+D is NOT usable:
+    // the Qt main window's "&Debug" menu mnemonic consumes it before any key
+    // event reaches the emulator. Taken mnemonics are &File &Machine &Input
+    // &Tape &Debug &View &Settings &Help, so E, G and C are the free ones.
+    s_alt_extkey[SDL_SCANCODE_E]      = ek(EK::EDIT);        // CS + 1
+    s_alt_extkey[SDL_SCANCODE_G]      = ek(EK::GRAPH);       // CS + 9
+    s_alt_extkey[SDL_SCANCODE_C]      = ek(EK::CAPS_LOCK);   // CS + 2
 
     // Symbol-shifted punctuation, on the natural PC key for each glyph.
-    s_compound[SDL_SCANCODE_APOSTROPHE] = {{7, 1}, {5, 0}};  // SS + P  → '"'
-    s_compound[SDL_SCANCODE_SEMICOLON]  = {{7, 1}, {5, 1}};  // SS + O  → ';'
-    s_compound[SDL_SCANCODE_PERIOD]     = {{7, 1}, {7, 2}};  // SS + M  → '.'
-    s_compound[SDL_SCANCODE_COMMA]      = {{7, 1}, {7, 3}};  // SS + N  → ','
+    s_extkey[SDL_SCANCODE_APOSTROPHE] = ek(EK::QUOTE);       // SS + P
+    s_extkey[SDL_SCANCODE_SEMICOLON]  = ek(EK::SEMICOLON);   // SS + O
+    s_extkey[SDL_SCANCODE_PERIOD]     = ek(EK::DOT);         // SS + M
+    s_extkey[SDL_SCANCODE_COMMA]      = ek(EK::COMMA);       // SS + N
 
     s_map_init = true;
 }
@@ -181,6 +176,8 @@ void Keyboard::reset() {
     // (matches VHDL i_KBD_EXTENDED_KEYS-after-inversion, zxnext.vhd:6206-6212
     // where jnext exposes NR 0xB0/0xB1 as active-high).
     ex_matrix_       = 0x0000;
+    // NR 0x68 resets to 0, so its bit 4 (cancel) is clear after a reset.
+    cancel_extended_ = false;
     // Shift-hysteresis scan buffers — initial "all released" state.
     shift_hist_[0]   = 0xFF;
     shift_hist_[1]   = 0xFF;
@@ -240,21 +237,32 @@ void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
     // this scancode actually asserted.
     bool use_alt;
     if (pressed) {
-        use_alt = alt_held_ && s_alt_compound[sc].a.row >= 0;
+        use_alt = alt_held_ &&
+                  (s_alt_compound[sc].a.row >= 0 || s_alt_extkey[sc] >= 0);
         alt_variant_[sc] = use_alt;
     } else {
         use_alt = alt_variant_[sc];
         alt_variant_[sc] = false;
     }
 
-    // Alt-modified compound (e.g. EDIT = Alt+E = Caps Shift + 1). Resolved
-    // BEFORE the plain tables so the unmodified meaning of the key cannot
-    // leak: Alt+E asserts CS+1 and never the ZX 'E' key.
+    // Extended keys (issue #33) go to the extended-key register; read_rows()
+    // does the folding. Resolved BEFORE the plain tables so an Alt variant
+    // cannot leak the key's unmodified meaning (Alt+E is EDIT, never ZX 'E').
+    const int8_t ext_id = use_alt ? s_alt_extkey[sc] : s_extkey[sc];
+    if (ext_id >= 0) {
+        set_extended_key(ext_id, pressed);
+        return;
+    }
+
+    // Alt-modified compound. Nothing uses this table today (the Alt keys are
+    // all extended keys now) but the mechanism is kept for future bindings.
     if (use_alt) {
         const CompoundPos& acp = s_alt_compound[sc];
-        set_matrix_bit(acp.a.row, acp.a.col, pressed);
-        set_matrix_bit(acp.b.row, acp.b.col, pressed);
-        return;
+        if (acp.a.row >= 0) {
+            set_matrix_bit(acp.a.row, acp.a.col, pressed);
+            set_matrix_bit(acp.b.row, acp.b.col, pressed);
+            return;
+        }
     }
 
     // Check compound map first (e.g. DELETE = Caps Shift + 0).
@@ -306,8 +314,14 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
     row7_eff = (row7_eff & ~0x02u) | ((row7_eff & 0x02u) & sym_prev);
 
     // --- (2) Extended-column folding masks (Agent G). ----------------
+    //
+    // NR 0x68 bit 4 gates the WHOLE fold — digit columns and the synthesised
+    // shifts alike (membrane.vhd:183-186 flushes matrix_state_ex, which is
+    // the source of every AND at :236-240). `ex_matrix_` itself is untouched,
+    // so NR 0xB0/0xB1 still report the raw keys: that combination is the
+    // entire purpose of the bit.
     uint8_t ext_rowmask[8] = {0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F};
-    const uint16_t ex = ex_matrix_;
+    const uint16_t ex = cancel_extended_ ? 0x0000u : ex_matrix_;
     auto clear_if = [&](int id, int row, int col) {
         if (ex & (1u << id)) {
             ext_rowmask[row] &= static_cast<uint8_t>(~(1u << col));
@@ -332,6 +346,28 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
     clear_if(13, 7, 0);   // BREAK       → col 0 (key SPACE)
     clear_if( 4, 7, 2);   // '.'         → col 2 (key 'M')
     clear_if( 5, 7, 3);   // ','         → col 3 (key 'N')
+
+    // Shift synthesis. The extended keys are the 48K compounds: the hardware
+    // drives the SHIFT half as well as the digit half, and jnext modelled only
+    // the digit half until now, so an extended key folded as a bare '7'
+    // instead of 'CS+7'.
+    //
+    // membrane.vhd:236 ANDs matrix_state_ex(0) into row 0 bit 0 (Caps Shift)
+    // and :240 ANDs matrix_state_ex(14) into row 7 bit 1 (Symbol Shift). Which
+    // extended key drives which comes from the per-index case block at
+    // :193-226: every index accumulates into work_ex(0) EXCEPT indices 4 and 5
+    // — the punctuation rows ('"' ';' at :210-213, '.' ',' at :214-217) — which
+    // accumulate into work_ex(14) instead. Index 0 drives BOTH from its col-5
+    // key, which is why EXTEND MODE is CS+SS.
+    constexpr uint16_t CS_KEYS =
+        (1u << 0)  | (1u << 1)  | (1u << 2)  | (1u << 3)  |   // RIGHT LEFT DOWN UP
+        (1u << 8)  | (1u << 9)  | (1u << 10) | (1u << 11) |   // EXTEND CAPSLK GRAPH TRUEV
+        (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);    // INVV BREAK EDIT DELETE
+    constexpr uint16_t SYM_KEYS =
+        (1u << 4) | (1u << 5) | (1u << 6) | (1u << 7) |       // '.' ',' '"' ';'
+        (1u << 8);                                            // EXTEND (CS+SS)
+    if (ex & CS_KEYS)  ext_rowmask[0] &= static_cast<uint8_t>(~0x01u);  // row 0 col 0
+    if (ex & SYM_KEYS) ext_rowmask[7] &= static_cast<uint8_t>(~0x02u);  // row 7 col 1
 
     // --- Row select AND with all layers applied per row --------------
     //
@@ -462,21 +498,24 @@ void Keyboard::tick_scan() {
     shift_hist_[0] = snap;
 }
 
-void Keyboard::cancel_extended_entries() {
-    // Per membrane.vhd:183-186: on i_cancel_extended_entries='1' the
-    // FPGA flushes matrix_state_ex_{0,1} and matrix_work_ex to all-'1'
-    // in VHDL terms (i.e. all-released in the internal active-low
-    // representation). Our ex_matrix_ is stored ACTIVE-HIGH in the C++
-    // model (Phase-1 polarity fix; NR 0xB0/0xB1 bit=1 => pressed, per
-    // zxnext.vhd:6206-6212) so "all released" means ex_matrix_ = 0.
+void Keyboard::set_cancel_extended_entries(bool on) {
+    // NR 0x68 bit 4, via zxnext.vhd:5447 -> :1584 (o_KBD_CANCEL).
     //
-    // The shift-hysteresis history is also flushed (both scans snap to
-    // "CS and SYM released") because the VHDL reset/cancel branch
-    // clears the whole matrix_state_ex pipeline in one go, which
-    // includes the two shift bits folded in at lines 190/232.
-    ex_matrix_     = 0x0000;
-    shift_hist_[0] = 0xFF;
-    shift_hist_[1] = 0xFF;
+    // The VHDL has TWO derivations of an extended-key press and the cancel
+    // bit only touches one of them:
+    //
+    //   * `o_extended_keys` (membrane.vhd:253) is built from the raw membrane
+    //     columns `matrix_state(row)(6:5)` and feeds NR 0xB0/0xB1. The cancel
+    //     branch never touches `matrix_state`, so the RAW READBACK IS IMMUNE.
+    //   * `matrix_state_ex` is what folds into the 8x5 matrix (:236-240), and
+    //     it is what `i_cancel_extended_entries` flushes (:183-186) — as a
+    //     LEVEL, re-flushed every clock while the bit is high.
+    //
+    // So this is a gate on the fold, NOT a clear of the register. Zeroing
+    // `ex_matrix_` here (what this function used to do) would blank NR
+    // 0xB0/0xB1 too, which is precisely backwards: the whole point of the bit
+    // is to read the RAW key while its compound stays out of the matrix.
+    cancel_extended_ = on;
 }
 
 uint8_t Keyboard::nr_b0_byte() const {
@@ -522,6 +561,10 @@ void Keyboard::save_state(StateWriter& w) const
     }
     w.write_i32(auto_frame_count_);
     w.write_bool(auto_gap_);
+    // NR 0x68 bit 4 mirror. Machine state — a register bit the guest sets —
+    // so it must travel with the snapshot. Written LAST so the field order of
+    // every pre-existing reader is untouched.
+    w.write_bool(cancel_extended_);
 }
 
 void Keyboard::load_state(StateReader& r)
@@ -546,4 +589,5 @@ void Keyboard::load_state(StateReader& r)
     }
     auto_frame_count_ = r.read_i32();
     auto_gap_         = r.read_bool();
+    cancel_extended_  = r.read_bool();
 }

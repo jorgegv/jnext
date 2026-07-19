@@ -389,32 +389,238 @@ static void test_kbdhys() {
                      v0, v1, v2));
     }
 
-    // KBDHYS-03: cancel_extended_entries() forces ex matrix all-released.
-    // VHDL membrane.vhd:183-186 — the reset/cancel branch flushes
-    // matrix_state_ex_{0,1} and matrix_work_ex to all-'1' (active-low
-    // = all released). In our active-high C++ model this means
-    // ex_matrix_ = 0x0000, observable via NR 0xB0 / 0xB1 readback both
-    // returning 0x00.
+    // KBDHYS-03: the cancel bit gates the FOLD, and leaves the RAW readback
+    // alone. REWRITTEN for issue #33 — the previous row asserted the exact
+    // opposite (that NR 0xB0/0xB1 go to 0x00 on cancel) and was wrong against
+    // the VHDL, which derives the two independently:
+    //
+    //   * NR 0xB0/0xB1 come from `o_extended_keys` (membrane.vhd:253), built
+    //     from the RAW membrane columns `matrix_state(row)(6:5)`. The cancel
+    //     branch at :183-186 never touches `matrix_state`, so the readback is
+    //     immune.
+    //   * only `matrix_state_ex` — the thing that folds into the 8x5 matrix at
+    //     :236-240 — is flushed by the cancel branch.
+    //
+    // It could pass before only because nothing ever called the function
+    // outside this test: the whole path was dead code.
     {
         Keyboard kb = fresh_keyboard();
-        // Press a sample of extended keys spread across both bytes.
         kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::UP),    true);
         kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::COMMA), true);
         kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::EDIT),  true);
         kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::CAPS_LOCK), true);
         const uint8_t before_b0 = kb.nr_b0_byte();
         const uint8_t before_b1 = kb.nr_b1_byte();
-        kb.cancel_extended_entries();
+        kb.set_cancel_extended_entries(true);
         const uint8_t after_b0  = kb.nr_b0_byte();
         const uint8_t after_b1  = kb.nr_b1_byte();
         check("KBDHYS-03",
-              "cancel_extended_entries() forces ex matrix all-released  "
-              "(membrane.vhd:183-186)",
+              "the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback  "
+              "(membrane.vhd:253 vs :183-186)",
               before_b0 != 0x00 && before_b1 != 0x00 &&
-              after_b0  == 0x00 && after_b1  == 0x00,
+              after_b0 == before_b0 && after_b1 == before_b1,
               DETAIL("before=(0x%02X,0x%02X) after=(0x%02X,0x%02X) "
-                     "want before nonzero, after (0x00,0x00)",
+                     "want after == before",
                      before_b0, before_b1, after_b0, after_b1));
+    }
+
+    // ── EXTC-01..06: NR 0x68 bit 4 acceptance (issue #33) ────────────────
+    //
+    // These are the rows the issue calls out as the ones that actually prove
+    // the feature: without them an implementation can pass every bit-level
+    // readback row and still have shipped dead code.
+
+    // EXTC-01: default (cancel CLEAR) — pressing UP still produces the classic
+    // CS + 7 compound. This is the no-regression row: the fold has to
+    // reproduce what the old direct-assertion path did.
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(SDL_SCANCODE_UP, true);
+        const uint8_t row0 = kb.read_rows(row_addr(0));   // Caps Shift
+        const uint8_t row4 = kb.read_rows(row_addr(4));   // key '7' = col 3
+        check("EXTC-01",
+              "UP folds to CAPS SHIFT + 7 with the cancel bit clear  "
+              "(membrane.vhd:236 + :238)",
+              (row0 & 0x01u) == 0 && (row4 & (1u << 3)) == 0,
+              DETAIL("row0=0x%02X (want bit0 low) row4=0x%02X (want bit3 low)",
+                     row0, row4));
+    }
+
+    // EXTC-02: THE acceptance row. With the cancel bit SET the compound
+    // DISAPPEARS from the 8x5 matrix — both halves, the shift as well as the
+    // digit — while NR 0xB0 still reports the raw key. Read the two together,
+    // because either alone is satisfiable by a broken implementation.
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(SDL_SCANCODE_UP, true);
+        kb.set_cancel_extended_entries(true);
+        const uint8_t row0 = kb.read_rows(row_addr(0));
+        const uint8_t row4 = kb.read_rows(row_addr(4));
+        const uint8_t b0   = kb.nr_b0_byte();
+        check("EXTC-02",
+              "cancel set: the CS+7 compound vanishes from the matrix while "
+              "NR 0xB0 bit 3 still reads UP  (nextreg.txt:952-974)",
+              row0 == 0x1F && row4 == 0x1F && (b0 & 0x08u) != 0,
+              DETAIL("row0=0x%02X row4=0x%02X b0=0x%02X (want 0x1F,0x1F,bit3 set)",
+                     row0, row4, b0));
+    }
+
+    // EXTC-03: the gate is a LEVEL, not a latch — clearing it restores the
+    // fold for a key that is still held (membrane.vhd:183-186 re-flushes every
+    // clock while asserted, so dropping the signal simply stops flushing).
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(SDL_SCANCODE_UP, true);
+        kb.set_cancel_extended_entries(true);
+        const uint8_t gated = kb.read_rows(row_addr(4));
+        kb.set_cancel_extended_entries(false);
+        const uint8_t back  = kb.read_rows(row_addr(4));
+        check("EXTC-03", "the cancel bit is a level: clearing it restores the fold",
+              gated == 0x1F && (back & (1u << 3)) == 0,
+              DETAIL("gated=0x%02X back=0x%02X", gated, back));
+    }
+
+    // EXTC-04: a SYMBOL-shift extended key synthesises SS, not CS. '"' is
+    // SS + P (membrane.vhd:240 + :239) — the punctuation rows accumulate into
+    // work_ex(14), never work_ex(0).
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(SDL_SCANCODE_APOSTROPHE, true);
+        const uint8_t row7 = kb.read_rows(row_addr(7));   // Symbol Shift = col 1
+        const uint8_t row5 = kb.read_rows(row_addr(5));   // key 'P' = col 0
+        const uint8_t row0 = kb.read_rows(row_addr(0));   // Caps Shift must NOT fold
+        check("EXTC-04",
+              "'\"' folds to SYMBOL SHIFT + P and does not touch Caps Shift  "
+              "(membrane.vhd:239-240)",
+              (row7 & 0x02u) == 0 && (row5 & 0x01u) == 0 && (row0 & 0x01u) != 0,
+              DETAIL("row7=0x%02X row5=0x%02X row0=0x%02X", row7, row5, row0));
+    }
+
+    // EXTC-05: EXTEND MODE drives BOTH shifts and no digit column — index 0 of
+    // the VHDL case block accumulates its col-5 key into work_ex(0) AND
+    // work_ex(14) (membrane.vhd:195-197), which is what makes it CS+SS.
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(SDL_SCANCODE_TAB, true);
+        const uint8_t row0 = kb.read_rows(row_addr(0));
+        const uint8_t row7 = kb.read_rows(row_addr(7));
+        check("EXTC-05", "EXTEND MODE folds to CAPS SHIFT + SYMBOL SHIFT",
+              (row0 & 0x01u) == 0 && (row7 & 0x02u) == 0,
+              DETAIL("row0=0x%02X row7=0x%02X", row0, row7));
+    }
+
+    // EXTC-06: the host key also reaches the RAW readback — the other end that
+    // was unwired (set_extended_key() had no caller at all).
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(SDL_SCANCODE_UP, true);
+        const uint8_t b0_down = kb.nr_b0_byte();
+        kb.set_key(SDL_SCANCODE_UP, false);
+        const uint8_t b0_up   = kb.nr_b0_byte();
+        check("EXTC-06",
+              "a host key press reaches NR 0xB0 and clears on release",
+              (b0_down & 0x08u) != 0 && b0_up == 0x00,
+              DETAIL("down=0x%02X up=0x%02X", b0_down, b0_up));
+    }
+
+    // EXTC-08a..d: every cursor key, end to end from the host scancode to the
+    // matrix. UP alone was exercised by the rows above, which left LEFT, DOWN
+    // and RIGHT with no discriminative coverage at all: disabling their
+    // routing entries, or pointing their fold at the wrong column, passed the
+    // whole suite (found by review mutation). Each row drives set_key() and
+    // reads the folded matrix, so it fails on either mistake.
+    {
+        struct Arrow {
+            const char*   id;
+            SDL_Scancode  sc;
+            int           row;      // membrane row the digit lands in
+            int           col;      // column within that row
+            const char*   what;
+        };
+        static const Arrow arrows[] = {
+            {"EXTC-08a", SDL_SCANCODE_LEFT,  3, 4, "LEFT  folds to CAPS SHIFT + 5 (row 3 col 4)"},
+            {"EXTC-08b", SDL_SCANCODE_DOWN,  4, 4, "DOWN  folds to CAPS SHIFT + 6 (row 4 col 4)"},
+            {"EXTC-08c", SDL_SCANCODE_UP,    4, 3, "UP    folds to CAPS SHIFT + 7 (row 4 col 3)"},
+            {"EXTC-08d", SDL_SCANCODE_RIGHT, 4, 2, "RIGHT folds to CAPS SHIFT + 8 (row 4 col 2)"},
+        };
+        for (const Arrow& a : arrows) {
+            Keyboard kb = fresh_keyboard();
+            kb.set_key(a.sc, true);
+            const uint8_t row0  = kb.read_rows(row_addr(0));         // Caps Shift
+            const uint8_t rowN  = kb.read_rows(row_addr(a.row));     // the digit
+            // Every other row must be untouched — a fold aimed at the wrong
+            // row would otherwise hide behind the two rows we do check.
+            bool others_clean = true;
+            for (int r = 0; r < 8; ++r) {
+                if (r == 0 || r == a.row) continue;
+                if (kb.read_rows(row_addr(r)) != 0x1F) others_clean = false;
+            }
+            check(a.id, a.what,
+                  (row0 & 0x01u) == 0 &&
+                  (rowN & (1u << a.col)) == 0 &&
+                  // only that one column in the digit row
+                  (rowN | static_cast<uint8_t>(1u << a.col)) == 0x1F &&
+                  others_clean,
+                  DETAIL("row0=0x%02X row%d=0x%02X others_clean=%d",
+                         row0, a.row, rowN, others_clean ? 1 : 0));
+        }
+    }
+
+    // EXTC-09: the cancel bit is machine state (a register bit the guest
+    // sets), so it must survive a save/load — jnext snapshots every frame for
+    // rewind, so losing it would silently re-enable the fold mid-game. Its
+    // doc comment claimed it was serialised while it was not (found by review).
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_cancel_extended_entries(true);
+
+        StateWriter measure;
+        kb.save_state(measure);
+        std::vector<uint8_t> snap(measure.position(), 0);
+        StateWriter w(snap.data(), snap.size());
+        kb.save_state(w);
+
+        Keyboard kb2 = fresh_keyboard();
+        StateReader r(snap.data(), snap.size());
+        kb2.load_state(r);
+        check("EXTC-09",
+              "the NR 0x68 bit 4 cancel state survives save/load (rewind-safe)",
+              kb2.cancel_extended_entries(),
+              DETAIL("after load = %d, want 1",
+                     kb2.cancel_extended_entries() ? 1 : 0));
+    }
+
+    // EXTC-07: the GUEST-REACHABLE path. Everything above drives
+    // set_cancel_extended_entries() directly on a bare Keyboard, which leaves
+    // the NR 0x68 write handler itself untested — remove that one line from
+    // emulator.cpp and all six rows above still pass (verified by mutation).
+    // This row goes through the NextReg file exactly as a program would, so it
+    // fails if the register is not wired to the keyboard at all. Same shape as
+    // NRB2-14 for issue #32: without it the feature can be "fully tested" and
+    // still unreachable by any software.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        emu.keyboard().set_key(SDL_SCANCODE_UP, true);
+        const uint8_t row4_before = emu.keyboard().read_rows(row_addr(4));
+
+        emu.nextreg().write(0x68, 0x10);          // bit 4 = cancel
+        const uint8_t row0 = emu.keyboard().read_rows(row_addr(0));
+        const uint8_t row4 = emu.keyboard().read_rows(row_addr(4));
+        const uint8_t b0   = emu.nextreg().read(0xB0);
+
+        check("EXTC-07",
+              "a guest write of NR 0x68 bit 4 cancels the fold, and NR 0xB0 "
+              "still reports the key  (zxnext.vhd:5447 -> :1584)",
+              (row4_before & (1u << 3)) == 0 &&      // folded before the write
+              row0 == 0x1F && row4 == 0x1F &&        // gone after it
+              (b0 & 0x08u) != 0,                     // raw readback survives
+              DETAIL("before=0x%02X row0=0x%02X row4=0x%02X b0=0x%02X",
+                     row4_before, row0, row4, b0));
     }
 
     // KBDHYS-04: Production wire — Emulator::run_frame() drives
