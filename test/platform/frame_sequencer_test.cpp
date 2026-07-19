@@ -89,6 +89,10 @@ struct FakeFrontend {
     static constexpr double CHUNK_MS = 23.2;
     bool   audio_model  = false;      ///< false: queued_ms is a fixed script value
     double queue_ms     = 65.0;
+    /// When non-empty, queued_ms() cycles these depths instead of reading the
+    /// modelled device — lets a test impose an exact, known sawtooth.
+    std::vector<int> scripted_queue;
+    size_t           scripted_pos = 0;
     double consume_accum_ms = 0.0;
     int    pending_frames = 0;        ///< frames synthesised but not yet pushed
 
@@ -124,7 +128,15 @@ struct FakeFrontend {
 
     int queued_ms()
     {
-        const int q = has_audio ? static_cast<int>(std::llround(queue_ms)) : -1;
+        int q;
+        if (!has_audio) {
+            q = -1;
+        } else if (!scripted_queue.empty()) {
+            q = scripted_queue[scripted_pos % scripted_queue.size()];
+            ++scripted_pos;
+        } else {
+            q = static_cast<int>(std::llround(queue_ms));
+        }
         queue_reads.push_back(q);
         return q;
     }
@@ -422,6 +434,94 @@ int main()
         check("FS-BAND-02", "first reading for a device seeds the estimate directly",
               std::fabs(seq.band_estimate_ms() - 65.0) < 0.001,
               "estimate=" + s_dbl(seq.band_estimate_ms()));
+    }
+
+    // The estimate must be a SMOOTHED MEAN, not an echo of the latest reading.
+    // This is the persistence property stated in isolation: rebuild the band
+    // each tick and the EMA degenerates to the raw value, which is exactly the
+    // v0.98.47 defect. Readings alternate between two depths that both sit
+    // safely inside the band, so no intervention perturbs the measurement and
+    // the ONLY thing under test is what the estimate retained.
+    {
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model = false;
+        // Two readings per full cycle; the sequencer reads the depth twice per
+        // tick (diagnostic + pacer), so a 4-entry script gives each tick one
+        // low and one high reading and keeps the cycle aligned.
+        fx.scripted_queue = {50, 50, 80, 80};
+        start(seq, fx);
+        run_ticks(seq, fx, 400);
+        const int last_raw = fx.queue_reads.back();
+        check("FS-BAND-05a",
+              "the retained estimate is a smoothed mean, not the latest reading",
+              seq.band_estimate_ms() >= 0.0 &&
+                  std::fabs(seq.band_estimate_ms() - static_cast<double>(last_raw)) > 5.0,
+              "estimate=" + s_dbl(seq.band_estimate_ms()) + " last_raw=" + s_int(last_raw));
+        check("FS-BAND-05b",
+              "the retained estimate lies strictly between the two alternating depths",
+              seq.band_estimate_ms() > 50.0 && seq.band_estimate_ms() < 80.0,
+              "estimate=" + s_dbl(seq.band_estimate_ms()));
+        check("FS-BAND-05c",
+              "alternating depths inside the band provoke no intervention",
+              seq.audio_doubles() == 0 && seq.audio_skips() == 0,
+              "doubles=" + s_int(static_cast<long long>(seq.audio_doubles())) +
+                  " skips=" + s_int(static_cast<long long>(seq.audio_skips())));
+    }
+
+    // FS-BAND-06 — THE REGRESSION'S SYMPTOM, MEASURED DIRECTLY.
+    //
+    // FS-BAND-05 pins what the estimate RETAINS; this row pins what the user
+    // FELT. Its scripted teeth deliberately CROSS the upper band edge, so a
+    // degenerate (per-tick-rebuilt) estimate does not merely look wrong — it
+    // produces real interventions, one frozen frame each. That is the live
+    // measurement which caught v0.98.47: 0.000 interventions/s when correct,
+    // ~1/s when broken.
+    //
+    // The readings are scripted, so the stimulus is bit-identical for correct
+    // and broken code and only the OUTPUT can differ — a mutation cannot dodge
+    // this row by shifting the queue trajectory the way it can with the
+    // self-consistent device model of FS-BAND-01. Both framings are kept.
+    //
+    // Each depth appears TWICE because the sequencer reads the device twice
+    // per tick (diagnostic sample + pacer decision, see FS-QUEUE-01), so a
+    // doubled script gives every tick one consistent depth.
+    {
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model = false;
+        // Pacer sees 76, 82, 88, 93, 90, 84, 78 -> mean 84.4, peak 93:
+        // mean safely inside the band, teeth over QUEUE_HIGH_MS (90), all
+        // below the raw emergency threshold (QUEUE_MAX - INTERVENTION = 99).
+        fx.scripted_queue = {76, 76, 82, 82, 88, 88, 93, 93, 90, 90, 84, 84, 78, 78};
+        start(seq, fx);
+        run_ticks(seq, fx, 40);          // let the estimate converge
+        seq.reset_audio_counters();
+        fx.composites.clear();
+        fx.queue_reads.clear();
+        run_ticks(seq, fx, 350);         // ~7 s of measurement
+
+        int crossings = 0, emergencies = 0;
+        for (int q : fx.queue_reads) {
+            if (q >= audio_pacing::QUEUE_HIGH_MS) ++crossings;
+            if (q >= audio_pacing::QUEUE_MAX_MS - audio_pacing::INTERVENTION_MS)
+                ++emergencies;
+        }
+        check("FS-BAND-06a",
+              "stimulus: the scripted teeth cross QUEUE_HIGH_MS every cycle",
+              crossings > 100, "crossings=" + s_int(crossings));
+        check("FS-BAND-06b",
+              "stimulus: the scripted teeth stay below the raw emergency threshold",
+              emergencies == 0, "emergencies=" + s_int(emergencies));
+        check("FS-BAND-06c",
+              "band interventions in steady state are ZERO (the v0.98.47 symptom)",
+              seq.audio_skips() == 0 && seq.audio_doubles() == 0,
+              "skips=" + s_int(static_cast<long long>(seq.audio_skips())) +
+                  " doubles=" + s_int(static_cast<long long>(seq.audio_doubles())));
+        check("FS-BAND-06d",
+              "every tick therefore runs exactly one frame (no frozen frames)",
+              fx.composites.size() == 350,
+              "frames=" + s_int(static_cast<long long>(fx.composites.size())));
     }
 
     // A sustained genuine drift (not sawtooth) MUST still be corrected — the
@@ -839,8 +939,14 @@ int main()
     }
     {
         // ...and the moment the tape ENDS inside a tick, normal audio resumes
-        // on that same tick. The gate is evaluated after the burst, so this is
-        // the first tick that has real-time samples worth sending.
+        // on that same tick.
+        //
+        // NOTE — DOCUMENTS PRE-EXISTING BEHAVIOUR, NOT A REQUIREMENT. The
+        // push gate is evaluated AFTER the burst, so it sees fastload already
+        // finished and pushes the burst's worth of samples. Whether that is
+        // ideal is a separate question (those samples were generated far
+        // faster than real time); the row exists to prove Task 91 did not move
+        // the gate, not to bless its placement.
         frame_sequencer::Sequencer seq;
         FakeFrontend fx;
         fx.audio_model     = false;
@@ -874,10 +980,17 @@ int main()
         check("FS-BURST-01b", "only the tick's closing frame composites",
               fx.composites.size() == 21 && fx.composites.back() == true);
         // The 19 INTERIOR burst frames are the waste this policy removes;
-        // none of them may composite. (The tick composites two frames in
-        // total: the pacing loop's single frame is the last frame of its own
-        // loop and cannot know a burst will follow, plus the closing frame.
-        // That is pre-existing behaviour, unchanged by Task 91.)
+        // none of them may composite.
+        //
+        // NOTE — DOCUMENTS PRE-EXISTING BEHAVIOUR, NOT A REQUIREMENT. A
+        // fastload tick composites TWO frames, not one: the pacing loop's
+        // single frame is the last frame of its own loop and cannot know a
+        // burst will follow it, so it composites, and then the closing frame
+        // composites too. That one redundant compositor pass per fastload
+        // tick predates Task 91 and is deliberately left alone here (Task 91
+        // is a behaviour-preserving refactor). The row asserts only the
+        // INTERIOR frames, which is the actual policy; do not read the
+        // two-frame total as a specification.
         int interior_composited = 0;
         for (size_t i = 1; i + 1 < fx.composites.size(); i++)
             if (fx.composites[i]) ++interior_composited;
@@ -894,8 +1007,12 @@ int main()
         fx.fastload_frames = 100000;   // never ends within a tick
         start(seq, fx);
         const frame_sequencer::TickResult r = seq.tick(fx);
-        // The cap bounds the BURST (199 loop frames + 1 closing frame); the
-        // tick's own paced frame precedes it, so the tick total is limit + 1.
+        // NOTE — DOCUMENTS PRE-EXISTING BEHAVIOUR, NOT A REQUIREMENT. The cap
+        // bounds the BURST (199 loop frames + 1 closing frame); the tick's own
+        // paced frame precedes the burst and is NOT counted against the limit,
+        // so a capped tick runs limit + 1 = 201 frames. That off-by-one in the
+        // ceiling predates Task 91; the row pins it so the refactor is proven
+        // not to have shifted it, not because 201 is a designed number.
         check("FS-BURST-02", "an endless fastload is capped at the burst limit",
               r.frames_rendered == frame_sequencer::FASTLOAD_BURST_LIMIT + 1,
               "frames=" + s_int(r.frames_rendered) + " limit=" +
