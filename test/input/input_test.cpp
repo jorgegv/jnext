@@ -4626,6 +4626,27 @@ static void test_nr_b2() {
         check("NRB2-16", "controller shoulders → L.X / L.Z; face button does not",
               v == (0x08 | 0x04), DETAIL("got=0x%02X want=0x%02X", v, 0x08 | 0x04));
     }
+
+    // NRB2-19/20: each shoulder ALONE. NRB2-16 presses both at once, so the
+    // OR of {L.X, L.Z} is the same byte whichever shoulder carries which bit —
+    // it cannot tell the mapping from its own transposition. Same blind spot
+    // NRB2-17 closed for the raw path.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, true);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-19", "LEFTSHOULDER alone → L.X (bit 3)",
+              v == 0x08, DETAIL("got=0x%02X want=0x08", v));
+    }
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_button(0, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, true);
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-20", "RIGHTSHOULDER alone → L.Z (bit 2)",
+              v == 0x04, DETAIL("got=0x%02X want=0x04", v));
+    }
 }
 
 int main() {
