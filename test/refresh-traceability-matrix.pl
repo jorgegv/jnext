@@ -155,10 +155,10 @@ my %TOMBSTONE = (
 #
 #   call    the check()/skip() call carrying this row's own ID literal
 #   named   a comment block that names this row ID explicitly
-#   next    the first check()/skip() call after the ID literal — the shared
-#           assertion of a table-driven row block ({"MMU-01", ...} arrays,
-#           where the ID lives in an initialiser and the check() is in the
-#           loop below it)
+#   next    the first check()/skip() call after the ID literal, but ONLY when
+#           the ID has no call of its own — the table-driven signature
+#           ({"MMU-01", ...} arrays, where the ID lives in an initialiser and
+#           the shared check() is in the loop below it)
 #   plan    the subsystem plan doc's row for this ID
 #
 # Vaguer evidence — a category banner comment, the nearest *unrelated*
@@ -366,6 +366,13 @@ sub grep_citations {
             last if $started && $depth <= 0;
             $j++;
         }
+        # The scan is not string-literal-aware, so an unbalanced-looking paren
+        # inside a description could run it past the real end of the call.
+        # Today no call in any suite trips this; say so out loud if one ever
+        # does, rather than silently mis-attributing its citation.
+        warn "WARN: $source_rel:@{[$i+1]} — call did not close within 40 lines;"
+           . " citation span may be wrong\n"
+            if $started && $depth > 0;
         push @calls, { s => $i, e => $j, cite => cite_in($text) };
     }
 
@@ -394,12 +401,25 @@ sub grep_citations {
     my %cites;
     for my $tid (keys %id_line) {
         my $L = $id_line{$tid};
-        my $cite;
+        my ($cite, $owns_call);
         for my $c (@calls) {
-            if ($c->{s} <= $L && $L <= $c->{e}) { $cite = $c->{cite}; last; }
+            if ($c->{s} <= $L && $L <= $c->{e}) {
+                $owns_call = 1;
+                $cite = $c->{cite};
+                last;
+            }
         }
         $cite //= $named{$tid};
-        if (!defined $cite) {
+        # The `next` tier applies ONLY when the ID literal has no call of its
+        # own — the table-driven signature, where the ID sits in an
+        # initialiser and the assertion is in the loop below it. "The row's
+        # own call exists but embeds no citation" is a different fact, and
+        # must NOT fall through: the following call belongs to the NEXT row,
+        # and borrowing from it publishes a plausible-but-wrong citation.
+        # (Caught in review, 2026-07-20: CT-INT-03 — a harness-plumbing check
+        # with no VHDL basis at all — had been given zxula.vhd:582-595,
+        # lifted from an unrelated check ~100 lines further down.)
+        if (!defined $cite && !$owns_call) {
             for my $c (@calls) { if ($c->{s} > $L) { $cite = $c->{cite}; last; } }
         }
         $cite //= $plan->{$tid};

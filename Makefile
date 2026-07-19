@@ -32,7 +32,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test harness-selftest worktree-bootstrap bench \
+       kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
@@ -192,6 +192,10 @@ build-matrix:
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
 harness-selftest:
 	@bash test/harness-selftest.sh
+
+# Self-test the traceability-matrix VHDL-citation extractor against fixtures
+traceability-selftest:
+	@perl test/traceability-citations-selftest.pl
 
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
 bench:

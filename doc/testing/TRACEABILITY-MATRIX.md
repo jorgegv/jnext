@@ -48,16 +48,27 @@ Updated 2026-04-27 from `test/SUBSYSTEM-TESTS-STATUS.md` runtime totals across a
 Script-filled since 2026-07-20 (Task 78). Until then the script only rewrote
 Status and Test `file:line`, so ~1600 rows showed `—` even though their
 citation was sitting in the test source next to the assertion. The extractor
-now recovers it from four **row-local** evidence tiers, in order: the
-`check()`/`skip()` call carrying the row's own ID; a comment block naming
-that ID; the first `check()`/`skip()` after the ID literal (the shared
-assertion of a table-driven row block); the subsystem plan doc's row.
+now recovers it from four **row-local** evidence tiers, in order:
 
-Deliberately *not* used: category banner comments and the nearest unrelated
-preceding comment. Both reach further, and both attribute a neighbouring
-row's VHDL lines to this one — a plausible-but-wrong citation is worse than
-an honest `—`. Every filled citation is validated against the real FPGA
-source tree, so a typo'd or renamed VHDL filename is reported, not published.
+1. the `check()`/`skip()` call carrying the row's own ID;
+2. a comment block naming that ID;
+3. the first `check()`/`skip()` after the ID literal — but **only when the row
+   has no call of its own**, which is the table-driven signature (the ID sits
+   in an initialiser and the shared assertion is in the loop below it);
+4. the subsystem plan doc's row.
+
+Tier 3's restriction is the load-bearing one. A row whose own `check()` simply
+embeds no citation must stay uncited: the following call belongs to the *next*
+row, and borrowing from it publishes a plausible-but-wrong citation that is
+self-consistent on every later run, so it never surfaces as drift either.
+Category banner comments and the nearest *unrelated* preceding comment are
+rejected for the same reason — both were prototyped, and both attribute a
+neighbour's VHDL lines to this row. An honest `—` beats a confident wrong
+answer. `test/traceability-citations-selftest.pl` pins all of this, including
+the refusals.
+
+Every filled citation is validated against the real FPGA source tree, so a
+typo'd or renamed VHDL filename is reported, not published.
 
 Reading the column:
 
@@ -708,7 +719,7 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G4.XY-04   | *(removed: y=256 always clipped — clip_y2_i 8-bit, sprites.vhd:1053)* | —      | missing | missing                            |
 | G4.XY-05   | x=319 renders last valid column                              | —               | pass    | test/sprites/sprites_test.cpp:969  |
 | G4.XY-06   | x=320 fully off-screen, x-wrap 1× (mask 11111) still render… | —               | pass    | test/sprites/sprites_test.cpp:986  |
-| G4.XY-07   | 2× scale wrap-around, sprite starts at x=300                 | sprites.vhd:1004,1017,1037 | pass    | test/sprites/sprites_test.cpp:1008 |
+| G4.XY-07   | 2× scale wrap-around, sprite starts at x=300                 | —               | pass    | test/sprites/sprites_test.cpp:1008 |
 | G5.VIS-01  | `attr3(7)=1` and on-scanline ⇒ renders                       | —               | pass    | test/sprites/sprites_test.cpp:1066 |
 | G5.VIS-02  | `attr3(7)=0` ⇒ S_QUALIFY→S_QUALIFY (skipped)                 | —               | pass    | test/sprites/sprites_test.cpp:1077 |
 | G5.VIS-03  | Y not on this line ⇒ `spr_cur_yoff≠0` ⇒ skipped              | —               | pass    | test/sprites/sprites_test.cpp:1088 |
@@ -912,16 +923,16 @@ Last-touch commit: `d599cd27615bf61efea60c49fdeb38dc7a6116b3` (`d599cd2761`)
 | TM-94   | Text mode vs standard path      | —              | missing | missing                            |
 | TM-100  | Palette select 0                | zxnext.vhd       | pass    | test/tilemap/tilemap_test.cpp:1357 |
 | TM-101  | Palette select 1                | —              | pass    | test/tilemap/tilemap_test.cpp:1365 |
-| TM-102  | Palette routing                 | tilemap.vhd:382-383 | pass    | test/tilemap/tilemap_test.cpp:1379 |
+| TM-102  | Palette routing                 | —              | pass    | test/tilemap/tilemap_test.cpp:1379 |
 | TM-103  | Standard pixel composition      | tilemap.vhd:382-383 | pass    | test/tilemap/tilemap_test.cpp:1393 |
 | TM-104  | Text mode pixel composition     | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:1407 |
 | TM-110  | Default clip (full area)        | tilemap.vhd:424  | pass    | test/tilemap/tilemap_test.cpp:1497 |
-| TM-111  | Custom clip window              | tilemap.vhd:416-417,424 | pass    | test/tilemap/tilemap_test.cpp:1519 |
+| TM-111  | Custom clip window              | —              | pass    | test/tilemap/tilemap_test.cpp:1519 |
 | TM-112  | Clip X coordinates              | tilemap.vhd:416-417,424 | pass    | test/tilemap/tilemap_test.cpp:1550 |
 | TM-113  | Clip Y coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1576 |
 | TM-114  | Clip index cycling              | —              | missing | missing                            |
 | TM-115  | Clip index reset                | —              | missing | missing                            |
-| TM-116  | Clip readback                   | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1596 |
+| TM-116  | Clip readback                   | —              | pass    | test/tilemap/tilemap_test.cpp:1596 |
 | TM-120  | Tilemap on top (default)        | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1615 |
 | TM-121  | Tilemap always on top           | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1628 |
 | TM-122  | Per-tile below flag             | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1641 |
@@ -2829,7 +2840,7 @@ into this suite as part of the 2026-04-26 closure.
 | CT-FB-04     | +3, I/O read (no MREQ) — latch unchanged (capture gated on MREQ)    | zxnext.vhd:4501                     | pass   | test/contention/contention_test.cpp:1333    |
 | CT-INT-01    | 48K, HALT-loop 1-frame, contention ON — frame T-states match LUT    | zxula.vhd:582-595, zxula_timing.vhd | pass   | test/contention/contention_test.cpp:1379    |
 | CT-INT-02    | 48K, same program, contention OFF via NR 0x08 bit 6 — 69888 baseline| zxnext.vhd:4481,5823                | pass   | test/contention/contention_test.cpp:1413    |
-| CT-INT-03    | Regression screenshot — 48K contention-sensitive demo               | zxula.vhd:582-595                     | pass   | test/contention/contention_test.cpp:1492    |
+| CT-INT-03    | Regression screenshot — 48K contention-sensitive demo               | —                                   | pass   | test/contention/contention_test.cpp:1492    |
 | CT-FUSE-01   | 48K, `LD A,(0x4000)` from page 0x0A — M1 fetch contention (G141)    | zxula.vhd:583,595; z80_macros.h:109 | pass   | test/contention/contention_test.cpp:1796    |
 | CT-FUSE-02   | 48K, `LDIR` over page 0x0A — no-MREQ tail contention (G141)         | zxula.vhd:583,595; z80_macros.h:118 | pass   | test/contention/contention_test.cpp:1874    |
 | CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (G141)| zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
