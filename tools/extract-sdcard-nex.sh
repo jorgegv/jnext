@@ -130,4 +130,4 @@ echo
 echo "Checklist: $MARKDOWN  ($(( (${#NEX_FILES[@]} + BATCH_SIZE - 1) / BATCH_SIZE )) batch(es))"
 echo
 echo "Run one with:"
-echo "  ./build/jnext --sdcard <image> --load '$OUT_DIR/<path>.nex'"
+echo "  ./build/jnext '$OUT_DIR/<path>.nex'"
