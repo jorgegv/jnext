@@ -102,4 +102,4 @@ ctest N/N • FUSE 1356/1356 • regression P/F/S
 - ❌ Push to origin.
 - ❌ Use the same agent for code AND review.
 - ❌ Skip the worktree-per-unit pattern when units are independent.
-- ❌ Forget to update `FEATURES.md` / `TODO.md` after merging a significant change (CLAUDE.md mandate).
+- ❌ Forget to update `FEATURES.md` after merging a significant change (CLAUDE.md mandate). Pending work lives in GitHub issues, not `TODO.md`.
