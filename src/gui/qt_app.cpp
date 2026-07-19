@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
+#include "platform/render_policy.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
 #ifdef ENABLE_DEBUGGER
@@ -505,11 +506,15 @@ void QtApp::frame_tick_body() {
     // nobody will consume. Emulator::run_frame() re-forces the render when a
     // consumer the frontend cannot see is active (video recording, debugger).
     // Frontend-side forcing:
-    //   * speed <= 1x: never skip — 1x behaviour stays bit-identical
-    //     (including the audio-pacing multi-frame bursts and fastload);
+    //   * speed <= 1x: render_this_tick stays true — every presenting tick
+    //     composites. Within a multi-frame tick (audio-pacing catch-up
+    //     doubles, fastload bursts) only the LAST frame composites: the
+    //     earlier ones are superseded in the framebuffer before any paint
+    //     (issue #9, see render_policy.h), so the presented stream and all
+    //     screenshots are unchanged;
     //   * screenshot due this tick (countdown == 0): the captured frame MUST
     //     have gone through the compositor with the layer mask armed above,
-    //     so the whole tick renders.
+    //     so the whole tick renders (`screenshot_due` forces every frame).
     bool render_this_tick = true;
     if (speed_multiplier_ > 1.0 && screenshot_countdown_ != 0) {
         constexpr int64_t RENDER_INTERVAL_MS = 20;  // ~50 Hz presentation
@@ -521,7 +526,7 @@ void QtApp::frame_tick_body() {
             last_render_ms_ = now_ms;
         }
     }
-    emulator_.set_render_enabled(render_this_tick);
+    const bool screenshot_due = (screenshot_countdown_ == 0);
 
     // Run one emulator frame (skip if debugger has paused).
     if (!emulator_.debug_state().paused()) {
@@ -552,6 +557,12 @@ void QtApp::frame_tick_body() {
         // issue-#9 candidates. A tick that emulates nothing samples ~0.
         const auto emu_t0 = std::chrono::steady_clock::now();
         for (int i = 0; i < frames; i++) {
+            // Superseded-composite skip (issue #9): only the tick's last
+            // frame is presented, so earlier frames of a catch-up double
+            // skip their compositor pass (render_policy.h).
+            emulator_.set_render_enabled(
+                render_this_tick &&
+                render_policy::composite_frame_in_tick(i, frames, screenshot_due));
             emulator_.run_frame();
             ++frame_count_;
             ++frames_rendered;
@@ -580,9 +591,35 @@ void QtApp::frame_tick_body() {
         constexpr int FASTLOAD_BURST_LIMIT = 200;
         int burst = 0;
         const auto burst_t0 = std::chrono::steady_clock::now();
+        // Superseded-composite skip (issue #9): which burst frame is last is
+        // unknowable up front (any frame can end the tape), so every loop
+        // frame runs unrendered — it is frame `burst` of a tick with at
+        // least burst+2 frames, since the closing frame below follows by
+        // construction — and the closing frame, the tick's final frame,
+        // composites. Per-tick frame counts match the previous single loop
+        // (199+1 vs 200) except when fastload ends before the limit: the
+        // closing frame then adds ONE post-load frame, once per tape load.
+        // A pause mid-burst has debug_state_.active() set (breakpoints only
+        // fire when active), so run_frame composited those frames regardless
+        // of the hint and the closing frame is safely skipped.
         while (emulator_.fastload_active() &&
-               burst < FASTLOAD_BURST_LIMIT &&
+               burst < FASTLOAD_BURST_LIMIT - 1 &&
                !emulator_.debug_state().paused()) {
+            emulator_.set_render_enabled(
+                render_this_tick &&
+                render_policy::composite_frame_in_tick(burst, burst + 2,
+                                                       screenshot_due));
+            emulator_.run_frame();
+            ++frame_count_;
+            ++frames_rendered;
+            ++burst;
+        }
+        if (burst > 0 && !emulator_.debug_state().paused()) {
+            // Closing frame — the tick's final frame, always composited.
+            emulator_.set_render_enabled(
+                render_this_tick &&
+                render_policy::composite_frame_in_tick(burst, burst + 1,
+                                                       screenshot_due));
             emulator_.run_frame();
             ++frame_count_;
             ++frames_rendered;
@@ -615,9 +652,9 @@ void QtApp::frame_tick_body() {
     // interval + handler samples from the on_frame_tick wrapper).
     tick_stats::add_sample(tick_stats_.emu_us, emu_us);
 
-    // Task 27 C6 — the hint is per-tick: restore the default (always render)
-    // so any run_frame() caller outside this tick (debugger actions, future
-    // paths) is unaffected. The next tick re-decides.
+    // Task 27 C6 — the hint is per-frame within this tick: restore the
+    // default (always render) so any run_frame() caller outside this tick
+    // (debugger actions, future paths) is unaffected. The next tick re-decides.
     emulator_.set_render_enabled(true);
 
     // Update the display widget with the in-memory framebuffer (640×256).

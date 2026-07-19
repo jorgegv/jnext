@@ -503,15 +503,17 @@ public:
     void set_replay_mode(bool v) { replay_mode_ = v; }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
-    /// consume the framebuffer produced by the NEXT run_frame() (e.g. the Qt
-    /// GUI at --speed 400 emulates 200 frames/s while the display presents
-    /// ~50-60), it may clear this to skip the end-of-frame compositing pass.
+    /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
+    /// at --speed 400 emulates 200 frames/s while the display presents
+    /// ~50-60; both GUI frontends' non-final frames of a multi-frame tick are
+    /// superseded before any paint — see platform/render_policy.h), it may
+    /// clear this to skip the end-of-frame compositing pass.
     /// It is a HINT, not a command: run_frame() still renders regardless when
     /// a consumer the frontend cannot see needs the frame — video recording
     /// (capture_frame() reads the framebuffer immediately after render) or an
     /// active debugger (panels/pause display read it). Default TRUE: headless
     /// (including --benchmark, which must measure the real render workload)
-    /// and SDL frontends never touch this and keep rendering every frame.
+    /// never touches this and keeps rendering every frame.
     bool render_enabled() const { return render_enabled_; }
     void set_render_enabled(bool v) { render_enabled_ = v; }
 
