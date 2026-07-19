@@ -47,7 +47,10 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 
 %files
 %license %{_docdir}/%{name}/LICENSE
+%doc %{_docdir}/%{name}/README.md
+%doc %{_docdir}/%{name}/ChangeLog
 %doc %{_docdir}/%{name}/USAGE.md
+%{_mandir}/man1/jnext.1*
 %{_bindir}/jnext
 %{_datadir}/applications/io.github.zxjogv.jnext.desktop
 %{_datadir}/metainfo/io.github.zxjogv.jnext.metainfo.xml

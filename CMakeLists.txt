@@ -256,8 +256,15 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/packaging/assets/io.github.zxjogv.jnext.png")
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps)
 endif()
 
-install(FILES LICENSE USAGE.md
+install(FILES LICENSE README.md ChangeLog USAGE.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+# Man page. Committed pre-generated (from doc/man/jnext.1.md via `make docs`),
+# so installing needs no doc toolchain. The packaging formats compress it
+# themselves (rpm brp-compress, dh_compress), hence the jnext.1* globs in
+# their file lists.
+install(FILES doc/man/jnext.1
+    DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
 # CPack: source-agnostic TGZ/DEB/RPM package generation (`cpack -G <gen>`
 # from the build dir). Runtime deps below are the direct link-time
