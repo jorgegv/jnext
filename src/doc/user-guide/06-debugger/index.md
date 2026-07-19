@@ -1,9 +1,10 @@
 # 6. The debugger
 
-JNEXT ships with a full source-less debugger for ZX Spectrum Next software: it
-halts the machine at an instruction boundary and shows you the CPU, the memory
-map, every video layer, the Copper program, the NextREG file and the AY
-registers, all as the hardware sees them at that instant.
+JNEXT ships with a full debugger for ZX Spectrum Next software. It works at
+instruction level on its own, and becomes source-aware when compiler symbols
+and an sjasmplus SLD source map are available. It shows you the CPU, memory
+map, source or disassembly, every video layer, Copper program, NextREG file and
+AY registers as the hardware sees them at that instant.
 
 This chapter is a reference. Each panel and each function has its own section,
 so you can look one up while you are debugging.
@@ -27,8 +28,8 @@ for why, and how to run under X11 if you want it.
 
 ![The debugger window](../img/debugger-window.png)
 
-The layout is fixed: video-related tabs on the top left, disassembly in the
-centre, CPU registers and MMU down the right, and memory/stack tabs and
+The layout is fixed: video-related tabs on the top left, disassembly and source
+in the centre, CPU registers and MMU down the right, and memory/stack tabs and
 watch/breakpoint tabs along the bottom. The splitters between the areas can be
 dragged.
 

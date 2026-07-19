@@ -1482,6 +1482,8 @@
       
         
       
+        
+      
     
     
     
@@ -1895,6 +1897,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="panels/14-source.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1914,6 +1944,8 @@
       
         
           
+        
+      
         
       
         
@@ -2107,7 +2139,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Compiler symbols
   
 
     
@@ -2192,6 +2224,34 @@
     
   
     The magic breakpoint and the magic port
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="functions/09-source-level-debugging.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source-level debugging
   
 
     
@@ -2808,10 +2868,11 @@
 
 
 <h1 id="6-the-debugger">6. The debugger<a class="headerlink" href="#6-the-debugger" title="Permanent link">&para;</a></h1>
-<p>JNEXT ships with a full source-less debugger for ZX Spectrum Next software: it
-halts the machine at an instruction boundary and shows you the CPU, the memory
-map, every video layer, the Copper program, the NextREG file and the AY
-registers, all as the hardware sees them at that instant.</p>
+<p>JNEXT ships with a full debugger for ZX Spectrum Next software. It works at
+instruction level on its own, and becomes source-aware when compiler symbols
+and an sjasmplus SLD source map are available. It shows you the CPU, memory
+map, source or disassembly, every video layer, Copper program, NextREG file and
+AY registers as the hardware sees them at that instant.</p>
 <p>This chapter is a reference. Each panel and each function has its own section,
 so you can look one up while you are debugging.</p>
 <p>Open the debugger with <strong>Ctrl+D</strong>, with <strong>View ▸ Debugger</strong>, or with the bug
@@ -2829,8 +2890,8 @@ where the menu item is greyed out — see
 <a href="../08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.html">8.3</a>
 for why, and how to run under X11 if you want it.</p>
 <p><img alt="The debugger window" src="../img/debugger-window.png" /></p>
-<p>The layout is fixed: video-related tabs on the top left, disassembly in the
-centre, CPU registers and MMU down the right, and memory/stack tabs and
+<p>The layout is fixed: video-related tabs on the top left, disassembly and source
+in the centre, CPU registers and MMU down the right, and memory/stack tabs and
 watch/breakpoint tabs along the bottom. The splitters between the areas can be
 dragged.</p>
 <p>Four panels — CPU Registers, Disassembly, Stack and Call Stack — only show data

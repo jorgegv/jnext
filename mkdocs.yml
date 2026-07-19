@@ -87,16 +87,18 @@ nav:
           - Copper: 06-debugger/panels/11-copper.md
           - NextREG: 06-debugger/panels/12-nextreg.md
           - Audio: 06-debugger/panels/13-audio.md
+          - Source: 06-debugger/panels/14-source.md
       - Functions:
           - 06-debugger/functions/index.md
           - Run, pause, and the step family: 06-debugger/functions/01-run-pause-and-the-step-family.md
           - Run to cursor, run to end of frame, run to end of scanline: 06-debugger/functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.md
           - 'Breakpoints: execute, read, write': 06-debugger/functions/03-breakpoints-execute-read-write.md
           - Watches and watch sizes: 06-debugger/functions/04-watches-and-watch-sizes.md
-          - Symbols from Z88DK MAP files: 06-debugger/functions/05-symbols-from-z88dk-map-files.md
+          - Compiler symbols: 06-debugger/functions/05-symbols-from-z88dk-map-files.md
           - The trace log: 06-debugger/functions/06-the-trace-log.md
           - Backward execution (rewind): 06-debugger/functions/07-backward-execution-rewind.md
           - The magic breakpoint and the magic port: 06-debugger/functions/08-the-magic-breakpoint-and-the-magic-port.md
+          - Source-level debugging: 06-debugger/functions/09-source-level-debugging.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md

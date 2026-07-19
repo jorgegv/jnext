@@ -1482,6 +1482,8 @@
       
         
       
+        
+      
     
     
     
@@ -1895,6 +1897,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/14-source.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1916,6 +1946,8 @@
       
         
           
+        
+      
         
       
         
@@ -2119,7 +2151,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Compiler symbols
   
 
     
@@ -2204,6 +2236,34 @@
     
   
     The magic breakpoint and the magic port
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-source-level-debugging.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source-level debugging
   
 
     
@@ -2851,6 +2911,9 @@
 own convention — so a Word watch on a <code>LD (nn),HL</code> destination reads back <code>HL</code>.</p>
 <p>Watches read through the CPU's current view of memory, so a watch on a banked
 address follows whatever is paged in at that moment.</p>
+<p>The address field accepts loaded symbol names as well as hexadecimal. Watches
+remain logical-address only: they deliberately follow the current mapping and
+are not pinned to the physical page recorded in an SLD source location.</p>
 
 
 

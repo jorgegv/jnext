@@ -541,15 +541,18 @@ or `make gui-debug`); the SDL-only build has no way to open it.
 - **MMU panel** - the Next 8-slot MMU table (page numbers and type) and
   the 128K bank mappings
 - **Disassembly** - Z80 + Z80N, PC highlight, breakpoint gutter,
-  follow-PC, run-to-cursor, symbol names from MAP files
+  follow-PC, run-to-cursor, symbol names from MAP and NextBuild
+  `Memory.txt` files
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing,
   page/bank selector
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution
-- **Breakpoints** - execution, read, write and I/O watchpoints, in one
-  panel
+- **Source** - current source file and highlighted line from an SLD v1
+  map; unmapped compiler/runtime code falls back to disassembly
+- **Breakpoints** - execution, read and write watchpoints; address
+  fields accept loaded symbols as well as hexadecimal
 - **Watch expressions** - byte, word or long at arbitrary addresses,
-  with custom labels
+  with custom labels; address fields also accept loaded symbols
 - **Video panels** - All layers (the real composite, through the live
   compositor), ULA (primary and shadow), Layer 2 (active and shadow),
   Sprites, Tilemap, Background (the NR 0x4A fallback colour);
@@ -565,8 +568,17 @@ or `make gui-debug`); the SDL-only build has no way to open it.
   file. Off by default; enable with **--trace**, the debugger’s Enable
   Trace menu item, or implicitly by enabling rewind, which needs it for
   Step Back
-- **Symbol table** - Z88DK MAP files; symbols appear inline in the
-  disassembly and in watches
+- **Symbol table** - Z88DK MAP files and Boriel/NextBuild `Memory.txt`
+  files. Use **Map \> Load Symbols** to load one manually. A NEX
+  automatically checks for a same-stem `game.Memory.txt`, then
+  `Memory.txt`, beside the program
+- **Source map** - sjasmplus SLD v1 files. Use **Map \> Load SLD Source
+  Map** manually, or place `game.sld` or `game.sld.txt` beside a NEX for
+  automatic loading. Program identity metadata rejects a stale automatic
+  sidecar. Page-qualified source locations distinguish the same logical
+  address in different physical 8K pages; numeric and symbol breakpoints
+  remain logical wildcards, while source-gutter breakpoints retain the
+  physical page
 - **Backwards execution (rewind)** - frame-snapshot ring buffer, with
   Step Back, Frame Back and a rewind slider. Opt-in, because rewind
   takes a full-machine snapshot every frame: start jnext with
@@ -576,15 +588,20 @@ or `make gui-debug`); the SDL-only build has no way to open it.
   Buffer Size… Unchecking the toggle pauses snapshotting but keeps the
   recorded history; set the buffer size to 0 to free the memory
 
-| Key      | Action         |
-|----------|----------------|
-| F5       | Run / Continue |
-| F6       | Step Into      |
-| F7       | Step Over      |
-| F8       | Step Out       |
-| F9       | Pause / Break  |
-| Shift+F6 | Frame Back     |
-| Shift+F7 | Step Back      |
+| Key           | Action                                |
+|---------------|---------------------------------------|
+| F5            | Run / Continue                        |
+| F6            | Step Into                             |
+| F7            | Step Over                             |
+| F8            | Step Out                              |
+| F9            | Pause / Break                         |
+| Shift+F6      | Frame Back                            |
+| Shift+F7      | Step Back                             |
+| Ctrl+F6       | Source Step Into                      |
+| Ctrl+F7       | Source Step Over                      |
+| Ctrl+F8       | Source Step Out                       |
+| Ctrl+Shift+F7 | Source Step Back                      |
+| Ctrl+Shift+F5 | Reverse Continue to Source Breakpoint |
 
 ## MAGIC BREAKPOINT AND MAGIC PORT
 

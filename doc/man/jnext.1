@@ -611,7 +611,8 @@ SDL\-only build has no way to open it.
 type) and the 128K bank mappings
 .IP \(bu 2
 \f[B]Disassembly\f[R] \- Z80 + Z80N, PC highlight, breakpoint gutter,
-follow\-PC, run\-to\-cursor, symbol names from MAP files
+follow\-PC, run\-to\-cursor, symbol names from MAP and NextBuild
+\f[CR]Memory.txt\f[R] files
 .IP \(bu 2
 \f[B]Memory hex editor\f[R] \- full 64K, hex and ASCII, inline editing,
 page/bank selector
@@ -621,11 +622,14 @@ page/bank selector
 \f[B]Call stack\f[R] \- CALL/RST/INT/RET tracking, with symbol
 resolution
 .IP \(bu 2
-\f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
-one panel
+\f[B]Source\f[R] \- current source file and highlighted line from an SLD
+v1 map; unmapped compiler/runtime code falls back to disassembly
+.IP \(bu 2
+\f[B]Breakpoints\f[R] \- execution, read and write watchpoints; address
+fields accept loaded symbols as well as hexadecimal
 .IP \(bu 2
 \f[B]Watch expressions\f[R] \- byte, word or long at arbitrary
-addresses, with custom labels
+addresses, with custom labels; address fields also accept loaded symbols
 .IP \(bu 2
 \f[B]Video panels\f[R] \- All layers (the real composite, through the
 live compositor), ULA (primary and shadow), Layer 2 (active and shadow),
@@ -650,8 +654,21 @@ Off by default; enable with \f[B]\-\-trace\f[R], the debugger\(cqs
 Enable Trace menu item, or implicitly by enabling rewind, which needs it
 for Step Back
 .IP \(bu 2
-\f[B]Symbol table\f[R] \- Z88DK MAP files; symbols appear inline in the
-disassembly and in watches
+\f[B]Symbol table\f[R] \- Z88DK MAP files and Boriel/NextBuild
+\f[CR]Memory.txt\f[R] files.
+Use \f[B]Map > Load Symbols\f[R] to load one manually.
+A NEX automatically checks for a same\-stem \f[CR]game.Memory.txt\f[R],
+then \f[CR]Memory.txt\f[R], beside the program
+.IP \(bu 2
+\f[B]Source map\f[R] \- sjasmplus SLD v1 files.
+Use \f[B]Map > Load SLD Source Map\f[R] manually, or place
+\f[CR]game.sld\f[R] or \f[CR]game.sld.txt\f[R] beside a NEX for
+automatic loading.
+Program identity metadata rejects a stale automatic sidecar.
+Page\-qualified source locations distinguish the same logical address in
+different physical 8K pages; numeric and symbol breakpoints remain
+logical wildcards, while source\-gutter breakpoints retain the physical
+page
 .IP \(bu 2
 \f[B]Backwards execution (rewind)\f[R] \- frame\-snapshot ring buffer,
 with Step Back, Frame Back and a rewind slider.
@@ -706,6 +723,31 @@ T{
 Shift+F7
 T}@T{
 Step Back
+T}
+T{
+Ctrl+F6
+T}@T{
+Source Step Into
+T}
+T{
+Ctrl+F7
+T}@T{
+Source Step Over
+T}
+T{
+Ctrl+F8
+T}@T{
+Source Step Out
+T}
+T{
+Ctrl+Shift+F7
+T}@T{
+Source Step Back
+T}
+T{
+Ctrl+Shift+F5
+T}@T{
+Reverse Continue to Source Breakpoint
 T}
 .TE
 .SH MAGIC BREAKPOINT AND MAGIC PORT

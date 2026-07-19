@@ -13,3 +13,7 @@ own convention — so a Word watch on a `LD (nn),HL` destination reads back `HL`
 
 Watches read through the CPU's current view of memory, so a watch on a banked
 address follows whatever is paged in at that moment.
+
+The address field accepts loaded symbol names as well as hexadecimal. Watches
+remain logical-address only: they deliberately follow the current mapping and
+are not pinned to the physical page recorded in an SLD source location.
