@@ -6747,9 +6747,10 @@ void Emulator::run_frame()
     // Suppressed in replay mode (fast-forward rewind path).
     //
     // Task 27 C6 — additionally suppressed when the frontend hinted that
-    // nobody will consume this frame (render_enabled_ == false; Qt GUI at
-    // speed > 1x). The hint is OVERRIDDEN — the frame is rendered anyway —
-    // when:
+    // nobody will consume this frame (render_enabled_ == false; Qt GUI whole
+    // ticks at speed > 1x, and both GUI frontends' non-final frames of a
+    // multi-frame tick — superseded composites, see platform/render_policy.h).
+    // The hint is OVERRIDDEN — the frame is rendered anyway — when:
     //   * video recording is active: capture_frame() below consumes the
     //     framebuffer immediately after render, and a skipped render would
     //     silently freeze/corrupt the --record MP4;
@@ -6757,8 +6758,8 @@ void Emulator::run_frame()
     //     framebuffer, and stepping/breakpoints must always show the frame
     //     that was actually emulated.
     // Headless mode (incl. --benchmark, which must measure the real render
-    // workload) and the SDL frontend never clear render_enabled_, so their
-    // behaviour is bit-identical to before.
+    // workload) never clears render_enabled_, so its behaviour is
+    // bit-identical to before.
     //
     // Enumeration of EVERY side effect of render_frame() and its callees,
     // with its guard or benign-skip argument (C6 review, 2026-07-15):

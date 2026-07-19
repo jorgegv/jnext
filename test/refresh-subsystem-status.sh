@@ -112,6 +112,7 @@ BEGIN {
     M["audio_pacing_test"]             = "Audio (pacing)"
     M["audio_capture_test"]            = "Audio (capture)"
     M["present_cadence_test"]          = "Present cadence"
+    M["render_policy_test"]            = "Render-skip policy"
     M["frame_deadline_test"]           = "Frame-deadline scheduler"
     M["tick_stats_test"]               = "Tick-delivery stats"
     M["present_count_test"]            = "Present count (widget)"
