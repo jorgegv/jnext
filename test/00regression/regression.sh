@@ -1407,13 +1407,15 @@ fi
 # frame-pacing-func (issue #9): a 60 Hz demo must pace the frontend timer to the
 # emulated video refresh, not a hardcoded 50 Hz. Beast.nex switches the machine
 # to 60 Hz (NR 0x05 bit 2); since the fix the Qt frontend logs the 50->60 Hz
-# pacing transition and drives its frame timer at ~17.20 ms (58 fps) instead of
-# 20 ms (50 fps). This is the ONLY suite row that exercises the frontend pacing
-# path (headless is frame-counted and never touches it), so it is what stops a
-# future revert to a literal 20 ms from sailing through green. Discriminative
-# both ways: the 60 Hz demo MUST emit a "-> 17 ms/frame" line, and a plain 50 Hz
-# machine (48k) MUST NOT. QT_QPA_PLATFORM=offscreen runs the real GUI binary with
-# no display (same technique as silent-func); --silent keeps it audio-free.
+# pacing transition and drives its frame timer at the EXACT 17.198 ms Next-60
+# period (Task 63 deadline scheduler; before that, at a rounded 17 ms) instead
+# of 20 ms (50 fps). This is the ONLY suite row that exercises the frontend
+# pacing path (headless is frame-counted and never touches it), so it is what
+# stops a future revert to a literal 20 ms from sailing through green.
+# Discriminative both ways: the 60 Hz demo MUST emit the 17.198 ms deadline-
+# scheduler line, and a plain 50 Hz machine (48k, 19.968 ms period) MUST NOT.
+# QT_QPA_PLATFORM=offscreen runs the real GUI binary with no display (same
+# technique as silent-func); --silent keeps it audio-free.
 if want frame-pacing-func; then
     begin_func frame-pacing-func
     beast_nex="$SCRIPT_DIR/nex/beast.nex"
@@ -1423,13 +1425,13 @@ if want frame-pacing-func; then
     fp_50=$(QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 60s "$JNEXT" \
         "${SD_CARD_ARGS[@]}" --machine 48k --silent \
         --delayed-automatic-exit-frames 150 2>&1) || true
-    fp_60_hit=$(echo "$fp_60" | grep -cF "17 ms/frame timer" || true)
-    fp_50_hit=$(echo "$fp_50" | grep -cF "17 ms/frame timer" || true)
+    fp_60_hit=$(echo "$fp_60" | grep -cF "17.198 ms deadline scheduler" || true)
+    fp_50_hit=$(echo "$fp_50" | grep -cF "17.198 ms deadline scheduler" || true)
     if [[ "$fp_60_hit" -ge 1 && "$fp_50_hit" -eq 0 ]]; then
-        echo -e "${GREEN}PASS${RESET} (60 Hz demo paces to 17 ms/frame; 50 Hz machine does not)"
+        echo -e "${GREEN}PASS${RESET} (60 Hz demo paces to the 17.198 ms deadline; 50 Hz machine does not)"
         pass=$((pass + 1))
     else
-        echo -e "${RED}FAIL${RESET} (60Hz->17ms line count=$fp_60_hit (want >=1), 48k count=$fp_50_hit (want 0))"
+        echo -e "${RED}FAIL${RESET} (60Hz->17.198ms line count=$fp_60_hit (want >=1), 48k count=$fp_50_hit (want 0))"
         fail=$((fail + 1))
     fi
 fi

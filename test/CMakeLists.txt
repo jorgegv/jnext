@@ -396,6 +396,12 @@ add_executable(present_cadence_test platform/present_cadence_test.cpp)
 target_include_directories(present_cadence_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME present_cadence_tests COMMAND present_cadence_test)
 
+# Frame-deadline scheduler test (issue #9 / Task 63). Header-only pacing policy
+# under test (src/platform/frame_deadline.h) — no Qt, no SDL, no emulator core.
+add_executable(frame_deadline_test platform/frame_deadline_test.cpp)
+target_include_directories(frame_deadline_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME frame_deadline_tests COMMAND frame_deadline_test)
+
 # Tick-delivery statistics test (issue #9 / Task 63). Header-only accumulators
 # under test (src/platform/tick_stats.h) — no Qt, no SDL, no emulator core.
 # Discriminates the four issue-#9 mechanisms (late callbacks / slow emulation /
