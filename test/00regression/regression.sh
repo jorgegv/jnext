@@ -320,25 +320,15 @@ echo ""
 MAX_JOBS=${JNEXT_TEST_JOBS:-$(nproc 2>/dev/null || echo 4)}
 
 # Phase 1: Launch all emulator instances in parallel to generate screenshots
-declare -A TEST_PIDS  # test_name -> PID
-declare -A TEST_INFO  # test_name -> "machine_type nex_file delay_secs"
 ORDERED_TESTS=()
 
 while IFS= read -r line; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     read -r test_name machine_type nex_file delay_frames extra_args <<< "$line"
 
-    # Filter if specific tests requested
-    if [[ ${#FILTER_TESTS[@]} -gt 0 ]]; then
-        match=false
-        for ft in "${FILTER_TESTS[@]}"; do
-            [[ "$test_name" == "$ft" ]] && match=true
-        done
-        $match || continue
-    fi
+    want "$test_name" || continue
 
     ORDERED_TESTS+=("$test_name")
-    TEST_INFO["$test_name"]="$machine_type $nex_file $delay_frames"
 
     out_img="$TMP_DIR/${test_name}.png"
     # Wall-clock safety: assume the emulator clears at least 25 fps
@@ -369,7 +359,6 @@ while IFS= read -r line; do
 
     # Launch in background
     "${cmd[@]}" &>/dev/null &
-    TEST_PIDS["$test_name"]=$!
 
     # Throttle: wait if we've reached MAX_JOBS
     while [[ $(jobs -rp | wc -l) -ge $MAX_JOBS ]]; do
