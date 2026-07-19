@@ -110,4 +110,9 @@
 |        |      | Windows self-contained zip works under wine (DLL closure, SDL3, 16 MB stack, native CA); gated releases (releases.yaml + RELEASE-PROTOCOL). v0.98.4→.19 |
 | 16/7   |      | Packaging correctness, 6 reviewed merges (5 REJECT→fix, all real): RPM built on Fedora, DEB matrix Ubuntu 24.04+26.04, Windows GUI-subsystem (no console), |
 |        |      | Flatpak CI + build-from-local, src.zip, drop -Linux.tar.gz, README Windows install. v0.98.20→.24 |
+| 19/7   |      | Input registers wired end to end: #32 NR 0xB2 (sourced from Joystick, not the unfed cable model), #33 extended keys (raw readback vs cancellable fold |
+|        |      | separated per membrane.vhd:253, CS/SYM shift synthesis added, NR 0x68 b4 wired; KBDHYS-03 was asserting the inverse of the VHDL).                     |
+|        |      | #37 Kempston mouse pointer capture in both frontends (Qt warp-to-centre, SDL relative mode) — motion was derived from ABSOLUTE window position.        |
+|        |      | Task 93 link rot: jnext_core/-platform under-declared deps, 2 of 4 build combos broken; `make build-matrix` guard + CI. Task 95 NEX audit tooling +#36. |
+|        |      | TODO.md -> GitHub issues; prompt file tracks by issue number. 8 reviewed merges, 5 REJECT->rework (all real bugs). v0.98.52->.56                       |
 | TOTAL: | 375h |                                                                                                      |

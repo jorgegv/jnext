@@ -152,7 +152,14 @@ clean: debug-clean release-clean gui-clean unit-test-clean
 # Run the full regression test suite (screenshot + functional tests)
 # Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 # `make clean` deletes it. It used to vanish from the suite with no row printed.
-regression: unit-test-build
+# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
+# build/gui-release/jnext, so without it the suite silently tests whatever
+# binary happens to be lying there. A stale one gives false FAILs (the binary
+# lacks a fix the test expects) and, worse, false PASSes (it lacks the bug the
+# test would have caught). Building it here makes "the tests ran against this
+# source" true by construction instead of by discipline — 2026-07-19, after a
+# 14-hour-old binary produced two bogus FAILs immediately before a version bump.
+regression: unit-test-build gui-release
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
