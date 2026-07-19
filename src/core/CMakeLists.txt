@@ -46,4 +46,16 @@ add_library(jnext_core STATIC ${SOURCES} ${FATFS_SOURCES} ${NEXTBOOT_ROM_GEN})
 target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
 # emulator.h includes input/keyboard.h; Keyboard symbols live in jnext_input.
 # src/input is added before src/core in the root CMakeLists so this target exists.
-target_link_libraries(jnext_core PUBLIC jnext_input jnext_peripheral jnext_debug jnext_profiler spdlog::spdlog zot_tzx ZLIB::ZLIB CURL::libcurl OpenSSL::Crypto)
+# Declare what jnext_core ACTUALLY uses. emulator.cpp alone reaches into the
+# CPU, MMU, video, audio and NextREG subsystems, but only input/peripheral/
+# debug/profiler were declared. CMake orders static libraries from this graph,
+# so the undeclared ones could be placed before jnext_core and its references
+# to them left unresolved — the build survived only because jnext_debugger's
+# own dependencies happened to perturb the order into a working one. Turning
+# the debugger off removed that accident and the link broke (undefined
+# Dac::reset, Layer2::log_bank_change, NexSaver/SzxSaver::save). None of these
+# libraries depend on jnext_core, so there is no cycle.
+target_link_libraries(jnext_core PUBLIC
+    jnext_input jnext_peripheral jnext_debug jnext_profiler
+    jnext_cpu jnext_memory jnext_video jnext_audio jnext_port
+    spdlog::spdlog zot_tzx ZLIB::ZLIB CURL::libcurl OpenSSL::Crypto)

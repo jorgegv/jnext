@@ -117,6 +117,16 @@ jobs:
           LANG=C make clean
           LANG=C make gui-release 2>&1 | tail -30
 
+      # Link rot only shows up at BUILD time and only in the combinations the
+      # default build does not exercise: CMake derives static-link order from
+      # the declared dependency graph, so a target that under-declares still
+      # links while some other library happens to supply its dependencies in a
+      # usable position. Both known instances hid behind the debugger library
+      # and appeared the moment it was switched off. Cheap here because ccache
+      # is warm from the build above.
+      - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
+        run: LANG=C make build-matrix
+
       - name: Provision NextZXOS SD image (public specnext.com distro; cached above)
         if: steps.sdcache.outputs.cache-hit != 'true'
         run: |

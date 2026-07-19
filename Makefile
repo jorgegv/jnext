@@ -178,6 +178,10 @@ unit-test: unit-test-build
 		rm -f $$tmp; \
 	fi
 
+# Build every ENABLE_QT_UI x ENABLE_DEBUGGER combination; fails if any breaks
+build-matrix:
+	@bash test/build-matrix.sh
+
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
 harness-selftest:
 	@bash test/harness-selftest.sh
