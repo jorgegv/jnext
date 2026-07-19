@@ -42,12 +42,17 @@ class Joystick;
 ///   bits 3..0 (U/D/L/R) and 5..4 (C/B)  — driven in Kempston OR MD mode
 ///   bits 7..6 (START/A)                 — driven in MD mode ONLY; hard-tied
 ///                                         to 0 in Kempston
-///   bits 11, 10, 9, 8 (MODE, X, Z, Y)   — reach NO port under ANY mode
+///   bits 11, 10, 9, 8 (MODE, X, Z, Y)   — reach NO port under ANY mode;
+///                                         readable only via NR 0xB2
+///                                         (zxnext.vhd:6214-6215)
 ///
 /// So a guest reading port 0x1F sees at most four non-directional buttons,
 /// and only two of those unless NR 0x05 selects an MD mode. The four face
 /// buttons of a host pad are therefore mapped onto B, C, A, START — the four
-/// reachable bits — and never onto MODE/X/Z/Y, which would be dead.
+/// reachable bits — and never onto MODE/X/Z/Y, which no port can see. The
+/// MD6 latch bits are bound only on spare, non-face controls (shoulders /
+/// BACK / raw indices past the fourth), where a guest that wants them reads
+/// them through NR 0xB2.
 ///
 /// **Button mapping** (SDL → Kempston/MD6 logical bits):
 ///
@@ -58,6 +63,8 @@ class Joystick;
 ///                                         START button; see the .cpp note)
 ///   SDL_CONTROLLER_BUTTON_START         → bit 7  (START)
 ///   SDL_CONTROLLER_BUTTON_BACK          → bit 11 (MODE — MD6 latch, no port)
+///   SDL_CONTROLLER_BUTTON_LEFTSHOULDER  → bit 10 (X — MD6 latch, no port)
+///   SDL_CONTROLLER_BUTTON_RIGHTSHOULDER → bit  9 (Z — MD6 latch, no port)
 ///   SDL_CONTROLLER_BUTTON_DPAD_UP       → bit 3  (U)
 ///   SDL_CONTROLLER_BUTTON_DPAD_DOWN     → bit 2  (D)
 ///   SDL_CONTROLLER_BUTTON_DPAD_LEFT     → bit 1  (L)
@@ -68,6 +75,7 @@ class Joystick;
 ///
 ///   raw 0 → bit 4 (B)   raw 1 → bit 5 (C)   raw 2 → bit 6 (A)
 ///   raw 3 → bit 7 (START)                   raw 4 → bit 11 (MODE)
+///   raw 5 → bit 10 (X)  raw 6 → bit 8 (Y)   raw 7 → bit  9 (Z)
 ///
 /// **Axis mapping** (SDL_CONTROLLERAXISMOTION):
 ///
@@ -178,9 +186,11 @@ public:
     // A raw joystick has no semantic button names — just indices — so the
     // mapping is positional and deliberately conservative:
     //
-    //   button 0 → bit 4  (B / Fire 1)      button 3 → bit 11 (MODE)
-    //   button 1 → bit 5  (C / Fire 2)      button 4 → bit 7  (START)
-    //   button 2 → bit 6  (A / MD3)         button 5+ → unmapped
+    //   button 0 → bit 4  (B / Fire 1)      button 4 → bit 11 (MODE)
+    //   button 1 → bit 5  (C / Fire 2)      button 5 → bit 10 (X)
+    //   button 2 → bit 6  (A / MD3)         button 6 → bit  8 (Y)
+    //   button 3 → bit 7  (START)           button 7 → bit  9 (Z)
+    //                                       button 8+ → unmapped
     //
     //   axis 0   → digital L/R              axis 1   → digital U/D
     //   axis 2+  → unmapped (throttles, twist, extra sticks)

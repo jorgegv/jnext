@@ -1804,7 +1804,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // keys) and D (MD6) fill them in.
     nextreg_.set_read_handler(0xB0, [this]() -> uint8_t { return keyboard_.nr_b0_byte(); });
     nextreg_.set_read_handler(0xB1, [this]() -> uint8_t { return keyboard_.nr_b1_byte(); });
-    nextreg_.set_read_handler(0xB2, [this]() -> uint8_t { return md6_.nr_b2_byte(); });
+    // NR 0xB2 reads the live connector vectors (zxnext.vhd:6214-6215 reads
+    // i_JOY_LEFT/i_JOY_RIGHT — the same signal the port 0x1F/0x37 composers
+    // read). In jnext the host adapter drives those vectors straight into
+    // Joystick, so Joystick is that signal; the Md6ConnectorX2 cable model
+    // is not on the host input path (nothing feeds set_raw_left/right, and
+    // its 6-button detect wants the physical select-pulse handshake a host
+    // gamepad never performs), so sourcing here would read a constant 0.
+    nextreg_.set_read_handler(0xB2, [this]() -> uint8_t { return joystick_.nr_b2_byte(); });
 
     // Register 0x15: Sprite and layer system setup
     //   bit 7 = LoRes enable (deferred)
