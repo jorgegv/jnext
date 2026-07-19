@@ -204,10 +204,16 @@ done
 # img/<name>-reference.png is that independent witness: it is checked in, one per
 # screenshot test, and it does not disappear when the conf is truncated. A reference
 # with no conf entry means a test was dropped from the manifest.
+declare -A IS_DECLARED_SCREENSHOT
+while read -r name _; do
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    IS_DECLARED_SCREENSHOT["$name"]=1
+done < "$CONF"
 for ref in "$IMG_DIR"/*-reference.png; do
     [[ -e "$ref" ]] || continue           # no refs at all (fresh tree) — nothing to witness
-    ref_name=$(basename "$ref" -reference.png)
-    grep -qE "^[[:space:]]*${ref_name}[[:space:]]" "$CONF" \
+    ref_name=${ref##*/}
+    ref_name=${ref_name%-reference.png}
+    [[ -n "${IS_DECLARED_SCREENSHOT[$ref_name]:-}" ]] \
         || harness_fault "reference image ${BOLD}img/${ref_name}-reference.png${RESET} exists, but ${BOLD}$ref_name${RESET} is NOT declared in regression_tests.conf" \
                          "A screenshot test was dropped from the manifest. If that was deliberate, delete its reference image too."
 done
