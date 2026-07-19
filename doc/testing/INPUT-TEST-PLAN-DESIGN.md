@@ -538,6 +538,45 @@ to `"111110000"` (line 107) and clear the outputs (lines 185-186,
 this is tracked in Open Questions §6.5 rather than shipped here
 because the test harness for `io_mode_change` is not yet specified.
 
+### 3.6b NR 0xB2 source and guest reachability (NRB2-*)
+
+Issue #32. §3.6a proves the *byte layout* against `Md6ConnectorX2`, the
+cable-protocol model. These rows prove the other half — that the register
+a guest actually reads is wired to the connector vectors the host drives.
+
+The distinction is load-bearing. The NR 0xB2 read handler originally
+sourced `Md6ConnectorX2`, which **nothing on the host input path feeds**
+(`set_raw_left/right()` has no caller, and its 6-button detect wants the
+physical select-pulse handshake — U+D asserted at FSM phase 1000 — that a
+host gamepad never performs). So every guest read returned 0x00 no matter
+what the pad did, and the §3.6a rows still passed, because they exercise
+the class directly. The handler now reads `Joystick`, which is jnext's
+`i_JOY_LEFT`/`i_JOY_RIGHT`: the host adapter drives those vectors, and the
+port 0x1F/0x37 composers already read the same field — matching the VHDL,
+where `zxnext.vhd:6214-6215` and the port lanes at `:3470-3494` read one
+shared signal.
+
+| ID | Stimulus | Expected | Cite |
+|----|----------|----------|------|
+| NRB2-01..04 | one of `joy_left` bits 11/8/9/10 | NR 0xB2 bit 0/1/2/3 | 6215 + 3442 |
+| NRB2-05..08 | one of `joy_right` bits 11/8/9/10 | NR 0xB2 bit 4/5/6/7 | 6215 + 3442 |
+| NRB2-09 | both vectors, all of 11:8 | 0xFF | 6215 |
+| NRB2-10 | nothing pressed / no pad | 0x00 | 6215 |
+| NRB2-11 | both vectors = 0x0FF (bits 7:0 only) | 0x00 — the mux takes only 11:8, low bits must not leak | 6215 |
+| NRB2-12 | Kempston/Kempston + `joy_left(10)` | bit 3 = 1; no NR 0x05 term exists in the read mux | 6214-6215 |
+| NRB2-13 | same, read ports instead | 0x1F = 0x37 = 0x00 — the extras reach no port lane, which is *why* NR 0xB2 is their only path | 3470-3494 |
+| NRB2-14 | live `Emulator`, vectors set, read NR 0xB2 through the NextReg file | composed byte — the guest-reachability row; fails with 0x00 against the pre-fix handler | 6214-6215 |
+| NRB2-15 | raw pad button 5 (L) and 7 (R) via `JoystickDispatcher` | L.X and R.Z set — host end-to-end | host adapter |
+| NRB2-16 | controller shoulders + a face button | shoulders → L.X/L.Z; the face button stays on its port-visible bit | host adapter |
+
+NRB2-14 is the row that actually proves the feature: without it an
+implementation can pass every layout row above and still ship a register
+no program can read. NRB2-15/16 have no VHDL oracle — the FPGA does not
+specify a host button map — so they assert jnext's own binding policy:
+the MD6 latch bits are bound only on spare, non-face controls, because
+those four bits reach no port and a face button parked there would be
+invisible to ordinary port-reading guests.
+
 ### 3.7 Sinclair 1 / 2 (SINC-*)
 
 The joystick-to-key translation happens inside the `membrane_stick`
@@ -738,6 +777,7 @@ specific default and fails loudly if any reset path silently zeroes
 | 3.5 Kempston 1/2 | 17 (+KEMP-16/17 G128/G129) |
 | 3.6 MD 3-button | 9 |
 | 3.6a MD 6-button + NR 0xB2 (incl. MD6-11a..i) | 19 |
+| 3.6b NR 0xB2 source + guest reachability (NRB2) | 16 (issue #32) |
 | 3.7 Sinclair 1/2 | 11 |
 | 3.8 Cursor | 6 |
 | 3.9 I/O mode | 11 |
@@ -747,7 +787,7 @@ specific default and fails loudly if any reset path silently zeroes
 | 3.14 User-defined joystick keymap (JCAL) | 3 (G127) |
 | 3.15 F-key FSM + host hotkey dispatch | 2 (G132/G147) |
 | 3.16 NR 0x05 production-wire (JOY-WIRE) | 1 (G126) |
-| **Total (nominal)** | **160** |
+| **Total (nominal)** | **176** |
 
 No pass/fail ratio is reported until the test code has been rewritten
 against this oracle; the old 71/71 figure is retracted in §Plan

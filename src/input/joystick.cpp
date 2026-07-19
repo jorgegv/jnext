@@ -210,6 +210,45 @@ uint8_t Joystick::read_port_37() const
 }
 
 // =============================================================================
+// NR 0xB2 — Extended MD Pad Buttons (read-only).
+//
+// VHDL zxnext.vhd:6214-6215:
+//   port_253b_dat <= i_JOY_RIGHT(10 downto 8) & i_JOY_RIGHT(11)
+//                 &  i_JOY_LEFT (10 downto 8) & i_JOY_LEFT (11);
+//
+// The register reads the SAME 12-bit connector vectors that the port
+// 0x1F / 0x37 composers above read (`i_JOY_LEFT` / `i_JOY_RIGHT`), which is
+// why it lives here rather than on the Md6ConnectorX2 cable model: in jnext
+// the host adapter presents those vectors directly (JoystickDispatcher ->
+// set_joy_left/right), so `joy_left_bits_` / `joy_right_bits_` ARE the
+// emulator's i_JOY_* signal.
+//
+// MODE-INDEPENDENT: unlike the port lanes, this mux applies no NR 0x05
+// gating and no Kempston bit-7/6 masking — it reads the raw vectors. Those
+// four bits per connector reach NO port under ANY mode (zxnext.vhd:3470-3494
+// drives at most bits 7:0, and only 5:0 outside MD mode), so NR 0xB2 is the
+// only path by which a guest can observe X / Y / Z / MODE.
+// =============================================================================
+uint8_t Joystick::nr_b2_byte() const
+{
+    auto bit = [](uint16_t v, unsigned pos) -> uint8_t {
+        return static_cast<uint8_t>((v >> pos) & 1u);
+    };
+    const uint16_t L = joy_left_bits_;
+    const uint16_t R = joy_right_bits_;
+
+    return static_cast<uint8_t>(
+        (bit(R, 10) << 7) |   // R.X
+        (bit(R,  9) << 6) |   // R.Z
+        (bit(R,  8) << 5) |   // R.Y
+        (bit(R, 11) << 4) |   // R.MODE
+        (bit(L, 10) << 3) |   // L.X
+        (bit(L,  9) << 2) |   // L.Z
+        (bit(L,  8) << 1) |   // L.Y
+        (bit(L, 11) << 0));   // L.MODE
+}
+
+// =============================================================================
 // G129 — port-decode hw_en gates. VHDL zxnext.vhd:2454-2455:
 //   port_1f_hw_en <= joyL_1f_en or joyR_1f_en;
 //   port_37_hw_en <= joyL_37_en or joyR_37_en;

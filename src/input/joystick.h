@@ -100,6 +100,15 @@ public:
     /// implementation lands in Agent B per zxnext.vhd:3480-3494.
     uint8_t read_port_37() const;
 
+    /// NR 0xB2 (Extended MD Pad Buttons) read composer, per
+    /// zxnext.vhd:6214-6215:
+    ///   R.X R.Z R.Y R.MODE L.X L.Z L.Y L.MODE  (bits 7..0)
+    /// sourced from bits 11:8 of the same two connector vectors the port
+    /// composers read. Read-only and MODE-INDEPENDENT: no NR 0x05 gating
+    /// and no Kempston masking — these four bits per connector reach no
+    /// port under any mode, so this register is their only path to a guest.
+    uint8_t nr_b2_byte() const;
+
     /// Mode-conditional port-decode enable for port 0x1F (G129).
     ///
     /// VHDL `zxnext.vhd:2454`: `port_1f_hw_en <= joyL_1f_en or joyR_1f_en;`
