@@ -146,7 +146,7 @@ int main()
     check("PAP-07c", "DeferMachineType still applies live settings",
           preferences_applies_live_settings(PreferencesApplyOutcome::DeferMachineType));
 
-    std::printf("Total: %d, Passed: %d, Failed: %d, Skipped: 0\n",
-                g_pass + g_fail, g_pass, g_fail);
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+                g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }

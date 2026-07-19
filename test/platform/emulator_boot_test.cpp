@@ -376,7 +376,7 @@ int main()
         check("EB-16", "on_booted runs even when every other hook is empty", booted);
     }
 
-    std::printf("Total: %d, Passed: %d, Failed: %d, Skipped: 0\n",
-                g_pass + g_fail, g_pass, g_fail);
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+                g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }
