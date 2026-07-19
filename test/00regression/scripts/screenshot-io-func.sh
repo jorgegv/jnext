@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# One functional test of the regression suite. Sourced by regression.sh (the
+# driver); also directly executable — the lib then self-initializes and
+# standalone_summary prints the totals.
+# shellcheck source=test/00regression/test-functions.inc
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+
+# Third route by which a requested screenshot can fail to appear: the capture
+# IS taken, but the PNG cannot be WRITTEN (missing directory, no permission,
+# disk full). Same contract as screenshot-pending-func / screenshot-paused-func:
+# error log + non-zero exit, each with a positive control.
+#
+#   screenshot-io-func     headless — unwritable path (directory does not exist)
+#   screenshot-io-qt-func  GUI (Qt, offscreen) — same, through the Qt frontend
+if want screenshot-io-func; then
+    begin_func screenshot-io-func
+    bad_png="$TMP_DIR/no-such-dir/io.png"     # parent directory does not exist
+    png_ok="$TMP_DIR/io-ok.png"
+    rm -rf "$TMP_DIR/no-such-dir"; rm -f "$png_ok"
+
+    if out=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-screenshot "$bad_png" --delayed-screenshot-frames 60 \
+                --delayed-automatic-exit 5 2>&1)
+    then io_rc=0; else io_rc=1; fi
+
+    # Positive control: identical run, writable path — must write a PNG, exit 0.
+    if timeout --foreground --kill-after=5s 60s "$JNEXT" --headless \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-screenshot "$png_ok" --delayed-screenshot-frames 60 \
+            --delayed-automatic-exit 5 >/dev/null 2>&1
+    then ioctrl_rc=0; else ioctrl_rc=1; fi
+
+    if [[ "$io_rc" -ne 0 ]] && [[ ! -f "$bad_png" ]] \
+       && echo "$out" | grep -q "FAILED to write" \
+       && echo "$out" | grep -q "No such file or directory" \
+       && [[ "$ioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
+        pass_row " (unwritable path: error+reason, exit!=0, no PNG; control writes one)"
+    else
+        fail_row " (io_rc=$io_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$ioctrl_rc)"
+    fi
+fi
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || standalone_summary

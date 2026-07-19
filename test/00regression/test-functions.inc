@@ -62,6 +62,14 @@ begin_func() {
     printf "  %-25s " "[$1]"
 }
 
+# standalone_summary — totals line for a directly-executed test script; exits
+# non-zero if any row failed. (The driver prints its own results block instead.)
+standalone_summary() {
+    echo ""
+    echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
+    [[ "$fail" -eq 0 ]] || exit 1
+}
+
 # png_diff <a> <b> [sentinel] — differing-pixel count from `compare -metric AE`;
 # a parse failure yields <sentinel> (default 999999, i.e. "treat as different").
 png_diff() {
@@ -166,11 +174,13 @@ regression_lib_init() {
     fi
 
     # Filter and row-reporting state. Standalone defaults: no filter (every
-    # want() succeeds), nothing reported yet. The driver overwrites these from
-    # its command line and its functional-tests manifest.
+    # want() succeeds), compare mode (not --update), nothing reported yet. The
+    # driver overwrites these from its command line and its functional-tests
+    # manifest.
     FILTER_TESTS=()
     declare -gA IS_FILTERED=()
     REPORTED_FUNC=()
+    UPDATE_MODE=false
 }
 
 regression_lib_init
