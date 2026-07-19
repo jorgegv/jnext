@@ -20,6 +20,73 @@
 QtApp::QtApp() = default;
 QtApp::~QtApp() = default;
 
+namespace {
+/// Host monotonic clock, integer microseconds (the frame-deadline domain).
+int64_t steady_now_us()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+}  // namespace
+
+int64_t QtApp::effective_frame_period_us() const
+{
+    // Exact emulated frame period scaled by the user speed multiplier, in
+    // integer microseconds (quantisation <= 0.5 us/frame, < 0.003% — noise
+    // next to the 1.1-1.3% whole-ms rounding error this replaces).
+    return static_cast<int64_t>(
+        std::llround(emulator_.frame_period_ms() * 1000.0 / speed_multiplier_));
+}
+
+void QtApp::log_frame_pacing(int64_t period_us)
+{
+    // Rate-change info line — issue-#9 reporters are instructed to look for
+    // this. Emitted ONLY when the effective period changes (refresh-rate
+    // switch via NR 0x05 bit 2, or a speed change), never per tick.
+    if (period_us == last_paced_period_us_) return;
+    last_paced_period_us_ = period_us;
+    Log::platform()->info(
+        "frame pacing: {:.2f} Hz video refresh -> {:.3f} ms deadline scheduler",
+        1000.0 / emulator_.frame_period_ms(),
+        static_cast<double>(period_us) / 1000.0);
+}
+
+void QtApp::rebase_frame_timer()
+{
+    if (!frame_timer_) return;
+    // Explicit re-anchor (timer start, cold boot, speed change): any old
+    // deadline is meaningless, so restart the schedule at now + period.
+    // setInterval on a live timer restarts its period from the moment of the
+    // call — exactly what anchoring at `now` requires.
+    const int64_t period_us = effective_frame_period_us();
+    frame_timer_->setInterval(frame_deadline_.rebase(steady_now_us(), period_us));
+    log_frame_pacing(period_us);
+}
+
+void QtApp::reschedule_frame_timer()
+{
+    if (!frame_timer_) return;
+    // Advance the absolute deadline by exactly one (fractional) period and
+    // point the repeating timer at it. Computed against NOW — i.e. at the
+    // END of the tick's work — because setInterval restarts the timer's
+    // period from the moment of the call; the returned interval therefore
+    // alternates (17/18 ms for the 17.198 ms Next-60 period) and the
+    // long-run rate is exact (issue #9: the old fixed round() interval ran
+    // 1.1-1.3% fast). Passing the period each call makes a runtime 50/60 Hz
+    // switch (NR 0x05 bit 2) or speed change glide in with no extra path.
+    // Only touch the timer when the value differs: setInterval with an
+    // unchanged value would still restart the period from now — harmless,
+    // but pointless churn; when the value differs (most ticks, by design)
+    // the restart-from-now is precisely the semantic the deadline math
+    // assumes.
+    const int64_t period_us = effective_frame_period_us();
+    const int interval = frame_deadline_.next_interval_ms(steady_now_us(), period_us);
+    if (interval != frame_timer_->interval()) {
+        frame_timer_->setInterval(interval);
+    }
+    log_frame_pacing(period_us);
+}
+
 void QtApp::set_pending_inject(const std::string& file, uint16_t org,
                                uint16_t pc, int delay_frames) {
     inject_file_ = file;
@@ -51,17 +118,13 @@ void QtApp::set_speed_multiplier(double multiplier) {
     if (multiplier > 10.0) multiplier = 10.0;
     speed_multiplier_ = multiplier;
 
-    // Adjust frame timer: base interval is the emulated video-refresh period
-    // (~20.26 ms at 50 Hz, ~17.20 ms at 60 Hz — issue #9), scaled by the speed
-    // multiplier. on_frame_tick() re-applies this every tick, so a runtime
-    // 50/60 Hz switch is picked up even without another speed change.
-    int interval_ms = static_cast<int>(std::lround(emulator_.frame_period_ms() / multiplier));
-    if (interval_ms < 1) interval_ms = 1;
-
-    if (frame_timer_) {
-        frame_timer_->setInterval(interval_ms);
-    }
-    Log::platform()->info("Emulator speed: {}x (timer {}ms)", multiplier, interval_ms);
+    // Re-anchor the fractional deadline schedule at the new effective period
+    // (video-refresh period / speed — issue #9). A speed change is a
+    // deliberate restart, so rebase rather than glide; the per-tick
+    // reschedule in on_frame_tick() then keeps the exact rate, and also
+    // picks up runtime 50/60 Hz switches without another speed change.
+    rebase_frame_timer();
+    Log::platform()->info("Emulator speed: {}x", multiplier);
 }
 
 void QtApp::set_delayed_exit(int delay_frames) {
@@ -184,14 +247,19 @@ bool QtApp::init(int argc, char* argv[]) {
         main_window_->set_scale(main_window_->current_scale());
     });
 
-    // Drive emulator frames from a timer paced to the emulated video refresh
-    // (~20 ms at 50 Hz, ~17 ms at 60 Hz — issue #9). on_frame_tick() keeps the
-    // interval in sync as the mode changes at runtime.
+    // Drive emulator frames from a repeating timer paced by the fractional
+    // deadline scheduler (issue #9): the interval alternates (e.g. 20/21 ms
+    // for the 20.259 ms 50 Hz period) so the long-run rate is the EXACT
+    // emulated refresh, not its whole-ms rounding. on_frame_tick() advances
+    // the schedule at the end of every tick.
     frame_timer_ = new QTimer(main_window_);
+    // Qt::PreciseTimer is REQUIRED: the default CoarseTimer may fire within
+    // 5% of the interval (~0.9 ms at 17 ms), which would swallow the
+    // 17/18 ms alternation the deadline scheduler relies on.
     frame_timer_->setTimerType(Qt::PreciseTimer);
     QObject::connect(frame_timer_, &QTimer::timeout, [this]() { on_frame_tick(); });
-    frame_timer_->start(
-        std::max(1, static_cast<int>(std::lround(emulator_.frame_period_ms()))));
+    rebase_frame_timer();     // anchor the schedule + set the first interval
+    frame_timer_->start();    // no argument: uses the interval just set
 
     // Set up a 1-second timer for status bar updates (FPS counter).
     status_timer_ = new QTimer(main_window_);
@@ -298,11 +366,9 @@ void QtApp::cold_boot(const std::string& load_file) {
         set_pending_load(load_file, emulator_load_delay_frames(load_file));
     }
 
-    // Re-align the frame timer to the (possibly changed) refresh rate.
-    if (frame_timer_) {
-        frame_timer_->setInterval(std::max(1, static_cast<int>(
-            std::lround(emulator_.frame_period_ms() / speed_multiplier_))));
-    }
+    // Re-anchor the deadline schedule to the (possibly changed) refresh
+    // rate — a cold boot is a restart, so rebase rather than glide.
+    rebase_frame_timer();
 }
 
 void QtApp::on_frame_tick() {
@@ -330,22 +396,6 @@ void QtApp::on_frame_tick() {
     if (emulator_.take_hard_reset_request()) {
         cold_boot();
         return;
-    }
-
-    // Issue #9 — keep the frame timer aligned with the emulated video refresh
-    // (50 Hz ≈ 20.26 ms, 60 Hz ≈ 17.20 ms) and the speed multiplier. When a demo
-    // switches to 60 Hz (NR 0x05 bit 2) it then runs at 60 fps instead of the old
-    // hardcoded 50, and the present cadence follows emulation so motion stays
-    // smooth. Re-checked every tick because the mode can change at runtime.
-    if (frame_timer_) {
-        const int desired = std::max(1, static_cast<int>(
-            std::lround(emulator_.frame_period_ms() / speed_multiplier_)));
-        if (desired != frame_timer_->interval()) {
-            frame_timer_->setInterval(desired);
-            Log::platform()->info(
-                "frame pacing: {:.2f} Hz video refresh -> {} ms/frame timer",
-                1000.0 / emulator_.frame_period_ms(), desired);
-        }
     }
 
     // Apply pending inject when countdown reaches zero.
@@ -595,6 +645,14 @@ void QtApp::on_frame_tick() {
         mgr->refresh_panels();
     }
 #endif
+
+    // Issue #9 — drive the repeating timer from the fractional deadline
+    // scheduler, at the END of the tick so this tick's own work is
+    // subtracted from the wait. Follows runtime 50/60 Hz switches (NR 0x05
+    // bit 2) and speed changes via the period argument, and emits the
+    // "frame pacing" line when the rate changes. The cold-boot early
+    // returns above are covered by cold_boot()'s own rebase.
+    reschedule_frame_timer();
 }
 
 void QtApp::on_status_tick() {
