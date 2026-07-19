@@ -1,0 +1,13 @@
+$for(include-before)$
+$include-before$
+
+$endfor$
+$if(toc)$
+## Table of contents
+
+$toc$
+
+---
+
+$endif$
+$body$

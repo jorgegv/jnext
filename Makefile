@@ -7,6 +7,13 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
+# Documentation single source (see `make docs`). doc/man/jnext.1.md generates
+# BOTH outputs below, and both are committed: building jnext from source never
+# needs pandoc, only editing the docs does.
+MAN_SRC           := doc/man/jnext.1.md
+MAN_OUT           := doc/man/jnext.1
+USAGE_OUT         := USAGE.md
+
 # Every recipe runs in the C locale. Two reasons, both about not lying:
 #  - builds: compiler/linker diagnostics stay in English (greppable, quotable).
 #  - tests:  a test's verdict must depend on the code, not on the user's LANG.
@@ -33,6 +40,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
+       docs docs-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
@@ -290,6 +298,47 @@ kloc-count:
 	done; \
 	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
 
+# Regenerate the man page and USAGE.md from doc/man/jnext.1.md (needs pandoc)
+docs:
+	@if ! command -v pandoc >/dev/null 2>&1; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) pandoc not found. It is a documentation-only\n"; \
+	   printf "        dependency: install it to edit the docs, or just use the\n"; \
+	   printf "        committed doc/man/jnext.1 and USAGE.md (see BUILD.md).\n"; exit 1; \
+	 fi
+	pandoc -s -t man $(MAN_SRC) -o $(MAN_OUT)
+	pandoc -t gfm --standalone --toc --shift-heading-level-by=1 \
+	    --template=doc/man/usage.template \
+	    --include-before-body=doc/man/usage-preamble.md \
+	    $(MAN_SRC) -o $(USAGE_OUT)
+	printf "$(BADGE_PASS) OK $(RESET) regenerated $(MAN_OUT) and $(USAGE_OUT)\n"
+
+# Fail if the committed man page / USAGE.md are stale vs doc/man/jnext.1.md
+docs-check:
+	@# One shell block on purpose: a bare `exit 0` in a recipe line of its own
+	@# ends only THAT line, and make would carry on into the diff below and
+	@# report both outputs "stale" on a host with no pandoc.
+	@if ! command -v pandoc >/dev/null 2>&1; then \
+	   if [ -n "$$CI" ]; then \
+	     printf "$(BADGE_FAIL) FAIL $(RESET) pandoc missing in CI — this check would\n"; \
+	     printf "        otherwise skip silently and read as a pass. Install it in the\n"; \
+	     printf "        workflow, or drop this step deliberately.\n"; exit 1; \
+	   fi; \
+	   printf "$(BADGE_SKIP) SKIP $(RESET) pandoc not installed; cannot verify doc freshness\n"; exit 0; \
+	 fi; \
+	 tmp=$$(mktemp -d); \
+	 pandoc -s -t man $(MAN_SRC) -o $$tmp/man.1; \
+	 pandoc -t gfm --standalone --toc --shift-heading-level-by=1 \
+	     --template=doc/man/usage.template \
+	     --include-before-body=doc/man/usage-preamble.md \
+	     $(MAN_SRC) -o $$tmp/USAGE.md; \
+	 rc=0; \
+	 diff -q $$tmp/man.1 $(MAN_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(MAN_OUT) is stale\n"; rc=1; }; \
+	 diff -q $$tmp/USAGE.md $(USAGE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(USAGE_OUT) is stale\n"; rc=1; }; \
+	 rm -rf $$tmp; \
+	 if [ $$rc -eq 0 ]; then printf "$(BADGE_PASS) OK $(RESET) generated docs are up to date\n"; \
+	 else printf "        run 'make docs' and commit the result\n"; fi; \
+	 exit $$rc
+
 # Show current version
 version:
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
@@ -475,7 +524,7 @@ package-win: gui-release-win
 	 stage="$(PKG_BUILD_WIN)/dist/$$name"; \
 	 rm -rf "$(PKG_BUILD_WIN)/dist"; mkdir -p "$$stage"; \
 	 bash packaging/windows/bundle-dlls.sh $(PKG_BUILD_WIN)/jnext.exe "$$stage"; \
-	 cp LICENSE USAGE.md "$$stage"/; \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
 	 rm -f "$(PKG_BUILD_WIN)/$$name.zip"; \
 	 ( cd "$(PKG_BUILD_WIN)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip

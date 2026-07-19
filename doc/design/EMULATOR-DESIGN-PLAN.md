@@ -1149,8 +1149,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
   - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
   - [ ] Create USER MANUAL (task-oriented: loading programs, SD/NextZXOS, machine types, debugger, recording, config)
-  - [ ] Create man page for users; USAGE.md becomes a markdown render of it (single source — evaluate pandoc/ronn/scdoc; any such tool is a new dev requirement, and doc generation must be a separate opt-in make target so a plain code build never needs the doc toolchain; generated man page + USAGE.md are committed, so source-only builds ship complete docs)
-  - [ ] Ship the docs in the binary packages — packages currently install only `LICENSE` + `USAGE.md`; add the man page (`${CMAKE_INSTALL_MANDIR}/man1`) and review README/ChangeLog, updating every manifest in step (CMake install rules, RPM `%files`, Debian, Flatpak/macOS/Windows bundles)
+  - [x] Create man page for users; USAGE.md becomes a markdown render of it — **pandoc** chosen; `doc/man/jnext.1.md` is the single source generating both `doc/man/jnext.1` and `USAGE.md`, both committed. `make docs` regenerates, `make docs-check` fails on stale outputs (and runs in CI); no code-build target invokes pandoc. Writing it surfaced real drift the hand-maintained USAGE.md had already accumulated (`--silent`, `--tape-save`, `--delayed-snapshot*`, `.z80`, the full `--delayed-keypress` key vocabulary)
+  - [x] Ship the docs in the binary packages — man page installs to `${CMAKE_INSTALL_MANDIR}/man1` (one CMake rule covers rpm/deb/Flatpak/macOS), `README.md` + `ChangeLog` added to the docdir, RPM `%files` updated with a `jnext.1*` glob, Windows zip gets README/ChangeLog. Verified by an actual `rpmbuild` + `rpm -qlp` payload check
 
 - [-] Create static executables by downloading QT and SDL sources and building them - WONT do for the moment.
 
