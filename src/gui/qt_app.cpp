@@ -12,8 +12,10 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <new>
 #include <QApplication>
+#include <QGuiApplication>
 #include <QTimer>
 #include <SDL2/SDL.h>
 
@@ -190,6 +192,13 @@ bool QtApp::init(int argc, char* argv[]) {
     qt_argc_ = argc;
     qt_argv_ = argv;
     qapp_ = new QApplication(qt_argc_, qt_argv_);
+
+    // Task 63 (issue #9) — identify the display path once. Which Qt platform
+    // plugin is live (xcb vs wayland vs offscreen) changes how timer callbacks
+    // and paints are delivered, and reporters cannot reliably answer it
+    // themselves (jon263 asked for exactly this).
+    Log::platform()->info("Qt platform plugin: {}",
+                          QGuiApplication::platformName().toStdString());
 
     // Initialize the emulator core.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
@@ -372,6 +381,51 @@ void QtApp::cold_boot(const std::string& load_file) {
 }
 
 void QtApp::on_frame_tick() {
+    // Task 63 (issue #9) — tick-delivery instrumentation around the frame
+    // work. Thin by design: every rule (first-tick-has-no-interval, the 1.5x
+    // late threshold judged against the period in effect at THIS tick, min/
+    // mean/max semantics) lives in src/platform/tick_stats.h under unit test;
+    // this wrapper only takes timestamps and calls the accumulators. It wraps
+    // the WHOLE body, so ticks that early-return (cold boot) still count and
+    // still carry interval + handler samples — only the emu-time sample
+    // (taken inside the body, after the run_frame loops) is absent for them.
+    using std::chrono::duration_cast;
+    using std::chrono::microseconds;
+    using std::chrono::steady_clock;
+    const auto t_entry = steady_clock::now();
+    const int64_t now_us =
+        duration_cast<microseconds>(t_entry.time_since_epoch()).count();
+
+    tick_stats::add_tick(tick_stats_);
+    if (last_tick_us_ >= 0) {
+        // The period the timer is TRYING to deliver right now: the true
+        // (unrounded) emulated frame period scaled by the speed multiplier —
+        // the same quantity every frame_timer_ setInterval() site rounds to
+        // int ms (init, set_speed_multiplier, cold_boot, the per-tick realign
+        // below in frame_tick_body). Passed per sample because it can change
+        // mid-window (runtime 50/60 Hz switch, speed change).
+        const int64_t period_us = static_cast<int64_t>(std::llround(
+            emulator_.frame_period_ms() * 1000.0 / speed_multiplier_));
+        tick_stats::add_interval(tick_stats_, now_us - last_tick_us_, period_us);
+    }
+    last_tick_us_ = now_us;
+
+    // Audio queue depth as the pacer is about to see it (mechanism (d)).
+    // No audio device (--silent / init failure) => no sample, and the report
+    // says "n/a" instead of fabricating zeros.
+    if (audio_) {
+        const int q = audio_->queued_ms();
+        if (q >= 0) tick_stats::add_sample(tick_stats_.queue_ms, q);
+    }
+
+    frame_tick_body();
+
+    tick_stats::add_sample(
+        tick_stats_.handler_us,
+        duration_cast<microseconds>(steady_clock::now() - t_entry).count());
+}
+
+void QtApp::frame_tick_body() {
     // Task 79 — Qt owns the event loop, so SDL never runs its own; drain the
     // SDL event queue each frame and feed controller add/remove/button/axis
     // events to the gamepad host (all other SDL events are ignored — SDL is
@@ -438,6 +492,11 @@ void QtApp::on_frame_tick() {
     // that would silently hand the user a picture with the wrong layers in it.
     int frames_rendered = 0;
 
+    // Task 63 — this tick's emulation time (µs): the run_frame loops only,
+    // summed across the pacing loop and the fastload burst. Stays 0 when the
+    // debugger is paused (no loop runs) — a genuine "emulated nothing" sample.
+    int64_t emu_us = 0;
+
     // Task 27 C6 — compositor throttle at speed > 1x. At --speed 400 the
     // 5 ms QTimer emulates up to 200 frames/s while the display presents
     // ~50-60, so most composited frames are thrown away unseen. Throttle the
@@ -488,11 +547,17 @@ void QtApp::on_frame_tick() {
         if (audio_paced) {
             frames = audio_pacing::frames_for_tick(audio_->queued_ms());
         }
+        // Task 63 — time the run_frame loops (pacing + fastload burst below):
+        // together they are this tick's EMULATION cost, mechanism (b) of the
+        // issue-#9 candidates. A tick that emulates nothing samples ~0.
+        const auto emu_t0 = std::chrono::steady_clock::now();
         for (int i = 0; i < frames; i++) {
             emulator_.run_frame();
             ++frame_count_;
             ++frames_rendered;
         }
+        emu_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - emu_t0).count();
         // Task 63 (issue #9) — record how often the audio pacer ran 0 or 2+
         // frames in one tick. The resulting frame losses are EXPECTED, and the
         // cadence report must attribute them as such rather than lumping them
@@ -514,6 +579,7 @@ void QtApp::on_frame_tick() {
         // 20 ms wall-clock, > 200× real-time on a modern host).
         constexpr int FASTLOAD_BURST_LIMIT = 200;
         int burst = 0;
+        const auto burst_t0 = std::chrono::steady_clock::now();
         while (emulator_.fastload_active() &&
                burst < FASTLOAD_BURST_LIMIT &&
                !emulator_.debug_state().paused()) {
@@ -522,6 +588,8 @@ void QtApp::on_frame_tick() {
             ++frames_rendered;
             ++burst;
         }
+        emu_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - burst_t0).count();
 
         // Push audio samples to SDL — but skip during fastload to
         // avoid feeding the audio device huge sample chunks
@@ -541,6 +609,11 @@ void QtApp::on_frame_tick() {
         // test/audio/audio_pacing_test.cpp.)
         audio_->push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/true);
     }
+
+    // Task 63 — one emulation-time sample per tick that reaches this point
+    // (the cold-boot early returns above skip it; their ticks still carry
+    // interval + handler samples from the on_frame_tick wrapper).
+    tick_stats::add_sample(tick_stats_.emu_us, emu_us);
 
     // Task 27 C6 — the hint is per-tick: restore the default (always render)
     // so any run_frame() caller outside this tick (debugger actions, future
@@ -693,6 +766,44 @@ void QtApp::on_status_tick() {
     }
     audio_doubles_ = 0;
     audio_skips_   = 0;
+
+    // Task 63 (issue #9) — tick-delivery diagnostics: WHERE the time goes.
+    // Same window as the cadence line above (drained by the same 1 s timer),
+    // same reportable gate. Drain the widget's paint samples into the window
+    // first so one report carries all four mechanisms; then reset. All
+    // semantics live in src/platform/tick_stats.h — this is formatting only.
+    if (main_window_->emulator_widget()) {
+        tick_stats_.paint_us = main_window_->emulator_widget()->take_paint_stats();
+    }
+    const tick_stats::Report ts = tick_stats::summarize(tick_stats_);
+    tick_stats_ = {};
+    if (cad.reportable) {
+        // µs stats -> "avg/min/max ms"; a stat with no samples prints n/a
+        // (the unit lives inside the helper so "n/a" never grows a suffix).
+        const auto ms3 = [](const tick_stats::StatReport& s) -> std::string {
+            if (!s.valid) return "n/a";
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%.1f/%.1f/%.1fms",
+                          s.mean / 1000.0, s.min / 1000.0, s.max / 1000.0);
+            return buf;
+        };
+        // queue samples are already ms integers.
+        const auto qms = [](const tick_stats::StatReport& s) -> std::string {
+            if (!s.valid) return "n/a";
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%.1f/%lld/%lldms", s.mean,
+                          static_cast<long long>(s.min),
+                          static_cast<long long>(s.max));
+            return buf;
+        };
+        Log::platform()->debug(
+            "ticks: n={} interval avg/min/max={} late(>{:.1f}ms)={} "
+            "handler avg/min/max={} emu avg/min/max={} "
+            "queue avg/min/max={} paint avg/min/max={}",
+            ts.ticks, ms3(ts.interval_us), ts.late_threshold_us / 1000.0,
+            ts.late, ms3(ts.handler_us), ms3(ts.emu_us), qms(ts.queue_ms),
+            ms3(ts.paint_us));
+    }
 
     // Read current CPU speed from NextREG 0x07 (bits 1:0).
     int speed_idx = emulator_.nextreg().cached(0x07) & 0x03;

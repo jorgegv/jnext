@@ -1,5 +1,6 @@
 #include "gui/emulator_widget.h"
 #include <QPainter>
+#include <chrono>
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -153,10 +154,15 @@ void EmulatorWidget::paintEvent(QPaintEvent* /*event*/) {
 
     // Task 63 — count this as a PRESENT only if it is serving a frame not yet
     // shown. See frame_pending_ in update_frame().
+    const bool serving_new_frame = frame_pending_;
     if (frame_pending_) {
         frame_pending_ = false;
         ++present_count_;
     }
+
+    // Task 63 tick-stats — time the paint only when it serves a NEW frame;
+    // spontaneous re-blits are excluded (see take_paint_stats() in the header).
+    const auto paint_t0 = std::chrono::steady_clock::now();
 
     QPainter painter(this);
 
@@ -178,5 +184,12 @@ void EmulatorWidget::paintEvent(QPaintEvent* /*event*/) {
         for (int y = 1; y < img_h; y += 2) {
             painter.drawRect(fs_offset_.x(), fs_offset_.y() + y, img_w, 1);
         }
+    }
+
+    if (serving_new_frame) {
+        tick_stats::add_sample(
+            paint_stats_,
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - paint_t0).count());
     }
 }

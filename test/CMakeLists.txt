@@ -402,6 +402,14 @@ add_executable(frame_deadline_test platform/frame_deadline_test.cpp)
 target_include_directories(frame_deadline_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME frame_deadline_tests COMMAND frame_deadline_test)
 
+# Tick-delivery statistics test (issue #9 / Task 63). Header-only accumulators
+# under test (src/platform/tick_stats.h) — no Qt, no SDL, no emulator core.
+# Discriminates the four issue-#9 mechanisms (late callbacks / slow emulation /
+# slow paint / audio-queue starvation) behind the per-second `ticks:` line.
+add_executable(tick_stats_test platform/tick_stats_test.cpp)
+target_include_directories(tick_stats_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tick_stats_tests COMMAND tick_stats_test)
+
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
 # NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds
