@@ -80,13 +80,13 @@ Linux, Windows (x64), and macOS are supported.
 for your system from the
 [latest release](https://github.com/jorgegv/jnext/releases/latest):
 
-| System                   | Install                                                    |
-|--------------------------|------------------------------------------------------------|
-| **Fedora / RHEL**        | `sudo dnf install ./jnext-*.x86_64.rpm`                    |
-| **Ubuntu 24.04**         | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb`        |
-| **Ubuntu 26.04**         | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`        |
-| **Flatpak (any distro)** | `flatpak install ./io.github.zxjogv.jnext.flatpak`         |
-| **Windows (x64)**        | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe` |
+| System                   | Install                                                                |
+|--------------------------|------------------------------------------------------------------------|
+| **Fedora / RHEL**        | `sudo dnf install ./jnext-*.x86_64.rpm`                                |
+| **Ubuntu 24.04**         | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb`                     |
+| **Ubuntu 26.04**         | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`                     |
+| **Flatpak (any distro)** | `flatpak install ./jnext-*-x86_64.flatpak`                             |
+| **Windows (x64)**        | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
 | **macOS**                | Download `jnext-*-Darwin.dmg`, open it, drag **jnext** to Applications |
 
 The Linux packages put a `jnext` command on your `PATH`.
