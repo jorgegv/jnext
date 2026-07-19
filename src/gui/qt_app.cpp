@@ -62,11 +62,11 @@ void QtApp::rebase_frame_timer()
     // setInterval on a live timer restarts its period from the moment of the
     // call — exactly what anchoring at `now` requires.
     const int64_t period_us = effective_frame_period_us();
-    frame_timer_->setInterval(frame_deadline_.rebase(steady_now_us(), period_us));
+    frame_timer_->setInterval(seq_.rebase(steady_now_us(), period_us));
     log_frame_pacing(period_us);
 }
 
-void QtApp::reschedule_frame_timer()
+void QtApp::reschedule_frame_timer(int interval)
 {
     if (!frame_timer_) return;
     // Advance the absolute deadline by exactly one (fractional) period and
@@ -82,12 +82,10 @@ void QtApp::reschedule_frame_timer()
     // but pointless churn; when the value differs (most ticks, by design)
     // the restart-from-now is precisely the semantic the deadline math
     // assumes.
-    const int64_t period_us = effective_frame_period_us();
-    const int interval = frame_deadline_.next_interval_ms(steady_now_us(), period_us);
     if (interval != frame_timer_->interval()) {
         frame_timer_->setInterval(interval);
     }
-    log_frame_pacing(period_us);
+    log_frame_pacing(effective_frame_period_us());
 }
 
 void QtApp::set_pending_inject(const std::string& file, uint16_t org,
@@ -381,95 +379,68 @@ void QtApp::cold_boot(const std::string& load_file) {
     rebase_frame_timer();
 }
 
+int64_t QtApp::TickEffects::now_us() const { return steady_now_us(); }
+
+int QtApp::TickEffects::queued_ms() const { return app.audio_->queued_ms(); }
+
 void QtApp::on_frame_tick() {
-    // Task 63 (issue #9) — tick-delivery instrumentation around the frame
-    // work. Thin by design: every rule (first-tick-has-no-interval, the 1.5x
-    // late threshold judged against the period in effect at THIS tick, min/
-    // mean/max semantics) lives in src/platform/tick_stats.h under unit test;
-    // this wrapper only takes timestamps and calls the accumulators. It wraps
-    // the WHOLE body, so ticks that early-return (cold boot) still count and
-    // still carry interval + handler samples — only the emu-time sample
-    // (taken inside the body, after the run_frame loops) is absent for them.
-    using std::chrono::duration_cast;
-    using std::chrono::microseconds;
-    using std::chrono::steady_clock;
-    const auto t_entry = steady_clock::now();
-    const int64_t now_us =
-        duration_cast<microseconds>(t_entry.time_since_epoch()).count();
-
-    tick_stats::add_tick(tick_stats_);
-    if (last_tick_us_ >= 0) {
-        // The period the timer is TRYING to deliver right now: the true
-        // (unrounded) emulated frame period scaled by the speed multiplier —
-        // the same quantity every frame_timer_ setInterval() site rounds to
-        // int ms (init, set_speed_multiplier, cold_boot, the per-tick realign
-        // below in frame_tick_body). Passed per sample because it can change
-        // mid-window (runtime 50/60 Hz switch, speed change).
-        const int64_t period_us = static_cast<int64_t>(std::llround(
-            emulator_.frame_period_ms() * 1000.0 / speed_multiplier_));
-        tick_stats::add_interval(tick_stats_, now_us - last_tick_us_, period_us);
-    }
-    last_tick_us_ = now_us;
-
-    // Audio queue depth as the pacer is about to see it (mechanism (d)).
-    // No audio device (--silent / init failure) => no sample, and the report
-    // says "n/a" instead of fabricating zeros.
-    if (audio_) {
-        const int q = audio_->queued_ms();
-        if (q >= 0) tick_stats::add_sample(tick_stats_.queue_ms, q);
-    }
-
-    frame_tick_body();
-
-    tick_stats::add_sample(
-        tick_stats_.handler_us,
-        duration_cast<microseconds>(steady_clock::now() - t_entry).count());
+    // Task 91 — the tick's order and its cross-tick state live in
+    // frame_sequencer::Sequencer, under unit test (frame_sequencer_test).
+    // This is the whole of the Qt-side frame tick.
+    TickEffects fx{*this};
+    seq_.tick(fx);
 }
 
-void QtApp::frame_tick_body() {
+// --- TickEffects: the frontend work the sequencer drives -------------------
+// Each method below is a direct call into an existing subsystem. There are no
+// ordering decisions here and no state: both moved into the sequencer.
+
+bool QtApp::TickEffects::pre_frames() {
+    QtApp& a = app;
+
     // Task 79 — Qt owns the event loop, so SDL never runs its own; drain the
     // SDL event queue each frame and feed controller add/remove/button/axis
     // events to the gamepad host (all other SDL events are ignored — SDL is
     // audio + gamepads only in the GUI build).
-    if (gamepad_host_) {
+    if (a.gamepad_host_) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            gamepad_host_->handle_event(e);
+            a.gamepad_host_->handle_event(e);
         }
     }
 
     // M_EXECCMD requests use the same cold-boot path as menu loads.
-    if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
-        cold_boot(load_file);
-        return;
+    if (std::string load_file = a.emulator_.take_nex_load_request(); !load_file.empty()) {
+        a.cold_boot(load_file);
+        return false;
     }
 
     // Task 70 — a hard reset (Reset button / F1 / a program's NR 0x02 bit 1)
     // is a power-on cold boot and cannot run inside run_frame(); it is
     // performed here between frames. cold_boot() reconstructs the emulator, so
-    // return immediately and let the next tick run the fresh machine.
-    if (emulator_.take_hard_reset_request()) {
-        cold_boot();
-        return;
+    // abandon the tick and let the next one run the fresh machine.
+    if (a.emulator_.take_hard_reset_request()) {
+        a.cold_boot();
+        return false;
     }
 
     // Apply pending inject when countdown reaches zero.
-    if (inject_countdown_ == 0) {
-        emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
-        inject_countdown_ = -1;
-    } else if (inject_countdown_ > 0) {
-        --inject_countdown_;
+    if (a.inject_countdown_ == 0) {
+        a.emulator_.inject_binary(a.inject_file_, a.inject_org_, a.inject_pc_);
+        a.inject_countdown_ = -1;
+    } else if (a.inject_countdown_ > 0) {
+        --a.inject_countdown_;
     }
 
     // Apply pending load when countdown reaches zero (auto-detect format).
-    if (load_countdown_ == 0) {
+    if (a.load_countdown_ == 0) {
         // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-        if (!emulator_apply_load(emulator_, load_file_, tape_realtime_)) {
-            Log::platform()->error("load: failed to load '{}'", load_file_);
+        if (!emulator_apply_load(a.emulator_, a.load_file_, a.tape_realtime_)) {
+            Log::platform()->error("load: failed to load '{}'", a.load_file_);
         }
-        load_countdown_ = -1;
-    } else if (load_countdown_ > 0) {
-        --load_countdown_;
+        a.load_countdown_ = -1;
+    } else if (a.load_countdown_ > 0) {
+        --a.load_countdown_;
     }
 
     // --delayed-screenshot-layers: arm the compositor layer mask for the frames
@@ -483,214 +454,33 @@ void QtApp::frame_tick_body() {
     // re-advances per-frame renderer state (the ULA flash counter), which would
     // make `--delayed-screenshot-layers all` differ from the plain
     // --delayed-screenshot default. One frame of flicker is the cheaper bug.
-    if (screenshot_countdown_ == 0)
-        emulator_.renderer().set_layer_mask(screenshot_layers_);
+    if (a.screenshot_countdown_ == 0)
+        a.emulator_.renderer().set_layer_mask(a.screenshot_layers_);
 
-    // Frames actually rendered in this tick. The screenshot below is only
-    // valid if at least one of them went through the compositor with the mask
-    // armed above — a debugger pause skips run_frame() entirely, and then the
-    // framebuffer still holds a frame composited with LAYER_ALL. Capturing
-    // that would silently hand the user a picture with the wrong layers in it.
-    int frames_rendered = 0;
+    return true;
+}
 
-    // Task 63 — this tick's emulation time (µs): the run_frame loops only,
-    // summed across the pacing loop and the fastload burst. Stays 0 when the
-    // debugger is paused (no loop runs) — a genuine "emulated nothing" sample.
-    int64_t emu_us = 0;
+void QtApp::TickEffects::run_frame(bool composite) {
+    app.emulator_.set_render_enabled(composite);
+    app.emulator_.run_frame();
+    ++app.frame_count_;
+}
 
-    // Task 27 C6 — compositor throttle at speed > 1x. At --speed 400 the
-    // 5 ms QTimer emulates up to 200 frames/s while the display presents
-    // ~50-60, so most composited frames are thrown away unseen. Throttle the
-    // render hint to ~50 Hz wall-clock: the emulator core still runs every
-    // frame, it just skips the end-of-frame compositing pass for frames
-    // nobody will consume. Emulator::run_frame() re-forces the render when a
-    // consumer the frontend cannot see is active (video recording, debugger).
-    // Frontend-side forcing:
-    //   * speed <= 1x: render_this_tick stays true — every presenting tick
-    //     composites. Within a multi-frame tick (audio-pacing catch-up
-    //     doubles, fastload bursts) only the LAST frame composites: the
-    //     earlier ones are superseded in the framebuffer before any paint
-    //     (issue #9, see render_policy.h), so the presented stream and all
-    //     screenshots are unchanged;
-    //   * screenshot due this tick (countdown == 0): the captured frame MUST
-    //     have gone through the compositor with the layer mask armed above,
-    //     so the whole tick renders (`screenshot_due` forces every frame).
-    bool render_this_tick = true;
-    if (speed_multiplier_ > 1.0 && screenshot_countdown_ != 0) {
-        constexpr int64_t RENDER_INTERVAL_MS = 20;  // ~50 Hz presentation
-        const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        if (now_ms - last_render_ms_ < RENDER_INTERVAL_MS) {
-            render_this_tick = false;
-        } else {
-            last_render_ms_ = now_ms;
-        }
-    }
-    const bool screenshot_due = (screenshot_countdown_ == 0);
+void QtApp::TickEffects::push_audio(bool hold_on_underrun) {
+    app.audio_->push_from_mixer(app.emulator_.mixer(), hold_on_underrun);
+}
 
-    // Run one emulator frame (skip if debugger has paused).
-    if (!emulator_.debug_state().paused()) {
-        // Pace emulation against the sound card, not the wall clock. The 20 ms
-        // QTimer runs the emulator at 50.00 frames/s, but a 48K frame is
-        // 1/50.08 s and audio is synthesised on the emulated clock — so we feed
-        // the device ~44030 samples per real second while it consumes 44100.
-        // That permanent deficit empties the audio queue and SDL then pads the
-        // stream with zeros, clicking a few times a second forever (issue #7 /
-        // Task 23). Running an extra frame when the queue is low (or skipping
-        // one when it is high) locks emulation to the audio device's clock.
-        // Only at 1x speed: --speed and fastload deliberately decouple emulated
-        // time from wall-clock time, so the emulator's sample rate no longer
-        // matches the device's and no pacing band can hold. Audio at speeds
-        // other than 1x stays as it always was (the device over- or under-runs
-        // and SDL papers over it); fixing that needs resampling, which is out
-        // of scope here. The same condition gates the underrun padding below —
-        // unpaced, it would fire every tick instead of acting as a rescue.
-        const bool audio_paced =
-            audio_ && speed_multiplier_ == 1.0 && !emulator_.fastload_active();
-
-        int frames = 1;
-        if (audio_paced) {
-            frames = audio_pacing::frames_for_tick(pacing_band_, audio_->queued_ms());
-        }
-        // Task 63 — time the run_frame loops (pacing + fastload burst below):
-        // together they are this tick's EMULATION cost, mechanism (b) of the
-        // issue-#9 candidates. A tick that emulates nothing samples ~0.
-        const auto emu_t0 = std::chrono::steady_clock::now();
-        for (int i = 0; i < frames; i++) {
-            // Superseded-composite skip (issue #9): only the tick's last
-            // frame is presented, so earlier frames of a catch-up double
-            // skip their compositor pass (render_policy.h).
-            emulator_.set_render_enabled(
-                render_this_tick &&
-                render_policy::composite_frame_in_tick(i, frames, screenshot_due));
-            emulator_.run_frame();
-            ++frame_count_;
-            ++frames_rendered;
-        }
-        emu_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - emu_t0).count();
-        // Task 63 (issue #9) — record how often the audio pacer ran 0 or 2+
-        // frames in one tick. The resulting frame losses are EXPECTED, and the
-        // cadence report must attribute them as such rather than lumping them
-        // in with presents the window system actually swallowed.
-        if (frames >= 2)      ++audio_doubles_;
-        else if (frames == 0) ++audio_skips_;
-
-        // Task 19 fastload follow-up — when the phantom typist is
-        // armed or a fast-load tape is delivering data, sprint
-        // through additional emulated frames inside this single Qt
-        // timer tick. The 20 ms QTimer interval normally caps the
-        // emulator at 50 Hz; during fastload we want flat-out
-        // execution like FUSE. We bound the per-tick burst (so the
-        // GUI thread still services repaints / events between
-        // bursts) and re-check `fastload_active()` each iteration
-        // so the loop exits the moment the typist fires + the tape
-        // hits `at_end()`. With BURST_LIMIT=200, a typical 48K TAP
-        // loads in a single Qt tick (~4 s of emulated time per
-        // 20 ms wall-clock, > 200× real-time on a modern host).
-        constexpr int FASTLOAD_BURST_LIMIT = 200;
-        int burst = 0;
-        const auto burst_t0 = std::chrono::steady_clock::now();
-        // Superseded-composite skip (issue #9): which burst frame is last is
-        // unknowable up front (any frame can end the tape), so every loop
-        // frame runs unrendered — it is frame `burst` of a tick with at
-        // least burst+2 frames, since the closing frame below follows by
-        // construction — and the closing frame, the tick's final frame,
-        // composites. Per-tick frame counts match the previous single loop
-        // (199+1 vs 200) except when fastload ends before the limit: the
-        // closing frame then adds ONE post-load frame, once per tape load.
-        // A pause mid-burst from an ordinary breakpoint has
-        // debug_state_.active() set beforehand, so run_frame composited those
-        // frames regardless of the hint. Exception: --magic-breakpoint sets
-        // active only AT the hit, so pre-hit burst frames skip compositing and
-        // the paused framebuffer can lag until the first step/resume.
-        while (emulator_.fastload_active() &&
-               burst < FASTLOAD_BURST_LIMIT - 1 &&
-               !emulator_.debug_state().paused()) {
-            emulator_.set_render_enabled(
-                render_this_tick &&
-                render_policy::composite_frame_in_tick(burst, burst + 2,
-                                                       screenshot_due));
-            emulator_.run_frame();
-            ++frame_count_;
-            ++frames_rendered;
-            ++burst;
-        }
-        if (burst > 0 && !emulator_.debug_state().paused()) {
-            // Closing frame — the tick's final frame, always composited.
-            emulator_.set_render_enabled(
-                render_this_tick &&
-                render_policy::composite_frame_in_tick(burst, burst + 1,
-                                                       screenshot_due));
-            emulator_.run_frame();
-            ++frame_count_;
-            ++frames_rendered;
-            ++burst;
-        }
-        emu_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - burst_t0).count();
-
-        // Push audio samples to SDL — but skip during fastload to
-        // avoid feeding the audio device huge sample chunks
-        // generated at >>1× real-time. FUSE does the same via
-        // `sound_pause()/sound_unpause()` around fastloading.
-        if (audio_ && !emulator_.fastload_active()) {
-            audio_->push_from_mixer(emulator_.mixer(), audio_paced);
-        }
-    } else if (audio_) {
-        // Paused in the debugger: the emulator produces no samples, so the
-        // device queue would drain and SDL would zero-fill — stepping the
-        // output from its resting level to 0, and back again on resume. Two
-        // clicks per pause. Keep feeding the device instead: the mixer is
-        // empty, so push_from_mixer() only runs its underrun guard, which
-        // holds the last level. A steady level is silent; a step is not.
-        // (The guard's behaviour with zero production is AP-06 in
-        // test/audio/audio_pacing_test.cpp.)
-        audio_->push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/true);
-    }
-
-    // Task 63 — one emulation-time sample per tick that reaches this point
-    // (the cold-boot early returns above skip it; their ticks still carry
-    // interval + handler samples from the on_frame_tick wrapper).
-    tick_stats::add_sample(tick_stats_.emu_us, emu_us);
-
-    // Task 27 C6 — the hint is per-frame within this tick: restore the
-    // default (always render) so any run_frame() caller outside this tick
-    // (debugger actions, future paths) is unaffected. The next tick re-decides.
-    emulator_.set_render_enabled(true);
-
+void QtApp::TickEffects::present(bool carries_new_content) {
     // Update the display widget with the in-memory framebuffer (640×256).
     // The widget vertically doubles to 640×512 internally during prescale.
-    // Task 27 C6 — skipped on throttled ticks: the framebuffer was not
-    // re-composited, so re-copying/prescaling the identical stale frame into
-    // the widget would be pure waste.
-    if (render_this_tick) {
-        // Task 63 (issue #9) — declare whether this push carries a newly
-        // composited frame. `frames_rendered == 0` means no run_frame() ran
-        // this tick (debugger paused, or the audio pacer skipping a tick
-        // because the device queue is high), so the framebuffer is byte-for-
-        // byte what was already shown. Presentation is unaffected either way;
-        // only present_count() accounting changes. Without this, a paused
-        // frontend re-presenting a static screen every tick inflates
-        // `presented`, and a window straddling pause->resume then floors
-        // `dropped` at 0 and reports lost=0 while frames really were lost.
-        const bool new_content = present_cadence::carries_new_content(frames_rendered);
-        main_window_->emulator_widget()->update_frame(
-            emulator_.get_framebuffer(),
-            emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height(),
-            new_content);
-    }
+    app.main_window_->emulator_widget()->update_frame(
+        app.emulator_.get_framebuffer(),
+        app.emulator_.get_framebuffer_width(), app.emulator_.get_framebuffer_height(),
+        carries_new_content);
+}
 
-    // Task 63 (issue #9) — accumulate this tick into the cadence window.
-    // `frames_rendered` is every run_frame() of this tick (pacing burst +
-    // fastload burst); only the LAST of them can possibly be presented,
-    // because they all composite into the same framebuffer and update_frame()
-    // is called once, after the loops. See src/platform/present_cadence.h.
-    cadence_.emulated += static_cast<uint64_t>(frames_rendered);
-    cadence_.superseded +=
-        present_cadence::superseded_in_tick(frames_rendered, render_this_tick);
-    cadence_.unrendered +=
-        present_cadence::unrendered_in_tick(frames_rendered, render_this_tick);
+void QtApp::TickEffects::post_frames(int frames_rendered) {
+    QtApp& a = app;
 
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the
@@ -702,7 +492,7 @@ void QtApp::frame_tick_body() {
     // are taken in headless mode (SDL path), which is unaffected; in
     // GUI use the imprecision is on the order of the burst length
     // (sub-second) and not user-visible.
-    if (screenshot_countdown_ == 0) {
+    if (a.screenshot_countdown_ == 0) {
         if (frames_rendered > 0) {
             // The framebuffer holds a frame composited with the mask armed
             // above — capture it. If the write fails (missing directory, no
@@ -710,61 +500,57 @@ void QtApp::frame_tick_body() {
             // exist, which is the same failure as never taking it at all:
             // error + non-zero exit, per QtApp::shutdown()'s contract.
             // save_screenshot_png() has already logged WHY.
-            if (!save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
-                                     emulator_.get_framebuffer_width(),
-                                     emulator_.get_framebuffer_height())) {
+            if (!save_screenshot_png(a.screenshot_file_, a.emulator_.get_framebuffer(),
+                                     a.emulator_.get_framebuffer_width(),
+                                     a.emulator_.get_framebuffer_height())) {
                 Log::platform()->error(
                     "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
                     "see the error above. Exiting non-zero.",
-                    screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
-                exit_code_ = 1;
+                    a.screenshot_file_, Renderer::layer_mask_to_string(a.screenshot_layers_));
+                a.exit_code_ = 1;
             }
-            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
-            screenshot_countdown_ = -1;  // done
-            screenshot_deferred_warned_ = false;
+            a.emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+            a.screenshot_countdown_ = -1;  // done
+            a.screenshot_deferred_warned_ = false;
         } else {
             // The debugger is paused: run_frame() never ran, so the framebuffer
             // is a stale frame composited with LAYER_ALL. Writing it would
             // silently ignore the layer selection the user explicitly asked
             // for. Hold the countdown at 0 and capture on the first tick that
             // actually renders — but say so, once, rather than sitting mute.
-            if (!screenshot_deferred_warned_) {
+            if (!a.screenshot_deferred_warned_) {
                 Log::platform()->warn(
                     "--delayed-screenshot: due now, but the debugger is paused so no "
                     "frame is being rendered; deferring the capture (layers: {}). "
                     "Resume to take it.",
-                    Renderer::layer_mask_to_string(screenshot_layers_));
-                screenshot_deferred_warned_ = true;
+                    Renderer::layer_mask_to_string(a.screenshot_layers_));
+                a.screenshot_deferred_warned_ = true;
             }
-            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+            a.emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
         }
-    } else if (screenshot_countdown_ > 0) {
-        --screenshot_countdown_;
+    } else if (a.screenshot_countdown_ > 0) {
+        --a.screenshot_countdown_;
     }
 
     // Delayed automatic exit.
-    if (exit_countdown_ == 0) {
+    if (a.exit_countdown_ == 0) {
         Log::platform()->info("automatic exit triggered");
-        qapp_->quit();
-        exit_countdown_ = -1;  // done
-    } else if (exit_countdown_ > 0) {
-        --exit_countdown_;
+        a.qapp_->quit();
+        a.exit_countdown_ = -1;  // done
+    } else if (a.exit_countdown_ > 0) {
+        --a.exit_countdown_;
     }
 
 #ifdef ENABLE_DEBUGGER
-    if (auto* mgr = main_window_->debugger_manager()) {
+    if (auto* mgr = a.main_window_->debugger_manager()) {
         mgr->check_breakpoint_hit();
         mgr->refresh_panels();
     }
 #endif
+}
 
-    // Issue #9 — drive the repeating timer from the fractional deadline
-    // scheduler, at the END of the tick so this tick's own work is
-    // subtracted from the wait. Follows runtime 50/60 Hz switches (NR 0x05
-    // bit 2) and speed changes via the period argument, and emits the
-    // "frame pacing" line when the rate changes. The cold-boot early
-    // returns above are covered by cold_boot()'s own rebase.
-    reschedule_frame_timer();
+void QtApp::TickEffects::set_timer_interval(int ms) {
+    app.reschedule_frame_timer(ms);
 }
 
 void QtApp::on_status_tick() {
@@ -781,15 +567,15 @@ void QtApp::on_status_tick() {
     // the second, and the old instruments only ever reported the first.
     if (main_window_->emulator_widget()) {
         const uint64_t pc = main_window_->emulator_widget()->present_count();
-        cadence_.presented = pc - last_present_count_;
+        seq_.cadence().presented = pc - last_present_count_;
         last_present_count_ = pc;
     }
     const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     const present_cadence::Report cad =
-        present_cadence::summarize(cadence_, now_ms - last_status_ms_);
+        present_cadence::summarize(seq_.cadence(), now_ms - last_status_ms_);
     last_status_ms_ = now_ms;
-    cadence_ = {};
+    seq_.reset_cadence();
 
     // A window with no duration is not a measurement — do not print one.
     // (last_status_ms_ is seeded when the timer starts, so this only guards
@@ -801,10 +587,9 @@ void QtApp::on_status_tick() {
             "audio-catchup: {} doubles, {} skips",
             cad.emulated, cad.presented, cad.dropped,
             cad.superseded, cad.unrendered, cad.lost, cad.elapsed_ms,
-            audio_doubles_, audio_skips_);
+            seq_.audio_doubles(), seq_.audio_skips());
     }
-    audio_doubles_ = 0;
-    audio_skips_   = 0;
+    seq_.reset_audio_counters();
 
     // Task 63 (issue #9) — tick-delivery diagnostics: WHERE the time goes.
     // Same window as the cadence line above (drained by the same 1 s timer),
@@ -812,10 +597,10 @@ void QtApp::on_status_tick() {
     // first so one report carries all four mechanisms; then reset. All
     // semantics live in src/platform/tick_stats.h — this is formatting only.
     if (main_window_->emulator_widget()) {
-        tick_stats_.paint_us = main_window_->emulator_widget()->take_paint_stats();
+        seq_.stats().paint_us = main_window_->emulator_widget()->take_paint_stats();
     }
-    const tick_stats::Report ts = tick_stats::summarize(tick_stats_);
-    tick_stats_ = {};
+    const tick_stats::Report ts = tick_stats::summarize(seq_.stats());
+    seq_.reset_stats();
     if (cad.reportable) {
         // µs stats -> "avg/min/max ms"; a stat with no samples prints n/a
         // (the unit lives inside the helper so "n/a" never grows a suffix).

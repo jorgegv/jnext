@@ -9,6 +9,7 @@
 #include "input/gamepad_host.h"
 #include "platform/audio_pacing.h"
 #include "platform/frame_deadline.h"
+#include "platform/frame_sequencer.h"
 #include "platform/present_cadence.h"
 #include "platform/screenshot.h"
 #include "platform/tick_stats.h"
@@ -92,12 +93,33 @@ private:
     void on_frame_tick();
     void on_status_tick();
 
-    // Task 63 (issue #9) — the pre-existing frame-tick work, unchanged. Called
-    // by on_frame_tick(), which is now a thin instrumented wrapper (interval /
-    // queue-depth / handler-duration sampling around this body). All the
-    // accumulation logic lives in src/platform/tick_stats.h where the unit
-    // suite can pin it; this wiring is reachable by no test and stays trivial.
-    void frame_tick_body();
+    // Task 91 — the frame tick's ORDER and its persistent state now live in
+    // frame_sequencer::Sequencer (src/platform/frame_sequencer.h), where a
+    // unit suite drives them over thousands of simulated ticks with a fake
+    // clock and a fake audio device. What remains on this side is the
+    // irreducibly Qt/SDL/Emulator-shaped work, exposed to the sequencer
+    // through this adapter. Each method is a direct call into an existing
+    // subsystem: no ordering decisions, no state of its own.
+    struct TickEffects {
+        QtApp& app;
+
+        int64_t now_us() const;
+        int64_t period_us() const { return app.effective_frame_period_us(); }
+        double  speed_multiplier() const { return app.speed_multiplier_; }
+        bool    audio_present() const { return static_cast<bool>(app.audio_); }
+        int     queued_ms() const;  // SdlAudio is incomplete here
+        bool    paused() const { return app.emulator_.debug_state().paused(); }
+        bool    fastload_active() const { return app.emulator_.fastload_active(); }
+        bool    screenshot_due() const { return app.screenshot_countdown_ == 0; }
+
+        bool pre_frames();
+        void run_frame(bool composite);
+        void reset_render_hint() { app.emulator_.set_render_enabled(true); }
+        void push_audio(bool hold_on_underrun);
+        void present(bool carries_new_content);
+        void post_frames(int frames_rendered);
+        void set_timer_interval(int ms);
+    };
 
     // Task 79 — (re)create the gamepad host and wire the per-connector input
     // sources (cursor-keys routing + SDL pad gating) to the current emulator.
@@ -114,9 +136,9 @@ private:
     /// Re-anchor the deadline schedule at now and restart the timer's
     /// period (timer start, cold boot, speed change).
     void rebase_frame_timer();
-    /// End-of-tick: advance the deadline by one exact period and point the
-    /// repeating timer at it (glides across 50/60 Hz and speed changes).
-    void reschedule_frame_timer();
+    /// End-of-tick: point the repeating timer at the interval the
+    /// sequencer computed from the advanced deadline.
+    void reschedule_frame_timer(int interval);
     /// Emit the "frame pacing" info line — only when the period changed.
     void log_frame_pacing(int64_t period_us);
 
@@ -177,48 +199,26 @@ private:
     // FPS tracking — EMULATED frames (run_frame() calls) per status window.
     int frame_count_ = 0;
 
-    // Task 63 (issue #9) present-cadence diagnostics. See
-    // src/platform/present_cadence.h for what each figure means and why the
-    // previous instrument (dropped == audio double-step count) was useless.
-    present_cadence::Counters cadence_;
+    // Task 91 — the frame tick itself: its step order, and every piece of
+    // state that must survive from one tick to the next (deadline schedule,
+    // audio-pacer band, tick-stats and present-cadence accumulators, the
+    // last-tick and last-render timestamps). Owning them in one tested object
+    // is the point: each was independently a "fresh instance per tick"
+    // waiting to happen, and one of them WAS exactly that in v0.98.47.
+    // Diagnostics counters (present_cadence.h / tick_stats.h) are drained
+    // through it by on_status_tick(); see src/platform/frame_sequencer.h.
+    frame_sequencer::Sequencer seq_;
     uint64_t last_present_count_ = 0;  ///< EmulatorWidget::present_count() at last drain
     int64_t  last_status_ms_ = 0;      ///< steady_clock ms at last drain (real window)
-    int      audio_doubles_ = 0;       ///< ticks that ran 2+ frames (audio catch-up)
-    int      audio_skips_ = 0;         ///< ticks that ran 0 frames (audio ahead)
-
-    // Task 63 (issue #9) tick-delivery diagnostics. See
-    // src/platform/tick_stats.h for what each figure means and the four
-    // mechanisms ((a) late timer callbacks, (b) slow emulation, (c) slow
-    // paint, (d) audio-queue starvation) the per-second `ticks:` line
-    // discriminates.
-    tick_stats::Counters tick_stats_;
-    int64_t last_tick_us_ = -1;  ///< steady_clock µs at previous tick entry;
-                                 ///  -1 = no tick yet. Persists across window
-                                 ///  drains, so only the process's FIRST tick
-                                 ///  contributes no interval sample.
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;
 
-    // Task 63 (issue #9) — fractional frame-deadline scheduler driving
-    // frame_timer_'s interval. The long-run tick rate equals the EXACT
-    // emulated frame period (17.198 ms at Next-60) instead of its whole-ms
-    // rounding (17 ms = 1.1% fast); see src/platform/frame_deadline.h.
-    frame_deadline::Scheduler frame_deadline_;
     // Last effective period handed to the scheduler; the "frame pacing" info
     // line is emitted only when this changes (refresh-rate or speed change,
     // never per tick).
     int64_t last_paced_period_us_ = -1;
 
-    // Task 27 C6 — wall-clock throttle for the compositor at speed > 1x.
-    // Monotonic ms timestamp (std::chrono::steady_clock in qt_app.cpp) of the
-    // last tick whose frames were rendered. Initialised to 0, NOT INT64_MIN:
-    // steady_clock counts from boot, so `now - 0` is host uptime (>> 20 ms)
-    // and the first tick always renders. An INT64_MIN sentinel overflows the
-    // `now - last` subtraction (UB, observed negative), which made EVERY
-    // frame skip forever — caught by render-skip-turbo-func's engagement
-    // count (601 skips in 601 frames, i.e. zero renders).
-    int64_t last_render_ms_ = 0;
 
     static constexpr int NATIVE_W = 640;
     static constexpr int NATIVE_H = 256;
