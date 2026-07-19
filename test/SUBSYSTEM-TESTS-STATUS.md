@@ -46,6 +46,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Frame-deadline scheduler |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -61,6 +62,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **4980** | **4980** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5018** | **5018** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
