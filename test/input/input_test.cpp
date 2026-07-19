@@ -4588,6 +4588,31 @@ static void test_nr_b2() {
               v == (0x08 | 0x40), DETAIL("got=0x%02X want=0x%02X", v, 0x08 | 0x40));
     }
 
+    // NRB2-17: raw index 6 -> Y. Split out from NRB2-15 because that row
+    // exercises only indices 5 and 7: with 6 unasserted, its binding could be
+    // changed to any other bit and every row still passed.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_raw_button(0, 6, true);    // index 6 → Y (bit 8)
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-17", "host raw pad button 6 reaches NR 0xB2 as L.Y",
+              v == 0x02, DETAIL("got=0x%02X want=0x02", v));
+    }
+
+    // NRB2-18: the whole raw MD6 block at once, so no index in the 5..7 range
+    // can be dropped or aliased onto another without a row moving.
+    {
+        Joystick j;
+        JoystickDispatcher jd(j);
+        jd.handle_raw_button(0, 5, true);    // X → bit 3
+        jd.handle_raw_button(0, 6, true);    // Y → bit 1
+        jd.handle_raw_button(0, 7, true);    // Z → bit 2
+        const uint8_t v = j.nr_b2_byte();
+        check("NRB2-18", "raw indices 5/6/7 map onto distinct X/Y/Z bits",
+              v == 0x0E, DETAIL("got=0x%02X want=0x0E", v));
+    }
+
     // NRB2-16: the SDL game-controller path binds the two spare shoulders to
     // X / Z. Face buttons must NOT land here — they stay on the port-visible
     // bits — so pressing A (→ B, bit 4) leaves NR 0xB2 untouched.

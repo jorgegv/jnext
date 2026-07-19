@@ -568,6 +568,8 @@ shared signal.
 | NRB2-14 | live `Emulator`, vectors set, read NR 0xB2 through the NextReg file | composed byte — the guest-reachability row; fails with 0x00 against the pre-fix handler | 6214-6215 |
 | NRB2-15 | raw pad button 5 (L) and 7 (R) via `JoystickDispatcher` | L.X and R.Z set — host end-to-end | host adapter |
 | NRB2-16 | controller shoulders + a face button | shoulders → L.X/L.Z; the face button stays on its port-visible bit | host adapter |
+| NRB2-17 | raw pad button 6 | L.Y — split out because NRB2-15 exercises only indices 5 and 7 | host adapter |
+| NRB2-18 | raw pad buttons 5+6+7 together | distinct X/Y/Z bits, so none can be dropped or aliased | host adapter |
 
 NRB2-14 is the row that actually proves the feature: without it an
 implementation can pass every layout row above and still ship a register
@@ -777,7 +779,7 @@ specific default and fails loudly if any reset path silently zeroes
 | 3.5 Kempston 1/2 | 17 (+KEMP-16/17 G128/G129) |
 | 3.6 MD 3-button | 9 |
 | 3.6a MD 6-button + NR 0xB2 (incl. MD6-11a..i) | 19 |
-| 3.6b NR 0xB2 source + guest reachability (NRB2) | 16 (issue #32) |
+| 3.6b NR 0xB2 source + guest reachability (NRB2) | 18 (issue #32) |
 | 3.7 Sinclair 1/2 | 11 |
 | 3.8 Cursor | 6 |
 | 3.9 I/O mode | 11 |
@@ -787,7 +789,7 @@ specific default and fails loudly if any reset path silently zeroes
 | 3.14 User-defined joystick keymap (JCAL) | 3 (G127) |
 | 3.15 F-key FSM + host hotkey dispatch | 2 (G132/G147) |
 | 3.16 NR 0x05 production-wire (JOY-WIRE) | 1 (G126) |
-| **Total (nominal)** | **176** |
+| **Total (nominal)** | **178** |
 
 No pass/fail ratio is reported until the test code has been rewritten
 against this oracle; the old 71/71 figure is retracted in §Plan

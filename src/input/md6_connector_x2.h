@@ -3,6 +3,17 @@
 
 /// MD6 (Mega-Drive 3/6-button) dual-connector joystick state machine.
 ///
+/// **NOT ON ANY LIVE READ PATH — reference model only.** Nothing in
+/// production reads this class's output. It is still constructed, reset,
+/// ticked and serialised, but `nr_b2_byte()` below is dead: the emulator's
+/// NR 0xB2 handler reads `Joystick::nr_b2_byte()` instead, because nothing
+/// feeds `set_raw_left/right()` and the 6-button detect at phase 1000
+/// requires the physical select-pulse handshake (U+D asserted together on
+/// the cable) that a host gamepad cannot produce — see the note on
+/// `Joystick::nr_b2_byte()`. Fixing a bug HERE does not change emulator
+/// behaviour; fix `Joystick` instead. Retained because it is the faithful
+/// transcription of the VHDL FSM and is covered by MD6-01..11i.
+///
 /// Mirrors VHDL `md6_joystick_connector_x2.vhd:66-193` — a single shared
 /// 9-bit state counter drives a time-multiplexed FSM that scans the left
 /// and right joystick connectors alternately, capturing the extra 4 MD6

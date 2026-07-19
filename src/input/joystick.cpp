@@ -228,6 +228,13 @@ uint8_t Joystick::read_port_37() const
 // four bits per connector reach NO port under ANY mode (zxnext.vhd:3470-3494
 // drives at most bits 7:0, and only 5:0 outside MD mode), so NR 0xB2 is the
 // only path by which a guest can observe X / Y / Z / MODE.
+//
+// On hardware these bits arrive via the MD6 cable FSM, which only latches
+// them after detecting a 6-button pad — U and D asserted together during a
+// select pulse. That handshake is electrical: a host gamepad reports button
+// states, never drives it, so `Md6ConnectorX2` cannot be fed from host input
+// and is a reference model only. The 3-button case still behaves correctly
+// here: a source that binds no extras leaves bits 11:8 at their reset 0.
 // =============================================================================
 uint8_t Joystick::nr_b2_byte() const
 {
