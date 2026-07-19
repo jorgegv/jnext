@@ -89,7 +89,8 @@ jobs:
             cmake g++ ccache \
             libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
             qt6-base-dev \
-            imagemagick xvfb python3 unzip
+            imagemagick xvfb python3 unzip \
+            pandoc
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -116,6 +117,15 @@ jobs:
         run: |
           LANG=C make clean
           LANG=C make gui-release 2>&1 | tail -30
+
+      # doc/man/jnext.1.md is the single source for BOTH the man page and
+      # USAGE.md, and both outputs are committed so a source build needs no
+      # doc toolchain. That only holds if someone regenerates them: this step
+      # regenerates into a temp dir and diffs, so an edit to the source with
+      # stale committed outputs fails here rather than shipping a man page
+      # that disagrees with USAGE.md.
+      - name: Generated docs are up to date (make docs-check)
+        run: LANG=C make docs-check
 
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from

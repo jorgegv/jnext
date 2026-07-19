@@ -25,6 +25,15 @@ Optional:
   5 GB default thrashes on a tree this size.
 - **ffmpeg** — needed at runtime for MP4 video recording (`--record`).
 - **z88dk** — only to rebuild the demo programs in `demo/`.
+- **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs`).
+  See [Documentation](#documentation) below.
+- **mkdocs-material** — only to build the user manual site under `doc/manual`
+  (`pip install mkdocs-material`). See [Documentation](#documentation) below.
+
+None of the optional tools are needed to build jnext. In particular the two
+documentation tools are never invoked by a code build: the generated man page
+and `USAGE.md` are committed, so a source-only build ships complete docs on a
+machine that has neither.
 
 ## Build
 
@@ -119,6 +128,49 @@ cmake --build build -j$(nproc)
 
 A container recipe that needs nothing on the host but Docker is described in
 [doc/LINUX-BUILD-DOCKER.md](doc/LINUX-BUILD-DOCKER.md).
+
+## Documentation
+
+The documentation build is **deliberately separate from the code build**: no
+make target that compiles jnext ever invokes a documentation tool, and every
+generated file is committed. A contributor who never touches the docs needs
+neither pandoc nor mkdocs.
+
+**The CLI reference has exactly one source: `doc/man/jnext.1.md`.** It generates
+both the man page and `USAGE.md`, so the two cannot drift apart:
+
+```sh
+make docs           # regenerate doc/man/jnext.1 and USAGE.md   (needs pandoc)
+make docs-check     # fail if either committed output is stale
+```
+
+Never edit `doc/man/jnext.1` or `USAGE.md` by hand — edit the source and rerun
+`make docs`, committing the regenerated outputs alongside it. `make docs-check`
+is the guard: it regenerates into a temporary directory and diffs, so a stale
+committed output is a hard failure rather than something a reviewer has to
+spot. It skips (rather than fails) when pandoc is absent.
+
+`make docs` needs pandoc:
+
+```sh
+sudo dnf install pandoc          # Fedora / RHEL
+sudo apt install pandoc          # Debian / Ubuntu
+brew install pandoc              # macOS
+```
+
+The man page is installed by the CMake install rules to
+`${CMAKE_INSTALL_MANDIR}/man1/jnext.1`, so it lands in every package
+(rpm, deb, Flatpak, macOS) with no per-format step. The Windows zip ships
+`USAGE.md` instead, man pages being meaningless there.
+
+The **user manual** lives under `doc/manual` and is built with
+[mkdocs-material](https://squidfunk.github.io/mkdocs-material/):
+
+```sh
+pip install mkdocs-material
+mkdocs serve -f doc/manual/mkdocs.yml    # live preview at localhost:8000
+mkdocs build -f doc/manual/mkdocs.yml    # static site
+```
 
 ## Building packages
 

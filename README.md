@@ -122,14 +122,16 @@ jnext game.tap
 ```
 
 Everything you can do with it — every CLI option, the GUI, the debugger, the
-SD card and ROMs — is in **[USAGE.md](USAGE.md)**.
+SD card and ROMs — is in **[USAGE.md](USAGE.md)**, or in `man jnext` once
+installed from a package: both are generated from the same source, so they
+never disagree.
 
 ## Documentation
 
 | Document                                                       | What's in it                                                                             |
 |----------------------------------------------------------------|------------------------------------------------------------------------------------------|
 | [BUILD.md](BUILD.md)                                           | Building from source and building packages: prerequisites, targets, CMake options, tests |
-| [USAGE.md](USAGE.md)                                           | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map                  |
+| [USAGE.md](USAGE.md)                                           | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map (= `man jnext`)  |
 | [FEATURES.md](FEATURES.md)                                     | Full feature list                                                                        |
 | [TODO.md](TODO.md)                                             | Pointer to GitHub issues, where pending features and known issues live                   |
 | [ChangeLog](ChangeLog)                                         | What changed in each release                                                             |
