@@ -1,17 +1,37 @@
 # ChangeLog
 
-## Unreleased (2026-07-17)
+## v0.98.56 (2026-07-19)
 
 ### User Features
-- Per-connector joystick input mapping: each of the Next's two joystick ports can be driven by an autodetected gamepad or by the host cursor keys + Space (fire); selectable in the new Input menu, in Preferences, via `--joy1-source`/`--joy2-source`, and remembered across sessions
-- The Qt GUI now supports USB gamepads (previously only the SDL-only build did)
-- `--esxdos-stub`: esxDOS `run NAME.nex` now chain-loads a sibling NEX (game selectors / multi-part games run without booting NextZXOS); adds in-memory esxDOS file I/O so games can read/write a config or score file
-- `--wav-record FILE`: record mixed stereo audio directly to a PCM WAV without an audio device or ffmpeg
-- `--dac-trace FILE`: record timestamped physical DAC channel writes to CSV
+- Mouse now usable: click the screen to capture the pointer, Ctrl+Alt to release
+- Mega Drive 6-button pads: the X / Y / Z / MODE buttons are now readable by programs
+- The 16 extended keys (cursors, EDIT, DELETE, BREAK, EXTEND MODE, ...) are readable in raw form
+- New key bindings: Esc = BREAK, Tab = EXTEND MODE, Alt+E / G / C = EDIT / GRAPH / CAPS LOCK
+- Each joystick port can be driven by a gamepad or by the cursor keys + Space
+- USB gamepads now work in the Qt GUI, not just the SDL-only build
+- Frames paced to the exact machine period; never-displayed frames are no longer drawn
+- `--esxdos-stub`: `run NAME.nex` chain-loads a sibling NEX, plus in-memory esxDOS file I/O
+
+### Developer Features
+- esxDOS / NextZXOS syscall tracing
+- `--wav-record FILE`: record stereo audio to WAV, no audio device or ffmpeg needed
+- `--dac-trace FILE`: timestamped DAC channel writes to CSV
+- Per-second frame tick diagnostics (interval, emulation, queue, paint) for stutter analysis
+- `tools/extract-sdcard-nex.sh`: extract every NEX on an SD image into a testable tree
 
 ### Bug Fixes
-- Tilemap raster-split effects (a scrolling play area with a fixed HUD, split at a line interrupt) now land on the exact scanline, matching real hardware (issue #16)
-- Downloading the SD-card image at first start no longer looks frozen: an animated "Fixing downloaded image…" dialog is shown while the image is patched (a few seconds after the download bar completes)
+- Mouse reached only a small part of the screen, and varied with where the pointer entered
+- Mouse buttons could stay stuck down if capture was released mid-drag
+- Extended-key and MD extra-button registers returned nothing to any program
+- Tilemap raster splits now land on the exact scanline
+- SD image patching at first start no longer looks frozen
+
+### Internal JNEXT Development
+- Regression harness split into a shared library plus one script per test
+- CI builds all four Qt-UI x debugger combinations; two were silently broken
+- Library dependencies declared properly; the build no longer relies on debugger link order
+- Test runs always rebuild the emulator binary, so no suite can report on a stale build
+- Pull-request review and merge protocol documented
 
 ## v0.98.34 (2026-07-17)
 
