@@ -246,6 +246,16 @@ bool QtApp::init(int argc, char* argv[]) {
         cold_boot(file);
     });
 
+    // Issue #40 — a machine-type change (Machine menu or Preferences) is a
+    // power cycle routed through the SAME cold boot. The new type is written
+    // into config_ so it also survives every LATER boot (F1 / Reset / a menu
+    // load), exactly as if it had been passed on the command line.
+    main_window_->set_reboot_callback([this](MachineType type) {
+        config_.type = type;
+        config_set_  = true;
+        cold_boot();
+    });
+
     main_window_->show();
 
     // Re-apply scale after the window is mapped so devicePixelRatio is correct.
@@ -342,41 +352,33 @@ void QtApp::cold_boot(const std::string& load_file) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
-    // Reconstruct the emulator in place (restores every power-on default so
-    // the machine is byte-identical to a fresh startup) and re-run init(),
-    // preserving debugger breakpoints. Placement-new keeps &emulator_ stable,
-    // so main_window_'s pointer, the debugger, and the mouse dispatcher (all
-    // bound to the stable address / its sub-objects) stay valid; only the
-    // emulator-side callback needs re-binding below.
-    EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
-    cfg.load_file = load_file;   // empty => clean NextZXOS boot
-    // Task 79 — the per-connector input source is a host-side mapping, not
-    // machine state, so it must survive a cold boot (Reset / F1 / NEX load)
-    // including any live change made via the Input menu. Carry the emulator's
-    // CURRENT effective sources through the reconstruction rather than the
-    // startup config's.
-    cfg.joy_source[0] = emulator_.joystick_source(0);
-    cfg.joy_source[1] = emulator_.joystick_source(1);
-    emulator_cold_boot(emulator_, cfg);
-
-    // Re-run the post-init wiring init() does at startup: the reconstructed
-    // emulator/keyboard start at defaults, so rebind the window pointer and
-    // re-create + re-wire the gamepad host and per-connector input sources.
-    if (main_window_) main_window_->set_emulator(&emulator_);
-    wire_gamepad_and_sources(cfg);
-
-    // Drop any stale pending work, then schedule the load exactly as the CLI
-    // startup does (same per-format delay) so a menu load == launching with
-    // --load <file>.
-    inject_countdown_ = -1;
-    load_countdown_   = -1;
-    if (!load_file.empty()) {
-        set_pending_load(load_file, emulator_load_delay_frames(load_file));
-    }
-
-    // Re-anchor the deadline schedule to the (possibly changed) refresh
-    // rate — a cold boot is a restart, so rebase rather than glide.
-    rebase_frame_timer();
+    // Issue #40 — the sequence itself lives in platform/emulator_boot.h and is
+    // shared with SdlApp; this supplies only the Qt-specific steps. Placement-
+    // new keeps &emulator_ stable, so main_window_'s pointer, the debugger and
+    // the mouse dispatcher (all bound to the stable address / its sub-objects)
+    // stay valid; only the emulator-side wiring needs re-binding.
+    ColdBootHooks hooks;
+    hooks.rewire_host = [this](const EmulatorConfig& cfg) {
+        // The reconstructed emulator/keyboard start at defaults: rebind the
+        // window pointer, then re-create + re-wire + re-enumerate the gamepad
+        // host and the per-connector input sources.
+        if (main_window_) main_window_->set_emulator(&emulator_);
+        wire_gamepad_and_sources(cfg);
+    };
+    hooks.cancel_pending_work = [this]() {
+        inject_countdown_ = -1;
+        load_countdown_   = -1;
+    };
+    hooks.schedule_load = [this](const std::string& file, int delay_frames) {
+        set_pending_load(file, delay_frames);
+    };
+    hooks.on_booted = [this]() {
+        // Re-anchor the deadline schedule to the (possibly changed) refresh
+        // rate — a cold boot is a restart, so rebase rather than glide.
+        rebase_frame_timer();
+    };
+    emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
+                                load_file, hooks);
 }
 
 int64_t QtApp::TickEffects::now_us() const { return steady_now_us(); }

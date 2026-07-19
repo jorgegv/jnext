@@ -165,43 +165,43 @@ void SdlApp::cold_boot(const std::string& load_file) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
-    // Reconstruct the emulator in place (shared with the Qt/headless frontends,
-    // platform/emulator_boot.h) and re-run init(), preserving debugger
-    // breakpoints. Placement-new keeps &emulator_ stable; the host adapters
-    // below re-bind to the (stable-address) sub-objects and the emulator-side
-    // callback.
-    EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
-    cfg.load_file = load_file;
-    emulator_cold_boot(emulator_, cfg);
+    // Issue #40 — the sequence itself lives in platform/emulator_boot.h and is
+    // shared with QtApp; this supplies only the SDL-specific steps. Placement-
+    // new keeps &emulator_ stable; the host adapters below re-bind to the
+    // (stable-address) sub-objects and the emulator-side callbacks.
+    ColdBootHooks hooks;
+    hooks.rewire_host = [this](const EmulatorConfig& cfg) {
+        // Re-run the emulator-bound wiring init() does at startup.
+        mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
+        gamepad_host_     = std::make_unique<GamepadHost>(emulator_.joystick());
+        emulator_.on_input_state_restored = [this]() {
+            if (mouse_dispatcher_) mouse_dispatcher_->resync();
+            if (gamepad_host_)     gamepad_host_->resync();
+        };
+        // Task 79 — re-apply the per-connector source wiring (the reconstructed
+        // Emulator/Keyboard start at defaults).
+        emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
+        emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
+            if (gamepad_host_) gamepad_host_->set_source(slot, src);
+        };
+        emulator_.set_joystick_source(0, cfg.joy_source[0]);
+        emulator_.set_joystick_source(1, cfg.joy_source[1]);
+        emulator_.refresh_joystick_sources();
 
-    // Re-run the emulator-bound wiring init() does at startup.
-    mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
-    gamepad_host_     = std::make_unique<GamepadHost>(emulator_.joystick());
-    emulator_.on_input_state_restored = [this]() {
-        if (mouse_dispatcher_) mouse_dispatcher_->resync();
-        if (gamepad_host_)     gamepad_host_->resync();
+        // Task 83 — adopt pads already plugged in (SDL only emits DEVICEADDED
+        // for later arrivals). Runs after the sources are applied so a
+        // CursorKeys connector is skipped.
+        gamepad_host_->enumerate_existing_devices();
     };
-    // Task 79 — re-apply the per-connector source wiring (the reconstructed
-    // Emulator/Keyboard start at defaults).
-    emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
-    emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
-        if (gamepad_host_) gamepad_host_->set_source(slot, src);
+    hooks.cancel_pending_work = [this]() {
+        inject_countdown_ = -1;
+        load_countdown_   = -1;
     };
-    emulator_.set_joystick_source(0, cfg.joy_source[0]);
-    emulator_.set_joystick_source(1, cfg.joy_source[1]);
-    emulator_.refresh_joystick_sources();
-
-    // Task 83 — adopt pads already plugged in (SDL only emits DEVICEADDED for
-    // later arrivals). Runs after the sources are applied so a CursorKeys
-    // connector is skipped.
-    gamepad_host_->enumerate_existing_devices();
-
-    // Schedule the load exactly as the CLI startup does (same per-format delay).
-    load_countdown_ = -1;
-    if (!load_file.empty()) {
-        load_file_      = load_file;
-        load_countdown_ = emulator_load_delay_frames(load_file);
-    }
+    hooks.schedule_load = [this](const std::string& file, int delay_frames) {
+        set_pending_load(file, delay_frames);
+    };
+    emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
+                                load_file, hooks);
 }
 
 void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,

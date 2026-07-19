@@ -14,6 +14,7 @@
 #include "debug/breakpoints.h"
 
 #include <cctype>
+#include <functional>
 #include <new>
 #include <string>
 #include <utility>
@@ -75,4 +76,84 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
+}
+
+// ---------------------------------------------------------------------------
+// Issue #40 — the WHOLE frontend cold-boot sequence, in one place.
+// ---------------------------------------------------------------------------
+//
+// emulator_cold_boot() above only reconstructs the machine. Around it sits a
+// fixed sequence of host-side steps that must happen in a fixed ORDER, and that
+// sequence had been written out three times: QtApp::cold_boot(),
+// SdlApp::cold_boot(), and MainWindow::on_machine_type() — which was a bare
+// init() that did none of it, so a machine-type change came back with stale
+// subsystem state and a dead gamepad. Divergence had already bitten twice
+// before (the dropped `.rzx` branch that motivated emulator_apply_load(); the
+// pad that died on every cold boot, issue #13 point 3).
+//
+// So the shared driver below owns the ORDER and the emulator-side steps, and
+// the frontends supply ONLY the steps that are genuinely theirs.
+
+/// The frontend-specific steps of a cold boot. Every hook is optional (an empty
+/// std::function is simply not called), because the two frontends do not have
+/// the same set: SdlApp has no window to re-bind and no frame pacer to rebase.
+///
+/// Hooks rather than a virtual interface: each of these is a one-line lambda
+/// capturing the frontend `this`, the frontends are concrete singletons (there
+/// is no polymorphic family to dispatch over), and every other seam in this
+/// codebase between the core and a frontend already has this shape
+/// (`MainWindow::LoadFileCallback`, `Emulator::on_joystick_source_changed`,
+/// `Emulator::on_input_state_restored`). It also keeps this header free of Qt,
+/// SDL and GamepadHost — it must stay includable by the pure core.
+struct ColdBootHooks {
+    /// Re-bind frontend objects to the reconstructed emulator and re-create,
+    /// re-wire and RE-ENUMERATE the host input adapters. Receives the config
+    /// the boot actually used, so the per-connector joystick sources carried
+    /// across by the driver can be applied. Re-enumeration is not optional:
+    /// SDL only emits DEVICEADDED for arrivals *after* a host is built, so a
+    /// host rebuilt here never sees an already-plugged pad without it.
+    std::function<void(const EmulatorConfig&)> rewire_host;
+
+    /// Drop any inject / load countdown left pending from before the boot.
+    /// Always called, so a boot can never inherit stale scheduled work.
+    std::function<void()> cancel_pending_work;
+
+    /// Schedule the load file with the per-format delay the CLI startup uses,
+    /// so a menu load is indistinguishable from launching with --load <file>.
+    std::function<void(const std::string& file, int delay_frames)> schedule_load;
+
+    /// Frontend tail, after the machine is up (QtApp re-anchors the frame
+    /// pacer here: a cold boot is a restart, so the schedule rebases).
+    std::function<void()> on_booted;
+};
+
+/// Perform a full frontend cold boot. `base_cfg` is the frontend's startup
+/// config; `load_file` empty means a clean boot with nothing loaded.
+///
+/// Order is the contract:
+///   1. the load file goes into the config;
+///   2. the LIVE per-connector joystick sources are carried across — they are
+///      host-side mappings, not machine state, so a source picked from the
+///      Input menu must survive the boot (carrying `base_cfg`'s startup values
+///      instead would silently revert it);
+///   3. the machine is reconstructed;
+///   4. the frontend re-binds and re-wires its host adapters;
+///   5. stale pending work is dropped BEFORE new work is scheduled;
+///   6. the load is re-scheduled;
+///   7. the frontend tail runs.
+inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
+                                        const std::string& load_file,
+                                        const ColdBootHooks& hooks) {
+    EmulatorConfig cfg = std::move(base_cfg);
+    cfg.load_file      = load_file;
+    cfg.joy_source[0]  = emu.joystick_source(0);
+    cfg.joy_source[1]  = emu.joystick_source(1);
+
+    emulator_cold_boot(emu, cfg);
+
+    if (hooks.rewire_host)         hooks.rewire_host(cfg);
+    if (hooks.cancel_pending_work) hooks.cancel_pending_work();
+    if (!load_file.empty() && hooks.schedule_load)
+        hooks.schedule_load(load_file, emulator_load_delay_frames(load_file));
+    if (hooks.on_booted)           hooks.on_booted();
 }
