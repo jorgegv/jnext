@@ -351,15 +351,32 @@ int main()
                   std::to_string(fresh_state.size()));
     }
 
-    // --- EB-15: a frontend that supplies NO hooks boots without crashing ----
+    // --- EB-15: a frontend that supplies NO hooks still boots the machine ---
     // Every hook is optional (SdlApp supplies no on_booted). An empty
     // std::function must be skipped, not invoked.
+    //
+    // Asserted on the resulting MACHINE, not on merely reaching the next line:
+    // "it did not crash" is a tautology as an assertion (the linter is right to
+    // reject it), and it would also pass if the driver bailed out before doing
+    // any work at all. The reference is a fresh machine built with the same
+    // config the driver constructs — so an empty hook must cost the boot
+    // nothing. A driver that called an empty hook still dies here.
     {
         Emulator emu;
         emu.init(base_config());
+        dirty(emu);
         ColdBootHooks none;
         emulator_frontend_cold_boot(emu, base_config(), "game.nex", none);
-        check("EB-15", "a boot with no hooks at all completes", true);
+
+        EmulatorConfig ref_cfg = base_config();
+        ref_cfg.load_file = "game.nex";
+        Emulator fresh;
+        fresh.init(ref_cfg);
+
+        check("EB-15", "a boot with no hooks at all still boots the machine",
+              snapshot(emu) == snapshot(fresh),
+              "sizes " + std::to_string(snapshot(emu).size()) + "/" +
+                  std::to_string(snapshot(fresh).size()));
     }
 
     // --- EB-16: hooks are individually optional -----------------------------
