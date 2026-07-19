@@ -9,6 +9,7 @@
 #include "input/gamepad_host.h"
 #include "platform/present_cadence.h"
 #include "platform/screenshot.h"
+#include "platform/tick_stats.h"
 #include "video/renderer.h"
 
 class QApplication;
@@ -89,6 +90,13 @@ private:
     void on_frame_tick();
     void on_status_tick();
 
+    // Task 63 (issue #9) — the pre-existing frame-tick work, unchanged. Called
+    // by on_frame_tick(), which is now a thin instrumented wrapper (interval /
+    // queue-depth / handler-duration sampling around this body). All the
+    // accumulation logic lives in src/platform/tick_stats.h where the unit
+    // suite can pin it; this wiring is reachable by no test and stays trivial.
+    void frame_tick_body();
+
     // Task 79 — (re)create the gamepad host and wire the per-connector input
     // sources (cursor-keys routing + SDL pad gating) to the current emulator.
     // Shared by init() and cold_boot() (which reconstructs the emulator).
@@ -156,6 +164,17 @@ private:
     int64_t  last_status_ms_ = 0;      ///< steady_clock ms at last drain (real window)
     int      audio_doubles_ = 0;       ///< ticks that ran 2+ frames (audio catch-up)
     int      audio_skips_ = 0;         ///< ticks that ran 0 frames (audio ahead)
+
+    // Task 63 (issue #9) tick-delivery diagnostics. See
+    // src/platform/tick_stats.h for what each figure means and the four
+    // mechanisms ((a) late timer callbacks, (b) slow emulation, (c) slow
+    // paint, (d) audio-queue starvation) the per-second `ticks:` line
+    // discriminates.
+    tick_stats::Counters tick_stats_;
+    int64_t last_tick_us_ = -1;  ///< steady_clock µs at previous tick entry;
+                                 ///  -1 = no tick yet. Persists across window
+                                 ///  drains, so only the process's FIRST tick
+                                 ///  contributes no interval sample.
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;

@@ -4,6 +4,8 @@
 #include <QImage>
 #include <cstdint>
 
+#include "platform/tick_stats.h"
+
 /// Emulator display widget — renders the emulator framebuffer as a QImage.
 ///
 /// The in-memory framebuffer is 640×256; the widget displays it at
@@ -53,6 +55,28 @@ public:
     /// status tick. Pinned by test/gui/present_count_test.cpp.
     uint64_t present_count() const { return present_count_; }
 
+    /// Task 63 (issue #9) — drain the accumulated NEW-FRAME paint-cost
+    /// distribution (µs samples): returns the Stat and resets it, mirroring
+    /// the way QtApp differences present_count() each status tick.
+    ///
+    /// WHAT IS SAMPLED — and the honesty rule. One sample per paintEvent that
+    /// CONSUMES a pending new frame (the same `frame_pending_` gate that
+    /// advances present_count()), measuring that paintEvent's duration. A
+    /// spontaneous expose/resize/repaint() of an image already shown is
+    /// EXCLUDED entirely (not counted separately): the metric exists to answer
+    /// "is presenting a NEW frame too slow to keep the tick cadence?"
+    /// (mechanism (c) of issue #9 — see src/platform/tick_stats.h), and
+    /// re-blit costs of frames the emulator is not producing would dilute
+    /// exactly the ticks under suspicion. Stale re-pushes (new_content=false)
+    /// never arm the gate, so they are excluded by the same rule.
+    /// Note prescale cost is NOT in these samples — it runs in update_frame(),
+    /// on the tick path, so it is already inside the handler duration.
+    tick_stats::Stat take_paint_stats() {
+        tick_stats::Stat s = paint_stats_;
+        paint_stats_ = {};
+        return s;
+    }
+
     /// Set fullscreen mode.  In fullscreen the widget fills the screen but
     /// the framebuffer is rendered at the largest integer scale that fits,
     /// centered with black bars (letterboxing).
@@ -99,4 +123,5 @@ private:
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.
     bool frame_pending_ = false;   ///< Task 63 — a new frame awaits its first paint.
     uint64_t present_count_ = 0;   ///< Task 63 — frames actually presented.
+    tick_stats::Stat paint_stats_; ///< Task 63 — new-frame paintEvent cost (µs).
 };
