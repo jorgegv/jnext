@@ -163,6 +163,8 @@ with `-` is treated as an option, never as a filename.
 | Option | Description |
 |--------|-------------|
 | `--record FILE` | Record video + audio to an MP4 (requires `ffmpeg` on the PATH) |
+| `--wav-record FILE` | Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV; works headless and requires neither an audio device nor `ffmpeg` |
+| `--dac-trace FILE` | Record `segment,tstate,channel,value` rows for physical DAC writes; a cold boot starts a new segment |
 | `--rzx-play FILE` | Play back an RZX recording |
 | `--rzx-record FILE` | Record input to an RZX file |
 | `--rewind-buffer-size N` | Frame-snapshot ring buffer for backwards execution (opt-in; default 0 = off) |
@@ -172,7 +174,7 @@ with `-` is treated as an option, never as a filename.
 
 | Option | Description |
 |--------|-------------|
-| `--headless` | Run with no display and no audio, at maximum speed |
+| `--headless` | Run with no display or audio device, at maximum speed |
 | `--benchmark N` | Headless-only: run exactly N frames uncapped, print one machine-parseable `BENCH` line (wall s, fps, T-states/s, T-states/frame, CPU speed, host core, build type) plus a human summary to stdout, then exit. Used by `make bench` (`test/bench/bench.sh`) |
 | `--benchmark-label NAME` | Workload label printed verbatim in the `BENCH` line (default: loaded file's basename, or `boot-<machine>`). No whitespace |
 | `--delayed-screenshot FILE` | Save a PNG screenshot after a delay |
@@ -244,6 +246,13 @@ Notes worth knowing:
 
 - **Video recording** (`--record FILE`, or **File > Record MPEG4 Video**) pipes
   video and audio to `ffmpeg`, which must be installed.
+- **WAV recording** (`--wav-record FILE`) captures the mixed audio before the
+  host playback device. It works in headless mode and continues through cold
+  boots such as sibling-NEX chaining. It cannot be combined with `--silent`,
+  which disables mixer synthesis. If the emulator exits abnormally, the file
+  may retain its initial zero-length data header even though PCM follows it.
+- **DAC tracing** (`--dac-trace FILE`) records guest DAC writes before mixing.
+  Channels are numbered 0–3 (A–D), and timestamps are CPU T-states.
 
 ## Logging
 

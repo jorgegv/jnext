@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <functional>
 #include <string>
 
 // MachineType is the canonical shared enum; defined once in contention.h.
@@ -201,6 +202,10 @@ struct EmulatorConfig {
     // EAR *input* bit (read by the CPU on port 0xFE) is computed
     // independently of the mixer and is unaffected.
     bool silent = false;
+
+    // Host capture callbacks are reattached by init() after a cold boot.
+    std::function<void(const int16_t*, int)> audio_capture_callback;
+    std::function<void(uint64_t, int, uint8_t)> dac_write_callback;
 };
 
 // ---------------------------------------------------------------------------
