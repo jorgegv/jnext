@@ -21,7 +21,7 @@
 # Options:
 #   -i, --image FILE      SD card image (default: $DEFAULT_IMAGE)
 #   -b, --batch-size N    Files per batch in the checklist (default: 10)
-#   -m, --markdown FILE   Write the checklist here (default: <output-dir>/NEX-AUDIT.md)
+#   -m, --markdown FILE   Write the checklist here (default: <output-dir>/NEX-TESTS.md)
 #   -s, --with-siblings   Copy each NEX's entire directory, not just the .nex
 #   -h, --help            This text
 
@@ -68,7 +68,7 @@ done
 abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$PWD/$1" ;; esac; }
 DRIVE="$(abspath "$IMAGE")@@$PART_OFFSET"
 
-[[ -n "$MARKDOWN" ]] || MARKDOWN="$OUT_DIR/NEX-AUDIT.md"
+[[ -n "$MARKDOWN" ]] || MARKDOWN="$OUT_DIR/NEX-TESTS.md"
 
 mkdir -p "$OUT_DIR"
 
