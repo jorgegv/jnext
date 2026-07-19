@@ -469,7 +469,7 @@ fi
 # Video recording test: verify --record produces a valid MP4 file
 if want video-record-func; then
     begin_func video-record-func
-    rec_file="/tmp/jnext_test_recording.mp4"
+    rec_file="$TMP_DIR/jnext_test_recording.mp4"
     rm -f "$rec_file"
     timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" \
@@ -1205,8 +1205,8 @@ fi
 # this row keeps it fixed.
 if want tape-save-boot-func; then
     begin_func tape-save-boot-func
-    ts_tap="/tmp/jnext_test_tapesave_boot.tap"
-    ts_png="/tmp/jnext_test_tapesave_boot.png"
+    ts_tap="$TMP_DIR/jnext_test_tapesave_boot.tap"
+    ts_png="$TMP_DIR/jnext_test_tapesave_boot.png"
     rm -f "$ts_tap" "$ts_png"
     ts_out=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
@@ -1221,7 +1221,6 @@ if want tape-save-boot-func; then
     fi
     if [[ "$ts_blocks" -eq 0 && "$ts_size" == "0" && "$ts_diff" -le "$TOLERANCE" ]]; then
         pass_row " (NextZXOS boot clean with --tape-save armed: 0 blocks, empty file, ${ts_diff} px diff)"
-        rm -f "$ts_tap" "$ts_png"
     else
         fail_row " (blocks=$ts_blocks file_size=$ts_size px_diff=$ts_diff — SAVE trap fired during NextZXOS boot?)"
     fi
@@ -1238,7 +1237,7 @@ fi
 # (cold boot == startup).
 if want reset-to-nextzxos-func; then
     begin_func reset-to-nextzxos-func
-    rst_png="/tmp/jnext_test_reset_nextzxos.png"
+    rst_png="$TMP_DIR/jnext_test_reset_nextzxos.png"
     rm -f "$rst_png"
     JNEXT_DELAYED_RESET_FRAMES=450 JNEXT_DELAYED_RESET_TYPE=hard \
     timeout --foreground --kill-after=5s 150s "$JNEXT" --headless --machine next \
@@ -1251,7 +1250,6 @@ if want reset-to-nextzxos-func; then
     fi
     if [[ "$rst_diff" -le "$TOLERANCE" ]]; then
         pass_row " (reset after boot re-booted to NextZXOS: ${rst_diff} px diff vs welcome)"
-        rm -f "$rst_png"
     else
         fail_row " (px_diff=$rst_diff — reset did not re-boot to NextZXOS? [Task 70])"
     fi
@@ -1281,7 +1279,6 @@ if want cold-boot-load-rzx-func; then
     fi
     if echo "$cb_out" | grep -q "RZX: playback started"; then
         pass_row " (cold-boot .rzx load routed to RZX playback via shared dispatch)"
-        rm -f "$cb_rzx"
     else
         fail_row " (cold-boot .rzx misrouted — shared load dispatch dropped .rzx? [Task 70 review])"
     fi
