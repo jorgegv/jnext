@@ -18,9 +18,12 @@
 //     the "defer to next launch" half of the two options the issue allows;
 //   - everything else applies live and silently, always.
 //
-// This header is pure: no Qt, no emulator instance, no I/O. MainWindow itself
-// is unreachable by the unit tests (Task 91), so the decision it makes lives
-// here where it can be pinned down row by row.
+// This header is pure: no Qt, no emulator instance, no I/O, so the decision can
+// be pinned down row by row in isolation. That is a convenience, NOT a
+// substitute for testing the behaviour: MainWindow::apply_preferences() is
+// itself under test in test/gui/preferences_apply_test.cpp, which builds a real
+// MainWindow under the offscreen QPA platform (the esc_break_test.cpp pattern)
+// and asserts on what actually happens to the running machine.
 
 #include "memory/contention.h"   // MachineType
 
@@ -55,14 +58,13 @@ constexpr PreferencesApplyOutcome preferences_apply_outcome(bool restart_require
                      : PreferencesApplyOutcome::DeferMachineType;
 }
 
-/// Live settings are applied in every outcome — an Apply always applies what it
-/// can. Stated as its own predicate so the "declining the restart must not also
-/// throw away the joypad change" rule is pinned, not implied.
-constexpr bool preferences_applies_live_settings(PreferencesApplyOutcome) {
-    return true;
-}
-
-/// Only one outcome may touch the emulator's machine type.
-constexpr bool preferences_reboots(PreferencesApplyOutcome outcome) {
-    return outcome == PreferencesApplyOutcome::RebootThenApplyLive;
-}
+// NOTE — there were two more predicates here (`preferences_reboots`,
+// `preferences_applies_live_settings`). Both ignored their argument, or
+// returned a constant, and NEITHER was called from production code: they
+// existed only so tests could assert them. That made their six test rows
+// unfailable no matter what apply_preferences() did — a tautology wearing a
+// function as a disguise, which is precisely what test/lint-assertions.sh
+// exists to catch and which it misses because it greps for a literal `true`.
+// The rules they claimed to pin ("only one outcome reboots", "live settings
+// apply in every outcome") are real, so they are now asserted where they can
+// actually fail: against a live MainWindow in preferences_apply_test.cpp.

@@ -125,26 +125,15 @@ int main()
               PreferencesApplyOutcome::DeferMachineType,
           outcome_name(preferences_apply_outcome(true, false)));
 
-    // --- PAP-06: exactly one outcome may touch the machine -------------------
-    // Stated as its own predicate: the reboot is reachable ONLY through an
-    // accepted confirmation. Each outcome asserted individually so a policy
-    // that rebooted on, say, Defer cannot hide behind an OR.
-    check("PAP-06a", "ApplyLiveOnly does not reboot",
-          !preferences_reboots(PreferencesApplyOutcome::ApplyLiveOnly));
-    check("PAP-06b", "DeferMachineType does not reboot",
-          !preferences_reboots(PreferencesApplyOutcome::DeferMachineType));
-    check("PAP-06c", "RebootThenApplyLive reboots",
-          preferences_reboots(PreferencesApplyOutcome::RebootThenApplyLive));
-
-    // --- PAP-07: live settings are applied in EVERY outcome ------------------
-    // An Apply always applies what it can. In particular, declining the restart
-    // must not also throw away the joypad source change.
-    check("PAP-07a", "ApplyLiveOnly applies live settings",
-          preferences_applies_live_settings(PreferencesApplyOutcome::ApplyLiveOnly));
-    check("PAP-07b", "RebootThenApplyLive applies live settings",
-          preferences_applies_live_settings(PreferencesApplyOutcome::RebootThenApplyLive));
-    check("PAP-07c", "DeferMachineType still applies live settings",
-          preferences_applies_live_settings(PreferencesApplyOutcome::DeferMachineType));
+    // NOTE — PAP-06 and PAP-07 used to live here, asserting
+    // preferences_reboots() and preferences_applies_live_settings(). Both
+    // helpers ignored their argument or returned a constant and were called
+    // from NO production code, so those six rows could not fail whatever
+    // apply_preferences() did. The rules they claimed to pin ("only one
+    // outcome reboots", "declining a restart still applies the joypad change")
+    // are real and load-bearing, so they are now asserted against a live
+    // MainWindow in test/gui/preferences_apply_test.cpp, where a mutation to
+    // the control flow actually trips them.
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

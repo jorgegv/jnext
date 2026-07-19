@@ -98,6 +98,21 @@ public:
     using RebootCallback = std::function<void(MachineType)>;
     void set_reboot_callback(RebootCallback cb) { reboot_callback_ = std::move(cb); }
 
+    // Issue #40 — the "switching machine restarts the emulator" confirmation.
+    // Injectable so apply_preferences() is reachable by tests without a modal
+    // Qt dialog blocking forever; when unset it puts up the real QMessageBox.
+    // Returns true if the user accepted the restart.
+    using ConfirmRestartCallback = std::function<bool(MachineType)>;
+    void set_confirm_restart_callback(ConfirmRestartCallback cb) {
+        confirm_restart_callback_ = std::move(cb);
+    }
+
+    // Live-applies AND persists an edited AppConfigData from the Preferences
+    // dialog. Public because it is the unit under test in
+    // test/gui/preferences_apply_test.cpp — the behaviour issue #40 is about
+    // (an Apply must not restart the machine) lives here, not in the dialog.
+    void apply_preferences(const AppConfigData& cfg);
+
     /// Update status bar information.  Called once per second from the frame timer.
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
     /// calls/s); `presented_fps` is the rate at which frames actually reached
@@ -175,10 +190,9 @@ private:
 
     // Preferences dialog (Task 66).
     void on_open_preferences();
-    // Live-applies AND persists an edited AppConfigData from the Preferences
-    // dialog. Unlike apply_startup_config(), this also live-switches machine
-    // type (an explicit interactive change, same effect as the Machine menu).
-    void apply_preferences(const AppConfigData& cfg);
+    /// The real modal confirmation, used when no ConfirmRestartCallback is
+    /// installed (i.e. always, in production).
+    bool confirm_machine_restart_dialog(MachineType requested);
 
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
@@ -189,6 +203,7 @@ private:
     SpeedCallback    speed_callback_;
     LoadFileCallback load_file_callback_;
     RebootCallback   reboot_callback_;
+    ConfirmRestartCallback confirm_restart_callback_;
 
     // Kempston-mouse host adapter (G43). Mirrors SdlApp's wiring pattern;
     // owned here because MainWindow is the GUI's host event source. Created

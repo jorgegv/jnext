@@ -861,6 +861,14 @@ void MainWindow::on_machine_type(MachineType type) {
     // Issue #40 — a machine type that is already running needs nothing done to
     // it. This used to reinit unconditionally, which is what let an unrelated
     // Preferences Apply nuke the machine.
+    //
+    // DELIBERATE UX CHANGE, slightly beyond the issue's literal ask: this also
+    // makes the Machine menu a no-op when you pick the machine you are already
+    // running (it used to reboot). Chosen over special-casing the menu because
+    // "select 48K while running 48K" is not a request to restart — Machine >
+    // Reset (and F1) is, and it remains the way to do it. Keeping the reboot
+    // here would also mean the menu and Preferences disagree about what
+    // selecting an unchanged machine type means. Pinned by PA-05/PA-06.
     if (!preferences_restart_required(emulator_->config().type, type)) {
         machine_label_->setText(tr(machine_type_str(type)));
         return;
@@ -1138,6 +1146,18 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     }
 }
 
+bool MainWindow::confirm_machine_restart_dialog(MachineType requested) {
+    const auto answer = QMessageBox::question(
+        this, tr("Change Machine Type"),
+        tr("Switching to %1 restarts the emulator — anything currently "
+           "running will be lost.\n\nRestart now?\n\n"
+           "(Choosing No keeps the machine running and applies the new "
+           "machine type the next time jnext starts.)")
+            .arg(tr(machine_type_str(requested))),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    return answer == QMessageBox::Yes;
+}
+
 void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // Issue #40 — "Apply" applies settings to the RUNNING machine. Everything
     // in this dialog can be pushed live except the machine type, which is a
@@ -1157,15 +1177,9 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
                                                   cfg.machine_type);
     bool confirmed = false;
     if (restart_required) {
-        const auto answer = QMessageBox::question(
-            this, tr("Change Machine Type"),
-            tr("Switching to %1 restarts the emulator — anything currently "
-               "running will be lost.\n\nRestart now?\n\n"
-               "(Choosing No keeps the machine running and applies the new "
-               "machine type the next time jnext starts.)")
-                .arg(tr(machine_type_str(cfg.machine_type))),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        confirmed = (answer == QMessageBox::Yes);
+        confirmed = confirm_restart_callback_
+                        ? confirm_restart_callback_(cfg.machine_type)
+                        : confirm_machine_restart_dialog(cfg.machine_type);
     }
 
     switch (preferences_apply_outcome(restart_required, confirmed)) {
