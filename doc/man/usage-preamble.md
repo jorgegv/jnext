@@ -1,9 +1,6 @@
-<!--
-GENERATED FILE - DO NOT EDIT.
-
-USAGE.md is rendered from doc/man/jnext.1.md, the single source shared with
-the jnext(1) man page. Edit that file and run `make docs`.
--->
+<!-- GENERATED FILE - DO NOT EDIT. -->
+<!-- USAGE.md is rendered from doc/man/jnext.1.md, the single source it -->
+<!-- shares with the jnext(1) man page. Edit that, then run `make docs`. -->
 
 # JNEXT — Usage
 

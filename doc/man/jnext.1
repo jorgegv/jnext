@@ -286,6 +286,13 @@ useful in scripts; \f[B]\-\-sdcard\-download\-force\f[R] re\-downloads
 and re\-patches a corrupted cached image.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
+The repository\(cqs canonical NextZXOS test image is
+\f[CR]roms/nextzxos\-1gb\-fat32fix.img\f[R]: the FAT32\-corrected
+variant of \f[CR]roms/nextzxos\-1gb.img\f[R], whose 32 KB clusters leave
+it below the FAT32 minimum cluster count, which the TBBlue firmware\(cqs
+FatFs (correctly) refuses to mount.
+Use the \f[CR]\-fat32fix\f[R] one.
+.PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
 .SH LOADING PROGRAMS
@@ -573,8 +580,9 @@ the arrows and Space stop acting as ZX keys.
 .SH THE DEBUGGER
 The debugger opens in its own window (\f[B]View > Debugger\f[R],
 Ctrl+D).
-It is driven from the Qt6 UI, so it needs a GUI build; the SDL\-only
-build has no way to open it.
+It is driven from the Qt6 UI, so it needs a GUI build
+(\f[CR]make gui\-release\f[R] or \f[CR]make gui\-debug\f[R]); the
+SDL\-only build has no way to open it.
 .IP \(bu 2
 \f[B]CPU registers\f[R] \- all Z80/Z80N registers, flags
 (S/Z/H/P/V/N/C), halt state, interrupt mode, active ULA screen
@@ -630,7 +638,8 @@ with Step Back, Frame Back and a rewind slider.
 Opt\-in, because rewind takes a full\-machine snapshot every frame:
 start jnext with \f[B]\-\-rewind\-buffer\-size\f[R] \f[I]N\f[R] (for
 example 500), or toggle it live from the debugger\(cqs Debug > Rewind >
-Enable Rewind menu, with no restart needed.
+Enable Rewind menu, with no restart needed \- that allocates 500 frames,
+or the last size set via Rewind Buffer Size\&...
 Unchecking the toggle pauses snapshotting but keeps the recorded
 history; set the buffer size to 0 to free the memory
 .PP
@@ -731,10 +740,15 @@ Inject a raw binary at 0x8000 and run it:
 jnext \-\-inject program.bin \-\-inject\-org 8000
 .EE
 .PP
-Take a headless screenshot, for CI:
+Take a headless screenshot, for CI.
+Name the SD image explicitly: with no \f[B]\-\-sdcard\f[R] and no cached
+image, provisioning prompts on stdin and declines at EOF, so an
+unattended run would exit non\-zero instead of capturing anything
+(\f[B]\-\-sdcard\-download\-confirm\f[R] is the alternative).
 .IP
 .EX
 jnext \-\-headless \-\-machine 48k \(rs
+    \-\-sdcard roms/nextzxos\-1gb\-fat32fix.img \(rs
     \-\-delayed\-screenshot /tmp/test.png \(rs
     \-\-delayed\-screenshot\-frames 200 \-\-delayed\-automatic\-exit 5
 .EE
@@ -768,9 +782,8 @@ than silently writing nothing.
 .SH SEE ALSO
 \f[B]ffmpeg\f[R](1)
 .PP
-The project documentation: \f[CR]README.md\f[R] for an overview,
-\f[CR]BUILD.md\f[R] for building from source, and the manual under
-\f[CR]doc/manual\f[R].
+The project documentation: \f[CR]README.md\f[R] for an overview and
+\f[CR]BUILD.md\f[R] for building from source.
 .PP
 Project home page: \c
 .UR https://github.com/jorgegv/jnext

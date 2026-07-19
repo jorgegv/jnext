@@ -1,9 +1,6 @@
-<!--
-GENERATED FILE - DO NOT EDIT.
-
-USAGE.md is rendered from doc/man/jnext.1.md, the single source shared with
-the jnext(1) man page. Edit that file and run `make docs`.
--->
+<!-- GENERATED FILE - DO NOT EDIT. -->
+<!-- USAGE.md is rendered from doc/man/jnext.1.md, the single source it -->
+<!-- shares with the jnext(1) man page. Edit that, then run `make docs`. -->
 
 # JNEXT — Usage
 
@@ -44,18 +41,25 @@ the two can never disagree. For building jnext from source, see
 
 ---
 
-<!--
-SINGLE SOURCE for the jnext CLI/usage reference.
-&#10;This file generates BOTH:
-  - doc/man/jnext.1  (roff man page, installed to $mandir/man1)
-  - USAGE.md         (repo-root markdown rendering)
-&#10;Do not edit either output by hand; edit this file and run `make docs`
-(needs pandoc; see BUILD.md). Both outputs are committed, so a build
-from source never needs the doc toolchain.
-&#10;No version or date is embedded on purpose: it would go stale on every
-release and drag this file into packaging/sync-version.sh. Users get the
-version from `jnext --version`.
--->
+<!-- SINGLE SOURCE for the jnext CLI/usage reference. It generates BOTH -->
+
+<!-- doc/man/jnext.1 (roff, installed to $mandir/man1) and USAGE.md -->
+
+<!-- (repo-root markdown rendering). Do not edit either output by hand: -->
+
+<!-- edit this file and run `make docs` (needs pandoc; see BUILD.md). -->
+
+<!-- Both outputs are committed, so building from source never needs the -->
+
+<!-- doc toolchain. No version or date is embedded on purpose - it would -->
+
+<!-- go stale every release and drag this file into sync-version.sh; -->
+
+<!-- users get the version from `jnext --version`. -->
+
+<!-- One comment per line on purpose: a blank line inside a single HTML -->
+
+<!-- comment block comes out as a literal newline entity in USAGE.md. -->
 
 ## NAME
 
@@ -314,6 +318,12 @@ as `cspect-next-1gb.img`) and produce that patched copy on first run.
 scripts; **--sdcard-download-force** re-downloads and re-patches a
 corrupted cached image. An explicit **--sdcard** always wins over both.
 
+The repository’s canonical NextZXOS test image is
+`roms/nextzxos-1gb-fat32fix.img`: the FAT32-corrected variant of
+`roms/nextzxos-1gb.img`, whose 32 KB clusters leave it below the FAT32
+minimum cluster count, which the TBBlue firmware’s FatFs (correctly)
+refuses to mount. Use the `-fat32fix` one.
+
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
 
@@ -505,8 +515,8 @@ arrows and Space stop acting as ZX keys.
 ## THE DEBUGGER
 
 The debugger opens in its own window (**View \> Debugger**, Ctrl+D). It
-is driven from the Qt6 UI, so it needs a GUI build; the SDL-only build
-has no way to open it.
+is driven from the Qt6 UI, so it needs a GUI build (`make gui-release`
+or `make gui-debug`); the SDL-only build has no way to open it.
 
 - **CPU registers** - all Z80/Z80N registers, flags (S/Z/H/P/V/N/C),
   halt state, interrupt mode, active ULA screen
@@ -544,7 +554,8 @@ has no way to open it.
   takes a full-machine snapshot every frame: start jnext with
   **--rewind-buffer-size** *N* (for example 500), or toggle it live from
   the debugger’s Debug \> Rewind \> Enable Rewind menu, with no restart
-  needed. Unchecking the toggle pauses snapshotting but keeps the
+  needed - that allocates 500 frames, or the last size set via Rewind
+  Buffer Size… Unchecking the toggle pauses snapshotting but keeps the
   recorded history; set the buffer size to 0 to free the memory
 
 | Key      | Action         |
@@ -596,9 +607,13 @@ Inject a raw binary at 0x8000 and run it:
 
     jnext --inject program.bin --inject-org 8000
 
-Take a headless screenshot, for CI:
+Take a headless screenshot, for CI. Name the SD image explicitly: with
+no **--sdcard** and no cached image, provisioning prompts on stdin and
+declines at EOF, so an unattended run would exit non-zero instead of
+capturing anything (**--sdcard-download-confirm** is the alternative).
 
     jnext --headless --machine 48k \
+        --sdcard roms/nextzxos-1gb-fat32fix.img \
         --delayed-screenshot /tmp/test.png \
         --delayed-screenshot-frames 200 --delayed-automatic-exit 5
 
@@ -632,8 +647,8 @@ taken, rather than silently writing nothing.
 
 **ffmpeg**(1)
 
-The project documentation: `README.md` for an overview, `BUILD.md` for
-building from source, and the manual under `doc/manual`.
+The project documentation: `README.md` for an overview and `BUILD.md`
+for building from source.
 
 Project home page: <https://github.com/jorgegv/jnext>
 

@@ -27,8 +27,9 @@ Optional:
 - **z88dk** — only to rebuild the demo programs in `demo/`.
 - **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs`).
   See [Documentation](#documentation) below.
-- **mkdocs-material** — only to build the user manual site under `doc/manual`
-  (`pip install mkdocs-material`). See [Documentation](#documentation) below.
+- **mkdocs-material** — *not needed yet*: it is the chosen toolchain for the
+  user manual, which is still being written and is not in the tree. Nothing
+  builds it today.
 
 None of the optional tools are needed to build jnext. In particular the two
 documentation tools are never invoked by a code build: the generated man page
@@ -163,14 +164,11 @@ The man page is installed by the CMake install rules to
 (rpm, deb, Flatpak, macOS) with no per-format step. The Windows zip ships
 `USAGE.md` instead, man pages being meaningless there.
 
-The **user manual** lives under `doc/manual` and is built with
-[mkdocs-material](https://squidfunk.github.io/mkdocs-material/):
-
-```sh
-pip install mkdocs-material
-mkdocs serve -f doc/manual/mkdocs.yml    # live preview at localhost:8000
-mkdocs build -f doc/manual/mkdocs.yml    # static site
-```
+A **user manual** is planned under `doc/manual`, to be built with
+[mkdocs-material](https://squidfunk.github.io/mkdocs-material/)
+([issue #28](https://github.com/jorgegv/jnext/issues/28)). It does not exist
+yet — this note records the decided toolchain, not something you can build
+today. Build instructions land with the manual itself.
 
 ## Building packages
 

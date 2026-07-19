@@ -18,7 +18,10 @@ exact string.
 `CMakeLists.txt` gained `install()` rules (Task 67) that are always present
 (they don't gate any build option): the `jnext` binary, the `.desktop`
 launcher, the AppStream metainfo, a scalable SVG + 512×512 PNG icon under
-`hicolor`, and `LICENSE`/`USAGE.md` under `share/doc/jnext`. `include(CPack)`
+`hicolor`, `LICENSE`/`README.md`/`ChangeLog`/`USAGE.md` under `share/doc/jnext`,
+and the man page at `share/man/man1/jnext.1` (pre-generated and committed, so
+installing needs no doc toolchain — the formats compress it themselves, hence
+the `jnext.1*` glob in the RPM `%files`). `include(CPack)`
 at the end of the same file wires up TGZ/DEB/RPM package generation from any
 configured build directory — no separate CPack config file.
 
