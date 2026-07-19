@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Refresh per-row Status + Test file:line columns in
+# Refresh per-row Status, VHDL file:line and Test file:line columns in
 # `doc/testing/TRACEABILITY-MATRIX.md` for the 15 non-Z80N subsystems.
 #
 # Strategy (format-agnostic across test harnesses):
@@ -16,10 +16,12 @@
 #        skip    if ID is a `skip()` call in source AND not in FAIL set
 #        pass    if ID is a `check()` call in source AND not in FAIL set
 #        missing if ID is not found in source at all
-#   4. Edit the matrix in place: for each data row whose first cell is a
-#      test ID, rewrite the Status cell and the Test file:line cell
-#      preserving column widths. Section boundaries are matched by exact
-#      header line.
+#   4. Recover each row's VHDL citation from row-local evidence (see the
+#      "VHDL citation extraction" block below).
+#   5. Edit the matrix in place: for each data row whose first cell is a
+#      test ID, rewrite the Status cell, the VHDL file:line cell and the
+#      Test file:line cell preserving column widths. Section boundaries are
+#      matched by exact header line.
 #
 # Usage:
 #     perl test/refresh-traceability-matrix.pl
@@ -102,6 +104,87 @@ my @SUBSYS = (
     ['### Companion integration suite — `test/uart/uart_integration_test.cpp`',
      'build/test/uart_integration_test',    'test/uart/uart_integration_test.cpp'],
 );
+
+# Per-suite plan doc, consulted as the last citation source when the test
+# source carries none. Keyed by source_rel so @SUBSYS stays untouched.
+my %PLAN_DOC = (
+    'test/mmu/mmu_test.cpp'             => 'MEMORY-MMU',
+    'test/ula/ula_test.cpp'             => 'ULA-VIDEO',
+    'test/ula/ula_integration_test.cpp' => 'ULA-VIDEO',
+    'test/layer2/layer2_test.cpp'       => 'LAYER2',
+    'test/sprites/sprites_test.cpp'     => 'SPRITES',
+    'test/tilemap/tilemap_test.cpp'     => 'TILEMAP',
+    'test/copper/copper_test.cpp'       => 'COPPER',
+    'test/compositor/compositor_test.cpp'             => 'COMPOSITOR',
+    'test/compositor/compositor_integration_test.cpp' => 'COMPOSITOR',
+    'test/audio/audio_test.cpp'         => 'AUDIO',
+    'test/dma/dma_test.cpp'             => 'DMA',
+    'test/divmmc/divmmc_test.cpp'       => 'DIVMMC-SPI',
+    'test/ctc/ctc_test.cpp'                     => 'CTC-INTERRUPTS',
+    'test/ctc_interrupts/ctc_interrupts_test.cpp' => 'CTC-INTERRUPTS',
+    'test/uart/uart_test.cpp'             => 'UART-I2C',
+    'test/uart/uart_integration_test.cpp' => 'UART-I2C',
+    'test/nextreg/nextreg_test.cpp'             => 'NEXTREG',
+    'test/nextreg/nextreg_integration_test.cpp' => 'NEXTREG',
+    'test/port/port_test.cpp'             => 'IO-PORT-DISPATCH',
+    'test/input/input_test.cpp'             => 'INPUT',
+    'test/input/input_integration_test.cpp' => 'INPUT',
+    'test/floating_bus/floating_bus_test.cpp' => 'FLOATING-BUS',
+    'test/videotiming/videotiming_test.cpp'   => 'VIDEOTIMING',
+    'test/contention/contention_test.cpp'     => 'CONTENTION',
+    'test/nmi/nmi_test.cpp'                   => 'NMI-PIPELINE',
+    'test/nmi/nmi_integration_test.cpp'       => 'NMI-PIPELINE',
+);
+
+# Suites with no VHDL counterpart at all: their spec is a jnext-internal
+# contract or an external standard, not the FPGA core. An empty `—` there
+# reads as "citation missing"; a tombstone says "there is nothing to cite",
+# which is a different — and permanent — fact. Keyed by source_rel.
+my %TOMBSTONE = (
+    'test/rewind/rewind_test.cpp'   => '(jnext-internal)',
+    'test/sdcard/sdcard_test.cpp'   => '(SD SPI spec)',
+);
+
+# ── VHDL citation extraction ──────────────────────────────────────────
+#
+# The `VHDL file:line` column sat at `—` on ~1600 rows because this script
+# only ever rewrote Status and Test file:line. The citations were never
+# missing — they live in the test source, next to the row they justify.
+#
+# Four row-local evidence tiers are trusted, in order:
+#
+#   call    the check()/skip() call carrying this row's own ID literal
+#   named   a comment block that names this row ID explicitly
+#   next    the first check()/skip() call after the ID literal — the shared
+#           assertion of a table-driven row block ({"MMU-01", ...} arrays,
+#           where the ID lives in an initialiser and the check() is in the
+#           loop below it)
+#   plan    the subsystem plan doc's row for this ID
+#
+# Vaguer evidence — a category banner comment, the nearest *unrelated*
+# preceding comment — is deliberately NOT used. Both were prototyped; they
+# reach further but attribute a neighbouring row's VHDL lines to this one,
+# and a plausible-but-wrong citation is worse than an honest `—`.
+#
+# Citations are also validated against the real FPGA source tree, so a
+# typo'd or renamed VHDL filename is reported rather than published.
+
+my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
+    || '/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src';
+
+# `\.vhd` must not be a prefix of a longer identifier, or `row.vhdl_line`
+# in a printf argument list is read as a citation of "row.vhd".
+my $VHDL_CITE_RE = qr{
+    \b ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
+    (?: \s* : \s*
+        ( \d+ (?: \s* [-–] \s* \d+ )?
+          (?: \s* [/,] \s* \d+ (?: \s* [-–] \s* \d+ )? )* ) )?
+}x;
+
+# Plan row IDs as they appear unquoted inside a comment ("TM-01:", "TM-01/02").
+my $ID_BARE_RE = qr{
+    \b ( [A-Z][A-Z0-9]* (?: \.[A-Z][A-Z0-9]* )* - [A-Za-z0-9._\-+]*[A-Za-z0-9] )
+}x;
 
 # "  FAIL ID: ..." or "  FAIL ID [..." — robust across all known harnesses.
 my $FAIL_RE = qr/^\s*FAIL\s+([A-Za-z0-9._\-]+)\s*[:\[]/;
@@ -204,6 +287,130 @@ sub grep_source {
     return (\%checks, \%skips);
 }
 
+# Set of VHDL basenames that actually exist in the FPGA core, or undef when
+# the core is not checked out next to jnext (CI, a fresh clone) — in which
+# case validation is skipped rather than failing every citation.
+my $VHDL_FILES;
+sub vhdl_files {
+    return $VHDL_FILES if defined $VHDL_FILES;
+    my %seen;
+    if (-d $FPGA_SRC && open(my $fh, '-|', 'find', $FPGA_SRC, '-name', '*.vhd')) {
+        while (my $p = <$fh>) {
+            chomp $p;
+            $p =~ s{.*/}{};
+            $seen{$p} = 1;
+        }
+        close $fh;
+    }
+    $VHDL_FILES = %seen ? \%seen : 0;
+    return $VHDL_FILES;
+}
+
+# First VHDL citation in a blob of text, normalised to "file.vhd:lines".
+sub cite_in {
+    my ($text) = @_;
+    return undef unless $text =~ /$VHDL_CITE_RE/;
+    my ($file, $lines) = ($1, $2);
+    my $known = vhdl_files();
+    if ($known && !$known->{$file}) {
+        warn "WARN: citation names '$file', which is not in $FPGA_SRC\n";
+        return undef;
+    }
+    return $file unless defined $lines;
+    $lines =~ s/\s+//g;
+    return "$file:$lines";
+}
+
+# Read plan-doc rows: "| ID | ... | ... zxnext.vhd:1234 ... |" -> citation.
+my %PLAN_CACHE;
+sub plan_cites {
+    my ($source_rel) = @_;
+    my $stem = $PLAN_DOC{$source_rel};
+    return {} unless defined $stem;
+    return $PLAN_CACHE{$stem} if $PLAN_CACHE{$stem};
+    my %cites;
+    my $path = "$ROOT/doc/testing/$stem-TEST-PLAN-DESIGN.md";
+    if (open(my $fh, '<', $path)) {
+        while (my $line = <$fh>) {
+            next unless $line =~ /^\|\s*`?([A-Za-z0-9][A-Za-z0-9._\-+]*)`?\s*\|/;
+            my $id = $1;
+            my $c  = cite_in($line);
+            $cites{$id} //= $c if defined $c;
+        }
+        close $fh;
+    }
+    return $PLAN_CACHE{$stem} = \%cites;
+}
+
+# id -> VHDL citation, from the four row-local tiers described above.
+sub grep_citations {
+    my ($source_rel) = @_;
+    my $abs = "$ROOT/$source_rel";
+    open(my $fh, '<', $abs) or die "open $abs: $!";
+    my @src = <$fh>;
+    close $fh;
+
+    # Span + citation of every check()/skip() helper call, in file order.
+    my @calls;
+    for my $i (0 .. $#src) {
+        next unless $src[$i] =~ /\b(?:check|check_pred|check_eq|skip|stub)\s*\(/;
+        my ($depth, $started, $text, $j) = (0, 0, '', $i);
+        # 40 lines is well past the longest real call and bounds the scan if
+        # the paren balance is ever thrown off by a string literal.
+        while ($j <= $#src && $j < $i + 40) {
+            $text .= $src[$j];
+            for my $ch (split //, $src[$j]) {
+                if    ($ch eq '(') { $depth++; $started = 1; }
+                elsif ($ch eq ')') { $depth--; }
+            }
+            last if $started && $depth <= 0;
+            $j++;
+        }
+        push @calls, { s => $i, e => $j, cite => cite_in($text) };
+    }
+
+    # Comment blocks that name a row ID, and the first line each ID appears on.
+    my (%named, %id_line);
+    my $i = 0;
+    while ($i <= $#src) {
+        if ($src[$i] =~ m{^\s*//}) {
+            my ($j, $text) = ($i, '');
+            while ($j <= $#src && $src[$j] =~ m{^\s*//}) { $text .= $src[$j]; $j++; }
+            if (my $c = cite_in($text)) {
+                for my $id ($text =~ /$ID_BARE_RE/g) {
+                    next if $id =~ /\.vhd/;
+                    $named{$id} //= $c;
+                }
+            }
+            $i = $j;
+            next;
+        }
+        my $line = $src[$i];
+        while ($line =~ /$ID_LITERAL_RE/g) { $id_line{$1} //= $i; }
+        $i++;
+    }
+
+    my $plan = plan_cites($source_rel);
+    my %cites;
+    for my $tid (keys %id_line) {
+        my $L = $id_line{$tid};
+        my $cite;
+        for my $c (@calls) {
+            if ($c->{s} <= $L && $L <= $c->{e}) { $cite = $c->{cite}; last; }
+        }
+        $cite //= $named{$tid};
+        if (!defined $cite) {
+            for my $c (@calls) { if ($c->{s} > $L) { $cite = $c->{cite}; last; } }
+        }
+        $cite //= $plan->{$tid};
+        $cites{$tid} = $cite if defined $cite;
+    }
+    # Rows the plan doc cites but no test source mentions stay resolvable:
+    # `missing` status still deserves its citation.
+    for my $tid (keys %$plan) { $cites{$tid} //= $plan->{$tid}; }
+    return \%cites;
+}
+
 sub resolve_ids {
     my ($tid, $checks, $skips) = @_;
     return [$tid] if exists $checks->{$tid} || exists $skips->{$tid};
@@ -244,12 +451,25 @@ sub line_for {
     return undef;
 }
 
+# Citation for a row ID, following the same "MMU-01 -> MMU-01a/b/c" sub-row
+# resolution the status lookup uses.
+sub cite_for {
+    my ($tid, $cites, $checks, $skips) = @_;
+    return $cites->{$tid} if exists $cites->{$tid};
+    my $resolved = resolve_ids($tid, $checks, $skips);
+    for my $r (@$resolved) { return $cites->{$r} if exists $cites->{$r}; }
+    return undef;
+}
+
 sub refresh_section {
-    my ($lines, $start_idx, $binary, $source_rel) = @_;
+    my ($lines, $start_idx, $binary, $source_rel, $drift) = @_;
     my $fails = run_fails($binary);
     my ($checks, $skips) = grep_source($source_rel);
+    my $cites     = grep_citations($source_rel);
+    my $tombstone = $TOMBSTONE{$source_rel};
 
     my ($pass_ct, $fail_ct, $skip_ct, $missing_ct) = (0, 0, 0, 0);
+    my ($cited_ct, $uncited_ct, $drift_ct) = (0, 0, 0);
     my $touched = 0;
     my $i = $start_idx + 1;
 
@@ -283,6 +503,30 @@ sub refresh_section {
                     $width = 0 if $width < 0;
                     $cells[4] = ' ' . sprintf("%-${width}s", $new_status) . ' ';
 
+                    # VHDL citation: fill only when the cell is empty. A cell
+                    # that already carries a citation was written by hand and
+                    # stays — but a disagreement with the extracted one is
+                    # reported, so drift surfaces without being clobbered.
+                    my $cur_cite = $cells[3];
+                    $cur_cite =~ s/^\s+|\s+$//g;
+                    my $new_cite = cite_for($tid_raw, $cites, $checks, $skips)
+                                   // $tombstone;
+                    if ($cur_cite eq '' || $cur_cite eq '—') {
+                        if (defined $new_cite) {
+                            my $cw = length($cells[3]) - 2;
+                            $cw = 0 if $cw < 0;
+                            $cells[3] = length($new_cite) > $cw
+                                ? ' ' . $new_cite . ' '
+                                : ' ' . sprintf("%-${cw}s", $new_cite) . ' ';
+                            $cited_ct++;
+                        } else {
+                            $uncited_ct++;
+                        }
+                    } elsif (defined $new_cite && $new_cite ne $cur_cite) {
+                        $drift_ct++;
+                        push @$drift, "$tid_raw: doc=[$cur_cite] source=[$new_cite]";
+                    }
+
                     my $ln = line_for($tid_raw, $checks, $skips);
                     my $location = defined($ln) ? "$source_rel:$ln" : 'missing';
                     my $orig_loc = $cells[5];
@@ -310,7 +554,8 @@ sub refresh_section {
         $i++;
     }
 
-    return ($touched, $pass_ct, $fail_ct, $skip_ct, $missing_ct);
+    return ($touched, $pass_ct, $fail_ct, $skip_ct, $missing_ct,
+            $cited_ct, $uncited_ct, $drift_ct);
 }
 
 sub main {
@@ -324,6 +569,7 @@ sub main {
     pop @lines if @lines && $lines[-1] eq '';
 
     my @report;
+    my @drift;
     for my $entry (@SUBSYS) {
         my ($header, $binary, $source_rel) = @$entry;
         my $idx;
@@ -344,35 +590,42 @@ sub main {
             print "NOT FOUND: $header\n";
             next;
         }
-        my ($touched, $p, $f, $s, $m) =
-            refresh_section(\@lines, $idx, $binary, $source_rel);
-        push @report, [$header, $touched, $p, $f, $s, $m];
+        my @section_drift;
+        my ($touched, $p, $f, $s, $m, $c, $u, $d) =
+            refresh_section(\@lines, $idx, $binary, $source_rel, \@section_drift);
+        push @drift, map { "$source_rel  $_" } @section_drift;
+        push @report, [$header, $touched, $p, $f, $s, $m, $c, $u, $d];
     }
 
     open(my $out, '>', $MATRIX) or die "write $MATRIX: $!";
     print $out join("\n", @lines), "\n";
     close $out;
 
-    printf("\n%-22s %5s %5s %5s %5s %5s\n",
-           'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss');
-    print('-' x 52, "\n");
-    my @totals = (0, 0, 0, 0, 0);
+    # cited/uncit count only the rows this run filled or could not fill —
+    # rows that already carried a hand-written citation are in neither.
+    printf("\n%-22s %5s %5s %5s %5s %5s %6s %6s %6s\n",
+           'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
+           'cited', 'uncit', 'drift');
+    print('-' x 76, "\n");
+    my @totals = (0, 0, 0, 0, 0, 0, 0, 0);
     for my $row (@report) {
-        my ($header, $touched, $p, $f, $s, $m) = @$row;
+        my ($header, $touched, $p, $f, $s, $m, $c, $u, $d) = @$row;
         my $short = $header;
         $short =~ s/^## //;
         $short =~ s/ — .*//;
-        printf("%-22s %5d %5d %5d %5d %5d\n",
-               $short, $touched, $p, $f, $s, $m);
-        $totals[0] += $touched;
-        $totals[1] += $p;
-        $totals[2] += $f;
-        $totals[3] += $s;
-        $totals[4] += $m;
+        printf("%-22s %5d %5d %5d %5d %5d %6d %6d %6d\n",
+               $short, $touched, $p, $f, $s, $m, $c, $u, $d);
+        $totals[$_] += (($touched, $p, $f, $s, $m, $c, $u, $d)[$_]) for 0 .. 7;
     }
-    print('-' x 52, "\n");
-    printf("%-22s %5d %5d %5d %5d %5d\n",
+    print('-' x 76, "\n");
+    printf("%-22s %5d %5d %5d %5d %5d %6d %6d %6d\n",
            'TOTAL', @totals);
+
+    if (@drift) {
+        print "\nVHDL citations where the doc and the test source disagree ",
+              "(doc kept, not overwritten):\n";
+        print "  $_\n" for @drift;
+    }
 }
 
 main();
