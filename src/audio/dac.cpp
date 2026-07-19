@@ -14,7 +14,25 @@ void Dac::reset()
 
 void Dac::write_channel(int ch, uint8_t val)
 {
-    if (ch >= 0 && ch < 4) ch_[ch] = val;
+    if (ch < 0 || ch >= 4) return;
+    ch_[ch] = val;
+    if (write_callback_) write_callback_(ch, val);
+}
+
+void Dac::write_mono(uint8_t val)
+{
+    write_channel(0, val);
+    write_channel(3, val);
+}
+
+void Dac::write_left(uint8_t val)
+{
+    write_channel(1, val);
+}
+
+void Dac::write_right(uint8_t val)
+{
+    write_channel(2, val);
 }
 
 void Dac::save_state(StateWriter& w) const

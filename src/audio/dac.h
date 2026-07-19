@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <utility>
 
 /// Soundrive 4-channel 8-bit DAC emulation.
 ///
@@ -24,9 +26,12 @@ public:
     void write_channel(int ch, uint8_t val);
 
     /// NextREG mirror writes (from VHDL: nr_mono writes A+D, nr_left writes B, nr_right writes C).
-    void write_mono(uint8_t val)  { ch_[0] = val; ch_[3] = val; }
-    void write_left(uint8_t val)  { ch_[1] = val; }
-    void write_right(uint8_t val) { ch_[2] = val; }
+    void write_mono(uint8_t val);
+    void write_left(uint8_t val);
+    void write_right(uint8_t val);
+
+    using WriteCallback = std::function<void(int, uint8_t)>;
+    void set_write_callback(WriteCallback callback) { write_callback_ = std::move(callback); }
 
     /// Get 9-bit stereo output (A+B for left, C+D for right).
     uint16_t pcm_left() const  { return static_cast<uint16_t>(ch_[0]) + ch_[1]; }
@@ -37,4 +42,5 @@ public:
 
 private:
     uint8_t ch_[4];  // A, B, C, D
+    WriteCallback write_callback_;
 };
