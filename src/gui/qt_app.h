@@ -7,6 +7,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "input/gamepad_host.h"
+#include "platform/audio_pacing.h"
+#include "platform/frame_deadline.h"
 #include "platform/present_cadence.h"
 #include "platform/screenshot.h"
 #include "platform/tick_stats.h"
@@ -102,6 +104,22 @@ private:
     // Shared by init() and cold_boot() (which reconstructs the emulator).
     void wire_gamepad_and_sources(const EmulatorConfig& cfg);
 
+    // Task 63 (issue #9) — fractional frame-deadline pacing. See
+    // src/platform/frame_deadline.h for the policy; these are the thin
+    // Qt-side wrappers (deliberately trivial: on_frame_tick wiring has no
+    // test harness, so ALL scheduling logic lives in the tested header).
+    /// Effective frame period (video refresh scaled by the speed
+    /// multiplier), integer microseconds.
+    int64_t effective_frame_period_us() const;
+    /// Re-anchor the deadline schedule at now and restart the timer's
+    /// period (timer start, cold boot, speed change).
+    void rebase_frame_timer();
+    /// End-of-tick: advance the deadline by one exact period and point the
+    /// repeating timer at it (glides across 50/60 Hz and speed changes).
+    void reschedule_frame_timer();
+    /// Emit the "frame pacing" info line — only when the period changed.
+    void log_frame_pacing(int64_t period_us);
+
     Emulator emulator_;
 
     // QApplication holds a reference to argc (and may write through it), so the
@@ -115,6 +133,9 @@ private:
     QTimer*       frame_timer_ = nullptr;
     QTimer*       status_timer_ = nullptr;
     std::unique_ptr<SdlAudio> audio_;
+    // Smoothed-band state for the audio pacer (Task 63) — one per audio
+    // device, owned here per the audio_pacing.h contract (never a global).
+    audio_pacing::BandState pacing_band_;
 
     // Task 79 — SDL gamepad host (autodetected pads → Joy 1 / Joy 2) plus the
     // per-connector cursor-key routing. Created in init() once the emulator is
@@ -178,6 +199,16 @@ private:
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;
+
+    // Task 63 (issue #9) — fractional frame-deadline scheduler driving
+    // frame_timer_'s interval. The long-run tick rate equals the EXACT
+    // emulated frame period (17.198 ms at Next-60) instead of its whole-ms
+    // rounding (17 ms = 1.1% fast); see src/platform/frame_deadline.h.
+    frame_deadline::Scheduler frame_deadline_;
+    // Last effective period handed to the scheduler; the "frame pacing" info
+    // line is emitted only when this changes (refresh-rate or speed change,
+    // never per tick).
+    int64_t last_paced_period_us_ = -1;
 
     // Task 27 C6 — wall-clock throttle for the compositor at speed > 1x.
     // Monotonic ms timestamp (std::chrono::steady_clock in qt_app.cpp) of the

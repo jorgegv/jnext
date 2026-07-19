@@ -57,6 +57,9 @@ private:
     SdlDisplay display_;
     SdlInput   input_;
     SdlAudio   audio_;
+    // Smoothed-band state for the audio pacer (Task 63) — one per audio
+    // device, owned here per the audio_pacing.h contract (never a global).
+    audio_pacing::BandState pacing_band_;
     Emulator   emulator_;
     bool       running_ = false;
 

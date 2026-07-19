@@ -248,7 +248,7 @@ void SdlApp::run() {
         {
             const int frames = emulator_.fastload_active()
                                    ? 1
-                                   : audio_pacing::frames_for_tick(audio_.queued_ms());
+                                   : audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms());
             for (int i = 0; i < frames; i++) {
                 emulator_.run_frame();
                 ++frames_rendered;
