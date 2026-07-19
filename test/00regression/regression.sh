@@ -6,9 +6,7 @@
 # Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [test_name...]
 #   --update          Update reference screenshots instead of comparing
 #   --preflight-only  Run only the harness preflight checks and exit (no tests).
-#                     This is the seam test/harness-selftest.sh drives: the preflight
-#                     is what proves the suite runs everything it declares, and an
-#                     untested guard ships broken (it did — twice).
+#                     This is the seam test/harness-selftest.sh drives.
 #   test_name         Run only specified tests (default: all)
 #
 # Env: JNEXT_REGRESSION_CONF / JNEXT_REGRESSION_FUNC_CONF override the manifests
@@ -16,13 +14,11 @@
 
 set -euo pipefail
 
-# Pin the locale for the whole suite. Several assertions grep the emulator's
-# error output for C-locale strerror() text ("No such file or directory"), and
-# Qt's QApplication constructor calls setlocale(LC_ALL, "") — so under a non-English
-# locale the Qt frontend localises strerror and screenshot-io-qt-func FAILed while
-# its headless twin (no QApplication, so still in the C locale) PASSed. The suite's
-# result must not depend on the user's LANG. Also keeps ImageMagick's `compare`
-# emitting a C-locale decimal point for the pixel-diff parse.
+# Pin the locale for the whole suite: assertions grep C-locale strerror() text
+# ("No such file or directory"), Qt's QApplication constructor calls
+# setlocale(LC_ALL, "") which would localise it, and ImageMagick's `compare`
+# must emit a C-locale decimal point for the pixel-diff parse. The suite's
+# result must not depend on the user's LANG.
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -41,24 +37,20 @@ if [[ -z "${JNEXT:-}" ]]; then
     done
     JNEXT="${JNEXT:-$PROJECT_DIR/build/jnext}"
 fi
-# SD-card image: the suite does NOT pass --sdcard at all (SD_CARD_ARGS is
-# always empty). jnext falls back to the pristine, self-provisioned image at
-# $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img (see sdcard::provision_sd_card,
-# src/core/sdcard_provisioner.*) — the same FAT32-patched canonical distro
-# image an end user gets via `--sdcard-download-confirm`. The suite provisions
-# it itself, once, below (the "[sdcard-provision]" row), before any test row
-# runs. This replaced forcing `roms/nextzxos-1gb-fat32fix.img` (a local,
-# git-ignored fixture that had accumulated dev-session leftover files and
-# made `boot-nextzxos-dotls`, which screenshots a live SD directory listing,
-# unreproducible against a clean checkout). When the boot-ROM auto-load gate
-# is active (Next + sd_card non-empty + load_file empty), `BOOT` rows
-# exercise the firmware path; rows with --load NEX skip the boot ROM via
-# the cfg.load_file gate (Emulator::init).
+# SD-card image: the suite does NOT pass --sdcard at all — SD_CARD_ARGS stays
+# empty, a deliberate seam. jnext falls back to the pristine, self-provisioned
+# image at $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img (sdcard::
+# provision_sd_card, src/core/sdcard_provisioner.*), the same FAT32-patched
+# canonical distro image an end user gets; the "[sdcard-provision]" row below
+# ensures it exists before any test row runs. When the boot-ROM auto-load gate
+# is active (Next + sd_card non-empty + load_file empty), `BOOT` rows exercise
+# the firmware path; rows with --load NEX skip the boot ROM via the
+# cfg.load_file gate (Emulator::init).
 SD_CARD_ARGS=()
 # rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON, i.e. via
-# `make unit-test-build`, which `make regression` now depends on). If it is
-# missing the rewind functional test FAILS LOUDLY — it used to print no row at
-# all, silently shrinking the suite total (Task 35).
+# `make unit-test-build`, which `make regression` depends on). If it is
+# missing, the rewind functional test FAILS LOUDLY in the preflight — never a
+# silently absent row.
 REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
 CONF="${JNEXT_REGRESSION_CONF:-$SCRIPT_DIR/regression_tests.conf}"
 FUNC_CONF="${JNEXT_REGRESSION_FUNC_CONF:-$SCRIPT_DIR/functional_tests.conf}"
@@ -69,15 +61,12 @@ WELCOME_REF="$IMG_DIR/boot-nextzxos-welcome-reference.png"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# Task 66 (Configurability) — isolate GUI preferences from the developer's
-# real config. Every NON-headless $JNEXT invocation below (audio-underrun-func,
-# silent-func, and the offscreen-Qt functional tests) constructs the real
-# MainWindow, which loads AppConfig unconditionally for fields with no CLI flag
-# (CPU speed, window scale, CRT filter, tape fast-load) — a stray real config
-# file could silently change CPU speed and perturb timing-sensitive pixel
-# comparisons. jnext stores its config at ~/.jnext/jnext.conf (an absolute path,
-# not under $XDG_CONFIG_HOME); JNEXT_CONFIG_DIR overrides that directory, so
-# pointing it at a fresh, never-created directory makes every load() see clean
+# Isolate GUI preferences from the developer's real config. Every NON-headless
+# $JNEXT invocation below constructs the real MainWindow, which loads AppConfig
+# unconditionally for fields with no CLI flag (CPU speed, window scale, CRT
+# filter, tape fast-load) — a stray real config file could silently change CPU
+# speed and perturb timing-sensitive pixel comparisons. JNEXT_CONFIG_DIR
+# points every load() at a fresh, never-created directory, i.e. clean
 # AppConfigData defaults. (XDG_CONFIG_HOME is kept for any other Qt state.)
 export JNEXT_CONFIG_DIR="$TMP_DIR/jnext-config-home"
 export XDG_CONFIG_HOME="$TMP_DIR/xdg-config-home"
@@ -154,9 +143,9 @@ for conf in "$CONF" "$FUNC_CONF"; do
 done
 echo -e "  manifests: $(basename "$CONF") + $(basename "$FUNC_CONF")"
 
-# rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE, in the
-# first second, not five minutes into the run: an incomplete build is a harness fault,
-# not a code regression — and never, as it once was, an absent row (Task 35).
+# rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE,
+# in the first second, not five minutes into the run: an incomplete build is a
+# harness fault, not a code regression — and never a silently absent row.
 if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[rewind-func]:-}" ]]; then
     if [[ ! -x "$REWIND_TEST" ]]; then
         harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
@@ -166,20 +155,18 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[rewind-func]:-}" ]]; then
 fi
 
 # --- The declared counts, pinned ---
-# `# expect: N` in each manifest. Without it, deleting a test from a conf shrinks both
-# sides of the completeness check below in lockstep — expected and actual both go down
-# and the suite reports a smaller number as a clean pass. Review round 2 removed one
-# screenshot row plus its reference image and got a green 59/0/0, which is this
-# project's own previous published baseline. The pin makes the denominator a claim the
-# file has to make out loud, exactly like test/unit-tests.conf's per-suite row counts.
+# `# expect: N` in each manifest. Without it, deleting a test from a conf
+# shrinks both sides of the completeness check below in lockstep and the suite
+# reports a smaller number as a clean pass. The pin makes the denominator a
+# claim the file has to make out loud, exactly like test/unit-tests.conf's
+# per-suite row counts.
 declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
     grep -cvE '^[[:space:]]*(#|$)' "$1" || true
 }
 pinned_count() {     # pinned_count <conf>  — the `# expect: N` line
-    # `|| true` is load-bearing: grep exits 1 when there is no pin line, and under
-    # `set -e` + pipefail that kills the script AT THE ASSIGNMENT — so the
-    # "No '# expect: N' pin" fault below would never print. A guard that cannot
-    # report is not a guard; this one was dead on arrival until review caught it.
+    # `|| true` is load-bearing: grep exits 1 when there is no pin line, and
+    # under `set -e` + pipefail that would kill the script AT THE ASSIGNMENT,
+    # before the "No '# expect: N' pin" fault below could print.
     grep -oP '^#\s*expect:\s*\K[0-9]+' "$1" 2>/dev/null | head -1 || true
 }
 for conf in "$CONF" "$FUNC_CONF"; do
@@ -193,15 +180,12 @@ for conf in "$CONF" "$FUNC_CONF"; do
 done
 
 # --- The screenshot manifest needs an INDEPENDENT witness ---
-# The completeness check at the end compares the rows reported against the rows
-# declared — but for screenshots both sides come from regression_tests.conf, so on
-# its own that term is a tautology: delete 44 of the 46 lines and the suite happily
-# reports "15/15 declared tests reported" and exits green. (Found in review. It is
-# the very bug this file exists to abolish, so it does not get to live here.)
-#
-# img/<name>-reference.png is that independent witness: it is checked in, one per
-# screenshot test, and it does not disappear when the conf is truncated. A reference
-# with no conf entry means a test was dropped from the manifest.
+# The completeness check at the end compares the rows reported against the
+# rows declared — but for screenshots both sides come from
+# regression_tests.conf, so on its own that term is a tautology.
+# img/<name>-reference.png is the independent witness: it is checked in, one
+# per screenshot test, and it does not disappear when the conf is truncated.
+# A reference with no conf entry means a test was dropped from the manifest.
 declare -A IS_DECLARED_SCREENSHOT
 while read -r name _; do
     [[ -z "$name" || "$name" == \#* ]] && continue
@@ -230,10 +214,9 @@ declare -A IS_DECLARED_FUNC
 for name in "${DECLARED_FUNC[@]}"; do IS_DECLARED_FUNC["$name"]=1; done
 REPORTED_FUNC=()
 
-# Every preflight guard has now run. --preflight-only exists so the self-test can drive
-# each of them in a second instead of a five-minute suite: these guards are what make
-# the denominator trustworthy, and two of them shipped DEAD (a grep exiting 1 under
-# `set -e` killed the script before the fault could print). Untested guards ship broken.
+# Every preflight guard has now run. --preflight-only exists so the self-test
+# can drive each of them in a second instead of a five-minute suite: these
+# guards are what make the denominator trustworthy.
 if $PREFLIGHT_ONLY; then
     echo -e "${GREEN}preflight OK${RESET}: $(declared_count "$CONF") screenshot + ${#DECLARED_FUNC[@]} functional tests declared, pins agree"
     exit 0
@@ -287,14 +270,11 @@ fi
 echo ""
 
 # --- SD-card image self-provisioning (must run before ANY row that needs it) ---
-# Every screenshot test and several functional tests need a NextZXOS SD image.
-# The suite no longer forces a local, git-ignored fixture (which had
-# accumulated dev-session leftover files and made boot-nextzxos-dotls
-# unreproducible against a clean checkout, see SD_CARD_ARGS above); instead it
-# ensures jnext's own pristine fallback image is present, exactly once, right
-# here — before the screenshot tests launch in parallel below (all of them
-# would race to provision it otherwise). If it is already present (the common
-# case — provisioning is a one-time, machine-wide cost, not a per-run one),
+# Every screenshot test and several functional tests need a NextZXOS SD image
+# (the pristine fallback, see SD_CARD_ARGS above). Ensure it is present,
+# exactly once, right here — before the screenshot tests launch in parallel
+# below (all of them would race to provision it otherwise). If it is already
+# present (the common case — provisioning is a one-time, machine-wide cost),
 # this is instant.
 echo -e "${BOLD}[sdcard-provision] Ensuring NextZXOS SD image is provisioned...${RESET}"
 FALLBACK_SD_IMAGE="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
@@ -311,16 +291,15 @@ else
 fi
 echo ""
 
-# FUSE Z80 + Z80N opcode tests are run by `make unit-test`
-# (fuse_z80_test + z80n_test). They were duplicated here historically
-# but added no signal that wasn't already in unit-test, so they have
-# been removed from the regression run.
+# FUSE Z80 + Z80N opcode tests run in `make unit-test` (fuse_z80_test +
+# z80n_test), not here.
 
 # --- Screenshot tests ---
 echo -e "${BOLD}Running screenshot tests...${RESET}"
 echo ""
 
-# Maximum parallel jobs (default: number of CPUs)
+# Maximum parallel jobs (default: number of CPUs). The JNEXT_TEST_JOBS=4 cap
+# used on every full run is deliberate: pacing-bounded tests lie under load.
 MAX_JOBS=${JNEXT_TEST_JOBS:-$(nproc 2>/dev/null || echo 4)}
 
 # Phase 1: Launch all emulator instances in parallel to generate screenshots
@@ -418,14 +397,14 @@ echo ""
 echo -e "${BOLD}Running functional tests...${RESET}"
 echo ""
 
-# The unit-test harness is load-bearing for every number this project quotes, so it
-# is itself under test. It shipped once with a bug that only appeared when a suite
-# FAILED — the very path nobody exercises when everything is green.
+# The unit-test harness is load-bearing for every number this project quotes,
+# so it is itself under test (test/harness-selftest.sh injects each harness
+# fault and asserts the refusal).
 if want harness-selftest-func; then
     begin_func harness-selftest-func
-    # Timeout-wrapped like every other invocation here. Its only other time bound would
-    # be the per-suite timeout inside the very harness it is testing — circular, and the
-    # exact shape of the Task 33 hang.
+    # Timeout-wrapped like every other invocation here. Its only other time
+    # bound would be the per-suite timeout inside the very harness it is
+    # testing — circular.
     if hs_out=$(timeout --foreground --kill-after=5s 120s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
         hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
         pass_row " ($hs_line)"
@@ -490,9 +469,9 @@ if want video-record-func; then
     fi
 fi
 
-# Task 27 C6 — render-skip at turbo speed (Qt frontend only). At --speed 400
-# the Qt tick throttles Emulator::render_frame() to ~50 Hz wall-clock for
-# frames nobody displays. This row proves the three load-bearing guarantees:
+# Render-skip at turbo speed (Qt frontend only). At --speed 400 the Qt tick
+# throttles Emulator::render_frame() to ~50 Hz wall-clock for frames nobody
+# displays. This row proves the three load-bearing guarantees:
 #   (1) capture-frame correctness: a --delayed-screenshot taken at --speed 400
 #       is pixel-identical to the headless (never-skipping) capture of the
 #       SAME emulated frame — i.e. the skip can never hit the capture frame.
@@ -593,10 +572,8 @@ if want render-skip-turbo-func; then
             engage_count=$(grep -c "$SKIP_WITNESS" "$engage_log" || true)
             # Lower bound: the throttle engages at all. Upper bound: it must
             # also RENDER at ~50 Hz — a broken throttle that skips every
-            # single frame (first version: INT64_MIN sentinel overflowed the
-            # now-last subtraction, 601 skips in 601 frames, frozen display)
-            # produces skips == frames. 590 leaves room for the fastest
-            # plausible tick rate while rejecting the skip-everything mode.
+            # single frame produces skips == frames. 590 leaves room for the
+            # fastest plausible tick rate while rejecting skip-everything.
             [[ "$engage_count" -gt 0 ]] || rsk_fail="no-skip-at-turbo"
             [[ -n "$rsk_fail" ]] || [[ "$engage_count" -le 590 ]] || rsk_fail="skipped-every-frame=$engage_count"
         fi
@@ -609,8 +586,8 @@ if want render-skip-turbo-func; then
     fi
 fi
 
-# Task 27 C6 review BLOCKER — sprite collision/overtime (port 0x303B) under
-# render-skip. Collision (bit 0) and line-budget overtime (bit 1) are computed
+# Sprite collision/overtime (port 0x303B) under render-skip.
+# Collision (bit 0) and line-budget overtime (bit 1) are computed
 # inside the sprite render path (sprites.vhd:971-995); a skipped frame must
 # still produce them (Emulator::run_frame calls
 # Renderer::run_sprite_side_effects on skipped frames). This row proves it:
@@ -674,8 +651,8 @@ if want sprite-collision-turbo-func; then
     fi
 fi
 
-# Audio underrun test (GitHub issue #7 / Task 23): verify the emulator's audio
-# clock tracks the sound card's, so the device queue never runs dry.
+# Audio underrun test: verify the emulator's audio clock tracks the sound
+# card's, so the device queue never runs dry.
 #
 # Audio is synthesised on the EMULATED clock (44100 samples per emulated
 # second). A 48K frame is 69888 T @3.5 MHz = 1/50.08 s, so pacing emulation on a
@@ -698,24 +675,17 @@ if want audio-underrun-func; then
         skip_row " (python3 not available for capture analysis)"
     else
         rm -f "$raw_file"
-        # A bare 18-byte square-wave loop: sound starts immediately, with none of
-        # the tape-fastload burst that would pre-fill the queue and mask the leak.
-        # This is the ONE test that cannot use --headless (it needs a real audio
-        # path), so it runs the windowed emulator under xvfb-run. But xvfb-run
-        # only sets DISPLAY; it leaves WAYLAND_DISPLAY alone, and on a Wayland
-        # session Qt/SDL PREFER the Wayland backend -- so the emulator ignored
-        # the virtual X display and opened a real window on the user's desktop,
-        # once per regression run. Verified by strace: 2 connects to wayland-0.
-        #
-        # Fix: unset WAYLAND_DISPLAY and force the X11 backends, so Qt renders
-        # into the Xvfb display instead of the real compositor.
-        #
-        # NOT done: pointing WAYLAND_DISPLAY at a dead socket. That does stop the
-        # last libwayland probe (libwayland falls back to the default name
-        # "wayland-0" when the var is simply unset), but it makes SDL fail to
-        # bring up an audio backend, and the test SKIPs with "no audio captured"
-        # -- trading a stray window for a silently-disabled test. Not a trade we
-        # make: a residual probe connect is harmless; a skipped test is not.
+        # A bare 18-byte square-wave loop: sound starts immediately, with none
+        # of the tape-fastload burst that would pre-fill the queue and mask the
+        # leak. This is the ONE test that cannot use --headless (it needs a
+        # real audio path), so it runs the windowed emulator under xvfb-run.
+        # xvfb-run only sets DISPLAY, and on a Wayland session Qt/SDL prefer
+        # the Wayland backend — so WAYLAND_DISPLAY is unset and the X11
+        # backends forced, making Qt render into the Xvfb display instead of
+        # the real compositor. Deliberately NOT done: pointing WAYLAND_DISPLAY
+        # at a dead socket — that makes SDL fail to bring up an audio backend
+        # and the test SKIPs, trading a harmless residual probe connect for a
+        # silently-disabled test.
         SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_file" \
         timeout --foreground --kill-after=5s 40s \
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 \
@@ -734,28 +704,23 @@ if want audio-underrun-func; then
     fi
 fi
 
-# --silent test (Task 47): (1) no audio device is ever opened, and (2) the
-# frames it renders are pixel-identical to a normal run — muting output must
-# not skip, stall, or otherwise perturb CPU/video execution.
+# --silent test: (1) no audio device is ever opened, and (2) the frames it
+# renders are pixel-identical to a normal run — muting output must not skip,
+# stall, or otherwise perturb CPU/video execution.
 #
-# Two proven techniques, not a new one:
 #   - SDL's `disk` audio driver only ever creates its output file inside
-#     SDL_OpenAudioDevice (audio-underrun-func). An ABSENT file is direct
-#     proof no device was opened — stronger than grepping a log line, which
-#     would still pass if the message were ever renamed while the device
-#     kept opening underneath it.
-#   - The pixel-compare snapshot-save-func uses to content-verify a reload,
-#     used here to content-verify that --silent didn't perturb execution. A
-#     test that only checked "the process exited around N seconds" would
-#     NOT catch a bug that (wrongly) also stalls run_frame() under --silent:
-#     --delayed-automatic-exit's countdown fires on its own schedule in
-#     on_frame_tick() regardless of whether run_frame() itself ran — a stuck
-#     CPU and a live one both exit "on time". Comparing actual rendered
-#     content is what makes the frames-really-ran claim discriminative.
+#     SDL_OpenAudioDevice. An ABSENT file is direct proof no device was opened
+#     — stronger than grepping a log line, which would still pass if the
+#     message were renamed while the device kept opening underneath it.
+#   - The pixel-compare content-verifies that --silent didn't perturb
+#     execution. "The process exited around N seconds" would NOT catch a bug
+#     that also stalls run_frame(): --delayed-automatic-exit's countdown fires
+#     in on_frame_tick() regardless of whether run_frame() itself ran, so a
+#     stuck CPU and a live one both exit "on time".
 #
-# QT_QPA_PLATFORM=offscreen (no xvfb needed — same technique as
-# screenshot-paused-func) keeps this fast; SDL's disk driver needs no
-# display of its own, unlike audio-underrun-func's real playback check.
+# QT_QPA_PLATFORM=offscreen (no xvfb needed) keeps this fast; SDL's disk
+# driver needs no display of its own, unlike audio-underrun-func's real
+# playback check.
 if want silent-func; then
     begin_func silent-func
     raw_normal="$TMP_DIR/silent_normal.raw"
@@ -794,19 +759,12 @@ if want silent-func; then
     fi
 fi
 
-# --silent + --record test (Task 47 review round 2): reviewer reproduced a
-# MAJOR bug — with audio synthesis skipped, audio_tmp_ is a 0-byte file, but
-# VideoRecorder::stop() still invoked ffmpeg with that zero-duration raw-PCM
-# input plus "-shortest", which clamps the WHOLE output to zero duration:
-# ffmpeg exited 0 having written a structurally-valid but EMPTY MP4
-# ("Output file is empty, nothing was encoded"), and jnext logged success.
-# A test that only checks "the file exists and the process exited 0" is
-# EXACTLY what missed this — it must assert on the artifact's content.
-#
-# Fix: VideoRecorder::stop() now detects the 0-byte audio temp file and
-# encodes video-only (no audio input, no "-shortest" — nothing to be the
-# shortest OF). Assert the output MP4 has a real video stream with a real
-# (non-zero) duration, not just "a file appeared".
+# --silent + --record test: with audio synthesis skipped the audio temp file
+# is 0 bytes; VideoRecorder::stop() must detect that and encode video-only (no
+# audio input, no "-shortest") — ffmpeg fed a zero-duration raw-PCM input plus
+# "-shortest" clamps the WHOLE output to zero duration and still exits 0. So
+# assert the output MP4 has a real video stream with a real (non-zero)
+# duration, not just "a file appeared".
 if want silent-record-func; then
     begin_func silent-record-func
     rec_file="$TMP_DIR/silent_recording.mp4"
@@ -833,7 +791,7 @@ if want silent-record-func; then
     fi
 fi
 
-# Bare-filename CLI test (Task 25): `jnext <file>` must load the file exactly as
+# Bare-filename CLI test: `jnext <file>` must load the file exactly as
 # `--load <file>` does, while a mistyped flag must still be an error rather than
 # being silently swallowed as a filename.
 if want cli-bare-file-func; then
@@ -911,7 +869,7 @@ fi
 
 # A --delayed-screenshot that is requested and never taken must FAIL LOUDLY:
 # an `error` log line and a non-zero exit, never a silent "no PNG, status 0"
-# that a CI script would read as success (Task 22b round-2 review).
+# that a CI script would read as success.
 #
 # Two cases, each with its own positive control so the test cannot pass by
 # simply never producing a PNG:
@@ -953,7 +911,7 @@ if want screenshot-pending-func; then
     fi
 fi
 
-# --delayed-automatic-exit-frames N (Task 49): the frames form of the exit
+# --delayed-automatic-exit-frames N: the frames form of the exit
 # bound. Two things must hold, and both are proved against the exit's own hard
 # contract — a --delayed-screenshot left outstanding at exit errors and exits
 # non-zero (see screenshot-pending-func above), which makes the exit frame
@@ -1039,11 +997,10 @@ if want screenshot-paused-func; then
     fi
 fi
 
-# Third route by which a requested screenshot can fail to appear (Task 34): the
-# capture IS taken, but the PNG cannot be WRITTEN (missing directory, no
-# permission, disk full). save_screenshot_png() returned false and every caller
-# threw the result away, so jnext exited 0 with no PNG. Same contract as the two
-# tests above: error log + non-zero exit, each with a positive control.
+# Third route by which a requested screenshot can fail to appear: the capture
+# IS taken, but the PNG cannot be WRITTEN (missing directory, no permission,
+# disk full). Same contract as the two tests above: error log + non-zero exit,
+# each with a positive control.
 #
 #   screenshot-io-func     headless — unwritable path (directory does not exist)
 #   screenshot-io-qt-func  GUI (Qt, offscreen) — same, through the Qt frontend
@@ -1108,9 +1065,9 @@ if want screenshot-io-qt-func; then
     fi
 fi
 
-# --delayed-snapshot (Task 13b, headless-only): save/reload proof plus the
-# same "requested but never written" loud-failure contract the
-# --delayed-screenshot tests above use (screenshot-pending-func).
+# --delayed-snapshot (headless-only): save/reload proof plus the same
+# "requested but never written" loud-failure contract the --delayed-screenshot
+# tests above use (screenshot-pending-func).
 if want snapshot-save-func; then
     begin_func snapshot-save-func
     szx="$TMP_DIR/snap.szx"
@@ -1129,14 +1086,11 @@ if want snapshot-save-func; then
     then save_rc=0; else save_rc=1; fi
 
     # Reload proof: a FRESH process loads the saved file and renders a
-    # frame. This must be BYTE/PIXEL content-verified, not just "a PNG
-    # came out" — Task 13b review round 2 caught a version of this test
-    # that still PASSED when the reviewer mutated SzxSaver to write
-    # all-zero RAM into every ZXSTRAMPAGE payload (structurally valid,
-    # still loads, renders garbage). Compare against snap-orig.png with
-    # the same ImageMagick `compare -metric AE` the screenshot tests
-    # above use; 0 pixel diff is required (BASIC's copyright screen is
-    # static, so the reload must reproduce it exactly).
+    # frame. This must be PIXEL content-verified, not just "a PNG came
+    # out" — a structurally-valid .szx with garbage RAM payloads still
+    # loads and renders. 0 pixel diff vs snap-orig.png is required
+    # (BASIC's copyright screen is static, so the reload must reproduce
+    # it exactly).
     if [[ -s "$szx" ]] && timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
             "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 --load "$szx" \
             --delayed-screenshot "$reloaded_png" --delayed-screenshot-frames 1 \
@@ -1151,8 +1105,7 @@ if want snapshot-save-func; then
             [[ "$diff_pixels" -eq 0 ]] && content_ok=1
         else
             # No ImageMagick: cannot content-verify. Do NOT silently pass —
-            # that is exactly the "advertises coverage that does not exist"
-            # failure mode this fix exists to close.
+            # that would advertise coverage that does not exist.
             content_ok=-1
         fi
     fi
@@ -1167,12 +1120,11 @@ if want snapshot-save-func; then
                 --delayed-automatic-exit 1 2>&1)
     then pend_rc=0; else pend_rc=1; fi
 
-    # Negative control (Task 13b redesign): .szx is scoped to 48K/128K/
-    # +2A/+3 only — see SzxSaver class doc-comment SCOPE. jnext's DEFAULT
-    # --machine is Next, so this is the common path in practice, not an
-    # edge case: it must fail loudly (non-zero exit, clear reason logged,
-    # no file written), never silently write a truncated/misrepresenting
-    # snapshot.
+    # Negative control: .szx is scoped to 48K/128K/+2A/+3 only — see the
+    # SzxSaver class doc-comment SCOPE. jnext's DEFAULT --machine is Next,
+    # so this is the common path in practice, not an edge case: it must
+    # fail loudly (non-zero exit, clear reason logged, no file written),
+    # never silently write a truncated/misrepresenting snapshot.
     refused="$TMP_DIR/snap-refused.szx"
     rm -f "$refused"
     if out_next=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
@@ -1196,13 +1148,12 @@ if want snapshot-save-func; then
     fi
 fi
 
-# Tape SAVE trap guard (Task 57 / G33 Phase 1). An ordinary NextZXOS boot with
-# --tape-save armed must boot pixel-identically to the boot-nextzxos-welcome
-# reference and write ZERO blocks (file created empty by set_output, never
-# grown). The Task 57 review found the ungated SA-BYTES trap fired 10 times
-# during this exact boot, appending 327 KB of garbage AND breaking the boot;
-# the ROM-identity gate (48K SA-BYTES prologue bytes at 0x04C2) fixes it and
-# this row keeps it fixed.
+# Tape SAVE trap guard. An ordinary NextZXOS boot with --tape-save armed must
+# boot pixel-identically to the boot-nextzxos-welcome reference and write ZERO
+# blocks (file created empty by set_output, never grown). The SA-BYTES trap is
+# gated on ROM identity (48K SA-BYTES prologue bytes at 0x04C2); an ungated
+# trap fires repeatedly during this exact boot, appending garbage and breaking
+# the boot — this row keeps the gate in place.
 if want tape-save-boot-func; then
     begin_func tape-save-boot-func
     ts_tap="$TMP_DIR/jnext_test_tapesave_boot.tap"
@@ -1226,15 +1177,12 @@ if want tape-save-boot-func; then
     fi
 fi
 
-# Task 70 — reset after boot must re-boot to NextZXOS, not fall to 48K BASIC.
-# The Reset button (and F1 / a program's NR 0x02 hard reset) is a power-on cold
-# boot the host performs by reconstructing the emulator and re-running init()
-# (the proven startup path). Pre-fix, Emulator::reset() did a partial in-place
-# reset that left the boot ROM overlay off and re-seeded the 48K fallback, so a
-# reset landed on "© 1982 Sinclair Research Ltd". Boot, hard-reset via the
-# headless reset facility once the welcome is up, and assert the re-booted
-# screen is PIXEL-IDENTICAL to the fresh boot-nextzxos-welcome reference
-# (cold boot == startup).
+# Reset after boot must re-boot to NextZXOS, not fall to 48K BASIC. The Reset
+# button (and F1 / a program's NR 0x02 hard reset) is a power-on cold boot the
+# host performs by reconstructing the emulator and re-running init() (the
+# proven startup path). Boot, hard-reset via the headless reset facility once
+# the welcome is up, and assert the re-booted screen is PIXEL-IDENTICAL to the
+# fresh boot-nextzxos-welcome reference (cold boot == startup).
 if want reset-to-nextzxos-func; then
     begin_func reset-to-nextzxos-func
     rst_png="$TMP_DIR/jnext_test_reset_nextzxos.png"
@@ -1255,14 +1203,12 @@ if want reset-to-nextzxos-func; then
     fi
 fi
 
-# Task 70 review (BLOCKER guard) — a menu / cold-boot file-load must route by
-# extension through the SHARED dispatch (platform/emulator_boot.h ::
-# emulator_apply_load), so .rzx reaches load_rzx, not load_nex. The first cut
-# copy-pasted the dispatch into three frontends and the Qt copy silently dropped
-# .rzx (fell through to load_nex, which rejects an RZX). Record a short RZX, then
-# cold-boot-LOAD it via the headless reset facility (the SAME shared dispatch the
-# Qt menu uses) and assert RZX playback started — misrouting to load_nex leaves
-# no "RZX: playback started" line.
+# A menu / cold-boot file-load must route by extension through the SHARED
+# dispatch (platform/emulator_boot.h :: emulator_apply_load), so .rzx reaches
+# load_rzx, not load_nex. Record a short RZX, then cold-boot-LOAD it via the
+# headless reset facility (the SAME shared dispatch the Qt menu uses) and
+# assert RZX playback started — misrouting to load_nex leaves no "RZX:
+# playback started" line.
 if want cold-boot-load-rzx-func; then
     begin_func cold-boot-load-rzx-func
     cb_rzx="$TMP_DIR/cold_boot_test.rzx"
@@ -1284,11 +1230,9 @@ if want cold-boot-load-rzx-func; then
     fi
 fi
 
-# Rewind / backwards execution unit tests.
-# This block used to be wrapped in `if [[ -x "$REWIND_TEST" ]]`, so after a `make clean`
-# the test simply stopped existing — no PASS, no FAIL, no SKIP, and a suite total that
-# quietly dropped by one (Task 35). The binary's absence is now caught in the preflight,
-# so by the time we get here it is there and the only question is whether it passes.
+# Rewind / backwards execution unit tests. The binary's absence is caught in
+# the preflight, so by the time we get here it is there and the only question
+# is whether it passes.
 if want rewind-func; then
     begin_func rewind-func
     rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
@@ -1302,7 +1246,7 @@ if want rewind-func; then
     fi
 fi
 
-# Benchmark harness line-format test (Task 27 T1): --benchmark N must print
+# Benchmark harness line-format test: --benchmark N must print
 # exactly one machine-parseable BENCH line to stdout, with every field present
 # and the deterministic ones exact: a 48K machine at 3.5 MHz has
 # (447+1)x(311+1)x4 / 8 = 69888 T-states/frame (timing.h HC/VC_MAX + Clock
@@ -1321,7 +1265,7 @@ if want benchmark-func; then
     fi
 fi
 
-# --trace CLI flag (Task 27 A2). The instruction trace log is decoupled from
+# --trace CLI flag. The instruction trace log is decoupled from
 # rewind: --trace must enable it (the "Instruction trace log enabled (--trace)"
 # info line is the observable), and — the discriminating half — a default run
 # with no trace/rewind flags must NOT emit that line (trace off by default).
@@ -1341,16 +1285,16 @@ if want trace-func; then
     fi
 fi
 
-# frame-pacing-func (issue #9): a 60 Hz demo must pace the frontend timer to the
-# emulated video refresh, not a hardcoded 50 Hz. Beast.nex switches the machine
-# to 60 Hz (NR 0x05 bit 2); since the fix the Qt frontend logs the 50->60 Hz
-# pacing transition and drives its frame timer at ~17.20 ms (58 fps) instead of
-# 20 ms (50 fps). This is the ONLY suite row that exercises the frontend pacing
-# path (headless is frame-counted and never touches it), so it is what stops a
-# future revert to a literal 20 ms from sailing through green. Discriminative
-# both ways: the 60 Hz demo MUST emit a "-> 17 ms/frame" line, and a plain 50 Hz
-# machine (48k) MUST NOT. QT_QPA_PLATFORM=offscreen runs the real GUI binary with
-# no display (same technique as silent-func); --silent keeps it audio-free.
+# frame-pacing-func: a 60 Hz demo must pace the frontend timer to the emulated
+# video refresh, not a hardcoded 50 Hz. Beast.nex switches the machine to
+# 60 Hz (NR 0x05 bit 2); the Qt frontend logs the 50->60 Hz pacing transition
+# and drives its frame timer at ~17.20 ms (58 fps) instead of 20 ms (50 fps).
+# This is the ONLY suite row that exercises the frontend pacing path (headless
+# is frame-counted and never touches it), so it is what stops a revert to a
+# literal 20 ms from sailing through green. Discriminative both ways: the
+# 60 Hz demo MUST emit a "-> 17 ms/frame" line, and a plain 50 Hz machine
+# (48k) MUST NOT. QT_QPA_PLATFORM=offscreen runs the real GUI binary with no
+# display; --silent keeps it audio-free.
 if want frame-pacing-func; then
     begin_func frame-pacing-func
     beast_nex="$SCRIPT_DIR/nex/beast.nex"
@@ -1369,13 +1313,14 @@ if want frame-pacing-func; then
     fi
 fi
 
-# nex-extended-reject-func (issue #10): NEXTEST.NEX and similar NextZXOS apps are
-# a small NEX with a large payload appended that they stream from their own file
-# at runtime. Loaded with --load there is no NextZXOS, so they black-screen. The
-# loader now rejects any NEX whose file is substantially larger than its header
-# (banks + screens) describes. Discriminative both ways: an extended NEX MUST be
-# rejected with the "extended NEX file" message, and a plain NEX of the exact
-# declared size MUST NOT be. Files are synthesised here (no 26 MB binary in git).
+# nex-extended-reject-func: NEXTEST.NEX and similar NextZXOS apps are a small
+# NEX with a large payload appended that they stream from their own file at
+# runtime. Loaded with --load there is no NextZXOS, so they black-screen. The
+# loader rejects any NEX whose file is substantially larger than its header
+# (banks + screens) describes. Discriminative both ways: an extended NEX MUST
+# be rejected with the "extended NEX file" message, and a plain NEX of the
+# exact declared size MUST NOT be. Files are synthesised here (no 26 MB binary
+# in git).
 if want nex-extended-reject-func; then
     begin_func nex-extended-reject-func
     ext_nex="$TMP_DIR/extended.nex"
@@ -1400,7 +1345,7 @@ open(sys.argv[1], "wb").write(header(1, 1) + b"\x00"*16384 + b"\xAA"*200000)
 open(sys.argv[2], "wb").write(header(1, 1) + b"\x00"*16384)
 # stale: bitmap says 3 banks, num_banks scalar wrongly says 1; file matches the
 # BITMAP (3*16384). Must be accepted — expected_size must come from the bitmap,
-# not the scalar (issue #10 review). Guards against the num_banks false-positive.
+# not the scalar. Guards against the num_banks false-positive.
 open(sys.argv[3], "wb").write(header(1, 3) + b"\x00"*(3*16384))
 PY
     ext_out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
@@ -1424,7 +1369,7 @@ PY
     fi
 fi
 
-# esxdos-chain-{red,blue,return}-func (PR #15): the --esxdos-stub M_EXECCMD
+# esxdos-chain-{red,blue,return}-func: the --esxdos-stub M_EXECCMD
 # ".RUN <name>.nex" path lets a selector NEX chain-load a SIBLING NEX (same
 # directory) without booting NextZXOS. menu.nex shows white and, on key 1/2,
 # runs red.nex/blue.nex; red/blue on key M run menu.nex back. Driven headlessly
@@ -1482,8 +1427,8 @@ if want esxdos-chain-return-func; then
     fi
 fi
 
-# ffmpeg-missing-warn-func (packaging Task 67 follow-up): jnext shells out to
-# ffmpeg for --record / File > Record MPEG4 Video. At startup it probes for
+# ffmpeg-missing-warn-func: jnext shells out to ffmpeg for --record /
+# File > Record MPEG4 Video. At startup it probes for
 # ffmpeg and, if absent, warns once (in EVERY mode, headless included) so the
 # user is not surprised only when a recording silently fails. Discriminative
 # both ways: with ffmpeg masked from PATH the warning MUST fire; with ffmpeg
