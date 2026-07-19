@@ -28,6 +28,73 @@ namespace audio_pacing {
 inline constexpr int QUEUE_LOW_MS = 40;
 inline constexpr int QUEUE_HIGH_MS = 90;
 
+/// Band smoothing (Task 63, landed with the deadline scheduler in
+/// frame_deadline.h).
+///
+/// WHY a smoothed reading, and why this design:
+/// the audio device consumes in ~23.2 ms chunks (1024 frames at 44100 Hz),
+/// so every queued_ms() reading carries a ~23 ms sawtooth around the true
+/// queue mean. The original stateless band intervened whenever a single
+/// reading clipped an edge; with the old +1.1% timer bias gone (the
+/// deadline scheduler paces the timer exactly) the queue mean is a
+/// zero-drift random walk, and whenever it wanders within sawtooth reach of
+/// an edge the teeth clip it tick after tick — measured ~2.5
+/// interventions/s, each a visible one-frame jump or hold. The band
+/// thresholds therefore now act on an ESTIMATE OF THE MEAN (EMA over the
+/// readings), which the sawtooth cannot reach: steady state is silent, and
+/// only a genuine sustained drift or disturbance moves the estimate across
+/// a threshold — promptly and one-sidedly.
+///
+/// A trigger/re-arm hysteresis (episodes intervening until the queue is
+/// back at mid-band) was prototyped first and REJECTED on model evidence:
+/// episode termination sees instantaneous readings, which at the moment of
+/// crossing are sawtooth extremes (drain landings sit right after a chunk
+/// removal, catch-up landings right after a double), so every episode lands
+/// the queue MEAN up to a whole chunk away from the re-arm point. In a
+/// 50 ms band with 23 ms chunks that parks the mean within sawtooth reach
+/// of the OPPOSITE edge — the model measured ~0.36/s wrong-side bounces
+/// under 1% drift, interventions the design exists to remove.
+///
+/// Two auxiliary mechanisms make the EMA a sound controller (both are
+/// load-bearing, see audio_pacing_test AP-13/AP-15/AP-16):
+///   * ACTION FEED-FORWARD: an intervention changes the real queue by one
+///     frame (~17-20 ms) immediately; the estimate is advanced by
+///     INTERVENTION_MS at the moment of the decision, otherwise the EMA
+///     lag would re-trigger on the next few readings and over-correct.
+///   * ENVELOPE EMERGENCIES on the RAW reading: the smoothed estimate is
+///     deliberately slow, so it alone would let a sustained drift push the
+///     raw queue past the hard envelope before it reacts (modelled: max
+///     ~131 ms > QUEUE_MAX_MS where SdlAudio drops pushes, min ~17 ms <
+///     QUEUE_FLOOR_MS where the hold-pad becomes routine). Two raw-reading
+///     guards therefore act IMMEDIATELY, outside the smoothing:
+///       - reading >= QUEUE_MAX_MS - INTERVENTION_MS: skip now — one more
+///         frame could push the queue past QUEUE_MAX_MS and get the push
+///         dropped (a hole). INTERVENTION_MS covers the longest machine
+///         frame (20.26 ms at 49.36 Hz), making the ceiling structural.
+///       - reading < EMERGENCY_LOW_MS: catch up now — the queue is at the
+///         band's low edge for real (sawtooth or not, the device really is
+///         that low) and the next dip could reach QUEUE_FLOOR_MS.
+///     Neither guard is reachable from a mid-band mean through the ~23 ms
+///     sawtooth alone, so steady state stays silent (AP-14).
+///
+/// SMOOTH_SHIFT: EMA weight 1/32 per tick = time constant ~32 ticks
+/// (~0.55 s at the 58 Hz Next-60 tick). Slow enough to flatten the ~23 ms
+/// sawtooth to ~2 ms of residual ripple, fast enough that genuine drift
+/// (~10 ms/s at 1%) crosses a threshold within ~1 s of the true mean.
+inline constexpr int SMOOTH_SHIFT = 5;  // EMA weight = 2^-5 = 1/32
+/// Queue change one intervention causes: one emulated frame, rounded UP to
+/// the longest machine frame (20.26 ms at 49.36 Hz) so the high emergency
+/// guard below is a hard ceiling on every machine; the up-to ~4 ms
+/// feed-forward mismatch at Next-60 decays through the EMA.
+inline constexpr int INTERVENTION_MS = 21;
+/// Low emergency threshold: one ms below the band edge. Readings under it
+/// mean the device REALLY is at the bottom of the band (whatever the
+/// sawtooth phase), so a catch-up frame runs immediately instead of
+/// waiting ~a second for the estimate. Calibrated in audio_pacing_test's
+/// chunked model: at 39 a jittered double-chunk dip cannot pierce
+/// QUEUE_FLOOR_MS; at 38 it can (AP-15f).
+inline constexpr int EMERGENCY_LOW_MS = 39;
+
 /// Never let the device queue fall below this. If the host is too slow to
 /// emulate in real time, no amount of pacing can conjure the missing samples,
 /// so SdlAudio tops the queue up by holding the last sample level instead of
@@ -47,14 +114,54 @@ inline constexpr int QUEUE_FLOOR_MS = 30;
 /// resume, fastload burst) that we stop feeding it and let it drain.
 inline constexpr int QUEUE_MAX_MS = 120;
 
+/// Band-smoothing state. Each frontend owns ONE instance next to its audio
+/// device (QtApp and SdlApp each have their own — never a global) and passes
+/// it to every frames_for_tick() call for that device.
+struct BandState {
+    /// Smoothed queue-depth estimate in ms. Negative = unseeded: the next
+    /// reading seeds it directly (so the very first decision, and the first
+    /// after the device goes away, sees the raw depth — no cold-start lag).
+    double smoothed_ms = -1.0;
+};
+
 /// Emulator frames to run this tick, given the current device queue depth in
 /// milliseconds (or a negative value when audio is not running, in which case
 /// the caller free-runs at its timer rate).
-inline constexpr int frames_for_tick(int queued_ms)
+///
+/// Trigger points are unchanged (QUEUE_LOW_MS / QUEUE_HIGH_MS) but act on
+/// the smoothed estimate (see the WHY above): the chunk sawtooth on raw
+/// readings can no longer clip the band edges, while a genuine drift or
+/// disturbance still crosses them promptly and one-sidedly.
+inline constexpr int frames_for_tick(BandState& st, int queued_ms)
 {
-    if (queued_ms < 0) return 1;                 // no audio: wall-clock paced
-    if (queued_ms >= QUEUE_HIGH_MS) return 0;    // ahead of the card: let it drain
-    if (queued_ms < QUEUE_LOW_MS) return 2;      // behind the card: catch up
+    if (queued_ms < 0) {          // no audio: wall-clock paced. The estimate
+        st.smoothed_ms = -1.0;    // dies with the device; a later device
+        return 1;                 // re-seeds from its first reading.
+    }
+    if (st.smoothed_ms < 0.0) {
+        st.smoothed_ms = queued_ms;  // seed: first reading for this device
+    }
+    st.smoothed_ms += (queued_ms - st.smoothed_ms) / (1 << SMOOTH_SHIFT);
+
+    // Envelope emergencies act on the RAW reading (see the WHY above).
+    if (queued_ms >= QUEUE_MAX_MS - INTERVENTION_MS) {
+        st.smoothed_ms -= INTERVENTION_MS;   // feed the skip's effect forward
+        return 0;
+    }
+    if (queued_ms < EMERGENCY_LOW_MS) {
+        st.smoothed_ms += INTERVENTION_MS;   // feed the double's effect forward
+        return 2;
+    }
+
+    // Cadence control acts on the smoothed estimate.
+    if (st.smoothed_ms >= QUEUE_HIGH_MS) {   // ahead of the card: let it drain
+        st.smoothed_ms -= INTERVENTION_MS;
+        return 0;
+    }
+    if (st.smoothed_ms < QUEUE_LOW_MS) {     // behind the card: catch up
+        st.smoothed_ms += INTERVENTION_MS;
+        return 2;
+    }
     return 1;
 }
 

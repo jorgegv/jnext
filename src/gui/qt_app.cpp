@@ -545,7 +545,7 @@ void QtApp::frame_tick_body() {
 
         int frames = 1;
         if (audio_paced) {
-            frames = audio_pacing::frames_for_tick(audio_->queued_ms());
+            frames = audio_pacing::frames_for_tick(pacing_band_, audio_->queued_ms());
         }
         // Task 63 — time the run_frame loops (pacing + fastload burst below):
         // together they are this tick's EMULATION cost, mechanism (b) of the
