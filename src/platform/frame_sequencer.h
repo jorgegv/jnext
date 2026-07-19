@@ -50,7 +50,16 @@
 ///   int64_t period_us()           effective frame period (refresh / speed)
 ///   double  speed_multiplier()    1.0 = normal
 ///   bool    audio_present()       an audio device exists
-///   int     queued_ms()           device queue depth; < 0 = no device
+///   int     queued_ms()           device queue depth, in ms.
+///                                 PRECONDITION: audio_present() is true.
+///                                 The real Qt adapter dereferences its
+///                                 SdlAudio pointer unconditionally, so
+///                                 calling this without the guard is a NULL
+///                                 DEREFERENCE, not a "< 0 means no device"
+///                                 answer. Every call site below is guarded;
+///                                 keep it that way. (A negative RETURN is a
+///                                 separate case: a device that exists but
+///                                 cannot report its depth.)
 ///   bool    paused()              debugger has paused the machine
 ///   bool    fastload_active()     tape fastload / phantom typist running
 ///   bool    screenshot_due()      a --delayed-screenshot fires this tick
@@ -231,6 +240,19 @@ public:
             // unrendered — it is frame `burst` of a tick with at least
             // burst+2 frames, the closing frame below following by
             // construction — and the closing frame composites.
+            //
+            // BOTH pause re-checks are load-bearing, and for a reason that is
+            // easy to lose: a breakpoint can fire INSIDE the burst. An
+            // ordinary breakpoint has debug_state_.active() set beforehand, so
+            // run_frame() composites those frames regardless of the hint; but
+            // --magic-breakpoint sets active only AT the hit, so pre-hit burst
+            // frames skip compositing and the paused framebuffer can lag until
+            // the first step/resume. Either way the burst MUST stop on the
+            // tick the pause happens — continuing to sprint through a paused
+            // machine would run hundreds of frames past the breakpoint the
+            // user asked to stop at. The while-guard stops the loop; the
+            // closing-frame guard stops the one extra frame after it.
+            // (frame_sequencer_test FS-BURST-04/05 pin each guard separately.)
             int           burst    = 0;
             const int64_t burst_t0 = fx.now_us();
             while (fx.fastload_active() && burst < FASTLOAD_BURST_LIMIT - 1 &&
