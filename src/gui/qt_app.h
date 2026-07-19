@@ -127,9 +127,10 @@ private:
     void wire_gamepad_and_sources(const EmulatorConfig& cfg);
 
     // Task 63 (issue #9) — fractional frame-deadline pacing. See
-    // src/platform/frame_deadline.h for the policy; these are the thin
-    // Qt-side wrappers (deliberately trivial: on_frame_tick wiring has no
-    // test harness, so ALL scheduling logic lives in the tested header).
+    // src/platform/frame_deadline.h for the policy. These stay thin Qt-side
+    // wrappers: the schedule itself is owned and advanced by seq_, and Task 91
+    // put that wiring under test (test/platform/frame_sequencer_test.cpp), so
+    // there is no longer an untestable gap for logic to hide in here.
     /// Effective frame period (video refresh scaled by the speed
     /// multiplier), integer microseconds.
     int64_t effective_frame_period_us() const;
