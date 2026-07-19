@@ -411,6 +411,28 @@ add_executable(render_policy_test platform/render_policy_test.cpp)
 target_include_directories(render_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME render_policy_tests COMMAND render_policy_test)
 
+# Shared frontend cold-boot sequence (issue #40). The driver under test
+# (src/platform/emulator_boot.h) owns the ORDER of a cold boot for BOTH
+# frontends, so the order is what the suite pins; the frontend steps are
+# supplied as recording test doubles. Needs the emulator core (it really
+# reconstructs a machine), but no Qt and no SDL.
+add_executable(emulator_boot_test platform/emulator_boot_test.cpp)
+target_link_libraries(emulator_boot_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(emulator_boot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME emulator_boot_tests COMMAND emulator_boot_test)
+
+# Preferences "Apply" decision policy (issue #40). Pure decision helper under
+# test (src/gui/preferences_apply_policy.h) — header-only, no Qt, so the rule
+# that decides whether an Apply may restart the machine is reachable by CI even
+# though MainWindow itself is not (Task 91). Registered unconditionally for
+# that reason: it needs nothing from the Qt UI build.
+add_executable(preferences_apply_policy_test gui/preferences_apply_policy_test.cpp)
+target_include_directories(preferences_apply_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME preferences_apply_policy_tests COMMAND preferences_apply_policy_test)
+
 # Pointer-capture motion policy (issue #37). Pure decision helper under test
 # (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend
 # ships is reachable by CI even though its event handler is not.
