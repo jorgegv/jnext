@@ -102,12 +102,10 @@ for arg in "$@"; do
         FILTER_TESTS+=("$arg")
     fi
 done
-# Membership is an in-shell hash lookup, NEVER `printf ... | grep -qx`. That idiom is
-# unsound under `set -o pipefail` (which this script sets on line 17): `grep -q` exits
-# the instant it matches, the `printf` subshell can then die of SIGPIPE (141), and
-# pipefail makes 141 the PIPELINE's status — so a name that IS present reports as
-# absent. See the block above the completeness check at the end of this file for the
-# measured reachability analysis and the two distinct failure directions.
+# Membership is an in-shell hash lookup, NEVER `printf ... | grep -qx`: under
+# `set -o pipefail` grep -q exits the instant it matches, the printf subshell
+# can then die of SIGPIPE (141), and pipefail promotes 141 to the pipeline's
+# status — a name that IS present reports as absent.
 declare -A IS_FILTERED
 for arg in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do IS_FILTERED["$arg"]=1; done
 
@@ -1533,26 +1531,17 @@ echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip
 # harness fault, not a pass.
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
     faults=()
+    # Per-name row counts and membership come from pure-bash hashes over the
+    # arrays — never a pipe/subshell (`printf ... | grep` can misreport under
+    # `set -o pipefail`; see the note above IS_FILTERED).
+    declare -A REPORTED_COUNT
+    for name in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do
+        REPORTED_COUNT["$name"]=$(( ${REPORTED_COUNT["$name"]:-0} + 1 ))
+    done
     for name in "${DECLARED_FUNC[@]}"; do
-        n=$(printf '%s\n' "${REPORTED_FUNC[@]}" | grep -cx "$name" || true)
+        n=${REPORTED_COUNT["$name"]:-0}
         [[ "$n" -eq 1 ]] || faults+=("declared in functional_tests.conf but reported $n rows: ${BOLD}$name${RESET}")
     done
-    # Membership via hash lookup, not `printf ... | grep -qx`. Under this script's
-    # `set -o pipefail`, that idiom can report a PRESENT name as absent: grep -q exits
-    # on match, printf then dies of SIGPIPE (141), pipefail promotes 141. Measured
-    # mechanism (this host, 64 KB pipe): the writer must be BLOCKED in write() for the
-    # signal to land, so it needs total output to exceed the pipe buffer — 0/60 false
-    # absents at a 32 KB payload, 13/60 at 64 KB, 60/60 at 130 KB. The purely
-    # scheduling-driven window (bash printf emits one write() per argument, so grep
-    # could in principle match on chunk 1 and exit before chunk 2) is real but was
-    # unobservable: 0 in 3000 idle, 0 in 1500 under 8x CPU load, 0 in 2000 matching the
-    # LAST entry. DECLARED_FUNC is ~30 names / 592 bytes, i.e. ~110x under the pipe
-    # buffer, so this was NOT a live flake here — it is an unsound idiom removed on
-    # principle, at zero cost, before someone grows the manifest or lands it somewhere
-    # the volume is large. Note the two directions differ: HERE a false absent would
-    # invent a harness fault (false RED, never a silent pass, since a genuinely
-    # undeclared name makes grep read to EOF and exit 1 honestly); in want() it would
-    # instead SKIP a requested test. Neither is acceptable.
     for name in "${REPORTED_FUNC[@]}"; do
         [[ -n "${IS_DECLARED_FUNC[$name]:-}" ]] \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
