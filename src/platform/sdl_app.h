@@ -68,6 +68,15 @@ private:
     // bound. unique_ptr so we can defer construction until then.
     std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
 
+    /// Pointer capture (issue #37). A Kempston mouse is a RELATIVE device, so
+    /// the host pointer must be confined or it hits the window edge and the
+    /// guest pointer stops dead. SDL's relative mode does the hiding,
+    /// confining and unbounded xrel/yrel for us — the Qt frontend has to
+    /// hand-roll the equivalent. Same semantics as there: click the window to
+    /// capture, Ctrl+Alt to release. Uncaptured, no mouse event is forwarded.
+    bool mouse_captured_ = false;
+    void set_mouse_captured(bool on);
+
     // Joystick / gamepad host adapter — wires SDL_CONTROLLER* events into
     // the emulator's Joystick and owns the SDL_GameController lifecycle for
     // the two Next pad headers. Created in init() once emulator_ is bound.

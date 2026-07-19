@@ -9,6 +9,7 @@
 #include <SDL2/SDL.h>
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
+#include "platform/pointer_capture.h"
 
 class Emulator;
 class EmulatorWidget;
@@ -130,6 +131,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
 
 private:
@@ -182,10 +184,27 @@ private:
     // owned here because MainWindow is the GUI's host event source. Created
     // in set_emulator() once Emulator::mouse() is bound.
     std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
-    QPoint last_mouse_pos_;        ///< Previous mouse position (global, for fallback).
-    bool   have_last_mouse_pos_ = false;
-    int    last_zx_x_ = 0;         ///< Previous host pos mapped to ZX cursor space.
-    int    last_zx_y_ = 0;
+
+    /// Pointer capture (issue #37). A Kempston mouse is a RELATIVE device:
+    /// it reports motion, never position, so the host pointer has to be
+    /// confined or it runs into the window edge and the guest pointer stops
+    /// dead. While captured we hide the host cursor, warp it back to the
+    /// viewport centre after every motion event, and feed the raw delta.
+    /// While not captured the mouse belongs to the desktop and nothing is
+    /// forwarded, so menus and window controls behave normally.
+    bool     mouse_captured_ = false;
+    QAction* capture_mouse_action_ = nullptr;
+    /// Motion policy for the captured pointer (warp-echo suppression and the
+    /// stale first delta). Pure, and unit-tested — see pointer_capture.h.
+    pointer_capture::Policy capture_policy_;
+    /// Title without any capture suffix, captured at construction.
+    QString  base_window_title_;
+
+    void set_mouse_captured(bool on);
+    /// Global position of the emulator viewport centre — the point the
+    /// pointer is warped back to. Falls back to the window centre when the
+    /// viewport is not realised yet.
+    QPoint viewport_centre_global() const;
 
     bool is_fullscreen_ = false;
     int current_scale_ = 1;  ///< Default 1× scale (640×512 viewport — post-G104, was 2× / 1280×1024 pre-G104).

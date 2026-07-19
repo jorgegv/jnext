@@ -11,6 +11,7 @@
 #include "core/log.h"
 #include "platform/screenshot.h"
 #include "input/mouse_dispatcher.h"
+#include "platform/pointer_capture.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -150,6 +151,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setWindowTitle("JNEXT \u2014 ZX Spectrum Next Emulator");
+    base_window_title_ = windowTitle();
 
     // Task 66 \u2014 load persisted GUI preferences. This is the production
     // AppConfig ctor (~/.jnext/jnext.conf); MainWindow is only ever
@@ -180,12 +182,11 @@ MainWindow::MainWindow(QWidget* parent)
     setMouseTracking(true);
     if (emulator_widget_) {
         emulator_widget_->setMouseTracking(true);
-        // Hide the host cursor when it's over the emulator viewport. The
-        // emulator-rendered Kempston-mouse cursor (e.g. trainyard, Art
-        // Studio Next) doubles up with the host cursor otherwise. Qt
-        // restores the normal cursor automatically as soon as the mouse
-        // leaves the widget (so menus / toolbars stay clickable).
-        emulator_widget_->setCursor(Qt::BlankCursor);
+        // The host cursor is hidden only while captured (set_mouse_captured),
+        // where it would otherwise double up with the emulator-rendered
+        // Kempston cursor. Uncaptured it stays visible: the pointer belongs to
+        // the desktop then, and you need to see it to aim at the viewport to
+        // click and capture.
     }
 
     // When the emulator widget detects the real DPR on its first frame,
@@ -579,6 +580,22 @@ void MainWindow::create_menus() {
     // Default state before set_emulator() syncs from the effective sources.
     joy_source_action_[0][0]->setChecked(true);
     joy_source_action_[1][0]->setChecked(true);
+
+    // Kempston mouse pointer capture (issue #37). Off by default: capturing
+    // uninvited would take the pointer away from a user who only wanted to
+    // reach the menus. Clicking the viewport also captures.
+    input_menu->addSeparator();
+    capture_mouse_action_ = input_menu->addAction(tr("Capture &Mouse"));
+    capture_mouse_action_->setCheckable(true);
+    // Deliberately NO keyboard shortcut. Every plain Ctrl+<key> is a real ZX
+    // sequence — Ctrl maps to Caps Shift, so Ctrl+M IS Caps+M — and a host
+    // shortcut would swallow it before the guest ever saw it. Capture is by
+    // clicking the viewport (or this menu item); Ctrl+Alt releases.
+    capture_mouse_action_->setStatusTip(
+        tr("Confine the host pointer so the Kempston mouse can move freely "
+           "(click the screen to capture, Ctrl+Alt to release)"));
+    connect(capture_mouse_action_, &QAction::triggered, this,
+            [this](bool on) { set_mouse_captured(on); });
 
     // --- Tape menu ---
     QMenu* tape_menu = menuBar()->addMenu(tr("&Tape"));
@@ -1147,6 +1164,23 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         int key = event->key();
         Qt::KeyboardModifiers modifiers = event->modifiers();
 
+        // Ctrl+Alt releases the pointer — the convention users already know
+        // from VirtualBox / VMware / QEMU. Checked before anything else so it
+        // works even if the guest is busy. Either order of the two keys
+        // arrives here as "this one down, the other already held".
+        if (mouse_captured_ &&
+            ((key == Qt::Key_Alt     && (modifiers & Qt::ControlModifier)) ||
+             (key == Qt::Key_Control && (modifiers & Qt::AltModifier)))) {
+            set_mouse_captured(false);
+            // Deliberately NOT consumed: fall through to normal key handling.
+            // Keyboard::set_key() treats Alt as a host modifier (never a ZX
+            // key) and swallowing it here would leave alt_held_ false, so the
+            // Alt-compounds (EDIT = Alt+E, GRAPH = Alt+G, CAPS LOCK = Alt+C)
+            // would silently resolve to their unmodified meaning until Alt was
+            // released and pressed again. Ctrl was already forwarded on its own
+            // key-down, so falling through changes nothing for it.
+        }
+
 #ifdef ENABLE_DEBUGGER
         // When debugger is enabled, intercept debug shortcuts.
         if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
@@ -1408,59 +1442,77 @@ uint8_t qt_button_to_sdl(Qt::MouseButton b) {
 
 } // anonymous namespace
 
+QPoint MainWindow::viewport_centre_global() const {
+    const QWidget* w = emulator_widget_ ? static_cast<const QWidget*>(emulator_widget_)
+                                        : static_cast<const QWidget*>(this);
+    return w->mapToGlobal(QPoint(w->width() / 2, w->height() / 2));
+}
+
+void MainWindow::set_mouse_captured(bool on) {
+    if (on == mouse_captured_) return;
+    mouse_captured_ = on;
+
+    if (on) {
+        if (emulator_widget_) emulator_widget_->setCursor(Qt::BlankCursor);
+        grabMouse(Qt::BlankCursor);
+        // Park the pointer on the centre to measure from. Capture can start
+        // with the pointer anywhere (menu item, or a click near an edge), and
+        // a motion event queued at that old position may still be delivered
+        // after the warp — as one enormous delta. Drop the first one.
+        capture_policy_.begin();
+        QCursor::setPos(viewport_centre_global());
+        // The status-bar message times out; the title carries the way out for
+        // as long as the pointer is actually held.
+        setWindowTitle(base_window_title_ + tr(" - Ctrl+Alt to release mouse"));
+        statusBar()->showMessage(tr("Mouse captured — Ctrl+Alt to release"), 4000);
+    } else {
+        releaseMouse();
+        // Drop any latched button/wheel state. Buttons are only forwarded
+        // while captured, so a button still held as capture ends would never
+        // have its release delivered — the guest would see it pressed for
+        // ever. Easy to hit: alt-tab mid-drag (that path auto-releases too).
+        if (mouse_dispatcher_) mouse_dispatcher_->reset();
+        if (emulator_widget_) emulator_widget_->unsetCursor();
+        setWindowTitle(base_window_title_);
+        statusBar()->showMessage(tr("Mouse released"), 2000);
+    }
+    if (capture_mouse_action_ && capture_mouse_action_->isChecked() != on) {
+        capture_mouse_action_->setChecked(on);
+    }
+}
+
 void MainWindow::mouseMoveEvent(QMouseEvent* event) {
-    if (!mouse_dispatcher_) {
+    // Uncaptured, the pointer belongs to the desktop: forward nothing, so
+    // menus and window controls behave normally.
+    if (!mouse_dispatcher_ || !mouse_captured_) {
         QMainWindow::mouseMoveEvent(event);
         return;
     }
-
-    // Map the host cursor's global position to the EmulatorWidget viewport
-    // and then to a "ZX cursor space" of 320×256 (the Kempston-mouse visible
-    // range used by most wide-Next-mode games, e.g. trainyard which clamps
-    // to 0..319/0..255 in software). We forward a delta from the previous
-    // mapped position to the current one, instead of raw host-pixel deltas,
-    // so:
-    //   - cursor visual speed matches the host cursor 1:1 regardless of
-    //     window scale (320 ZX-px stretched to N widget-px → 1 host-px of
-    //     motion = N/320 widget-px of motion = the visible cursor distance);
-    //   - when the host cursor leaves at one viewport edge and re-enters at
-    //     another, the first new mouse-move event produces a large delta
-    //     that pulls the ZX cursor toward the new entry point — boundary
-    //     transitions stay "mostly continuous". (The Kempston counter is
-    //     8-bit, so very large warps are softened by signed-8-bit wrap in
-    //     KempstonMouse::inject_delta; small motions are exact.)
-    static constexpr int ZX_CURSOR_W = 320;
-    static constexpr int ZX_CURSOR_H = 256;
-
+    // A Kempston mouse reports RELATIVE motion, so forward the raw host delta
+    // measured from the centre, then put the pointer back on the centre. The
+    // host pointer therefore never reaches a screen edge and the guest can
+    // travel without limit — the fix for issue #37, where motion was derived
+    // from the pointer's absolute position inside the window and so was
+    // bounded by the window and anchored to wherever the pointer entered.
+    const QPoint centre = viewport_centre_global();
     const QPoint global = event->globalPosition().toPoint();
-    const int ww = emulator_widget_ ? emulator_widget_->width()  : 0;
-    const int wh = emulator_widget_ ? emulator_widget_->height() : 0;
-    if (emulator_widget_ && ww > 0 && wh > 0) {
-        const QPoint local = emulator_widget_->mapFromGlobal(global);
-        const int zx_x = static_cast<int>(
-            static_cast<long long>(local.x()) * ZX_CURSOR_W / ww);
-        const int zx_y = static_cast<int>(
-            static_cast<long long>(local.y()) * ZX_CURSOR_H / wh);
-        if (have_last_mouse_pos_) {
-            const int dx = zx_x - last_zx_x_;
-            const int dy = zx_y - last_zx_y_;
-            if (dx != 0 || dy != 0) {
-                mouse_dispatcher_->handle_motion(dx, dy);
-            }
-        }
-        last_zx_x_ = zx_x;
-        last_zx_y_ = zx_y;
-    } else if (have_last_mouse_pos_) {
-        // Fallback: emulator widget not ready — forward verbatim host deltas.
-        const int dx = global.x() - last_mouse_pos_.x();
-        const int dy = global.y() - last_mouse_pos_.y();
-        if (dx != 0 || dy != 0) {
-            mouse_dispatcher_->handle_motion(dx, dy);
-        }
-    }
-    last_mouse_pos_ = global;
-    have_last_mouse_pos_ = true;
+
+    // Decision lives in pure code (platform/pointer_capture.h) so it is
+    // reachable by tests; this handler is not.
+    const pointer_capture::Motion m =
+        capture_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y());
+    if (m.forward) mouse_dispatcher_->handle_motion(m.dx, m.dy);
+    if (m.recentre) QCursor::setPos(centre);
     event->accept();
+}
+
+void MainWindow::changeEvent(QEvent* event) {
+    // Never hold the pointer hostage: losing focus (alt-tab, another window)
+    // hands it straight back to the desktop.
+    if (event->type() == QEvent::ActivationChange && !isActiveWindow()) {
+        set_mouse_captured(false);
+    }
+    QMainWindow::changeEvent(event);
 }
 
 void MainWindow::mousePressEvent(QMouseEvent* event) {
@@ -1468,24 +1520,21 @@ void MainWindow::mousePressEvent(QMouseEvent* event) {
         QMainWindow::mousePressEvent(event);
         return;
     }
-    // Make sure the next motion event computes a delta from the press
-    // location, not from a stale cursor position from before the user
-    // alt-tabbed away. Also seed last_zx_x_/y_ so the position-mapped
-    // delta path stays consistent (mouseMoveEvent uses ZX-space deltas
-    // rather than raw host deltas).
-    const QPoint global = event->globalPosition().toPoint();
-    last_mouse_pos_ = global;
-    have_last_mouse_pos_ = true;
-    if (emulator_widget_) {
-        const int ww = emulator_widget_->width();
-        const int wh = emulator_widget_->height();
-        if (ww > 0 && wh > 0) {
-            const QPoint local = emulator_widget_->mapFromGlobal(global);
-            last_zx_x_ = static_cast<int>(
-                static_cast<long long>(local.x()) * 320 / ww);
-            last_zx_y_ = static_cast<int>(
-                static_cast<long long>(local.y()) * 256 / wh);
+    // Clicking the viewport is how you take the mouse without going to the
+    // menu. That click arms the capture and is NOT delivered to the guest —
+    // the user was aiming at a window, not at the program.
+    if (!mouse_captured_) {
+        const bool on_viewport =
+            emulator_widget_ &&
+            emulator_widget_->rect().contains(
+                emulator_widget_->mapFromGlobal(event->globalPosition().toPoint()));
+        if (on_viewport) {
+            set_mouse_captured(true);
+            event->accept();
+            return;
         }
+        QMainWindow::mousePressEvent(event);
+        return;
     }
 
     const uint8_t sdl_btn = qt_button_to_sdl(event->button());
@@ -1496,7 +1545,7 @@ void MainWindow::mousePressEvent(QMouseEvent* event) {
 }
 
 void MainWindow::mouseReleaseEvent(QMouseEvent* event) {
-    if (!mouse_dispatcher_) {
+    if (!mouse_dispatcher_ || !mouse_captured_) {
         QMainWindow::mouseReleaseEvent(event);
         return;
     }
@@ -1508,7 +1557,7 @@ void MainWindow::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void MainWindow::wheelEvent(QWheelEvent* event) {
-    if (!mouse_dispatcher_) {
+    if (!mouse_dispatcher_ || !mouse_captured_) {
         QMainWindow::wheelEvent(event);
         return;
     }

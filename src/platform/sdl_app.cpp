@@ -35,6 +35,12 @@ bool SdlApp::init(int argc, char* argv[]) {
     // Build the Kempston mouse host adapter now that emulator_ is initialised.
     mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
     input_.on_mouse = [this](const SDL_Event& e) {
+        // Uncaptured the pointer belongs to the desktop; clicking the window
+        // is how you hand it to the guest (same gesture as the Qt frontend).
+        if (!mouse_captured_) {
+            if (e.type == SDL_MOUSEBUTTONDOWN) set_mouse_captured(true);
+            return;
+        }
         mouse_dispatcher_->handle_sdl_event(e);
     };
 
@@ -80,6 +86,21 @@ bool SdlApp::init(int argc, char* argv[]) {
     // Route SDL key events into emulator keyboard matrix; intercept host shortcuts.
     input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
         if (pressed) {
+            // Ctrl+Alt releases the pointer — the VirtualBox/VMware
+            // convention, and the same combo the Qt frontend uses. It is
+            // checked on the modifier keys themselves rather than bound to a
+            // letter: every plain Ctrl+<key> is a real ZX sequence (Ctrl is
+            // Caps Shift), so a letter shortcut would steal it from the guest.
+            if (mouse_captured_ &&
+                (sc == SDL_SCANCODE_LALT  || sc == SDL_SCANCODE_RALT ||
+                 sc == SDL_SCANCODE_LCTRL || sc == SDL_SCANCODE_RCTRL)) {
+                const SDL_Keymod m = SDL_GetModState();
+                if ((m & KMOD_CTRL) && (m & KMOD_ALT)) {
+                    set_mouse_captured(false);
+                    // Not consumed — see the Qt handler: swallowing the Alt
+                    // key-down would desync Keyboard's host Alt-modifier state.
+                }
+            }
             if (sc == SDL_SCANCODE_F11) {
                 display_.toggle_fullscreen();
                 return;
@@ -381,4 +402,39 @@ void SdlApp::shutdown() {
     audio_.shutdown();
     display_.shutdown();
     SDL_Quit();
+}
+
+// ---------------------------------------------------------------------------
+// Pointer capture (issue #37).
+//
+// SDL relative mode hides the cursor, confines it to the window and reports
+// unbounded xrel/yrel — exactly what a relative Kempston mouse needs, and what
+// MainWindow has to emulate by warping. Guard the call so a failure (some
+// platforms/back-ends refuse) leaves the flag false rather than pretending the
+// pointer is captured while it is still free.
+// ---------------------------------------------------------------------------
+void SdlApp::set_mouse_captured(bool on)
+{
+    if (on == mouse_captured_) return;
+    if (SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE) != 0) {
+        // Enable failing means the pointer is NOT captured, so leave the flag
+        // false rather than claim it. Disable failing is worse — SDL still
+        // holds the pointer — but clearing the flag anyway at least stops
+        // feeding the guest, and says so loudly.
+        if (on) {
+            Log::platform()->warn("Mouse capture failed: {}", SDL_GetError());
+            return;
+        }
+        Log::platform()->error("Mouse release failed, pointer may stay grabbed: {}",
+                               SDL_GetError());
+    }
+    mouse_captured_ = on;
+    if (!on && mouse_dispatcher_) {
+        // Same stuck-button hazard as the Qt frontend: buttons are only
+        // forwarded while captured, so one held as capture ends would never
+        // have its release delivered.
+        mouse_dispatcher_->reset();
+    }
+    Log::platform()->info("Mouse {} ({})", on ? "captured" : "released",
+                          on ? "Ctrl+Alt to release" : "click the window to capture");
 }
