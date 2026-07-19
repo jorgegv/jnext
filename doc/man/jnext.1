@@ -24,8 +24,8 @@ error.
 .PP
 The examples below use the Qt6 GUI build
 (\f[CR]build/gui\-release/jnext\f[R]).
-The SDL\-only build takes the same options minus the GUI and debugger
-ones.
+The SDL\-only build (\f[CR]build/release/jnext\f[R]) takes the same
+options minus the GUI and debugger ones.
 .SH OPTIONS
 .SS Machine and program
 .TP
@@ -149,7 +149,7 @@ Run exactly \f[I]N\f[R] frames uncapped, print one machine\-parseable
 \f[CR]BENCH\f[R] line (wall seconds, fps, T\-states/s, T\-states/frame,
 CPU speed, host core, build type) plus a human summary to stdout, then
 exit.
-Used by \f[CR]make bench\f[R].
+Used by \f[CR]make bench\f[R] (\f[CR]test/bench/bench.sh\f[R]).
 .TP
 \f[B]\-\-benchmark\-label\f[R] \f[I]NAME\f[R]
 Workload label printed verbatim in the \f[CR]BENCH\f[R] line (default:
@@ -558,7 +558,8 @@ T}
 .TE
 .PP
 Esc is the Spectrum\(cqs Break key, not a fullscreen shortcut.
-Fullscreen is toggled with F11 only.
+Fullscreen is toggled with F11 only (it used to also be exited with
+Esc).
 .PP
 Alt is a modifier here, never a Spectrum key.
 Only Alt + E/G/C and Alt + the key left of \f[CR]1\f[R] are used,

@@ -83,8 +83,8 @@ option, never as a filename; giving both a bare filename and **--load**
 is an error.
 
 The examples below use the Qt6 GUI build (`build/gui-release/jnext`).
-The SDL-only build takes the same options minus the GUI and debugger
-ones.
+The SDL-only build (`build/release/jnext`) takes the same options minus
+the GUI and debugger ones.
 
 ## OPTIONS
 
@@ -196,7 +196,7 @@ Run with no display and no audio device, at maximum speed.
 Headless only. Run exactly *N* frames uncapped, print one
 machine-parseable `BENCH` line (wall seconds, fps, T-states/s,
 T-states/frame, CPU speed, host core, build type) plus a human summary
-to stdout, then exit. Used by `make bench`.
+to stdout, then exit. Used by `make bench` (`test/bench/bench.sh`).
 
 **--benchmark-label** *NAME*  
 Workload label printed verbatim in the `BENCH` line (default: the loaded
@@ -493,7 +493,7 @@ changes how fast the emulator runs relative to real time.
 | `,`                   | `,` (Symbol Shift + N)                  |
 
 Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
-is toggled with F11 only.
+is toggled with F11 only (it used to also be exited with Esc).
 
 Alt is a modifier here, never a Spectrum key. Only Alt + E/G/C and Alt +
 the key left of `1` are used, because the menu bar claims Alt +
