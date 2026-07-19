@@ -255,6 +255,12 @@ png_diff() {
     awk '{printf "%d", $1+0}' <<< "$raw" 2>/dev/null || echo "${3:-999999}"
 }
 
+# count_streams <file> <codec_type> — number of streams of that type in the
+# container (one ffprobe execution per call).
+count_streams() {
+    ffprobe -show_streams "$1" 2>/dev/null | grep -c "codec_type=$2" || true
+}
+
 if ! command -v compare &>/dev/null; then
     echo -e "${YELLOW}WARNING: ImageMagick 'compare' not found — pixel comparison disabled${RESET}"
     HAS_COMPARE=false
@@ -476,8 +482,9 @@ if want video-record-func; then
         --record "$rec_file" \
         --delayed-automatic-exit 3 2>/dev/null || true
     if [[ -f "$rec_file" ]] && command -v ffprobe &>/dev/null; then
-        has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
-        has_audio=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=audio" || true)
+        rec_probe=$(ffprobe -show_streams "$rec_file" 2>/dev/null || true)
+        has_video=$(grep -c "codec_type=video" <<< "$rec_probe" || true)
+        has_audio=$(grep -c "codec_type=audio" <<< "$rec_probe" || true)
         if [[ "$has_video" -ge 1 && "$has_audio" -ge 1 ]]; then
             pass_row " (MP4 with video+audio streams)"
         else
@@ -556,7 +563,7 @@ if want render-skip-turbo-func; then
             if grep -q "$SKIP_WITNESS" "$rec_log"; then
                 rsk_fail="skip-while-recording"
             fi
-            rec_streams=$(ffprobe -show_streams "$turbo_mp4" 2>/dev/null | grep -c "codec_type=video" || true)
+            rec_streams=$(count_streams "$turbo_mp4" video)
             [[ "$rec_streams" -ge 1 ]] || rsk_fail="${rsk_fail:-mp4-no-video}"
         fi
         if [[ -z "$rsk_fail" ]]; then
@@ -821,7 +828,7 @@ if want silent-record-func; then
         if [[ ! -s "$rec_file" ]]; then
             fail_row " (no MP4 file produced)"
         else
-            has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
+            has_video=$(count_streams "$rec_file" video)
             duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$rec_file" 2>/dev/null || echo 0)
             duration_ok=$(awk -v d="$duration" 'BEGIN{print (d+0 >= 1.0) ? 1 : 0}')
             if [[ "$has_video" -ge 1 && "$duration_ok" -eq 1 ]]; then
