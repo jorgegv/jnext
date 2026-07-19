@@ -14,8 +14,10 @@
 # someone built without the debugger. Only building every combination catches
 # it, which is what this does.
 #
-# Exits non-zero on the FIRST failing combination and prints the undefined
-# references, so a broken combo is a hard failure, never a warning.
+# Builds EVERY combination even after one fails — knowing whether three combos
+# are broken or one is the difference between a missing edge and a wrong graph
+# — then prints the undefined references for each and exits non-zero. A broken
+# combo is a hard failure, never a warning.
 
 set -uo pipefail
 
