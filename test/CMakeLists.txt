@@ -396,6 +396,12 @@ add_executable(present_cadence_test platform/present_cadence_test.cpp)
 target_include_directories(present_cadence_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME present_cadence_tests COMMAND present_cadence_test)
 
+# Frame-deadline scheduler test (issue #9 / Task 63). Header-only pacing policy
+# under test (src/platform/frame_deadline.h) — no Qt, no SDL, no emulator core.
+add_executable(frame_deadline_test platform/frame_deadline_test.cpp)
+target_include_directories(frame_deadline_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME frame_deadline_tests COMMAND frame_deadline_test)
+
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
 # NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds
