@@ -599,9 +599,11 @@ void QtApp::frame_tick_body() {
         // composites. Per-tick frame counts match the previous single loop
         // (199+1 vs 200) except when fastload ends before the limit: the
         // closing frame then adds ONE post-load frame, once per tape load.
-        // A pause mid-burst has debug_state_.active() set (breakpoints only
-        // fire when active), so run_frame composited those frames regardless
-        // of the hint and the closing frame is safely skipped.
+        // A pause mid-burst from an ordinary breakpoint has
+        // debug_state_.active() set beforehand, so run_frame composited those
+        // frames regardless of the hint. Exception: --magic-breakpoint sets
+        // active only AT the hit, so pre-hit burst frames skip compositing and
+        // the paused framebuffer can lag until the first step/resume.
         while (emulator_.fastload_active() &&
                burst < FASTLOAD_BURST_LIMIT - 1 &&
                !emulator_.debug_state().paused()) {

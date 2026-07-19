@@ -110,6 +110,7 @@ BEGIN {
     M["audio_nextreg_test"]            = "Audio (NextREG)"
     M["audio_port_dispatch_test"]      = "Audio (port dispatch)"
     M["audio_pacing_test"]             = "Audio (pacing)"
+    M["audio_capture_test"]            = "Audio (capture)"
     M["present_cadence_test"]          = "Present cadence"
     M["render_policy_test"]            = "Render-skip policy"
     M["frame_deadline_test"]           = "Frame-deadline scheduler"

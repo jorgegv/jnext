@@ -166,8 +166,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     beeper_.reset();
     turbosound_.reset();
     dac_.reset();
+    if (cfg.dac_write_callback) {
+        dac_.set_write_callback([this, callback = cfg.dac_write_callback]
+                                (int channel, uint8_t value) {
+            callback(monotonic_tstates(), channel, value);
+        });
+    } else {
+        dac_.set_write_callback({});
+    }
     i2s_.reset();
     mixer_.reset();
+    mixer_.set_capture_callback(cfg.audio_capture_callback);
     ctc_.reset();
     dma_.reset();
     spi_.reset();
