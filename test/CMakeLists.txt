@@ -367,6 +367,14 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+add_executable(audio_capture_test audio/audio_capture_test.cpp)
+target_link_libraries(audio_capture_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(audio_capture_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_capture_tests COMMAND audio_capture_test)
+
 # Log change-gate test (Task 24). Drives a real Emulator through the port path
 # and counts the log lines NR 0x07 actually emits. Own binary: the natural home
 # (nextreg_integration_test) has a local fmt() that collides with spdlog's fmt.
@@ -395,6 +403,13 @@ add_test(NAME audio_pacing_tests COMMAND audio_pacing_test)
 add_executable(present_cadence_test platform/present_cadence_test.cpp)
 target_include_directories(present_cadence_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME present_cadence_tests COMMAND present_cadence_test)
+
+# Superseded-composite render-skip policy test (issue #9 / Task 63). Header-only
+# decision helper under test (src/platform/render_policy.h) — no Qt, no SDL,
+# no emulator core.
+add_executable(render_policy_test platform/render_policy_test.cpp)
+target_include_directories(render_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME render_policy_tests COMMAND render_policy_test)
 
 # Frame-deadline scheduler test (issue #9 / Task 63). Header-only pacing policy
 # under test (src/platform/frame_deadline.h) — no Qt, no SDL, no emulator core.

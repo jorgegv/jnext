@@ -1,5 +1,6 @@
 #include "sdl_app.h"
 #include "platform/emulator_boot.h"
+#include "platform/render_policy.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -249,10 +250,21 @@ void SdlApp::run() {
             const int frames = emulator_.fastload_active()
                                    ? 1
                                    : audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms());
+            const bool screenshot_due = (screenshot_countdown_ == 0);
             for (int i = 0; i < frames; i++) {
+                // Superseded-composite skip (issue #9): the display presents
+                // once, below, so only the tick's last frame composites
+                // (render_policy.h). Fastload runs 1 frame per loop pass here
+                // (its pacing comes from skipping the delay), so it always
+                // composites; a due screenshot forces the whole tick.
+                emulator_.set_render_enabled(
+                    render_policy::composite_frame_in_tick(i, frames,
+                                                           screenshot_due));
                 emulator_.run_frame();
                 ++frames_rendered;
             }
+            // The hint is per-frame within this tick; restore the default.
+            emulator_.set_render_enabled(true);
         }
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {

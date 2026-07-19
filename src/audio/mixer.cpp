@@ -156,10 +156,11 @@ void Mixer::emit_sample()
     write_pos_ = (write_pos_ + 2) % (RING_BUFFER_SIZE * 2);
     count_++;
 
-    // Notify the recording callback (if any) with this sample pair.
-    if (record_callback_) {
+    // WAV and video recording are independent consumers.
+    if (record_callback_ || capture_callback_) {
         int16_t pair[2] = { static_cast<int16_t>(sL), static_cast<int16_t>(sR) };
-        record_callback_(pair, 1);
+        if (record_callback_) record_callback_(pair, 1);
+        if (capture_callback_) capture_callback_(pair, 1);
     }
 }
 

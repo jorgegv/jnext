@@ -98,7 +98,9 @@ struct Counters {
     /// "STALE RE-PRESENTS" note above for why that exclusion is load-bearing.
     uint64_t presented = 0;
     /// Frames overwritten by a later frame in the same tick before any
-    /// paint could serve them (multi-frame ticks).
+    /// paint could serve them (multi-frame ticks). Their compositor pass is
+    /// skipped as pure waste (issue #9, render_policy.h) — the classification
+    /// and all arithmetic here are unchanged by that skip.
     uint64_t superseded = 0;
     /// Frames emulated in a tick that requested no present at all.
     uint64_t unrendered = 0;
