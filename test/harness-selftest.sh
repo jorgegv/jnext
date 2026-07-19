@@ -356,6 +356,27 @@ out=$(run_preflight "$T/nopin.conf" "$REG_FUNC"); rc=$?
 check "HS-24" "regression preflight: a manifest with NO pin is rejected, loudly" 2 $rc "$out" \
     "HARNESS FAULT" "expect: N"
 
+# a functional test declared in the conf with NO scripts/<name>.sh to run it — that
+# test could never report its row, so the driver must refuse before running anything.
+# The doctored conf keeps its pin consistent, so only the script check can fire.
+{ grep -v '^# expect:' "$REG_FUNC"; echo "ghost-func"
+  echo "# expect: $(( $(grep -oP '^#\s*expect:\s*\K[0-9]+' "$REG_FUNC") + 1 ))"
+} > "$T/ghost-func.conf"
+out=$(run_preflight "$REG_CONF" "$T/ghost-func.conf"); rc=$?
+check "HS-31" "regression preflight: a declared functional test with NO script is refused" 2 $rc "$out" \
+    "HARNESS FAULT" "ghost-func" "NO test script"
+
+# a stray scripts/*.sh not declared in the conf — a test dropped from the manifest
+# while its script lives on. Injected via a copy of the real scripts directory so
+# the real tree is never touched.
+mkdir -p "$T/scripts"
+cp "$PROJECT_DIR"/test/00regression/scripts/*.sh "$T/scripts/"
+echo '#!/usr/bin/env bash' > "$T/scripts/bogus-func.sh"
+out=$(JNEXT_REGRESSION_CONF="$REG_CONF" JNEXT_REGRESSION_FUNC_CONF="$REG_FUNC" \
+      JNEXT_REGRESSION_SCRIPTS_DIR="$T/scripts" bash "$REG" --preflight-only 2>&1); rc=$?
+check "HS-32" "regression preflight: a stray scripts/*.sh not declared in the conf is refused" 2 $rc "$out" \
+    "HARNESS FAULT" "bogus-func" "NOT declared"
+
 # ---------------- membership checks must never lose to SIGPIPE (Task 88b) ----------------
 # regression.sh asks "is this name in that list?" in three places: the rewind-func build
 # guard, want(), and the end-of-run completeness cross-check. All three used
