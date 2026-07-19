@@ -64,6 +64,8 @@ CONF="${JNEXT_REGRESSION_CONF:-$SCRIPT_DIR/regression_tests.conf}"
 FUNC_CONF="${JNEXT_REGRESSION_FUNC_CONF:-$SCRIPT_DIR/functional_tests.conf}"
 # img/ lives next to this script under test/00regression/img.
 IMG_DIR="$SCRIPT_DIR/img"
+# NextZXOS welcome-screen reference, diffed against by several boot rows.
+WELCOME_REF="$IMG_DIR/boot-nextzxos-welcome-reference.png"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -241,6 +243,14 @@ begin_func() {
     printf "  %-25s " "[$1]"
 }
 
+# png_diff <a> <b> [sentinel] — differing-pixel count from `compare -metric AE`;
+# a parse failure yields <sentinel> (default 999999, i.e. "treat as different").
+png_diff() {
+    local raw
+    raw=$(compare -metric AE "$1" "$2" /dev/null 2>&1) || true
+    awk '{printf "%d", $1+0}' <<< "$raw" 2>/dev/null || echo "${3:-999999}"
+}
+
 if ! command -v compare &>/dev/null; then
     echo -e "${YELLOW}WARNING: ImageMagick 'compare' not found — pixel comparison disabled${RESET}"
     HAS_COMPARE=false
@@ -386,8 +396,7 @@ for test_name in "${ORDERED_TESTS[@]}"; do
     fi
 
     if $HAS_COMPARE; then
-        diff_raw=$(compare -metric AE "$out_img" "$ref_img" /dev/null 2>&1) || true
-        diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+        diff_pixels=$(png_diff "$out_img" "$ref_img")
         if [[ "$diff_pixels" -le "$TOLERANCE" ]]; then
             pass_row " (${diff_pixels} pixel diff)"
         else
@@ -527,8 +536,7 @@ if want render-skip-turbo-func; then
             --delayed-automatic-exit-frames 130 >/dev/null 2>"$turbo_log" || rsk_fail="${rsk_fail:+$rsk_fail,}turbo-run"
 
         if [[ -z "$rsk_fail" ]]; then
-            diff_raw=$(compare -metric AE "$turbo_png" "$ctrl_png" /dev/null 2>&1) || true
-            diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+            diff_pixels=$(png_diff "$turbo_png" "$ctrl_png")
             [[ "$diff_pixels" -eq 0 ]] || rsk_fail="capture-diff=$diff_pixels"
         fi
 
@@ -557,8 +565,9 @@ if want render-skip-turbo-func; then
                 "$TMP_DIR/rsk-f%d.png" </dev/null 2>/dev/null || true
             if [[ -f "$TMP_DIR/rsk-f5.png" ]]; then
                 for i in 1 2 3 4; do
-                    pair_raw=$(compare -metric AE "$TMP_DIR/rsk-f$i.png" "$TMP_DIR/rsk-f$((i+1)).png" /dev/null 2>&1) || true
-                    pair_diff=$(echo "$pair_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 0)
+                    # Sentinel 0 is deliberate: a parse failure must read as
+                    # "stale pair" and fail the check, not slip past it.
+                    pair_diff=$(png_diff "$TMP_DIR/rsk-f$i.png" "$TMP_DIR/rsk-f$((i+1)).png" 0)
                     if [[ "$pair_diff" -le 100 ]]; then
                         rsk_fail="stale-recorded-frame-pair-$i-diff=$pair_diff"
                         break
@@ -770,8 +779,7 @@ if want silent-func; then
     elif [[ -e "$raw_silent" ]]; then
         fail_row " (--silent still opened an audio device)"
     elif $HAS_COMPARE; then
-        diff_raw=$(compare -metric AE "$png_silent" "$png_normal" /dev/null 2>&1) || true
-        diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+        diff_pixels=$(png_diff "$png_silent" "$png_normal")
         if [[ "$diff_pixels" -eq 0 ]]; then
             pass_row " (no audio device opened; frame 150 pixel-identical to a normal run)"
         else
@@ -1135,8 +1143,7 @@ if want snapshot-save-func; then
     diff_pixels=-1
     if [[ -s "$orig_png" ]] && [[ -s "$reloaded_png" ]]; then
         if $HAS_COMPARE; then
-            diff_raw=$(compare -metric AE "$reloaded_png" "$orig_png" /dev/null 2>&1) || true
-            diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+            diff_pixels=$(png_diff "$reloaded_png" "$orig_png")
             [[ "$diff_pixels" -eq 0 ]] && content_ok=1
         else
             # No ImageMagick: cannot content-verify. Do NOT silently pass —
@@ -1206,8 +1213,7 @@ if want tape-save-boot-func; then
     ts_size=$(stat -c%s "$ts_tap" 2>/dev/null || echo missing)
     ts_diff=999999
     if [[ -f "$ts_png" ]]; then
-        ts_diff_raw=$(compare -metric AE "$ts_png" "$IMG_DIR/boot-nextzxos-welcome-reference.png" /dev/null 2>&1) || true
-        ts_diff=$(echo "$ts_diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+        ts_diff=$(png_diff "$ts_png" "$WELCOME_REF")
     fi
     if [[ "$ts_blocks" -eq 0 && "$ts_size" == "0" && "$ts_diff" -le "$TOLERANCE" ]]; then
         pass_row " (NextZXOS boot clean with --tape-save armed: 0 blocks, empty file, ${ts_diff} px diff)"
@@ -1237,8 +1243,7 @@ if want reset-to-nextzxos-func; then
         --delayed-automatic-exit-frames 920 >/dev/null 2>&1 || true
     rst_diff=999999
     if [[ -f "$rst_png" ]]; then
-        rst_diff_raw=$(compare -metric AE "$rst_png" "$IMG_DIR/boot-nextzxos-welcome-reference.png" /dev/null 2>&1) || true
-        rst_diff=$(echo "$rst_diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
+        rst_diff=$(png_diff "$rst_png" "$WELCOME_REF")
     fi
     if [[ "$rst_diff" -le "$TOLERANCE" ]]; then
         pass_row " (reset after boot re-booted to NextZXOS: ${rst_diff} px diff vs welcome)"
