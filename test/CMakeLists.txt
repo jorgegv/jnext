@@ -411,6 +411,13 @@ add_executable(render_policy_test platform/render_policy_test.cpp)
 target_include_directories(render_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME render_policy_tests COMMAND render_policy_test)
 
+# Pointer-capture motion policy (issue #37). Pure decision helper under test
+# (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend
+# ships is reachable by CI even though its event handler is not.
+add_executable(pointer_capture_test platform/pointer_capture_test.cpp)
+target_include_directories(pointer_capture_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME pointer_capture_tests COMMAND pointer_capture_test)
+
 # Frame-deadline scheduler test (issue #9 / Task 63). Header-only pacing policy
 # under test (src/platform/frame_deadline.h) — no Qt, no SDL, no emulator core.
 add_executable(frame_deadline_test platform/frame_deadline_test.cpp)
