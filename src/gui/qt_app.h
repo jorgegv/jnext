@@ -7,12 +7,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "input/gamepad_host.h"
-#include "platform/audio_pacing.h"
-#include "platform/frame_deadline.h"
 #include "platform/frame_sequencer.h"
-#include "platform/present_cadence.h"
 #include "platform/screenshot.h"
-#include "platform/tick_stats.h"
 #include "video/renderer.h"
 
 class QApplication;
@@ -156,9 +152,6 @@ private:
     QTimer*       frame_timer_ = nullptr;
     QTimer*       status_timer_ = nullptr;
     std::unique_ptr<SdlAudio> audio_;
-    // Smoothed-band state for the audio pacer (Task 63) — one per audio
-    // device, owned here per the audio_pacing.h contract (never a global).
-    audio_pacing::BandState pacing_band_;
 
     // Task 79 — SDL gamepad host (autodetected pads → Joy 1 / Joy 2) plus the
     // per-connector cursor-key routing. Created in init() once the emulator is
