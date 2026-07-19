@@ -746,8 +746,11 @@ int main(int argc, char* argv[]) {
         app.shutdown();
         // shutdown() decides the status: a --delayed-screenshot that was
         // requested and never written exits non-zero, so a CI script cannot
-        // mistake a missing PNG for success.
-        return capture_ok ? app.exit_code() : 1;
+        // mistake a missing PNG for success. A capture-finalize failure makes
+        // an otherwise-clean run exit 1, but never replaces the app's own
+        // non-zero code with a less specific one.
+        if (app.exit_code() != 0) return app.exit_code();
+        return capture_ok ? 0 : 1;
     };
 
     int result;
