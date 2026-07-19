@@ -18,7 +18,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      284 |      284 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input                 |      308 |      308 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input                 |      310 |      310 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -48,6 +48,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| pointer_capture_test  |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "pointer_capture_test" to the label map in refresh-subsystem-status.sh. |
 | Frame-deadline scheduler |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -64,6 +65,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5086** | **5086** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5100** | **5100** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
