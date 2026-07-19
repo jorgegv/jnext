@@ -116,6 +116,13 @@ pass=0
 fail=0
 skip=0
 
+# pass_row/fail_row/skip_row <text> — print the coloured verdict followed by
+# <text> and bump the one matching counter. Keeps verdict text and row
+# accounting in lockstep at every reporting site.
+pass_row() { echo -e "${GREEN}PASS${RESET}${1-}"; pass=$((pass + 1)); }
+fail_row() { echo -e "${RED}FAIL${RESET}${1-}"; fail=$((fail + 1)); }
+skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); }
+
 # A harness fault is not a test failure: it means the suite cannot be trusted to
 # have run what it claims. Exit 2, loudly, and run nothing further.
 harness_fault() {
@@ -249,11 +256,9 @@ echo ""
 # --- Tautological-assertion lint (fast fail on new offenders) ---
 echo -e "${BOLD}[lint-assertions] Scanning test/ for tautological assertions...${RESET}"
 if bash "$PROJECT_DIR/test/lint-assertions.sh"; then
-    echo -e "  ${GREEN}PASS${RESET}: no new tautological assertions"
-    pass=$((pass + 1))
+    printf "  "; pass_row ": no new tautological assertions"
 else
-    echo -e "  ${RED}FAIL${RESET}: new tautological assertions detected (see above)"
-    fail=$((fail + 1))
+    printf "  "; fail_row ": new tautological assertions detected (see above)"
 fi
 echo ""
 
@@ -270,17 +275,14 @@ echo ""
 echo -e "${BOLD}[sdcard-provision] Ensuring NextZXOS SD image is provisioned...${RESET}"
 FALLBACK_SD_IMAGE="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
 if [[ -f "$FALLBACK_SD_IMAGE" ]]; then
-    echo -e "  ${GREEN}PASS${RESET}: already present ($FALLBACK_SD_IMAGE)"
-    pass=$((pass + 1))
+    printf "  "; pass_row ": already present ($FALLBACK_SD_IMAGE)"
 else
     echo "  not present — provisioning via jnext's own download+patch path (one-time)..."
     "$JNEXT" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     if [[ -f "$FALLBACK_SD_IMAGE" ]]; then
-        echo -e "  ${GREEN}PASS${RESET}: provisioned $FALLBACK_SD_IMAGE"
-        pass=$((pass + 1))
+        printf "  "; pass_row ": provisioned $FALLBACK_SD_IMAGE"
     else
-        echo -e "  ${RED}FAIL${RESET}: provisioning failed — $FALLBACK_SD_IMAGE still missing"
-        fail=$((fail + 1))
+        printf "  "; fail_row ": provisioning failed — $FALLBACK_SD_IMAGE still missing"
     fi
 fi
 echo ""
@@ -367,8 +369,7 @@ for test_name in "${ORDERED_TESTS[@]}"; do
 
     # Check if emulator produced output
     if [[ ! -f "$out_img" ]]; then
-        echo -e "${RED}FAIL${RESET} (emulator crashed or timed out)"
-        fail=$((fail + 1))
+        fail_row " (emulator crashed or timed out)"
         continue
     fi
 
@@ -380,8 +381,7 @@ for test_name in "${ORDERED_TESTS[@]}"; do
     fi
 
     if [[ ! -f "$ref_img" ]]; then
-        echo -e "${YELLOW}SKIP${RESET} (no reference image — run with --update first)"
-        skip=$((skip + 1))
+        skip_row " (no reference image — run with --update first)"
         continue
     fi
 
@@ -389,20 +389,16 @@ for test_name in "${ORDERED_TESTS[@]}"; do
         diff_raw=$(compare -metric AE "$out_img" "$ref_img" /dev/null 2>&1) || true
         diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
         if [[ "$diff_pixels" -le "$TOLERANCE" ]]; then
-            echo -e "${GREEN}PASS${RESET} (${diff_pixels} pixel diff)"
+            pass_row " (${diff_pixels} pixel diff)"
         else
-            echo -e "${RED}FAIL${RESET} (${diff_pixels} pixels differ)"
+            fail_row " (${diff_pixels} pixels differ)"
             compare "$out_img" "$ref_img" "$IMG_DIR/${test_name}-diff.png" 2>/dev/null || true
-            fail=$((fail + 1))
             continue
         fi
     else
-        echo -e "${YELLOW}SKIP${RESET} (no ImageMagick)"
-        skip=$((skip + 1))
+        skip_row " (no ImageMagick)"
         continue
     fi
-
-    pass=$((pass + 1))
 done
 
 # --- Functional tests ---
@@ -420,12 +416,10 @@ if want harness-selftest-func; then
     # exact shape of the Task 33 hang.
     if hs_out=$(timeout --foreground --kill-after=5s 120s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
         hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
-        echo -e "${GREEN}PASS${RESET} ($hs_line)"
-        pass=$((pass + 1))
+        pass_row " ($hs_line)"
     else
-        echo -e "${RED}FAIL${RESET} (the test harness itself is broken — see below)"
+        fail_row " (the test harness itself is broken — see below)"
         echo "$hs_out" | grep -E '^\s*FAIL' | head -5 | sed -E 's/^/      /'
-        fail=$((fail + 1))
     fi
 fi
 
@@ -438,11 +432,9 @@ if want magic-bp-func; then
         --delayed-automatic-exit 3 2>&1) || true
     bp_count=$(echo "$bp_output" | grep -c "Magic breakpoint hit" || true)
     if [[ "$bp_count" -ge 1 ]]; then
-        echo -e "${GREEN}PASS${RESET} ($bp_count magic breakpoint(s) detected)"
-        pass=$((pass + 1))
+        pass_row " ($bp_count magic breakpoint(s) detected)"
     else
-        echo -e "${RED}FAIL${RESET} (no magic breakpoint detected in output)"
-        fail=$((fail + 1))
+        fail_row " (no magic breakpoint detected in output)"
     fi
 fi
 
@@ -455,11 +447,9 @@ if want magic-port-func; then
         --load "$PROJECT_DIR/test/00regression/nex/magic_port_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
     if echo "$port_output" | grep -q "Hello from ZX Next!"; then
-        echo -e "${GREEN}PASS${RESET} (magic port output verified)"
-        pass=$((pass + 1))
+        pass_row " (magic port output verified)"
     else
-        echo -e "${RED}FAIL${RESET} (expected 'Hello from ZX Next!' in magic port output)"
-        fail=$((fail + 1))
+        fail_row " (expected 'Hello from ZX Next!' in magic port output)"
     fi
 fi
 
@@ -476,18 +466,14 @@ if want video-record-func; then
         has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
         has_audio=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=audio" || true)
         if [[ "$has_video" -ge 1 && "$has_audio" -ge 1 ]]; then
-            echo -e "${GREEN}PASS${RESET} (MP4 with video+audio streams)"
-            pass=$((pass + 1))
+            pass_row " (MP4 with video+audio streams)"
         else
-            echo -e "${RED}FAIL${RESET} (MP4 missing video or audio stream)"
-            fail=$((fail + 1))
+            fail_row " (MP4 missing video or audio stream)"
         fi
     elif [[ -f "$rec_file" ]]; then
-        echo -e "${YELLOW}SKIP${RESET} (ffprobe not available for validation)"
-        skip=$((skip + 1))
+        skip_row " (ffprobe not available for validation)"
     else
-        echo -e "${RED}FAIL${RESET} (no MP4 file produced)"
-        fail=$((fail + 1))
+        fail_row " (no MP4 file produced)"
     fi
 fi
 
@@ -523,8 +509,7 @@ if want render-skip-turbo-func; then
     SKIP_WITNESS="render skipped for undisplayed frame"
 
     if ! $HAS_COMPARE || ! command -v ffmpeg &>/dev/null || ! command -v ffprobe &>/dev/null; then
-        echo -e "${YELLOW}SKIP${RESET} (needs ImageMagick compare + ffmpeg/ffprobe)"
-        skip=$((skip + 1))
+        skip_row " (needs ImageMagick compare + ffmpeg/ffprobe)"
     else
         rsk_fail=""
 
@@ -604,11 +589,9 @@ if want render-skip-turbo-func; then
         fi
 
         if [[ -z "$rsk_fail" ]]; then
-            echo -e "${GREEN}PASS${RESET} (turbo capture identical; recorder never skipped, frames fresh; ${engage_count} skips engaged)"
-            pass=$((pass + 1))
+            pass_row " (turbo capture identical; recorder never skipped, frames fresh; ${engage_count} skips engaged)"
         else
-            echo -e "${RED}FAIL${RESET} ($rsk_fail)"
-            fail=$((fail + 1))
+            fail_row " ($rsk_fail)"
         fi
     fi
 fi
@@ -672,11 +655,9 @@ if want sprite-collision-turbo-func; then
         fi
     fi
     if [[ -z "$scp_fail" ]]; then
-        echo -e "${GREEN}PASS${RESET} (0x303B identical headless vs GUI@400%: $scp_polls polls, $scp_hits collision reads)"
-        pass=$((pass + 1))
+        pass_row " (0x303B identical headless vs GUI@400%: $scp_polls polls, $scp_hits collision reads)"
     else
-        echo -e "${RED}FAIL${RESET} ($scp_fail)"
-        fail=$((fail + 1))
+        fail_row " ($scp_fail)"
     fi
 fi
 
@@ -699,11 +680,9 @@ if want audio-underrun-func; then
     checker="$SCRIPT_DIR/check-audio-underruns.py"
     raw_file="$TMP_DIR/audio_underrun.raw"
     if ! command -v xvfb-run &>/dev/null; then
-        echo -e "${YELLOW}SKIP${RESET} (xvfb-run not available; audio needs a display)"
-        skip=$((skip + 1))
+        skip_row " (xvfb-run not available; audio needs a display)"
     elif ! command -v python3 &>/dev/null; then
-        echo -e "${YELLOW}SKIP${RESET} (python3 not available for capture analysis)"
-        skip=$((skip + 1))
+        skip_row " (python3 not available for capture analysis)"
     else
         rm -f "$raw_file"
         # A bare 18-byte square-wave loop: sound starts immediately, with none of
@@ -733,14 +712,11 @@ if want audio-underrun-func; then
             --inject "$tone_bin" --inject-org 8000 --inject-pc 8000 --inject-delay 100 \
             --delayed-automatic-exit 12 &>/dev/null || true
         if [[ ! -s "$raw_file" ]]; then
-            echo -e "${YELLOW}SKIP${RESET} (no audio captured; no SDL audio backend?)"
-            skip=$((skip + 1))
+            skip_row " (no audio captured; no SDL audio backend?)"
         elif underrun_out=$(python3 "$checker" "$raw_file" --skip-secs 3 2>&1); then
-            echo -e "${GREEN}PASS${RESET} (no audio underruns)"
-            pass=$((pass + 1))
+            pass_row " (no audio underruns)"
         else
-            echo -e "${RED}FAIL${RESET} ($(echo "$underrun_out" | head -1))"
-            fail=$((fail + 1))
+            fail_row " ($(echo "$underrun_out" | head -1))"
         fi
     fi
 fi
@@ -788,27 +764,21 @@ if want silent-func; then
         --delayed-automatic-exit 5 &>/dev/null || true
 
     if [[ ! -s "$raw_normal" ]]; then
-        echo -e "${YELLOW}SKIP${RESET} (no SDL audio backend available; control run captured nothing)"
-        skip=$((skip + 1))
+        skip_row " (no SDL audio backend available; control run captured nothing)"
     elif [[ ! -s "$png_normal" || ! -s "$png_silent" ]]; then
-        echo -e "${RED}FAIL${RESET} (screenshot missing: normal=$([[ -s "$png_normal" ]] && echo y || echo n) silent=$([[ -s "$png_silent" ]] && echo y || echo n))"
-        fail=$((fail + 1))
+        fail_row " (screenshot missing: normal=$([[ -s "$png_normal" ]] && echo y || echo n) silent=$([[ -s "$png_silent" ]] && echo y || echo n))"
     elif [[ -e "$raw_silent" ]]; then
-        echo -e "${RED}FAIL${RESET} (--silent still opened an audio device)"
-        fail=$((fail + 1))
+        fail_row " (--silent still opened an audio device)"
     elif $HAS_COMPARE; then
         diff_raw=$(compare -metric AE "$png_silent" "$png_normal" /dev/null 2>&1) || true
         diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
         if [[ "$diff_pixels" -eq 0 ]]; then
-            echo -e "${GREEN}PASS${RESET} (no audio device opened; frame 150 pixel-identical to a normal run)"
-            pass=$((pass + 1))
+            pass_row " (no audio device opened; frame 150 pixel-identical to a normal run)"
         else
-            echo -e "${RED}FAIL${RESET} (--silent changed rendered output: ${diff_pixels} pixels differ)"
-            fail=$((fail + 1))
+            fail_row " (--silent changed rendered output: ${diff_pixels} pixels differ)"
         fi
     else
-        echo -e "${YELLOW}SKIP${RESET} (no ImageMagick — cannot content-verify frame identity)"
-        skip=$((skip + 1))
+        skip_row " (no ImageMagick — cannot content-verify frame identity)"
     fi
 fi
 
@@ -830,26 +800,22 @@ if want silent-record-func; then
     rec_file="$TMP_DIR/silent_recording.mp4"
     rm -f "$rec_file"
     if ! command -v ffprobe &>/dev/null; then
-        echo -e "${YELLOW}SKIP${RESET} (ffprobe not available for validation)"
-        skip=$((skip + 1))
+        skip_row " (ffprobe not available for validation)"
     else
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --silent \
             "${SD_CARD_ARGS[@]}" \
             --record "$rec_file" \
             --delayed-automatic-exit 3 &>/dev/null || true
         if [[ ! -s "$rec_file" ]]; then
-            echo -e "${RED}FAIL${RESET} (no MP4 file produced)"
-            fail=$((fail + 1))
+            fail_row " (no MP4 file produced)"
         else
             has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
             duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$rec_file" 2>/dev/null || echo 0)
             duration_ok=$(awk -v d="$duration" 'BEGIN{print (d+0 >= 1.0) ? 1 : 0}')
             if [[ "$has_video" -ge 1 && "$duration_ok" -eq 1 ]]; then
-                echo -e "${GREEN}PASS${RESET} (video-only MP4, ${duration}s duration, ${has_video} video stream)"
-                pass=$((pass + 1))
+                pass_row " (video-only MP4, ${duration}s duration, ${has_video} video stream)"
             else
-                echo -e "${RED}FAIL${RESET} (has_video=$has_video duration=$duration — corrupt/empty recording reported as success)"
-                fail=$((fail + 1))
+                fail_row " (has_video=$has_video duration=$duration — corrupt/empty recording reported as success)"
             fi
         fi
     fi
@@ -874,17 +840,13 @@ if want cli-bare-file-func; then
         "${SD_CARD_ARGS[@]}" --load "$bare_nex" "$bare_nex" --delayed-automatic-exit 1 >/dev/null 2>&1
     then both_rc=0; else both_rc=1; fi
     if ! echo "$bare_out" | grep -q "NEX: loaded"; then
-        echo -e "${RED}FAIL${RESET} (bare filename did not load the NEX)"
-        fail=$((fail + 1))
+        fail_row " (bare filename did not load the NEX)"
     elif [[ $typo_rc -eq 0 ]]; then
-        echo -e "${RED}FAIL${RESET} (a mistyped flag was accepted as a filename)"
-        fail=$((fail + 1))
+        fail_row " (a mistyped flag was accepted as a filename)"
     elif [[ $both_rc -eq 0 ]]; then
-        echo -e "${RED}FAIL${RESET} (--load plus a bare file was not rejected)"
-        fail=$((fail + 1))
+        fail_row " (--load plus a bare file was not rejected)"
     else
-        echo -e "${GREEN}PASS${RESET} (bare filename loads; typo and --load+file rejected)"
-        pass=$((pass + 1))
+        pass_row " (bare filename loads; typo and --load+file rejected)"
     fi
 fi
 
@@ -901,15 +863,12 @@ if want rzx-record-func; then
         magic=$(xxd -l 4 -p "$rzx_file" 2>/dev/null)
         frame_count=$(echo "$rzx_output" | grep -oP 'RZX:.*?\K\d+(?= frames)' || true)
         if [[ "$magic" == "525a5821" ]]; then
-            echo -e "${GREEN}PASS${RESET} (valid RZX file, ${frame_count:-?} frames)"
-            pass=$((pass + 1))
+            pass_row " (valid RZX file, ${frame_count:-?} frames)"
         else
-            echo -e "${RED}FAIL${RESET} (file exists but invalid RZX signature)"
-            fail=$((fail + 1))
+            fail_row " (file exists but invalid RZX signature)"
         fi
     else
-        echo -e "${RED}FAIL${RESET} (no RZX file produced)"
-        fail=$((fail + 1))
+        fail_row " (no RZX file produced)"
     fi
 fi
 
@@ -929,15 +888,12 @@ if want rzx-playback-func; then
             --rzx-play "$rzx_rt" \
             --delayed-automatic-exit 3 2>&1) || true
         if echo "$play_output" | grep -qi "rzx.*play\|rzx.*load\|rzx.*snapshot"; then
-            echo -e "${GREEN}PASS${RESET} (RZX playback started successfully)"
-            pass=$((pass + 1))
+            pass_row " (RZX playback started successfully)"
         else
-            echo -e "${RED}FAIL${RESET} (no RZX playback confirmation in log)"
-            fail=$((fail + 1))
+            fail_row " (no RZX playback confirmation in log)"
         fi
     else
-        echo -e "${RED}FAIL${RESET} (RZX recording failed, cannot test playback)"
-        fail=$((fail + 1))
+        fail_row " (RZX recording failed, cannot test playback)"
     fi
 fi
 
@@ -979,11 +935,9 @@ if want screenshot-pending-func; then
     if [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$png" ]] \
        && echo "$out" | grep -q "NO screenshot was written" \
        && [[ "$ctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
-        echo -e "${GREEN}PASS${RESET} (pending capture: error + exit!=0, no PNG; control writes one)"
-        pass=$((pass + 1))
+        pass_row " (pending capture: error + exit!=0, no PNG; control writes one)"
     else
-        echo -e "${RED}FAIL${RESET} (pending_rc=$pend_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$ctrl_rc)"
-        fail=$((fail + 1))
+        fail_row " (pending_rc=$pend_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$ctrl_rc)"
     fi
 fi
 
@@ -1034,11 +988,9 @@ if want exit-frames-func; then
        && echo "$past_out" | grep -q "NO screenshot was written" \
        && [[ "$ovr_rc" -ne 0 ]] && [[ ! -f "$ovr" ]] \
        && echo "$ovr_out" | grep -q "NO screenshot was written"; then
-        echo -e "${GREEN}PASS${RESET} (exit at frame $N exactly; -frames overrides seconds)"
-        pass=$((pass + 1))
+        pass_row " (exit at frame $N exactly; -frames overrides seconds)"
     else
-        echo -e "${RED}FAIL${RESET} (at_rc=$at_rc at_png=$([[ -s "$at_n" ]] && echo y || echo n) past_rc=$past_rc past_png=$([[ -f "$past_n" ]] && echo y || echo n) override_rc=$ovr_rc override_png=$([[ -f "$ovr" ]] && echo y || echo n))"
-        fail=$((fail + 1))
+        fail_row " (at_rc=$at_rc at_png=$([[ -s "$at_n" ]] && echo y || echo n) past_rc=$past_rc past_png=$([[ -f "$past_n" ]] && echo y || echo n) override_rc=$ovr_rc override_png=$([[ -f "$ovr" ]] && echo y || echo n))"
     fi
 fi
 
@@ -1069,11 +1021,9 @@ if want screenshot-paused-func; then
     if [[ "$paused_rc" -ne 0 ]] && [[ ! -f "$png" ]] \
        && echo "$out" | grep -q "NO screenshot was written" \
        && [[ "$pctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
-        echo -e "${GREEN}PASS${RESET} (paused debugger: error + exit!=0, no PNG; control writes one)"
-        pass=$((pass + 1))
+        pass_row " (paused debugger: error + exit!=0, no PNG; control writes one)"
     else
-        echo -e "${RED}FAIL${RESET} (paused_rc=$paused_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$pctrl_rc)"
-        fail=$((fail + 1))
+        fail_row " (paused_rc=$paused_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$pctrl_rc)"
     fi
 fi
 
@@ -1108,11 +1058,9 @@ if want screenshot-io-func; then
        && echo "$out" | grep -q "FAILED to write" \
        && echo "$out" | grep -q "No such file or directory" \
        && [[ "$ioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
-        echo -e "${GREEN}PASS${RESET} (unwritable path: error+reason, exit!=0, no PNG; control writes one)"
-        pass=$((pass + 1))
+        pass_row " (unwritable path: error+reason, exit!=0, no PNG; control writes one)"
     else
-        echo -e "${RED}FAIL${RESET} (io_rc=$io_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$ioctrl_rc)"
-        fail=$((fail + 1))
+        fail_row " (io_rc=$io_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$ioctrl_rc)"
     fi
 fi
 
@@ -1142,11 +1090,9 @@ if want screenshot-io-qt-func; then
        && echo "$out" | grep -q "FAILED to write" \
        && echo "$out" | grep -q "No such file or directory" \
        && [[ "$qioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
-        echo -e "${GREEN}PASS${RESET} (Qt unwritable path: error+reason, exit!=0, no PNG; control writes one)"
-        pass=$((pass + 1))
+        pass_row " (Qt unwritable path: error+reason, exit!=0, no PNG; control writes one)"
     else
-        echo -e "${RED}FAIL${RESET} (qt_io_rc=$qio_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$qioctrl_rc)"
-        fail=$((fail + 1))
+        fail_row " (qt_io_rc=$qio_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$qioctrl_rc)"
     fi
 fi
 
@@ -1225,8 +1171,7 @@ if want snapshot-save-func; then
     then refuse_rc=0; else refuse_rc=1; fi
 
     if [[ "$content_ok" -eq -1 ]]; then
-        echo -e "${YELLOW}SKIP${RESET} (no ImageMagick — cannot content-verify the reload)"
-        skip=$((skip + 1))
+        skip_row " (no ImageMagick — cannot content-verify the reload)"
     elif [[ "$save_rc" -eq 0 ]] && [[ -s "$szx" ]] \
        && [[ "$reload_rc" -eq 0 ]] && [[ -s "$reloaded_png" ]] \
        && [[ "$content_ok" -eq 1 ]] \
@@ -1234,11 +1179,9 @@ if want snapshot-save-func; then
        && echo "$out" | grep -q "NO snapshot was written" \
        && [[ "$refuse_rc" -ne 0 ]] && [[ ! -f "$refused" ]] \
        && echo "$out_next" | grep -qi "cannot represent this machine"; then
-        echo -e "${GREEN}PASS${RESET} (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file; --machine next refused: error+exit!=0, no file)"
-        pass=$((pass + 1))
+        pass_row " (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file; --machine next refused: error+exit!=0, no file)"
     else
-        echo -e "${RED}FAIL${RESET} (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n) refuse_rc=$refuse_rc refused_exists=$([[ -f "$refused" ]] && echo y || echo n))"
-        fail=$((fail + 1))
+        fail_row " (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n) refuse_rc=$refuse_rc refused_exists=$([[ -f "$refused" ]] && echo y || echo n))"
     fi
 fi
 
@@ -1267,12 +1210,10 @@ if want tape-save-boot-func; then
         ts_diff=$(echo "$ts_diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
     fi
     if [[ "$ts_blocks" -eq 0 && "$ts_size" == "0" && "$ts_diff" -le "$TOLERANCE" ]]; then
-        echo -e "${GREEN}PASS${RESET} (NextZXOS boot clean with --tape-save armed: 0 blocks, empty file, ${ts_diff} px diff)"
-        pass=$((pass + 1))
+        pass_row " (NextZXOS boot clean with --tape-save armed: 0 blocks, empty file, ${ts_diff} px diff)"
         rm -f "$ts_tap" "$ts_png"
     else
-        echo -e "${RED}FAIL${RESET} (blocks=$ts_blocks file_size=$ts_size px_diff=$ts_diff — SAVE trap fired during NextZXOS boot?)"
-        fail=$((fail + 1))
+        fail_row " (blocks=$ts_blocks file_size=$ts_size px_diff=$ts_diff — SAVE trap fired during NextZXOS boot?)"
     fi
 fi
 
@@ -1300,12 +1241,10 @@ if want reset-to-nextzxos-func; then
         rst_diff=$(echo "$rst_diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
     fi
     if [[ "$rst_diff" -le "$TOLERANCE" ]]; then
-        echo -e "${GREEN}PASS${RESET} (reset after boot re-booted to NextZXOS: ${rst_diff} px diff vs welcome)"
-        pass=$((pass + 1))
+        pass_row " (reset after boot re-booted to NextZXOS: ${rst_diff} px diff vs welcome)"
         rm -f "$rst_png"
     else
-        echo -e "${RED}FAIL${RESET} (px_diff=$rst_diff — reset did not re-boot to NextZXOS? [Task 70])"
-        fail=$((fail + 1))
+        fail_row " (px_diff=$rst_diff — reset did not re-boot to NextZXOS? [Task 70])"
     fi
 fi
 
@@ -1332,12 +1271,10 @@ if want cold-boot-load-rzx-func; then
             --delayed-automatic-exit-frames 520 2>&1 || true)
     fi
     if echo "$cb_out" | grep -q "RZX: playback started"; then
-        echo -e "${GREEN}PASS${RESET} (cold-boot .rzx load routed to RZX playback via shared dispatch)"
-        pass=$((pass + 1))
+        pass_row " (cold-boot .rzx load routed to RZX playback via shared dispatch)"
         rm -f "$cb_rzx"
     else
-        echo -e "${RED}FAIL${RESET} (cold-boot .rzx misrouted — shared load dispatch dropped .rzx? [Task 70 review])"
-        fail=$((fail + 1))
+        fail_row " (cold-boot .rzx misrouted — shared load dispatch dropped .rzx? [Task 70 review])"
     fi
 fi
 
@@ -1352,12 +1289,10 @@ if want rewind-func; then
     rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
     if [[ -n "$rewind_summary" ]]; then
         rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
-        echo -e "${GREEN}PASS${RESET} (${rewind_passed}/${rewind_passed} rewind unit tests)"
-        pass=$((pass + 1))
+        pass_row " (${rewind_passed}/${rewind_passed} rewind unit tests)"
     else
         fail_line=$(echo "$rewind_out" | grep -E "^Total:" || echo "unknown")
-        echo -e "${RED}FAIL${RESET} ($fail_line)"
-        fail=$((fail + 1))
+        fail_row " ($fail_line)"
     fi
 fi
 
@@ -1374,11 +1309,9 @@ if want benchmark-func; then
     bench_count=$(echo "$bench_out" | grep -c '^BENCH ' || true)
     if [[ "$bench_count" -eq 1 ]] && echo "$bench_out" | grep -qE \
         '^BENCH workload=boot-48k frames=20 wall=[0-9]+\.[0-9]+ fps=[0-9]+\.[0-9]+ tstates_per_sec=[0-9]+ tstates_per_frame=69888 cpu=3\.5MHz core=[0-9]+@[0-9]+kHz build=.+$'; then
-        echo -e "${GREEN}PASS${RESET} (one well-formed BENCH line, 69888 T-states/frame @ 3.5MHz)"
-        pass=$((pass + 1))
+        pass_row " (one well-formed BENCH line, 69888 T-states/frame @ 3.5MHz)"
     else
-        echo -e "${RED}FAIL${RESET} (BENCH line missing or malformed; got: $(echo "$bench_out" | grep '^BENCH ' || echo '<none>'))"
-        fail=$((fail + 1))
+        fail_row " (BENCH line missing or malformed; got: $(echo "$bench_out" | grep '^BENCH ' || echo '<none>'))"
     fi
 fi
 
@@ -1396,11 +1329,9 @@ if want trace-func; then
     tr_on_count=$(echo "$tr_on" | grep -cF "$tr_line" || true)
     tr_off_count=$(echo "$tr_off" | grep -cF "$tr_line" || true)
     if [[ "$tr_on_count" -ge 1 && "$tr_off_count" -eq 0 ]]; then
-        echo -e "${GREEN}PASS${RESET} (--trace enables the trace log; default run leaves it off)"
-        pass=$((pass + 1))
+        pass_row " (--trace enables the trace log; default run leaves it off)"
     else
-        echo -e "${RED}FAIL${RESET} (enable-line count: with --trace=$tr_on_count (want >=1), default=$tr_off_count (want 0))"
-        fail=$((fail + 1))
+        fail_row " (enable-line count: with --trace=$tr_on_count (want >=1), default=$tr_off_count (want 0))"
     fi
 fi
 
@@ -1426,11 +1357,9 @@ if want frame-pacing-func; then
     fp_60_hit=$(echo "$fp_60" | grep -cF "17 ms/frame timer" || true)
     fp_50_hit=$(echo "$fp_50" | grep -cF "17 ms/frame timer" || true)
     if [[ "$fp_60_hit" -ge 1 && "$fp_50_hit" -eq 0 ]]; then
-        echo -e "${GREEN}PASS${RESET} (60 Hz demo paces to 17 ms/frame; 50 Hz machine does not)"
-        pass=$((pass + 1))
+        pass_row " (60 Hz demo paces to 17 ms/frame; 50 Hz machine does not)"
     else
-        echo -e "${RED}FAIL${RESET} (60Hz->17ms line count=$fp_60_hit (want >=1), 48k count=$fp_50_hit (want 0))"
-        fail=$((fail + 1))
+        fail_row " (60Hz->17ms line count=$fp_60_hit (want >=1), 48k count=$fp_50_hit (want 0))"
     fi
 fi
 
@@ -1483,11 +1412,9 @@ PY
     # stale must NOT be rejected AND must warn about the num_banks/bitmap mismatch
     stale_warn=$(echo "$stale_out" | grep -cF "disagrees with the bank bitmap" || true)
     if [[ "$ext_hit" -ge 1 && "$plain_hit" -eq 0 && "$stale_hit" -eq 0 && "$stale_warn" -ge 1 ]]; then
-        echo -e "${GREEN}PASS${RESET} (extended rejected; exact-size accepted; stale num_banks warned + loaded)"
-        pass=$((pass + 1))
+        pass_row " (extended rejected; exact-size accepted; stale num_banks warned + loaded)"
     else
-        echo -e "${RED}FAIL${RESET} (ext=$ext_hit want>=1, plain=$plain_hit want0, stale_rej=$stale_hit want0, stale_warn=$stale_warn want>=1)"
-        fail=$((fail + 1))
+        fail_row " (ext=$ext_hit want>=1, plain=$plain_hit want0, stale_rej=$stale_hit want0, stale_warn=$stale_warn want>=1)"
     fi
 fi
 
@@ -1510,11 +1437,9 @@ if want esxdos-chain-red-func; then
     req=$(echo "$out" | grep -cE "requested \.RUN '.*red\.nex'" || true)
     got=$(echo "$out" | grep -cE "NEX: loaded '.*red\.nex'" || true)
     if [[ "$req" -ge 1 && "$got" -ge 1 ]]; then
-        echo -e "${GREEN}PASS${RESET} (menu -> key 1 -> chain-loaded red.nex)"
-        pass=$((pass + 1))
+        pass_row " (menu -> key 1 -> chain-loaded red.nex)"
     else
-        echo -e "${RED}FAIL${RESET} (red .RUN=$req want>=1, red load=$got want>=1)"
-        fail=$((fail + 1))
+        fail_row " (red .RUN=$req want>=1, red load=$got want>=1)"
     fi
 fi
 
@@ -1527,11 +1452,9 @@ if want esxdos-chain-blue-func; then
     req=$(echo "$out" | grep -cE "requested \.RUN '.*blue\.nex'" || true)
     got=$(echo "$out" | grep -cE "NEX: loaded '.*blue\.nex'" || true)
     if [[ "$req" -ge 1 && "$got" -ge 1 ]]; then
-        echo -e "${GREEN}PASS${RESET} (menu -> key 2 -> chain-loaded blue.nex)"
-        pass=$((pass + 1))
+        pass_row " (menu -> key 2 -> chain-loaded blue.nex)"
     else
-        echo -e "${RED}FAIL${RESET} (blue .RUN=$req want>=1, blue load=$got want>=1)"
-        fail=$((fail + 1))
+        fail_row " (blue .RUN=$req want>=1, blue load=$got want>=1)"
     fi
 fi
 
@@ -1547,11 +1470,9 @@ if want esxdos-chain-return-func; then
     # a count of >=2 is what proves the round-trip actually chained back.
     menu_loads=$(echo "$out" | grep -cE "NEX: loaded '.*menu\.nex'" || true)
     if [[ "$to_blue" -ge 1 && "$back" -ge 1 && "$menu_loads" -ge 2 ]]; then
-        echo -e "${GREEN}PASS${RESET} (menu -> blue -> menu round-trip via .RUN)"
-        pass=$((pass + 1))
+        pass_row " (menu -> blue -> menu round-trip via .RUN)"
     else
-        echo -e "${RED}FAIL${RESET} (blue .RUN=$to_blue want>=1, menu .RUN=$back want>=1, menu loads=$menu_loads want>=2)"
-        fail=$((fail + 1))
+        fail_row " (blue .RUN=$to_blue want>=1, menu .RUN=$back want>=1, menu loads=$menu_loads want>=2)"
     fi
 fi
 
@@ -1581,18 +1502,14 @@ if want ffmpeg-missing-warn-func; then
         # ffmpeg genuinely absent on this host — the control run cannot prove the
         # negative, so only assert the masked run warns. Loud, not silent.
         if [[ "$masked_hit" -ge 1 ]]; then
-            echo -e "${GREEN}PASS${RESET} (warns when ffmpeg absent; control skipped — no ffmpeg on host)"
-            pass=$((pass + 1))
+            pass_row " (warns when ffmpeg absent; control skipped — no ffmpeg on host)"
         else
-            echo -e "${RED}FAIL${RESET} (masked run did not warn: masked_hit=$masked_hit want>=1)"
-            fail=$((fail + 1))
+            fail_row " (masked run did not warn: masked_hit=$masked_hit want>=1)"
         fi
     elif [[ "$masked_hit" -ge 1 && "$present_hit" -eq 0 ]]; then
-        echo -e "${GREEN}PASS${RESET} (warns when ffmpeg masked from PATH; silent when present)"
-        pass=$((pass + 1))
+        pass_row " (warns when ffmpeg masked from PATH; silent when present)"
     else
-        echo -e "${RED}FAIL${RESET} (masked_hit=$masked_hit want>=1, present_hit=$present_hit want0)"
-        fail=$((fail + 1))
+        fail_row " (masked_hit=$masked_hit want>=1, present_hit=$present_hit want0)"
     fi
 fi
 
