@@ -385,7 +385,7 @@ on exit. Join it against a z88dk `.map` file to get a per-function heatmap:
 # THE GUI
 
 The Qt6 build gives a native window with menus, a toolbar and a status bar
-(FPS, CPU speed, machine type, tape status, rewind state), Hi-DPI
+(FPS, CPU speed, emulator speed, tape status, machine type), Hi-DPI
 pixel-perfect rendering at integer scale, and a CRT scanline filter.
 
 **File**
@@ -414,7 +414,7 @@ pixel-perfect rendering at integer scale, and a CRT scanline filter.
     (Ctrl+D).
 
 **Settings**
-:   Preferences..., which opens the settings dialog (Startup, Paths and Input
+:   Preferences..., which opens the settings dialog (Startup, Input and Paths
     tabs). Its values are saved to the configuration file; command-line options
     always take precedence over them.
 

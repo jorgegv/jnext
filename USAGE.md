@@ -435,7 +435,7 @@ per-function heatmap:
 ## THE GUI
 
 The Qt6 build gives a native window with menus, a toolbar and a status
-bar (FPS, CPU speed, machine type, tape status, rewind state), Hi-DPI
+bar (FPS, CPU speed, emulator speed, tape status, machine type), Hi-DPI
 pixel-perfect rendering at integer scale, and a CRT scanline filter.
 
 **File**  
@@ -465,7 +465,7 @@ Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
 (Ctrl+D).
 
 **Settings**  
-Preferences…, which opens the settings dialog (Startup, Paths and Input
+Preferences…, which opens the settings dialog (Startup, Input and Paths
 tabs). Its values are saved to the configuration file; command-line
 options always take precedence over them.
 
