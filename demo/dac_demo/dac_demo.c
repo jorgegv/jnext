@@ -31,6 +31,14 @@
  * separation never happened, and because sample_b is exactly the third
  * harmonic of sample_a (phase step 3 vs 1 over the same 256-entry table)
  * the sum was heard as one hollow, reedy, buzzing tone.  See issue #38.
+ *
+ * Measured, before -> after (rendered output, FFT):
+ *   L/R correlation      1.000000 -> ~0.000   (identical sides -> real stereo)
+ *   3rd harmonic vs f0   ~equal (+0.2 dB) -> one clean tone per side
+ *   other harmonics      <= -60 dB in both cases
+ * Equal-amplitude f0 and h3 is what the code predicts, since both tones come
+ * from the same unscaled 8-bit table.  (An earlier note in the fix commit put
+ * h3 at -3.8 dB; that figure could not be reproduced and is wrong.)
  */
 
 #pragma output REGISTER_SP  = 0xfffd
