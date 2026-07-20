@@ -91,7 +91,9 @@ jobs:
       # every other GUI functional test uses QT_QPA_PLATFORM=offscreen and
       # needs no display), python3 (check-audio-underruns.py), unzip (the
       # SD-image provisioning step's own dependency, ultimately via
-      # libcurl inside jnext, not this step directly, but kept explicit).
+      # libcurl inside jnext, not this step directly, but kept explicit),
+      # ripgrep (the regression preflight lint) and ffmpeg-free (video-record-func;
+      # the same package the maintainer has locally).
       # git, make and diffutils come preinstalled on an Ubuntu runner but are
       # absent from the bare Fedora image, so they are explicit here.
       - name: Install build + test dependencies
@@ -101,7 +103,13 @@ jobs:
             SDL2-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
             qt6-qtbase-devel \
             ImageMagick xorg-x11-server-Xvfb python3 unzip diffutils \
+            ripgrep ffmpeg-free \
             pandoc mkdocs-material
+          # CMake shells out to `git submodule update`, which refuses on a
+          # workspace owned by another uid ("dubious ownership", exit 128).
+          # actions/checkout already placed the submodule so the build works
+          # anyway, but the warning is noise on every configure.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out
         uses: actions/checkout@v4
