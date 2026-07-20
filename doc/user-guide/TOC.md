@@ -13,6 +13,15 @@ The complete option reference is `jnext(1)` / `USAGE.md`, which are generated
 from a single source; the Reference chapter links there rather than restating
 options, so the manual can never drift from the binary.
 
+**Audience.** Chapters 1-5 are for someone who just wants to **run programs**,
+and assume no development background. Chapters 6-7 are **developer oriented** —
+JNEXT is a developer's emulator and its users want to know how the debugger
+and the automation work. Keep the two registers distinct.
+
+**This is a product guide.** No JNEXT internals: no Qt6, no build targets, no
+architecture, unless a reader genuinely needs it to accomplish a task. Not
+verbose; screenshots where they carry more than the prose would.
+
 Toolchain: [mkdocs-material](https://squidfunk.github.io/mkdocs-material/),
 YAML + Markdown. Documentation-only dev requirement, never invoked by a code
 build.
@@ -61,7 +70,8 @@ session as subsections.
 
 ## 6. The debugger
 
-One chapter, not a separate manual — with a subsection per panel and per
+Part of this guide, deliberately — JNEXT is a developer's emulator and its
+users want to know how the debugger works. A subsection per panel and per
 function, so it can be used as a reference while debugging.
 
 **Panels** (one subsection each, matching `src/debugger/`):
@@ -93,23 +103,26 @@ function, so it can be used as a reference while debugging.
 
 ## 7. Automation and CI
 
-Kept deliberately, and justified: the same machinery that automates JNEXT's own
-test suite automates testing of *your* programs. Headless mode, deterministic
-screenshots (by seconds, by frames), fixing the RTC, key injection, exit codes
-and the never-silently-missed-capture contract, and wiring all of it into a
-build or CI pipeline.
+The same machinery that automates JNEXT's own test suite automates testing of
+*your* programs. Headless mode, deterministic screenshots (by seconds, by
+frames), fixing the RTC, key injection, exit codes and the
+never-silently-missed-capture contract, and wiring all of it into a build or
+CI pipeline.
 
-## 8. Reference
+Carries a **full worked example**, with the examples drawn from JNEXT's own
+regression suite (`test/00regression/`) — real, working automation rather than
+invented snippets.
+
+## 8. Known issues
+
+What to expect when something does not work, and where to look. Links to the
+[issue tracker](https://github.com/jorgegv/jnext/issues) for the live list,
+plus a write-up in place of the most outstanding ones — notably **what happens
+when the host machine is underpowered to run JNEXT** (judder and audio
+catch-up; issue #9), the DAC buzzing (#38), and the debugger window positioning
+(#39).
+
+## 9. Reference
 
 Pointers, not restatements: `jnext(1)` for the full option reference, file and
 directory locations, and links to the ZX Spectrum Next hardware documentation.
-
----
-
-## Open questions for a later pass
-
-- Whether chapter 6 outgrows the guide and wants to become its own document
-  once every panel is written up.
-- Whether chapter 7 should carry a complete worked example (a small program
-  plus the CI job that screenshot-tests it) or stay a description of the
-  mechanisms.
