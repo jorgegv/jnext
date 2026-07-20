@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -69,6 +69,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5282** | **5282** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5288** | **5288** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

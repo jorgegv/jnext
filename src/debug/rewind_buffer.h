@@ -74,8 +74,17 @@ public:
 
     /// Pretend the expected snapshot size shrank after construction —
     /// simulates post-construction save_state schema drift (RB-FRAME-04
-    /// eviction row). The real state-stream size is compile-time-fixed,
-    /// so the mismatch cannot be produced any other way. Shrink only:
+    /// eviction row). The real state-stream size is fixed-width by
+    /// construction, so the mismatch cannot be produced any other way.
+    ///
+    /// That claim was FALSE until issue #42: two fields (the ULA
+    /// port-0xFF change log, the keyboard auto-type queue) were written
+    /// count-prefixed and variable-length, so ordinary guest behaviour —
+    /// a single OUT (0xFF),A — widened the stream and every snapshot from
+    /// then on was silently dropped. Both are now written at their full
+    /// capacity; RB-SIZE-01..06 in rewind_test pin it. Any NEW
+    /// variable-length field added to save_state re-breaks rewind the
+    /// same silent way, so serialise at constant width. Shrink only:
     /// the mmap slots keep their construction-time size, so a smaller
     /// claim makes writes overflow the CLAIM, never the allocation.
     void shrink_expected_snapshot_bytes_for_test(size_t n) {

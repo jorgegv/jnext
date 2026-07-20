@@ -750,6 +750,111 @@ static int test_rb_frame_guard()
     return 0;
 }
 
+// ── Test 11b: snapshot size is independent of guest behaviour (issue #42) ──
+//
+// RewindBuffer sizes every slot from ONE dry-run save_state() at
+// construction and then requires each snapshot to be exactly that size.
+// That only works if the state stream has a constant width — which it did
+// not: Ula::save_state wrote the per-scanline port-0xFF change log as a
+// count-prefixed variable-length array (3 bytes/entry) and
+// Keyboard::save_state did the same for the auto-type queue (20
+// bytes/entry). So the first frame in which the guest touched port 0xFF
+// produced a snapshot 3 bytes too large and it was silently DROPPED — for
+// a program that writes port 0xFF every frame (any Timex mode change),
+// rewind recorded nothing at all while reporting itself enabled.
+//
+// These rows pin the invariant the fixed-slot design assumes, at the two
+// fields that broke it. Pre-fix, RB-SIZE-01/02/04/05 all fail.
+
+static int test_snapshot_size_invariance()
+{
+    printf("\n--- Test 11b: snapshot size vs guest behaviour (issue #42) ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 0);
+    emu.run_frame();
+
+    // Baseline: empty port-0xFF log, empty auto-type queue.
+    StateWriter base;
+    emu.save_state(base);
+    const size_t snap = base.position();
+    REQUIRE(emu.renderer().ula().port_ff_change_log_size() == 0,
+            "precondition: port-0xFF log starts empty");
+
+    // ---- port-0xFF change log ------------------------------------------
+    // Drive the real setter, the same path a guest OUT (0xFF),A takes.
+    emu.renderer().ula().set_screen_mode(0x02);
+    emu.renderer().ula().set_screen_mode(0x06);
+    const size_t logged = emu.renderer().ula().port_ff_change_log_size();
+    REQUIRE(logged >= 2, "precondition: port-0xFF writes were logged");
+
+    StateWriter after_ff;
+    emu.save_state(after_ff);
+    CHECK(after_ff.position() == snap,
+          "RB-SIZE-01 snapshot size unchanged by port-0xFF writes");
+
+    {
+        RewindBuffer rb(3, snap);
+        rb.take_snapshot(emu, 100, 1);
+        CHECK(rb.depth() == 1,
+              "RB-SIZE-02 snapshot taken on a port-0xFF frame is published, not dropped");
+    }
+
+    // The fix must not buy constant width by throwing the log away: the
+    // in-flight entries still have to round-trip (S5-PSL.05).
+    {
+        RewindBuffer rb(3, snap);
+        rb.take_snapshot(emu, 100, 1);
+        emu.renderer().ula().set_screen_mode(0x00);   // disturb live state
+        // Deliberately CHECK, not REQUIRE: if the snapshot was dropped this
+        // row must FAIL and the suite must still report its pinned row
+        // count, rather than aborting and tripping the manifest guard with
+        // a second, misleading fault.
+        CHECK(rb.restore_nearest(100, emu) == 100 &&
+              emu.renderer().ula().port_ff_change_log_size() == logged,
+              "RB-SIZE-03 port-0xFF log content survives the snapshot round-trip");
+    }
+
+    // ---- auto-type queue ------------------------------------------------
+    {
+        Emulator emu2;
+        build_emulator(emu2, 0);
+        emu2.run_frame();
+        StateWriter b2;
+        emu2.save_state(b2);
+        const size_t snap2 = b2.position();
+
+        // The instant-TAP LOAD"" sequence, i.e. the real in-flight case.
+        std::vector<Keyboard::AutoKey> keys = {
+            {6, 3, -1, -1, 5}, {5, 0, 7, 1, 5}, {5, 0, 7, 1, 5}, {6, 0, -1, -1, 5},
+        };
+        emu2.keyboard().queue_auto_type(keys);
+
+        StateWriter after_kb;
+        emu2.save_state(after_kb);
+        CHECK(after_kb.position() == snap2,
+              "RB-SIZE-04 snapshot size unchanged by a queued auto-type sequence");
+
+        RewindBuffer rb(3, snap2);
+        rb.take_snapshot(emu2, 100, 1);
+        CHECK(rb.depth() == 1,
+              "RB-SIZE-05 snapshot taken mid-auto-type is published, not dropped");
+
+        // The cap is what makes the constant width honest — an oversized
+        // sequence is truncated at the queue, never silently widening the
+        // snapshot afterwards.
+        std::vector<Keyboard::AutoKey> too_many(Keyboard::MAX_AUTO_TYPE_KEYS + 8,
+                                                {6, 0, -1, -1, 5});
+        emu2.keyboard().queue_auto_type(too_many);
+        StateWriter after_cap;
+        emu2.save_state(after_cap);
+        CHECK(after_cap.position() == snap2,
+              "RB-SIZE-06 over-cap auto-type sequence still yields a constant-size snapshot");
+    }
+
+    return 0;
+}
+
 // ── Test 12: rewind chain fails loudly on a corrupted slot (Task 60b) ──────
 //
 // The blocker case: a sentinel mismatch during a REAL rewind (RewindBuffer →
@@ -827,6 +932,7 @@ int main()
     test_state_bounds();
     test_state_sentinels();
     test_rb_frame_guard();
+    test_snapshot_size_invariance();
     test_rewind_chain_corrupted_slot();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
