@@ -63,9 +63,6 @@ permissions:
 env:
   LANG: C
   LC_ALL: C
-  # sd_rom_extractor_test's own override, so it reads jnext's default cached
-  # image instead of needing a roms/ fixture that a fresh clone never has.
-  JNEXT_TEST_SD_IMAGE: /github/home/.jnext/sdcard/cspect-next-1gb-fixed.img
 
 jobs:
   test:
@@ -150,15 +147,6 @@ jobs:
       # is warm from the build above.
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         run: LANG=C make build-matrix
-
-      # jnext downloads and caches the SD image itself on first use; the only
-      # thing CI adds is running it once up front so the cache above is warm
-      # before the suites, and telling sd_rom_extractor_test where it landed
-      # (the test's own JNEXT_TEST_SD_IMAGE hook — no roms/ symlink needed).
-      - name: Let jnext fetch its SD image (its own downloader, default cache)
-        run: |
-          ./build/gui-release/jnext --headless \
-            --sdcard-download-confirm --delayed-automatic-exit 1
 
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
         run: LANG=C make unit-test
