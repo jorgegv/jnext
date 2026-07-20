@@ -41,8 +41,16 @@ public:
     /// Save window position to QSettings (called before hide/close).
     void save_position();
 
-    /// Position this window to the right of the given main window.
+    /// Re-attach this window to the right-hand edge of the given main window.
+    /// Honours the Window > "Attach to Emulator Window" toggle, stands down
+    /// while the main window is fullscreen, and does nothing at all on a
+    /// window system that forbids a client positioning its own toplevels
+    /// (Wayland) — see src/debugger/window_attach.h. Safe to call on every
+    /// move/resize of the main window.
     void position_next_to(QWidget* main_win);
+
+    /// Is the debugger currently set to follow the emulator window?
+    bool attach_enabled() const { return attach_enabled_; }
 
     /// Activate follow-PC in the disassembly panel.
     void activate_follow_pc();
@@ -69,6 +77,7 @@ private:
     void create_menus();
     void save_geometry();
     void restore_geometry();
+    void set_attach_enabled(bool on);
     void show_add_data_bp_dialog(WatchType type);
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
@@ -96,6 +105,22 @@ private:
     MmuPanel* mmu_panel_ = nullptr;
     StackPanel* stack_panel_ = nullptr;
     CallStackPanel* callstack_panel_ = nullptr;
+
+    // Issue #39 — window attachment. `attach_enabled_` is the user's toggle,
+    // persisted alongside the window size. `attach_supported_` says whether the
+    // window system honours a client-issued move: seeded from the platform name
+    // at construction (false on Wayland) and then CORRECTED BY MEASUREMENT — a
+    // move that is repeatedly ignored latches it false, because the platform
+    // name alone proved not to be trustworthy (an XWayland "xcb" session drops
+    // moves exactly like native Wayland). When false the toggle is disabled in
+    // the menu and no move is attempted, since it would be silently dropped.
+    bool     attach_enabled_ = true;
+    bool     attach_supported_ = true;
+    QAction* attach_action_ = nullptr;
+    // Consecutive moves the window system ignored. Attachment gives up (and
+    // says so) once this reaches kAttachFailuresBeforeGivingUp — the platform
+    // name alone is not proof a move will be honoured.
+    int      attach_failures_ = 0;
 
     // Trace toolbar state
     QPushButton* trace_toggle_btn_ = nullptr;
