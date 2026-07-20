@@ -1,8 +1,8 @@
 site_name: JNEXT User Guide
 site_description: ZX Spectrum Next emulator — user guide
 repo_url: https://github.com/jorgegv/jnext
-docs_dir: doc/user-guide
-site_dir: build/user-guide
+docs_dir: src/doc/user-guide
+site_dir: doc/user-guide
 
 theme:
   name: material

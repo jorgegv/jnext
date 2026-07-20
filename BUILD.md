@@ -142,7 +142,8 @@ both the man page and `USAGE.md`, so the two cannot drift apart:
 ```sh
 make docs-man       # regenerate doc/man/jnext.1 and USAGE.md   (needs pandoc)
 make docs-check     # fail if either committed output is stale
-make docs-userguide # render the user guide to build/user-guide  (needs mkdocs)
+make docs-userguide # render src/doc/user-guide -> doc/user-guide  (needs mkdocs)
+make read-userguide # serve the rendered guide on localhost for reading
 ```
 
 Never edit `doc/man/jnext.1` or `USAGE.md` by hand — edit the source and rerun
@@ -164,15 +165,23 @@ The man page is installed by the CMake install rules to
 (rpm, deb, Flatpak, macOS) with no per-format step. The Windows zip ships
 `USAGE.md` instead, man pages being meaningless there.
 
-The **user guide** lives under `doc/user-guide` and is built with
+The **user guide** is written under `src/doc/user-guide` and rendered with
 [mkdocs-material](https://squidfunk.github.io/mkdocs-material/)
 ([issue #28](https://github.com/jorgegv/jnext/issues/28)). The Markdown is
 readable as-is in the repository; to build the browsable site:
 
 ```sh
-make docs-userguide     # renders into build/user-guide/
-mkdocs serve            # live preview at http://127.0.0.1:8000/
+make docs-userguide     # renders src/doc/user-guide -> doc/user-guide
+make read-userguide     # serve it at http://localhost:8000/ to read in a browser
+mkdocs serve            # live preview with auto-reload, for editing
 ```
+
+The **rendered** guide is committed under `doc/user-guide`, so anyone who clones
+the repository can read it without installing a documentation toolchain — open
+`doc/user-guide/index.html`, or run `make read-userguide`. The **sources** live
+under `src/doc/user-guide`; edit those and rerun `make docs-userguide`,
+committing the regenerated output alongside your change, exactly as with the man
+page.
 
 `make docs-userguide` needs mkdocs-material, which is packaged by the
 distributions — no pip or virtualenv required:
