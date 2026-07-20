@@ -141,6 +141,32 @@ benchmark must use `build/gui-release/jnext`** (`make gui-release`), never
 > The process is mandatory for every test plan rewrite and every emulator
 > fix that touches subsystem tests.
 
+### CI runs the EXACT same commands as a local run — HARD RULE
+
+Every `run:` in `.github/workflows/ci.yml` is a **plain make target**, the same
+one a human types locally. CI and local must never diverge.
+
+If CI appears to need something the local flow lacks, the answer is almost never
+a CI-only step: either the project is missing a target (add it to the Makefile,
+so local runs get it too) or the need is imaginary. **Reuse the program's own
+mechanisms** — jnext downloads and caches its SD image itself, and
+`sd_rom_extractor_test` already takes a `JNEXT_TEST_SD_IMAGE` override.
+Reimplementing either in YAML is the error.
+
+**Never pipe a build or test command** (`| tail`, `| head`, `| grep`): GitHub's
+default `bash -e` does not set `pipefail`, so the step takes the *pipe's* exit
+status and a failing `make` reports success. This is not hypothetical — CI once
+printed `62 pass, 1 fail` and `UNIT TESTS FAILED` in bold and went **green**.
+
+Do not add a step for something the Makefile already declares as a prerequisite
+(`docs-check` is a prerequisite of both `unit-test` and `regression`).
+
+The job runs in `container: fedora:44` — the same image `release.yml` builds the
+rpm and Windows artifacts in, and the distro the maintainer develops on. That is
+load-bearing: distros ship different pandoc / mkdocs-material versions, and
+those emit byte-different generated documentation, so a different runner reports
+a *version gap* as staleness.
+
 ### Documentation is checked by every test run
 
 `make unit-test` and `make regression` both depend on **`make docs-check`**, so a
