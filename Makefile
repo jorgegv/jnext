@@ -659,6 +659,7 @@ package-win: gui-release-win
 	 rm -rf "$(PKG_BUILD_WIN)/dist"; mkdir -p "$$stage"; \
 	 bash packaging/windows/bundle-dlls.sh $(PKG_BUILD_WIN)/jnext.exe "$$stage"; \
 	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
+	 cp -r doc/user-guide "$$stage"/user-guide; \
 	 rm -f "$(PKG_BUILD_WIN)/$$name.zip"; \
 	 ( cd "$(PKG_BUILD_WIN)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip

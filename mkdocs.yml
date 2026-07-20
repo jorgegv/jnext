@@ -4,6 +4,15 @@ repo_url: https://github.com/jorgegv/jnext
 docs_dir: src/doc/user-guide
 site_dir: doc/user-guide
 
+# Emit page.html links rather than page/ directory links. mkdocs defaults to
+# directory URLs, which only resolve when something maps a directory request to
+# its index.html — i.e. a web server. The guide is shipped INSIDE the packages
+# and is meant to be opened straight off disk, and under file:// a directory
+# link lands on a directory listing (or nothing at all), so every cross-link in
+# the guide was broken for exactly the offline reader it exists for.
+# Do not remove this without checking the guide still browses from file://.
+use_directory_urls: false
+
 theme:
   name: material
   features:
