@@ -3,37 +3,24 @@
 ## v0.98.71 (2026-07-20)
 
 ### User Features
-- **New: a complete JNEXT user guide** — nine chapters covering everything from
-  first run to automation, shipped with the packages and readable offline
-- Guide chapters: installing, first run, configuration, loading and running
-  programs, the debugger, automation/CI, known issues and a reference section
-- **New: a jnext(1) man page**, installed by every package; USAGE.md is now
-  generated from that same single source, so the two can no longer disagree
+- New nine-chapter user guide, shipped with every package and readable offline
+- New jnext(1) man page in every package; USAGE.md generated from the same source
 - Preferences "Apply" no longer restarts the emulated machine
 
 ### Developer Features
-- The debugger window attaches to the emulator window and follows it as you
-  drag or resize, toggled from a new Window menu and remembered between sessions
-- Attachment works on X11; Wayland cannot support it (the protocol has no
-  client-side window positioning) and the menu says so rather than failing quietly
+- Debugger window attaches to the emulator window and follows it as you move it
+- Attachment works on X11; unavailable on Wayland, which cannot position windows
 
 ### Bug Fixes
-- Rewind silently recorded nothing once a program wrote port 0xFF or received a
-  UART byte — every snapshot was dropped, and the process still exited 0
-- The Soundrive DAC "buzz" was a bug in the bundled demo, not the emulator: it
-  addressed a channel through the Specdrum mono port and had two channels on the
-  wrong stereo sides
+- Rewind recorded nothing after a program wrote port 0xFF or received a UART byte
+- Soundrive DAC buzz was a bug in the bundled demo, not the emulator
 
 ### Internal JNEXT Development
-- CI now runs in a Fedora 44 container using the same make targets a developer
-  types locally — no CI-only logic
-- Fixed a CI hole where piping make through `tail` discarded the exit status: a
-  run printing "1 fail" and "UNIT TESTS FAILED" had been reporting green
-- The CLI flag set is now a data table checked against the man page in both
-  directions, so an undocumented or unimplemented flag fails the build
-- docs-check gates the man page, USAGE.md and the rendered guide on every test run
-- Traceability matrix VHDL citations are script-generated: 1608 uncited rows down
-  to 579, with a self-test pinning the extractor
+- CI runs in a Fedora 44 container using the same make targets as a local run
+- Fixed piped make commands hiding test failures; CI had reported a failing run green
+- CLI flag set is now a data table, checked against the man page both ways
+- docs-check gates man page, USAGE.md and the rendered guide on every test run
+- Traceability matrix VHDL citations script-generated: 1608 uncited rows down to 579
 - Unit suites: 5340 rows across 65 suites, zero skips
 
 ## v0.98.56 (2026-07-19)

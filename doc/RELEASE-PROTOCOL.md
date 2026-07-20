@@ -69,9 +69,33 @@ before the bump commit**, so the released tag carries its own ChangeLog entry.
 - The new entry is **differential**: it describes only what changed **since the
   previous ChangeLog record** (the last public release), not the whole history.
 - Follow the ChangeLog rules in `CLAUDE.md` (4 sections — User Features,
-  Developer Features, Bug Fixes, Internal JNEXT Development; terse one-line
-  items; no trivial fixes; no commit IDs; coalesce similar items).
+  Developer Features, Bug Fixes, Internal JNEXT Development; no trivial fixes;
+  no commit IDs; coalesce similar items).
 - Private patch bumps (answered `N`) do **not** require a ChangeLog entry.
+
+**Every item is ONE line. No exceptions.** One bullet, one physical line in the
+file, 10-20 words. If it wraps, it is too long — cut it, do not reflow it onto a
+second line. Same for the section describing the headline feature: it gets one
+line like everything else, not a paragraph.
+
+```markdown
+### User Features
+- New nine-chapter user guide, shipped with the packages and readable offline   ← yes
+- New jnext(1) man page installed by every package; USAGE.md generated from it   ← yes
+
+- **New: a complete JNEXT user guide** — nine chapters covering everything      ← NO
+  from first run to automation, shipped with the packages and readable offline
+```
+
+This is not formatting pedantry. The ChangeLog exists to give a USER a scannable
+overview of what changed — not a development diary, not an exhaustive list, and
+not a place to explain mechanism. Detail belongs in the issue, the commit
+message or the design doc. A reader who wants the mechanism can follow the
+issue number; a reader skimming twenty items cannot skim twenty paragraphs.
+
+The failure mode is real and recent: the v0.98.71 entry shipped with
+multi-line, three-clause bullets explaining *why* things happened, which is
+precisely what this rule forbids.
 
 Every step is `&&`-chained — if the sync fails, **nothing is committed or
 tagged** (no half-synced release).
