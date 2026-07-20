@@ -343,7 +343,8 @@ docs-check:
 docs-userguide:
 	@if ! command -v mkdocs >/dev/null 2>&1; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs not found. It is a documentation-only\n"; \
-	   printf "        dependency: pip install mkdocs-material (see BUILD.md). The\n"; \
+	   printf "        dependency: install mkdocs-material from your distribution\n"; \
+	   printf "        (Fedora: sudo dnf install mkdocs-material; see BUILD.md). The\n"; \
 	   printf "        guide is readable as markdown in doc/user-guide without it.\n"; exit 1; \
 	 fi
 	mkdocs build --strict

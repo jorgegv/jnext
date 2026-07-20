@@ -27,9 +27,8 @@ Optional:
 - **z88dk** — only to rebuild the demo programs in `demo/`.
 - **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs-man`).
   See [Documentation](#documentation) below.
-- **mkdocs-material** — *not needed yet*: it is the chosen toolchain for the
-  user manual, which is still being written and is not in the tree. Nothing
-  builds it today.
+- **mkdocs-material** — only to render the user guide (`make docs-userguide`).
+  See [Documentation](#documentation) below.
 
 None of the optional tools are needed to build jnext. In particular the two
 documentation tools are never invoked by a code build: the generated man page
@@ -170,11 +169,20 @@ The **user guide** lives under `doc/user-guide` and is built with
 ([issue #28](https://github.com/jorgegv/jnext/issues/28)). The Markdown is
 readable as-is in the repository; to build the browsable site:
 
-```console
-$ pip install mkdocs-material          # documentation-only requirement
-$ make docs-userguide                   # output in build/user-guide/
-$ mkdocs serve                          # preview at http://127.0.0.1:8000/
+```sh
+make docs-userguide     # renders into build/user-guide/
+mkdocs serve            # live preview at http://127.0.0.1:8000/
 ```
+
+`make docs-userguide` needs mkdocs-material, which is packaged by the
+distributions — no pip or virtualenv required:
+
+```sh
+sudo dnf install mkdocs-material     # Fedora / RHEL
+```
+
+Other distributions and macOS package it too, under varying names; check your
+own package manager.
 
 Like the man page, this is documentation tooling only — no code build invokes
 mkdocs, and a source build never needs it installed.
