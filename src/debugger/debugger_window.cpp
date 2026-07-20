@@ -19,8 +19,12 @@
 #include "debug/rewind_buffer.h"
 
 #include "debugger/debugger_manager.h"
+#include "debugger/window_attach.h"
 
 #include <QCloseEvent>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QTimer>
 #include <QToolBar>
 #include <QMenuBar>
 #include <QPushButton>
@@ -41,6 +45,7 @@
 #include <QSlider>
 #include <QStatusBar>
 #include <QSpinBox>
+#include <QSignalBlocker>
 #include <QDir>
 
 namespace {
@@ -70,8 +75,23 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     setMinimumWidth(1170);
     resize(1170, 900);
 
-    // Restore saved size (not position — position is controlled by the main window).
+    // Issue #39: first gate on whether this window may position itself. On
+    // Wayland a client cannot place its own toplevel (xdg-shell has no such
+    // request) and Qt drops the move silently, so attachment is not merely off
+    // there — it is impossible, and the menu says so rather than offering a
+    // switch that does nothing. This is only a SEED: position_next_to() also
+    // measures whether moves actually land and latches this false if they do
+    // not, which is what catches backends that claim to support positioning and
+    // then ignore it anyway.
+    attach_platform_blocked_ = !jnext::platform_supports_window_positioning(
+        QGuiApplication::platformName().toUtf8().constData());
+    attach_supported_ = !attach_platform_blocked_;
+
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
+
+    // Restore saved size. Position is restored only when the window is NOT
+    // attached — an attached window's position is derived from the emulator
+    // window, so restoring one would just be overwritten on the first move.
     QByteArray saved_size = settings.value("debugger/size").toByteArray();
     if (!saved_size.isEmpty()) {
         QDataStream ds(saved_size);
@@ -79,6 +99,28 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
         ds >> w >> h;
         if (w >= 1170 && h > 100)
             resize(w, h);
+    }
+
+    attach_enabled_ = settings.value("debugger/attached", true).toBool();
+
+    if (!attach_enabled_ || !attach_supported_) {
+        // Detached (by choice or by platform): honour the saved position so a
+        // debugger deliberately parked on a second monitor comes back there.
+        QByteArray saved_pos = settings.value("debugger/position").toByteArray();
+        if (!saved_pos.isEmpty()) {
+            QDataStream ds(saved_pos);
+            int x, y;
+            ds >> x >> y;
+            // Only accept a position that still lands on a screen that exists —
+            // a monitor may have been unplugged since it was saved, and an
+            // unreachable debugger window is precisely what this issue forbids.
+            for (const QScreen* s : QGuiApplication::screens()) {
+                if (s->availableGeometry().contains(QPoint(x, y))) {
+                    move(x, y);
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -415,6 +457,27 @@ void DebuggerWindow::create_menus() {
         if (watch_panel_)
             watch_panel_->on_add_watch();
     });
+
+    // --- Window menu (issue #39) ---
+    QMenu* window_menu = bar->addMenu(tr("&Window"));
+
+    attach_action_ = window_menu->addAction(tr("&Attach to Emulator Window"));
+    attach_action_->setCheckable(true);
+    attach_action_->setChecked(attach_enabled_ && attach_supported_);
+    connect(attach_action_, &QAction::toggled, this, &DebuggerWindow::set_attach_enabled);
+
+    if (attach_platform_blocked_) {
+        // Do not offer a switch that cannot do anything. Wayland gives a client
+        // no way to position its own toplevel, and a move() there is dropped
+        // without error — silently misbehaving is exactly what issue #39
+        // reports, so say so instead.
+        attach_action_->setEnabled(false);
+        attach_action_->setToolTip(
+            tr("Unavailable: %1")
+                .arg(QString::fromUtf8(
+                    jnext::attach_status_reason(jnext::AttachStatus::Unsupported))));
+        window_menu->setToolTipsVisible(true);
+    }
 }
 
 void DebuggerWindow::update_actions(bool is_paused) {
@@ -451,6 +514,18 @@ void DebuggerWindow::save_geometry() {
     QDataStream ds(&data, QIODevice::WriteOnly);
     ds << width() << height();
     settings.setValue("debugger/size", data);
+
+    settings.setValue("debugger/attached", attach_enabled_);
+
+    // Issue #39: only a DETACHED window owns its position. An attached one
+    // derives it from the emulator window, so saving it would pin a stale
+    // coordinate that the next attach immediately overrides.
+    if (!attach_enabled_ || !attach_supported_) {
+        QByteArray pos;
+        QDataStream pds(&pos, QIODevice::WriteOnly);
+        pds << x() << y();
+        settings.setValue("debugger/position", pos);
+    }
 }
 
 void DebuggerWindow::restore_geometry() {
@@ -596,8 +671,140 @@ void DebuggerWindow::show_rewind_buffer_size_dialog() {
 
 void DebuggerWindow::position_next_to(QWidget* main_win) {
     if (!main_win) return;
-    QPoint top_right = main_win->mapToGlobal(QPoint(main_win->width(), 0));
-    move(top_right);
+
+    // Frame geometry, not the client rect: attaching to the client right edge
+    // tucks this window under the emulator's decoration by the border width.
+    const QRect mf = main_win->frameGeometry();
+
+    // The work area of the screen the emulator window is actually on — not the
+    // primary screen, which would fling the debugger to another monitor.
+    const QScreen* scr = main_win->screen();
+    if (!scr) scr = QGuiApplication::primaryScreen();
+    const QRect avail = scr ? scr->availableGeometry() : QRect();
+
+    const jnext::AttachDecision d = jnext::compute_attached_placement(
+        jnext::AttachRect{mf.x(), mf.y(), mf.width(), mf.height()},
+        frameGeometry().width(), frameGeometry().height(),
+        jnext::AttachRect{avail.x(), avail.y(), avail.width(), avail.height()},
+        attach_enabled_, main_win->isFullScreen(), attach_supported_);
+
+    if (!d.placement.reposition)
+        return;
+
+    move(d.placement.x, d.placement.y);
+
+    // Second gate (see window_attach.h): the platform NAME is not proof the
+    // move took effect. On the development machine an xcb (XWayland) session
+    // reported "xcb" and dropped the move anyway. So check that the window
+    // actually landed where it was told, and if it repeatedly did not, stop
+    // pretending — latch attachment as unsupported and say so, rather than
+    // issuing moves into the void on every drag.
+    //
+    // Deferred, not immediate: X11 needs a server round trip before the new
+    // geometry is readable, so an immediate compare would report failure for
+    // moves that are about to succeed.
+    //
+    // Sequenced through AttachMoveTracker, NOT with a captured target: a drag
+    // delivers Move events every ~30 ms, so several checks are in flight at
+    // once and all but the newest are comparing against a target the user has
+    // already moved on from. Scoring those as misses turned an ordinary drag
+    // into a permanent disable on a perfectly working platform (found in
+    // review; see window_attach.h). Only the newest request is ever checked,
+    // and it compares against the tracker's live target.
+    const unsigned long long token =
+        attach_tracker_.issue_move(d.placement.x, d.placement.y);
+
+    QTimer::singleShot(250, this, [this, token]() {
+        if (!attach_tracker_.check_is_current(token))
+            return;   // superseded by a newer move — this check is meaningless
+        if (!attach_supported_ || !attach_enabled_ || !isVisible())
+            return;
+
+        const QPoint got = frameGeometry().topLeft();
+        const bool landed = jnext::move_landed(
+            attach_tracker_.want_x, attach_tracker_.want_y, got.x(), got.y());
+        if (!attach_tracker_.record_landing(landed))
+            return;
+
+        give_up_on_attachment();
+    });
+}
+
+void DebuggerWindow::give_up_on_attachment() {
+    // `attach_supported_ = false` alone stops every further move:
+    // compute_attached_placement()'s FIRST check is positioning_supported, so
+    // no placement is issued regardless of the user's toggle.
+    //
+    // `attach_enabled_` is deliberately NOT touched. It is the user's stored
+    // preference — save_geometry() writes it to "debugger/attached" on every
+    // close — and this is the PLATFORM giving up, not the user turning
+    // attachment off. Clearing it here silently downgraded that preference to
+    // false for the next session, so a machine where attachment works (or a
+    // transiently uncooperative WM) would come back detached and never retry.
+    // Review round 2 caught this contradicting the very comment that used to
+    // sit above it. The unchecked checkbox below is presentation only.
+    attach_supported_ = false;
+
+    if (attach_action_) {
+        const QSignalBlocker blocker(attach_action_);
+        attach_action_->setChecked(false);
+        // Deliberately left ENABLED. A measured give-up is recoverable — the
+        // window system may have been transiently uncooperative, or the user
+        // may have moved the window to a different screen — so re-ticking this
+        // retries from a clean slate. Only a platform that CANNOT position
+        // windows at all (Wayland, detected by name) leaves the item disabled,
+        // because there retrying is guaranteed to fail.
+        attach_action_->setEnabled(!attach_platform_blocked_);
+        attach_action_->setToolTip(
+            tr("Attachment stopped: the window manager ignored the last %1 move "
+               "requests. Re-enable to try again.")
+                .arg(jnext::kAttachFailuresBeforeGivingUp));
+    }
+    if (statusBar()) {
+        statusBar()->showMessage(
+            tr("Debugger window attachment stopped: the window manager ignored "
+               "the move requests. Re-enable it from the Window menu to retry."),
+            8000);
+    }
+}
+
+void DebuggerWindow::set_attach_enabled(bool on) {
+    attach_enabled_ = on;
+
+    if (on && !attach_platform_blocked_) {
+        // An explicit re-enable is the recovery path from a measured give-up:
+        // clear the failure history and let the platform prove itself again.
+        // Without this the latch was permanent for the life of the process —
+        // toggling the debugger off and on does not help, because
+        // DebuggerManager::ensure_window() reuses the existing window.
+        attach_supported_ = true;
+        attach_tracker_.reset_failures();
+        if (attach_action_) attach_action_->setToolTip(QString());
+    }
+
+    if (attach_action_) attach_action_->setChecked(on);
+
+    QSettings settings(debugger_config_path(), QSettings::IniFormat);
+    settings.setValue("debugger/attached", on);
+
+    if (on && debugger_mgr_) {
+        // Snap back into place immediately rather than waiting for the user to
+        // drag the emulator window.
+        debugger_mgr_->reposition_debugger_window();
+    } else if (!on) {
+        // Remember where the user leaves it from here on.
+        save_geometry();
+    }
+
+    if (statusBar()) {
+        const char* reason = on
+            ? nullptr
+            : jnext::attach_status_reason(jnext::AttachStatus::Disabled);
+        statusBar()->showMessage(
+            on ? tr("Debugger window attached to the emulator window")
+               : tr("Debugger window detached (%1)").arg(QString::fromUtf8(reason)),
+            4000);
+    }
 }
 
 void DebuggerWindow::create_panels() {

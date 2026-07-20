@@ -447,6 +447,21 @@ add_executable(preferences_apply_policy_test gui/preferences_apply_policy_test.c
 target_include_directories(preferences_apply_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME preferences_apply_policy_tests COMMAND preferences_apply_policy_test)
 
+# Debugger window attachment geometry (issue #39). Pure placement helper under
+# test (src/debugger/window_attach.h) — header-only, no Qt, so the arithmetic
+# that decides where the debugger window lands (and the rule that it must NOT
+# be moved on a window system that would drop the move) is reachable by CI even
+# though DebuggerWindow itself is not (Task 91). Registered unconditionally: it
+# needs nothing from the debugger build, only the header.
+add_executable(window_attach_test debugger/window_attach_test.cpp)
+target_include_directories(window_attach_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# WA-32 reads the Qt-side source: the persistence contract it pins lives in
+# give_up_on_attachment(), which no pure row can reach (same reason
+# cli_options_test bakes in JNEXT_MAIN_SRC).
+target_compile_definitions(window_attach_test PRIVATE
+    JNEXT_DEBUGGER_WINDOW_SRC="${CMAKE_SOURCE_DIR}/src/debugger/debugger_window.cpp")
+add_test(NAME window_attach_tests COMMAND window_attach_test)
+
 # Pointer-capture motion policy (issue #37). Pure decision helper under test
 # (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend
 # ships is reachable by CI even though its event handler is not.

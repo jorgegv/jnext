@@ -2819,9 +2819,15 @@ button on the emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
 panel refreshes. Closing it also resumes the machine if it was paused.</p>
 <p>The debugger opens in its own window, positioned to the right of the emulator
-window and following it when you move it. It has its own menu bar —
-<strong>Debug</strong>, <strong>Map</strong>, <strong>Breakpoints</strong> and <strong>Watches</strong> — and a control toolbar
-along the bottom.</p>
+window. It has its own menu bar — <strong>Debug</strong>, <strong>Map</strong>, <strong>Breakpoints</strong>,
+<strong>Watches</strong> and <strong>Window</strong> — and a control toolbar along the bottom.</p>
+<p><strong>Window ▸ Attach to emulator window</strong> keeps it pinned to the emulator's
+right-hand edge as you drag or resize that window; the setting is remembered
+between sessions. This needs a window system that lets an application position
+its own windows, so it works on <strong>X11</strong> and is unavailable on <strong>Wayland</strong>,
+where the menu item is greyed out — see
+<a href="../08-known-issues/03-the-debugger-window-does-not-follow-the-emulator-window/">8.3</a>
+for why, and how to run under X11 if you want it.</p>
 <p><img alt="The debugger window" src="../img/debugger-window.png" /></p>
 <p>The layout is fixed: video-related tabs on the top left, disassembly in the
 centre, CPU registers and MMU down the right, and memory/stack tabs and

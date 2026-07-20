@@ -67,6 +67,13 @@ public slots:
     void on_load_map_z88dk();
     void on_load_map_simple();
 
+    /// Issue #39: re-snap the debugger window to the emulator window's edge.
+    /// Called on every main-window Move/Resize, and by the debugger's own
+    /// Window > "Attach to Emulator Window" toggle when it is switched back on.
+    /// A no-op when the debugger window is hidden, detached, or the platform
+    /// forbids self-positioning.
+    void reposition_debugger_window();
+
 signals:
     void paused();
     void resumed();
@@ -79,7 +86,6 @@ private:
     void create_debug_toolbar();
     void ensure_window();
     void update_actions();
-    void reposition_debugger_window();
 
     /// Task 60e: if the emulator flagged a corrupt state after a failed
     /// rewind/step-back (Emulator::last_state_error() non-empty), surface it
