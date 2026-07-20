@@ -40,7 +40,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
-       docs docs-check \
+       docs-man docs-check docs-userguide \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
@@ -299,7 +299,7 @@ kloc-count:
 	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
 
 # Regenerate the man page and USAGE.md from doc/man/jnext.1.md (needs pandoc)
-docs:
+docs-man:
 	@if ! command -v pandoc >/dev/null 2>&1; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) pandoc not found. It is a documentation-only\n"; \
 	   printf "        dependency: install it to edit the docs, or just use the\n"; \
@@ -336,8 +336,18 @@ docs-check:
 	 diff -q $$tmp/USAGE.md $(USAGE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(USAGE_OUT) is stale\n"; rc=1; }; \
 	 rm -rf $$tmp; \
 	 if [ $$rc -eq 0 ]; then printf "$(BADGE_PASS) OK $(RESET) generated docs are up to date\n"; \
-	 else printf "        run 'make docs' and commit the result\n"; fi; \
+	 else printf "        run 'make docs-man' and commit the result\n"; fi; \
 	 exit $$rc
+
+# Render the user guide to build/user-guide (needs mkdocs-material)
+docs-userguide:
+	@if ! command -v mkdocs >/dev/null 2>&1; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs not found. It is a documentation-only\n"; \
+	   printf "        dependency: pip install mkdocs-material (see BUILD.md). The\n"; \
+	   printf "        guide is readable as markdown in doc/user-guide without it.\n"; exit 1; \
+	 fi
+	mkdocs build --strict
+	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to build/user-guide\n"
 
 # Show current version
 version:

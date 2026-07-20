@@ -25,7 +25,7 @@ Optional:
   5 GB default thrashes on a tree this size.
 - **ffmpeg** — needed at runtime for MP4 video recording (`--record`).
 - **z88dk** — only to rebuild the demo programs in `demo/`.
-- **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs`).
+- **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs-man`).
   See [Documentation](#documentation) below.
 - **mkdocs-material** — *not needed yet*: it is the chosen toolchain for the
   user manual, which is still being written and is not in the tree. Nothing
@@ -141,17 +141,18 @@ neither pandoc nor mkdocs.
 both the man page and `USAGE.md`, so the two cannot drift apart:
 
 ```sh
-make docs           # regenerate doc/man/jnext.1 and USAGE.md   (needs pandoc)
+make docs-man       # regenerate doc/man/jnext.1 and USAGE.md   (needs pandoc)
 make docs-check     # fail if either committed output is stale
+make docs-userguide # render the user guide to build/user-guide  (needs mkdocs)
 ```
 
 Never edit `doc/man/jnext.1` or `USAGE.md` by hand — edit the source and rerun
-`make docs`, committing the regenerated outputs alongside it. `make docs-check`
+`make docs-man`, committing the regenerated outputs alongside it. `make docs-check`
 is the guard: it regenerates into a temporary directory and diffs, so a stale
 committed output is a hard failure rather than something a reviewer has to
 spot. It skips (rather than fails) when pandoc is absent.
 
-`make docs` needs pandoc:
+`make docs-man` needs pandoc:
 
 ```sh
 sudo dnf install pandoc          # Fedora / RHEL
@@ -171,7 +172,7 @@ readable as-is in the repository; to build the browsable site:
 
 ```console
 $ pip install mkdocs-material          # documentation-only requirement
-$ mkdocs build                          # output in build/user-guide/
+$ make docs-userguide                   # output in build/user-guide/
 $ mkdocs serve                          # preview at http://127.0.0.1:8000/
 ```
 
