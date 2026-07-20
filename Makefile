@@ -7,7 +7,7 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
-# Documentation single source (see `make docs`). doc/man/jnext.1.md generates
+# Documentation single source (see `make docs-man`). doc/man/jnext.1.md generates
 # BOTH outputs below, and both are committed: building jnext from source never
 # needs pandoc, only editing the docs does.
 MAN_SRC           := doc/man/jnext.1.md
