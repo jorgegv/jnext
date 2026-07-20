@@ -876,8 +876,11 @@ static int test_snapshot_size_invariance()
         rb.take_snapshot(emu3, 100, 1);
 
         emu3.keyboard().queue_auto_type({});   // wipe the live queue
-        REQUIRE(rb.restore_nearest(100, emu3) == 100,
-                "precondition: slot restored for the content row");
+        // CHECK, not REQUIRE — see the note at the fallback-colour row above:
+        // aborting here would skip RB-SIZE-09/10/11 and report a row count the
+        // manifest guard then flags as a SECOND, misleading fault.
+        CHECK(rb.restore_nearest(100, emu3) == 100,
+              "RB-SIZE-06b slot restores for the auto-type content row");
 
         emu3.keyboard().tick_auto_type();      // play the restored key
         const uint8_t row1 = emu3.keyboard().read_rows(0xFD);  // A9  low -> row 1
@@ -913,6 +916,21 @@ static int test_snapshot_size_invariance()
         rb.take_snapshot(emu4, 100, 1);
         CHECK(rb.depth() == 1,
               "RB-SIZE-10 snapshot taken with a non-empty UART FIFO is published, not dropped");
+
+        // Re-review finding: RB-SIZE-09/10 above pin WIDTH only — scrambling
+        // the restored byte ORDER left the whole 5292-row suite green, and no
+        // uart_test row exercises save_state/load_state at all. Read the bytes
+        // back through the REAL port-read path (port_reg 0 = Rx) after
+        // polluting the live FIFO, so order and content are both pinned.
+        emu4.uart().read(0);                   // drain one live byte
+        emu4.uart().inject_rx(0, 0xAA);        // pollute what remains
+        CHECK(rb.restore_nearest(100, emu4) == 100,
+              "RB-SIZE-10b slot restores for the UART content row");
+        const uint8_t u1 = emu4.uart().read(0);
+        const uint8_t u2 = emu4.uart().read(0);
+        const uint8_t u3 = emu4.uart().read(0);
+        CHECK(u1 == 0x41 && u2 == 0x42 && u3 == 0x43,
+              "RB-SIZE-11 UART RX FIFO content and order survive the round-trip");
     }
 
     return 0;
