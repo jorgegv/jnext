@@ -128,8 +128,21 @@ never disagree.
 
 ## Documentation
 
+**The user guide is the place to start.** It ships rendered in this repository,
+so there is nothing to install and nothing to build — serve it and read it:
+
+```sh
+make read-userguide
+```
+
+That prints a `http://localhost:8000/` URL; open it in your browser. (Or open
+`doc/user-guide/index.html` directly.) Chapters 1-5 cover running programs;
+6 and 7 are for developers — every debugger panel and function, and how to
+automate JNEXT the way its own test suite does.
+
 | Document                                                       | What's in it                                                                             |
 |----------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| [User guide](doc/user-guide/index.html)                        | Task-oriented manual: installing, running programs, the debugger, automation (`make read-userguide`) |
 | [BUILD.md](BUILD.md)                                           | Building from source and building packages: prerequisites, targets, CMake options, tests |
 | [USAGE.md](USAGE.md)                                           | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map (= `man jnext`)  |
 | [FEATURES.md](FEATURES.md)                                     | Full feature list                                                                        |
