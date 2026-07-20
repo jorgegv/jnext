@@ -148,6 +148,9 @@ jobs:
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         run: LANG=C make build-matrix
 
+      - name: make regression (screenshot + functional suite)
+        run: LANG=C JNEXT_TEST_JOBS=4 make regression
+
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
         run: LANG=C make unit-test
 
@@ -167,9 +170,6 @@ jobs:
       # against identical, reproducible SD-card content. This also means
       # the full grand-total witness (declared == reported) is enforced in
       # CI exactly as it is locally; no filtering, no partial-run carve-out.
-      - name: make regression (screenshot + functional suite)
-        run: LANG=C JNEXT_TEST_JOBS=4 make regression
-
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
