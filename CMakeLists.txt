@@ -268,6 +268,15 @@ endif()
 install(FILES LICENSE README.md ChangeLog USAGE.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
+# User guide. Committed pre-rendered (from src/doc/user-guide via
+# `make docs-userguide`), so installing needs no doc toolchain — same rationale
+# as the man page below. Ships the whole rendered tree so the guide can be
+# opened straight off disk: <docdir>/user-guide/index.html. mkdocs is
+# configured with use_directory_urls: false precisely so those links resolve
+# under file:// without a web server.
+install(DIRECTORY doc/user-guide
+    DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
 # Man page. Committed pre-generated (from doc/man/jnext.1.md via `make docs`),
 # so installing needs no doc toolchain. The packaging formats compress it
 # themselves (rpm brp-compress, dh_compress), hence the jnext.1* globs in

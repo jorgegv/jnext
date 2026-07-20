@@ -1,5 +1,11 @@
 # ChangeLog
 
+## v0.98.72 (2026-07-20)
+
+### Bug Fixes
+- User guide is now actually installed by every package, under the docs directory
+- Guide links now work when opened from disk; they previously needed a web server
+
 ## v0.98.71 (2026-07-20)
 
 ### User Features
