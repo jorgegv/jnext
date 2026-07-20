@@ -168,11 +168,18 @@ clean: debug-clean release-clean gui-clean unit-test-clean
 # test would have caught). Building it here makes "the tests ran against this
 # source" true by construction instead of by discipline — 2026-07-19, after a
 # 14-hour-old binary produced two bogus FAILs immediately before a version bump.
-regression: unit-test-build gui-release
+regression: unit-test-build gui-release docs-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: unit-test-build
+# docs-check is a prerequisite, not a courtesy: the man page and USAGE.md are
+# GENERATED and COMMITTED, so a stale committed output is a silent lie that no
+# other gate can see. Running it with every test run makes "the docs match their
+# source" true by construction rather than by discipline. It skips (never fails)
+# on a host with no pandoc, and hard-fails in CI where pandoc is guaranteed.
+# NOTE: this proves the generated outputs match doc/man/jnext.1.md — NOT that
+# jnext.1.md matches src/main.cpp. That gap is real and tracked as issue #43.
+unit-test: unit-test-build docs-check
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -346,7 +353,9 @@ docs-userguide:
 	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs not found. It is a documentation-only\n"; \
 	   printf "        dependency: install mkdocs-material from your distribution\n"; \
 	   printf "        (Fedora: sudo dnf install mkdocs-material; see BUILD.md). The\n"; \
-	   printf "        guide is readable as markdown in doc/user-guide without it.\n"; exit 1; \
+	   printf "        rendered guide is COMMITTED under doc/user-guide — open\n"; \
+	   printf "        doc/user-guide/index.html or run 'make read-userguide'. You\n"; \
+	   printf "        only need mkdocs to re-render after editing src/doc/user-guide.\n"; exit 1; \
 	 fi
 	mkdocs build --strict
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
