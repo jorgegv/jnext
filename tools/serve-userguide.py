@@ -20,8 +20,12 @@ def first_free_port(host, start, tries):
     """Bind-test ports upward from `start`; return the first that is free."""
     for port in range(start, start + tries):
         with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-            # No SO_REUSEADDR: we want the bind to fail exactly when a live
-            # server holds the port, which is the condition we are probing for.
+            # No SO_REUSEADDR on the probe, so it also rejects a port left in
+            # TIME_WAIT by a recently stopped server. That is stricter than
+            # "someone is listening" — stop and immediately restart and you
+            # will hop to the next port — but erring toward a definitely-free
+            # port is the right trade for a helper whose whole job is printing
+            # a URL that works.
             try:
                 s.bind((host, port))
                 return port
@@ -55,7 +59,17 @@ def main():
     handler = functools.partial(
         http.server.SimpleHTTPRequestHandler, directory=args.directory
     )
-    with http.server.ThreadingHTTPServer((args.bind, port), handler) as httpd:
+    try:
+        httpd = http.server.ThreadingHTTPServer((args.bind, port), handler)
+    except OSError as exc:
+        # The probe closed this port before the real bind, so another process
+        # can win the gap. Rare, and a retry is the user's to make — but say so
+        # instead of dumping a traceback.
+        print(f"error: port {port} was taken before we could bind it: {exc}",
+              file=sys.stderr)
+        return 1
+
+    with httpd:
         print(f"user guide at http://localhost:{port}/  (Ctrl+C to stop)", flush=True)
         try:
             httpd.serve_forever()
