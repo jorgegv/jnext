@@ -115,4 +115,9 @@
 |        |      | #37 Kempston mouse pointer capture in both frontends (Qt warp-to-centre, SDL relative mode) — motion was derived from ABSOLUTE window position.        |
 |        |      | Task 93 link rot: jnext_core/-platform under-declared deps, 2 of 4 build combos broken; `make build-matrix` guard + CI. Task 95 NEX audit tooling +#36. |
 |        |      | TODO.md -> GitHub issues; prompt file tracks by issue number. 8 reviewed merges, 5 REJECT->rework (all real bugs). v0.98.52->.56                       |
-| TOTAL: | 375h |                                                                                                      |
+| 20/7   |      | GH #28 CLOSED: nine-chapter USER GUIDE (src/doc/user-guide -> committed doc/user-guide) + pandoc-single-sourced man page;    |
+|        |      | docs-check gates both on EVERY test run. Phase 9 closed. CI moved to container fedora:44, bespoke steps stripped after      |
+|        |      | `make X | tail` was found reporting GREEN on a failing suite. #38 closed not-a-bug (demo drove 0xDF = Specdrum MONO port).  |
+|        |      | #43 table-driven CLI + cli-check; #42 rewind recorded NOTHING (3 variable-length fields vs fixed slot); #39 debugger window |
+|        |      | attach (X11; Wayland impossible). 4 merges, 3 REJECT rounds -> rework, every one a real defect. v0.98.57->.71 PUBLIC.      |
+| TOTAL: | 383h |                                                                                                      |

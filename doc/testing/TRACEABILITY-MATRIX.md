@@ -2890,7 +2890,7 @@ Dashboard (Task 7 r2): 21 total / 8 pass / 0 fail / 13 skip.
 | MMC-02     | CMD8 illegal-cmd response on MMC not modelled (see G41)                     | (SD SPI spec)                         | missing | missing                         |
 | MMC-03     | MMC byte-vs-block addressing duality unsupported (see G41)                  | (SD SPI spec)                         | missing | missing                         |
 | BOOT-SD-01 | SD hot-plug round-trip not exposed at runtime (see G158)                    | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:623 |
-| BOOT-SD-02 | SD unmount mid-transfer untested — no GUI/CLI eject affordance (see G158)   | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:1797 |
+| BOOT-SD-02 | SD unmount mid-transfer untested — no GUI/CLI eject affordance (see G158)   | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:1808 |
 
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp` + `test/nmi/nmi_integration_test.cpp`
