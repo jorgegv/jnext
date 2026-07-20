@@ -11,6 +11,20 @@ CXX               := /usr/bin/g++
 # BOTH outputs below, and both are committed: building jnext from source never
 # needs pandoc, only editing the docs does.
 GUIDE_PORT        ?= 8000
+# mkdocs stamps sitemap.xml.gz with the BUILD DATE, so an unchanged guide
+# rendered tomorrow differs from today's — which would have failed docs-check,
+# and therefore every unit-test and regression run, from the day after any
+# render. Pinning SOURCE_DATE_EPOCH (reproducible-builds convention) removes
+# the clock from the output entirely. The value is arbitrary and fixed; the
+# sitemap carries no content (no site_url is set, so it is an empty urlset).
+GUIDE_BUILD_ENV   := SOURCE_DATE_EPOCH=1700000000
+# Renderer fingerprint: VERSIONS ONLY. `mkdocs --version` also prints the
+# install path, which differs per machine and would make every other host
+# look like a version mismatch.
+GUIDE_FINGERPRINT := python3 -c "import importlib.metadata as m; print('mkdocs', m.version('mkdocs')); print('mkdocs-material', m.version('mkdocs-material'))"
+GUIDE_RENDERER    := src/doc/user-guide-renderer.txt
+GUIDE_SRC         := src/doc/user-guide
+GUIDE_OUT         := doc/user-guide
 MAN_SRC           := doc/man/jnext.1.md
 MAN_OUT           := doc/man/jnext.1
 USAGE_OUT         := USAGE.md
@@ -41,7 +55,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
-       docs-man docs-check docs-userguide read-userguide \
+       docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
@@ -172,12 +186,13 @@ regression: unit-test-build gui-release docs-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-# docs-check is a prerequisite, not a courtesy: the man page and USAGE.md are
-# GENERATED and COMMITTED, so a stale committed output is a silent lie that no
-# other gate can see. Running it with every test run makes "the docs match their
-# source" true by construction rather than by discipline. It skips (never fails)
-# on a host with no pandoc, and hard-fails in CI where pandoc is guaranteed.
-# NOTE: this proves the generated outputs match doc/man/jnext.1.md — NOT that
+# docs-check is a prerequisite, not a courtesy: the man page, USAGE.md and the
+# rendered user guide are all GENERATED and COMMITTED, so a stale committed
+# output is a silent lie that no other gate can see. Running it with every test
+# run makes "the docs match their source" true by construction, not by discipline.
+# It skips (never fails) where the tool is absent — pandoc for the man half,
+# mkdocs for the guide half — and hard-fails in CI where both are guaranteed.
+# NOTE: this proves the generated outputs match their sources — NOT that
 # jnext.1.md matches src/main.cpp. That gap is real and tracked as issue #43.
 unit-test: unit-test-build docs-check
 	@bash test/run-unit-tests.sh build
@@ -320,8 +335,19 @@ docs-man:
 	    $(MAN_SRC) -o $(USAGE_OUT)
 	printf "$(BADGE_PASS) OK $(RESET) regenerated $(MAN_OUT) and $(USAGE_OUT)\n"
 
-# Fail if the committed man page / USAGE.md are stale vs doc/man/jnext.1.md
+# Fail if any committed generated document is stale (man page, USAGE.md, guide)
 docs-check:
+	@# Runs BOTH halves and aggregates, so one stale document never hides the
+	@# other. Each half is a self-contained target with its own skip/fail and
+	@# its own remediation line: sharing one shell block let a mkdocs-missing
+	@# failure print "run 'make docs-man'", which cannot fix it.
+	@rc=0; \
+	 $(MAKE) --no-print-directory docs-man-check || rc=1; \
+	 $(MAKE) --no-print-directory docs-userguide-check || rc=1; \
+	 exit $$rc
+
+# Fail if the committed man page / USAGE.md are stale vs doc/man/jnext.1.md
+docs-man-check:
 	@# One shell block on purpose: a bare `exit 0` in a recipe line of its own
 	@# ends only THAT line, and make would carry on into the diff below and
 	@# report both outputs "stale" on a host with no pandoc.
@@ -343,8 +369,40 @@ docs-check:
 	 diff -q $$tmp/man.1 $(MAN_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(MAN_OUT) is stale\n"; rc=1; }; \
 	 diff -q $$tmp/USAGE.md $(USAGE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(USAGE_OUT) is stale\n"; rc=1; }; \
 	 rm -rf $$tmp; \
-	 if [ $$rc -eq 0 ]; then printf "$(BADGE_PASS) OK $(RESET) generated docs are up to date\n"; \
+	 if [ $$rc -eq 0 ]; then printf "$(BADGE_PASS) OK $(RESET) man page and USAGE.md are up to date\n"; \
 	 else printf "        run 'make docs-man' and commit the result\n"; fi; \
+	 exit $$rc
+
+# Fail if the committed rendered user guide is stale vs src/doc/user-guide
+docs-userguide-check:
+	@if ! command -v mkdocs >/dev/null 2>&1; then \
+	   if [ -n "$$CI" ]; then \
+	     printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs missing in CI — this check would\n"; \
+	     printf "        otherwise skip silently and read as a pass. Install it in the\n"; \
+	     printf "        workflow, or drop this step deliberately.\n"; exit 1; \
+	   fi; \
+	   printf "$(BADGE_SKIP) SKIP $(RESET) mkdocs not installed; cannot verify the user guide\n"; exit 0; \
+	 fi; \
+	 tmp=$$(mktemp -d); \
+	 rc=0; \
+	 $(GUIDE_BUILD_ENV) mkdocs build --strict --site-dir $$tmp/guide >/dev/null 2>&1 \
+	   || { printf "$(BADGE_FAIL) FAIL $(RESET) the user guide does not build\n"; rc=1; }; \
+	 here=$$($(GUIDE_FINGERPRINT)); \
+	 there=$$(cat $(GUIDE_RENDERER) 2>/dev/null); \
+	 compared=0; \
+	 if [ $$rc -eq 0 ] && [ "$$here" != "$$there" ]; then \
+	   printf "$(BADGE_SKIP) SKIP $(RESET) different mkdocs/material than rendered the committed\n"; \
+	   printf "        guide, so a byte-diff would report a version gap, not staleness.\n"; \
+	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; \
+	 elif [ $$rc -eq 0 ]; then \
+	   compared=1; \
+	   diff -r -q $$tmp/guide $(GUIDE_OUT) >/dev/null 2>&1 \
+	     || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_OUT) is stale vs $(GUIDE_SRC)\n"; rc=1; }; \
+	 fi; \
+	 rm -rf $$tmp; \
+	 if [ $$rc -ne 0 ]; then printf "        run 'make docs-userguide' and commit the result\n"; \
+	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) the rendered user guide is up to date\n"; \
+	 else printf "$(BADGE_PASS) OK $(RESET) the user guide builds cleanly (staleness NOT compared)\n"; fi; \
 	 exit $$rc
 
 # Render the user guide from src/doc/user-guide into doc/user-guide (needs mkdocs-material)
@@ -357,20 +415,26 @@ docs-userguide:
 	   printf "        doc/user-guide/index.html or run 'make read-userguide'. You\n"; \
 	   printf "        only need mkdocs to re-render after editing src/doc/user-guide.\n"; exit 1; \
 	 fi
-	mkdocs build --strict
+	$(GUIDE_BUILD_ENV) mkdocs build --strict
+	@# Record the renderer. The site embeds content-hashed theme assets, so a
+	@# different mkdocs-material produces a byte-different tree from identical
+	@# sources — the staleness check must know whose output it is comparing.
+	@$(GUIDE_FINGERPRINT) > $(GUIDE_RENDERER)
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
 
 # Serve the rendered user guide over HTTP so it can be read in a browser
 read-userguide:
-	@if [ ! -f doc/user-guide/index.html ]; then \
+	@if [ ! -f $(GUIDE_OUT)/index.html ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) doc/user-guide is not rendered yet.\n"; \
 	   printf "        Run 'make docs-userguide' first.\n"; exit 1; \
 	 fi
-	@printf "$(BADGE_PASS) OK $(RESET) user guide at $(BOLD)http://localhost:$(GUIDE_PORT)/$(RESET)  (Ctrl+C to stop)\n"
 	@# Serve the rendered tree itself: mkdocs emits relative URLs (no site_url
 	@# is set), so the site works from any directory root without rewriting.
-	python3 -m http.server $(GUIDE_PORT) --bind 127.0.0.1 --directory doc/user-guide
+	@# The helper picks the first free port at or above GUIDE_PORT and prints
+	@# the URL it actually bound, so a busy 8000 cannot send the reader to a
+	@# dead link.
+	python3 tools/serve-userguide.py --directory $(GUIDE_OUT) --port $(GUIDE_PORT) --bind 127.0.0.1
 
 # Show current version
 version:

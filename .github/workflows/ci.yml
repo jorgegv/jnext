@@ -90,7 +90,7 @@ jobs:
             libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
             qt6-base-dev \
             imagemagick xvfb python3 unzip \
-            pandoc
+            pandoc python3-venv
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -124,6 +124,33 @@ jobs:
       # regenerates into a temp dir and diffs, so an edit to the source with
       # stale committed outputs fails here rather than shipping a man page
       # that disagrees with USAGE.md.
+      # The guide's byte-comparison only runs when the renderer matches the one
+      # that produced the committed render, because mkdocs-material embeds
+      # content-hashed theme assets — a version gap would otherwise read as
+      # staleness. Ubuntu's package is a different version from any given
+      # developer's, so CI installs the EXACT versions recorded in
+      # src/doc/user-guide-renderer.txt. That file is written by
+      # `make docs-userguide`, so it is always whatever last rendered the guide.
+      # A venv keeps this off the system Python (PEP 668).
+      - name: Install the pinned user-guide renderer
+        run: |
+          set -euo pipefail
+          f=src/doc/user-guide-renderer.txt
+          mkdocs_ver=$(awk '$1=="mkdocs"{print $2}' "$f")
+          material_ver=$(awk '$1=="mkdocs-material"{print $2}' "$f")
+          if [ -z "$mkdocs_ver" ] || [ -z "$material_ver" ]; then
+            echo "could not read renderer versions from $f" >&2; exit 1
+          fi
+          echo "pinning mkdocs==$mkdocs_ver mkdocs-material==$material_ver"
+          python3 -m venv /tmp/docsenv
+          /tmp/docsenv/bin/pip install --quiet --upgrade pip
+          /tmp/docsenv/bin/pip install --quiet \
+            "mkdocs==$mkdocs_ver" "mkdocs-material==$material_ver"
+          echo /tmp/docsenv/bin >> "$GITHUB_PATH"
+
+      # Both halves hard-fail here when their tool is missing, rather than
+      # skipping and reading as a pass. With the pin above, the guide's
+      # byte-comparison actually runs in CI instead of skipping by construction.
       - name: Generated docs are up to date (make docs-check)
         run: LANG=C make docs-check
 
