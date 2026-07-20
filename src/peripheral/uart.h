@@ -41,20 +41,30 @@ public:
     bool almost_full()const { return count_ >= (Capacity - 2); }
     std::size_t size() const { return count_; }
 
+    // Issue #42 — the count is written first, then ALWAYS `Capacity`
+    // elements, oldest-first. Writing only `count_` elements made the
+    // snapshot's width depend on how much UART traffic was in flight, and
+    // RewindBuffer requires every snapshot to be exactly the size it
+    // measured at construction — so a single received byte silently
+    // invalidated every subsequent rewind snapshot. Entries past `count_`
+    // are padding; load_state pushes only the first `count_`.
     void save_state(class StateWriter& w) const {
-        // Save logical contents (oldest-first) then count.
         w.write_u64(count_);
-        for (std::size_t i = 0; i < count_; ++i) {
-            T val = buf_[(tail_ + i) % Capacity];
+        for (std::size_t i = 0; i < Capacity; ++i) {
+            T val = (i < count_) ? buf_[(tail_ + i) % Capacity] : T{0};
             write_elem(w, val);
         }
     }
     void load_state(class StateReader& r) {
         reset();
-        std::size_t n = static_cast<std::size_t>(r.read_u64());
-        for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t n = static_cast<std::size_t>(r.read_u64());
+        // Clamp: the stream carries exactly Capacity elements whatever the
+        // count claims, so a corrupt count can neither desync the stream
+        // nor push past the ring.
+        const std::size_t live = (n <= Capacity) ? n : Capacity;
+        for (std::size_t i = 0; i < Capacity; ++i) {
             T val = read_elem(r);
-            push(val);
+            if (i < live) push(val);
         }
     }
 

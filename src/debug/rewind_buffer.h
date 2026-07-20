@@ -77,14 +77,34 @@ public:
     /// eviction row). The real state-stream size is fixed-width by
     /// construction, so the mismatch cannot be produced any other way.
     ///
-    /// That claim was FALSE until issue #42: two fields (the ULA
-    /// port-0xFF change log, the keyboard auto-type queue) were written
+    /// That claim was FALSE until issue #42: three fields were written
     /// count-prefixed and variable-length, so ordinary guest behaviour —
-    /// a single OUT (0xFF),A — widened the stream and every snapshot from
-    /// then on was silently dropped. Both are now written at their full
-    /// capacity; RB-SIZE-01..06 in rewind_test pin it. Any NEW
-    /// variable-length field added to save_state re-breaks rewind the
-    /// same silent way, so serialise at constant width. Shrink only:
+    /// a single OUT (0xFF),A, or one received UART byte — widened the
+    /// stream and every snapshot from then on was silently dropped.
+    ///
+    /// Full enumeration of runtime-variable-length state reachable from
+    /// Emulator::save_state, as audited for issue #42. Anything added to
+    /// this list MUST be serialised at constant width or rewind breaks
+    /// the same silent way:
+    ///
+    ///   Ula::port_ff_log_          FIXED — writes MAX_CHANGES_PER_FRAME
+    ///   Keyboard::auto_queue_      FIXED — writes MAX_AUTO_TYPE_KEYS
+    ///   FifoBuffer<T,Capacity>     FIXED — writes Capacity (UART tx/rx,
+    ///                                      2 channels x 2 FIFOs)
+    ///   Ram::data_                 SAFE  — sized in the ctor, never
+    ///                                      resized; constant for the
+    ///                                      lifetime of a RewindBuffer
+    ///   AttributeMux::log_         SAFE  — deliberately NOT serialised;
+    ///                                      rebuilt each frame. Serialising
+    ///                                      it previously caused a heap
+    ///                                      corruption crash for exactly
+    ///                                      this reason (see attribute_mux.h)
+    ///
+    /// Everything else writes std::array / fixed-extent buffers, whose
+    /// .size() is a compile-time constant.
+    ///
+    /// RB-SIZE-01..09 in rewind_test pin both the width invariant and the
+    /// content round-trip for each fixed field. Shrink only:
     /// the mmap slots keep their construction-time size, so a smaller
     /// claim makes writes overflow the CLAIM, never the allocation.
     void shrink_expected_snapshot_bytes_for_test(size_t n) {

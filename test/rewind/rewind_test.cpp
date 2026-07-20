@@ -852,6 +852,69 @@ static int test_snapshot_size_invariance()
               "RB-SIZE-06 over-cap auto-type sequence still yields a constant-size snapshot");
     }
 
+    // ---- content round-trip, not just width -----------------------------
+    // Review finding: RB-SIZE-04/05/06 and the pre-existing SL-KBD-03 all
+    // check size or a boolean auto_typing() flag, so a field-order bug in
+    // Keyboard::load_state (row1/col1 swapped, say) corrupts every rewound
+    // keystroke while the whole suite stays green. Assert the restored
+    // queue actually plays the RIGHT key. 'F' is row 1 col 3; its row/col
+    // transpose is row 3 col 1 = '2'. Both are REAL matrix cells, which is
+    // what makes this discriminative — a key like 'J' (6,3) transposes to
+    // column 6, which does not exist (a row read has only 5 key bits; bit 6
+    // is the EAR line), so a swap there would be invisible here.
+    {
+        Emulator emu3;
+        build_emulator(emu3, 0);
+        emu3.run_frame();
+
+        std::vector<Keyboard::AutoKey> f_only = { {1, 3, -1, -1, 5} };
+        emu3.keyboard().queue_auto_type(f_only);
+
+        StateWriter w3;
+        emu3.save_state(w3);
+        RewindBuffer rb(3, w3.position());
+        rb.take_snapshot(emu3, 100, 1);
+
+        emu3.keyboard().queue_auto_type({});   // wipe the live queue
+        REQUIRE(rb.restore_nearest(100, emu3) == 100,
+                "precondition: slot restored for the content row");
+
+        emu3.keyboard().tick_auto_type();      // play the restored key
+        const uint8_t row1 = emu3.keyboard().read_rows(0xFD);  // A9  low -> row 1
+        const uint8_t row3 = emu3.keyboard().read_rows(0xF7);  // A11 low -> row 3
+        CHECK((row1 & 0x08) == 0,
+              "RB-SIZE-07 restored auto-type queue plays the correct key (row 1 col 3 = F)");
+        CHECK((row3 & 0x02) != 0,
+              "RB-SIZE-08 restored auto-type queue does not press the row/col transpose (3,1)");
+    }
+
+    // Same for the UART FIFOs — the third variable-length field. Inject a
+    // distinctive byte sequence, snapshot, drain the live FIFO, restore,
+    // and read the bytes back in order through the real RX path.
+    {
+        Emulator emu4;
+        build_emulator(emu4, 0);
+        emu4.run_frame();
+
+        StateWriter b4;
+        emu4.save_state(b4);
+        const size_t snap4 = b4.position();
+
+        emu4.uart().inject_rx(0, 0x41);
+        emu4.uart().inject_rx(0, 0x42);
+        emu4.uart().inject_rx(0, 0x43);
+
+        StateWriter after_uart;
+        emu4.save_state(after_uart);
+        CHECK(after_uart.position() == snap4,
+              "RB-SIZE-09 snapshot size unchanged by bytes in flight in the UART RX FIFO");
+
+        RewindBuffer rb(3, snap4);
+        rb.take_snapshot(emu4, 100, 1);
+        CHECK(rb.depth() == 1,
+              "RB-SIZE-10 snapshot taken with a non-empty UART FIFO is published, not dropped");
+    }
+
     return 0;
 }
 
