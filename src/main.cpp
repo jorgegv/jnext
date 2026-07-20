@@ -1,5 +1,6 @@
 #include "audio/audio_recorder.h"
 #include "audio/dac_trace_recorder.h"
+#include "core/cli_options.h"
 #include "core/log.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
@@ -216,167 +217,239 @@ int main(int argc, char* argv[]) {
     std::vector<DelayedKeyArg> delayed_keys;
 
     // Parse command-line arguments.
+    //
+    // Dispatch is driven by cli::OPTIONS (src/core/cli_options.h), which is the
+    // single source of truth for which flags exist and how many values each one
+    // takes (issue #43). A flag absent from that table cannot be parsed here, so
+    // the table can be diffed against the man page and the two cannot drift.
+    //
+    // Argument-shortage behaviour is deliberately unchanged: an option whose
+    // values run past the end of argv is reported as an unknown option, exactly
+    // as the previous `arg == "--x" && i + 1 < argc` chain did.
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg.rfind("--log-level=", 0) == 0) {
-            Log::parse_levels(arg.substr(12));
-        } else if (arg == "--log-level" && i + 1 < argc) {
-            Log::parse_levels(argv[++i]);
-        } else if (arg == "--inject" && i + 1 < argc) {
-            inject_file = argv[++i];
-        } else if (arg == "--inject-org" && i + 1 < argc) {
-            inject_org = parse_hex16(argv[++i]);
-        } else if (arg == "--inject-pc" && i + 1 < argc) {
-            inject_pc = parse_hex16(argv[++i]);
-            inject_pc_set = true;
-        } else if (arg == "--inject-delay" && i + 1 < argc) {
-            inject_delay = std::stoi(argv[++i]);
-        } else if (arg == "--load" && i + 1 < argc) {
-            load_file = argv[++i];
-        } else if ((arg == "--sdcard" || arg == "--sd-card") && i + 1 < argc) {
-            // --sdcard is canonical; --sd-card is a silent (undocumented) alias
-            // kept for backward compatibility. Both consume the FILE argument.
-            sd_card_image = argv[++i];
-        } else if (arg == "--sdcard-download-confirm") {
-            sdcard_download_confirm = true;
-        } else if (arg == "--sdcard-download-force") {
-            sdcard_download_force = true;
-        } else if (arg == "--delayed-screenshot" && i + 1 < argc) {
-            screenshot_file = argv[++i];
-        } else if (arg == "--delayed-screenshot-time" && i + 1 < argc) {
-            screenshot_delay = std::stoi(argv[++i]);
-        } else if (arg == "--delayed-screenshot-frames" && i + 1 < argc) {
-            screenshot_delay_frames = std::stoi(argv[++i]);
-        } else if (arg == "--delayed-screenshot-layers" && i + 1 < argc) {
-            std::string err;
-            if (!Renderer::parse_layer_mask(argv[++i], screenshot_layers, err)) {
-                fprintf(stderr, "--delayed-screenshot-layers: %s\n", err.c_str());
-                return 1;
+
+        // The one inline-value form, handled ahead of the table lookup.
+        if (arg.rfind(cli::INLINE_VALUE_PREFIX, 0) == 0) {
+            Log::parse_levels(arg.substr(std::strlen(cli::INLINE_VALUE_PREFIX)));
+            continue;
+        }
+
+        const cli::Option* opt = cli::find(arg.c_str());
+        if (opt && i + opt->arity < argc) {
+            // v[0], v[1] are this option's values; advance past them now so the
+            // loop's ++i lands on the next argument.
+            const char* const* v = &argv[i + 1];
+            i += opt->arity;
+
+            switch (opt->id) {
+            case cli::OptId::LogLevel:
+                Log::parse_levels(v[0]);
+                break;
+            case cli::OptId::Inject:
+                inject_file = v[0];
+                break;
+            case cli::OptId::InjectOrg:
+                inject_org = parse_hex16(v[0]);
+                break;
+            case cli::OptId::InjectPc:
+                inject_pc = parse_hex16(v[0]);
+                inject_pc_set = true;
+                break;
+            case cli::OptId::InjectDelay:
+                inject_delay = std::stoi(v[0]);
+                break;
+            case cli::OptId::Load:
+                load_file = v[0];
+                break;
+            case cli::OptId::Sdcard:
+                // --sdcard is canonical; --sd-card is a silent (undocumented)
+                // alias kept for backward compatibility. Both land here and
+                // both consume the FILE argument.
+                sd_card_image = v[0];
+                break;
+            case cli::OptId::SdcardDownloadConfirm:
+                sdcard_download_confirm = true;
+                break;
+            case cli::OptId::SdcardDownloadForce:
+                sdcard_download_force = true;
+                break;
+            case cli::OptId::DelayedScreenshot:
+                screenshot_file = v[0];
+                break;
+            case cli::OptId::DelayedScreenshotTime:
+                screenshot_delay = std::stoi(v[0]);
+                break;
+            case cli::OptId::DelayedScreenshotFrames:
+                screenshot_delay_frames = std::stoi(v[0]);
+                break;
+            case cli::OptId::DelayedScreenshotLayers: {
+                std::string err;
+                if (!Renderer::parse_layer_mask(v[0], screenshot_layers, err)) {
+                    fprintf(stderr, "--delayed-screenshot-layers: %s\n", err.c_str());
+                    return 1;
+                }
+                screenshot_layers_set = true;
+                break;
             }
-            screenshot_layers_set = true;
-        } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
-            auto_exit_delay = std::stoi(argv[++i]);
-        } else if (arg == "--delayed-automatic-exit-frames" && i + 1 < argc) {
-            auto_exit_delay_frames = std::stoi(argv[++i]);
-        } else if (arg == "--delayed-snapshot" && i + 1 < argc) {
-            snapshot_file = argv[++i];
-        } else if (arg == "--delayed-snapshot-frames" && i + 1 < argc) {
-            snapshot_delay_frames = std::stoi(argv[++i]);
-        } else if (arg == "--machine" && i + 1 < argc) {
-            if (!parse_machine_type(argv[++i], machine_type)) {
-                fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", argv[i]);
-                return 1;
+            case cli::OptId::DelayedAutomaticExit:
+                auto_exit_delay = std::stoi(v[0]);
+                break;
+            case cli::OptId::DelayedAutomaticExitFrames:
+                auto_exit_delay_frames = std::stoi(v[0]);
+                break;
+            case cli::OptId::DelayedSnapshot:
+                snapshot_file = v[0];
+                break;
+            case cli::OptId::DelayedSnapshotFrames:
+                snapshot_delay_frames = std::stoi(v[0]);
+                break;
+            case cli::OptId::Machine:
+                if (!parse_machine_type(v[0], machine_type)) {
+                    fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", v[0]);
+                    return 1;
+                }
+                machine_type_set = true;
+                machine_arg = v[0];
+                break;
+            case cli::OptId::Headless:
+                headless = true;
+                break;
+            case cli::OptId::Benchmark:
+                benchmark_frames = std::stoi(v[0]);
+                if (benchmark_frames <= 0) {
+                    fprintf(stderr, "--benchmark: frame count must be > 0\n");
+                    return 1;
+                }
+                break;
+            case cli::OptId::BenchmarkLabel:
+                // Canonical workload name for the BENCH line (Task 27 T1 review):
+                // bench.sh passes its workload names through so BENCH lines and
+                // baseline files agree; grep-ability across tasks depends on it.
+                benchmark_label = v[0];
+                if (benchmark_label.empty() ||
+                    benchmark_label.find_first_of(" \t") != std::string::npos) {
+                    fprintf(stderr, "--benchmark-label: label must be non-empty with no "
+                            "whitespace (the BENCH line is space-delimited)\n");
+                    return 1;
+                }
+                break;
+            case cli::OptId::Silent:
+                silent = true;
+                break;
+            case cli::OptId::TapeRealtime:
+                tape_realtime = true;
+                break;
+            case cli::OptId::TapeSave:
+                tape_save_file = v[0];
+                break;
+            case cli::OptId::MagicBreakpoint:
+                magic_breakpoint = true;
+                break;
+            case cli::OptId::EsxdosStub:
+                esxdos_stub = true;
+                break;
+            case cli::OptId::MagicPort:
+                magic_port_enabled = true;
+                magic_port_address = static_cast<uint16_t>(std::stoul(v[0], nullptr, 0));
+                break;
+            case cli::OptId::MagicPortMode: {
+                std::string mode = v[0];
+                for (auto& c : mode) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (mode == "hex") magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
+                else if (mode == "dec") magic_port_mode = EmulatorConfig::MagicPortMode::DEC;
+                else if (mode == "ascii") magic_port_mode = EmulatorConfig::MagicPortMode::ASCII;
+                else if (mode == "line") magic_port_mode = EmulatorConfig::MagicPortMode::LINE;
+                else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", v[0]); return 1; }
+                break;
             }
-            machine_type_set = true;
-            machine_arg = argv[i];
-        } else if (arg == "--headless") {
-            headless = true;
-        } else if (arg == "--benchmark" && i + 1 < argc) {
-            benchmark_frames = std::stoi(argv[++i]);
-            if (benchmark_frames <= 0) {
-                fprintf(stderr, "--benchmark: frame count must be > 0\n");
-                return 1;
+            case cli::OptId::Record:
+                record_file = v[0];
+                break;
+            case cli::OptId::WavRecord:
+                wav_record_file = v[0];
+                break;
+            case cli::OptId::DacTrace:
+                dac_trace_file = v[0];
+                break;
+            case cli::OptId::RzxPlay:
+                rzx_play_file = v[0];
+                break;
+            case cli::OptId::RzxRecord:
+                rzx_record_file = v[0];
+                break;
+            case cli::OptId::Speed:
+                speed_percent = std::stoi(v[0]);
+                if (speed_percent < 10) speed_percent = 10;
+                if (speed_percent > 1000) speed_percent = 1000;
+                speed_percent_set = true;
+                break;
+            case cli::OptId::Joy1Source:
+            case cli::OptId::Joy2Source: {
+                const int idx = (opt->id == cli::OptId::Joy1Source) ? 0 : 1;
+                JoySource src;
+                if (!parse_joy_source(v[0], src)) {
+                    std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl' or 'keys')\n",
+                                 arg.c_str(), v[0]);
+                    return 1;
+                }
+                joy_source[idx]     = src;
+                joy_source_set[idx] = true;
+                break;
             }
-        } else if (arg == "--benchmark-label" && i + 1 < argc) {
-            // Canonical workload name for the BENCH line (Task 27 T1 review):
-            // bench.sh passes its workload names through so BENCH lines and
-            // baseline files agree; grep-ability across tasks depends on it.
-            benchmark_label = argv[++i];
-            if (benchmark_label.empty() ||
-                benchmark_label.find_first_of(" \t") != std::string::npos) {
-                fprintf(stderr, "--benchmark-label: label must be non-empty with no "
-                        "whitespace (the BENCH line is space-delimited)\n");
-                return 1;
+            case cli::OptId::DelayedKeypress:
+            case cli::OptId::DelayedKeypressFrames: {
+                // SECS form: stored as-is; HeadlessApp converts to frames at
+                // run() start using the active machine's framerate.
+                // FRAMES form: stored as frames directly.
+                const bool in_frames = (opt->id == cli::OptId::DelayedKeypressFrames);
+                int dk_n = std::stoi(v[0]);
+                std::string dk_key = v[1];
+                // Key-name parsing (single char, ENTER/SPACE/cursor names,
+                // punctuation, sym+X / caps+X compounds) lives in
+                // HeadlessApp::set_delayed_keypress, which rejects unknown
+                // names loudly (Task 57). Just store the raw name here.
+                if (!dk_key.empty()) {
+                    delayed_keys.push_back({dk_n, dk_key, in_frames});
+                }
+                break;
             }
-        } else if (arg == "--silent") {
-            silent = true;
-        } else if (arg == "--tape-realtime") {
-            tape_realtime = true;
-        } else if (arg == "--tape-save" && i + 1 < argc) {
-            tape_save_file = argv[++i];
-        } else if (arg == "--magic-breakpoint") {
-            magic_breakpoint = true;
-        } else if (arg == "--esxdos-stub") {
-            esxdos_stub = true;
-        } else if (arg == "--magic-port" && i + 1 < argc) {
-            magic_port_enabled = true;
-            magic_port_address = static_cast<uint16_t>(std::stoul(argv[++i], nullptr, 0));
-        } else if (arg == "--magic-port-mode" && i + 1 < argc) {
-            std::string mode = argv[++i];
-            for (auto& c : mode) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (mode == "hex") magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
-            else if (mode == "dec") magic_port_mode = EmulatorConfig::MagicPortMode::DEC;
-            else if (mode == "ascii") magic_port_mode = EmulatorConfig::MagicPortMode::ASCII;
-            else if (mode == "line") magic_port_mode = EmulatorConfig::MagicPortMode::LINE;
-            else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", argv[i]); return 1; }
-        } else if (arg == "--record" && i + 1 < argc) {
-            record_file = argv[++i];
-        } else if (arg == "--wav-record" && i + 1 < argc) {
-            wav_record_file = argv[++i];
-        } else if (arg == "--dac-trace" && i + 1 < argc) {
-            dac_trace_file = argv[++i];
-        } else if (arg == "--rzx-play" && i + 1 < argc) {
-            rzx_play_file = argv[++i];
-        } else if (arg == "--rzx-record" && i + 1 < argc) {
-            rzx_record_file = argv[++i];
-        } else if (arg == "--speed" && i + 1 < argc) {
-            speed_percent = std::stoi(argv[++i]);
-            if (speed_percent < 10) speed_percent = 10;
-            if (speed_percent > 1000) speed_percent = 1000;
-            speed_percent_set = true;
-        } else if ((arg == "--joy1-source" || arg == "--joy2-source") && i + 1 < argc) {
-            const int idx = (arg == "--joy1-source") ? 0 : 1;
-            JoySource src;
-            if (!parse_joy_source(argv[++i], src)) {
-                std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl' or 'keys')\n",
-                             arg.c_str(), argv[i]);
-                return 1;
+            case cli::OptId::RewindBufferSize:
+                rewind_buffer_frames = std::stoi(v[0]);
+                if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
+                break;
+            case cli::OptId::Trace:
+                trace_enabled = true;
+                break;
+            case cli::OptId::CompositorTrace:
+                compositor_trace_path = v[0];
+                break;
+            case cli::OptId::CompositorTraceFrame:
+                compositor_trace_frame = std::stoi(v[0]);
+                break;
+            case cli::OptId::Profile:
+                profile_enabled = true;
+                break;
+            case cli::OptId::ProfileOutput:
+                profile_output_path = v[0];
+                break;
+            case cli::OptId::Rtc:
+                rtc_fixed_arg = v[0];
+                if (!parse_rtc_datetime(rtc_fixed_arg, rtc_fixed_tm)) {
+                    fprintf(stderr, "Invalid --rtc value: '%s' (expected \"YYYY-MM-DD HH:MM:SS\" "
+                            "or YYYY-MM-DDTHH:MM:SS)\n",
+                            rtc_fixed_arg.c_str());
+                    return 1;
+                }
+                break;
+            case cli::OptId::Help:
+                print_usage(argv[0]);
+                return 0;
+            case cli::OptId::Version:
+                fprintf(stdout, "jnext %s\n", JNEXT_VERSION_STRING);
+                return 0;
             }
-            joy_source[idx]     = src;
-            joy_source_set[idx] = true;
-        } else if ((arg == "--delayed-keypress" || arg == "--delayed-keypress-frames")
-                   && i + 2 < argc) {
-            // SECS form: stored as-is; HeadlessApp converts to frames at
-            // run() start using the active machine's framerate.
-            // FRAMES form: stored as frames directly.
-            const bool in_frames = (arg == "--delayed-keypress-frames");
-            int dk_n = std::stoi(argv[++i]);
-            std::string dk_key = argv[++i];
-            // Key-name parsing (single char, ENTER/SPACE/cursor names,
-            // punctuation, sym+X / caps+X compounds) lives in
-            // HeadlessApp::set_delayed_keypress, which rejects unknown
-            // names loudly (Task 57). Just store the raw name here.
-            if (!dk_key.empty()) {
-                delayed_keys.push_back({dk_n, dk_key, in_frames});
-            }
-        } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
-            rewind_buffer_frames = std::stoi(argv[++i]);
-            if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
-        } else if (arg == "--trace") {
-            trace_enabled = true;
-        } else if (arg == "--compositor-trace" && i + 1 < argc) {
-            compositor_trace_path = argv[++i];
-        } else if (arg == "--compositor-trace-frame" && i + 1 < argc) {
-            compositor_trace_frame = std::stoi(argv[++i]);
-        } else if (arg == "--profile") {
-            profile_enabled = true;
-        } else if (arg == "--profile-output" && i + 1 < argc) {
-            profile_output_path = argv[++i];
-        } else if (arg == "--rtc" && i + 1 < argc) {
-            rtc_fixed_arg = argv[++i];
-            if (!parse_rtc_datetime(rtc_fixed_arg, rtc_fixed_tm)) {
-                fprintf(stderr, "Invalid --rtc value: '%s' (expected \"YYYY-MM-DD HH:MM:SS\" "
-                        "or YYYY-MM-DDTHH:MM:SS)\n",
-                        rtc_fixed_arg.c_str());
-                return 1;
-            }
-        } else if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return 0;
-        } else if (arg == "--version" || arg == "-V") {
-            fprintf(stdout, "jnext %s\n", JNEXT_VERSION_STRING);
-            return 0;
-        } else if (!arg.empty() && arg[0] != '-') {
+        } else if (!opt && !arg.empty() && arg[0] != '-') {
             // A bare argument is the program to load, so `jnext game.tap` works
             // like `jnext --load game.tap`. Anything starting with '-' is still an
             // unknown option, not a filename — a mistyped flag must not be

@@ -386,6 +386,20 @@ target_link_libraries(log_gate_test PRIVATE
 target_include_directories(log_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME log_gate_tests COMMAND log_gate_test)
 
+# CLI option table / man page alignment (issue #43). Header-only table under
+# test (src/core/cli_options.h) — no emulator core needed. The three paths are
+# baked in at configure time so the suite works from any working directory
+# (ctest runs it from the build tree). It also shells out to the built jnext
+# binary, which `cmake --build build` always produces alongside it.
+add_executable(cli_options_test core/cli_options_test.cpp)
+target_include_directories(cli_options_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(cli_options_test PRIVATE
+    JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
+    JNEXT_MAIN_SRC="${CMAKE_SOURCE_DIR}/src/main.cpp"
+    JNEXT_BINARY="$<TARGET_FILE:jnext>")
+add_dependencies(cli_options_test jnext)
+add_test(NAME cli_options_tests COMMAND cli_options_test)
+
 # Logging level-policy test (Task 24). Host-side tooling; no VHDL oracle.
 add_executable(log_test core/log_test.cpp)
 target_link_libraries(log_test PRIVATE spdlog::spdlog)
