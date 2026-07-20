@@ -1,0 +1,44 @@
+site_name: JNEXT User Guide
+site_description: ZX Spectrum Next emulator — user guide
+repo_url: https://github.com/jorgegv/jnext
+docs_dir: doc/user-guide
+site_dir: build/user-guide
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - 1. Introduction: 01-introduction.md
+  - 2. Installing: 02-installing.md
+  - 3. First run: 03-first-run.md
+  - 4. Configuration: 04-configuration.md
+  - 5. Running programs: 05-running-programs.md
+  - 6. The debugger: 06-debugger.md
+  - 7. Automation and CI: 07-automation-and-ci.md
+  - 8. Known issues: 08-known-issues.md
+  - 9. Reference: 09-reference.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+# The TOC skeleton is kept out of the built site; it is a working document.
+exclude_docs: |
+  TOC.md
