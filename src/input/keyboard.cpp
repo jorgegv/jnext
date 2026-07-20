@@ -418,9 +418,18 @@ void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
 
 void Keyboard::queue_auto_type(const std::vector<AutoKey>& keys) {
     auto_queue_ = keys;
+    // Issue #42 — the queue travels in the rewind snapshot at constant
+    // width, so it must stay within MAX_AUTO_TYPE_KEYS. Truncating loudly
+    // beats letting the sequence through and having every snapshot from
+    // here on be silently dropped for being oversized.
+    if (auto_queue_.size() > MAX_AUTO_TYPE_KEYS) {
+        Log::input()->error("Auto-type: {} keystrokes exceeds the {} cap — "
+                            "sequence truncated", keys.size(), MAX_AUTO_TYPE_KEYS);
+        auto_queue_.resize(MAX_AUTO_TYPE_KEYS);
+    }
     auto_frame_count_ = 0;
     auto_gap_ = false;
-    Log::input()->info("Auto-type: queued {} keystrokes", keys.size());
+    Log::input()->info("Auto-type: queued {} keystrokes", auto_queue_.size());
 }
 
 void Keyboard::tick_auto_type() {
@@ -551,8 +560,15 @@ void Keyboard::save_state(StateWriter& w) const
     // Auto-type FSM: the in-flight queue plus the frame counter and the
     // inter-key gap flag. The queue can be non-empty mid-play (e.g. an
     // instant-TAP LOAD"" sequence), so it must travel with the snapshot.
+    //
+    // Issue #42 — written at the full MAX_AUTO_TYPE_KEYS width rather than
+    // at the live size, so the snapshot has a constant length whatever the
+    // guest is doing (RewindBuffer drops any snapshot whose size differs
+    // from the one it measured at construction). Slots past the count are
+    // padding and load_state ignores them.
     w.write_u32(static_cast<uint32_t>(auto_queue_.size()));
-    for (const auto& k : auto_queue_) {
+    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
+        const AutoKey k = (i < auto_queue_.size()) ? auto_queue_[i] : AutoKey{};
         w.write_i32(k.row1);
         w.write_i32(k.col1);
         w.write_i32(k.row2);
@@ -574,18 +590,19 @@ void Keyboard::load_state(StateReader& r)
     r.read_bytes(shift_hist_, 2);
     const uint32_t n = r.read_u32();
     auto_queue_.clear();
-    // Guard against a corrupt count causing a pathological loop: each entry
-    // consumes 20 bytes, so a bad `n` exhausts the buffer within
-    // capacity/20 iterations and out_of_bounds() latches — bail then. The
-    // sentinel check in Emulator::load_state reports the corruption loudly.
-    for (uint32_t i = 0; i < n && !r.out_of_bounds(); ++i) {
+    // The stream always carries exactly MAX_AUTO_TYPE_KEYS entries (see
+    // save_state), so read the full fixed-width block and keep the first
+    // `n`. A corrupt count therefore cannot desync the stream; it is
+    // clamped, and Emulator::load_state's sentinel reports the corruption.
+    const uint32_t live = (n <= MAX_AUTO_TYPE_KEYS) ? n : MAX_AUTO_TYPE_KEYS;
+    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
         AutoKey k;
         k.row1   = r.read_i32();
         k.col1   = r.read_i32();
         k.row2   = r.read_i32();
         k.col2   = r.read_i32();
         k.frames = r.read_i32();
-        auto_queue_.push_back(k);
+        if (i < live) auto_queue_.push_back(k);
     }
     auto_frame_count_ = r.read_i32();
     auto_gap_         = r.read_bool();

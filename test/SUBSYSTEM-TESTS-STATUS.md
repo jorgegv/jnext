@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 All tests pass. |

@@ -176,6 +176,17 @@ private:
 
     void set_matrix_bit(int row, int col, bool pressed);
 
+public:
+    /// Hard cap on a queued auto-type sequence. Issue #42: the queue is
+    /// part of the rewind snapshot, and RewindBuffer requires every
+    /// snapshot to be exactly the size measured at construction — so a
+    /// variable-length field silently invalidates snapshots. Bounding the
+    /// queue lets save_state write it at constant width. Every in-tree
+    /// caller queues a literal of at most 4 keys (LOAD"" is the longest),
+    /// so 16 is 4x headroom; queue_auto_type() enforces it loudly.
+    static constexpr size_t MAX_AUTO_TYPE_KEYS = 16;
+
+private:
     // Auto-type state
     std::vector<AutoKey> auto_queue_;
     int auto_frame_count_ = 0;

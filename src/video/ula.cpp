@@ -1333,11 +1333,20 @@ void Ula::save_state(StateWriter& w) const
     // apply_changes_for_line() reproduces the pre-save frame.  Persist
     // the baseline + tagged entries; cursor + overflow flag are
     // transient render-time state and don't need to round-trip.
+    //
+    // Issue #42 — the log is written at its FULL CAPACITY, not at the
+    // live count: RewindBuffer sizes every slot from a single dry-run
+    // save_state() and then requires each snapshot to be exactly that
+    // size, so a count-prefixed variable-length field silently broke
+    // rewind the first time a guest touched port 0xFF (3 bytes over,
+    // snapshot dropped).  Entries past `n` are stale, and load_state
+    // ignores them; the constant width is what keeps the snapshot size
+    // an invariant instead of a property of guest behaviour.
     w.write_u8(baseline_port_ff_);
     w.write_u16(current_line_);
     const uint16_t n = static_cast<uint16_t>(port_ff_count_);
     w.write_u16(n);
-    for (uint16_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < MAX_CHANGES_PER_FRAME; ++i) {
         w.write_u16(port_ff_log_[i].line);
         w.write_u8(port_ff_log_[i].value);
     }
@@ -1371,10 +1380,13 @@ void Ula::load_state(StateReader& r)
     baseline_port_ff_      = r.read_u8();
     current_line_          = r.read_u16();
     const uint16_t n       = r.read_u16();
-    port_ff_count_         = n;
+    // A corrupt count cannot overrun the array: the stream always carries
+    // exactly MAX_CHANGES_PER_FRAME entries (see save_state), so clamp the
+    // live count and read the full fixed-width block regardless.
+    port_ff_count_         = (n <= MAX_CHANGES_PER_FRAME) ? n : MAX_CHANGES_PER_FRAME;
     port_ff_render_cursor_ = 0;
     port_ff_overflow_warned_ = false;
-    for (uint16_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < MAX_CHANGES_PER_FRAME; ++i) {
         port_ff_log_[i].line  = r.read_u16();
         port_ff_log_[i].value = r.read_u8();
     }
