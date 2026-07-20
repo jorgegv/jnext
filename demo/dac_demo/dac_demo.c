@@ -8,12 +8,29 @@
  * Produces dac_demo.nex loadable in the emulator or real hardware.
  *
  * Outputs two sine waves at different frequencies, swapping between
- * left and right channels every ~0.5 seconds.  CPU runs at 28 MHz
- * for adequate sample rate (~28 kHz).
+ * left and right channels every ~0.5 seconds.  CPU runs at 28 MHz;
+ * the measured loop period is ~878 T, i.e. a sample rate of ~32 kHz.
  *
- * DAC ports verified against VHDL source:
- *   cores/zxnext/src/audio/soundrive.vhd
- *   cores/zxnext/src/zxnext.vhd  (port decoding + NextREG 0x08)
+ * DAC ports, per VHDL (authoritative):
+ *
+ *   zxnext.vhd:2429  soundrive mode 1 = ports 1F/0F/4F/5F for ch A/B/C/D
+ *   zxnext.vhd:2661-2664  per-channel port decode equations
+ *   soundrive.vhd:112-113 pcm_L = chA + chB,  pcm_R = chC + chD
+ *
+ * So the channel-to-side mapping is:
+ *
+ *   0x1F -> chA -> LEFT      0x4F -> chC -> RIGHT
+ *   0x0F -> chB -> LEFT      0x5F -> chD -> RIGHT
+ *
+ * NOTE: port 0xDF is NOT channel D.  It is the Specdrum mono port and
+ * writes channels A *and* D together (zxnext.vhd:2661,2664 via
+ * port_dac_mono_AD), i.e. one sample to each side.  An earlier version of
+ * this demo used 0xDF believing it addressed channel D on the left, and
+ * also had B/D on the wrong sides.  The result was chA=chD=sample_a and
+ * chB=chC=sample_b, so BOTH sides carried sample_a+sample_b: the stereo
+ * separation never happened, and because sample_b is exactly the third
+ * harmonic of sample_a (phase step 3 vs 1 over the same 256-entry table)
+ * the sum was heard as one hollow, reedy, buzzing tone.  See issue #38.
  */
 
 #pragma output REGISTER_SP  = 0xfffd
@@ -136,9 +153,10 @@ static const unsigned char sine_table[256] = {
  *   IX = swap counter (counts down from SWAP_COUNT)                   *
  *                                                                     *
  * Timing per sample iteration (fixed path):                           *
- *   ~100 T core + 520 T delay = ~620 T → 28M/620 ≈ 45 kHz           *
- *   Step 1 → 45000/256 ≈ 176 Hz                                      *
- *   Step 3 → 45000/256*3 ≈ 527 Hz                                    *
+ *   ~358 T core + 520 T delay = ~878 T → 28M/878 ≈ 31.9 kHz         *
+ *   Step 1 → 31900/256 ≈ 125 Hz                                      *
+ *   Step 3 → 31900/256*3 ≈ 374 Hz                                    *
+ * (measured with --dac-trace, not estimated)                          *
  * ------------------------------------------------------------------ */
 static void playback(void) __naked
 {
@@ -152,7 +170,7 @@ static void playback(void) __naked
     ld   c, 0           ; phase_a = 0
     ld   e, 0           ; phase_b = 0
     ld   d, 0           ; swap = 0
-    ld   ix, 14000      ; swap counter (14000 samples ≈ 0.5s at ~28 kHz)
+    ld   ix, 14000      ; swap counter (14000 samples ≈ 0.44s at ~32 kHz)
 
 _play_loop:
     ;; Look up sample_a = sine_table[phase_a] → B
@@ -174,29 +192,34 @@ _play_loop:
     pop  de
     ld   a, (hl)        ; A = sample_b, B = sample_a
 
-    ;; Check swap flag
-    bit  0, d
-    jr   nz, _dac_swapped
+    ;; Select which sample goes to which side: L in L, R in H.
+    ;; Both arms are deliberately the same length (35 T) so the sample rate
+    ;; -- and therefore the pitch -- does not change when the channels swap.
+    bit  0, d           ; 8
+    jr   nz, _dac_swapped   ; 7 not taken / 12 taken
 
-    ;; swap=0: left=sample_a (B), right=sample_b (A)
-    push af             ; save sample_b
-    ld   a, b           ; A = sample_a
-    out  (0x1f), a      ; DAC A (left)
-    out  (0xdf), a      ; DAC D (left)
-    pop  af             ; A = sample_b
-    out  (0x0f), a      ; DAC B (right)
-    out  (0x4f), a      ; DAC C (right)
-    jr   _dac_done_out
+    ;; swap=0: left = sample_a (B), right = sample_b (A)
+    ld   l, b           ; 4
+    ld   h, a           ; 4
+    jr   _dac_done_out  ; 12   -> arm total 35 T
 
 _dac_swapped:
-    ;; swap=1: left=sample_b (A), right=sample_a (B)
-    out  (0x1f), a      ; DAC A (left)  = sample_b
-    out  (0xdf), a      ; DAC D (left)  = sample_b
-    ld   a, b           ; A = sample_a
-    out  (0x0f), a      ; DAC B (right) = sample_a
-    out  (0x4f), a      ; DAC C (right) = sample_a
+    ;; swap=1: left = sample_b (A), right = sample_a (B)
+    ld   l, a           ; 4
+    ld   h, b           ; 4
+    ld   b, 0           ; 7  timing pad only (B is dead here; DJNZ reloads it)
+                        ;    -> arm total 35 T, equal to the arm above
 
 _dac_done_out:
+    ;; Emit: chA+chB are LEFT, chC+chD are RIGHT (soundrive.vhd:112-113).
+    ;; Both channels of a side get the same value, so each side reproduces
+    ;; its tone at full amplitude.
+    ld   a, l
+    out  (0x1f), a      ; chA -> LEFT
+    out  (0x0f), a      ; chB -> LEFT
+    ld   a, h
+    out  (0x4f), a      ; chC -> RIGHT
+    out  (0x5f), a      ; chD -> RIGHT
     ;; Advance phases
     inc  c              ; phase_a += 1
     ld   a, e
@@ -243,7 +266,7 @@ int main(void)
     set_attr(11, 2, 0x45, 8);   /* BRIGHT 1, INK 5 (cyan), PAPER 0 */
 
     print_str(4, 5, "Soundrive 4-channel DAC");
-    print_str(4, 6, "CPU at 28 MHz, ~28 kHz rate");
+    print_str(4, 6, "CPU at 28 MHz, ~32 kHz rate");
     print_str(4, 8, "Low tone and high tone swap");
     print_str(4, 9, "between L and R every 0.5s.");
 
