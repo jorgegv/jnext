@@ -78,19 +78,22 @@ jobs:
     container: fedora:44
     timeout-minutes: 60
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # Package set mirrors release.yml's deb job (verified to actually
-      # build on Fedora by the packaging task) plus the tools the test
+      # MUST run BEFORE the checkout: a bare fedora:44 has no git, and
+      # actions/checkout throws outright when `submodules` is requested
+      # without it ("Input 'submodules' not supported when falling back to
+      # download using the GitHub REST API"). release.yml's rpm and windows
+      # jobs already order it this way for exactly this reason.
+      #
+      # Package set mirrors release.yml's rpm job (same fedora:44 container,
+      # same dnf names) plus the tools the test
       # layers need on top: imagemagick (`compare`, screenshot diffing),
       # xvfb (audio-underrun-func's real-audio-device functional test —
       # every other GUI functional test uses QT_QPA_PLATFORM=offscreen and
       # needs no display), python3 (check-audio-underruns.py), unzip (the
       # SD-image provisioning step's own dependency, ultimately via
       # libcurl inside jnext, not this step directly, but kept explicit).
+      # git, make and diffutils come preinstalled on an Ubuntu runner but are
+      # absent from the bare Fedora image, so they are explicit here.
       - name: Install build + test dependencies
         run: |
           dnf install -y \
@@ -99,6 +102,11 @@ jobs:
             qt6-qtbase-devel \
             ImageMagick xorg-x11-server-Xvfb python3 unzip diffutils \
             pandoc mkdocs-material
+
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Cache ccache
         uses: actions/cache@v4
