@@ -15,8 +15,10 @@ $ man jnext
 
 The same content is in [`USAGE.md`](../../USAGE.md) in the repository, for
 reading in a browser. **Both are generated from a single source**, so they
-cannot disagree with each other — and they are regenerated with the binary, so
-they cannot disagree with it either.
+cannot disagree with each other.
+
+If you ever find the documentation and the program disagreeing, the program is
+right — please [report it](https://github.com/jorgegv/jnext/issues).
 
 For a quick reminder without leaving the shell:
 
@@ -54,16 +56,9 @@ not specify — file formats, firmware behaviour, host-side conventions — the
 project keeps its external links in one place:
 [`doc/REFERENCES.md`](../REFERENCES.md).
 
-The ones a user or a program author is most likely to want:
-
-| Topic                             | Where                                                   |
-|-----------------------------------|---------------------------------------------------------|
-| Next hardware wiki (registers, ports, formats) | <https://wiki.specnext.dev/>                 |
-| Boot sequence                     | <https://wiki.specnext.dev/Boot_Sequence>               |
-| Machine ID register               | <https://wiki.specnext.dev/Machine_ID_Register>         |
-| NEX file format                   | <https://wiki.specnext.dev/NEX_file_format>             |
-| Alternative NEX file formats      | <https://wiki.specnext.dev/Alternative_NEX_file_formats> |
-| TBBlue firmware source            | <https://gitlab.com/thesmog358/tbblue/-/tree/master>    |
+It holds the Next hardware wiki (registers, ports, the boot sequence, the NEX
+file format) and the TBBlue firmware sources. That file is the single place
+those URLs live, so they are not repeated here.
 
 ## 9.4 The project
 

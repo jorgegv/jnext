@@ -7,8 +7,8 @@ people who write that software.
 
 This guide is task-oriented: it shows you how to do things. The complete list
 of command-line options lives in the manual page (`man jnext`, or
-[USAGE.md](../../USAGE.md)), which is generated from the same source as the
-program, so it never disagrees with the binary.
+[USAGE.md](../../USAGE.md)); both are generated from a single source, so they
+never disagree with each other.
 
 ## What it emulates
 
