@@ -76,6 +76,43 @@ before the bump commit**, so the released tag carries its own ChangeLog entry.
 Every step is `&&`-chained — if the sync fails, **nothing is committed or
 tagged** (no half-synced release).
 
+### 2.2 A public release MUST have its documentation checked
+
+The generated-document gates (`docs-check`) prove only that the committed
+outputs regenerate from their sources. They cannot tell you whether those
+sources still describe the product. That seam has failed twice — five flags
+once entirely undocumented, and v0.98.60 shipping a man page with a wrong scale
+range, two missing GUI menus and a status-bar indicator that does not exist,
+with every gate green. Both were found by a human reading the running product.
+
+Before a public bump:
+
+1. **Run `make cli-check` and fix anything it reports.** It diffs the flag table
+   in `src/core/cli_options.h` against the OPTIONS section of
+   `doc/man/jnext.1.md` in both directions (issue #43). `USAGE.md` is covered
+   transitively — it is generated from the same source and `docs-check` fails if
+   the committed copy has drifted. A failure here is a real disagreement between
+   the shipped CLI and the shipped documentation; fix the code or the man page,
+   never silence the check.
+
+   Note what this does **not** cover: the man page's **prose** sections, and
+   `print_usage()` (the `--help` text). Neither is checked by anything.
+
+2. **Read the user documentation against the running product and update it.**
+   The user guide sources live in `src/doc/user-guide` (rendered into the
+   committed `doc/user-guide` by `make docs-userguide`). Check the chapters
+   touching anything that changed this cycle — menus, panels, flags, defaults,
+   on-screen indicators — **by running jnext and looking**, not by reading other
+   docs. `doc/design/EMULATOR-DESIGN-PLAN.md` is a roadmap and is NOT a reliable
+   source of product facts; writing the guide against it produced five wrong
+   statements about the debugger alone.
+
+   Re-render and **commit** both the source and the rendered output in the same
+   change — the rendered guide has no staleness check of its own.
+
+Private patch bumps (answered `N`) do not require step 2, but `cli-check` runs
+anyway as a prerequisite of `make regression`.
+
 ---
 
 ## 3. Keeping packaging files in sync — `packaging/sync-version.sh`
