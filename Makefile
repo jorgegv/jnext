@@ -11,6 +11,8 @@ CXX               := /usr/bin/g++
 # BOTH outputs below, and both are committed: building jnext from source never
 # needs pandoc, only editing the docs does.
 GUIDE_PORT        ?= 8000
+GUIDE_SRC         := src/doc/user-guide
+GUIDE_OUT         := doc/user-guide
 MAN_SRC           := doc/man/jnext.1.md
 MAN_OUT           := doc/man/jnext.1
 USAGE_OUT         := USAGE.md
@@ -342,9 +344,22 @@ docs-check:
 	 rc=0; \
 	 diff -q $$tmp/man.1 $(MAN_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(MAN_OUT) is stale\n"; rc=1; }; \
 	 diff -q $$tmp/USAGE.md $(USAGE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(USAGE_OUT) is stale\n"; rc=1; }; \
+	 stale_guide=0; \
+	 if command -v mkdocs >/dev/null 2>&1; then \
+	   mkdocs build --strict --site-dir $$tmp/guide >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) the user guide does not build\n"; rc=1; }; \
+	   if [ -d $$tmp/guide ]; then \
+	     diff -r -q $$tmp/guide $(GUIDE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_OUT) is stale vs $(GUIDE_SRC)\n"; rc=1; stale_guide=1; }; \
+	   fi; \
+	 elif [ -n "$$CI" ]; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs missing in CI — the user-guide staleness\n"; \
+	   printf "        check would skip silently and read as a pass.\n"; rc=1; \
+	 else \
+	   printf "$(BADGE_SKIP) SKIP $(RESET) mkdocs not installed; cannot verify the user guide\n"; \
+	 fi; \
 	 rm -rf $$tmp; \
 	 if [ $$rc -eq 0 ]; then printf "$(BADGE_PASS) OK $(RESET) generated docs are up to date\n"; \
-	 else printf "        run 'make docs-man' and commit the result\n"; fi; \
+	 else if [ $$stale_guide -eq 1 ]; then printf "        run 'make docs-userguide' and commit the result\n"; \
+	      else printf "        run 'make docs-man' and commit the result\n"; fi; fi; \
 	 exit $$rc
 
 # Render the user guide from src/doc/user-guide into doc/user-guide (needs mkdocs-material)
@@ -363,14 +378,16 @@ docs-userguide:
 
 # Serve the rendered user guide over HTTP so it can be read in a browser
 read-userguide:
-	@if [ ! -f doc/user-guide/index.html ]; then \
+	@if [ ! -f $(GUIDE_OUT)/index.html ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) doc/user-guide is not rendered yet.\n"; \
 	   printf "        Run 'make docs-userguide' first.\n"; exit 1; \
 	 fi
-	@printf "$(BADGE_PASS) OK $(RESET) user guide at $(BOLD)http://localhost:$(GUIDE_PORT)/$(RESET)  (Ctrl+C to stop)\n"
 	@# Serve the rendered tree itself: mkdocs emits relative URLs (no site_url
 	@# is set), so the site works from any directory root without rewriting.
-	python3 -m http.server $(GUIDE_PORT) --bind 127.0.0.1 --directory doc/user-guide
+	@# The helper picks the first free port at or above GUIDE_PORT and prints
+	@# the URL it actually bound, so a busy 8000 cannot send the reader to a
+	@# dead link.
+	python3 tools/serve-userguide.py --directory $(GUIDE_OUT) --port $(GUIDE_PORT) --bind 127.0.0.1
 
 # Show current version
 version:
