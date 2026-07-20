@@ -263,3 +263,8 @@ keystroke — a walkthrough, a bug report, or a speedrun that stays honest.
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine
 the same way.
+
+---
+
+Every option mentioned in this chapter, and the ones that are not, are listed
+in full in the manual page — `man jnext`, or [`USAGE.md`](https://github.com/jorgegv/jnext/blob/main/USAGE.md).

@@ -283,4 +283,4 @@ Screenshots are the general-purpose check, but they are not the only one.
 - **RZX** (`--rzx-record` / `--rzx-play`) replays a whole recorded session
   input-for-input.
 
-The full option list is in [`jnext(1)`](../../USAGE.md).
+The full option list is in [`jnext(1)`](https://github.com/jorgegv/jnext/blob/main/USAGE.md).

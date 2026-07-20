@@ -167,10 +167,11 @@ gutter stay in sync in both directions.
 
 The state of the whole display pipeline, and a picture of each layer on its own.
 
-The header shows, when paused, the raster position (`HC` and `VC`, the raw
-hardware counters), which layers are enabled (green) or disabled (grey), which
-of the six priority orders `SLU LSU SUL LUS USL ULS` is selected, and the 32
-reachable entries of the active ULA palette as swatches.
+The header shows the raster position (`HC` and `VC`, the raw hardware
+counters) — only while paused — and, at all times, which layers are enabled
+(green) or disabled (grey), which of the six priority orders
+`SLU LSU SUL LUS USL ULS` is selected, and the 32 reachable entries of the
+active ULA palette as swatches.
 
 Below that, one tab per view:
 
@@ -451,4 +452,4 @@ Working examples of both are in `demo/magic_bp_demo/` and
 ---
 
 For the full list of command-line options mentioned here, see **jnext**(1) or
-[USAGE.md](../../USAGE.md).
+[USAGE.md](https://github.com/jorgegv/jnext/blob/main/USAGE.md).

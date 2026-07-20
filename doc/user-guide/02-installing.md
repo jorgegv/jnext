@@ -76,5 +76,5 @@ That prints the version and exits. You are ready for [chapter
 ## Building from source
 
 If you would rather build it yourself, see
-[BUILD.md](../../BUILD.md) — prerequisites, build options, and how to produce
+[BUILD.md](https://github.com/jorgegv/jnext/blob/main/BUILD.md) — prerequisites, build options, and how to produce
 the packages above.

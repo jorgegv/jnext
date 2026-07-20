@@ -92,4 +92,4 @@ Headless runs ignore the configuration file completely, so an automated test
 produces the same result on any machine.
 
 The full list of options is in the **jnext(1)** man page, also available as
-[USAGE.md](../../USAGE.md).
+[USAGE.md](https://github.com/jorgegv/jnext/blob/main/USAGE.md).

@@ -13,7 +13,7 @@ The complete, current option reference is the man page:
 $ man jnext
 ```
 
-The same content is in [`USAGE.md`](../../USAGE.md) in the repository, for
+The same content is in [`USAGE.md`](https://github.com/jorgegv/jnext/blob/main/USAGE.md) in the repository, for
 reading in a browser. **Both are generated from a single source**, so they
 cannot disagree with each other.
 
@@ -54,7 +54,7 @@ JNEXT emulates the official ZX Spectrum Next FPGA core, and the VHDL source of
 that core is the authority on hardware behaviour. For everything the VHDL does
 not specify — file formats, firmware behaviour, host-side conventions — the
 project keeps its external links in one place:
-[`doc/REFERENCES.md`](../REFERENCES.md).
+[`doc/REFERENCES.md`](https://github.com/jorgegv/jnext/blob/main/doc/REFERENCES.md).
 
 It holds the Next hardware wiki (registers, ports, the boot sequence, the NEX
 file format) and the TBBlue firmware sources. That file is the single place
@@ -66,8 +66,8 @@ those URLs live, so they are not repeated here.
 |---|---|
 | Home page      | <https://github.com/jorgegv/jnext>                    |
 | Report a bug   | <https://github.com/jorgegv/jnext/issues>             |
-| Feature list   | [`FEATURES.md`](../../FEATURES.md)                    |
-| Release notes  | [`ChangeLog`](../../ChangeLog)                        |
-| Building it    | [`BUILD.md`](../../BUILD.md)                          |
-| Licence        | GPLv3 — [`LICENSE`](../../LICENSE)                    |
-| Credits        | [`CREDITS.md`](../../CREDITS.md)                      |
+| Feature list   | [`FEATURES.md`](https://github.com/jorgegv/jnext/blob/main/FEATURES.md)                    |
+| Release notes  | [`ChangeLog`](https://github.com/jorgegv/jnext/blob/main/ChangeLog)                        |
+| Building it    | [`BUILD.md`](https://github.com/jorgegv/jnext/blob/main/BUILD.md)                          |
+| Licence        | GPLv3 — [`LICENSE`](https://github.com/jorgegv/jnext/blob/main/LICENSE)                    |
+| Credits        | [`CREDITS.md`](https://github.com/jorgegv/jnext/blob/main/CREDITS.md)                      |
