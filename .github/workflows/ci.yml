@@ -92,8 +92,12 @@ jobs:
       # needs no display), python3 (check-audio-underruns.py), unzip (the
       # SD-image provisioning step's own dependency, ultimately via
       # libcurl inside jnext, not this step directly, but kept explicit),
-      # ripgrep (the regression preflight lint) and ffmpeg-free (video-record-func;
-      # the same package the maintainer has locally).
+      # ripgrep (the regression preflight lint), ffmpeg-free (video-record-func
+      # and ffprobe; the same package the maintainer has locally), and bc/file/
+      # xxd, which functional rows shell out to. That set was established by
+      # checking every external command the suite invokes against a bare
+      # fedora:44 plus this list, rather than discovering them one CI run at a
+      # time.
       # git, make and diffutils come preinstalled on an Ubuntu runner but are
       # absent from the bare Fedora image, so they are explicit here.
       - name: Install build + test dependencies
@@ -103,7 +107,7 @@ jobs:
             SDL2-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
             qt6-qtbase-devel \
             ImageMagick xorg-x11-server-Xvfb python3 unzip diffutils \
-            ripgrep ffmpeg-free \
+            ripgrep ffmpeg-free bc file xxd \
             pandoc mkdocs-material
           # CMake shells out to `git submodule update`, which refuses on a
           # workspace owned by another uid ("dubious ownership", exit 128).
