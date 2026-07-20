@@ -5,7 +5,8 @@ This guide shows you how to use it.
 
 Chapters 1 to 5 are for running programs, and assume no development
 background. Chapters 6 and 7 are for developers: the debugger, and automating
-JNEXT the way its own test suite does.
+JNEXT the way its own test suite does. Chapters 8 and 9 are for everyone —
+what to do when something is wrong, and where everything else lives.
 
 The complete list of command-line options is in the manual page — `man jnext`,
 or [`USAGE.md`](https://github.com/jorgegv/jnext/blob/main/USAGE.md). This guide links there rather than repeating

@@ -13,6 +13,7 @@ code comments, so there is one place to check when a link rots or a spec moves.
 
 | Reference                                                                          | URL                                                                         |
 |------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Next hardware wiki — registers, ports, file formats (start here)                   | <https://wiki.specnext.dev/>                                                |
 | NextREG Machine ID register                                                        | <https://wiki.specnext.dev/Machine_ID_Register>                             |
 | Boot sequence (authoritative)                                                      | <https://wiki.specnext.dev/Boot_Sequence>                                   |
 | TBBlue firmware source (GPLv3) — `TBBLUE.FW` / `TBBLUE.TBU`, the IPL + boot module | <https://gitlab.com/thesmog358/tbblue/-/tree/master>                        |
