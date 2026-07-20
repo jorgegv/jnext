@@ -218,4 +218,70 @@ inline bool should_give_up_on_attach(int consecutive_failures)
     return consecutive_failures >= kAttachFailuresBeforeGivingUp;
 }
 
+/// Sequences the deferred landing checks so a burst of moves cannot be mistaken
+/// for a broken window system.
+///
+/// This exists because of a defect found in review, and the defect is worth
+/// stating plainly because the naive version looks obviously correct:
+///
+///   A drag delivers Move events every ~30 ms. Each one issued a move and armed
+///   its OWN deferred check that captured that call's target. By the time a
+///   check fired 250 ms later, ~8 further moves had legitimately happened, so it
+///   compared a stale target against a correct current position, scored a miss,
+///   and three of those in a row permanently disabled the feature. Dragging the
+///   window — the only way anyone uses this — was the most reliable way to break
+///   it, on a platform where every single move landed perfectly.
+///
+/// The rule, therefore: **only the newest request in a burst is ever checked.**
+/// Each issued move takes a generation token; a deferred check presents its
+/// token and is discarded unless it is still the current one. What it then
+/// compares against is the tracker's own latest target, not a captured copy, so
+/// there is no way for a stale coordinate to reach the comparison at all.
+///
+/// Pure: no Qt, no timers, no window system. The sequencing IS the bug surface,
+/// so it lives here where a test can drive it, rather than in the widget where
+/// nothing automated can see it.
+struct AttachMoveTracker {
+    /// Bumped by every issued move; a deferred check is current only if its
+    /// token still equals this.
+    unsigned long long generation = 0;
+    /// Consecutive checks that found the window somewhere other than asked.
+    int consecutive_failures = 0;
+    /// The most recently requested position — what a landing check compares
+    /// against. Deliberately read live rather than captured at schedule time.
+    int want_x = 0;
+    int want_y = 0;
+
+    /// Record that a move to (x, y) has just been issued. Supersedes any check
+    /// still in flight. Returns the token the deferred check must present.
+    unsigned long long issue_move(int x, int y)
+    {
+        want_x = x;
+        want_y = y;
+        return ++generation;
+    }
+
+    /// May a deferred landing check bearing `token` proceed? False once a newer
+    /// move has superseded it — which is the whole point.
+    bool check_is_current(unsigned long long token) const
+    {
+        return token == generation;
+    }
+
+    /// Feed in the outcome of a check that WAS current. Returns true when
+    /// attachment should give up and report itself unsupported.
+    bool record_landing(bool landed)
+    {
+        if (landed) {
+            consecutive_failures = 0;
+            return false;
+        }
+        return should_give_up_on_attach(++consecutive_failures);
+    }
+
+    /// Clear the failure history — used when the user explicitly re-enables
+    /// attachment, so a give-up is recoverable without restarting the app.
+    void reset_failures() { consecutive_failures = 0; }
+};
+
 } // namespace jnext

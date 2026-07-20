@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QSettings>
 #include "debug/breakpoints.h"
+#include "debugger/window_attach.h"
 
 class Emulator;
 class DebuggerManager;
@@ -78,6 +79,9 @@ private:
     void save_geometry();
     void restore_geometry();
     void set_attach_enabled(bool on);
+    /// Stop attaching after the window system repeatedly ignored our moves,
+    /// and tell the user — visibly, and recoverably.
+    void give_up_on_attachment();
     void show_add_data_bp_dialog(WatchType type);
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
@@ -116,11 +120,15 @@ private:
     // the menu and no move is attempted, since it would be silently dropped.
     bool     attach_enabled_ = true;
     bool     attach_supported_ = true;
+    // Set when the PLATFORM NAME says positioning is impossible (Wayland).
+    // Distinct from attach_supported_: a platform-blocked backend can never
+    // work, so its menu item stays permanently disabled, whereas a merely
+    // MEASURED give-up is recoverable by re-enabling the toggle.
+    bool     attach_platform_blocked_ = false;
     QAction* attach_action_ = nullptr;
-    // Consecutive moves the window system ignored. Attachment gives up (and
-    // says so) once this reaches kAttachFailuresBeforeGivingUp — the platform
-    // name alone is not proof a move will be honoured.
-    int      attach_failures_ = 0;
+    // Sequences the deferred landing checks and counts consecutive misses.
+    // Pure logic, unit-tested in test/debugger/window_attach_test.cpp.
+    jnext::AttachMoveTracker attach_tracker_;
 
     // Trace toolbar state
     QPushButton* trace_toggle_btn_ = nullptr;

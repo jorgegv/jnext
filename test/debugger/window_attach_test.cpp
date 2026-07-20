@@ -14,6 +14,12 @@
 //   * on a window system where a client may not position its own toplevels
 //     (Wayland) the answer is "do not move", NOT a move that gets silently
 //     dropped — that silent drop is the bug this issue reports;
+//   * a check of whether a move landed must never be applied to a SUPERSEDED
+//     request: a drag issues moves far faster than any deferred check can
+//     settle, so scoring a stale target as a miss would let ordinary dragging
+//     disable the feature on a platform where every move landed (this is a real
+//     defect found in review, not a hypothetical);
+//   * a give-up must be recoverable without restarting the application;
 //   * and because the platform NAME turned out not to settle that question —
 //     an XWayland session reporting "xcb" dropped moves just as native Wayland
 //     did, measured on the development machine — attachment also verifies that
@@ -41,6 +47,7 @@ using jnext::platform_supports_window_positioning;
 using jnext::move_landed;
 using jnext::should_give_up_on_attach;
 using jnext::kAttachFailuresBeforeGivingUp;
+using jnext::AttachMoveTracker;
 
 namespace {
 
@@ -277,6 +284,116 @@ int main()
                   && should_give_up_on_attach(kAttachFailuresBeforeGivingUp + 1)
                   && kAttachFailuresBeforeGivingUp > 1
                   && kAttachFailuresBeforeGivingUp <= 5);
+    }
+
+    // --- WA-24: THE REGRESSION ROW for the review defect. A burst of moves
+    // (a drag) leaves several checks in flight; every one but the newest must
+    // be discarded unheard. Without this, a drag on a perfectly working
+    // platform permanently disables attachment.
+    {
+        AttachMoveTracker t;
+        unsigned long long first  = t.issue_move(100, 100);
+        unsigned long long second = t.issue_move(130, 100);
+        unsigned long long third  = t.issue_move(160, 100);
+        check("WA-24", "only the newest request in a burst is checked; older ones are discarded",
+              !t.check_is_current(first)
+                  && !t.check_is_current(second)
+                  && t.check_is_current(third));
+    }
+
+    // --- WA-25: and what the surviving check compares against is the LATEST
+    // target, not a copy captured when it was scheduled. Capturing is what
+    // made the stale comparison possible in the first place.
+    {
+        AttachMoveTracker t;
+        t.issue_move(100, 100);
+        t.issue_move(400, 250);
+        check("WA-25", "the tracker's comparison target is the most recent request",
+              t.want_x == 400 && t.want_y == 250);
+    }
+
+    // --- WA-26: a realistic drag — many moves, each landing correctly, with
+    // only the final one ever checked — must NOT accumulate any failures. This
+    // is the reviewer's reproduction expressed as an assertion.
+    {
+        AttachMoveTracker t;
+        unsigned long long token = 0;
+        for (int i = 0; i < 40; ++i)
+            token = t.issue_move(100 + i * 30, 200);
+        // Only the last check is current; it finds the window where asked.
+        bool gave_up = false;
+        if (t.check_is_current(token))
+            gave_up = t.record_landing(move_landed(t.want_x, t.want_y, t.want_x, t.want_y));
+        check("WA-26", "a 40-move drag on a working platform accumulates no failures",
+              !gave_up && t.consecutive_failures == 0,
+              "failures=" + std::to_string(t.consecutive_failures));
+    }
+
+    // --- WA-27: a genuinely broken platform is still caught — the guard above
+    // must not have made the detection unreachable.
+    {
+        AttachMoveTracker t;
+        bool gave_up = false;
+        for (int i = 0; i < kAttachFailuresBeforeGivingUp; ++i) {
+            unsigned long long tok = t.issue_move(500, 300);
+            if (t.check_is_current(tok))
+                gave_up = t.record_landing(move_landed(500, 300, 3384, 622));
+        }
+        check("WA-27", "a platform that really ignores every move is still detected",
+              gave_up && t.consecutive_failures == kAttachFailuresBeforeGivingUp,
+              "failures=" + std::to_string(t.consecutive_failures));
+    }
+
+    // --- WA-28: one landing clears the history, so intermittent misses never
+    // add up to a give-up.
+    {
+        AttachMoveTracker t;
+        t.issue_move(10, 10);
+        t.record_landing(false);
+        t.record_landing(false);
+        bool gave_up_after_recovery = t.record_landing(true);
+        bool gave_up_next = t.record_landing(false);
+        check("WA-28", "a successful landing resets the consecutive-failure count",
+              !gave_up_after_recovery && !gave_up_next && t.consecutive_failures == 1,
+              "failures=" + std::to_string(t.consecutive_failures));
+    }
+
+    // --- WA-29: a give-up is recoverable. The user re-enabling attachment
+    // clears the history, so the feature is not dead until the app restarts.
+    {
+        AttachMoveTracker t;
+        t.issue_move(10, 10);
+        // Bounded, deliberately: an unbounded "drive it until it gives up" loop
+        // HANGS instead of failing under a mutation that stops record_landing()
+        // ever reporting a give-up, and a test that hangs reports nothing at all.
+        for (int i = 0; i < kAttachFailuresBeforeGivingUp * 4; ++i)
+            if (t.record_landing(false)) break;
+        t.reset_failures();
+        check("WA-29", "resetting the failure history makes a give-up recoverable",
+              t.consecutive_failures == 0 && !should_give_up_on_attach(t.consecutive_failures));
+    }
+
+    // --- WA-30: the post-flip clamp. When the debugger is WIDER than the whole
+    // work area, neither side fits and the right-edge fallback itself goes
+    // negative; the final clamp is what keeps the window reachable.
+    {
+        const AttachRect tiny{0, 0, 1000, 800};
+        const AttachRect main{100, 50, 300, 200};
+        AttachDecision d = compute_attached_placement(main, /*dbg_w=*/1200, /*dbg_h=*/600,
+                                                      tiny, true, false, true);
+        check("WA-30", "a debugger wider than the work area is clamped to its left edge",
+              d.placement.reposition && d.placement.x == tiny.x, place_str(d));
+    }
+
+    // --- WA-31: same clamp, non-zero work-area origin — the clamp must use the
+    // screen's origin, not a hard-coded zero.
+    {
+        const AttachRect tiny{2000, 100, 1000, 800};
+        const AttachRect main{2100, 150, 300, 200};
+        AttachDecision d = compute_attached_placement(main, /*dbg_w=*/1200, /*dbg_h=*/600,
+                                                      tiny, true, false, true);
+        check("WA-31", "the post-flip clamp respects a non-zero work-area origin",
+              d.placement.reposition && d.placement.x == tiny.x, place_str(d));
     }
 
     // --- WA-20: every non-tracking status carries a reason to show the user;

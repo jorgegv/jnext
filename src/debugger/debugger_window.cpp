@@ -83,8 +83,9 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     // measures whether moves actually land and latches this false if they do
     // not, which is what catches backends that claim to support positioning and
     // then ignore it anyway.
-    attach_supported_ = jnext::platform_supports_window_positioning(
+    attach_platform_blocked_ = !jnext::platform_supports_window_positioning(
         QGuiApplication::platformName().toUtf8().constData());
+    attach_supported_ = !attach_platform_blocked_;
 
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
 
@@ -465,7 +466,7 @@ void DebuggerWindow::create_menus() {
     attach_action_->setChecked(attach_enabled_ && attach_supported_);
     connect(attach_action_, &QAction::toggled, this, &DebuggerWindow::set_attach_enabled);
 
-    if (!attach_supported_) {
+    if (attach_platform_blocked_) {
         // Do not offer a switch that cannot do anything. Wayland gives a client
         // no way to position its own toplevel, and a move() there is dropped
         // without error — silently misbehaving is exactly what issue #39
@@ -702,44 +703,77 @@ void DebuggerWindow::position_next_to(QWidget* main_win) {
     // Deferred, not immediate: X11 needs a server round trip before the new
     // geometry is readable, so an immediate compare would report failure for
     // moves that are about to succeed.
-    const QPoint want(d.placement.x, d.placement.y);
-    QTimer::singleShot(250, this, [this, want]() {
+    //
+    // Sequenced through AttachMoveTracker, NOT with a captured target: a drag
+    // delivers Move events every ~30 ms, so several checks are in flight at
+    // once and all but the newest are comparing against a target the user has
+    // already moved on from. Scoring those as misses turned an ordinary drag
+    // into a permanent disable on a perfectly working platform (found in
+    // review; see window_attach.h). Only the newest request is ever checked,
+    // and it compares against the tracker's live target.
+    const unsigned long long token =
+        attach_tracker_.issue_move(d.placement.x, d.placement.y);
+
+    QTimer::singleShot(250, this, [this, token]() {
+        if (!attach_tracker_.check_is_current(token))
+            return;   // superseded by a newer move — this check is meaningless
         if (!attach_supported_ || !attach_enabled_ || !isVisible())
             return;
+
         const QPoint got = frameGeometry().topLeft();
-        if (jnext::move_landed(want.x(), want.y(), got.x(), got.y())) {
-            attach_failures_ = 0;
-            return;
-        }
-        if (!jnext::should_give_up_on_attach(++attach_failures_))
+        const bool landed = jnext::move_landed(
+            attach_tracker_.want_x, attach_tracker_.want_y, got.x(), got.y());
+        if (!attach_tracker_.record_landing(landed))
             return;
 
-        attach_supported_ = false;
-        if (attach_action_) {
-            // Block signals while unchecking: this is the PLATFORM giving up,
-            // not the user turning attachment off, and letting toggled() run
-            // would persist attach=false and lose the user's preference for
-            // every future session on a machine where it does work.
-            const QSignalBlocker blocker(attach_action_);
-            attach_action_->setEnabled(false);
-            attach_action_->setChecked(false);
-            attach_action_->setToolTip(
-                tr("Unavailable: %1")
-                    .arg(QString::fromUtf8(
-                        jnext::attach_status_reason(jnext::AttachStatus::Unsupported))));
-        }
-        if (statusBar()) {
-            statusBar()->showMessage(
-                tr("Debugger window attachment disabled: %1")
-                    .arg(QString::fromUtf8(
-                        jnext::attach_status_reason(jnext::AttachStatus::Unsupported))),
-                8000);
-        }
+        give_up_on_attachment();
     });
+}
+
+void DebuggerWindow::give_up_on_attachment() {
+    attach_supported_ = false;
+    // Stop issuing moves, but do NOT persist this: it is the platform giving
+    // up, not the user turning attachment off, and their stored preference must
+    // survive for the next session (and for a machine where it does work).
+    attach_enabled_ = false;
+
+    if (attach_action_) {
+        const QSignalBlocker blocker(attach_action_);
+        attach_action_->setChecked(false);
+        // Deliberately left ENABLED. A measured give-up is recoverable — the
+        // window system may have been transiently uncooperative, or the user
+        // may have moved the window to a different screen — so re-ticking this
+        // retries from a clean slate. Only a platform that CANNOT position
+        // windows at all (Wayland, detected by name) leaves the item disabled,
+        // because there retrying is guaranteed to fail.
+        attach_action_->setEnabled(!attach_platform_blocked_);
+        attach_action_->setToolTip(
+            tr("Attachment stopped: the window manager ignored the last %1 move "
+               "requests. Re-enable to try again.")
+                .arg(jnext::kAttachFailuresBeforeGivingUp));
+    }
+    if (statusBar()) {
+        statusBar()->showMessage(
+            tr("Debugger window attachment stopped: the window manager ignored "
+               "the move requests. Re-enable it from the Window menu to retry."),
+            8000);
+    }
 }
 
 void DebuggerWindow::set_attach_enabled(bool on) {
     attach_enabled_ = on;
+
+    if (on && !attach_platform_blocked_) {
+        // An explicit re-enable is the recovery path from a measured give-up:
+        // clear the failure history and let the platform prove itself again.
+        // Without this the latch was permanent for the life of the process —
+        // toggling the debugger off and on does not help, because
+        // DebuggerManager::ensure_window() reuses the existing window.
+        attach_supported_ = true;
+        attach_tracker_.reset_failures();
+        if (attach_action_) attach_action_->setToolTip(QString());
+    }
+
     if (attach_action_) attach_action_->setChecked(on);
 
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
