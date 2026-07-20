@@ -57,7 +57,7 @@ sets the machine up once, then uses it.
 The core chapter. Loading and running software, with everything that shapes a
 session as subsections.
 
-- **5.1 Choosing a machine** — 48K / 128K / +3 / Pentagon / Next, and what
+- **5.1 Choosing a machine** — 48K / 128K / +3 / Next, and what
   changes with each (timing, contention, available hardware).
 - **5.2 Input** — keyboard mapping and the extended keys, joysticks and
   gamepads, the Kempston mouse and pointer capture.
