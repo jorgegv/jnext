@@ -18,6 +18,11 @@ GUIDE_PORT        ?= 8000
 # the clock from the output entirely. The value is arbitrary and fixed; the
 # sitemap carries no content (no site_url is set, so it is an empty urlset).
 GUIDE_BUILD_ENV   := SOURCE_DATE_EPOCH=1700000000
+# Renderer fingerprint: VERSIONS ONLY. `mkdocs --version` also prints the
+# install path, which differs per machine and would make every other host
+# look like a version mismatch.
+GUIDE_FINGERPRINT := python3 -c "import importlib.metadata as m; print('mkdocs', m.version('mkdocs')); print('mkdocs-material', m.version('mkdocs-material'))"
+GUIDE_RENDERER    := src/doc/user-guide-renderer.txt
 GUIDE_SRC         := src/doc/user-guide
 GUIDE_OUT         := doc/user-guide
 MAN_SRC           := doc/man/jnext.1.md
@@ -382,13 +387,22 @@ docs-userguide-check:
 	 rc=0; \
 	 $(GUIDE_BUILD_ENV) mkdocs build --strict --site-dir $$tmp/guide >/dev/null 2>&1 \
 	   || { printf "$(BADGE_FAIL) FAIL $(RESET) the user guide does not build\n"; rc=1; }; \
-	 if [ $$rc -eq 0 ]; then \
+	 here=$$($(GUIDE_FINGERPRINT)); \
+	 there=$$(cat $(GUIDE_RENDERER) 2>/dev/null); \
+	 compared=0; \
+	 if [ $$rc -eq 0 ] && [ "$$here" != "$$there" ]; then \
+	   printf "$(BADGE_SKIP) SKIP $(RESET) different mkdocs/material than rendered the committed\n"; \
+	   printf "        guide, so a byte-diff would report a version gap, not staleness.\n"; \
+	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; \
+	 elif [ $$rc -eq 0 ]; then \
+	   compared=1; \
 	   diff -r -q $$tmp/guide $(GUIDE_OUT) >/dev/null 2>&1 \
 	     || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_OUT) is stale vs $(GUIDE_SRC)\n"; rc=1; }; \
 	 fi; \
 	 rm -rf $$tmp; \
-	 if [ $$rc -eq 0 ]; then printf "$(BADGE_PASS) OK $(RESET) the rendered user guide is up to date\n"; \
-	 else printf "        run 'make docs-userguide' and commit the result\n"; fi; \
+	 if [ $$rc -ne 0 ]; then printf "        run 'make docs-userguide' and commit the result\n"; \
+	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) the rendered user guide is up to date\n"; \
+	 else printf "$(BADGE_PASS) OK $(RESET) the user guide builds cleanly (staleness NOT compared)\n"; fi; \
 	 exit $$rc
 
 # Render the user guide from src/doc/user-guide into doc/user-guide (needs mkdocs-material)
@@ -402,6 +416,10 @@ docs-userguide:
 	   printf "        only need mkdocs to re-render after editing src/doc/user-guide.\n"; exit 1; \
 	 fi
 	$(GUIDE_BUILD_ENV) mkdocs build --strict
+	@# Record the renderer. The site embeds content-hashed theme assets, so a
+	@# different mkdocs-material produces a byte-different tree from identical
+	@# sources — the staleness check must know whose output it is comparing.
+	@$(GUIDE_FINGERPRINT) > $(GUIDE_RENDERER)
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
 

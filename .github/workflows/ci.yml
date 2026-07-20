@@ -90,7 +90,7 @@ jobs:
             libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
             qt6-base-dev \
             imagemagick xvfb python3 unzip \
-            pandoc
+            pandoc mkdocs-material
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -124,6 +124,12 @@ jobs:
       # regenerates into a temp dir and diffs, so an edit to the source with
       # stale committed outputs fails here rather than shipping a man page
       # that disagrees with USAGE.md.
+      # Both halves hard-fail here when their tool is missing, rather than
+      # skipping and reading as a pass. mkdocs-material pulls in mkdocs itself.
+      # The guide's byte-comparison additionally requires the SAME renderer that
+      # produced the committed render; when the runner's version differs it
+      # reports SKIP and only the --strict build is enforced. The recorded
+      # version lives in src/doc/user-guide-renderer.txt.
       - name: Generated docs are up to date (make docs-check)
         run: LANG=C make docs-check
 
