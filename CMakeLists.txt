@@ -148,6 +148,15 @@ endif()
 
 add_executable(jnext src/main.cpp)
 
+# Issue #43 — the CLI parse loop switches over cli::OptId with no `default:`
+# arm, so an option added to cli::OPTIONS but never given a parser arm is a
+# COMPILE ERROR here rather than a flag that silently parses to nothing. This
+# is what couples the option table to the code that consumes it; the man page
+# alignment (cli_options_test) is the other half.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(jnext PRIVATE -Werror=switch)
+endif()
+
 # GCC emits a spurious -Wstringop-overflow inside the vendored fmt bundled in
 # spdlog (fmt/bundled/format.h write2digits(): "writing 2 bytes into a region
 # of size 0"). It is a known GCC/fmt false positive in third-party code we

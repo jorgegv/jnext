@@ -62,7 +62,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
-       docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide \
+       docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
@@ -189,7 +189,7 @@ clean: debug-clean release-clean gui-clean unit-test-clean
 # test would have caught). Building it here makes "the tests ran against this
 # source" true by construction instead of by discipline — 2026-07-19, after a
 # 14-hour-old binary produced two bogus FAILs immediately before a version bump.
-regression: unit-test-build gui-release docs-check
+regression: unit-test-build gui-release docs-check cli-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
@@ -199,8 +199,9 @@ regression: unit-test-build gui-release docs-check
 # run makes "the docs match their source" true by construction, not by discipline.
 # It skips (never fails) where the tool is absent — pandoc for the man half,
 # mkdocs for the guide half — and hard-fails in CI where both are guaranteed.
-# NOTE: this proves the generated outputs match their sources — NOT that
-# jnext.1.md matches src/main.cpp. That gap is real and tracked as issue #43.
+# NOTE: this proves the generated outputs match their sources. That jnext.1.md
+# also matches the CLI src/main.cpp parses is proven separately, by cli_options_test
+# (run below as a declared suite, and as `make cli-check`) — issue #43.
 unit-test: unit-test-build docs-check
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
@@ -342,6 +343,25 @@ docs-man:
 	    $(MAN_SRC) -o $(USAGE_OUT)
 	@$(MAN_FINGERPRINT) > $(MAN_RENDERER)
 	printf "$(BADGE_PASS) OK $(RESET) regenerated $(MAN_OUT) and $(USAGE_OUT)\n"
+
+# Fail if the implemented CLI and the documented CLI disagree (issue #43)
+cli-check: unit-test-build
+	@# docs-check proves the man page and USAGE.md regenerate from jnext.1.md.
+	@# It says nothing about whether jnext.1.md describes the CLI main.cpp
+	@# actually parses — a gap that shipped five undocumented flags once and a
+	@# confidently wrong man page a second time, with every gate green.
+	@#
+	@# This target closes it. src/core/cli_options.h holds the flag set as DATA,
+	@# main.cpp dispatches from that table, and cli_options_test diffs the table
+	@# against the man page OPTIONS section in both directions. Deliberate
+	@# exceptions (the --sd-card alias) are declared IN the table, never as a
+	@# grep exclusion here.
+	@#
+	@# It is a build-dependent check (the table is C++), which is why it hangs
+	@# off unit-test-build rather than off docs-check — docs-check deliberately
+	@# needs no compiler. `make unit-test` runs the same suite via
+	@# test/unit-tests.conf, so it is covered by both entry points.
+	@./build/test/cli_options_test
 
 # Fail if any committed generated document is stale (man page, USAGE.md, guide)
 docs-check:

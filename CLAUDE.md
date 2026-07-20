@@ -177,12 +177,22 @@ lie no other gate can see. Edit the source, run `make docs-man`, commit the
 regenerated outputs. On a host without pandoc the check skips; in CI it hard-fails.
 
 **Know exactly what this proves and what it does not.** `docs-check` proves the
-two generated outputs match `jnext.1.md`. It does NOT prove `jnext.1.md` matches
-`src/main.cpp` — nothing does today, and that seam has failed twice: five flags
-were once entirely undocumented, and v0.98.60 shipped a man page with a wrong
-scale range, two missing GUI menus and a status-bar indicator that does not
-exist. All four were found by reading the running product while writing the user
-guide, not by any check. Closing that gap is issue #43.
+two generated outputs match `jnext.1.md`. It does NOT prove `jnext.1.md`
+describes the CLI `src/main.cpp` parses. **`make cli-check` does** (issue #43):
+`src/core/cli_options.h` holds the flag set as a DATA table, `main.cpp`
+dispatches from it, and `cli_options_test` diffs the table against the man page
+OPTIONS section both ways — implemented-but-undocumented and
+documented-but-unimplemented are both hard failures, as is an argument count
+that disagrees. It runs as a prerequisite of `make regression` and as a declared
+suite of `make unit-test`. Deliberate exceptions (`--sd-card`, an undocumented
+back-compat alias) are declared IN the table, never as a checker exclusion.
+
+That seam had failed twice before the check existed: five flags entirely
+undocumented, and v0.98.60's man page with a wrong scale range, two missing GUI
+menus and a status-bar indicator that does not exist — all found by reading the
+running product while writing the user guide. **`cli-check` covers the flag set,
+not the prose**: the v0.98.60 defects were GUI descriptions in the man page's
+narrative sections, which nothing checks. Keep reading the running product.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, but has NO
