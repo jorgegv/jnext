@@ -49,7 +49,7 @@
   - [Phase 7.5 - Debugger enhancements](#phase-75---debugger-enhancements)
   - [Phase 7.8 — Polish \& Accuracy ✓ COMPLETE](#phase-78--polish--accuracy--complete)
   - [Phase 8 - More enhancements](#phase-8---more-enhancements)
-  - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
+  - [Phase 9 - CI, Quality and Release ✓ COMPLETE](#phase-9---ci-quality-and-release--complete)
   - [Phase 10 — NextZXOS Boot (v1.1)](#phase-10--nextzxos-boot-v11)
   - [Phase 11 - New functions](#phase-11---new-functions)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
@@ -1049,7 +1049,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - ✓ `--speed PERCENT` (emulator throttle: 50=half, 100=normal, 200=2x, 400=4x)
 - [x] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - **PUBLIC RELEASE**
 
-### Phase 9 - CI, Quality and Release
+### Phase 9 - CI, Quality and Release ✓ COMPLETE
 
 - [x] Ensure all of David Crespo's tests work the same as Zesarux (verify each one with Zesarux)
   - [x] 01-dapr-l2empty - verified and fixed
@@ -1145,10 +1145,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Generation of Windows version — `.github/workflows/release.yml` builds it via the project's `make package-win` (MinGW cross-build + DLL bundling) inside a `fedora:44` container — the SAME path as the local build. **Ran on a real GitHub Actions runner (v0.98.19 release): the `windows` job succeeded and published `jnext-0.98.19-windows-x64.zip`; confirmed working on real Windows hardware.** GUI-subsystem build (no stray console window) added v0.98.21. Residual: the >2 MB pre-`main` stack frame is worked around (16 MB reserve), not root-caused — see §11.
   - [x] Generation of MacOS version — `.github/workflows/release.yml` macos-latest leg (brew deps + CPack DragNDrop). **VERIFIED: the v0.98.34 release ran the `macos` job green on a real macos-latest runner and published `jnext-0.98.34-Darwin.dmg`; user confirmed the build works.** Two fixes made it build: the debug lib now links `SDL2::SDL2` for Homebrew's header layout (Task 71, v0.98.30), and the boot ROM is embedded as a portable C array instead of via `objcopy` (Task 73, v0.98.33 — macOS has no GNU objcopy). A manual `workflow_dispatch` workflow (`.github/workflows/macos-build.yml`) exercises the macOS build without cutting a release. The release.yml leg keeps `continue-on-error` as a belt-and-braces guard (no macOS runner on the dev host to pre-verify locally).
 
-- [ ] Documentation — [issue #28](https://github.com/jorgegv/jnext/issues/28)
+- [x] Documentation — [issue #28](https://github.com/jorgegv/jnext/issues/28). **User-facing documentation only**; the DEVELOPMENT doc was segregated to [issue #44](https://github.com/jorgegv/jnext/issues/44) and moved to Phase 11 (v1.1), which is what lets this phase close.
   - [x] Update README for repo and source code users (README.md developer pitch + BUILD.md)
-  - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
-  - [ ] Create USER MANUAL (task-oriented: loading programs, SD/NextZXOS, machine types, debugger, recording, config)
+  - [x] Create USER MANUAL (task-oriented: loading programs, SD/NextZXOS, machine types, debugger, recording, config) — nine chapters under `src/doc/user-guide`, one file per subsection, rendered by `make docs-userguide` into the **committed** `doc/user-guide` so a fresh clone reads it with no toolchain; `make read-userguide` serves it on localhost. Chapters 1-5 for running programs, 6-7 developer-oriented (every debugger panel and function; automating jnext as its own regression suite does), 8-9 known issues and reference. Written by checking the RUNNING PRODUCT rather than existing docs, which is what found four wrong facts in the just-shipped man page, five errors in this plan's own debugger description, and the rewind defect now tracked as [issue #42](https://github.com/jorgegv/jnext/issues/42)
   - [x] Create man page for users; USAGE.md becomes a markdown render of it — **pandoc** chosen; `doc/man/jnext.1.md` is the single source generating both `doc/man/jnext.1` and `USAGE.md`, both committed. `make docs` regenerates, `make docs-check` fails on stale outputs (and runs in CI); no code-build target invokes pandoc. Writing it surfaced real drift the hand-maintained USAGE.md had already accumulated (`--silent`, `--tape-save`, `--delayed-snapshot*`, `.z80`, the full `--delayed-keypress` key vocabulary)
   - [x] Ship the docs in the binary packages — man page installs to `${CMAKE_INSTALL_MANDIR}/man1` (one CMake rule covers rpm/deb/Flatpak/macOS), `README.md` + `ChangeLog` added to the docdir, RPM `%files` updated with a `jnext.1*` glob, Windows zip gets README/ChangeLog. Verified by an actual `rpmbuild` + `rpm -qlp` payload check
 
@@ -1190,6 +1189,7 @@ Easy ones:
 - [ ] Indicator about where the raster currently is, and if the ULA is reading data — [issue #22](https://github.com/jorgegv/jnext/issues/22)
 
 Complex ones:
+- [ ] DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc. — [issue #44](https://github.com/jorgegv/jnext/issues/44), milestone v1.1. Moved here from Phase 9 so that phase could close on the user-facing documentation. NOTE: this plan is NOT a usable source for it — it is a roadmap, and writing the user guide proved it wrong about the debugger in five ways (every step shortcut, the video panel's controls, dock widgets, sprite columns, MAP formats) and still listing a Pentagon machine type removed in 2026-05. Check every architectural claim against the code.
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex) — [issue #23](https://github.com/jorgegv/jnext/issues/23)
 - [ ] DSK file format loading - Emulation of disk controller? — [issue #24](https://github.com/jorgegv/jnext/issues/24) (investigate existing uPD765 implementations before writing our own)
 - [ ] ESP-01 Wifi emulation connected to host network (UART, AT commands, ...) — [issue #25](https://github.com/jorgegv/jnext/issues/25)
