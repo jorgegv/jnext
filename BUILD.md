@@ -164,7 +164,7 @@ The man page is installed by the CMake install rules to
 (rpm, deb, Flatpak, macOS) with no per-format step. The Windows zip ships
 `USAGE.md` instead, man pages being meaningless there.
 
-A **user manual** is planned under `doc/manual`, to be built with
+A **user manual** is planned under `doc/user-guide`, to be built with
 [mkdocs-material](https://squidfunk.github.io/mkdocs-material/)
 ([issue #28](https://github.com/jorgegv/jnext/issues/28)). It does not exist
 yet — this note records the decided toolchain, not something you can build
