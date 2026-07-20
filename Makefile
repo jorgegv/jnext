@@ -10,6 +10,7 @@ CXX               := /usr/bin/g++
 # Documentation single source (see `make docs-man`). doc/man/jnext.1.md generates
 # BOTH outputs below, and both are committed: building jnext from source never
 # needs pandoc, only editing the docs does.
+GUIDE_PORT        ?= 8000
 MAN_SRC           := doc/man/jnext.1.md
 MAN_OUT           := doc/man/jnext.1
 USAGE_OUT         := USAGE.md
@@ -40,7 +41,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
-       docs-man docs-check docs-userguide \
+       docs-man docs-check docs-userguide read-userguide \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
 .SILENT:
@@ -167,11 +168,18 @@ clean: debug-clean release-clean gui-clean unit-test-clean
 # test would have caught). Building it here makes "the tests ran against this
 # source" true by construction instead of by discipline — 2026-07-19, after a
 # 14-hour-old binary produced two bogus FAILs immediately before a version bump.
-regression: unit-test-build gui-release
+regression: unit-test-build gui-release docs-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: unit-test-build
+# docs-check is a prerequisite, not a courtesy: the man page and USAGE.md are
+# GENERATED and COMMITTED, so a stale committed output is a silent lie that no
+# other gate can see. Running it with every test run makes "the docs match their
+# source" true by construction rather than by discipline. It skips (never fails)
+# on a host with no pandoc, and hard-fails in CI where pandoc is guaranteed.
+# NOTE: this proves the generated outputs match doc/man/jnext.1.md — NOT that
+# jnext.1.md matches src/main.cpp. That gap is real and tracked as issue #43.
+unit-test: unit-test-build docs-check
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -339,16 +347,30 @@ docs-check:
 	 else printf "        run 'make docs-man' and commit the result\n"; fi; \
 	 exit $$rc
 
-# Render the user guide to build/user-guide (needs mkdocs-material)
+# Render the user guide from src/doc/user-guide into doc/user-guide (needs mkdocs-material)
 docs-userguide:
 	@if ! command -v mkdocs >/dev/null 2>&1; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs not found. It is a documentation-only\n"; \
 	   printf "        dependency: install mkdocs-material from your distribution\n"; \
 	   printf "        (Fedora: sudo dnf install mkdocs-material; see BUILD.md). The\n"; \
-	   printf "        guide is readable as markdown in doc/user-guide without it.\n"; exit 1; \
+	   printf "        rendered guide is COMMITTED under doc/user-guide — open\n"; \
+	   printf "        doc/user-guide/index.html or run 'make read-userguide'. You\n"; \
+	   printf "        only need mkdocs to re-render after editing src/doc/user-guide.\n"; exit 1; \
 	 fi
 	mkdocs build --strict
-	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to build/user-guide\n"
+	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
+	@printf "        it is committed: commit the regenerated files alongside your change\n"
+
+# Serve the rendered user guide over HTTP so it can be read in a browser
+read-userguide:
+	@if [ ! -f doc/user-guide/index.html ]; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) doc/user-guide is not rendered yet.\n"; \
+	   printf "        Run 'make docs-userguide' first.\n"; exit 1; \
+	 fi
+	@printf "$(BADGE_PASS) OK $(RESET) user guide at $(BOLD)http://localhost:$(GUIDE_PORT)/$(RESET)  (Ctrl+C to stop)\n"
+	@# Serve the rendered tree itself: mkdocs emits relative URLs (no site_url
+	@# is set), so the site works from any directory root without rewriting.
+	python3 -m http.server $(GUIDE_PORT) --bind 127.0.0.1 --directory doc/user-guide
 
 # Show current version
 version:

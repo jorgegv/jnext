@@ -141,6 +141,28 @@ benchmark must use `build/gui-release/jnext`** (`make gui-release`), never
 > The process is mandatory for every test plan rewrite and every emulator
 > fix that touches subsystem tests.
 
+### Documentation is checked by every test run
+
+`make unit-test` and `make regression` both depend on **`make docs-check`**, so a
+stale generated document fails the test run itself rather than waiting for CI or
+a reviewer. This is deliberate: `doc/man/jnext.1` and `USAGE.md` are GENERATED
+from `doc/man/jnext.1.md` and COMMITTED, so a stale committed output is a silent
+lie no other gate can see. Edit the source, run `make docs-man`, commit the
+regenerated outputs. On a host without pandoc the check skips; in CI it hard-fails.
+
+**Know exactly what this proves and what it does not.** `docs-check` proves the
+two generated outputs match `jnext.1.md`. It does NOT prove `jnext.1.md` matches
+`src/main.cpp` — nothing does today, and that seam has failed twice: five flags
+were once entirely undocumented, and v0.98.60 shipped a man page with a wrong
+scale range, two missing GUI menus and a status-bar indicator that does not
+exist. All four were found by reading the running product while writing the user
+guide, not by any check. Closing that gap is issue #43.
+
+The rendered user guide under `doc/user-guide` is also generated (from
+`src/doc/user-guide`, via `make docs-userguide`) and committed, but has NO
+staleness check yet — if you edit a guide source, re-render and commit it in the
+same change.
+
 ### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
 
 The suites are **declared**, and the harness proves it ran exactly what was declared.
