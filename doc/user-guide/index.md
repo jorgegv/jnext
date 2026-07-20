@@ -16,15 +16,15 @@ it.
 
 | | Chapter | |
 |---|---|---|
-| 1 | [Introduction](01-introduction.md) | What JNEXT is and what it emulates |
-| 2 | [Installing](02-installing.md) | Packages for Linux, Windows and macOS |
-| 3 | [First run](03-first-run.md) | The SD card image and your first boot |
-| 4 | [Configuration](04-configuration.md) | Preferences and the config file |
-| 5 | [Running programs](05-running-programs.md) | Machines, input, display, sound, recording |
-| 6 | [The debugger](06-debugger.md) | Every panel and every function |
-| 7 | [Automation and CI](07-automation-and-ci.md) | Screenshot-testing your own programs |
-| 8 | [Known issues](08-known-issues.md) | What to expect when something is wrong |
-| 9 | [Reference](09-reference.md) | Where everything else lives |
+| 1 | [Introduction](01-introduction/index.md) | What JNEXT is and what it emulates |
+| 2 | [Installing](02-installing/index.md) | Packages for Linux, Windows and macOS |
+| 3 | [First run](03-first-run/index.md) | The SD card image and your first boot |
+| 4 | [Configuration](04-configuration/index.md) | Preferences and the config file |
+| 5 | [Running programs](05-running-programs/index.md) | Machines, input, display, sound, recording |
+| 6 | [The debugger](06-debugger/index.md) | Every panel and every function |
+| 7 | [Automation and CI](07-automation-and-ci/index.md) | Screenshot-testing your own programs |
+| 8 | [Known issues](08-known-issues/index.md) | What to expect when something is wrong |
+| 9 | [Reference](09-reference/index.md) | Where everything else lives |
 
 ## Getting help
 
