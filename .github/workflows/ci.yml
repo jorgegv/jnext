@@ -112,9 +112,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-${{ github.sha }}
+          key: ccache-fedora44-${{ github.sha }}
           restore-keys: |
-            ccache-${{ runner.os }}-
+            ccache-fedora44-
 
       - name: Cache NextZXOS SD-card image
         id: sdcache
@@ -124,7 +124,11 @@ jobs:
           # kDistroUrl in src/core/sdcard_provisioner.cpp is versioned
           # (.../distro/24.11/...) — bump this key if that constant changes,
           # so a stale cached image is never reused silently.
-          key: sdcard-image-distro-24.11
+          # -fedora44 namespaces the container era: entries saved on a plain
+          # ubuntu runner carry /home/runner paths and are useless (and
+          # misleading) here. Bump with the container image, not just with
+          # kDistroUrl.
+          key: sdcard-image-distro-24.11-fedora44
 
       # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
       # `make gui-release` first, so regression.sh (which prefers
@@ -158,12 +162,25 @@ jobs:
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         run: LANG=C make build-matrix
 
+      # Gated on the FILE, never on steps.sdcache.outputs.cache-hit. That flag
+      # says a cache entry was restored, not that the image is where we look:
+      # actions/cache stores paths outside the workspace ABSOLUTE, so an entry
+      # saved on a plain runner ($HOME=/home/runner) restores to that same
+      # absolute path inside a container whose $HOME is /github/home. The flag
+      # then reads "hit", provisioning is skipped, and the next step fails on a
+      # file that was never there — observed exactly once, on the first
+      # container run. Testing the file is self-healing and costs nothing.
       - name: Provision NextZXOS SD image (public specnext.com distro; cached above)
-        if: steps.sdcache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/.jnext/sdcard
-          timeout 600 ./build/gui-release/jnext --headless \
-            --sdcard-download-confirm --delayed-automatic-exit 1
+          img=~/.jnext/sdcard/cspect-next-1gb-fixed.img
+          if [ -f "$img" ]; then
+            echo "SD image already present (cache restored) — skipping download"
+          else
+            echo "SD image absent — provisioning it"
+            mkdir -p ~/.jnext/sdcard
+            timeout 600 ./build/gui-release/jnext --headless \
+              --sdcard-download-confirm --delayed-automatic-exit 1
+          fi
 
       - name: Point roms/ at the provisioned image
         run: |
