@@ -7,7 +7,8 @@ site_dir: build/user-guide
 theme:
   name: material
   features:
-    - navigation.sections
+    - navigation.indexes
+    - toc.integrate
     - content.code.copy
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -23,15 +24,98 @@ theme:
 
 nav:
   - Home: index.md
-  - 1. Introduction: 01-introduction.md
-  - 2. Installing: 02-installing.md
-  - 3. First run: 03-first-run.md
-  - 4. Configuration: 04-configuration.md
-  - 5. Running programs: 05-running-programs.md
-  - 6. The debugger: 06-debugger.md
-  - 7. Automation and CI: 07-automation-and-ci.md
-  - 8. Known issues: 08-known-issues.md
-  - 9. Reference: 09-reference.md
+  - 1. Introduction:
+      - 01-introduction/index.md
+      - What it emulates: 01-introduction/01-what-it-emulates.md
+      - How faithful it is: 01-introduction/02-how-faithful-it-is.md
+      - Machines at a glance: 01-introduction/03-machines-at-a-glance.md
+      - Getting help and reporting bugs: 01-introduction/04-getting-help-and-reporting-bugs.md
+  - 2. Installing:
+      - 02-installing/index.md
+      - Linux: 02-installing/01-linux.md
+      - Windows: 02-installing/02-windows.md
+      - macOS: 02-installing/03-macos.md
+      - 'Optional: video recording': 02-installing/04-optional-video-recording.md
+      - Checking it worked: 02-installing/05-checking-it-worked.md
+      - Building from source: 02-installing/06-building-from-source.md
+  - 3. First run:
+      - 03-first-run/index.md
+      - Why JNEXT needs an SD-card image: 03-first-run/01-why-jnext-needs-an-sd-card-image.md
+      - Letting JNEXT fetch one: 03-first-run/02-letting-jnext-fetch-one.md
+      - Using your own image: 03-first-run/03-using-your-own-image.md
+      - The first boot: 03-first-run/04-the-first-boot.md
+      - Running a program: 03-first-run/05-running-a-program.md
+      - If something goes wrong: 03-first-run/06-if-something-goes-wrong.md
+  - 4. Configuration:
+      - 04-configuration/index.md
+      - Preferences: 04-configuration/01-preferences.md
+      - The configuration file: 04-configuration/02-the-configuration-file.md
+      - 'What wins: the command line': 04-configuration/03-what-wins-the-command-line.md
+  - 5. Running programs:
+      - 05-running-programs/index.md
+      - 5.1 Choosing a machine: 05-running-programs/01-choosing-a-machine.md
+      - 5.2 Input: 05-running-programs/02-input.md
+      - 5.3 Display: 05-running-programs/03-display.md
+      - 5.4 Sound: 05-running-programs/04-sound.md
+      - 5.5 Recording and playback: 05-running-programs/05-recording-and-playback.md
+  - 6. The debugger:
+      - 06-debugger/index.md
+      - Panels:
+          - 06-debugger/panels/index.md
+          - CPU registers: 06-debugger/panels/01-cpu-registers.md
+          - MMU: 06-debugger/panels/02-mmu.md
+          - Disassembly: 06-debugger/panels/03-disassembly.md
+          - Memory: 06-debugger/panels/04-memory.md
+          - Stack: 06-debugger/panels/05-stack.md
+          - Call stack: 06-debugger/panels/06-call-stack.md
+          - Watches: 06-debugger/panels/07-watches.md
+          - Breakpoints: 06-debugger/panels/08-breakpoints.md
+          - Video: 06-debugger/panels/09-video.md
+          - Sprites: 06-debugger/panels/10-sprites.md
+          - Copper: 06-debugger/panels/11-copper.md
+          - NextREG: 06-debugger/panels/12-nextreg.md
+          - Audio: 06-debugger/panels/13-audio.md
+      - Functions:
+          - 06-debugger/functions/index.md
+          - Run, pause, and the step family: 06-debugger/functions/01-run-pause-and-the-step-family.md
+          - Run to cursor, run to end of frame, run to end of scanline: 06-debugger/functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.md
+          - 'Breakpoints: execute, read, write': 06-debugger/functions/03-breakpoints-execute-read-write.md
+          - Watches and watch sizes: 06-debugger/functions/04-watches-and-watch-sizes.md
+          - Symbols from Z88DK MAP files: 06-debugger/functions/05-symbols-from-z88dk-map-files.md
+          - The trace log: 06-debugger/functions/06-the-trace-log.md
+          - Backward execution (rewind): 06-debugger/functions/07-backward-execution-rewind.md
+          - The magic breakpoint and the magic port: 06-debugger/functions/08-the-magic-breakpoint-and-the-magic-port.md
+  - 7. Automation and CI:
+      - 07-automation-and-ci/index.md
+      - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md
+      - 7.2 Determinism: 07-automation-and-ci/02-determinism.md
+      - 7.3 Exit codes, and the capture that was never taken: 07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.md
+      - 7.4 A worked example: 07-automation-and-ci/04-a-worked-example.md
+      - 7.5 Beyond screenshots: 07-automation-and-ci/05-beyond-screenshots.md
+  - 8. Known issues:
+      - 08-known-issues/index.md
+      - 8.1 Judder when the host cannot keep up: 08-known-issues/01-judder-when-the-host-cannot-keep-up.md
+      - 8.2 Continuous buzz on Soundrive/DAC playback: 08-known-issues/02-continuous-buzz-on-soundrive-dac-playback.md
+      - 8.3 The debugger window does not follow the emulator window: 08-known-issues/03-the-debugger-window-does-not-follow-the-emulator-window.md
+      - 8.4 Reporting something else: 08-known-issues/04-reporting-something-else.md
+  - 9. Reference:
+      - 09-reference/index.md
+      - 9.1 Command-line options: 09-reference/01-command-line-options.md
+      - 9.2 Files and directories: 09-reference/02-files-and-directories.md
+      - 9.3 ZX Spectrum Next hardware documentation: 09-reference/03-zx-spectrum-next-hardware-documentation.md
+      - 9.4 The project: 09-reference/04-the-project.md
+
+# Make `mkdocs build --strict` fail on the two classes of breakage this guide
+# is most exposed to now that it is split across 70 files: a page missing from
+# the nav, and a cross-reference to an anchor that no longer exists.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
 
 markdown_extensions:
   - admonition
