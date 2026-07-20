@@ -731,11 +731,19 @@ void DebuggerWindow::position_next_to(QWidget* main_win) {
 }
 
 void DebuggerWindow::give_up_on_attachment() {
+    // `attach_supported_ = false` alone stops every further move:
+    // compute_attached_placement()'s FIRST check is positioning_supported, so
+    // no placement is issued regardless of the user's toggle.
+    //
+    // `attach_enabled_` is deliberately NOT touched. It is the user's stored
+    // preference — save_geometry() writes it to "debugger/attached" on every
+    // close — and this is the PLATFORM giving up, not the user turning
+    // attachment off. Clearing it here silently downgraded that preference to
+    // false for the next session, so a machine where attachment works (or a
+    // transiently uncooperative WM) would come back detached and never retry.
+    // Review round 2 caught this contradicting the very comment that used to
+    // sit above it. The unchecked checkbox below is presentation only.
     attach_supported_ = false;
-    // Stop issuing moves, but do NOT persist this: it is the platform giving
-    // up, not the user turning attachment off, and their stored preference must
-    // survive for the next session (and for a machine where it does work).
-    attach_enabled_ = false;
 
     if (attach_action_) {
         const QSignalBlocker blocker(attach_action_);

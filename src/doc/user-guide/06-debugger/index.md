@@ -14,9 +14,16 @@ the debugger costs nothing — no breakpoint checking, no call-stack tracking, n
 panel refreshes. Closing it also resumes the machine if it was paused.
 
 The debugger opens in its own window, positioned to the right of the emulator
-window and following it when you move it. It has its own menu bar —
-**Debug**, **Map**, **Breakpoints** and **Watches** — and a control toolbar
-along the bottom.
+window. It has its own menu bar — **Debug**, **Map**, **Breakpoints**,
+**Watches** and **Window** — and a control toolbar along the bottom.
+
+**Window ▸ Attach to emulator window** keeps it pinned to the emulator's
+right-hand edge as you drag or resize that window; the setting is remembered
+between sessions. This needs a window system that lets an application position
+its own windows, so it works on **X11** and is unavailable on **Wayland**,
+where the menu item is greyed out — see
+[8.3](../08-known-issues/03-the-debugger-window-does-not-follow-the-emulator-window.md)
+for why, and how to run under X11 if you want it.
 
 ![The debugger window](../img/debugger-window.png)
 

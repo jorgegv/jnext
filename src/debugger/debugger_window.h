@@ -116,8 +116,14 @@ private:
     // at construction (false on Wayland) and then CORRECTED BY MEASUREMENT — a
     // move that is repeatedly ignored latches it false, because the platform
     // name alone proved not to be trustworthy (an XWayland "xcb" session drops
-    // moves exactly like native Wayland). When false the toggle is disabled in
-    // the menu and no move is attempted, since it would be silently dropped.
+    // moves exactly like native Wayland). When false, no move is attempted,
+    // since it would be silently dropped.
+    //
+    // The two are independent on purpose. A MEASURED give-up clears
+    // `attach_supported_` and leaves the menu item ENABLED (re-ticking it
+    // retries from a clean slate) and leaves `attach_enabled_` — the persisted
+    // preference — untouched. Only a platform that cannot position windows at
+    // all disables the item, because there a retry is guaranteed to fail.
     bool     attach_enabled_ = true;
     bool     attach_supported_ = true;
     // Set when the PLATFORM NAME says positioning is impossible (Wayland).

@@ -37,6 +37,8 @@
 
 #include <cstdio>
 #include <string>
+#include <fstream>
+#include <sstream>
 
 using jnext::AttachRect;
 using jnext::AttachStatus;
@@ -405,6 +407,57 @@ int main()
                   && attach_status_reason(AttachStatus::Disabled) != nullptr
                   && attach_status_reason(AttachStatus::Unsupported) != nullptr
                   && attach_status_reason(AttachStatus::MainFullscreen) != nullptr);
+    }
+
+    // --- WA-32: a measured give-up must NOT clear the user's persisted
+    // attachment preference.
+    //
+    // Review round 2 found give_up_on_attachment() assigning
+    // `attach_enabled_ = false` directly beneath a comment promising it would
+    // not — and `attach_enabled_` is exactly what save_geometry() writes to
+    // "debugger/attached". The effect: a give-up followed by closing the
+    // debugger silently downgraded the stored preference, so the next session
+    // came back detached and never retried. `attach_supported_ = false` alone
+    // already stops every move (compute_attached_placement checks
+    // positioning_supported first), so the assignment bought nothing.
+    //
+    // This is a SOURCE-SHAPE row, in the same spirit as cli_options_test's
+    // CLI-SRC-01, because the contract lives in Qt-side code no pure row can
+    // reach — the exact Task-91 blind spot this change set out to close. It
+    // fails loudly if the assignment ever returns; it cannot pass silently.
+    {
+        std::ifstream in(JNEXT_DEBUGGER_WINDOW_SRC);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        const std::string src = ss.str();
+
+        bool found_fn = false, assigns_pref = false;
+        const std::string sig = "void DebuggerWindow::give_up_on_attachment()";
+        const size_t start = src.find(sig);
+        if (start != std::string::npos) {
+            found_fn = true;
+            // Body runs to the first line that is exactly "}" at column 0.
+            const size_t end = src.find("\n}", start);
+            const std::string body = src.substr(start, (end == std::string::npos)
+                                                           ? std::string::npos
+                                                           : end - start);
+            // Strip // comments so the explanatory prose naming the member
+            // cannot itself trip the check.
+            std::istringstream lines(body);
+            std::string line;
+            while (std::getline(lines, line)) {
+                const size_t c = line.find("//");
+                if (c != std::string::npos) line = line.substr(0, c);
+                if (line.find("attach_enabled_") != std::string::npos
+                    && line.find('=') != std::string::npos) {
+                    assigns_pref = true;
+                }
+            }
+        }
+        check("WA-32", "give_up_on_attachment does not clear the persisted user preference",
+              found_fn && !assigns_pref,
+              found_fn ? (assigns_pref ? "assigns attach_enabled_" : "clean")
+                       : "give_up_on_attachment() not found in source");
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

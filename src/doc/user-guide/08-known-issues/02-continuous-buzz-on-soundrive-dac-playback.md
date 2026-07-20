@@ -1,15 +1,24 @@
-# 8.2 Continuous buzz on Soundrive/DAC playback
+# 8.2 Continuous buzz on Soundrive/DAC playback — resolved
 
-**What you see.** Software that plays samples through the Soundrive/Specdrum
-8-bit DAC produces a steady background buzz underneath the expected sound.
+**This was not an emulator fault.** It was a bug in JNEXT's own bundled DAC
+demo, and it is fixed.
 
-**What is known.** It persists with interrupts disabled, at 28 MHz, and with a
-tightly timed pure-assembly playback loop — and it reproduces in ZEsarUX as
-well as JNEXT. So it is not yet clear whether both emulators share a fault,
-the test program itself is at fault, or driving a DAC from Z80 code with no
-hardware sample clock is inherently prone to it.
+**What was happening.** The demo addressed one of its four DAC channels through
+port `0xDF`. That is the Specdrum *mono* port, which writes channels A **and** D
+together rather than channel D alone — and the demo also had two of its channels
+assigned to the wrong stereo sides. Both the left and right outputs therefore
+carried exactly the same pair of summed tones. Since the second tone was the
+third harmonic of the first, the sum came out as a hollow, reedy buzz instead of
+the intended two-tone stereo.
 
-**Impact.** Low. Very little Next software uses the DAC; AY/TurboSound and the
-beeper are unaffected.
+**Why it looked like an emulator fault.** It reproduced identically in ZEsarUX,
+and on real ZX Spectrum Next hardware. That is exactly what you would expect:
+both emulators decode the DAC ports correctly, so both faithfully reproduced the
+demo's own mistake, and so did the hardware.
 
-Tracked as [issue #38](https://github.com/jorgegv/jnext/issues/38).
+If you write software that drives the Soundrive/Specdrum DAC, the mapping worth
+double-checking is that ports `0x1F`/`0x0F` feed the **left** output and
+`0x4F`/`0x5F` the **right**, while `0xDF` is a **mono** port that writes both
+sides at once.
+
+Closed as [issue #38](https://github.com/jorgegv/jnext/issues/38).

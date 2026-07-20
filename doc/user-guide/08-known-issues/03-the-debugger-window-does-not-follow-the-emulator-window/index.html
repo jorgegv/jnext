@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#83-the-debugger-window-does-not-follow-the-emulator-window" class="md-skip">
+        <a href="#83-debugger-window-attachment-is-not-available-on-wayland" class="md-skip">
           Skip to content
         </a>
       
@@ -2817,14 +2817,29 @@
   
 
 
-<h1 id="83-the-debugger-window-does-not-follow-the-emulator-window">8.3 The debugger window does not follow the emulator window<a class="headerlink" href="#83-the-debugger-window-does-not-follow-the-emulator-window" title="Permanent link">&para;</a></h1>
-<p><strong>What you see.</strong> Move the main emulator window and the debugger window stays
-where it was, so the two drift apart and have to be re-arranged by hand.</p>
-<p><strong>What works today.</strong> The debugger's position <em>is</em> remembered between
-sessions, so it reopens where you last left it. It just does not track the
-emulator window while that window is being moved.</p>
-<p><strong>Workaround.</strong> Place both windows once; the layout survives a restart.</p>
-<p>Tracked as <a href="https://github.com/jorgegv/jnext/issues/39">issue #39</a>.</p>
+<h1 id="83-debugger-window-attachment-is-not-available-on-wayland">8.3 Debugger window attachment is not available on Wayland<a class="headerlink" href="#83-debugger-window-attachment-is-not-available-on-wayland" title="Permanent link">&para;</a></h1>
+<p><strong>Fixed on X11.</strong> The debugger window now attaches to the right-hand edge of
+the emulator window and follows it as you drag or resize it. Toggle it from the
+debugger's own <strong>Window → Attach to emulator window</strong> menu; the setting is
+remembered between sessions.</p>
+<p><strong>Not possible on Wayland.</strong> Under a native Wayland session the menu item is
+greyed out, with a tooltip explaining why. This is not something JNEXT can fix:
+Wayland's window-management protocol (xdg-shell) has no request for an
+application to position its own window. A client cannot say "put me here" —
+placement belongs entirely to the compositor. Every application is in the same
+position, and no amount of work on our side changes it.</p>
+<p><strong>If you want attachment, run under X11:</strong></p>
+<pre><code class="language-console">$ QT_QPA_PLATFORM=xcb jnext
+</code></pre>
+<p><strong>XWayland is handled too.</strong> An XWayland session reports itself as <code>xcb</code> — it
+looks exactly like X11 from inside the application — but the compositor still
+discards the move requests. JNEXT therefore does not trust the platform name
+alone: it checks whether its moves actually land, and if several in a row are
+ignored it stops trying, unticks the menu item, and says so in the status bar.
+Re-tick the item to retry (after moving to a different screen, say). That
+automatic stop does not change your saved preference — the next session starts
+with attachment enabled again.</p>
+<p>Originally reported as <a href="https://github.com/jorgegv/jnext/issues/39">issue #39</a>.</p>
 
 
 
