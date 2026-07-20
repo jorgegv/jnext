@@ -67,6 +67,15 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Same fedora:44 container release.yml builds the rpm and Windows artifacts
+    # in, and the same distro the maintainer develops on. That is the point: the
+    # committed man page, USAGE.md and rendered user guide are all GENERATED,
+    # and pandoc/mkdocs-material emit byte-different output across versions — so
+    # a runner on a different distro reports a VERSION GAP as staleness. Ubuntu
+    # shipped pandoc 3.1.3 against the maintainer's 3.7.0.2 and failed
+    # docs-check on every run from the day the man page landed. Matching the
+    # distro removes that whole class instead of pinning tool by tool.
+    container: fedora:44
     timeout-minutes: 60
     steps:
       - name: Check out
@@ -84,13 +93,12 @@ jobs:
       # libcurl inside jnext, not this step directly, but kept explicit).
       - name: Install build + test dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake g++ ccache \
-            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
-            qt6-base-dev \
-            imagemagick xvfb python3 unzip \
-            pandoc python3-venv
+          dnf install -y \
+            cmake gcc-c++ git make ccache \
+            SDL2-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
+            qt6-qtbase-devel \
+            ImageMagick xorg-x11-server-Xvfb python3 unzip diffutils \
+            pandoc mkdocs-material
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -124,33 +132,11 @@ jobs:
       # regenerates into a temp dir and diffs, so an edit to the source with
       # stale committed outputs fails here rather than shipping a man page
       # that disagrees with USAGE.md.
-      # The guide's byte-comparison only runs when the renderer matches the one
-      # that produced the committed render, because mkdocs-material embeds
-      # content-hashed theme assets — a version gap would otherwise read as
-      # staleness. Ubuntu's package is a different version from any given
-      # developer's, so CI installs the EXACT versions recorded in
-      # src/doc/user-guide-renderer.txt. That file is written by
-      # `make docs-userguide`, so it is always whatever last rendered the guide.
-      # A venv keeps this off the system Python (PEP 668).
-      - name: Install the pinned user-guide renderer
-        run: |
-          set -euo pipefail
-          f=src/doc/user-guide-renderer.txt
-          mkdocs_ver=$(awk '$1=="mkdocs"{print $2}' "$f")
-          material_ver=$(awk '$1=="mkdocs-material"{print $2}' "$f")
-          if [ -z "$mkdocs_ver" ] || [ -z "$material_ver" ]; then
-            echo "could not read renderer versions from $f" >&2; exit 1
-          fi
-          echo "pinning mkdocs==$mkdocs_ver mkdocs-material==$material_ver"
-          python3 -m venv /tmp/docsenv
-          /tmp/docsenv/bin/pip install --quiet --upgrade pip
-          /tmp/docsenv/bin/pip install --quiet \
-            "mkdocs==$mkdocs_ver" "mkdocs-material==$material_ver"
-          echo /tmp/docsenv/bin >> "$GITHUB_PATH"
-
       # Both halves hard-fail here when their tool is missing, rather than
-      # skipping and reading as a pass. With the pin above, the guide's
-      # byte-comparison actually runs in CI instead of skipping by construction.
+      # skipping and reading as a pass. Running on the maintainer's distro means
+      # pandoc and mkdocs-material match the versions that produced the
+      # committed outputs, so both byte-comparisons actually run rather than
+      # reporting a version gap (man page) or skipping (guide).
       - name: Generated docs are up to date (make docs-check)
         run: LANG=C make docs-check
 
