@@ -67,38 +67,66 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Same fedora:44 container release.yml builds the rpm and Windows artifacts
+    # in, and the same distro the maintainer develops on. That is the point: the
+    # committed man page, USAGE.md and rendered user guide are all GENERATED,
+    # and pandoc/mkdocs-material emit byte-different output across versions — so
+    # a runner on a different distro reports a VERSION GAP as staleness. Ubuntu
+    # shipped pandoc 3.1.3 against the maintainer's 3.7.0.2 and failed
+    # docs-check on every run from the day the man page landed. Matching the
+    # distro removes that whole class instead of pinning tool by tool.
+    container: fedora:44
     timeout-minutes: 60
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # Package set mirrors release.yml's deb job (verified to actually
-      # build on Fedora by the packaging task) plus the tools the test
+      # MUST run BEFORE the checkout: a bare fedora:44 has no git, and
+      # actions/checkout throws outright when `submodules` is requested
+      # without it ("Input 'submodules' not supported when falling back to
+      # download using the GitHub REST API"). release.yml's rpm and windows
+      # jobs already order it this way for exactly this reason.
+      #
+      # Package set mirrors release.yml's rpm job (same fedora:44 container,
+      # same dnf names) plus the tools the test
       # layers need on top: imagemagick (`compare`, screenshot diffing),
       # xvfb (audio-underrun-func's real-audio-device functional test —
       # every other GUI functional test uses QT_QPA_PLATFORM=offscreen and
       # needs no display), python3 (check-audio-underruns.py), unzip (the
       # SD-image provisioning step's own dependency, ultimately via
-      # libcurl inside jnext, not this step directly, but kept explicit).
+      # libcurl inside jnext, not this step directly, but kept explicit),
+      # ripgrep (the regression preflight lint), ffmpeg-free (video-record-func
+      # and ffprobe; the same package the maintainer has locally), and bc/file/
+      # xxd, which functional rows shell out to. That set was established by
+      # checking every external command the suite invokes against a bare
+      # fedora:44 plus this list, rather than discovering them one CI run at a
+      # time.
+      # git, make and diffutils come preinstalled on an Ubuntu runner but are
+      # absent from the bare Fedora image, so they are explicit here.
       - name: Install build + test dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake g++ ccache \
-            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
-            qt6-base-dev \
-            imagemagick xvfb python3 unzip \
-            pandoc python3-venv
+          dnf install -y \
+            cmake gcc-c++ git make ccache \
+            SDL2-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
+            qt6-qtbase-devel \
+            ImageMagick xorg-x11-server-Xvfb python3 unzip diffutils \
+            ripgrep ffmpeg-free bc file xxd \
+            pandoc mkdocs-material
+          # CMake shells out to `git submodule update`, which refuses on a
+          # workspace owned by another uid ("dubious ownership", exit 128).
+          # actions/checkout already placed the submodule so the build works
+          # anyway, but the warning is noise on every configure.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-${{ github.sha }}
+          key: ccache-fedora44-${{ github.sha }}
           restore-keys: |
-            ccache-${{ runner.os }}-
+            ccache-fedora44-
 
       - name: Cache NextZXOS SD-card image
         id: sdcache
@@ -108,7 +136,11 @@ jobs:
           # kDistroUrl in src/core/sdcard_provisioner.cpp is versioned
           # (.../distro/24.11/...) — bump this key if that constant changes,
           # so a stale cached image is never reused silently.
-          key: sdcard-image-distro-24.11
+          # -fedora44 namespaces the container era: entries saved on a plain
+          # ubuntu runner carry /home/runner paths and are useless (and
+          # misleading) here. Bump with the container image, not just with
+          # kDistroUrl.
+          key: sdcard-image-distro-24.11-fedora44
 
       # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
       # `make gui-release` first, so regression.sh (which prefers
@@ -116,43 +148,7 @@ jobs:
       - name: make clean && make gui-release
         run: |
           LANG=C make clean
-          LANG=C make gui-release 2>&1 | tail -30
-
-      # doc/man/jnext.1.md is the single source for BOTH the man page and
-      # USAGE.md, and both outputs are committed so a source build needs no
-      # doc toolchain. That only holds if someone regenerates them: this step
-      # regenerates into a temp dir and diffs, so an edit to the source with
-      # stale committed outputs fails here rather than shipping a man page
-      # that disagrees with USAGE.md.
-      # The guide's byte-comparison only runs when the renderer matches the one
-      # that produced the committed render, because mkdocs-material embeds
-      # content-hashed theme assets — a version gap would otherwise read as
-      # staleness. Ubuntu's package is a different version from any given
-      # developer's, so CI installs the EXACT versions recorded in
-      # src/doc/user-guide-renderer.txt. That file is written by
-      # `make docs-userguide`, so it is always whatever last rendered the guide.
-      # A venv keeps this off the system Python (PEP 668).
-      - name: Install the pinned user-guide renderer
-        run: |
-          set -euo pipefail
-          f=src/doc/user-guide-renderer.txt
-          mkdocs_ver=$(awk '$1=="mkdocs"{print $2}' "$f")
-          material_ver=$(awk '$1=="mkdocs-material"{print $2}' "$f")
-          if [ -z "$mkdocs_ver" ] || [ -z "$material_ver" ]; then
-            echo "could not read renderer versions from $f" >&2; exit 1
-          fi
-          echo "pinning mkdocs==$mkdocs_ver mkdocs-material==$material_ver"
-          python3 -m venv /tmp/docsenv
-          /tmp/docsenv/bin/pip install --quiet --upgrade pip
-          /tmp/docsenv/bin/pip install --quiet \
-            "mkdocs==$mkdocs_ver" "mkdocs-material==$material_ver"
-          echo /tmp/docsenv/bin >> "$GITHUB_PATH"
-
-      # Both halves hard-fail here when their tool is missing, rather than
-      # skipping and reading as a pass. With the pin above, the guide's
-      # byte-comparison actually runs in CI instead of skipping by construction.
-      - name: Generated docs are up to date (make docs-check)
-        run: LANG=C make docs-check
+          LANG=C make gui-release
 
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from
@@ -164,20 +160,11 @@ jobs:
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         run: LANG=C make build-matrix
 
-      - name: Provision NextZXOS SD image (public specnext.com distro; cached above)
-        if: steps.sdcache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/.jnext/sdcard
-          timeout 600 ./build/gui-release/jnext --headless \
-            --sdcard-download-confirm --delayed-automatic-exit 1
-
-      - name: Point roms/ at the provisioned image
-        run: |
-          test -f ~/.jnext/sdcard/cspect-next-1gb-fixed.img
-          ln -sf ~/.jnext/sdcard/cspect-next-1gb-fixed.img roms/nextzxos-1gb-fat32fix.img
+      - name: make regression (screenshot + functional suite)
+        run: LANG=C JNEXT_TEST_JOBS=4 make regression
 
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
-        run: LANG=C make unit-test 2>&1 | tail -60
+        run: LANG=C make unit-test
 
       # Golden-screenshot + functional regression, in two steps.
       #
@@ -195,12 +182,6 @@ jobs:
       # against identical, reproducible SD-card content. This also means
       # the full grand-total witness (declared == reported) is enforced in
       # CI exactly as it is locally; no filtering, no partial-run carve-out.
-      - name: Regression preflight (manifest pins; no SD image needed)
-        run: bash test/00regression/regression.sh --preflight-only
-
-      - name: Regression (full suite, pristine self-provisioned SD image)
-        run: LANG=C JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh 2>&1 | tail -100
-
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4

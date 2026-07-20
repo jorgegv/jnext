@@ -1490,6 +1490,17 @@ static void test_sd_28_cmd24_ro_image_write_error() {
     const uint32_t n_sectors = 8;
     std::string img = make_image(n_sectors);
 
+    // root ignores the permission bits this row depends on: it opens a 0444
+    // file for writing regardless, so the card mounts RW and answers 0x05.
+    // The RO premise simply cannot be constructed as root (CI runs in a
+    // container as root; a local run does not), so skip rather than report a
+    // failure that says nothing about the code under test.
+    if (geteuid() == 0) {
+        skip("SD-28", "running as root; cannot construct a read-only image");
+        std::remove(img.c_str());
+        return;
+    }
+
     // Make the image read-only on the host filesystem.
     if (chmod(img.c_str(), 0444) != 0) {
         // Permission change failed — skip rather than spuriously fail.

@@ -69,14 +69,16 @@ void skip(const char* id, const char* reason) {
     g_skipped.push_back({id, reason});
 }
 
-// Resolve the canonical SD image path. Allow override via environment
-// variable for out-of-tree runs; default falls back to the repo-relative
-// path which works from any cwd that can see the worktree's roms/ link.
+// Resolve the canonical SD image path. Default is the image jnext downloads
+// and caches itself (and which the regression suite's sdcard-provision row
+// ensures exists) — not a roms/ fixture, which a fresh clone never has.
+// JNEXT_TEST_SD_IMAGE overrides it for out-of-tree runs.
 std::string canonical_image() {
     if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) {
         return env;
     }
-    return "roms/nextzxos-1gb-fat32fix.img";
+    const char* home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
 }
 
 bool file_exists(const std::string& path) {
