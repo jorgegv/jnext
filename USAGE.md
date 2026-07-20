@@ -435,7 +435,7 @@ per-function heatmap:
 ## THE GUI
 
 The Qt6 build gives a native window with menus, a toolbar and a status
-bar (FPS, CPU speed, machine type, tape status, rewind state), Hi-DPI
+bar (FPS, CPU speed, emulator speed, tape status, machine type), Hi-DPI
 pixel-perfect rendering at integer scale, and a CRT scanline filter.
 
 **File**  
@@ -449,6 +449,11 @@ Reset (Ctrl+R), Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 /
 7 / 14 / 28 MHz - the Next’s own clock), Emulator Speed (0.5x / 1x / 2x
 / 4x / custom % - the host-side throttle).
 
+**Input**  
+Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
+what drives that connector; Capture Mouse, which confines the host
+pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
+
 **Tape**  
 Open Tape File (Ctrl+T), Eject, Rewind, Fast Load (toggle).
 
@@ -456,8 +461,13 @@ Open Tape File (Ctrl+T), Eject, Rewind, Fast Load (toggle).
 Magic Breakpoint (toggle).
 
 **View**  
-Scale 2x / 3x / 4x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
+Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
 (Ctrl+D).
+
+**Settings**  
+Preferences…, which opens the settings dialog (Startup, Input and Paths
+tabs). Its values are saved to the configuration file; command-line
+options always take precedence over them.
 
 **Help**  
 About.
