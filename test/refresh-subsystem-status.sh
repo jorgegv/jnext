@@ -120,6 +120,7 @@ BEGIN {
     M["esc_break_test"]                = "Esc/BREAK + fullscreen routing"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
+    M["cli_options_test"]              = "CLI options / docs"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
     M["nmi_test"]                      = "NMI Source Pipeline"
