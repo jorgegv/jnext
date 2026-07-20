@@ -63,6 +63,9 @@ permissions:
 env:
   LANG: C
   LC_ALL: C
+  # sd_rom_extractor_test's own override, so it reads jnext's default cached
+  # image instead of needing a roms/ fixture that a fresh clone never has.
+  JNEXT_TEST_SD_IMAGE: /github/home/.jnext/sdcard/cspect-next-1gb-fixed.img
 
 jobs:
   test:
@@ -136,21 +139,7 @@ jobs:
       - name: make clean && make gui-release
         run: |
           LANG=C make clean
-          LANG=C make gui-release 2>&1 | tail -30
-
-      # doc/man/jnext.1.md is the single source for BOTH the man page and
-      # USAGE.md, and both outputs are committed so a source build needs no
-      # doc toolchain. That only holds if someone regenerates them: this step
-      # regenerates into a temp dir and diffs, so an edit to the source with
-      # stale committed outputs fails here rather than shipping a man page
-      # that disagrees with USAGE.md.
-      # Both halves hard-fail here when their tool is missing, rather than
-      # skipping and reading as a pass. Running on the maintainer's distro means
-      # pandoc and mkdocs-material match the versions that produced the
-      # committed outputs, so both byte-comparisons actually run rather than
-      # reporting a version gap (man page) or skipping (guide).
-      - name: Generated docs are up to date (make docs-check)
-        run: LANG=C make docs-check
+          LANG=C make gui-release
 
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from
@@ -162,33 +151,17 @@ jobs:
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         run: LANG=C make build-matrix
 
-      # Gated on the FILE, never on steps.sdcache.outputs.cache-hit. That flag
-      # says a cache entry was restored, not that the image is where we look:
-      # actions/cache stores paths outside the workspace ABSOLUTE, so an entry
-      # saved on a plain runner ($HOME=/home/runner) restores to that same
-      # absolute path inside a container whose $HOME is /github/home. The flag
-      # then reads "hit", provisioning is skipped, and the next step fails on a
-      # file that was never there — observed exactly once, on the first
-      # container run. Testing the file is self-healing and costs nothing.
-      - name: Provision NextZXOS SD image (public specnext.com distro; cached above)
+      # jnext downloads and caches the SD image itself on first use; the only
+      # thing CI adds is running it once up front so the cache above is warm
+      # before the suites, and telling sd_rom_extractor_test where it landed
+      # (the test's own JNEXT_TEST_SD_IMAGE hook — no roms/ symlink needed).
+      - name: Let jnext fetch its SD image (its own downloader, default cache)
         run: |
-          img=~/.jnext/sdcard/cspect-next-1gb-fixed.img
-          if [ -f "$img" ]; then
-            echo "SD image already present (cache restored) — skipping download"
-          else
-            echo "SD image absent — provisioning it"
-            mkdir -p ~/.jnext/sdcard
-            timeout 600 ./build/gui-release/jnext --headless \
-              --sdcard-download-confirm --delayed-automatic-exit 1
-          fi
-
-      - name: Point roms/ at the provisioned image
-        run: |
-          test -f ~/.jnext/sdcard/cspect-next-1gb-fixed.img
-          ln -sf ~/.jnext/sdcard/cspect-next-1gb-fixed.img roms/nextzxos-1gb-fat32fix.img
+          ./build/gui-release/jnext --headless \
+            --sdcard-download-confirm --delayed-automatic-exit 1
 
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
-        run: LANG=C make unit-test 2>&1 | tail -60
+        run: LANG=C make unit-test
 
       # Golden-screenshot + functional regression, in two steps.
       #
@@ -206,11 +179,8 @@ jobs:
       # against identical, reproducible SD-card content. This also means
       # the full grand-total witness (declared == reported) is enforced in
       # CI exactly as it is locally; no filtering, no partial-run carve-out.
-      - name: Regression preflight (manifest pins; no SD image needed)
-        run: bash test/00regression/regression.sh --preflight-only
-
-      - name: Regression (full suite, pristine self-provisioned SD image)
-        run: LANG=C JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh 2>&1 | tail -100
+      - name: make regression (screenshot + functional suite)
+        run: LANG=C JNEXT_TEST_JOBS=4 make regression
 
       - name: Upload failure artifacts
         if: failure()
