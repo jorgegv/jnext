@@ -1925,6 +1925,154 @@ static void test_pulse_width_speed_invariance() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 13 — CTC control-word interrupt-enable → IM2 fabric (GH #47/#48)
+//
+// VHDL device/ctc_chan.vhd:265-276 keeps ONE interrupt-enable flip-flop
+// per channel, `control_reg(7-3)`, and gives it two writers:
+//
+//    if reset_hard = '1'   then control_reg <= (others => '0');
+//    elsif iowr_cw = '1'   then control_reg <= i_cpu_d(7 downto 3);
+//    elsif i_int_en_wr='1' then control_reg(7-3) <= i_int_en;
+//    ...
+//    o_int_en <= control_reg(7-3);
+//
+// `iowr_cw` is a CTC control-word port write (0x183B..0x1B3B, D0=1);
+// `i_int_en_wr` is an NR 0xC5 write (zxnext.vhd:4078-4079). `o_int_en`
+// is exported as `ctc_int_en` and is the ONLY signal zxnext.vhd:1949
+// fans into `im2_int_en` — so both writers reach the IM2 fabric, and
+// the later one wins.
+//
+// jnext refreshed the fabric copy from the NR 0xC5 handler only. A
+// control word therefore updated the CTC's own enable (visible in the
+// NR 0xC5 readback, which is sourced from Ctc::get_int_enable()) while
+// the fabric's dev_[CTCn].int_en stayed at whatever NR 0xC5 last said —
+// the channel's ZC/TO raised int_req but the wrapper's int_en AND
+// discarded it. Both audio players shipped on the official SD card
+// (NextSIDplayer, nxmodplayer) write NR 0xC5 first and then program the
+// channels with control words carrying D7=1, so their engine interrupts
+// never reached the Z80 and both played silence.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_ctc_control_word_int_en(Emulator& emu) {
+    set_group("CTC-CW-INTEN");
+
+    // Put the fabric in hw-im2 mode with the Z80 in IM 2 — the two gates
+    // the device state machine needs before an int_req can leave S_0
+    // (im2_peripheral.vhd:105,167-178 + im2_device.vhd:150). Same idiom
+    // as ULA-INT-V19-IM2-01 above.
+    const auto arm_im2 = [](Emulator& e) {
+        e.im2().set_mode(true);
+        e.im2().on_m1_cycle(0x0000, 0xED);
+        e.im2().on_m1_cycle(0x0001, 0x5E);
+    };
+
+    // CTC-CW-INTEN-01 — the GH #47/#48 shape, verbatim: NR 0xC5 enables
+    // CTC0 only, then channel 1 is programmed with control word 0xA5
+    // (D7=1 → interrupt enable, timer, /256, TC follows) + TC. Per
+    // ctc_chan.vhd:269 that control word writes control_reg(7)=1, so
+    // CTC1's request must now reach the fabric.
+    //
+    // Discriminative: pre-fix dev_[CTC1].int_en stayed false (NR 0xC5
+    // bit 1 = 0), the im2_int_req latch never set, and the device sat
+    // in S_0 forever.
+    {
+        fresh(emu);
+        arm_im2(emu);
+        nr_write(emu, 0xC5, 0x01);          // NR 0xC5: CTC0 only
+        emu.port().out(0x183B, 0x85);       // ch0 control word (D7=1)
+        emu.port().out(0x183B, 0x72);       // ch0 time constant
+        emu.port().out(0x193B, 0xA5);       // ch1 control word (D7=1)
+        emu.port().out(0x193B, 0xFA);       // ch1 time constant
+
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC1);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st = emu.im2().state(Im2Controller::DevIdx::CTC1);
+        const uint8_t c5 = nr_read(emu, 0xC5);
+
+        char detail[220];
+        std::snprintf(detail, sizeof(detail),
+                      "NR 0xC5<-0x01 then ch1 CW 0xA5: state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0) NR 0xC5 readback=%s",
+                      static_cast<int>(st), hex2(c5).c_str());
+        check("CTC-CW-INTEN-01",
+              "CTC control word D7=1 enables that channel's IM2 interrupt "
+              "even when NR 0xC5 left it masked "
+              "[ctc_chan.vhd:269,276 + zxnext.vhd:1949]",
+              st == Im2Controller::DevState::S_REQ && c5 == 0x03, detail);
+    }
+
+    // CTC-CW-INTEN-02 — the opposite direction. NR 0xC5 enables all four
+    // channels, then channel 1's control word 0x25 (D7=0, timer, /256,
+    // TC follows) clears control_reg(7). ctc_chan.vhd:269 writes the
+    // WHOLE control_reg from i_cpu_d(7 downto 3), so D7=0 disables the
+    // channel; the fabric must follow and hold CTC1 in S_0.
+    //
+    // Discriminative: pre-fix the fabric kept NR 0xC5's 0x0F and the
+    // device advanced to S_REQ — a phantom interrupt from a channel
+    // software had just disabled.
+    {
+        fresh(emu);
+        arm_im2(emu);
+        nr_write(emu, 0xC5, 0x0F);          // NR 0xC5: all four channels
+        emu.port().out(0x193B, 0x25);       // ch1 control word (D7=0)
+        emu.port().out(0x193B, 0xFA);       // ch1 time constant
+
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC1);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st = emu.im2().state(Im2Controller::DevIdx::CTC1);
+        const uint8_t c5 = nr_read(emu, 0xC5);
+
+        char detail[220];
+        std::snprintf(detail, sizeof(detail),
+                      "NR 0xC5<-0x0F then ch1 CW 0x25: state=%d "
+                      "(post-fix S_0=0; pre-fix S_REQ=1) NR 0xC5 readback=%s",
+                      static_cast<int>(st), hex2(c5).c_str());
+        check("CTC-CW-INTEN-02",
+              "CTC control word D7=0 disables that channel's IM2 interrupt "
+              "even when NR 0xC5 had enabled it "
+              "[ctc_chan.vhd:269,276 + zxnext.vhd:1949]",
+              st == Im2Controller::DevState::S_0 && c5 == 0x0D, detail);
+    }
+
+    // CTC-CW-INTEN-03 — a control word must not disturb the channels it
+    // does not address, and must never light up CTC4..7 (zxnext.vhd:4093
+    // hardwires `ctc_int_en(7 downto 4) <= "0000"`; only four channels
+    // are instantiated at :4067).
+    {
+        fresh(emu);
+        arm_im2(emu);
+        nr_write(emu, 0xC5, 0x01);          // CTC0 enabled
+        emu.port().out(0x1A3B, 0xA5);       // ch2 control word (D7=1)
+        emu.port().out(0x1A3B, 0x10);       // ch2 time constant
+
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC3);
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC7);
+        emu.im2().tick(1);
+        const Im2Controller::DevState s0 = emu.im2().state(Im2Controller::DevIdx::CTC0);
+        const Im2Controller::DevState s3 = emu.im2().state(Im2Controller::DevIdx::CTC3);
+        const Im2Controller::DevState s7 = emu.im2().state(Im2Controller::DevIdx::CTC7);
+        const uint8_t c5 = nr_read(emu, 0xC5);
+
+        char detail[220];
+        std::snprintf(detail, sizeof(detail),
+                      "after ch2 CW 0xA5: CTC0 state=%d (S_REQ=1) "
+                      "CTC3 state=%d (S_0=0) CTC7 state=%d (S_0=0) "
+                      "NR 0xC5 readback=%s",
+                      static_cast<int>(s0), static_cast<int>(s3),
+                      static_cast<int>(s7), hex2(c5).c_str());
+        check("CTC-CW-INTEN-03",
+              "a control word leaves the other channels' enables intact and "
+              "never enables CTC4..7 "
+              "[ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093]",
+              s0 == Im2Controller::DevState::S_REQ
+                  && s3 == Im2Controller::DevState::S_0
+                  && s7 == Im2Controller::DevState::S_0
+                  && c5 == 0x05, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1961,6 +2109,9 @@ int main() {
 
     test_pulse_width_speed_invariance();
     std::printf("  Group: Pulse-Width-60d — done\n");
+
+    test_ctc_control_word_int_en(emu);
+    std::printf("  Group: CTC-CW-INTEN — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
