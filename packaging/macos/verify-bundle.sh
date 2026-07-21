@@ -35,10 +35,17 @@ APP=$1
 command -v otool >/dev/null 2>&1 || { echo "error: otool not found (Xcode command line tools)" >&2; exit 1; }
 
 # Dependency paths that are fine to keep: bundle-relative, or part of macOS.
+# The ^ anchors are load-bearing: without them a path merely CONTAINING
+# "/usr/lib/" (e.g. /opt/homebrew/Cellar/foo/1.0/usr/lib/foo.dylib) would be
+# accepted. VB-11 pins that.
 ALLOWED_RE='^(@executable_path|@loader_path|@rpath)/|^/usr/lib/|^/System/'
+
+# shellcheck source=packaging/macos/macho-refs.sh
+. "$(dirname "$0")/macho-refs.sh"
 
 violations=0
 stale_ids=0
+dangling=0
 checked=0
 
 # Every Mach-O in the bundle, not just the main executable: a bundled dylib or
@@ -60,13 +67,31 @@ while IFS= read -r macho; do
     # `|| true` under `set -e`/pipefail: a file otool -D cannot read yields an
     # empty id, which excuses NOTHING — the failure direction is toward
     # checking more, never less.
-    own_id=$(otool -D "$macho" 2>/dev/null | tail -n +2 | head -1 || true)
+    own_id=$(macho_id "$macho")
 
     # otool -L prints the file name on line 1, then one dependency per line as
     # "\t<path> (compatibility version ...)". Drop line 1, keep the path field.
     while IFS= read -r dep; do
         [ -n "$dep" ] || continue          # otool emits blank lines
-        [[ "$dep" =~ $ALLOWED_RE ]] && continue
+
+        if [[ "$dep" =~ $ALLOWED_RE ]]; then
+            # Bundle-relative: prove the file it names is actually THERE.
+            case "$dep" in
+                @*)
+                    if ref_is_broken "$dep" "$macho"; then
+                        if [ "$dangling" -eq 0 ]; then
+                            echo "FAIL: these bundle-relative references do not resolve to a" >&2
+                            echo "      file inside the bundle — dyld will fail on them at" >&2
+                            echo "      launch (GH #46):" >&2
+                            echo >&2
+                        fi
+                        printf '  %s\n      -> %s (MISSING)\n' "${macho#"$APP"/}" "$dep" >&2
+                        dangling=$((dangling + 1))
+                    fi
+                    ;;
+            esac
+            continue
+        fi
 
         if [ -n "$own_id" ] && [ "$dep" = "$own_id" ]; then
             # The file's own install name, not something it loads.
@@ -88,19 +113,44 @@ while IFS= read -r macho; do
         fi
         printf '  %s\n      -> %s\n' "${macho#"$APP"/}" "$dep" >&2
         violations=$((violations + 1))
-    done < <(otool -L "$macho" | tail -n +2 | awk '{print $1}')
-done < <(find "$APP" -type f -perm -u+r -exec sh -c 'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \;)
+    # Keep only tab-indented lines. `tail -n +2` alone is wrong for a
+    # universal binary: otool re-prints a "<path> (architecture x):" header per
+    # slice, and those headers would be read as dependencies. Real dependency
+    # lines always start with a tab.
+    done < <(macho_deps "$macho")
+done < <(macho_files "$APP")
 
 if [ "$checked" -eq 0 ]; then
     echo "error: no Mach-O files found in $APP — the bundle is empty or malformed" >&2
     exit 1
 fi
 
-if [ "$violations" -gt 0 ]; then
+if [ "$violations" -gt 0 ] || [ "$dangling" -gt 0 ]; then
     echo >&2
-    echo "$violations external LOAD reference(s) across $checked Mach-O file(s)." >&2
+    echo "$violations external LOAD reference(s) and $dangling unresolved" >&2
+    echo "bundle-relative reference(s) across $checked Mach-O file(s)." >&2
     exit 1
 fi
 
-echo "verify-bundle: OK — $checked Mach-O file(s), no external load references" \
+# The signature must be VALID, not merely present. Every install_name_tool
+# rewrite macdeployqt performs invalidates the signature of the file it edited,
+# and on Apple Silicon the kernel refuses to map invalidly-signed pages: the app
+# dies at launch. Nothing else here can see that — a `--version` run returns
+# before Qt loads its Cocoa platform plugin, so the lazily-dlopen'd plugins that
+# macdeployqt rewrote are never exercised until a real user double-clicks.
+if command -v codesign >/dev/null 2>&1; then
+    if ! codesign --verify --deep --strict "$APP" 2>/tmp/vb-codesign.$$; then
+        echo "FAIL: code signature is not valid — the app will be killed at launch" >&2
+        echo "      on Apple Silicon (Qt QTBUG-138019):" >&2
+        sed 's/^/  /' /tmp/vb-codesign.$$ >&2
+        rm -f /tmp/vb-codesign.$$
+        exit 1
+    fi
+    rm -f /tmp/vb-codesign.$$
+else
+    echo "note: codesign not available — signature validity NOT checked" >&2
+fi
+
+echo "verify-bundle: OK — $checked Mach-O file(s); no external load references," \
+     "every bundle-relative reference resolves, signature valid" \
      "($stale_ids cosmetic install-name(s) left unrewritten)"

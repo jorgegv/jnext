@@ -56,6 +56,13 @@ else
     bad verify-bundle "contract test failed (see $LOGDIR/verifybundle.log)"
 fi
 
+# --- prune-broken-plugins.sh contract (deletes files — both directions pinned)
+if bash test/packaging/prune-plugins-test.sh >"$LOGDIR/pruneplugins.log" 2>&1; then
+    ok prune-plugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
+else
+    bad prune-plugins "contract test failed (see $LOGDIR/pruneplugins.log)"
+fi
+
 # --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)

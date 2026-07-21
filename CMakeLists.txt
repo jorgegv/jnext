@@ -289,18 +289,23 @@ include(GNUInstallDirs)
 # lookup follows CMAKE_PREFIX_PATH rather than a hard-coded brew path.
 # Left empty (not fatal) when Qt is off — the install-time check below is what
 # turns that into a loud failure, and only for a build that is actually packaged.
+# NOTE the JNEXT_ prefix: Qt6Core's own macros run
+# `find_program(MACDEPLOYQT_EXECUTABLE ...)` for their deploy-script support, and
+# that runs first (via find_package(Qt6 ... Widgets) in src/gui, src/debugger).
+# A cache variable already populated is never re-searched, so an unprefixed name
+# would silently be Qt's result and this lookup would be dead code.
 if(APPLE AND MACOS_APP_BUNDLE AND ENABLE_QT_UI)
     find_package(Qt6 REQUIRED COMPONENTS Core)
     get_target_property(_qt_qmake_location Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_qmake_location}" DIRECTORY)
-    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${_qt_bin_dir}")
+    find_program(JNEXT_MACDEPLOYQT macdeployqt HINTS "${_qt_bin_dir}")
 endif()
-# find_program leaves MACDEPLOYQT_EXECUTABLE-NOTFOUND behind when it fails, and
+# find_program leaves JNEXT_MACDEPLOYQT-NOTFOUND behind when it fails, and
 # that string is truthy once interpolated into the install script below — it
 # would be run as a command name. Normalise a failed lookup to empty here, where
 # CMake's if() still understands -NOTFOUND.
-if(NOT MACDEPLOYQT_EXECUTABLE)
-    set(MACDEPLOYQT_EXECUTABLE "")
+if(NOT JNEXT_MACDEPLOYQT)
+    set(JNEXT_MACDEPLOYQT "")
 endif()
 
 if(APPLE AND MACOS_APP_BUNDLE)
@@ -325,15 +330,58 @@ install(DIRECTORY doc/user-guide DESTINATION .)
 # coverage of non-Qt dependencies cannot be checked on the Linux dev host, so
 # the install FAILS LOUDLY if any dependency still points outside the bundle,
 # rather than producing another .dmg that only runs on the machine that built it.
+#
+# macdeployqt's EXIT STATUS IS USELESS: its main() ends in an unconditional
+# `return 0`, and its LogError() is a qDebug() wrapper that sets no error state.
+# Observed live (run 29852867578): it printed ERROR: Cannot resolve rpath
+# "@rpath/QtPdf..." and exited 0 — and an unresolvable framework is silently
+# dropped from its copy worklist, leaving the plugin that needed it in the
+# bundle, unusable.
+#
+# Deliberately NOT handled by grepping its output for "ERROR:". That would gate
+# the build on the wording of a tool's log lines, and would fail on exactly the
+# cases prune-broken-plugins.sh is designed to resolve. The state of the BUNDLE
+# is checked instead: every reference must resolve to a file that is present
+# (verify-bundle.sh), and anything unusable is removed first. That holds no
+# matter what macdeployqt prints or returns.
 install(CODE "
     set(_app \"\${CMAKE_INSTALL_PREFIX}/jnext.app\")
-    if(NOT \"${MACDEPLOYQT_EXECUTABLE}\" STREQUAL \"\")
+    if(NOT \"${JNEXT_MACDEPLOYQT}\" STREQUAL \"\")
         message(STATUS \"Deploying dependencies into \${_app}\")
         execute_process(
-            COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" \"\${_app}\" -always-overwrite
-            RESULT_VARIABLE _rc)
+            COMMAND \"${JNEXT_MACDEPLOYQT}\" \"\${_app}\" -always-overwrite
+            RESULT_VARIABLE _rc
+            OUTPUT_VARIABLE _out
+            ERROR_VARIABLE _err)
+        message(STATUS \"\${_out}\${_err}\")
         if(NOT _rc EQUAL 0)
             message(FATAL_ERROR \"macdeployqt failed (exit \${_rc})\")
+        endif()
+        # Re-sign. Every install_name_tool rewrite macdeployqt just performed
+        # INVALIDATES the code signature of the file it touched, and on Apple
+        # Silicon the kernel refuses to map an invalidly-signed page — the app is
+        # killed at launch. This is Qt's own QTBUG-138019; their CMake deploy API
+        # was fixed by always passing -codesign=, which raw macdeployqt does not.
+        # Ad-hoc identity (-) is enough to make the signature VALID, which is what
+        # loading requires; it is not notarisation and does not pretend to be.
+        # Remove plugins macdeployqt copied but could not complete. On a
+        # split Homebrew Qt it cannot resolve some plugins' own frameworks
+        # (QtSvg, QtPdf, QtVirtualKeyboard) and ships them unusable; jnext
+        # needs none of them. Runs BEFORE signing so the signature covers the
+        # final contents.
+        execute_process(
+            COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/prune-broken-plugins.sh\" \"\${_app}\"
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"an essential Qt plugin could not be deployed — see above\")
+        endif()
+
+        message(STATUS \"Ad-hoc signing \${_app}\")
+        execute_process(
+            COMMAND codesign --force --deep --sign - \"\${_app}\"
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"codesign failed (exit \${_rc})\")
         endif()
     else()
         message(WARNING \"macdeployqt not found — the bundle will not be self-contained\")
@@ -427,5 +475,12 @@ set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
 set(CPACK_BUNDLE_NAME "jnext")
 set(CPACK_BUNDLE_ICON "${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns")
 set(CPACK_DMG_VOLUME_NAME "jnext")
+# Do NOT embed the licence as a click-through Software License Agreement.
+# CPack turns CPACK_RESOURCE_FILE_LICENSE into one for the DragNDrop generator,
+# and an SLA makes the image un-mountable without a human: `hdiutil attach`
+# answers "attach canceled" and mounts nothing (run 29854836676), which broke
+# our own verification. It is also a poor first impression for a GPL app — the
+# full LICENSE ships inside the .dmg where anyone can read it.
+set(CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE OFF)
 
 include(CPack)

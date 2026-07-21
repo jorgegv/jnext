@@ -47,6 +47,16 @@ case "$1" in
     [ -f "$f.id" ] && cat "$f.id"
     exit 0
     ;;
+-l)
+    # Only the LC_RPATH load commands matter here; mimic otool's layout.
+    if [ -f "$f.rpaths" ]; then
+        while IFS= read -r rp; do
+            printf '          cmd LC_RPATH\n'
+            printf '         path %s (offset 12)\n' "$rp"
+        done < "$f.rpaths"
+    fi
+    exit 0
+    ;;
 *)
     while IFS= read -r line; do
         printf '\t%s (compatibility version 1.0.0, current version 1.0.0)\n' "$line"
@@ -65,7 +75,19 @@ else
 fi
 STUB
 
-chmod +x "$WORK/bin/otool" "$WORK/bin/file"
+cat >"$WORK/bin/codesign" <<'STUB'
+#!/usr/bin/env bash
+# codesign --verify --deep --strict <app>: fails iff the app carries the marker
+# file this test uses to model an invalidated signature.
+app=${*: -1}
+if [ -e "$app/.bad-signature" ]; then
+    echo "$app: code object is not signed at all" >&2
+    exit 1
+fi
+exit 0
+STUB
+
+chmod +x "$WORK/bin/otool" "$WORK/bin/file" "$WORK/bin/codesign"
 export PATH="$WORK/bin:$PATH"
 
 # --- helpers -----------------------------------------------------------------
@@ -80,6 +102,9 @@ macho() {
 # install_id <app> <relative-path> <id>   — give a file an LC_ID_DYLIB
 install_id() { printf '%s\n' "$3" > "$1/$2.id"; }
 
+# rpaths <app> <relative-path> <rpath>...  — give a file LC_RPATH entries
+rpaths() { local app=$1 rel=$2; shift 2; printf '%s\n' "$@" > "$app/$rel.rpaths"; }
+
 run() { bash "$SCRIPT" "$1" >"$WORK/out.log" 2>&1; echo $?; }
 
 printf "${BOLD}=== verify-bundle.sh contract tests ===${RESET}\n\n"
@@ -91,9 +116,12 @@ macho "$APP" Contents/MacOS/jnext \
     '@rpath/QtCore.framework/Versions/A/QtCore' \
     '/usr/lib/libSystem.B.dylib' \
     '/System/Library/Frameworks/Cocoa.framework/Versions/A/Cocoa'
+rpaths "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks'
 macho "$APP" Contents/Frameworks/libpng16.16.dylib \
     '@executable_path/../Frameworks/libpng16.16.dylib' \
     '/usr/lib/libz.1.dylib'
+macho "$APP" Contents/Frameworks/QtCore.framework/Versions/A/QtCore \
+    '/usr/lib/libSystem.B.dylib'
 rc=$(run "$APP")
 if [ "$rc" -eq 0 ]; then ok VB-01 "deployed bundle accepted"
 else bad VB-01 "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
@@ -187,6 +215,43 @@ macho "$APP" Contents/MacOS/jnext '/opt/homebrew/opt/libpng/lib/libpng16.16.dyli
 rc=$(run "$APP")
 if [ "$rc" -ne 0 ]; then ok VB-10 "executable with no id is still fully checked"
 else bad VB-10 "expected non-zero, got 0 — an absent id excused a real dep"; fi
+
+# --- VB-11: a bundle-relative reference to a MISSING file fails --------------
+# macdeployqt silently drops a framework whose @rpath it cannot resolve, leaving
+# the reference behind (observed: "Cannot resolve rpath @rpath/QtSvg..." while
+# exiting 0). Checking only that the STRING looks bundle-relative would accept
+# that and ship a .dmg that dies at launch — the GH #46 symptom one layer down.
+APP=$WORK/dangling.app
+macho "$APP" Contents/MacOS/jnext '@rpath/QtSvg.framework/Versions/A/QtSvg'
+rpaths "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks'
+mkdir -p "$APP/Contents/Frameworks"      # ...but QtSvg was never copied into it
+rc=$(run "$APP")
+if [ "$rc" -ne 0 ] && grep -q 'MISSING' "$WORK/out.log"; then
+    ok VB-11 "unresolved @rpath reference rejected"
+else bad VB-11 "expected non-zero naming it MISSING, got $rc: $(cat "$WORK/out.log")"; fi
+
+# --- VB-12: an invalid code signature fails ----------------------------------
+# Every install_name_tool rewrite invalidates the signature of the file it
+# edits; on Apple Silicon the kernel then kills the app at launch (Qt
+# QTBUG-138019). No other check here can see it: `--version` returns before Qt
+# loads the Cocoa plugin, so the rewritten plugins are never touched.
+APP=$WORK/badsig.app
+macho "$APP" Contents/MacOS/jnext '/usr/lib/libSystem.B.dylib'
+touch "$APP/.bad-signature"
+rc=$(run "$APP")
+if [ "$rc" -ne 0 ] && grep -qi 'signature' "$WORK/out.log"; then
+    ok VB-12 "invalid code signature rejected"
+else bad VB-12 "expected non-zero mentioning the signature, got $rc: $(cat "$WORK/out.log")"; fi
+
+# --- VB-13: the allow-list anchors are real prefixes, not substrings ---------
+# Deleting the ^ anchors from ALLOWED_RE left all earlier rows green, so nothing
+# pinned them. A Homebrew Cellar path can legitimately contain "/usr/lib/"
+# mid-path, and unanchored matching would wave it straight through.
+APP=$WORK/substring.app
+macho "$APP" Contents/MacOS/jnext '/opt/homebrew/Cellar/foo/1.0/usr/lib/libfoo.dylib'
+rc=$(run "$APP")
+if [ "$rc" -ne 0 ]; then ok VB-13 "path merely containing /usr/lib/ rejected"
+else bad VB-13 "expected non-zero, got 0 — allow-list matched a substring"; fi
 
 # --- VB-07: wrong usage exits 2 ----------------------------------------------
 bash "$SCRIPT" >/dev/null 2>&1; rc=$?

@@ -692,6 +692,17 @@ package-macos:
 # checks what actually shipped, read out of the disk image the user downloads —
 # the artifact GH #46 was reported against. Cheap, and the only end-to-end
 # statement we can make without a second Mac.
+#
+# `yes |` is load-bearing: CPACK_RESOURCE_FILE_LICENSE makes CPack embed a
+# Software License Agreement in the .dmg, and hdiutil will not accept one
+# non-interactively — it answers "hdiutil: attach canceled" and mounts nothing
+# (run 29854836676). CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE is also turned OFF
+# so users are not prompted either; this keeps the check working regardless.
+#
+# NOTE what this canNOT prove: the launch below runs on the machine that built
+# the package, where Homebrew is present, so a missing library would still be
+# found. Its value is proving the bundle is signed, mountable and launchable at
+# all. Self-containment is proven structurally by verify-bundle.sh, not here.
 verify-macos-dmg:
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) verifying a .dmg requires a Mac (hdiutil/otool).\n"; \
@@ -701,7 +712,7 @@ verify-macos-dmg:
 	if [ -z "$$dmg" ]; then echo "error: no .dmg in build/package-macos" >&2; exit 1; fi; \
 	mnt=$$(mktemp -d); \
 	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true' EXIT; \
-	hdiutil attach "$$dmg" -nobrowse -readonly -mountpoint "$$mnt" >/dev/null; \
+	yes | hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
 	bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" && \
 	"$$mnt/jnext.app/Contents/MacOS/jnext" --version && \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"

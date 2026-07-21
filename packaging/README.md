@@ -256,6 +256,29 @@ mounted**, which also launches the bundled binary. A failure fails the job, so
 no `.dmg` is uploaded and the release simply carries no macOS package — the
 right outcome when the alternative is one that aborts at launch.
 
+Two more steps sit between deployment and verification, both learned from real
+CI runs rather than guessed:
+
+- **`prune-broken-plugins.sh`** removes Qt plugins that cannot load. macdeployqt
+  deploys every plugin of the modules it finds, and on Homebrew's *split* Qt
+  (separate `qtbase`/`qtsvg`/`qtdeclarative` prefixes) it cannot always resolve
+  those plugins' own frameworks — it logs `Cannot resolve rpath
+  "@rpath/QtSvg.framework/..."` and **exits 0 anyway**, leaving the plugin in the
+  bundle with its framework absent. jnext needs none of them, and a plugin that
+  cannot load is strictly worse than an absent one. The rule is generic (remove
+  anything with an unresolvable reference) so it survives Qt reshuffling its
+  modules; `platforms/libqcocoa.dylib` is exempt and **fails the build** instead
+  — an .app with no platform plugin has no GUI at all.
+- **Ad-hoc code signing.** Every `install_name_tool` rewrite macdeployqt performs
+  invalidates the signature of the file it edits, and on Apple Silicon the kernel
+  refuses to map invalidly-signed pages, killing the app at launch. This is Qt's
+  own [QTBUG-138019](https://bugreports.qt.io/browse/QTBUG-138019); their CMake
+  deploy API was fixed by always passing `-codesign=`, which raw macdeployqt does
+  not. `verify-bundle.sh` then re-checks the signature with
+  `codesign --verify --deep --strict`, because nothing else can see this: a
+  `--version` launch returns before Qt loads its Cocoa plugin, so the rewritten
+  plugins are never exercised until a user double-clicks.
+
 A copied library's own install name (`LC_ID_DYLIB`, read with `otool -D`) is
 reported but does **not** fail the build: macdeployqt leaves some frameworks
 with their original absolute id, and dyld resolves every load from the
