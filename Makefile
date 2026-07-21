@@ -1,5 +1,5 @@
 # Build directories — ONE scheme: build/<variant>-<config>, everything under build/.
-# variant = frontend or target platform (sdl / gui / win / mac / rpm / deb),
+# variant = frontend or target platform (sdl / gui / win / mac / rpm / deb / flatpak),
 # config  = debug or release. build/ itself is the canonical dev tree (./build/jnext
 # + the test binaries); `make unit-test-clean` removes it and everything below it.
 BUILD_DIR_SDL_DEBUG   := build/sdl-debug
@@ -10,6 +10,7 @@ BUILD_DIR_WIN_RELEASE := build/win-release
 BUILD_DIR_MAC_RELEASE := build/mac-release
 BUILD_DIR_RPM_RELEASE := build/rpm-release
 BUILD_DIR_DEB_RELEASE := build/deb-release
+BUILD_DIR_FPK_RELEASE := build/flatpak-release
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 CC                := /usr/bin/gcc
@@ -653,13 +654,13 @@ package-flatpak:
 	 fi
 	@# Build into a local repo, then export a single-file .flatpak bundle so
 	@# this target yields a shippable artifact like package-rpm/deb/win do.
-	rm -rf build/flatpak build/flatpak-repo
-	flatpak-builder --force-clean --user --repo=build/flatpak-repo build/flatpak \
+	rm -rf $(BUILD_DIR_FPK_RELEASE) $(BUILD_DIR_FPK_RELEASE)-repo
+	flatpak-builder --force-clean --user --repo=$(BUILD_DIR_FPK_RELEASE)-repo $(BUILD_DIR_FPK_RELEASE) \
 		packaging/flatpak/io.github.zxjogv.jnext.yml
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 bundle="build/jnext-$$ver-x86_64.flatpak"; \
 	 rm -f "$$bundle"; \
-	 flatpak build-bundle build/flatpak-repo "$$bundle" io.github.zxjogv.jnext; \
+	 flatpak build-bundle $(BUILD_DIR_FPK_RELEASE)-repo "$$bundle" io.github.zxjogv.jnext; \
 	 printf "$(BOLD)Flatpak bundle produced:$(RESET)\n"; ls -1 "$$bundle"
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
