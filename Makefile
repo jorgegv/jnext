@@ -588,6 +588,11 @@ publish-release:
 # win/macos/flatpak guard-and-exit when their tooling/platform is absent.
 # ---------------------------------------------------------------------------
 
+# Wall-clock bound for every macOS packaging phase, so a hang fails fast and
+# names the phase instead of blocking a CI job silently (runs 29857249811 /
+# 29860430214 each had to be cancelled by hand after 16-21 minutes of no output).
+MACOS_BOUND := bash packaging/macos/run-bounded.sh
+
 PKG_BUILD_RPM := build/package-rpm
 PKG_BUILD_DEB := build/package-deb
 PKG_BUILD_WIN := build/gui-release-win
@@ -677,11 +682,13 @@ package-macos:
 		printf "  It cannot be produced on this $$(uname -s) host.\n"; \
 		exit 0; \
 	fi; \
-	$(CMAKE) -B build/package-macos -S . \
+	$(MACOS_BOUND) 300 "cmake configure (package-macos)" \
+		$(CMAKE) -B build/package-macos -S . \
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
 		-DMACOS_APP_BUNDLE=ON && \
-	$(CMAKE) --build build/package-macos -j$(JOBS) && \
-	( cd build/package-macos && cpack -G DragNDrop ) && \
+	$(MACOS_BOUND) 2400 "cmake build (package-macos)" \
+		$(CMAKE) --build build/package-macos -j$(JOBS) && \
+	( cd build/package-macos && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg
 
 # Prove the produced .dmg is self-contained: mount it, walk the .app inside it
@@ -708,13 +715,19 @@ verify-macos-dmg:
 		printf "$(BADGE_SKIP) SKIP $(RESET) verifying a .dmg requires a Mac (hdiutil/otool).\n"; \
 		exit 0; \
 	fi; \
+	set -e; \
 	dmg=$$(ls -1 build/package-macos/*.dmg 2>/dev/null | head -1); \
 	if [ -z "$$dmg" ]; then echo "error: no .dmg in build/package-macos" >&2; exit 1; fi; \
-	mnt=$$(mktemp -d); \
-	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true' EXIT; \
-	yes | hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
-	bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" && \
-	"$$mnt/jnext.app/Contents/MacOS/jnext" --version && \
+	mnt=$$(mktemp -d); off=$$(mktemp -d); \
+	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true; rm -rf "$$off"' EXIT; \
+	yes | $(MACOS_BOUND) 120 "hdiutil attach" \
+		hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
+	$(MACOS_BOUND) 300 "verify-bundle (mounted dmg)" \
+		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
+	ditto "$$mnt/jnext.app" "$$off/jnext.app"; \
+	xattr -cr "$$off/jnext.app" 2>/dev/null || true; \
+	DYLD_PRINT_LIBRARIES=1 $(MACOS_BOUND) 90 "launch shipped jnext.app --version" \
+		"$$off/jnext.app/Contents/MacOS/jnext" --version </dev/null; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded

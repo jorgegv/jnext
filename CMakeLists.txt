@@ -350,12 +350,13 @@ install(CODE "
         message(STATUS \"Deploying dependencies into \${_app}\")
         execute_process(
             COMMAND \"${JNEXT_MACDEPLOYQT}\" \"\${_app}\" -always-overwrite
+            TIMEOUT 900
             RESULT_VARIABLE _rc
             OUTPUT_VARIABLE _out
             ERROR_VARIABLE _err)
         message(STATUS \"\${_out}\${_err}\")
         if(NOT _rc EQUAL 0)
-            message(FATAL_ERROR \"macdeployqt failed (exit \${_rc})\")
+            message(FATAL_ERROR \"macdeployqt failed or timed out (result: \${_rc})\")
         endif()
         # Re-sign. Every install_name_tool rewrite macdeployqt just performed
         # INVALIDATES the code signature of the file it touched, and on Apple
@@ -371,9 +372,10 @@ install(CODE "
         # final contents.
         execute_process(
             COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/prune-broken-plugins.sh\" \"\${_app}\"
+            TIMEOUT 300
             RESULT_VARIABLE _rc)
         if(NOT _rc EQUAL 0)
-            message(FATAL_ERROR \"an essential Qt plugin could not be deployed — see above\")
+            message(FATAL_ERROR \"prune-broken-plugins failed or timed out (result: \${_rc}) — see above\")
         endif()
 
         # Copy in anything the bundle references but does not contain.
@@ -382,27 +384,30 @@ install(CODE "
         # to complete) and before signing (the signature must cover the result).
         execute_process(
             COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/complete-closure.sh\" \"\${_app}\"
+            TIMEOUT 300
             RESULT_VARIABLE _rc)
         if(NOT _rc EQUAL 0)
-            message(FATAL_ERROR \"could not complete the bundle's library closure\")
+            message(FATAL_ERROR \"complete-closure failed or timed out (result: \${_rc})\")
         endif()
 
         message(STATUS \"Ad-hoc signing \${_app}\")
         execute_process(
             COMMAND codesign --force --deep --sign - \"\${_app}\"
+            TIMEOUT 600
             RESULT_VARIABLE _rc)
         if(NOT _rc EQUAL 0)
-            message(FATAL_ERROR \"codesign failed (exit \${_rc})\")
+            message(FATAL_ERROR \"codesign failed or timed out (result: \${_rc})\")
         endif()
     else()
         message(WARNING \"macdeployqt not found — the bundle will not be self-contained\")
     endif()
     execute_process(
         COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/verify-bundle.sh\" \"\${_app}\"
+        TIMEOUT 300
         RESULT_VARIABLE _rc)
     if(NOT _rc EQUAL 0)
         message(FATAL_ERROR
-            \"jnext.app is not self-contained (GH #46) — see the report above. \"
+            \"jnext.app is not self-contained, or the check timed out (result: \${_rc}) — see above. \"
             \"A macOS package build needs -DENABLE_QT_UI=ON and macdeployqt on PATH.\")
     endif()
 ")

@@ -241,6 +241,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     continue-on-error: true
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
@@ -285,6 +286,7 @@ jobs:
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in
       # dyld on every Mac but the builder's).
       - name: Package and verify (make package-macos)
+        timeout-minutes: 30
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
       - uses: actions/upload-artifact@v4
         with:
