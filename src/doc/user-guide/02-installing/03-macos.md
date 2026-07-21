@@ -10,9 +10,10 @@
 
 Download `jnext-*-Darwin.dmg`, open it, and drag **jnext** to Applications.
 
-The first time you open it, macOS refuses to launch it and says something like
-*"jnext" cannot be opened because Apple cannot check it for malicious
-software*. That is expected, and the next section explains why. Allowing it
+The first time you open it, macOS refuses to launch it and shows a dialog
+reading *Apple could not verify "jnext" is free of malware that may harm your
+Mac or compromise your privacy* (the exact wording varies between macOS
+releases). That is expected, and the next section explains why. Allowing it
 takes one of the three routes below; you only do it once.
 
 ## Why the warning appears
@@ -55,8 +56,10 @@ This is the route that works on current macOS.
 
 From then on it opens by double-click like any other app.
 
-If you remember the older Control-click → **Open** trick, it no longer covers
-this case on macOS 15 and later. Use the steps above instead.
+If you remember the older Control-click → **Open** trick, do not go hunting for
+it: on macOS 15 and later the dialog above has **no Open button on it at all**,
+which is precisely why that route cannot work here. Use the steps above
+instead.
 
 ## Route 2 — clear the quarantine flag from a terminal
 

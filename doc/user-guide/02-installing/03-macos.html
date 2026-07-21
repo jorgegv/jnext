@@ -2908,9 +2908,10 @@
 -->
 <h1 id="macos">macOS<a class="headerlink" href="#macos" title="Permanent link">&para;</a></h1>
 <p>Download <code>jnext-*-Darwin.dmg</code>, open it, and drag <strong>jnext</strong> to Applications.</p>
-<p>The first time you open it, macOS refuses to launch it and says something like
-<em>"jnext" cannot be opened because Apple cannot check it for malicious
-software</em>. That is expected, and the next section explains why. Allowing it
+<p>The first time you open it, macOS refuses to launch it and shows a dialog
+reading <em>Apple could not verify "jnext" is free of malware that may harm your
+Mac or compromise your privacy</em> (the exact wording varies between macOS
+releases). That is expected, and the next section explains why. Allowing it
 takes one of the three routes below; you only do it once.</p>
 <h2 id="why-the-warning-appears">Why the warning appears<a class="headerlink" href="#why-the-warning-appears" title="Permanent link">&para;</a></h2>
 <p>JNEXT is not notarised, and that is a deliberate choice. Notarisation is
@@ -2943,8 +2944,10 @@ is the question that matters to you, route 3 answers it properly.</p>
 <li>Open jnext again. A last dialog asks once more; choose <strong>Open Anyway</strong>.</li>
 </ol>
 <p>From then on it opens by double-click like any other app.</p>
-<p>If you remember the older Control-click → <strong>Open</strong> trick, it no longer covers
-this case on macOS 15 and later. Use the steps above instead.</p>
+<p>If you remember the older Control-click → <strong>Open</strong> trick, do not go hunting for
+it: on macOS 15 and later the dialog above has <strong>no Open button on it at all</strong>,
+which is precisely why that route cannot work here. Use the steps above
+instead.</p>
 <h2 id="route-2-clear-the-quarantine-flag-from-a-terminal">Route 2 — clear the quarantine flag from a terminal<a class="headerlink" href="#route-2-clear-the-quarantine-flag-from-a-terminal" title="Permanent link">&para;</a></h2>
 <pre><code class="language-sh">xattr -dr com.apple.quarantine /Applications/jnext.app
 </code></pre>
