@@ -29,19 +29,17 @@ jobs:
       - name: Install dependencies (Homebrew)
         run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
 
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
-
-      - name: Build
-        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+      # The project's own target, same as a local Mac build (CLAUDE.md: CI runs
+      # the EXACT same commands as a local run). CMAKE_PREFIX_PATH goes through
+      # the environment, which CMake reads natively — no CI-only configure line.
+      - name: make gui-release
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make gui-release
 
       # A plain build stays a plain executable — the jnext.app bundle is a
       # packaging-only shape (-DMACOS_APP_BUNDLE=ON, set by make package-macos),
       # so that build/<dir>/jnext keeps working for developers and harnesses.
       - name: Smoke test (--version)
-        run: ./build/jnext --version
+        run: ./build/gui-release/jnext --version
 
       # The project's own target, exactly as a Mac user would run it. It
       # configures, builds, packages, then mounts the .dmg and asserts with
@@ -56,5 +54,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jnext-macos-package
-          path: build/package-macos/*.dmg
+          path: build/mac-release/*.dmg
           if-no-files-found: error
