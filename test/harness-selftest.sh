@@ -247,7 +247,7 @@ check "HS-19" "a manifest with NO suite-count pin is rejected (guard must not be
     "REFUSES TO RUN" "expect: N"
 
 # ------------------------------------------- nested build trees must NOT be swallowed
-# build/debug and build/gui-debug live INSIDE build/ and configure with ENABLE_TESTS=ON.
+# build/sdl-debug and build/gui-debug live INSIDE build/ and configure with ENABLE_TESTS=ON.
 # An unscoped find swallowed their CTestTestfile.cmake, saw every binary twice, and
 # refused to run with a FALSE "registered twice" diagnosis after a plain `make gui-debug`.
 # A directory with its own CMakeCache.txt is an independent build root.
