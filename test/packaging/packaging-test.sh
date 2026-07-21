@@ -46,6 +46,30 @@ else
     bad add-release "contract test failed (see $LOGDIR/addrel.log)"
 fi
 
+# --- verify-bundle.sh contract (macOS self-containment gate, GH #46) ---------
+# Runs everywhere: the gate's decision logic is tested against stubbed
+# otool/file, so the Linux dev host covers it even though the .dmg itself
+# cannot be built here.
+if bash test/packaging/verify-bundle-test.sh >"$LOGDIR/verifybundle.log" 2>&1; then
+    ok verify-bundle "rejects Homebrew/absolute deps, nested files, empty bundles"
+else
+    bad verify-bundle "contract test failed (see $LOGDIR/verifybundle.log)"
+fi
+
+# --- prune-broken-plugins.sh contract (deletes files — both directions pinned)
+if bash test/packaging/prune-plugins-test.sh >"$LOGDIR/pruneplugins.log" 2>&1; then
+    ok prune-plugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
+else
+    bad prune-plugins "contract test failed (see $LOGDIR/pruneplugins.log)"
+fi
+
+# --- complete-closure.sh contract (adds files to the shipped bundle) ---------
+if bash test/packaging/complete-closure-test.sh >"$LOGDIR/closure.log" 2>&1; then
+    ok complete-closure "copies missing libs transitively, no-ops when complete"
+else
+    bad complete-closure "contract test failed (see $LOGDIR/closure.log)"
+fi
+
 # --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)

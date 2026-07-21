@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+#
+# macho-refs.sh — sourceable helpers for reading Mach-O references in a bundle.
+#
+# Shared by verify-bundle.sh (which only ever REPORTS) and prune-broken-plugins.sh
+# (which MUTATES). They must agree exactly on what "this reference resolves"
+# means: if the pruner and the checker ever disagreed, the pruner could delete a
+# plugin the checker was happy with, or leave one the checker then fails on —
+# and the build would be unfixable without reading both scripts. One definition,
+# two callers.
+#
+# Callers must set APP to the bundle root before calling these.
+#
+
+# macho_files <app> — every Mach-O file in the bundle, one per line.
+# Not just the main executable: a bundled dylib or a Qt plugin carries its own
+# references, and dyld fails on those exactly as hard.
+# PERFORMANCE: ONE `file` process for the whole bundle instead of three
+# (sh + file + grep) per candidate. A Qt bundle holds thousands of files, and
+# the per-file form made `make package-macos` take 16+ minutes instead of ~3
+# (run 29857249811, cancelled).
+#
+# Note `file` is deliberately called WITHOUT -b: it then prints "<path>: <desc>"
+# so each verdict carries its own filename, and no separate list has to be
+# re-paired with it. (Pairing two `find` runs with paste was the first attempt;
+# it is fragile and it silently produced an empty file list.)
+macho_files() {
+    find "$1" -type f -perm -u+r -exec file {} + 2>/dev/null |
+        awk -F': ' '/Mach-O/ {print $1}'
+}
+
+# macho_deps <file> — the LC_LOAD_DYLIB paths of a Mach-O.
+#
+# Keep only tab-indented lines. `tail -n +2` is WRONG for a universal binary:
+# otool re-prints a "<path> (architecture x):" header per slice, and those
+# headers would be read as dependencies. Real dependency lines start with a tab.
+macho_deps() {
+    otool -L "$1" | awk '/^\t/ {print $1}'
+}
+
+# macho_id <file> — the LC_ID_DYLIB (install name), empty for an executable.
+#
+# It must be read separately: in `otool -L` output the id is line 2 and looks
+# exactly like a dependency, but for an EXECUTABLE line 2 is a real dependency.
+# Treating line 2 as the id would stop checking the main binary entirely — which
+# is where the GH #46 bug actually lived.
+#
+# `|| true` under set -e/pipefail: a file otool cannot read yields an empty id,
+# which excuses NOTHING. The failure direction is toward checking more.
+macho_id() {
+    otool -D "$1" 2>/dev/null | tail -n +2 | head -1 || true
+}
+
+# resolve_ref <ref> <referring-file> <rpath-list> — echo the real path a
+# bundle-relative reference names, or empty if it does not resolve.
+#
+# <rpath-list> is the newline-separated dyld search list, computed ONCE PER FILE
+# by the caller (see search_rpaths). It is a parameter rather than something
+# this function looks up because resolve_ref is called once per DEPENDENCY, and
+# a Qt bundle has tens per file: reading the rpaths here cost thousands of otool
+# processes and a 16-minute package step. Memoising inside the function does not
+# work either — callers invoke it through $(...), and a subshell throws the
+# cache away every time (run 29859539303 was still slow for exactly that
+# reason).
+#
+# A bundle-relative STRING proves nothing on its own: macdeployqt drops a
+# framework it cannot resolve from its copy worklist while leaving the reference
+# in place, so "@rpath/QtSvg.framework/..." can name a file that was never
+# copied. dyld fails on that at launch just as hard as on an absolute
+# /opt/homebrew path — the GH #46 symptom, one layer removed.
+resolve_ref() {
+    local ref=$1 macho=$2 rplist=$3 loader_dir exe_dir cand rp
+    loader_dir=$(dirname "$macho")
+    exe_dir="$APP/Contents/MacOS"
+
+    case "$ref" in
+        @executable_path/*) echo "${exe_dir}/${ref#@executable_path/}"; return 0 ;;
+        @loader_path/*)     echo "${loader_dir}/${ref#@loader_path/}";  return 0 ;;
+        @rpath/*)
+            local suffix=${ref#@rpath/}
+            while IFS= read -r rp; do
+                [ -n "$rp" ] || continue
+                case "$rp" in
+                    @executable_path/*) rp="${exe_dir}/${rp#@executable_path/}" ;;
+                    @loader_path/*)     rp="${loader_dir}/${rp#@loader_path/}" ;;
+                esac
+                cand="$rp/$suffix"
+                if [ -e "$cand" ]; then echo "$cand"; return 0; fi
+            done <<< "$rplist"
+            echo ""
+            return 0
+            ;;
+    esac
+    echo ""
+}
+
+# macho_rpaths <file> — the LC_RPATH entries of a Mach-O, one per line.
+macho_rpaths() {
+    [ -e "$1" ] || return 0
+    otool -l "$1" 2>/dev/null | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}'
+}
+
+# search_rpaths <file> — the full dyld @rpath search list for <file>.
+#
+# dyld builds it from the LC_RPATH commands of the WHOLE load chain — the main
+# executable as well as the dylib doing the loading — so a bundled dylib with no
+# LC_RPATH of its own still resolves @rpath through the executable's. Checking
+# only the referring file's own rpaths reported libwebpmux ->
+# @rpath/libwebp.7.dylib as MISSING on run 29856062806 while libwebp.7.dylib was
+# sitting in Contents/Frameworks the whole time.
+#
+# Call this ONCE PER FILE, not once per reference.
+search_rpaths() {
+    macho_rpaths "$1"
+    macho_rpaths "$APP/Contents/MacOS/jnext"
+}
+
+# ref_is_broken <ref> <referring-file> <rpath-list> — true when a bundle-relative
+# reference names a file that is not in the bundle. Absolute paths are not this
+# function's business (verify-bundle.sh judges those against its allow-list).
+ref_is_broken() {
+    local ref=$1 macho=$2 rplist=$3 target
+    case "$ref" in
+        @*) ;;
+        *)  return 1 ;;
+    esac
+    target=$(resolve_ref "$ref" "$macho" "$rplist")
+    [ -z "$target" ] || [ ! -e "$target" ]
+}

@@ -66,7 +66,7 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make gui-release-win` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/gui-release-win/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/gui-release-win/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
-| `make package-macos`   | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
+| `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
 `make package-test` (`test/packaging/packaging-test.sh`) runs every package
 target above except macOS and asserts each produces a correctly-named artifact
@@ -235,9 +235,62 @@ container and the produced `jnext.exe` runs under wine; only a real GitHub
 Actions run remains unexercised.
 
 **macOS** has no build host in this environment — the `macos` job builds it
-natively on `macos-latest` (Homebrew + CPack's `DragNDrop` generator), but is
-**unverified** until it's actually run on GitHub Actions (it is
-`continue-on-error`, so a macOS failure never blocks a Linux+Windows release).
+natively on `macos-latest` through the project's own `make package-macos`
+target, so CI runs the same recipe a Mac developer would.
+
+The package is a **relocatable `jnext.app`** at the root of the `.dmg`. It has
+to be: until v0.98.72 the `.dmg` held a bare executable under `usr/bin`, still
+carrying the absolute `/opt/homebrew/...` install names it linked against, and
+it aborted in dyld on the first Mac that was not the build machine
+([GH #46](https://github.com/jorgegv/jnext/issues/46)). `macdeployqt` now copies
+the Qt frameworks, the Cocoa platform plugin and the non-Qt Homebrew dylibs into
+`Contents/Frameworks` and rewrites the install names to `@executable_path`.
+
+**That deployment is not trusted — it is checked.**
+`packaging/macos/verify-bundle.sh` walks every Mach-O in the bundle with
+`otool -L` and fails if anything it **loads** points outside the bundle
+(`/opt/homebrew`, `/usr/local`, `/opt/local`, any other absolute path that is
+not `/usr/lib` or `/System`). It runs twice: at install/staging time from
+`CMakeLists.txt`, and again by `make verify-macos-dmg` against the `.dmg` **as
+mounted**, which also launches the bundled binary. A failure fails the job, so
+no `.dmg` is uploaded and the release simply carries no macOS package — the
+right outcome when the alternative is one that aborts at launch.
+
+Two more steps sit between deployment and verification, both learned from real
+CI runs rather than guessed:
+
+- **`prune-broken-plugins.sh`** removes Qt plugins that cannot load. macdeployqt
+  deploys every plugin of the modules it finds, and on Homebrew's *split* Qt
+  (separate `qtbase`/`qtsvg`/`qtdeclarative` prefixes) it cannot always resolve
+  those plugins' own frameworks — it logs `Cannot resolve rpath
+  "@rpath/QtSvg.framework/..."` and **exits 0 anyway**, leaving the plugin in the
+  bundle with its framework absent. jnext needs none of them, and a plugin that
+  cannot load is strictly worse than an absent one. The rule is generic (remove
+  anything with an unresolvable reference) so it survives Qt reshuffling its
+  modules; `platforms/libqcocoa.dylib` is exempt and **fails the build** instead
+  — an .app with no platform plugin has no GUI at all.
+- **Ad-hoc code signing.** Every `install_name_tool` rewrite macdeployqt performs
+  invalidates the signature of the file it edits, and on Apple Silicon the kernel
+  refuses to map invalidly-signed pages, killing the app at launch. This is Qt's
+  own [QTBUG-138019](https://bugreports.qt.io/browse/QTBUG-138019); their CMake
+  deploy API was fixed by always passing `-codesign=`, which raw macdeployqt does
+  not. `verify-bundle.sh` then re-checks the signature with
+  `codesign --verify --deep --strict`, because nothing else can see this: a
+  `--version` launch returns before Qt loads its Cocoa plugin, so the rewritten
+  plugins are never exercised until a user double-clicks.
+
+A copied library's own install name (`LC_ID_DYLIB`, read with `otool -D`) is
+reported but does **not** fail the build: macdeployqt leaves some frameworks
+with their original absolute id, and dyld resolves every load from the
+*referring* binary's `LC_LOAD_DYLIB`, never from the loaded file's id — so it
+cannot break the shipped app. Note the id is indistinguishable from a
+dependency in `otool -L` output, and for an *executable* the corresponding line
+is a genuine dependency; reading it from `otool -D` instead is what keeps the
+main binary — the one that carried this bug — fully checked.
+
+The gate's own decision logic is tested on Linux against stubbed `otool`/`file`
+(`test/packaging/verify-bundle-test.sh`, run by `make package-test`), because
+the thing it guards cannot be built here.
 
 ## CI: `.github/workflows/release.yml`
 
@@ -253,7 +306,7 @@ policy. The per-OS build jobs, when they run:
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
-| `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally (`continue-on-error`) |
+| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/package-macos/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
 `release.yml` does not run tests — it builds packages and, for tags listed in

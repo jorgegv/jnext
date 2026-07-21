@@ -241,6 +241,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     continue-on-error: true
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
@@ -268,26 +269,30 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: macos-latest
-    continue-on-error: true   # UNTESTED — never block a Linux+Windows release
+    # Never block a Linux+Windows release. Note this is now fail-SAFE rather
+    # than merely lenient: if the GH #46 bundle verification fails, the job
+    # fails, upload-artifact never runs, and the release simply carries no .dmg
+    # — which is the right outcome, since the alternative is shipping one that
+    # aborts at launch.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install dependencies (Homebrew)
         run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
-      - name: Build
-        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
-      - name: Package (DragNDrop)
-        working-directory: build
-        run: cpack -G DragNDrop
+      # The project's own target, same as a local Mac build: configure, build,
+      # package, then mount the .dmg and assert with otool that nothing inside
+      # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in
+      # dyld on every Mac but the builder's).
+      - name: Package and verify (make package-macos)
+        timeout-minutes: 30
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-macos-package
-          path: build/*.dmg
+          path: build/package-macos/*.dmg
+          if-no-files-found: error
 
   # ---- publish: attach all built packages to a GitHub Release -------------
   # Only for listed tags (publish==true). Waits for the build jobs; macOS is

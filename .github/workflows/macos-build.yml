@@ -17,6 +17,10 @@ on:
 jobs:
   macos-build:
     runs-on: macos-latest
+    # Backstop. The per-phase bound in run-bounded.sh is the loud, specific
+    # mechanism ("which phase"); this is the guarantee ("never again"). Two runs
+    # had to be cancelled by hand after 16-21 minutes of silence.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,18 +37,24 @@ jobs:
       - name: Build
         run: cmake --build build -j"$(sysctl -n hw.ncpu)"
 
+      # A plain build stays a plain executable — the jnext.app bundle is a
+      # packaging-only shape (-DMACOS_APP_BUNDLE=ON, set by make package-macos),
+      # so that build/<dir>/jnext keeps working for developers and harnesses.
       - name: Smoke test (--version)
         run: ./build/jnext --version
 
-      - name: Package (DragNDrop)
+      # The project's own target, exactly as a Mac user would run it. It
+      # configures, builds, packages, then mounts the .dmg and asserts with
+      # otool that nothing inside it points at Homebrew (GH #46).
+      - name: Package and verify (make package-macos)
         if: ${{ inputs.package }}
-        working-directory: build
-        run: cpack -G DragNDrop
+        timeout-minutes: 30
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
 
       - name: Upload package
         if: ${{ inputs.package }}
         uses: actions/upload-artifact@v4
         with:
           name: jnext-macos-package
-          path: build/*.dmg
-          if-no-files-found: warn
+          path: build/package-macos/*.dmg
+          if-no-files-found: error
