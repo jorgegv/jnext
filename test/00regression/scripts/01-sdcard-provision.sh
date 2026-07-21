@@ -55,6 +55,9 @@ mkdir -p "$SD_DIR"
 sd_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 
 sd_rederive() {
+    # The witness rm is belt-and-braces: sd_rederive rewrites it on every
+    # success anyway. It matters only on the FAILURE path, where it stops a
+    # witness describing an image that no longer exists from surviving.
     rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS"
     "$JNEXT" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
