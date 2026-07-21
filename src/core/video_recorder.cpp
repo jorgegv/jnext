@@ -1,12 +1,30 @@
 #include "core/video_recorder.h"
 #include "core/log.h"
+#include "core/win_process.h"
 
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <sstream>
 #include <system_error>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+/// Run a command line built for VideoRecorder::NATIVE_STYLE and return its
+/// exit status (0 == success). POSIX goes through the shell; Windows spawns
+/// the child directly — see src/core/win_process.h for why.
+int run_native(const std::string& cmd)
+{
+#ifdef _WIN32
+    return win_run_hidden(cmd);
+#else
+    return system(cmd.c_str());
+#endif
+}
+
+}  // namespace
 
 VideoRecorder::VideoRecorder() = default;
 
@@ -16,9 +34,106 @@ VideoRecorder::~VideoRecorder()
         stop();
 }
 
+std::string VideoRecorder::quote_arg(const std::string& arg, CmdStyle style)
+{
+    if (style == CmdStyle::Posix) {
+        // Single quotes make every shell metacharacter inert; the only
+        // character that cannot appear inside them is the single quote
+        // itself, which is spliced in as  '\''  (close, escaped quote, open).
+        std::string out = "'";
+        for (char c : arg) {
+            if (c == '\'') out += "'\\''";
+            else           out += c;
+        }
+        out += '\'';
+        return out;
+    }
+
+    // Windows: the MSVCRT argv parser the child uses, not cmd.exe. An
+    // argument with no whitespace and no quote needs no quoting at all; one
+    // that does gets wrapped in double quotes, with every run of backslashes
+    // that precedes a quote (or the closing quote) doubled, and every embedded
+    // quote escaped. Single quotes mean NOTHING here — the shipped code quoted
+    // POSIX-style, so a Windows path was handed to ffmpeg with literal
+    // apostrophes around it (GH #56).
+    if (!arg.empty() &&
+        arg.find_first_of(" \t\n\v\"") == std::string::npos) {
+        return arg;
+    }
+
+    std::string out = "\"";
+    for (size_t i = 0; i < arg.size(); ) {
+        size_t backslashes = 0;
+        while (i < arg.size() && arg[i] == '\\') { ++backslashes; ++i; }
+
+        if (i == arg.size()) {
+            // Trailing backslashes would escape the closing quote: double them.
+            out.append(backslashes * 2, '\\');
+        } else if (arg[i] == '"') {
+            out.append(backslashes * 2 + 1, '\\');
+            out += '"';
+            ++i;
+        } else {
+            out.append(backslashes, '\\');
+            out += arg[i];
+            ++i;
+        }
+    }
+    out += '"';
+    return out;
+}
+
+std::string VideoRecorder::build_probe_command(CmdStyle style)
+{
+    // `>/dev/null 2>&1` is shell syntax, and on Windows /dev/null is just a
+    // path that does not exist — cmd.exe would try to create \dev\null on the
+    // current drive. GH #56 reports the consequence as ffmpeg_available()
+    // always returning false, leaving File > Record MPEG4 Video permanently
+    // greyed out. NOT INDEPENDENTLY CONFIRMED here: the only Windows-ish
+    // runtime on the dev host is wine, whose file layer special-cases
+    // /dev/null, so it cannot answer the question either way. What IS
+    // confirmed is that the POSIX quoting below made the encode itself
+    // impossible regardless of the probe.
+    //
+    // The Windows command carries no redirection at all: there is no shell to
+    // interpret one, and win_run_hidden() points the child's stdio at NUL
+    // through STARTUPINFO instead.
+    if (style == CmdStyle::Posix)
+        return "ffmpeg -version >/dev/null 2>&1";
+    return "ffmpeg -version";
+}
+
+std::string VideoRecorder::build_encode_command(const EncodeSpec& spec, CmdStyle style)
+{
+    std::ostringstream cmd;
+    cmd << "ffmpeg -y"
+        << " -f rawvideo -pixel_format rgb24"
+        << " -video_size " << spec.width << "x" << spec.height
+        << " -framerate " << FRAME_RATE
+        << " -i " << quote_arg(spec.video_input, style);
+
+    const bool have_audio = !spec.audio_input.empty();
+    if (have_audio) {
+        cmd << " -f s16le -ar " << SAMPLE_RATE << " -ac 2"
+            << " -i " << quote_arg(spec.audio_input, style);
+    }
+
+    cmd << " -c:v " << spec.codec << ' ' << spec.codec_opts;
+
+    if (have_audio)
+        cmd << " -c:a aac -b:a 128k -shortest";
+
+    cmd << " -movflags +faststart " << quote_arg(spec.output, style);
+
+    if (style == CmdStyle::Posix)
+        cmd << " >/dev/null 2>&1";
+
+    return cmd.str();
+}
+
 bool VideoRecorder::ffmpeg_available()
 {
-    return system("ffmpeg -version >/dev/null 2>&1") == 0;
+    return run_native(build_probe_command(NATIVE_STYLE)) == 0;
 }
 
 bool VideoRecorder::start(const std::string& output_path)
@@ -114,37 +229,23 @@ bool VideoRecorder::stop()
     Log::emulator()->debug("VideoRecorder: encoding with FFmpeg...");
     int ret = -1;
     for (const auto& enc : encoders) {
-        char cmd[2048];
-        if (have_audio) {
-            snprintf(cmd, sizeof(cmd),
-                "ffmpeg -y "
-                "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i '%s' "
-                "-f s16le -ar %d -ac 2 -i '%s' "
-                "-c:v %s %s "
-                "-c:a aac -b:a 128k "
-                "-shortest -movflags +faststart "
-                "'%s' "
-                ">/dev/null 2>&1",
-                frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
-                SAMPLE_RATE, audio_tmp_.c_str(),
-                enc.codec, enc.extra,
-                output_path_.c_str());
-        } else {
-            snprintf(cmd, sizeof(cmd),
-                "ffmpeg -y "
-                "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i '%s' "
-                "-c:v %s %s "
-                "-movflags +faststart "
-                "'%s' "
-                ">/dev/null 2>&1",
-                frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
-                enc.codec, enc.extra,
-                output_path_.c_str());
-        }
+        EncodeSpec spec;
+        spec.width       = frame_width_;
+        spec.height      = frame_height_;
+        spec.video_input = video_tmp_;
+        spec.audio_input = have_audio ? audio_tmp_ : std::string();
+        spec.output      = output_path_;
+        spec.codec       = enc.codec;
+        spec.codec_opts  = enc.extra;
+
+        // std::string, not a fixed char[2048]: snprintf truncates silently,
+        // and a truncated command is a malformed command. Windows paths plus
+        // quote expansion make that far easier to hit.
+        const std::string cmd = build_encode_command(spec, NATIVE_STYLE);
 
         Log::emulator()->debug("VideoRecorder: trying encoder '{}'", enc.codec);
         Log::emulator()->debug("VideoRecorder: cmd={}", cmd);
-        ret = system(cmd);
+        ret = run_native(cmd);
         if (ret == 0) break;
         Log::emulator()->debug("VideoRecorder: encoder '{}' failed (exit code {})", enc.codec, ret);
     }

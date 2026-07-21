@@ -29,6 +29,52 @@ public:
     /// Check if FFmpeg is available on the system.
     static bool ffmpeg_available();
 
+    /// Command-line dialect the ffmpeg invocation is built for (GH #56).
+    ///
+    /// Posix   — a `/bin/sh` command line handed to system(): arguments are
+    ///           single-quoted, and the child's output is discarded with the
+    ///           shell redirection `>/dev/null 2>&1`.
+    /// Windows — a CreateProcess() command line: arguments follow the MSVCRT
+    ///           argv quoting rules (`"` quoting, backslash doubling), and
+    ///           there is NO redirection suffix — there is no shell to
+    ///           interpret one. win_run_hidden() points the child's stdio at
+    ///           `NUL` through STARTUPINFO instead.
+    ///
+    /// Both dialects are built on every platform so both can be unit-tested
+    /// from either. Only NATIVE_STYLE is ever executed.
+    enum class CmdStyle { Posix, Windows };
+
+    /// The dialect this build actually runs.
+    static constexpr CmdStyle NATIVE_STYLE =
+#ifdef _WIN32
+        CmdStyle::Windows;
+#else
+        CmdStyle::Posix;
+#endif
+
+    /// Quote one command-line argument for `style`, so a path containing
+    /// spaces (`C:\Users\Some Name\...`), quotes or shell metacharacters
+    /// survives intact.
+    static std::string quote_arg(const std::string& arg, CmdStyle style);
+
+    /// Everything build_encode_command() needs. An empty `audio_input` means
+    /// video-only (see the --silent note in stop()).
+    struct EncodeSpec {
+        int         width  = 0;
+        int         height = 0;
+        std::string video_input;
+        std::string audio_input;
+        std::string output;
+        std::string codec;
+        std::string codec_opts;
+    };
+
+    /// The ffmpeg command line stop() runs to mux the recording.
+    static std::string build_encode_command(const EncodeSpec& spec, CmdStyle style);
+
+    /// The ffmpeg command line ffmpeg_available() runs to probe for ffmpeg.
+    static std::string build_probe_command(CmdStyle style);
+
     /// Start recording to `output_path` (e.g. "/tmp/recording.mp4").
     /// Returns true on success.
     bool start(const std::string& output_path);

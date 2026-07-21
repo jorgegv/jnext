@@ -121,6 +121,7 @@ BEGIN {
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
     M["cli_options_test"]              = "CLI options / docs"
+    M["video_recorder_cmd_test"]       = "Video recorder (ffmpeg cmd)"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
     M["nmi_test"]                      = "NMI Source Pipeline"
