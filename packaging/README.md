@@ -248,13 +248,22 @@ the Qt frameworks, the Cocoa platform plugin and the non-Qt Homebrew dylibs into
 
 **That deployment is not trusted — it is checked.**
 `packaging/macos/verify-bundle.sh` walks every Mach-O in the bundle with
-`otool -L` and fails if any dependency points outside it (`/opt/homebrew`,
-`/usr/local`, `/opt/local`, any other absolute path that is not `/usr/lib` or
-`/System`). It runs twice: at install/staging time from `CMakeLists.txt`, and
-again by `make verify-macos-dmg` against the `.dmg` **as mounted**, which also
-launches the bundled binary. A failure fails the job, so no `.dmg` is uploaded
-and the release simply carries no macOS package — the right outcome when the
-alternative is one that aborts at launch.
+`otool -L` and fails if anything it **loads** points outside the bundle
+(`/opt/homebrew`, `/usr/local`, `/opt/local`, any other absolute path that is
+not `/usr/lib` or `/System`). It runs twice: at install/staging time from
+`CMakeLists.txt`, and again by `make verify-macos-dmg` against the `.dmg` **as
+mounted**, which also launches the bundled binary. A failure fails the job, so
+no `.dmg` is uploaded and the release simply carries no macOS package — the
+right outcome when the alternative is one that aborts at launch.
+
+A copied library's own install name (`LC_ID_DYLIB`, read with `otool -D`) is
+reported but does **not** fail the build: macdeployqt leaves some frameworks
+with their original absolute id, and dyld resolves every load from the
+*referring* binary's `LC_LOAD_DYLIB`, never from the loaded file's id — so it
+cannot break the shipped app. Note the id is indistinguishable from a
+dependency in `otool -L` output, and for an *executable* the corresponding line
+is a genuine dependency; reading it from `otool -D` instead is what keeps the
+main binary — the one that carried this bug — fully checked.
 
 The gate's own decision logic is tested on Linux against stubbed `otool`/`file`
 (`test/packaging/verify-bundle-test.sh`, run by `make package-test`), because

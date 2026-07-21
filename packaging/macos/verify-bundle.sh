@@ -38,6 +38,7 @@ command -v otool >/dev/null 2>&1 || { echo "error: otool not found (Xcode comman
 ALLOWED_RE='^(@executable_path|@loader_path|@rpath)/|^/usr/lib/|^/System/'
 
 violations=0
+stale_ids=0
 checked=0
 
 # Every Mach-O in the bundle, not just the main executable: a bundled dylib or
@@ -46,22 +47,47 @@ checked=0
 while IFS= read -r macho; do
     checked=$((checked + 1))
 
+    # A dylib's LC_ID_DYLIB (its install NAME) appears in `otool -L` output as
+    # line 2, indistinguishable from a dependency — and macdeployqt leaves some
+    # copied frameworks with their original absolute id (observed on
+    # macos-latest, run 29852867578: 6 of 60 files). That is NOT a loading
+    # failure: dyld resolves each load from the REFERRING binary's
+    # LC_LOAD_DYLIB, never from the loaded file's own id. So the id is read
+    # separately with `otool -D` and reported rather than failed on — otherwise
+    # the gate blocks on something that cannot break the shipped app, and a
+    # gate that cries wolf gets switched off. Executables have no id and
+    # `otool -D` prints only the header line for them.
+    # `|| true` under `set -e`/pipefail: a file otool -D cannot read yields an
+    # empty id, which excuses NOTHING — the failure direction is toward
+    # checking more, never less.
+    own_id=$(otool -D "$macho" 2>/dev/null | tail -n +2 | head -1 || true)
+
     # otool -L prints the file name on line 1, then one dependency per line as
     # "\t<path> (compatibility version ...)". Drop line 1, keep the path field.
     while IFS= read -r dep; do
         [ -n "$dep" ] || continue          # otool emits blank lines
-        # A dylib's own install-name (id) is line 2 for a library; it is
-        # harmless when bundle-relative and caught by the same rule when not.
-        if [[ ! "$dep" =~ $ALLOWED_RE ]]; then
-            if [ "$violations" -eq 0 ]; then
-                echo "FAIL: jnext.app is not self-contained — these references" >&2
-                echo "      point outside the bundle and will abort in dyld on a" >&2
-                echo "      machine that does not have them (GH #46):" >&2
-                echo >&2
+        [[ "$dep" =~ $ALLOWED_RE ]] && continue
+
+        if [ -n "$own_id" ] && [ "$dep" = "$own_id" ]; then
+            # The file's own install name, not something it loads.
+            if [ "$stale_ids" -eq 0 ]; then
+                echo "note: these bundled files kept their original install name" >&2
+                echo "      (LC_ID_DYLIB). Cosmetic — dyld loads them via the" >&2
+                echo "      referring binary's path, which is checked below:" >&2
             fi
-            printf '  %s\n      -> %s\n' "${macho#"$APP"/}" "$dep" >&2
-            violations=$((violations + 1))
+            printf '  %s\n      id -> %s\n' "${macho#"$APP"/}" "$dep" >&2
+            stale_ids=$((stale_ids + 1))
+            continue
         fi
+
+        if [ "$violations" -eq 0 ]; then
+            echo "FAIL: jnext.app is not self-contained — these references" >&2
+            echo "      point outside the bundle and will abort in dyld on a" >&2
+            echo "      machine that does not have them (GH #46):" >&2
+            echo >&2
+        fi
+        printf '  %s\n      -> %s\n' "${macho#"$APP"/}" "$dep" >&2
+        violations=$((violations + 1))
     done < <(otool -L "$macho" | tail -n +2 | awk '{print $1}')
 done < <(find "$APP" -type f -perm -u+r -exec sh -c 'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \;)
 
@@ -72,8 +98,9 @@ fi
 
 if [ "$violations" -gt 0 ]; then
     echo >&2
-    echo "$violations external reference(s) across $checked Mach-O file(s)." >&2
+    echo "$violations external LOAD reference(s) across $checked Mach-O file(s)." >&2
     exit 1
 fi
 
-echo "verify-bundle: OK — $checked Mach-O file(s), no references outside the bundle"
+echo "verify-bundle: OK — $checked Mach-O file(s), no external load references" \
+     "($stale_ids cosmetic install-name(s) left unrewritten)"

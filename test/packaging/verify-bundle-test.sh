@@ -36,11 +36,23 @@ mkdir -p "$WORK/bin"
 cat >"$WORK/bin/otool" <<'STUB'
 #!/usr/bin/env bash
 # otool -L <file>: header line, then one tab-indented dependency per line.
+# otool -D <file>: header line, then the install name (LC_ID_DYLIB) if any.
+#   Real otool prints only the header for an executable, which is what the
+#   absent sidecar models here.
 f=$2
 echo "$f:"
-while IFS= read -r line; do
-    printf '\t%s (compatibility version 1.0.0, current version 1.0.0)\n' "$line"
-done < "$f.deps"
+case "$1" in
+-D)
+    # Real otool -D exits 0 whether or not the file has an id.
+    [ -f "$f.id" ] && cat "$f.id"
+    exit 0
+    ;;
+*)
+    while IFS= read -r line; do
+        printf '\t%s (compatibility version 1.0.0, current version 1.0.0)\n' "$line"
+    done < "$f.deps"
+    ;;
+esac
 STUB
 
 cat >"$WORK/bin/file" <<'STUB'
@@ -64,6 +76,9 @@ macho() {
     echo "fake mach-o" > "$app/$rel"
     printf '%s\n' "$@" > "$app/$rel.deps"
 }
+
+# install_id <app> <relative-path> <id>   — give a file an LC_ID_DYLIB
+install_id() { printf '%s\n' "$3" > "$1/$2.id"; }
 
 run() { bash "$SCRIPT" "$1" >"$WORK/out.log" 2>&1; echo $?; }
 
@@ -126,6 +141,52 @@ else bad VB-05 "expected non-zero, got 0 — the gate can pass on nothing"; fi
 rc=$(run "$WORK/does-not-exist.app")
 if [ "$rc" -ne 0 ]; then ok VB-06 "missing bundle rejected"
 else bad VB-06 "expected non-zero, got 0"; fi
+
+# --- VB-08: an unrewritten own install name is reported, NOT failed ----------
+# The exact shape observed on macos-latest (run 29852867578): macdeployqt
+# copied QtWidgets/libbrotlicommon into the bundle but left their LC_ID_DYLIB
+# pointing at /opt/homebrew. dyld never loads via a file's own id, so this
+# cannot break the shipped app and must not block the package.
+APP=$WORK/staleid.app
+macho "$APP" Contents/MacOS/jnext \
+    '@executable_path/../Frameworks/QtWidgets.framework/Versions/A/QtWidgets'
+macho "$APP" Contents/Frameworks/QtWidgets.framework/Versions/A/QtWidgets \
+    '/opt/homebrew/opt/qtbase/lib/QtWidgets.framework/Versions/A/QtWidgets' \
+    '/usr/lib/libSystem.B.dylib'
+install_id "$APP" Contents/Frameworks/QtWidgets.framework/Versions/A/QtWidgets \
+    '/opt/homebrew/opt/qtbase/lib/QtWidgets.framework/Versions/A/QtWidgets'
+rc=$(run "$APP")
+if [ "$rc" -eq 0 ] && grep -q 'id ->' "$WORK/out.log"; then
+    ok VB-08 "stale own install name reported, not failed"
+else bad VB-08 "expected 0 with an 'id ->' note, got $rc: $(cat "$WORK/out.log")"; fi
+
+# --- VB-09: a REAL external load on a file that also has a stale id FAILS ----
+# The dangerous case the VB-08 relaxation must not swallow: same file, same
+# stale id, but it also LOADS something from /opt/homebrew. That one does abort
+# in dyld. If this passes, VB-08 has been implemented as "ignore everything on
+# a file that has an id", which would have hidden the original bug.
+APP=$WORK/staleid-plus-real.app
+macho "$APP" Contents/MacOS/jnext \
+    '@executable_path/../Frameworks/QtWidgets.framework/Versions/A/QtWidgets'
+macho "$APP" Contents/Frameworks/QtWidgets.framework/Versions/A/QtWidgets \
+    '/opt/homebrew/opt/qtbase/lib/QtWidgets.framework/Versions/A/QtWidgets' \
+    '/opt/homebrew/opt/libpng/lib/libpng16.16.dylib'
+install_id "$APP" Contents/Frameworks/QtWidgets.framework/Versions/A/QtWidgets \
+    '/opt/homebrew/opt/qtbase/lib/QtWidgets.framework/Versions/A/QtWidgets'
+rc=$(run "$APP")
+if [ "$rc" -ne 0 ] && grep -q 'libpng16' "$WORK/out.log"; then
+    ok VB-09 "real load dep still fails alongside a stale id"
+else bad VB-09 "expected non-zero naming libpng, got $rc: $(cat "$WORK/out.log")"; fi
+
+# --- VB-10: an executable has no id, so nothing is excused on it -------------
+# `otool -D` prints only a header for an executable. If the script mistook an
+# empty id for "matches everything", the main binary — the one that carried the
+# reported bug — would stop being checked at all.
+APP=$WORK/exe-no-id.app
+macho "$APP" Contents/MacOS/jnext '/opt/homebrew/opt/libpng/lib/libpng16.16.dylib'
+rc=$(run "$APP")
+if [ "$rc" -ne 0 ]; then ok VB-10 "executable with no id is still fully checked"
+else bad VB-10 "expected non-zero, got 0 — an absent id excused a real dep"; fi
 
 # --- VB-07: wrong usage exits 2 ----------------------------------------------
 bash "$SCRIPT" >/dev/null 2>&1; rc=$?
