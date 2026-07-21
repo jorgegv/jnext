@@ -37,6 +37,16 @@
 #
 # Runs BEFORE codesign so the copy is covered by the signature.
 #
+# NO TRANSITIVE CLOSURE HERE, DELIBERATELY. The Windows twin resolves SDL3.dll's
+# own imports (bundle-dlls.sh resolve_queue) because nothing downstream of it
+# ever re-checks the .zip. On macOS the copy is followed by verify-bundle.sh,
+# which walks EVERY Mach-O in the finished bundle — including this one — and
+# fails the build on any unresolved or out-of-bundle reference. So an SDL3 that
+# grew an external dependency would break the package loudly rather than ship
+# silently, and today it has none (CI run 29874058824: 58 Mach-O files, zero
+# external load references). Running complete-closure.sh again here would be
+# strictly redundant with that gate.
+#
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
