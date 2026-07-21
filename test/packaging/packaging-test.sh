@@ -70,6 +70,13 @@ else
     bad complete-closure "contract test failed (see $LOGDIR/closure.log)"
 fi
 
+# --- bundle-dlopen-deps.sh contract (adds the library no walk can see) -------
+if bash test/packaging/bundle-dlopen-deps-test.sh >"$LOGDIR/dlopendeps.log" 2>&1; then
+    ok bundle-dlopen-deps "copies libSDL3 for sdl2-compat, no-ops otherwise, fails loud when absent"
+else
+    bad bundle-dlopen-deps "contract test failed (see $LOGDIR/dlopendeps.log)"
+fi
+
 # --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)
