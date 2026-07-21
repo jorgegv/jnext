@@ -1,7 +1,15 @@
-BUILD_DIR_DEBUG       := build/debug
-BUILD_DIR_RELEASE     := build/release
+# Build directories — ONE scheme: build/<variant>-<config>, everything under build/.
+# variant = frontend or target platform (sdl / gui / win / mac / rpm / deb),
+# config  = debug or release. build/ itself is the canonical dev tree (./build/jnext
+# + the test binaries); `make unit-test-clean` removes it and everything below it.
+BUILD_DIR_SDL_DEBUG   := build/sdl-debug
+BUILD_DIR_SDL_RELEASE := build/sdl-release
 BUILD_DIR_GUI_DEBUG   := build/gui-debug
 BUILD_DIR_GUI_RELEASE := build/gui-release
+BUILD_DIR_WIN_RELEASE := build/win-release
+BUILD_DIR_MAC_RELEASE := build/mac-release
+BUILD_DIR_RPM_RELEASE := build/rpm-release
+BUILD_DIR_DEB_RELEASE := build/deb-release
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 CC                := /usr/bin/gcc
@@ -58,13 +66,13 @@ BADGE_PASS := $(FG_BLACK)$(BG_PASS)
 BADGE_SKIP := $(FG_BLACK)$(BG_SKIP)
 BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
-.PHONY: default debug release clean debug-clean release-clean debug-run release-run \
+.PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
-       package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test \
+       package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
        verify-macos-dmg
 .SILENT:
 
@@ -74,41 +82,41 @@ default:
 	awk 'BEGIN {FS = ":.*?"} /^# / {helpMessage = substr($$0, 3); next} /^[a-zA-Z0-9_-]+:/ {if (helpMessage) {printf "  $(CYAN)$(BOLD)%-34s$(RESET)$(RESET) %s\n", $$1, helpMessage}; helpMessage = ""}' $(MAKEFILE_LIST)
 	printf "\n"
 
-# Configure and build in Debug mode (with sanitizers and debug symbols)
-debug:
-	$(CMAKE) -B $(BUILD_DIR_DEBUG) \
+# Configure and build the SDL-only frontend in Debug mode (sanitizers + debug symbols)
+sdl-debug:
+	$(CMAKE) -B $(BUILD_DIR_SDL_DEBUG) \
 		-DCMAKE_BUILD_TYPE=Debug \
 		-DCMAKE_C_COMPILER=$(CC) \
 		-DCMAKE_CXX_COMPILER=$(CXX) \
 		-DCMAKE_CXX_FLAGS="-g -fno-omit-frame-pointer" \
 		-DENABLE_TESTS=ON
-	$(CMAKE) --build $(BUILD_DIR_DEBUG) -j$(JOBS)
+	$(CMAKE) --build $(BUILD_DIR_SDL_DEBUG) -j$(JOBS)
 
-# Run the emulator (debug build)
-debug-run: debug
-	$(BUILD_DIR_DEBUG)/jnext
+# Run the emulator (SDL-only debug build)
+sdl-debug-run: sdl-debug
+	$(BUILD_DIR_SDL_DEBUG)/jnext
 
-# Remove debug build directory
-debug-clean:
-	rm -rf $(BUILD_DIR_DEBUG)
+# Remove the SDL-only debug build directory
+sdl-debug-clean:
+	rm -rf $(BUILD_DIR_SDL_DEBUG)
 
-# Configure and build in Release mode (optimized, no sanitizers)
-release:
-	$(CMAKE) -B $(BUILD_DIR_RELEASE) \
+# Configure and build the SDL-only frontend in Release mode (optimized, no sanitizers)
+sdl-release:
+	$(CMAKE) -B $(BUILD_DIR_SDL_RELEASE) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_C_COMPILER=$(CC) \
 		-DCMAKE_CXX_COMPILER=$(CXX) \
 		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
 		-DENABLE_TESTS=OFF
-	$(CMAKE) --build $(BUILD_DIR_RELEASE) -j$(JOBS)
+	$(CMAKE) --build $(BUILD_DIR_SDL_RELEASE) -j$(JOBS)
 
-# Run the emulator (release build)
-release-run: release
-	$(BUILD_DIR_RELEASE)/jnext
+# Run the emulator (SDL-only release build)
+sdl-release-run: sdl-release
+	$(BUILD_DIR_SDL_RELEASE)/jnext
 
-# Remove release build directory
-release-clean:
-	rm -rf $(BUILD_DIR_RELEASE)
+# Remove the SDL-only release build directory
+sdl-release-clean:
+	rm -rf $(BUILD_DIR_SDL_RELEASE)
 
 # Configure and build Qt GUI in Debug mode
 gui-debug:
@@ -142,7 +150,7 @@ gui-release:
 
 # Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
-gui-release-win:
+win-release:
 	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
 	@# actual cross toolchain/libraries. Check the cross gcc and mingw Qt6 too,
 	@# so a missing package is a clear "install these" message, not a cryptic
@@ -158,13 +166,13 @@ gui-release-win:
 		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
 		exit 1; \
 	fi
-	mingw64-cmake -S . -B $(PKG_BUILD_WIN) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(PKG_BUILD_WIN) -j$(JOBS)
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_RELEASE) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(BUILD_DIR_WIN_RELEASE) -j$(JOBS)
 	@# Bundle the Qt6/SDL2 runtime DLLs + Qt plugins next to the exe so it runs
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
-	bash packaging/windows/bundle-dlls.sh $(PKG_BUILD_WIN)/jnext.exe $(PKG_BUILD_WIN)
-	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(PKG_BUILD_WIN)/jnext.exe\n"
+	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
+	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_RELEASE)/jnext.exe\n"
 
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
@@ -177,8 +185,8 @@ gui-release-clean:
 # Remove all GUI build directories
 gui-clean: gui-debug-clean gui-release-clean
 
-# Remove all build directories (debug/release/gui + unit-test)
-clean: debug-clean release-clean gui-clean unit-test-clean
+# Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
+clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (screenshot + functional tests)
 # Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
@@ -248,7 +256,7 @@ bench:
 # and concluded their change had broken it. That cost a previous author two capture
 # runs. Qt6 was never optional here anyway: ENABLE_DEBUGGER already defaults ON and
 # src/debugger does find_package(Qt6 REQUIRED). The Qt-less configuration keeps its
-# coverage — `make release` / `make debug` still build exactly that.
+# coverage — `make sdl-release` / `make sdl-debug` still build exactly that.
 #
 # The else-branch: the `if` only fires on a fresh build/, so a build/ configured by
 # hand with other flags would be reused in silence — the same trap, one step removed.
@@ -588,14 +596,15 @@ publish-release:
 # win/macos/flatpak guard-and-exit when their tooling/platform is absent.
 # ---------------------------------------------------------------------------
 
+# Build directories for these live at the top of this file with every other one
+# (BUILD_DIR_RPM_RELEASE / _DEB_RELEASE / _WIN_RELEASE / _MAC_RELEASE).
+#
 # Wall-clock bound for every macOS packaging phase, so a hang fails fast and
 # names the phase instead of blocking a CI job silently (runs 29857249811 /
 # 29860430214 each had to be cancelled by hand after 16-21 minutes of no output).
+# Absolute path: the cpack phase runs inside a subshell that cd's into the build
+# directory, where a relative path stops resolving.
 MACOS_BOUND := bash $(CURDIR)/packaging/macos/run-bounded.sh
-
-PKG_BUILD_RPM := build/package-rpm
-PKG_BUILD_DEB := build/package-deb
-PKG_BUILD_WIN := build/gui-release-win
 
 # Build source packages: v<ver>.tar.gz (rpm/deb source) + jnext-<ver>-src.zip (release); vendors submodules
 package-src:
@@ -604,19 +613,19 @@ package-src:
 
 # Build an RPM package via CPack (Fedora/RHEL); needs rpmbuild
 package-rpm:
-	$(CMAKE) -B $(PKG_BUILD_RPM) -S . \
+	$(CMAKE) -B $(BUILD_DIR_RPM_RELEASE) -S . \
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(PKG_BUILD_RPM) -j$(JOBS)
-	cd $(PKG_BUILD_RPM) && cpack -G RPM
-	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_RPM)/*.rpm
+	$(CMAKE) --build $(BUILD_DIR_RPM_RELEASE) -j$(JOBS)
+	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
+	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
 # Build a DEB package via CPack (Debian/Ubuntu); dep autodetection is weak off-Debian
 package-deb:
-	$(CMAKE) -B $(PKG_BUILD_DEB) -S . \
+	$(CMAKE) -B $(BUILD_DIR_DEB_RELEASE) -S . \
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(PKG_BUILD_DEB) -j$(JOBS)
-	cd $(PKG_BUILD_DEB) && cpack -G DEB
-	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_DEB)/*.deb
+	$(CMAKE) --build $(BUILD_DIR_DEB_RELEASE) -j$(JOBS)
+	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
+	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
 
 # Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the
 # org.kde.Platform//6.8 runtime and org.kde.Sdk//6.8 SDK the manifest targets)
@@ -654,21 +663,21 @@ package-flatpak:
 	 printf "$(BOLD)Flatpak bundle produced:$(RESET)\n"; ls -1 "$$bundle"
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
-# gui-release-win already bundled the DLLs into $(PKG_BUILD_WIN); we stage a
+# win-release already bundled the DLLs into $(BUILD_DIR_WIN_RELEASE); we stage a
 # cleanly-named top-level layout (exe + DLLs + plugin subdirs + qt.conf + docs,
 # no CMake build junk) and zip that. Not CPack -G ZIP: CPack would apply the
 # Unix /usr install prefix, giving a broken usr/bin/jnext.exe layout on Windows.
-package-win: gui-release-win
+package-win: win-release
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x64"; \
-	 stage="$(PKG_BUILD_WIN)/dist/$$name"; \
-	 rm -rf "$(PKG_BUILD_WIN)/dist"; mkdir -p "$$stage"; \
-	 bash packaging/windows/bundle-dlls.sh $(PKG_BUILD_WIN)/jnext.exe "$$stage"; \
+	 stage="$(BUILD_DIR_WIN_RELEASE)/dist/$$name"; \
+	 rm -rf "$(BUILD_DIR_WIN_RELEASE)/dist"; mkdir -p "$$stage"; \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe "$$stage"; \
 	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
 	 cp -r doc/user-guide "$$stage"/user-guide; \
-	 rm -f "$(PKG_BUILD_WIN)/$$name.zip"; \
-	 ( cd "$(PKG_BUILD_WIN)/dist" && zip -rq "../$$name.zip" "$$name" ); \
-	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(PKG_BUILD_WIN)/*.zip
+	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip"; \
+	 ( cd "$(BUILD_DIR_WIN_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_RELEASE)/*.zip
 
 # The whole recipe is one shell invocation so the non-Darwin early-exit
 # actually stops it — a bare `exit 0` on its own recipe line would only end
@@ -682,13 +691,13 @@ package-macos:
 		printf "  It cannot be produced on this $$(uname -s) host.\n"; \
 		exit 0; \
 	fi; \
-	$(MACOS_BOUND) 300 "cmake configure (package-macos)" \
-		$(CMAKE) -B build/package-macos -S . \
+	$(MACOS_BOUND) 300 "cmake configure (mac-release)" \
+		$(CMAKE) -B $(BUILD_DIR_MAC_RELEASE) -S . \
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
 		-DMACOS_APP_BUNDLE=ON && \
-	$(MACOS_BOUND) 2400 "cmake build (package-macos)" \
-		$(CMAKE) --build build/package-macos -j$(JOBS) && \
-	( cd build/package-macos && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
+	$(MACOS_BOUND) 2400 "cmake build (mac-release)" \
+		$(CMAKE) --build $(BUILD_DIR_MAC_RELEASE) -j$(JOBS) && \
+	( cd $(BUILD_DIR_MAC_RELEASE) && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg
 
 # Prove the produced .dmg is self-contained: mount it, walk the .app inside it
@@ -731,8 +740,8 @@ verify-macos-dmg:
 		exit 0; \
 	fi; \
 	set -e; \
-	dmg=$$(ls -1 build/package-macos/*.dmg 2>/dev/null | head -1); \
-	if [ -z "$$dmg" ]; then echo "error: no .dmg in build/package-macos" >&2; exit 1; fi; \
+	dmg=$$(ls -1 $(BUILD_DIR_MAC_RELEASE)/*.dmg 2>/dev/null | head -1); \
+	if [ -z "$$dmg" ]; then echo "error: no .dmg in $(BUILD_DIR_MAC_RELEASE)" >&2; exit 1; fi; \
 	mnt=$$(mktemp -d); \
 	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true' EXIT; \
 	yes | $(MACOS_BOUND) 120 "hdiutil attach" \
