@@ -169,7 +169,7 @@ covered by `test/packaging/sync-version-test.sh` (run inside `make package-test`
 |--------|----------|
 | `make package-src` | source tarball (vendors submodule content) |
 | `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` (CPack) |
-| `make package-win` | Windows `.zip` — MinGW cross-build, Qt6/SDL2/SDL3 DLLs + `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh` (`build/gui-release-win/`) |
+| `make package-win` | Windows `.zip` — MinGW cross-build, Qt6/SDL2/SDL3 DLLs + `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh` (`build/win-release/`) |
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.8`) |
 | `make package-macos` | macOS `.dmg` (Darwin only) |
 | `make package-test` | build every package (except macOS) and assert each artifact |

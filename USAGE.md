@@ -83,8 +83,8 @@ option, never as a filename; giving both a bare filename and **--load**
 is an error.
 
 The examples below use the Qt6 GUI build (`build/gui-release/jnext`).
-The SDL-only build (`build/release/jnext`) takes the same options minus
-the GUI and debugger ones.
+The SDL-only build (`build/sdl-release/jnext`) takes the same options
+minus the GUI and debugger ones.
 
 ## OPTIONS
 

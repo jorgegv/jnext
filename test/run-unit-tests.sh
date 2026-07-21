@@ -91,7 +91,7 @@ done < <(sed 's/#.*//' "$CONF")
 # is Task 32 re-entering through a different door.
 #
 # But prune nested build trees. The project's other build dirs live INSIDE build/
-# (build/debug, build/gui-debug, build/gui-release — see the Makefile), and the two
+# (build/sdl-debug, build/gui-debug, build/gui-release — see the Makefile), and the two
 # debug ones configure with ENABLE_TESTS=ON. An unscoped find would swallow their
 # CTestTestfile.cmake, see every binary twice, and refuse to run with a false
 # "registered twice" diagnosis after a plain `make gui-debug`. A directory with its own

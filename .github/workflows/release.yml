@@ -9,14 +9,18 @@ name: Release
 # See doc/RELEASE-PROTOCOL.md. This replaces the old packaging.yml + release.yml
 # workflow_run hand-off (a single workflow avoids that fragility).
 #
-# Build paths mirror the project's own Makefile / CPack so CI builds the SAME
-# artifact a developer builds locally:
-#   * deb     → CPack DEB in pinned ubuntu:24.04 AND ubuntu:26.04 containers
-#               (matrix). shlibdeps bakes in the container's library package
-#               names, so each LTS gets its own per-release-named deb (the
-#               24.04 t64 names are unsatisfiable on 26.04, hence two debs).
-#   * rpm     → CPack RPM in a fedora:44 container (Fedora-native deps — building
-#               the RPM on Ubuntu bakes in an incompatible libcurl symbol node)
+# EVERY build step here is a plain `make` target — the same one a developer
+# types locally (CLAUDE.md, "CI runs the EXACT same commands as a local run").
+# Nothing in this file open-codes cmake/cpack; if a job needs a capability, it
+# is added to the Makefile so local runs get it too. The ONE declared exception
+# is the `flatpak` job (see its own comment).
+#
+#   * deb     → `make package-deb` in pinned ubuntu:24.04 AND ubuntu:26.04
+#               containers (matrix). shlibdeps bakes in the container's library
+#               package names, so each LTS gets its own per-release-named deb
+#               (the 24.04 t64 names are unsatisfiable on 26.04, hence two debs).
+#   * rpm     → `make package-rpm` in a fedora:44 container (Fedora-native deps —
+#               building the RPM on Ubuntu bakes in an incompatible libcurl node)
 #   * src     → `make package-src` → jnext-<ver>-src.zip (submodule-aware)
 #   * windows → `make package-win` (MinGW cross-build + DLL bundling) in a
 #               fedora:44 container — the one Windows build path (proven in a
@@ -95,23 +99,21 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            cmake ninja-build g++ git file dpkg-dev \
+            cmake make g++ git file dpkg-dev \
             libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
             qt6-base-dev
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-      - name: Package (DEB)
-        working-directory: build
-        run: cpack -G DEB
+      # The project's own target, byte-for-byte the command a developer runs
+      # locally (CLAUDE.md: CI runs the EXACT same commands as a local run).
+      # It configures + builds build/deb-release and runs cpack -G DEB there.
+      - name: make package-deb
+        run: make package-deb
       # CPack emits jnext_<ver>_amd64.deb; tag it with the Ubuntu release so the
       # two matrix legs' artifacts don't collide (version derived, not hardcoded).
       - name: Rename deb per Ubuntu release
-        working-directory: build
+        working-directory: build/deb-release
         run: |
           src=$(ls -1 jnext_*_amd64.deb | head -1)
           dst="${src%_amd64.deb}_ubuntu${{ matrix.rel }}_amd64.deb"
@@ -121,7 +123,7 @@ jobs:
         with:
           name: jnext-deb-${{ matrix.rel }}
           path: |
-            build/jnext_*_ubuntu*_amd64.deb
+            build/deb-release/jnext_*_ubuntu*_amd64.deb
 
   # ---- Linux RPM: CPack RPM in a Fedora container (Fedora-native deps) -----
   # Mirrors the `windows` job's pattern: ubuntu-latest runner + fedora:44
@@ -139,24 +141,22 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf install -y \
-            cmake ninja-build gcc-c++ git \
+            cmake make gcc-c++ git \
             SDL2-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
             qt6-qtbase-devel rpm-build
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-      - name: Package (RPM)
-        working-directory: build
-        run: cpack -G RPM
+      # The project's own target, byte-for-byte the command a developer runs
+      # locally (CLAUDE.md: CI runs the EXACT same commands as a local run).
+      # It configures + builds build/rpm-release and runs cpack -G RPM there.
+      - name: make package-rpm
+        run: make package-rpm
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-linux-rpm
           path: |
-            build/*.rpm
+            build/rpm-release/*.rpm
 
   # ---- Source: submodule-aware jnext-<ver>-src.zip ------------------------
   # `make package-src` runs packaging/make-dist-tarball.sh, which vendors the
@@ -214,9 +214,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
-          path: build/gui-release-win/*.zip
+          path: build/win-release/*.zip
 
   # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
+  # DECLARED EXCEPTION to the "every build step is a make target" rule above.
+  # Deliberate, do not "fix" it to `make package-flatpak`: this job does not
+  # open-code a build the way the old deb/rpm jobs did. It hands the SAME
+  # manifest `make package-flatpak` uses to the upstream flatpak-builder action,
+  # which additionally supplies the runtime/SDK image, the build cache and the
+  # bundle export. Replacing it would mean reimplementing that caching in YAML —
+  # the exact anti-pattern the rule exists to prevent — for no gain in fidelity.
+  #
   # Uses the community flatpak-builder action (flatpak/flatpak-github-actions,
   # formerly bilelmoussaoui/…) inside its kde-6.10 image, which ships
   # flatpak-builder + org.kde.Sdk//6.10 + org.kde.Platform//6.10 — the exact
@@ -280,7 +288,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install dependencies (Homebrew)
-        run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
+        run: brew install cmake sdl2 qt@6 curl openssl libpng
       # The project's own target, same as a local Mac build: configure, build,
       # package, then mount the .dmg and assert with otool that nothing inside
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in
@@ -291,7 +299,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-macos-package
-          path: build/package-macos/*.dmg
+          path: build/mac-release/*.dmg
           if-no-files-found: error
 
   # ---- publish: attach all built packages to a GitHub Release -------------

@@ -100,7 +100,7 @@ fi
 # --- package-rpm -------------------------------------------------------------
 if command -v rpmbuild >/dev/null 2>&1; then
     if make package-rpm >"$LOGDIR/rpm.log" 2>&1; then
-        r=$(ls -1 build/package-rpm/jnext-*.x86_64.rpm 2>/dev/null | head -1)
+        r=$(ls -1 build/rpm-release/jnext-*.x86_64.rpm 2>/dev/null | head -1)
         if [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$"; then
             ok package-rpm "$(basename "$r")"
         else
@@ -116,7 +116,7 @@ fi
 # --- package-deb -------------------------------------------------------------
 if command -v dpkg-deb >/dev/null 2>&1; then
     if make package-deb >"$LOGDIR/deb.log" 2>&1; then
-        d=$(ls -1 build/package-deb/jnext_*_amd64.deb 2>/dev/null | head -1)
+        d=$(ls -1 build/deb-release/jnext_*_amd64.deb 2>/dev/null | head -1)
         if [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$"; then
             ok package-deb "$(basename "$d")"
         else
@@ -132,7 +132,7 @@ fi
 # --- package-win (MinGW cross-build ZIP) -------------------------------------
 if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT6" ]; then
     if make package-win >"$LOGDIR/win.log" 2>&1; then
-        z=$(ls -1 build/gui-release-win/*.zip 2>/dev/null | head -1)
+        z=$(ls -1 build/win-release/*.zip 2>/dev/null | head -1)
         # The ZIP must contain the exe AND its bundled runtime — the Qt6 core DLL,
         # the platforms/qwindows.dll plugin (no GUI without it), and SDL3.dll (the
         # sdl2-compat SDL2.dll runtime-loads it; missing it → "Failed loading SDL3").
@@ -163,7 +163,7 @@ fi
 # which objdump prints as "Windows CUI"); this row makes that regression a FAIL.
 # Discriminative: it requires "Windows GUI" and explicitly rejects the console
 # "CUI" string.
-WIN_EXE=build/gui-release-win/jnext.exe
+WIN_EXE=build/win-release/jnext.exe
 if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1 && [ -f "$WIN_EXE" ]; then
     subsys=$(x86_64-w64-mingw32-objdump -p "$WIN_EXE" 2>/dev/null | grep -i "^Subsystem")
     if printf '%s' "$subsys" | grep -qi "Windows GUI" \
