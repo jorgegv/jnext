@@ -288,7 +288,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install dependencies (Homebrew)
-        run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
+        run: brew install cmake sdl2 qt@6 curl openssl libpng
       # The project's own target, same as a local Mac build: configure, build,
       # package, then mount the .dmg and assert with otool that nothing inside
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in

@@ -27,7 +27,7 @@ jobs:
           submodules: recursive
 
       - name: Install dependencies (Homebrew)
-        run: brew install cmake ninja sdl2 qt@6 curl openssl libpng
+        run: brew install cmake sdl2 qt@6 curl openssl libpng
 
       # The project's own target, same as a local Mac build (CLAUDE.md: CI runs
       # the EXACT same commands as a local run). CMAKE_PREFIX_PATH goes through
