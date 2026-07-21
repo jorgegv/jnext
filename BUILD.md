@@ -42,7 +42,7 @@ git clone --recursive https://github.com/jorgegv/jnext.git
 cd jnext
 
 make gui-release      # Qt6 GUI + debugger, optimised  → build/gui-release/jnext
-make release          # SDL only, no GUI, no debugger   → build/release/jnext
+make sdl-release      # SDL only, no GUI, no debugger   → build/sdl-release/jnext
 ```
 
 `--recursive` matters: spdlog is a git submodule. (CMake will try to
@@ -70,10 +70,10 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 |--------|-------------|
 | `make gui-release` | Qt6 GUI + debugger, release (optimised) → `build/gui-release/jnext` |
 | `make gui-debug` | Qt6 GUI, debug (sanitisers + debug symbols) |
-| `make release` | SDL-only, release → `build/release/jnext` |
-| `make debug` | SDL-only, debug |
-| `make gui-release-win` | Cross-compile the Windows `jnext.exe` (Fedora MinGW), DLLs bundled beside it |
-| `make gui-release-run` / `gui-debug-run` / `release-run` / `debug-run` | Build, then run |
+| `make sdl-release` | SDL-only, release → `build/sdl-release/jnext` |
+| `make sdl-debug` | SDL-only, debug |
+| `make win-release` | Cross-compile the Windows `jnext.exe` (Fedora MinGW), DLLs bundled beside it |
+| `make gui-release-run` / `gui-debug-run` / `sdl-release-run` / `sdl-debug-run` | Build, then run |
 
 **Test**
 
@@ -211,7 +211,7 @@ Packages are the recommended way for end users to install JNEXT (see the main
 | `make package-test` | build every package above (except macOS) and check each artifact |
 
 A **Windows** executable can be cross-compiled on Fedora with MinGW
-(`make gui-release-win` for just `jnext.exe`, or `make package-win` for the
+(`make win-release` for just `jnext.exe`, or `make package-win` for the
 zip). See [packaging/README.md](packaging/README.md) for the exact MinGW
 package list, the macOS notes, and per-distro maintainer packaging
 (`packaging/rpm`, `packaging/debian`, `packaging/flatpak`).

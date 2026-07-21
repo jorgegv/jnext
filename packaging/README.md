@@ -61,10 +61,10 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | Target                 | Produces                          | Tooling needed                                  | Verified on the Linux dev host? |
 |------------------------|-----------------------------------|-------------------------------------------------|---------------------------------|
 | `make package-src`     | source tarball (`build/dist/v<ver>.tar.gz`) — vendors submodule content | git                     | Yes                             |
-| `make package-rpm`     | `.rpm` (via CPack, in `build/package-rpm/`), named `jnext-<ver>-<rel>.<arch>.rpm` | `cpack` + `rpmbuild` | Yes                     |
-| `make package-deb`     | `.deb` (via CPack, in `build/package-deb/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
-| `make gui-release-win` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/gui-release-win/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
-| `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/gui-release-win/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make package-rpm`     | `.rpm` (via CPack, in `build/rpm-release/`), named `jnext-<ver>-<rel>.<arch>.rpm` | `cpack` + `rpmbuild` | Yes                     |
+| `make package-deb`     | `.deb` (via CPack, in `build/deb-release/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
+| `make win-release` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/win-release/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/win-release/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
 | `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
@@ -114,8 +114,8 @@ if any required non-system DLL is missing. It also handles one runtime-loaded
 dependency objdump cannot see: Fedora's `mingw64-sdl2-compat` `SDL2.dll` is a
 shim that `LoadLibrary`s `SDL3.dll` at runtime, so `SDL3.dll` is not in any
 import table — the script detects the shim and bundles `SDL3.dll` too (without
-it the exe dies with "Failed loading SDL3 library"). `gui-release-win` runs it
-against `build/gui-release-win/` (exe runnable in place); `package-win` runs it
+it the exe dies with "Failed loading SDL3 library"). `win-release` runs it
+against `build/win-release/` (exe runnable in place); `package-win` runs it
 into a clean, correctly-named staging dir and zips that (not CPack `-G ZIP`,
 whose `/usr` install prefix would give a broken `usr/bin/jnext.exe` layout on
 Windows).
@@ -301,12 +301,12 @@ policy. The per-OS build jobs, when they run:
 
 | Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
 |-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
-| `deb`     | `ubuntu-latest` + `ubuntu:24.04`/`ubuntu:26.04` (matrix) | apt deps + CPack (in each pinned container) | 2× DEB (CPack), one per LTS, named `jnext_<ver>_ubuntu<rel>_amd64.deb` | Yes — both built + `apt install`ed in their own containers; the 24.04 deps carry the t64 names, 26.04's differ |
-| `rpm`     | `ubuntu-latest` + `fedora:44` | dnf deps + CPack (in a Fedora container)             | RPM (CPack)                    | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
+| `deb`     | `ubuntu-latest` + `ubuntu:24.04`/`ubuntu:26.04` (matrix) | `make package-deb` (in each pinned container) | 2× DEB (`build/deb-release/`), one per LTS, named `jnext_<ver>_ubuntu<rel>_amd64.deb` | Yes — both built + `apt install`ed in their own containers; the 24.04 deps carry the t64 names, 26.04's differ |
+| `rpm`     | `ubuntu-latest` + `fedora:44` | `make package-rpm` (in a Fedora container)           | RPM (`build/rpm-release/`)     | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
-| `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
+| `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/win-release/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
-| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/package-macos/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
+| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
 `release.yml` does not run tests — it builds packages and, for tags listed in
