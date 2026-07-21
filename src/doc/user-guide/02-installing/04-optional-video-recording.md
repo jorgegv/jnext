@@ -13,7 +13,7 @@ system.
 | Fedora / RHEL | `sudo dnf install ffmpeg` |
 | Debian / Ubuntu | `sudo apt install ffmpeg` |
 | macOS | `brew install ffmpeg` |
-| Windows | [ffmpeg.org/download.html](https://ffmpeg.org/download.html), then add its `bin` folder to `PATH` |
+| Windows | **Recording is not available in the Windows build** — see [issue #56](https://github.com/jorgegv/jnext/issues/56). Installing ffmpeg will not enable it. |
 
 Restart JNEXT after installing — it checks for ffmpeg once at startup, so a
 running instance still shows recording as unavailable.

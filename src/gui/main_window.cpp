@@ -1000,7 +1000,7 @@ void MainWindow::on_record_start() {
         QMessageBox::warning(this, tr("Recording Error"),
             tr("FFmpeg is not installed or not found in PATH.\n\n"
                "Video recording needs the ffmpeg command available on your "
-               "PATH. Install it, then restart jnext.\n\n"
+               "PATH.\n\n"
                "Downloads and per-platform instructions:\n"
                "  https://ffmpeg.org/download.html"));
         return;
