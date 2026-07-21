@@ -64,7 +64,8 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
-       package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test
+       package-src package-rpm package-deb package-flatpak package-win package-macos gui-release-win package-test \
+       verify-macos-dmg
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -677,9 +678,33 @@ package-macos:
 		exit 0; \
 	fi; \
 	$(CMAKE) -B build/package-macos -S . \
-		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF && \
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+		-DMACOS_APP_BUNDLE=ON && \
 	$(CMAKE) --build build/package-macos -j$(JOBS) && \
-	( cd build/package-macos && cpack -G DragNDrop )
+	( cd build/package-macos && cpack -G DragNDrop ) && \
+	$(MAKE) verify-macos-dmg
+
+# Prove the produced .dmg is self-contained: mount it, walk the .app inside it
+# with otool, and launch the bundled binary (Darwin only)
+#
+# The staging install already runs verify-bundle.sh (see the APPLE branch in
+# CMakeLists.txt), but that checks the tree cpack was ABOUT to package. This
+# checks what actually shipped, read out of the disk image the user downloads —
+# the artifact GH #46 was reported against. Cheap, and the only end-to-end
+# statement we can make without a second Mac.
+verify-macos-dmg:
+	@if [ "$$(uname -s)" != "Darwin" ]; then \
+		printf "$(BADGE_SKIP) SKIP $(RESET) verifying a .dmg requires a Mac (hdiutil/otool).\n"; \
+		exit 0; \
+	fi; \
+	dmg=$$(ls -1 build/package-macos/*.dmg 2>/dev/null | head -1); \
+	if [ -z "$$dmg" ]; then echo "error: no .dmg in build/package-macos" >&2; exit 1; fi; \
+	mnt=$$(mktemp -d); \
+	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true' EXIT; \
+	hdiutil attach "$$dmg" -nobrowse -readonly -mountpoint "$$mnt" >/dev/null; \
+	bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" && \
+	"$$mnt/jnext.app/Contents/MacOS/jnext" --version && \
+	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded
 package-test:

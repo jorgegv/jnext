@@ -99,6 +99,8 @@ option(ENABLE_DEBUGGER "Include Qt debugger UI" ON)
 option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
 option(STATIC_BUILD    "Link statically (requires static SDL2/Qt6 builds)" OFF)
+# macOS packaging only (`make package-macos`); see the APPLE block further down.
+option(MACOS_APP_BUNDLE "Build a relocatable jnext.app bundle (macOS packaging)" OFF)
 
 # Static build: prefer static libraries and link C++ runtime statically.
 if(STATIC_BUILD)
@@ -179,6 +181,37 @@ if(WIN32)
     target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/packaging/assets/jnext.rc)
 endif()
 
+# macOS: build a real jnext.app bundle rather than a bare Mach-O executable
+# (GH #46). A bare executable has nowhere to carry its dependencies, so the
+# shipped binary kept absolute /opt/homebrew/... install names and aborted on
+# any Mac without the exact same Homebrew formulae. The bundle gives a
+# Contents/Frameworks to deploy into and an @executable_path to point at; the
+# deployment itself happens at install time, further down.
+#
+# OFF by default, and set by `make package-macos` alone, because a bundle target
+# moves the binary to build/<dir>/jnext.app/Contents/MacOS/jnext — which would
+# hide it from regression.sh and every other harness that looks for
+# build/gui-release/jnext. Only the shipped package needs to be relocatable; a
+# developer's own Mac build keeps the plain executable and its Homebrew libs.
+if(APPLE AND MACOS_APP_BUNDLE)
+    set_target_properties(jnext PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "jnext"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.zxjogv.jnext"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_ICON_FILE "jnext.icns"
+        MACOSX_BUNDLE_COPYRIGHT "GPLv3")
+    # The icon must be INSIDE the bundle for MACOSX_BUNDLE_ICON_FILE to resolve.
+    target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    # Let the bundled dylibs in Contents/Frameworks be found at run time.
+    set_target_properties(jnext PROPERTIES
+        INSTALL_RPATH "@executable_path/../Frameworks"
+        BUILD_WITH_INSTALL_RPATH FALSE)
+endif()
+
 # SDL2 linking: prefer SDL2-static when building statically.
 if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
     set(SDL2_LINK_TARGET SDL2::SDL2-static)
@@ -251,6 +284,72 @@ endif()
 # `make gui-release` / `make unit-test` / plain `cmake --build`.
 include(GNUInstallDirs)
 
+# macdeployqt lives next to qmake in the Qt installation, which is not on PATH
+# for a Homebrew qt@6. Resolve it from the imported Qt6::qmake target so the
+# lookup follows CMAKE_PREFIX_PATH rather than a hard-coded brew path.
+# Left empty (not fatal) when Qt is off — the install-time check below is what
+# turns that into a loud failure, and only for a build that is actually packaged.
+if(APPLE AND MACOS_APP_BUNDLE AND ENABLE_QT_UI)
+    find_package(Qt6 REQUIRED COMPONENTS Core)
+    get_target_property(_qt_qmake_location Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_qmake_location}" DIRECTORY)
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${_qt_bin_dir}")
+endif()
+# find_program leaves MACDEPLOYQT_EXECUTABLE-NOTFOUND behind when it fails, and
+# that string is truthy once interpolated into the install script below — it
+# would be run as a command name. Normalise a failed lookup to empty here, where
+# CMake's if() still understands -NOTFOUND.
+if(NOT MACDEPLOYQT_EXECUTABLE)
+    set(MACDEPLOYQT_EXECUTABLE "")
+endif()
+
+if(APPLE AND MACOS_APP_BUNDLE)
+
+# macOS ships a single relocatable jnext.app at the root of the .dmg (GH #46),
+# not an FHS tree — hence the separate branch. The freedesktop .desktop /
+# metainfo / hicolor icon files below are meaningless on macOS (the bundle's
+# Info.plist and Contents/Resources/jnext.icns do that job) and are not shipped.
+install(TARGETS jnext BUNDLE DESTINATION .)
+install(FILES LICENSE README.md ChangeLog USAGE.md DESTINATION .)
+install(DIRECTORY doc/user-guide DESTINATION .)
+
+# Deploy the dependency closure INTO the bundle and prove it worked.
+#
+# Without this the installed binary keeps the absolute /opt/homebrew/... install
+# names it linked against, and aborts on any Mac lacking those exact formulae —
+# the GH #46 report ("Library not loaded: .../libpng16.16.dylib"). macdeployqt
+# copies the Qt frameworks, the Cocoa platform plugin and the non-Qt dylibs into
+# Contents/Frameworks and rewrites the install names to @executable_path.
+#
+# verify-bundle.sh is not belt-and-braces: it is the actual gate. macdeployqt's
+# coverage of non-Qt dependencies cannot be checked on the Linux dev host, so
+# the install FAILS LOUDLY if any dependency still points outside the bundle,
+# rather than producing another .dmg that only runs on the machine that built it.
+install(CODE "
+    set(_app \"\${CMAKE_INSTALL_PREFIX}/jnext.app\")
+    if(NOT \"${MACDEPLOYQT_EXECUTABLE}\" STREQUAL \"\")
+        message(STATUS \"Deploying dependencies into \${_app}\")
+        execute_process(
+            COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" \"\${_app}\" -always-overwrite
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"macdeployqt failed (exit \${_rc})\")
+        endif()
+    else()
+        message(WARNING \"macdeployqt not found — the bundle will not be self-contained\")
+    endif()
+    execute_process(
+        COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/verify-bundle.sh\" \"\${_app}\"
+        RESULT_VARIABLE _rc)
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR
+            \"jnext.app is not self-contained (GH #46) — see the report above. \"
+            \"A macOS package build needs -DENABLE_QT_UI=ON and macdeployqt on PATH.\")
+    endif()
+")
+
+else()
+
 install(TARGETS jnext RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 install(FILES packaging/assets/io.github.zxjogv.jnext.desktop
@@ -284,6 +383,8 @@ install(DIRECTORY doc/user-guide
 install(FILES doc/man/jnext.1
     DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
+endif()  # APPLE AND MACOS_APP_BUNDLE
+
 # CPack: source-agnostic TGZ/DEB/RPM package generation (`cpack -G <gen>`
 # from the build dir). Runtime deps below are the direct link-time
 # libraries (see packaging/README.md for how they were derived); the
@@ -296,7 +397,15 @@ set(CPACK_PACKAGE_CONTACT "zx@jogv.es")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Real-time ZX Spectrum Next emulator with an integrated debugger")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/jorgegv/jnext")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
-set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+if(APPLE AND MACOS_APP_BUNDLE)
+    # A .dmg is a drag-and-drop volume, not a filesystem root: the bundle and
+    # the docs sit at the top level. The /usr prefix used by the Linux packages
+    # would bury jnext.app under usr/ inside the disk image (GH #46 — what the
+    # reporter dragged to /Applications was that buried bare binary).
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+else()
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+endif()
 set(CPACK_GENERATOR "TGZ")
 
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ZXjogv <zx@jogv.es>")

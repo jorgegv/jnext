@@ -46,6 +46,16 @@ else
     bad add-release "contract test failed (see $LOGDIR/addrel.log)"
 fi
 
+# --- verify-bundle.sh contract (macOS self-containment gate, GH #46) ---------
+# Runs everywhere: the gate's decision logic is tested against stubbed
+# otool/file, so the Linux dev host covers it even though the .dmg itself
+# cannot be built here.
+if bash test/packaging/verify-bundle-test.sh >"$LOGDIR/verifybundle.log" 2>&1; then
+    ok verify-bundle "rejects Homebrew/absolute deps, nested files, empty bundles"
+else
+    bad verify-bundle "contract test failed (see $LOGDIR/verifybundle.log)"
+fi
+
 # --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)

@@ -66,7 +66,7 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make gui-release-win` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/gui-release-win/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/gui-release-win/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
-| `make package-macos`   | macOS `.dmg` (via CPack DragNDrop) | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
+| `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
 `make package-test` (`test/packaging/packaging-test.sh`) runs every package
 target above except macOS and asserts each produces a correctly-named artifact
@@ -235,9 +235,30 @@ container and the produced `jnext.exe` runs under wine; only a real GitHub
 Actions run remains unexercised.
 
 **macOS** has no build host in this environment — the `macos` job builds it
-natively on `macos-latest` (Homebrew + CPack's `DragNDrop` generator), but is
-**unverified** until it's actually run on GitHub Actions (it is
-`continue-on-error`, so a macOS failure never blocks a Linux+Windows release).
+natively on `macos-latest` through the project's own `make package-macos`
+target, so CI runs the same recipe a Mac developer would.
+
+The package is a **relocatable `jnext.app`** at the root of the `.dmg`. It has
+to be: until v0.98.72 the `.dmg` held a bare executable under `usr/bin`, still
+carrying the absolute `/opt/homebrew/...` install names it linked against, and
+it aborted in dyld on the first Mac that was not the build machine
+([GH #46](https://github.com/jorgegv/jnext/issues/46)). `macdeployqt` now copies
+the Qt frameworks, the Cocoa platform plugin and the non-Qt Homebrew dylibs into
+`Contents/Frameworks` and rewrites the install names to `@executable_path`.
+
+**That deployment is not trusted — it is checked.**
+`packaging/macos/verify-bundle.sh` walks every Mach-O in the bundle with
+`otool -L` and fails if any dependency points outside it (`/opt/homebrew`,
+`/usr/local`, `/opt/local`, any other absolute path that is not `/usr/lib` or
+`/System`). It runs twice: at install/staging time from `CMakeLists.txt`, and
+again by `make verify-macos-dmg` against the `.dmg` **as mounted**, which also
+launches the bundled binary. A failure fails the job, so no `.dmg` is uploaded
+and the release simply carries no macOS package — the right outcome when the
+alternative is one that aborts at launch.
+
+The gate's own decision logic is tested on Linux against stubbed `otool`/`file`
+(`test/packaging/verify-bundle-test.sh`, run by `make package-test`), because
+the thing it guards cannot be built here.
 
 ## CI: `.github/workflows/release.yml`
 
@@ -253,7 +274,7 @@ policy. The per-OS build jobs, when they run:
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/gui-release-win/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
-| `macos`   | `macos-latest`                | Homebrew + CPack                                      | DragNDrop `.dmg`               | No — no macOS runner locally (`continue-on-error`) |
+| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/package-macos/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
 `release.yml` does not run tests — it builds packages and, for tags listed in
