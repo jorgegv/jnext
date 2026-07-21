@@ -3791,8 +3791,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         });
 
     // NextREG select — full 16-bit match on port 0x243B.
+    //
+    // READ (GH #52): VHDL zxnext.vhd:4603 `port_243b_dat <= nr_register`,
+    // gated into the read data bus at :2818 and declared an internally
+    // served read at :2804 (`port_internal_rd_response` includes
+    // `port_243b_rd`) — so IN from 0x243B returns the CURRENTLY SELECTED
+    // NextREG number, NOT floating bus. jnext had no read handler, so the
+    // read fell through to the dispatcher default (0x00).
+    //
+    // That is not a cosmetic gap: NextZXOS's per-frame interrupt handler
+    // save/restores the caller's selected register around its own NextREG
+    // use — `IN A,($243B)` … keyboard scan … `OUT ($243B),A`. Reading 0x00
+    // made it write 0x00 back, so every program launched from NextZXOS had
+    // its selected NextREG silently reset to 0 (machine ID, read-only) on
+    // the first frame interrupt. Warhawk.nex selects NR 0x1F and busy-waits
+    // for raster line 191; after one interrupt it read NR 0x00 = 0x0A
+    // forever and hung on its title logo (GH #52).
     port_.register_handler(0xFFFF, 0x243B,
-        nullptr,
+        [this](uint16_t) -> uint8_t { return nextreg_.selected(); },
         [this](uint16_t, uint8_t v) { nextreg_.select(v); });
 
     // NextREG data — full 16-bit match on port 0x253B.
