@@ -63,6 +63,13 @@ else
     bad prune-plugins "contract test failed (see $LOGDIR/pruneplugins.log)"
 fi
 
+# --- complete-closure.sh contract (adds files to the shipped bundle) ---------
+if bash test/packaging/complete-closure-test.sh >"$LOGDIR/closure.log" 2>&1; then
+    ok complete-closure "copies missing libs transitively, no-ops when complete"
+else
+    bad complete-closure "contract test failed (see $LOGDIR/closure.log)"
+fi
+
 # --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)

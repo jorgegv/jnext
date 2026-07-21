@@ -61,6 +61,15 @@ resolve_ref() {
         @loader_path/*)     echo "${loader_dir}/${ref#@loader_path/}";  return 0 ;;
         @rpath/*)
             local suffix=${ref#@rpath/} rp
+            # dyld builds its @rpath search list from the LC_RPATH commands of
+            # the WHOLE load chain — the main executable as well as the dylib
+            # doing the loading — so a bundled dylib with no LC_RPATH of its own
+            # still resolves @rpath through the executable's.
+            #
+            # Getting this wrong is not theoretical: checking only the referring
+            # file's own rpaths reported libwebpmux -> @rpath/libwebp.7.dylib as
+            # MISSING on run 29856062806 while libwebp.7.dylib was sitting in
+            # Contents/Frameworks the whole time.
             while IFS= read -r rp; do
                 [ -n "$rp" ] || continue
                 case "$rp" in
@@ -69,13 +78,18 @@ resolve_ref() {
                 esac
                 cand="$rp/$suffix"
                 if [ -e "$cand" ]; then echo "$cand"; return 0; fi
-            done < <(otool -l "$macho" 2>/dev/null |
-                     awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}')
+            done < <(macho_rpaths "$macho"; macho_rpaths "$exe_dir/jnext")
             echo ""
             return 0
             ;;
     esac
     echo ""
+}
+
+# macho_rpaths <file> — the LC_RPATH entries of a Mach-O, one per line.
+macho_rpaths() {
+    [ -e "$1" ] || return 0
+    otool -l "$1" 2>/dev/null | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}'
 }
 
 # ref_is_broken <ref> <referring-file> — true when a bundle-relative reference

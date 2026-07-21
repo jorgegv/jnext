@@ -376,6 +376,17 @@ install(CODE "
             message(FATAL_ERROR \"an essential Qt plugin could not be deployed — see above\")
         endif()
 
+        # Copy in anything the bundle references but does not contain.
+        # macdeployqt missed libsharpyuv on run 29856062806 while copying the
+        # three libwebp libraries that load it. Runs after pruning (fewer files
+        # to complete) and before signing (the signature must cover the result).
+        execute_process(
+            COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/complete-closure.sh\" \"\${_app}\"
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"could not complete the bundle's library closure\")
+        endif()
+
         message(STATUS \"Ad-hoc signing \${_app}\")
         execute_process(
             COMMAND codesign --force --deep --sign - \"\${_app}\"

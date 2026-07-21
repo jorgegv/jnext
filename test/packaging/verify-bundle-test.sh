@@ -253,6 +253,23 @@ rc=$(run "$APP")
 if [ "$rc" -ne 0 ]; then ok VB-13 "path merely containing /usr/lib/ rejected"
 else bad VB-13 "expected non-zero, got 0 — allow-list matched a substring"; fi
 
+# --- VB-14: @rpath resolves through the MAIN EXECUTABLE's rpaths -------------
+# dyld builds its @rpath list from the whole load chain, not just the referring
+# file. macdeployqt leaves bundled dylibs referencing each other via @rpath
+# without giving them an LC_RPATH of their own — they resolve through the
+# executable's. Checking only the referring file's rpaths reported
+# libwebpmux -> @rpath/libwebp.7.dylib as MISSING on run 29856062806 while
+# libwebp.7.dylib was sitting in Contents/Frameworks the whole time.
+APP=$WORK/rpath-chain.app
+macho "$APP" Contents/MacOS/jnext '@rpath/libwebpmux.3.dylib'
+rpaths "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks'
+macho "$APP" Contents/Frameworks/libwebpmux.3.dylib '@rpath/libwebp.7.dylib'
+#   ...deliberately NO rpaths on libwebpmux itself
+macho "$APP" Contents/Frameworks/libwebp.7.dylib '/usr/lib/libSystem.B.dylib'
+rc=$(run "$APP")
+if [ "$rc" -eq 0 ]; then ok VB-14 "@rpath resolved via the executable's rpaths"
+else bad VB-14 "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
+
 # --- VB-07: wrong usage exits 2 ----------------------------------------------
 bash "$SCRIPT" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 2 ]; then ok VB-07 "no argument exits 2"
