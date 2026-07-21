@@ -54,10 +54,11 @@ essential_broken=0
 while IFS= read -r plugin; do
     rel=${plugin#"$APP"/Contents/}
     broken_ref=""
+    rplist=$(search_rpaths "$plugin")
 
     while IFS= read -r dep; do
         [ -n "$dep" ] || continue
-        if ref_is_broken "$dep" "$plugin"; then
+        if ref_is_broken "$dep" "$plugin" "$rplist"; then
             broken_ref=$dep
             break
         fi

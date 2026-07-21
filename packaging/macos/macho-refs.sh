@@ -51,9 +51,17 @@ macho_id() {
     otool -D "$1" 2>/dev/null | tail -n +2 | head -1 || true
 }
 
-# resolve_ref <ref> <referring-file> — echo the real path a bundle-relative
-# reference names, or empty if it does not resolve. "@rpath/X" is searched
-# against the referring file's own LC_RPATH entries, exactly as dyld does.
+# resolve_ref <ref> <referring-file> <rpath-list> — echo the real path a
+# bundle-relative reference names, or empty if it does not resolve.
+#
+# <rpath-list> is the newline-separated dyld search list, computed ONCE PER FILE
+# by the caller (see search_rpaths). It is a parameter rather than something
+# this function looks up because resolve_ref is called once per DEPENDENCY, and
+# a Qt bundle has tens per file: reading the rpaths here cost thousands of otool
+# processes and a 16-minute package step. Memoising inside the function does not
+# work either — callers invoke it through $(...), and a subshell throws the
+# cache away every time (run 29859539303 was still slow for exactly that
+# reason).
 #
 # A bundle-relative STRING proves nothing on its own: macdeployqt drops a
 # framework it cannot resolve from its copy worklist while leaving the reference
@@ -61,7 +69,7 @@ macho_id() {
 # copied. dyld fails on that at launch just as hard as on an absolute
 # /opt/homebrew path — the GH #46 symptom, one layer removed.
 resolve_ref() {
-    local ref=$1 macho=$2 loader_dir exe_dir cand
+    local ref=$1 macho=$2 rplist=$3 loader_dir exe_dir cand rp
     loader_dir=$(dirname "$macho")
     exe_dir="$APP/Contents/MacOS"
 
@@ -69,16 +77,7 @@ resolve_ref() {
         @executable_path/*) echo "${exe_dir}/${ref#@executable_path/}"; return 0 ;;
         @loader_path/*)     echo "${loader_dir}/${ref#@loader_path/}";  return 0 ;;
         @rpath/*)
-            local suffix=${ref#@rpath/} rp
-            # dyld builds its @rpath search list from the LC_RPATH commands of
-            # the WHOLE load chain — the main executable as well as the dylib
-            # doing the loading — so a bundled dylib with no LC_RPATH of its own
-            # still resolves @rpath through the executable's.
-            #
-            # Getting this wrong is not theoretical: checking only the referring
-            # file's own rpaths reported libwebpmux -> @rpath/libwebp.7.dylib as
-            # MISSING on run 29856062806 while libwebp.7.dylib was sitting in
-            # Contents/Frameworks the whole time.
+            local suffix=${ref#@rpath/}
             while IFS= read -r rp; do
                 [ -n "$rp" ] || continue
                 case "$rp" in
@@ -87,7 +86,7 @@ resolve_ref() {
                 esac
                 cand="$rp/$suffix"
                 if [ -e "$cand" ]; then echo "$cand"; return 0; fi
-            done < <(macho_rpaths "$macho"; macho_rpaths "$exe_dir/jnext")
+            done <<< "$rplist"
             echo ""
             return 0
             ;;
@@ -96,35 +95,35 @@ resolve_ref() {
 }
 
 # macho_rpaths <file> — the LC_RPATH entries of a Mach-O, one per line.
-#
-# MEMOISED. resolve_ref is called once per dependency, and a Qt bundle has tens
-# of dependencies per file across ~60 files — recomputing this per reference
-# meant thousands of otool processes and a 16-minute package step (run
-# 29857249811, cancelled). The rpaths of a file do not change while we look at
-# it, so each is read at most once.
-_RPATH_CACHE_KEYS=""
 macho_rpaths() {
     [ -e "$1" ] || return 0
-    local key cached
-    key=$(printf '%s' "$1" | tr -c '[:alnum:]' '_')
-    cached="_RPATH_CACHE_$key"
-    if [[ "$_RPATH_CACHE_KEYS" != *"|$key|"* ]]; then
-        printf -v "$cached" '%s' \
-            "$(otool -l "$1" 2>/dev/null | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}')"
-        _RPATH_CACHE_KEYS="$_RPATH_CACHE_KEYS|$key|"
-    fi
-    printf '%s\n' "${!cached}"
+    otool -l "$1" 2>/dev/null | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}'
 }
 
-# ref_is_broken <ref> <referring-file> — true when a bundle-relative reference
-# names a file that is not in the bundle. Absolute paths are not this function's
-# business (verify-bundle.sh judges those against its allow-list).
+# search_rpaths <file> — the full dyld @rpath search list for <file>.
+#
+# dyld builds it from the LC_RPATH commands of the WHOLE load chain — the main
+# executable as well as the dylib doing the loading — so a bundled dylib with no
+# LC_RPATH of its own still resolves @rpath through the executable's. Checking
+# only the referring file's own rpaths reported libwebpmux ->
+# @rpath/libwebp.7.dylib as MISSING on run 29856062806 while libwebp.7.dylib was
+# sitting in Contents/Frameworks the whole time.
+#
+# Call this ONCE PER FILE, not once per reference.
+search_rpaths() {
+    macho_rpaths "$1"
+    macho_rpaths "$APP/Contents/MacOS/jnext"
+}
+
+# ref_is_broken <ref> <referring-file> <rpath-list> — true when a bundle-relative
+# reference names a file that is not in the bundle. Absolute paths are not this
+# function's business (verify-bundle.sh judges those against its allow-list).
 ref_is_broken() {
-    local ref=$1 macho=$2 target
+    local ref=$1 macho=$2 rplist=$3 target
     case "$ref" in
         @*) ;;
         *)  return 1 ;;
     esac
-    target=$(resolve_ref "$ref" "$macho")
+    target=$(resolve_ref "$ref" "$macho" "$rplist")
     [ -z "$target" ] || [ ! -e "$target" ]
 }

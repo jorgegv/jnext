@@ -59,9 +59,10 @@ for pass in 1 2 3 4 5; do
     copied_this_pass=0
 
     while IFS= read -r macho; do
+        rplist=$(search_rpaths "$macho")
         while IFS= read -r dep; do
             [ -n "$dep" ] || continue
-            ref_is_broken "$dep" "$macho" || continue
+            ref_is_broken "$dep" "$macho" "$rplist" || continue
 
             base=$(basename "$dep")
             # Only ever satisfy a reference with a plain library name. A

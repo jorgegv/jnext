@@ -68,6 +68,8 @@ while IFS= read -r macho; do
     # empty id, which excuses NOTHING — the failure direction is toward
     # checking more, never less.
     own_id=$(macho_id "$macho")
+    # Once per FILE, not once per reference — see search_rpaths in macho-refs.sh.
+    rplist=$(search_rpaths "$macho")
 
     # otool -L prints the file name on line 1, then one dependency per line as
     # "\t<path> (compatibility version ...)". Drop line 1, keep the path field.
@@ -78,7 +80,7 @@ while IFS= read -r macho; do
             # Bundle-relative: prove the file it names is actually THERE.
             case "$dep" in
                 @*)
-                    if ref_is_broken "$dep" "$macho"; then
+                    if ref_is_broken "$dep" "$macho" "$rplist"; then
                         if [ "$dangling" -eq 0 ]; then
                             echo "FAIL: these bundle-relative references do not resolve to a" >&2
                             echo "      file inside the bundle — dyld will fail on them at" >&2
