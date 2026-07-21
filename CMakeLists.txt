@@ -390,6 +390,18 @@ install(CODE "
             message(FATAL_ERROR \"complete-closure failed or timed out (result: \${_rc})\")
         endif()
 
+        # Copy in dependencies that are dlopen'd rather than linked; no
+        # dependency walk can find them. Runs before signing so they are
+        # covered by the signature. See GH #46: v0.98.72 passed every
+        # structural check and still aborted at launch for want of libSDL3.
+        execute_process(
+            COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/bundle-dlopen-deps.sh\" \"\${_app}\"
+            TIMEOUT 300
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"bundle-dlopen-deps failed or timed out (result: \${_rc})\")
+        endif()
+
         message(STATUS \"Ad-hoc signing \${_app}\")
         execute_process(
             COMMAND codesign --force --deep --sign - \"\${_app}\"
