@@ -591,7 +591,7 @@ publish-release:
 # Wall-clock bound for every macOS packaging phase, so a hang fails fast and
 # names the phase instead of blocking a CI job silently (runs 29857249811 /
 # 29860430214 each had to be cancelled by hand after 16-21 minutes of no output).
-MACOS_BOUND := bash packaging/macos/run-bounded.sh
+MACOS_BOUND := bash $(CURDIR)/packaging/macos/run-bounded.sh
 
 PKG_BUILD_RPM := build/package-rpm
 PKG_BUILD_DEB := build/package-deb
