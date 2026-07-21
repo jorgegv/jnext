@@ -43,9 +43,11 @@
 # which walks EVERY Mach-O in the finished bundle — including this one — and
 # fails the build on any unresolved or out-of-bundle reference. So an SDL3 that
 # grew an external dependency would break the package loudly rather than ship
-# silently, and today it has none (CI run 29874058824: 58 Mach-O files, zero
-# external load references). Running complete-closure.sh again here would be
-# strictly redundant with that gate.
+# silently, and today it has none: CI run 29874058824 shows 58 Mach-O files with
+# zero external load references, and the reporter confirmed the same artifact on
+# macOS 26.5.2 arm64 — libSDL3.dylib bundled, signed, satisfying its Designated
+# Requirement, pulling in no non-system library. Running complete-closure.sh
+# again here would be strictly redundant with that gate.
 #
 set -euo pipefail
 
