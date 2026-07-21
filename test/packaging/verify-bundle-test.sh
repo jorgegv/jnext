@@ -91,12 +91,7 @@ fi
 exit 0
 STUB
 
-cat >"$WORK/bin/install_name_tool" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-
-chmod +x "$WORK/bin/otool" "$WORK/bin/file" "$WORK/bin/codesign" "$WORK/bin/install_name_tool"
+chmod +x "$WORK/bin/otool" "$WORK/bin/file" "$WORK/bin/codesign"
 export PATH="$WORK/bin:$PATH"
 
 # --- helpers -----------------------------------------------------------------
