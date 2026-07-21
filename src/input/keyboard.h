@@ -60,8 +60,9 @@ public:
     /// Called by port 0xFE read.
     /// addr_high = upper byte of the 16-bit port address.
     /// Returns 5-bit OR of selected rows (bits 0-4), active-low.
-    /// Bits 7-5 are not set here — the caller should OR in 0xE0 and the
-    /// EAR/MIC bits before returning to the CPU.
+    /// Bits 7-5 are not set here — the caller composes them per VHDL
+    /// zxnext.vhd:3459 (`'1' & (i_AUDIO_EAR or port_fe_ear) & '1' & col`),
+    /// i.e. bits 7 and 5 forced to 1 and bit 6 = EAR (0 when idle).
     uint8_t read_rows(uint8_t addr_high) const;
 
     /// Auto-type: press a key by matrix position (row 0-7, col 0-4) for N frames.

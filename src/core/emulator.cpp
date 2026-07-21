@@ -3815,19 +3815,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Read (VHDL zxnext.vhd:3459):
     //   port_fe_dat_0 <= '1' & (i_AUDIO_EAR or port_fe_ear) & '1' & i_KBD_COL
     // where `i_AUDIO_EAR` is the relaxed tape-input signal (zxnext_top_issue2.vhd:
-    // symmetric_relaxation, i_relax_0/1 = zxn_issue2_fe_mic =
-    // port_fe_mic AND nr_08_keyboard_issue2). In the no-tape idle regime the
-    // relaxation steady-state collapses to `port_fe_mic AND nr_08_keyboard_issue2`.
-    // jnext simplification: idle tape pin is '1' (no signal); we therefore
-    // OR a pragmatic `audio_ear_eff` with `port_fe_ear` (OUT 0xFE bit 4 latch):
+    // 662-676 `ear_relax : symmetric_relaxation`, i_relax_0 = i_relax_1 =
+    // zxn_issue2_fe_mic = port_fe_mic AND nr_08_keyboard_issue2, zxnext.vhd:1636).
+    //
+    // symmetric_relaxation.vhd:83-92: once the input has held its value for
+    // COUNTER_SIZE=6 membrane ticks (~1152 us), the output is forced to
+    //   (i_relax_0 and not sig) or (i_relax_1 and sig)
+    // and since relax_0 == relax_1 == zxn_issue2_fe_mic here, that collapses to
+    // zxn_issue2_fe_mic REGARDLESS of the tape pin's stable level. So with no
+    // tape signal the steady state is ALWAYS `port_fe_mic AND nr_08_keyboard_issue2`
+    // — which is 0 whenever issue-2 keyboard mode is off. The idle pin level
+    // never survives the relaxation; that is the whole point of the block
+    // (see its comment "RELAX STUCK AT ONE TO ZERO AFTER SOME TIME").
+    //
     //   audio_ear_eff = tape_playing ? tape_bit
     //                 : issue2_on    ? port_fe_mic  (OUT 0xFE bit 3 latch)
-    //                                : 1            (idle tape high, matches
-    //                                                 i_AUDIO_EAR when issue2=0
-    //                                                 and no tape; the full
-    //                                                 VHDL relaxation is
-    //                                                 approximated at steady
-    //                                                 state).
+    //                                : 0            (relaxed steady state)
+    //
+    // Bit 6 is then ORed with `port_fe_ear` (OUT 0xFE bit 4 latch), so an idle
+    // Next reads 0xBF from port 0xFE with no key pressed — NOT 0xFF. Programs
+    // that compare a keyboard half-row against an exact byte (rather than
+    // masking bits 4:0) depend on this: Night-Knight-Demo tests its O/P/SPACE
+    // rows for exactly 0xBD/0xBE (GH #51), which is unreachable with bit 6
+    // stuck at 1.
     // Write: bits 2-0 = border colour; bit 4 = EAR; bit 3 = MIC.
     //
     // V17-NMP-02 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2582 decodes
@@ -3855,9 +3865,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // input" signal — see src/input/phantom_typist.h.
             phantom_typist_.notice_keyboard_row_read(addr_high);
             uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
-            // Default `audio_ear_eff = 1` (idle tape pin pull-up). Tape
-            // playback overrides. Issue-2 feedback substitutes MIC.
-            uint8_t audio_ear_eff = 1;
+            // Default `audio_ear_eff = 0` — the relaxed steady state of
+            // `ear_relax` when issue-2 keyboard mode is off. Tape playback
+            // overrides it; issue-2 feedback substitutes MIC.
+            uint8_t audio_ear_eff = 0;
             if (tape_.is_playing()) {
                 audio_ear_eff = tape_.tick_realtime(0);
             } else if (tzx_tape_.is_playing()) {
