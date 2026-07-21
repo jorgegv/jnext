@@ -47,8 +47,16 @@ esac
 STUB
 cat >"$WORK/bin/file" <<'STUB'
 #!/usr/bin/env bash
-if [ -f "$2.deps" ]; then echo "Mach-O 64-bit dynamically linked shared library arm64"
-else echo "ASCII text"; fi
+# `file <path>...` (batched, no -b): one "<path>: <desc>" line per input.
+# Mach-O iff the sidecar exists. Also supports the -b single-file form.
+if [ "$1" = "-b" ]; then
+    if [ -f "$2.deps" ]; then echo "Mach-O 64-bit executable arm64"; else echo "ASCII text"; fi
+    exit 0
+fi
+for f in "$@"; do
+    if [ -f "$f.deps" ]; then echo "$f: Mach-O 64-bit executable arm64"
+    else echo "$f: ASCII text"; fi
+done
 STUB
 chmod +x "$WORK/bin/otool" "$WORK/bin/file"
 export PATH="$WORK/bin:$PATH"

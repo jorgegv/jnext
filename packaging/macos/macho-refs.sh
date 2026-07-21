@@ -15,9 +15,18 @@
 # macho_files <app> — every Mach-O file in the bundle, one per line.
 # Not just the main executable: a bundled dylib or a Qt plugin carries its own
 # references, and dyld fails on those exactly as hard.
+# PERFORMANCE: ONE `file` process for the whole bundle instead of three
+# (sh + file + grep) per candidate. A Qt bundle holds thousands of files, and
+# the per-file form made `make package-macos` take 16+ minutes instead of ~3
+# (run 29857249811, cancelled).
+#
+# Note `file` is deliberately called WITHOUT -b: it then prints "<path>: <desc>"
+# so each verdict carries its own filename, and no separate list has to be
+# re-paired with it. (Pairing two `find` runs with paste was the first attempt;
+# it is fragile and it silently produced an empty file list.)
 macho_files() {
-    find "$1" -type f -perm -u+r \
-        -exec sh -c 'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \;
+    find "$1" -type f -perm -u+r -exec file {} + 2>/dev/null |
+        awk -F': ' '/Mach-O/ {print $1}'
 }
 
 # macho_deps <file> — the LC_LOAD_DYLIB paths of a Mach-O.
@@ -87,9 +96,24 @@ resolve_ref() {
 }
 
 # macho_rpaths <file> — the LC_RPATH entries of a Mach-O, one per line.
+#
+# MEMOISED. resolve_ref is called once per dependency, and a Qt bundle has tens
+# of dependencies per file across ~60 files — recomputing this per reference
+# meant thousands of otool processes and a 16-minute package step (run
+# 29857249811, cancelled). The rpaths of a file do not change while we look at
+# it, so each is read at most once.
+_RPATH_CACHE_KEYS=""
 macho_rpaths() {
     [ -e "$1" ] || return 0
-    otool -l "$1" 2>/dev/null | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}'
+    local key cached
+    key=$(printf '%s' "$1" | tr -c '[:alnum:]' '_')
+    cached="_RPATH_CACHE_$key"
+    if [[ "$_RPATH_CACHE_KEYS" != *"|$key|"* ]]; then
+        printf -v "$cached" '%s' \
+            "$(otool -l "$1" 2>/dev/null | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}')"
+        _RPATH_CACHE_KEYS="$_RPATH_CACHE_KEYS|$key|"
+    fi
+    printf '%s\n' "${!cached}"
 }
 
 # ref_is_broken <ref> <referring-file> — true when a bundle-relative reference
