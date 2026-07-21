@@ -102,10 +102,15 @@ delete the folder to uninstall. On first launch Windows SmartScreen may warn
 about an unrecognized publisher — the executable is not yet code-signed — so
 click **More info → Run anyway**.
 
-The **macOS** build is a `.dmg`; open it and drag **jnext** to Applications. On
-first launch macOS Gatekeeper may refuse to open it because the app is not yet
-code-signed or notarized — right-click the app and choose **Open**, then confirm
-**Open** in the dialog (or allow it under **System Settings → Privacy & Security**).
+The **macOS** build is a `.dmg`; open it and drag **jnext** to Applications. The
+app is ad-hoc signed but **deliberately not notarised** — notarisation requires
+a paid Apple Developer Program membership — so Gatekeeper blocks the first
+launch. Try to open it once, then allow it under **System Settings → Privacy &
+Security → Open Anyway**; or clear the download flag with `xattr -dr
+com.apple.quarantine /Applications/jnext.app`. The old Control-click → **Open**
+bypass no longer covers this case on macOS 15 and later. Details, and how to
+check the bundle is intact:
+**[user guide § macOS](doc/user-guide/02-installing/03-macos.html)**.
 
 Prefer to build it yourself? See **[BUILD.md](BUILD.md)** — it also covers
 building the packages above (`make package-rpm` / `package-deb` /
