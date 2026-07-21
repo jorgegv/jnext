@@ -706,10 +706,25 @@ package-macos:
 # (run 29854836676). CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE is also turned OFF
 # so users are not prompted either; this keeps the check working regardless.
 #
-# NOTE what this canNOT prove: the launch below runs on the machine that built
-# the package, where Homebrew is present, so a missing library would still be
-# found. Its value is proving the bundle is signed, mountable and launchable at
-# all. Self-containment is proven structurally by verify-bundle.sh, not here.
+# There is deliberately NO launch smoke test here, and it is not an oversight.
+# One was tried and REMOVED on evidence (runs 29859539303 / 29860430214 /
+# 29863761709):
+#
+#   * It cannot prove the thing GH #46 is about. It would run on the machine
+#     that BUILT the package, where Homebrew is present, so a missed dependency
+#     would be silently satisfied. verify-bundle.sh proves self-containment
+#     structurally, and it runs twice — once on the staged bundle and once on
+#     the bundle inside the mounted .dmg.
+#   * It hangs, in macOS, not in jnext. DYLD_PRINT_LIBRARIES showed dyld getting
+#     as far as AppleParavirtGPUMetalIOGPUFamily and IOGPU — the GPU stack on a
+#     headless paravirtualised CI VM — and then stopping dead. jnext writes its
+#     version banner to stderr BEFORE parsing any argument (main.cpp), and no
+#     banner ever appeared, so the process never reached main(): the block is
+#     pre-main, in dyld/AMFI, and nothing in this repo can fix it. Launching the
+#     same binary as a bare executable takes ~60ms in the Smoke test step.
+#
+# It was deleted rather than made non-fatal. A check that is allowed to fail
+# silently is worse than no check: it reads as coverage and provides none.
 verify-macos-dmg:
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) verifying a .dmg requires a Mac (hdiutil/otool).\n"; \
@@ -718,16 +733,12 @@ verify-macos-dmg:
 	set -e; \
 	dmg=$$(ls -1 build/package-macos/*.dmg 2>/dev/null | head -1); \
 	if [ -z "$$dmg" ]; then echo "error: no .dmg in build/package-macos" >&2; exit 1; fi; \
-	mnt=$$(mktemp -d); off=$$(mktemp -d); \
-	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true; rm -rf "$$off"' EXIT; \
+	mnt=$$(mktemp -d); \
+	trap 'hdiutil detach "$$mnt" -quiet -force >/dev/null 2>&1; rmdir "$$mnt" 2>/dev/null || true' EXIT; \
 	yes | $(MACOS_BOUND) 120 "hdiutil attach" \
 		hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
 	$(MACOS_BOUND) 300 "verify-bundle (mounted dmg)" \
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
-	ditto "$$mnt/jnext.app" "$$off/jnext.app"; \
-	xattr -cr "$$off/jnext.app" 2>/dev/null || true; \
-	DYLD_PRINT_LIBRARIES=1 $(MACOS_BOUND) 90 "launch shipped jnext.app --version" \
-		"$$off/jnext.app/Contents/MacOS/jnext" --version </dev/null; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded

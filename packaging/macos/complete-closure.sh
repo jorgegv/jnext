@@ -19,6 +19,15 @@
 #
 # Iterates to a fixed point: a library copied in brings its own dependencies.
 #
+# HONEST STATUS: on the first run where the checker was correct (29863761709)
+# this script added ZERO libraries. The 6 references that looked missing were
+# all resolved once resolve_ref learned that dyld searches the whole load
+# chain's rpaths, including the main executable's — libsharpyuv WAS in the
+# bundle and the checker could not see it. So this script has never yet fixed
+# anything. It is kept because macdeployqt genuinely can leave a reference
+# undeployed while exiting 0, and because being add-only it costs nothing when
+# there is nothing to do.
+#
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
