@@ -705,14 +705,6 @@ if(ENABLE_DEBUGGER)
     add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
 endif()
 
-# Pin the C locale for every registered test, so `ctest` matches what
-# test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
-# code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on
-# construction, which localises strerror() and broke a grep-for-the-reason assertion
-# on a Spanish desktop. Must stay LAST — it applies to the add_test()s seen so far.
-get_property(JNEXT_REGISTERED_TESTS DIRECTORY PROPERTY TESTS)
-set_tests_properties(${JNEXT_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "LC_ALL=C")
-
 # LoRes pixel-generator compliance tests (GH #63).
 # Plan: doc/testing/LORES-TEST-PLAN-DESIGN.md — tier-U rows.
 # Oracle: cores/zxnext/src/video/lores.vhd + the wiring in zxnext.vhd.
@@ -731,3 +723,11 @@ target_link_libraries(lores_integration_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(lores_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME lores_integration_tests COMMAND lores_integration_test)
+
+# Pin the C locale for every registered test, so `ctest` matches what
+# test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
+# code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on
+# construction, which localises strerror() and broke a grep-for-the-reason assertion
+# on a Spanish desktop. Must stay LAST — it applies to the add_test()s seen so far.
+get_property(JNEXT_REGISTERED_TESTS DIRECTORY PROPERTY TESTS)
+set_tests_properties(${JNEXT_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "LC_ALL=C")
