@@ -171,9 +171,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(jnext PRIVATE -Wno-stringop-overflow)
 endif()
 
-# Windows: embed the application icon into jnext.exe via a resource script
-# compiled by windres. jnext.rc references "jnext.ico" relative to the assets
-# dir (added to the RC include path). No-op on other platforms.
+# Windows: embed the application icon and the activeCodePage=UTF-8 manifest
+# (GH #62 — makes the narrow CRT decode jnext's UTF-8 paths) into jnext.exe via
+# a resource script compiled by windres. jnext.rc references "jnext.ico" and
+# "jnext.manifest" relative to the assets dir (added to the RC include path).
+# No-op on other platforms.
 if(WIN32)
     enable_language(RC)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/assets/jnext.rc

@@ -1,1 +1,5 @@
 IDI_ICON1 ICON "jnext.ico"
+// GH #62: activeCodePage=UTF-8 application manifest so the narrow CRT decodes
+// jnext's UTF-8 std::string paths correctly (non-ASCII dirs). 1 = CREATEPROCESS_
+// MANIFEST_RESOURCE_ID, 24 = RT_MANIFEST.
+1 24 "jnext.manifest"
