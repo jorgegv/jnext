@@ -62,18 +62,30 @@ SdCardDevice::~SdCardDevice() {
     unmount();
 }
 
-bool SdCardDevice::mount(const std::string& path) {
+bool SdCardDevice::mount(const std::string& path, bool read_only) {
     unmount();
 
-    file_.open(path, std::ios::in | std::ios::out | std::ios::binary);
-    if (!file_.is_open()) {
-        // Try read-only
+    if (read_only) {
+        // Deliberate, not a fallback: the caller asked for a card the guest
+        // cannot write (GH #77). Logged at info because nothing went wrong —
+        // the warn below means "you wanted RW and did not get it".
         file_.open(path, std::ios::in | std::ios::binary);
         if (!file_.is_open()) {
-            sd_log()->error("failed to open SD image: {}", path);
+            sd_log()->error("failed to open SD image read-only: {}", path);
             return false;
         }
-        sd_log()->warn("SD image opened read-only: {}", path);
+        sd_log()->info("SD image opened read-only by request: {}", path);
+    } else {
+        file_.open(path, std::ios::in | std::ios::out | std::ios::binary);
+        if (!file_.is_open()) {
+            // Try read-only
+            file_.open(path, std::ios::in | std::ios::binary);
+            if (!file_.is_open()) {
+                sd_log()->error("failed to open SD image: {}", path);
+                return false;
+            }
+            sd_log()->warn("SD image opened read-only: {}", path);
+        }
     }
 
     file_.seekg(0, std::ios::end);

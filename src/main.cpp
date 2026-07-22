@@ -56,6 +56,7 @@ static void print_usage(const char* prog) {
         "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
         "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
         "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
+        "  --sdcard-readonly       Open the SD image read-only; the host file is never written\n"
         "  --sdcard-download-force    Force re-download + re-patch of the default-location\n"
         "                       image (~/.jnext/sdcard/) to recover a corrupted one. Ignored\n"
         "                       when --sdcard is given (an explicit path always wins).\n"
@@ -170,6 +171,7 @@ int main(int argc, char* argv[]) {
     std::string positional_file;   // bare filename arg; shorthand for --load
     std::string sd_card_image;
     bool        sdcard_download_confirm = false;
+    bool        sdcard_readonly = false;
     bool        sdcard_download_force   = false;
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
@@ -273,6 +275,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardDownloadForce:
                 sdcard_download_force = true;
+                break;
+            case cli::OptId::SdcardReadonly:
+                sdcard_readonly = true;
                 break;
             case cli::OptId::DelayedScreenshot:
                 screenshot_file = v[0];
@@ -607,6 +612,7 @@ int main(int argc, char* argv[]) {
         EmulatorConfig cfg;
         cfg.type = machine_type;
         cfg.sd_card_image = sd_card_image;
+        cfg.sd_card_readonly = sdcard_readonly;
         // Propagate --load path to EmulatorConfig so the boot-ROM auto-load
         // gate (Emulator::init) can distinguish "firmware boot" from
         // "direct NEX/TAP launch": when a --load is present, the embedded

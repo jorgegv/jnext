@@ -5972,7 +5972,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // external SPI peripheral, not in the reset domain — its mounted
     // file and initialised state survive soft reset.
     if (!preserve_memory && !cfg.sd_card_image.empty()) {
-        if (sd_card_.mount(cfg.sd_card_image)) {
+        if (sd_card_.mount(cfg.sd_card_image, cfg.sd_card_readonly)) {
             Log::emulator()->info("SD card image mounted: '{}'", cfg.sd_card_image);
         } else {
             Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);

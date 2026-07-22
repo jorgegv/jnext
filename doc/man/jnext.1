@@ -54,6 +54,12 @@ recover a corrupted one.
 Ignored when \f[B]\-\-sdcard\f[R] is given: an explicit path always
 wins.
 .TP
+\f[B]\-\-sdcard\-readonly\f[R]
+Open the SD image read\-only, so the host file is never modified.
+The emulated machine sees a write\-protected card: writes are rejected
+with the SD write\-error token rather than silently discarded.
+Use it when a run must not disturb an image other runs share.
+.TP
 \f[B]\-\-speed\f[R] \f[I]PERCENT\f[R]
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000.
@@ -286,13 +292,14 @@ useful in scripts; \f[B]\-\-sdcard\-download\-force\f[R] re\-downloads
 and re\-patches a corrupted cached image.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
-Note that jnext opens the image \f[B]read\-write\f[R], and writes the
-emulated machine makes to the SD card are persisted to the file.
+Note that jnext opens the image \f[B]read\-write\f[R] by default, and
+writes the emulated machine makes to the SD card are persisted to the
+file.
 Two runs sharing one image are therefore not independent: a run that
 boots NextZXOS mutates the image the next run reads.
-For a reproducible run, give it a private copy
-(\f[CR]cp \-\-reflink=auto\f[R] is instant and costs no space on a
-copy\-on\-write filesystem).
+For a reproducible run, either pass \f[B]\-\-sdcard\-readonly\f[R], or
+give it a private copy (\f[CR]cp \-\-reflink=auto\f[R] is instant and
+costs no space on a copy\-on\-write filesystem).
 .PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.

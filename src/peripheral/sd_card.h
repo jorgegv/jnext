@@ -33,7 +33,16 @@ public:
     ~SdCardDevice() override;
 
     /// Mount a disk image file.  Returns true on success.
-    bool mount(const std::string& path);
+    /// Mount an SD image.
+    ///
+    /// @param read_only  when true the host file is opened read-only on
+    ///   purpose, so the emulated machine sees a write-protected card:
+    ///   CMD24 writes fail the host fstream and the card emits the 0x0D
+    ///   "data rejected due to write error" token, exactly as it already
+    ///   did for the accidental read-only fallback below. This is what
+    ///   `--sdcard-readonly` gives a user who needs a run not to mutate a
+    ///   shared image (GH #77).
+    bool mount(const std::string& path, bool read_only = false);
 
     /// Unmount the current image (if any).
     void unmount();
