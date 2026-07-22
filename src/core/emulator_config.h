@@ -139,6 +139,9 @@ struct EmulatorConfig {
     // unit-test fixtures; not allowed at the CLI level — main.cpp errors
     // out when --sdcard is missing).
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
+    // Open the SD image read-only, so the emulated machine sees a
+    // write-protected card and the host file is never modified (GH #77).
+    bool        sd_card_readonly = false;
 
     // Rewind buffer: number of frame snapshots to keep (0 = disabled).
     // Opt-in: rewind costs a full-machine save_state every frame plus the

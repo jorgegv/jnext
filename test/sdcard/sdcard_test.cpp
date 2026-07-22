@@ -28,6 +28,7 @@
 #include "peripheral/sd_card.h"
 
 #include <cstdio>
+#include <fstream>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -455,6 +456,75 @@ static void test_cmd23_block_count(SdCardDevice& sd) {
           " r1_post=" + std::to_string(r1_post) +
           " tok=" + (tok ? "1" : "0") +
           " b0=" + std::to_string(b[0]));
+}
+
+// ─── Read-only mount (GH #77, --sdcard-readonly) ────────────────────────
+
+static void test_readonly_mount() {
+    // SD-RO-01/02: `mount(path, read_only=true)` opens the host file
+    // read-only ON PURPOSE, so the emulated machine sees a write-protected
+    // card. This is the deliberate form of the accidental fallback that
+    // mount() has always had when the file is not writable, and it uses the
+    // SAME already-implemented path: the host fstream write fails, and CMD24
+    // emits the 0x0D "data rejected due to write error" token per SD Physical
+    // Layer Simplified Spec § 7.3.3.3 instead of 0x05 "data accepted".
+    //
+    // Two properties, and both matter — a card that merely discarded the
+    // write while answering 0x05 would satisfy the second and lie about the
+    // first:
+    //   SD-RO-01  the card REPORTS the write error (0x0D, not 0x05);
+    //   SD-RO-02  the host file is byte-identical afterwards.
+    std::string img = make_image(8);
+
+    // Capture the original sector-8-adjacent content (sector 4 is used here
+    // so this row cannot be confused with SD-14's sector 8).
+    auto read_sector4 = [&img]() {
+        std::ifstream f(img, std::ios::binary);
+        f.seekg(4 * 512, std::ios::beg);
+        std::string b(512, '\0');
+        f.read(&b[0], 512);
+        return b;
+    };
+    const std::string before = read_sector4();
+
+    SdCardDevice ro;
+    const bool mounted = ro.mount(img, /*read_only=*/true);
+    init_card(ro);
+
+    // CMD24 sector=4 with a pattern that cannot occur in the fixture
+    // (make_image fills byte i with (s + i) & 0xFF; 0x5A everywhere is not
+    // that for any s), so a silent partial write would still be detected.
+    uint8_t r1_wr = send_cmd_r1(ro, 24, 4);
+    spi_write(ro, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(ro, 0x5A);
+    spi_write(ro, 0xFF);
+    spi_write(ro, 0xFF);
+
+    uint8_t resp = 0xFF;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(ro);
+        if (b != 0xFF) { resp = b; break; }
+    }
+    ro.deselect();
+    ro.unmount();
+
+    const std::string after = read_sector4();
+    std::remove(img.c_str());
+
+    check("SD-RO-01",
+          "read-only mount: CMD24 is REJECTED with the 0x0D write-error token "
+          "(SD spec 7.3.3.3), not accepted with 0x05",
+          mounted && r1_wr == 0x00 && resp == 0x0D,
+          "mounted=" + std::string(mounted ? "1" : "0") +
+          " r1_wr=" + std::to_string(r1_wr) +
+          " resp=0x" + [&]{ char b[8]; std::snprintf(b, sizeof b, "%02X", resp); return std::string(b); }());
+
+    check("SD-RO-02",
+          "read-only mount: the host image is byte-identical after a rejected "
+          "CMD24 — the write is not silently applied",
+          before == after && !before.empty(),
+          "identical=" + std::string(before == after ? "1" : "0") +
+          " len=" + std::to_string(before.size()));
 }
 
 // ─── New: CMD24 WRITE_BLOCK round-trip ──────────────────────────────────
@@ -2022,6 +2092,7 @@ int main() {
     test_cmd16_set_blocklen(sd);
     test_cmd23_block_count(sd);
     test_cmd24_write(sd);
+    test_readonly_mount();
     test_mmc_cmd1_init(sd);
 
     // TASK2-TESTCOV — retroactive regression coverage for DivMMC/SD/SPI

@@ -64,6 +64,12 @@ debugger ones.
     corrupted one. Ignored when **\--sdcard** is given: an explicit path always
     wins.
 
+**\--sdcard-readonly**
+:   Open the SD image read-only, so the host file is never modified. The
+    emulated machine sees a write-protected card: writes are rejected with the
+    SD write-error token rather than silently discarded. Use it when a run must
+    not disturb an image other runs share.
+
 **\--speed** *PERCENT*
 :   Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped to
     10..1000.
@@ -272,12 +278,12 @@ first run. **\--sdcard-download-confirm** skips the prompt, which is useful in
 scripts; **\--sdcard-download-force** re-downloads and re-patches a corrupted
 cached image. An explicit **\--sdcard** always wins over both.
 
-Note that jnext opens the image **read-write**, and writes the emulated
-machine makes to the SD card are persisted to the file. Two runs sharing one
-image are therefore not independent: a run that boots NextZXOS mutates the
-image the next run reads. For a reproducible run, give it a private copy
-(`cp --reflink=auto` is instant and costs no space on a copy-on-write
-filesystem).
+Note that jnext opens the image **read-write** by default, and writes the
+emulated machine makes to the SD card are persisted to the file. Two runs
+sharing one image are therefore not independent: a run that boots NextZXOS
+mutates the image the next run reads. For a reproducible run, either pass
+**\--sdcard-readonly**, or give it a private copy (`cp --reflink=auto` is
+instant and costs no space on a copy-on-write filesystem).
 
 The mounted image is also the SD card the emulated machine sees at runtime,
 through the SPI/DivMMC path: NextZXOS reads its files from it.
