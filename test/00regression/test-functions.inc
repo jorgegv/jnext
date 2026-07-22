@@ -220,7 +220,13 @@ regression_lib_init() {
     # must be a trap and never a final step: a killed or timed-out run would
     # otherwise leak a gigabyte, and `set -e` has already killed three scripts
     # in this suite.
-    trap 'regression_cleanup' EXIT
+    # INT/TERM as well as EXIT: an EXIT-only trap does not fire when the
+    # shell dies from an untrapped signal, so a Ctrl-C during a multi-minute
+    # regression run leaked the ~1 GB clone. This dates from GH #65 and was
+    # found by the GH #75 review; same one-line shape as the fix in
+    # test/run-unit-tests.sh and test/bench/bench.sh, and HS-40 now scans all
+    # three so it cannot come back.
+    trap 'regression_cleanup' EXIT INT TERM
 
     # Clone now, so a DIRECTLY-EXECUTED test script (every scripts/*.sh is also
     # standalone-runnable) has an image before it launches jnext. A full run

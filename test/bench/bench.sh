@@ -76,7 +76,14 @@ bench_cleanup() {
 }
 # Armed before the clone exists: every `die()` below would otherwise leak a
 # gigabyte, and this script dies for a living (five preconditions above).
-trap 'bench_cleanup' EXIT
+#
+# INT and TERM explicitly, for the same reason as the unit harness: an
+# EXIT-only trap does not fire when the shell dies from an untrapped signal,
+# and `make bench` is a multi-minute foreground recipe (5 workloads x 5
+# repeats) — precisely the kind of run a developer Ctrl-Cs. This was shipped
+# EXIT-only and caught in review as a third instance of the same defect;
+# HS-40 in test/harness-selftest.sh now scans this file so there is no fourth.
+trap 'bench_cleanup' EXIT INT TERM
 
 SD_IMAGE="$BENCH_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 mkdir -p "$BENCH_RUN_DIR/sdcard" || die "cannot create $BENCH_RUN_DIR/sdcard"

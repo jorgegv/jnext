@@ -480,9 +480,21 @@ check "HS-30" "no suite source reintroduces 'printf ... | grep -q' membership" 0
 # So the guard asserts the property that closes the window, deterministically:
 # every EXIT trap in the harness also lists INT and TERM. It cannot regress
 # silently, and it costs nothing to run.
-bad_traps=$(grep -nE "^[[:space:]]*trap[[:space:]].*[[:space:]]EXIT([[:space:]]|$)" "$HARNESS" \
-            | grep -vE "EXIT[[:space:]]+INT[[:space:]]+TERM" || true)
-check "HS-40" "every EXIT trap in the harness also traps INT and TERM (GH #75)" 0 0 \
+# Scans EVERY script that cleans up a ~1 GB SD clone, not just the unit
+# harness. The bug appeared three times in one branch — run-unit-tests.sh
+# twice, then bench.sh again 18 minutes after the second fix — and a guard
+# covering only the file that happened to be fixed first would not have
+# caught the third. test-functions.inc carried it from GH #65 and was found
+# by the same review.
+bad_traps=""
+for src in "$HARNESS" \
+           "$PROJECT_DIR/test/bench/bench.sh" \
+           "$PROJECT_DIR/test/00regression/test-functions.inc"; do
+    hits=$(grep -nE "^[[:space:]]*trap[[:space:]].*[[:space:]]EXIT([[:space:]]|$)" "$src" \
+           | grep -vE "EXIT[[:space:]]+INT[[:space:]]+TERM" || true)
+    [[ -z "$hits" ]] || bad_traps+="${src##*/}: ${hits}"$'\n'
+done
+check "HS-40" "every SD-clone cleanup trap also traps INT and TERM (GH #75)" 0 0 \
     "untrapped=[${bad_traps}]" "untrapped=[]"
 
 echo ""
