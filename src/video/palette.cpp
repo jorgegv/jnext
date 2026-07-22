@@ -100,9 +100,34 @@ void PaletteManager::reset()
     //   0x18..0x1F: pixel_en=0, attr(6)=1 → paper bright 8..15 (= ink 8..15)
     // So a firmware-untouched palette must hold the 16 ZX colours at both
     // 0x00..0x0F AND 0x10..0x1F so that the 32 standard-ULA encodings all
-    // resolve to the right colour.  Indices 0x20..0xFF default to RRRGGGBB-
-    // identity (matches Layer2/Sprite defaults; ULAnext / ULA+ programs
-    // override these before use).
+    // resolve to the right colour.
+    //
+    // THE RULE FOR THIS WHOLE FUNCTION: `reset()` models the POST-FIRMWARE
+    // state, not power-on.  It is not a hardware model and must not be
+    // "corrected" into one.  On real hardware the palette RAM powers up
+    // BLACK — `palette_utm` (zxnext.vhd:6960-6965) instantiates `dpram2`
+    // passing only addr_width_g/data_width_g, so init_file_g keeps its
+    // default "init/none.bin.txt" (dpram2.vhd:41-46), which InitRamFromFile
+    // special-cases to an all-zero array (dpram2.vhd:63-80) — and tbblue.fw
+    // then fills all 256 entries before any user program runs.  jnext cannot
+    // rely on that: `--load` injects the program at frame 0 (main.cpp:748),
+    // so the firmware never runs and reset() is the only thing standing in
+    // for it.  Modelling the VHDL power-on here would hand loaded programs a
+    // black palette no real machine ever presents them with.
+    //
+    // Hence indices 0x20..0xFF repeat the same 16 colours (index & 0x0F).
+    // That is what the firmware actually writes, measured: over a NextZXOS
+    // boot it writes all 256 entries of both ULA banks to std16[i & 0x0F],
+    // 256/256 exact.  Same rule as the 0x00..0x1F seeding above and the
+    // Layer2/sprite ramp below — seed with the post-firmware content.
+    //
+    // They used to hold an RRRGGGBB-identity ramp instead, on the stated
+    // assumption that "ULAnext / ULA+ programs override these before use".
+    // That assumption is false: NextSIDplayer.nex runs in ULAnext mode
+    // (NR 0x43 bit 0 = 1, NR 0x42 = 0x07) and writes only the Layer 2
+    // palette, so its paper colours came straight from indices >= 0x80.
+    // The invented ramp leaked into the picture — bright red/orange under
+    // `--load`, correctly dark when launched from the NextZXOS browser.
     for (int p = 0; p < 2; ++p) {
         for (int i = 0; i < 16; ++i) {
             ula_rgb333_[p][i]      = kDefaultUlaRgb333[i];
@@ -112,8 +137,9 @@ void PaletteManager::reset()
             ula_rgb333_[p][i + 16] = kDefaultUlaRgb333[i];
             ula_argb_[p][i + 16]   = rgb333_to_argb(kDefaultUlaRgb333[i]);
         }
+        // 0x20..0xFF — reachable only from the ULAnext / LoRes encoders.
         for (int i = 32; i < FULL_SIZE; ++i) {
-            uint16_t rgb333 = rrrgggbb_to_rgb333(static_cast<uint8_t>(i));
+            const uint16_t rgb333 = kDefaultUlaRgb333[i & 0x0F];
             ula_rgb333_[p][i] = rgb333;
             ula_argb_[p][i]   = rgb333_to_argb(rgb333);
         }

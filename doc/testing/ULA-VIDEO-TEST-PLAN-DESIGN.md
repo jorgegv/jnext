@@ -367,9 +367,11 @@ are ink vs paper. A lookup selects the paper palette index:
 
 Where `paper_base_index = 0x80` ("10000000").
 
-### Test cases (~12 tests)
+### Test cases (14 tests)
 
-Status (Wave B, 2026-04-23): all 12 `check()` — all pass.
+Status (2026-07-22): all 14 `check()` — all pass. (S6.13 is reserved, see the
+coverage-gap note below; the two rows added for the ULA palette reset content
+took S6.14/S6.15.)
 
 | # | Row ID | Test | Format | Pixel | Attr | Expected | Status |
 |---|------|------|--------|-------|------|----------|--------|
@@ -385,10 +387,25 @@ Status (Wave B, 2026-04-23): all 12 `check()` — all pass.
 | 10| S6.10 | Paper, format 0x01 | 0x01 | 0 | 0xFE | 0xFF | pass |
 | 11| S6.11 | Ink, format 0x3F | 0x3F | 1 | 0xC3 | 0x03 | pass |
 | 12| S6.12 | Non-standard format (e.g. 0x05) | 0x05 | 0 | any | bgnd (transparent) | pass |
+| 13| S6.14 | ULA palette reset content, indices 0x20-0xFF | - | - | - | entry i == entry i & 0x0F, both banks (16-colour repeat) | pass |
+| 14| S6.15 | Unwritten ULAnext paper/border render (0x89 / 0x81) | 0x07 | 0 | 0x4E | colours 9 and 1 of that repeat, not RRRGGGBB ramp entries | pass |
 
 Integration coverage: **INT-ULANEXT-01** in `ula_integration_test.cpp` — enables NR 0x43 bit 0, sets NR 0x42=0x0F, verifies the rendered paper index matches the lookup at `zxula.vhd:503-515`.
 
-**Coverage gap (Wave B critic, non-blocking)**: the ULA+ 0x7F format encoder path is coded in src/ but not exercised by any test row in this section. Candidate for a future S6.13 row.
+**Coverage gap (Wave B critic, non-blocking)**: the ULA+ 0x7F format encoder path is coded in src/ but not exercised by any test row in this section. **S6.13 stays reserved for it.**
+
+**S6.14 / S6.15 (2026-07-22)** pin the content `PaletteManager::reset()` leaves
+in ULA palette indices `0x20-0xFF` — the region only the ULAnext and LoRes
+encoders can reach. `reset()` models the **post-firmware** palette, not the VHDL
+power-on state: on hardware `palette_utm` (`zxnext.vhd:6960-6965`) is a `dpram2`
+with no `init_file_g`, so it powers up all-zero (`dpram2.vhd:41-46,63-80`) and
+tbblue.fw fills all 256 entries of both banks with the 16 colours repeated —
+but `--load` injects the program at frame 0 (`src/main.cpp:748`), so the
+firmware never runs and `reset()` is the only thing standing in for it. The
+rows exist because the region previously held an invented RRRGGGBB-identity
+ramp, which NextSIDplayer.nex (ULAnext, NR 0x43 bit 0 = 1, NR 0x42 = 0x07,
+writes only the Layer 2 palette) rendered as bright red/orange under `--load`
+while rendering correctly when launched from the NextZXOS browser.
 
 > **Runtime renderer integration (G102, see
 > `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`).** Encoder rows
