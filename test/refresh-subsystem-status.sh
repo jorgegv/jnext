@@ -122,6 +122,7 @@ BEGIN {
     M["log_gate_test"]                 = "Logging (gate)"
     M["cli_options_test"]              = "CLI options / docs"
     M["video_recorder_cmd_test"]       = "Video recorder (ffmpeg cmd)"
+    M["nex_loader_test"]               = "NEX loader (screen ingest)"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
     M["lores_test"]                    = "LoRes"

@@ -67,6 +67,41 @@ static void write_to_ram(Mmu& mmu, uint16_t start_page, size_t start_offset,
     }
 }
 
+/// Ingest one 12288-byte NEX LoRes / HiRes / HiColour screen block into
+/// bank 5 the way the reference loader does: TWO 6144-byte reads separated
+/// by a 2048-byte hole — NOT one contiguous 12288-byte run (issue #68).
+///
+/// tbblue/src/asm/nexload/nexload.asm, shipped `ELSE` path of each block
+/// (the `IFDEF testing` / `IFDEF testing8000` branches are debug-only and
+/// are not assembled into the released loader):
+///
+///   LoRes    :472  ld ix,$4000 : ld bc,$1800 : call fread
+///            :474  ld ix,$6000 : ld bc,$1800 : call fread
+///   HiRes    :488  ld ix,$4000 : ld bc,$1800 : call fread
+///            :490  ld ix,$6000 : ld bc,$1800 : call fread
+///   HiColour :505  ld ix,$4000 : ld bc,$1800 : call fread
+///            :507  ld ix,$6000 : ld bc,$1800 : call fread
+///
+/// nexload runs with bank 5 at $4000-$7FFF (it never remaps MMU slots 2/3
+/// — only MMU_REGISTER_6/7 are touched, nexload.asm:441-443,:514 — and it
+/// loads bank 5 itself with `ld ix,$4000 : ld bc,$4000`, nexload.asm:525).
+/// So $4000 is bank-5 offset 0x0000 (page 10 offset 0) and $6000 is
+/// bank-5 offset 0x2000 (page 11 offset 0) — the second half does NOT
+/// follow the first at offset 0x1800.
+///
+/// The 2048 untouched bytes at $5800-$5FFF (bank-5 offset 0x1800-0x1FFF)
+/// are the classic ULA attribute area, which none of these three modes
+/// use: `video/lores.vhd:93-94` adds 1 to lores_addr bits 13:11 (i.e.
+/// +0x800) for y >= 96, so the bottom 48 LoRes rows are read from
+/// 0x2000-0x37FF and 0x1800-0x1FFF is skipped entirely. HiRes / HiColour
+/// (Timex modes) likewise place their second half at 0x2000.
+static void write_split_screen_block(Mmu& mmu, const uint8_t* src)
+{
+    constexpr size_t HALF = 6144;  // $1800 — one fread
+    write_to_ram(mmu, 10, 0, src,        HALF);  // $4000 → bank-5 0x0000
+    write_to_ram(mmu, 11, 0, src + HALF, HALF);  // $6000 → bank-5 0x2000
+}
+
 // render_progress_mark — defined inline in nex_loader.h (G156). Inline
 // keeps unit tests linkable without jnext_core, same rationale as
 // ram_required_kb / zero_bank5_screen_pages above.
@@ -279,7 +314,8 @@ bool NexLoader::apply(Emulator& emu) const
             return false;
         }
         Log::emulator()->debug("NEX: loading LoRes screen ({} bytes into bank 5)", LORES_SIZE);
-        write_to_ram(mmu, 10, 0, file_data_.data() + offset, LORES_SIZE);
+        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:472,:474).
+        write_split_screen_block(mmu, file_data_.data() + offset);
         offset += LORES_SIZE;
     }
 
@@ -291,7 +327,8 @@ bool NexLoader::apply(Emulator& emu) const
             return false;
         }
         Log::emulator()->debug("NEX: loading HiRes screen ({} bytes into bank 5)", HIRES_SIZE);
-        write_to_ram(mmu, 10, 0, file_data_.data() + offset, HIRES_SIZE);
+        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:488,:490).
+        write_split_screen_block(mmu, file_data_.data() + offset);
         offset += HIRES_SIZE;
     }
 
@@ -303,7 +340,8 @@ bool NexLoader::apply(Emulator& emu) const
             return false;
         }
         Log::emulator()->debug("NEX: loading HiColour screen ({} bytes into bank 5)", HICOL_SIZE);
-        write_to_ram(mmu, 10, 0, file_data_.data() + offset, HICOL_SIZE);
+        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:505,:507).
+        write_split_screen_block(mmu, file_data_.data() + offset);
         offset += HICOL_SIZE;
     }
 

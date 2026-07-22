@@ -398,6 +398,18 @@ target_link_libraries(video_recorder_cmd_test PRIVATE
 target_include_directories(video_recorder_cmd_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME video_recorder_cmd_tests COMMAND video_recorder_cmd_test)
 
+# NEX loader screen-ingest test (issue #68). Drives the real
+# NexLoader::load() + apply() against a real Emulator, so it pins the
+# actual LoRes / HiRes / HiColour / ULA call sites in nex_loader.cpp and
+# not a helper in isolation — hence the full subsystem link line.
+add_executable(nex_loader_test core/nex_loader_test.cpp)
+target_link_libraries(nex_loader_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(nex_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME nex_loader_tests COMMAND nex_loader_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
