@@ -202,6 +202,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     // replay of mid-frame attribute writes). Always-on — see
     // Mmu::attr_mux_start_frame() / Ula::attr_vram_read().
     mmu.attr_mux_rewind_to_baseline();
+    // Per-scanline NR 0x15 layer-priority + sprite-enable (G02, GH #73).
+    rewind_to_baseline_nr15();
 
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
@@ -223,6 +225,9 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         }
         // Apply attribute-mux log for this scanline (G12).
         mmu.attr_mux_apply_line(row);
+        // Apply NR 0x15 log (G02): layer_priority_ / sprite_en_ take the
+        // per-line values BEFORE composite_scanline dispatches on them.
+        apply_changes_for_line_nr15(row);
 
         render_row(framebuffer + row * FB_WIDTH, row, mmu, ram, palette,
                    layer2, sprites, tilemap);
@@ -258,6 +263,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         tilemap->flush_remaining_nr6b_changes();
     }
     mmu.attr_mux_flush_remaining();
+    flush_remaining_changes_nr15();
 
     // Advance ULA flash state once per frame.
     ula_.advance_flash();
@@ -284,13 +290,21 @@ void Renderer::run_sprite_side_effects(SpriteEngine* sprites,
         return;
 
     sprites->rewind_to_baseline();
+    // NR 0x15 log lifecycle mirrors render_frame exactly (G02, GH #73):
+    // the per-row gate below reads the per-line-replayed sprite_en_, so a
+    // skipped frame computes the same collision/overtime bits a rendered
+    // frame would.  The flush at the end keeps the live NR 0x15 state
+    // correct across the skipped frame (vblank-tagged writes included).
+    rewind_to_baseline_nr15();
     for (int row = 0; row < FB_HEIGHT; ++row) {
         sprites->apply_changes_for_line(row);
-        if (sprites->sprites_visible()) {
-            sprites->render_scanline(sprite_line_.data(), row, palette);
+        apply_changes_for_line_nr15(row);
+        if (sprite_en_) {
+            sprites->render_scanline_debug(sprite_line_.data(), row, palette);
         }
     }
     sprites->flush_remaining_changes();
+    flush_remaining_changes_nr15();
 }
 
 // ---------------------------------------------------------------------------
@@ -366,9 +380,23 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
                                  tm_pixel_textmode_.data());
     }
 
-    // Sprites — Y coordinates are in absolute framebuffer space (0-255)
-    if (sprites && sprites->sprites_visible()) {
-        sprites->render_scanline(sprite_line_.data(), row, palette);
+    // Sprites — Y coordinates are in absolute framebuffer space (0-255).
+    //
+    // Gate on the per-line-replayed sprite_en_ (NR 0x15 b0), NOT the
+    // engine's live sprites_visible_ flag (G02, GH #73): the live flag
+    // holds the END-of-frame value at render time, so a demo that
+    // enables sprites for a band and disables them before frame end
+    // (beast.nex toggles NR 0x15 0x80<->0x01) would lose the band
+    // entirely.  In VHDL the sprite ENGINE has no NR 0x15 b0 input at
+    // all (sprites.vhd — the module always runs); b0 gates the pixel in
+    // the video pipeline only (zxnext.vhd:6819 latch -> 6906-6907 ->
+    // 6934 `sprite_pixel_en_1 and sprite_en_1` -> 7118), which under the
+    // per-scanline model is exactly the per-line value applied above.
+    // render_scanline_debug bypasses the engine's own live-flag
+    // early-return; the engine-skip-when-disabled remains a jnext
+    // modelling optimisation, now applied at per-line granularity.
+    if (sprites && sprite_en_) {
+        sprites->render_scanline_debug(sprite_line_.data(), row, palette);
     }
 
     // Render ULA scanline (G104 Phase 2: native 640 emit). Pass
@@ -634,8 +662,9 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b2) {
 // composite_scanline — dispatch once per scanline on the (per-line constant)
 // NR 0x15 layer_priority_. Task 27 C8: the priority mode cannot change within a
 // scanline — nothing in composite_scanline_mode's inner loop mutates
-// layer_priority_, and the emulator commits NR 0x15 (renderer_.set_layer_priority,
-// emulator.cpp) before render_frame runs. Selecting the specialised loop here
+// layer_priority_, and the per-scanline NR 0x15 replay (G02, GH #73) updates it
+// only at row boundaries: render_frame applies apply_changes_for_line_nr15(row)
+// before render_row(row) calls this. Selecting the specialised loop here
 // hoists the former per-pixel `switch (layer_priority_)` (163,840×/frame) out of
 // the inner loop: PRIO is a compile-time constant inside the specialisation, so
 // the switch folds to the single taken arm with no per-pixel branch. Output is
@@ -996,6 +1025,24 @@ void Renderer::load_state(StateReader& r)
     blend_mode_   = r.read_u8() & 0x03;
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
     lores_.load_state(r);
+
+    // NR 0x15 per-scanline log (G02) — no stream bytes: snapshots are taken
+    // at frame boundaries where the log is empty, so only the live decoded
+    // fields need to round-trip (they just did, above).  Renderer owns only
+    // b0 + b4:2 of the raw byte (renderer.h), so it is fully reconstructible.
+    // Seed the baseline from the loaded live state and clear the log so the
+    // immediate post-restore re-render (Emulator::rewind_to_frame renders
+    // BEFORE the next begin_new_frame() reseeds) cannot rewind to a stale
+    // pre-restore baseline or replay a stale pre-restore log.
+    nr15_raw_ = static_cast<uint8_t>(((layer_priority_ & 0x07) << 2)
+                                     | (sprite_en_ ? 0x01 : 0x00));
+    baseline_nr15_raw_       = nr15_raw_;
+    baseline_layer_priority_ = layer_priority_;
+    baseline_sprite_en_      = sprite_en_;
+    nr15_change_count_       = 0;
+    nr15_render_cursor_      = 0;
+    nr15_current_line_       = 0;
+    nr15_overflow_warned_    = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,6 +1100,23 @@ void Renderer::apply_changes_for_line_nr15(int line)
     const uint16_t lt = static_cast<uint16_t>(line);
     while (nr15_render_cursor_ < nr15_change_count_
         && nr15_change_log_[nr15_render_cursor_].line == lt) {
+        const auto& c = nr15_change_log_[nr15_render_cursor_++];
+        nr15_raw_       = c.raw;
+        layer_priority_ = (c.raw >> 2) & 0x07;
+        sprite_en_      = (c.raw & 0x01) != 0;
+    }
+}
+
+void Renderer::flush_remaining_changes_nr15()
+{
+    // Drain entries the per-line loop did not reach (line >= FB_HEIGHT,
+    // i.e. writes that landed in vblank).  Mirrors
+    // PaletteManager::flush_remaining_changes — without this a one-time
+    // NR 0x15 write during vblank is lost FOREVER: rewind_to_baseline_nr15
+    // undid the direct live mutation, apply_changes_for_line_nr15(0..H-1)
+    // never matches a vblank tag, and the next start_frame_nr15() then
+    // snapshots the stale baseline.
+    while (nr15_render_cursor_ < nr15_change_count_) {
         const auto& c = nr15_change_log_[nr15_render_cursor_++];
         nr15_raw_       = c.raw;
         layer_priority_ = (c.raw >> 2) & 0x07;
