@@ -184,7 +184,7 @@ historical peripherals the project has decided not to model.
 | `video/layer2.vhd`                              | yes     | `src/video/layer2.*`                  | Layer 2 256×192×256 / 320×256×16                       |
 | `video/sprites.vhd`                             | yes     | `src/video/sprites.*`                 | Hardware sprites                                       |
 | `video/tilemap.vhd`                             | yes     | `src/video/tilemap.*`                 | 40/80 × 32 tilemap                                     |
-| `video/lores.vhd`                               | yes     | distributed (Compositor+NextREG+ULA)  | LoRes / Radastan; 3 open qs in Compositor              |
+| `video/lores.vhd`                               | yes     | **NOT IMPLEMENTED** — no C++ module   | NR 0x15 b7 never read (emulator.cpp:1838); no 0x32/0x33/0x6A wiring, no renderer. GH #63; plan: [LORES-TEST-PLAN-DESIGN.md](../testing/LORES-TEST-PLAN-DESIGN.md) |
 | `audio/ym2149.vhd`, `turbosound.vhd`            | yes     | `src/audio/ay.*` + `turbosound.*`     | Triple-AY + stereo                                     |
 | `audio/dac.vhd`, `pwm.vhd`                      | yes     | `src/audio/dac.*`                     | 8-bit DAC                                              |
 | `audio/soundrive.vhd`                           | yes     | `src/audio/soundrive.*`               | Covox on 0x0F/0x1F/0xF1/0xF3                           |
