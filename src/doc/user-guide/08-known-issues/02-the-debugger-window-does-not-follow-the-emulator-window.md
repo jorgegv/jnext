@@ -1,4 +1,4 @@
-# 8.3 Debugger window attachment is not available on Wayland
+# 8.2 Debugger window attachment is not available on Wayland
 
 **Fixed on X11.** The debugger window now attaches to the right-hand edge of
 the emulator window and follows it as you drag or resize it. Toggle it from the

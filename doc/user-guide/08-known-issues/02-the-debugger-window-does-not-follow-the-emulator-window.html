@@ -14,7 +14,7 @@
         <link rel="prev" href="01-judder-when-the-host-cannot-keep-up.html">
       
       
-        <link rel="next" href="03-the-debugger-window-does-not-follow-the-emulator-window.html">
+        <link rel="next" href="03-reporting-something-else.html">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>8.2 Continuous buzz on Soundrive/DAC playback - JNEXT User Guide</title>
+        <title>8.2 The debugger window does not follow the emulator window - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#82-continuous-buzz-on-soundrivedac-playback-resolved" class="md-skip">
+        <a href="#82-debugger-window-attachment-is-not-available-on-wayland" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              8.2 Continuous buzz on Soundrive/DAC playback
+              8.2 The debugger window does not follow the emulator window
             
           </span>
         </div>
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts">
-      <li class="md-source__fact" title="the release this guide was rendered from">docs v0.99.1</li>
+      <li class="md-source__fact" title="the release this guide was rendered from">docs v0.99.2</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">latest &mdash;</li>
     </ul>
   </div>
@@ -263,7 +263,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts">
-      <li class="md-source__fact" title="the release this guide was rendered from">docs v0.99.1</li>
+      <li class="md-source__fact" title="the release this guide was rendered from">docs v0.99.2</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">latest &mdash;</li>
     </ul>
   </div>
@@ -2458,8 +2458,6 @@
       
         
       
-        
-      
     
     
     
@@ -2553,14 +2551,14 @@
         
       
       
-      <a href="02-continuous-buzz-on-soundrive-dac-playback.html" class="md-nav__link md-nav__link--active">
+      <a href="02-the-debugger-window-does-not-follow-the-emulator-window.html" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    8.2 Continuous buzz on Soundrive/DAC playback
+    8.2 The debugger window does not follow the emulator window
   
 
     
@@ -2582,42 +2580,14 @@
   
   
     <li class="md-nav__item">
-      <a href="03-the-debugger-window-does-not-follow-the-emulator-window.html" class="md-nav__link">
+      <a href="03-reporting-something-else.html" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    8.3 The debugger window does not follow the emulator window
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="04-reporting-something-else.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    8.4 Reporting something else
+    8.3 Reporting something else
   
 
     
@@ -2847,25 +2817,29 @@
   
 
 
-<h1 id="82-continuous-buzz-on-soundrivedac-playback-resolved">8.2 Continuous buzz on Soundrive/DAC playback — resolved<a class="headerlink" href="#82-continuous-buzz-on-soundrivedac-playback-resolved" title="Permanent link">&para;</a></h1>
-<p><strong>This was not an emulator fault.</strong> It was a bug in JNEXT's own bundled DAC
-demo, and it is fixed.</p>
-<p><strong>What was happening.</strong> The demo addressed one of its four DAC channels through
-port <code>0xDF</code>. That is the Specdrum <em>mono</em> port, which writes channels A <strong>and</strong> D
-together rather than channel D alone — and the demo also had two of its channels
-assigned to the wrong stereo sides. Both the left and right outputs therefore
-carried exactly the same pair of summed tones. Since the second tone was the
-third harmonic of the first, the sum came out as a hollow, reedy buzz instead of
-the intended two-tone stereo.</p>
-<p><strong>Why it looked like an emulator fault.</strong> It reproduced identically in ZEsarUX,
-and on real ZX Spectrum Next hardware. That is exactly what you would expect:
-both emulators decode the DAC ports correctly, so both faithfully reproduced the
-demo's own mistake, and so did the hardware.</p>
-<p>If you write software that drives the Soundrive/Specdrum DAC, the mapping worth
-double-checking is that ports <code>0x1F</code>/<code>0x0F</code> feed the <strong>left</strong> output and
-<code>0x4F</code>/<code>0x5F</code> the <strong>right</strong>, while <code>0xDF</code> is a <strong>mono</strong> port that writes both
-sides at once.</p>
-<p>Closed as <a href="https://github.com/jorgegv/jnext/issues/38">issue #38</a>.</p>
+<h1 id="82-debugger-window-attachment-is-not-available-on-wayland">8.2 Debugger window attachment is not available on Wayland<a class="headerlink" href="#82-debugger-window-attachment-is-not-available-on-wayland" title="Permanent link">&para;</a></h1>
+<p><strong>Fixed on X11.</strong> The debugger window now attaches to the right-hand edge of
+the emulator window and follows it as you drag or resize it. Toggle it from the
+debugger's own <strong>Window → Attach to emulator window</strong> menu; the setting is
+remembered between sessions.</p>
+<p><strong>Not possible on Wayland.</strong> Under a native Wayland session the menu item is
+greyed out, with a tooltip explaining why. This is not something JNEXT can fix:
+Wayland's window-management protocol (xdg-shell) has no request for an
+application to position its own window. A client cannot say "put me here" —
+placement belongs entirely to the compositor. Every application is in the same
+position, and no amount of work on our side changes it.</p>
+<p><strong>If you want attachment, run under X11:</strong></p>
+<pre><code class="language-console">$ QT_QPA_PLATFORM=xcb jnext
+</code></pre>
+<p><strong>XWayland is handled too.</strong> An XWayland session reports itself as <code>xcb</code> — it
+looks exactly like X11 from inside the application — but the compositor still
+discards the move requests. JNEXT therefore does not trust the platform name
+alone: it checks whether its moves actually land, and if several in a row are
+ignored it stops trying, unticks the menu item, and says so in the status bar.
+Re-tick the item to retry (after moving to a different screen, say). That
+automatic stop does not change your saved preference — the next session starts
+with attachment enabled again.</p>
+<p>Originally reported as <a href="https://github.com/jorgegv/jnext/issues/39">issue #39</a>.</p>
 
 
 

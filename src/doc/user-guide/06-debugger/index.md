@@ -22,7 +22,7 @@ right-hand edge as you drag or resize that window; the setting is remembered
 between sessions. This needs a window system that lets an application position
 its own windows, so it works on **X11** and is unavailable on **Wayland**,
 where the menu item is greyed out — see
-[8.3](../08-known-issues/03-the-debugger-window-does-not-follow-the-emulator-window.md)
+[8.3](../08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.md)
 for why, and how to run under X11 if you want it.
 
 ![The debugger window](../img/debugger-window.png)
