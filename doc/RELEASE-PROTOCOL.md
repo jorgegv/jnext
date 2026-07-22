@@ -244,11 +244,14 @@ so it stays a decision rather than drift.
      `success()` is what makes a failed `macos` job withhold the release rather
      than silently omitting a platform; a failed `flatpak` still publishes,
      because a `continue-on-error` job reports `success` to `needs`
-     (actions/toolkit #1739). **Not verified on a runner** — no Mac and no
-     Actions runner on the dev host. Recommended confirmation: one
-     `workflow_dispatch` dry run with the `macos` job deliberately broken (a
-     bad `brew install` package name), checking that `publish` is skipped, and
-     that a red `flatpak` alone still publishes.
+     (actions/toolkit #1739). **The macos-failure half is verified on a real
+     runner**: `workflow_dispatch` run 29917667433 (2026-07-22) broke `macos`
+     deliberately and `publish` was skipped, gate/src/rpm/deb/windows/flatpak
+     all green. **The flatpak-failure half is still unverified** — `flatpak`
+     *succeeded* in that run, so the "a red `flatpak` alone still publishes"
+     path has never actually been exercised; confirm it with a
+     `workflow_dispatch` run that breaks only `flatpak` and checks `publish`
+     still runs.
 
   So a tag **not** in `releases.yaml` → the gate says "private tag", nothing
   builds. A **`workflow_dispatch`** run builds all packages for testing but

@@ -1,5 +1,28 @@
 # ChangeLog
 
+## v0.99.0 (2026-07-23)
+
+### User Features
+- LoRes 128x96 video layer: 8-bit and Radastan 4-bit modes now render
+- macOS: a self-contained `jnext.app` that runs without Homebrew installed
+- MP4 recording now works in the Windows build
+- `--sdcard-readonly` opens the SD card read-only, so a run cannot alter a shared image
+
+### Bug Fixes
+- Ports `$FF3B` (ULA+ Data) and `$243B` now return the driven value, not a fixed zero
+- ULA palette entries above the standard range no longer show invented colours
+- NEX files with LoRes, Hi-Res or Hi-Colour screens load both halves correctly
+- Sprite pattern index re-bases correctly for tied (composite) sprites
+- CTC control-word interrupt-enable bit now reaches the interrupt fabric
+- Tape EAR idle level corrected; the Z80N `NEXTREG` register latch fixed
+- macOS bundle now includes the SDL3 library it loads at runtime
+
+### Internal JNEXT Development
+- LoRes compliance test plan: 91 VHDL-cited rows, written before the implementation
+- Every test run gets a private SD-card image copy, so runs cannot disturb each other
+- `roms/` holds only the boot ROM; jnext provisions the SD image itself
+- Packaging suite runs green in CI and is now a release gate
+
 ## v0.98.72 (2026-07-20)
 
 ### Bug Fixes

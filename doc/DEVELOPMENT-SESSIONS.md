@@ -120,4 +120,10 @@
 |        |      | `make X | tail` was found reporting GREEN on a failing suite. #38 closed not-a-bug (demo drove 0xDF = Specdrum MONO port).  |
 |        |      | #43 table-driven CLI + cli-check; #42 rewind recorded NOTHING (3 variable-length fields vs fixed slot); #39 debugger window |
 |        |      | attach (X11; Wayland impossible). 4 merges, 3 REJECT rounds -> rework, every one a real defect. v0.98.57->.71 PUBLIC.      |
+| 22-23/7|      | LoRes 128x96 layer shipped (91 VHDL-cited rows written BEFORE code) + first screenshot. #64 $FF3B read + ULA+/ULA palette  |
+|        |      | storage unified (one palette_utm dpram; b6 poke/read vs b1 render). #75 per-run private SD clone for unit-test/bench;      |
+|        |      | roms/ emptied of SD images. #77 --sdcard-readonly. #56/#71 doc/comment corrections; #66/#59 Windows docs unhedged.         |
+|        |      | #75 took SIX review rounds — rounds 3-5 found defects WORSE than the original (trap resume deleted the clone mid-run,       |
+|        |      | 58 FAIL/4 PASS), none visible to a green triplet. CI package job RED since v0.98.92 (fedora44 lacked python3-pyyaml), fixed |
+|        |      | + all 17 failure sites made diagnosable. Closed #56 #59 #64 #66 #71 #75 #77; filed #79 #80. v0.98.73->.101, v0.99.0 PUBLIC. |
 | TOTAL: | 383h |                                                                                                      |
