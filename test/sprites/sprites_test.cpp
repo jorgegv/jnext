@@ -551,6 +551,128 @@ static void group1() {
               spr.read_attr_byte(0x14, 4) == 0xB4);
     }
 
+    // -----------------------------------------------------------------
+    // G1.AT-18..21 — the mirror→attr_index reload is GATED on sprite_tie
+    // (GH #67). VHDL sprites.vhd:647-667:
+    //
+    //   elsif mirror_num_change = '1' and mirror_tie_i = '1' then
+    //      attr_index <= mirror_sprite_q(6:0) & "000";
+    //
+    // — the identical gate the pattern_index path carries at :733-734
+    // (covered by G2.PL-06/07/08). mirror_num_change is pulsed by BOTH
+    // mirror-side events: the NR 0x34 write (:600-602) and the NR
+    // 0x75-0x79 auto-increment (:603-606). With the tie CLEAR (NR 0x09
+    // b4 = 0, the power-on default) there is no other mirror-side path
+    // into attr_index at all, so neither event may move the port-0x57
+    // upload cursor.
+    //
+    // These rows stream through port 0x57 AFTER the mirror-side write:
+    // observing mirror_sprite_num() alone (as G1.AT-14/15 do) cannot see
+    // a wrongly-moved cursor, which is how the defect survived.
+    // -----------------------------------------------------------------
+
+    // G1.AT-18 — tie CLEAR: NR 0x34 must not move the port-0x57 cursor.
+    // The reported idiom: an in-progress 0x57 upload, interrupted by an
+    // NR 0x34 + NR 0x35 direct write to some other sprite, then resumed.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);              // NR 0x09 b4 = 0 (default)
+        spr.write_slot_select(0x30);            // port 0x303B: cursor = 0x30/b0
+        spr.write_attribute(0x11);              // port 0x57 → 0x30 b0, cursor b1
+        spr.set_mirror_sprite_num(0x50);        // NR 0x34: pick another sprite
+        spr.write_attr_byte_nr_no_inc(0, 0xEE); // NR 0x35 → slot 0x50 b0
+        spr.write_attribute(0x22);              // resume 0x57: must be 0x30 b1
+        spr.write_attribute(0x33);              // ... and 0x30 b2
+        check("G1.AT-18",
+              "NR 0x34 must not move the port-0x57 cursor with sprite_tie "
+              "clear (sprites.vhd:653 gate)",
+              spr.read_attr_byte(0x30, 0) == 0x11 &&
+              spr.read_attr_byte(0x30, 1) == 0x22 &&
+              spr.read_attr_byte(0x30, 2) == 0x33 &&
+              spr.read_attr_byte(0x50, 0) == 0xEE &&
+              spr.read_attr_byte(0x50, 1) == 0x00 &&
+              spr.mirror_sprite_num() == 0x50,
+              DETAIL("s30=%02X,%02X,%02X s50=%02X,%02X mirror=%02X",
+                     spr.read_attr_byte(0x30, 0), spr.read_attr_byte(0x30, 1),
+                     spr.read_attr_byte(0x30, 2), spr.read_attr_byte(0x50, 0),
+                     spr.read_attr_byte(0x50, 1), spr.mirror_sprite_num()));
+    }
+
+    // G1.AT-19 — tie SET: the same NR 0x34 write DOES re-base the 0x57
+    // cursor, mid-stream, and resets the byte index to 0 (attr_index gets
+    // mirror_sprite_q & "000", sprites.vhd:653-654).
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(true);               // NR 0x09 b4 = 1
+        spr.write_slot_select(0x30);
+        spr.write_attribute(0x11);              // 0x30 b0
+        spr.write_attribute(0x12);              // 0x30 b1, cursor at b2
+        spr.set_mirror_sprite_num(0x50);        // NR 0x34 → cursor 0x50/b0
+        spr.write_attribute(0x99);
+        check("G1.AT-19",
+              "NR 0x34 re-bases the port-0x57 cursor to slot<<3 under "
+              "sprite_tie (sprites.vhd:653-654)",
+              spr.read_attr_byte(0x50, 0) == 0x99 &&
+              spr.read_attr_byte(0x50, 2) == 0x00 &&
+              spr.read_attr_byte(0x30, 0) == 0x11 &&
+              spr.read_attr_byte(0x30, 1) == 0x12 &&
+              spr.read_attr_byte(0x30, 2) == 0x00,
+              DETAIL("s50=%02X,%02X s30b2=%02X",
+                     spr.read_attr_byte(0x50, 0), spr.read_attr_byte(0x50, 2),
+                     spr.read_attr_byte(0x30, 2)));
+    }
+
+    // G1.AT-20 — tie CLEAR: the NR 0x75-0x79 auto-increment pulses
+    // mirror_num_change too (sprites.vhd:603-606), so it hits the same
+    // :653 gate — a NR 0x75-0x79 burst must leave the 0x57 cursor alone.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);
+        spr.write_slot_select(0x30);                   // cursor = 0x30/b0
+        spr.write_attribute(0x11);                     // 0x30 b0, cursor b1
+        spr.set_mirror_sprite_num(0x60);               // NR 0x34
+        spr.write_attr_byte_nr_per_byte_inc(0, 0xD0);  // NR 0x75 → 0x60 b0
+        spr.write_attr_byte_nr_per_byte_inc(1, 0xD1);  // NR 0x76 → 0x61 b1
+        spr.write_attribute(0x22);                     // resume: 0x30 b1
+        check("G1.AT-20",
+              "NR 0x75-0x79 inc must not move the port-0x57 cursor with "
+              "sprite_tie clear (sprites.vhd:603-606,653)",
+              spr.read_attr_byte(0x30, 0) == 0x11 &&
+              spr.read_attr_byte(0x30, 1) == 0x22 &&
+              spr.read_attr_byte(0x60, 0) == 0xD0 &&
+              spr.read_attr_byte(0x61, 1) == 0xD1 &&
+              spr.read_attr_byte(0x62, 0) == 0x00 &&
+              spr.mirror_sprite_num() == 0x62,
+              DETAIL("s30=%02X,%02X s60b0=%02X s61b1=%02X mirror=%02X",
+                     spr.read_attr_byte(0x30, 0), spr.read_attr_byte(0x30, 1),
+                     spr.read_attr_byte(0x60, 0), spr.read_attr_byte(0x61, 1),
+                     spr.mirror_sprite_num()));
+    }
+
+    // G1.AT-21 — tie SET: the NR 0x75-0x79 inc re-bases the 0x57 cursor
+    // onto the freshly incremented mirror slot, byte 0.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(true);
+        spr.write_slot_select(0x30);
+        spr.write_attribute(0x11);
+        spr.write_attribute(0x12);                     // cursor 0x30/b2
+        spr.set_mirror_sprite_num(0x40);               // tie → cursor 0x40/b0
+        spr.write_attr_byte_nr_per_byte_inc(2, 0xC2);  // NR 0x77 → 0x40 b2,
+                                                       // mirror → 0x41
+        spr.write_attribute(0x77);                     // 0x57 → 0x41 b0
+        check("G1.AT-21",
+              "NR 0x75-0x79 inc re-bases the port-0x57 cursor under "
+              "sprite_tie (sprites.vhd:603-606,653-654)",
+              spr.mirror_sprite_num() == 0x41 &&
+              spr.read_attr_byte(0x40, 2) == 0xC2 &&
+              spr.read_attr_byte(0x41, 0) == 0x77 &&
+              spr.read_attr_byte(0x40, 0) == 0x00,
+              DETAIL("mirror=%02X s40b2=%02X s41b0=%02X s40b0=%02X",
+                     spr.mirror_sprite_num(), spr.read_attr_byte(0x40, 2),
+                     spr.read_attr_byte(0x41, 0), spr.read_attr_byte(0x40, 0)));
+    }
+
     // G1.AT-16 / G1.AT-17 — NR 0x19 / NR 0x1A indexed clip-read mux.
     // VHDL zxnext.vhd:5955-5969 — port_253b_dat 4-way mux on
     // nr_19_sprite_clip_idx / nr_1a_ula_clip_idx selects the indexed clip
