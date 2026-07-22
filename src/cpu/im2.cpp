@@ -669,8 +669,23 @@ void Im2Controller::set_int_en_c4(uint8_t val) {
 }
 
 // NR 0xC5 — CTC 7:0 enable bits. Each bit i = int_en for CTCi.
-// Emulator.cpp also calls ctc_.set_int_enable(val) so the CTC peripheral's
-// own int_enable mirrors this — that's outside our scope here.
+//
+// Callers in emulator.cpp: the NR 0xC5 write handler (which also calls
+// ctc_.set_int_enable(val) so the CTC peripheral's own enable mirrors
+// this), AND the CTC port write handler, which re-pushes
+// ctc_.get_int_enable() because a control word's D7 writes the SAME
+// hardware flip-flop (ctc_chan.vhd:265-276 — `control_reg(7)`, one FF,
+// two mutually exclusive writers; `o_int_en <= control_reg(7-3)` is what
+// zxnext.vhd:1949 feeds into im2_int_en). See GH #47/#48.
+//
+// Bits 7:4 are architecturally inert, NOT live CTC4-7 support: the ZXN
+// instantiates four channels (zxnext.vhd:4067) and wires
+// `i_int_en => nr_wr_dat(3 downto 0)` (:4079), so only four bits ever
+// reach the CTC entity; `:4092-4093` then tie both `ctc_zc_to(7 downto 4)`
+// and `ctc_int_en(7 downto 4)` low. CTC4-7 are permanently dead state —
+// nothing can raise them, so setting their int_en here has no observable
+// effect. (The CTC port-write path never sets them at all:
+// Ctc::get_int_enable() reports bits 3:0 with 7:4 zero.)
 void Im2Controller::set_int_en_c5(uint8_t val) {
     set_int_en(DevIdx::CTC0, (val & 0x01) != 0);
     set_int_en(DevIdx::CTC1, (val & 0x02) != 0);

@@ -5045,6 +5045,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t p, uint8_t val) {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;  // NR 0x85 b3 gate
             ctc_.write((p >> 8) & 3, val);
+            // GH #47/#48 — a CTC control word carries the channel's
+            // interrupt-enable bit, and hardware feeds THAT bit to the
+            // IM2 fabric. VHDL device/ctc_chan.vhd:265-276:
+            //
+            //    if reset_hard = '1' then control_reg <= (others => '0');
+            //    elsif iowr_cw = '1'  then control_reg <= i_cpu_d(7 downto 3);
+            //    elsif i_int_en_wr='1' then control_reg(7-3) <= i_int_en;
+            //    ...
+            //    o_int_en <= control_reg(7-3);
+            //
+            // i.e. control_reg(7) is written by EITHER a control-word
+            // port write (bit 7) OR an NR 0xC5 write, and `o_int_en`
+            // is the single signal zxnext.vhd:1949 fans into
+            // `im2_int_en`. jnext previously refreshed the fabric copy
+            // only from the NR 0xC5 handler, so a control word that
+            // set bit 7 updated CtcChannel::control_int_en_ but left
+            // dev_[CTCn].int_en clear — the channel's ZC/TO raised
+            // im2_int_req and the wrapper's int_en AND dropped it.
+            // Both SD-card audio players write NR 0xC5 FIRST and then
+            // program the channels with control words carrying bit 7,
+            // so their engine interrupts were silently discarded.
+            // Re-push the CTC's live enable mask after every CTC port
+            // write; ctc_.get_int_enable() reports bits 3:0 with 7:4
+            // zero, matching zxnext.vhd:4093 (`ctc_int_en(7 downto 4)
+            // <= "0000"`).
+            im2_.set_int_en_c5(ctc_.get_int_enable());
         });
 
     // V21R-NMP-NIT-02 (Pass-21 reviewer fix): complementary handler for

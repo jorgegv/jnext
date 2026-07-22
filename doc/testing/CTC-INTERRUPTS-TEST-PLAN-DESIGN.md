@@ -195,6 +195,10 @@ Tests based on zxnext.vhd CTC interrupt enable wiring.
 | CTC-NR-03 | CTC control word D7 also sets int_en independently | Both paths (CW and NextREG) can set int_en |
 | CTC-NR-04 | NextREG 0xC5 write does not overlap with port CTC write | Constraint from VHDL: i_int_en_wr must not overlap i_iowr |
 
+> `CTC-NR-03` covers the control-word path only as far as the NR 0xC5
+> readback. Its propagation into the IM2 fabric's per-device `int_en` —
+> the seam that shipped as GH #47/#48 — is covered by **Section 17**.
+
 ### Section 7: IM2 Control Block (RETI/RETN Detection)
 
 Tests based on `im2_control.vhd` state machine.
@@ -441,6 +445,57 @@ advance over-advances by one cycle) were run and are caught.
 | CTC-C1-ACC-01 | Timer /16 TC=3: one tick(150) span crosses three ZC/TO events (ctc_chan.vhd:143-146 prescaler_clk, :162-170 zc_to); prescaler phase survives the closed-form jump | exactly 3 pulses in the span; counter reads 3; 4th pulse exactly at tick 192 |
 | CTC-C1-ACC-02 | ch0 timer /16 TC=3 daisy-chained into ch1 counter TC=2 (zxnext.vhd:4084); one tick(200) vs 200× tick(1) | both produce callback sequence 0,0,1,0,0,1 and identical final counters (3, 2) |
 | CTC-C1-ACC-03 | ch1 timer armed with D3=1 (S_TRIGGER) started mid-span by ch0's ZC/TO at 16; activation cycle still ticks the newly-RUN channel (established per-cycle model ordering) | ch1's first ZC/TO at tick 31 (sequence 0,1 in tick(31)); ch0's next at 32; tick(31) == 31× tick(1) |
+
+## Section 17: CTC control-word D7 reaches the IM2 fabric (GH #47/#48, 2026-07-22)
+
+`ctc_chan.vhd:265-276` keeps **one** interrupt-enable flip-flop per
+channel, `control_reg(7)`, with two mutually exclusive writers:
+
+```vhdl
+if reset_hard='1'     then control_reg <= (others => '0');
+elsif iowr_cw='1'     then control_reg <= i_cpu_d(7 downto 3);   -- control word, D7
+elsif i_int_en_wr='1' then control_reg(7-3) <= i_int_en;         -- NR 0xC5
+...
+o_int_en <= control_reg(7-3);
+```
+
+`o_int_en` is exported as `ctc_int_en` and is the ONLY signal
+`zxnext.vhd:1949` fans into `im2_int_en`, so **both** writers reach the
+IM2 fabric and the later one wins.
+
+Section 6's `CTC-NR-03` already claimed "CTC control word D7 also sets
+int_en independently", but it was only ever exercised as far as the
+NR 0xC5 readback — which is sourced from `Ctc::get_int_enable()` and so
+was correct all along. The seam that was NOT covered is the propagation
+from `control_reg(7)` into the fabric's `dev_[CTCn].int_en`: jnext
+refreshed that copy from the NR 0xC5 write handler alone, so a control
+word carrying D7=1 updated the CTC's own enable while the fabric's copy
+stayed stale and the channel's ZC/TO was discarded by the wrapper's
+`int_en` AND. Both audio players shipped on the official SD card
+(`NextSIDplayer.nex`, `nxmodplayer.nex`) write NR 0xC5 first and then
+program their channels with control words carrying D7=1, so their engine
+interrupts never reached the Z80 and both played silence (GH #47, #48).
+
+These rows close that seam at the fabric, not at the readback. They live
+in `test/ctc_interrupts/ctc_interrupts_test.cpp` (group CTC-CW-INTEN) and
+drive the real port path (`OUT 0x183B..0x1B3B`) on a full `Emulator`,
+observing `Im2Controller::state()` — the state machine is what depends on
+the fabric's `int_en`, whereas `int_status` (NR 0xC8-0xCA) latches on any
+edge regardless of `int_en` (`im2_peripheral.vhd:160`) and is therefore
+NOT a usable observable here. All three rows fail with the fix reverted.
+
+| ID | Test | Expected |
+|----|------|----------|
+| CTC-CW-INTEN-01 | NR 0xC5 ← 0x01 (CTC0 only), then ch1 control word 0xA5 (D7=1) + TC; `raise_req(CTC1)` + `tick(1)` (ctc_chan.vhd:269,276 → zxnext.vhd:1949) | CTC1 reaches S_REQ; NR 0xC5 reads back 0x03. Pre-fix: S_0 |
+| CTC-CW-INTEN-02 | NR 0xC5 ← 0x0F (all four), then ch1 control word 0x25 (D7=0) + TC; `raise_req(CTC1)` + `tick(1)`. `iowr_cw` writes the WHOLE control_reg, so D7=0 disables | CTC1 stays S_0; NR 0xC5 reads back 0x0D. Pre-fix: S_REQ — a phantom interrupt from a channel software had just disabled |
+| CTC-CW-INTEN-03 | NR 0xC5 ← 0x01, then ch2 control word 0xA5 (D7=1) + TC; `raise_req` on CTC0/CTC2/CTC3/CTC7 + `tick(1)` (zxnext.vhd:4067 four channels, :4093 `ctc_int_en(7:4) <= "0000"`) | CTC0 and CTC2 reach S_REQ; CTC3 and CTC7 stay S_0; NR 0xC5 reads back 0x05. Pre-fix: CTC2 stuck at S_0 |
+
+Note on NR 0xC5 bits 7:4: `zxnext.vhd:4079` wires
+`i_int_en => nr_wr_dat(3 downto 0)`, so only four bits ever reach the CTC
+entity, and `:4093` ties `ctc_int_en(7 downto 4)` low. CTC4..7 are
+architecturally dead — nothing can raise them (`:4092` ties
+`ctc_zc_to(7 downto 4)` low too). `CTC-CW-INTEN-03` pins CTC7 as a
+negative control rather than as live support.
 
 ## Special Handling
 
