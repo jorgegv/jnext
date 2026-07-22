@@ -195,9 +195,12 @@ not the prose**: the v0.98.60 defects were GUI descriptions in the man page's
 narrative sections, which nothing checks. Keep reading the running product.
 
 The rendered user guide under `doc/user-guide` is also generated (from
-`src/doc/user-guide`, via `make docs-userguide`) and committed, but has NO
-staleness check yet — if you edit a guide source, re-render and commit it in the
-same change.
+`src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS
+staleness-checked: `docs-userguide-check` is the second half of `docs-check`, so
+it runs on every `make unit-test` and `make regression` exactly like the man
+page. If you edit a guide source, re-render and commit it in the same change —
+otherwise the next test run fails. On a host without mkdocs the check skips; in
+CI it hard-fails.
 
 ### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
 

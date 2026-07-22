@@ -132,7 +132,8 @@ Before a public bump:
    statements about the debugger alone.
 
    Re-render and **commit** both the source and the rendered output in the same
-   change — the rendered guide has no staleness check of its own.
+   change — `docs-userguide-check` (part of `docs-check`, a prerequisite of both
+   `make unit-test` and `make regression`) fails the next test run otherwise.
 
 Private patch bumps (answered `N`) do not require step 2, but `cli-check` runs
 anyway as a prerequisite of `make regression`.
