@@ -262,11 +262,18 @@ instead is instructions that work:
 `src/doc/user-guide/02-installing/02-windows.md`
 ([GH #59](https://github.com/jorgegv/jnext/issues/59)) — the SmartScreen
 click-path, unblocking the Mark-of-the-Web on the downloaded zip, or building
-from source. **Those routes have not been checked on real Windows hardware**,
-and the page says so. Treat that as a live debt: the macOS page's one
-instruction silently stopped working on macOS 15, which is exactly how
-[GH #55](https://github.com/jorgegv/jnext/issues/55) arose. Re-check on real
-hardware and fix the page, rather than adding untested alternatives beside it.
+from source. **Those routes are derived from documented Windows behaviour, not
+from a test on a Windows machine here** — there is none. The maintainer decided
+(2026-07-22) to publish them unhedged and let real users report failures, so
+this is a closed decision, not an open TODO.
+
+What that buys is a triage rule rather than a task: **a user report IS the
+deferred verification**. When one arrives, fix the route in place rather than
+adding an untested alternative beside it — the macOS page's one instruction
+silently stopped working on macOS 15, which is exactly how
+[GH #55](https://github.com/jorgegv/jnext/issues/55) arose. The weakest claim,
+and so the first to suspect, is that unblocking the zip *before* extraction
+suppresses the prompt for the extracted `jnext.exe`.
 
 **macOS** has no build host in this environment — the `macos` job builds it
 natively on `macos-latest` through the project's own `make package-macos`
