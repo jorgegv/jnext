@@ -230,9 +230,15 @@ SDL2 release or KDE runtime branch is targeted.
 — a MinGW cross-build run in a Fedora container — so CI produces byte-for-byte
 the same artifact a developer builds locally, with the Qt6/SDL2/SDL3 runtime
 DLLs + the `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh`. The
-exact recipe (package list + `make package-win`) was proven in a `fedora:44`
-container and the produced `jnext.exe` runs under wine; only a real GitHub
-Actions run remains unexercised.
+exact recipe (package list + `make package-win`) has run green on a real
+GitHub Actions runner: the v0.98.19 release published
+`jnext-0.98.19-windows-x64.zip` from it, and the maintainer confirmed that
+executable working on real Windows hardware. Nothing on the Windows BUILD path
+is unexercised. The open Windows gaps are runtime ones —
+[GH #56](https://github.com/jorgegv/jnext/issues/56) (MP4 recording uses
+POSIX-only shell commands) and
+[GH #62](https://github.com/jorgegv/jnext/issues/62) (non-ASCII file paths) —
+not packaging.
 
 ### Code signing (Windows): a settled decision NOT to
 
@@ -361,7 +367,7 @@ policy. The per-OS build jobs, when they run:
 | `deb`     | `ubuntu-latest` + `ubuntu:24.04`/`ubuntu:26.04` (matrix) | `make package-deb` (in each pinned container) | 2× DEB (`build/deb-release/`), one per LTS, named `jnext_<ver>_ubuntu<rel>_amd64.deb` | Yes — both built + `apt install`ed in their own containers; the 24.04 deps carry the t64 names, 26.04's differ |
 | `rpm`     | `ubuntu-latest` + `fedora:44` | `make package-rpm` (in a Fedora container)           | RPM (`build/rpm-release/`)     | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
-| `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/win-release/`) | Yes — same recipe proven in a `fedora:44` container; exe runs under wine |
+| `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` (MinGW cross-build + DLL bundling) | ZIP (`build/win-release/`) | Yes — ran green on a real runner and shipped in v0.98.19; confirmed working on Windows hardware |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
 | `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
 
