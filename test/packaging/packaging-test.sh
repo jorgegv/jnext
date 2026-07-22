@@ -59,7 +59,10 @@ bad() {
     printf "  ${RED}FAIL${RESET} %-16s %s\n" "$1" "$2"; fail=$((fail+1))
     if [ -n "${3:-}" ] && [ -s "$3" ]; then
         printf "    ---- %s (last 40 lines) ----\n" "$(basename "$3")"
-        sed -e 's/^/    | /' "$3" | tail -40
+        # `awk 1` normalises a MISSING final newline (a tool whose last line has
+        # none would otherwise glue the footer onto it) without adding a blank
+        # line to the common newline-terminated case.
+        tail -40 "$3" | sed -e 's/^/    | /' | awk 1
         printf "    ---- end ----\n"
     fi
 }
