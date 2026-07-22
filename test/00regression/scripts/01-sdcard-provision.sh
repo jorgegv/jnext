@@ -23,10 +23,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # none, because it is believed. Checking only that the file EXISTED could not
 # see any of this.
 #
-# AND THE SUITE ITSELF IS A WRITER (GH #65). The warning above covers only
+# AND THE SUITE COULD DIRTY IT TOO (GH #65). The warning above covers only
 # *interactive* sessions, so the care everyone was taking could never have been
-# sufficient: a regression run boots NextZXOS too, and dirties the image for the
-# next run. Hence TWO mechanisms, doing different jobs:
+# sufficient on its own: a regression run boots NextZXOS as well, and any row
+# that does could in principle write back. Measured honestly, it does not — four
+# full runs, plus a run instrumented to hash the booted image at cleanup, all
+# left it byte-identical — so this is a RISK REMOVED, not an observed bug fixed.
+#
+# What WAS observed, directly: while GH #65 was under review, another worktree
+# on this machine was running its own pre-#65 regression.sh against a different
+# branch, visible in `ps aux`. On a shared box, non-isolated runs from other
+# branches are live writers to the master, which accounts for the drift without
+# needing the isolated suite to be one — and fits the timing (the drift's mtime
+# landed well outside any one run's own window) better than an in-run write.
+# Isolation removes the whole class regardless of which writer it was.
+#
+# Hence TWO mechanisms, doing different jobs:
 #
 #   1. THE HASH GATE (below) protects the MASTER at $HOME/.jnext/sdcard from
 #      whatever happened between runs — an interactive session, a crash, a
