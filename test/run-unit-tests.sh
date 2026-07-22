@@ -32,7 +32,79 @@ set -euo pipefail
 export LC_ALL=C
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$PROJECT_DIR"   # sd_rom_extractor_test resolves roms/ relative to the root
+cd "$PROJECT_DIR"
+
+# --- This run's PRIVATE SD-image clone (GH #75) ---------------------------
+#
+# sd_rom_extractor_test reads a real 1 GB SD image. Until GH #75 it read the
+# machine-wide master at ~/.jnext/sdcard/ directly, which two sanctioned
+# writers can mutate underneath it: any manual jnext run (the image is opened
+# read-write and guest CMD24 writes are flushed — GH #77), and regression.sh's
+# own sd_rederive repair, which takes a flock this harness does not observe.
+# A torn read does not fail loudly as "the image is busy"; it fails as a
+# handful of red rows that read like an emulator regression.
+#
+# So: clone the master into a per-run directory and point the suite at it via
+# JNEXT_TEST_SD_IMAGE, which the test already honours. Same reflink-first
+# approach as the regression harness (test/00regression/test-functions.inc):
+# on a copy-on-write filesystem the clone is ~60 ms and costs no space until
+# written, and $HOME is used rather than /tmp because reflink cannot cross a
+# filesystem — and --reflink=auto would silently degrade to a real 1 GB copy
+# into tmpfs.
+#
+# A missing master is NOT fatal here. The suite has its own honest refusal for
+# that case and the rest of the run is unaffected; failing the whole harness
+# because one fixture is unprovisioned would be a worse trade.
+UNIT_RUN_DIR=""
+unit_cleanup() {
+    [[ -n "$UNIT_RUN_DIR" ]] && rm -rf "$UNIT_RUN_DIR"
+    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    return 0
+}
+# Armed HERE, before the clone exists, because every preflight `die()` exits
+# long before the run-phase trap further down is installed — and the harness
+# self-test drives those refusal paths a dozen times per invocation. Relying on
+# the later trap alone leaked a clone per refusal (measured: 12 in one
+# regression run). The later trap REPLACES this one and therefore has to call
+# unit_cleanup itself; see "ONE trap" there.
+trap 'unit_cleanup' EXIT
+
+# reflink first and EXPLICITLY (`--reflink=always`), so the outcome is
+# observable in $SD_CLONE_MODE rather than guessed — same rule as the
+# regression harness. On btrfs the clone is instant and costs no space until
+# written; anywhere else it degrades to a real copy, which still lands beside
+# the master rather than in tmpfs.
+#
+# Called only once preflight has PASSED, never at parse time: a refusal never
+# runs a suite, so cloning for one is pure waste — and the harness self-test
+# drives ~30 refusals per invocation.
+SD_CLONE_MODE=none
+sd_clone_for_run() {
+    if [[ -n "${JNEXT_TEST_SD_IMAGE:-}" ]]; then SD_CLONE_MODE=preset; return 0; fi
+    local sd_master="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    [[ -f "$sd_master" ]] || { SD_CLONE_MODE=absent; return 0; }
+
+    UNIT_RUN_DIR="$HOME/.jnext/runs/unit-$$-$RANDOM"
+    local sd_clone="$UNIT_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    if mkdir -p "$UNIT_RUN_DIR/sdcard" 2>/dev/null; then
+        if   cp --reflink=always "$sd_master" "$sd_clone" 2>/dev/null; then SD_CLONE_MODE=reflink
+        elif cp --reflink=auto   "$sd_master" "$sd_clone" 2>/dev/null; then SD_CLONE_MODE=copy
+        else SD_CLONE_MODE=failed; fi
+    else
+        SD_CLONE_MODE=failed
+    fi
+
+    if [[ "$SD_CLONE_MODE" == failed ]]; then
+        # Do not silently fall back to the shared master — say so, so the
+        # suite reads it knowingly rather than by accident.
+        rm -rf "$UNIT_RUN_DIR"; UNIT_RUN_DIR=""
+        printf "  WARNING: could not clone the SD master; suites needing it will read %s directly\n" \
+               "$sd_master" >&2
+    else
+        export JNEXT_TEST_SD_IMAGE="$sd_clone"
+    fi
+    return 0
+}
 
 BUILD="${1:-build}"
 CONF="${JNEXT_UNIT_TEST_CONF:-test/unit-tests.conf}"
@@ -184,7 +256,26 @@ done
 
 # --- Run every runnable suite in parallel ---
 TMPDIR_RUN=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_RUN"' EXIT
+# ONE trap for the whole script. `trap ... EXIT` REPLACES any previous EXIT
+# handler, so this must clean up the SD clone too — installing a second trap
+# here silently disabled the clone's cleanup and leaked a 1 GB directory per
+# run (caught in testing: 34 of them, one per harness-selftest invocation).
+trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup' EXIT
+
+# Preflight has passed and suites are about to run — now the clone is worth
+# making.
+sd_clone_for_run
+
+# Say which SD image the suites that need one will read, and how it was
+# obtained. Silence here would make "isolated clone" and "the shared master,
+# because the clone failed" look identical.
+case "$SD_CLONE_MODE" in
+    reflink|copy) printf "  ${CYAN}sd-clone${RESET} private %s clone for this run\n" "$SD_CLONE_MODE" ;;
+    preset)       printf "  ${CYAN}sd-clone${RESET} skipped — JNEXT_TEST_SD_IMAGE preset by the caller\n" ;;
+    absent)       printf "  ${CYAN}sd-clone${RESET} skipped — no SD master to clone\n" ;;
+    failed)       printf "  ${CYAN}sd-clone${RESET} FAILED — suites will read the shared master\n" ;;
+esac
+
 rm -f "$SUMMARY"
 rm -rf "$LOG_DIR"; mkdir -p "$LOG_DIR"
 

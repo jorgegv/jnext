@@ -10,7 +10,7 @@ name: CI
 # NextZXOS SD-card image. jnext's own test harness treats a missing image
 # as a FATAL fault, never a silent skip:
 #   * test/sd_rom_extractor/sd_rom_extractor_test.cpp exits non-zero with
-#     no summary line if roms/nextzxos-1gb-fat32fix.img is absent — by
+#     no summary line if the SD image is absent — by
 #     design, so an unprovisioned worktree can never quietly report a
 #     smaller "still green" suite (see doc/testing/INTEGRATION-TEST-PLAN.md
 #     §5 and test/unit-tests.conf's own header comment for the incident
@@ -31,7 +31,7 @@ name: CI
 # `--sdcard-download-confirm` — so the "Provision NextZXOS SD image" step
 # below simply runs jnext itself to download + FAT32-patch that public
 # image into its default location ($HOME/.jnext/sdcard/), which both
-# `make unit-test` (via the roms/ symlink below, for sd_rom_extractor_test)
+# `make unit-test` (which clones it per run for sd_rom_extractor_test)
 # and `make regression` (via its own self-provisioning step, which finds
 # the image already there and does nothing) then use. This is not a secret
 # or private asset and nothing here duplicates or bypasses the emulator's

@@ -272,11 +272,12 @@ first run. **\--sdcard-download-confirm** skips the prompt, which is useful in
 scripts; **\--sdcard-download-force** re-downloads and re-patches a corrupted
 cached image. An explicit **\--sdcard** always wins over both.
 
-The repository's canonical NextZXOS test image is
-`roms/nextzxos-1gb-fat32fix.img`: the FAT32-corrected variant of
-`roms/nextzxos-1gb.img`, whose 32 KB clusters leave it below the FAT32 minimum
-cluster count, which the TBBlue firmware's FatFs (correctly) refuses to mount.
-Use the `-fat32fix` one.
+Note that jnext opens the image **read-write**, and writes the emulated
+machine makes to the SD card are persisted to the file. Two runs sharing one
+image are therefore not independent: a run that boots NextZXOS mutates the
+image the next run reads. For a reproducible run, give it a private copy
+(`cp --reflink=auto` is instant and costs no space on a copy-on-write
+filesystem).
 
 The mounted image is also the SD card the emulated machine sees at runtime,
 through the SPI/DivMMC path: NextZXOS reads its files from it.
@@ -538,7 +539,7 @@ Boot NextZXOS / the TBBlue firmware (the default machine is `next`):
 
 The same, with an explicit SD-card image:
 
-    jnext --sdcard roms/nextzxos-1gb-fat32fix.img
+    jnext --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img
 
 Run a program; a bare filename is shorthand for **\--load**:
 
@@ -564,7 +565,7 @@ at EOF, so an unattended run would exit non-zero instead of capturing
 anything (**\--sdcard-download-confirm** is the alternative).
 
     jnext --headless --machine 48k \
-        --sdcard roms/nextzxos-1gb-fat32fix.img \
+        --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img \
         --delayed-screenshot /tmp/test.png \
         --delayed-screenshot-frames 200 --delayed-automatic-exit 5
 

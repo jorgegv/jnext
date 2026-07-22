@@ -33,7 +33,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BIN="$PROJECT_DIR/build/gui-release/jnext"
 CACHE="$PROJECT_DIR/build/gui-release/CMakeCache.txt"
-SD_IMAGE="$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img"
+# The SD image jnext provisions and caches itself. `roms/` holds only the
+# embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
+# path under the repo is no longer a thing to point at.
+#
+# NOTE: `make bench` is a manual target, not part of any test suite, so it
+# reads the shared master rather than taking a private clone. The
+# `boot-nextzxos` workload below DOES boot NextZXOS, and jnext opens the image
+# read-write, so a benchmark run mutates the master (GH #77).
+SD_IMAGE="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
 LOCK_FILE="$SCRIPT_DIR/.lock"
 REPEATS=5
 SPREAD_LIMIT_PCT=5.0
@@ -46,7 +54,7 @@ die() { echo "bench: ERROR: $*" >&2; exit 2; }
 build_type=$(grep -oP '^CMAKE_BUILD_TYPE:\w+=\K.*' "$CACHE" || true)
 [[ "$build_type" == "Release" ]] || \
     die "build/gui-release is configured as '${build_type:-<unset>}', not Release — refusing to benchmark it"
-[[ -f "$SD_IMAGE" ]] || die "SD image missing: $SD_IMAGE (in a worktree: make worktree-bootstrap)"
+[[ -f "$SD_IMAGE" ]] || die "SD image missing: $SD_IMAGE (provision it with '$BIN --headless --sdcard-download-confirm', or point JNEXT_TEST_SD_IMAGE at an existing one)"
 
 # --- Serialise: one benchmark at a time, machine-wide for this repo ---
 # A real blocking flock, not a process scan: several agents may run overnight

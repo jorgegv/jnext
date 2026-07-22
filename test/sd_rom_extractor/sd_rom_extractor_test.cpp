@@ -19,8 +19,11 @@
 //   SD-EXT-08  Leading-slash optional: "MACHINES/NEXT/enNxtmmc.rom"
 //              (no leading '/') resolves identically to SD-EXT-01.
 //
-// Fixture: roms/nextzxos-1gb-fat32fix.img (canonical 1 GB NextZXOS image,
-// MBR + FAT32-LBA, 8 KB clusters; see CLAUDE.md). The reference bytes
+// Fixture: the canonical 1 GB NextZXOS image (MBR + FAT32-LBA, 8 KB
+// clusters) that jnext provisions for itself at
+// ~/.jnext/sdcard/cspect-next-1gb-fixed.img; JNEXT_TEST_SD_IMAGE overrides
+// it, and run-unit-tests.sh points it at a private per-run clone so a
+// concurrent writer cannot tear the read (GH #75/#77). The reference bytes
 // for SD-EXT-01/03/04/05 were captured offline via `mtools` so the test
 // is deterministic without depending on `mtools` being installed at
 // run time.
@@ -130,7 +133,7 @@ int main() {
         std::fprintf(stderr,
             "\nFATAL: SD image fixture missing: %s\n"
             "  This suite cannot run without it, and will NOT pretend to.\n"
-            "  In an agent worktree, provision it with: make worktree-bootstrap\n"
+            "  Provision it with: jnext --headless --sdcard-download-confirm\n"
             "  Or point JNEXT_TEST_SD_IMAGE at the canonical 1 GB image.\n\n",
             img.c_str());
         return 1;
