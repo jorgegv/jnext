@@ -40,6 +40,44 @@ harness_fault() {
     exit 2
 }
 
+# regression_cleanup — the one EXIT handler. Removes the scratch dir and this
+# run's private state directory (which holds the ~1 GB SD-image clone). Guarded
+# against an empty variable so it can never become `rm -rf /` or `rm -rf ""`.
+regression_cleanup() {
+    [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
+    [[ -n "${RUN_DIR:-}" ]] && rm -rf "$RUN_DIR"
+    # Prune the (now likely empty) runs/ parent; harmless if other runs are live.
+    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    return 0
+}
+
+# sd_clone_for_run — give THIS run a private copy of the master SD image at
+# $RUN_DIR/sdcard/, the location jnext's provisioner resolves from
+# $JNEXT_CONFIG_DIR. Idempotent: safe to call again after the master has been
+# re-derived.
+#
+# reflink first, explicitly (`--reflink=always`), so the outcome is OBSERVABLE
+# in $SD_CLONE_MODE rather than guessed: on a copy-on-write filesystem the
+# clone is instant and free, and anywhere else it degrades to a plain copy that
+# still lands on the same filesystem as the master (never in RAM).
+# Sets SD_CLONE_MODE to reflink | copy | absent | failed.
+sd_clone_for_run() {
+    SD_CLONE_MODE=absent
+    [[ -f "$SD_MASTER_IMAGE" ]] || return 1
+    local dst="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    mkdir -p "$RUN_DIR/sdcard" || { SD_CLONE_MODE=failed; return 1; }
+    rm -f "$dst"
+    if cp --reflink=always "$SD_MASTER_IMAGE" "$dst" 2>/dev/null; then
+        SD_CLONE_MODE=reflink
+    elif cp --reflink=auto "$SD_MASTER_IMAGE" "$dst" 2>/dev/null; then
+        SD_CLONE_MODE=copy
+    else
+        SD_CLONE_MODE=failed
+        return 1
+    fi
+    return 0
+}
+
 declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
     grep -cvE '^[[:space:]]*(#|$)' "$1" || true
 }
@@ -119,11 +157,11 @@ regression_lib_init() {
     fi
 
     # SD-card image: the suite does NOT pass --sdcard at all — SD_CARD_ARGS
-    # stays empty, a deliberate seam. jnext falls back to the pristine,
-    # self-provisioned image at $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
-    # (sdcard::provision_sd_card, src/core/sdcard_provisioner.*), the same
-    # FAT32-patched canonical distro image an end user gets; the
-    # "[sdcard-provision]" row ensures it exists before any test row runs.
+    # stays empty, a deliberate seam. jnext falls back to the self-provisioned
+    # image under its state directory (sdcard::provision_sd_card,
+    # src/core/sdcard_provisioner.*), the same FAT32-patched canonical distro
+    # image an end user gets. That state directory is $JNEXT_CONFIG_DIR, which
+    # sd_clone_for_run below points at a PRIVATE per-run clone (see there).
     # When the boot-ROM auto-load gate is active (Next + sd_card non-empty +
     # load_file empty), `BOOT` rows exercise the firmware path; rows with
     # --load NEX skip the boot ROM via the cfg.load_file gate (Emulator::init).
@@ -141,18 +179,61 @@ regression_lib_init() {
     # NextZXOS welcome-screen reference, diffed against by several boot rows.
     WELCOME_REF="$IMG_DIR/boot-nextzxos-welcome-reference.png"
     TMP_DIR=$(mktemp -d)
-    trap 'rm -rf "$TMP_DIR"' EXIT
 
-    # Isolate GUI preferences from the developer's real config. Every
-    # NON-headless $JNEXT invocation in the suite constructs the real
-    # MainWindow, which loads AppConfig unconditionally for fields with no CLI
-    # flag (CPU speed, window scale, CRT filter, tape fast-load) — a stray
-    # real config file could silently change CPU speed and perturb
-    # timing-sensitive pixel comparisons. JNEXT_CONFIG_DIR points every load()
-    # at a fresh, never-created directory, i.e. clean AppConfigData defaults.
+    # The MASTER SD image — machine-wide, shared, and the only copy the suite
+    # ever writes. 01-sdcard-provision.sh gates it on a hash and re-derives it
+    # if a stray interactive session drifted it.
+    SD_MASTER_DIR="$HOME/.jnext/sdcard"
+    SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
+    SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
+
+    # This run's PRIVATE state directory (GH #65). Two jobs at once:
+    #
+    #  1. GUI preferences. Every NON-headless $JNEXT invocation constructs the
+    #     real MainWindow, which loads AppConfig unconditionally for fields
+    #     with no CLI flag (CPU speed, window scale, CRT filter, tape
+    #     fast-load); a stray real config could silently change CPU speed and
+    #     perturb timing-sensitive pixel comparisons. Pointing every load() at
+    #     a fresh directory yields clean AppConfigData defaults.
+    #
+    #  2. The SD-card image. src/core/sdcard_provisioner.cpp resolves the
+    #     fallback image under this same directory, so the run boots
+    #     $RUN_DIR/sdcard/cspect-next-1gb-fixed.img — a private clone — and
+    #     never the master. NextZXOS WRITES BACK to the card it boots, so
+    #     without this the suite mutates the very artefact its reference
+    #     screenshots were generated against. That is not hypothetical: a drift
+    #     turned a green branch into 91 pass / 5 FAIL, indistinguishable from a
+    #     rendering regression.
+    #
+    # WHY UNDER $HOME AND NOT $TMP_DIR. The clone is made with reflink, which
+    # is a filesystem-internal operation: it works only WITHIN one filesystem.
+    # On the dev host $HOME is btrfs and /tmp is tmpfs, and `cp --reflink` from
+    # one to the other fails with "Invalid cross-device link" — `--reflink=auto`
+    # then silently degrades to a real 1 GB copy INTO RAM, per concurrent run.
+    # Same-filesystem, the clone takes ~60 ms and costs no space until written.
+    RUN_DIR="$HOME/.jnext/runs/$$-$(date +%s)-$RANDOM"
+    export JNEXT_CONFIG_DIR="$RUN_DIR"
     # (XDG_CONFIG_HOME is kept for any other Qt state.)
-    export JNEXT_CONFIG_DIR="$TMP_DIR/jnext-config-home"
     export XDG_CONFIG_HOME="$TMP_DIR/xdg-config-home"
+
+    # ONE trap, installed before either directory has anything in it. Cleanup
+    # must be a trap and never a final step: a killed or timed-out run would
+    # otherwise leak a gigabyte, and `set -e` has already killed three scripts
+    # in this suite.
+    trap 'regression_cleanup' EXIT
+
+    # Clone now, so a DIRECTLY-EXECUTED test script (every scripts/*.sh is also
+    # standalone-runnable) has an image before it launches jnext. A full run
+    # re-clones in the "[sdcard-provision]" row after the master's hash gate,
+    # which may have re-derived it; the re-clone costs ~60 ms. A failure here is
+    # not fatal on its own — the row is what reports and provisions.
+    sd_clone_for_run || true
+
+    # The master's identity at the start of the run. sdcard-isolation-func
+    # compares against it at the END, after every screenshot row has booted
+    # NextZXOS — so the assertion covers the whole suite, not one contrived
+    # boot. 01-sdcard-provision.sh re-stamps if its hash gate re-derived it.
+    SD_MASTER_STAMP=$(stat -c '%i:%Y:%s' "$SD_MASTER_IMAGE" 2>/dev/null || echo "absent")
 
     # Pixel difference tolerance (0 = exact match)
     TOLERANCE=${JNEXT_TEST_TOLERANCE:-0}

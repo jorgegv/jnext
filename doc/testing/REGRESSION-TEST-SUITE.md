@@ -199,6 +199,26 @@ Load-bearing rationale that used to live as long comments inside
   (which screenshots a live SD directory listing) unreproducible against a
   clean checkout. The pristine self-provisioned `~/.jnext/sdcard/` image is
   the same one an end user gets, so references stay reproducible.
+- **Why every run boots a PRIVATE clone of that image** (GH #65). The image is
+  machine-wide mutable state and NextZXOS writes back to the card it boots, so
+  one interactive session can silently redefine what the whole suite tests
+  against: a drift once turned a green branch into 91 pass / 5 FAIL, with
+  screenshot diffs indistinguishable from a rendering regression. Two
+  mechanisms, doing different jobs. The **hash gate** in
+  `scripts/01-sdcard-provision.sh` protects the master between runs, re-deriving
+  it only when it has drifted. The **per-run clone**
+  (`sd_clone_for_run`, `test-functions.inc`) makes a run incapable of dirtying
+  the master at all: it reflinks the image into `$JNEXT_CONFIG_DIR`, which
+  jnext's provisioner resolves the fallback image from, and the EXIT trap
+  removes it. That is what lets regression runs execute concurrently with no
+  lock. The clone lives under `$HOME/.jnext/runs/`, deliberately NOT in
+  `$TMP_DIR`: reflink works only within one filesystem, and on a typical dev
+  host `/tmp` is tmpfs — `cp --reflink=auto` across that boundary silently
+  degrades to a real 1 GB copy into RAM per concurrent run.
+  `sdcard-isolation-func` asserts each of those properties, and asserts what the
+  harness DID (which file jnext opened, which device the clone is on, whether
+  the master's inode/mtime moved, whether the run directory survives a kill) —
+  never what the image looks like afterwards, which is identical either way.
 - **Why membership/count checks are pure-bash hashes.**
   `printf ... | grep -q` over a list is unsound under `set -o pipefail`: grep
   exits on match, printf can die of SIGPIPE (141), and pipefail promotes 141 —
