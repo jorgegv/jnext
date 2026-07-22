@@ -122,6 +122,31 @@ while IFS= read -r macho; do
     done < <(macho_deps "$macho")
 done < <(macho_files "$APP")
 
+# --- runtime-loaded (dlopen) dependencies ------------------------------------
+# Everything above walks LC_LOAD_DYLIB, which by construction CANNOT see a
+# library opened with dlopen() at run time: it appears in no load command. Such
+# a dependency has to be named explicitly, here and in bundle-dlopen-deps.sh.
+#
+# This exact hole shipped. v0.98.72 passed every structural check above and then
+# aborted at launch on a clean Mac, because Homebrew's sdl2 is sdl2-compat —
+# an SDL2 API over SDL3 that dlopen()s libSDL3 by leaf name — and nothing had
+# copied libSDL3 in (GH #46, reported on macOS 26.5.2 arm64). "otool says the
+# bundle is complete" and "the bundle is complete" are not the same claim.
+# `|| true`: find exits non-zero when Contents/Frameworks does not exist, and
+# under `set -e` a failing command substitution in an assignment kills the whole
+# script — silently, before any verdict is printed.
+sdl2_lib=$(find "$APP/Contents/Frameworks" -maxdepth 1 -name 'libSDL2*.dylib' 2>/dev/null | head -1 || true)
+if [ -n "$sdl2_lib" ] && grep -qa 'libSDL3' "$sdl2_lib"; then
+    if [ ! -e "$APP/Contents/Frameworks/libSDL3.dylib" ]; then
+        echo "FAIL: the bundled SDL2 is sdl2-compat, which dlopen()s libSDL3 at" >&2
+        echo "      start-up, but Contents/Frameworks/libSDL3.dylib is MISSING." >&2
+        echo "      otool cannot see this dependency; the app aborts at launch" >&2
+        echo "      with \"Failed to initialize internal SDL dynapi\" (GH #46)." >&2
+        exit 1
+    fi
+    echo "verify-bundle: sdl2-compat detected, libSDL3.dylib present"
+fi
+
 if [ "$checked" -eq 0 ]; then
     echo "error: no Mach-O files found in $APP — the bundle is empty or malformed" >&2
     exit 1
