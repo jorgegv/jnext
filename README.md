@@ -98,10 +98,13 @@ The Linux packages put a `jnext` command on your `PATH`.
 
 The **Windows** build is a self-contained, portable zip — no installer, with
 all the Qt and SDL runtime DLLs bundled. Unzip it anywhere and run `jnext.exe`;
-delete the folder to uninstall. On first launch Windows SmartScreen may warn
-about an unrecognized publisher — the executable is **not code-signed** — so
-click **More info → Run anyway**. Why, and what a signature would and would not
-prove: **[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
+delete the folder to uninstall. The executable is **deliberately not
+code-signed** — an Authenticode certificate is a recurring annual cost — so on
+first launch Windows SmartScreen warns about an unrecognized publisher. Click
+**More info → Run anyway**; or clear the download's Mark of the Web first, by
+right-clicking the downloaded zip and ticking **Properties → Unblock**. Details,
+and what a signature would and would not prove:
+**[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
 
 The **macOS** build is a `.dmg`; open it and drag **jnext** to Applications. The
 app is ad-hoc signed but **deliberately not notarised** — notarisation requires

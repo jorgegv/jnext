@@ -650,6 +650,39 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#route-1-run-anyway-at-the-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route 1 — Run anyway at the prompt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#route-2-unblock-the-download-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route 2 — unblock the download first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#route-3-build-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route 3 — build it yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2866,32 +2899,82 @@
 
 
 <!--
-  The SmartScreen click-path below (More info -> Run anyway) has NOT been
-  re-verified on current Windows the way the macOS page was re-verified on
-  macOS 15 (GH #59) — it is carried over from when the page was written.
-  Microsoft has changed this dialog before. Re-check it on real Windows
-  hardware and fix the page, rather than adding a second, still-untested
-  alternative next to it.
+  NONE of the routes below has been checked on real Windows hardware (GH #59) —
+  they are derived from documented Windows behaviour, not observed on our own
+  artifact. Microsoft has changed the SmartScreen dialog before, and route 2's
+  behaviour depends on which tool the user extracts the zip with. The macOS
+  page's single instruction silently stopped working on macOS 15, which is how
+  GH #55 arose; do not let this page repeat it. Re-check each route on real
+  hardware and FIX it, rather than adding a second, still-untested alternative
+  beside it. Specifically unconfirmed: whether unblocking the zip before
+  extraction suppresses the SmartScreen prompt for the extracted jnext.exe.
 -->
 <h1 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h1>
 <p>Download <code>jnext-*-windows-x64.zip</code>, unzip it anywhere, and run <code>jnext.exe</code>.
 There is no installer: everything the program needs is in the folder, and
 deleting the folder uninstalls it.</p>
-<p>On first launch Windows SmartScreen may warn about an unrecognised publisher
-and refuse to start the program. Click <strong>More info</strong>, then <strong>Run anyway</strong>. You
-only do this once.</p>
+<p>The first time you run it, Windows SmartScreen may say it <em>prevented an
+unrecognised app from starting</em> and show no publisher name. That is expected,
+and the next section explains why. Getting past it takes one of the routes
+below; you only do it once.</p>
 <h2 id="why-the-warning-appears">Why the warning appears<a class="headerlink" href="#why-the-warning-appears" title="Permanent link">&para;</a></h2>
-<p>The executable is not code-signed. Authenticode signing needs a certificate
-bought from a commercial certificate authority and kept renewed, and JNEXT does
-not have one — so Windows has no publisher name to show you, and says so. The
-warning reports the <em>absence of a signature</em>; it does not mean anything was
-found wrong with the download.</p>
-<p>A signature would name the certificate holder who built the file, and would
-stop Windows asking. It would not tell you the program is safe — signed
-software can do anything unsigned software can. If who built it is the question
-that matters to you, build it yourself: see
-<a href="06-building-from-source.html">Building from source</a>, which produces a binary
-SmartScreen never sees.</p>
+<p>JNEXT is not code-signed, and that is a deliberate choice. Authenticode signing
+requires a certificate bought from a commercial certificate authority and
+renewed every year — and the kind that stops SmartScreen complaining from the
+very first release is dearer still and arrives on a hardware token. This is a
+hobby project, and paying for that would not make the emulator any better.</p>
+<p>So Windows has no publisher to name and no reputation to look up, and tells you
+so. The warning reports the <em>absence of a signature</em> — it does not mean
+anything was found wrong with the download. It will keep appearing, because
+signing is not planned.</p>
+<p>A signature would name the certificate holder who built the file. It would not
+tell you the program is safe — signed software can do anything unsigned
+software can — so if who built it is the question that matters to you, route 3
+answers it properly.</p>
+<h2 id="route-1-run-anyway-at-the-prompt">Route 1 — Run anyway at the prompt<a class="headerlink" href="#route-1-run-anyway-at-the-prompt" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Run <code>jnext.exe</code>. SmartScreen blocks it and offers only a <strong>Don't run</strong>
+   button.</li>
+<li>Click <strong>More info</strong>. A line appears naming the app, with its publisher given
+   as <em>Unknown publisher</em>.</li>
+<li>Click <strong>Run anyway</strong>.</li>
+</ol>
+<p>This is the route most people will use, and the one to try first.</p>
+<h2 id="route-2-unblock-the-download-first">Route 2 — unblock the download first<a class="headerlink" href="#route-2-unblock-the-download-first" title="Permanent link">&para;</a></h2>
+<p>When your browser downloads a file, Windows tags it with the <em>Mark of the Web</em>
+— an NTFS alternate data stream named <code>Zone.Identifier</code> recording that it came
+from the internet. That tag is what puts JNEXT in front of SmartScreen.
+Clearing it from the <strong>zip, before you extract it</strong>, is the tidier route:</p>
+<p>In Explorer, right-click the downloaded <code>.zip</code>, choose <strong>Properties</strong>, and on
+the <strong>General</strong> tab tick <strong>Unblock</strong> at the bottom, then <strong>OK</strong>. If there is no
+<strong>Unblock</strong> box, the file carries no tag and there is nothing to do.</p>
+<p>The same thing from PowerShell:</p>
+<pre><code class="language-powershell">Unblock-File .\jnext-*-windows-x64.zip
+</code></pre>
+<p><code>Unblock-File</code> does exactly what that checkbox does.</p>
+<p>Do it <strong>before extracting</strong>, because whether the tag reaches the files inside
+depends on which tool you extract with: Explorer's own zip handler and WinRAR
+copy it onto every extracted file, while 7-Zip only does so when that option is
+turned on. Unblocking the zip first sidesteps the question. If you have already
+extracted, apply the same <strong>Properties → Unblock</strong> or <code>Unblock-File</code> to
+<code>jnext.exe</code> itself.</p>
+<p>This is you deciding to trust one particular download, which is why it names
+one file. Do <strong>not</strong> switch SmartScreen off, and do not add Microsoft Defender
+exclusions to avoid the prompt: this route covers a single download and leaves
+everything else on your PC checked exactly as it was.</p>
+<blockquote>
+<p><strong>Not confirmed on real hardware yet.</strong> Nobody has verified on a real Windows
+machine that unblocking the zip first stops the prompt appearing for the
+extracted <code>jnext.exe</code>. If you try it, please report what happened on
+<a href="https://github.com/jorgegv/jnext/issues/59">issue&nbsp;#59</a>. Route 1 works
+regardless.</p>
+</blockquote>
+<h2 id="route-3-build-it-yourself">Route 3 — build it yourself<a class="headerlink" href="#route-3-build-it-yourself" title="Permanent link">&para;</a></h2>
+<p>The Mark of the Web comes from downloading, not from running, so an executable
+you build on your own machine never carries one and there is no SmartScreen
+step at all. See <a href="06-building-from-source.html">Building from source</a> — note that
+the Windows executable is cross-compiled from Linux with MinGW rather than
+built on Windows.</p>
 
 
 
