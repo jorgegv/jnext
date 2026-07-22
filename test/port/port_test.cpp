@@ -383,9 +383,13 @@ static void test_group_registration() {
         // REG-03c — the exact NextZXOS ISR idiom that GH #52 tripped over:
         // save the caller's selected register, use the NextREG file for
         // something else, then restore it. With a write-only 0x243B the
-        // "save" reads 0x00 and the "restore" silently re-points the
-        // selection at NR 0x00 (read-only machine ID), so the interrupted
-        // program's subsequent 0x253B accesses go to the wrong register.
+        // "save" reads the floating bus instead of the selection and the
+        // "restore" writes that back, silently re-pointing the selection at
+        // whatever it happened to read, so the interrupted program's
+        // subsequent 0x253B accesses go to the wrong register. The value is
+        // configuration-dependent (0x00 under NextZXOS, 0xFF on a bare
+        // Emulator like this one), which is why the row asserts the RIGHT
+        // value rather than any particular wrong one.
         nr_write(emu, 0x07, 0x03);              // NR 0x07 = 28 MHz
         emu.port().out(0x243B, 0x07);           // caller selects NR 0x07
         const uint8_t saved = emu.port().in(0x243B);   // ISR: save selection
