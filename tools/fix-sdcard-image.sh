@@ -30,9 +30,12 @@
 # a temporary file first and renames it on top of source only after
 # all steps succeed (so a failure mid-fix leaves source untouched).
 #
-# The canonical image used by jnext's regression / boot tests is
-# `roms/nextzxos-1gb-fat32fix.img`, produced by running this script on
-# the official NextZXOS image (`roms/nextzxos-1gb.img`).
+# jnext's tests do NOT use a fixture under `roms/` any more (GH #75): they
+# resolve `~/.jnext/sdcard/cspect-next-1gb-fixed.img`, which jnext itself
+# downloads and FAT32-patches via `--sdcard-download-confirm`. This script
+# stays for re-clustering an image you supply yourself — an under-clustered
+# 1 GB FAT32 (32 KB clusters -> 32758 clusters, below the spec minimum of
+# 65525) is rejected by tbblue.fw's FatFs, correctly.
 
 set -euo pipefail
 

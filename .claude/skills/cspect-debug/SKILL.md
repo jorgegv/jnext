@@ -36,7 +36,7 @@ pkill -9 mono 2>/dev/null; sleep 1
 # 2. Launch with HARD timeout — guarantees mono dies after N seconds
 #    Adjust 60 → expected script runtime + 10s margin
 (timeout --kill-after=2s 60 mono /home/jorgegv/src/spectrum/CSpect3_1_0_0/CSpect.exe \
-   -w3 -zxnext -nextrom -debug -mmc=roms/nextzxos-1gb-fat32fix.img \
+   -w3 -zxnext -nextrom -debug -mmc=$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img \
    >/tmp/cspect_<topic>.log 2>&1 &)
 
 # 3. Wait for DZRP listener with 20s cap
@@ -84,7 +84,7 @@ For G46(b) NextZXOS boot work:
 ```bash
 mono /home/jorgegv/src/spectrum/CSpect3_1_0_0/CSpect.exe \
    -w3 -zxnext -nextrom -debug \
-   -mmc=roms/nextzxos-1gb-fat32fix.img
+   -mmc=$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
 ```
 
 | Flag | Meaning |

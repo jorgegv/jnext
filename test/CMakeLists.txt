@@ -248,8 +248,10 @@ add_test(NAME sdcard_tests COMMAND sdcard_test)
 # SD ROM extractor compliance test (Task 8 Wave 0.2, 2026-05-04)
 # Host-side FAT32 reader for ROM-from-SD extraction at Emulator::init time.
 # Pure host code (no Z80 / no peripherals) — links jnext_core only.
-# Test fixture is roms/nextzxos-1gb-fat32fix.img (canonical NextZXOS image);
-# the test runs from the source-tree root so the relative path resolves.
+# Test fixture is the SD image jnext provisions for itself at
+# ~/.jnext/sdcard/cspect-next-1gb-fixed.img, overridable via
+# JNEXT_TEST_SD_IMAGE — which run-unit-tests.sh sets to a private per-run
+# clone (GH #75). Nothing under roms/ is involved.
 add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp)
 target_link_libraries(sd_rom_extractor_test PRIVATE jnext_core)
 target_include_directories(sd_rom_extractor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

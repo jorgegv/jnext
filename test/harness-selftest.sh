@@ -439,6 +439,175 @@ done
 check "HS-30" "no suite source reintroduces 'printf ... | grep -q' membership" 0 0 \
     "offenders=[${offenders}]" "offenders=[]"
 
+# ------------------------------------------- SD clone cleanup on a signal
+# GH #75: the harness clones the ~1 GB SD master into $HOME/.jnext/runs for
+# the duration of a run. Cleaning that up on the NORMAL exit paths is the easy
+# half and was already green while the script leaked a gigabyte per run twice
+# over: first because a second `trap ... EXIT` REPLACES the first rather than
+# adding to it, then because an EXIT-only trap does not fire at all when the
+# shell is killed by an untrapped signal. Measured on that version, 20% of
+# SIGINTs and 45% of SIGTERMs delivered mid-run leaked the clone — and `make
+# unit-test` runs the harness as a foreground recipe in the terminal's process
+# group, so Ctrl-C is the ordinary way a user ends a slow run.
+#
+# Neither leak was visible to any test: a green run cleans up correctly, and
+# the whole triplet passed throughout. So it is pinned here.
+#
+# Hermetic and fast: a fake $HOME with a TINY file standing in for the master,
+# so the clone is instant and the real ~/.jnext is never touched. The stub
+# suite sleeps, so the signal lands in the parallel `wait` — the window that
+# actually leaked. JNEXT_TEST_SD_IMAGE must be unset: inherited from an outer
+# run it would make the harness report `preset` and skip cloning entirely,
+# which would make this test pass without proving anything.
+# This is a SOURCE-SCAN guard, like HS-30 above, and that is a deliberate
+# choice over a functional one. Read this before "improving" it into a test
+# that actually sends a signal.
+#
+# The leak is real: with EXIT-only traps, `timeout --signal=TERM <d>s` against
+# this harness leaks the clone — measured here at 1/8 across d = 0.2 .. 1.6s,
+# and independently at 20% (INT) / 45% (TERM) by review. With INT and TERM
+# trapped it is 0/10 over the same sweep, including three repeats of the exact
+# duration that leaked.
+#
+# But a functional row is a bad guard for it, and that was proven rather than
+# assumed. A first attempt built a hermetic fixture (fake $HOME, tiny stand-in
+# master, stub suite sleeping, signal sent once the clone appeared) and it
+# PASSED WITH THE FIX REVERTED — bash does run an EXIT trap for most
+# signal-death paths, so the vulnerable window is narrow and depends on where
+# in the run the signal lands. A probabilistic row that passes against the bug
+# ~7 times in 8 is worse than no row: it launders the bug as covered.
+#
+# So the guard asserts the property that closes the window, deterministically:
+# every EXIT trap in the harness also lists INT and TERM. It cannot regress
+# silently, and it costs nothing to run.
+# Scans EVERY script that cleans up a ~1 GB SD clone, not just the unit
+# harness. The bug appeared three times in one branch — run-unit-tests.sh
+# twice, then bench.sh again 18 minutes after the second fix — and a guard
+# covering only the file that happened to be fixed first would not have
+# caught the third. test-functions.inc carried it from GH #65 and was found
+# by the same review.
+CLEANUP_SCRIPTS=("$HARNESS"
+                 "$PROJECT_DIR/test/bench/bench.sh"
+                 "$PROJECT_DIR/test/00regression/test-functions.inc")
+
+# (a) each script handles INT and TERM at all.
+missing=""
+for src in "${CLEANUP_SCRIPTS[@]}"; do
+    grep -qE "^[[:space:]]*trap[[:space:]].*[[:space:]]INT([[:space:]]|$)" "$src" || missing+="${src##*/}:INT "
+    grep -qE "^[[:space:]]*trap[[:space:]].*[[:space:]]TERM([[:space:]]|$)" "$src" || missing+="${src##*/}:TERM "
+done
+check "HS-40" "every SD-clone cleanup script handles INT and TERM (GH #75)" 0 0 \
+    "missing=[${missing}]" "missing=[]"
+
+# (b) and each INT/TERM handler EXITS. This is the half that matters and the
+# half a syntax check nearly missed: `trap 'cleanup' EXIT INT TERM` satisfies
+# (a) but runs the handler and RESUMES, so regression.sh deleted its own SD
+# clone and carried on for another four minutes producing 58 FAIL / 4 PASS
+# against a missing image — failures indistinguishable from a real regression.
+# The property that matters is that the process STOPS, and the nearest thing
+# to it a source scan can assert is that the handler body calls exit.
+#
+# A trap listing EXIT alongside INT/TERM is also rejected outright: the same
+# body cannot both be the normal-exit handler (which must NOT exit, or it
+# recurses) and the signal handler (which must).
+noexit=""
+for src in "${CLEANUP_SCRIPTS[@]}"; do
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if grep -qE "[[:space:]]EXIT([[:space:]]|$)" <<<"$line"; then
+            noexit+="${src##*/}: shares handler with EXIT: ${line}"$'\n'
+        elif ! grep -qE "exit[[:space:]]+[0-9]+" <<<"$line"; then
+            noexit+="${src##*/}: handler does not exit: ${line}"$'\n'
+        fi
+    done < <(grep -nE "^[[:space:]]*trap[[:space:]].*[[:space:]](INT|TERM)([[:space:]]|$)" "$src" || true)
+done
+check "HS-41" "every INT/TERM handler exits instead of resuming (GH #75)" 0 0 \
+    "bad=[${noexit}]" "bad=[]"
+
+# (c) and — the one that actually matters — the handler must TERMINATE the
+# shell, which no source scan can establish. HS-41 asserts the handler body
+# contains `exit <n>`; review broke that in one move with `(exit 130)`, which
+# passes the regex, cleans up, and leaves the script running. `$(...)`, a
+# trailing `&`, a pipeline and a function call all escape the same way, so
+# refining the regex is whack-a-mole against an unbounded pattern space.
+#
+# So run the REAL trap statements, lifted verbatim from each script, in a
+# minimal shell with stub cleanup functions, signal it, and measure. This is
+# viable where the leak test was not: termination is not a narrow race — every
+# correct shape dies within a second of the signal and every broken one hangs
+# indefinitely, measured across 35+ trials in review. Hermetic and ~1s total.
+sig_terminates() {   # sig_terminates <trap-statement> <signal> -> "died=<y|n> cleaned=<y|n>"
+    local line=$1 sig=$2
+    local marker="$T/sigmarker-$$-$RANDOM" probe="$T/sigprobe-$$-$RANDOM.sh"
+    [[ -n "$line" ]] || { echo "died=n cleaned=n"; return; }
+    {   echo '#!/usr/bin/env bash'
+        echo 'set -uo pipefail'
+        echo "TMPDIR_RUN=$(printf %q "$T/sigtmp")"
+        echo 'mkdir -p "$TMPDIR_RUN"'
+        # One stub for whichever cleanup function this script's trap names.
+        echo "unit_cleanup()       { touch $(printf %q "$marker"); return 0; }"
+        echo "bench_cleanup()      { touch $(printf %q "$marker"); return 0; }"
+        echo "regression_cleanup() { touch $(printf %q "$marker"); return 0; }"
+        echo "$line"
+        # A LOOP, not a single `sleep`. With one sleep the probe ends the moment
+        # the signal kills that sleep, so even a handler that "cleans up and
+        # resumes" terminates — the first version of this row did that and
+        # passed against all three known-broken shapes. The loop reproduces
+        # regression.sh's actual structure: a per-item loop that tolerates its
+        # own errors, so a resuming handler keeps grinding. `set -e` is
+        # deliberately absent for the same reason.
+        echo 'for _ in $(seq 1 120); do sleep 0.5; done'
+    } > "$probe"
+    # Measured by WALL TIME, not exit status: `timeout` returns 124 whenever it
+    # had to signal at all, so the status says nothing about whether the process
+    # then died — that mistake made the first version of this row fail against
+    # correct code. --kill-after bounds a handler that never terminates.
+    local t0 t1 elapsed
+    t0=$(date +%s%N)
+    timeout --signal="$sig" --kill-after=3s 0.5s bash "$probe" >/dev/null 2>&1
+    t1=$(date +%s%N)
+    elapsed=$(( (t1 - t0) / 1000000 ))          # ms
+    # A correct handler exits at the signal (~500 ms). A broken one survives it
+    # and is SIGKILLed 3s later (~3500 ms). The 2000 ms threshold leaves 1.5 s
+    # of headroom either side — deliberately wide, because this project has
+    # been burned by tight wall-clock budgets on a loaded box before
+    # (audio-underrun-func / screenshot-paused-func, the reason JNEXT_TEST_JOBS
+    # is capped). The extra second of runtime is worth not learning that again
+    # on a CI runner.
+    local died=y; [[ "$elapsed" -gt 2000 ]] && died=n
+    local cleaned=n; [[ -e "$marker" ]] && cleaned=y
+    rm -f "$marker" "$probe"
+    echo "died=$died cleaned=$cleaned"
+}
+
+# EVERY registration is probed, not the first one found. run-unit-tests.sh
+# arms its INT/TERM traps TWICE by design — once early to cover the preflight
+# `die()` paths, then again before the suite loop, which replaces it and is the
+# only one live during the parallel `wait` (the window that caused the original
+# bug). An earlier version of this row took `grep ... | head -1` and therefore
+# probed the early trap and never looked at the live one: review mutated only
+# the second registration and got a 16-second hang past HS-40, HS-41 AND HS-42
+# with all three green. `tail -1` would fix today's two-layer shape and break
+# again silently on a third layer, so the loop probes them all.
+sig_results=""
+for src in "${CLEANUP_SCRIPTS[@]}"; do
+    for sig in INT TERM; do
+        n=0
+        while IFS= read -r tline; do
+            [[ -z "$tline" ]] && continue
+            n=$((n + 1))
+            r=$(sig_terminates "$tline" "$sig")
+            [[ "$r" == "died=y cleaned=y" ]] || sig_results+="${src##*/}/${sig}#${n}: ${r} "
+        done < <(grep -E "^[[:space:]]*trap[[:space:]].*[[:space:]]${sig}([[:space:]]|$)" "$src" || true)
+        # A script with no registration at all for this signal is itself a
+        # failure — HS-40 covers that, but say so here too rather than
+        # silently probing nothing and reporting clean.
+        [[ "$n" -gt 0 ]] || sig_results+="${src##*/}/${sig}: no registration "
+    done
+done
+check "HS-42" "real INT/TERM trap statements clean up AND terminate (GH #75)" 0 0 \
+    "bad=[${sig_results}]" "bad=[]"
+
 echo ""
 echo "====================================="
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" "$total" "$pass" "$fail" 0

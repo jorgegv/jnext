@@ -19,7 +19,7 @@ Ask the user (if not specified):
 
 1. Start CSpect in DZRP debug mode (background):
    ```bash
-   mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img -debug &
+   mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug &
    ```
    Wait ~2 seconds for it to come up.
 
@@ -35,7 +35,7 @@ Ask the user (if not specified):
 4. Capture jnext for the same wall-clock window:
    ```bash
    JNEXT_G46B_<PROBE>=1 ./build/jnext --headless --machine next \
-     --sdcard roms/nextzxos-1gb-fat32fix.img \
+     --sdcard $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img \
      --delayed-automatic-exit <N> \
      2> /tmp/dzrp-jnext-<PC>.log
    ```

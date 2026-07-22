@@ -309,7 +309,6 @@ The `--headless` option runs without display/audio for automated testing:
 
 ```bash
 ./build/jnext --headless --machine 48k \
-    --sdcard roms/nextzxos-1gb-fat32fix.img \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
@@ -375,19 +374,28 @@ it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the
 patched image; offering to download the canonical distribution image, kept as
 `cspect-next-1gb.img`, and produce that FAT32-patched copy — see Task 27).
 
-**Canonical NextZXOS test image: `roms/nextzxos-1gb-fat32fix.img`.**
-The original `roms/nextzxos-1gb.img` uses 32 KB clusters on a 1 GB
-partition and ends up with only 32 758 data clusters — below the FAT32
-spec minimum of 65 525 — so tbblue.fw's FatFs (correctly, per spec)
-rejects it as "not an FAT filesystem" (see
-`project_nextzxos_task9_stagec.md` in memory for the full trace). The
-`-fat32fix.img` variant uses 8 KB clusters (261 877 clusters, valid
-FAT32) and is what subsequent work should target. CSpect's built-in SD
-driver tolerates the under-clustered variant; ours doesn't, and there is
-no reason to relax it — firmware-faithful is the right posture. Typical
-boot invocation:
+**`roms/` holds ONLY `nextboot.rom`.** No SD-card image lives there, and
+nothing links one in — the two 1 GB `.img` fixtures that used to sit there
+were deleted 2026-07-22 (GH #75/#77). The canonical image is the one jnext
+provisions and caches for itself at
+`~/.jnext/sdcard/cspect-next-1gb-fixed.img`; every suite resolves it from
+there, and no test row passes `--sdcard` at all.
+
+A cluster-count caveat still applies to any image you supply yourself: a
+1 GB partition with 32 KB clusters yields only 32 758 data clusters, below
+the FAT32 spec minimum of 65 525, so tbblue.fw's FatFs (correctly, per spec)
+rejects it as "not an FAT filesystem" (see `project_nextzxos_task9_stagec.md`
+in memory for the full trace). CSpect's built-in SD driver tolerates the
+under-clustered variant; ours doesn't, and there is no reason to relax it —
+firmware-faithful is the right posture. `tools/fix-sdcard-image.sh` re-clusters
+such an image.
+
+**jnext opens the SD image read-write and persists guest writes**, so a run
+that boots NextZXOS mutates it. Test runs are isolated — the regression suite
+and `make unit-test` each clone the master per run — but a MANUAL run is not:
+give it its own copy (`cp --reflink=auto`) whenever the result has to be
+reproducible. Typical boot invocation:
 
 ```bash
-./build/jnext --machine next \
-    --sdcard roms/nextzxos-1gb-fat32fix.img
+./build/jnext --machine next
 ```

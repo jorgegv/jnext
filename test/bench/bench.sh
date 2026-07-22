@@ -33,7 +33,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BIN="$PROJECT_DIR/build/gui-release/jnext"
 CACHE="$PROJECT_DIR/build/gui-release/CMakeCache.txt"
-SD_IMAGE="$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img"
+# The SD image jnext provisions and caches itself. `roms/` holds only the
+# embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
+# path under the repo is no longer a thing to point at.
+SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
 LOCK_FILE="$SCRIPT_DIR/.lock"
 REPEATS=5
 SPREAD_LIMIT_PCT=5.0
@@ -46,7 +49,63 @@ die() { echo "bench: ERROR: $*" >&2; exit 2; }
 build_type=$(grep -oP '^CMAKE_BUILD_TYPE:\w+=\K.*' "$CACHE" || true)
 [[ "$build_type" == "Release" ]] || \
     die "build/gui-release is configured as '${build_type:-<unset>}', not Release — refusing to benchmark it"
-[[ -f "$SD_IMAGE" ]] || die "SD image missing: $SD_IMAGE (in a worktree: make worktree-bootstrap)"
+[[ -f "$SD_MASTER" ]] || die "SD image missing: $SD_MASTER (provision it with '$BIN --headless --sdcard-download-confirm', or point JNEXT_TEST_SD_IMAGE at an existing one)"
+
+# --- This run's PRIVATE SD-image clone ------------------------------------
+#
+# The `boot-nextzxos` workload below boots NextZXOS, and jnext opens the SD
+# image READ-WRITE and persists guest writes (GH #77). Benchmarking against
+# the shared master would therefore let each run alter the input the next run
+# measures — the one thing a benchmark must not do. So bench takes a private
+# clone like the test harnesses do, even though it is a manual target.
+#
+# reflink first and explicitly, so the outcome is observable rather than
+# guessed; $HOME rather than /tmp because reflink cannot cross a filesystem
+# and --reflink=auto would silently degrade to a real 1 GB copy into tmpfs.
+#
+# NOTE for anyone comparing numbers across machines: on a copy-on-write clone
+# the first write to an extent copies it, so a workload that writes heavily to
+# the SD card pays a little I/O the master would not. The boot workloads here
+# write almost nothing, and every run pays it equally, so it does not skew
+# run-to-run comparison — which is what the spread check below measures.
+BENCH_RUN_DIR="$HOME/.jnext/runs/bench-$$-$RANDOM"
+bench_cleanup() {
+    [[ -n "${BENCH_RUN_DIR:-}" ]] && rm -rf "$BENCH_RUN_DIR"
+    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    return 0
+}
+# Armed before the clone exists: every `die()` below would otherwise leak a
+# gigabyte, and this script dies for a living (five preconditions above).
+#
+# INT and TERM explicitly, for the same reason as the unit harness: an
+# EXIT-only trap does not fire when the shell dies from an untrapped signal,
+# and `make bench` is a multi-minute foreground recipe (5 workloads x 5
+# repeats) — precisely the kind of run a developer Ctrl-Cs. This was shipped
+# EXIT-only and caught in review as a third instance of the same defect;
+# HS-40 in test/harness-selftest.sh now scans this file so there is no fourth.
+#
+# WHY THE SIGNAL HANDLERS EXIT EXPLICITLY. `trap 'cleanup' EXIT INT TERM` is
+# NOT a general fix and was rejected in review after being tried: catching a
+# signal you have an explicit trap for runs the handler and then RESUMES, so a
+# handler that only cleans up leaves the script running without the thing it
+# just deleted. In regression.sh that turned a Ctrl-C into 58 FAIL / 4 PASS
+# against a deleted SD clone — output indistinguishable from a real emulator
+# regression, far worse than the leaked directory it was fixing. Two of the
+# three scripts happened to die anyway through incidental control flow (a
+# killed process group tripping `set -e`; a synchronous foreground pipeline
+# taking the signal itself); that is luck, not design, and a future edit would
+# silently remove it. So INT/TERM terminate explicitly, 128+signo.
+trap 'bench_cleanup' EXIT
+trap 'bench_cleanup; exit 130' INT
+trap 'bench_cleanup; exit 143' TERM
+
+SD_IMAGE="$BENCH_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+mkdir -p "$BENCH_RUN_DIR/sdcard" || die "cannot create $BENCH_RUN_DIR/sdcard"
+if   cp --reflink=always "$SD_MASTER" "$SD_IMAGE" 2>/dev/null; then sd_mode=reflink
+elif cp --reflink=auto   "$SD_MASTER" "$SD_IMAGE" 2>/dev/null; then sd_mode=copy
+else die "cannot clone the SD master $SD_MASTER to $SD_IMAGE"
+fi
+echo "bench: SD image: private $sd_mode clone of $SD_MASTER"
 
 # --- Serialise: one benchmark at a time, machine-wide for this repo ---
 # A real blocking flock, not a process scan: several agents may run overnight

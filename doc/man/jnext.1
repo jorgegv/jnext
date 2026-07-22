@@ -286,12 +286,13 @@ useful in scripts; \f[B]\-\-sdcard\-download\-force\f[R] re\-downloads
 and re\-patches a corrupted cached image.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
-The repository\(cqs canonical NextZXOS test image is
-\f[CR]roms/nextzxos\-1gb\-fat32fix.img\f[R]: the FAT32\-corrected
-variant of \f[CR]roms/nextzxos\-1gb.img\f[R], whose 32 KB clusters leave
-it below the FAT32 minimum cluster count, which the TBBlue firmware\(cqs
-FatFs (correctly) refuses to mount.
-Use the \f[CR]\-fat32fix\f[R] one.
+Note that jnext opens the image \f[B]read\-write\f[R], and writes the
+emulated machine makes to the SD card are persisted to the file.
+Two runs sharing one image are therefore not independent: a run that
+boots NextZXOS mutates the image the next run reads.
+For a reproducible run, give it a private copy
+(\f[CR]cp \-\-reflink=auto\f[R] is instant and costs no space on a
+copy\-on\-write filesystem).
 .PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
@@ -722,7 +723,7 @@ jnext
 The same, with an explicit SD\-card image:
 .IP
 .EX
-jnext \-\-sdcard roms/nextzxos\-1gb\-fat32fix.img
+jnext \-\-sdcard \(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img
 .EE
 .PP
 Run a program; a bare filename is shorthand for \f[B]\-\-load\f[R]:
@@ -760,7 +761,7 @@ unattended run would exit non\-zero instead of capturing anything
 .IP
 .EX
 jnext \-\-headless \-\-machine 48k \(rs
-    \-\-sdcard roms/nextzxos\-1gb\-fat32fix.img \(rs
+    \-\-sdcard \(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img \(rs
     \-\-delayed\-screenshot /tmp/test.png \(rs
     \-\-delayed\-screenshot\-frames 200 \-\-delayed\-automatic\-exit 5
 .EE

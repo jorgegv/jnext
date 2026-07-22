@@ -309,30 +309,27 @@ unit-test-dashboard: unit-test
 	fi; \
 	rm -f $$SUMMARY
 
-# Symlink the git-ignored roms/ fixtures from the main worktree into this one
-# An agent worktree without them cannot run the unit tests or the regression
-# suite (both need roms/nextzxos-1gb-fat32fix.img). No-op in the main worktree.
+# Check a worktree has the fixtures the test suites need
+# roms/ holds only the tracked nextboot.rom now, so there is nothing to link:
+# the SD image lives machine-wide at ~/.jnext/sdcard/ and jnext provisions it
+# itself (GH #75/#77). This target verifies that master exists and says how to
+# get it if not.
 worktree-bootstrap:
-	@main=$$(git worktree list --porcelain | head -1 | sed 's/^worktree //'); \
-	here=$$(git rev-parse --show-toplevel); \
-	if [ "$$main" = "$$here" ]; then \
-		printf "$(BOLD)Main worktree — roms/ fixtures are real files here; nothing to do.$(RESET)\n"; \
-		exit 0; \
+	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+	if [ ! -f roms/nextboot.rom ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
+		exit 1; \
 	fi; \
-	if [ ! -d "$$main/roms" ]; then \
-		printf "$(BADGE_FAIL) ERROR $(RESET) main worktree has no roms/ at $$main/roms\n"; exit 1; \
-	fi; \
-	mkdir -p "$$here/roms"; \
-	n=0; \
-	for f in "$$main"/roms/*; do \
-		b=$$(basename "$$f"); \
-		if [ ! -e "$$here/roms/$$b" ]; then \
-			ln -s "$$f" "$$here/roms/$$b"; \
-			printf "  $(CYAN)linked$(RESET) roms/%s\n" "$$b"; \
-			n=$$((n + 1)); \
-		fi; \
-	done; \
-	printf "$(BOLD)worktree-bootstrap: %d fixture(s) linked from %s$(RESET)\n" "$$n" "$$main"
+	printf "  $(CYAN)ok$(RESET) roms/nextboot.rom\n"; \
+	if [ -f "$$sd" ]; then \
+		printf "  $(CYAN)ok$(RESET) SD master %s\n" "$$sd"; \
+		printf "$(BOLD)worktree-bootstrap: ready.$(RESET)\n"; \
+	else \
+		printf "  $(BOLD)missing$(RESET) SD master %s\n" "$$sd"; \
+		printf "$(BOLD)worktree-bootstrap: provision it with:$(RESET)\n"; \
+		printf "    ./build/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 1\n"; \
+		printf "  (or run the regression suite, whose sdcard-provision row does it for you)\n"; \
+	fi
 
 # Count lines of code (excluding comments and blanks), per directory and total
 kloc-count:

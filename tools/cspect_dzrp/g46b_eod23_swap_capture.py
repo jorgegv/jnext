@@ -14,7 +14,7 @@ return address. The diff is the upstream supervisor state-setup bug.
 
 Usage:
   # Launch CSpect first:
-  #   mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img -debug
+  #   mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug
   # Then run this script while CSpect is paused at $0000 (cold-boot).
   # It installs a BP at bank 0 $27A3, runs until first hit, captures
   # state, continues, captures the next 5 hits, then prints summary.
