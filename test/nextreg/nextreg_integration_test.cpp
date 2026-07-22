@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <memory>
 #include <initializer_list>
 
 // ── Test infrastructure ───────────────────────────────────────────────
@@ -6115,6 +6116,227 @@ static void test_frame_period_5060hz() {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+
+// ── LoRes registers (LR-01 .. LR-12, LR-124, LR-162) ─────────────────
+//
+// Tier-N rows of doc/testing/LORES-TEST-PLAN-DESIGN.md. Register decode,
+// read-back and reset defaults for NR $15 bit 7, NR $32, NR $33 and NR $6A,
+// plus the two clip-window rows that are about which register reaches LoRes.
+//
+// Oracle: zxnext.vhd:5229 / 5340 / 5343 / 5456-5458 (write decode),
+//         5939 / 6027 / 6030 / 6099 (read-back mux),
+//         4948 / 4995 / 4997 / 5032-5034 (reset block),
+//         6779-6783 (the clip_y2 clamp), 4258-4261 (LoRes takes ula_clip_*).
+//
+// The reset rows run against a FRESHLY constructed machine so they cannot be
+// perturbed by whatever an earlier group in this file wrote.
+
+static void test_lores_registers() {
+    set_group("LoRes-NR");
+
+    auto fresh = std::unique_ptr<Emulator>(new Emulator());
+    if (!build_next_emulator(*fresh)) {
+        std::printf("FATAL: could not construct Emulator for LoRes-NR\n");
+        ++g_fail;
+        return;
+    }
+    Emulator& emu = *fresh;
+
+    // ── Reset defaults, read BEFORE anything writes these registers ──
+    {
+        const uint8_t v = nr_read(emu, 0x15);
+        check("LR-02", "NR $15 bit 7 (LoRes enable) resets to 0 "
+              "(zxnext.vhd:4948)",
+              (v & 0x80) == 0, fmt("NR $15 = 0x%02X", v).c_str());
+    }
+    {
+        const uint8_t v = nr_read(emu, 0x32);
+        check("LR-05", "NR $32 (LoRes X scroll) resets to 0x00 "
+              "(zxnext.vhd:4995)",
+              v == 0x00, fmt("NR $32 = 0x%02X", v).c_str());
+    }
+    {
+        const uint8_t v = nr_read(emu, 0x33);
+        check("LR-07", "NR $33 (LoRes Y scroll) resets to 0x00 "
+              "(zxnext.vhd:4997)",
+              v == 0x00, fmt("NR $33 = 0x%02X", v).c_str());
+    }
+    {
+        const uint8_t v = nr_read(emu, 0x6A);
+        check("LR-12", "NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 "
+              "(zxnext.vhd:5032-5034)",
+              v == 0x00, fmt("NR $6A = 0x%02X", v).c_str());
+    }
+
+    // ── NR $15 bit 7 ────────────────────────────────────────────────
+    {
+        nr_write(emu, 0x15, 0x80);
+        const uint8_t v = nr_read(emu, 0x15);
+        check("LR-01", "NR $15 bit 7 stores the LoRes enable; bits 6:0 read "
+              "back what was written (zxnext.vhd:5229, 5939)",
+              (v & 0x80) == 0x80 && (v & 0x7F) == 0x00,
+              fmt("NR $15 = 0x%02X (expected 0x80)", v).c_str());
+    }
+    {
+        nr_write(emu, 0x15, 0xFF);
+        const uint8_t all  = nr_read(emu, 0x15);
+        nr_write(emu, 0x15, 0x7F);
+        const uint8_t some = nr_read(emu, 0x15);
+        check("LR-03", "NR $15 bit 7 is independent of bits 6:0 — writing "
+              "0x7F clears bit 7 and keeps 0x7F (zxnext.vhd:5229)",
+              all == 0xFF && some == 0x7F,
+              fmt("after 0xFF: 0x%02X, after 0x7F: 0x%02X", all, some).c_str());
+        nr_write(emu, 0x15, 0x00);
+    }
+
+    // ── NR $32 / NR $33 ─────────────────────────────────────────────
+    // Each row asserts BOTH the read-back mux and that the write reached the
+    // LoRes generator (zxnext.vhd:4262-4263 port map) — read-back alone is
+    // satisfied by a register file that drives nothing.
+    {
+        nr_write(emu, 0x32, 0xA5);
+        const uint8_t v = nr_read(emu, 0x32);
+        check("LR-04", "NR $32 stores all 8 bits of the LoRes X scroll and "
+              "reaches the generator (zxnext.vhd:5340, 6027, 4262)",
+              v == 0xA5 && emu.renderer().lores().scroll_x() == 0xA5,
+              fmt("NR $32 = 0x%02X, generator scroll_x = 0x%02X",
+                  v, emu.renderer().lores().scroll_x()).c_str());
+        nr_write(emu, 0x32, 0x00);
+    }
+    {
+        nr_write(emu, 0x33, 0xC3);
+        const uint8_t v = nr_read(emu, 0x33);
+        check("LR-06", "NR $33 stores all 8 bits of the LoRes Y scroll and "
+              "reaches the generator (zxnext.vhd:5343, 6030, 4263)",
+              v == 0xC3 && emu.renderer().lores().scroll_y() == 0xC3,
+              fmt("NR $33 = 0x%02X, generator scroll_y = 0x%02X",
+                  v, emu.renderer().lores().scroll_y()).c_str());
+        nr_write(emu, 0x33, 0x00);
+    }
+
+    // ── NR $6A ──────────────────────────────────────────────────────
+    {
+        nr_write(emu, 0x6A, 0x20);
+        const uint8_t v = nr_read(emu, 0x6A);
+        check("LR-08", "NR $6A bit 5 selects Radastan mode and reads back "
+              "(zxnext.vhd:5456, 6099)",
+              v == 0x20 && emu.renderer().lores().radastan(),
+              fmt("NR $6A = 0x%02X radastan=%d", v,
+                  emu.renderer().lores().radastan()).c_str());
+    }
+    {
+        nr_write(emu, 0x6A, 0x10);
+        const uint8_t v = nr_read(emu, 0x6A);
+        check("LR-09", "NR $6A bit 4 is the Timex display-file XOR and reads "
+              "back (zxnext.vhd:5457, 6099)",
+              v == 0x10 && emu.renderer().lores().dfile_xor(),
+              fmt("NR $6A = 0x%02X xor=%d", v,
+                  emu.renderer().lores().dfile_xor()).c_str());
+    }
+    {
+        nr_write(emu, 0x6A, 0x0F);
+        const uint8_t v = nr_read(emu, 0x6A);
+        check("LR-10", "NR $6A bits 3:0 are the palette offset and read back "
+              "(zxnext.vhd:5458, 6099)",
+              v == 0x0F && emu.renderer().lores().palette_offset() == 0x0F,
+              fmt("NR $6A = 0x%02X offset=0x%X", v,
+                  emu.renderer().lores().palette_offset()).c_str());
+    }
+    {
+        nr_write(emu, 0x6A, 0xFF);
+        const uint8_t v = nr_read(emu, 0x6A);
+        check("LR-11", "NR $6A bits 7:6 are not stored — the read mux "
+              "hard-wires \"00\", so 0xFF reads back 0x3F "
+              "(zxnext.vhd:5456-5458, 6099)",
+              v == 0x3F, fmt("NR $6A = 0x%02X (expected 0x3F)", v).c_str());
+        nr_write(emu, 0x6A, 0x00);
+    }
+
+    // ── LR-124 — the clip_y2 clamp LoRes inherits ───────────────────
+    // zxnext.vhd:6779-6783 clamps at the CONSUMER latch (ula_clip_y2_0), not
+    // at the NR $1A storage register, so the read-back keeps the raw byte
+    // while both the ULA and LoRes comparators see 0xBF.
+    {
+        nr_write(emu, 0x1C, 0x04);            // reset the NR $1A write index
+        nr_write(emu, 0x1A, 0x00);            // x1
+        nr_write(emu, 0x1A, 0xFF);            // x2
+        nr_write(emu, 0x1A, 0x00);            // y1
+        nr_write(emu, 0x1A, 0xFF);            // y2 = 0xFF -> clamps
+        const uint8_t eff_ff = emu.renderer().ula().clip_y2();
+        const uint8_t raw_ff = emu.renderer().ula().clip_y2_raw();
+
+        nr_write(emu, 0x1C, 0x04);
+        nr_write(emu, 0x1A, 0x00);
+        nr_write(emu, 0x1A, 0xFF);
+        nr_write(emu, 0x1A, 0x00);
+        nr_write(emu, 0x1A, 0xC0);            // y2 = 0xC0 -> also clamps
+        const uint8_t eff_c0 = emu.renderer().ula().clip_y2();
+
+        nr_write(emu, 0x1C, 0x04);
+        nr_write(emu, 0x1A, 0x00);
+        nr_write(emu, 0x1A, 0xFF);
+        nr_write(emu, 0x1A, 0x00);
+        nr_write(emu, 0x1A, 0xA0);            // y2 = 0xA0 -> bits 7:6 = "10"
+        const uint8_t eff_a0 = emu.renderer().ula().clip_y2();
+
+        check("LR-124", "clip_y2 values with bits 7:6 = \"11\" clamp to 0xBF "
+              "at the consumer latch LoRes shares with the ULA; 0xA0 is left "
+              "alone and the raw NR $1A byte is preserved "
+              "(zxnext.vhd:6779-6783)",
+              eff_ff == 0xBF && eff_c0 == 0xBF && eff_a0 == 0xA0 &&
+              raw_ff == 0xFF,
+              fmt("eff(0xFF)=0x%02X eff(0xC0)=0x%02X eff(0xA0)=0x%02X "
+                  "raw(0xFF)=0x%02X", eff_ff, eff_c0, eff_a0, raw_ff).c_str());
+
+        // Restore the reset window for anything that runs after this.
+        nr_write(emu, 0x1C, 0x04);
+        nr_write(emu, 0x1A, 0x00);
+        nr_write(emu, 0x1A, 0xFF);
+        nr_write(emu, 0x1A, 0x00);
+        nr_write(emu, 0x1A, 0xBF);
+    }
+
+    // ── LR-162 — NR $1D is not a LoRes clip register ────────────────
+    // The nr_1d_lores_clip_* signals exist only as commented-out
+    // declarations (zxnext.vhd:1167-1171, 6785-6793) and NR $1D is absent
+    // from the NextREG write case statement, so it falls through to
+    // `when others => null`.
+    {
+        const uint8_t x1 = emu.renderer().ula().clip_x1();
+        const uint8_t x2 = emu.renderer().ula().clip_x2();
+        const uint8_t y1 = emu.renderer().ula().clip_y1();
+        const uint8_t y2 = emu.renderer().ula().clip_y2();
+        const uint8_t sx = emu.renderer().lores().scroll_x();
+        const uint8_t sy = emu.renderer().lores().scroll_y();
+        const uint8_t r6a = emu.renderer().lores().nr6a();
+        const bool    en  = emu.renderer().lores().enabled();
+
+        nr_write(emu, 0x1D, 0x40);
+        nr_write(emu, 0x1D, 0x60);
+        nr_write(emu, 0x1D, 0x20);
+        nr_write(emu, 0x1D, 0x9F);
+
+        const bool unchanged =
+            emu.renderer().ula().clip_x1() == x1 &&
+            emu.renderer().ula().clip_x2() == x2 &&
+            emu.renderer().ula().clip_y1() == y1 &&
+            emu.renderer().ula().clip_y2() == y2 &&
+            emu.renderer().lores().scroll_x() == sx &&
+            emu.renderer().lores().scroll_y() == sy &&
+            emu.renderer().lores().nr6a() == r6a &&
+            emu.renderer().lores().enabled() == en;
+        check("LR-162", "NR $1D is not a LoRes clip register — writing it "
+              "changes neither the shared ULA/LoRes clip window nor any "
+              "LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, "
+              "6785-6793)",
+              unchanged,
+              fmt("clip now (%u,%u,%u,%u), was (%u,%u,%u,%u)",
+                  emu.renderer().ula().clip_x1(), emu.renderer().ula().clip_x2(),
+                  emu.renderer().ula().clip_y1(), emu.renderer().ula().clip_y2(),
+                  x1, x2, y1, y2).c_str());
+    }
+}
+
 int main() {
     std::printf("NextREG Integration Tests (full-machine reset defaults)\n");
     std::printf("====================================\n\n");
@@ -6242,6 +6464,9 @@ int main() {
 
     test_frame_period_5060hz();
     std::printf("  Group: FramePeriod-5060Hz — done\n");
+
+    test_lores_registers();
+    std::printf("  Group: LoRes-NR — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

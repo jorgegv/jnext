@@ -1814,13 +1814,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_read_handler(0xB2, [this]() -> uint8_t { return joystick_.nr_b2_byte(); });
 
     // Register 0x15: Sprite and layer system setup
-    //   bit 7 = LoRes enable (deferred)
+    //   bit 7 = LoRes enable (VHDL zxnext.vhd:5229 nr_15_lores_en)
     //   bit 6 = sprite priority (0=sprite 0 on top when zero_on_top)
     //   bit 5 = sprite border clip enable
     //   bits 4:2 = layer priority (SLU/LSU/SUL/LUS/USL/ULS)
     //   bit 1 = sprites over border
     //   bit 0 = sprites visible
     nextreg_.set_write_handler(0x15, [this](uint8_t v) -> uint8_t {
+        renderer_.lores().set_enabled((v & 0x80) != 0);  // VHDL 5229, gate at 6933
         sprites_.set_zero_on_top((v & 0x40) != 0);
         sprites_.set_border_clip_en((v & 0x20) != 0);  // bit 5 — VHDL sprites.vhd 1044
         sprites_.set_over_border((v & 0x02) != 0);
@@ -1835,12 +1836,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     & nr_15_layer_priority [4:2]
     //     & nr_15_sprite_over_border_en [1]
     //     & nr_15_sprite_en [0]
-    // bit 7 (lores_en): not modeled in jnext yet — sourced from cached
-    // last-write byte (deferred LoRes implementation, separate concern
-    // from G56). All other bits use authoritative subsystem accessors.
-    // G56.
+    // Every bit uses an authoritative subsystem accessor, bit 7 included
+    // since the LoRes generator landed (GH #63). G56.
     nextreg_.set_read_handler(0x15, [this]() -> uint8_t {
-        uint8_t v = static_cast<uint8_t>(nextreg_.cached(0x15) & 0x80); // lores_en
+        uint8_t v = renderer_.lores().enabled() ? 0x80 : 0x00;  // lores_en
         if (sprites_.zero_on_top())     v = static_cast<uint8_t>(v | 0x40);
         if (sprites_.border_clip_en())  v = static_cast<uint8_t>(v | 0x20);
         v = static_cast<uint8_t>(v | ((renderer_.layer_priority() & 0x07) << 2));
@@ -2062,8 +2061,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // G56 cluster D, option (b): canonicalise the byte at write-time so
     // regs_[0x6A] holds the masked value and NextReg::read returns the
     // VHDL-spec form without a dedicated read_handler.
-    nextreg_.set_write_handler(0x6A, [](uint8_t v) -> uint8_t {
+    nextreg_.set_write_handler(0x6A, [this](uint8_t v) -> uint8_t {
+        // VHDL zxnext.vhd:5456-5458 — b5 radastan, b4 dfile XOR, b3:0 offset.
+        renderer_.lores().set_nr6a(v);
         return static_cast<uint8_t>(v & 0x3F);
+    });
+
+    // Registers 0x32 / 0x33: LoRes X / Y scroll (VHDL zxnext.vhd:5340, 5343;
+    // consumed at lores.vhd:82, 84).  Full 8 bits stored; read-back is the
+    // plain cached byte (zxnext.vhd:6027, 6030), so no read handler.
+    nextreg_.set_write_handler(0x32, [this](uint8_t v) -> uint8_t {
+        renderer_.lores().set_scroll_x(v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x33, [this](uint8_t v) -> uint8_t {
+        renderer_.lores().set_scroll_y(v);
+        return v;
     });
 
     // Register 0x6B: Tilemap control
@@ -5988,6 +6001,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // garbage (Task 23 mid-boot glitch).
     renderer_.ula().set_bank5_vram(next_machine ? mmu_.bank5_vram()
                                                 : nullptr);
+    // LoRes reads the SAME dedicated bank-5 BRAM through port A
+    // (zxnext.vhd:6631, lores.vhd:56) — never bank 7, never via the MMU.
+    renderer_.lores().set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
     tilemap_.set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
 
     // Default border: white (ZX colour index 7).
@@ -6596,6 +6612,13 @@ void Emulator::begin_new_frame()
     // existed with zero call sites until now).
     renderer_.init_transparent_rgb_per_line();
 
+    // Initialize the per-line LoRes register snapshot (NR $15 b7, $32, $33,
+    // $6A).  VHDL zxnext.vhd:6768-6802 re-latches the LoRes parameters every
+    // CLK_7 and :6817 latches lores_en every CLK_14 — a mid-frame Copper MOVE
+    // or CPU write must therefore take effect from the following scanline,
+    // not retroactively across the whole frame.
+    renderer_.lores().init_per_line();
+
     // Initialize per-line ULA clip window (NR 0x1A) snapshot. VHDL
     // zxnext.vhd:988-991 — the clip comparators consume the live registers
     // per pixel, so a mid-frame NR 0x1A write (Copper MOVE / CPU racing
@@ -6836,6 +6859,7 @@ void Emulator::run_frame()
     renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.lores().snapshot_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
@@ -8305,6 +8329,7 @@ void Emulator::on_scanline(int line)
             renderer_.snapshot_blend_mode_for_line(prev_fb_row);
             renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
             renderer_.snapshot_ula_clip_for_line(prev_fb_row);
+            renderer_.lores().snapshot_for_line(prev_fb_row);
             renderer_.ula().snapshot_border_for_line(prev_fb_row);
         }
     }

@@ -14,7 +14,43 @@
 > (fix the row, citing the VHDL) or the implementation is wrong (fix the code).
 > See [UNIT-TEST-PLAN-EXECUTION.md](UNIT-TEST-PLAN-EXECUTION.md).
 
-## Current status
+## Implementation status (2026-07-22, v0.98.87+)
+
+**Implemented against this plan; 88 of the 91 rows are live `check()` rows.**
+`src/video/lores.{h,cpp}` (the pixel generator, a 1:1 model of `lores.vhd`) plus
+`Renderer::apply_lores` (the ULA-slot substitution). Suites:
+
+| Tier | Suite | Rows |
+|------|-------|------|
+| U | `test/lores/lores_test.cpp` | 48 |
+| C | `test/compositor/compositor_test.cpp` (group `LR`) | 24 + 2 extra (see below) |
+| C | `test/lores/lores_integration_test.cpp` | 2 |
+| N | `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`) | 14 |
+
+Three rows are **skipped, not silently reinterpreted**:
+
+- **LR-127 / LR-128 — the plan rows are wrong.** Both state that outside the
+  shared NR `$1A` window the ULA pixel shows through and that nothing is
+  blanked by the clip. `zxula.vhd:562` asserts `o_ula_clipped` for exactly the
+  complement of the same window (`'0' when (inside) or border_active = '1'
+  else '1'`), fed from the same registered values (zxnext.vhd:4258-4261 vs
+  4437-4471), so outside the window **both** sources are suppressed and the
+  pixel falls to the NR `$4A` fallback. The rows' underlying claim — that the
+  `7063` cancel term is a no-op — is correct; their stated *observable* is not.
+  A replacement row **LR-127a** asserts the VHDL-derived outcome so the
+  behaviour is not left untested while these two are amended.
+- **LR-140 — not observable in jnext.** The row's stimulus is an
+  `ula_select_bgnd` assertion; jnext's live ULA render path never produces one
+  (`Ula::compute_ulanext_pixel` computes the flag for the encoder rows, no
+  renderer consumes it), so no stimulus reaches zxnext.vhd:6987. The bypass is
+  satisfied structurally — the substitution write is unconditional and opaque.
+
+Two rows beyond the 91 were added, both clearly labelled in the source:
+**LR-127a** (above) and **LR-PSCAN**, which pins the per-scanline replay of
+NR `$15` b7 / `$32` / `$33` / `$6A` that the "Documented limitations" section
+below *requires* the implementer to add but catalogues no row for.
+
+## Original status (pre-implementation)
 
 **Not implemented; zero rows exist.** As of v0.98.85:
 

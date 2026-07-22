@@ -705,6 +705,25 @@ if(ENABLE_DEBUGGER)
     add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
 endif()
 
+# LoRes pixel-generator compliance tests (GH #63).
+# Plan: doc/testing/LORES-TEST-PLAN-DESIGN.md — tier-U rows.
+# Oracle: cores/zxnext/src/video/lores.vhd + the wiring in zxnext.vhd.
+add_executable(lores_test lores/lores_test.cpp)
+target_link_libraries(lores_test PRIVATE jnext_video jnext_memory)
+target_include_directories(lores_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME lores_tests COMMAND lores_test)
+
+# LoRes integration tests (GH #63) — the two plan rows that need a running
+# CPU and a real contention / floating-bus model. 128K machine deliberately
+# (Next has neither), see the file header.
+add_executable(lores_integration_test lores/lores_integration_test.cpp)
+target_link_libraries(lores_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(lores_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME lores_integration_tests COMMAND lores_integration_test)
+
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
 # code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on
