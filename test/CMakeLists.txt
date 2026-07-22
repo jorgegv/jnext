@@ -386,6 +386,18 @@ target_link_libraries(log_gate_test PRIVATE
 target_include_directories(log_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME log_gate_tests COMMAND log_gate_test)
 
+# FFmpeg command-line construction (GH #56). Pure string building — links
+# jnext_core only for VideoRecorder itself. Exercises BOTH the POSIX and the
+# Windows dialect from whichever platform it runs on, which is the only part of
+# the Windows recording fix that is testable on a Linux dev host.
+add_executable(video_recorder_cmd_test core/video_recorder_cmd_test.cpp)
+target_link_libraries(video_recorder_cmd_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(video_recorder_cmd_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME video_recorder_cmd_tests COMMAND video_recorder_cmd_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
