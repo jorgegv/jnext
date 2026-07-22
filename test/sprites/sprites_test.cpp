@@ -426,15 +426,20 @@ static void group1() {
               spr.read_attr_byte(0, 0) == 0x77);
     }
 
-    // G1.AT-11 — mirror_tie / ctrl alignment (sprites.vhd:653-654).
-    // C++ implements a single attr_slot_ shared between both paths. Setting
-    // via NR 0x34 and then writing via 0x57 must land in the same slot.
+    // G1.AT-11 — legacy set_attr_slot() unified-slot helper (GH #74
+    // description fix). This row never sets the tie (fresh() leaves NR 0x09
+    // b4 = 0), so it does NOT exercise the hardware sprite_tie semantics of
+    // sprites.vhd:653-654 — it pins the LEGACY set_attr_slot() convenience,
+    // which moves the port-0x57 cursor unconditionally on top of the NR-0x34
+    // mirror write. Hardware tie behaviour is covered by G1.AT-13/18-21
+    // (forward) and G1.AT-22..24 (reverse).
     {
         fresh(spr, pal);
-        spr.set_attr_slot(0x20);           // NR 0x34 -> slot 0x20
-        spr.write_attribute(0xAB);         // port 0x57 should also land there
+        spr.set_attr_slot(0x20);           // legacy helper -> slot 0x20
+        spr.write_attribute(0xAB);         // port 0x57 lands there
         check("G1.AT-11",
-              "NR 0x34 and port 0x57 share slot index (mirror_tie, 653-654)",
+              "legacy set_attr_slot moves the 0x57 cursor unconditionally "
+              "(helper semantics, not the sprites.vhd:653-654 tie)",
               spr.read_attr_byte(0x20, 0) == 0xAB);
     }
 
@@ -673,6 +678,106 @@ static void group1() {
                      spr.read_attr_byte(0x41, 0), spr.read_attr_byte(0x40, 0)));
     }
 
+    // -----------------------------------------------------------------
+    // G1.AT-22..24 — the tie is BIDIRECTIONAL (GH #74). VHDL
+    // sprites.vhd:607-609:
+    //
+    //   elsif attr_num_change = '1' and mirror_tie_i = '1' then
+    //      mirror_sprite_q(6:0) <= attr_index(9 downto 3);
+    //      mirror_sprite_q(7)   <= pattern_index(7);   -- wear helmet
+    //
+    // attr_num_change is pulsed ONLY by the port-0x303B write (:655-657)
+    // and by the port-0x57 slot advance (:658-663, index_inc_attr_by_8) —
+    // never by the mirror-follow branch (:653-654), so the two directions
+    // cannot ping-pong.
+    // -----------------------------------------------------------------
+
+    // G1.AT-22 — reverse sync via port 0x303B, tie SET: mirror_sprite_q
+    // takes the new attr slot in 6:0 and pattern_index(7) in bit 7.
+    // On a 0x303B write pattern_index(7) <= cpu_d_i(7) on the same edge
+    // (:735-736), so the mirror ends up equal to the full written byte.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(true);               // NR 0x09 b4 = 1
+        spr.set_mirror_sprite_num(0x10);        // NR 0x34: mirror = 0x10
+        spr.write_slot_select(0x80 | 0x25);     // port 0x303B = 0xA5
+        check("G1.AT-22",
+              "port 0x303B write re-bases mirror_sprite_q under sprite_tie: "
+              "slot in 6:0, pattern_index(7) in bit 7 "
+              "(sprites.vhd:607-609,655-657)",
+              spr.mirror_sprite_num() == 0xA5 &&
+              spr.pattern_offset() == 0x2580,
+              DETAIL("mirror=%02X off=0x%04X",
+                     spr.mirror_sprite_num(), spr.pattern_offset()));
+    }
+
+    // G1.AT-23 — reverse sync via the port-0x57 slot advance, tie SET.
+    // attr_num_change fires only when index_inc_attr_by_8='1' (:639,
+    // :658-663): at byte 3 with attr3(6)=0, or at byte 4. A non-boundary
+    // 0x57 write must NOT touch the mirror. Setup makes mirror bit 7 (0)
+    // differ from pattern_index(7) (1) to prove bit 7 is loaded from
+    // pattern_index(7) (:609), not preserved.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);
+        spr.write_slot_select(0x80 | 0x30);     // cursor 0x30/b0, pattern
+                                                // msb=1; tie clear: mirror
+                                                // stays 0x00
+        spr.set_mirror_tie(true);               // now tie the pointers
+        spr.write_attribute(0x11);              // b0 — non-boundary
+        const uint8_t m_b0 = spr.mirror_sprite_num();
+        spr.write_attribute(0x22);              // b1 — non-boundary
+        spr.write_attribute(0x33);              // b2 — non-boundary
+        const uint8_t m_b2 = spr.mirror_sprite_num();
+        spr.write_attribute(0x00);              // b3, attr3(6)=0 → advance
+        const uint8_t m_adv3 = spr.mirror_sprite_num();
+        spr.write_attribute(0x11);              // slot 0x31 b0
+        spr.write_attribute(0x22);              // b1
+        spr.write_attribute(0x33);              // b2
+        spr.write_attribute(0x40);              // b3, attr3(6)=1 → NO advance
+        const uint8_t m_ext3 = spr.mirror_sprite_num();
+        spr.write_attribute(0x55);              // b4 → advance
+        const uint8_t m_adv4 = spr.mirror_sprite_num();
+        check("G1.AT-23",
+              "port 0x57 slot advance re-bases mirror_sprite_q under "
+              "sprite_tie (bit 7 from pattern_index(7)); non-boundary "
+              "writes do not (sprites.vhd:607-609,639,658-663)",
+              m_b0   == 0x00 &&           // non-boundary: untouched
+              m_b2   == 0x00 &&           // non-boundary: untouched
+              m_adv3 == 0xB1 &&           // advance → slot 0x31, bit7=1
+              m_ext3 == 0xB1 &&           // b3 with ext bit: no advance
+              m_adv4 == 0xB2 &&           // b4 advance → slot 0x32, bit7=1
+              spr.read_attr_byte(0x30, 0) == 0x11 &&
+              spr.read_attr_byte(0x31, 4) == 0x55,
+              DETAIL("b0=%02X b2=%02X adv3=%02X ext3=%02X adv4=%02X",
+                     m_b0, m_b2, m_adv3, m_ext3, m_adv4));
+    }
+
+    // G1.AT-24 — tie CLEAR: neither port path may touch mirror_sprite_q.
+    // The :607-609 branch is gated on mirror_tie_i; with NR 0x09 b4 = 0
+    // there is no attr-side path into mirror_sprite_q at all (:594-612
+    // has only reset / mirror_we / mirror_inc otherwise).
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);              // NR 0x09 b4 = 0 (default)
+        spr.set_mirror_sprite_num(0x42);        // NR 0x34: mirror = 0x42
+        spr.write_slot_select(0x25);            // port 0x303B
+        const uint8_t m_303b = spr.mirror_sprite_num();
+        spr.write_attribute(0x11);              // b0
+        spr.write_attribute(0x22);              // b1
+        spr.write_attribute(0x33);              // b2
+        spr.write_attribute(0x00);              // b3, attr3(6)=0 → advance
+        const uint8_t m_adv = spr.mirror_sprite_num();
+        check("G1.AT-24",
+              "tie clear: port 0x303B / port 0x57 advance leave "
+              "mirror_sprite_q alone (sprites.vhd:607-609 gate)",
+              m_303b == 0x42 &&
+              m_adv  == 0x42 &&
+              spr.read_attr_byte(0x25, 0) == 0x11,
+              DETAIL("m_303b=%02X m_adv=%02X s25b0=%02X",
+                     m_303b, m_adv, spr.read_attr_byte(0x25, 0)));
+    }
+
     // G1.AT-16 / G1.AT-17 — NR 0x19 / NR 0x1A indexed clip-read mux.
     // VHDL zxnext.vhd:5955-5969 — port_253b_dat 4-way mux on
     // nr_19_sprite_clip_idx / nr_1a_ula_clip_idx selects the indexed clip
@@ -867,6 +972,70 @@ static void group2() {
               spr.pattern_offset() == 0x0800,
               DETAIL("before=0x%04X after=0x%04X slot=0x%02X",
                      before, spr.pattern_offset(), spr.mirror_sprite_num()));
+    }
+
+    // G2.PL-09 — tie CLEAR: NR 0x34 leaves pattern_index — INCLUDING
+    // pattern_index(7) — untouched (GH #74). VHDL sprites.vhd:728-741: with
+    // mirror_tie_i='0' an NR 0x34 write reaches no pattern_index branch at
+    // all, so bit 7 (the 128-byte half-pattern select) keeps its port-0x303B
+    // value. The stale bit is observable end-to-end: a later NR 0x75-0x79
+    // inc reloads mirror bit 7 from pattern_index(7) (:603-605), and once
+    // the tie is set the next mirror_num_change syncs that bit back into
+    // pattern_index(7) (:733-734) — a wrong bit here lands patterns 128
+    // bytes off.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);                     // NR 0x09 b4 = 0
+        spr.write_slot_select(0x02);                   // 0x303B: off 0x0200,
+                                                       // pattern_index(7)=0
+        spr.set_mirror_sprite_num(0x80 | 0x05);        // NR 0x34 = 0x85:
+                                                       // pattern side alone
+        const uint16_t off_nr34 = spr.pattern_offset();      // still 0x0200
+        spr.write_attr_byte_nr_per_byte_inc(0, 0xAA);  // NR 0x75: mirror b7
+                                                       // <= pattern_index(7)
+        const uint8_t m_inc = spr.mirror_sprite_num();       // 0x06, b7=0
+        spr.set_mirror_tie(true);                      // NR 0x09 b4 = 1
+        spr.write_attr_byte_nr_per_byte_inc(0, 0xBB);  // NR 0x75: mirror 0x07,
+                                                       // sync → off 0x0700
+        check("G2.PL-09",
+              "tie clear: NR 0x34 must not touch pattern_index(7) — NR 0x75 "
+              "inc then reads back b7=0 and a later tie-set sync stays in "
+              "the low half-pattern (sprites.vhd:728-741,603-605,733-734)",
+              off_nr34 == 0x0200 &&
+              m_inc == 0x06 &&
+              spr.mirror_sprite_num() == 0x07 &&
+              spr.pattern_offset() == 0x0700 &&
+              spr.read_attr_byte(0x05, 0) == 0xAA &&
+              spr.read_attr_byte(0x06, 0) == 0xBB,
+              DETAIL("off34=0x%04X m_inc=%02X m=%02X off=0x%04X",
+                     off_nr34, m_inc, spr.mirror_sprite_num(),
+                     spr.pattern_offset()));
+    }
+
+    // G2.PL-10 — tie SET: NR 0x34 with bit 7 re-bases the FULL
+    // pattern_index per :733-734, bit 7 included:
+    //   pattern_index <= mirror_sprite_q(5:0) & mirror_sprite_q(7)
+    //                    & "0000000"
+    // so NR 0x34 = 0xA0 → pattern_index = 0x2080 (128-byte half select).
+    // pattern_index(7)=1 is then read back into mirror bit 7 by the next
+    // NR 0x75-0x79 inc (:603-605), which re-syncs offset 0x2180.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(true);                      // NR 0x09 b4 = 1
+        spr.set_mirror_sprite_num(0x80 | 0x20);        // NR 0x34 = 0xA0
+        const uint16_t off_nr34 = spr.pattern_offset();      // 0x2080
+        spr.write_attr_byte_nr_per_byte_inc(0, 0xCC);  // NR 0x75
+        check("G2.PL-10",
+              "tie set: NR 0x34 re-bases pattern_index incl. bit 7 "
+              "(mirror b7 → pattern_index(7)); NR 0x75 inc reads it back "
+              "(sprites.vhd:733-734,603-605)",
+              off_nr34 == 0x2080 &&
+              spr.mirror_sprite_num() == 0xA1 &&
+              spr.pattern_offset() == 0x2180 &&
+              spr.read_attr_byte(0x20, 0) == 0xCC,
+              DETAIL("off34=0x%04X m=%02X off=0x%04X",
+                     off_nr34, spr.mirror_sprite_num(),
+                     spr.pattern_offset()));
     }
 }
 
