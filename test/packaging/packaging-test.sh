@@ -46,7 +46,23 @@ trap 'rm -rf "$LOGDIR"' EXIT
 
 pass=0; fail=0; skip=0
 ok()  { printf "  ${GREEN}PASS${RESET} %-16s %s\n" "$1" "$2"; pass=$((pass+1)); }
-bad() { printf "  ${RED}FAIL${RESET} %-16s %s\n" "$1" "$2"; fail=$((fail+1)); }
+# bad <name> <message> [logfile] — a failure PRINTS its evidence.
+#
+# Every row here used to end "(see $LOGDIR/x.log)", but $LOGDIR is a mktemp
+# directory removed by the EXIT trap above — so on a CI runner the log is gone
+# before anyone can read it, and the pointer is worse than useless because it
+# reads like the evidence exists. That is how a CI-only failure (PyYAML absent
+# in the fedora:44 container) stood red across two pushes: the summary said
+# add-release failed and there was no way to learn why without reproducing the
+# container by hand. Print the tail inline instead.
+bad() {
+    printf "  ${RED}FAIL${RESET} %-16s %s\n" "$1" "$2"; fail=$((fail+1))
+    if [ -n "${3:-}" ] && [ -s "$3" ]; then
+        printf "    ---- %s (last 40 lines) ----\n" "$(basename "$3")"
+        sed -e 's/^/    | /' "$3" | tail -40
+        printf "    ---- end ----\n"
+    fi
+}
 skp() { printf "  ${YELLOW}SKIP${RESET} %-16s %s\n" "$1" "$2"; skip=$((skip+1)); }
 
 # Missing tooling for a row CI is expected to cover: SKIP on a dev box, FAIL in
@@ -84,14 +100,14 @@ fi
 if bash test/packaging/sync-version-test.sh >"$LOGDIR/syncver.log" 2>&1; then
     ok sync-version "idempotent, consistent, fails loud (see log for detail)"
 else
-    bad sync-version "contract test failed (see $LOGDIR/syncver.log)"
+    bad sync-version "contract test failed" "$LOGDIR/syncver.log"
 fi
 
 # --- add-release.sh contract (releases.yaml allowlist helper) ----------------
 if bash test/packaging/add-release-test.sh >"$LOGDIR/addrel.log" 2>&1; then
     ok add-release "starts/append/idempotent/fail-loud (see log for detail)"
 else
-    bad add-release "contract test failed (see $LOGDIR/addrel.log)"
+    bad add-release "contract test failed" "$LOGDIR/addrel.log"
 fi
 
 # --- verify-bundle.sh contract (macOS self-containment gate, GH #46) ---------
@@ -101,28 +117,28 @@ fi
 if bash test/packaging/verify-bundle-test.sh >"$LOGDIR/verifybundle.log" 2>&1; then
     ok verify-bundle "rejects Homebrew/absolute deps, nested files, empty bundles"
 else
-    bad verify-bundle "contract test failed (see $LOGDIR/verifybundle.log)"
+    bad verify-bundle "contract test failed" "$LOGDIR/verifybundle.log"
 fi
 
 # --- prune-broken-plugins.sh contract (deletes files — both directions pinned)
 if bash test/packaging/prune-plugins-test.sh >"$LOGDIR/pruneplugins.log" 2>&1; then
     ok prune-plugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
 else
-    bad prune-plugins "contract test failed (see $LOGDIR/pruneplugins.log)"
+    bad prune-plugins "contract test failed" "$LOGDIR/pruneplugins.log"
 fi
 
 # --- complete-closure.sh contract (adds files to the shipped bundle) ---------
 if bash test/packaging/complete-closure-test.sh >"$LOGDIR/closure.log" 2>&1; then
     ok complete-closure "copies missing libs transitively, no-ops when complete"
 else
-    bad complete-closure "contract test failed (see $LOGDIR/closure.log)"
+    bad complete-closure "contract test failed" "$LOGDIR/closure.log"
 fi
 
 # --- bundle-dlopen-deps.sh contract (adds the library no walk can see) -------
 if bash test/packaging/bundle-dlopen-deps-test.sh >"$LOGDIR/dlopendeps.log" 2>&1; then
     ok bundle-dlopen-deps "copies libSDL3 for sdl2-compat, no-ops otherwise, fails loud when absent"
 else
-    bad bundle-dlopen-deps "contract test failed (see $LOGDIR/dlopendeps.log)"
+    bad bundle-dlopen-deps "contract test failed" "$LOGDIR/dlopendeps.log"
 fi
 
 # ---- end of the hermetic contract half --------------------------------------
@@ -141,7 +157,7 @@ if make package-src >"$LOGDIR/src.log" 2>&1; then
     if [ -n "$tb" ] && [ -s "$tb" ] && tar tzf "$tb" 2>/dev/null | grep -q "/CMakeLists.txt$"; then
         ok package-src "$(basename "$tb")"
     else
-        bad package-src "no tarball, empty, or missing CMakeLists.txt (see $LOGDIR/src.log)"
+        bad package-src "no tarball, empty, or missing CMakeLists.txt" "$LOGDIR/src.log"
     fi
     # The release source zip: jnext-<ver>-src.zip must exist, be a valid zip,
     # contain the top-level CMakeLists.txt AND the vendored submodule content
@@ -153,13 +169,13 @@ if make package-src >"$LOGDIR/src.log" 2>&1; then
            && printf '%s' "$zl" | grep -q "third_party/spdlog/CMakeLists.txt$"; then
             ok package-src-zip "$(basename "$z")"
         else
-            bad package-src-zip "zip missing CMakeLists.txt or vendored submodule content (see $LOGDIR/src.log)"
+            bad package-src-zip "zip missing CMakeLists.txt or vendored submodule content" "$LOGDIR/src.log"
         fi
     else
-        bad package-src-zip "no jnext-<ver>-src.zip produced (see $LOGDIR/src.log)"
+        bad package-src-zip "no jnext-<ver>-src.zip produced" "$LOGDIR/src.log"
     fi
 else
-    bad package-src "make package-src failed (see $LOGDIR/src.log)"
+    bad package-src "make package-src failed" "$LOGDIR/src.log"
 fi
 
 # --- package-rpm -------------------------------------------------------------
@@ -172,7 +188,7 @@ if command -v rpmbuild >/dev/null 2>&1; then
             bad package-rpm "no .rpm with conventional name, or missing bin/jnext"
         fi
     else
-        bad package-rpm "make package-rpm failed (see $LOGDIR/rpm.log)"
+        bad package-rpm "make package-rpm failed" "$LOGDIR/rpm.log"
     fi
 else
     skp_ci_fail package-rpm "rpmbuild not installed"
@@ -188,7 +204,7 @@ if command -v dpkg-deb >/dev/null 2>&1; then
             bad package-deb "no .deb with conventional name, or missing bin/jnext"
         fi
     else
-        bad package-deb "make package-deb failed (see $LOGDIR/deb.log)"
+        bad package-deb "make package-deb failed" "$LOGDIR/deb.log"
     fi
 else
     skp_ci_fail package-deb "dpkg-deb not installed"
@@ -209,13 +225,13 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
                && printf '%s' "$list" | grep -qi "SDL3.dll"; then
                 ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL2/SDL3 DLLs + qwindows plugin)"
             else
-                bad package-win ".zip missing bundled DLLs, qwindows plugin, or SDL3.dll (see $LOGDIR/win.log)"
+                bad package-win ".zip missing bundled DLLs, qwindows plugin, or SDL3.dll" "$LOGDIR/win.log"
             fi
         else
-            bad package-win "no .zip produced (see $LOGDIR/win.log)"
+            bad package-win "no .zip produced" "$LOGDIR/win.log"
         fi
     else
-        bad package-win "make package-win failed (see $LOGDIR/win.log)"
+        bad package-win "make package-win failed" "$LOGDIR/win.log"
     fi
 else
     skp_ci_fail package-win "MinGW Qt6 cross toolchain not installed"
@@ -260,10 +276,10 @@ if command -v flatpak-builder >/dev/null 2>&1; then
             if [ -n "$b" ] && [ -s "$b" ]; then
                 ok package-flatpak "$(basename "$b")"
             else
-                bad package-flatpak "no .flatpak bundle produced (see $LOGDIR/flatpak.log)"
+                bad package-flatpak "no .flatpak bundle produced" "$LOGDIR/flatpak.log"
             fi
         else
-            bad package-flatpak "make package-flatpak failed (see $LOGDIR/flatpak.log)"
+            bad package-flatpak "make package-flatpak failed" "$LOGDIR/flatpak.log"
         fi
     else
         skp package-flatpak "manifest valid; org.kde.Sdk not installed — full build skipped"

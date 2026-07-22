@@ -20,6 +20,23 @@ cp "$repo/packaging/add-release.sh" "$tmp/packaging/"
 add="$tmp/packaging/add-release.sh"
 rel="$tmp/releases.yaml"
 
+# This suite validates real YAML, so it needs PyYAML. Check ONCE, up front,
+# and fail loudly — the alternative is what shipped: three Python tracebacks
+# interleaved with the results, read as "add-release is broken" when the truth
+# was "this host has no PyYAML". It cost a CI-only red that stood for two
+# pushes because the failure was undiagnosable from the log.
+#
+# NOT a skip: this suite gates the releases.yaml allowlist, which decides
+# whether a tag becomes a public GitHub Release. A silent skip there is exactly
+# the class of hole test/unit-tests.conf exists to forbid.
+if ! python3 -c 'import yaml' 2>/dev/null; then
+    printf "${BOLD}=== add-release.sh contract tests ===${RESET}\n\n" >&2
+    printf "  FATAL: PyYAML is not installed, so YAML validity cannot be checked.\n" >&2
+    printf "  This suite will NOT pretend to pass without it.\n" >&2
+    printf "  Fedora: sudo dnf install python3-pyyaml    (CI: see .github/workflows/ci.yml)\n\n" >&2
+    exit 1
+fi
+
 # a well-formed YAML list with exactly these versions?
 haslist() { python3 -c "import yaml,sys; d=yaml.safe_load(open('$rel')); sys.exit(0 if d.get('releases')==$1 else 1)"; }
 
