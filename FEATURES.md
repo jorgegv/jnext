@@ -91,6 +91,7 @@
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`
 - `--sdcard` (canonical source for all ROMs — DivMMC, NextZXOS, 48K/128K/+3, Multiface — at TBBlue paths under /MACHINES/NEXT/; optional, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` — the patched image — offering to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy, with a GUI download progress bar)
 - `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
+- `--sdcard-readonly` (open the SD image read-only; the emulated machine sees a write-protected card and the host file is never modified, so a run cannot disturb an image other runs share)
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
