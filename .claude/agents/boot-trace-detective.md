@@ -13,8 +13,8 @@ This methodology is documented in 25+ G46(b) EOD memory entries. Distillation be
 
 ### Step 1: Reproduce and characterise
 
-- Run jnext: `./build/jnext --headless --machine next --sdcard roms/nextzxos-1gb-fat32fix.img --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time N --delayed-automatic-exit M`
-- Reproduce in CSpect: `mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img -debug` (see `reference_cspect_dzrp_launch.md` in memory)
+- Run jnext: `./build/jnext --headless --machine next --sdcard $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time N --delayed-automatic-exit M`
+- Reproduce in CSpect: `mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug` (see `reference_cspect_dzrp_launch.md` in memory)
 - Capture both screenshots side-by-side and describe the divergence in one paragraph.
 
 ### Step 2: Add env-gated diagnostic probes in jnext

@@ -67,7 +67,14 @@ unit_cleanup() {
 # the later trap alone leaked a clone per refusal (measured: 12 in one
 # regression run). The later trap REPLACES this one and therefore has to call
 # unit_cleanup itself; see "ONE trap" there.
-trap 'unit_cleanup' EXIT
+#
+# INT and TERM are listed EXPLICITLY. An EXIT-only trap does not fire when the
+# shell is killed by a signal it has not trapped, and `make unit-test` runs
+# this script as a foreground recipe in the terminal's process group — so a
+# Ctrl-C during the parallel `wait` leaked the whole 1 GB clone. Measured on
+# the EXIT-only version: 20% of SIGINTs and 45% of SIGTERMs delivered mid-run.
+# `kill` with no signal is TERM, which is the worse of the two.
+trap 'unit_cleanup' EXIT INT TERM
 
 # reflink first and EXPLICITLY (`--reflink=always`), so the outcome is
 # observable in $SD_CLONE_MODE rather than guessed — same rule as the
@@ -260,7 +267,9 @@ TMPDIR_RUN=$(mktemp -d)
 # handler, so this must clean up the SD clone too — installing a second trap
 # here silently disabled the clone's cleanup and leaked a 1 GB directory per
 # run (caught in testing: 34 of them, one per harness-selftest invocation).
-trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup' EXIT
+# INT/TERM for the same reason as the earlier trap: this is the window the
+# suites actually run in, so it is where a Ctrl-C most often lands.
+trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup' EXIT INT TERM
 
 # Preflight has passed and suites are about to run — now the clone is worth
 # making.

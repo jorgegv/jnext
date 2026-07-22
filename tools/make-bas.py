@@ -9,7 +9,7 @@ plus integers, identifiers, strings, and basic punctuation.
 
 Usage:
     tools/make-bas.py cspect-g46b-dump.bas /tmp/dump.bas
-    mcopy -i roms/nextzxos-1gb-fat32fix.img@@32256 /tmp/dump.bas ::/dump.bas
+    mcopy -i $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img@@32256 /tmp/dump.bas ::/dump.bas
 """
 import sys
 import re

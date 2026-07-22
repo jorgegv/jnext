@@ -22,14 +22,14 @@ as a generic emulator bug.
 Run jnext:
 ```bash
 ./build/jnext --headless --machine next \
-  --sd-card roms/nextzxos-1gb-fat32fix.img \
+  --sd-card $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img \
   --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time 10 \
   --delayed-automatic-exit 12
 ```
 
 Run CSpect:
 ```bash
-mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img -debug
+mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug
 ```
 
 Compare screenshots. Write a one-paragraph description of the divergence:

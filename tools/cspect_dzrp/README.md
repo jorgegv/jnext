@@ -24,7 +24,7 @@ automatically on launch (default port **11000**, configurable in
 Run from the **jnext repo root**:
 
 ```bash
-mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img
+mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
 ```
 
 This launches CSpect against the same SD image jnext uses, so
@@ -40,7 +40,7 @@ nc -z 127.0.0.1 11000 && echo OK
 Add `-debug` to halt CSpect's CPU at PC=$0000 right after reset:
 
 ```bash
-mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img -debug
+mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug
 ```
 
 CSpect opens its debugger window at $0000. From there you can:

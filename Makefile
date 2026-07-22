@@ -316,7 +316,7 @@ unit-test-dashboard: unit-test
 # get it if not.
 worktree-bootstrap:
 	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
-	if [ ! -f "$$here/roms/nextboot.rom" ] && [ ! -f roms/nextboot.rom ]; then \
+	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
 		exit 1; \
 	fi; \

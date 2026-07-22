@@ -439,6 +439,52 @@ done
 check "HS-30" "no suite source reintroduces 'printf ... | grep -q' membership" 0 0 \
     "offenders=[${offenders}]" "offenders=[]"
 
+# ------------------------------------------- SD clone cleanup on a signal
+# GH #75: the harness clones the ~1 GB SD master into $HOME/.jnext/runs for
+# the duration of a run. Cleaning that up on the NORMAL exit paths is the easy
+# half and was already green while the script leaked a gigabyte per run twice
+# over: first because a second `trap ... EXIT` REPLACES the first rather than
+# adding to it, then because an EXIT-only trap does not fire at all when the
+# shell is killed by an untrapped signal. Measured on that version, 20% of
+# SIGINTs and 45% of SIGTERMs delivered mid-run leaked the clone — and `make
+# unit-test` runs the harness as a foreground recipe in the terminal's process
+# group, so Ctrl-C is the ordinary way a user ends a slow run.
+#
+# Neither leak was visible to any test: a green run cleans up correctly, and
+# the whole triplet passed throughout. So it is pinned here.
+#
+# Hermetic and fast: a fake $HOME with a TINY file standing in for the master,
+# so the clone is instant and the real ~/.jnext is never touched. The stub
+# suite sleeps, so the signal lands in the parallel `wait` — the window that
+# actually leaked. JNEXT_TEST_SD_IMAGE must be unset: inherited from an outer
+# run it would make the harness report `preset` and skip cloning entirely,
+# which would make this test pass without proving anything.
+# This is a SOURCE-SCAN guard, like HS-30 above, and that is a deliberate
+# choice over a functional one. Read this before "improving" it into a test
+# that actually sends a signal.
+#
+# The leak is real: with EXIT-only traps, `timeout --signal=TERM <d>s` against
+# this harness leaks the clone — measured here at 1/8 across d = 0.2 .. 1.6s,
+# and independently at 20% (INT) / 45% (TERM) by review. With INT and TERM
+# trapped it is 0/10 over the same sweep, including three repeats of the exact
+# duration that leaked.
+#
+# But a functional row is a bad guard for it, and that was proven rather than
+# assumed. A first attempt built a hermetic fixture (fake $HOME, tiny stand-in
+# master, stub suite sleeping, signal sent once the clone appeared) and it
+# PASSED WITH THE FIX REVERTED — bash does run an EXIT trap for most
+# signal-death paths, so the vulnerable window is narrow and depends on where
+# in the run the signal lands. A probabilistic row that passes against the bug
+# ~7 times in 8 is worse than no row: it launders the bug as covered.
+#
+# So the guard asserts the property that closes the window, deterministically:
+# every EXIT trap in the harness also lists INT and TERM. It cannot regress
+# silently, and it costs nothing to run.
+bad_traps=$(grep -nE "^[[:space:]]*trap[[:space:]].*[[:space:]]EXIT([[:space:]]|$)" "$HARNESS" \
+            | grep -vE "EXIT[[:space:]]+INT[[:space:]]+TERM" || true)
+check "HS-40" "every EXIT trap in the harness also traps INT and TERM (GH #75)" 0 0 \
+    "untrapped=[${bad_traps}]" "untrapped=[]"
+
 echo ""
 echo "====================================="
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" "$total" "$pass" "$fail" 0
