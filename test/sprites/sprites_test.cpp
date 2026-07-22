@@ -677,6 +677,75 @@ static void group2() {
               pixel_index(line, 0) == 0xDD,
               DETAIL("pat0[0]=%d", pixel_index(line, 0)));
     }
+
+    // G2.PL-06 — NR 0x34 re-bases the port-0x5B upload address under
+    // sprite_tie. VHDL sprites.vhd:600-602 (NR 0x34 → mirror_sprite_q +
+    // mirror_num_change) then :733-734:
+    //   elsif mirror_num_change = '1' and mirror_tie_i = '1' then
+    //      pattern_index <= mirror_sprite_q(5:0) & mirror_sprite_q(7)
+    //                       & "0000000";
+    // i.e. with NR 0x09 b4 set, NR 0x34 moves the pattern upload address
+    // exactly as an OUT to port 0x303B would.
+    //
+    // This is the idiom Warhawk.nex uses (GH #52): it sets NR 0x09 = 0x10,
+    // then uploads its pattern set as `NR 0x34 = 0x20; 8192 × OUT (0x5B)`
+    // with no port 0x303B write anywhere. Without this sync every pattern
+    // lands at whatever address the running 0x5B counter reached, so every
+    // sprite draws some other sprite's pattern.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 32, 0x11);  // poison the target
+        spr.set_mirror_tie(true);                  // NR 0x09 b4 = 1
+        spr.set_mirror_sprite_num(0x20);           // NR 0x34 = 0x20
+        const uint16_t off_after_nr34 = spr.pattern_offset();
+        for (int i = 0; i < 256; ++i)
+            spr.write_pattern(0x5C);               // OUT (0x5B) × 256
+        set4(spr, 0, 0, 0, 0x00, 0x80 | 32);       // visible, pattern = 32
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
+        spr.render_scanline(line, 0, pal);
+        check("G2.PL-06",
+              "NR 0x34 re-bases pattern_index under sprite_tie "
+              "(sprites.vhd:600-602,733-734)",
+              off_after_nr34 == 0x2000 && pixel_index(line, 0) == 0x5C,
+              DETAIL("off=0x%04X pat32[0]=%d",
+                     off_after_nr34, pixel_index(line, 0)));
+    }
+
+    // G2.PL-07 — the same sync is GATED on sprite_tie. VHDL :733-734 has
+    // no other mirror-side path into pattern_index, so with NR 0x09 b4
+    // clear a NR 0x34 write must leave the port-0x5B upload address
+    // exactly where the auto-increment left it.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);                 // NR 0x09 b4 = 0
+        spr.write_slot_select(0x02);               // port 0x303B → offset 0x0200
+        spr.write_pattern(0x3A);                   // one byte → offset 0x0201
+        spr.set_mirror_sprite_num(0x20);           // NR 0x34: must NOT re-base
+        check("G2.PL-07",
+              "NR 0x34 must not touch pattern_index with sprite_tie clear "
+              "(sprites.vhd:733-734 gate)",
+              spr.pattern_offset() == 0x0201,
+              DETAIL("off=0x%04X", spr.pattern_offset()));
+    }
+
+    // G2.PL-08 — NR 0x75-0x79's auto-increment also asserts
+    // mirror_num_change (sprites.vhd:603-606), so under sprite_tie it
+    // drives the very same :733-734 reload: pattern_index follows the
+    // freshly incremented mirror_sprite_q.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(true);
+        spr.set_mirror_sprite_num(0x07);           // NR 0x34 → offset 0x0700
+        const uint16_t before = spr.pattern_offset();
+        spr.write_attr_byte_nr_per_byte_inc(2, 0x00);  // NR 0x77 → slot 0x08
+        check("G2.PL-08",
+              "NR 0x75-0x79 inc re-bases pattern_index under sprite_tie "
+              "(sprites.vhd:603-606,733-734)",
+              before == 0x0700 && spr.mirror_sprite_num() == 0x08 &&
+              spr.pattern_offset() == 0x0800,
+              DETAIL("before=0x%04X after=0x%04X slot=0x%02X",
+                     before, spr.pattern_offset(), spr.mirror_sprite_num()));
+    }
 }
 
 // ---------------------------------------------------------------------------
