@@ -196,6 +196,16 @@ Rows are tagged with the tier that owns them:
 - **S** — screenshot: whole-frame rows in `test/00regression`, for the geometry
   that only a rendered frame proves.
 
+**No row in this plan is tier S, and that is deliberate.** A screenshot row's
+expected value *is* a reference PNG, and there is no way to author one before a
+LoRes renderer exists to produce it — the image would have to be generated from
+the implementation, which is precisely the ordering this plan refuses (see the
+banner). S rows become appropriate once groups 1-4 are green and a LoRes frame
+can be rendered from known bank-5 content; at that point a reference image is a
+*check* on an already-proven pixel generator rather than a *definition* of it.
+The natural first S row is a LoRes NEX loading screen — read the "Adjacent
+finding" section below before writing it.
+
 ### Column conventions
 
 | ID | Tier | Asserts | Stimulus | Expected | VHDL cite |
@@ -357,7 +367,7 @@ its own.
 | LR-145 | C | The tilemap "below ULA" ordering applies unchanged to LoRes | `$6B`[0] toggled, `$15`[7]=1 | tilemap under / over the LoRes colour exactly as it would be under / over the ULA | zxnext.vhd:7116 |
 | LR-146 | C | Sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes | each priority mode with `$15`[7] = 0 then 1 | the stacking order is identical; only the ULA-slot colour changes | zxnext.vhd:6980, 7139+ |
 
-### Group 9 — Negative / non-behaviour rows (LR-160 … LR-165)
+### Group 9 — Negative / non-behaviour rows (LR-160 … LR-167)
 
 These exist because each is a plausible wrong implementation.
 
@@ -369,6 +379,21 @@ These exist because each is a plausible wrong implementation.
 | LR-163 | C | Enabling LoRes does not change ULA memory contention | contention-sensitive timing test with `$15`[7] = 0 then 1 | identical T-state counts | zxula.vhd:583; zxnext.vhd:6603-6631 (separate BRAM port) |
 | LR-164 | C | Enabling LoRes does not change the floating-bus value | floating-bus read with `$15`[7] = 0 then 1 | identical | zxula.vhd:573 (ULA port B only) |
 | LR-165 | C | LoRes does not disturb the ULA's own VRAM fetch | `$15`[7]=1 then 0 within one frame | the ULA screen is intact when LoRes is switched off | zxnext.vhd:6631, 6660 |
+| LR-166 | C | NR `$19` (sprite clip) does not clip LoRes | `$15`[7]=1, `$1A` left at its reset default, `$19` clip = (64,191,32,159) | the full 256×192 LoRes image draws — not one pixel is clipped | zxnext.vhd:4258-4261 (LoRes takes `ula_clip_*`), 4366-4369 (`nr_19_*` reaches the sprite module and nothing else) |
+| LR-167 | C | NR `$1B` (tilemap clip) does not clip LoRes | `$15`[7]=1, `$1A` left at its reset default, `$1B` clip = (64,191,32,159) | the full 256×192 LoRes image draws — not one pixel is clipped | zxnext.vhd:4258-4261, 4424-4427 (`nr_1b_*` reaches the tilemap module and nothing else) |
+
+LR-166 and LR-167 use the **same numeric window as LR-120**, which asserts the
+opposite outcome for NR `$1A`. The three rows together pin down *which* clip
+register reaches LoRes, rather than merely that some clipping happens: today only
+the correct register is positively tested, so an implementation that grabbed
+`$19` or `$1B` would pass every other row in this plan. That slip is plausible
+because the four clip registers share one write-index mechanism and one reset
+index (zxnext.vhd:5252-5289) and differ only in which module port map consumes
+them. The consumers are exhaustive — `nr_19_*` appears at zxnext.vhd:1151-1155
+(declaration), 4366-4369 (sprite port map), 4965-4969 (reset), 5252-5258 /
+5283 (write decode) and 5956-5960 / 5980 (read-back), and nowhere else;
+`nr_1b_*` likewise at 1161-1165, 4424-4427, 4977-4981, 5270-5276 / 5289 and
+5972-5976 / 5980.
 
 ## Test Case Summary
 
@@ -382,8 +407,8 @@ These exist because each is a plausible wrong implementation.
 | 6 — Scrolling | 12 | U |
 | 7 — Clip window | 9 | U + C/N |
 | 8 — Compositor interaction | 7 | C |
-| 9 — Negative / non-behaviour | 6 | U/C/N |
-| **Total** | **89** | 48 U · 27 C · 14 N |
+| 9 — Negative / non-behaviour | 8 | U/C/N |
+| **Total** | **91** | 48 U · 29 C · 14 N |
 
 (Rows tagged `U/C` or `N/C` are counted once, in the first-named tier.)
 
@@ -477,22 +502,34 @@ are corrected here because the implementer would otherwise build to them.
    (Compositor+NextREG+ULA)".** Nothing is distributed anywhere; the enable bit
    is not read. Corrected in the same change that adds this plan.
 
-## Adjacent finding — NOT a row in this plan
+## Adjacent finding — NOT a row in this plan, but read it before any tier-S row
 
-`src/core/nex_loader.cpp:274-283` loads a NEX `SCREEN_LORES` block as **12288
+**Confirmed defect, filed as GH [#68](https://github.com/jorgegv/jnext/issues/68)
+(2026-07-22). Fix it before writing the first LoRes screenshot row.**
+
+`src/core/nex_loader.cpp:274-308` loads a NEX `SCREEN_LORES` block — and
+identically the `SCREEN_HIRES` and `SCREEN_HICOLOUR` blocks — as **12288
 contiguous bytes at bank-5 offset 0**, so the second 6144-byte half lands at
-`0x1800-0x2FFF`. The 8-bit LoRes bottom half is at `0x2000-0x37FF`
-(lores.vhd:93-94), and `0x1800-0x1FFF` is never read (LR-47). If the NEX format
-stores the two halves as `$4000-$57FF` followed by `$6000-$77FF` — which is what
-the hardware layout implies — the loader is off by `0x800` for the bottom half,
-and the same doubt applies to the `SCREEN_HIRES` and `SCREEN_HICOLOUR` blocks
-immediately below it, which have the identical two-halves layout.
+`0x1800-0x2FFF`.
 
-This was **not verified against the NEX specification** and is recorded as a
-question, not a defect. It matters here only because the first LoRes screenshot
-test will very likely be a NEX file, and a loader that misplaces half the image
-will look exactly like a LoRes addressing bug. Resolve it before writing the
-first screenshot row.
+The official loader does not. `tbblue/src/asm/nexload/nexload.asm:472-474`
+(LoRes; `:488-490` HiRes, `:505-507` HiColour) issues **two** 6144-byte `fread`s,
+to `$4000` and then to `$6000` — not `$5800` — leaving `$5800-$5FFF` (bank-5
+offset `0x1800-0x1FFF`) untouched. That is exactly the attribute-area gap
+`lores.vhd:93-94` skips and LR-47 asserts is never read. So the bottom half
+belongs at bank-5 offset `0x2000-0x37FF`, and jnext places it `0x800` too early.
+
+This is no longer the open question an earlier revision of this section recorded:
+it was verified against the official loader source, and the hardware layout the
+VHDL implies and the layout the loader writes agree with each other and disagree
+with jnext.
+
+It matters *here* because the first LoRes screenshot row will very likely be a
+NEX file, and **until #68 is fixed a misplaced image half looks exactly like a
+LoRes addressing bug** — the bottom 48 rows wrong, the top 48 right, which is
+also the signature of a missing `+1` on `lores_addr(13:11)` (lores.vhd:93).
+An implementer debugging that symptom against an unfixed loader will chase the
+wrong subsystem. See also the tier-S note in "Test Architecture" above.
 
 ## Open questions (the VHDL did not fully resolve)
 
