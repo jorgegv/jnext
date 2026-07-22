@@ -1482,7 +1482,7 @@ static void test_section5_timex() {
 }
 
 // =========================================================================
-// Section 6: ULAnext Mode (zxula.vhd:492-529) — 12 rows
+// Section 6: ULAnext Mode (zxula.vhd:492-529) — 14 rows
 // =========================================================================
 
 static void test_section6_ulanext() {
@@ -1679,6 +1679,102 @@ static void test_section6_ulanext() {
               "zxula.vhd:525 — non-standard paper format (0x42) → ula_select_bgnd (transparent paper)",
               r.select_bgnd == true,
               fmt("bgnd=%d pixel=0x%02X", r.select_bgnd ? 1 : 0, r.pixel));
+    }
+
+    // S6.13 — power-on content of the ULA palette above the std-ULA range.
+    // `palette_utm` (zxnext.vhd:6960-6975) instantiates dpram2 passing only
+    // addr_width_g/data_width_g, so init_file_g stays at its default
+    // "init/none.bin.txt" (dpram2.vhd:41-46), which InitRamFromFile
+    // special-cases to an all-zero array (dpram2.vhd:64-80).  Indices
+    // 0x20..0xFF — reachable ONLY from the ULAnext / LoRes encoders, never
+    // from the std-ULA encoder (zxula.vhd:543-553 emits 0x00..0x1F) — must
+    // therefore read back black in BOTH banks.  jnext seeds 0x00..0x1F with
+    // the 16 ZX colours as a deliberate emulator convention (the legacy
+    // machine modes never run tbblue.fw); this row pins that the convention
+    // stops at 0x20 and does not invent colours above it.
+    {
+        PaletteManager pal;
+        pal.reset();
+        int nonzero = 0;
+        uint16_t first_bad_idx = 0, first_bad_val = 0;
+        for (int bank = 0; bank < 2; ++bank) {
+            for (int i = 32; i < 256; ++i) {
+                uint16_t v = pal.ula_rgb333(bank != 0, static_cast<uint8_t>(i));
+                if (v != 0) {
+                    if (nonzero == 0) { first_bad_idx = static_cast<uint16_t>(i);
+                                        first_bad_val = v; }
+                    ++nonzero;
+                }
+            }
+        }
+        // Guard: the seeded std-ULA range must be untouched by this rule.
+        const uint16_t idx1f = pal.ula_rgb333(false, 0x1F);   // bright white
+        const uint16_t idx00 = pal.ula_rgb333(false, 0x00);   // black
+        check("S6.13",
+              "zxnext.vhd:6960-6975 + dpram2.vhd:41-46,64-80 — palette_utm has no "
+              "init file, so ULA palette indices 0x20..0xFF power on ZERO in both "
+              "banks; the 16-colour seeding stops at the std-ULA range 0x00..0x1F",
+              nonzero == 0 && idx1f == 0x1FF && idx00 == 0x000,
+              fmt("nonzero=%d (first idx 0x%02X = 0x%03X)  idx0x1F=0x%03X  idx0x00=0x%03X",
+                  nonzero, first_bad_idx, first_bad_val, idx1f, idx00));
+    }
+
+    // S6.14 — observable consequence of S6.13 through the render path.
+    // A ULAnext program that never writes the ULA palette must see BLACK
+    // paper, not an emulator-invented colour.  This is the NextSIDplayer.nex
+    // case: NR 0x43 bit 0 = 1, NR 0x42 = 0x07, and the program writes only
+    // the Layer 2 palette, so its paper index 0x80|((attr>>3)&0x1F) resolves
+    // against untouched palette RAM.  Before this was fixed, index 0x89 held
+    // an RRRGGGBB-identity ramp entry — (4,1,3) — and the UI rendered bright
+    // red/orange under `--load` while rendering correctly dark when launched
+    // from the NextZXOS browser (where the firmware writes all 256 entries).
+    // Stimulus mirrors S5.12 but deliberately pokes ONLY ink and border.
+    {
+        UlaBed bed;
+        PaletteManager pal;
+        pal.reset();
+        bed.ula.set_palette(&pal);
+        bed.ula.init_border_per_line();
+
+        const uint8_t paper_color = 6;
+        const uint8_t hires_attr  = static_cast<uint8_t>(
+            0x40 | ((~paper_color & 0x07) << 3) | (paper_color & 0x07)); // 0x4E
+        const uint8_t format     = 0x07;
+        const uint8_t ink_idx    = static_cast<uint8_t>(hires_attr & format);              // 0x06
+        const uint8_t paper_idx  = static_cast<uint8_t>(0x80 | ((hires_attr >> 3) & 0x1F)); // 0x89
+        const uint8_t border_idx = static_cast<uint8_t>(0x80 | ((hires_attr >> 3) & 0x07)); // 0x81
+
+        bed.ula.set_screen_mode(static_cast<uint8_t>(0x06 | (paper_color << 3))); // HI_RES
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(format);
+        bed.ula.set_active_ula_palette(false);
+
+        // Ink and border get explicit colours; the paper index is left alone.
+        pal.write_control(0x00); pal.set_index(ink_idx);    pal.write_8bit(0xE0);
+        pal.write_control(0x00); pal.set_index(border_idx); pal.write_8bit(0x77);
+
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        bed.poke(0x4000 + poff, 0x80);
+        bed.poke(0x6000 + poff, 0x00);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+
+        const uint32_t got_paper = line[Ula::DISP_X + 1];
+        const uint32_t exp_paper = rgb333_to_argb8888(0, 0, 0);
+        // The value the removed RRRGGGBB ramp would have produced for 0x89.
+        const uint32_t ramp_paper = rgb333_to_argb8888(4, 1, 3);
+        const uint32_t got_ink = line[Ula::DISP_X + 0];
+
+        check("S6.14",
+              "zxnext.vhd:6960-6975 + zxula.vhd:520 — an unwritten ULAnext paper "
+              "index (0x89) renders BLACK, not an invented palette entry "
+              "(NextSIDplayer.nex launch-path colour divergence)",
+              got_paper == exp_paper
+              && got_paper != ramp_paper
+              && got_ink == rgb333_to_argb8888(7, 0, 0),
+              fmt("paper=0x%08X (exp 0x%08X, ramp would be 0x%08X)  ink=0x%08X",
+                  got_paper, exp_paper, ramp_paper, got_ink));
     }
 }
 

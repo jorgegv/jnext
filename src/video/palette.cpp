@@ -100,9 +100,27 @@ void PaletteManager::reset()
     //   0x18..0x1F: pixel_en=0, attr(6)=1 → paper bright 8..15 (= ink 8..15)
     // So a firmware-untouched palette must hold the 16 ZX colours at both
     // 0x00..0x0F AND 0x10..0x1F so that the 32 standard-ULA encodings all
-    // resolve to the right colour.  Indices 0x20..0xFF default to RRRGGGBB-
-    // identity (matches Layer2/Sprite defaults; ULAnext / ULA+ programs
-    // override these before use).
+    // resolve to the right colour.  That seeding is a deliberate emulator
+    // convention: the legacy machine modes (48K/128K/+3) never run tbblue.fw,
+    // so nothing else would ever write those 32 slots.
+    //
+    // Indices 0x20..0xFF are POWER-ON ZERO, per the VHDL.  `palette_utm`
+    // (zxnext.vhd:6960-6975) instantiates `dpram2` passing only addr_width_g
+    // and data_width_g, so init_file_g keeps its default "init/none.bin.txt"
+    // (dpram2.vhd:41-46), and InitRamFromFile special-cases exactly that name
+    // to return an all-zero array (dpram2.vhd:64-80).  No init file, no
+    // content: the palette RAM powers up black and the firmware fills it.
+    //
+    // They used to default to an RRRGGGBB-identity ramp on the stated
+    // assumption that "ULAnext / ULA+ programs override these before use".
+    // That assumption is false: NextSIDplayer.nex runs in ULAnext mode
+    // (NR 0x43 bit 0 = 1, NR 0x42 = 0x07) and writes only the Layer 2
+    // palette, so its paper colours came straight from indices >= 0x80.
+    // The invented ramp therefore leaked into the picture — it rendered
+    // bright red/orange under `--load` and correctly dark when launched from
+    // the NextZXOS browser, where the firmware has written all 256 entries.
+    // Only 0x00..0x1F are reachable from the std-ULA encoder, so zeroing the
+    // rest cannot affect any legacy-machine rendering.
     for (int p = 0; p < 2; ++p) {
         for (int i = 0; i < 16; ++i) {
             ula_rgb333_[p][i]      = kDefaultUlaRgb333[i];
@@ -113,9 +131,8 @@ void PaletteManager::reset()
             ula_argb_[p][i + 16]   = rgb333_to_argb(kDefaultUlaRgb333[i]);
         }
         for (int i = 32; i < FULL_SIZE; ++i) {
-            uint16_t rgb333 = rrrgggbb_to_rgb333(static_cast<uint8_t>(i));
-            ula_rgb333_[p][i] = rgb333;
-            ula_argb_[p][i]   = rgb333_to_argb(rgb333);
+            ula_rgb333_[p][i] = 0;
+            ula_argb_[p][i]   = rgb333_to_argb(0);
         }
     }
 
