@@ -260,6 +260,26 @@ else
     skp_ci_fail package-win-subsys "objdump or jnext.exe absent (package-win not built here)"
 fi
 
+# --- package-win UTF-8 manifest (GH #62) -------------------------------------
+# jnext.exe must embed the activeCodePage=UTF-8 application manifest
+# (packaging/assets/jnext.manifest, pulled in by jnext.rc as resource 1 of type
+# RT_MANIFEST). Without it Windows' narrow CRT decodes jnext's UTF-8
+# std::string paths as the ANSI code page, so any non-ASCII path (accented
+# home directory) fails to open — that IS GH #62. The manifest XML is embedded
+# verbatim (ASCII bytes) in the .rsrc section, so a binary grep for its
+# distinctive element name is a zero-dependency presence check. A deleted
+# manifest file or a dropped rc line must FAIL here, not resurface as #62.
+if [ -f "$WIN_EXE" ]; then
+    n=$(grep -a -c "activeCodePage" "$WIN_EXE" 2>/dev/null || true)
+    if [ "${n:-0}" -ge 1 ]; then
+        ok package-win-manifest "embeds activeCodePage=UTF-8 manifest ($n match)"
+    else
+        bad package-win-manifest "jnext.exe does NOT embed the activeCodePage manifest (GH #62 would regress)"
+    fi
+else
+    skp_ci_fail package-win-manifest "jnext.exe absent (package-win not built here)"
+fi
+
 # --- package-flatpak ---------------------------------------------------------
 # A full flatpak-builder run needs org.kde.Sdk installed (a large runtime) and
 # network access, so it is only attempted when the SDK is present. Always at
