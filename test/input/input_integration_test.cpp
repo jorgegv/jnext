@@ -170,17 +170,18 @@ static void test_kbd_full_fe(Emulator& emu) {
         emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // = (0,0) = CAPS SHIFT
         const uint8_t v = read_fe(emu, 0xFE);               // row 0 selected
         const bool bit7 = (v & 0x80) != 0;
+        const bool bit6 = (v & 0x40) != 0;
         const bool bit5 = (v & 0x20) != 0;
         const uint8_t cols = v & 0x1F;
         char detail[128];
         std::snprintf(detail, sizeof(detail),
-                      "got=0x%02X bit7=%d bit5=%d cols=0x%02X "
-                      "(want bits7/5=1, cols=0x1E, full byte=0xBE idle)",
-                      v, bit7, bit5, cols);
+                      "got=0x%02X bit7=%d bit6_EAR=%d bit5=%d cols=0x%02X "
+                      "(want bits7/5=1, bit6=0, cols=0x1E, full byte=0xBE idle)",
+                      v, bit7, bit6, bit5, cols);
         check("KBD-23",
               "port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle  "
               "(zxnext.vhd:3459 + membrane.vhd:236, 242)",
-              bit7 && bit5 && cols == 0x1E,
+              bit7 && !bit6 && bit5 && cols == 0x1E && v == 0xBE,
               detail);
     }
 }
