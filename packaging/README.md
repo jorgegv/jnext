@@ -234,6 +234,34 @@ exact recipe (package list + `make package-win`) was proven in a `fedora:44`
 container and the produced `jnext.exe` runs under wine; only a real GitHub
 Actions run remains unexercised.
 
+### Code signing (Windows): a settled decision NOT to
+
+The `jnext.exe` in the Windows zip is **unsigned**, and this is a decision, not
+an oversight or a to-do — do not re-litigate it as if the packaging were
+unfinished, and do not promise code signing in any user-facing document. It is
+the same call, on the same reasoning, as the macOS notarisation decision below.
+
+The cost is the reason. Authenticode signing needs a certificate bought from a
+commercial certificate authority: an OV certificate is a recurring annual bill,
+and an EV certificate — the one that carries SmartScreen reputation from the
+first release rather than earning it over time — costs more again and is issued
+on a hardware token. On top of that come renewal, per-release signing in CI, and
+the certificate plus its password held as CI secrets. For a hobby project that
+is a permanent recurring cost and operational burden, and it would not make the
+emulator better in any way a user can observe.
+
+The consequence is that Windows SmartScreen warns about an unrecognised
+publisher on first launch, and will keep doing so. What the project owes users
+instead is instructions that work:
+`src/doc/user-guide/02-installing/02-windows.md`
+([GH #59](https://github.com/jorgegv/jnext/issues/59)) — the SmartScreen
+click-path, unblocking the Mark-of-the-Web on the downloaded zip, or building
+from source. **Those routes have not been checked on real Windows hardware**,
+and the page says so. Treat that as a live debt: the macOS page's one
+instruction silently stopped working on macOS 15, which is exactly how
+[GH #55](https://github.com/jorgegv/jnext/issues/55) arose. Re-check on real
+hardware and fix the page, rather than adding untested alternatives beside it.
+
 **macOS** has no build host in this environment — the `macos` job builds it
 natively on `macos-latest` through the project's own `make package-macos`
 target, so CI runs the same recipe a Mac developer would.
