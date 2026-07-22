@@ -8,9 +8,9 @@ Windows — CI included.
 > `docker/Dockerfile.windows`, apply two code changes by hand, optionally add a
 > Makefile target. The port has since landed, and none of that described how the
 > build actually works — the Dockerfile was never created, the Makefile target is
-> not optional, and one of the two "required code changes" is still an open bug
-> ([#56](https://github.com/jorgegv/jnext/issues/56)). Rewritten to describe the
-> build that exists.
+> not optional, and both of the "required code changes" have since been resolved
+> in the code (one fixed, one made obsolete; see Known gaps below). Rewritten to
+> describe the build that exists.
 
 ## Building it
 
@@ -61,7 +61,7 @@ There is very little, which is the point:
 
 ## Known gaps on Windows
 
-Both are runtime bugs, not build problems — the build path itself has nothing
+This is a runtime bug, not a build problem — the build path itself has nothing
 outstanding:
 
 - [#62](https://github.com/jorgegv/jnext/issues/62) — **non-ASCII file paths
