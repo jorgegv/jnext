@@ -524,6 +524,69 @@ done
 check "HS-41" "every INT/TERM handler exits instead of resuming (GH #75)" 0 0 \
     "bad=[${noexit}]" "bad=[]"
 
+# (c) and — the one that actually matters — the handler must TERMINATE the
+# shell, which no source scan can establish. HS-41 asserts the handler body
+# contains `exit <n>`; review broke that in one move with `(exit 130)`, which
+# passes the regex, cleans up, and leaves the script running. `$(...)`, a
+# trailing `&`, a pipeline and a function call all escape the same way, so
+# refining the regex is whack-a-mole against an unbounded pattern space.
+#
+# So run the REAL trap statements, lifted verbatim from each script, in a
+# minimal shell with stub cleanup functions, signal it, and measure. This is
+# viable where the leak test was not: termination is not a narrow race — every
+# correct shape dies within a second of the signal and every broken one hangs
+# indefinitely, measured across 35+ trials in review. Hermetic and ~1s total.
+sig_terminates() {   # sig_terminates <script> <signal> -> "died=<y|n> cleaned=<y|n>"
+    local src=$1 sig=$2
+    local line marker="$T/sigmarker-$$-$RANDOM" probe="$T/sigprobe-$$-$RANDOM.sh"
+    line=$(grep -E "^[[:space:]]*trap[[:space:]].*[[:space:]]${sig}([[:space:]]|$)" "$src" | head -1)
+    [[ -n "$line" ]] || { echo "died=n cleaned=n"; return; }
+    {   echo '#!/usr/bin/env bash'
+        echo 'set -uo pipefail'
+        echo "TMPDIR_RUN=$(printf %q "$T/sigtmp")"
+        echo 'mkdir -p "$TMPDIR_RUN"'
+        # One stub for whichever cleanup function this script's trap names.
+        echo "unit_cleanup()       { touch $(printf %q "$marker"); return 0; }"
+        echo "bench_cleanup()      { touch $(printf %q "$marker"); return 0; }"
+        echo "regression_cleanup() { touch $(printf %q "$marker"); return 0; }"
+        echo "$line"
+        # A LOOP, not a single `sleep`. With one sleep the probe ends the moment
+        # the signal kills that sleep, so even a handler that "cleans up and
+        # resumes" terminates — the first version of this row did that and
+        # passed against all three known-broken shapes. The loop reproduces
+        # regression.sh's actual structure: a per-item loop that tolerates its
+        # own errors, so a resuming handler keeps grinding. `set -e` is
+        # deliberately absent for the same reason.
+        echo 'for _ in $(seq 1 120); do sleep 0.5; done'
+    } > "$probe"
+    # Measured by WALL TIME, not exit status: `timeout` returns 124 whenever it
+    # had to signal at all, so the status says nothing about whether the process
+    # then died — that mistake made the first version of this row fail against
+    # correct code. --kill-after bounds a handler that never terminates.
+    local t0 t1 elapsed
+    t0=$(date +%s%N)
+    timeout --signal="$sig" --kill-after=2s 0.5s bash "$probe" >/dev/null 2>&1
+    t1=$(date +%s%N)
+    elapsed=$(( (t1 - t0) / 1000000 ))          # ms
+    # A correct handler exits at the signal (~500 ms). A broken one survives it
+    # and is SIGKILLed 2s later (~2500 ms). 1500 ms separates them with room to
+    # spare on a loaded box.
+    local died=y; [[ "$elapsed" -gt 1500 ]] && died=n
+    local cleaned=n; [[ -e "$marker" ]] && cleaned=y
+    rm -f "$marker" "$probe"
+    echo "died=$died cleaned=$cleaned"
+}
+
+sig_results=""
+for src in "${CLEANUP_SCRIPTS[@]}"; do
+    for sig in INT TERM; do
+        r=$(sig_terminates "$src" "$sig")
+        [[ "$r" == "died=y cleaned=y" ]] || sig_results+="${src##*/}/${sig}: ${r} "
+    done
+done
+check "HS-42" "real INT/TERM trap statements clean up AND terminate (GH #75)" 0 0 \
+    "bad=[${sig_results}]" "bad=[]"
+
 echo ""
 echo "====================================="
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" "$total" "$pass" "$fail" 0
