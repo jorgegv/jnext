@@ -486,16 +486,43 @@ check "HS-30" "no suite source reintroduces 'printf ... | grep -q' membership" 0
 # covering only the file that happened to be fixed first would not have
 # caught the third. test-functions.inc carried it from GH #65 and was found
 # by the same review.
-bad_traps=""
-for src in "$HARNESS" \
-           "$PROJECT_DIR/test/bench/bench.sh" \
-           "$PROJECT_DIR/test/00regression/test-functions.inc"; do
-    hits=$(grep -nE "^[[:space:]]*trap[[:space:]].*[[:space:]]EXIT([[:space:]]|$)" "$src" \
-           | grep -vE "EXIT[[:space:]]+INT[[:space:]]+TERM" || true)
-    [[ -z "$hits" ]] || bad_traps+="${src##*/}: ${hits}"$'\n'
+CLEANUP_SCRIPTS=("$HARNESS"
+                 "$PROJECT_DIR/test/bench/bench.sh"
+                 "$PROJECT_DIR/test/00regression/test-functions.inc")
+
+# (a) each script handles INT and TERM at all.
+missing=""
+for src in "${CLEANUP_SCRIPTS[@]}"; do
+    grep -qE "^[[:space:]]*trap[[:space:]].*[[:space:]]INT([[:space:]]|$)" "$src" || missing+="${src##*/}:INT "
+    grep -qE "^[[:space:]]*trap[[:space:]].*[[:space:]]TERM([[:space:]]|$)" "$src" || missing+="${src##*/}:TERM "
 done
-check "HS-40" "every SD-clone cleanup trap also traps INT and TERM (GH #75)" 0 0 \
-    "untrapped=[${bad_traps}]" "untrapped=[]"
+check "HS-40" "every SD-clone cleanup script handles INT and TERM (GH #75)" 0 0 \
+    "missing=[${missing}]" "missing=[]"
+
+# (b) and each INT/TERM handler EXITS. This is the half that matters and the
+# half a syntax check nearly missed: `trap 'cleanup' EXIT INT TERM` satisfies
+# (a) but runs the handler and RESUMES, so regression.sh deleted its own SD
+# clone and carried on for another four minutes producing 58 FAIL / 4 PASS
+# against a missing image — failures indistinguishable from a real regression.
+# The property that matters is that the process STOPS, and the nearest thing
+# to it a source scan can assert is that the handler body calls exit.
+#
+# A trap listing EXIT alongside INT/TERM is also rejected outright: the same
+# body cannot both be the normal-exit handler (which must NOT exit, or it
+# recurses) and the signal handler (which must).
+noexit=""
+for src in "${CLEANUP_SCRIPTS[@]}"; do
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if grep -qE "[[:space:]]EXIT([[:space:]]|$)" <<<"$line"; then
+            noexit+="${src##*/}: shares handler with EXIT: ${line}"$'\n'
+        elif ! grep -qE "exit[[:space:]]+[0-9]+" <<<"$line"; then
+            noexit+="${src##*/}: handler does not exit: ${line}"$'\n'
+        fi
+    done < <(grep -nE "^[[:space:]]*trap[[:space:]].*[[:space:]](INT|TERM)([[:space:]]|$)" "$src" || true)
+done
+check "HS-41" "every INT/TERM handler exits instead of resuming (GH #75)" 0 0 \
+    "bad=[${noexit}]" "bad=[]"
 
 echo ""
 echo "====================================="

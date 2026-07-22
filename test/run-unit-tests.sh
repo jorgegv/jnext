@@ -74,7 +74,21 @@ unit_cleanup() {
 # Ctrl-C during the parallel `wait` leaked the whole 1 GB clone. Measured on
 # the EXIT-only version: 20% of SIGINTs and 45% of SIGTERMs delivered mid-run.
 # `kill` with no signal is TERM, which is the worse of the two.
-trap 'unit_cleanup' EXIT INT TERM
+#
+# WHY THE SIGNAL HANDLERS EXIT EXPLICITLY. `trap 'cleanup' EXIT INT TERM` is
+# NOT a general fix and was rejected in review after being tried: catching a
+# signal you have an explicit trap for runs the handler and then RESUMES, so a
+# handler that only cleans up leaves the script running without the thing it
+# just deleted. In regression.sh that turned a Ctrl-C into 58 FAIL / 4 PASS
+# against a deleted SD clone — output indistinguishable from a real emulator
+# regression, far worse than the leaked directory it was fixing. Two of the
+# three scripts happened to die anyway through incidental control flow (a
+# killed process group tripping `set -e`; a synchronous foreground pipeline
+# taking the signal itself); that is luck, not design, and a future edit would
+# silently remove it. So INT/TERM terminate explicitly, 128+signo.
+trap 'unit_cleanup' EXIT
+trap 'unit_cleanup; exit 130' INT
+trap 'unit_cleanup; exit 143' TERM
 
 # reflink first and EXPLICITLY (`--reflink=always`), so the outcome is
 # observable in $SD_CLONE_MODE rather than guessed — same rule as the
@@ -268,8 +282,11 @@ TMPDIR_RUN=$(mktemp -d)
 # here silently disabled the clone's cleanup and leaked a 1 GB directory per
 # run (caught in testing: 34 of them, one per harness-selftest invocation).
 # INT/TERM for the same reason as the earlier trap: this is the window the
-# suites actually run in, so it is where a Ctrl-C most often lands.
-trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup' EXIT INT TERM
+# suites actually run in, so it is where a Ctrl-C most often lands. They exit
+# explicitly — see the note on the earlier trap.
+trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup' EXIT
+trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup; exit 130' INT
+trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup; exit 143' TERM
 
 # Preflight has passed and suites are about to run — now the clone is worth
 # making.

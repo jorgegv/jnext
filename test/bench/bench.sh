@@ -83,7 +83,21 @@ bench_cleanup() {
 # repeats) — precisely the kind of run a developer Ctrl-Cs. This was shipped
 # EXIT-only and caught in review as a third instance of the same defect;
 # HS-40 in test/harness-selftest.sh now scans this file so there is no fourth.
-trap 'bench_cleanup' EXIT INT TERM
+#
+# WHY THE SIGNAL HANDLERS EXIT EXPLICITLY. `trap 'cleanup' EXIT INT TERM` is
+# NOT a general fix and was rejected in review after being tried: catching a
+# signal you have an explicit trap for runs the handler and then RESUMES, so a
+# handler that only cleans up leaves the script running without the thing it
+# just deleted. In regression.sh that turned a Ctrl-C into 58 FAIL / 4 PASS
+# against a deleted SD clone — output indistinguishable from a real emulator
+# regression, far worse than the leaked directory it was fixing. Two of the
+# three scripts happened to die anyway through incidental control flow (a
+# killed process group tripping `set -e`; a synchronous foreground pipeline
+# taking the signal itself); that is luck, not design, and a future edit would
+# silently remove it. So INT/TERM terminate explicitly, 128+signo.
+trap 'bench_cleanup' EXIT
+trap 'bench_cleanup; exit 130' INT
+trap 'bench_cleanup; exit 143' TERM
 
 SD_IMAGE="$BENCH_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 mkdir -p "$BENCH_RUN_DIR/sdcard" || die "cannot create $BENCH_RUN_DIR/sdcard"
