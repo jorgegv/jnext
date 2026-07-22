@@ -589,6 +589,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="02-windows.html" class="md-nav__link md-nav__link--active">
         
   
@@ -605,6 +623,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-warning-appears" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the warning appears
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2817,12 +2865,33 @@
   
 
 
+<!--
+  The SmartScreen click-path below (More info -> Run anyway) has NOT been
+  re-verified on current Windows the way the macOS page was re-verified on
+  macOS 15 (GH #59) — it is carried over from when the page was written.
+  Microsoft has changed this dialog before. Re-check it on real Windows
+  hardware and fix the page, rather than adding a second, still-untested
+  alternative next to it.
+-->
 <h1 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h1>
 <p>Download <code>jnext-*-windows-x64.zip</code>, unzip it anywhere, and run <code>jnext.exe</code>.
 There is no installer: everything the program needs is in the folder, and
 deleting the folder uninstalls it.</p>
-<p>On first launch Windows SmartScreen may warn about an unrecognised publisher —
-the executable is not yet code-signed. Click <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
+<p>On first launch Windows SmartScreen may warn about an unrecognised publisher
+and refuse to start the program. Click <strong>More info</strong>, then <strong>Run anyway</strong>. You
+only do this once.</p>
+<h2 id="why-the-warning-appears">Why the warning appears<a class="headerlink" href="#why-the-warning-appears" title="Permanent link">&para;</a></h2>
+<p>The executable is not code-signed. Authenticode signing needs a certificate
+bought from a commercial certificate authority and kept renewed, and JNEXT does
+not have one — so Windows has no publisher name to show you, and says so. The
+warning reports the <em>absence of a signature</em>; it does not mean anything was
+found wrong with the download.</p>
+<p>A signature would name the certificate holder who built the file, and would
+stop Windows asking. It would not tell you the program is safe — signed
+software can do anything unsigned software can. If who built it is the question
+that matters to you, build it yourself: see
+<a href="06-building-from-source.html">Building from source</a>, which produces a binary
+SmartScreen never sees.</p>
 
 
 
