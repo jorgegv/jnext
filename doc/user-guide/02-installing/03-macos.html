@@ -617,6 +617,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="03-macos.html" class="md-nav__link md-nav__link--active">
         
   
@@ -633,6 +651,69 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-warning-appears" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the warning appears
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#route-1-allow-it-in-system-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route 1 — allow it in System Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#route-2-clear-the-quarantine-flag-from-a-terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route 2 — clear the quarantine flag from a terminal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#route-3-build-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route 3 — build it yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2817,12 +2898,73 @@
   
 
 
+<!--
+  Gatekeeper's behaviour changes between major macOS releases. This page used
+  to say "Control-click the app and choose Open", which was correct when it was
+  written and silently stopped covering this case on macOS 15 — leaving the one
+  instruction we gave as the one that fails. Re-check every route below on real
+  macOS hardware whenever a new major release ships, and fix the page rather
+  than adding a second, still-untested alternative.
+-->
 <h1 id="macos">macOS<a class="headerlink" href="#macos" title="Permanent link">&para;</a></h1>
 <p>Download <code>jnext-*-Darwin.dmg</code>, open it, and drag <strong>jnext</strong> to Applications.</p>
-<p>On first launch macOS Gatekeeper may refuse to open it, because the app is not
-yet signed or notarised. Right-click the app, choose <strong>Open</strong>, and confirm
-<strong>Open</strong> in the dialog. Alternatively, allow it under <strong>System Settings &gt;
-Privacy &amp; Security</strong>.</p>
+<p>The first time you open it, macOS refuses to launch it and shows a dialog
+reading <em>Apple could not verify "jnext" is free of malware that may harm your
+Mac or compromise your privacy</em> (the exact wording varies between macOS
+releases). That is expected, and the next section explains why. Allowing it
+takes one of the three routes below; you only do it once.</p>
+<h2 id="why-the-warning-appears">Why the warning appears<a class="headerlink" href="#why-the-warning-appears" title="Permanent link">&para;</a></h2>
+<p>JNEXT is not notarised, and that is a deliberate choice. Notarisation is
+Apple's approval step for software distributed outside the App Store, and it
+requires a paid Apple Developer Program membership renewed every year, plus a
+signing certificate held by the project and submitted with each release. This
+is a hobby project, and paying for that would not make the emulator any better.</p>
+<p>So macOS has nothing from Apple to check the download against, and tells you
+so. The warning reports the <em>absence of an approval</em> — it does not mean
+anything was found wrong with the app.</p>
+<p>If you would like to satisfy yourself that the copy you downloaded is intact,
+open a terminal and run:</p>
+<pre><code class="language-sh">codesign --verify --deep --strict /Applications/jnext.app
+</code></pre>
+<p>It prints nothing if every file in the bundle still matches the signature
+applied when the app was built, which means nothing has been altered or added
+since. It cannot tell you <em>who</em> built it — no unnotarised app can — so if that
+is the question that matters to you, route 3 answers it properly.</p>
+<h2 id="route-1-allow-it-in-system-settings">Route 1 — allow it in System Settings<a class="headerlink" href="#route-1-allow-it-in-system-settings" title="Permanent link">&para;</a></h2>
+<p>This is the route that works on current macOS.</p>
+<ol>
+<li>Double-click <strong>jnext</strong> in Applications. macOS refuses to open it; dismiss
+   the dialog. This step is not optional — the button in step 3 only appears
+   after a blocked attempt.</li>
+<li>Open the Apple menu, choose <strong>System Settings</strong>, select <strong>Privacy &amp;
+   Security</strong> in the sidebar, and scroll down to the <strong>Security</strong> section.</li>
+<li>A line now reads <em>"jnext" was blocked to protect your Mac</em>, with an <strong>Open
+   Anyway</strong> button next to it. Click it and confirm with Touch ID or your
+   login password.</li>
+<li>Open jnext again. A last dialog asks once more; choose <strong>Open Anyway</strong>.</li>
+</ol>
+<p>From then on it opens by double-click like any other app.</p>
+<p>If you remember the older Control-click → <strong>Open</strong> trick, do not go hunting for
+it: on macOS 15 and later the dialog above has <strong>no Open button on it at all</strong>,
+which is precisely why that route cannot work here. Use the steps above
+instead.</p>
+<h2 id="route-2-clear-the-quarantine-flag-from-a-terminal">Route 2 — clear the quarantine flag from a terminal<a class="headerlink" href="#route-2-clear-the-quarantine-flag-from-a-terminal" title="Permanent link">&para;</a></h2>
+<pre><code class="language-sh">xattr -dr com.apple.quarantine /Applications/jnext.app
+</code></pre>
+<p>When your browser downloads a file, macOS tags it with an extended attribute
+named <code>com.apple.quarantine</code> — the "came from the internet" marker that
+triggers the check on first launch. Dragging the app out of the <code>.dmg</code> carries
+that tag onto your copy. The command removes the attribute from the app and
+everything inside it (<code>-d</code> deletes an attribute, <code>-r</code> recurses into the
+bundle), after which it opens normally.</p>
+<p>This is you deciding to trust this particular download, which is why it names
+one path. Do not apply it to a whole folder, and do not turn Gatekeeper off
+system-wide to avoid the prompt: both of these routes cover one app and leave
+everything else on your Mac checked exactly as before.</p>
+<h2 id="route-3-build-it-yourself">Route 3 — build it yourself<a class="headerlink" href="#route-3-build-it-yourself" title="Permanent link">&para;</a></h2>
+<p>The quarantine flag comes from downloading, not from running, so an app you
+build on your own machine never has one and there is no Gatekeeper step at all.
+See <a href="06-building-from-source.html">Building from source</a>.</p>
 
 
 

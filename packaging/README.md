@@ -279,6 +279,35 @@ CI runs rather than guessed:
   `--version` launch returns before Qt loads its Cocoa plugin, so the rewritten
   plugins are never exercised until a user double-clicks.
 
+### Notarisation: a settled decision NOT to
+
+The `.dmg` is **ad-hoc signed and deliberately not notarised**. This is a
+decision, not an oversight or a to-do — do not re-litigate it as if the
+packaging were unfinished, and do not promise notarisation in any user-facing
+document.
+
+The cost is the reason. Notarisation needs a paid Apple Developer Program
+membership (USD 99/year at the time of writing), which is the only way to get
+the Developer ID certificate it requires; then per-release `notarytool submit`
++ `stapler staple`, hardened-runtime re-signing (ad-hoc signing is not
+accepted), annual certificate renewal, and the certificate + its password held
+as CI secrets. For a hobby project that is a recurring bill and a permanent
+operational burden, and it would not make the emulator better in any way a user
+can observe.
+
+The consequence, measured by an external tester on macOS 26.5.2 arm64
+([GH #46](https://github.com/jorgegv/jnext/issues/46)): `spctl -a` rejects the
+app, `stapler validate` finds no ticket, the quarantined `.dmg` is refused on
+double-click, and `open` returns LaunchServices error -128. All expected. What
+the project owes users instead is instructions that work, which is
+`src/doc/user-guide/02-installing/03-macos.md`
+([GH #55](https://github.com/jorgegv/jnext/issues/55)) — System Settings →
+Privacy & Security → **Open Anyway**, `xattr -dr com.apple.quarantine`, or
+building from source. **Gatekeeper's behaviour changes between major macOS
+releases** — the Control-click → Open route that page used to give stopped
+working on macOS 15 — so that page needs re-checking on real hardware when a
+new major macOS ships. Nothing in the packaging changes when it does.
+
 A copied library's own install name (`LC_ID_DYLIB`, read with `otool -D`) is
 reported but does **not** fail the build: macdeployqt leaves some frameworks
 with their original absolute id, and dyld resolves every load from the
