@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <initializer_list>
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -5980,6 +5981,91 @@ static void test_v22_nmp_01_nr_c2_c3_writable(Emulator& emu) {
 // bit 2, or broke the master_cycles_per_frame/28 MHz maths, flips a row.
 // Self-contained Emulator so the runtime timing switch does not perturb the
 // shared-emulator groups below.
+// ── Z80N NEXTREG opcode vs the port-0x243B select latch (GH #54) ─────
+//
+// VHDL zxnext.vhd:4739-4744 wires TWO independent NextReg write requesters:
+//
+//   cpu_requester_0 <= '1' when Z80N_dout_s = '1' and Z80N_command_s = NEXTREGW
+//   cpu_requester_1 <= port_253b_wr;
+//   cpu_requester_reg <= Z80N_data_s(15 downto 8) when cpu_requester_0 = '1'
+//                        else nr_register when cpu_requester_1 = '1' ...
+//
+// The Z80N `NEXTREG rr,nn` / `NEXTREG rr,A` opcode carries its OWN register
+// number in `Z80N_data_s(15 downto 8)`. It never reads and never writes
+// `nr_register`, the port-0x243B select latch, which has exactly one writer
+// (zxnext.vhd:4592-4603, `nr_register <= cpu_do` on a port-0x243B write).
+//
+// jnext used to implement both opcodes as `out(0x243B, reg); out(0x253B, val)`,
+// which DID move the select latch. The observable consequence (GH #54,
+// RevivalSurvival.nex): the game selects NR 0x1F once and then polls
+// `IN A,(0x253B)` in a tight raster-wait loop. Its music/bank interrupt
+// handler uses `NEXTREG $54,A` … `NEXTREG $57,A`; the first one re-pointed
+// the latch at NR 0x55, so the loop read the MMU5 page for ever and the
+// game hung at its "PRESS FIRE" prompt, never polling input again.
+static void test_z80n_nextreg_select_latch(Emulator& emu) {
+    set_group("Z80N-NEXTREG-Select");
+
+    // Helper: run one Z80N NEXTREG instruction from RAM at 0xC000.
+    auto exec_at_c000 = [&emu](std::initializer_list<uint8_t> bytes) {
+        const uint16_t code_addr = 0xC000;
+        uint16_t a = code_addr;
+        for (uint8_t b : bytes) emu.mmu().write(a++, b);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = code_addr;
+        emu.cpu().set_registers(regs);
+        emu.execute_single_instruction();
+    };
+
+    // Z80N-SEL-01 — `NEXTREG rr,nn` (ED 91) must leave nr_register alone.
+    // Discriminative shape: select NR 0x7F (the user scratch register, so
+    // the readback is a plain round-trip and cannot be satisfied by a
+    // dynamic read handler), execute NEXTREG 0x54,0x04, then read through
+    // the port DATA register WITHOUT re-selecting. VHDL says that read is
+    // still NR 0x7F; the pre-fix port-pair implementation returns NR 0x54.
+    {
+        nr_write(emu, 0x7F, 0xAB);          // NR 0x7F = 0xAB, latch = 0x7F
+        exec_at_c000({0xED, 0x91, 0x54, 0x04});
+        const uint8_t latched = emu.nextreg().selected();
+        const uint8_t via_data_port = emu.port().in(0x253B);
+        check("Z80N-SEL-01",
+              "NEXTREG rr,nn (ED 91) does not move the port-0x243B select "
+              "latch (VHDL zxnext.vhd:4739-4744 cpu_requester_0 vs :4592-4603)",
+              latched == 0x7F && via_data_port == 0xAB,
+              fmt("selected=0x%02x (exp 0x7f) IN(0x253B)=0x%02x (exp 0xab)",
+                  latched, via_data_port));
+    }
+
+    // Z80N-SEL-02 — same for `NEXTREG rr,A` (ED 92), and additionally prove
+    // a following DATA-port WRITE still lands on the originally selected
+    // register rather than on the opcode's register.
+    {
+        nr_write(emu, 0x7F, 0x11);          // NR 0x7F = 0x11, latch = 0x7F
+        auto regs = emu.cpu().get_registers();
+        regs.AF = static_cast<uint16_t>(0x0400 | (regs.AF & 0x00FF));  // A = 0x04
+        emu.cpu().set_registers(regs);
+        exec_at_c000({0xED, 0x92, 0x54});   // NEXTREG 0x54,A
+        emu.port().out(0x253B, 0x5C);       // no re-select: must hit NR 0x7F
+        const uint8_t nr7f = nr_read(emu, 0x7F);
+        check("Z80N-SEL-02",
+              "NEXTREG rr,A (ED 92) leaves the select latch on 0x7F, so the "
+              "next 0x253B write still lands on NR 0x7F "
+              "(VHDL zxnext.vhd:4739-4744)",
+              nr7f == 0x5C, detail_eq(nr7f, static_cast<uint8_t>(0x5C)));
+    }
+
+    // Z80N-SEL-03 — the opcode must still WRITE the register it names.
+    // Guards against "fix" by making the opcode a no-op.
+    {
+        nr_write(emu, 0x7E, 0x00);          // NR 0x7E scratch = 0
+        exec_at_c000({0xED, 0x91, 0x7E, 0x3C});
+        const uint8_t nr7e = nr_read(emu, 0x7E);
+        check("Z80N-SEL-03",
+              "NEXTREG rr,nn still writes the register named by the opcode "
+              "operand (VHDL cpu_requester_reg <= Z80N_data_s(15 downto 8))",
+              nr7e == 0x3C, detail_eq(nr7e, static_cast<uint8_t>(0x3C)));
+    }
+}
+
 static void test_frame_period_5060hz() {
     set_group("FramePeriod-5060Hz");
 
@@ -6150,6 +6236,9 @@ int main() {
 
     test_v22_nmp_01_nr_c2_c3_writable(emu);
     std::printf("  Group: V22-NMP-01-NRC2-C3-Writable — done\n");
+
+    test_z80n_nextreg_select_latch(emu);
+    std::printf("  Group: Z80N-NEXTREG-Select — done\n");
 
     test_frame_period_5060hz();
     std::printf("  Group: FramePeriod-5060Hz — done\n");

@@ -3811,6 +3811,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         });
 
+    // Z80N NEXTREG-opcode write path (GH #54). VHDL zxnext.vhd:4739-4744:
+    // the opcode's requester supplies its own register number and never
+    // touches `nr_register`, the port-0x243B select latch (:4592-4603).
+    // Routing the opcode through the port pair — as jnext did before —
+    // clobbered that latch, so a `select 0x1F once, then IN A,(0x253B) in a
+    // loop` raster wait (RevivalSurvival.nex) was permanently derailed by the
+    // first `NEXTREG` executed in the game's interrupt handler: the loop then
+    // read whatever register the ISR left behind and never terminated.
+    // Deferral semantics stay identical to the port path (G65).
+    port_.nextreg_opcode_write_cb = [this](uint8_t reg, uint8_t v) {
+        if (defer_cpu_nr_writes_) {
+            enqueue_cpu_nr_write(reg, v);
+        } else {
+            nextreg_.write(reg, v);
+        }
+    };
+
     // ULA — port 0xFE (mask 0x00FF, value 0x00FE).
     // Read (VHDL zxnext.vhd:3459):
     //   port_fe_dat_0 <= '1' & (i_AUDIO_EAR or port_fe_ear) & '1' & i_KBD_COL

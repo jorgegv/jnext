@@ -63,6 +63,20 @@ public:
     uint8_t in(uint16_t port) override;
     void    out(uint16_t port, uint8_t val) override;
 
+    /// Z80N NEXTREG-opcode write path (GH #54). Installed by
+    /// Emulator::init() alongside the 0x243B/0x253B handlers; it writes the
+    /// register named by the opcode operand DIRECTLY into the NextReg file,
+    /// leaving the port-0x243B select latch alone — see
+    /// IoInterface::nextreg_opcode_write for the VHDL citation. When unset
+    /// (a PortDispatch used standalone in a test), the base-class port-pair
+    /// fallback is used.
+    std::function<void(uint8_t /*reg*/, uint8_t /*val*/)> nextreg_opcode_write_cb;
+
+    void nextreg_opcode_write(uint8_t reg, uint8_t val) override {
+        if (nextreg_opcode_write_cb) nextreg_opcode_write_cb(reg, val);
+        else IoInterface::nextreg_opcode_write(reg, val);
+    }
+
     /// RZX playback: if set, all IN reads return values from this callback
     /// instead of normal port dispatch.
     std::function<uint8_t(uint16_t)> rzx_in_override;

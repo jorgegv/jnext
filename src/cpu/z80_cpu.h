@@ -34,6 +34,25 @@ public:
     virtual ~IoInterface() = default;
     virtual uint8_t in(uint16_t port) = 0;
     virtual void out(uint16_t port, uint8_t val) = 0;
+
+    /// Z80N `NEXTREG rr,nn` / `NEXTREG rr,A` write (GH #54).
+    ///
+    /// VHDL zxnext.vhd:4739-4744 — the opcode raises `cpu_requester_0` and
+    /// supplies the target register from `Z80N_data_s(15 downto 8)` (the
+    /// opcode's own operand). The port path is a DIFFERENT requester
+    /// (`cpu_requester_1 = port_253b_wr`, register = `nr_register`), and
+    /// `nr_register` — the port-0x243B select latch — is written ONLY by an
+    /// actual write to port 0x243B (zxnext.vhd:4592-4603). So the opcode
+    /// must NOT disturb the select latch: a subsequent `IN A,(0x253B)` still
+    /// reads whatever register port 0x243B last selected.
+    ///
+    /// The default implementation is the (VHDL-incorrect) port pair, kept
+    /// only for the bare IoInterface stubs used by unit tests that have no
+    /// NextReg file at all. PortDispatch overrides it.
+    virtual void nextreg_opcode_write(uint8_t reg, uint8_t val) {
+        out(0x243B, reg);
+        out(0x253B, val);
+    }
 };
 
 // Access to FUSE tstates counter (for contention delay injection)

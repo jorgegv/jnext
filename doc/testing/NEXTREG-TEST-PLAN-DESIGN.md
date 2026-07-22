@@ -71,8 +71,9 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 | SEL-03 | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | Machine ID unaffected (read-only) |
 | SEL-04 | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | Returns 0xAB (user register) |
 | SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
-| SEL-05a | Pre-select NR 0x07 via 0x243B; execute Z80N `NEXTREG 0x12, 0x10` (ED 91 12 10); read NR 0x07 via 0x253B | NR 0x07 returned (selection preserved). VHDL `zxnext.vhd:4739-4745` injects `(reg, val)` directly without touching `nr_register`. skip — `z80n_ext.cpp:218-238` issues two `out()` calls (0x243B then 0x253B) which clobber `NextReg::selected_` to 0x12 (see G151) |
-| SEL-05b | Same setup; after the Z80N NEXTREG, write 0x253B ← 0x99 (raw data port) | NR 0x07 receives 0x99 (selection still pointed at 0x07). skip — discriminative pair: jnext path lands at NR 0x12 because selected_ clobbered (see G151) |
+| SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | NR 0x7F returned (selection preserved). VHDL `zxnext.vhd:4739-4744` injects `(reg, val)` directly via `cpu_requester_0` and never writes `nr_register` (:4592-4603). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-01 (was a skip; the defect it described was GH #54 and is fixed) |
+| SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | NR 0x7F receives 0x5C (selection still pointed at 0x7F). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-02 |
+| SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | NR 0x7E == 0x3C — the opcode still writes the register named by its own operand (`cpu_requester_reg <= Z80N_data_s(15 downto 8)`). Guards SEL-05a/05b against a no-op "fix". **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-03 |
 
 ### 2. Read-Only Registers
 
