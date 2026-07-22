@@ -29,6 +29,7 @@
 #include "core/emulator_config.h"
 #include "port/port_dispatch.h"
 #include "port/nextreg.h"
+#include "input/keyboard.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -1758,21 +1759,76 @@ static void test_group_iorq() {
     set_group("Group F — IORQ / RMW / contention");
 
     // IORQ-02: a normal IN A,(0xFE) routes through PortDispatch::in and
-    // reaches the ULA read handler at emulator.cpp:585. VHDL zxnext.vhd:2705
-    // qualifies the dispatcher read with iord (not m1); we verify via an
-    // observable side effect — reading 0xFE returns bits 7:5 forced to
-    // 111 per VHDL port_fe_dat contract (zxnext.vhd port_fe read path).
+    // reaches the ULA read handler. VHDL zxnext.vhd:2705 qualifies the
+    // dispatcher read with iord (not m1); we verify via an observable side
+    // effect — the exact byte composition of the port-0xFE read.
+    //
+    // VHDL zxnext.vhd:3459 is the whole contract:
+    //     port_fe_dat_0 <= '1' & (i_AUDIO_EAR or port_fe_ear) & '1' & i_KBD_COL
+    // bit 7 = '1', bit 6 = EAR, bit 5 = '1', bits 4:0 = keyboard half-row.
+    //
+    // GH #51 fix: this row previously asserted (v & 0xE0) == 0xE0, i.e. bit 6
+    // set as well — that was written against jnext's implementation, not
+    // against the VHDL, and it pinned the defect. `i_AUDIO_EAR` is the output
+    // of `ear_relax` (zxnext_top_issue2.vhd:662-676), a symmetric_relaxation
+    // whose relax_0 and relax_1 inputs are BOTH `zxn_issue2_fe_mic`
+    // (= port_fe_mic AND nr_08_keyboard_issue2, zxnext.vhd:1636). Per
+    // symmetric_relaxation.vhd:83-92 the output is forced to that value once
+    // the input has been stable for ~1152 us, whatever the stable level was
+    // — the block exists precisely to "RELAX STUCK AT ONE TO ZERO". So with
+    // no tape signal and issue-2 keyboard mode off, bit 6 is 0 and an idle
+    // Next reads 0xBF, not 0xFF.
     {
         Emulator emu; build_next_emulator(emu);
         IoInterface& io = emu.port();
+        io.out(0x00FE, 0x00);                   // border 0, EAR out = 0, MIC = 0
         uint8_t v = io.in(0x00FE);
-        // VHDL port_fe read: top 3 bits (7:5) are forced '111' unless
-        // EAR is pulled. With no tape playing, bit 6 = 1 (no signal).
-        // Minimum spec-visible assertion: bits 7:5 are all set.
         check("IORQ-02",
-              "IN 0x00FE returns bits 7:5 set per VHDL port_fe contract",
-              (v & 0xE0) == 0xE0,
-              DETAIL("0xFE read=0x%02x", v));
+              "IN 0x00FE with no key pressed returns 0xBF: bits 7/5 = 1, "
+              "bit 6 = EAR = 0 (VHDL zxnext.vhd:3459 + ear_relax steady state)",
+              v == 0xBF,
+              DETAIL("0xFE read=0x%02x expected=0xBF", v));
+    }
+
+    // IORQ-02b: bit 6 tracks `port_fe_ear`, the OUT-0xFE bit-4 latch
+    // (zxnext.vhd:3598 `port_fe_ear <= port_fe_reg(4)`, ORed into bit 6 at
+    // :3459). Discriminates the fix from a blanket "bit 6 is always 0".
+    {
+        Emulator emu; build_next_emulator(emu);
+        IoInterface& io = emu.port();
+        io.out(0x00FE, 0x10);                   // EAR out = 1
+        uint8_t ear_hi = io.in(0x00FE);
+        io.out(0x00FE, 0x00);                   // EAR out = 0
+        uint8_t ear_lo = io.in(0x00FE);
+        check("IORQ-02b",
+              "port 0xFE bit 6 follows the OUT-0xFE bit-4 EAR latch "
+              "(VHDL zxnext.vhd:3459 `i_AUDIO_EAR or port_fe_ear`, :3598)",
+              (ear_hi & 0x40) != 0 && (ear_lo & 0x40) == 0,
+              DETAIL("ear_out=1 -> 0x%02x, ear_out=0 -> 0x%02x",
+                     ear_hi, ear_lo));
+    }
+
+    // IORQ-02c: the GH #51 shape itself. Night-Knight-Demo.nex compares its
+    // O/P half-row against the exact bytes 0xBD/0x1D and its SPACE half-row
+    // against 0xBE/0x1E — i.e. it requires bit 6 = 0 — so with bit 6 stuck
+    // at 1 the game read the key correctly and still never moved. Assert the
+    // whole byte for a pressed key, not just the low five bits.
+    {
+        Emulator emu; build_next_emulator(emu);
+        IoInterface& io = emu.port();
+        io.out(0x00FE, 0x00);                   // EAR out = 0
+        emu.keyboard().set_key(SDL_SCANCODE_O, true);      // half-row 0xDF, bit 1
+        uint8_t o_row = io.in(0xDFFE);
+        emu.keyboard().set_key(SDL_SCANCODE_O, false);
+        emu.keyboard().set_key(SDL_SCANCODE_SPACE, true);   // half-row 0x7F, bit 0
+        uint8_t sp_row = io.in(0x7FFE);
+        emu.keyboard().set_key(SDL_SCANCODE_SPACE, false);
+        check("IORQ-02c",
+              "pressed keys read back as the exact hardware bytes 0xBD ('O' "
+              "on 0xDFFE) / 0xBE (SPACE on 0x7FFE) (VHDL zxnext.vhd:3459)",
+              o_row == 0xBD && sp_row == 0xBE,
+              DETAIL("0xDFFE=0x%02x (exp 0xBD) 0x7FFE=0x%02x (exp 0xBE)",
+                     o_row, sp_row));
     }
 
     // IORQ-01 — COVERED ELSEWHERE (not a skip).

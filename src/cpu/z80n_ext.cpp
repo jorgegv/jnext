@@ -129,13 +129,16 @@ static inline uint8_t ldi_family_flags(uint8_t bytetemp, uint8_t A,
 // The wrapper in z80_cpu.cpp no longer adds (t - 8); execute_z80n's
 // returned T-state count is purely informational.
 //
-// NextReg writes via cpu.io().out(0x243B/0x253B, …) STAY on the raw
-// IoInterface path — real hardware bypasses the I/O bus entirely for
+// NextReg writes go via cpu.io().nextreg_opcode_write(reg, val) — the raw
+// IoInterface path, because real hardware bypasses the I/O bus entirely for
 // NEXTREG (the VHDL drives the NextReg fabric directly via Z80N_data_o
 // strobes — see t80n_mcode.vhd:1672-1707). Charging fuse_z80_writeport's
 // 4 T per "port write" would over-count by 8 T per NEXTREG_NN. The 6 T
 // internal idle on NEXTREG_NN (and NEXTREG_A) covers the actual NextReg
-// fabric write timing in hardware.
+// fabric write timing in hardware. That entry point ALSO models the fact
+// that the opcode's requester carries its own register number and never
+// writes `nr_register`, the port-0x243B select latch (zxnext.vhd:4739-4744
+// vs :4592-4603) — GH #54.
 int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
     switch (static_cast<Z80NOpcode>(opcode)) {
 
@@ -478,10 +481,11 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // ED 91 rr vv — NextReg write. NEXTREG bypasses the I/O bus on
             // real hardware (VHDL t80n_mcode.vhd:1672-1707 — Z80N_data_o
             // strobes drive the NextReg fabric directly, no IORQ on the
-            // external pin). cpu.io().out() to 0x243B/0x253B is jnext's
-            // internal shortcut: it routes through the IoMux dispatch but
-            // does NOT trigger fuse_z80_writeport's 4 T per port write
-            // (which would over-count by 8 T per NEXTREG_NN).
+            // external pin), and per zxnext.vhd:4739-4744 it supplies the
+            // register number itself, leaving the port-0x243B select latch
+            // `nr_register` untouched (:4592-4603). `nextreg_opcode_write`
+            // models exactly that; it does NOT trigger fuse_z80_writeport's
+            // 4 T per port write (which would over-count by 8 T here).
             // Spec = 20T = 8 (M1) + 6 (2× operand read) + 6 (internal —
             // covers the two NextReg fabric mcycles).
             // Pass-6 fix: operand reads via fuse_z80_readbyte for contention.
@@ -490,8 +494,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t val = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             cpu.set_registers(regs);
-            cpu.io().out(0x243B, reg);
-            cpu.io().out(0x253B, val);
+            cpu.io().nextreg_opcode_write(reg, val);
             tstates += 6;
             return 20;
         }
@@ -506,8 +509,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.PC = (regs.PC + 1) & 0xFFFF;
             uint8_t a = regs.AF >> 8;
             cpu.set_registers(regs);
-            cpu.io().out(0x243B, reg);
-            cpu.io().out(0x253B, a);
+            cpu.io().nextreg_opcode_write(reg, a);
             tstates += 6;
             return 17;
         }

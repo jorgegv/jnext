@@ -20,16 +20,21 @@
 //   result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F)
 //   if a tape is playing, bit 6 is overwritten by the tape EAR bit.
 //
-// Note on the EAR bit: in the implementation EAR defaults to '1' (no
-// signal) — the constant 0xE0 base sets bits 7,6,5 all high. Therefore
-// in idle (no tape playing) port 0xFE returns:
-//   * 0xFF when no key is pressed (0xE0 | 0x1F).
-//   * 0xFE when CAPS SHIFT is pressed (0xE0 | 0x1E).
-// The plan's KBD-22/23 expected values (0xBF / 0xBE) assume EAR=0,
-// which the current jnext harness has no clean way to drive without
-// loading a tape. We therefore assert the actual post-VHDL-faithful
-// observable: bits 7 and 5 always 1, bit 6 reflects EAR (= 1 idle), and
-// bits 4..0 mirror the row-AND from membrane.vhd:251.
+// Note on the EAR bit (corrected for GH #51): bit 6 is
+// `i_AUDIO_EAR or port_fe_ear` (zxnext.vhd:3459). `i_AUDIO_EAR` is the
+// output of `ear_relax` (zxnext_top_issue2.vhd:662-676), a
+// symmetric_relaxation whose i_relax_0 AND i_relax_1 are both
+// `zxn_issue2_fe_mic` (= port_fe_mic AND nr_08_keyboard_issue2,
+// zxnext.vhd:1636). Per symmetric_relaxation.vhd:83-92 the output is
+// FORCED to that value once the input has been stable for ~1152 us,
+// whichever level it was stable at — the block exists to "RELAX STUCK AT
+// ONE TO ZERO" (top_issue2.vhd:644-660). So with no tape signal and
+// issue-2 keyboard mode off, i_AUDIO_EAR = 0 and idle port 0xFE reads:
+//   * 0xBF when no key is pressed  (the plan value)
+//   * 0xBE when CAPS SHIFT is pressed (the plan value)
+// These rows previously asserted 0xFF/0xFE, matching jnext's
+// `audio_ear_eff = 1` default rather than the VHDL. That defect is
+// GH #51 and is fixed; the rows now assert the plan/VHDL values.
 //
 // Run: ./build/test/input_int_test
 
@@ -133,19 +138,10 @@ static void test_kbd_full_fe(Emulator& emu) {
 
     // KBD-22: full port 0xFE byte with no key pressed.
     //
-    // Plan expected = 0xBF (with EAR=0). Implementation gives 0xFF
-    // because the 0xE0-base sets bit 6 (EAR) high. Bits 7 and 5 are
-    // hard-wired '1' per zxnext.vhd:3459 in both VHDL and jnext.
-    //
-    // We verify the structural invariant: bits {7,5} = 1, bit 6 = 1
-    // (EAR idle = no signal), bits 4..0 = 0x1F (no keys per
-    // membrane.vhd:251). Combined: 0xFF.
-    //
-    // The plan's "EAR=0" stipulation is not driveable from this harness
-    // — the emulator only flips bit 6 mid-tape-playback. A future
-    // enhancement could expose a test-only EAR setter; until then this
-    // row asserts the idle-state invariant that matches the VHDL when
-    // i_AUDIO_EAR=1 (default).
+    // Plan expected = 0xBF (EAR = 0), and that is what the VHDL gives:
+    // bits {7,5} hard-wired '1' (zxnext.vhd:3459), bit 6 = relaxed EAR = 0
+    // with no tape and issue-2 mode off (see the header note), bits 4..0 =
+    // 0x1F (no keys, membrane.vhd:251). Combined: 0xBF.
     {
         fresh(emu);
         const uint8_t v = read_fe(emu, 0xFE);           // 0xFEFE — row 0 selected
@@ -156,35 +152,36 @@ static void test_kbd_full_fe(Emulator& emu) {
         char detail[128];
         std::snprintf(detail, sizeof(detail),
                       "got=0x%02X bit7=%d bit6_EAR=%d bit5=%d cols=0x%02X "
-                      "(want 0xFF idle, EAR=1 default)",
+                      "(want 0xBF idle: EAR relaxes to 0)",
                       v, bit7, bit6, bit5, cols);
         check("KBD-22",
-              "port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 1, cols = 0x1F  "
-              "(zxnext.vhd:3459; emulator.cpp:1107-1129)",
-              bit7 && bit6 && bit5 && cols == 0x1F,
+              "port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F "
+              "(= 0xBF)  (zxnext.vhd:3459 + top_issue2.vhd:662-676)",
+              bit7 && !bit6 && bit5 && cols == 0x1F && v == 0xBF,
               detail);
     }
 
     // KBD-23: full port 0xFE byte with CAPS SHIFT pressed.
     // membrane.vhd:236, 242 — CS is matrix row 0, col 0; pressing it
     // clears bit 0 of the 5-bit column field on a row-0-selected read.
-    // Combined with the 0xE0 wrap (EAR idle = 1) → 0xE0 | 0x1E = 0xFE.
+    // Combined with bits 7/5 = 1 and EAR idle = 0 → 0xA0 | 0x1E = 0xBE.
     {
         fresh(emu);
         emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // = (0,0) = CAPS SHIFT
         const uint8_t v = read_fe(emu, 0xFE);               // row 0 selected
         const bool bit7 = (v & 0x80) != 0;
+        const bool bit6 = (v & 0x40) != 0;
         const bool bit5 = (v & 0x20) != 0;
         const uint8_t cols = v & 0x1F;
         char detail[128];
         std::snprintf(detail, sizeof(detail),
-                      "got=0x%02X bit7=%d bit5=%d cols=0x%02X "
-                      "(want bits7/5=1, cols=0x1E, full byte=0xFE idle)",
-                      v, bit7, bit5, cols);
+                      "got=0x%02X bit7=%d bit6_EAR=%d bit5=%d cols=0x%02X "
+                      "(want bits7/5=1, bit6=0, cols=0x1E, full byte=0xBE idle)",
+                      v, bit7, bit6, bit5, cols);
         check("KBD-23",
-              "port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xFE idle  "
+              "port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle  "
               "(zxnext.vhd:3459 + membrane.vhd:236, 242)",
-              bit7 && bit5 && cols == 0x1E,
+              bit7 && !bit6 && bit5 && cols == 0x1E && v == 0xBE,
               detail);
     }
 }
@@ -198,11 +195,7 @@ static void test_kbd_full_fe(Emulator& emu) {
 static void test_fe_format(Emulator& emu) {
     set_group("FE");
 
-    // FE-01: No keys, EAR=0 → expected 0xBF in plan.
-    //
-    // Same caveat as KBD-22 — EAR is not drivable to 0 from this
-    // harness without a tape. We assert the same idle invariant: bits
-    // 7/5 = 1, bit 6 = 1 (EAR idle), cols = 0x1F → 0xFF.
+    // FE-01: No keys, EAR=0 → 0xBF (the plan value; see header note).
     //
     // Functional duplicate of KBD-22 — the plan rows describe the same
     // observable. Kept as a separate row so the FE-* group reflects the
@@ -211,25 +204,29 @@ static void test_fe_format(Emulator& emu) {
         fresh(emu);
         const uint8_t v = read_fe(emu, 0xFE);
         check("FE-01",
-              "port 0xFE no keys, EAR idle → 0xFF (idle bit 6 = 1)  "
+              "port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0)  "
               "(zxnext.vhd:3459 — duplicate of KBD-22)",
-              v == 0xFF,
-              "got=" + hex2(v) + " expected=0xFF (EAR idle high)");
+              v == 0xBF,
+              "got=" + hex2(v) + " expected=0xBF (EAR relaxes low)");
     }
 
-    // FE-02: EAR input high → bit 6 = 1.
-    // VHDL zxnext.vhd:3459 — bit 6 = i_AUDIO_EAR OR port_fe_ear.
-    // i_AUDIO_EAR defaults to '1' (idle, no tape signal). The
-    // implementation matches: the 0xE0 wrap unconditionally sets bit 6,
-    // and only mutates it when a tape is actively playing. So bit 6 = 1
-    // by default — which IS the FE-02 expected behaviour for "EAR
-    // input high".
+    // FE-02: i_AUDIO_EAR high → bit 6 = 1.
+    // VHDL zxnext.vhd:3459 — bit 6 = i_AUDIO_EAR OR port_fe_ear. With no
+    // tape loaded the only way to drive i_AUDIO_EAR high is the issue-2
+    // MIC feedback that the relaxation block relaxes TO: i_relax_0/1 =
+    // zxn_issue2_fe_mic = port_fe_mic AND nr_08_keyboard_issue2
+    // (zxnext.vhd:1636, top_issue2.vhd:674-675). Set NR 0x08 bit 0 and
+    // MIC (OUT 0xFE bit 3), with EAR-out (bit 4) held low so the OR term
+    // cannot mask the result.
     {
         fresh(emu);
+        const uint8_t nr08 = emu.nextreg().cached(0x08);
+        emu.nextreg().write(0x08, static_cast<uint8_t>(nr08 | 0x01));
+        emu.port().out(0x00FE, 0x08);                 // MIC = 1, EAR out = 0
         const uint8_t v = read_fe(emu, 0xFE);
         check("FE-02",
-              "EAR input high (idle) → port 0xFE bit 6 = 1  "
-              "(zxnext.vhd:3459; emulator.cpp:1107-1129 — 0xE0 base)",
+              "i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE "
+              "bit 6 = 1  (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675)",
               (v & 0x40) != 0,
               "got=" + hex2(v) + " expected bit 6 set");
     }
@@ -238,26 +235,17 @@ static void test_fe_format(Emulator& emu) {
     // → bit 6 = 1.
     //
     // VHDL zxnext.vhd:3459 — bit 6 = i_AUDIO_EAR OR port_fe_ear, where
-    // port_fe_ear is a latch driven by OUT 0xFE bit 4. jnext currently
-    // does NOT model the port_fe_ear feedback path: OUT 0xFE bit 4 is
-    // routed to beeper_.set_ear() but not back into the port-0xFE READ
-    // composition (src/core/emulator.cpp:1125-1129). The IN 0xFE result
-    // therefore remains 0xFF (driven by i_AUDIO_EAR=1 default), which
-    // happens to STILL satisfy "bit 6 = 1" because i_AUDIO_EAR alone is
-    // already high.
-    //
-    // The functional outcome (bit 6 = 1 after the OUT) matches the plan,
-    // so this row passes — but the VHDL-faithful test would also
-    // require port_fe_ear to be modelled and observable when
-    // i_AUDIO_EAR is forced low. We document the gap inline.
+    // port_fe_ear is the latch driven by OUT 0xFE bit 4 (:3598). jnext
+    // models both terms; now that GH #51 has fixed i_AUDIO_EAR to relax
+    // to 0 in idle, this row is genuinely discriminative for the
+    // port_fe_ear term instead of passing on a stuck-high i_AUDIO_EAR.
     {
         fresh(emu);
         emu.port().out(0x00FE, 0x10);                 // OUT 0xFE,0x10 (bit 4 = 1)
         const uint8_t v = read_fe(emu, 0xFE);
         check("FE-03",
               "OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1  "
-              "(zxnext.vhd:3459; jnext lacks port_fe_ear→read feedback path, "
-              "but i_AUDIO_EAR=1 default keeps bit 6 high)",
+              "(zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch)",
               (v & 0x40) != 0,
               "got=" + hex2(v) + " expected bit 6 set");
     }
@@ -282,7 +270,8 @@ static void test_fe_format(Emulator& emu) {
     // Verify the issue-2 delta: with NR 0x08 bit 0 = 1 and EAR (bit 4)
     // held at 0, bit 6 tracks the MIC (bit 3) value written by OUT 0xFE.
     // Cross-check the negative side: with NR 0x08 bit 0 = 0 (issue-3),
-    // MIC does NOT leak into bit 6 — bit 6 stays high (idle tape pin).
+    // MIC does NOT leak into bit 6 — bit 6 stays LOW, because
+    // zxn_issue2_fe_mic is gated to 0 and the relaxation output with it.
     {
         fresh(emu);
         // Enable issue-2 mode (NR 0x08 bit 0 = 1). Preserve the
@@ -311,7 +300,7 @@ static void test_fe_format(Emulator& emu) {
         emu.port().out(0x00FE, 0x08);
         const uint8_t v_i3_mic1 = read_fe(emu, 0xFE);
         const bool issue3_mic_no_leak =
-            ((v_i3_mic0 & 0x40) != 0) && ((v_i3_mic1 & 0x40) != 0);
+            ((v_i3_mic0 & 0x40) == 0) && ((v_i3_mic1 & 0x40) == 0);
 
         char detail[192];
         std::snprintf(detail, sizeof(detail),
@@ -425,8 +414,8 @@ static void test_fe_read(Emulator& emu) {
     // border values (0x00, 0x05, 0x07). If border leaked into the read
     // path at all, the low-3 bits of the read byte would track the
     // border value across the sweep (0x00 → 0x00, 0x05 → 0x05, 0x07 →
-    // 0x07). Instead all three reads must return an identical full
-    // 0xFF byte (idle, no keys, bits [4:0] = 0x1F, low3 = 0x07).
+    // 0x07). Instead all three reads must return an identical
+    // 0xBF byte (idle, no keys, bits [4:0] = 0x1F, low3 = 0x07, EAR = 0).
     {
         fresh(emu);
         emu.port().out(0x00FE, 0x00);            // border = 0 (BLACK)
@@ -435,31 +424,31 @@ static void test_fe_read(Emulator& emu) {
         const uint8_t v5 = read_fe(emu, 0xFE);
         emu.port().out(0x00FE, 0x07);            // border = 7 (WHITE)
         const uint8_t v7 = read_fe(emu, 0xFE);
-        const bool all_full = (v0 == 0xFF) && (v5 == 0xFF) && (v7 == 0xFF);
+        const bool all_full = (v0 == 0xBF) && (v5 == 0xBF) && (v7 == 0xBF);
         check("BP-04",
               "port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep  "
               "(zxnext.vhd:3459+3604; emulator.cpp:1163-1185)",
               all_full,
               "v0=" + hex2(v0) + " v5=" + hex2(v5) + " v7=" + hex2(v7) +
-              " (expect 0xFF on all three — border must not leak into read)");
+              " (expect 0xBF on all three — border must not leak into read)");
     }
 
     // BP-20: port 0xFE READ — bit 6 = EAR OR port_fe_ear.
     // VHDL zxnext.vhd:3459 defines bit 6 as (i_AUDIO_EAR or port_fe_ear).
-    // jnext only flips bit 6 during active tape playback
-    // (emulator.cpp:1169-1177); idle i_AUDIO_EAR = 1 via the 0xE0 base.
-    // jnext does NOT model the port_fe_ear feedback path (OUT 0xFE bit 4
-    // → read bit 6) — a known gap documented at FE-03 above. The
-    // observable VHDL-faithful behaviour with no tape playing and
-    // i_AUDIO_EAR = 1 (idle) is bit 6 = 1.
+    // Both terms are modelled. Assert the OR directly: idle (no tape,
+    // issue-3, EAR out low) → bit 6 = 0; after OUT 0xFE bit 4 = 1 the
+    // port_fe_ear latch (:3598) drives it to 1.
     {
         fresh(emu);
-        const uint8_t v = read_fe(emu, 0xFE);
+        emu.port().out(0x00FE, 0x00);
+        const uint8_t v_idle = read_fe(emu, 0xFE);
+        emu.port().out(0x00FE, 0x10);
+        const uint8_t v_ear  = read_fe(emu, 0xFE);
         check("BP-20",
-              "port 0xFE READ — bit 6 = EAR OR port_fe_ear (idle i_AUDIO_EAR=1 → bit 6 = 1)  "
-              "(zxnext.vhd:3459; emulator.cpp:1163-1185)",
-              (v & 0x40) != 0,
-              "got=" + hex2(v) + " expected bit 6 set (EAR idle = 1)");
+              "port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, "
+              "1 after OUT 0xFE bit 4  (zxnext.vhd:3459 + :3598)",
+              (v_idle & 0x40) == 0 && (v_ear & 0x40) != 0,
+              "idle=" + hex2(v_idle) + " ear_out=" + hex2(v_ear));
     }
 
     // BP-21: port 0xFE READ — bit 5 fixed-high.
