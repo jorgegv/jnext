@@ -433,6 +433,11 @@ private:
     uint8_t    mirror_sprite_num_ = 0;
     bool       mirror_tie_        = false;  // NR 0x09 bit 4
 
+    /// VHDL sprites.vhd:733-734 — rebuild pattern_index (the port-0x5B
+    /// upload address) from mirror_sprite_q. Called on every
+    /// mirror_num_change while sprite_tie is set.
+    void sync_pattern_offset_from_mirror();
+
     // Configuration
     bool       sprites_visible_ = false;
     bool       over_border_     = false;

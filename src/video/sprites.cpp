@@ -393,6 +393,28 @@ void SpriteEngine::set_mirror_sprite_num(uint8_t val)
     attr_slot_         = val & 0x7F;
     attr_byte_         = 0;
     pattern_slot_msb_  = (val >> 7) & 1;
+
+    // VHDL sprites.vhd:733-734 — the same mirror_num_change pulse that syncs
+    // attr_index also reloads pattern_index, gated on mirror_tie_i:
+    //   pattern_index <= mirror_sprite_q(5:0) & mirror_sprite_q(7) & "0000000"
+    // i.e. NR 0x34 re-bases the port-0x5B pattern upload address exactly as an
+    // OUT to port 0x303B would. Unlike the attr_slot_ sync above, this one IS
+    // gated: with sprite_tie clear the hardware leaves pattern_index alone
+    // (sprites.vhd:728-741 has no other mirror-side path to it).
+    if (mirror_tie_) {
+        sync_pattern_offset_from_mirror();
+    }
+}
+
+// VHDL sprites.vhd:733-734 — rebuild pattern_index from mirror_sprite_q.
+// Bits 5:0 select the 256-byte pattern (0-63); bit 7 is the 128-byte
+// half-pattern offset used by 4-bit sprites; the low 7 address bits are
+// forced to zero.
+void SpriteEngine::sync_pattern_offset_from_mirror()
+{
+    pattern_offset_ = static_cast<uint16_t>(
+        (((mirror_sprite_num_ & 0x3F) << 8) | (((mirror_sprite_num_ >> 7) & 1) << 7))
+        & (PATTERN_RAM_SZ - 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +519,13 @@ void SpriteEngine::write_attr_byte_nr_per_byte_inc(uint8_t byte_idx, uint8_t val
     // byte inc, just as set_mirror_sprite_num() does.
     attr_slot_ = new_slot7 & 0x7F;
     attr_byte_ = 0;
+
+    // VHDL sprites.vhd:603-606 — mirror_inc_i also asserts mirror_num_change,
+    // so under mirror_tie_i the very same :733-734 path reloads pattern_index
+    // from the freshly incremented mirror_sprite_q.
+    if (mirror_tie_) {
+        sync_pattern_offset_from_mirror();
+    }
 }
 
 // ---------------------------------------------------------------------------
