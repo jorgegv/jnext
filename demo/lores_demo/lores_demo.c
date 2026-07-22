@@ -86,8 +86,15 @@
  * -----------------------------------------
  * Bank 5 is also the classic ULA screen, so if the NR $15 bit 7 enable gate
  * is lost the ULA renders $4000 as a bitmap with $5800 as attributes. The
- * marker 0xFF is FLASH+BRIGHT+paper 7+ink 7, so the frame collapses to
- * flashing white -- nothing like the colour grid.
+ * marker 0xFF is FLASH + BRIGHT + paper 7 + ink 7, so every display pixel
+ * comes from ULA palette index 7 -- ink slot 0x0F or paper slot 0x1F
+ * (zxula.vhd:547-553), which the FLASH bit swaps every 16 frames.
+ *
+ * "Index 7" is white in the STANDARD palette; this fixture's palette is the
+ * identity, so those two slots are RRRGGGBB 0x0F and 0x1F, i.e. two cyan
+ * tones -- (0,109,255) and (0,255,255). Measured: 195712 of the 196608
+ * display pixels differ from the reference and the 192-colour grid collapses
+ * to those 2 colours. Not white, and nothing like the grid.
  */
 
 #pragma output REGISTER_SP  = 0xfffd
@@ -192,10 +199,21 @@ int main(void)
     ZXN_WRITE_REG(NR_LORES_SCROLLY, 0x00);
     ZXN_WRITE_REG(NR_LORES_CTRL,    0x00);
 
-    /* Pin the border. A LoRes pixel must never reach it: lores.vhd:115 clips
-     * the module output to phc in [0,255] and vc in [0,191] all by itself
-     * (plan row LR-22), so the border staying ONE uniform colour is part of
-     * what this capture asserts.
+    /* Pin the border. A LoRes pixel must never reach it, and the border
+     * staying ONE uniform colour is part of what this capture asserts
+     * (plan row LR-22).
+     *
+     * That bound is NOT an unconditional property of the LoRes module --
+     * do not read it as LoRes being exempt from clipping. lores.vhd:115 is
+     * a comparison against the SHARED NR $1A ULA/LoRes clip window
+     * (zxnext.vhd:4258-4261; LoRes has no window of its own, NR $1D is
+     * undecoded), so what it bounds is whatever that window currently says.
+     * It excludes the border HERE only because the four NR $1A writes just
+     * above set the window to its full 256x192 value, and phc(8) is set
+     * outside the 256-pixel span while the effective clip_y2 can never
+     * exceed 0xBF (the clamp at zxnext.vhd:6779-6783). Narrow NR $1A and
+     * LoRes narrows with it -- that is exactly the misreading plan rows
+     * LR-127/LR-128 encoded, and why they had to be retired.
      *
      * Border colour n indexes the PAPER half of the ULA palette (entries
      * 0x10..0x1F), not the ink half, so under the identity palette border 0
