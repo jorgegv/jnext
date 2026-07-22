@@ -124,6 +124,8 @@ BEGIN {
     M["video_recorder_cmd_test"]       = "Video recorder (ffmpeg cmd)"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
+    M["lores_test"]                    = "LoRes"
+    M["lores_integration_test"]        = "LoRes (integration)"
     M["nmi_test"]                      = "NMI Source Pipeline"
     M["nmi_integration_test"]          = "NMI (integration)"
     M["profiler_test"]                 = "Profiler"
