@@ -1,187 +1,103 @@
-# Windows Porting Guide
+# Windows Build
 
-This document describes how to build jnext for Windows using a Docker container for cross-compilation. Nothing is installed on the host machine beyond Docker itself.
+jnext's Windows executable is **cross-compiled from Linux with Fedora's MinGW
+toolchain**. There is no Windows build host, and nothing here is built on
+Windows — CI included.
 
-## Approach
+> **History.** This file used to be a step-by-step porting *proposal*: create a
+> `docker/Dockerfile.windows`, apply two code changes by hand, optionally add a
+> Makefile target. The port has since landed, and none of that described how the
+> build actually works — the Dockerfile was never created, the Makefile target is
+> not optional, and one of the two "required code changes" is still an open bug
+> ([#56](https://github.com/jorgegv/jnext/issues/56)). Rewritten to describe the
+> build that exists.
 
-A Fedora-based Docker image contains the full MinGW64 toolchain, all packaged dependencies (Qt6, libpng, zlib, libcurl, OpenSSL), and a pre-built SDL2 cross-library. The host source tree is mounted read-only into the container; build output lands in `build-windows/` on the host.
-
-## Prerequisites
-
-Install Docker on your host (one-time):
-
-```sh
-sudo dnf install docker
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER   # log out and back in after this
-```
-
-## Step 1 — Create the Dockerfile
-
-Create `docker/Dockerfile.windows` in the repository:
-
-```dockerfile
-FROM fedora:latest
-
-# MinGW toolchain + packaged dependencies
-RUN dnf install -y \
-    mingw64-gcc-c++ \
-    mingw64-qt6-qtbase \
-    mingw64-libpng \
-    mingw64-zlib \
-    mingw64-curl \
-    mingw64-openssl \
-    cmake \
-    make \
-    git \
-    && dnf clean all
-
-# Cross-build SDL2 and install into the MinGW sysroot
-RUN git clone https://github.com/libsdl-org/SDL.git --branch SDL2 --depth 1 /tmp/SDL2 \
-    && cmake -S /tmp/SDL2 -B /tmp/SDL2/build \
-        -DCMAKE_TOOLCHAIN_FILE=/usr/share/mingw/toolchain-mingw64.cmake \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32/sys-root/mingw \
-    && cmake --build /tmp/SDL2/build -j$(nproc) \
-    && cmake --install /tmp/SDL2/build \
-    && rm -rf /tmp/SDL2
-```
-
-## Step 2 — Build the Docker image (one-time)
+## Building it
 
 ```sh
-docker build -f docker/Dockerfile.windows -t jnext-windows-builder .
+make win-release     # cross-compile jnext.exe + bundle its runtime DLLs
+make package-win     # the above, plus the distributable ZIP
 ```
 
-This takes a few minutes the first time. The resulting image is ~2 GB and is cached locally; subsequent builds are instant.
-
-## Step 3 — Apply the two required code changes
-
-### 3.1 ROM directory default
-
-`src/core/emulator_config.h` hardcodes `/usr/share/fuse` as the default ROM path. Add a platform guard:
-
-```cpp
-#ifdef _WIN32
-    std::string roms_directory = "./roms";
-#else
-    std::string roms_directory = "/usr/share/fuse";
-#endif
-```
-
-### 3.2 FFmpeg shell redirection
-
-`src/core/video_recorder.cpp` uses POSIX shell redirection (`>/dev/null 2>&1`). Replace with:
-
-```cpp
-#ifdef _WIN32
-    int ret = system("ffmpeg -version >nul 2>&1");
-#else
-    int ret = system("ffmpeg -version >/dev/null 2>&1");
-#endif
-```
-
-Apply the same substitution to the FFmpeg invocation command string in the same file.
-
-## Step 4 — Build jnext for Windows
-
-Run the container, mounting the source tree and the output directory:
+`win-release` checks the toolchain first and names the missing packages rather
+than failing inside CMake:
 
 ```sh
-mkdir -p build-windows
-
-docker run --rm \
-    -v "$(pwd)":/src:ro \
-    -v "$(pwd)/build-windows":/build \
-    jnext-windows-builder \
-    cmake -S /src -B /build \
-        -DCMAKE_TOOLCHAIN_FILE=/usr/share/mingw/toolchain-mingw64.cmake \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DENABLE_QT_UI=ON \
-        -DENABLE_TESTS=OFF
-
-docker run --rm \
-    -v "$(pwd)":/src:ro \
-    -v "$(pwd)/build-windows":/build \
-    jnext-windows-builder \
-    cmake --build /build -j$(nproc)
+sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
+    mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \
+    mingw64-libpng mingw64-winpthreads
 ```
 
-The output executable is `build-windows/jnext.exe`.
+`mingw64-filesystem` supplies `mingw64-cmake`; the **native** `qt6-qtbase-devel`
+supplies `moc`/`rcc`/`uic`, which run on the build host rather than the target.
 
-Or add a convenience `make` target (see Step 6).
+The build is configured `-DENABLE_QT_UI=ON -DENABLE_TESTS=OFF` — the test suites
+are not cross-built, because they are run on Linux.
 
-## Step 5 — Collect DLLs for distribution
+`packaging/windows/bundle-dlls.sh` then copies the Qt6/SDL2/SDL3 runtime DLLs
+**and the `platforms/qwindows.dll` plugin** next to the executable. Both halves
+matter: `jnext.exe` alone cannot start (no `Qt6Core.dll`), and with the DLLs but
+without the platform plugin it still cannot open a window.
 
-The executable needs DLLs alongside it. Run this inside the container to collect them:
+## CI
 
-```sh
-docker run --rm \
-    -v "$(pwd)/build-windows":/build \
-    jnext-windows-builder \
-    bash -c '
-        MINGW=/usr/x86_64-w64-mingw32/sys-root/mingw
-        DIST=/build/dist
-        mkdir -p $DIST/platforms
-        cp /build/jnext.exe $DIST/
+`.github/workflows/release.yml`'s `windows` job runs **the same `make
+package-win`** inside a `fedora:44` container — the identical recipe a developer
+runs locally, not a CI-only reimplementation. It has run green on a real hosted
+runner and shipped `jnext-0.98.19-windows-x64.zip`, confirmed working on real
+Windows hardware.
 
-        # MinGW runtime
-        cp $MINGW/bin/libgcc_s_seh-1.dll   $DIST/
-        cp $MINGW/bin/libstdc++-6.dll       $DIST/
-        cp $MINGW/bin/libwinpthread-1.dll   $DIST/
+## Windows-specific code
 
-        # SDL2
-        cp $MINGW/bin/SDL2.dll              $DIST/
+There is very little, which is the point:
 
-        # Qt6
-        cp $MINGW/bin/Qt6Core.dll           $DIST/
-        cp $MINGW/bin/Qt6Gui.dll            $DIST/
-        cp $MINGW/bin/Qt6Widgets.dll        $DIST/
+- **`CMakeLists.txt:246-247`** — `-Wl,--stack,16777216`, `WIN32` only. An early
+  startup path (before `main`; same `__chkstk` address for `--version`,
+  `--help` and `--headless`) reserves a >2 MB frame that overflows MinGW's 2 MB
+  default. The 16 MB reserve fully resolves the crash; **the frame itself was
+  never root-caused** and no >256 KB array was found by grep. Tracked in
+  [EMULATOR-DESIGN-PLAN.md](EMULATOR-DESIGN-PLAN.md) §11.
+- The GUI subsystem is selected so no console window appears alongside the app.
 
-        # Qt6 platform plugin
-        cp $MINGW/lib/qt6/plugins/platforms/qwindows.dll $DIST/platforms/
-    '
-```
+## Known gaps on Windows
 
-The distributable package is `build-windows/dist/`. Zip it and it runs on any 64-bit Windows machine.
+Both are runtime bugs, not build problems — the build path itself has nothing
+outstanding:
 
-## Step 6 — Makefile target (optional convenience)
+- [#56](https://github.com/jorgegv/jnext/issues/56) — **MP4 recording cannot
+  work.** `src/core/video_recorder.cpp` builds POSIX shell commands with no
+  `_WIN32` guard: the probe is `system("ffmpeg -version >/dev/null 2>&1")`, and
+  `cmd.exe` has no `/dev/null`, so `ffmpeg_available()` is always false and the
+  menu item is permanently greyed out. Paths are also quoted POSIX-style, which
+  `cmd.exe` does not strip. (This is what the old version of this document
+  listed as "Step 3.2 — apply before building". It was never applied.)
+- [#62](https://github.com/jorgegv/jnext/issues/62) — **non-ASCII file paths
+  fail**, because UTF-8 `std::string`s are handed to the narrow CRT.
 
-Add a `windows` target to the Makefile so the whole flow is a single command:
-
-```makefile
-# Build Windows executable using Docker cross-compilation
-windows:
-	docker build -f docker/Dockerfile.windows -t jnext-windows-builder .
-	mkdir -p build-windows
-	docker run --rm -v "$$(pwd)":/src:ro -v "$$(pwd)/build-windows":/build \
-	    jnext-windows-builder \
-	    cmake -S /src -B /build \
-	        -DCMAKE_TOOLCHAIN_FILE=/usr/share/mingw/toolchain-mingw64.cmake \
-	        -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	docker run --rm -v "$$(pwd)":/src:ro -v "$$(pwd)/build-windows":/build \
-	    jnext-windows-builder cmake --build /build -j$$(nproc)
-	docker run --rm -v "$$(pwd)/build-windows":/build jnext-windows-builder bash -c '\
-	    MINGW=/usr/x86_64-w64-mingw32/sys-root/mingw; \
-	    DIST=/build/dist; mkdir -p $$DIST/platforms; \
-	    cp /build/jnext.exe $$DIST/; \
-	    cp $$MINGW/bin/{libgcc_s_seh-1,libstdc++-6,libwinpthread-1,SDL2,Qt6Core,Qt6Gui,Qt6Widgets}.dll $$DIST/; \
-	    cp $$MINGW/lib/qt6/plugins/platforms/qwindows.dll $$DIST/platforms/'
-	printf "$(BOLD)Windows build ready in build-windows/dist/$(RESET)\n"
-```
-
-## ROM files
-
-Wave 0.3 (2026-05-04) made the SD-card image the canonical source for
-all ROMs. The Windows build needs the same `roms/nextzxos-1gb-fat32fix.img`
-(or any TBBlue-compatible NextZXOS distribution image) accessible to
-the binary; pass it via `--sdcard`. The FPGA boot ROM is silicon-baked
-into the jnext binary and needs no separate file.
+The old "Step 3.1 — ROM directory default" is obsolete rather than outstanding:
+ROMs now come from the SD image (see below), so there is no `/usr/share/fuse`
+default left to guard.
 
 ## Portability notes
 
 - All emulation core code is pure C++17 with no platform dependencies.
 - `std::filesystem` is used throughout (fully portable since C++17).
-- No POSIX-specific headers (`unistd.h`, `sys/*`, `dirent.h`) are used.
-- Signal handlers use only `SIGABRT`, `SIGFPE`, `SIGSEGV` — standard C on all platforms.
-- The Makefile and regression test suite (`test/regression.sh`) are bash-based and not portable to Windows; use CMake directly on a Windows host if needed.
+- No POSIX-specific headers (`unistd.h`, `sys/*`, `dirent.h`) are used —
+  `video_recorder.cpp`'s shell strings above are the exception that proves it.
+- Signal handlers use only `SIGABRT`, `SIGFPE`, `SIGSEGV` — standard C
+  everywhere.
+- The Makefile and the regression suite (`test/00regression/regression.sh`) are
+  bash-based and are not run on Windows. The Windows artifact is validated by
+  being built and published, and by use on real hardware — not by running the
+  suites there.
+
+## SD-card image
+
+The SD image is the canonical source of every ROM jnext needs at runtime except
+the FPGA boot ROM, which is silicon-baked into the binary.
+
+Nothing under `roms/` is involved: it holds only `nextboot.rom`, and the SD
+images that used to sit beside it were removed
+([#75](https://github.com/jorgegv/jnext/issues/75)). jnext provisions its own
+image under the user's home directory on first run, exactly as on Linux — pass
+`--sdcard` only to override that.
