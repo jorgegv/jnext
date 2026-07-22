@@ -2035,10 +2035,18 @@ static void test_ctc_control_word_int_en(Emulator& emu) {
               st == Im2Controller::DevState::S_0 && c5 == 0x0D, detail);
     }
 
-    // CTC-CW-INTEN-03 — a control word must not disturb the channels it
-    // does not address, and must never light up CTC4..7 (zxnext.vhd:4093
-    // hardwires `ctc_int_en(7 downto 4) <= "0000"`; only four channels
-    // are instantiated at :4067).
+    // CTC-CW-INTEN-03 — selectivity: a control word enables exactly the
+    // channel it addresses, leaves the other channels' enables intact,
+    // and never lights up CTC4..7 (only four channels are instantiated —
+    // zxnext.vhd:4067 — and :4093 hardwires
+    // `ctc_int_en(7 downto 4) <= "0000"`).
+    //
+    // NR 0xC5 ← 0x01 enables CTC0 only; ch2's control word 0xA5 (D7=1)
+    // must then add CTC2 and nothing else. CTC2 is what makes this row
+    // discriminative for the fix as well as a selectivity guard: pre-fix
+    // its fabric int_en stayed false (no NR 0xC5 write ever set bit 2),
+    // so CTC2 could not leave S_0. CTC3/CTC7 are the negative controls
+    // and CTC0 the positive one — those three hold in both directions.
     {
         fresh(emu);
         arm_im2(emu);
@@ -2047,26 +2055,31 @@ static void test_ctc_control_word_int_en(Emulator& emu) {
         emu.port().out(0x1A3B, 0x10);       // ch2 time constant
 
         emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC2);
         emu.im2().raise_req(Im2Controller::DevIdx::CTC3);
         emu.im2().raise_req(Im2Controller::DevIdx::CTC7);
         emu.im2().tick(1);
         const Im2Controller::DevState s0 = emu.im2().state(Im2Controller::DevIdx::CTC0);
+        const Im2Controller::DevState s2 = emu.im2().state(Im2Controller::DevIdx::CTC2);
         const Im2Controller::DevState s3 = emu.im2().state(Im2Controller::DevIdx::CTC3);
         const Im2Controller::DevState s7 = emu.im2().state(Im2Controller::DevIdx::CTC7);
         const uint8_t c5 = nr_read(emu, 0xC5);
 
-        char detail[220];
+        char detail[260];
         std::snprintf(detail, sizeof(detail),
                       "after ch2 CW 0xA5: CTC0 state=%d (S_REQ=1) "
+                      "CTC2 state=%d (post-fix S_REQ=1; pre-fix S_0=0) "
                       "CTC3 state=%d (S_0=0) CTC7 state=%d (S_0=0) "
                       "NR 0xC5 readback=%s",
-                      static_cast<int>(s0), static_cast<int>(s3),
-                      static_cast<int>(s7), hex2(c5).c_str());
+                      static_cast<int>(s0), static_cast<int>(s2),
+                      static_cast<int>(s3), static_cast<int>(s7),
+                      hex2(c5).c_str());
         check("CTC-CW-INTEN-03",
-              "a control word leaves the other channels' enables intact and "
-              "never enables CTC4..7 "
+              "a control word enables exactly its own channel, leaves the "
+              "others' enables intact, and never enables CTC4..7 "
               "[ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093]",
               s0 == Im2Controller::DevState::S_REQ
+                  && s2 == Im2Controller::DevState::S_REQ
                   && s3 == Im2Controller::DevState::S_0
                   && s7 == Im2Controller::DevState::S_0
                   && c5 == 0x05, detail);
