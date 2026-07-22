@@ -344,6 +344,67 @@ static void test_group_registration() {
               DETAIL("NR07 readback=0x%02x", rb));
     }
 
+    // REG-03b / REG-03c: port 0x243B is READABLE and returns the currently
+    // selected NextREG number (GH #52).
+    //   VHDL zxnext.vhd:4603 — port_243b_dat <= nr_register;
+    //   VHDL zxnext.vhd:2818 — port_243b_rd_dat <= port_243b_dat when
+    //                          port_243b_rd = '1'
+    //   VHDL zxnext.vhd:2804 — port_internal_rd_response includes
+    //                          port_243b_rd, i.e. the read is DRIVEN by the
+    //                          machine, not left to the floating bus.
+    // jnext registered a write-only handler for 0x243B, so IN returned the
+    // dispatcher default 0x00.
+    {
+        // REG-03a — the value a read returns BEFORE any write to 0x243B.
+        // VHDL zxnext.vhd:4594-4596 resets nr_register to 0x24 ("protection
+        // against legacy programs accidentally hitting ports 0x243B,
+        // 0x253B"), so a power-on read must yield 0x24, not 0x00. This
+        // matters because NextZXOS's ISR reads the port unconditionally.
+        // Needs a pristine machine — the shared `emu` has been written to.
+        {
+            Emulator fresh;
+            build_next_emulator(fresh);
+            const uint8_t por = fresh.port().in(0x243B);
+            check("REG-03a",
+                  "IN 0x243B before any select returns the reset value 0x24 "
+                  "[VHDL :4594-4596 nr_register <= X\"24\", :4603]",
+                  por == 0x24,
+                  DETAIL("power-on IN 0x243B=0x%02x expected 0x24", por));
+        }
+
+        emu.port().out(0x243B, 0x1F);           // select NR 0x1F
+        const uint8_t sel = emu.port().in(0x243B);
+        check("REG-03b",
+              "IN 0x243B returns the selected NextREG number "
+              "[VHDL :4603 port_243b_dat <= nr_register, :2818, :2804]",
+              sel == 0x1F,
+              DETAIL("IN 0x243B=0x%02x expected 0x1F", sel));
+
+        // REG-03c — the exact NextZXOS ISR idiom that GH #52 tripped over:
+        // save the caller's selected register, use the NextREG file for
+        // something else, then restore it. With a write-only 0x243B the
+        // "save" reads the floating bus instead of the selection and the
+        // "restore" writes that back, silently re-pointing the selection at
+        // whatever it happened to read, so the interrupted program's
+        // subsequent 0x253B accesses go to the wrong register. The value is
+        // configuration-dependent (0x00 under NextZXOS, 0xFF on a bare
+        // Emulator like this one), which is why the row asserts the RIGHT
+        // value rather than any particular wrong one.
+        nr_write(emu, 0x07, 0x03);              // NR 0x07 = 28 MHz
+        emu.port().out(0x243B, 0x07);           // caller selects NR 0x07
+        const uint8_t saved = emu.port().in(0x243B);   // ISR: save selection
+        emu.port().out(0x243B, 0x00);           // ISR: use another register
+        (void)emu.port().in(0x253B);
+        emu.port().out(0x243B, saved);          // ISR: restore selection
+        const uint8_t after = emu.port().in(0x253B);   // caller resumes
+        check("REG-03c",
+              "NextZXOS ISR save/restore of the 0x243B selection preserves "
+              "the interrupted program's selected register (GH #52) "
+              "[VHDL :4603,:2818,:2804]",
+              saved == 0x07 && (after & 0x03) == 0x03,
+              DETAIL("saved=0x%02x (expected 0x07) NR07-after=0x%02x", saved, after));
+    }
+
     // REG-05: LSB 0x3F (not 0x3B) is not decoded by the NextReg data path.
     // VHDL zxnext.vhd:2625 matches on port_3b_lsb only.
     //

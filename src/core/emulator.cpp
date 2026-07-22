@@ -3791,8 +3791,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         });
 
     // NextREG select — full 16-bit match on port 0x243B.
+    //
+    // READ (GH #52): VHDL zxnext.vhd:4603 `port_243b_dat <= nr_register`,
+    // gated into the read data bus at :2818 and declared an internally
+    // served read at :2804 (`port_internal_rd_response` includes
+    // `port_243b_rd`) — so IN from 0x243B returns the CURRENTLY SELECTED
+    // NextREG number, NOT floating bus. jnext had no read handler, so the
+    // read fell through to the unmatched-port default, floating_bus_read().
+    // What that yields is CONFIGURATION-DEPENDENT, so no single wrong value
+    // characterises the bug: under NextZXOS it is 0x00, because NR 0x08 b2
+    // and NR 0x82 b0 are both set and port 0xFF is never written, so the
+    // Timex arm (this file, ~:7962, VHDL :2813) returns a zero
+    // screen-mode register. With those gates clear — a bare Emulator in a
+    // unit test, say — the same read yields 0xFF instead.
+    //
+    // That is not a cosmetic gap: NextZXOS's frame interrupt handler
+    // save/restores the caller's selected register around its own NextREG
+    // use — `IN A,($243B)` … keyboard scan … `OUT ($243B),A`. Reading the
+    // floating bus made it write that value back instead of the real
+    // selection, so a program's selected NextREG was silently repointed
+    // (to NR 0x00, the read-only machine ID, in the NextZXOS case).
+    //
+    // Scope: this bites during the window before a launched program
+    // installs its own interrupt handler — once a program takes the
+    // interrupt, this ISR stops running and the clobber stops with it.
+    // It is therefore program- and phase-dependent, not universal.
+    // Warhawk.nex selects NR 0x1F and busy-waits for raster line 191, which
+    // it never reaches because it is still in that window: it read NR 0x00
+    // = 0x0A forever and hung on its title logo, so its own engine never
+    // got installed and the window never closed (GH #52).
     port_.register_handler(0xFFFF, 0x243B,
-        nullptr,
+        [this](uint16_t) -> uint8_t { return nextreg_.selected(); },
         [this](uint16_t, uint8_t v) { nextreg_.select(v); });
 
     // NextREG data — full 16-bit match on port 0x253B.
