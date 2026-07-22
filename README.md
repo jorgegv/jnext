@@ -102,8 +102,7 @@ delete the folder to uninstall. The executable is **deliberately not
 code-signed** — an Authenticode certificate is a recurring annual cost — so on
 first launch Windows SmartScreen warns about an unrecognized publisher. Click
 **More info → Run anyway**; or clear the download's Mark of the Web first, by
-right-clicking the downloaded zip and ticking **Properties → Unblock** — that
-second route is not confirmed on real Windows hardware yet. Details,
+right-clicking the downloaded zip and ticking **Properties → Unblock**. Details,
 and what a signature would and would not prove:
 **[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
 

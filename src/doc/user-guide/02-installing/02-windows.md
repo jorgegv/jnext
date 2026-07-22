@@ -1,13 +1,19 @@
 <!--
-  NONE of the routes below has been checked on real Windows hardware (GH #59) —
-  they are derived from documented Windows behaviour, not observed on our own
-  artifact. Microsoft has changed the SmartScreen dialog before, and route 2's
-  behaviour depends on which tool the user extracts the zip with. The macOS
-  page's single instruction silently stopped working on macOS 15, which is how
-  GH #55 arose; do not let this page repeat it. Re-check each route on real
-  hardware and FIX it, rather than adding a second, still-untested alternative
-  beside it. Specifically unconfirmed: whether unblocking the zip before
-  extraction suppresses the SmartScreen prompt for the extracted jnext.exe.
+  These routes are derived from documented Windows behaviour rather than
+  observed on our own artifact: the maintainer has no Windows machine, and
+  decided (2026-07-22) to publish them as they stand and let real users report
+  what actually happens, rather than hold the page hedged indefinitely.
+
+  That is a deliberate trade, not an oversight — so if a report comes in, treat
+  it as the verification that was deferred, and FIX the route in place rather
+  than adding a second, still-untested alternative beside it. The macOS page's
+  single instruction silently stopped working on macOS 15, which is how GH #55
+  arose; this page is one Microsoft dialog change away from the same.
+
+  The weakest claim, if you are triaging a report: that unblocking the zip
+  BEFORE extraction suppresses the prompt for the extracted jnext.exe (route
+  2). It is a synthesis of two documented behaviours, not a documented
+  click-path, and it also depends on which tool the user extracts with.
 -->
 # Windows
 
@@ -79,11 +85,11 @@ one file. Do **not** switch SmartScreen off, and do not add Microsoft Defender
 exclusions to avoid the prompt: this route covers a single download and leaves
 everything else on your PC checked exactly as it was.
 
-> **Not confirmed on real hardware yet.** Nobody has verified on a real Windows
-> machine that unblocking the zip first stops the prompt appearing for the
-> extracted `jnext.exe`. If you try it, please report what happened on
-> [issue&nbsp;#59](https://github.com/jorgegv/jnext/issues/59). Route 1 works
-> regardless.
+> **If this does not work for you, please say so.** JNEXT is developed on Linux
+> and these steps follow Microsoft's documented behaviour rather than a test on
+> a Windows machine here. If the prompt still appears after unblocking, please
+> [open an issue](https://github.com/jorgegv/jnext/issues) saying which Windows
+> version and which unzip tool you used. Route 1 works regardless.
 
 ## Route 3 — build it yourself
 
