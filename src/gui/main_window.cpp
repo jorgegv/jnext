@@ -373,9 +373,12 @@ void MainWindow::create_menus() {
     // is installed/removed while jnext is running).
     if (!VideoRecorder::ffmpeg_available()) {
         record_start_action_->setEnabled(false);
+        // Deliberately platform-neutral: jnext ships on Linux, macOS and
+        // Windows, and this text used to name dnf and apt only — a macOS user
+        // was told to run a Fedora command.
         record_start_action_->setToolTip(tr("FFmpeg is required for video recording but was not found in PATH.\n"
-                                             "Install it with your package manager, e.g. 'sudo dnf install ffmpeg' "
-                                             "or 'sudo apt install ffmpeg'."));
+                                             "Install FFmpeg, make sure it is on your PATH, and restart jnext.\n"
+                                             "See https://ffmpeg.org/download.html"));
         record_start_action_->setStatusTip(record_start_action_->toolTip());
     }
 
@@ -996,9 +999,10 @@ void MainWindow::on_record_start() {
     if (!VideoRecorder::ffmpeg_available()) {
         QMessageBox::warning(this, tr("Recording Error"),
             tr("FFmpeg is not installed or not found in PATH.\n\n"
-               "Install it with your package manager, e.g.:\n"
-               "  sudo dnf install ffmpeg\n"
-               "  sudo apt install ffmpeg"));
+               "Video recording needs the ffmpeg command available on your "
+               "PATH.\n\n"
+               "Downloads and per-platform instructions:\n"
+               "  https://ffmpeg.org/download.html"));
         return;
     }
 

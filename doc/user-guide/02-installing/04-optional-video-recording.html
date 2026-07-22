@@ -2821,9 +2821,37 @@
 <p>JNEXT can record a session to an MP4 (chapter 5.5). That feature — and only
 that feature — needs <strong>ffmpeg</strong> installed and on your <code>PATH</code>. Everything else
 works without it.</p>
-<pre><code class="language-sh">sudo dnf install ffmpeg      # Fedora
-sudo apt install ffmpeg      # Debian / Ubuntu
-</code></pre>
+<p>JNEXT does not bundle ffmpeg: it runs whichever <code>ffmpeg</code> it finds on your
+<code>PATH</code>, so you install it the same way you install anything else on your
+system.</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Install</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fedora / RHEL</td>
+<td><code>sudo dnf install ffmpeg</code></td>
+</tr>
+<tr>
+<td>Debian / Ubuntu</td>
+<td><code>sudo apt install ffmpeg</code></td>
+</tr>
+<tr>
+<td>macOS</td>
+<td><code>brew install ffmpeg</code></td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>winget install ffmpeg</code>, or unpack a build from <a href="https://ffmpeg.org/download.html">ffmpeg.org</a> and put <code>ffmpeg.exe</code> on your <code>PATH</code>. Windows support landed in <a href="https://github.com/jorgegv/jnext/issues/56">issue #56</a>; it was verified by cross-build only, not yet exercised on real Windows hardware, so please report problems on the issue tracker.</td>
+</tr>
+</tbody>
+</table>
+<p>Restart JNEXT after installing — it checks for ffmpeg once at startup, so a
+running instance still shows recording as unavailable.</p>
 
 
 
