@@ -536,10 +536,9 @@ check "HS-41" "every INT/TERM handler exits instead of resuming (GH #75)" 0 0 \
 # viable where the leak test was not: termination is not a narrow race — every
 # correct shape dies within a second of the signal and every broken one hangs
 # indefinitely, measured across 35+ trials in review. Hermetic and ~1s total.
-sig_terminates() {   # sig_terminates <script> <signal> -> "died=<y|n> cleaned=<y|n>"
-    local src=$1 sig=$2
-    local line marker="$T/sigmarker-$$-$RANDOM" probe="$T/sigprobe-$$-$RANDOM.sh"
-    line=$(grep -E "^[[:space:]]*trap[[:space:]].*[[:space:]]${sig}([[:space:]]|$)" "$src" | head -1)
+sig_terminates() {   # sig_terminates <trap-statement> <signal> -> "died=<y|n> cleaned=<y|n>"
+    local line=$1 sig=$2
+    local marker="$T/sigmarker-$$-$RANDOM" probe="$T/sigprobe-$$-$RANDOM.sh"
     [[ -n "$line" ]] || { echo "died=n cleaned=n"; return; }
     {   echo '#!/usr/bin/env bash'
         echo 'set -uo pipefail'
@@ -565,23 +564,45 @@ sig_terminates() {   # sig_terminates <script> <signal> -> "died=<y|n> cleaned=<
     # correct code. --kill-after bounds a handler that never terminates.
     local t0 t1 elapsed
     t0=$(date +%s%N)
-    timeout --signal="$sig" --kill-after=2s 0.5s bash "$probe" >/dev/null 2>&1
+    timeout --signal="$sig" --kill-after=3s 0.5s bash "$probe" >/dev/null 2>&1
     t1=$(date +%s%N)
     elapsed=$(( (t1 - t0) / 1000000 ))          # ms
     # A correct handler exits at the signal (~500 ms). A broken one survives it
-    # and is SIGKILLed 2s later (~2500 ms). 1500 ms separates them with room to
-    # spare on a loaded box.
-    local died=y; [[ "$elapsed" -gt 1500 ]] && died=n
+    # and is SIGKILLed 3s later (~3500 ms). The 2000 ms threshold leaves 1.5 s
+    # of headroom either side — deliberately wide, because this project has
+    # been burned by tight wall-clock budgets on a loaded box before
+    # (audio-underrun-func / screenshot-paused-func, the reason JNEXT_TEST_JOBS
+    # is capped). The extra second of runtime is worth not learning that again
+    # on a CI runner.
+    local died=y; [[ "$elapsed" -gt 2000 ]] && died=n
     local cleaned=n; [[ -e "$marker" ]] && cleaned=y
     rm -f "$marker" "$probe"
     echo "died=$died cleaned=$cleaned"
 }
 
+# EVERY registration is probed, not the first one found. run-unit-tests.sh
+# arms its INT/TERM traps TWICE by design — once early to cover the preflight
+# `die()` paths, then again before the suite loop, which replaces it and is the
+# only one live during the parallel `wait` (the window that caused the original
+# bug). An earlier version of this row took `grep ... | head -1` and therefore
+# probed the early trap and never looked at the live one: review mutated only
+# the second registration and got a 16-second hang past HS-40, HS-41 AND HS-42
+# with all three green. `tail -1` would fix today's two-layer shape and break
+# again silently on a third layer, so the loop probes them all.
 sig_results=""
 for src in "${CLEANUP_SCRIPTS[@]}"; do
     for sig in INT TERM; do
-        r=$(sig_terminates "$src" "$sig")
-        [[ "$r" == "died=y cleaned=y" ]] || sig_results+="${src##*/}/${sig}: ${r} "
+        n=0
+        while IFS= read -r tline; do
+            [[ -z "$tline" ]] && continue
+            n=$((n + 1))
+            r=$(sig_terminates "$tline" "$sig")
+            [[ "$r" == "died=y cleaned=y" ]] || sig_results+="${src##*/}/${sig}#${n}: ${r} "
+        done < <(grep -E "^[[:space:]]*trap[[:space:]].*[[:space:]]${sig}([[:space:]]|$)" "$src" || true)
+        # A script with no registration at all for this signal is itself a
+        # failure — HS-40 covers that, but say so here too rather than
+        # silently probing nothing and reporting clean.
+        [[ "$n" -gt 0 ]] || sig_results+="${src##*/}/${sig}: no registration "
     done
 done
 check "HS-42" "real INT/TERM trap statements clean up AND terminate (GH #75)" 0 0 \
