@@ -15,6 +15,9 @@ use_directory_urls: false
 
 theme:
   name: material
+  # Override partials/source.html so the top-right shows BOTH the release the
+  # guide was rendered from and the live current release — see that file.
+  custom_dir: src/doc/user-guide-overrides
   features:
     - navigation.indexes
     - toc.integrate
@@ -127,6 +130,15 @@ validation:
     anchors: warn
     absolute_links: warn
     unrecognized_links: warn
+
+# The release the committed guide was rendered from — shown top-right beside
+# the live "latest" fetch (src/doc/user-guide-overrides/partials/source.html).
+# Bump this WHEN you re-render the guide for a release, not on every patch: the
+# committed HTML bakes it in, and docs-userguide-check byte-diffs a re-render,
+# so it must be a committed literal, not read from version.yaml (which changes
+# every merge without a re-render and would fail the staleness gate).
+extra:
+  doc_release: v0.99.1
 
 markdown_extensions:
   - admonition

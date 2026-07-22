@@ -1,0 +1,43 @@
+{#-
+  Override of Material's partials/source.html (GH #nit, 2026-07-23).
+
+  Material's stock source block carries data-md-component="source", which its
+  bundle.js reads to fetch api.github.com/.../releases/latest and show the
+  latest release top-right. That value is cached in localStorage and went
+  visibly stale. We drop that attribute so Material's cached fetch never runs,
+  and show TWO facts instead:
+
+    * "docs <X>"   — the release the committed guide was rendered FROM. Static,
+                     from config.extra.doc_release in mkdocs.yml, so it is baked
+                     at render time and is always correct offline (the guide
+                     ships inside the packages). Deterministic: docs-check
+                     re-renders and byte-diffs, so nothing here may depend on
+                     wall-clock or network.
+    * "latest <Y>" — the CURRENT GitHub release, fetched live with
+                     cache: 'no-store' so it is never stale. Fails silently
+                     offline / when rate-limited, leaving the em dash.
+-#}
+<a href="{{ config.repo_url }}" title="{{ lang.t('source') }}" class="md-source">
+  <div class="md-source__icon md-icon">
+    {% set icon = config.theme.icon.repo or "fontawesome/brands/git-alt" %}
+    {% include ".icons/" ~ icon ~ ".svg" %}
+  </div>
+  <div class="md-source__repository">
+    {{ config.repo_name }}
+    <ul class="md-source__facts">
+      <li class="md-source__fact" title="the release this guide was rendered from">docs {{ config.extra.doc_release }}</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">latest &mdash;</li>
+    </ul>
+  </div>
+</a>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var api = "{{ config.repo_url | replace('https://github.com/', 'https://api.github.com/repos/') }}/releases/latest";
+    fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.tag_name) el.textContent = "latest " + d.tag_name; })
+      .catch(function () { /* offline or rate-limited: keep the em dash */ });
+  })();
+</script>
