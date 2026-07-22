@@ -6,6 +6,12 @@
 //
 //   PROV-PATH-01   default_sdcard_dir / (fixed + raw) image_path derive from
 //                  $HOME; the default (used) image is the -fixed.img one.
+//   PROV-PATH-02   $JNEXT_CONFIG_DIR overrides the state directory (matching
+//                  AppConfig / DebuggerWindow); empty or unset falls back to
+//                  $HOME/.jnext.
+//   PROV-PATH-03   provision_sd_card RESOLVES through the override: with a
+//                  fixed image at BOTH $HOME/.jnext and the override, it
+//                  returns the override one and never falls back.
 //   PROV-PREC-01   Explicit --sdcard wins; download seam is never invoked.
 //   PROV-PREC-02   Default-location FIXED image is used when present; no download.
 //   PROV-PREC-03   --sdcard-download-force ignores an explicit path and an
@@ -224,6 +230,71 @@ int main() {
               fixed == dir + "/cspect-next-1gb-fixed.img", fixed);
         check("PROV-PATH-01", "raw download image == dir/cspect-next-1gb.img",
               raw == dir + "/cspect-next-1gb.img", raw);
+    }
+
+    // -- PROV-PATH-02: $JNEXT_CONFIG_DIR overrides the state directory --
+    // The SD image lives in the same per-user directory as jnext.conf and
+    // Debugger.conf, and those two already honour $JNEXT_CONFIG_DIR
+    // (src/gui/app_config.cpp, src/debugger/debugger_window.cpp). The
+    // regression suite relies on this to hand every run a PRIVATE clone of the
+    // image (GH #65) instead of sharing one mutable machine-wide file.
+    {
+        const std::string over = g_tmpdir + "/cfgover";
+        setenv("JNEXT_CONFIG_DIR", over.c_str(), 1);
+        const std::string dir   = sdcard::default_sdcard_dir();
+        const std::string fixed = sdcard::default_sdcard_image_path();
+        const std::string raw   = sdcard::default_sdcard_raw_image_path();
+        check("PROV-PATH-02", "$JNEXT_CONFIG_DIR/sdcard replaces $HOME/.jnext/sdcard",
+              dir == over + "/sdcard", dir);
+        check("PROV-PATH-02", "override dir is NOT under $HOME/.jnext",
+              dir.find(g_tmpdir + "/.jnext") == std::string::npos, dir);
+        check("PROV-PATH-02", "fixed image follows the override",
+              fixed == over + "/sdcard/cspect-next-1gb-fixed.img", fixed);
+        check("PROV-PATH-02", "raw image follows the override",
+              raw == over + "/sdcard/cspect-next-1gb.img", raw);
+
+        // An EMPTY value means "not set" — same rule as AppConfig's
+        // QString::isEmpty() test, so an exported-but-blank variable can never
+        // redirect the image into "/sdcard".
+        setenv("JNEXT_CONFIG_DIR", "", 1);
+        check("PROV-PATH-02", "empty $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
+              sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
+              sdcard::default_sdcard_dir());
+
+        unsetenv("JNEXT_CONFIG_DIR");
+        check("PROV-PATH-02", "unset $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
+              sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
+              sdcard::default_sdcard_dir());
+    }
+
+    // -- PROV-PATH-03: resolution FOLLOWS the override, it does not merely
+    // format a path. Two fixed images exist — one at $HOME/.jnext and one at
+    // the override — and provision_sd_card must return the OVERRIDE one. If
+    // the provisioner ignored the variable (the pre-GH-#65 behaviour) it would
+    // return the $HOME path here, i.e. a regression run would silently fall
+    // back to the shared master image.
+    {
+        const std::string over = g_tmpdir + "/cfgpick";
+        ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
+        ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
+        write_file(sdcard::default_sdcard_image_path(), {'H','O','M','E'});
+        setenv("JNEXT_CONFIG_DIR", over.c_str(), 1);
+        ::mkdir(over.c_str(), 0755);
+        ::mkdir((over + "/sdcard").c_str(), 0755);
+        write_file(sdcard::default_sdcard_image_path(), {'O','V','E','R'});
+        sdcard::ProvisionOptions o;
+        o.download = [](const std::string&, const std::string&,
+                        const sdcard::ProgressFn&, std::string&) {
+            return false; // must never be reached
+        };
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-PATH-03", "provision resolves to the $JNEXT_CONFIG_DIR image",
+              r.status == sdcard::ProvisionStatus::Ok &&
+              r.path == over + "/sdcard/cspect-next-1gb-fixed.img", r.path);
+        check("PROV-PATH-03", "provision does NOT fall back to the $HOME image",
+              r.path.find(g_tmpdir + "/.jnext/sdcard") == std::string::npos, r.path);
+        unsetenv("JNEXT_CONFIG_DIR");
+        std::remove((g_tmpdir + "/.jnext/sdcard/cspect-next-1gb-fixed.img").c_str());
     }
 
     // -- SHA256-01: known-answer digests (non-circular NIST vectors) --

@@ -34,6 +34,19 @@ std::string home_dir() {
     if (h && *h) return h;
     return ".";
 }
+// jnext's per-user state directory. $JNEXT_CONFIG_DIR overrides it, exactly as
+// in src/gui/app_config.cpp (AppConfig::default_config_path) and
+// src/debugger/debugger_window.cpp (jnext_config_dir) — the SD image has always
+// lived in the SAME directory as jnext.conf and Debugger.conf (see
+// src/gui/app_config.h), so all three must resolve it the same way. The
+// provisioner not reading the variable was an oversight, and it is what forced
+// every regression run to share one mutable 1 GB image (GH #65): the suite now
+// points $JNEXT_CONFIG_DIR at a per-run directory holding a private clone.
+std::string config_dir() {
+    const char* d = std::getenv("JNEXT_CONFIG_DIR");
+    if (d && *d) return d;
+    return home_dir() + "/.jnext";
+}
 // Create a directory path recursively (best effort). Returns true if the
 // final directory exists afterwards. Uses std::filesystem so it is portable
 // (POSIX mkdir() takes a mode argument; MinGW/Windows mkdir() does not).
@@ -77,7 +90,7 @@ std::string read_stored_sha256(const std::string& path) {
 } // namespace
 
 std::string default_sdcard_dir() {
-    return home_dir() + "/.jnext/sdcard";
+    return config_dir() + "/sdcard";
 }
 std::string default_sdcard_image_path() {
     return default_sdcard_dir() + "/" + kFixedImageFileName;

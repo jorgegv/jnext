@@ -14,9 +14,10 @@
 ///   1. `--sdcard FILE` given  → use it verbatim (explicit ALWAYS wins,
 ///      unconditionally — even alongside --sdcard-download-force, which is
 ///      ignored in that case, since the named file may be any image).
-///   2. else look in $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img → use if
-///      present. This is the PATCHED (FAT32-reclustered) image jnext actually
-///      boots from — distinct from the raw download.
+///   2. else look in <config-dir>/sdcard/cspect-next-1gb-fixed.img → use if
+///      present, where <config-dir> is $JNEXT_CONFIG_DIR when set, else
+///      $HOME/.jnext. This is the PATCHED (FAT32-reclustered) image jnext
+///      actually boots from — distinct from the raw download.
 ///   3. else offer to download the canonical distro zip, extract the raw
 ///      official `cspect-next-1gb.img` (kept pristine), record its SHA256 in a
 ///      `cspect-next-1gb.img.sha256` sidecar, copy it to
@@ -43,12 +44,15 @@ extern const char* const kDistroUrl;           // specnext distro zip URL
 extern const char* const kImageFileName;       // "cspect-next-1gb.img" (raw)
 extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
 
-// $HOME/.jnext/sdcard
+// <config-dir>/sdcard, where <config-dir> is $JNEXT_CONFIG_DIR when set and
+// non-empty, else $HOME/.jnext. The override matches AppConfig and the
+// debugger window, which resolve the SAME directory the same way; the
+// regression suite uses it to give each run a private image (GH #65).
 std::string default_sdcard_dir();
-// $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img — the PATCHED image jnext
+// <config-dir>/sdcard/cspect-next-1gb-fixed.img — the PATCHED image jnext
 // looks for and boots from at the default location.
 std::string default_sdcard_image_path();
-// $HOME/.jnext/sdcard/cspect-next-1gb.img — the raw, pristine download the
+// <config-dir>/sdcard/cspect-next-1gb.img — the raw, pristine download the
 // fixed image is produced from (kept for skip-redownload).
 std::string default_sdcard_raw_image_path();
 
