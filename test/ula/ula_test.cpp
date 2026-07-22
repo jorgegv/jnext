@@ -2698,11 +2698,21 @@ static void test_section16_nrff_palette() {
         // Expected RGB333 = (101 << 6) | (001 << 3) | 011 = 0x14B.
         const uint8_t  nrff_byte    = 0xA5;
         const uint16_t expected_rgb = static_cast<uint16_t>((5u << 6) | (1u << 3) | 3u);
+
+        // Isolation baseline: the ULA+ slots ARE ULA palette indices
+        // ULAP_BASE+idx of the same dpram (zxnext.vhd:6958), so untouched
+        // neighbours hold whatever reset() seeded — NOT zero, as this row
+        // asserted while jnext kept a separate all-zero ULA+ array (#64).
+        // Snapshot them so the row tests the property it means (the poke
+        // lands in exactly one slot) without pinning the seeding.
+        const uint16_t before_bank  = palette.ulap_rgb333(false, 0x05);
+        const uint16_t before_index = palette.ulap_rgb333(true,  0x06);
+
         palette.nr_ff_poke(bank_select, ula.get_ulap_index(), nrff_byte);
 
-        const uint16_t got_rgb       = palette.ulap_poke_rgb333(true,  0x05);
-        const uint16_t other_bank    = palette.ulap_poke_rgb333(false, 0x05);
-        const uint16_t other_index   = palette.ulap_poke_rgb333(true,  0x06);
+        const uint16_t got_rgb       = palette.ulap_rgb333(true,  0x05);
+        const uint16_t other_bank    = palette.ulap_rgb333(false, 0x05);
+        const uint16_t other_index   = palette.ulap_rgb333(true,  0x06);
 
         // Sub-check: mode != "00" must NOT update index (zxnext.vhd:4533).
         ula.set_ulap_mode(0x01);  // simulate handler raw mode write
@@ -2710,8 +2720,8 @@ static void test_section16_nrff_palette() {
         const bool index_held_ok = (ula.get_ulap_index() == 0x05);
 
         const bool poke_ok        = (got_rgb     == expected_rgb);
-        const bool isolation_bank = (other_bank  == 0);
-        const bool isolation_idx  = (other_index == 0);
+        const bool isolation_bank = (other_bank  == before_bank);
+        const bool isolation_idx  = (other_index == before_index);
 
         check("S16.01",
               "zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, "

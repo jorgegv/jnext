@@ -169,12 +169,10 @@ void PaletteManager::reset()
         layer2_priority_[p].fill(0);
         sprite_priority_[p].fill(0);
         tilemap_priority_[p].fill(0);
-
-        // NR 0xFF / ULA+ palette poke storage — VHDL palette_utm dpram
-        // initial state is undefined in hardware; we zero it so tests
-        // and future ULA+ render consumers see a deterministic baseline.
-        ulap_poke_rgb333_[p].fill(0);
     }
+    // The 64 ULA+ slots need no separate seeding: they ARE ULA palette
+    // indices ULAP_BASE..0xFF (zxnext.vhd:6958), already covered by the
+    // 0x20..0xFF post-firmware seeding above.
 }
 
 // ---------------------------------------------------------------------------
@@ -189,21 +187,27 @@ void PaletteManager::reset()
 // helper that NR 0x41 uses (rrrgggbb_to_rgb333), preserving the
 // `B0 = B1 or B0` rule from the VHDL.
 //
-// Storage layout follows the VHDL palette_utm dpram address derivation:
-// the bf3b_index already corresponds to bits 5:0 of the dpram address
-// (with bits 7:6 = "11" implicit), and bank_second corresponds to bit 8
-// (palette_write_select(2)).  The "11" upper-quadrant placement is
-// implicit in the storage shape: 64 entries per bank, addressed by the
-// 6-bit bf3b_index directly.
+// Storage layout follows the VHDL palette_utm dpram address derivation
+// literally: bf3b_index is bits 5:0, the hardwired "11" is bits 7:6
+// (= ULAP_BASE), and bank_second is bit 8 (palette_write_select(2)).
+// Because that is one address into the SAME dpram the NR 0x41 / NR 0x44
+// stream writes, the poke lands in ula_rgb333_ and is visible to every
+// other reader of the ULA palette — which is exactly the hardware
+// behaviour.
 void PaletteManager::nr_ff_poke(bool bank_second, uint8_t bf3b_index,
                                 uint8_t byte)
 {
     const uint16_t rgb333 = rrrgggbb_to_rgb333(byte);
-    ulap_poke_rgb333_[bank_second ? 1 : 0][bf3b_index & 0x3F] = rgb333;
-    // NOTE: priority is "00" per VHDL zxnext.vhd:4920 (NR 0x44 is the
-    // only path that captures priority bits); we don't store a separate
-    // priority slot for NR 0xFF pokes because there is nothing to
-    // capture.  The future ULA+ render path will see priority = 0.
+    const int      bank   = bank_second ? 1 : 0;
+    const int      idx    = ULAP_BASE | (bf3b_index & 0x3F);
+    ula_rgb333_[bank][idx] = rgb333;
+    ula_argb_[bank][idx]   = rgb333_to_argb(rgb333);
+    // Priority is "00" per VHDL zxnext.vhd:4920 — NR 0x44 is the only
+    // path that captures priority bits, so the dpram word's bits 15:14
+    // are written as zero here.  This must be explicit now that the poke
+    // shares storage with NR 0x44 writes: a prior NR 0x44 write to the
+    // same index would otherwise leave a stale priority behind.
+    ula_priority_[bank][idx] = 0;
 }
 
 // ---------------------------------------------------------------------------

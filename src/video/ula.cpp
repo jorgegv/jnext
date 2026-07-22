@@ -730,9 +730,11 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     //
     // The runtime read uses NR 0x43 b1 (`active_ula_palette_`) for bank
     // selection — distinct from NR 0x43 b6 (`palette_write_select(2)`)
-    // used by NR 0xFF poke writes.  ulap_poke_rgb333_ stores 64 entries
-    // per bank, indexed by `ula_pixel & 0x3F` (= bf3b_index for the
-    // matching write).
+    // used by NR 0xFF poke writes and by the port 0xFF3B palette read
+    // (both via zxnext.vhd:6958).  `ulap_colour()` takes `ula_pixel & 0x3F`
+    // and offsets it by PaletteManager::ULAP_BASE, because the 64 ULA+
+    // slots are ULA palette indices 0xC0..0xFF of the one `palette_utm`
+    // dpram — the same words the NR 0x41 / NR 0x44 stream writes (#64).
     const bool sm2 = (mode_ == TimexScreenMode::HI_RES);
     if (scroll_x == 0 && !fine) {
         // Fast path (unchanged semantics under default NR 0x26/NR 0x68 bit 2).

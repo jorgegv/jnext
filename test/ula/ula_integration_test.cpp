@@ -657,10 +657,14 @@ static void test_ulaplus_integration(Emulator& emu) {
         const uint32_t b1_paper = line_b1[Ula::DISP_X + 2];
 
         // Negative-gate expectations: with ulap_en=0 the std-ULA encoder
-        // takes over and reads the unmodified ULA palette boot defaults
-        // (NR 0xFF poke writes only the separate ulap_poke_rgb333_ store
-        // per zxnext.vhd:6957-6958, so ula_pixel 0x07 / 0x10 retain their
-        // canonical white / black ARGB).  Bank: NR 0x43 b1=0 above.
+        // takes over and reads ula_pixel 0x07 / 0x10, which retain their
+        // canonical white / black ARGB.  Those two indices are outside the
+        // ULA+ region — the pokes above landed at ULAP_BASE|0x07 and
+        // ULAP_BASE|0x08 (= 0xC7 / 0xC8) of the SAME ULA palette per
+        // zxnext.vhd:6958, so they cannot reach 0x07 / 0x10.  (Before #64
+        // jnext held the ULA+ slots in a separate array and this row's
+        // isolation came for free; it now comes from the address bits,
+        // which is what the hardware relies on.)  Bank: NR 0x43 b1=0 above.
         const uint32_t off_exp_ink   = emu_ink_argb(emu, 7);
         const uint32_t off_exp_paper = emu_paper_argb(emu, 0);
 
@@ -697,6 +701,129 @@ static void test_ulaplus_integration(Emulator& emu) {
                   off_ink, off_exp_ink, off_paper, off_exp_paper,
                   b0_ink_after, b0_paper_after,
                   b1_ink, exp_ink_b1, b1_paper, exp_paper_b1));
+    }
+
+    // ── INT-ULAPLUS-04 — port 0xFF3B read, query mode (GH #64) ────────
+    //
+    // VHDL zxnext.vhd:4566 — when port_bf3b_ulap_mode /= "00":
+    //   port_ff3b_dat <= "0000000" & port_ff3b_ulap_en;
+    // i.e. the enable bit alone in bit 0, every other bit zero.  The port
+    // is machine-driven, not floating bus: port_ff3b_rd is an OR-term of
+    // port_internal_rd_response (zxnext.vhd:2806).  jnext returned a
+    // hardcoded 0x00 for every read until #64.
+    //
+    // NR 0x85 b0 (port_ulap_io_en, zxnext.vhd:2439/2685-2686) silences the
+    // port entirely; with it clear the read must un-decode to floating-bus
+    // 0xFF rather than return either branch's value.
+    {
+        emu.nextreg().write(0x85, 0xFF);   // port_ulap_io_en = 1
+
+        emu.port().out(0xBF3B, 0x40);      // ulap_mode = 01 (query mode)
+        emu.port().out(0xFF3B, 0x01);      // ulap_en = 1
+        const uint8_t rd_en_1 = emu.port().in(0xFF3B);
+
+        emu.port().out(0xFF3B, 0x00);      // ulap_en = 0
+        const uint8_t rd_en_0 = emu.port().in(0xFF3B);
+
+        // Mode 10 and 11 take the same else-branch as 01 (:4561 tests
+        // only for "00"), so they must read the enable bit too.
+        emu.port().out(0xBF3B, 0x40);
+        emu.port().out(0xFF3B, 0x01);      // ulap_en = 1 again
+        emu.port().out(0xBF3B, 0x80);      // ulap_mode = 10
+        const uint8_t rd_mode2 = emu.port().in(0xFF3B);
+        emu.port().out(0xBF3B, 0xC0);      // ulap_mode = 11
+        const uint8_t rd_mode3 = emu.port().in(0xFF3B);
+
+        // NR 0x85 b0 = 0 → port silenced.
+        emu.nextreg().write(0x85, 0xFE);
+        const uint8_t rd_gated = emu.port().in(0xFF3B);
+        emu.nextreg().write(0x85, 0xFF);
+
+        const bool all_ok = rd_en_1  == 0x01 && rd_en_0 == 0x00
+                         && rd_mode2 == 0x01 && rd_mode3 == 0x01
+                         && rd_gated == 0xFF;
+
+        check("INT-ULAPLUS-04",
+              "port 0xFF3B read in query mode returns \"0000000\" & "
+              "ulap_en for every ulap_mode /= 00, and un-decodes to 0xFF "
+              "when NR 0x85 b0 is clear "
+              "(zxnext.vhd:4561-4566,2806,2439,2685-2686)",
+              all_ok,
+              fmt("en1=0x%02X (exp 0x01) en0=0x%02X (exp 0x00) "
+                  "mode2=0x%02X mode3=0x%02X (exp 0x01) "
+                  "gated=0x%02X (exp 0xFF)",
+                  rd_en_1, rd_en_0, rd_mode2, rd_mode3, rd_gated));
+    }
+
+    // ── INT-ULAPLUS-05 — port 0xFF3B read, palette mode (GH #64) ──────
+    //
+    // VHDL zxnext.vhd:4563 — when port_bf3b_ulap_mode = "00":
+    //   port_ff3b_dat <= dat(5:3) & dat(8:6) & dat(2:1)
+    // where `dat` is the 9-bit palette word (8:6 = R, 5:3 = G, 2:0 = B),
+    // so the byte is GGGRRRBB — ULA+ colour format, B0 dropped.  The word
+    // comes from palette_utm at :6958 =
+    //   '0' & nr_43_palette_write_select(2) & "11" & port_bf3b_ulap_index
+    // → ULA palette bank NR 0x43 **b6** (the write-select bit, NOT the b1
+    // render select), index ULAP_BASE + ulap_index.
+    //
+    // The aliasing is the point of this row: because :6958 addresses the
+    // SAME dpram the NR 0x41 stream writes, a colour written through the
+    // ordinary palette path at ULA index 0xC0+idx must read back here,
+    // and an NR 0xFF poke must be visible to the ordinary palette read.
+    {
+        emu.nextreg().write(0x85, 0xFF);
+
+        // --- (a) NR 0xFF poke → 0xFF3B read round-trip, bank 0.
+        // NR 0x43: target ULA (bits 6:4 = 000 → b6 = 0), b1 = 0.
+        emu.nextreg().write(0x43, 0x00);
+        emu.port().out(0xBF3B, 0x15);          // mode=00, index=0x15
+        emu.nextreg().write(0xFF, 0xA5);       // RRRGGGBB = 101 001 01
+        // :4919 expands to RGB333 R=101 G=001 B=011; :4563 re-packs as
+        // GGGRRRBB = 001 101 01 = 0x35.
+        const uint8_t rd_poke = emu.port().in(0xFF3B);
+
+        // --- (b) bank select follows NR 0x43 b6, not b1.
+        // Poke a DIFFERENT colour at the same index in bank 1 (b6 = 1),
+        // then read with b6 = 1 and again with b6 = 0.
+        emu.nextreg().write(0x43, 0x40);       // b6 = 1 (bank 1), b1 = 0
+        emu.nextreg().write(0xFF, 0x1C);       // R=000 G=111 B=00 → GGGRRRBB
+        const uint8_t rd_bank1 = emu.port().in(0xFF3B);   // expect 0xE0
+        emu.nextreg().write(0x43, 0x00);       // back to b6 = 0
+        const uint8_t rd_bank0 = emu.port().in(0xFF3B);   // expect 0x35 still
+
+        // --- (c) the ordinary NR 0x41 palette write at ULA index
+        // ULAP_BASE|0x15 = 0xD5 must be visible to the 0xFF3B read: one
+        // dpram, one word (zxnext.vhd:6958/6960).
+        emu.nextreg().write(0x43, 0x00);       // target ULA, b6 = 0
+        emu.nextreg().write(0x40, 0xD5);       // palette index 0xD5
+        emu.nextreg().write(0x41, 0xE0);       // RRRGGGBB = 111 000 00
+        const uint8_t rd_via_nr41 = emu.port().in(0xFF3B); // GGGRRRBB=0x1C
+
+        // --- (d) index select follows the BF3B latch.
+        emu.port().out(0xBF3B, 0x16);          // index 0x16 (untouched)
+        const uint8_t rd_other_idx = emu.port().in(0xFF3B);
+        emu.port().out(0xBF3B, 0x15);
+        const uint8_t rd_back = emu.port().in(0xFF3B);
+
+        const bool all_ok = rd_poke      == 0x35
+                         && rd_bank1     == 0xE0
+                         && rd_bank0     == 0x35
+                         && rd_via_nr41  == 0x1C
+                         && rd_other_idx != 0x1C
+                         && rd_back      == 0x1C;
+
+        check("INT-ULAPLUS-05",
+              "port 0xFF3B read in palette mode returns GGGRRRBB of "
+              "palette_utm['0' & NR0x43b6 & \"11\" & bf3b_index]; the ULA+ "
+              "slots alias ULA palette 0xC0..0xFF so NR 0x41 writes and "
+              "NR 0xFF pokes are mutually visible "
+              "(zxnext.vhd:4563,4919,6958,6960)",
+              all_ok,
+              fmt("poke=0x%02X (exp 0x35) bank1=0x%02X (exp 0xE0) "
+                  "bank0=0x%02X (exp 0x35) via_nr41=0x%02X (exp 0x1C) "
+                  "other_idx=0x%02X (must differ) back=0x%02X (exp 0x1C)",
+                  rd_poke, rd_bank1, rd_bank0, rd_via_nr41,
+                  rd_other_idx, rd_back));
     }
 }
 

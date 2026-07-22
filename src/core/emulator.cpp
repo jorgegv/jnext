@@ -5383,9 +5383,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // previously wrote the enable unconditionally, which the Phase 1 critic
     // flagged as VHDL-faithless.
     //
-    // 0xFF3B read remains a stub (the VHDL read path at zxnext.vhd:4556-4569
-    // is write-only-latch plus palette-readback; no current consumer needs
-    // read semantics).
+    // 0xFF3B read — VHDL zxnext.vhd:4556-4569.  `port_ff3b_rd` is one of
+    // the OR-terms of `port_internal_rd_response` (zxnext.vhd:2806), so the
+    // machine drives this port; it is NOT floating bus.  Two branches:
+    //
+    //   port_bf3b_ulap_mode /= "00"  -> "0000000" & port_ff3b_ulap_en
+    //                                   (zxnext.vhd:4566) — the enable bit
+    //                                   in bit 0, all other bits zero.
+    //   port_bf3b_ulap_mode  = "00"  -> palette read (zxnext.vhd:4563):
+    //       port_ff3b_dat <= dat(5:3) & dat(8:6) & dat(2:1)
+    //     where `dat` is the 9-bit RGB333 palette word (8:6 = R, 5:3 = G,
+    //     2:0 = B), so the byte is GGGRRRBB — the ULA+ colour format, with
+    //     B0 dropped.  The word is read from `palette_utm` at address
+    //     '0' & nr_43_palette_write_select(2) & "11" & port_bf3b_ulap_index
+    //     (zxnext.vhd:6958) = ULA palette bank NR 0x43 b6, index
+    //     PaletteManager::ULAP_BASE + bf3b_index.
+    //
+    // Modelling note: `port_ff3b_dat` is a register reloaded on the falling
+    // 28 MHz edge, and in mode "00" only when `ulap_palette_rd_dly` is set
+    // (zxnext.vhd:4562, 4571-4577) — one 28 MHz cycle after the read strobe.
+    // A Z80 IN holds `port_ff3b_rd` asserted for the whole IORQ (>= 3 T at
+    // 3.5 MHz = 24+ cycles of the 28 MHz clock), so the latch is reloaded
+    // long before the CPU samples the bus and the CURRENT entry is what is
+    // returned.  jnext therefore reads the palette directly, with no stale
+    // -by-one modelling.  The `ulap_wait_n` handshake (zxnext.vhd:4583)
+    // that stretches the read on hardware has no effect on the value.
     // V18-NMP-NIT-01: VHDL zxnext.vhd:2685-2686 gates port_bf3b /
     // port_ff3b on `port_ulap_io_en = '1'`, where
     // `port_ulap_io_en <= internal_port_enable(24)` = NR 0x85 bit 0
@@ -5411,7 +5433,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0xFF3B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
-            return 0x00;
+            if (renderer_.ula().get_ulap_mode() != 0x00) {
+                // zxnext.vhd:4566 — "0000000" & port_ff3b_ulap_en.
+                return renderer_.ula().get_ulap_en() ? 0x01 : 0x00;
+            }
+            // zxnext.vhd:4563 + :6958 — palette read, GGGRRRBB.
+            // Bank is nr_43_palette_write_select(2) = NR 0x43 b6, the same
+            // bit the NR 0xFF poke writes through (NOT the b1 render-time
+            // select), because :6958 drives the address for `ulap_palette_rd`
+            // and `nr_ff_we` identically.
+            const bool bank_second = (palette_.read_control() & 0x40) != 0;
+            const uint16_t rgb333  =
+                palette_.ulap_rgb333(bank_second, renderer_.ula().get_ulap_index());
+            const uint8_t g3 = static_cast<uint8_t>((rgb333 >> 3) & 0x07);
+            const uint8_t r3 = static_cast<uint8_t>((rgb333 >> 6) & 0x07);
+            const uint8_t b2 = static_cast<uint8_t>((rgb333 >> 1) & 0x03);
+            return static_cast<uint8_t>((g3 << 5) | (r3 << 2) | b2);
         },
         [this](uint16_t, uint8_t v) {
             if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate

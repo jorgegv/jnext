@@ -42,6 +42,18 @@ class PaletteManager {
 public:
     static constexpr int FULL_SIZE    = 256;  // ULA / Layer2 / Sprite / Tilemap
 
+    /// First ULA palette index of the 64-entry ULA+ region.
+    ///
+    /// VHDL zxnext.vhd:6958 — every ULA+ access (NR 0xFF poke write and
+    /// port 0xFF3B palette read) drives the `palette_utm` dpram address
+    /// as `'0' & nr_43_palette_write_select(2) & "11" & port_bf3b_ulap_index`.
+    /// The hardwired `"11"` in bits 7:6 places the 64 ULA+ slots at ULA
+    /// palette indices 0xC0..0xFF of the selected bank — the SAME dpram
+    /// words the NR 0x41 / NR 0x44 palette stream writes.  There is one
+    /// memory, so the two paths alias; this constant is where that
+    /// aliasing is expressed.
+    static constexpr int ULAP_BASE    = 0xC0;
+
     PaletteManager();
 
     /// Reset all palettes to power-on defaults.
@@ -147,19 +159,24 @@ public:
     // VHDL zxnext.vhd:4920 — priority is captured only on NR 0x44 writes;
     // for NR 0xFF, nr_palette_priority is "00".
     //
-    // Storage is a separate 64-entry × 2-bank "ULA+ palette" buffer that
-    // mirrors the upper quadrant of palette_utm in the VHDL.  Rendering
-    // wiring (ULA+ runtime, G103) is deferred; this side-channel only
-    // commits the poke and exposes a read-back accessor for tests and
-    // future runtime consumers.
+    // Storage is the ULA palette itself, at indices ULAP_BASE + index of
+    // the selected bank — see ULAP_BASE.  The VHDL has ONE `palette_utm`
+    // dpram, so an NR 0xFF poke and an NR 0x41 / NR 0x44 write to ULA
+    // index 0xC0..0xFF address the same word and each is visible to the
+    // other.  jnext modelled these as two separate arrays until #64; that
+    // split also silently dropped the ULA+ palette from save-states,
+    // because only ula_rgb333_ is serialised.
     void nr_ff_poke(bool bank_second, uint8_t bf3b_index, uint8_t byte);
 
-    /// Read the 9-bit RRRGGGBBB value last poked into the ULA+ palette
-    /// at (bank, index).  index is the 6-bit port 0xBF3B latch value
-    /// (0..63), NOT the 8-bit ULA-region index.  bank: false = first
-    /// ULA palette (NR 0x43 b6 = 0), true = second (b6 = 1).
-    uint16_t ulap_poke_rgb333(bool bank_second, uint8_t bf3b_index) const {
-        return ulap_poke_rgb333_[bank_second ? 1 : 0][bf3b_index & 0x3F];
+    /// Read the 9-bit RRRGGGBBB value held in the ULA+ palette region at
+    /// (bank, index).  index is the 6-bit port 0xBF3B latch value (0..63),
+    /// NOT the 8-bit ULA-region index — it is offset by ULAP_BASE here.
+    /// bank: false = first ULA palette, true = second.  Which NR 0x43 bit
+    /// selects the bank depends on the access: b6 for NR 0xFF pokes and
+    /// port 0xFF3B reads (zxnext.vhd:6958), b1 for the render-time read
+    /// (zxnext.vhd:6981) — see ulap_colour().
+    uint16_t ulap_rgb333(bool bank_second, uint8_t bf3b_index) const {
+        return ula_rgb333_[bank_second ? 1 : 0][ULAP_BASE | (bf3b_index & 0x3F)];
     }
 
     /// Look up ULA+ colour as ARGB8888 (G103 runtime path).
@@ -179,12 +196,7 @@ public:
     /// @param bf3b_index   low 6 bits of the 8-bit ULA+ encoder pixel
     ///                     (i.e. `ula_pixel & 0x3F`).
     uint32_t ulap_colour(bool bank_second, uint8_t bf3b_index) const {
-        const uint16_t rgb333 =
-            ulap_poke_rgb333_[bank_second ? 1 : 0][bf3b_index & 0x3F];
-        const uint8_t r3 = static_cast<uint8_t>((rgb333 >> 6) & 0x07);
-        const uint8_t g3 = static_cast<uint8_t>((rgb333 >> 3) & 0x07);
-        const uint8_t b3 = static_cast<uint8_t>( rgb333       & 0x07);
-        return rgb333_to_argb8888(r3, g3, b3);
+        return ula_argb_[bank_second ? 1 : 0][ULAP_BASE | (bf3b_index & 0x3F)];
     }
 
     // -----------------------------------------------------------------
@@ -395,12 +407,9 @@ private:
     std::array<uint8_t,  FULL_SIZE> sprite_priority_[2]{};
     std::array<uint8_t,  FULL_SIZE> tilemap_priority_[2]{};
 
-    // NR 0xFF / ULA+ palette poke storage — VHDL zxnext.vhd:6957-6958.
-    // 64 entries × 2 banks; each entry is the 9-bit RGB333 value latched
-    // by the most recent NR 0xFF write at (NR 0x43 b6, bf3b_index).
-    // ULA+ runtime rendering (G103) reads from this in the future; for
-    // now it is write-only-from-NR-0xFF / read-only-from-tests.
-    std::array<uint16_t, 64> ulap_poke_rgb333_[2]{};
+    // NOTE: there is no separate ULA+ palette store — the 64 ULA+ slots
+    // ARE ula_rgb333_[bank][ULAP_BASE .. ULAP_BASE+63], per the single
+    // `palette_utm` dpram of zxnext.vhd:6958/6960.  See ULAP_BASE.
 
     // Cached ARGB8888 lookup tables (rebuilt on palette write).
     std::array<uint32_t, FULL_SIZE> ula_argb_[2];
