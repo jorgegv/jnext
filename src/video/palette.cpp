@@ -145,9 +145,27 @@ void PaletteManager::reset()
         }
     }
 
-    // Initialize Layer 2 and Sprite palettes to the default RRRGGGBB mapping.
-    // On real hardware (VHDL), the default palette maps each index 0-255
-    // to its own RRRGGGBB colour value.
+    // Seed the Layer 2 and Sprite palettes with the RRRGGGBB identity ramp.
+    //
+    // This is the POST-FIRMWARE content, not the hardware power-on state —
+    // the same rule as the ULA seeding above, and it must not be "corrected"
+    // into a hardware model.  On real hardware `palette_l2s`
+    // (zxnext.vhd:7013) is the same `dpram2` as the ULA/tilemap palette,
+    // instantiated with only addr_width_g/data_width_g, so init_file_g keeps
+    // its default "init/none.bin.txt" (dpram2.vhd:44) — which
+    // InitRamFromFile special-cases to an all-zero array (dpram2.vhd:63-78).
+    // Power-on is therefore BLACK, not a ramp.
+    //
+    // tbblue.fw then writes both palettes to exactly this ramp before any
+    // user program runs (measured over a NextZXOS boot: 0/256 mismatches,
+    // both banks), so the ramp is the right seed — but because it is what
+    // the firmware writes, not because the silicon powers up that way.
+    // jnext cannot rely on the firmware having run: `--load` injects at
+    // frame 0 (main.cpp), so reset() is the only thing standing in for it.
+    //
+    // The comment here used to assert the ramp WAS the hardware default,
+    // which is precisely the error GH #64/#69 refuted for the ULA palette
+    // (GH #71).
     for (int p = 0; p < 2; ++p) {
         for (int i = 0; i < 256; ++i) {
             uint16_t rgb333 = rrrgggbb_to_rgb333(static_cast<uint8_t>(i));
