@@ -1,6 +1,19 @@
 # JNEXT — Building
 
-Linux only for now. Windows and macOS ports are pending.
+JNEXT builds and ships on Linux, Windows and macOS. Linux is the development
+host, and everything below — prerequisites, `make` targets, tests — is written
+for it. The other two are not native builds here:
+
+- **Windows** is a *cross-build*: `make win-release` (just `jnext.exe`) and
+  `make package-win` (the zip) run Fedora's MinGW toolchain on Linux. There is
+  no MSVC build. Both targets are exercised on this dev host and in CI.
+- **macOS** must be built *on a Mac*: `make package-macos` prints a SKIP and
+  exits cleanly on any other platform. It is exercised on the `macos-latest`
+  GitHub Actions runner rather than on the Linux dev host.
+
+The platform-specific detail for both — the MinGW package list and the DLL
+bundling, the `.app` bundle deployment and its verification — lives in
+[packaging/README.md](packaging/README.md).
 
 ## Prerequisites
 
