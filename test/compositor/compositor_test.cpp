@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <algorithm>
 
 // ── Test infrastructure ───────────────────────────────────────────────────
 
@@ -3827,6 +3828,984 @@ static void test_LMASK() {
     }
 }
 
+
+// ── Group LR — LoRes substitution into the ULA slot ──────────────────────
+//
+// Tier-C rows of doc/testing/LORES-TEST-PLAN-DESIGN.md.  The pixel generator
+// itself (address maths, palette offset, scroll, clip compare) is pinned by
+// test/lores/lores_test.cpp; everything here is about what the COMPOSITOR
+// sees once the LoRes byte has replaced `ula_pixel` (VHDL zxnext.vhd:6980-6981).
+//
+// Colour partition used throughout the group.  The ULA palette is programmed
+// so the two sources can never be confused:
+//
+//   index 0x00..0x1F  ->  RRRGGGBB = index + 1   (0x01..0x20)
+//   index 0x20..0xFF  ->  RRRGGGBB = index       (0x20..0xFF)
+//
+// The std-ULA encoder can only emit ula_pixel in 0x00..0x1F
+// (zxula.vhd:543-553), so a rendered cell whose RRRGGGBB is <= 0x20 came from
+// the ULA; the bank-5 seed below never produces a LoRes index below 0x40, so
+// a cell >= 0x40 came from LoRes.  No overlap, in either direction.
+
+namespace lores_c {
+
+// Bank-5 seed.  Every byte >= 0x40 (so every 8-bit-mode LoRes index is >=
+// 0x40) and the low 6 bits cycle, so neighbouring LoRes cells differ.
+static uint8_t seed_byte(uint16_t off) {
+    return static_cast<uint8_t>(0x40 + (off % 0xC0));
+}
+
+// Independent re-derivation of lores.vhd:82/84-87/91/93-94 and :96 — written
+// from the VHDL text, NOT by calling Lores::address, so the C rows do not
+// inherit a bug from the very code they are checking.
+static uint8_t ref_x(unsigned phc, uint8_t sx) {
+    return static_cast<uint8_t>((phc & 0xFF) + sx);
+}
+static uint8_t ref_y(unsigned vc, uint8_t sy) {
+    const unsigned y_pre = ((vc & 0x1FF) + sy) & 0x1FF;
+    unsigned hi = (y_pre >> 6) & 3u;
+    if (y_pre >= 192) hi = (hi + 1) & 3u;
+    return static_cast<uint8_t>((hi << 6) | (y_pre & 0x3Fu));
+}
+static uint16_t ref_addr8(uint8_t x, uint8_t y) {
+    const unsigned pre = static_cast<unsigned>((y >> 1) << 7) | (x >> 1);
+    unsigned hi = (pre >> 11) & 7u;
+    if (y >= 96) hi = (hi + 1) & 7u;
+    return static_cast<uint16_t>((hi << 11) | (pre & 0x7FFu));
+}
+static uint16_t ref_addr_rad(uint8_t x, uint8_t y, bool dfile) {
+    return static_cast<uint16_t>((dfile ? 0x2000u : 0u)
+                                 | (static_cast<unsigned>(y >> 1) << 6)
+                                 | (x >> 2));
+}
+
+struct Fix {
+    Ram ram;
+    Rom rom;
+    Mmu mmu;
+    PaletteManager pal;
+    Renderer r;
+    Layer2 l2;
+    Tilemap tm;
+
+    Fix() : mmu(ram, rom) {
+        mmu.reset();
+        pal.reset();
+        r.reset();
+        l2.reset();
+        tm.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+
+        // ULA palette partition (see the group header).
+        pal.write_control(0x00);            // target = ULA_FIRST
+        for (int i = 0; i < 256; ++i) {
+            pal.set_index(static_cast<uint8_t>(i));
+            pal.write_8bit(static_cast<uint8_t>(i < 0x20 ? i + 1 : i));
+        }
+        pal.set_index(0);
+
+        // Bank-5 content, covering both 8-bit halves (0x0000-0x37FF).
+        for (uint16_t off = 0; off < 0x3800; ++off)
+            ram.write(10u * 8192u + off, seed_byte(off));
+
+        // NR $14 transparency key OUTSIDE both halves of the colour
+        // partition (ULA yields 0x01..0x20, LoRes 0x40..0xFF), so no pixel
+        // in this fixture is accidentally transparent. Without this the
+        // reset default 0xE3 IS a reachable LoRes colour, and — because the
+        // NR $4A fallback default is also 0xE3 — a wrongly-transparent LoRes
+        // pixel would render the exact colour the row expects. LR-21 passed
+        // for that reason before this line existed.
+        r.set_transparent_rgb(0x3F);
+        r.set_fallback_colour(0x00);
+
+        refresh_snapshots();
+    }
+
+    // Re-take every per-scanline snapshot the render path consumes, for the
+    // whole frame. Mirrors what Emulator::run_frame does via init_*_per_line
+    // at frame start.
+    void refresh_snapshots() {
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+        r.init_transparent_rgb_per_line();
+        r.init_stencil_mode_per_line();
+        r.init_blend_mode_per_line();
+        r.init_ula_clip_per_line();
+        r.lores().init_per_line();
+    }
+
+    void enable_lores(bool on) {
+        r.lores().set_enabled(on);
+        r.lores().init_per_line();
+    }
+
+    void render(uint32_t* out, int fb_row, Tilemap* tmp = nullptr) {
+        r.render_row(out, fb_row, mmu, ram, pal, l2, nullptr, tmp);
+    }
+
+    /// Render only the ULA half of the pipeline for one row, WITHOUT the
+    /// LoRes substitution — the "pure ULA reference" LR-20/LR-165 compare
+    /// against. Same sequence render_row uses minus apply_lores.
+    void render_ula_only(uint32_t* out, int fb_row) {
+        r.ula().render_scanline(out, fb_row, mmu, nullptr);
+        if (!r.ula_enabled_per_line_[fb_row])
+            std::fill_n(out, Renderer::FB_WIDTH, TRANSP);
+        r.apply_ula_clip(out, fb_row);
+    }
+
+    /// Expected LoRes ARGB for one display column under default params
+    /// (8-bit mode, no scroll, offset 0, ULA palette bank 0).
+    uint32_t expect(int fb_row, int phc) const {
+        const unsigned vc = static_cast<unsigned>(fb_row - Renderer::DISP_Y);
+        const uint16_t a  = ref_addr8(ref_x(static_cast<unsigned>(phc), 0),
+                                      ref_y(vc, 0));
+        return pal.ula_colour(false, seed_byte(a));   // offset 0 -> pixel = data
+    }
+};
+
+// RRRGGGBB of a rendered ARGB cell (inverse of rrrgggbb_to_argb for the
+// values this group programs).
+static uint8_t rgb8_of(uint32_t argb) {
+    return static_cast<uint8_t>((argb_r3_t(argb) << 5) | (argb_g3_t(argb) << 2)
+                                | argb_b2_t(argb));
+}
+static uint32_t channels_to_argb_t(uint8_t r3, uint8_t g3, uint8_t b2) {
+    return Renderer::rrrgggbb_to_argb(
+        static_cast<uint8_t>((r3 << 5) | (g3 << 2) | b2));
+}
+static bool is_ula_colour(uint32_t argb)   { return rgb8_of(argb) <= 0x20; }
+static bool is_lores_colour(uint32_t argb) { return rgb8_of(argb) >= 0x40; }
+
+} // namespace lores_c
+
+static void test_LORES()
+{
+    using namespace lores_c;
+    set_group("LR");
+
+    // ── LR-20 — the enable gate, negative direction ──────────────────────
+    // zxnext.vhd:6933 `lores_pixel_en_1 <= lores_pixel_en_1a and lores_en_1`.
+    // With NR $15 bit 7 = 0 the mux at :6980 always selects ula_pixel_1, so
+    // the frame must be bit-identical to the pure-ULA pipeline.
+    {
+        Fix f;
+        f.enable_lores(false);
+        bool identical = true; int bad_row = -1, bad_x = -1;
+        std::vector<uint32_t> got(Renderer::FB_WIDTH), ref(Renderer::FB_WIDTH);
+        for (int row = 0; row < Renderer::FB_HEIGHT && identical; ++row) {
+            f.render(got.data(), row);
+            f.render_ula_only(ref.data(), row);
+            for (int x = 0; x < Renderer::FB_WIDTH; ++x)
+                if (got[x] != ref[x]) { identical = false; bad_row = row; bad_x = x; break; }
+        }
+        check("LR-20",
+              "with NR $15 bit 7 = 0 every framebuffer cell is bit-identical "
+              "to the pure-ULA pipeline — LoRes content in bank 5 is invisible "
+              "(zxnext.vhd:6933, 6980)",
+              identical, DETAIL("first difference at row=%d x=%d", bad_row, bad_x));
+    }
+
+    // ── LR-21 — the enable gate, positive direction ──────────────────────
+    {
+        Fix f;
+        f.enable_lores(true);
+        bool all_lores = true; int bad_row = -1, bad_x = -1;
+        uint32_t bad_got = 0, bad_exp = 0;
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        for (int row = Renderer::DISP_Y;
+             row < Renderer::DISP_Y + Renderer::DISP_H && all_lores; ++row) {
+            f.render(got.data(), row);
+            for (int phc = 0; phc < 256; ++phc) {
+                const uint32_t e = f.expect(row, phc);
+                const uint32_t a = got[Renderer::DISP_X + phc * 2];
+                const uint32_t b = got[Renderer::DISP_X + phc * 2 + 1];
+                if (a != e || b != e || !is_lores_colour(a)) {
+                    all_lores = false; bad_row = row; bad_x = phc;
+                    bad_got = a; bad_exp = e;
+                    break;
+                }
+            }
+        }
+        check("LR-21",
+              "with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes "
+              "values and none takes a ULA value (zxnext.vhd:6980)",
+              all_lores,
+              DETAIL("row=%d phc=%d got=0x%08X exp=0x%08X",
+                     bad_row, bad_x, bad_got, bad_exp));
+    }
+
+    // ── LR-22 — the border is never LoRes ────────────────────────────────
+    // lores.vhd:115 cannot assert pixel_en outside the 256x192 window
+    // (phc(8) set / clip_y2 <= 0xBF); zxula.vhd:414-415 marks those cells
+    // border.
+    {
+        Fix f;
+        f.enable_lores(true);
+        f.r.ula().set_border(2);              // red
+        f.r.ula().init_border_per_line();
+        const uint8_t battr = static_cast<uint8_t>((2 << 3) | 2);
+        // std_ula_paper_pixel(attr) = 0x10 | ((attr&0x40)>>3) | ((attr>>3)&7)
+        const uint8_t bpix = static_cast<uint8_t>(0x10 | ((battr >> 3) & 0x07));
+        const uint32_t bexp = f.pal.ula_colour(false, bpix);
+
+        bool ok = true; int bad_row = -1, bad_x = -1; uint32_t bad = 0;
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        for (int row = 0; row < Renderer::FB_HEIGHT && ok; ++row) {
+            f.render(got.data(), row);
+            const bool disp_row = (row >= Renderer::DISP_Y &&
+                                   row <  Renderer::DISP_Y + Renderer::DISP_H);
+            for (int x = 0; x < Renderer::FB_WIDTH; ++x) {
+                const bool border_cell = !disp_row ||
+                    x < Renderer::DISP_X ||
+                    x >= Renderer::DISP_X + Renderer::DISP_W;
+                if (border_cell && got[x] != bexp) {
+                    ok = false; bad_row = row; bad_x = x; bad = got[x];
+                    break;
+                }
+            }
+        }
+        check("LR-22",
+              "LoRes never paints the border — every border cell keeps the "
+              "port $FE colour (lores.vhd:115; zxula.vhd:414-415)",
+              ok, DETAIL("row=%d x=%d got=0x%08X exp=0x%08X",
+                         bad_row, bad_x, bad, bexp));
+    }
+
+    // ── LR-26 — LoRes occupies the ULA slot in NR $15 priority ───────────
+    // It is not a new layer: whatever hides (or is hidden by) the ULA in a
+    // given priority mode hides (or is hidden by) LoRes identically.
+    {
+        Fix f;
+        // An opaque Layer 2 pixel across the whole line, in a colour that is
+        // neither a ULA colour nor a LoRes colour under the partition.
+        const uint32_t L2C = Renderer::rrrgggbb_to_argb(0x21);
+        const int ROW = Renderer::DISP_Y + 20;
+        bool same_everywhere = true; int bad_mode = -1, bad_x = -1;
+
+        std::vector<uint32_t> off(Renderer::FB_WIDTH), on(Renderer::FB_WIDTH);
+        for (int mode = 0; mode <= 5 && same_everywhere; ++mode) {
+            f.r.set_layer_priority(static_cast<uint8_t>(mode));
+
+            f.enable_lores(false);
+            f.r.ula().render_scanline(f.r.ula_line_.data(), ROW, f.mmu,
+                                      f.r.ula_border_.data());
+            f.r.apply_ula_clip(f.r.ula_line_.data(), ROW);
+            std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, L2C);
+            std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            std::fill_n(f.r.tilemap_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            f.r.composite_scanline(off.data(),
+                                   Renderer::rrrgggbb_to_argb(0x00), ROW);
+
+            f.enable_lores(true);
+            f.r.ula().render_scanline(f.r.ula_line_.data(), ROW, f.mmu,
+                                      f.r.ula_border_.data());
+            f.r.apply_lores(f.r.ula_line_.data(), ROW, f.ram, f.pal);
+            f.r.apply_ula_clip(f.r.ula_line_.data(), ROW);
+            std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, L2C);
+            std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            std::fill_n(f.r.tilemap_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            f.r.composite_scanline(on.data(),
+                                   Renderer::rrrgggbb_to_argb(0x00), ROW);
+
+            for (int x = Renderer::DISP_X;
+                 x < Renderer::DISP_X + Renderer::DISP_W; ++x) {
+                const bool ula_won   = (off[x] != L2C);
+                const bool lores_won = (on[x]  != L2C);
+                if (ula_won != lores_won) {
+                    same_everywhere = false; bad_mode = mode; bad_x = x; break;
+                }
+                if (lores_won && !is_lores_colour(on[x])) {
+                    same_everywhere = false; bad_mode = mode; bad_x = x; break;
+                }
+            }
+        }
+        f.r.set_layer_priority(0);
+        check("LR-26",
+              "LoRes occupies the ULA slot in NR $15 priority — in every mode "
+              "000..101 it wins or loses exactly where the ULA would, and the "
+              "winning colour is the LoRes one (zxnext.vhd:6980-6981)",
+              same_everywhere,
+              DETAIL("priority mode %d disagreed at x=%d", bad_mode, bad_x));
+    }
+
+    // ── LR-27 — NR $68 bit 7 blanks LoRes too ────────────────────────────
+    // zxnext.vhd:7103 `ula_transparent <= '1' when ... or (ula_en_2 = '0')`.
+    // The substitution happens upstream (6980), so ula_en gates the LoRes
+    // colour exactly as it gates the ULA's.
+    {
+        Fix f;
+        f.enable_lores(true);
+        f.r.set_fallback_colour(0x03);
+        f.r.ula().set_ula_enabled(false);
+        f.refresh_snapshots();
+        const uint32_t fb = Renderer::rrrgggbb_to_argb(0x03);
+
+        bool ok = true; int bad_x = -1; uint32_t bad = 0;
+        const int ROW = Renderer::DISP_Y + 50;
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        f.render(got.data(), ROW);
+        for (int x = 0; x < Renderer::FB_WIDTH; ++x)
+            if (got[x] != fb) { ok = false; bad_x = x; bad = got[x]; break; }
+        check("LR-27",
+              "NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls "
+              "through to the NR $4A fallback, no LoRes pixel survives "
+              "(zxnext.vhd:7103-7104)",
+              ok, DETAIL("x=%d got=0x%08X exp fallback 0x%08X", bad_x, bad, fb));
+    }
+
+    // ── LR-28 — Timex hi-res: LoRes destroys the 512-pixel detail ────────
+    // `lores_pixel_1` is registered on CLK_7 (zxnext.vhd:6843) while
+    // `ula_pixel_1` is registered on CLK_14 (:6858), so ONE LoRes colour
+    // covers BOTH 512-mode half-pixels.
+    {
+        Fix f;
+        f.r.ula().set_screen_mode(0x06);      // Timex hi-res (mode bits 110)
+        f.r.ula().start_frame();
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 30;
+        std::vector<uint32_t> hires(Renderer::FB_WIDTH);
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        f.enable_lores(false);
+        f.render(hires.data(), ROW);
+        f.enable_lores(true);
+        f.render(got.data(), ROW);
+
+        bool paired = true, detail_existed = false;
+        int bad_x = -1;
+        for (int phc = 0; phc < 256; ++phc) {
+            const int x = Renderer::DISP_X + phc * 2;
+            if (hires[x] != hires[x + 1]) detail_existed = true;
+            if (got[x] != got[x + 1] || !is_lores_colour(got[x])) {
+                paired = false; bad_x = phc; break;
+            }
+        }
+        check("LR-28",
+              "in Timex hi-res mode both 512-grid half-pixels take the SAME "
+              "LoRes colour and no hi-res detail survives "
+              "(zxnext.vhd:6843 vs 6858, 6980, 6986)",
+              paired && detail_existed,
+              DETAIL("paired=%d (first break at phc=%d), hi-res detail present "
+                     "without LoRes=%d", paired, bad_x, detail_existed));
+    }
+
+    // ── LR-29 — ULA attribute FLASH does not modulate a LoRes pixel ──────
+    {
+        Fix f;
+        f.enable_lores(true);
+        // Force FLASH on every attribute cell of the bank-5 attribute area.
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off)
+            f.ram.write(10u * 8192u + off, 0xFF);   // attr(7) = FLASH
+        const int ROW = Renderer::DISP_Y + 60;
+        std::vector<uint32_t> a(Renderer::FB_WIDTH), b(Renderer::FB_WIDTH);
+        f.r.ula().flash_phase_ = false;
+        f.render(a.data(), ROW);
+        f.r.ula().flash_phase_ = true;
+        f.render(b.data(), ROW);
+        const bool same = std::memcmp(a.data() + Renderer::DISP_X,
+                                      b.data() + Renderer::DISP_X,
+                                      Renderer::DISP_W * sizeof(uint32_t)) == 0;
+        check("LR-29",
+              "ULA attribute FLASH does not modulate a LoRes pixel — both "
+              "flash phases render the display area identically "
+              "(zxula.vhd:470; zxnext.vhd:6980)",
+              same);
+    }
+
+    // ── LR-30 — LoRes indexes the ULA palette, not Layer 2's ─────────────
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 4;
+        const int PHC = 0;
+        const uint16_t a = ref_addr8(ref_x(PHC, 0),
+                                     ref_y(ROW - Renderer::DISP_Y, 0));
+        const uint8_t idx = seed_byte(a);
+
+        // Distinguishable values at the SAME index k in the ULA and Layer 2
+        // palettes.
+        f.pal.write_control(0x00);            // ULA_FIRST
+        f.pal.set_index(idx);
+        f.pal.write_8bit(0x92);
+        f.pal.write_control(0x10);            // LAYER2_FIRST
+        f.pal.set_index(idx);
+        f.pal.write_8bit(0x49);
+        f.pal.write_control(0x00);
+
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        f.render(got.data(), ROW);
+        const uint32_t ula_c = f.pal.ula_colour(false, idx);
+        const uint32_t l2_c  = f.pal.layer2_colour(idx);
+        check("LR-30",
+              "the LoRes byte indexes the ULA palette, not the Layer 2 / "
+              "sprite / tilemap palette (zxnext.vhd:6960-6978, 6981)",
+              got[Renderer::DISP_X] == ula_c && ula_c != l2_c,
+              DETAIL("got=0x%08X ula=0x%08X l2=0x%08X idx=0x%02X",
+                     got[Renderer::DISP_X], ula_c, l2_c, idx));
+    }
+
+    // ── LR-31 — NR $43 bit 1 picks which ULA palette bank LoRes indexes ──
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 6;
+        const uint16_t a = ref_addr8(ref_x(0, 0), ref_y(ROW - Renderer::DISP_Y, 0));
+        const uint8_t idx = seed_byte(a);
+
+        f.pal.write_control(0x00);            // ULA_FIRST  (bank 0)
+        f.pal.set_index(idx);
+        f.pal.write_8bit(0x92);
+        f.pal.write_control(0x40);            // ULA_SECOND (bank 1)
+        f.pal.set_index(idx);
+        f.pal.write_8bit(0x49);
+        f.pal.write_control(0x00);
+
+        std::vector<uint32_t> g0(Renderer::FB_WIDTH), g1(Renderer::FB_WIDTH);
+        f.r.ula().set_active_ula_palette(false);
+        f.render(g0.data(), ROW);
+        f.r.ula().set_active_ula_palette(true);
+        f.render(g1.data(), ROW);
+        f.r.ula().set_active_ula_palette(false);
+
+        const uint32_t exp0 = f.pal.ula_colour(false, idx);
+        const uint32_t exp1 = f.pal.ula_colour(true,  idx);
+        check("LR-31",
+              "NR $43 bit 1 selects which of the two ULA palette banks LoRes "
+              "indexes (zxnext.vhd:6825, 6981)",
+              g0[Renderer::DISP_X] == exp0 && g1[Renderer::DISP_X] == exp1 &&
+              exp0 != exp1,
+              DETAIL("bank0=0x%08X (exp 0x%08X) bank1=0x%08X (exp 0x%08X)",
+                     g0[Renderer::DISP_X], exp0, g1[Renderer::DISP_X], exp1));
+    }
+
+    // ── LR-49 — physical bank 5, independent of the MMU slot mapping ─────
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 12;
+        std::vector<uint32_t> a(Renderer::FB_WIDTH), b(Renderer::FB_WIDTH);
+        f.render(a.data(), ROW);
+        // Map bank 5's two pages out of the CPU address space entirely: put
+        // pages 0 and 1 in the 0x4000-0x7FFF slots via the MMU registers.
+        f.mmu.set_page(2, 0);
+        f.mmu.set_page(3, 1);
+        f.render(b.data(), ROW);
+        check("LR-49",
+              "LoRes reads physical bank 5 regardless of the MMU slot mapping "
+              "(zxnext.vhd:6631, 6558-6578; lores.vhd:56)",
+              std::memcmp(a.data(), b.data(),
+                          Renderer::FB_WIDTH * sizeof(uint32_t)) == 0);
+    }
+
+    // ── LR-50 — unaffected by the port $7FFD bit 3 shadow-screen select ──
+    {
+        Fix f;
+        f.enable_lores(true);
+        for (uint16_t off = 0; off < 0x2000; ++off)
+            f.ram.write(14u * 8192u + off, 0x00);   // bank 7 distinct content
+        const int ROW = Renderer::DISP_Y + 14;
+        std::vector<uint32_t> a(Renderer::FB_WIDTH), b(Renderer::FB_WIDTH);
+        f.render(a.data(), ROW);
+        f.r.ula().set_shadow_screen_en(true);       // port $7FFD bit 3
+        f.render(b.data(), ROW);
+        f.r.ula().set_shadow_screen_en(false);
+        bool same = true; int bad = -1;
+        for (int phc = 0; phc < 256; ++phc) {
+            const int x = Renderer::DISP_X + phc * 2;
+            if (a[x] != b[x]) { same = false; bad = phc; break; }
+        }
+        check("LR-50",
+              "LoRes is unaffected by the port $7FFD bit 3 shadow-screen "
+              "select — it always shows bank-5 content "
+              "(zxnext.vhd:6631 vs 6651-6655)",
+              same, DETAIL("first divergence at phc=%d", bad));
+    }
+
+    // ── LR-66 — dfile = port $FF bit 0 XOR NR $6A bit 4 ──────────────────
+    {
+        Fix f;
+        f.enable_lores(true);
+        // Distinct content at the two Radastan half bases.
+        f.ram.write(10u * 8192u + 0x0000, 0x50);
+        f.ram.write(10u * 8192u + 0x2000, 0xA0);
+        const int ROW = Renderer::DISP_Y;   // vc = 0
+        uint32_t out[4];
+        const struct { uint8_t ff; uint8_t nr6a_b4; int expect_half; } cases[] = {
+            {0x00, 0x00, 0}, {0x01, 0x00, 1}, {0x00, 0x10, 1}, {0x01, 0x10, 0},
+        };
+        bool ok = true; int bad = -1;
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        for (int i = 0; i < 4; ++i) {
+            // NR $6A: bit 5 = Radastan, bit 4 = XOR, offset 0.
+            f.r.lores().set_nr6a(static_cast<uint8_t>(0x20 | cases[i].nr6a_b4));
+            f.r.lores().init_per_line();
+            f.r.ula().set_screen_mode(cases[i].ff);
+            f.r.ula().start_frame();
+            f.render(got.data(), ROW);
+            out[i] = got[Renderer::DISP_X];
+            // Radastan, x(1)=0 -> low nibble = data(7:4); offset 0 -> high
+            // nibble = 0. half 0 byte 0x50 -> pixel 0x05; half 1 byte 0xA0 ->
+            // pixel 0x0A (lores.vhd:106-107, 111).
+            const uint8_t pix = cases[i].expect_half ? 0x0A : 0x05;
+            if (out[i] != f.pal.ula_colour(false, pix)) { ok = false; bad = i; break; }
+        }
+        f.r.lores().set_nr6a(0x00);
+        f.r.lores().init_per_line();
+        f.r.ula().set_screen_mode(0x00);
+        f.r.ula().start_frame();
+        check("LR-66",
+              "dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, "
+              "(1,0)->half 1, (0,1)->half 1, (1,1)->half 0 "
+              "(zxnext.vhd:6796)",
+              ok, DETAIL("case %d wrong (got 0x%08X)", bad,
+                         bad >= 0 ? out[bad] : 0));
+    }
+
+    // ── LR-69 — Radastan and 8-bit reach different bytes ─────────────────
+    {
+        Fix f;
+        f.enable_lores(true);
+        // phc=8, vc=4:  8-bit -> 0x0104, Radastan dfile=0 -> 0x0082.
+        f.ram.write(10u * 8192u + 0x0104, 0x71);
+        f.ram.write(10u * 8192u + 0x0082, 0x35);
+        const int ROW = Renderer::DISP_Y + 4;
+        const int X   = Renderer::DISP_X + 8 * 2;
+        std::vector<uint32_t> g8(Renderer::FB_WIDTH), gr(Renderer::FB_WIDTH);
+        f.render(g8.data(), ROW);
+        f.r.lores().set_nr6a(0x20);          // Radastan
+        f.r.lores().init_per_line();
+        f.render(gr.data(), ROW);
+        f.r.lores().set_nr6a(0x00);
+        f.r.lores().init_per_line();
+        // 8-bit: pixel = data = 0x71.  Radastan: x=8 -> x(1)=0 -> low nibble
+        // = data(7:4) = 3, high nibble = offset 0 -> pixel 0x03.
+        check("LR-69",
+              "Radastan and 8-bit mode reach different bytes for the same "
+              "screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 "
+              "(lores.vhd:91, 96)",
+              g8[X] == f.pal.ula_colour(false, 0x71) &&
+              gr[X] == f.pal.ula_colour(false, 0x03),
+              DETAIL("8bit=0x%08X (exp 0x%08X)  rad=0x%08X (exp 0x%08X)",
+                     g8[X], f.pal.ula_colour(false, 0x71),
+                     gr[X], f.pal.ula_colour(false, 0x03)));
+    }
+
+    // ── LR-87 — ULANext cancels the ULA+ translation ─────────────────────
+    // zxnext.vhd:4246 `ulap_en_i => ulap_en_0 and not ulanext_en_0`.
+    {
+        Fix f;
+        f.enable_lores(true);
+        f.ram.write(10u * 8192u + 0x0000, 0xAB);
+        f.r.lores().set_nr6a(0x21);          // Radastan + offset 1
+        f.r.lores().init_per_line();
+        const int ROW = Renderer::DISP_Y;
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+
+        f.r.ula().set_ulap_en(true);
+        f.r.ula().set_ulanext_en(false);
+        f.render(g.data(), ROW);
+        const uint32_t with_ulap = g[Renderer::DISP_X];
+
+        f.r.ula().set_ulanext_en(true);
+        f.render(g.data(), ROW);
+        const uint32_t with_ulanext = g[Renderer::DISP_X];
+
+        f.r.ula().set_ulap_en(false);
+        f.r.ula().set_ulanext_en(false);
+        f.r.lores().set_nr6a(0x00);
+        f.r.lores().init_per_line();
+
+        check("LR-87",
+              "ULANext cancels the ULA+ translation of the Radastan high "
+              "nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246)",
+              with_ulap == f.pal.ula_colour(false, 0xDA) &&
+              with_ulanext == f.pal.ula_colour(false, 0x1A),
+              DETAIL("ulap=0x%08X (exp 0x%08X) ulanext=0x%08X (exp 0x%08X)",
+                     with_ulap, f.pal.ula_colour(false, 0xDA),
+                     with_ulanext, f.pal.ula_colour(false, 0x1A)));
+    }
+
+    // ── LR-127 / LR-128 — see the report; NOT implemented as written ─────
+    skip("LR-127",
+         "plan row disagrees with the VHDL: outside the shared NR $1A window "
+         "o_ula_clipped is also asserted (zxula.vhd:562), so the ULA does NOT "
+         "show through — both sources are suppressed. Reported, not silently "
+         "reinterpreted.");
+    skip("LR-128",
+         "same defect as LR-127: pixels outside the shared window ARE blanked "
+         "to the NR $4A fallback (zxula.vhd:562 + zxnext.vhd:7100/7104). The "
+         "redundant 7063 cancel term is genuinely a no-op, but the row's "
+         "stated observable is wrong.");
+
+    // ── LR-140 — not observable under jnext's ULA model ──────────────────
+    skip("LR-140",
+         "unobservable: jnext's live ULA render path never asserts "
+         "ula_select_bgnd (Ula::compute_ulanext_pixel computes it for the "
+         "encoder rows, no renderer consumes it), so there is no stimulus "
+         "that would make a display pixel take NR $4A via zxnext.vhd:6987.");
+
+    // ── LR-141 — the LoRes colour is subject to NR $14 ───────────────────
+    // zxnext.vhd:7100 compares ula_rgb_2(8:1) — which holds the LoRes colour
+    // when LoRes is active — against transparent_rgb_2.
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 8;
+        const uint16_t a = ref_addr8(ref_x(0, 0), ref_y(ROW - Renderer::DISP_Y, 0));
+        const uint8_t idx = seed_byte(a);
+        // 0xE3 is the NR $14 reset default AND has blue = 3, the one blue
+        // value whose 2-bit (register) and 3-bit (palette) expansions agree
+        // — the compositor compares a palette-produced ARGB against a
+        // register-produced one (VHDL compares the 9-bit RGB either side, so
+        // the equality is exact there; jnext's two expansions only coincide
+        // at blue 0 and 3).
+        f.pal.write_control(0x00);
+        f.pal.set_index(idx);
+        f.pal.write_8bit(0xE3);
+        f.pal.set_index(0);
+
+        f.r.set_fallback_colour(0x03);
+        f.r.set_transparent_rgb(0xE3);        // NR $14 == the LoRes colour
+        f.refresh_snapshots();
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        f.render(g.data(), ROW);
+        const uint32_t transparent_result = g[Renderer::DISP_X];
+
+        f.r.set_transparent_rgb(0x3F);        // no longer the LoRes colour
+        f.refresh_snapshots();
+        f.render(g.data(), ROW);
+        const uint32_t opaque_result = g[Renderer::DISP_X];
+
+        check("LR-141",
+              "the LoRes colour is subject to NR $14 global transparency — "
+              "matching the key makes the pixel transparent and the layer "
+              "below shows (zxnext.vhd:7100-7101)",
+              transparent_result == Renderer::rrrgggbb_to_argb(0x03) &&
+              opaque_result == f.pal.ula_colour(false, idx),
+              DETAIL("match=0x%08X (exp fallback 0x%08X)  "
+                     "nomatch=0x%08X (exp 0x%08X)",
+                     transparent_result, Renderer::rrrgggbb_to_argb(0x03),
+                     opaque_result, f.pal.ula_colour(false, idx)));
+    }
+
+    // ── LR-142 — transparency compares the palette RGB, not the index ────
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 10;
+        const int vc  = ROW - Renderer::DISP_Y;
+        // Two columns whose LoRes indices differ.
+        int col_a = -1, col_b = -1;
+        uint8_t idx_a = 0, idx_b = 0;
+        for (int phc = 0; phc < 256 && col_b < 0; ++phc) {
+            const uint8_t idx = seed_byte(ref_addr8(ref_x(phc, 0), ref_y(vc, 0)));
+            if (col_a < 0) { col_a = phc; idx_a = idx; }
+            else if (idx != idx_a) { col_b = phc; idx_b = idx; }
+        }
+        // Index 0xE3 (== the NR $14 default key) mapped to a NON-0xE3 RGB;
+        // a different index mapped to RGB 0xE3.
+        f.pal.write_control(0x00);
+        f.pal.set_index(idx_a);
+        f.pal.write_8bit(0x11);               // not the key
+        f.pal.set_index(idx_b);
+        f.pal.write_8bit(0xE3);               // IS the key
+        f.pal.set_index(0);
+
+        f.r.set_fallback_colour(0x03);
+        f.r.set_transparent_rgb(0xE3);
+        f.refresh_snapshots();
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        f.render(g.data(), ROW);
+
+        check("LR-142",
+              "transparency compares the palette RGB[8:1], not the palette "
+              "index — only the entry whose RGB is the key goes transparent "
+              "(zxnext.vhd:7100)",
+              g[Renderer::DISP_X + col_a * 2] == f.pal.ula_colour(false, idx_a) &&
+              g[Renderer::DISP_X + col_b * 2] == Renderer::rrrgggbb_to_argb(0x03),
+              DETAIL("idx 0x%02X -> 0x%08X (exp 0x%08X); idx 0x%02X -> 0x%08X "
+                     "(exp fallback 0x%08X)",
+                     idx_a, g[Renderer::DISP_X + col_a * 2],
+                     f.pal.ula_colour(false, idx_a),
+                     idx_b, g[Renderer::DISP_X + col_b * 2],
+                     Renderer::rrrgggbb_to_argb(0x03)));
+    }
+
+    // ── LR-143/144/145/146 — the compositor sees the LoRes colour in the
+    // ULA slot for stencil, blend, tilemap ordering and layer priority.
+    // These poke the non-ULA layer buffers directly (the idiom the STEN/UTB
+    // groups above use) so the assertion is about the ULA-slot OPERAND, not
+    // about re-testing the tilemap engine.
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 16;
+        const int X   = Renderer::DISP_X;
+
+        auto prep_ula_slot = [&]() {
+            f.r.ula().render_scanline(f.r.ula_line_.data(), ROW, f.mmu,
+                                      f.r.ula_border_.data());
+            f.r.apply_lores(f.r.ula_line_.data(), ROW, f.ram, f.pal);
+            f.r.apply_ula_clip(f.r.ula_line_.data(), ROW);
+        };
+        const uint32_t lores_px = f.expect(ROW, 0);
+
+        // LR-143 — stencil (zxnext.vhd:7112-7113, 7130-7132).
+        {
+            const uint32_t TMC = Renderer::rrrgggbb_to_argb(0x2A);
+            prep_ula_slot();
+            std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            std::fill_n(f.r.tilemap_line_.begin(), Renderer::FB_WIDTH, TMC);
+            std::fill_n(f.r.tm_pixel_below_.begin(), Renderer::FB_WIDTH, false);
+            std::fill_n(f.r.tm_pixel_textmode_.begin(), Renderer::FB_WIDTH, false);
+            f.r.set_stencil_mode(true);
+            f.r.set_tm_enabled(true);
+            f.r.snapshot_stencil_mode_for_line(ROW);
+            std::vector<uint32_t> g(Renderer::FB_WIDTH);
+            f.r.composite_scanline(g.data(), Renderer::rrrgggbb_to_argb(0x00), ROW);
+            const uint32_t exp = channels_to_argb_t(
+                argb_r3_t(lores_px) & argb_r3_t(TMC),
+                argb_g3_t(lores_px) & argb_g3_t(TMC),
+                argb_b2_t(lores_px) & argb_b2_t(TMC));
+            f.r.set_stencil_mode(false);
+            f.r.set_tm_enabled(false);
+            f.r.snapshot_stencil_mode_for_line(ROW);
+            check("LR-143",
+                  "LoRes participates in ULA/tilemap stencil mode as the ULA "
+                  "colour — the AND uses the LoRes RGB "
+                  "(zxnext.vhd:7112-7113, 7130-7132)",
+                  g[X] == exp,
+                  DETAIL("got=0x%08X exp=0x%08X (lores=0x%08X tm=0x%08X)",
+                         g[X], exp, lores_px, TMC));
+        }
+
+        // LR-144 — blend mode 110 with NR $68 b6:5 = 00 (zxnext.vhd:7139-7148).
+        {
+            const uint32_t L2C = Renderer::rrrgggbb_to_argb(0x24);
+            prep_ula_slot();
+            std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, L2C);
+            std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            std::fill_n(f.r.tilemap_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+            std::fill_n(f.r.tm_pixel_below_.begin(), Renderer::FB_WIDTH, false);
+            f.r.set_layer_priority(6);
+            f.r.set_blend_mode(0);
+            f.r.snapshot_blend_mode_for_line(ROW);
+            std::vector<uint32_t> g(Renderer::FB_WIDTH);
+            f.r.composite_scanline(g.data(), Renderer::rrrgggbb_to_argb(0x00), ROW);
+            // Mode 110 = additive with clamp; the ULA operand must be the
+            // LoRes colour.
+            auto clamp3 = [](int v) { return v > 7 ? 7 : v; };
+            auto clamp2 = [](int v) { return v > 3 ? 3 : v; };
+            const uint32_t exp = channels_to_argb_t(
+                static_cast<uint8_t>(clamp3(argb_r3_t(lores_px) + argb_r3_t(L2C))),
+                static_cast<uint8_t>(clamp3(argb_g3_t(lores_px) + argb_g3_t(L2C))),
+                static_cast<uint8_t>(clamp2(argb_b2_t(lores_px) + argb_b2_t(L2C))));
+            f.r.set_layer_priority(0);
+            check("LR-144",
+                  "LoRes participates in NR $15 blend mode 110 as the ULA "
+                  "operand of the mixer (zxnext.vhd:7100-7101, 7139-7148)",
+                  g[X] == exp,
+                  DETAIL("got=0x%08X exp=0x%08X (lores=0x%08X l2=0x%08X)",
+                         g[X], exp, lores_px, L2C));
+        }
+
+        // LR-145 — tilemap below/above the ULA slot (zxnext.vhd:7116).
+        {
+            const uint32_t TMC = Renderer::rrrgggbb_to_argb(0x2A);
+            std::vector<uint32_t> above(Renderer::FB_WIDTH), below(Renderer::FB_WIDTH);
+            for (int pass = 0; pass < 2; ++pass) {
+                prep_ula_slot();
+                std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+                std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+                std::fill_n(f.r.tilemap_line_.begin(), Renderer::FB_WIDTH, TMC);
+                std::fill_n(f.r.tm_pixel_below_.begin(), Renderer::FB_WIDTH,
+                            pass == 1);
+                std::fill_n(f.r.tm_pixel_textmode_.begin(), Renderer::FB_WIDTH, false);
+                f.r.composite_scanline(pass ? below.data() : above.data(),
+                                       Renderer::rrrgggbb_to_argb(0x00), ROW);
+            }
+            check("LR-145",
+                  "the tilemap 'below ULA' ordering applies unchanged to "
+                  "LoRes: tilemap over the LoRes colour when above, LoRes "
+                  "over the tilemap when below (zxnext.vhd:7116)",
+                  above[X] == TMC && below[X] == lores_px,
+                  DETAIL("above=0x%08X (exp tm 0x%08X) below=0x%08X "
+                         "(exp lores 0x%08X)",
+                         above[X], TMC, below[X], lores_px));
+        }
+
+        // LR-146 — Layer 2 / sprite stacking relative to the ULA slot is
+        // unchanged by LoRes; only the ULA-slot colour changes.
+        {
+            const uint32_t L2C = Renderer::rrrgggbb_to_argb(0x21);
+            const uint32_t SPC = Renderer::rrrgggbb_to_argb(0x22);
+            bool same = true; int bad_mode = -1;
+            for (int mode = 0; mode <= 5 && same; ++mode) {
+                uint32_t res[2];
+                for (int on = 0; on < 2; ++on) {
+                    f.enable_lores(on != 0);
+                    prep_ula_slot();
+                    std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, L2C);
+                    std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, SPC);
+                    std::fill_n(f.r.tilemap_line_.begin(), Renderer::FB_WIDTH, TRANSP);
+                    std::fill_n(f.r.tm_pixel_below_.begin(), Renderer::FB_WIDTH, false);
+                    f.r.sprite_en_ = true;
+                    f.r.set_layer_priority(static_cast<uint8_t>(mode));
+                    std::vector<uint32_t> g(Renderer::FB_WIDTH);
+                    f.r.composite_scanline(g.data(),
+                                           Renderer::rrrgggbb_to_argb(0x00), ROW);
+                    res[on] = g[X];
+                }
+                // The winner's IDENTITY must be unchanged: if L2 or the
+                // sprite won without LoRes it must still win with LoRes; if
+                // the ULA slot won, the winner is now the LoRes colour.
+                const bool ula_won_off = (res[0] != L2C && res[0] != SPC);
+                const bool ula_won_on  = (res[1] != L2C && res[1] != SPC);
+                if (ula_won_off != ula_won_on) { same = false; bad_mode = mode; }
+                else if (!ula_won_off && res[0] != res[1]) { same = false; bad_mode = mode; }
+                else if (ula_won_on && !is_lores_colour(res[1])) { same = false; bad_mode = mode; }
+            }
+            f.r.set_layer_priority(0);
+            f.enable_lores(true);
+            check("LR-146",
+                  "sprite and Layer 2 priority relative to the ULA slot is "
+                  "unchanged by LoRes — only the ULA-slot colour changes "
+                  "(zxnext.vhd:6980, 7139+)",
+                  same, DETAIL("priority mode %d disagreed", bad_mode));
+        }
+    }
+
+    // ── LR-PSCAN — per-scanline replay of the LoRes registers ───────────
+    //
+    // NOT one of the 91 catalogued rows: it covers the requirement stated in
+    // the plan's "Documented limitations" section, which the implementer is
+    // told to satisfy — "NR $15 bit 7, NR $32, NR $33 and NR $6A must go into
+    // the per-scanline snapshot set, or the layer will be wrong on exactly
+    // the demo that motivated implementing it" (beast.nex toggles NR $15
+    // mid-frame today). VHDL zxnext.vhd:6768-6802 re-latches the LoRes
+    // parameters every CLK_7 and :6817 latches lores_en every CLK_14.
+    //
+    // Without the per-line snapshot the live register would be applied to
+    // EVERY row of the frame, so a mid-frame enable would retroactively
+    // paint rows the beam had already passed.
+    {
+        Fix f;
+        const int R = Renderer::DISP_Y + 40;   // the row the write lands on
+        f.enable_lores(false);                 // frame baseline: LoRes off
+
+        // Mid-frame write: LoRes on, plus a Y scroll. Only rows from R
+        // onward take the snapshot, exactly as Emulator::on_scanline does.
+        f.r.lores().set_enabled(true);
+        f.r.lores().set_scroll_y(4);
+        for (int row = R; row < Renderer::FB_HEIGHT; ++row)
+            f.r.lores().snapshot_for_line(row);
+
+        std::vector<uint32_t> before(Renderer::FB_WIDTH);
+        std::vector<uint32_t> after(Renderer::FB_WIDTH);
+        std::vector<uint32_t> ula_ref(Renderer::FB_WIDTH);
+        f.render(before.data(), R - 1);
+        f.render(after.data(), R);
+        f.render_ula_only(ula_ref.data(), R - 1);
+
+        // Row R-1 kept the pre-write state (LoRes off -> pure ULA); row R
+        // shows LoRes with scroll_y = 4 applied.
+        const unsigned vc = static_cast<unsigned>(R - Renderer::DISP_Y);
+        const uint32_t exp_r =
+            f.pal.ula_colour(false, seed_byte(ref_addr8(ref_x(0, 0), ref_y(vc, 4))));
+
+        check("LR-PSCAN",
+              "NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a "
+              "mid-frame enable+scroll affects only the rows from the write "
+              "onward, never the rows the beam already passed "
+              "(zxnext.vhd:6768-6802, 6817)",
+              std::memcmp(before.data(), ula_ref.data(),
+                          Renderer::FB_WIDTH * sizeof(uint32_t)) == 0 &&
+              after[Renderer::DISP_X] == exp_r,
+              DETAIL("row R-1 matches pure ULA=%d; row R got=0x%08X exp=0x%08X",
+                     std::memcmp(before.data(), ula_ref.data(),
+                                 Renderer::FB_WIDTH * sizeof(uint32_t)) == 0,
+                     after[Renderer::DISP_X], exp_r));
+    }
+
+    // ── LR-161 — NR $68 bit 2 (ULA half-pixel scroll) does not move LoRes ─
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 18;
+        std::vector<uint32_t> a(Renderer::FB_WIDTH), b(Renderer::FB_WIDTH);
+        f.r.ula().render_scanline(f.r.ula_line_.data(), ROW, f.mmu, nullptr);
+        f.r.apply_lores(f.r.ula_line_.data(), ROW, f.ram, f.pal);
+        std::copy(f.r.ula_line_.begin(), f.r.ula_line_.end(), a.begin());
+
+        f.r.ula().set_ula_fine_scroll_x(true);
+        f.r.ula().render_scanline(f.r.ula_line_.data(), ROW, f.mmu, nullptr);
+        f.r.apply_lores(f.r.ula_line_.data(), ROW, f.ram, f.pal);
+        std::copy(f.r.ula_line_.begin(), f.r.ula_line_.end(), b.begin());
+        f.r.ula().set_ula_fine_scroll_x(false);
+
+        check("LR-161",
+              "NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes "
+              "image (zxnext.vhd:4241-4271 — no such port on the LoRes "
+              "module)",
+              std::memcmp(a.data() + Renderer::DISP_X, b.data() + Renderer::DISP_X,
+                          Renderer::DISP_W * sizeof(uint32_t)) == 0);
+    }
+
+    // ── LR-165 — LoRes does not disturb the ULA's own VRAM fetch ─────────
+    {
+        Fix f;
+        const int ROW = Renderer::DISP_Y + 22;
+        std::vector<uint32_t> before(Renderer::FB_WIDTH), after(Renderer::FB_WIDTH);
+        f.enable_lores(false);
+        f.render(before.data(), ROW);
+        f.enable_lores(true);
+        std::vector<uint32_t> junk(Renderer::FB_WIDTH);
+        f.render(junk.data(), ROW);
+        f.enable_lores(false);
+        f.render(after.data(), ROW);
+        check("LR-165",
+              "LoRes does not disturb the ULA's own VRAM fetch — switching "
+              "LoRes off again restores an intact ULA screen "
+              "(zxnext.vhd:6631, 6660)",
+              std::memcmp(before.data(), after.data(),
+                          Renderer::FB_WIDTH * sizeof(uint32_t)) == 0);
+    }
+
+    // ── LR-166 / LR-167 — NR $19 and NR $1B do not clip LoRes ────────────
+    // zxnext.vhd:4258-4261 wires LoRes to ula_clip_*; nr_19_* reaches only
+    // the sprite module (4366-4369) and nr_1b_* only the tilemap (4424-4427).
+    {
+        Fix f;
+        f.enable_lores(true);
+        const int ROW = Renderer::DISP_Y + 100;    // inside a (64,191,32,159)
+                                                   // window's Y range
+        std::vector<uint32_t> ref(Renderer::FB_WIDTH), got(Renderer::FB_WIDTH);
+        f.render(ref.data(), ROW);
+
+        // The SAME numeric window LR-120 uses for NR $1A — which does clip.
+        SpriteEngine sp;
+        sp.reset();
+        sp.set_clip_x1(64); sp.set_clip_x2(191);
+        sp.set_clip_y1(32); sp.set_clip_y2(159);
+        f.render(got.data(), ROW);
+        check("LR-166",
+              "NR $19 (sprite clip) does not clip LoRes — the full 256x192 "
+              "image still draws (zxnext.vhd:4258-4261, 4366-4369)",
+              std::memcmp(ref.data(), got.data(),
+                          Renderer::FB_WIDTH * sizeof(uint32_t)) == 0);
+
+        f.tm.set_clip_x1(64); f.tm.set_clip_x2(191);
+        f.tm.set_clip_y1(32); f.tm.set_clip_y2(159);
+        f.render(got.data(), ROW);
+        check("LR-167",
+              "NR $1B (tilemap clip) does not clip LoRes — the full 256x192 "
+              "image still draws (zxnext.vhd:4258-4261, 4424-4427)",
+              std::memcmp(ref.data(), got.data(),
+                          Renderer::FB_WIDTH * sizeof(uint32_t)) == 0);
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main() {
@@ -3853,6 +4832,7 @@ int main() {
     test_PSCAN();      printf("  Group: PSCAN — done\n");
     test_UCLIP();      printf("  Group: UCLIP — done\n");
     test_LMASK();      printf("  Group: LMASK — done\n");
+    test_LORES();      printf("  Group: LR — done\n");
 
     printf("\n=====================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

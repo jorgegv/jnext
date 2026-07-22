@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 #include "video/ula.h"
+#include "video/lores.h"
 
 class Mmu;
 class Ram;
@@ -114,6 +115,7 @@ public:
         blend_mode_ = 0;            // NR 0x68 bits 6:5 default (VHDL: 00)
         tm_enabled_ = false;        // NR 0x6B bit 7 default (VHDL: 0)
         nr15_raw_ = 0;
+        lores_.reset();             // NR $15 b7 / $32 / $33 / $6A (VHDL 4948, 4995, 4997, 5032-5034)
         fallback_per_line_.fill(0xE3);
         ula_enabled_per_line_.fill(true);   // Ula::reset() leaves ula_enabled_ = true
         // G04 / G11 — per-scanline arrays mirror the scalar reset values.
@@ -137,6 +139,35 @@ public:
     /// Access the underlying ULA (e.g. to set border colour from port 0xFE).
     Ula& ula() { return ula_; }
     const Ula& ula() const { return ula_; }
+
+    /// Access the LoRes pixel generator (NR $15 bit 7, NR $32/$33/$6A).
+    /// LoRes lives here rather than beside the other layers because it is
+    /// NOT a layer: `apply_lores` substitutes its pixel into the ULA slot
+    /// (VHDL zxnext.vhd:6980-6981) — see the class comment in lores.h.
+    Lores& lores() { return lores_; }
+    const Lores& lores() const { return lores_; }
+
+    /// Substitute LoRes pixels into one already-rendered ULA scanline.
+    ///
+    /// VHDL zxnext.vhd:6933 + 6980-6981:
+    ///     lores_pixel_en_1 <= lores_pixel_en_1a and lores_en_1;
+    ///     ulalores_pixel_1 <= lores_pixel_1 when lores_pixel_en_1 = '1'
+    ///                                       else ula_pixel_1;
+    ///     ulatm_pixel_1    <= ('0' & ula_palette_select_1 & ulalores_pixel_1)
+    ///
+    /// so a LoRes pixel is an 8-bit index into the 256-entry ULA palette in
+    /// the bank NR $43 bit 1 selects — the same palette, the same bank
+    /// selector and the same downstream transparency/priority handling the
+    /// ULA's own pixel gets.  Runs BEFORE `apply_ula_clip`, whose window is
+    /// the very window LoRes was clipped against (zxnext.vhd:4258-4261), so
+    /// the two agree by construction.
+    ///
+    /// Factored out of render_row so the debugger's ULA views composite
+    /// through the same substitution the live output does.
+    ///
+    /// @param line  FB_WIDTH (640) ARGB cells, as emitted by Ula::render_scanline.
+    /// @param row   Framebuffer row 0..FB_HEIGHT-1.
+    void apply_lores(uint32_t* line, int row, Ram& ram, PaletteManager& palette);
 
     /// Apply the ULA clip window (NextREG 0x1A) to one rendered ULA scanline.
     ///
@@ -472,7 +503,8 @@ private:
     bool        trace_active_         = false;
     int         trace_current_row_    = 0;
 
-    Ula ula_;
+    Ula   ula_;
+    Lores lores_;                   // LoRes generator (NR $15 b7, $32, $33, $6A)
     uint8_t layer_priority_ = 0;    // NextREG 0x15 bits 4:2 (default SLU)
     uint8_t fallback_colour_ = 0xE3; // NextREG 0x4A (default transparent index)
     uint8_t transparent_rgb_ = 0xE3; // NextREG 0x14 (default transparent colour)

@@ -381,6 +381,16 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
     // top/bottom border rows).
     const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
     ula_.render_scanline(ula_line_.data(), row, mmu, ula_border_.data());
+
+    // LoRes substitution into the ULA slot (VHDL zxnext.vhd:6980-6981).
+    // Runs immediately after the ULA emits its line and BEFORE both the
+    // NR 0x68 bit 7 blank and the NR 0x1A clip, which is the VHDL order:
+    // the substitution happens at pipeline stage 1 (6980), `ula_en_2` and
+    // `ula_clipped_2` are consumed at stage 2 (7103, 7100), and both apply
+    // to whatever the ULA slot holds — so NR 0x68 b7 blanks a LoRes pixel
+    // exactly as it blanks a ULA pixel (LR-27), and the shared clip window
+    // clips both identically (LR-120/127/128).
+    apply_lores(ula_line_.data(), row, ram, palette);
     // When ULA is disabled (NR 0x68 bit 7 = 1), the whole ULA output
     // is transparent — display AND border — per VHDL zxnext.vhd:7103
     //   ula_transparent <= '1' when (ula_mix_transparent = '1')
@@ -417,6 +427,105 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
 //
 // G104 Phase 2: the clip math runs on the canonical 640 grid (DISP_X=64,
 // DISP_W=512, FB_WIDTH=640) since the ULA now emits native 640.
+
+// ---------------------------------------------------------------------------
+// apply_lores — substitute the LoRes pixel into the ULA slot
+// ---------------------------------------------------------------------------
+//
+// VHDL zxnext.vhd:6980-6981 (the mux), :6933 (the NR $15 b7 enable term),
+// :6796 (the Radastan display-file select), :4246 (the ULA+ term), :4258-4261
+// (the shared clip window), :6825/6981 (the ULA palette bank).
+//
+// LoRes is NOT a layer, so there is no lores_line_ buffer and no compositor
+// input of its own: the LoRes byte replaces `ula_pixel` before the ULA palette
+// lookup, and everything downstream (NR $14 transparency, NR $15 priority, the
+// ULA/tilemap stencil and blend modes) then treats the result as the ULA's.
+//
+// Geometry.  `hc_i` is `phc` (zxnext.vhd:4250), the 0..255 display-column
+// counter.  jnext's canonical framebuffer is 640 wide with a 512-cell display
+// area, so one phc covers TWO adjacent cells.  Writing both is not a
+// convenience — it is the Timex hi-res behaviour of the hardware: `lores_pixel_1`
+// is registered on CLK_7 while `ula_pixel_1` is registered on CLK_14
+// (zxnext.vhd:6843 vs 6858), so in 512-pixel mode both half-pixels receive the
+// same LoRes colour and hi-res detail is destroyed (LR-28).
+//
+// The NR $4A fallback bypass (zxnext.vhd:6986-6991 — a LoRes pixel takes the
+// palette colour even when `ula_select_bgnd` would have selected NR $4A) is
+// satisfied structurally: the write below is unconditional and opaque, so
+// nothing the ULA path could have produced survives underneath it.  jnext's
+// live ULA render never asserts `select_bgnd` (Ula::compute_ulanext_pixel
+// computes it for the Wave-B encoder rows but no render path consumes it), so
+// the bypass has no distinct observable today; it cannot be got wrong here
+// without also changing the write above to be conditional.
+
+void Renderer::apply_lores(uint32_t* line, int row, Ram& ram,
+                           PaletteManager& palette)
+{
+    // The border is never LoRes: `phc(8)` is set outside the 256-pixel window
+    // and the effective clip_y2 can never exceed 0xBF, so lores_pixel_en is 0
+    // there by the clip compare alone (lores.vhd:115).  Skipping border rows
+    // up front makes that explicit and costs nothing.
+    const int screen_row = row - DISP_Y;
+    if (screen_row < 0 || screen_row >= DISP_H)
+        return;
+
+    // NR $15 bit 7 — the enable is a stage-1 AND term, not a module input:
+    // the generator itself runs (and fetches bank 5) unconditionally on
+    // hardware (zxnext.vhd:6933).  Read the per-line snapshot, not the live
+    // register, so a mid-frame write affects only the rows that follow it.
+    const Lores::LineState ls = lores_.state_for_line(row);
+    if (!ls.enabled)
+        return;
+
+    Lores::Params p;
+    p.mode           = (ls.nr6a & 0x20) != 0;          // NR $6A b5
+    p.palette_offset = static_cast<uint8_t>(ls.nr6a & 0x0F);
+    p.scroll_x       = ls.scroll_x;
+    p.scroll_y       = ls.scroll_y;
+
+    // zxnext.vhd:6796 — lores_dfile_0 <= port_ff_screen_mode(0) xor
+    // nr_6a_lores_radastan_xor, where port_ff_screen_mode is
+    // port_ff_dat_tmx(5 downto 0) (zxnext.vhd:3634).  Used only in Radastan
+    // mode (lores.vhd:96/98).  The ULA's port-0xFF value is already replayed
+    // per scanline by the G07 change-log, so reading it live here reads the
+    // value in force for THIS row.
+    const bool port_ff_b0 = (ula_.get_screen_mode_reg() & 0x01) != 0;
+    p.dfile = port_ff_b0 != ((ls.nr6a & 0x10) != 0);
+
+    // zxnext.vhd:4246 — ulap_en_i => ulap_en_0 and not ulanext_en_0.
+    // Sourced from the same live Ula getters the ULA's own render path uses,
+    // so the two can never disagree within a row.
+    p.ulap_en = ula_.get_ulap_en() && !ula_.get_ulanext_en();
+
+    // zxnext.vhd:4258-4261 — LoRes is wired to the ULA clip registers; it has
+    // no window of its own (NR $1D is undecoded, zxnext.vhd:1167-1171,
+    // 6785-6793).  ula_clip_for_line already holds the EFFECTIVE values,
+    // y2 clamp included (zxnext.vhd:6779-6783).
+    const UlaClipWindow cw = ula_clip_for_line(row);
+    p.clip_x1 = cw.x1;
+    p.clip_x2 = cw.x2;
+    p.clip_y1 = cw.y1;
+    p.clip_y2 = cw.y2;
+
+    // zxnext.vhd:6981 — the LoRes byte indexes the ULA palette (NOT the
+    // Layer 2 / sprite / tilemap palette) in the bank NR $43 bit 1 picks.
+    const bool pal_bank  = ula_.get_active_ula_palette();
+    const uint16_t vc    = static_cast<uint16_t>(screen_row);
+
+    for (int phc = 0; phc < 256; ++phc) {
+        const uint16_t h = static_cast<uint16_t>(phc);
+        if (!Lores::pixel_en(p, h, vc))
+            continue;
+        const uint8_t  x    = Lores::coord_x(h, p.scroll_x);
+        const uint16_t addr = Lores::address(p, h, vc);
+        const uint8_t  data = lores_.read_bank5(addr, ram);
+        const uint8_t  px   = Lores::pixel(p, x, data);
+        const uint32_t argb = palette.ula_colour(pal_bank, px);
+        uint32_t* dst = line + DISP_X + phc * 2;
+        dst[0] = argb;
+        dst[1] = argb;
+    }
+}
 
 void Renderer::apply_ula_clip(uint32_t* line, int row) const
 {
@@ -872,6 +981,7 @@ void Renderer::save_state(StateWriter& w) const
     w.write_u8(tm_enabled_ ? 1 : 0);
     w.write_u8(blend_mode_);
     w.write_bytes(fallback_per_line_.data(), fallback_per_line_.size());
+    lores_.save_state(w);
 }
 
 void Renderer::load_state(StateReader& r)
@@ -885,6 +995,7 @@ void Renderer::load_state(StateReader& r)
     tm_enabled_   = r.read_u8() != 0;
     blend_mode_   = r.read_u8() & 0x03;
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
+    lores_.load_state(r);
 }
 
 // ---------------------------------------------------------------------------
