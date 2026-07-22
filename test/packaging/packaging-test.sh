@@ -3,12 +3,28 @@
 # Integration tests for the `make package-*` targets. Each package type must
 # produce a correctly-named, non-empty artifact that contains the jnext binary.
 #
-# Tooling-guarded: a package whose build tool is absent on this host SKIPs (not
-# FAIL) — the packages are build-tool-dependent and not every dev box has every
-# toolchain. macOS (.dmg) is deliberately excluded: it needs a Mac / the CI
-# macos runner (see packaging/README.md).
+# Two entry points, because the suite has two very different halves (GH #61):
 #
-# Invoked by `make package-test`. Exits non-zero if any tested package FAILs.
+#   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
+#       The six packaging-script contract suites. Hermetic — pure bash on
+#       throwaway fake roots, no compiler, no packaging toolchain, ~4 seconds.
+#       This half holds the highest-value rows (verify-bundle is the GH #46
+#       gate; sync-version is GH #60), so it is a prerequisite of `make
+#       unit-test` and runs on every local test run, exactly like docs-check.
+#
+#   bash packaging-test.sh                    (`make package-test`)
+#       The above PLUS a real build of every package (src/rpm/deb/win/flatpak)
+#       with content assertions. ~4 minutes and toolchain-dependent, so it runs
+#       as its own parallel job in ci.yml rather than inside `make unit-test`.
+#
+# Tooling-guarded: a package whose build tool is absent SKIPs (not FAIL) on a
+# dev box — not every host has every toolchain. In CI a missing tool is a FAIL
+# instead (see skp_ci_fail below): the workflow installs it deliberately, so a
+# silent skip there would read as a pass and hide the very regression this
+# suite exists to catch. macOS (.dmg) is deliberately excluded everywhere: it
+# needs a Mac / the CI macos runner (see packaging/README.md).
+#
+# Exits non-zero if any tested package FAILs.
 #
 # NOTE: no `pipefail` — the assertions below use `cmd | grep -q`, and grep -q
 # exits on the first match, which SIGPIPEs the producer (tar/dpkg-deb/unzip);
@@ -16,6 +32,13 @@
 set -u
 
 cd "$(dirname "$0")/../.." || exit 2   # repo root
+
+mode=all
+case "${1:-}" in
+    --contracts-only) mode=contracts ;;
+    "")               ;;
+    *) echo "usage: $0 [--contracts-only]" >&2; exit 2 ;;
+esac
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; RESET='\033[0m'
 LOGDIR=$(mktemp -d)
@@ -26,9 +49,34 @@ ok()  { printf "  ${GREEN}PASS${RESET} %-16s %s\n" "$1" "$2"; pass=$((pass+1)); 
 bad() { printf "  ${RED}FAIL${RESET} %-16s %s\n" "$1" "$2"; fail=$((fail+1)); }
 skp() { printf "  ${YELLOW}SKIP${RESET} %-16s %s\n" "$1" "$2"; skip=$((skip+1)); }
 
+# Missing tooling for a row CI is expected to cover: SKIP on a dev box, FAIL in
+# CI. ci.yml's `package` job installs rpmbuild / dpkg-deb / the MinGW Qt6 cross
+# toolchain on purpose; if one silently vanishes (renamed dnf package, dropped
+# install line) the row would skip and the job would still go green — a suite
+# that quietly stops testing something is worse than no suite. Same discipline
+# as docs-man-check's pandoc guard in the Makefile. Rows CI deliberately does
+# NOT provision (flatpak: needs org.kde.Sdk, a multi-GB privileged install)
+# keep using plain skp().
+skp_ci_fail() {
+    if [ -n "${CI:-}" ]; then
+        bad "$1" "$2 — MISSING IN CI. This row would otherwise skip silently and read as a pass; install the tool in the workflow, or drop the row deliberately."
+    else
+        skp "$1" "$2"
+    fi
+}
+
+summary() {
+    printf "\n${BOLD}=== Results ===${RESET}\n"
+    printf "  ${GREEN}Pass: %d${RESET}  ${RED}Fail: %d${RESET}  ${YELLOW}Skip: %d${RESET}\n" "$pass" "$fail" "$skip"
+}
+
 MINGW_QT6=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake
 
-printf "${BOLD}=== jnext packaging integration tests ===${RESET}\n\n"
+if [ "$mode" = contracts ]; then
+    printf "${BOLD}=== jnext packaging contract tests (scripts only, no builds) ===${RESET}\n\n"
+else
+    printf "${BOLD}=== jnext packaging integration tests ===${RESET}\n\n"
+fi
 
 # --- sync-version.sh contract (fast; runs on a throwaway copy) ----------------
 # The version-consistency script the bump-* targets rely on. Kept first so a
@@ -77,6 +125,16 @@ else
     bad bundle-dlopen-deps "contract test failed (see $LOGDIR/dlopendeps.log)"
 fi
 
+# ---- end of the hermetic contract half --------------------------------------
+# Everything above needs nothing but bash; everything below builds real
+# packages. `make package-contract-test` (a prerequisite of `make unit-test`)
+# stops here.
+if [ "$mode" = contracts ]; then
+    summary
+    [ "$fail" -eq 0 ]
+    exit
+fi
+
 # --- package-src (source tarball + release zip) ------------------------------
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)
@@ -117,7 +175,7 @@ if command -v rpmbuild >/dev/null 2>&1; then
         bad package-rpm "make package-rpm failed (see $LOGDIR/rpm.log)"
     fi
 else
-    skp package-rpm "rpmbuild not installed"
+    skp_ci_fail package-rpm "rpmbuild not installed"
 fi
 
 # --- package-deb -------------------------------------------------------------
@@ -133,7 +191,7 @@ if command -v dpkg-deb >/dev/null 2>&1; then
         bad package-deb "make package-deb failed (see $LOGDIR/deb.log)"
     fi
 else
-    skp package-deb "dpkg-deb not installed"
+    skp_ci_fail package-deb "dpkg-deb not installed"
 fi
 
 # --- package-win (MinGW cross-build ZIP) -------------------------------------
@@ -160,7 +218,7 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
         bad package-win "make package-win failed (see $LOGDIR/win.log)"
     fi
 else
-    skp package-win "MinGW Qt6 cross toolchain not installed"
+    skp_ci_fail package-win "MinGW Qt6 cross toolchain not installed"
 fi
 
 # --- package-win subsystem (GUI, not console) --------------------------------
@@ -180,7 +238,7 @@ if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1 && [ -f "$WIN_EXE" ]; t
         bad package-win-subsys "not GUI subsystem — got: ${subsys:-<none>}"
     fi
 else
-    skp package-win-subsys "objdump or jnext.exe absent (package-win not built here)"
+    skp_ci_fail package-win-subsys "objdump or jnext.exe absent (package-win not built here)"
 fi
 
 # --- package-flatpak ---------------------------------------------------------
@@ -214,6 +272,5 @@ else
     skp package-flatpak "flatpak-builder not installed"
 fi
 
-printf "\n${BOLD}=== Results ===${RESET}\n"
-printf "  ${GREEN}Pass: %d${RESET}  ${RED}Fail: %d${RESET}  ${YELLOW}Skip: %d${RESET}\n" "$pass" "$fail" "$skip"
+summary
 [ "$fail" -eq 0 ]

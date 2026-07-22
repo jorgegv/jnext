@@ -74,7 +74,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
-       verify-macos-dmg
+       package-contract-test verify-macos-dmg
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -212,7 +212,15 @@ regression: unit-test-build gui-release docs-check cli-check
 # NOTE: this proves the generated outputs match their sources. That jnext.1.md
 # also matches the CLI src/main.cpp parses is proven separately, by cli_options_test
 # (run below as a declared suite, and as `make cli-check`) — issue #43.
-unit-test: unit-test-build docs-check
+# package-contract-test is a prerequisite for the same reason (issue #61): the
+# packaging scripts are hand-written, ship user-visible artifacts, and had no
+# automatic gate at all — `make package-test` was called by no workflow and by
+# no target, which is how its sync-version row stayed red for 46 tags (#60).
+# Only the HERMETIC half runs here: six bash contract suites on throwaway fake
+# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
+# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
+# own parallel job in ci.yml.
+unit-test: unit-test-build docs-check package-contract-test
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -754,3 +762,7 @@ verify-macos-dmg:
 # Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded
 package-test:
 	bash test/packaging/packaging-test.sh
+
+# Contract-test the packaging SCRIPTS only (no package builds) — hermetic, ~4s
+package-contract-test:
+	@bash test/packaging/packaging-test.sh --contracts-only

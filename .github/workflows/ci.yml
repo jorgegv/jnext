@@ -191,3 +191,86 @@ jobs:
             test/00regression/img/*-diff.png
             build/test-summary.tsv
           if-no-files-found: ignore
+
+  # ── Packaging correctness (issue #61) ───────────────────────────────────
+  #
+  # `make package-test` builds every package (src/rpm/deb/win/flatpak) and
+  # asserts its CONTENTS — that the rpm/deb carry bin/jnext, that the source
+  # zip carries the vendored submodule a naive `git archive` drops, that the
+  # Windows zip carries the Qt6/SDL3 DLLs and the qwindows plugin, and that
+  # jnext.exe is a GUI-subsystem binary (no stray console window). It also
+  # runs the six packaging-SCRIPT contract suites, among them verify-bundle —
+  # the GH #46 gate that rejects a .dmg referencing Homebrew.
+  #
+  # Until now it was invoked by NO workflow and NO target: release.yml proves
+  # each package BUILDS, never that its contents are right, and that gap is
+  # how #60 (a permanently-failing sync-version row) survived 46 tags.
+  #
+  # Its own job, not a step in `test`: it is ~4 minutes of package builds with
+  # a toolchain the test job has no other use for, and as a separate job it
+  # runs in PARALLEL — off the critical path of the much longer test job.
+  #
+  # `make package-test` is the same plain target a developer runs locally
+  # (CLAUDE.md: CI runs the EXACT same commands as a local run). No pipe: with
+  # GitHub's default `bash -e` and no `pipefail`, `make ... | tail` takes the
+  # pipe's status and reports a failing suite green — that has already happened
+  # in this repo.
+  #
+  # Missing tooling SKIPs on a dev box but FAILS here (packaging-test.sh's
+  # skp_ci_fail, keyed on $CI): every tool below is installed deliberately, so
+  # a row that silently stopped running would otherwise read as a pass. The ONE
+  # exception is flatpak, which needs org.kde.Sdk — a multi-GB privileged
+  # install — and stays a genuine SKIP; release.yml's flatpak job builds it.
+  package:
+    runs-on: ubuntu-latest
+    # fedora:44, same as the test job and the same container release.yml builds
+    # the rpm and Windows artifacts in. Load-bearing for Windows: only Fedora
+    # packages a MinGW Qt6, so this is the one host the cross-build works on.
+    container: fedora:44
+    timeout-minutes: 30
+    steps:
+      # Before the checkout: a bare fedora:44 has no git, and actions/checkout
+      # rejects `submodules` without it.
+      #
+      # Package set = release.yml's rpm job (Fedora-native build deps) + its
+      # windows job (the MinGW cross toolchain, package names copied from that
+      # proven-green job) + dpkg/dpkg-dev/file for CPack's DEB generator
+      # (CPACK_DEBIAN_PACKAGE_SHLIBDEPS is ON, which shells out to
+      # dpkg-shlibdeps) + zip/unzip, which the src and win rows use.
+      #
+      # NOTE the deb built here is only checked for CONTENT (does it carry
+      # bin/jnext). Do NOT "fix" this job into an Ubuntu container to make its
+      # dependency metadata shippable: release.yml deliberately builds the
+      # SHIPPED debs in pinned ubuntu:24.04/26.04 containers for that, and this
+      # job would then lose the MinGW toolchain and the rpm in one move.
+      - name: Install packaging toolchains
+        run: |
+          dnf install -y \
+            cmake make gcc-c++ git ccache \
+            SDL2-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
+            qt6-qtbase-devel \
+            rpm-build dpkg dpkg-dev file zip unzip \
+            findutils gawk grep coreutils diffutils \
+            mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
+            mingw64-qt6-qtbase mingw64-sdl2-compat mingw64-curl \
+            mingw64-openssl mingw64-zlib mingw64-libpng mingw64-winpthreads
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Own cache namespace: the `test` job writes ccache-fedora44-<sha>, and
+      # two jobs saving the same key collide (GitHub cache entries are
+      # immutable). The compilations differ anyway — Release/no-tests here.
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-fedora44-package-${{ github.sha }}
+          restore-keys: |
+            ccache-fedora44-package-
+
+      - name: make package-test (build every package, assert its contents)
+        run: LANG=C make package-test

@@ -174,16 +174,43 @@ covered by `test/packaging/sync-version-test.sh` (run inside `make package-test`
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.8`) |
 | `make package-macos` | macOS `.dmg` (Darwin only) |
 | `make package-test` | build every package (except macOS) and assert each artifact |
+| `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |
 
-CI runs these same targets — one build path, no CI-only divergence (§5).
+CI runs these same targets — one build path, with **exactly one declared
+divergence**: the `flatpak` job in `release.yml` invokes
+`flatpak/flatpak-github-actions/flatpak-builder@v6` instead of
+`make package-flatpak`. It hands that action the *same* manifest and the same
+`org.kde.Sdk` runtime version, and takes the runtime image, build cache and
+bundle export from it; reimplementing that caching in YAML is the anti-pattern
+the rule exists to prevent. Every other package is built by the plain `make`
+target a developer runs locally. Do not describe this as "no divergence" — it
+is one, it is deliberate, and it is written down here and in that job's comment
+so it stays a decision rather than drift.
+
+**Packaging correctness is gated automatically** (issue #61):
+
+- `make package-contract-test` is a prerequisite of `make unit-test`, so the six
+  packaging-script contract suites — including `verify-bundle`, the GH #46 gate
+  — run on every local test run and every CI push.
+- The full `make package-test` runs as its own parallel `package` job in
+  `ci.yml` on every push to `main` and every PR. A release tag is always cut
+  from a commit already on `main`, so the commit being tagged has had its
+  packaging asserted.
+- In CI a **missing packaging tool is a FAIL, not a SKIP**
+  (`skp_ci_fail` in `test/packaging/packaging-test.sh`), so a row that quietly
+  stopped running cannot read as a pass. Flatpak is the one deliberate SKIP
+  there: it needs a multi-GB privileged `org.kde.Sdk` install.
 
 ---
 
 ## 5. CI / CD workflows
 
 - **`.github/workflows/ci.yml`** — tests. Triggers on **push to `main` and PRs**
-  (not on tags). Runs the full triplet (unit + FUSE + screenshot regression),
-  self-provisioning the SD image.
+  (not on tags). Two jobs: **`test`** runs the full triplet (unit + FUSE +
+  screenshot regression), self-provisioning the SD image; **`package`** runs
+  `make package-test` in a `fedora:44` container, building every package and
+  asserting its contents. They run in parallel, so packaging costs nothing on
+  the critical path.
 
 - **`.github/workflows/release.yml`** — one tag-triggered workflow (it replaced
   the old `packaging.yml` + `release.yml` `workflow_run` hand-off). Triggers on
@@ -200,9 +227,12 @@ CI runs these same targets — one build path, no CI-only divergence (§5).
      `fedora:44` container (so its deps are Fedora-native, not the Ubuntu
      `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
      submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win` in a
-     `fedora:44` container; `flatpak` via `flatpak-builder` in the KDE 6.8
-     container (`continue-on-error`); macOS native on `macos-latest`
-     (`continue-on-error`, UNTESTED — never blocks a Linux+Windows release).
+     `fedora:44` container; `flatpak` via `flatpak-builder` in the KDE 6.10
+     container (`continue-on-error` until its first green run on a real
+     runner — the one declared divergence from the make-target rule, §4);
+     macOS native on `macos-latest` via `make package-macos`, **blocking**
+     since issue #61 (it carries the GH #46 `verify-bundle` gate, so a macOS
+     failure now stops the release instead of silently omitting a platform).
      Each uploads its packages as an artifact.
   3. **`publish`** — runs only when `publish == true`; downloads the artifacts
      and creates a **GitHub Release**.
