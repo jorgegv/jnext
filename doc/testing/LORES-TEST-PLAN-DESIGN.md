@@ -13,42 +13,58 @@
 > implementation disagrees with a row, either the row's VHDL citation is wrong
 > (fix the row, citing the VHDL) or the implementation is wrong (fix the code).
 > See [UNIT-TEST-PLAN-EXECUTION.md](UNIT-TEST-PLAN-EXECUTION.md).
+>
+> **That path was taken once, on 2026-07-22** (amendment below): LR-127 and
+> LR-128 disagreed with the implementation, the VHDL was re-read, the *rows* were
+> found wrong, and they were retired in place with the citation that refutes them
+> — not edited into agreement, not deleted. The implementer skipped them and
+> reported rather than reinterpreting. That is the sanctioned sequence, and the
+> record of it is the point.
 
-## Implementation status (2026-07-22, v0.98.87+)
+## Implementation status (2026-07-22, v0.98.91+ — amended)
 
-**Implemented against this plan; 88 of the 91 rows are live `check()` rows.**
-`src/video/lores.{h,cpp}` (the pixel generator, a 1:1 model of `lores.vhd`) plus
-`Renderer::apply_lores` (the ULA-slot substitution). Suites:
+**Implemented against this plan; 90 of the 91 catalogued rows are live `check()`
+rows.** `src/video/lores.{h,cpp}` (the pixel generator, a 1:1 model of
+`lores.vhd`) plus `Renderer::apply_lores` (the ULA-slot substitution). The
+per-suite breakdown is the "Row-to-suite reconciliation" table under "Test Case
+Summary".
 
-| Tier | Suite | Rows |
-|------|-------|------|
-| U | `test/lores/lores_test.cpp` | 48 |
-| C | `test/compositor/compositor_test.cpp` (group `LR`) | 24 + 2 extra (see below) |
-| C | `test/lores/lores_integration_test.cpp` | 2 |
-| N | `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`) | 14 |
+**The catalogue was amended on 2026-07-22** as a direct consequence of building
+it. Two rows were **retired** and two **adopted**; the total is unchanged at 91.
 
-Three rows are **skipped, not silently reinterpreted**:
+- **LR-127 and LR-128 are RETIRED — the rows were wrong**, and the
+  implementation is what proved it. Both asserted that outside the shared NR
+  `$1A` window the ULA pixel shows through and that nothing is blanked purely by
+  the clip. The VHDL says the opposite: `lores.vhd:115` and `zxula.vhd:562`
+  compare the same counters against the **same** registered clip signals
+  (zxnext.vhd:4258-4261 vs 4437-4471), so outside the window
+  `ula_clipped_2 = '1'` (zxnext.vhd:7063) and the whole ULA/LoRes slot goes
+  transparent (zxnext.vhd:7100-7104) — falling to the NR `$4A` fallback. The
+  full retirement record, including what each row claimed, is in group 7. The
+  implementer **skipped** both rather than implementing to a wrong spec or
+  quietly editing this catalogue; the `skip()` rows remain in
+  `compositor_test.cpp` as visible tombstones.
+- **LR-127a is ADOPTED** (group 7, tier C) — the corrected observable, with a
+  whole-frame sweep proving no ULA colour reaches the display area anywhere.
+- **LR-PSCAN is ADOPTED** (group 8, tier C) — it pins the per-scanline replay of
+  NR `$15` b7 / `$32` / `$33` / `$6A` that "Documented limitations" *mandates in
+  prose* but the original catalogue carried no row for.
 
-- **LR-127 / LR-128 — the plan rows are wrong.** Both state that outside the
-  shared NR `$1A` window the ULA pixel shows through and that nothing is
-  blanked by the clip. `zxula.vhd:562` asserts `o_ula_clipped` for exactly the
-  complement of the same window (`'0' when (inside) or border_active = '1'
-  else '1'`), fed from the same registered values (zxnext.vhd:4258-4261 vs
-  4437-4471), so outside the window **both** sources are suppressed and the
-  pixel falls to the NR `$4A` fallback. The rows' underlying claim — that the
-  `7063` cancel term is a no-op — is correct; their stated *observable* is not.
-  A replacement row **LR-127a** asserts the VHDL-derived outcome so the
-  behaviour is not left untested while these two are amended.
+**One catalogued row remains legitimately skipped, and it is a modelling
+limitation, not a gap to paper over:**
+
 - **LR-140 — not observable in jnext.** The row's stimulus is an
-  `ula_select_bgnd` assertion; jnext's live ULA render path never produces one
-  (`Ula::compute_ulanext_pixel` computes the flag for the encoder rows, no
-  renderer consumes it), so no stimulus reaches zxnext.vhd:6987. The bypass is
-  satisfied structurally — the substitution write is unconditional and opaque.
-
-Two rows beyond the 91 were added, both clearly labelled in the source:
-**LR-127a** (above) and **LR-PSCAN**, which pins the per-scanline replay of
-NR `$15` b7 / `$32` / `$33` / `$6A` that the "Documented limitations" section
-below *requires* the implementer to add but catalogues no row for.
+  `ula_select_bgnd` assertion. jnext's live ULA render path never produces one:
+  `Ula::compute_ulanext_pixel` computes the flag, but **all four of its call
+  sites in `src/video/ula.cpp` discard it** (it is retained for the encoder
+  rows; no renderer consumes it). No stimulus can therefore reach
+  zxnext.vhd:6987, and no test at any tier can distinguish a correct fallback
+  bypass from a broken one. The bypass is satisfied *structurally* — the
+  substitution write is unconditional and opaque — which is an argument about
+  the code's shape, not an observation, and the row is honestly reported as
+  skipped rather than reworded into something the implementation trivially
+  passes. It becomes testable only if jnext's ULA gains a live `select_bgnd`
+  path; until then it stays skipped and stays counted.
 
 ## Original status (pre-implementation)
 
@@ -227,8 +243,13 @@ Rows are tagged with the tier that owns them:
 - **C** — compositor: rows about substitution into the ULA slot, transparency,
   fallback, stencil/blend and priority. These belong in `compositor_test`
   (which already drives the real `Renderer::render_row`), not in `lores_test`.
-- **N** — NextREG: register decode / read-back / reset rows, owned by
-  `nextreg_test`.
+  *As shipped:* 27 of the 29 C rows are in `compositor_test`; LR-163 and LR-164
+  (contention and floating bus) landed in `test/lores/lores_integration_test.cpp`
+  instead, because they need a whole `Emulator`, not a `Renderer`.
+- **N** — NextREG: register decode / read-back / reset rows. *As shipped:* they
+  are in `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`), not the
+  bare `nextreg_test` this plan named — LoRes register effects are only visible
+  through a full emulator.
 - **S** — screenshot: whole-frame rows in `test/00regression`, for the geometry
   that only a rendered frame proves.
 
@@ -374,7 +395,7 @@ All rows: `mode = 1` (NR `$6A` bit 5 = 1), scrolls 0 unless stated.
 | LR-110 | U | The quirk's address consequence: the 3-bit `+1` field wraps to 0 | `y = 224` (`scroll_y=255`, `vc=161` ⇒ `y_pre=416`), `phc=0` | `addr_pre = 0x3800`, `addr = 0x0000` (bits 13:11 = `7 + 1 → 0`) | lores.vhd:93-94 |
 | LR-111 | U | Scroll registers are independent | `scroll_x=6`, `scroll_y=8` | `addr = 0x0203` at `phc=0, vc=0` | lores.vhd:82, 84, 91 |
 
-### Group 7 — Clip window (LR-120 … LR-128)
+### Group 7 — Clip window (LR-120 … LR-126, LR-127a)
 
 The clip window is the **shared ULA** window, NR `$1A`. LoRes has no window of
 its own.
@@ -388,10 +409,60 @@ its own.
 | LR-124 | N/C | `clip_y2` values with bits 7:6 = `"11"` clamp to `0xBF` | write NR `$1A` y2 = `0xFF`, then `0xC0` | both behave as `0xBF` | zxnext.vhd:6779-6783 |
 | LR-125 | U | An inverted X window (`x1 > x2`) draws nothing | clip x = (200,100) | `pixel_en = 0` for all `phc` | lores.vhd:115 |
 | LR-126 | U | An inverted Y window (`y1 > y2`) draws nothing | clip y = (150,50) | `pixel_en = 0` for all `vc` | lores.vhd:115 |
-| LR-127 | C | Outside the clip window the **ULA** pixel shows through | `$15`[7]=1, clip = (64,191,32,159), distinct ULA content | inside the window LoRes, outside it the ULA screen | zxnext.vhd:6980 |
-| LR-128 | C | A clipped-away LoRes region is not blanked but ULA-substituted — the two clip evaluations agree | as LR-127 | no pixel anywhere is blank/fallback purely because of the clip | zxnext.vhd:7063 (redundant term), lores.vhd:115, zxula.vhd:562 |
+| ~~LR-127~~ | — | **RETIRED 2026-07-22 — the row was wrong.** See below. | — | — | — |
+| ~~LR-128~~ | — | **RETIRED 2026-07-22 — the row was wrong.** See below. | — | — | — |
+| LR-127a | C | LoRes and the ULA share **one** clip window and are suppressed **together**: inside NR `$1A` the LoRes pixel draws; outside it the pixel falls to the NR `$4A` fallback, and no ULA colour reaches the display area anywhere | `$15`[7]=1, clip = (64,191,32,159), distinct ULA content in bank 5, NR `$4A` set to a colour in neither content set | `phc=100,vc=100` → the LoRes colour; `phc=32,vc=100` and `phc=100,vc=10` → the NR `$4A` fallback; no display pixel in the whole frame carries a ULA colour | lores.vhd:115; zxula.vhd:562; zxnext.vhd:4258-4261 vs 4437-4471, 7100-7104 |
 
-### Group 8 — Compositor-stage interaction (LR-140 … LR-146)
+#### LR-127 and LR-128 — retired, with the reason
+
+They are recorded here rather than deleted. This plan's discipline is that a row
+is never quietly adjusted to the implementation; the mirror of that rule is that
+a row is never quietly removed either — otherwise the same wrong observable gets
+rediscovered from the VHDL half-read and re-added.
+
+**What they claimed.**
+
+- **LR-127** (tier C, cited zxnext.vhd:6980): *"Outside the clip window the ULA
+  pixel shows through"* — stimulus `$15`[7]=1 with clip (64,191,32,159) and
+  distinct ULA content; expected *"inside the window LoRes, outside it the ULA
+  screen"*.
+- **LR-128** (tier C, cited zxnext.vhd:7063 + lores.vhd:115 + zxula.vhd:562):
+  *"A clipped-away LoRes region is not blanked but ULA-substituted"* — expected
+  *"no pixel anywhere is blank/fallback purely because of the clip"*.
+
+**Why they are wrong.** Both assume the ULA is *not* clipped where LoRes is. It
+is — by the very same window:
+
+- `lores.vhd:115` compares `hc_i`/`vc_i` against `clip_x1_i…clip_y2_i`, and
+  `zxula.vhd:562` computes `o_ula_clipped` from `i_phc`/`i_vc` against
+  `i_ula_clip_x1…i_ula_clip_y2`. The two port maps
+  (zxnext.vhd:4258-4261 for LoRes, zxnext.vhd:4437-4471 for the ULA) wire **both**
+  to the same registered signals `ula_clip_x1_0` / `x2_0` / `y1_0` / `y2_0`.
+  Inside the display area the two comparators are therefore exact complements.
+- zxnext.vhd:7063 — `ula_clipped_2 <= ula_clipped_1 and not lores_pixel_en_1`.
+  Outside the window `lores_pixel_en_1 = '0'` and `ula_clipped_1 = '1'`, so
+  `ula_clipped_2 = '1'`; the cancel term does not fire.
+- That drives `ula_mix_transparent` → `ula_transparent` → `ula_rgb <= "000000000"`
+  (zxnext.vhd:7100-7104). The **entire ULA/LoRes slot goes transparent** outside
+  the window, so the raw ULA pixel cannot "show through" (refuting LR-127), and a
+  region *is* blanked purely by the clip — falling to the NR `$4A` fallback if no
+  other layer covers it (refuting LR-128).
+
+**What survives.** The rows' *underlying* claim — that the zxnext.vhd:7063 cancel
+term is a no-op in the shipped core — is correct and is unchanged; see
+"Documented limitations" below. Only their stated observables were wrong.
+
+**Replacement.** **LR-127a**, catalogued above, asserts the VHDL-derived outcome,
+including the direct refutation of LR-127 (a whole-frame sweep proving no ULA
+colour reaches the display area). The shared-clip behaviour is therefore not left
+untested.
+
+**Row IDs are not recycled.** LR-127 and LR-128 stay burned. The suite
+(`test/compositor/compositor_test.cpp`) still emits a `skip()` for each, carrying
+the reason — that is deliberate, so the retirement is visible in the test output
+and not only in this document.
+
+### Group 8 — Compositor-stage interaction (LR-140 … LR-146, LR-PSCAN)
 
 | ID | Tier | Asserts | Stimulus | Expected | VHDL cite |
 |----|------|---------|----------|----------|-----------|
@@ -402,6 +473,26 @@ its own.
 | LR-144 | C | LoRes participates in NR `$15` blend modes 6/7 as the ULA colour | priority `110`, `$68`[6:5] = `00`, `$15`[7]=1 | the blend's ULA operand is the LoRes colour | zxnext.vhd:7100-7101, 7139-7148 |
 | LR-145 | C | The tilemap "below ULA" ordering applies unchanged to LoRes | `$6B`[0] toggled, `$15`[7]=1 | tilemap under / over the LoRes colour exactly as it would be under / over the ULA | zxnext.vhd:7116 |
 | LR-146 | C | Sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes | each priority mode with `$15`[7] = 0 then 1 | the stacking order is identical; only the ULA-slot colour changes | zxnext.vhd:6980, 7139+ |
+| LR-PSCAN | C | NR `$15`[7], `$32`, `$33` and `$6A` are replayed **per scanline** — a mid-frame write affects only the rows from the write onward, never rows the beam already passed | frame baseline `$15`[7]=0; mid-frame at display row 40 write `$15`[7]=1 and `$33`=4, snapshotting each subsequent line | row 39 is bit-for-bit the pure-ULA frame; row 40 shows LoRes with `scroll_y = 4` applied | zxnext.vhd:6768-6802 (LoRes params re-latched every `CLK_7`), 6817 (`lores_en` on `CLK_14`) |
+
+**LR-140 is the one catalogued row that is skipped**, and it stays counted. jnext's
+live ULA render path never asserts `ula_select_bgnd` — `Ula::compute_ulanext_pixel`
+computes the flag but all four of its call sites in `src/video/ula.cpp` discard it
+— so no stimulus can reach zxnext.vhd:6987 and the row is not observable at any
+tier. That is a **modelling limitation of jnext, not a defect in the row and not a
+coverage gap to be papered over**: the row is correct VHDL, it is simply
+unreachable today. It must not be reworded into something the implementation
+passes trivially. See "Implementation status" at the top.
+
+**LR-PSCAN keeps its non-numeric ID.** It is the ID the suite emits, and doc/suite
+IDs must agree for the traceability extractor; renaming it to `LR-147` would need a
+test-source edit this amendment is not permitted to make. It is a full member of
+the catalogue, tier C, group 8. It exists because the requirement it pins is stated
+in prose in "Documented limitations" below — *"the LoRes implementer must add NR
+`$15` bit 7, NR `$32`, NR `$33` and NR `$6A` to the per-line snapshot set, or the
+layer will be wrong on exactly the demo that motivated implementing it"* — and the
+original catalogue carried no row for it. A mandated behaviour with no row is a
+coverage hole with a paragraph in front of it.
 
 ### Group 9 — Negative / non-behaviour rows (LR-160 … LR-167)
 
@@ -433,20 +524,43 @@ them. The consumers are exhaustive — `nr_19_*` appears at zxnext.vhd:1151-1155
 
 ## Test Case Summary
 
-| Group | Rows | Tier mix |
-|-------|------|----------|
-| 1 — Register decode / reset | 12 | N |
-| 2 — Enable gate / ULA-slot substitution | 12 | U + C |
-| 3 — 8-bit addressing | 12 | U + C |
-| 4 — Radastan addressing | 10 | U + C |
-| 5 — Palette offset / pixel composition | 9 | U + C |
-| 6 — Scrolling | 12 | U |
-| 7 — Clip window | 9 | U + C/N |
-| 8 — Compositor interaction | 7 | C |
-| 9 — Negative / non-behaviour | 8 | U/C/N |
-| **Total** | **91** | 48 U · 29 C · 14 N |
+| Group | Rows | Tier mix | U | C | N |
+|-------|------|----------|---|---|---|
+| 1 — Register decode / reset | 12 | N | 0 | 0 | 12 |
+| 2 — Enable gate / ULA-slot substitution | 12 | U + C | 3 | 9 | 0 |
+| 3 — 8-bit addressing | 12 | U + C | 10 | 2 | 0 |
+| 4 — Radastan addressing | 10 | U + C | 8 | 2 | 0 |
+| 5 — Palette offset / pixel composition | 9 | U + C | 8 | 1 | 0 |
+| 6 — Scrolling | 12 | U | 12 | 0 | 0 |
+| 7 — Clip window | 8 | U + C/N | 6 | 1 | 1 |
+| 8 — Compositor interaction | 8 | C | 0 | 8 | 0 |
+| 9 — Negative / non-behaviour | 8 | U/C/N | 1 | 6 | 1 |
+| **Total** | **91** | | **48** | **29** | **14** |
 
-(Rows tagged `U/C` or `N/C` are counted once, in the first-named tier.)
+(Rows tagged `U/C` or `N/C` are counted once, in the first-named tier.
+48 + 29 + 14 = 91.)
+
+**Amendment arithmetic (2026-07-22).** Group 7 lost the two retired rows LR-127
+and LR-128 (both tier C) and gained LR-127a (tier C): 9 − 2 + 1 = **8**, C going
+2 − 2 + 1 = **1**. Group 8 gained LR-PSCAN (tier C): 7 + 1 = **8**, all C. Group
+totals: 12+12+12+10+9+12+8+8+8 = **91**, unchanged, because two rows left and two
+joined. Tier totals: U untouched at **48**; C = 29 − 2 + 1 + 1 = **29**; N
+untouched at **14**. Retired rows are excluded from every count — they are
+history, not coverage.
+
+### Row-to-suite reconciliation
+
+| Tier | Suite | Catalogued rows | live `check()` | `skip()` |
+|------|-------|-----------------|----------------|----------|
+| U | `test/lores/lores_test.cpp` | 48 | 48 | 0 |
+| C | `test/compositor/compositor_test.cpp` (group `LR`) | 27 | 26 | 1 (LR-140) |
+| C | `test/lores/lores_integration_test.cpp` | 2 | 2 | 0 |
+| N | `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`) | 14 | 14 | 0 |
+| | **Total** | **91** | **90** | **1** |
+
+C rows split 27 + 2 = 29. `compositor_test` additionally emits two `skip()` rows
+for the **retired** LR-127 / LR-128 tombstones (see group 7), so it prints 29 `LR`
+rows in total; those two are not catalogue rows and are not counted above.
 
 Suggested implementation order — each block is independently mergeable and each
 one leaves the suite green:
@@ -491,9 +605,12 @@ row for an oversight.
 - **The `ula_clipped_2` cancel term.** zxnext.vhd:7063 ANDs `NOT lores_pixel_en_1`
   into the ULA clipped flag. Because both flags are computed from the same
   counters and the same registered clip values, they are mutually exclusive and
-  the term can never change the result in the shipped core. LR-128 asserts the
-  observable consequence (no blanking where LoRes draws) rather than the
-  unobservable term itself.
+  the term can never change the result in the shipped core — it is a genuine
+  no-op. That makes the term itself **unobservable**, and it is why the retired
+  LR-128 could not be salvaged by rewording: there is no stimulus under which the
+  cancel term changes an output. **LR-127a** asserts the observable that the
+  shared window *does* produce (LoRes inside, fallback outside, no ULA anywhere),
+  which is the strongest statement available.
 
 ## Deliberately not specified
 
@@ -533,7 +650,14 @@ are corrected here because the implementer would otherwise build to them.
    *"LoRes may get a separate clip window in the future"*. Line 7063 cancels the
    ULA's *clipped* flag where a LoRes pixel exists, which — given identical
    inputs to both comparators — can never fire. Building LoRes as clip-exempt
-   would be a visible bug (LR-120, LR-125, LR-126, LR-127 all catch it).
+   would be a visible bug (LR-120, LR-125, LR-126, LR-127a all catch it).
+
+   The first revision of this plan then over-corrected in the opposite direction:
+   having established that LoRes *is* clipped, LR-127 and LR-128 assumed the ULA
+   *is not*, and asserted the ULA showing through outside the window. It does not
+   — the same window suppresses both. Those two rows are retired; see group 7 for
+   the full record. The lesson is worth keeping: NR `$1A` is one window feeding
+   two comparators, and any claim that names only one of them is suspect.
 2. **`doc/design/EMULATOR-DESIGN-PLAN.md` §3.1: LoRes "distributed
    (Compositor+NextREG+ULA)".** Nothing is distributed anywhere; the enable bit
    is not read. Corrected in the same change that adds this plan.
