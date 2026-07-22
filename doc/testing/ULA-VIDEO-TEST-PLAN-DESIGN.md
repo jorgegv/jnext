@@ -397,8 +397,8 @@ Integration coverage: **INT-ULANEXT-01** in `ula_integration_test.cpp` — enabl
 **S6.14 / S6.15 (2026-07-22)** pin the content `PaletteManager::reset()` leaves
 in ULA palette indices `0x20-0xFF` — the region only the ULAnext and LoRes
 encoders can reach. `reset()` models the **post-firmware** palette, not the VHDL
-power-on state: on hardware `palette_utm` (`zxnext.vhd:6960-6975`) is a `dpram2`
-with no `init_file_g`, so it powers up all-zero (`dpram2.vhd:41-46,64-80`) and
+power-on state: on hardware `palette_utm` (`zxnext.vhd:6960-6965`) is a `dpram2`
+with no `init_file_g`, so it powers up all-zero (`dpram2.vhd:41-46,63-80`) and
 tbblue.fw fills all 256 entries of both banks with the 16 colours repeated —
 but `--load` injects the program at frame 0 (`src/main.cpp:748`), so the
 firmware never runs and `reset()` is the only thing standing in for it. The

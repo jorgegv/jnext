@@ -105,10 +105,10 @@ void PaletteManager::reset()
     // THE RULE FOR THIS WHOLE FUNCTION: `reset()` models the POST-FIRMWARE
     // state, not power-on.  It is not a hardware model and must not be
     // "corrected" into one.  On real hardware the palette RAM powers up
-    // BLACK — `palette_utm` (zxnext.vhd:6960-6975) instantiates `dpram2`
+    // BLACK — `palette_utm` (zxnext.vhd:6960-6965) instantiates `dpram2`
     // passing only addr_width_g/data_width_g, so init_file_g keeps its
     // default "init/none.bin.txt" (dpram2.vhd:41-46), which InitRamFromFile
-    // special-cases to an all-zero array (dpram2.vhd:64-80) — and tbblue.fw
+    // special-cases to an all-zero array (dpram2.vhd:63-80) — and tbblue.fw
     // then fills all 256 entries before any user program runs.  jnext cannot
     // rely on that: `--load` injects the program at frame 0 (main.cpp:748),
     // so the firmware never runs and reset() is the only thing standing in

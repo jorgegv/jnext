@@ -1683,13 +1683,13 @@ static void test_section6_ulanext() {
     }
 
     // S6.14 — content of the ULA palette above the std-ULA range at reset.
-    // (S6.13 is reserved by ULA-VIDEO-TEST-PLAN-DESIGN.md:391 for the ULA+
+    // (S6.13 is reserved by ULA-VIDEO-TEST-PLAN-DESIGN.md:395 for the ULA+
     // 0x7F format encoder path.)
     //
     // PaletteManager::reset() models the POST-FIRMWARE palette, not the VHDL
-    // power-on state.  On hardware `palette_utm` (zxnext.vhd:6960-6975) is a
+    // power-on state.  On hardware `palette_utm` (zxnext.vhd:6960-6965) is a
     // `dpram2` with no init_file_g, so it powers up all-zero (dpram2.vhd:41-46,
-    // 64-80) and tbblue.fw fills it before any program runs; but `--load`
+    // 63-80) and tbblue.fw fills it before any program runs; but `--load`
     // injects at frame 0 (main.cpp:748) so the firmware never runs and reset()
     // is what stands in for it.  Measured over a NextZXOS boot, the firmware
     // writes every one of the 256 entries of both ULA banks to the same 16
@@ -1726,8 +1726,8 @@ static void test_section6_ulanext() {
               "post-firmware palette convention — ULA palette indices "
               "0x20..0xFF repeat the 16 std-ULA colours (entry i == entry "
               "i & 0x0F) in both banks, matching what tbblue.fw writes.  The "
-              "VHDL power-on is all-zero (zxnext.vhd:6960-6975 + "
-              "dpram2.vhd:41-46,64-80) and is deliberately NOT modelled here: "
+              "VHDL power-on is all-zero (zxnext.vhd:6960-6965 + "
+              "dpram2.vhd:41-46,63-80) and is deliberately NOT modelled here: "
               "--load never runs the firmware (main.cpp:748)",
               bad == 0 && idx89 == 0x007 && idx1f == 0x1FF,
               fmt("mismatches=%d (first idx 0x%02X = 0x%03X, exp 0x%03X)  "
