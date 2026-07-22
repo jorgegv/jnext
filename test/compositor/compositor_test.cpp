@@ -4676,6 +4676,70 @@ static void test_LORES()
         }
     }
 
+    // ── LR-127a — the CORRECTED observable for plan rows LR-127/128 ──────
+    //
+    // NOT one of the 91 catalogued rows. LR-127 and LR-128 are skipped above
+    // because their stated outcomes contradict the VHDL; this row asserts
+    // what the VHDL actually does, so the shared-clip behaviour is not left
+    // untested while the plan is amended.
+    //
+    //   zxula.vhd:562  o_ula_clipped <= '0' when (phc/vc inside the window)
+    //                                   or border_active = '1' else '1';
+    //   lores.vhd:115  lores_pixel_en <= '1' only inside the SAME window,
+    //                                   from the SAME registers
+    //                                   (zxnext.vhd:4258-4261 vs 4437-4471).
+    //
+    // The two comparators therefore agree: INSIDE the window LoRes draws;
+    // OUTSIDE it BOTH are suppressed and the pixel falls through to the
+    // NR $4A fallback. The ULA does NOT "show through" outside the window,
+    // and pixels outside it ARE blanked by the clip.
+    {
+        Fix f;
+        f.enable_lores(true);
+        f.r.set_fallback_colour(0x21);        // outside both colour halves
+        f.r.ula().set_clip_x1(64);
+        f.r.ula().set_clip_x2(191);
+        f.r.ula().set_clip_y1(32);
+        f.r.ula().set_clip_y2(159);
+        f.refresh_snapshots();
+        const uint32_t FB = Renderer::rrrgggbb_to_argb(0x21);
+
+        std::vector<uint32_t> inside_row(Renderer::FB_WIDTH);
+        std::vector<uint32_t> outside_row(Renderer::FB_WIDTH);
+        const int ROW_IN  = Renderer::DISP_Y + 100;   // vc = 100, inside Y
+        const int ROW_OUT = Renderer::DISP_Y + 10;    // vc = 10,  outside Y
+        f.render(inside_row.data(), ROW_IN);
+        f.render(outside_row.data(), ROW_OUT);
+
+        const uint32_t in_x  = inside_row[Renderer::DISP_X + 100 * 2]; // phc 100
+        const uint32_t out_x = inside_row[Renderer::DISP_X +  32 * 2]; // phc 32
+        const uint32_t out_y = outside_row[Renderer::DISP_X + 100 * 2];
+
+        // And nowhere in the frame does a ULA colour reach the output — the
+        // direct refutation of "outside the window the ULA pixel shows".
+        bool any_ula = false;
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        for (int row = Renderer::DISP_Y;
+             row < Renderer::DISP_Y + Renderer::DISP_H && !any_ula; ++row) {
+            f.render(g.data(), row);
+            for (int x = Renderer::DISP_X;
+                 x < Renderer::DISP_X + Renderer::DISP_W; ++x)
+                if (is_ula_colour(g[x])) { any_ula = true; break; }
+        }
+
+        check("LR-127a",
+              "LoRes and the ULA share ONE clip window and are suppressed "
+              "together: inside NR $1A the LoRes pixel draws, outside it the "
+              "pixel falls to the NR $4A fallback and no ULA pixel shows "
+              "through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, "
+              "7100/7104)",
+              is_lores_colour(in_x) && in_x == f.expect(ROW_IN, 100) &&
+              out_x == FB && out_y == FB && !any_ula,
+              DETAIL("inside=0x%08X (exp 0x%08X) outsideX=0x%08X outsideY=0x%08X "
+                     "(exp fallback 0x%08X) any_ula_colour=%d",
+                     in_x, f.expect(ROW_IN, 100), out_x, out_y, FB, any_ula));
+    }
+
     // ── LR-PSCAN — per-scanline replay of the LoRes registers ───────────
     //
     // NOT one of the 91 catalogued rows: it covers the requirement stated in
