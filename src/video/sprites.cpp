@@ -353,10 +353,23 @@ void SpriteEngine::write_pattern(uint8_t val)
 // that pre-date the explicit set_mirror_sprite_num / sprite_tie modelling.
 // Delegates to set_mirror_sprite_num to keep a single source of truth.
 // VHDL: sprites.vhd:600-602 (mirror_we_i='1' and mirror_index_i="111").
+//
+// It is NOT the NR 0x34 emulator path (that is set_mirror_sprite_num, wired
+// at emulator.cpp NR 0x34) — it additionally moves the port-0x57 attribute
+// cursor unconditionally, i.e. it behaves as "select this slot for BOTH the
+// mirror and the 0x57 stream". The unconditional move lives here, and only
+// here, because on real hardware that coupling exists only under sprite_tie
+// (sprites.vhd:653) — see set_mirror_sprite_num below (GH #67).
 
 void SpriteEngine::set_attr_slot(uint8_t val)
 {
     set_mirror_sprite_num(val);
+
+    // Legacy unified-slot semantics: the port-0x57 cursor follows too,
+    // regardless of mirror_tie_. Callers wanting hardware behaviour must use
+    // set_mirror_sprite_num (NR 0x34) or write_slot_select (port 0x303B).
+    attr_slot_ = val & 0x7F;
+    attr_byte_ = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -378,29 +391,28 @@ void SpriteEngine::set_mirror_sprite_num(uint8_t val)
     // mirror_sprite_q stores the full byte (slot in 6:0, pattern MSB in 7).
     mirror_sprite_num_ = val;
 
-    // Existing C++ surface kept attr_slot_ as the only sprite-index state.
-    // Under sprite_tie=1 (and for legacy callers that pre-date the tie
-    // modelling), the port-0x57-side attr_slot_ must follow mirror_sprite_q.
-    // VHDL sprites.vhd:653-654 says only the lower 7 bits sync to attr_index
-    // — pattern_slot_msb tracks bit 7 separately (see sprites.vhd:733-734).
-    //
-    // For backward compatibility with the current test corpus (G1.AT-08/09/10/
-    // 11 expect set_attr_slot to be observable via port 0x57 / write_attr_byte
-    // calls), the unified-slot sync remains unconditional. Tests that
-    // explicitly verify the untied case (e.g. G1.AT-13) must enable
-    // mirror_tie via set_mirror_tie(true), and observability for the
-    // mirror-side slot is via mirror_sprite_num().
-    attr_slot_         = val & 0x7F;
-    attr_byte_         = 0;
     pattern_slot_msb_  = (val >> 7) & 1;
+
+    // VHDL sprites.vhd:653-654 — the mirror_num_change pulse reloads
+    // attr_index (the port-0x57 cursor) ONLY under mirror_tie_i:
+    //   elsif mirror_num_change = '1' and mirror_tie_i = '1' then
+    //      attr_index <= mirror_sprite_q(6:0) & "000";
+    // exactly the same gate as the pattern_index path at :733-734. With the
+    // tie clear there is no mirror-side path into attr_index at all, so a
+    // NR 0x34 write must leave a port-0x57 upload cursor untouched (GH #67).
+    // Only the lower 7 bits sync; bit 7 belongs to pattern_index (:733-734).
+    if (mirror_tie_) {
+        attr_slot_ = val & 0x7F;
+        attr_byte_ = 0;
+    }
 
     // VHDL sprites.vhd:733-734 — the same mirror_num_change pulse that syncs
     // attr_index also reloads pattern_index, gated on mirror_tie_i:
     //   pattern_index <= mirror_sprite_q(5:0) & mirror_sprite_q(7) & "0000000"
     // i.e. NR 0x34 re-bases the port-0x5B pattern upload address exactly as an
-    // OUT to port 0x303B would. Unlike the attr_slot_ sync above, this one IS
-    // gated: with sprite_tie clear the hardware leaves pattern_index alone
-    // (sprites.vhd:728-741 has no other mirror-side path to it).
+    // OUT to port 0x303B would. Gated on the tie exactly like the attr_slot_
+    // sync above: with sprite_tie clear the hardware leaves pattern_index
+    // alone (sprites.vhd:728-741 has no other mirror-side path to it).
     if (mirror_tie_) {
         sync_pattern_offset_from_mirror();
     }
@@ -511,19 +523,14 @@ void SpriteEngine::write_attr_byte_nr_per_byte_inc(uint8_t byte_idx, uint8_t val
     mirror_sprite_num_ = static_cast<uint8_t>(
         new_slot7 | ((pattern_slot_msb_ & 1) << 7));
 
-    // Under sprite_tie=1, attr_index/attr_slot_ also follows. VHDL
-    // sprites.vhd:653-654 ties them via attr_num_change/mirror_num_change,
-    // and the legacy single-attr_slot_ behaviour is itself the tied case.
-    // Keep the unified-slot path consistent so downstream code that reads
-    // attr_slot_ continues to see the correct sprite number after a per-
-    // byte inc, just as set_mirror_sprite_num() does.
-    attr_slot_ = new_slot7 & 0x7F;
-    attr_byte_ = 0;
-
     // VHDL sprites.vhd:603-606 — mirror_inc_i also asserts mirror_num_change,
-    // so under mirror_tie_i the very same :733-734 path reloads pattern_index
-    // from the freshly incremented mirror_sprite_q.
+    // so the incremented mirror_sprite_q drives BOTH mirror-side reloads,
+    // each gated on mirror_tie_i: attr_index at :653-654 and pattern_index
+    // at :733-734. With the tie clear neither moves, so a NR 0x75-0x79
+    // stream must not disturb a port-0x57 upload cursor (GH #67).
     if (mirror_tie_) {
+        attr_slot_ = new_slot7 & 0x7F;
+        attr_byte_ = 0;
         sync_pattern_offset_from_mirror();
     }
 }
