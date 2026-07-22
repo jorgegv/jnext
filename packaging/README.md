@@ -234,11 +234,12 @@ exact recipe (package list + `make package-win`) has run green on a real
 GitHub Actions runner: the v0.98.19 release published
 `jnext-0.98.19-windows-x64.zip` from it, and the maintainer confirmed that
 executable working on real Windows hardware. Nothing on the Windows BUILD path
-is unexercised. The open Windows gaps are runtime ones —
-[GH #56](https://github.com/jorgegv/jnext/issues/56) (MP4 recording uses
-POSIX-only shell commands) and
+is unexercised. The one Windows gap left in the code is a runtime one —
 [GH #62](https://github.com/jorgegv/jnext/issues/62) (non-ASCII file paths) —
-not packaging.
+not packaging. ([GH #56](https://github.com/jorgegv/jnext/issues/56), MP4
+recording, is fixed in code since v0.98.80 and open only pending confirmation
+on real hardware; an earlier edit of this file listed it as an open code gap,
+which was wrong.)
 
 ### Code signing (Windows): a settled decision NOT to
 

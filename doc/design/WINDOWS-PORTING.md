@@ -64,15 +64,16 @@ There is very little, which is the point:
 Both are runtime bugs, not build problems — the build path itself has nothing
 outstanding:
 
-- [#56](https://github.com/jorgegv/jnext/issues/56) — **MP4 recording cannot
-  work.** `src/core/video_recorder.cpp` builds POSIX shell commands with no
-  `_WIN32` guard: the probe is `system("ffmpeg -version >/dev/null 2>&1")`, and
-  `cmd.exe` has no `/dev/null`, so `ffmpeg_available()` is always false and the
-  menu item is permanently greyed out. Paths are also quoted POSIX-style, which
-  `cmd.exe` does not strip. (This is what the old version of this document
-  listed as "Step 3.2 — apply before building". It was never applied.)
 - [#62](https://github.com/jorgegv/jnext/issues/62) — **non-ASCII file paths
-  fail**, because UTF-8 `std::string`s are handed to the narrow CRT.
+  fail**, because UTF-8 `std::string`s are handed to the narrow CRT. This is
+  the only one outstanding in the code.
+
+The old "Step 3.2 — FFmpeg shell redirection" is **done**, not outstanding:
+`src/core/video_recorder.cpp` gained a `CmdStyle` abstraction with per-platform
+quoting and a `win_run_hidden()` runner in `344aa061`, shipped in v0.98.80.
+[GH #56](https://github.com/jorgegv/jnext/issues/56) is still open on the
+tracker pending confirmation on real Windows hardware, but the code change it
+asks for has landed — describe the code, not the tracker.
 
 The old "Step 3.1 — ROM directory default" is obsolete rather than outstanding:
 ROMs now come from the SD image (see below), so there is no `/usr/share/fuse`
@@ -82,8 +83,12 @@ default left to guard.
 
 - All emulation core code is pure C++17 with no platform dependencies.
 - `std::filesystem` is used throughout (fully portable since C++17).
-- No POSIX-specific headers (`unistd.h`, `sys/*`, `dirent.h`) are used —
-  `video_recorder.cpp`'s shell strings above are the exception that proves it.
+- POSIX headers are used in two places and both are handled: `anon_mem.h:27`
+  includes `<sys/mman.h>` behind a `_WIN32` guard that selects the Win32 path
+  instead, and `sdcard_provisioner.cpp:18-19` includes `<sys/stat.h>` /
+  `<sys/types.h>`, which MinGW provides. (The pre-rewrite version of this file
+  claimed no `sys/*` header was used at all; it was wrong, and inheriting that
+  sentence unchecked is how it survived the rewrite.)
 - Signal handlers use only `SIGABRT`, `SIGFPE`, `SIGSEGV` — standard C
   everywhere.
 - The Makefile and the regression suite (`test/00regression/regression.sh`) are
