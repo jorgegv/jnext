@@ -9,11 +9,16 @@
 #   2. the rpm spec's Version: and %changelog top entry stay consistent
 #   3. running twice with the same version is idempotent (no further change)
 #   4. a different version prepends new entries and preserves the old ones
-#   5. the flatpak manifest (local-source, no version tag) is left untouched —
+#   5. the PRIVATE-tag path: a version NOT in releases.yaml leaves the AppStream
+#      <releases> history untouched while still syncing spec + debian, and the
+#      same version DOES get an entry once it is listed (the gate, both ways)
+#   6. the releases.yaml match is anchored and dot-escaped, so a version can
+#      neither prefix-match nor regex-match a sibling entry
+#   7. the flatpak manifest (local-source, no version tag) is left untouched —
 #      the script neither requires a `tag:` nor rewrites the manifest
-#   6. a missing anchor makes the script FAIL LOUD (non-zero) rather than write
+#   8. a missing anchor makes the script FAIL LOUD (non-zero) rather than write
 #      a half-synced file
-#   7. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
+#   9. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
 #      `&&`, so a sync failure aborts the bump (never commits a broken state)
 #
 set -u
@@ -38,6 +43,17 @@ cp "$repo/packaging/sync-version.sh"                          "$tmp/packaging/"
 cp "$repo/packaging/rpm/jnext.spec"                           "$tmp/packaging/rpm/"
 cp "$repo/packaging/assets/io.github.zxjogv.jnext.metainfo.xml" "$tmp/packaging/assets/"
 cp "$repo/packaging/debian/changelog"                        "$tmp/packaging/debian/"
+
+# releases.yaml — the PUBLIC-release allowlist sync-version.sh gates the
+# AppStream <releases> edit on ($root/releases.yaml, sync-version.sh:77-88).
+# It MUST exist in the fake root: without it the gate never matches, every
+# version takes the private path, and the public-path assertions below fail.
+# (That omission is exactly GH #60 — the suite went red the day the gate
+# landed and stayed red for 46 tags.) Only the versions this test drives
+# through the PUBLIC path are listed; 9.9.1/9.9.11/9.9.12/9.9.13/9.9.14 are
+# deliberately absent so they exercise the private path.
+releases="$tmp/releases.yaml"
+printf 'releases:\n  - v9.9.9\n  - v9.9.10\n' > "$releases"
 
 spec="$tmp/packaging/rpm/jnext.spec"
 metainfo="$tmp/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
@@ -87,7 +103,54 @@ else
     bad "new version did not preserve prior history"
 fi
 
-# 5 — the real flatpak manifest carries no version tag and must be left alone:
+# 5a — PRIVATE tag: a version absent from releases.yaml must leave the AppStream
+# <releases> history untouched (that is the whole reason the gate exists — a
+# per-merge bump-patch must not pollute the published release history), while
+# STILL syncing spec + debian. The gate is metainfo-scoped, not a whole-file
+# skip. Discriminative: deleting the releases.yaml gate flips this to FAIL.
+rel_before=$(sed -n '/<releases>/,/<\/releases>/p' "$metainfo")
+bash "$sync" 9.9.13 >/dev/null 2>&1; rc=$?
+rel_after=$(sed -n '/<releases>/,/<\/releases>/p' "$metainfo")
+if [ "$rc" -eq 0 ] \
+   && [ "$rel_before" = "$rel_after" ] \
+   && ! grep -qE '<release version="9\.9\.13"' "$metainfo" \
+   && grep -qE '^Version:[[:space:]]*9\.9\.13$'  "$spec" \
+   && head -n1 "$deb" | grep -qE '^jnext \(9\.9\.13-1\)'; then
+    ok "private tag: metainfo <releases> untouched, spec+debian still synced"
+else
+    bad "private tag: metainfo history changed, or spec/debian were not synced"
+fi
+
+# 5b — the same version, now LISTED, does get its <release> entry. Pairs with
+# 5a to prove releases.yaml membership is what decides, not something else
+# (a gate that always denies would pass 5a alone). Prior public history kept.
+printf '  - v9.9.13\n' >> "$releases"
+bash "$sync" 9.9.13 >/dev/null 2>&1
+if grep -qE '<release version="9\.9\.13"' "$metainfo" \
+   && grep -qE '<release version="9\.9\.10"' "$metainfo"; then
+    ok "same version once listed in releases.yaml gets its <release> entry"
+else
+    bad "listing the version in releases.yaml did not add its <release> entry"
+fi
+
+# 6 — the releases.yaml match must be ANCHORED and DOT-ESCAPED
+# (sync-version.sh:78-82). Two distinct regex faults, one row each:
+#   9.9.1  must not prefix-match the listed `- v9.9.10`
+#   9.9.14 must not dot-match the listed `- v9x9x14`
+# Both must therefore take the PRIVATE path and add no <release> entry.
+# Discriminative: dropping the `([[:space:]]|$)` anchor fails the first;
+# dropping the ver_esc dot-escaping fails the second.
+printf '  - v9x9x14\n' >> "$releases"
+bash "$sync" 9.9.1  >/dev/null 2>&1
+bash "$sync" 9.9.14 >/dev/null 2>&1
+if ! grep -qE '<release version="9\.9\.1"'  "$metainfo" \
+   && ! grep -qE '<release version="9\.9\.14"' "$metainfo"; then
+    ok "releases.yaml match is anchored and dot-escaped (no sibling match)"
+else
+    bad "a version matched a SIBLING releases.yaml entry (unanchored/unescaped)"
+fi
+
+# 7 — the real flatpak manifest carries no version tag and must be left alone:
 # the script must SUCCEED with it present and leave it byte-identical (no tag
 # requirement, no rewrite). Discriminative: re-adding a `tag:` require-check or
 # a sed rewrite would flip this to FAIL.
@@ -102,7 +165,7 @@ else
     bad "script failed with the local-source flatpak manifest, or rewrote it"
 fi
 
-# 6 — fail loud on a missing anchor (remove %changelog from the spec)
+# 8 — fail loud on a missing anchor (remove %changelog from the spec)
 grep -v '^%changelog$' "$spec" > "$spec.tmp" && mv "$spec.tmp" "$spec"
 verbefore=$(grep -m1 -E '^Version:' "$spec")
 if bash "$sync" 9.9.11 >/dev/null 2>&1; then
@@ -116,7 +179,7 @@ else
     fi
 fi
 
-# 7 — Makefile gates the bump commit/tag on sync-version.sh with &&
+# 9 — Makefile gates the bump commit/tag on sync-version.sh with &&
 # shellcheck disable=SC2016  # the $$newver literal is what we grep for, not a var to expand
 if grep -qE 'bash packaging/sync-version\.sh "\$\$newver" &&' "$repo/Makefile"; then
     ok "bump-* recipes chain sync-version.sh with && (abort on failure)"

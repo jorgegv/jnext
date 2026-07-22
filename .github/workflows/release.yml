@@ -27,8 +27,11 @@ name: Release
 #               fedora:44 container, exe runs under wine)
 #   * flatpak → flatpak-builder against org.kde.Sdk//6.8 (same manifest +
 #               runtime as a local `make package-flatpak`); bundle built locally
-#   * macos   → native on macos-latest (UNTESTED — no Mac on the dev host; the
-#               job is continue-on-error so it never blocks a Linux+Windows release)
+#   * macos   → `make package-macos` native on macos-latest (proven green on a
+#               real runner in v0.98.34). No longer continue-on-error since
+#               issue #61: it carries the GH #46 verify-bundle gate, and a gate
+#               that cannot fail anything is not a gate. `publish` requires
+#               success(), so a failed .dmg withholds the release.
 #
 # workflow_dispatch builds all packages for testing but never publishes.
 
@@ -272,17 +275,38 @@ jobs:
           manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
           cache-key: flatpak-builder-${{ github.sha }}
 
-  # ---- macOS: native CPack DragNDrop (UNTESTED, best-effort) ---------------
+  # ---- macOS: native CPack DragNDrop --------------------------------------
   macos:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: macos-latest
-    # Never block a Linux+Windows release. Note this is now fail-SAFE rather
-    # than merely lenient: if the GH #46 bundle verification fails, the job
-    # fails, upload-artifact never runs, and the release simply carries no .dmg
-    # — which is the right outcome, since the alternative is shipping one that
-    # aborts at launch.
-    continue-on-error: true
+    # NOT continue-on-error (issue #61). It was, which made the job fail-SAFE
+    # but fail-SILENT: a bad .dmg was not shipped (verify-bundle fails -> no
+    # upload), but nothing anywhere went red, so a release could quietly go out
+    # with no macOS package and no one would notice. That is the GH #46 class
+    # of defect — macOS problems failing nothing is precisely how a .dmg that
+    # aborted in dyld reached users.
+    #
+    # The leniency was justified when this leg was unproven; it no longer is.
+    # The macos job has run green on a real macos-latest runner (v0.98.34,
+    # which published jnext-0.98.34-Darwin.dmg), and it now carries the #46
+    # verify-bundle gate — a gate that cannot fail anything is not a gate.
+    #
+    # What that ENFORCES: this job's failure is now visible in the `needs`
+    # context, and `publish` requires `success()` (see its comment), so a
+    # failed .dmg stops the release instead of silently omitting a platform.
+    # Cost, deliberately accepted: a macOS-side failure (a brew hiccup, an
+    # Apple toolchain change) also holds up the Linux and Windows packages.
+    # That is the intended trade — a release either covers the platforms it
+    # claims or it stops and says so. To take a Linux+Windows-only release out
+    # on purpose, restore `continue-on-error: true` here in that one commit, or
+    # drop `macos` from publish's `needs:` — an explicit, visible decision each
+    # time, not a standing one.
+    #
+    # UNVERIFIED HERE: no Mac and no Actions runner on the dev host. The
+    # recommended confirmation is one `workflow_dispatch` dry run with this job
+    # deliberately broken (e.g. a bad `brew install` package name), checking
+    # that `publish` is skipped and that a red `flatpak` alone still publishes.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -303,11 +327,27 @@ jobs:
           if-no-files-found: error
 
   # ---- publish: attach all built packages to a GitHub Release -------------
-  # Only for listed tags (publish==true). Waits for the build jobs; macOS is
-  # continue-on-error so a macOS failure still lets a Linux+Windows release out.
+  # Only for listed tags (publish==true), and only when every build job it
+  # needs actually succeeded.
+  #
+  # The `success() &&` is explicit ON PURPOSE (issue #61). A job-level `if:`
+  # that uses no status-check function is a well-known source of surprise, and
+  # since the macos job stopped being continue-on-error this condition is what
+  # decides whether a failed .dmg stops the release. Spelling it out makes that
+  # true by construction instead of by inference about defaults.
+  #
+  # It does NOT re-block the tolerated jobs: a job with `continue-on-error:
+  # true` that fails reports `success` to the `needs` context (actions/toolkit
+  # #1739), so a red `flatpak` still lets the release out and simply omits that
+  # one bundle — exactly as before. A red `macos`, which is no longer tolerated,
+  # now reports `failure` and skips this job.
+  #
+  # No `needs` job can be SKIPPED while this runs (the known case where
+  # success() surprises): every build job is gated on build=='true', and
+  # publish=='true' implies build=='true'.
   publish:
     needs: [gate, deb, rpm, src, windows, flatpak, macos]
-    if: needs.gate.outputs.publish == 'true'
+    if: success() && needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
