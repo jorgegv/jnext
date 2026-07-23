@@ -527,9 +527,16 @@ check "HS-41" "every INT/TERM handler exits instead of resuming (GH #75)" 0 0 \
 # (c) and — the one that actually matters — the handler must TERMINATE the
 # shell, which no source scan can establish. HS-41 asserts the handler body
 # contains `exit <n>`; review broke that in one move with `(exit 130)`, which
-# passes the regex, cleans up, and leaves the script running. `$(...)`, a
-# trailing `&`, a pipeline and a function call all escape the same way, so
-# refining the regex is whack-a-mole against an unbounded pattern space.
+# passes the regex and cleans up. Under the real scripts' `set -e` an
+# UNGUARDED failing handler command self-terminates the shell via errexit
+# (measured for GH #79: the probe dies ~500 ms after the signal, and the real
+# harness prints nothing past it), so since the probe was aligned to that
+# strict mode it correctly accepts the bare `(exit 130)` shape. The escapes
+# that REALLY resume are handlers whose last status is success — a
+# cleanup-only handler (the GH #75 incident shape), `(exit 130) || true`
+# (still passes HS-41's regex), `; true`, a function call returning 0, a
+# trailing `&` — and refining the regex against those is whack-a-mole
+# against an unbounded pattern space.
 #
 # So run the REAL trap statements, lifted verbatim from each script, in a
 # minimal shell with stub cleanup functions, signal it, and measure. This is
@@ -541,7 +548,7 @@ sig_terminates() {   # sig_terminates <trap-statement> <signal> -> "died=<y|n> c
     local marker="$T/sigmarker-$$-$RANDOM" probe="$T/sigprobe-$$-$RANDOM.sh"
     [[ -n "$line" ]] || { echo "died=n cleaned=n"; return; }
     {   echo '#!/usr/bin/env bash'
-        echo 'set -uo pipefail'
+        echo 'set -euo pipefail'
         echo "TMPDIR_RUN=$(printf %q "$T/sigtmp")"
         echo 'mkdir -p "$TMPDIR_RUN"'
         # One stub for whichever cleanup function this script's trap names.
@@ -554,9 +561,13 @@ sig_terminates() {   # sig_terminates <trap-statement> <signal> -> "died=<y|n> c
         # resumes" terminates — the first version of this row did that and
         # passed against all three known-broken shapes. The loop reproduces
         # regression.sh's actual structure: a per-item loop that tolerates its
-        # own errors, so a resuming handler keeps grinding. `set -e` is
-        # deliberately absent for the same reason.
-        echo 'for _ in $(seq 1 120); do sleep 0.5; done'
+        # own errors (`|| true`), so a resuming handler keeps grinding. That
+        # explicit tolerance is what lets the probe run under the real
+        # scripts' full `set -euo pipefail` (GH #79 — it used to drop `-e`
+        # instead, diverging from the environment it stands in for): without
+        # it, the interrupted sleep's status 130 would trip errexit and even a
+        # broken cleanup-and-resume handler would appear to terminate.
+        echo 'for _ in $(seq 1 120); do sleep 0.5 || true; done'
     } > "$probe"
     # Measured by WALL TIME, not exit status: `timeout` returns 124 whenever it
     # had to signal at all, so the status says nothing about whether the process
