@@ -21,6 +21,12 @@ export LC_ALL=C
 
 pass=0; fail=0; total=0
 
+# The pinned denominator (GH #79): without it, deleting a check here shrinks
+# the declared and the reported side in lockstep — the exact silent-truncation
+# move the harnesses this file guards were built to forbid. Adding or removing
+# a check MUST update this number, deliberately.
+EXPECTED_TOTAL=38
+
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
@@ -619,8 +625,94 @@ done
 check "HS-42" "real INT/TERM trap statements clean up AND terminate (GH #75)" 0 0 \
     "bad=[${sig_results}]" "bad=[]"
 
+# ------------------------------------------- SD clone cleanup BODIES (GH #79)
+# HS-42 proves the trap WIRING terminates — with the three cleanup functions
+# STUBBED. A defect inside a real cleanup BODY is therefore invisible to it:
+# `sleep 300` at the top of the real unit_cleanup() left this whole self-test
+# green while every real harness run hung on exit — same observable symptom as
+# GH #75, different root cause. So each REAL body is lifted verbatim from its
+# script and executed once in a minimal shell:
+#   - under the real scripts' `set -euo pipefail`,
+#   - bounded by `timeout 10s`, so a hanging body is a FAIL in seconds, never
+#     a hang of this self-test,
+#   - wall-time asserted well under that bound (2 s threshold vs ~50 ms
+#     nominal — the same generous-headroom reasoning as HS-42's),
+#   - every directory the body owns must be GONE afterwards (its one job),
+#   - a sibling run directory must SURVIVE: concurrent runs are live by
+#     design, so cleanup may remove only ITS OWN state, and the shared runs/
+#     parent is pruned only when empty.
+# Everything the body touches points into a purpose-built fixture (fake $HOME
+# included), so the real ~/.jnext is never involved.
+#
+# Extraction is LOUD: a function that cannot be found, or whose extraction
+# looks truncated (no close brace back at column 0, or more than one function
+# definition swallowed), yields a tuple no pattern matches — the row FAILS
+# rather than quietly probing the wrong text.
+cleanup_body_probe() {   # cleanup_body_probe <script> <fn> <var>...
+    # -> "rc=<n> fast=<y|n> gone=<y|n> sibling=<y|n>"  |  "extract=FAILED(...)"
+    local script=$1 fn=$2; shift 2
+    local body first last ndefs
+    body=$(sed -n "/^${fn}() {/,/^}/p" "$script")
+    first="${body%%$'\n'*}"; last="${body##*$'\n'}"
+    ndefs=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\) \{' <<<"$body" || true)
+    if [[ -z "$body" || "$first" != "${fn}() {" || "$last" != "}" || "$ndefs" -ne 1 ]]; then
+        echo "extract=FAILED($fn: defs=${ndefs:-0})"
+        return 0
+    fi
+    # Fixture: a fake $HOME holding one directory per variable the body
+    # removes (each with a payload file standing in for the ~1 GB clone) plus
+    # the sibling. TMP_DIR is the one variable that does NOT live under
+    # $HOME/.jnext/runs in reality (it is a mktemp scratch), so its fixture
+    # lives outside the fake home too.
+    local fh="$T/bodyfix-$fn" probe="$T/bodyprobe-$fn.sh"
+    rm -rf "$fh" "$fh-scratch"
+    mkdir -p "$fh/.jnext/runs/other-live-run"
+    touch "$fh/.jnext/runs/other-live-run/payload.img"
+    {   echo '#!/usr/bin/env bash'
+        echo 'set -euo pipefail'
+        echo "HOME=$(printf %q "$fh")"
+    } > "$probe"
+    local var d fixtures=()
+    for var in "$@"; do
+        if [[ "$var" == TMP_DIR ]]; then d="$fh-scratch"; else d="$fh/.jnext/runs/fx-$var"; fi
+        mkdir -p "$d"; touch "$d/payload.img"
+        fixtures+=("$d")
+        echo "$var=$(printf %q "$d")" >> "$probe"
+    done
+    printf '%s\n' "$body" >> "$probe"
+    echo "$fn" >> "$probe"
+    local t0 t1 elapsed rc
+    t0=$(date +%s%N)
+    timeout --kill-after=3s 10s bash "$probe" >/dev/null 2>&1; rc=$?
+    t1=$(date +%s%N)
+    elapsed=$(( (t1 - t0) / 1000000 ))          # ms
+    local fast=y; [[ "$elapsed" -gt 2000 ]] && fast=n
+    local gone=y
+    for d in "${fixtures[@]}"; do [[ -e "$d" ]] && gone=n; done
+    local sibling=n; [[ -e "$fh/.jnext/runs/other-live-run/payload.img" ]] && sibling=y
+    rm -rf "$fh" "$fh-scratch" "$probe"
+    echo "rc=$rc fast=$fast gone=$gone sibling=$sibling"
+}
+
+out=$(cleanup_body_probe "$HARNESS" unit_cleanup UNIT_RUN_DIR)
+check "HS-43a" "REAL unit_cleanup body: bounded, removes only its run dir (GH #79)" 0 0 \
+    "$out" "rc=0 fast=y gone=y sibling=y"
+
+out=$(cleanup_body_probe "$PROJECT_DIR/test/bench/bench.sh" bench_cleanup BENCH_RUN_DIR)
+check "HS-43b" "REAL bench_cleanup body: bounded, removes only its run dir (GH #79)" 0 0 \
+    "$out" "rc=0 fast=y gone=y sibling=y"
+
+out=$(cleanup_body_probe "$PROJECT_DIR/test/00regression/test-functions.inc" regression_cleanup RUN_DIR TMP_DIR)
+check "HS-43c" "REAL regression_cleanup body: bounded, removes its dirs (GH #79)" 0 0 \
+    "$out" "rc=0 fast=y gone=y sibling=y"
+
 echo ""
 echo "====================================="
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" "$total" "$pass" "$fail" 0
+if [[ "$total" -ne "$EXPECTED_TOTAL" ]]; then
+    printf "  FAIL selftest-pin: ran %d checks but EXPECTED_TOTAL pins %d — a check was added or removed without updating the pin\n" \
+           "$total" "$EXPECTED_TOTAL"
+    exit 2
+fi
 [[ "$fail" -eq 0 ]] || exit 1
 exit 0
