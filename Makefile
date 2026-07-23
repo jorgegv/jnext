@@ -74,7 +74,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
-       package-contract-test verify-macos-dmg
+       package-contract-test packaging-selftest verify-macos-dmg
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -756,8 +756,12 @@ verify-macos-dmg:
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
+# Self-test packaging-test.sh's failure path: a failing sub-test's log must surface inline (GH #80)
+packaging-selftest:
+	@bash test/packaging/packaging-selftest.sh
+
 # Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded
-package-test:
+package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
 # Contract-test the packaging SCRIPTS only (no package builds) — hermetic, ~4s
