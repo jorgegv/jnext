@@ -778,10 +778,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Capture requests are part of the CLI contract: if one cannot start
+        // or finalize, an otherwise-clean run must not report success.
+        bool capture_ok = true;
+
         // Start video recording if requested (after init, before run).
         if (!record_file.empty()) {
             if (!app.emulator().start_recording(record_file)) {
                 Log::emulator()->error("Failed to start recording to {}", record_file);
+                capture_ok = false;
             }
         }
 
@@ -800,14 +805,14 @@ int main(int argc, char* argv[]) {
 
         // Stop recording before shutdown (encodes the MP4).
         if (app.emulator().video_recorder().is_recording()) {
-            app.emulator().stop_recording();
+            capture_ok = app.emulator().stop_recording() && capture_ok;
         }
 
-        bool capture_ok = true;
         if (audio_recorder.is_recording()) {
             app.emulator().mixer().set_capture_callback({});
-            capture_ok = audio_recorder.stop();
-            if (!capture_ok) {
+            const bool audio_ok = audio_recorder.stop();
+            capture_ok = audio_ok && capture_ok;
+            if (!audio_ok) {
                 Log::audio()->error("Failed to finalize WAV recording: {}",
                                     audio_recorder.last_error());
             }
