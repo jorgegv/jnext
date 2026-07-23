@@ -19,6 +19,7 @@
 - `--sdcard-readonly` opens the SD card read-only, so a run cannot alter a shared image
 
 ### Bug Fixes
+- `--record` now exits non-zero when FFmpeg fails or produces an empty MP4
 - Ports `$FF3B` (ULA+ Data) and `$243B` now return the driven value, not a fixed zero
 - ULA palette entries above the standard range no longer show invented colours
 - NEX files with LoRes, Hi-Res or Hi-Colour screens load both halves correctly

@@ -226,6 +226,20 @@ bool VideoRecorder::stop()
             "no output) — encoding video-only");
     }
 
+    // FFmpeg is invoked with -y, so this request explicitly replaces its
+    // target. Remove it ourselves first: otherwise a broken/no-op encoder
+    // could exit 0 and leave a stale non-empty MP4 that looks like this run's
+    // result to the validation below.
+    std::error_code output_ec;
+    fs::remove(output_path_, output_ec);
+    if (output_ec) {
+        std::remove(video_tmp_.c_str());
+        std::remove(audio_tmp_.c_str());
+        Log::emulator()->error("VideoRecorder: cannot replace output file {}: {}",
+                               output_path_, output_ec.message());
+        return false;
+    }
+
     Log::emulator()->debug("VideoRecorder: encoding with FFmpeg...");
     int ret = -1;
     for (const auto& enc : encoders) {
@@ -256,6 +270,14 @@ bool VideoRecorder::stop()
 
     if (ret != 0) {
         Log::emulator()->error("VideoRecorder: FFmpeg encoding failed (exit code {})", ret);
+        return false;
+    }
+
+    const auto output_size = fs::file_size(output_path_, output_ec);
+    if (output_ec || output_size == 0) {
+        Log::emulator()->error(
+            "VideoRecorder: FFmpeg reported success but produced no usable output at {}",
+            output_path_);
         return false;
     }
 
