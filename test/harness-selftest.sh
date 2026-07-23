@@ -33,8 +33,10 @@ EXPECTED_TOTAL=39
 # used to hang this whole self-test at its first row, long before the bounded
 # HS-43 probes were even reached (GH #79's verifiers had to shrink that
 # issue's literal `sleep 300` to keep mutation testing tractable). Bounded per
-# invocation, a hang is one loud rc=124 FAIL at the affected row (check()
-# prints the rc) and the run continues. 30 s is ~14x the slowest legitimate
+# invocation, a hang is one loud timeout FAIL at the affected row — check()
+# prints the rc: 124, or 137 when only the follow-up SIGKILL could end it
+# (e.g. a TERM-trapped cleanup that just hangs again) — and the run
+# continues. 30 s is ~14x the slowest legitimate
 # invocation measured on the dev box (HS-04 at ~2.1 s, floor-bound by its own
 # 2 s suite timeout; every other invocation is < 0.3 s) — wide on purpose,
 # this project has been burned by tight wall-clock budgets on loaded boxes.
