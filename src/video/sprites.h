@@ -438,6 +438,11 @@ private:
     /// mirror_num_change while sprite_tie is set.
     void sync_pattern_offset_from_mirror();
 
+    /// VHDL sprites.vhd:607-609 — tie-gated reverse sync: mirror_sprite_q
+    /// follows the port-side attr slot (bit 7 from pattern_index(7) /
+    /// pattern_slot_msb_) on every attr_num_change pulse. GH #74.
+    void reverse_sync_mirror_from_attr();
+
     // Configuration
     bool       sprites_visible_ = false;
     bool       over_border_     = false;

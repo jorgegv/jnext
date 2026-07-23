@@ -256,6 +256,11 @@ void SpriteEngine::write_slot_select(uint8_t val)
     pattern_slot_msb_ = (val >> 7) & 1;
     pattern_offset_ = static_cast<uint16_t>(
         ((val & 0x3F) << 8) | (pattern_slot_msb_ << 7)) & (PATTERN_RAM_SZ - 1);
+
+    // VHDL sprites.vhd:655-657 — a port-0x303B write pulses attr_num_change,
+    // which (tie set) reloads mirror_sprite_q from the NEW attr slot and the
+    // NEW pattern_index(7) on the next edge (:607-609). GH #74.
+    reverse_sync_mirror_from_attr();
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +314,10 @@ void SpriteEngine::write_attribute(uint8_t val)
             // No extended byte: advance to next sprite
             attr_byte_ = 0;
             attr_slot_ = (attr_slot_ + 1) & 0x7F;
+            // VHDL sprites.vhd:639,658-663 — index_inc_attr_by_8 (byte 3
+            // with attr3(6)=0) pulses attr_num_change → reverse tie sync
+            // (:607-609). Non-boundary byte writes never pulse it. GH #74.
+            reverse_sync_mirror_from_attr();
         }
         break;
     case 4:
@@ -316,6 +325,10 @@ void SpriteEngine::write_attribute(uint8_t val)
         log_attr_change(slot, 4, val);
         attr_byte_ = 0;
         attr_slot_ = (attr_slot_ + 1) & 0x7F;
+        // VHDL sprites.vhd:639,658-663 — byte 4 (attr_index(2)='1') is the
+        // other index_inc_attr_by_8 case: attr_num_change → reverse tie
+        // sync (:607-609). GH #74.
+        reverse_sync_mirror_from_attr();
         break;
     default:
         attr_byte_ = 0;
@@ -391,7 +404,11 @@ void SpriteEngine::set_mirror_sprite_num(uint8_t val)
     // mirror_sprite_q stores the full byte (slot in 6:0, pattern MSB in 7).
     mirror_sprite_num_ = val;
 
-    pattern_slot_msb_  = (val >> 7) & 1;
+    // NOTE (GH #74): pattern_slot_msb_ — our model of pattern_index(7) —
+    // is NOT written here. VHDL sprites.vhd:728-741: an NR 0x34 write only
+    // reaches pattern_index through the tie-gated :733-734 branch (handled
+    // by sync_pattern_offset_from_mirror below); with mirror_tie_i='0' the
+    // hardware leaves pattern_index, bit 7 included, entirely alone.
 
     // VHDL sprites.vhd:653-654 — the mirror_num_change pulse reloads
     // attr_index (the port-0x57 cursor) ONLY under mirror_tie_i:
@@ -418,15 +435,37 @@ void SpriteEngine::set_mirror_sprite_num(uint8_t val)
     }
 }
 
-// VHDL sprites.vhd:733-734 — rebuild pattern_index from mirror_sprite_q.
-// Bits 5:0 select the 256-byte pattern (0-63); bit 7 is the 128-byte
-// half-pattern offset used by 4-bit sprites; the low 7 address bits are
-// forced to zero.
+// VHDL sprites.vhd:733-734 — rebuild pattern_index from mirror_sprite_q:
+//   pattern_index <= mirror_sprite_q(5:0) & mirror_sprite_q(7) & "0000000"
+// Bits 5:0 select the 256-byte pattern (0-63); mirror bit 7 becomes
+// pattern_index(7) — the 128-byte half-pattern offset used by 4-bit
+// sprites, modelled as pattern_slot_msb_ (GH #74: updated HERE, at the
+// tie-gated sync, and nowhere else on the mirror side); the low 7 address
+// bits are forced to zero.
 void SpriteEngine::sync_pattern_offset_from_mirror()
 {
+    pattern_slot_msb_ = (mirror_sprite_num_ >> 7) & 1;
     pattern_offset_ = static_cast<uint16_t>(
-        (((mirror_sprite_num_ & 0x3F) << 8) | (((mirror_sprite_num_ >> 7) & 1) << 7))
+        (((mirror_sprite_num_ & 0x3F) << 8) | (pattern_slot_msb_ << 7))
         & (PATTERN_RAM_SZ - 1));
+}
+
+// VHDL sprites.vhd:607-609 — the reverse side of the sprite tie (GH #74):
+//   elsif attr_num_change = '1' and mirror_tie_i = '1' then
+//      mirror_sprite_q(6:0) <= attr_index(9 downto 3);
+//      mirror_sprite_q(7)   <= pattern_index(7);   -- wear helmet
+// attr_num_change is pulsed ONLY by the port-0x303B write (:655-657) and
+// by the port-0x57 slot advance (:658-663, index_inc_attr_by_8) — never
+// by the mirror-follow branch (:653-654), and this branch never pulses
+// mirror_num_change, so the forward sync in set_mirror_sprite_num and
+// this reverse sync cannot ping-pong. Call sites mirror those two pulses
+// exactly: write_slot_select, and the two slot-advance points in
+// write_attribute.
+void SpriteEngine::reverse_sync_mirror_from_attr()
+{
+    if (!mirror_tie_) return;
+    mirror_sprite_num_ = static_cast<uint8_t>(
+        (attr_slot_ & 0x7F) | ((pattern_slot_msb_ & 1) << 7));
 }
 
 // ---------------------------------------------------------------------------
