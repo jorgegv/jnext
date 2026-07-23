@@ -3302,6 +3302,379 @@ static void test_PSCAN() {
                      u.ulap_en_for_line(80),
                      u.ulap_en_for_line(199)));
     }
+
+    // ── G02 — NR 0x15 per-scanline change-log CONSUMPTION (GH #73) ────────
+    //
+    // VHDL zxnext.vhd:5229-5234 decomposes an NR 0x15 write; b4:2
+    // (nr_15_layer_priority) and b0 (nr_15_sprite_en) are latched into the
+    // video pipeline every pixel clock (6799 layer_priorities_0, 6819
+    // sprite_en_0 -> 6906-6907 -> consumed at 7216 `case layer_priorities_2`
+    // and 6934 `sprite_pixel_en_1a and sprite_en_1` -> 7118).  A mid-frame
+    // write therefore takes effect at raster granularity — per-line under
+    // jnext's model.  Unlike PSCAN-G04/G11 (bookkeeping-only), these rows
+    // drive the real `Renderer::render_frame` end to end, so an unwired
+    // apply/flush or a dead baseline snapshot is an observable pixel change.
+
+    // PSCAN-G02-01 — mid-frame layer-priority change through render_frame.
+    //   Baseline USL (0x10: U above S above L -> opaque ULA red wins);
+    //   at line 100 a logged write flips to SLU (0x00: with sprites
+    //   transparent, L above U -> opaque Layer 2 blue wins).  Rows before
+    //   100 must composite USL, rows at/after 100 must composite SLU.
+    //   VHDL zxnext.vhd:6799, 7216-7290.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);   // bank 5 page 10 → 0x4000
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        pal.start_frame();   // seed palette baselines (render_frame rewinds)
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+
+        // ULA: every pixel ink (0xFF) + attr ink=red across the display.
+        for (uint16_t off = 0x0000; off < 0x1800; ++off)
+            ram.write(10u * 8192u + off, 0xFF);
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off)
+            ram.write(10u * 8192u + off, 0x02);
+
+        // Layer 2: 256x192 8bpp from bank 9, every pixel byte 0x03 (blue
+        // in the reset-default RRRGGGBB identity ramp).
+        Layer2 l2;
+        l2.reset();
+        l2.set_enabled(true);
+        l2.set_active_bank(9);
+        const uint32_t l2_base =
+            (9u + (mmu.rom_in_sram() ? 16u : 0u)) * 16384u;
+        for (uint32_t off = 0; off < 49152u; ++off)
+            ram.write(l2_base + off, 0x03);
+        l2.start_frame();      // seed Layer 2 baselines from the setup above
+
+        Tilemap tm;
+        SpriteEngine sp;
+        tm.reset(); sp.reset();
+
+        // NR 0x15 sequence exactly as the emulator drives it: live value
+        // USL at frame start, baseline snapshot, then a mid-frame write
+        // tagged at line 100 (Emulator::on_scanline sets the tag).
+        r.write_nr15(0x10);            // USL, sprites off
+        r.start_frame_nr15();          // Emulator::begin_new_frame
+        r.set_current_line_nr15(100);  // Emulator::on_scanline at fb row 100
+        r.write_nr15(0x00);            // Copper MOVE: SLU
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const uint32_t exp_ula = pal.ula_colour(false, 0x02);   // red
+        const uint32_t exp_l2  = pal.layer2_colour(0x03);       // blue
+        const int x = Renderer::DISP_X + 20;                    // display col 10
+        const uint32_t before = fb[ 50u * Renderer::FB_WIDTH + x];
+        const uint32_t at     = fb[100u * Renderer::FB_WIDTH + x];
+        const uint32_t after  = fb[200u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G02-01",
+              "mid-frame NR 0x15 priority write (USL->SLU at line 100) "
+              "composites USL before and SLU at/after the tagged line "
+              "(VHDL 6799, 7216)",
+              before == exp_ula && at == exp_l2 && after == exp_l2,
+              DETAIL("row50=0x%08X (exp ULA 0x%08X) row100=0x%08X row200=0x%08X "
+                     "(exp L2 0x%08X)", before, exp_ula, at, after, exp_l2));
+    }
+
+    // PSCAN-G02-02 — cross-frame persistence: hardware registers persist,
+    //   so the value written mid-frame F must still be in force at the
+    //   start of frame F+1 with NO rewrite (a replay that reset the
+    //   baseline to the register default at start_frame would fail here:
+    //   the persisted value is deliberately NONZERO).  VHDL: nr_15_*
+    //   registers only change on nr_wr (5229-5234) or reset (1303 block).
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        pal.start_frame();   // seed palette baselines (render_frame rewinds)
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+
+        for (uint16_t off = 0x0000; off < 0x1800; ++off)
+            ram.write(10u * 8192u + off, 0xFF);
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off)
+            ram.write(10u * 8192u + off, 0x02);
+
+        Layer2 l2;
+        l2.reset();
+        l2.set_enabled(true);
+        l2.set_active_bank(9);
+        const uint32_t l2_base =
+            (9u + (mmu.rom_in_sram() ? 16u : 0u)) * 16384u;
+        for (uint32_t off = 0; off < 49152u; ++off)
+            ram.write(l2_base + off, 0x03);
+        l2.start_frame();
+
+        Tilemap tm;
+        SpriteEngine sp;
+        tm.reset(); sp.reset();
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        const uint32_t exp_ula = pal.ula_colour(false, 0x02);
+        const uint32_t exp_l2  = pal.layer2_colour(0x03);
+        const int x = Renderer::DISP_X + 20;
+
+        // Frame F: baseline SLU (L2 wins), mid-frame write USL at line 100.
+        r.write_nr15(0x00);
+        r.start_frame_nr15();
+        r.set_current_line_nr15(100);
+        r.write_nr15(0x10);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+        const uint32_t f_before = fb[ 50u * Renderer::FB_WIDTH + x];
+        const uint32_t f_after  = fb[200u * Renderer::FB_WIDTH + x];
+
+        // Frame F+1: NO rewrite. begin_new_frame only re-snapshots the
+        // baseline; the persisted USL must now cover the whole frame.
+        r.start_frame_nr15();
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+        const uint32_t g_top = fb[ 50u * Renderer::FB_WIDTH + x];
+        const uint32_t g_bot = fb[200u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G02-02",
+              "NR 0x15 value written in frame F persists as frame F+1's "
+              "baseline with no rewrite (VHDL 5229-5234: register holds)",
+              f_before == exp_l2 && f_after == exp_ula
+              && g_top == exp_ula && g_bot == exp_ula,
+              DETAIL("F:row50=0x%08X (exp L2 0x%08X) F:row200=0x%08X "
+                     "F+1:row50=0x%08X F+1:row200=0x%08X (exp ULA 0x%08X)",
+                     f_before, exp_l2, f_after, g_top, g_bot, exp_ula));
+    }
+
+    // PSCAN-G02-03 — vblank flush through render_frame: a write tagged at
+    //   line >= FB_HEIGHT (bottom border / vblank) must not affect the
+    //   visible rows of the frame it lands in, but MUST survive as the
+    //   live state (flush_remaining_changes_nr15) and hence as the next
+    //   frame's baseline.  Audit finding: the dormant pre-#73 class had
+    //   NO flush at all — a one-time NR 0x15 write during vblank (e.g. a
+    //   frame-interrupt handler racing the bottom border) was lost forever.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        pal.start_frame();   // seed palette baselines (render_frame rewinds)
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+
+        for (uint16_t off = 0x0000; off < 0x1800; ++off)
+            ram.write(10u * 8192u + off, 0xFF);
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off)
+            ram.write(10u * 8192u + off, 0x02);
+
+        Layer2 l2;
+        l2.reset();
+        l2.set_enabled(true);
+        l2.set_active_bank(9);
+        const uint32_t l2_base =
+            (9u + (mmu.rom_in_sram() ? 16u : 0u)) * 16384u;
+        for (uint32_t off = 0; off < 49152u; ++off)
+            ram.write(l2_base + off, 0x03);
+        l2.start_frame();
+
+        Tilemap tm;
+        SpriteEngine sp;
+        tm.reset(); sp.reset();
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        const uint32_t exp_ula = pal.ula_colour(false, 0x02);
+        const uint32_t exp_l2  = pal.layer2_colour(0x03);
+        const int x = Renderer::DISP_X + 20;
+
+        // Frame F: baseline SLU; write USL+sprite_en tagged in vblank.
+        r.write_nr15(0x00);
+        r.start_frame_nr15();
+        r.set_current_line_nr15(300);   // fb row >= FB_HEIGHT: vblank
+        r.write_nr15(0x11);             // USL + sprite_en
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+        const uint32_t f_vis = fb[200u * Renderer::FB_WIDTH + x];
+
+        // Live state after the frame must reflect the vblank write.
+        const bool live_ok = r.layer_priority() == 4
+                          && r.sprite_en() == true
+                          && r.nr15_raw() == 0x11;
+
+        // Frame F+1: the flushed value is the new baseline.
+        r.start_frame_nr15();
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+        const uint32_t g_vis = fb[50u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G02-03",
+              "NR 0x15 write tagged in vblank leaves visible rows of its "
+              "own frame untouched, survives via flush to live state, and "
+              "baselines frame F+1 (audit: dormant class had no flush)",
+              f_vis == exp_l2 && live_ok && g_vis == exp_ula,
+              DETAIL("F:row200=0x%08X (exp L2 0x%08X) live prio=%u spr_en=%d "
+                     "raw=0x%02X F+1:row50=0x%08X (exp ULA 0x%08X)",
+                     f_vis, exp_l2, r.layer_priority(), r.sprite_en(),
+                     r.nr15_raw(), g_vis, exp_ula));
+    }
+
+    // PSCAN-G02-04 — sprite-enable (b0) per-line consumption, BOTH stages:
+    //   the render gate (renderer.cpp render_row) and the compositor
+    //   transparency clause must use the per-line value, not the engine's
+    //   live end-of-frame flag.  A 16px sprite spans the toggle line: b0=1
+    //   from frame start, b0=0 written at line 100 (mid-sprite).  Rows
+    //   90..99 must show the sprite, rows 100..105 must show the ULA
+    //   underneath.  The frame ENDS with b0=0 (engine live flag false), so
+    //   a frame-end live read at either stage blanks the whole sprite.
+    //   VHDL zxnext.vhd:6819, 6906-6907, 6934, 7118 (sprites.vhd has no
+    //   NR 0x15 b0 input — the engine always runs; b0 gates the pixel in
+    //   the video pipeline only).
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        pal.start_frame();   // seed palette baselines (render_frame rewinds)
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+
+        for (uint16_t off = 0x0000; off < 0x1800; ++off)
+            ram.write(10u * 8192u + off, 0xFF);
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off)
+            ram.write(10u * 8192u + off, 0x02);
+
+        Layer2 l2;
+        Tilemap tm;
+        l2.reset(); tm.reset();
+
+        // Sprite 0: solid 16x16 pattern of index 0x07 at (100, 90) —
+        // fb cells x 200..231, rows 90..105 (over-border coordinates).
+        SpriteEngine sp;
+        sp.reset();
+        sp.write_slot_select(0);                 // pattern slot 0
+        for (int i = 0; i < 256; ++i) sp.write_pattern(0x07);
+        sp.write_slot_select(0);                 // sprite 0 attributes
+        sp.write_attribute(100);                 // byte 0: X lsb
+        sp.write_attribute(90);                  // byte 1: Y lsb
+        sp.write_attribute(0x00);                // byte 2: no mirror/rotate
+        sp.write_attribute(0x80 | 0x00);         // byte 3: visible, pattern 0
+        sp.set_clip_x1(0);   sp.set_clip_x2(0xFF);
+        sp.set_clip_y1(0);   sp.set_clip_y2(0xFF);
+        sp.set_over_border(true);
+        sp.start_frame();    // seed sprite baselines from the setup above
+
+        // NR 0x15 as the emulator dispatches it: each write also mirrors
+        // b0 into the engine's live flag, so the frame ends with the
+        // engine flag FALSE — the discriminating half of this row.
+        r.write_nr15(0x01);                      // SLU + sprites on
+        sp.set_sprites_visible(true);
+        r.start_frame_nr15();
+        r.set_current_line_nr15(100);
+        r.write_nr15(0x00);                      // sprites off mid-sprite
+        sp.set_sprites_visible(false);
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const uint32_t exp_spr = pal.sprite_colour(0x07);
+        const uint32_t exp_ula = pal.ula_colour(false, 0x02);
+        const int x = 210;                       // inside fb cells 200..231
+        const uint32_t upper = fb[94u  * Renderer::FB_WIDTH + x];
+        const uint32_t lower = fb[102u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G02-04",
+              "NR 0x15 b0 per-line: sprite half-band before the mid-sprite "
+              "disable renders, half-band after is suppressed, with the "
+              "engine live flag ending FALSE (VHDL 6819/6934/7118)",
+              upper == exp_spr && lower == exp_ula,
+              DETAIL("row94=0x%08X (exp sprite 0x%08X) row102=0x%08X "
+                     "(exp ULA 0x%08X)", upper, exp_spr, lower, exp_ula));
+    }
+
+    // PSCAN-G02-05 — write_nr15 change-log cap: log stops at
+    //   MAX_NR15_CHANGES_PER_FRAME, the once-per-frame warn latch fires
+    //   exactly once and start_frame_nr15 re-arms it; the LIVE state
+    //   still tracks every write past the cap (the live update precedes
+    //   the cap early-return), so non-render consumers (NR 0x15 read
+    //   handler) never see stale values.  Mirrors PSCAN-04.
+    {
+        Renderer r;
+        r.reset();
+        r.start_frame_nr15();
+
+        const bool warned_before = r.nr15_overflow_warned_;
+
+        const size_t over = Renderer::MAX_NR15_CHANGES_PER_FRAME + 1;
+        for (size_t i = 0; i < over; ++i)
+            r.write_nr15(static_cast<uint8_t>((i & 1) ? 0x10 : 0x00));
+        const bool warned_after   = r.nr15_overflow_warned_;
+        const bool size_capped    =
+            r.nr15_change_log_size() == Renderer::MAX_NR15_CHANGES_PER_FRAME;
+
+        // Past the cap the live state must still follow the last write.
+        r.write_nr15(0x15);   // b4:2=101 (ULS) + b0=1 (sprite_en)
+        const bool live_tracks = r.layer_priority() == 5
+                              && r.sprite_en() == true
+                              && r.nr15_raw() == 0x15;
+        const bool warned_persists = r.nr15_overflow_warned_;
+
+        r.start_frame_nr15();
+        const bool rearmed = !r.nr15_overflow_warned_
+                          && r.nr15_change_log_size() == 0;
+
+        check("PSCAN-G02-05",
+              "NR 0x15 change log caps at MAX, warn latch fires once and "
+              "start_frame_nr15 re-arms it; live state tracks writes past "
+              "the cap",
+              !warned_before && warned_after && size_capped && live_tracks
+              && warned_persists && rearmed,
+              DETAIL("before=%d after=%d capped=%d live=%d persists=%d "
+                     "rearmed=%d", warned_before, warned_after, size_capped,
+                     live_tracks, warned_persists, rearmed));
+    }
 }
 
 // ── Group UCLIP — NR 0x1A ULA clip window per-line deferral ───────────────

@@ -204,6 +204,7 @@ void begin_frame(Emulator& emu) {
     emu.ula().start_frame();
     emu.ula().start_frame_scroll();
     emu.ula().palsel_start_frame();
+    emu.renderer().start_frame_nr15();   // G02 NR 0x15 priority/sprite-en
 }
 
 // Write a Layer 2 palette entry.  NR 0x43 control 0x10 selects the Layer 2

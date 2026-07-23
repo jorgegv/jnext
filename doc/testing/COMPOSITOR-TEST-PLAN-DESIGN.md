@@ -155,6 +155,27 @@ compositor_integration_test 7/7/0/0 (100%). Net 9 SKIP closures this session:
 
   `compositor_test` 189→192 (TR-52, TR-53, L2EQ-01).
 
+* **2026-07-23 (GH #73) — NR 0x15 per-scanline replay (G02) WIRED; was
+  dormant.** `Renderer::write_nr15` / `start_frame_nr15` /
+  `apply_changes_for_line_nr15` existed with ZERO callers — only the
+  change-log type had been built, never the wiring, so a mid-frame
+  NR 0x15 write (layer priority b4:2 / sprite enable b0) collapsed to
+  the frame-end value. Now wired end to end: the NR 0x15 dispatcher
+  calls `write_nr15`, `Emulator::begin_new_frame` calls
+  `start_frame_nr15`, `on_scanline` tags, and `render_frame` does the
+  standard rewind/apply/flush. The line-by-line audit of the dormant
+  code found it was missing the vblank drain every sibling log has —
+  `flush_remaining_changes_nr15()` added (a one-time NR 0x15 write
+  during vblank was otherwise lost forever). The sprite render gate in
+  `render_row` now consumes the per-line-replayed `sprite_en_` instead
+  of the engine's end-of-frame live flag (VHDL zxnext.vhd:6819/
+  6906-6907/6934/7118 — sprites.vhd has no b0 input; the pixel gate
+  lives in the video pipeline). New Group PSCAN sub-group **G02**
+  rows PSCAN-G02-01..05 (see below) drive the real `render_frame` end
+  to end; each was mutation-tested (unwired apply / zeroed baseline /
+  removed flush / reverted gate / reordered cap check — each target
+  row red, restore green). `compositor_test` 225→230.
+
 ---
 
 **Pre-Task 8 baseline (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**
@@ -759,6 +780,39 @@ directly, bypassing `composite_one()`, so the snapshot they
 deliberately withhold for the "before" assertion stays withheld.
 TR-52/53 sidesteps `composite_one()` for the same reason by calling
 `r.render_row()` directly instead.
+
+#### PSCAN sub-group G02 — NR 0x15 change-log replay CONSUMPTION (GH #73, wired 2026-07-23)
+
+Unlike the G04/G11 bookkeeping rows above, these drive the real
+`Renderer::render_frame` end to end (the PSCAN-05 recipe: Ram/Rom/Mmu +
+ULA ink screen + Layer 2 fill), so an unwired apply/flush, a dead
+baseline snapshot, or a frame-end live read at the sprite render gate
+is an observable pixel difference. VHDL: NR 0x15 write capture at
+`zxnext.vhd:5229-5234`; b4:2 and b0 are latched into the video pipeline
+every pixel clock (`6799 layer_priorities_0`, `6819 sprite_en_0` →
+`6906-6907` → consumed at `7216 case layer_priorities_2` and `6934
+sprite_pixel_en_1a and sprite_en_1` → `7118`), so a mid-frame write
+takes effect at raster granularity — per-line under jnext's model.
+Bit ownership decision (documented at the emulator's NR 0x15 dispatch):
+the log applies ONLY b4:2 + b0; b7 stays with the LoRes per-line
+snapshot (GH #63 — exactly one mechanism drives b7 per line); b6/b5/b1
+stay SpriteEngine live state at frame granularity.
+
+| ID           | Title                                                        | Stimulus                                                                                                     | Expected                                                                                                        | VHDL                        |
+|--------------|--------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|-----------------------------|
+| PSCAN-G02-01 | Mid-frame priority change through render_frame               | Baseline USL (0x10); logged write SLU (0x00) tagged line 100; render_frame with opaque ULA + L2               | Rows <100 composite USL (ULA wins); rows >=100 composite SLU (L2 wins)                                          | 6799, 7216-7290             |
+| PSCAN-G02-02 | Cross-frame persistence, no rewrite                          | Frame F: baseline SLU, write USL at line 100, render; frame F+1: start_frame_nr15 only, render                | F: rows <100 L2, >=100 ULA; F+1: ALL rows ULA (persisted nonzero value — a reset-to-default baseline fails)     | 5229-5234 (register holds)  |
+| PSCAN-G02-03 | Vblank write survives via flush (audit finding: no flush)    | Baseline SLU; write 0x11 (USL+b0) tagged line 300 (>= FB_HEIGHT); render; start_frame_nr15; render again      | F visible rows all SLU; live state after F = 0x11 (prio 4, sprite_en); F+1 rows composite USL                   | 5229-5234; sibling flush    |
+| PSCAN-G02-04 | Sprite enable b0 per-line at render gate + compositor        | 16px sprite spanning line 100; b0=1 at frame start, b0=0 written at line 100; engine live flag ends FALSE     | Sprite rows 90..99 show sprite pixels, rows 100..105 show ULA; a frame-end live read at either stage blanks all | 6819, 6906-6907, 6934, 7118 |
+| PSCAN-G02-05 | Change-log cap + warn latch + live tracking past cap         | MAX_NR15_CHANGES_PER_FRAME+1 writes; one more write past cap; start_frame_nr15                                | Log caps at MAX; warn latch fires once, persists, re-arms at start_frame; live state tracks writes past the cap | (jnext log infrastructure)  |
+
+Mutation evidence (2026-07-23, each restored to green): unwiring
+`apply_changes_for_line_nr15` from `render_frame` → G02-01 red;
+zeroing the `start_frame_nr15` baseline snapshot → G02-02 red;
+removing the `flush_remaining_changes_nr15` call → exactly G02-03 red;
+reverting the `render_row` gate to the engine's live
+`sprites_visible()` → exactly G02-04 red; gating the live update
+behind the cap check → exactly G02-05 red.
 
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 

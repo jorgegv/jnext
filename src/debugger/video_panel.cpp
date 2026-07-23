@@ -178,6 +178,7 @@ static void replay_rewind(Emulator& emu)
     emu.ula().palsel_rewind_to_baseline();     // ULA active-palette selector
     emu.tilemap().rewind_nr6b_to_baseline();   // NR 0x6B
     emu.mmu().attr_mux_rewind_to_baseline();   // G12 Nirvana-class attribute mux
+    emu.renderer().rewind_to_baseline_nr15();  // G02 NR 0x15 priority/sprite-en
 }
 
 static void replay_line(Emulator& emu, int row)
@@ -190,6 +191,7 @@ static void replay_line(Emulator& emu, int row)
     emu.ula().palsel_apply_changes_for_line(row);
     emu.tilemap().apply_nr6b_changes_for_line(row);
     emu.mmu().attr_mux_apply_line(row);        // G12 Nirvana-class attribute mux
+    emu.renderer().apply_changes_for_line_nr15(row);  // G02 NR 0x15
 }
 
 static void replay_restore(Emulator& emu)
@@ -202,6 +204,7 @@ static void replay_restore(Emulator& emu)
     emu.ula().palsel_flush_remaining_changes();
     emu.tilemap().flush_remaining_nr6b_changes();
     emu.mmu().attr_mux_flush_remaining();  // G12 Nirvana-class attribute mux
+    emu.renderer().flush_remaining_changes_nr15();  // G02 NR 0x15
 }
 
 VideoLayerView::VideoLayerView(Layer layer, const char* title,

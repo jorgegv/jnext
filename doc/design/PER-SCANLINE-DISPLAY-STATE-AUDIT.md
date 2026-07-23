@@ -41,6 +41,7 @@ need to be accurate for high-fidelity demos like Nirvana.
 | ULA enabled (NR 0x68 bit 7) | `ula_enabled_per_line_` snapshot | Renderer | UDIS-01/02 |
 | Tilemap scroll X/Y (NR 0x2F/0x30/0x31) | `scroll_x/y_per_line_` snapshot | Tilemap | core |
 | **Palette (NR 0x40/0x41/0x44)** | **change-log + replay (32 KB cap)** | PaletteManager | beast.nex |
+| NR 0x15 b4:2 layer priority + b0 sprite enable | `write_nr15` change-log + replay (1024 cap) — wired 2026-07-23 (GH #73; rows PSCAN-G02-01..05) | Renderer | beast.nex (0x80↔0x01 toggle) |
 
 ## Categories of missing coverage
 
@@ -53,7 +54,7 @@ Pure log-pattern clones of the palette work. Each is a small task
 |---|---|---|---|---|
 | ~~**NR 0x16 / 0x17 / 0x71** Layer 2 X/Y scroll~~ | ~~`Layer2::set_scroll_*`~~ | **DONE 2026-04-26** — Beast.nex bottom-band parallax (5-strip Copper writes at scanlines 163/165/169/173/179, progressively higher speeds via `Beast/scroll.asm`). Pattern: `Layer2::start_frame/set_current_line/rewind_to_baseline/apply_changes_for_line` mirrors the palette path. Test: `layer2_test` G10 (10 rows). | beast.nex (live) | DONE |
 | **NR 0x68** other bits | [emulator.cpp:823](src/core/emulator.cpp#L823) | bit 7 done; bit 0 (ULA fine-X), bits 6:5 (blend mode UDIS-03), bit 3 (ULA+ en gate) all renderer-relevant | UDIS variants, ULA+ split-screen demos | S |
-| **NR 0x15** sprite/LoRes/priority bits | [emulator.cpp:434](src/core/emulator.cpp#L434) | beast actually toggles `0x80`/`0x01` mid-frame for what looks like a Copper-driven layer split; impact unverified | beast.nex (cosmetic?), parallax.nex | S |
+| ~~**NR 0x15** sprite/LoRes/priority bits~~ | ~~NR 0x15 dispatcher~~ | **DONE 2026-07-23 (GH #73)** — b4:2 layer priority + b0 sprite enable via `Renderer::write_nr15` change-log (the class existed dormant since G02; wiring + vblank flush + per-line sprite render gate landed together). b7 was already per-line via the LoRes snapshot (GH #63); b6/b5/b1 remain frame-granularity SpriteEngine state. Rows PSCAN-G02-01..05. | beast.nex (0x80↔0x01 toggle) | DONE |
 | **NR 0x14** global transparency | [emulator.cpp:322](src/core/emulator.cpp#L322) | Mid-frame transparency change → sky-vs-foreground colour-key effects | unknown | S |
 | **NR 0x4B / 0x4C** sprite / tilemap transparency index | [emulator.cpp:360,365](src/core/emulator.cpp#L360-L365) | Mid-frame transparency-index swap for layer-mask effects | unknown | S |
 | **NR 0x18 / 0x19 / 0x1A / 0x1B** clip windows | [emulator.cpp:445+](src/core/emulator.cpp) (rotating 4-write) | Split-screen / picture-in-picture by re-clipping a layer mid-frame | TBD | M (rotating index complicates the log) |
@@ -115,8 +116,10 @@ By **likelihood of being needed** based on demos we already care about:
    work; ~1 h end-to-end including tests + audit doc closure.
 2. **NR 0x68 other bits** — UDIS-03 already partially closed; bit 0
    (fine-X) is the obvious next gap if any demo uses fine-X mid-frame.
-3. **NR 0x15** — beast Copper toggles this. Visual impact unverified;
-   re-snap beast with NR 0x15 logged before deciding to flip.
+3. ~~**NR 0x15**~~ **DONE 2026-07-23 (GH #73)** — the dormant G02
+   change-log class is wired (b4:2 priority + b0 sprite enable per
+   line; vblank flush added; sprite render gate per-line). beast's
+   `0x80`/`0x01` Copper toggle now resolves per scanline.
 4. Wait for a real demo driver before tackling anything else in
    Category A — see "By demo, not by completeness" below.
 5. Category B (Nirvana / BIFROST*2 / multicolour) — only when a

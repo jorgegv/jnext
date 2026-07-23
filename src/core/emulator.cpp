@@ -1820,14 +1820,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 4:2 = layer priority (SLU/LSU/SUL/LUS/USL/ULS)
     //   bit 1 = sprites over border
     //   bit 0 = sprites visible
+    // Per-line granularity decision (G02, GH #73 — VHDL zxnext.vhd:5229-5234
+    // decomposes the write into six registers, each with its own consumer):
+    //   b7 lores_en        — per-line via the LoRes narrow snapshot (GH #63,
+    //                        Lores::init_per_line/snapshot; VHDL 6817 latches
+    //                        lores_en every CLK_14).  The NR 0x15 change log
+    //                        below deliberately does NOT apply b7: exactly ONE
+    //                        mechanism drives b7 per line.
+    //   b6 zero_on_top, b5 border_clip_en, b1 over_border
+    //                      — SpriteEngine live state, frame granularity
+    //                        (unchanged; outside the renderer-owned log).
+    //   b4:2 layer_priority, b0 sprite_en
+    //                      — Renderer per-scanline change log (write_nr15):
+    //                        VHDL latches them into the video pipeline every
+    //                        pixel clock (6799 layer_priorities_0, 6819
+    //                        sprite_en_0), so a mid-frame write takes effect
+    //                        at raster granularity — per-line in jnext's
+    //                        model.  render_frame rewinds/applies/flushes.
+    //   b0 additionally mirrors into SpriteEngine::sprites_visible_ (live)
+    //   for the NR read-back path and save-state; the render gate itself
+    //   consumes the per-line-replayed Renderer::sprite_en_ (renderer.cpp).
     nextreg_.set_write_handler(0x15, [this](uint8_t v) -> uint8_t {
         renderer_.lores().set_enabled((v & 0x80) != 0);  // VHDL 5229, gate at 6933
         sprites_.set_zero_on_top((v & 0x40) != 0);
         sprites_.set_border_clip_en((v & 0x20) != 0);  // bit 5 — VHDL sprites.vhd 1044
         sprites_.set_over_border((v & 0x02) != 0);
         sprites_.set_sprites_visible((v & 0x01) != 0);
-        renderer_.set_sprite_en((v & 0x01) != 0);      // VHDL 6934/7118
-        renderer_.set_layer_priority((v >> 2) & 0x07);
+        renderer_.write_nr15(v);   // b0 + b4:2, per-line log — VHDL 6799/6819/6934/7216
         return v;
     });
     // VHDL zxnext.vhd:5939 — NR 0x15 read composes:
@@ -6714,6 +6733,13 @@ void Emulator::begin_new_frame()
     mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
                               video_timing_.vblank_top());
 
+    // Per-scanline NR 0x15 change log (G02, GH #73) — baseline snapshot +
+    // log reset, so a Copper/CPU mid-frame write to layer priority (b4:2)
+    // or sprite enable (b0) takes effect from the following scanline
+    // (VHDL zxnext.vhd:6799/6819 latch both into the video pipeline every
+    // pixel clock). beast.nex toggles NR 0x15 0x80<->0x01 mid-frame.
+    renderer_.start_frame_nr15();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 }
@@ -6931,9 +6957,10 @@ void Emulator::run_frame()
     //    mutable, sprites.h:449-450)         | run_sprite_side_effects() below
     //   ULA flash counter (advance_flash)    | emulated-time state — advanced
     //                                        | explicitly below
-    //   per-scanline change-log lifecycles   | sprites: full rewind/apply/flush
-    //   (palette/L2/sprites/ULA×3/tilemap-   | via the side-effect pass; all
-    //    NR6B/attr-mux rewind+apply+flush)   | others dropped — benign,
+    //   per-scanline change-log lifecycles   | sprites + NR15: full rewind/
+    //   (palette/L2/sprites/ULA×3/tilemap-   | apply/flush via the side-effect
+    //    NR6B/attr-mux/NR15 rewind+apply+    | pass; all
+    //    flush)                              | others dropped — benign,
     //                                        | display-only: live state was
     //                                        | mutated directly by the writers
     //                                        | and the next begin_new_frame()
@@ -8433,6 +8460,8 @@ void Emulator::on_scanline(int line)
     // G12 — tag subsequent attribute-plane writes with this scanline
     // (framebuffer-row space, matching every sibling log above).
     mmu_.attr_mux_set_current_line(tag);
+    // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).
+    renderer_.set_current_line_nr15(tag);
 }
 
 void Emulator::on_vsync()

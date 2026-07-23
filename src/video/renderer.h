@@ -191,27 +191,29 @@ public:
     bool sprite_en() const { return sprite_en_; }
 
     // -----------------------------------------------------------------
-    // Per-scanline NR 0x15 snapshot (G02 — driver-side infrastructure)
+    // Per-scanline NR 0x15 change log (G02 — wired 2026-07-23, GH #73)
     // -----------------------------------------------------------------
     //
     // Mirrors PaletteManager / Layer2 per-scanline change-log idiom.
-    // VHDL zxnext.vhd:5232 (write capture), 6799 (per-line latch oracle).
-    // Required by demos that toggle layer-priority / sprite-en mid-frame
-    // via Copper to multiplex L2/sprite z-orders per band.
+    // VHDL zxnext.vhd:5229-5234 (write capture), 6799/6819 (per-line
+    // latch into layer_priorities_0 / sprite_en_0).  Required by demos
+    // that toggle layer-priority / sprite-en mid-frame via Copper to
+    // multiplex L2/sprite z-orders per band (beast.nex toggles NR 0x15
+    // between 0x80 and 0x01 mid-frame).
     //
     // Writes to NR 0x15 land via `write_nr15(byte)` (single-call form);
     // the byte is also decomposed into `layer_priority_` / `sprite_en_`
-    // for the legacy live-state callers (compositor priority lookup).
+    // for the legacy live-state callers (NR 0x15 read handler, debugger).
     //
-    //   renderer.start_frame_nr15();              // emulator at frame start
+    //   renderer.start_frame_nr15();              // Emulator::begin_new_frame
+    //   renderer.set_current_line_nr15(tag);      // Emulator::on_scanline
     //   …                                         // emulation runs; NR 0x15
     //                                             // writes append to log
     //                                             // tagged with current_line
-    //   renderer.rewind_to_baseline_nr15();       // before render_frame
-    //   for row in 0..H:
-    //       renderer.apply_changes_for_line_nr15(row);
-    //       …                                     // composite pixel sees
-    //                                             // per-line layer_priority
+    //   render_frame() then internally does (same as every sibling log):
+    //     rewind_to_baseline_nr15();
+    //     for row in 0..H: apply_changes_for_line_nr15(row); render_row(row);
+    //     flush_remaining_changes_nr15();         // drain vblank-tagged writes
 
     /// NR 0x15 raw write — VHDL zxnext.vhd:5229-5234.
     /// Captures bit 0 (sprite_en) + bits 4:2 (layer_priority) into the
@@ -243,6 +245,15 @@ public:
     /// Apply all logged NR 0x15 changes whose line tag equals `line`.
     /// Cursor monotonically advanced.
     void apply_changes_for_line_nr15(int line);
+
+    /// Apply every remaining logged NR 0x15 entry regardless of line tag.
+    /// Called after the per-line render loop so writes tagged in vblank
+    /// (line >= FB_HEIGHT) still update the live state — without this
+    /// they are lost forever (rewind undid the direct live mutation, the
+    /// visible-row replay never matches them, and the next frame's
+    /// start_frame_nr15() snapshots a baseline missing them).  Mirrors
+    /// PaletteManager::flush_remaining_changes.
+    void flush_remaining_changes_nr15();
 
     /// Number of NR 0x15 changes recorded this frame (diagnostic).
     size_t nr15_change_log_size() const { return nr15_change_count_; }
