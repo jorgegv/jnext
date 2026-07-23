@@ -25,7 +25,22 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=38
+EXPECTED_TOTAL=39
+
+# Per-invocation bound on every end-to-end run of a REAL script (GH #81).
+# run_harness and run_preflight each execute a real harness end to end, and a
+# hanging fault anywhere in one — a slow cleanup body, a slow injected fault —
+# used to hang this whole self-test at its first row, long before the bounded
+# HS-43 probes were even reached (GH #79's verifiers had to shrink that
+# issue's literal `sleep 300` to keep mutation testing tractable). Bounded per
+# invocation, a hang is one loud rc=124 FAIL at the affected row (check()
+# prints the rc) and the run continues. 30 s is ~14x the slowest legitimate
+# invocation measured on the dev box (HS-04 at ~2.1 s, floor-bound by its own
+# 2 s suite timeout; every other invocation is < 0.3 s) — wide on purpose,
+# this project has been burned by tight wall-clock budgets on loaded boxes.
+# HS-44 proves the bound fires; INVOKE_TIMEOUT_OVERRIDE is its hook (same
+# pattern as HS-04's TIMEOUT_OVERRIDE) so proving it costs ~3 s, not 30.
+INVOKE_TIMEOUT=30
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -63,6 +78,7 @@ manifest_pinned() {
 
 run_harness() {
     JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_SUITE_TIMEOUT="${TIMEOUT_OVERRIDE:-300}" \
+        timeout --kill-after=5s "${INVOKE_TIMEOUT_OVERRIDE:-$INVOKE_TIMEOUT}s" \
         bash "$HARNESS" "$T/build" 2>&1
 }
 
@@ -326,6 +342,56 @@ out=$(run_harness); rc=$?
 check "HS-27" "manifest/build AGREEMENT is never reported as drift (no SIGPIPE race)" 0 $rc "$out" \
     "Total: 10  Passed: 10  Failed: 0  Skipped: 0" "Suites: 1 pass, 0 fail"
 
+# ------------------------------------- the per-invocation bound itself (GH #81)
+# Every row above and every preflight row below runs a REAL script end to end,
+# and the `timeout` inside run_harness/run_preflight is what keeps a hanging
+# fault — a slow cleanup body, a slow injected fault — down to one loud rc=124
+# FAIL instead of hanging this whole self-test at that row. A guard that
+# cannot be shown to fire is not a guard, so: drive run_harness ITSELF (the
+# real wrapper, not a copy of its invocation — a copy would stay green with
+# the wrapper deleted) against a stub that sleeps far longer than every bound
+# in play, and assert the row comes back 124, fast, and the self-test
+# continues — HS-21 and everything after it still running IS the
+# continuation claim.
+#
+# INVOKE_TIMEOUT_OVERRIDE=3 (HS-04's TIMEOUT_OVERRIDE pattern) keeps this row
+# at ~3 s instead of 30. The OUTER `timeout 15s` is what lets the row report
+# the very defect it guards against: with the inner wrapper removed,
+# run_harness blocks until the harness's suite timeout — the outer bound
+# kills it at 15 s and the row FAILs loudly, bounded, instead of this
+# self-test hanging. rc alone cannot tell the two apart (either timeout
+# yields 124), so the discriminator is WALL TIME: inner path ~3 s, outer path
+# ~15 s, threshold 8 s — the same generous-headroom reasoning as HS-42's.
+# The exports live inside the $( ) subshell and die with it; run_harness is
+# exported as a function so the outer `timeout` (which cannot run a shell
+# function) can reach it through `bash -c`.
+#
+# The bound ordering is deliberate, all four ways:
+#   inner 3 s  <  threshold 8 s  <  outer 15 s  <  suite TIMEOUT_OVERRIDE 20 s
+# so only the inner bound can produce fast=y, and with the inner wrapper
+# removed the outer fires before the suite timeout can dress the hang up as
+# an ordinary rc=1 "TIMED OUT" report. The suite timeout is overridden (and
+# the stub's sleep finite) for hygiene, not semantics: each GNU `timeout`
+# setpgid()s its command into a NEW process group, so the harness's
+# suite-level `timeout` ESCAPES the invoke-level kill — the killed group is
+# the harness's, and the {suite-timeout, stub, sleep} trio survives it,
+# reparented to init, holding no fd of ours (the suite's stdout is a file,
+# not this row's pipe — the capture returns promptly). It self-terminates
+# when the suite timeout fires, so 20 s bounds the litter at ~17 s where the
+# 300 s default would leave a sleeping trio behind for 5 minutes.
+stub hang44_test -1 0 'sleep 60'
+register hang44_test
+manifest "hang44_test 10"
+t0=$(date +%s%N)
+out=$( export -f run_harness; export T HARNESS INVOKE_TIMEOUT
+       timeout --kill-after=5s 15s \
+           bash -c 'TIMEOUT_OVERRIDE=20 INVOKE_TIMEOUT_OVERRIDE=3 run_harness' ); rc=$?
+t1=$(date +%s%N)
+elapsed=$(( (t1 - t0) / 1000000 ))          # ms
+fast=y; [[ "$elapsed" -gt 8000 ]] && fast=n
+check "HS-44" "a hanging REAL-script invocation is bounded: rc=124, fast, run continues (GH #81)" 0 0 \
+    "rc=$rc fast=$fast elapsed=${elapsed}ms" "rc=124 fast=y"
+
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).
 # It had ZERO test coverage, and that is precisely where two guards shipped DEAD: a grep
@@ -337,6 +403,7 @@ REG_FUNC="$PROJECT_DIR/test/00regression/functional_tests.conf"
 
 run_preflight() {   # run_preflight <conf> <func_conf>
     JNEXT_REGRESSION_CONF="$1" JNEXT_REGRESSION_FUNC_CONF="$2" \
+        timeout --kill-after=5s "${INVOKE_TIMEOUT_OVERRIDE:-$INVOKE_TIMEOUT}s" \
         bash "$REG" --preflight-only 2>&1
 }
 
@@ -374,12 +441,13 @@ check "HS-31" "regression preflight: a declared functional test with NO script i
 
 # a stray scripts/*.sh not declared in the conf — a test dropped from the manifest
 # while its script lives on. Injected via a copy of the real scripts directory so
-# the real tree is never touched.
+# the real tree is never touched. Goes through run_preflight (the env prefix is
+# exported to its children for the call), so it gets the same invocation bound
+# as every other preflight row.
 mkdir -p "$T/scripts"
 cp "$PROJECT_DIR"/test/00regression/scripts/*.sh "$T/scripts/"
 echo '#!/usr/bin/env bash' > "$T/scripts/bogus-func.sh"
-out=$(JNEXT_REGRESSION_CONF="$REG_CONF" JNEXT_REGRESSION_FUNC_CONF="$REG_FUNC" \
-      JNEXT_REGRESSION_SCRIPTS_DIR="$T/scripts" bash "$REG" --preflight-only 2>&1); rc=$?
+out=$(JNEXT_REGRESSION_SCRIPTS_DIR="$T/scripts" run_preflight "$REG_CONF" "$REG_FUNC"); rc=$?
 check "HS-32" "regression preflight: a stray scripts/*.sh not declared in the conf is refused" 2 $rc "$out" \
     "HARNESS FAULT" "bogus-func" "NOT declared"
 
