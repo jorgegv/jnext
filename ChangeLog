@@ -1,5 +1,15 @@
 # ChangeLog
 
+## Unreleased (2026-07-23)
+
+### Bug Fixes
+- Windows: file paths with non-ASCII characters now work for loading, screenshots, SD images and recording
+- Mid-frame NR $15 layer-priority changes now render per scanline instead of at frame-end value
+- Sprite tie: NR $34 no longer clobbers the pattern bit; port-to-mirror reverse sync implemented
+
+### Internal JNEXT Development
+- Harness self-tests extended: real cleanup bodies, packaging failure-path reporting, bounded selftest invocations
+
 ## v0.99.0 (2026-07-23)
 
 ### User Features
