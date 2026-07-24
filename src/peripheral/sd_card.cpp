@@ -771,9 +771,16 @@ void SdCardDevice::cmd17_read_single_block() {
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     file_.read(reinterpret_cast<char*>(data_block_), 512);
 
-    // Response: NCR×2 + R1 (0x00 = OK), then 0xFE data start token, then 512
-    // bytes. Task 26 item 1 (2 NCR bytes) + item 3 (real CRC computed below).
-    resp_buf_ = { kIdle, kIdle, 0x00, 0xFE };
+    // Response: NCR×2 + R1 (0x00 = OK), then ≥1 idle byte (Nac — SD Physical
+    // Layer Simplified Spec § 7.5.2: the card needs read-access time between
+    // the R1 response and the start-of-block token; real cards ALWAYS insert
+    // 0xFF filler here), then the 0xFE data start token, then 512 bytes.
+    // GH #84: with zero gap, a host that clocks one flush byte after latching
+    // R1 (Atic Atac Next's command sender does) swallowed the token and its
+    // token-poll then consumed the whole first block, shifting the entire
+    // CMD17/CMD18 delivery one sector early. Task 26 item 1 (2 NCR bytes) +
+    // item 3 (real CRC computed below).
+    resp_buf_ = { kIdle, kIdle, 0x00, kIdle, 0xFE };
     resp_idx_ = 0;
     data_idx_ = 0;
     data_crc_count_ = 0;
@@ -815,10 +822,12 @@ void SdCardDevice::cmd18_read_multiple_block() {
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     file_.read(reinterpret_cast<char*>(data_block_), 512);
 
-    // First-block response is the normal CMD17 shape: NCR×2 + R1 + token +
-    // 512 + CRC.  Subsequent blocks emitted in send() skip NCR/R1 and
-    // send only token + 512 + CRC. Task 26 item 1 (2 NCR) + item 3 (CRC).
-    resp_buf_           = { kIdle, kIdle, 0x00, 0xFE };
+    // First-block response is the normal CMD17 shape: NCR×2 + R1 + Nac gap
+    // byte + token + 512 + CRC (see cmd17_read_single_block for the § 7.5.2
+    // rationale — GH #84 root cause).  Subsequent blocks emitted in send()
+    // skip NCR/R1 and send one 0xFF filler + token + 512 + CRC.
+    // Task 26 item 1 (2 NCR) + item 3 (CRC).
+    resp_buf_           = { kIdle, kIdle, 0x00, kIdle, 0xFE };
     resp_idx_           = 0;
     data_idx_           = 0;
     data_crc_count_     = 0;
