@@ -1,5 +1,17 @@
 # Known Functionality Gaps and Proposed Implementation Plan
 
+> **HISTORICAL RECORD — FROZEN. This document is NOT a tracker.**
+> Point-in-time gap audit authored 2026-04-26, last updated 2026-07-15, frozen
+> 2026-07-24 by the GH issue #87 audit. That audit verified all 173 G-entries
+> against the tree: all but six are shipped, superseded by a GitHub issue, or
+> explicitly WONT — including every entry the summary table below still lists
+> as open. **Do not trust any status below as current, and do not add, update,
+> or renumber entries.** Pending work lives exclusively in GitHub issues
+> (<https://github.com/jorgegv/jnext/issues>); the six live residuals found by
+> the audit were filed as issues #89–#94. The file stays at this path because
+> src/, test/ and plan docs cite its G-numbers (G12, G16, G49, G66, G122,
+> G155, G163, …) as an ID glossary and WONT-rationale record.
+
 Authored 2026-04-26. Aggregates known-but-deferred functionality gaps
 across the JNEXT ZX Spectrum Next emulator. Sourced from 4 parallel
 section scans (A: Video & GUI; B: Audio & peripherals; C:

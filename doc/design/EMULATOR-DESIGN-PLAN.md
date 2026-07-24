@@ -1115,7 +1115,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
   Post-ULA-closure re-home spinoffs — subsystems spun out of `ula_test` with their own plan docs:
   - [x] Floating Bus — 32/32 pass (closed 2026-04-25). Plan [TASK-FLOATING-BUS-PLAN.md](TASK-FLOATING-BUS-PLAN.md).
-  - [x] Contention — 68/68 pass (closed 2026-04-26 via 3-phase wave). Runtime wiring residual tracked as G50/G141/G142 in [doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](../issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md). Plan [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md).
+  - [x] Contention — 68/68 pass (closed 2026-04-26 via 3-phase wave). Runtime wiring residuals all closed (G50/G141 2026-05-01; G142 bus-idle commit landed — historical entries in the frozen [doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](../issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)). Plan [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md).
   - [x] VideoTiming Expansion — 22/22 pass (closed 2026-04-26). Plan [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md).
 
 - [x] **Reduce SKIPs Wave 2 - Implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`. As of 2026-07-15 the unit suites carry ZERO SKIPs: the 3 G67 rewind_test rows became real rows (Task 60b), and the 7 G66 SS-VER rows were removed — the Next-specific snapshot schema does not exist (only NEX does), so it was reclassified from a coverage gap to the Phase 11 "Next-specific snapshot save/load format" item (user decision, 2026-07-15).

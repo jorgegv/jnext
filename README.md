@@ -68,7 +68,7 @@ rough or missing; they are listed, not hidden:
 
 - [GitHub issues](https://github.com/jorgegv/jnext/issues) — known issues and pending features
 - [KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)
-  — every subsystem-level gap, sorted by display impact
+  — historical 2026-04 gap audit (frozen 2026-07-24; anything pending lives in GitHub issues)
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
