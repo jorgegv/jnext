@@ -28,7 +28,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART (integration)    |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card               |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card               |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -78,6 +78,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5562** | **5562** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5564** | **5564** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
