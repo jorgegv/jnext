@@ -124,6 +124,8 @@ debugger ones.
 
 **\--record** *FILE*
 :   Record video and audio to an MP4. Requires **ffmpeg**(1) on the PATH.
+    If the recording cannot be produced (encoder failure, no usable
+    output), **jnext** reports the error and exits non-zero.
 
 **\--wav-record** *FILE*
 :   Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV. Works
@@ -610,7 +612,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 **jnext** exits 0 on success and non-zero on error. In particular it exits
 non-zero when a **\--delayed-screenshot** was requested but never taken,
-rather than silently writing nothing.
+rather than silently writing nothing, and likewise when a **\--record**
+recording fails to materialize as a usable output file.
 
 # SEE ALSO
 

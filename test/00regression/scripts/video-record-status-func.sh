@@ -64,16 +64,35 @@ if want video-record-status-func; then
         empty_rc=$?
     fi
 
+    # Leg 5 (review round 1, required item 2): the stale-target-removal
+    # branch (video_recorder.cpp fs::remove error path). Point --record at a
+    # NON-EMPTY DIRECTORY: fs::remove fails ENOTEMPTY before any encoder is
+    # consulted, the recorder must report "cannot replace output file" and
+    # the process must exit non-zero, leaving the directory untouched.
+    dir_target="$TMP_DIR/jnext_test_dir_target.mp4"
+    mkdir -p "$dir_target"
+    printf 'occupied\n' > "$dir_target/keep.txt"
+    if dir_out=$(PATH="$fake_bin:/usr/bin:/bin" \
+        timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --record "$dir_target" \
+        --delayed-automatic-exit-frames 5 2>&1); then
+        dir_rc=0
+    else
+        dir_rc=$?
+    fi
+
     if [[ "$success_rc" -eq 0 && -s "$success_file" \
           && "$start_rc" -ne 0 && ! -e "$start_file" \
           && "$failed_rc" -ne 0 && ! -s "$failed_file" \
-          && "$empty_rc" -ne 0 && ! -s "$empty_file" ]] \
+          && "$empty_rc" -ne 0 && ! -s "$empty_file" \
+          && "$dir_rc" -ne 0 && -f "$dir_target/keep.txt" ]] \
         && grep -qF "Failed to start recording" <<< "$start_out" \
         && grep -qF "FFmpeg encoding failed" <<< "$failed_out" \
-        && grep -qF "reported success but produced no usable output" <<< "$empty_out"; then
-        pass_row " (success exits 0; start, encode and empty-output failures exit non-zero)"
+        && grep -qF "reported success but produced no usable output" <<< "$empty_out" \
+        && grep -qF "cannot replace output file" <<< "$dir_out"; then
+        pass_row " (success exits 0; start, encode, empty-output and stale-removal failures exit non-zero)"
     else
-        fail_row " (success_rc=$success_rc success_size=$([[ -s "$success_file" ]] && echo nonzero || echo zero) start_rc=$start_rc fail_rc=$failed_rc empty_rc=$empty_rc)"
+        fail_row " (success_rc=$success_rc success_size=$([[ -s "$success_file" ]] && echo nonzero || echo zero) start_rc=$start_rc fail_rc=$failed_rc empty_rc=$empty_rc dir_rc=$dir_rc)"
     fi
 fi
 
