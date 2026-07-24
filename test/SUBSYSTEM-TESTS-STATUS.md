@@ -46,9 +46,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (host gain)     |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -68,13 +69,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5505** | **5502** |  **0** |   **3** | **99%** | 🟡 3 test(s) skipped. |
+| **Total**             | **5529** | **5526** |  **0** |   **3** | **99%** | 🟡 3 test(s) skipped. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

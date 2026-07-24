@@ -86,6 +86,10 @@ _Reviewed at commit `<sha>` on `<date>`. Verdict: **APPROVE / REJECT**._
 - Non-compliance is a **REJECT** with the failing rule cited; compliance is
   required before merge.
 - The checklist above is added or refreshed as part of every review.
+- **Author agreement is implied by submission** (owner decision, 2026-07-24):
+  a PR *is* a request to merge. Once the maintainer review is green (APPROVE,
+  including any owner sign-offs this document requires), the PR is merged
+  immediately — the contributor is never asked to confirm the merge.
 - The rest of the landing flow (branch, green test triplet, independent review,
   bump) follows [../CLAUDE.md](../CLAUDE.md) → "Merging a completed feature/fix
   to `main`".
