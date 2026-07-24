@@ -962,13 +962,17 @@ void SdCardDevice::cmd9_send_csd() {
         0x0A, 0x40, 0x00, 0x01
     };
 
-    // Response: NCR×2 + R1(0x00) + token(0xFE) + 16 CSD bytes + 2 CRC bytes.
+    // Response: NCR×2 + R1(0x00) + ≥1 idle Nac gap byte + token(0xFE) +
+    // 16 CSD bytes + 2 CRC bytes. GH #98: same SD Physical Layer Simplified
+    // Spec § 7.5.2 contract as CMD17/CMD18 (GH #84) — real cards always
+    // insert read-access filler between R1 and the start-of-block token.
     // Task 26 item 1 (2 NCR) + item 3 (real CRC-16 over the 16 data bytes).
     const uint16_t crc = sd_crc16(csd, sizeof(csd));
     resp_buf_.clear();
     resp_buf_.push_back(kIdle);  // NCR 1
     resp_buf_.push_back(kIdle);  // NCR 2
     resp_buf_.push_back(0x00);  // R1: ready
+    resp_buf_.push_back(kIdle); // Nac gap (§ 7.5.2, GH #98)
     resp_buf_.push_back(0xFE);  // start-of-data token
     for (auto b : csd) resp_buf_.push_back(b);
     resp_buf_.push_back(static_cast<uint8_t>(crc >> 8));   // CRC16 high
@@ -1017,13 +1021,15 @@ void SdCardDevice::cmd10_send_cid() {
         0x78, 0x01, 0xA5, 0x01
     };
 
-    // NCR×2 + R1 + token + 16 CID bytes + 2 CRC bytes. Task 26 item 1 (2
-    // NCR) + item 3 (real CRC-16 over the 16 data bytes).
+    // NCR×2 + R1 + ≥1 idle Nac gap byte + token + 16 CID bytes + 2 CRC
+    // bytes (§ 7.5.2, GH #98 — see cmd9_send_csd). Task 26 item 1 (2 NCR)
+    // + item 3 (real CRC-16 over the 16 data bytes).
     const uint16_t crc = sd_crc16(cid, sizeof(cid));
     resp_buf_.clear();
     resp_buf_.push_back(kIdle);  // NCR 1
     resp_buf_.push_back(kIdle);  // NCR 2
     resp_buf_.push_back(0x00);
+    resp_buf_.push_back(kIdle);  // Nac gap (§ 7.5.2, GH #98)
     resp_buf_.push_back(0xFE);
     for (auto b : cid) resp_buf_.push_back(b);
     resp_buf_.push_back(static_cast<uint8_t>(crc >> 8));
