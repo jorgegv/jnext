@@ -12,11 +12,14 @@ Which of these a program can actually use is up to the program and the machine
 it was written for. Stereo separation and channel balance are likewise set by
 the software, not by you — they are properties of the emulated hardware.
 
-**Volume lives on your host**, not in JNEXT: there is no volume slider. The
-only audio control is a complete mute, either **Settings > Preferences >
-Startup > Start muted** or `--silent` on the command line. Muting also skips
-sound synthesis entirely, which speeds up runs that do not need audio. Tape
-loading still works while muted.
+**Settings > Preferences > Audio > Output gain** can trim or boost JNEXT's
+final stereo mix from -24 dB to +24 dB, and `--audio-gain-db DB` provides the
+same control for a single run. The setting applies live and affects playback
+and WAV/video recordings without changing the emulated machine's audio state.
+Complete mute remains available through
+**Settings > Preferences > Startup > Start muted** or `--silent`; muting also
+skips sound synthesis entirely, which speeds up runs that do not need audio.
+Tape loading still works while muted.
 
 ## If the sound stutters or clicks
 

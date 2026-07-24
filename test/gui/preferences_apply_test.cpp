@@ -48,8 +48,12 @@
 // ===========================================================================
 
 #include <QApplication>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QSlider>
 
 #include <cstdio>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -57,6 +61,7 @@
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
 
 namespace {
 
@@ -119,6 +124,7 @@ AppConfigData live_prefs(MachineType type)
     c.machine_type    = type;
     c.cpu_speed       = CpuSpeed::MHZ_14;
     c.tape_fast_load  = false;
+    c.audio_gain_db   = 6.0f;
     c.joy_source[0]   = JoySource::CursorKeys;
     c.joy_source[1]   = JoySource::Sdl;
     return c;
@@ -140,6 +146,7 @@ bool live_applied(Fixture& f)
     return programmed_cpu_speed(f) == static_cast<uint8_t>(CpuSpeed::MHZ_14)
         && f.emu.tape().fast_load() == false
         && f.emu.tzx_tape().fast_load() == false
+        && f.emu.mixer().output_gain_db() == 6.0f
         && f.emu.joystick_source(0) == JoySource::CursorKeys
         && f.emu.joystick_source(1) == JoySource::Sdl;
 }
@@ -149,6 +156,7 @@ std::string live_detail(Fixture& f)
     return "cpuspeed=" + std::to_string(programmed_cpu_speed(f))
          + " tap_fast=" + std::to_string(f.emu.tape().fast_load())
          + " tzx_fast=" + std::to_string(f.emu.tzx_tape().fast_load())
+         + " gain_db=" + std::to_string(f.emu.mixer().output_gain_db())
          + " joy0=" + std::to_string(static_cast<int>(f.emu.joystick_source(0)))
          + " joy1=" + std::to_string(static_cast<int>(f.emu.joystick_source(1)));
 }
@@ -325,6 +333,39 @@ void test_confirm_asked_once()
           "confirms=" + std::to_string(f.confirms.size()));
 }
 
+/// PA-11 — the regular Preferences infrastructure exposes and returns host
+/// gain, rather than leaving it as a CLI-only setting. The control is a
+/// slider whose range is symmetric so the 0 dB default sits centred
+/// (PR #41 review).
+void test_audio_gain_preference_control()
+{
+    AppConfigData initial;
+    initial.audio_gain_db = -7.0f;
+    PreferencesDialog dlg(initial);
+
+    auto* slider = dlg.findChild<QSlider*>(QStringLiteral("audioGainDbSlider"));
+    check("PA-11a", "Preferences exposes the host output gain slider",
+          slider && slider->minimum() == -24 && slider->maximum() == 24);
+    check("PA-11b", "the slider range is symmetric so 0 dB is centred",
+          slider && slider->minimum() == -slider->maximum());
+    check("PA-11c", "the gain control starts from the persisted value",
+          slider && slider->value() == -7);
+
+    bool emitted = false;
+    AppConfigData collected;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&emitted, &collected](const AppConfigData& cfg) {
+                         emitted = true;
+                         collected = cfg;
+                     });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (slider) slider->setValue(6);
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-11d", "Apply returns the edited host gain",
+          emitted && std::abs(collected.audio_gain_db - 6.0f) < 0.001f);
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -341,6 +382,7 @@ int main(int argc, char** argv)
     test_only_accepted_restart_reboots();
     test_machine_menu();
     test_confirm_asked_once();
+    test_audio_gain_preference_control();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

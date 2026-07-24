@@ -1119,6 +1119,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
         emulator_->tape().set_fast_load(cfg.tape_fast_load);
         emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
+        emulator_->mixer().set_output_gain_db(cfg.audio_gain_db);
     }
     if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
 
@@ -1216,7 +1217,8 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
 
     // cfg.silent has no live setter (the SDL audio device is opened once at
     // QtApp::init() time and MainWindow has no handle to it) — persisted
-    // only, applied on next launch. The dialog's tooltip says so.
+    // only, applied on next launch. Host output gain is deliberately different:
+    // apply_startup_config() updates the mixer immediately.
 }
 
 void MainWindow::on_open_preferences() {

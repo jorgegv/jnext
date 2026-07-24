@@ -88,6 +88,10 @@ public:
     using CaptureCallback = std::function<void(const int16_t*, int)>;
     void set_capture_callback(CaptureCallback cb) { capture_callback_ = std::move(cb); }
 
+    /// Host output gain applied after the emulated hardware mix.
+    void set_output_gain_db(float db);
+    float output_gain_db() const { return output_gain_db_; }
+
     /// Wire the I2s source (not owned). When set, generate_sample() adds
     /// the latched 10-bit L/R pair (zero-extended) into the 13-bit sum,
     /// mirroring audio_mixer.vhd:89-90,99-100.
@@ -136,4 +140,8 @@ private:
 
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t mute_mask_{AudioMute::NONE};
+
+    // Host output setting; not emulated machine state.
+    float output_gain_db_{0.0f};
+    float output_gain_{1.0f};
 };

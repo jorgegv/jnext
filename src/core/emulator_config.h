@@ -206,6 +206,9 @@ struct EmulatorConfig {
     // independently of the mixer and is unaffected.
     bool silent = false;
 
+    // Host output gain, applied after the emulated hardware mix.
+    float audio_gain_db = 0.0f;
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;

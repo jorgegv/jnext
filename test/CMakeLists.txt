@@ -377,6 +377,14 @@ target_link_libraries(audio_capture_test PRIVATE
 target_include_directories(audio_capture_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_capture_tests COMMAND audio_capture_test)
 
+add_executable(audio_gain_test audio/audio_gain_test.cpp)
+target_link_libraries(audio_gain_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(audio_gain_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_gain_tests COMMAND audio_gain_test)
+
 # Log change-gate test (Task 24). Drives a real Emulator through the port path
 # and counts the log lines NR 0x07 actually emits. Own binary: the natural home
 # (nextreg_integration_test) has a local fmt() that collides with spdlog's fmt.

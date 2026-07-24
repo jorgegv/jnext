@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFileInfo>
 
+#include <cmath>
+
 namespace {
 
 // Short machine-type codes accepted by core/emulator_config.h's
@@ -81,6 +83,16 @@ void AppConfig::load() {
     }
     settings_.endGroup();
 
+    settings_.beginGroup("audio");
+    {
+        bool ok = false;
+        const double gain_db = settings_.value(
+            "gain_db", static_cast<double>(data_.audio_gain_db)).toDouble(&ok);
+        if (ok && std::isfinite(gain_db) && gain_db >= -24.0 && gain_db <= 24.0)
+            data_.audio_gain_db = static_cast<float>(gain_db);
+    }
+    settings_.endGroup();
+
     settings_.beginGroup("paths");
     data_.last_load_dir  = settings_.value("last_load_dir", data_.last_load_dir).toString();
     data_.sd_card_path   = settings_.value("sd_card_path", data_.sd_card_path).toString();
@@ -117,6 +129,10 @@ void AppConfig::save() const {
     settings_.setValue("crt_filter", data_.crt_filter);
     settings_.setValue("silent", data_.silent);
     settings_.setValue("tape_fast_load", data_.tape_fast_load);
+    settings_.endGroup();
+
+    settings_.beginGroup("audio");
+    settings_.setValue("gain_db", data_.audio_gain_db);
     settings_.endGroup();
 
     settings_.beginGroup("paths");

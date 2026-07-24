@@ -6,10 +6,12 @@
 #include "core/video_recorder.h"
 #include "video/renderer.h"
 #include "version.h"
-#include <csignal>
 #include <cctype>
+#include <cmath>
+#include <csignal>
 #include <cstdlib>
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <type_traits>
@@ -104,6 +106,8 @@ static void print_usage(const char* prog) {
         "  --wav-record FILE        Record mixed stereo audio to a 44.1 kHz PCM WAV;\n"
         "                           works headless and does not require ffmpeg\n"
         "  --dac-trace FILE         Record timestamped physical DAC writes to CSV\n"
+        "  --audio-gain-db DB       Host audio gain in dB (-24..+24, default 0);\n"
+        "                           PCM overflow saturates\n"
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
@@ -199,6 +203,8 @@ int main(int argc, char* argv[]) {
     std::string record_file;
     std::string wav_record_file;
     std::string dac_trace_file;
+    float       audio_gain_db = 0.0f;
+    bool        audio_gain_db_set = false;
     std::string rzx_play_file;
     std::string rzx_record_file;
     int         speed_percent = 100;
@@ -377,6 +383,23 @@ int main(int argc, char* argv[]) {
             case cli::OptId::DacTrace:
                 dac_trace_file = v[0];
                 break;
+            case cli::OptId::AudioGainDb: {
+                const std::string value = v[0];
+                try {
+                    size_t consumed = 0;
+                    audio_gain_db = std::stof(value, &consumed);
+                    if (consumed != value.size() || !std::isfinite(audio_gain_db) ||
+                        audio_gain_db < -24.0f || audio_gain_db > 24.0f) {
+                        throw std::invalid_argument("range");
+                    }
+                    audio_gain_db_set = true;
+                } catch (const std::exception&) {
+                    fprintf(stderr,
+                            "--audio-gain-db: expected a number from -24 to +24 dB\n");
+                    return 1;
+                }
+                break;
+            }
             case cli::OptId::RzxPlay:
                 rzx_play_file = v[0];
                 break;
@@ -636,6 +659,7 @@ int main(int argc, char* argv[]) {
         cfg.rtc_fixed              = !rtc_fixed_arg.empty();
         cfg.rtc_fixed_tm           = rtc_fixed_tm;
         cfg.silent                 = silent;
+        cfg.audio_gain_db          = audio_gain_db;
         cfg.joy_source[0]          = joy_source[0];   // Task 79 (CLI value)
         cfg.joy_source[1]          = joy_source[1];
 
@@ -650,6 +674,8 @@ int main(int argc, char* argv[]) {
             cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
                                                gui_app_config.data().machine_type);
             cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
+            cfg.audio_gain_db = merge_cli_precedence(
+                audio_gain_db_set, audio_gain_db, gui_app_config.data().audio_gain_db);
             // Task 79 — per-connector input source: CLI wins, else saved config.
             cfg.joy_source[0] = merge_cli_precedence(joy_source_set[0], joy_source[0],
                                                      gui_app_config.data().joy_source[0]);
@@ -713,6 +739,9 @@ int main(int argc, char* argv[]) {
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
             gui_app_config.data().emulator_speed_percent = merge_cli_precedence(
                 speed_percent_set, speed_percent, gui_app_config.data().emulator_speed_percent);
+            // Preserve CLI precedence when the common live-apply path below
+            // configures the mixer from AppConfigData.
+            gui_app_config.data().audio_gain_db = cfg.audio_gain_db;
             if (auto* mw = app.main_window()) mw->apply_startup_config(gui_app_config.data());
         }
 #endif

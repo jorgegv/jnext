@@ -1,6 +1,6 @@
 # Preferences
 
-**Settings > Preferences…** opens a dialog with three tabs.
+**Settings > Preferences…** opens a dialog with four tabs.
 
 ![The Preferences dialog, Startup tab](../img/preferences-startup.png)
 
@@ -20,6 +20,11 @@
 autodetected USB gamepad, or the host cursor keys with Space as fire. Only one
 connector can use the cursor keys at a time, and the dialog enforces that for
 you. Details in [5.2](../05-running-programs/02-input.md).
+
+**Audio** controls the final host output gain with a slider from -24 dB to
++24 dB, centred on the 0 dB default. 0 dB leaves the emulated hardware mix
+unchanged. It applies immediately to playback and WAV/video recording; a large
+positive boost can clip.
 
 **Paths** remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
