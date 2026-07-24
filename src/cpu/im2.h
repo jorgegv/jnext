@@ -93,7 +93,7 @@ public:
     uint8_t vector_base() const;
     void set_mode(bool im2_mode);        // nr_c0_int_mode_pulse_0_im2_1, vhdl:1975
     bool is_im2_mode() const;
-    void set_stackless_nmi(bool v);      // nr_c0_stackless_nmi; F-deferred (store only)
+    void set_stackless_nmi(bool v);      // nr_c0_stackless_nmi; CPU bus path wired by Emulator
     bool stackless_nmi() const;
 
     // ── NR 0xCC/CD/CE DMA int enables ──────────────────────────────────────
@@ -206,7 +206,7 @@ private:
     // NR 0xC0 state.
     uint8_t vector_base_msb3_ = 0;
     bool    im2_mode_         = false;   // true = hw im2, false = legacy pulse
-    bool    stackless_nmi_    = false;   // F-deferred
+    bool    stackless_nmi_    = false;   // consumed by Z80Cpu NMIACK/RETN bus path
 
     // DMA delay latch (vhdl:2007).
     uint16_t dma_int_en_mask14_     = 0;

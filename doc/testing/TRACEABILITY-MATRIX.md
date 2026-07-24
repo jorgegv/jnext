@@ -1749,7 +1749,7 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 
 Last-touch commit: `0336c20` (Phase 3 dashboard refresh; Phase 3 merge at `a397422`)
 
-Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5`; 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments (status `missing` below, with re-home target noted). 10 re-home rows now live as passes in the new companion suite `test/ctc_interrupts/ctc_interrupts_test.cpp` (10/10/0/0). Remaining 5 skips: CTC-NR-04 (user review-later), NR-C0-02 + DMA-04 (NMI-blocked), ULA-INT-04 + ULA-INT-06 (re-home-candidate). See `doc/testing/audits/task3-ctc-phase5.md` for row-by-row rationale.
+Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5`; 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
 
 | Test ID    | Plan row title                                               | VHDL file:line | Status  | Test file:line            |
 |------------|--------------------------------------------------------------|----------------|---------|---------------------------|
@@ -1864,7 +1864,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | zxnext.vhd:1941  | pass    | test/ctc/ctc_test.cpp:2098                         |
 | ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | zxnext.vhd:1964  | pass    | test/ctc/ctc_test.cpp:2133                         |
 | NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | zxnext.vhd:5597/1999 | pass    | test/ctc/ctc_test.cpp:2150                         |
-| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | —              | missing | missing                                            |
+| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | pass | test/nmi/atic_atac_nmi_test.cpp (ATIC-NMI-02) |
 | NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | zxnext.vhd:5599/1975 | pass    | test/ctc/ctc_test.cpp:2178                         |
 | NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | missing | missing                                              |
 | NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | zxnext.vhd       | pass    | test/ctc/ctc_test.cpp:2196                         |
@@ -2977,6 +2977,37 @@ End-to-end NMI chain on a real `Emulator` fixture (NmiSource FSM → arbitration
 | HK-08-INT  | GUI F4 → soft-reset / reset_type FSM end-to-end                                                           | gui/main_window.cpp:94-105 / zxnext.vhd:1732-1739       | pass    | test/nmi/nmi_integration_test.cpp:440           |
 | HK-09-INT  | GUI F1 → hard-reset Emulator path end-to-end                                                              | gui/main_window.cpp:94-105 / zxnext.vhd:6340-6349       | pass    | test/nmi/nmi_integration_test.cpp:475           |
 
+### Extended/self-streaming NEX — `test/core/extended_nex_test.cpp`
+
+Additive GH #29/#84 coverage uses runtime-generated files only. Runtime:
+`Total: 27 Passed: 27 Failed: 0 Skipped: 0`. The functional witness
+`extended-nex-stream-func` additionally executes synthetic Z80 code through
+the file API, NextZXOS streaming API, port `$EB`, and raw CMD18 paths.
+
+| Test IDs | Behavior | Contract/source reference | Status |
+|---|---|---|---|
+| XNEX-01..04 | Generated NEX parsing, exact payload boundary, and closed-file form | NEX header offset 140; GH #29 | pass |
+| XNEX-05..08 | Register handle, seek/read, position, and file metadata | NextZXOS `F_SEEK`, `F_READ`, `F_FGETPOS`, `F_FSTAT` | pass |
+| XNEX-09..13 | Read-only same-directory companion sandbox | Host bridge security contract; GH #84 `ATICATAC.CFG` | pass |
+| XNEX-14..16 | File map and port `$EB` stream start/end | NextZXOS `DISK_FILEMAP`, `DISK_STRMSTART`, `DISK_STRMEND` | pass |
+| XNEX-17 | Memory-address file-handle delivery | NEX header offset 140 values `$4000..$FFFF` | pass |
+| XNEX-18..20 | Sector framing, interleaved-handle isolation, final-sector padding, and file-map refill | NextZXOS streaming contract | pass |
+| XNEX-21..23 | Initialized direct-load SDHC state and synthetic raw CMD18 overlay | SD SPI CMD17/CMD18; GH #84 | pass |
+| XNEX-24 | Post-init GUI NEX load activates the otherwise-dormant host bridge | JNext File → Open lifecycle | pass |
+| XNEX-25..27 | GUI/CLI soft and hard resets disarm host calls, streaming state, and synthetic SD overlays | Direct-NEX lifecycle isolation; GH #29/#84 | pass |
+
+### Atic Atac Next NMI regressions — `test/nmi/atic_atac_nmi_test.cpp`
+
+Additive GH #84 coverage using only runtime-generated fixtures. Runtime:
+`Total: 4 Passed: 4 Failed: 0 Skipped: 0`.
+
+| Test ID | Behavior | RTL/source reference | Status |
+|---|---|---|---|
+| ATIC-NMI-01 | Config-mode writes to physical SRAM page `$08` supply the DivMMC `$0066` handler | zxnext.vhd DivMMC ROM SRAM mapping; divmmc.vhd:120 | pass |
+| ATIC-NMI-02 | NR `$C0` stackless NMI suppresses stack RAM cycles, captures C3:C2, and RETN uses the live pair | zxnext.vhd:2050-2085, 6229-6236 | pass |
+| ATIC-NMI-03 | DivMMC clears after RETN executes and before the returned opcode is predecoded | im2_control.vhd:236; divmmc.vhd:108,126,139 | pass |
+| ATIC-NMI-04 | Multiface clears at the same completed-instruction boundary | multiface.vhd:144,178 | pass |
+
 ## Discrepancies noted
 
 - **Z80N**: the Z80N suite is a FUSE-style data-driven runner (`test/z80n_test.cpp` parses `tests.in`/`tests.expected`) and has no in-source `check()` calls. The plan row identifiers used here are the Z80N opcodes from the coverage table (lines 70–100 of the plan doc); they are the natural grouping, not literal test IDs. Every row shows as `missing` in the "Test file:line" column because the opcode tokens do not appear as `check()` IDs. Coverage is verified by the runner's overall pass/fail count.
@@ -2986,4 +3017,3 @@ End-to-end NMI chain on a real `Emulator` fixture (NmiSource FSM → arbitration
 - **Per-row pass/fail is not computed anywhere** because this pass is read-only (no build, no test run). Even the 6 Phase 2 subsystems report `pass` where a `check()` exists and `skip` where a `skip()` exists; actual runtime fails would only show as `fail` if the test was executed.
 
 - **Total extra-coverage rows** across all subsystems: 79.
-

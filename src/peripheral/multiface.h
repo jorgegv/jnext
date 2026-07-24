@@ -117,8 +117,9 @@ public:
     }
 
     /// VHDL `cpu_retn_seen_i` pulse. Clears nmi_active (line 144) AND
-    /// mf_enable (line 178) for one cycle. Driven from the same source
-    /// as DivMmc::on_m1_retn_delay — Im2Controller::retn_seen_this_cycle().
+    /// mf_enable (line 178) for one cycle. Emulator latches
+    /// Im2Controller::retn_seen_this_cycle() during decode and calls this
+    /// after RETN executes, before the returned-to opcode is predecoded.
     void on_retn_seen();
 
     // ── Port-strobe hooks (driven by Wave B2 port handlers) ──────────────

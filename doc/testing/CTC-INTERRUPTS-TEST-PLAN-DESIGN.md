@@ -23,15 +23,18 @@ with dashboard refresh at `0336c20`.
 - **`test/ctc/ctc_test.cpp`** runtime: **`Total:  133  Passed:  128  Failed:    0  Skipped:    5`**.
   - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_interrupts/ctc_interrupts_test.cpp`; 2 rows (JOY-01/02) re-home to the emulator/input integration layer.
   - Delta from pre-Task-3 baseline (150/44/0/106): **−101 skip, +84 pass, −17 total**.
-- **Remaining 4 skips** in `ctc_test.cpp` (all defensible, all carry explicit one-line reasons):
+- **Historical Phase-3 follow-ups** (five plan items; a mix of runtime skips,
+  source-level re-homes, and WONT rows):
   - **CTC-NR-04** — NR 0xC5 vs port-write overlap; cycle-accurate bus arbitration; user-deferred review-later (WONT-sweep candidate, not WONT this wave).
-  - **NR-C0-02** — NR 0xC0 `stackless_nmi` bit; Wave D cut from NMI plan (see G49 in `KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`).
+  - **NR-C0-02** — NR 0xC0 `stackless_nmi` execution; re-homed to `atic_atac_nmi_test` ATIC-NMI-02 after GH #84 closed G49.
   - **DMA-04** — NMI-driven DMA delay; blocked on the same NMI subsystem.
   - **ULA-INT-04** — line interrupt at `cvc` match; re-home candidate to `ctc_interrupts_test.cpp` (needs live ULA line-counter state).
   - **ULA-INT-06** — line 0 → `c_max_vc` wrap; re-home candidate (needs ULA `c_max_vc` observable).
 - **New companion suite `test/ctc_interrupts/ctc_interrupts_test.cpp`** (created Phase 3c, commit `87fb998`): 10 rows re-homed from `ctc_test.cpp` — **`Total:   10  Passed:   10  Failed:    0  Skipped:    0`** — covering ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09/10 against a full `Emulator` fixture.
 - **Architectural change**: the IM2 fabric, previously a 45-line priority-mask stub in `src/cpu/im2.{h,cpp}`, expanded to a full VHDL-faithful `Im2Controller` + `Im2Client` mixin (~171 lines of `.h` + ~800 lines of `.cpp` + new `src/cpu/im2_client.h`). It now covers `device/im2_control.vhd` (RETI/RETN/IM-mode decoder, DMA delay), `device/im2_device.vhd` (per-device state machine `S_0`/`S_REQ`/`S_ACK`/`S_ISR`), `device/im2_peripheral.vhd` (edge detect + int_unq + int_status latches), `device/peripherals.vhd` (daisy chain), and the NR 0xC0/C4/C5/C6/C8/C9/CA/CC/CD/CE handlers in `emulator.cpp`. The legacy `Im2Level` enum is preserved as a compatibility wrapper. `Z80Cpu` gained an opt-in `on_int_ack` callback that is byte-identical to the legacy path when null. Regression (34/0/0) and FUSE Z80 (1356/1356) unchanged throughout.
-- **Follow-up backlog** (non-blocking, see `project_task3_ctc_plan_landed.md`): re-home ULA-INT-04/06 to the integration suite (would bring `ctc_test` to 3 skips); wire port 0xFF bit 6 to `ula_int_disabled_` mirror; add NR 0x22 read handler; remove vestigial `im2_.raise(Im2Level::DMA)`; NMI subsystem to unblock NR-C0-02 + DMA-04.
+- **Follow-up closure:** NR-C0-02 now passes in `atic_atac_nmi_test`
+  ATIC-NMI-02 (GH #84 / G49). Historical phase counts below remain as the landing
+  record for the original CTC skip-reduction work.
 
 ## VHDL Source Files
 
@@ -321,7 +324,7 @@ Tests based on NextREG read/write logic in zxnext.vhd.
 | ID | Test | Expected |
 |----|------|----------|
 | NR-C0-01 | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs | nr_c0_im2_vector set |
-| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | skip — Wave D NMI-PUSH suppression cut from NMI plan; FUSE Z80 core has no pre-NMI-push hook; risks 1356-row regression for one row's benefit (see G49) |
+| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | pass — re-homed to `atic_atac_nmi_test` ATIC-NMI-02 after GH #84 / Atic Atac supplied the user-visible driver; pins suppressed NMIACK stack writes, C2/C3 capture, live RETN substitution and save/load |
 | NR-C0-03 | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode | nr_c0_int_mode_pulse_0_im2_1 set |
 | NR-C0-04 | Read NextREG 0xC0: returns vector, stackless, im_mode, int_mode | Format: VVV_0_S_MM_I |
 | NR-C4-01 | Write NextREG 0xC4: bit [7] = expansion bus int enable | nr_c4_int_en_0_expbus set |

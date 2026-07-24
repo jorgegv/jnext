@@ -136,32 +136,34 @@ public:
     /// divmmc.vhd:108,126,139.
     void on_retn_seen() { on_retn(); }
 
-    /// G46(a) — proper "delayed-off" automap clear via the ED 45 RETN
-    /// signal sourced from Im2Controller. Wired from Emulator's
-    /// `on_m1_cycle` lambda on every M1 fetch; receives `retn_seen` =
-    /// `Im2Controller::retn_seen_this_cycle()` (true only on the M1 that
-    /// completes a canonical ED 45 — never on the legacy alias bytes
-    /// 0x55/5D/65/6D/75/7D nor on a standalone 0x45 = LD B,L). Models a
-    /// one-M1-cycle delay register: on M1 N+1 (the first fetch after
-    /// RETN's ED 45), the latched clear is applied, dropping
-    /// `automap_held_` (and the related `automap_hold_` /
-    /// `automap_active_` / `button_nmi_` shadows) one M1 after the RETN
-    /// itself — matching the VHDL behaviour where the held register only
-    /// surfaces its post-RETN value on the next instruction's M1.
-    ///
-    /// The legacy `on_retn()` / `on_retn_seen()` entry points are kept
-    /// for tests and direct callers that want the immediate-clear
-    /// semantics; the Emulator's M1 lambda routes exclusively through
-    /// this method to retire the pre-G87 RETN-alias band-aid.
-    ///
-    /// Task 27 C-M1 — inline fast path: with `retn_seen`=false and no
-    /// pending clear latched, the out-of-line body is a provable no-op
-    /// (its two conditionals both fall through), so the almost-always
-    /// per-M1 call reduces to two byte loads. Behaviour is identical.
+    /// G46(a) legacy M1-stepped clear seam. Retained for compatibility
+    /// with direct callers and the original G46(a) tests: a true pulse
+    /// latches the clear and the next call applies it.
     void on_m1_retn_delay(bool retn_seen) {
         if (!retn_seen && !retn_pending_clear_) return;
         on_m1_retn_delay_apply_(retn_seen);
     }
+
+    /// Production RETN seam. Wired from Emulator's `on_m1_cycle` lambda;
+    /// receives `retn_seen` =
+    /// `Im2Controller::retn_seen_this_cycle()` (true only on the M1 that
+    /// completes a canonical ED 45 — never on the legacy alias bytes
+    /// 0x55/5D/65/6D/75/7D nor on a standalone 0x45 = LD B,L). The pulse
+    /// is latched here so the overlay remains active while RETN executes.
+    ///
+    /// `on_retn_instruction_complete()` applies the clear immediately
+    /// after that CPU instruction completes. Clearing on the returned-to
+    /// instruction's M1 callback is too late in JNext's predecode
+    /// architecture because its opcode has already been inspected
+    /// through the stale overlay.
+    void on_m1_retn_seen(bool retn_seen) {
+        if (retn_seen) retn_pending_clear_ = true;
+    }
+
+    /// Apply a canonical RETN clear latched by `on_m1_retn_seen()`.
+    /// Called by Emulator after `Z80Cpu::execute()` returns and before
+    /// any observation or predecode of the next instruction.
+    void on_retn_instruction_complete();
 
     // ── Memory overlay interface ──────────────────────────────────
 
@@ -253,12 +255,25 @@ public:
     bool automap_hold() const { return automap_hold_; }
     bool automap_held() const { return automap_held_; }
 
-    const uint8_t* rom_data() const { return rom_.data(); }
+    uint8_t* rom_data() { return rom_ext_ ? rom_ext_ : rom_.data(); }
+    const uint8_t* rom_data() const {
+        return rom_ext_ ? rom_ext_ : rom_.data();
+    }
     const uint8_t* ram_page(int page) const {
         return ram_data() + page * kRamPageSize;
     }
 
     // ── Physical-SRAM backing (NextZXOS-boot fix, 2026-07-09) ───────
+    /// On the Next, DivMMC ROM is physical SRAM page 0x08. Config-mode
+    /// NR $04=$04 writes therefore have to update the same bytes later
+    /// exposed by the DivMMC slot-0 overlay. This matters not only during
+    /// tbblue.fw boot: direct-NEX loaders can install a private NMI handler
+    /// in that page before triggering NR $02 bit 2.
+    ///
+    /// Emulator::init passes ram_.page_ptr(0x08) for the Next. Standalone
+    /// machines and focused unit tests retain the private ROM buffer.
+    void set_rom_backing(uint8_t* base) { rom_ext_ = base; }
+
     /// On real hardware there is ONE SRAM: DivMMC RAM is physical 8K
     /// pages 16-31 of it, and tbblue.fw populates those pages through the
     /// config-mode NR $04 window ($08-$0F → pages 16-31, zxnext.vhd:
@@ -414,18 +429,13 @@ private:
     // check_automap() to gate the ROM3 path.
     bool layer2_map_read_ = false;
 
-    // G46(a) — one-M1-cycle delay register for the ED 45 RETN clear of
-    // `automap_held_`. Set true by `on_m1_retn_delay(true)` (i.e. on the
-    // M1 fetch that completes a canonical ED 45 — sourced from
-    // Im2Controller::retn_seen_this_cycle()). Cleared on the NEXT M1
-    // call after applying the held/hold/active/button_nmi clear, so the
-    // overlay survives the RETN's own execution and drops on the first
-    // M1 of the returned-to instruction. Reset clears it.
+    // G46(a) — canonical ED 45 RETN clear pending until the current CPU
+    // instruction completes. The overlay remains active for RETN's own
+    // execution but is removed before the returned-to instruction is
+    // read or predecoded.
     bool retn_pending_clear_ = false;
 
-    /// Out-of-line tail of on_m1_retn_delay() (Task 27 C-M1 split —
-    /// same body as the pre-split method; see the .cpp for the G46(a)
-    /// sequencing comments).
+    /// Out-of-line tail of the legacy on_m1_retn_delay() seam.
     void on_m1_retn_delay_apply_(bool retn_seen);
 
     // NextREG automap configuration (0xB8–0xBB)
@@ -434,8 +444,9 @@ private:
     uint8_t entry_timing_0_ = 0x00;    // soft reset default
     uint8_t entry_points_1_ = 0xCD;    // soft reset default
 
-    std::vector<uint8_t> rom_;          // 8K DivMMC ROM
+    std::vector<uint8_t> rom_;          // 8K DivMMC ROM fallback
     std::vector<uint8_t> ram_;          // 128K DivMMC RAM (16 × 8K) — fallback
+    uint8_t* rom_ext_ = nullptr;        // external SRAM backing (page 0x08)
     uint8_t* ram_ext_ = nullptr;        // external SRAM backing (pages 16-31)
 
     /// Resolve which RAM page is active for the given address.

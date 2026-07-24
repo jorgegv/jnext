@@ -75,8 +75,10 @@ bool DivMmc::load_rom(const std::string& path) {
         size = kRomSize;
     }
 
+    uint8_t* target = rom_data();
+    std::fill(target, target + kRomSize, 0xFF);
     f.seekg(0, std::ios::beg);
-    f.read(reinterpret_cast<char*>(rom_.data()), size);
+    f.read(reinterpret_cast<char*>(target), size);
 
     divmmc_log()->debug("loaded ROM: {} ({} bytes)", path, static_cast<int>(size));
     return true;
@@ -90,7 +92,8 @@ bool DivMmc::load_rom_bytes(const uint8_t* data, size_t size) {
 
     // Reset to padded 0xFF before loading. Mirrors the file path's
     // "short file padded with 0xFF" semantics.
-    std::fill(rom_.begin(), rom_.end(), 0xFF);
+    uint8_t* target = rom_data();
+    std::fill(target, target + kRomSize, 0xFF);
 
     size_t to_copy = size;
     if (size < static_cast<size_t>(kRomSize)) {
@@ -103,7 +106,7 @@ bool DivMmc::load_rom_bytes(const uint8_t* data, size_t size) {
         to_copy = kRomSize;
     }
 
-    std::memcpy(rom_.data(), data, to_copy);
+    std::memcpy(target, data, to_copy);
 
     divmmc_log()->debug("loaded ROM from byte buffer ({} bytes)", to_copy);
     return true;
@@ -212,13 +215,11 @@ void DivMmc::on_retn() {
     // (139). JNEXT models all three clears here. The NMI-source plan's
     // Wave B row CLR-03 exercises the button_nmi clear via this hook.
     //
-    // G46(a) note: the Emulator's `on_m1_cycle` lambda no longer calls
-    // this entry point directly — it routes through `on_m1_retn_delay()`
-    // instead (the one-M1-cycle delay register that lets `automap_held_`
-    // survive the RETN's own execution and drop on the first M1 of the
-    // returned-to instruction). `on_retn()` is retained for direct test
-    // callers (DA-06, IN-03, NM-06) that want the immediate-clear
-    // semantics without going through the M1 callback path.
+    // G46(a) note: the Emulator's `on_m1_cycle` lambda latches the
+    // canonical ED 45 pulse through `on_m1_retn_delay()`, then calls
+    // `on_retn_instruction_complete()` after CPU execution. That keeps
+    // the overlay active for RETN itself and removes it before the
+    // returned-to instruction is inspected.
     if (automap_active_ || automap_hold_ || automap_held_ || button_nmi_) {
         divmmc_log()->debug("RETN: automap+button_nmi cleared");
     }
@@ -226,43 +227,21 @@ void DivMmc::on_retn() {
     automap_hold_   = false;
     automap_held_   = false;
     button_nmi_     = false;
-    // Clear any pending delayed clear too — direct on_retn() supersedes
-    // the deferred path so we don't double-fire on the next M1.
+    // Direct on_retn() supersedes the deferred path.
     retn_pending_clear_ = false;
 }
 
+void DivMmc::on_retn_instruction_complete() {
+    if (!retn_pending_clear_) return;
+    if (automap_active_ || automap_hold_ || automap_held_ || button_nmi_) {
+        divmmc_log()->debug("RETN clear applied after instruction completion");
+    }
+    on_retn();
+}
+
 void DivMmc::on_m1_retn_delay_apply_(bool retn_seen) {
-    // G46(a) — proper VHDL-faithful RETN clear sequencing. Reached via
-    // the inline on_m1_retn_delay() wrapper (divmmc.h, Task 27 C-M1),
-    // which early-outs when retn_seen=false AND retn_pending_clear_=false
-    // — exactly the case where both conditionals below fall through, so
-    // the split is behaviour-identical. Called from
-    // Emulator's on_m1_cycle lambda on every M1 byte fetch (so twice for
-    // ED-prefix instructions: once for the ED byte, once for the ext
-    // byte). `retn_seen` mirrors Im2Controller::retn_seen_this_cycle(),
-    // which only pulses on the M1 of a canonical ED 45 — never on
-    // ED 4D (RETI), never on the legacy alias bytes 0x55/5D/65/6D/75/7D
-    // (LD r, L variants), and never on a standalone 0x45 (LD B, L).
-    //
-    // Behaviour, in order:
-    //   1. If a clear was queued by the previous M1 (retn_pending_clear_
-    //      = true), apply it now: drop automap_active_ / automap_hold_ /
-    //      automap_held_ / button_nmi_ and reset the pending flag. This
-    //      is the "next M1 after RETN" semantics — the overlay survives
-    //      RETN's own ED 45 fetch and drops on the M1 of the
-    //      returned-to instruction's first byte.
-    //   2. If `retn_seen` is true on this M1 (we just decoded ED 45),
-    //      latch the pending flag so the clear fires on the next M1.
     if (retn_pending_clear_) {
-        if (automap_active_ || automap_hold_ || automap_held_ || button_nmi_) {
-            divmmc_log()->debug(
-                "RETN delayed clear applied (one M1 after ED 45)");
-        }
-        automap_active_     = false;
-        automap_hold_       = false;
-        automap_held_       = false;
-        button_nmi_         = false;
-        retn_pending_clear_ = false;
+        on_retn();
     }
     if (retn_seen) {
         retn_pending_clear_ = true;
@@ -592,7 +571,7 @@ uint8_t DivMmc::read(uint16_t addr) const {
             return ram_data()[3 * kRamPageSize + (addr & 0x1FFF)];
         } else {
             // Normal: read from DivMMC ROM
-            return rom_[addr & 0x1FFF];
+            return rom_data()[addr & 0x1FFF];
         }
     } else {
         // Slot 1: read from selected RAM bank

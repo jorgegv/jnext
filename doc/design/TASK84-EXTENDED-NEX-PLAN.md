@@ -1,5 +1,78 @@
 # Task 84 / issue #29 — Extended NEX (self-streamed payload) — Phase 1 evidence
 
+## Implementation update (2026-07-24)
+
+**Status:** implemented on `fix/atic-atac-next`; the full unit/FUSE/regression
+triplet and interactive Atic Atac gameplay verification pass. Independent
+review returned APPROVE before submission; the final branch was then rebased
+onto v0.99.13 and its SD Nac-gap fix, with the full triplet repeated.
+
+The full option from §8 was selected after issue #84 supplied a second practical
+application: Atic Atac Next. The implementation now:
+
+- reads only the header-described NEX region and keeps appended bytes in the
+  host file;
+- honours all three `file_handle` forms (`0`, `1`, and an address at or above
+  `$4000`);
+- provides read-only host-backed `F_READ`, `F_SEEK`, `F_FGETPOS`, `F_FSTAT`,
+  `DISK_FILEMAP`, `DISK_STRMSTART`, and `DISK_STRMEND`;
+- emits the SD/MMC data, CRC, and ready-token sequence through port `$EB`;
+- permits one read-only, same-directory, non-symlink companion file, required
+  for `ATICATAC.CFG`, while refusing absolute paths, parent traversal, symlinks,
+  and write access; and
+- gives a directly loaded NEX the initialized mounted-SDHC state that a normal
+  NextZXOS browser launch has already established;
+- serves the DivMMC ROM from its real physical SRAM page `$08`, so a direct
+  loader's config-mode `NR $04=$04` writes are visible to the subsequent
+  DivMMC NMI overlay; and
+- implements NR `$C0` bit 3 stackless NMI execution: NMIACK changes SP without
+  touching stack RAM, NR `$C3:$C2` captures the interrupted PC, and RETN uses
+  the live register pair while restoring SP; and
+- applies canonical RETN overlay clears at the completed-instruction boundary.
+  This keeps DivMMC/Multiface mapped for RETN's own fetch, but removes them
+  before JNext predecodes the returned-to instruction.
+
+The unresolved `F_SEEK` point in §6 is now settled by the NextZXOS API contract:
+the mode is in `IXL`; the observed `$80` was the low byte of the guest's `IX`
+buffer pointer being misread as `L` during the evidence pass.
+
+Acceptance uses only generated GPL-compatible fixtures in the repository. A
+synthetic functional NEX proves both the file API and the block-stream/port
+path end to end. The issue #29 runtime-only oracle, `NEXTEST.NEX`, also loads
+directly and reaches its Spectrum Next 2MB Factory Test screen with the appended
+26 MB payload available. The second runtime-only oracle is the freeware Atic
+Atac Next release
+(listed in [`../REFERENCES.md`](../REFERENCES.md)), whose published
+requirements explicitly pair `ATICATAC.NEX` with `ATICATAC.CFG`, require SDHC
+and NextZXOS 2.02+, and require the NEX file to be unfragmented.
+The direct-load artwork is pixel-identical to CSpect's output; after the final
+DivMMC/stackless-NMI and RETN-boundary fixes the game also leaves that artwork,
+animates its story intro, accepts Enter to skip it, reaches the title/menu, and
+enters stable interactive gameplay. ZEsarUX 13.0 with
+`--sd-enable-sdhc-addressing` was the independent instruction-level oracle for
+the `$0066` NMI sequence. No third-party game data is committed.
+
+Stackless NMI was not an accidentally forgotten flag. The original NMI plan
+deliberately deferred its CPU effect because it required modifying the FUSE Z80
+core and there was then no reproducible user-visible consumer. Atic Atac Next
+is precisely the second driver that plan required: without stackless NMI and
+the SRAM-backed DivMMC ROM it remains frozen at the loading artwork.
+
+The final gameplay handoff exposed a separate emulator-ordering problem. The
+older DivMMC approximation cleared its overlay on the first M1 after RETN.
+That is electrically reasonable, but too late for JNext: its CPU wrapper has
+already read and classified that instruction before delivering the M1 callback.
+If the stale overlay byte selects a wrapper-handled ED/Z80N opcode, FUSE cannot
+repair the decision by refetching underlying RAM. The production hook now
+latches canonical ED 45 during decode and applies DivMMC and Multiface clears
+immediately after `Z80Cpu::execute()` returns. `atic_atac_nmi_test`
+ATIC-NMI-03/04 pin the DivMMC and Multiface paths with deliberately different
+overlay and underlying opcodes.
+
+The remainder of this document is retained as the original evidence record. Its
+status statements describe the 2026-07-18 evidence phase, not the implementation
+above.
+
 **Status:** evidence gathering only. **No emulator code was written or changed.**
 **Date:** 2026-07-18
 **Branch:** `task84-extended-nex` (off `main` @ `bb821f56`)
@@ -85,7 +158,7 @@ existing `esxdos-chain-red-func` case before being pointed at NEXTEST:
 
 ## 2. NEXTEST.NEX header — PROVEN by direct byte read
 
-Read from `/home/jorgegv/src/spectrum/tbblue/extras/nextest/NEXTEST.NEX` (26 025 651 bytes,
+Read from the TBBlue oracle checkout's `extras/nextest/NEXTEST.NEX` (26 025 651 bytes,
 proprietary — **never copied into the repo**):
 
 | Field | Offset | Value |
@@ -167,7 +240,7 @@ the `DE` version word (BCD? packed decimal?) was not derived from an oracle.
 **Seek to offset 0 → read exactly 1 byte → `DISK_FILEMAP`.**
 
 This is not an ad-hoc sequence. It is the streaming preamble verbatim as documented in the
-oracle, `/home/jorgegv/src/spectrum/tbblue/src/asm/streaming/stream.asm:88-93`:
+oracle, `tbblue/src/asm/streaming/stream.asm:88-93`:
 
 > *"Note that this call (DISK_FILEMAP) should be made directly after opening the file - no
 > other file access calls should be made first. (If the file has been accessed, the

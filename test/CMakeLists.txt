@@ -420,6 +420,17 @@ target_link_libraries(nex_loader_test PRIVATE
 target_include_directories(nex_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nex_loader_tests COMMAND nex_loader_test)
 
+# Extended/self-streaming NEX support (GH #29 / #84). Runtime-generated
+# fixtures exercise the real loader, esxDOS hook, port-$EB stream diversion,
+# companion-file sandbox and direct-load SD-card state.
+add_executable(extended_nex_test core/extended_nex_test.cpp)
+target_link_libraries(extended_nex_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(extended_nex_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME extended_nex_tests COMMAND extended_nex_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
@@ -548,6 +559,17 @@ target_link_libraries(nmi_integration_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(nmi_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nmi_integration_tests COMMAND nmi_integration_test)
+
+# Atic Atac Next regressions (GH #84): physical DivMMC ROM SRAM,
+# stackless NMI, and post-RETN DivMMC/Multiface overlay timing.
+# All fixtures are generated at runtime; no game data is shipped.
+add_executable(atic_atac_nmi_test nmi/atic_atac_nmi_test.cpp)
+target_link_libraries(atic_atac_nmi_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(atic_atac_nmi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME atic_atac_nmi_tests COMMAND atic_atac_nmi_test)
 
 # Audio + NextREG integration test (Phase 2 Wave C, 2026-04-24)
 # Hosts the 25 plan rows re-homed from audio_test.cpp that need a full

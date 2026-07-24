@@ -1,5 +1,26 @@
 # Task 3 — NMI Source Pipeline Plan
 
+## Follow-up closure (2026-07-24)
+
+The Wave D deferral below is now superseded by GH #84 / Atic Atac Next.
+The game provides the reproducible user-visible consumer this plan explicitly
+required before patching FUSE: it installs a DivMMC handler at `$0066`, enables
+NR `$C0` bit 3, and otherwise freezes at its loading artwork.
+
+The isolated follow-up implements the missing NMIACK/RETN bus behavior and
+keeps the original risk contained:
+
+- stackless NMI decrements SP but suppresses both stack-memory writes;
+- NR `$C3:$C2` captures the interrupted PC;
+- RETN/RETI increments SP while reading its return address from the live
+  `$C3:$C2` pair, with no stack-memory reads;
+- the hidden in-handler return latch survives save/load; and
+- DivMMC/Multiface overlays clear after RETN executes but before the
+  returned-to instruction is predecoded; and
+- the unchanged FUSE regression remains the compatibility gate.
+
+The original pre-Phase-0 decision record is retained below for provenance.
+
 Plan authored 2026-04-24. Follows the Task 3 staged plan template established
 by `TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md`, `TASK3-AUDIO-SKIP-REDUCTION-PLAN.md`,
 `TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`, `TASK3-INPUT-SKIP-REDUCTION-PLAN.md`,
@@ -423,6 +444,8 @@ run in parallel with any other wave.**
   observed at the producer).
 
 ### Wave D — Stackless NMI — **CUT** (per Q1 decision, pre-Phase-0)
+
+**Historical decision; superseded by the 2026-07-24 closure above.**
 
 Resolved at plan-decisions block above. Rationale summary: FUSE Z80 core
 has no pre-push NMI hook and no RETN interception hook; implementing

@@ -67,8 +67,7 @@
     case 0x75:
     case 0x7d:		/* RETN */
       IFF1=IFF2;
-      RET();
-      z80_retn();
+      if( !fuse_z80_retn() ) RET();
       break;
     case 0x46:
     case 0x4e:
