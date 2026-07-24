@@ -581,9 +581,12 @@ computation — when the automap FF state is quiescent AND `pc` is outside
 the static entry-point candidate superset. The gate reads live FF state
 (no cached flag, no invalidation discipline). Full no-op proof with VHDL
 citations sits on the predicate in `src/peripheral/divmmc.h`.
-`on_m1_retn_delay()` also gained an inline no-op fast path (wrapper +
-out-of-line `on_m1_retn_delay_apply_`), behaviour-identical; its
-delayed-clear semantics stay pinned by DM-RETN-PROPER-01/02.
+The production RETN path remains cheap: `on_m1_retn_seen()` only latches
+a canonical ED 45 pulse, and `on_retn_instruction_complete()` immediately
+returns when no clear is pending. DM-RETN-PROPER-01/02 pin canonical
+decode on the compatibility seam. The later Atic Atac Next regression
+ATIC-NMI-03 additionally proves that the production overlay is gone
+before JNext predecodes the returned-to opcode.
 
 Rows in `test/divmmc/divmmc_test.cpp` §20 (suite 140 → 146):
 

@@ -13,9 +13,8 @@ static uint16_t read_u16(const uint8_t* p) {
 
 /// Bytes of optional screen data a NEX header's screen_flags declares, in the
 /// exact order and sizes NexLoader::apply() consumes them. Lets load() compute
-/// the total the loader will read (header + screens + banks) so a file carrying
-/// substantially more — an "extended" NEX that streams extra payload from
-/// itself under NextZXOS, e.g. NEXTEST.NEX — is rejected up front (issue #10).
+/// the header-described region (header + screens + banks). Bytes after that
+/// boundary remain host-backed for self-streaming NEX files (issues #29/#84).
 static size_t nex_screen_bytes(uint8_t sf) {
     size_t n = 0;
     if ((sf & NexHeader::SCREEN_LAYER2) && !(sf & NexHeader::SCREEN_NO_PAL)) n += 512;
@@ -109,6 +108,9 @@ static void write_split_screen_block(Mmu& mmu, const uint8_t* src)
 bool NexLoader::load(const std::string& path)
 {
     loaded_ = false;
+    file_data_.clear();
+    file_size_ = 0;
+    payload_offset_ = 0;
 
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) {
@@ -116,7 +118,13 @@ bool NexLoader::load(const std::string& path)
         return false;
     }
 
-    auto file_size = static_cast<size_t>(f.tellg());
+    const auto end_pos = f.tellg();
+    if (end_pos < 0) {
+        Log::emulator()->error("NEX: cannot determine size of '{}'", path);
+        return false;
+    }
+    const uint64_t file_size = static_cast<uint64_t>(end_pos);
+    file_size_ = file_size;
     if (file_size < 512) {
         Log::emulator()->error("NEX: file '{}' too small ({} bytes, need >= 512)", path, file_size);
         return false;
@@ -164,16 +172,8 @@ bool NexLoader::load(const std::string& path)
                               header_.version, path);
     }
 
-    // Reject "extended" NEX files. A NEX describes a fixed machine state:
-    // header + optional screens + N×16 KB banks, and nothing more. NEXTEST.NEX
-    // and similar NextZXOS applications append megabytes of payload they stream
-    // from their own file at runtime via the NextZXOS API. Loaded directly
-    // (--load / File→Open) there is no NextZXOS and no file handle, so they die
-    // at their startup OS/SD check with a silent black screen. Detect the
-    // appended payload (every well-formed NEX matches its declared size exactly;
-    // one 16 KB bank of slack tolerates any padding) and refuse with a clear
-    // message instead. (GitHub issue #10)
-    // Count the banks the presence bitmap actually declares — apply() loads
+    // Locate the end of the fixed machine-state image. Count the banks the
+    // presence bitmap actually declares — apply() loads
     // exactly these (header_.banks[bank] != 0). The header's num_banks scalar
     // (offset 9) is decorative: the reference nexload.asm never reads it and
     // jnext's apply() never has either, so trusting it here would false-reject
@@ -191,22 +191,53 @@ bool NexLoader::load(const std::string& path)
             "num_banks is decorative — loading the banks the bitmap declares and hoping for the best.",
             path, header_.num_banks, declared_banks);
     }
-    const size_t expected_size =
+    const uint64_t expected_size =
         512 + nex_screen_bytes(header_.screen_flags) + declared_banks * 16384;
-    if (file_size > expected_size + 16384) {
+    payload_offset_ = expected_size;
+    if (file_size < expected_size) {
+        Log::emulator()->error(
+            "NEX: '{}' is truncated — file is {} bytes, header describes {} bytes",
+            path, file_size, expected_size);
+        return false;
+    }
+
+    // Large trailing regions are self-streamed payloads. They are useful only
+    // when the NEX header asks nexload to keep the file open and deliver its
+    // handle. Preserve issue #10's explicit rejection for unusable extended
+    // files (file_handle=0), while valid self-streamers are loaded without
+    // slurping their potentially-huge payload into host RAM.
+    const bool keep_open =
+        header_.file_handle == 1 || header_.file_handle >= 0x4000;
+    if (file_size > expected_size + 16384 && !keep_open) {
         Log::emulator()->error(
             "NEX: '{}' is an extended NEX file — {} bytes follow the {} bank(s) its header "
-            "describes (file {} bytes, expected {}). Files like NEXTEST.NEX stream this "
-            "payload from themselves at runtime and must be run under NextZXOS: boot the SD "
-            "card and launch it from the NextZXOS file browser, not with --load.",
+            "describes (file {} bytes, expected {}), but file_handle=0 asks the loader to "
+            "close the file. The appended payload would be unreachable.",
             path, file_size - expected_size, declared_banks, file_size, expected_size);
         return false;
     }
 
-    // Read remaining file data (screen + bank payloads)
-    size_t data_size = file_size - 512;
+    // Read only the region apply() consumes. Any appended payload stays in the
+    // host file and is served lazily by Emulator's extended-NEX bridge.
+    const size_t data_size = static_cast<size_t>(expected_size - 512);
     file_data_.resize(data_size);
+    f.seekg(512);
     f.read(reinterpret_cast<char*>(file_data_.data()), static_cast<std::streamsize>(data_size));
+    if (!f) {
+        Log::emulator()->error("NEX: failed reading {} declared data bytes from '{}'",
+                              data_size, path);
+        return false;
+    }
+
+    if (file_size > expected_size && keep_open) {
+        Log::emulator()->info(
+            "NEX: '{}' carries {} appended payload bytes; keeping them host-backed",
+            path, file_size - expected_size);
+    } else if (file_size > expected_size) {
+        Log::emulator()->info(
+            "NEX: '{}' carries {} trailing padding bytes; ignoring them",
+            path, file_size - expected_size);
+    }
 
     Log::emulator()->info("NEX: loaded '{}' — version={:.4s} banks={} screen_flags={:#04x} "
                           "pc={:#06x} sp={:#06x} entry_bank={} border={}",

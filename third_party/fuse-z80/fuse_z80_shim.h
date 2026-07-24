@@ -104,9 +104,6 @@ static inline int tape_load_trap(void) { return -1; }
 /* slt_trap — SLT snapshot trap, not used */
 static inline void slt_trap(libspectrum_word hl, libspectrum_byte a) { (void)hl; (void)a; }
 
-/* z80_retn — RETN peripheral hook (spectranet); not needed */
-static inline void z80_retn(void) {}
-
 /* event_add — FUSE event scheduler stub */
 static inline void event_add(libspectrum_dword ts, int type) { (void)ts; (void)type; }
 
@@ -117,6 +114,21 @@ void fuse_z80_reset(int hard_reset);
 int  fuse_z80_execute_one(void);   /* execute one instruction, return T-states */
 int  fuse_z80_interrupt(libspectrum_byte vector);
 void fuse_z80_nmi(void);
+void fuse_z80_nmi_stackless(void);
+
+/*
+ * ZX Spectrum Next stackless RETN bus substitution.
+ *
+ * When active, the FPGA suppresses RETN's two external memory reads and
+ * supplies NR 0xC2/0xC3 instead. The CPU still increments SP twice and
+ * consumes the normal six memory-cycle T-states. `fuse_z80_retn()` returns
+ * non-zero when it supplied that synthetic pop; callers otherwise execute
+ * the ordinary RET path.
+ */
+void fuse_z80_configure_stackless_retn(int active,
+                                       libspectrum_word return_address);
+int  fuse_z80_retn(void);
+int  fuse_z80_take_stackless_retn_consumed(void);
 
 #ifdef __cplusplus
 }

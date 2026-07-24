@@ -1,7 +1,9 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 #include <fstream>
 #include "peripheral/spi.h"
@@ -29,6 +31,8 @@
 ///          card responds with data response token.
 class SdCardDevice : public SpiDevice {
 public:
+    using ReadOverlay = std::function<bool(uint32_t sector, uint8_t* dst)>;
+
     SdCardDevice();
     ~SdCardDevice() override;
 
@@ -63,6 +67,34 @@ public:
         pending_write_after_r1_ = false;
         persistent_response_byte_ = 0xFF;
         host_supports_sdhc_ = false;  // V17-DIVMMC-01
+    }
+
+    /// Recreate the SD-card state inherited by a program launched through
+    /// NextZXOS's NEX loader. Direct loading bypasses the OS handshake, but
+    /// a NEX is entitled to find the already-mounted card initialized and
+    /// using SDHC block addressing when execution begins.
+    void prepare_for_direct_nex() {
+        reset();
+        initialized_ = mounted();
+        host_supports_sdhc_ = mounted();
+    }
+
+    /// Overlay a reserved SDHC sector range with a read-only host source.
+    /// Normal sectors continue to use the mounted image; writes into the
+    /// overlay remain rejected by the ordinary range/write checks.
+    void set_read_overlay(uint32_t first_sector, uint32_t sector_count,
+                          ReadOverlay reader) {
+        overlay_first_sector_ = first_sector;
+        overlay_sector_count_ = sector_count;
+        read_overlay_ = std::move(reader);
+    }
+    void clear_read_overlay() {
+        overlay_first_sector_ = 0;
+        overlay_sector_count_ = 0;
+        read_overlay_ = {};
+    }
+    bool has_read_overlay() const {
+        return static_cast<bool>(read_overlay_);
     }
 
     /// Returns true if an image is mounted.
@@ -178,6 +210,9 @@ private:
     // Backing store
     std::fstream file_;
     uint64_t file_size_ = 0;
+    uint32_t overlay_first_sector_ = 0;
+    uint32_t overlay_sector_count_ = 0;
+    ReadOverlay read_overlay_;
 
     // NOTE: SdCardDevice intentionally has NO save_state/load_state.  The rewind
     // snapshot ring currently skips the SD back end.  If this class is
@@ -206,6 +241,8 @@ private:
 
     // Helper: compute 32-bit block address from command argument bytes
     uint32_t cmd_arg() const;
+    bool is_overlay_sector(uint32_t sector) const;
+    bool load_read_sector(uint32_t sector);
 
     // Queue an R1 response byte
     void queue_r1(uint8_t r1);

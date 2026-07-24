@@ -165,7 +165,6 @@ where possible.
 | G41 | MMC card support (vs SDHC only)                            | SD/MMC                           | B   |         | raw-MMC software (rare) won't init                         | L      | Low      |
 | G44 | Keyboard issue-2 EAR/MIC composition                       | Keyboard                         | B   |         | issue-2 16K tape-loading detection edge                    | L      | Low      |
 | G45 | Expansion bus / cartridge framework (FE-05 / ROMCS)        | Expansion                        | B   |         | Interface 1/2, Multiface (ext), Currah µSpeech absent      | H      | Low      |
-| G49 | NR 0xC0 stackless-NMI execution (CTC NR-C0-02)             | CPU, IM2                         | C   |         | NMI-PUSH suppression edge — minimal real-world impact      | H      | Low      |
 | G53 | FUSE-table retirement decision                             | Contention, CPU                  | C   |         | two contention paths post-Phase-2; divergence risk         | L      | Low      |
 | G54 | Contention port_7ffd_active term (CT-IO-05/06)             | Contention, Port                 | C   |         | 128K/+3 port-contention edge                               | L      | Low      |
 | G55 | NR 0xD8 IO-trap (FDC NMI source) — stub                    | NMI Source                       | C   |         | +3 floppy-trap NMI edge (rare)                             | L      | Low      |
@@ -1280,6 +1279,15 @@ where possible.
   peripheral coverage, NOT as a G46 unblocker.
 - **Effort**: H.
 - **Status (2026-05-03h) — G46(a) CLOSED**: Proper VHDL `divmmc.vhd:131` delayed-off automap_held clear via 1-M1-cycle delay register inside `DivMmc` (`retn_pending_clear_`), driven from `Im2Controller::retn_seen_this_cycle()` via new `DivMmc::on_m1_retn_delay(bool)` callback fired on EVERY M1. The pre-G87 RETN-alias band-aid was already retired by G87 commit `31e2720` earlier today; this work completes G46(a) by adding the proper delayed-off shape on top of the now-correct ED 45 detection. Tests DM-RETN-PROPER-01 (positive: full Im2 FSM ED 45 → automap_held clears one M1 later) + DM-RETN-PROPER-02 (negative: 8 alias cases incl. standalone 0x45 + ED 4D/55/5D/65/6D/75/7D, automap_held survives all). Branch `divmmc-retn-proper` (`94d4d0a`). G46(b) RAM-test loop hang and G46(c) missing logo are SEPARATE blockers — NextZXOS boot still won't complete.
+- **Status (2026-07-24) — G46(a) timing refined by GH #84:** Atic Atac
+  Next demonstrated that the old next-M1 approximation was not equivalent
+  in JNext's predecode architecture: the wrapper could classify the
+  returned-to opcode through stale overlay memory before its M1 callback
+  applied the clear. The canonical ED 45 pulse is now latched during RETN
+  and applied immediately after CPU execution, preserving RETN's mapped
+  fetch while exposing underlying RAM before the next predecode.
+  ATIC-NMI-03/04 pin the DivMMC and Multiface forms with poisoned overlay
+  opcodes.
 - **Status (2026-05-04) — G46(c) CLOSED**: Cold-boot DivMMC automap was firing at PC=0x0000 because `DivMmc::set_enabled(bool)` flipped both `port_io_enable_` AND `nr_0a_4_enable_` from the `--divmmc-rom` startup path; VHDL `zxnext.vhd:1126` defaults `nr_0a_divmmc_automap_en` to '0' (only firmware writing NR 0x0A bit 4 should set it). With NR 0xB8 default 0x83 (RST 0 entry enabled, all-delayed timing), automap was active for the whole boot ROM phase — which the G87 alias-firing band-aid had been masking by clearing `automap_held` whenever tbblue.fw normal code happened to execute an undocumented RETN-alias byte. Fix: `set_enabled(true)` now flips only `port_io_enable_`. Discriminative regression test `NA-01b` added to divmmc_test (probes cold-boot equivalent state from `set_enabled(true)` alone, asserts no automap activates). Tbblue.fw splash logo now renders cleanly at f100 (3 colors, big blue "TBBlue"), spacebar prompt clean at f200, four-line ROM loader log clean at f250-f275. Boot now progresses past splash into the original G46(b) RAM-test loop. Commits `e9cbfd2` (`divmmc-enable-faithful-defaults`) + `d79d24b` (post-merge `nmi_test` fixture restore). divmmc_test 110/110, nmi_test 56/56, nmi_integration_test 9/9, full unit suite 33/0/0.
 - **Status (2026-05-04) — G46(b) shape unchanged**: After G46(c) landed, post-soft-reset boot reaches enNextZX.rom RAM-test pass-1 loop at PC=0x0139-0x013D (NEXTREG 0x56,A then NEXTREG 0x57,A — bank-switching slot 6/7 RAM banks for memory test). Trace shows firmware DOES reach pass 2 (PC 0x0196-0x01D7) and post-RAM-test init (0x0207-0x0217, 0x5B48 in slot 2) over a few seconds wall clock, but never reaches BASIC welcome screen. Same exit-predicate gap as the journal's 2026-04-25 analysis: "writes NR 0x56 with every even value from 0x00 to 0xDE, then wraps back to 0x00 and restarts ≈208 passes per bank in 15 s". Hypothesised NR 0x1E/0x1F (active video line) timing skew or peripheral status register that firmware polls but we don't update correctly. **Next investigation step**: RE the exit condition of the RAM-test outer loop in `enNextZX.rom` 0x0130-0x016C and 0x018E-0x01C9, identify which polled value our emulator returns wrong.
 
@@ -1533,13 +1541,23 @@ where possible.
 
 ## C. CPU, memory, firmware, boot
 
-### G49. NR 0xC0 stackless-NMI execution (CTC NR-C0-02)
-- **What**: `src/cpu/im2.h:85,182`: `stackless_nmi_` is F-deferred.
-  Wave D was CUT from NMI plan — patching FUSE Z80 core for
-  NMI-PUSH suppression risks the 1356-row regression.
-- **User impact**: nil unless software relies on stack-less NMI
-  vector return-address inspection (rare).
-- **Effort**: H.
+### G49. NR 0xC0 stackless-NMI execution (CTC NR-C0-02) [closed]
+- **Status: CLOSED 2026-07-24 (GH #84 / Atic Atac Next).**
+- **What (original):** `stackless_nmi_` was intentionally store/readback-only.
+  Wave D was cut because FUSE had no pre-push NMI or RETN-substitution hook,
+  and no user-visible program was known to require the risky core change.
+- **Driver:** Atic Atac Next is that reproducible program. It enables NR `$C0`
+  bit 3 and installs a DivMMC `$0066` handler; without the CPU effect it
+  freezes at its loading artwork.
+- **Resolution:** FUSE now has isolated stackless NMIACK and RETN hooks.
+  NMIACK decrements SP without stack writes, captures the PC in NR `$C3:$C2`,
+  and RETN restores SP/PC from the live register pair without stack reads.
+  The hidden in-handler latch is append-only persisted in snapshots.
+- **Coverage:** `atic_atac_nmi_test` ATIC-NMI-02 pins SP movement, untouched
+  stack bytes, C2/C3 capture, handler-time return rewrite, IFF restore, and
+  save/load. ATIC-NMI-03/04 pin the RETN instruction boundary by placing
+  different opcodes in the DivMMC/Multiface overlays and underlying RAM.
+  Full FUSE 1356/1356 remains the compatibility gate.
 
 ### G50. Contention `delay()` runtime wiring (Phase 2) [closed]
 - **Status: CLOSED.** The runtime wiring landed with G141's closure

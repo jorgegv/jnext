@@ -135,6 +135,10 @@ public:
     void request_interrupt(uint8_t vector);
     void request_nmi();
     bool is_halted() const { return regs_.halted; }
+    bool stackless_retn_active() const { return stackless_retn_active_; }
+    void set_stackless_retn_active_for_load(bool active) {
+        stackless_retn_active_ = active;
+    }
 
     // Pulse-mode INT-window machine-timing gate, per VHDL zxnext.vhd:2033:
     //   pulse_count_end <= pulse_count(5) and (machine_timing_48 or
@@ -206,6 +210,14 @@ public:
     // Emulator::init() to latch NR 0xC2/0xC3 shadow registers (G88).
     std::function<void(uint16_t saved_pc)> on_nmi_servicing;
 
+    // ZX Spectrum Next stackless-NMI bus substitution (NR 0xC0 bit 3).
+    // The enable callback is sampled at NMI entry and before each following
+    // instruction; clearing the bit abandons the shadow-return latch just as
+    // zxnext.vhd clears z80_stackless_retn_en. The address callback supplies
+    // the live C3:C2 value so an NMI handler may deliberately rewrite it.
+    std::function<bool()> stackless_nmi_enabled;
+    std::function<uint16_t()> stackless_nmi_return_address;
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -236,4 +248,8 @@ private:
     // preserves byte-identical FUSE Z80 test behaviour (1356/1356) for tests
     // that instantiate Z80Cpu without an Emulator.
     bool             machine_48_or_p3_ = true;
+    // Set after a stackless NMI acknowledge and consumed by RETN/RETI.
+    // During the handler SP remains two below its entry value, exactly as
+    // t80n's suppressed NMIACK writes dictate.
+    bool             stackless_retn_active_ = false;
 };

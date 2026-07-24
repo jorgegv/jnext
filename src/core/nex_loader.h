@@ -34,7 +34,7 @@ struct NexHeader {
     uint8_t  core_version[3];    // major, minor, subminor
     uint8_t  hires_colour;       // HiRes colour or L2 palette offset
     uint8_t  entry_bank;         // 16K bank mapped to 0xC000 at entry
-    uint16_t file_handle;        // 0=close, 1=keep open
+    uint16_t file_handle;        // 0=close, 1=handle in BC, >=0x4000=store handle there
 
     // Screen flag bit masks
     static constexpr uint8_t SCREEN_LAYER2    = 0x01;
@@ -54,12 +54,28 @@ struct NexHeader {
 ///   }
 class NexLoader {
 public:
-    /// Parse and validate a NEX file, reading all data into memory.
+    /// Parse and validate a NEX file, reading only its header-described
+    /// screen and bank region into memory. Appended self-streamed payloads
+    /// remain in the host file and are exposed through payload_offset().
     /// Returns true on success.
     bool load(const std::string& path);
 
     /// Access the parsed header (valid after successful load()).
     const NexHeader& header() const { return header_; }
+
+    /// First byte after the header-described screen/bank region.
+    uint64_t payload_offset() const { return payload_offset_; }
+
+    /// Total host-file size observed by load().
+    uint64_t file_size() const { return file_size_; }
+
+    /// True when bytes follow the header-described region.
+    bool is_extended() const { return file_size_ > payload_offset_; }
+
+    /// Whether the NEX header asks the loader to keep its file open.
+    bool keeps_file_open() const {
+        return header_.file_handle == 1 || header_.file_handle >= 0x4000;
+    }
 
     /// Apply the loaded NEX data to the emulator: load banks into RAM,
     /// set up screen data, configure CPU registers, border, and MMU.
@@ -228,7 +244,9 @@ public:
 
 private:
     NexHeader header_{};
-    std::vector<uint8_t> file_data_;  // all data after the 512-byte header
+    std::vector<uint8_t> file_data_;  // header-described data after the 512-byte header
+    uint64_t file_size_ = 0;
+    uint64_t payload_offset_ = 0;
     bool loaded_ = false;
 
     // Bank loading order as specified by the NEX format

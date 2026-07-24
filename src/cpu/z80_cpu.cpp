@@ -512,6 +512,7 @@ void Z80Cpu::reset(bool hard) {
     nmi_pending_ = false;
     int_pending_ = false;
     int_vector_  = 0xFF;
+    stackless_retn_active_ = false;
 
     sync_regs_from_fuse(regs_);
     // Pass-9 fix: VHDL t80n.vhd does not have an explicit IncDecZ reset
@@ -533,6 +534,12 @@ int Z80Cpu::execute() {
     if (nmi_pending_) {
         nmi_pending_ = false;
         Log::cpu()->debug("NMI at PC={:#06x}", z80.pc.w);
+        const bool stackless =
+            stackless_nmi_enabled && stackless_nmi_enabled();
+        // VHDL zxnext.vhd:2075-2081 sets the return substitution latch on
+        // NMIACK_LSB only while NR 0xC0 bit 3 is enabled. A conventional
+        // NMI therefore abandons any stale shadow-return state.
+        stackless_retn_active_ = stackless;
         // G88: capture the PC that will be pushed to stack as the NMI return
         // address (NR 0xC2 LSB / NR 0xC3 MSB shadow). Mirrors VHDL
         // zxnext.vhd:2050-2085, 6232-6236 (Z80N_command_s = NMIACK_LSB/MSB
@@ -544,7 +551,11 @@ int Z80Cpu::execute() {
             on_nmi_servicing(saved_pc);
         }
         libspectrum_dword before = tstates;
-        fuse_z80_nmi();
+        if (stackless) {
+            fuse_z80_nmi_stackless();
+        } else {
+            fuse_z80_nmi();
+        }
         sync_regs_from_fuse(regs_);
         int cycles = (int)(tstates - before);
         return (cycles > 0) ? cycles : 11;
@@ -646,6 +657,26 @@ int Z80Cpu::execute() {
 
     // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
+
+    // Stackless NMI leaves the CPU's SP two bytes below its entry value but
+    // suppresses the actual stack RAM writes. On RETN/RETI the FPGA suppresses
+    // the matching reads and supplies the live NR C3:C2 value instead
+    // (zxnext.vhd:1828, :1846-1852, :2050-2085). Refresh the C core at the
+    // common instruction boundary so handler writes to C2/C3 are visible to
+    // every FUSE dispatch path, including the early non-Z80N ED branch.
+    const bool stackless_enabled =
+        stackless_nmi_enabled && stackless_nmi_enabled();
+    if (!stackless_enabled) {
+        stackless_retn_active_ = false;
+    }
+    const uint16_t stackless_return =
+        (stackless_retn_active_ && stackless_nmi_return_address)
+            ? stackless_nmi_return_address()
+            : 0;
+    fuse_z80_configure_stackless_retn(
+        stackless_retn_active_ && stackless_enabled &&
+            static_cast<bool>(stackless_nmi_return_address),
+        stackless_return);
 
     // esxdos shim interception. The RST $08 instruction has already
     // pushed the return address (= byte after the RST opcode = address
@@ -842,6 +873,9 @@ int Z80Cpu::execute() {
         if (on_m1_cycle) on_m1_cycle(pc, opcode);
         if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
         int cycles_ed = fuse_z80_execute_one();
+        if (fuse_z80_take_stackless_retn_consumed()) {
+            stackless_retn_active_ = false;
+        }
         sync_regs_from_fuse(regs_);
         // Pass-9 fix: VHDL t80n.vhd:1361-1367 — BC-decrementing block
         // transfer instructions latch IncDecZ from the BC-dec result.
@@ -1022,6 +1056,9 @@ int Z80Cpu::execute() {
     const bool is_dec_bc = (inner_opcode == 0x0B);
 
     int cycles = fuse_z80_execute_one();
+    if (fuse_z80_take_stackless_retn_consumed()) {
+        stackless_retn_active_ = false;
+    }
 
     sync_regs_from_fuse(regs_);
 

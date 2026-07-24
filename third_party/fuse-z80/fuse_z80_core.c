@@ -59,6 +59,13 @@ int rzx_instructions_offset = 0;
 int z80_interrupt_event = 0;
 int z80_nmos_iff2_event = 0;
 
+/* ZX Spectrum Next stackless-NMI return bus state. The wrapper refreshes
+ * these values before every instruction so C2/C3 writes made by an NMI
+ * handler are observed by the following RETN. */
+static int               stackless_retn_active = 0;
+static libspectrum_word  stackless_retn_address = 0;
+static int               stackless_retn_consumed = 0;
+
 /* ── Flag tables ───────────────────────────────────────────────────────── */
 
 const libspectrum_byte halfcarry_add_table[] =
@@ -111,6 +118,9 @@ void fuse_z80_reset(int hard_reset)
     }
 
     z80.interrupts_enabled_at = -1;
+    stackless_retn_active = 0;
+    stackless_retn_address = 0;
+    stackless_retn_consumed = 0;
 }
 
 /* ── Interrupt handling ────────────────────────────────────────────────── */
@@ -175,6 +185,60 @@ void fuse_z80_nmi(void)
 
     Q = 0;
     PC = 0x0066;
+}
+
+void fuse_z80_nmi_stackless(void)
+{
+    if (z80.halted) { PC++; z80.halted = 0; }
+
+    IFF1 = 0;
+    R++;
+
+    /*
+     * t80n still performs both NMI acknowledge write cycles and decrements
+     * SP. zxnext.vhd raises z80_stackless_nmi during NMIACK_MSB/LSB, which
+     * gates cpu_mreq_n high: RAM is untouched and cannot add contention.
+     * Five acknowledge T-states plus two three-T-state suppressed writes.
+     */
+    tstates += 11;
+    --SP;
+    --SP;
+
+    Q = 0;
+    PC = 0x0066;
+}
+
+void fuse_z80_configure_stackless_retn(int active,
+                                       libspectrum_word return_address)
+{
+    stackless_retn_active = active ? 1 : 0;
+    stackless_retn_address = return_address;
+    stackless_retn_consumed = 0;
+}
+
+int fuse_z80_retn(void)
+{
+    if (!stackless_retn_active) return 0;
+
+    /*
+     * RETN_LSB/MSB are real CPU memory cycles, so SP and timing advance as
+     * usual. The Next suppresses MREQ and drives C2/C3 onto cpu_di; model the
+     * same result without touching the external MemoryInterface.
+     */
+    tstates += 6;
+    SP += 2;
+    PC = stackless_retn_address;
+    z80.memptr.w = PC;
+    stackless_retn_active = 0;
+    stackless_retn_consumed = 1;
+    return 1;
+}
+
+int fuse_z80_take_stackless_retn_consumed(void)
+{
+    const int consumed = stackless_retn_consumed;
+    stackless_retn_consumed = 0;
+    return consumed;
 }
 
 /* ── Single-instruction execution ──────────────────────────────────────── */

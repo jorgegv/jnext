@@ -128,6 +128,7 @@ void SdCardDevice::unmount() {
     // same canonical full reset() that mount() uses; the only difference
     // unmount() needs is closing the file (above) and clearing file_size_.
     reset();
+    clear_read_overlay();
     file_size_ = 0;
 }
 
@@ -444,7 +445,15 @@ uint8_t SdCardDevice::send() {
             if (data_idx_ < 512) {
                 return data_block_[data_idx_++];
             }
-            if (data_crc_count_ < 2) {
+            // The synthetic file-map overlay is a compatibility stream, not
+            // a standards-level card transaction. ZEsarUX's Atic-compatible
+            // CMD18 path emits FE,00,FE between each 512-byte chunk and does
+            // not expose CRC bytes. Keep real CRCs for ordinary image-backed
+            // sectors; advance the overlay directly to its next framing
+            // triplet.
+            if (!(multi_block_ && multi_block_sector_ != 0 &&
+                  is_overlay_sector(multi_block_sector_ - 1)) &&
+                data_crc_count_ < 2) {
                 // Task 26 item 3 — emit the real CRC-16 (computed over the
                 // 512 data bytes when the block was loaded), high byte
                 // first. Pre-fix returned a dummy 0x00 for both bytes.
@@ -462,9 +471,11 @@ uint8_t SdCardDevice::send() {
             // on a subsequent read rather than the same byte that terminated
             // the previous block's CRC.
             if (multi_block_) {
-                uint64_t byte_addr =
+                const uint64_t byte_addr =
                     static_cast<uint64_t>(multi_block_sector_) * 512;
-                if (byte_addr + 512 > file_size_) {
+                const bool overlay_block =
+                    is_overlay_sector(multi_block_sector_);
+                if (!load_read_sector(multi_block_sector_)) {
                     // V14-DIVMMC-01 (Pass-14 verify-audit fix, 2026-05-10):
                     // SD Physical Layer Simplified Spec § 7.3.3.3 (Data
                     // Error Token format): when the card cannot deliver
@@ -501,19 +512,23 @@ uint8_t SdCardDevice::send() {
                     state_              = State::IDLE;
                     return 0x08;  // data error token: out of range
                 }
-                file_.seekg(static_cast<std::streamoff>(byte_addr),
-                            std::ios::beg);
-                file_.read(reinterpret_cast<char*>(data_block_), 512);
                 sd_log()->trace(
                     "CMD18 next block sector={} (byte={:#010x})",
                     multi_block_sector_, byte_addr);
                 ++multi_block_sector_;
-                resp_buf_       = { 0xFE };   // just the data token between blocks
+                resp_buf_ = overlay_block
+                    ? std::vector<uint8_t>{ 0xFE, 0x00, 0xFE }
+                    : std::vector<uint8_t>{ 0xFE };
                 resp_idx_       = 0;
                 data_idx_       = 0;
                 data_crc_count_ = 0;
                 data_crc_       = sd_crc16(data_block_, 512);  // Task 26 item 3
-                return 0xFF;                   // inter-block filler
+                // The direct-NEX file-map bridge mirrors ZEsarUX's
+                // Atic-compatible SDHC stream: FE,00,FE is available
+                // immediately after the preceding 512 data bytes. Ordinary
+                // image sectors retain jnext's standards-friendly filler.
+                if (overlay_block) return resp_buf_[resp_idx_++];
+                return 0xFF;  // inter-block filler
             }
             state_ = State::IDLE;
             return 0xFF;
@@ -748,7 +763,7 @@ void SdCardDevice::cmd17_read_single_block() {
         return;
     }
 
-    if (byte_addr + 512 > file_size_) {
+    if (!load_read_sector(sector)) {
         sd_log()->warn("CMD17 read past end of image: sector={} byte={:#010x} size={}", sector, byte_addr, file_size_);
         // V12-DIVMMC-04 (Pass-12 reviewer fix, 2026-05-10): SD Physical
         // Layer Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout — bit 6 =
@@ -767,9 +782,6 @@ void SdCardDevice::cmd17_read_single_block() {
         state_ = State::RESPONDING;
         return;
     }
-
-    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
-    file_.read(reinterpret_cast<char*>(data_block_), 512);
 
     // Response: NCR×2 + R1 (0x00 = OK), then ≥1 idle byte (Nac — SD Physical
     // Layer Simplified Spec § 7.5.2: the card needs read-access time between
@@ -805,7 +817,7 @@ void SdCardDevice::cmd18_read_multiple_block() {
         return;
     }
 
-    if (byte_addr + 512 > file_size_) {
+    if (!load_read_sector(sector)) {
         sd_log()->warn(
             "CMD18 read past end of image: sector={} byte={:#010x} size={}",
             sector, byte_addr, file_size_);
@@ -818,16 +830,16 @@ void SdCardDevice::cmd18_read_multiple_block() {
         return;
     }
 
-    // Load first block.
-    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
-    file_.read(reinterpret_cast<char*>(data_block_), 512);
-
-    // First-block response is the normal CMD17 shape: NCR×2 + R1 + Nac gap
-    // byte + token + 512 + CRC (see cmd17_read_single_block for the § 7.5.2
-    // rationale — GH #84 root cause).  Subsequent blocks emitted in send()
-    // skip NCR/R1 and send one 0xFF filler + token + 512 + CRC.
-    // Task 26 item 1 (2 NCR) + item 3 (CRC).
-    resp_buf_           = { kIdle, kIdle, 0x00, kIdle, 0xFE };
+    // A host-file extent returned by the direct-NEX DISK_FILEMAP bridge is
+    // consumed by existing Next software using NextZXOS's SDHC streaming
+    // convention: the first byte is an immediate ready token, followed by
+    // R1 and the first data token. Atic Atac Next relies on that sequence
+    // (ZEsarUX has the same explicit compatibility path in mmc.c). Keep the
+    // standards-oriented NCR×2 response and the GH #84 Nac gap byte for
+    // ordinary card-image sectors.
+    resp_buf_ = is_overlay_sector(sector)
+        ? std::vector<uint8_t>{ 0xFE, 0x00, 0xFE }
+        : std::vector<uint8_t>{ kIdle, kIdle, 0x00, kIdle, 0xFE };
     resp_idx_           = 0;
     data_idx_           = 0;
     data_crc_count_     = 0;
@@ -1088,6 +1100,26 @@ uint32_t SdCardDevice::cmd_arg() const {
            (static_cast<uint32_t>(cmd_buf_[2]) << 16) |
            (static_cast<uint32_t>(cmd_buf_[3]) << 8)  |
            static_cast<uint32_t>(cmd_buf_[4]);
+}
+
+bool SdCardDevice::is_overlay_sector(uint32_t sector) const {
+    return read_overlay_ && overlay_sector_count_ != 0 &&
+           sector >= overlay_first_sector_ &&
+           static_cast<uint64_t>(sector - overlay_first_sector_) <
+               overlay_sector_count_;
+}
+
+bool SdCardDevice::load_read_sector(uint32_t sector) {
+    if (is_overlay_sector(sector))
+        return read_overlay_(sector, data_block_);
+
+    const uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
+    if (byte_addr + 512 > file_size_) return false;
+    file_.clear();
+    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
+    if (!file_) return false;
+    file_.read(reinterpret_cast<char*>(data_block_), 512);
+    return file_.gcount() == 512;
 }
 
 void SdCardDevice::queue_r1(uint8_t r1) {

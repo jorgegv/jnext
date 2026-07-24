@@ -25,6 +25,7 @@ code comments, so there is one place to check when a link rots or a spec moves.
 |------------------------------------------------------------------------------|----------------------------------------------------------|
 | NEX file format — header layout, bank bitmap, file-handle field              | <https://wiki.specnext.dev/NEX_file_format>              |
 | Alternative NEX file formats — appended-payload / self-streaming conventions | <https://wiki.specnext.dev/Alternative_NEX_file_formats> |
+| Atic Atac Next — freeware extended-NEX compatibility oracle                  | <https://9bitcolor.itch.io/atic-atac-next>                |
 
 **NEX header, offset 140 (`file_handle`)** — worth recording inline because it
 is easy to get wrong and jnext did:

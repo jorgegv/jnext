@@ -184,6 +184,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2c_.reset();
     uart_.reset();
     divmmc_.reset();
+    // DivMMC ROM/RAM are physical Next SRAM, not separate immutable
+    // buffers. Config-mode NR $04=$04 maps page 0x08, the same 8K page
+    // exposed as the DivMMC ROM overlay. Keeping a shared view is required
+    // for firmware-loaded enNxtmmc.rom and for direct-NEX loaders such as
+    // Atic Atac Next, which installs its own stackless-NMI handler there.
+    // Standalone machines retain DivMmc's private ROM fallback.
+    divmmc_.set_rom_backing(
+        cfg.type == MachineType::ZXN_ISSUE2 ? ram_.page_ptr(0x08) : nullptr);
+
     // NextZXOS-boot fix (2026-07-09, ZXGO-COMPARISON doc): DivMMC RAM is
     // physical SRAM pages 16-31 on real hardware — the same pages the
     // config-mode NR $04 window ($08-$0F) routes to. Back the DivMMC RAM
@@ -828,38 +837,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         if (im2_.retn_seen_this_cycle()) {
             im2_.on_retn();
         }
-        // G46(a) — proper "delayed-off" automap_held clear.
+        // G46(a) — defer the DivMMC clear until RETN has executed.
         // Im2Controller::retn_seen_this_cycle() pulses ONLY on the M1
         // that completes a canonical ED 45 (im2_control.vhd:236), so the
         // pre-G87 RETN-alias band-aid (which fired on any post-ED byte
         // matching 0x45/55/5D/65/6D/75/7D — e.g. a stray LD r,L after
-        // ED) is fully retired. DivMmc latches the pulse into a
-        // one-M1-cycle delay register: the held/hold/active/button_nmi
-        // shadows drop on the NEXT M1 fetch (the first byte of the
-        // returned-to instruction), letting the overlay survive RETN's
-        // own ED 45 fetch as the VHDL register-shift shape requires.
-        // This call fires on EVERY M1 (including ED + ext byte fetches
-        // and the next instruction's fetch), so the delay register
-        // sees its trigger on the ED 45 ext-byte M1 and applies the
-        // clear on the very next M1.
+        // ED) is fully retired. DivMmc latches the pulse here; the run
+        // loop applies it immediately after cpu_.execute() returns.
+        // This preserves RETN's own mapped fetch while ensuring JNext
+        // cannot predecode the returned-to instruction through a stale
+        // overlay.
         //
         // Wave 1 F-gate — VHDL zxnext.vhd:4111:
         //   `divmmc_retn_seen <= z80_retn_seen_28 AND NOT mf_is_active;`
         // When MF is active (mf_mem_en OR mf_nmi_hold per :2099), the
         // RETN pulse is suppressed for DivMMC's automap-clear path.
         // DivMMC stays in its current state until MF deactivates; MF's
-        // own retn-clear path (multiface.vhd:144,178) is direct and
-        // remains wired below.
-        divmmc_.on_m1_retn_delay(im2_.retn_seen_this_cycle() && !multiface_.is_active());
+        // own retn-clear path remains independently latched below.
+        divmmc_.on_m1_retn_seen(im2_.retn_seen_this_cycle() && !multiface_.is_active());
 
-        // Wave 1 B1 — Multiface RETN clear. VHDL multiface.vhd:144,178 —
-        // cpu_retn_seen_i='1' clears nmi_active and mf_enable in the same
-        // clocked process. We feed the same Im2Controller pulse the DivMmc
-        // delay-clear path uses; unlike DivMmc we apply the clear
-        // immediately (no one-cycle delay register, since multiface.vhd
-        // doesn't have a held/hold staging shadow).
+        // Wave 1 B1 — latch the Multiface RETN clear too. Applying it
+        // inside this pre-execution callback would make the CPU core
+        // refetch RETN itself from the newly exposed underlying memory.
         if (im2_.retn_seen_this_cycle()) {
-            multiface_.on_retn_seen();
+            multiface_retn_pending_ = true;
         }
     };
 
@@ -869,6 +870,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // hands us the post-HALT-fix PC that will be pushed to stack.
     cpu_.on_nmi_servicing = [this](uint16_t saved_pc) {
         nextreg_.set_nmi_return_address(saved_pc);
+    };
+    cpu_.stackless_nmi_enabled = [this]() {
+        return im2_.stackless_nmi();
+    };
+    cpu_.stackless_nmi_return_address = [this]() -> uint16_t {
+        return static_cast<uint16_t>(
+            static_cast<uint16_t>(nextreg_.peek(0xC3)) << 8 |
+            nextreg_.peek(0xC2));
     };
 
     // Z80 IntAck vector fetch callback — when the Z80 enters an interrupt
@@ -908,12 +917,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // case is a NextZXOS-expecting program running WITHOUT the stub, where
     // every call falls through unhandled and is otherwise invisible.
     const bool esxdos_tracing = Log::esxdos()->should_log(spdlog::level::trace);
-    if (cfg.esxdos_stub || esxdos_tracing) {
+    bool direct_nex_load = false;
+    if (!cfg.load_file.empty()) {
+        std::filesystem::path load_path(cfg.load_file);
+        std::string extension = load_path.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::error_code ec;
+        direct_nex_load =
+            extension == ".nex" && std::filesystem::is_regular_file(load_path, ec) && !ec;
+    }
+    {
         // `stub_enabled` is captured BY VALUE: this lambda is stored on the CPU
         // and long outlives init(), so a reference to cfg would dangle.
         const bool stub_enabled = cfg.esxdos_stub;
         auto handle_esxdos = [this, stub_enabled](uint8_t defb, Z80Registers& r) -> bool {
-            if (!stub_enabled) return false;   // tracing only — service nothing
+            const bool host_nex_available = !extended_nex_host_.path().empty();
+            if (!stub_enabled && !host_nex_available)
+                return false;   // tracing/direct-load pre-arm only — service nothing
             auto set_a_and_carry = [&](uint8_t a, bool carry_set) {
                 uint8_t f = static_cast<uint8_t>(r.AF & 0xFF);
                 if (carry_set) f |= 0x01; else f &= 0xFE;
@@ -944,10 +965,237 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 return std::filesystem::absolute(active.parent_path() / target)
                     .lexically_normal().string();
             };
+
+            // A directly-loaded NEX may ask nexload to keep its own file open.
+            // Service that read-only host handle, plus one read-only companion
+            // file in the same directory, before the legacy --esxdos-stub
+            // in-memory file. The companion is deliberately narrow: no
+            // absolute paths, directory components, symlinks, or writes.
+            if (host_nex_available) {
+                const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
+                auto is_host_handle = [](uint8_t value) {
+                    return value == ExtendedNexHost::kHandle ||
+                           value == ExtendedNexHost::kSiblingHandle;
+                };
+                auto handle_is_open = [&](uint8_t value) {
+                    return value == ExtendedNexHost::kHandle
+                        ? extended_nex_host_.is_open()
+                        : extended_nex_host_.sibling_is_open();
+                };
+                auto set_position_result = [&](uint8_t value) {
+                    const uint64_t host_position =
+                        value == ExtendedNexHost::kHandle
+                            ? extended_nex_host_.position()
+                            : extended_nex_host_.sibling_position();
+                    const uint32_t pos = static_cast<uint32_t>(
+                        std::min<uint64_t>(host_position, 0xFFFFFFFFULL));
+                    r.BC = static_cast<uint16_t>(pos >> 16);
+                    r.DE = static_cast<uint16_t>(pos);
+                };
+                switch (defb) {
+                    case 0x85: { // DISK_FILEMAP
+                        if (handle != ExtendedNexHost::kHandle ||
+                            !extended_nex_host_.is_open()) {
+                            set_a_and_carry(0x0D, true); // EBADF
+                            return true;
+                        }
+                        const std::size_t capacity = r.DE;
+                        std::vector<ExtendedNexHost::FileMapEntry> entries;
+                        if (!extended_nex_host_.file_map(capacity, entries)) {
+                            set_a_and_carry(0x06, true); // EIO
+                            return true;
+                        }
+                        uint16_t out = r.IX;
+                        for (const auto& entry : entries) {
+                            for (int i = 0; i < 4; ++i)
+                                mmu_.write(static_cast<uint16_t>(out++),
+                                           static_cast<uint8_t>(entry.address >> (i * 8)));
+                            mmu_.write(static_cast<uint16_t>(out++),
+                                       static_cast<uint8_t>(entry.blocks));
+                            mmu_.write(static_cast<uint16_t>(out++),
+                                       static_cast<uint8_t>(entry.blocks >> 8));
+                        }
+                        r.DE = static_cast<uint16_t>(capacity - entries.size());
+                        r.HL = out;
+                        set_a_and_carry(ExtendedNexHost::kCardFlags, false);
+                        return true;
+                    }
+                    case 0x86: { // DISK_STRMSTART
+                        const uint8_t flags = handle;
+                        const uint32_t address =
+                            (static_cast<uint32_t>(r.IX) << 16) | r.DE;
+                        if (!extended_nex_host_.stream_start(address, flags)) {
+                            set_a_and_carry(0x0E, true); // ENODEV
+                            return true;
+                        }
+                        r.BC = 0x00EB; // B=SD/MMC protocol, C=data port
+                        set_a_and_carry(flags, false);
+                        return true;
+                    }
+                    case 0x87: { // DISK_STRMEND
+                        if (!extended_nex_host_.stream_end()) {
+                            set_a_and_carry(0x0E, true); // ENODEV
+                            return true;
+                        }
+                        set_a_and_carry(handle, false);
+                        return true;
+                    }
+                    case 0x9A: { // F_OPEN — active NEX or safe sibling, read-only
+                        const std::string filename = read_zstr(r.IX);
+                        Log::emulator()->debug(
+                            "extended NEX F_OPEN: '{}' mode={:#04x}",
+                            filename, static_cast<uint8_t>(r.BC >> 8));
+                        const std::filesystem::path requested(filename);
+                        const std::filesystem::path active_path(
+                            extended_nex_host_.path());
+                        std::string wanted = requested.filename().string();
+                        std::string active = active_path.filename().string();
+                        std::transform(wanted.begin(), wanted.end(), wanted.begin(),
+                                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                        std::transform(active.begin(), active.end(), active.begin(),
+                                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                        const uint8_t mode = static_cast<uint8_t>(r.BC >> 8);
+                        const bool plain_name =
+                            !requested.empty() && !requested.is_absolute() &&
+                            !requested.has_parent_path();
+                        const bool read_only =
+                            (mode & 0x01) != 0 && (mode & 0x02) == 0;
+                        if (plain_name && wanted == active && read_only) {
+                            if (!extended_nex_host_.reopen()) {
+                                set_a_and_carry(0x06, true); // EIO
+                            } else {
+                                set_a_and_carry(ExtendedNexHost::kHandle, false);
+                            }
+                            return true;
+                        }
+                        if (plain_name && read_only) {
+                            const std::filesystem::path sibling =
+                                (active_path.parent_path() / requested).lexically_normal();
+                            std::error_code ec;
+                            const auto status = std::filesystem::symlink_status(sibling, ec);
+                            if (!ec && std::filesystem::is_regular_file(status) &&
+                                !std::filesystem::is_symlink(status)) {
+                                if (!extended_nex_host_.open_sibling(sibling.string())) {
+                                    set_a_and_carry(0x06, true); // EIO
+                                } else {
+                                    set_a_and_carry(
+                                        ExtendedNexHost::kSiblingHandle, false);
+                                }
+                                return true;
+                            }
+                        }
+                        if (!stub_enabled) {
+                            set_a_and_carry((mode & 0x02) ? 0x08 : 0x05, true);
+                            return true;
+                        }
+                        break; // allow the in-memory compatibility file below
+                    }
+                    case 0x9B: // F_CLOSE
+                        if (is_host_handle(handle)) {
+                            if (!handle_is_open(handle)) {
+                                set_a_and_carry(0x0D, true); // EBADF
+                            } else {
+                                if (handle == ExtendedNexHost::kHandle)
+                                    extended_nex_host_.close();
+                                else
+                                    extended_nex_host_.close_sibling();
+                                set_a_and_carry(handle, false);
+                            }
+                            return true;
+                        }
+                        break;
+                    case 0x9D: { // F_READ
+                        if (!is_host_handle(handle)) break;
+                        if (!handle_is_open(handle)) {
+                            set_a_and_carry(0x0D, true); // EBADF
+                            return true;
+                        }
+                        const uint16_t requested = r.BC;
+                        std::vector<uint8_t> bytes(requested);
+                        std::size_t actual = 0;
+                        const bool read_ok = handle == ExtendedNexHost::kHandle
+                            ? extended_nex_host_.read(bytes.data(), requested, actual)
+                            : extended_nex_host_.read_sibling(
+                                  bytes.data(), requested, actual);
+                        if (!read_ok) {
+                            set_a_and_carry(0x06, true); // EIO
+                            return true;
+                        }
+                        for (std::size_t i = 0; i < actual; ++i)
+                            mmu_.write(static_cast<uint16_t>(r.IX + i), bytes[i]);
+                        r.BC = static_cast<uint16_t>(actual);
+                        r.DE = static_cast<uint16_t>(actual);
+                        r.HL = static_cast<uint16_t>(r.IX + actual);
+                        set_a_and_carry(handle, false);
+                        return true;
+                    }
+                    case 0x9F: { // F_SEEK
+                        if (!is_host_handle(handle)) break;
+                        const uint32_t offset =
+                            (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        const uint8_t mode = static_cast<uint8_t>(r.IX);
+                        if ((mode & 0xFC) != 0) {
+                            Log::emulator()->warn(
+                                "extended NEX F_SEEK: ignoring undocumented mode bits {:#04x}",
+                                mode & 0xFC);
+                        }
+                        const bool seek_ok = handle == ExtendedNexHost::kHandle
+                            ? extended_nex_host_.seek(mode, offset)
+                            : extended_nex_host_.seek_sibling(mode, offset);
+                        if (!seek_ok) {
+                            set_a_and_carry(0x07, true); // EINVAL
+                            return true;
+                        }
+                        set_position_result(handle);
+                        set_a_and_carry(handle, false);
+                        return true;
+                    }
+                    case 0xA0: // F_FGETPOS
+                        if (is_host_handle(handle)) {
+                            if (!handle_is_open(handle)) {
+                                set_a_and_carry(0x0D, true); // EBADF
+                            } else {
+                                set_position_result(handle);
+                                set_a_and_carry(handle, false);
+                            }
+                            return true;
+                        }
+                        break;
+                    case 0xA1: { // F_FSTAT — 11-byte esx_stat at IX
+                        if (!is_host_handle(handle)) break;
+                        if (!handle_is_open(handle)) {
+                            set_a_and_carry(0x0D, true); // EBADF
+                            return true;
+                        }
+                        const uint16_t out = r.IX;
+                        mmu_.write(out + 0, '*');  // current drive
+                        mmu_.write(out + 1, 0x81); // regular SD-card file
+                        mmu_.write(out + 2, 0x00); // attributes
+                        for (int i = 3; i < 7; ++i) mmu_.write(out + i, 0x00);
+                        const uint64_t host_size =
+                            handle == ExtendedNexHost::kHandle
+                                ? extended_nex_host_.size()
+                                : extended_nex_host_.sibling_size();
+                        const uint32_t size = static_cast<uint32_t>(
+                            std::min<uint64_t>(host_size, 0xFFFFFFFFULL));
+                        for (int i = 0; i < 4; ++i)
+                            mmu_.write(out + 7 + i,
+                                       static_cast<uint8_t>(size >> (i * 8)));
+                        set_a_and_carry(handle, false);
+                        return true;
+                    }
+                    default:
+                        break;
+                }
+            }
             switch (defb) {
                 case 0x88:  // M_DOSVERSION
                     r.BC = 0x4E58;               // B='N', C='X'
-                    r.DE = 0x0194;               // compatible NextZXOS version
+                    // The host-backed extended-NEX bridge implements the
+                    // 2.01 streaming contract and the 2.02-compatible calls
+                    // required by Atic Atac. The legacy opt-in stub alone
+                    // retains its deliberately conservative 1.94 claim.
+                    r.DE = host_nex_available ? 0x0202 : 0x0194;
                     r.HL = 0x6E65;               // H='n', L='e' (English)
                     set_a_and_carry(0x00, false);
                     r.AF = static_cast<uint16_t>(r.AF | 0x0040); // Z set
@@ -1054,46 +1302,48 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // that explains a program giving up, and an unhandled call is reported
         // explicitly rather than just missing.
         //
-        // The wrapper is installed UNCONDITIONALLY here, not only when tracing
-        // was on at init(): `trace()` performs its own inline level check, so
-        // with the level at info this costs one integer compare per RST $08 and
-        // emits nothing. Installing it always is what makes `--log-level
-        // esxdos=trace` work when it is raised at RUNTIME (from the debugger)
-        // rather than on the command line.
+        // The wrapper is created unconditionally, but attached only when the
+        // stub, tracing, or a host-backed NEX needs it. `trace()` performs its
+        // own inline level check, so once attached, raising esxdos=trace at
+        // runtime starts recording without rebuilding the callback.
         //
-        // Residual limitation, deliberate: whether the hook EXISTS is still an
-        // init()-time decision (see the `if` above). With both the stub and
-        // tracing off at init there is no hook at all, and raising the level
-        // later traces nothing — jnext must be restarted with either flag. The
-        // hook cannot be installed unconditionally because its mere presence
-        // changes RST $08 dispatch for every program.
-        cpu_.on_esxdos_call = [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
-            const char* name = esxdos_call_name(defb);
-            // Logged BEFORE handle_esxdos runs: the stub mutates r in place, so
-            // capturing the arguments afterwards would report the results as if
-            // they had been the inputs. Pinned by ESXT-28.
-            Log::esxdos()->trace(
-                "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
-                defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
-
-            const bool handled = handle_esxdos(defb, r);
-
-            if (handled) {
-                // esxdos convention: carry CLEAR = success, SET = error
-                // with the code in A.
-                const bool error = (r.AF & 0x0001) != 0;
-                const uint8_t a  = static_cast<uint8_t>(r.AF >> 8);
+        // Residual limitation, deliberate: with the stub and tracing off at
+        // init there is no CPU hook, so merely raising the log level later
+        // still requires a restart. A later GUI extended-NEX load is different:
+        // load_nex() attaches this stored wrapper when it creates the required
+        // host handle. Keeping it dormant otherwise preserves ordinary RST $08
+        // dispatch, pinned by the existing esxdos-stub suite.
+        esxdos_bridge_handler_ =
+            [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
+                const char* name = esxdos_call_name(defb);
+                // Logged BEFORE handle_esxdos runs: the stub mutates r in place, so
+                // capturing the arguments afterwards would report the results as if
+                // they had been the inputs. Pinned by ESXT-28.
                 Log::esxdos()->trace(
-                    "<- ${:02X} {:<12} {} A={:02X} BC={:04X} DE={:04X} HL={:04X}",
-                    defb, name ? name : "(unknown)", error ? "ERROR" : "ok   ",
-                    a, r.BC, r.DE, r.HL);
-            } else {
-                Log::esxdos()->trace(
-                    "<- ${:02X} {:<12} not serviced by jnext — dispatched to "
-                    "the ROM at $0008", defb, name ? name : "(unknown)");
-            }
-            return handled;
-        };
+                    "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
+                    defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
+
+                const bool handled = handle_esxdos(defb, r);
+
+                if (handled) {
+                    // esxdos convention: carry CLEAR = success, SET = error
+                    // with the code in A.
+                    const bool error = (r.AF & 0x0001) != 0;
+                    const uint8_t a  = static_cast<uint8_t>(r.AF >> 8);
+                    Log::esxdos()->trace(
+                        "<- ${:02X} {:<12} {} A={:02X} BC={:04X} DE={:04X} HL={:04X}",
+                        defb, name ? name : "(unknown)", error ? "ERROR" : "ok   ",
+                        a, r.BC, r.DE, r.HL);
+                } else {
+                    Log::esxdos()->trace(
+                        "<- ${:02X} {:<12} not serviced by jnext — dispatched to "
+                        "the ROM at $0008", defb, name ? name : "(unknown)");
+                }
+                return handled;
+            };
+        if (cfg.esxdos_stub || esxdos_tracing || direct_nex_load) {
+            cpu_.on_esxdos_call = esxdos_bridge_handler_;
+        }
 
         if (cfg.esxdos_stub) Log::emulator()->info("esxdos shim enabled (--esxdos-stub)");
         if (esxdos_tracing)  Log::emulator()->info("esxdos syscall tracing enabled (--log-level esxdos=trace)");
@@ -5213,6 +5463,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x00EB,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x08) == 0) return 0xFF;
+            if (extended_nex_host_.stream_active()) {
+                const auto byte = extended_nex_host_.read_stream_byte();
+                return byte.value_or(0xFF);
+            }
             return spi_.read_data();
         },
         [this](uint16_t, uint8_t val) {
@@ -6203,6 +6457,12 @@ bool Emulator::load_nex(const std::string& path)
     NexLoader loader;
     if (!loader.load(path)) return false;
 
+    // A new directly-loaded program invalidates any host handle/stream left by
+    // the previous one. The path is restored below only when this NEX asks the
+    // loader to keep its own file open.
+    extended_nex_host_.clear();
+    sd_card_.clear_read_overlay();
+
     // Full machine reset before applying NEX data ensures clean subsystem
     // state (palette, video layers, NextREG, etc.) regardless of whether
     // the emulator was already running or freshly started.
@@ -6210,6 +6470,50 @@ bool Emulator::load_nex(const std::string& path)
 
     if (!loader.apply(*this)) return false;
     active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
+
+    // nexload runs under NextZXOS, after its SD initialization handshake.
+    // A direct load bypasses that code, so recreate the external card state
+    // that the launched program would otherwise inherit.
+    sd_card_.prepare_for_direct_nex();
+
+    if (loader.keeps_file_open()) {
+        if (!extended_nex_host_.open(active_nex_path_)) {
+            Log::emulator()->error(
+                "NEX: cannot keep '{}' open for its requested file handle",
+                active_nex_path_);
+            return false;
+        }
+        // A GUI File -> Open load can occur after init(), when no command-line
+        // NEX existed and the dormant bridge was deliberately not attached.
+        // Activate it now that a host-backed handle exists. When inactive the
+        // handler returns false, preserving the ROM's ordinary RST $08 path.
+        if (!cpu_.on_esxdos_call && esxdos_bridge_handler_) {
+            cpu_.on_esxdos_call = esxdos_bridge_handler_;
+        }
+        sd_card_.set_read_overlay(
+            ExtendedNexHost::kSyntheticFirstBlock,
+            extended_nex_host_.block_count(),
+            [this](uint32_t sector, uint8_t* dst) {
+                return extended_nex_host_.read_block(sector, dst);
+            });
+
+        const uint8_t handle = ExtendedNexHost::kHandle;
+        if (loader.header().file_handle == 1) {
+            auto regs = cpu_.get_registers();
+            regs.BC = handle;
+            cpu_.set_registers(regs);
+            Log::emulator()->debug("NEX: delivered open file handle {} in BC", handle);
+        } else {
+            mmu_.write(loader.header().file_handle, handle);
+            Log::emulator()->debug(
+                "NEX: delivered open file handle {} at {:#06x}",
+                handle, loader.header().file_handle);
+        }
+    } else if (loader.header().file_handle != 0) {
+        Log::emulator()->warn(
+            "NEX: unsupported file_handle value {:#06x}; file closed",
+            loader.header().file_handle);
+    }
     return true;
 }
 
@@ -7203,7 +7507,22 @@ uint64_t Emulator::step_one_instruction()
         // copy from a member array) — the cost is in the noise next
         // to the surrounding scheduler/IM2/Copper work.
         const uint16_t pc_pre_exec = cpu_.pc();
+        multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
+
+        // RETN overlay timing — on real hardware the RETN opcode has
+        // already been fetched when i_retn_seen clears the mapping
+        // latches. JNext predecodes instructions before the CPU core
+        // executes them, so clearing either overlay from the M1 callback
+        // is too early for RETN itself, while waiting for the next M1 is
+        // too late for the returned-to instruction's predecode. Apply
+        // the latched clears at this instruction boundary instead.
+        divmmc_.on_retn_instruction_complete();
+        if (multiface_retn_pending_) {
+            multiface_.on_retn_seen();
+            multiface_retn_pending_ = false;
+        }
+
         defer_cpu_nr_writes_ = false;
         if (profiler_.active()) {
             profiler_.on_instruction(mmu_, pc_pre_exec,
@@ -7708,6 +8027,12 @@ void Emulator::reset()
     // the recovery path the GUI tells the user to take.
     last_state_error_.clear();
 
+    // GH #29/#84: a reset leaves direct-NEX execution and returns to a
+    // normally booted machine. Do not let its host-file bridge, active
+    // port-$EB stream, or synthetic SD sectors intercept that machine.
+    extended_nex_host_.clear();
+    sd_card_.clear_read_overlay();
+
     // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
     // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
     // they are preserved. Save the port-enable state and reset_type before
@@ -7804,6 +8129,12 @@ void Emulator::soft_reset()
     // Task 60e: soft reset also re-establishes a runnable machine, so it
     // clears the "corrupt after failed rewind" flag (Task 60b) too.
     last_state_error_.clear();
+
+    // GH #29/#84: direct-NEX host state is execution context, not preserved
+    // machine state. A soft reset must return file and SD traffic to the
+    // configured card/ROM just like a hard reset.
+    extended_nex_host_.clear();
+    sd_card_.clear_read_overlay();
 
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);
@@ -8712,6 +9043,15 @@ void Emulator::save_state(StateWriter& w) const
     iomode_.save_state(w);
     put_sentinel();   // "input" (keyboard/joystick/mouse/md6/membrane/iomode)
 
+    // GH #84 / G49 — a snapshot taken inside a stackless NMI handler must
+    // retain the hidden "next RETN reads NR C3:C2" latch. The public CPU
+    // registers alone cannot reconstruct it: PC may be anywhere in the
+    // handler and ordinary code can also run with SP two bytes below an
+    // earlier value. Append after the input block so older snapshots remain
+    // readable; their absent field keeps the reset default false.
+    w.write_bool(cpu_.stackless_retn_active());
+    put_sentinel();   // "stackless_nmi"
+
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
     // StateWriter now suppresses the write and latches a sticky flag.
@@ -9118,6 +9458,16 @@ bool Emulator::load_state(StateReader& r)
     membrane_stick_.load_state(r);
     iomode_.load_state(r);
     if (!check_sentinel("input")) return false;
+
+    // GH #84 / G49 — append-only hidden stackless-RETN latch. Snapshots
+    // predating this field end immediately after the input sentinel and keep
+    // the CPU reset default (inactive).
+    if (!r.eof()) {
+        cpu_.set_stackless_retn_active_for_load(r.read_bool());
+        if (!check_sentinel("stackless_nmi")) return false;
+    } else {
+        cpu_.set_stackless_retn_active_for_load(false);
+    }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
     // composite gate from the canonical loaded state (nr_03_config_mode +

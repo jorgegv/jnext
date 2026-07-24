@@ -9,6 +9,7 @@
 #include "audio/audio_mute.h"
 #include "core/clock.h"
 #include "core/emulator_config.h"
+#include "core/extended_nex_host.h"
 #include "core/scheduler.h"
 #include "cpu/z80_cpu.h"
 #include "cpu/im2.h"
@@ -371,6 +372,7 @@ public:
     Ctc&          ctc()       { return ctc_; }
     Dma&          dma()       { return dma_; }
     SpiMaster&    spi()       { return spi_; }
+    SdCardDevice& sd_card()   { return sd_card_; }
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
     DivMmc&       divmmc()    { return divmmc_; }
@@ -798,7 +800,7 @@ private:
     static constexpr int FRAMEBUFFER_PIXELS = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
-    // Host-side state used only by --esxdos-stub.
+    // Host-side state used by --esxdos-stub and direct extended-NEX loading.
     std::string nex_load_request_;
     std::string active_nex_path_;
     std::string esxdos_stub_filename_;
@@ -807,6 +809,8 @@ private:
     uint8_t esxdos_stub_handle_ = 1;
     bool esxdos_stub_file_open_ = false;
     bool esxdos_stub_file_write_ = false;
+    std::function<bool(uint8_t, Z80Registers&)> esxdos_bridge_handler_;
+    ExtendedNexHost extended_nex_host_;
     MachineTiming  timing_;          // per-machine timing from VHDL
     Clock          clock_;
     Scheduler      scheduler_;
@@ -1274,6 +1278,11 @@ private:
     // -----------------------------------------------------------------------
     bool                                     defer_cpu_nr_writes_ = false;
     std::vector<std::pair<uint8_t, uint8_t>> pending_cpu_nr_writes_;
+
+    // Canonical ED 45 was decoded during the current instruction.
+    // Multiface remains mapped while RETN executes, then unmaps at the
+    // instruction boundary before the returned-to opcode is inspected.
+    bool multiface_retn_pending_ = false;
 
     // -----------------------------------------------------------------------
     // Private helpers
