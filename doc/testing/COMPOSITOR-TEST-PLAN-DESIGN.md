@@ -176,6 +176,22 @@ compositor_integration_test 7/7/0/0 (100%). Net 9 SKIP closures this session:
   removed flush / reverted gate / reordered cap check — each target
   row red, restore green). `compositor_test` 225→230.
 
+* **2026-07-24 — the last 3 skips resolved; suite at 0 skips.** All
+  three were `LR` rows owned by
+  [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md) (group 7/8
+  there for the full record). **LR-140** skip→check: the "unobservable"
+  ruling was a jnext gap, not a hardware unreachability — the missing
+  `ula_select_bgnd` consumer (zxnext.vhd:6986-6991) was implemented in
+  `Ula`'s ULAnext render branches, with `Renderer::render_row` pushing
+  the per-line NR 0x4A ARGB; the live row asserts the LoRes bypass and
+  carries a stimulus-validity guard leg (both legs mutation-tested:
+  consumer reverted → guard leg red; LoRes substitution suppressed
+  under ULAnext → LoRes leg red; restore → green). **LR-127/LR-128**
+  retired-row tombstone `skip()`s removed under the owner-authorized
+  zero-skip mandate; the retirement record lives in the LoRes plan.
+  `compositor_test` 230→228 (2 tombstone rows gone; LR-140 now counted
+  as pass), 0 fail, **0 skip**.
+
 ---
 
 **Pre-Task 8 baseline (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**

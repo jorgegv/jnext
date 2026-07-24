@@ -584,12 +584,13 @@ void Ula::advance_flash()
 // compute_ulanext_pixel  (VHDL zxula.vhd:492-529)
 // ---------------------------------------------------------------------------
 //
-// Pure encoder for the ULAnext palette-format pixel path. Used by Phase-2
-// Wave B unit tests and (future) a compositor-side ULAnext renderer. The
-// current render_display_line only consumes `ulanext_en_` as a flash-suppress
-// gate on the XOR term at zxula.vhd:470; full 8-bit ULAnext palette indexing
-// requires a 256-entry ULA palette (a follow-up end-to-end integration, out
-// of Wave B scope).
+// Pure encoder for the ULAnext palette-format pixel path. Consumed by the
+// live render paths (G102 dispatch in render_display_line /
+// render_display_line_hicolour / render_display_line_hires and the TMX
+// border route) and by the Wave-B encoder unit tests. Both halves of the
+// return value are live: `pixel` indexes the 256-entry ULA palette, and
+// `select_bgnd` routes the pixel to the NR $4A fallback per
+// zxnext.vhd:6986-6991 (LR-140 — see set_select_bgnd_argb in ula.h).
 //
 // VHDL paper-lookup table (paper_base_index = "10000000"):
 //
@@ -765,14 +766,26 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
                 // read into palette_utm uses the full 8-bit value as the
                 // low address bits with `ula_palette_select_1` selecting
                 // the bank (zxnext.vhd:6981).
+                //
+                // LR-140 — zxnext.vhd:6987-6991: a pixel whose encoder
+                // asserted ula_select_bgnd takes the NR $4A fallback
+                // (expanded per :6990) instead of the palette lookup.
+                // The encoder only asserts it for paper (zxula.vhd:525)
+                // and border (:501); the mux is written on both slots
+                // because the VHDL applies it to the pixel stream, not
+                // to the ink/paper split.
                 const auto ink_pix   = compute_ulanext_pixel(
                     /*pixel_en*/true,  /*border*/false, attr);
                 const auto paper_pix = compute_ulanext_pixel(
                     /*pixel_en*/false, /*border*/false, attr);
-                ink_argb   = palette_->ula_colour(active_ula_palette_,
-                                                  ink_pix.pixel);
-                paper_argb = palette_->ula_colour(active_ula_palette_,
-                                                  paper_pix.pixel);
+                ink_argb   = ink_pix.select_bgnd
+                                 ? select_bgnd_argb_
+                                 : palette_->ula_colour(active_ula_palette_,
+                                                        ink_pix.pixel);
+                paper_argb = paper_pix.select_bgnd
+                                 ? select_bgnd_argb_
+                                 : palette_->ula_colour(active_ula_palette_,
+                                                        paper_pix.pixel);
             } else if (ulap_en_ && palette_) {
                 // ULA+ encoder common bits per zxula.vhd:535 (only differ
                 // by bit 3 = NOT pixel_en):
@@ -837,15 +850,20 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
             uint32_t paper_argb;
             if (ulanext_en_ && palette_) {
                 // G102 — ULAnext runtime path; see fast-path for full
-                // VHDL citations.
+                // VHDL citations.  LR-140 — select_bgnd routes to the
+                // NR $4A fallback (zxnext.vhd:6987-6991).
                 const auto ink_pix   = compute_ulanext_pixel(
                     /*pixel_en*/true,  /*border*/false, attr);
                 const auto paper_pix = compute_ulanext_pixel(
                     /*pixel_en*/false, /*border*/false, attr);
-                ink_argb   = palette_->ula_colour(active_ula_palette_,
-                                                  ink_pix.pixel);
-                paper_argb = palette_->ula_colour(active_ula_palette_,
-                                                  paper_pix.pixel);
+                ink_argb   = ink_pix.select_bgnd
+                                 ? select_bgnd_argb_
+                                 : palette_->ula_colour(active_ula_palette_,
+                                                        ink_pix.pixel);
+                paper_argb = paper_pix.select_bgnd
+                                 ? select_bgnd_argb_
+                                 : palette_->ula_colour(active_ula_palette_,
+                                                        paper_pix.pixel);
             } else if (ulap_en_ && palette_) {
                 // G103 — ULA+ runtime path.  Mirrors the fast-path block
                 // above; see comments there for the encoder layout.
@@ -948,15 +966,20 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
         uint32_t paper_argb;
         if (ulanext_en_ && palette_) {
             // G102 — ULAnext runtime path; see render_display_line for
-            // full VHDL citations.
+            // full VHDL citations.  LR-140 — select_bgnd routes to the
+            // NR $4A fallback (zxnext.vhd:6987-6991).
             const auto ink_pix   = compute_ulanext_pixel(
                 /*pixel_en*/true,  /*border*/false, attr);
             const auto paper_pix = compute_ulanext_pixel(
                 /*pixel_en*/false, /*border*/false, attr);
-            ink_argb   = palette_->ula_colour(active_ula_palette_,
-                                              ink_pix.pixel);
-            paper_argb = palette_->ula_colour(active_ula_palette_,
-                                              paper_pix.pixel);
+            ink_argb   = ink_pix.select_bgnd
+                             ? select_bgnd_argb_
+                             : palette_->ula_colour(active_ula_palette_,
+                                                    ink_pix.pixel);
+            paper_argb = paper_pix.select_bgnd
+                             ? select_bgnd_argb_
+                             : palette_->ula_colour(active_ula_palette_,
+                                                    paper_pix.pixel);
         } else if (ulap_en_ && palette_) {
             // G103 — ULA+ encoder, see render_display_line for layout.
             const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);
@@ -1071,9 +1094,18 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
             /*pixel_en*/false, /*border*/false, hires_attr);
         const auto border_pix = compute_ulanext_pixel(
             /*pixel_en*/false, /*border*/true,  hires_attr);
-        ink_argb    = palette_->ula_colour(active_ula_palette_, ink_pix.pixel);
-        paper_argb  = palette_->ula_colour(active_ula_palette_, paper_pix.pixel);
-        border_argb = palette_->ula_colour(active_ula_palette_, border_pix.pixel);
+        // LR-140 — select_bgnd routes to the NR $4A fallback
+        // (zxnext.vhd:6987-6991; border asserts it for format 0xFF,
+        // zxula.vhd:498-502).
+        ink_argb    = ink_pix.select_bgnd
+                          ? select_bgnd_argb_
+                          : palette_->ula_colour(active_ula_palette_, ink_pix.pixel);
+        paper_argb  = paper_pix.select_bgnd
+                          ? select_bgnd_argb_
+                          : palette_->ula_colour(active_ula_palette_, paper_pix.pixel);
+        border_argb = border_pix.select_bgnd
+                          ? select_bgnd_argb_
+                          : palette_->ula_colour(active_ula_palette_, border_pix.pixel);
     } else if (ulap_en_ && palette_) {
         // VHDL zxula.vhd:535-540 — ULA+ encoder; in HI_RES sm2=1, so
         // ula_pixel(3) = (sm2 OR not pixel_en) = 1 for both ink and paper
@@ -1186,10 +1218,17 @@ void Ula::render_border_line(uint32_t* row, bool* border_dst)
 
     uint32_t border_argb;
     if (ulanext_en_ && palette_) {
-        // VHDL zxula.vhd:504: ula_pixel = "10000" & attr(5:3) for border.
-        // attr(5:3) = ~paper.  Result: idx = 0x80 | (~paper & 7).
-        const uint8_t idx = static_cast<uint8_t>(0x80 | ((btmx >> 3) & 0x07));
-        border_argb = palette_->ula_colour(active_ula_palette_, idx);
+        // VHDL zxula.vhd:504: ula_pixel = "10000" & attr(5:3) for border
+        // (attr(5:3) = ~paper → idx = 0x80 | (~paper & 7)), and :498-502
+        // additionally asserts ula_select_bgnd when format = 0xFF.
+        // LR-140 — route through the encoder so the select_bgnd → NR $4A
+        // substitution (zxnext.vhd:6987-6991) applies to this border too;
+        // for format != 0xFF the encoded index is unchanged.
+        const auto bp = compute_ulanext_pixel(/*pixel_en*/false,
+                                              /*border*/true, btmx);
+        border_argb = bp.select_bgnd
+                          ? select_bgnd_argb_
+                          : palette_->ula_colour(active_ula_palette_, bp.pixel);
     } else if (ulap_en_ && palette_) {
         // VHDL zxula.vhd:535-540 with border_active_d=1 (pixel_en=0):
         //   ula_pixel(7:3) = "11" & attr(7:6) & (sm2 OR not pixel_en)

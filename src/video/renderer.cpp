@@ -408,6 +408,11 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
     // to write the border strips (left/right per display row + entire
     // top/bottom border rows).
     const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
+    // LR-140 — hand the ULA the row's NR $4A fallback so a ULAnext
+    // `ula_select_bgnd` pixel substitutes THIS row's replayed value
+    // (zxnext.vhd:6986-6991; fallback_rgb_1 is the same per-pixel-latched
+    // NR $4A chain, :6823/6915-6916, that fallback_per_line_ models).
+    ula_.set_select_bgnd_argb(fb_argb);
     ula_.render_scanline(ula_line_.data(), row, mmu, ula_border_.data());
 
     // LoRes substitution into the ULA slot (VHDL zxnext.vhd:6980-6981).
@@ -479,12 +484,12 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
 //
 // The NR $4A fallback bypass (zxnext.vhd:6986-6991 — a LoRes pixel takes the
 // palette colour even when `ula_select_bgnd` would have selected NR $4A) is
-// satisfied structurally: the write below is unconditional and opaque, so
-// nothing the ULA path could have produced survives underneath it.  jnext's
-// live ULA render never asserts `select_bgnd` (Ula::compute_ulanext_pixel
-// computes it for the Wave-B encoder rows but no render path consumes it), so
-// the bypass has no distinct observable today; it cannot be got wrong here
-// without also changing the write above to be conditional.
+// satisfied by ordering: Ula::render_scanline performs the select_bgnd →
+// NR $4A substitution (the else-arm of :6987, live since LR-140 resolved
+// 2026-07-24), and the unconditional, opaque write below then replaces the
+// cell wherever a LoRes pixel exists — the `lores_pixel_en_1 = '1'` disjunct
+// of :6987.  LR-140 pins both halves: LoRes colour with $15[7]=1, fallback
+// with $15[7]=0, under a select_bgnd-asserting ULA state.
 
 void Renderer::apply_lores(uint32_t* line, int row, Ram& ram,
                            PaletteManager& palette)

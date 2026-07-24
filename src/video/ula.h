@@ -75,6 +75,7 @@ public:
         // VHDL zxnext.vhd:5002 — nr_42_ulanext_format reset = X"07".
         ulanext_format_      = 0x07;
         ulanext_en_          = false; // nr_43_ulanext_en reset '0'
+        select_bgnd_argb_    = 0xFFFF00FFu; // NR $4A reset X"E3" expanded (zxnext.vhd:5014)
         ulap_en_             = false; // port_ff3b_ulap_en reset '0' (zxnext.vhd:4547)
         ulap_en_per_line_.fill(false);  // gap G11 — mirror reset default
         ulap_mode_           = 0;     // port_bf3b_ulap_mode reset "00" (zxnext.vhd:4529)
@@ -371,6 +372,25 @@ public:
     ///                       All other formats (incl. 0xFF) assert select_bgnd.
     struct UlaNextPixel { uint8_t pixel; bool select_bgnd; };
     UlaNextPixel compute_ulanext_pixel(bool pixel_en, bool border, uint8_t attr) const;
+
+    /// zxnext.vhd:6986-6991 — the `ula_select_bgnd` consumer:
+    ///
+    ///   if lores_pixel_en_1 = '1' or ula_select_bgnd_1 = '0' then
+    ///      ula_rgb_1 <= ulatm_rgb_1(8 downto 0);              -- palette
+    ///   else
+    ///      ula_rgb_1 <= fallback_rgb_1 &
+    ///                   (fallback_rgb_1(1) or fallback_rgb_1(0));  -- NR $4A
+    ///
+    /// A pixel whose ULAnext encoding asserted `ula_select_bgnd` takes the
+    /// NR $4A fallback colour instead of a palette lookup.  The Renderer
+    /// owns the NR $4A per-line replay (`fallback_per_line_`, modelling the
+    /// fallback_rgb_0/1a/1 latch chain at zxnext.vhd:6823/6915-6916) and
+    /// pushes the row's expanded ARGB here before each render_scanline
+    /// call.  The `lores_pixel_en_1 = '1'` disjunct is modelled by
+    /// Renderer::apply_lores, whose unconditional overwrite runs after this
+    /// substitution.  Not serialized: per-row scratch input, re-pushed by
+    /// Renderer::render_row from its own (serialized) fallback state.
+    void set_select_bgnd_argb(uint32_t argb) { select_bgnd_argb_ = argb; }
 
     // Port 0xFF3B — ULA+ enable. Narrow setter; ULA+ mode/index live in the
     // Compositor-side palette state. VHDL zxnext.vhd:4547-4551.
@@ -697,6 +717,11 @@ private:
     bool    ula_fine_scroll_x_   = false; ///< NR 0x68 bit 2 (zxula.vhd:199)
     uint8_t ulanext_format_      = 0x07;  ///< NR 0x42, VHDL reset X"07" (zxnext.vhd:5002)
     bool    ulanext_en_          = false; ///< NR 0x43 bit 0 (zxnext.vhd:5394)
+    /// NR $4A fallback expanded RRRGGGBB→ARGB (Renderer::rrrgggbb_to_argb
+    /// convention), consumed when `ula_select_bgnd` is asserted
+    /// (zxnext.vhd:6986-6991). Default = expansion of the NR $4A reset
+    /// value X"E3" (zxnext.vhd:5014); refreshed per row by render_row.
+    uint32_t select_bgnd_argb_   = 0xFFFF00FFu;
     bool    ulap_en_             = false; ///< Port 0xFF3B enable (zxnext.vhd:4547)
     /// Per-scanline ULA+ enable snapshot — gap G11 closure.
     std::array<bool, 320> ulap_en_per_line_{};

@@ -21,10 +21,11 @@
 > reported rather than reinterpreting. That is the sanctioned sequence, and the
 > record of it is the point.
 
-## Implementation status (2026-07-22, v0.98.91+ — amended)
+## Implementation status (2026-07-22, v0.98.91+ — amended; skips resolved 2026-07-24)
 
-**Implemented against this plan; 90 of the 91 catalogued rows are live `check()`
-rows.** `src/video/lores.{h,cpp}` (the pixel generator, a 1:1 model of
+**Implemented against this plan; all 91 catalogued rows are live `check()`
+rows** (LR-140 became live on 2026-07-24 — see below).
+`src/video/lores.{h,cpp}` (the pixel generator, a 1:1 model of
 `lores.vhd`) plus `Renderer::apply_lores` (the ULA-slot substitution). The
 per-suite breakdown is the "Row-to-suite reconciliation" table under "Test Case
 Summary".
@@ -42,29 +43,37 @@ it. Two rows were **retired** and two **adopted**; the total is unchanged at 91.
   transparent (zxnext.vhd:7100-7104) — falling to the NR `$4A` fallback. The
   full retirement record, including what each row claimed, is in group 7. The
   implementer **skipped** both rather than implementing to a wrong spec or
-  quietly editing this catalogue; the `skip()` rows remain in
-  `compositor_test.cpp` as visible tombstones.
+  quietly editing this catalogue; the `skip()` rows stayed in
+  `compositor_test.cpp` as visible tombstones until 2026-07-24, when they were
+  removed under the owner-authorized zero-skip mandate — this document is now
+  the sole retirement record (see group 7).
 - **LR-127a is ADOPTED** (group 7, tier C) — the corrected observable, with a
   whole-frame sweep proving no ULA colour reaches the display area anywhere.
 - **LR-PSCAN is ADOPTED** (group 8, tier C) — it pins the per-scanline replay of
   NR `$15` b7 / `$32` / `$33` / `$6A` that "Documented limitations" *mandates in
   prose* but the original catalogue carried no row for.
 
-**One catalogued row remains legitimately skipped, and it is a modelling
-limitation, not a gap to paper over:**
+**LR-140 — resolved 2026-07-24 (was skipped 2026-07-22 → 2026-07-24):**
 
-- **LR-140 — not observable in jnext.** The row's stimulus is an
-  `ula_select_bgnd` assertion. jnext's live ULA render path never produces one:
-  `Ula::compute_ulanext_pixel` computes the flag, but **all four of its call
-  sites in `src/video/ula.cpp` discard it** (it is retained for the encoder
-  rows; no renderer consumes it). No stimulus can therefore reach
-  zxnext.vhd:6987, and no test at any tier can distinguish a correct fallback
-  bypass from a broken one. The bypass is satisfied *structurally* — the
-  substitution write is unconditional and opaque — which is an argument about
-  the code's shape, not an observation, and the row is honestly reported as
-  skipped rather than reworded into something the implementation trivially
-  passes. It becomes testable only if jnext's ULA gains a live `select_bgnd`
-  path; until then it stays skipped and stays counted.
+- The 2026-07-22 skip reported, correctly, that jnext's live ULA render path
+  never produced an `ula_select_bgnd` assertion: `Ula::compute_ulanext_pixel`
+  computed the flag but every render-path call site in `src/video/ula.cpp`
+  discarded it, so no stimulus could reach zxnext.vhd:6987. The 2026-07-24
+  re-audit ruled that state a **jnext emulator gap, not a hardware
+  unreachability**: on the FPGA the stimulus is trivially guest-reachable
+  (NR `$43` bit 0 ULAnext enable, zxnext.vhd:5394/6813, plus any NR `$42`
+  format outside the `{01,03,07,0F,1F,3F,7F}` table — zxula.vhd:516-527
+  `when others` asserts `ula_select_bgnd` for every paper pixel, and
+  zxula.vhd:498-502 asserts it for the border when the format is `$FF`), and
+  zxnext.vhd:6986-6991 then substitutes the NR `$4A` fallback (expanded per
+  :6990) for the palette lookup unless a LoRes pixel is present. Per the
+  1:1:1 rule the missing consumer was implemented (`ula_select_bgnd` →
+  per-line NR `$4A` fallback in the ULAnext render branches; the LoRes
+  bypass is the unconditional `Renderer::apply_lores` overwrite that models
+  the `lores_pixel_en_1 = '1'` disjunct of :6987) and the row became a live
+  `check()` in the same change. The row also carries a stimulus-validity
+  guard leg — the same ULA state with LoRes disabled must show the NR `$4A`
+  fallback — so the row cannot pass vacuously if the consumer regresses.
 
 ## Original status (pre-implementation)
 
@@ -457,10 +466,14 @@ including the direct refutation of LR-127 (a whole-frame sweep proving no ULA
 colour reaches the display area). The shared-clip behaviour is therefore not left
 untested.
 
-**Row IDs are not recycled.** LR-127 and LR-128 stay burned. The suite
-(`test/compositor/compositor_test.cpp`) still emits a `skip()` for each, carrying
-the reason — that is deliberate, so the retirement is visible in the test output
-and not only in this document.
+**Row IDs are not recycled.** LR-127 and LR-128 stay burned. From 2026-07-22 to
+2026-07-24 the suite (`test/compositor/compositor_test.cpp`) additionally emitted
+a `skip()` for each, so the retirement was visible in the test output while this
+amendment settled. On **2026-07-24** those two tombstone `skip()` calls were
+**removed** under the owner-authorized zero-skip mandate (a `skip` row advertises
+outstanding work, and a retirement is not outstanding work — the corrected
+observable is live as LR-127a). This document is the retirement record; the IDs
+remain burned and must not be reused.
 
 ### Group 8 — Compositor-stage interaction (LR-140 … LR-146, LR-PSCAN)
 
@@ -475,14 +488,20 @@ and not only in this document.
 | LR-146 | C | Sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes | each priority mode with `$15`[7] = 0 then 1 | the stacking order is identical; only the ULA-slot colour changes | zxnext.vhd:6980, 7139+ |
 | LR-PSCAN | C | NR `$15`[7], `$32`, `$33` and `$6A` are replayed **per scanline** — a mid-frame write affects only the rows from the write onward, never rows the beam already passed | frame baseline `$15`[7]=0; mid-frame at display row 40 write `$15`[7]=1 and `$33`=4, snapshotting each subsequent line | row 39 is bit-for-bit the pure-ULA frame; row 40 shows LoRes with `scroll_y = 4` applied | zxnext.vhd:6768-6802 (LoRes params re-latched every `CLK_7`), 6817 (`lores_en` on `CLK_14`) |
 
-**LR-140 is the one catalogued row that is skipped**, and it stays counted. jnext's
-live ULA render path never asserts `ula_select_bgnd` — `Ula::compute_ulanext_pixel`
-computes the flag but all four of its call sites in `src/video/ula.cpp` discard it
-— so no stimulus can reach zxnext.vhd:6987 and the row is not observable at any
-tier. That is a **modelling limitation of jnext, not a defect in the row and not a
-coverage gap to be papered over**: the row is correct VHDL, it is simply
-unreachable today. It must not be reworded into something the implementation
-passes trivially. See "Implementation status" at the top.
+**LR-140 — live `check()` since 2026-07-24 (skipped 2026-07-22 → 2026-07-24).**
+The skip's factual claim was accurate — jnext's live ULA render path discarded
+`ula_select_bgnd` at every `Ula::compute_ulanext_pixel` call site, so no stimulus
+could reach zxnext.vhd:6987 — but the 2026-07-24 re-audit classified that as a
+**jnext emulator gap (REACHABLE on hardware), not an unreachability of the row**:
+NR `$43` bit 0 + a NR `$42` format outside `{01,03,07,0F,1F,3F,7F}` makes every
+ULAnext paper pixel assert `ula_select_bgnd` (zxula.vhd:516-527 `when others`;
+border with format `$FF` per :498-502), and zxnext.vhd:6986-6991 substitutes the
+NR `$4A` fallback unless a LoRes pixel is present. The missing consumer was
+implemented (1:1:1 — same change as the un-skip) and the row asserts both halves
+of the :6987 disjunct: with `$15`[7]=1 the LoRes palette colour is emitted, and —
+the stimulus-validity guard — the identical ULA state with `$15`[7]=0 shows the
+NR `$4A` fallback. The row was not reworded; its catalogued stimulus and expected
+value are asserted exactly as specified.
 
 **LR-PSCAN keeps its non-numeric ID.** It is the ID the suite emits, and doc/suite
 IDs must agree for the traceability extractor; renaming it to `LR-147` would need a
@@ -553,14 +572,16 @@ history, not coverage.
 | Tier | Suite | Catalogued rows | live `check()` | `skip()` |
 |------|-------|-----------------|----------------|----------|
 | U | `test/lores/lores_test.cpp` | 48 | 48 | 0 |
-| C | `test/compositor/compositor_test.cpp` (group `LR`) | 27 | 26 | 1 (LR-140) |
+| C | `test/compositor/compositor_test.cpp` (group `LR`) | 27 | 27 | 0 |
 | C | `test/lores/lores_integration_test.cpp` | 2 | 2 | 0 |
 | N | `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`) | 14 | 14 | 0 |
-| | **Total** | **91** | **90** | **1** |
+| | **Total** | **91** | **91** | **0** |
 
-C rows split 27 + 2 = 29. `compositor_test` additionally emits two `skip()` rows
-for the **retired** LR-127 / LR-128 tombstones (see group 7), so it prints 29 `LR`
-rows in total; those two are not catalogue rows and are not counted above.
+C rows split 27 + 2 = 29. From 2026-07-22 to 2026-07-24 `compositor_test`
+additionally emitted two `skip()` rows for the **retired** LR-127 / LR-128
+tombstones (29 printed `LR` rows); both tombstones and the LR-140 skip were
+resolved on 2026-07-24 (see group 7 and group 8), so the suite now prints exactly
+the 27 catalogued C rows, all live.
 
 Suggested implementation order — each block is independently mergeable and each
 one leaves the suite green:

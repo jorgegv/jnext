@@ -55,6 +55,9 @@ struct TestResult {
 
 static std::vector<TestResult> g_results;
 
+// Zero skip() call sites since 2026-07-24 (LR-127/LR-128 tombstones removed,
+// LR-140 live — see doc/testing/LORES-TEST-PLAN-DESIGN.md); g_skipped stays
+// so the summary keeps the harness-mandated `Skipped:` field.
 struct SkipNote {
     std::string id;
     std::string reason;
@@ -62,11 +65,6 @@ struct SkipNote {
 static std::vector<SkipNote> g_skipped;
 
 static void set_group(const char* name) { g_group = name; }
-
-static void skip(const char* id, const char* reason) {
-    g_skipped.push_back({id, reason});
-    printf("  SKIP %s: %s\n", id, reason);
-}
 
 static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
     g_total++;
@@ -4798,24 +4796,72 @@ static void test_LORES()
                      with_ulanext, f.pal.ula_colour(false, 0x1A)));
     }
 
-    // ── LR-127 / LR-128 — see the report; NOT implemented as written ─────
-    skip("LR-127",
-         "plan row disagrees with the VHDL: outside the shared NR $1A window "
-         "o_ula_clipped is also asserted (zxula.vhd:562), so the ULA does NOT "
-         "show through — both sources are suppressed. Reported, not silently "
-         "reinterpreted.");
-    skip("LR-128",
-         "same defect as LR-127: pixels outside the shared window ARE blanked "
-         "to the NR $4A fallback (zxula.vhd:562 + zxnext.vhd:7100/7104). The "
-         "redundant 7063 cancel term is genuinely a no-op, but the row's "
-         "stated observable is wrong.");
+    // ── LR-127 / LR-128 — RETIRED (2026-07-22); tombstones removed ───────
+    //
+    // Both rows asserted the ULA "shows through" outside the shared NR $1A
+    // window; the VHDL says both sources are suppressed together
+    // (zxula.vhd:562; zxnext.vhd:7063, 7100-7104), and LR-127a below asserts
+    // the corrected observable. The in-suite skip() tombstones were removed
+    // 2026-07-24 (owner-authorized zero-skip mandate); the retirement record
+    // lives in doc/testing/LORES-TEST-PLAN-DESIGN.md group 7. The IDs stay
+    // burned — do not reuse them.
 
-    // ── LR-140 — not observable under jnext's ULA model ──────────────────
-    skip("LR-140",
-         "unobservable: jnext's live ULA render path never asserts "
-         "ula_select_bgnd (Ula::compute_ulanext_pixel computes it for the "
-         "encoder rows, no renderer consumes it), so there is no stimulus "
-         "that would make a display pixel take NR $4A via zxnext.vhd:6987.");
+    // ── LR-140 — a LoRes pixel never shows the NR $4A fallback ───────────
+    //
+    // zxnext.vhd:6986-6991:
+    //   if lores_pixel_en_1 = '1' or ula_select_bgnd_1 = '0' then
+    //      ula_rgb_1 <= ulatm_rgb_1(8 downto 0);            -- palette
+    //   else
+    //      ula_rgb_1 <= fallback_rgb_1 & (...);             -- NR $4A
+    // A LoRes pixel forces the palette arm even when the ULA side asserted
+    // ula_select_bgnd. The stimulus: ULAnext enabled with format 0x00 — a
+    // value outside the {01,03,07,0F,1F,3F,7F} table — makes every paper
+    // pixel assert ula_select_bgnd (zxula.vhd:516-527 `when others`).
+    //
+    // The second leg proves the stimulus is real, not vacuous: the SAME ULA
+    // state with LoRes off must show the NR $4A fallback on a paper pixel
+    // (the else-arm of :6987), so a regression that stopped asserting — or
+    // stopped consuming — select_bgnd cannot pass this row.
+    {
+        Fix f;
+        const unsigned vc = 100;
+        const int ROW = Renderer::DISP_Y + static_cast<int>(vc);
+        // ULAnext on, format 0x00 (zxnext.vhd:5386 write path; zxula.vhd:525
+        // `when others` asserts ula_select_bgnd for every paper cycle).
+        f.r.ula().set_ulanext_en(true);
+        f.r.ula().set_ulanext_format(0x00);
+        // Make the probed ULA cell (screen col 0) all-paper: pixel byte 0
+        // at the standard interleave offset for vc=100 in bank 5
+        // (zxula.vhd:218 addressing — independent re-derivation, not
+        // Ula::pixel_addr_offset).
+        const uint16_t ula_off = static_cast<uint16_t>(
+            ((vc & 0xC0) << 5) | ((vc & 0x07) << 8) | ((vc & 0x38) << 2));
+        f.ram.write(10u * 8192u + ula_off, 0x00);
+        f.r.set_fallback_colour(0x21);        // outside both colour halves
+        f.refresh_snapshots();
+        const uint32_t FB = Renderer::rrrgggbb_to_argb(0x21);
+
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        f.enable_lores(true);
+        f.render(g.data(), ROW);
+        const uint32_t with_lores = g[Renderer::DISP_X];      // phc 0
+
+        f.enable_lores(false);
+        f.render(g.data(), ROW);
+        const uint32_t without_lores = g[Renderer::DISP_X];
+
+        check("LR-140",
+              "a LoRes pixel never shows the NR $4A fallback: with the ULA "
+              "asserting ula_select_bgnd (ULAnext format 0x00 paper, "
+              "zxula.vhd:525) the LoRes palette colour is emitted "
+              "(zxnext.vhd:6986-6991); the identical state without LoRes "
+              "takes the fallback, proving the stimulus",
+              with_lores == f.expect(ROW, 0) && is_lores_colour(with_lores) &&
+              without_lores == FB,
+              DETAIL("lores=0x%08X (exp 0x%08X)  ula=0x%08X (exp fallback "
+                     "0x%08X)",
+                     with_lores, f.expect(ROW, 0), without_lores, FB));
+    }
 
     // ── LR-141 — the LoRes colour is subject to NR $14 ───────────────────
     // zxnext.vhd:7100 compares ula_rgb_2(8:1) — which holds the LoRes colour
@@ -5049,12 +5095,12 @@ static void test_LORES()
         }
     }
 
-    // ── LR-127a — the CORRECTED observable for plan rows LR-127/128 ──────
+    // ── LR-127a — the CORRECTED observable for retired rows LR-127/128 ───
     //
-    // NOT one of the 91 catalogued rows. LR-127 and LR-128 are skipped above
-    // because their stated outcomes contradict the VHDL; this row asserts
-    // what the VHDL actually does, so the shared-clip behaviour is not left
-    // untested while the plan is amended.
+    // A full catalogue row (group 7, tier C — ADOPTED by the 2026-07-22 plan
+    // amendment). LR-127 and LR-128 were retired because their stated
+    // outcomes contradict the VHDL; this row asserts what the VHDL actually
+    // does, so the shared-clip behaviour is not left untested.
     //
     //   zxula.vhd:562  o_ula_clipped <= '0' when (phc/vc inside the window)
     //                                   or border_active = '1' else '1';
