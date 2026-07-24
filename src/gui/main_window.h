@@ -168,6 +168,7 @@ private:
     void on_load_nex();
     void on_mount_sd();
     void on_reset();
+    void on_soft_reset();
     void on_machine_type(MachineType type);
     void on_cpu_speed(int speed_idx);
     void on_scale(int factor);
