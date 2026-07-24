@@ -108,12 +108,38 @@ standalone_summary() {
     [[ "$fail" -eq 0 ]] || exit 1
 }
 
-# png_diff <a> <b> [sentinel] — differing-pixel count from `compare -metric AE`;
-# a parse failure yields <sentinel> (default 999999, i.e. "treat as different").
+# png_diff <a> <b> [sentinel] — count pixels whose channels differ exactly.
+#
+# Do not use `compare -metric AE` here. ImageMagick 7.1.2 Q16-HDRI reports
+# a quantum-scaled absolute-error sum for that metric (one black -> white
+# pixel is 65535), not a pixel count. Build an any-channel binary difference
+# mask instead, then its mean times its area is the literal number of changed
+# pixels. A command or parse failure yields <sentinel> (default 999999, i.e.
+# "treat as different").
 png_diff() {
-    local raw
-    raw=$(compare -metric AE "$1" "$2" /dev/null 2>&1) || true
-    awk '{printf "%d", $1+0}' <<< "$raw" 2>/dev/null || echo "${3:-999999}"
+    local raw sentinel=${3:-999999}
+    local -a image_cmd
+    if command -v magick &>/dev/null; then
+        image_cmd=(magick)
+    elif command -v convert &>/dev/null; then
+        image_cmd=(convert)
+    else
+        echo "$sentinel"
+        return
+    fi
+
+    raw=$("${image_cmd[@]}" "$1" "$2" \
+        -compose difference -composite -threshold 0 \
+        -separate -evaluate-sequence max \
+        -format '%[fx:mean*w*h]' info: 2>/dev/null) || {
+        echo "$sentinel"
+        return
+    }
+    if [[ "$raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf '%.0f\n' "$raw"
+    else
+        echo "$sentinel"
+    fi
 }
 
 # count_streams <file> <codec_type> — number of streams of that type in the

@@ -77,9 +77,9 @@ if want sdcard-readonly-func; then
     if [[ ! -s "$W/welcome.png" ]]; then
         faults+=("D: no screenshot written — a read-only card broke the boot")
     else
-        # Only "== 0" is asserted: png_diff returns a scaled error sum, not a
-        # pixel count (GH #76), so a nonzero magnitude is not interpretable —
-        # but zero still means identical.
+        # Only "== 0" is asserted: zero means identical. png_diff returns a
+        # literal changed-pixel count since GH #76, so a nonzero value is
+        # diagnostic, but this test only cares about identity.
         diff_px=$(png_diff "$W/welcome.png" "$WELCOME_REF")
         [[ "$diff_px" == "0" ]] \
             || faults+=("D: read-only boot differs from the welcome reference (png_diff=$diff_px)")
