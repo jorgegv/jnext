@@ -1329,7 +1329,10 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // zxnext.vhd:6340-6371: F1=hotkey_hard_reset, F4=hotkey_soft_reset,
         // F9=hotkey_m1 (Multiface), F10=hotkey_drive (DivMMC). Routed
         // through Emulator::on_hotkey_f*() dispatchers so the GUI never
-        // touches NmiSource directly.
+        // touches NmiSource directly. Note (#45): plain F4 is normally
+        // consumed by the Machine > Soft Reset QAction shortcut before it
+        // reaches this handler (same situation as F11/fullscreen_action_),
+        // so the F4 case below only sees modified presses (Shift/Ctrl+F4).
         case Qt::Key_F1:
             if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
                           && !modifiers.testFlag(Qt::ControlModifier)) {

@@ -60,6 +60,7 @@
 - True fullscreen with aspect-ratio letterbox
 - CRT scanline filter overlay
 - FPS counter, CPU speed, and machine mode in status bar
+- Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Ctrl+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
 - PNG screenshot (Ctrl+S, toolbar, `--delayed-screenshot`)
 - Video recording to MP4 via FFmpeg pipe (`--record`)
