@@ -16,6 +16,15 @@
 //                         new command ends the stream. NextZXOS's esxDOS
 //                         driver relies on this across driver calls —
 //                         the 2026-07-10 NextZXOS-boot fix).
+//   SD-NAC-01/02/03     — ≥1 idle (0xFF) Nac gap byte between R1 and the
+//                         0xFE data token on CMD17/CMD18 first block (SD
+//                         Physical Layer Simplified Spec § 7.5.2). GH #84:
+//                         zero-gap token emission shifted Atic Atac Next's
+//                         whole CMD18 stream one sector (its command sender
+//                         clocks one flush byte after R1, which swallowed
+//                         the token). SD-NAC-03 reproduces that exact host
+//                         idiom and asserts the FIRST requested sector is
+//                         still delivered.
 //
 // The fixture writes a small image with distinctive per-sector patterns
 // (sector S has bytes = S*1..S*1+511 mod 256 in its first few positions),
@@ -338,6 +347,68 @@ static void test_cmd18_cs_deassert_aborts(SdCardDevice& sd) {
           "r1=" + std::to_string(r1) +
           " tok=" + (tok ? "1" : "0") +
           " b0=" + std::to_string(b[0]));
+}
+
+static void test_nac_gap(SdCardDevice& sd) {
+    // SD-NAC-01: after CMD17's R1, the very next byte on the bus must be
+    // an idle 0xFF (Nac read-access gap, SD Physical Layer Simplified
+    // Spec § 7.5.2 — a real card ALWAYS needs ≥1 byte of access time
+    // before the start-of-block token), and the 0xFE token must follow.
+    // Pre-GH#84-fix the byte right after R1 was the 0xFE token itself.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1 = send_cmd_r1(sd, 17, 1);
+    uint8_t gap = spi_read(sd);          // byte immediately after R1
+    bool tok = wait_token(sd);           // token must still arrive after gap
+    uint8_t buf[512] = {};
+    if (tok) read_block(sd, buf);
+    sd.deselect();
+    check("SD-NAC-01",
+          "CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token",
+          (r1 == 0x00) && gap == 0xFF && tok && buf[0] == 0x01,
+          "r1=" + std::to_string(r1) + " gap=" + std::to_string(gap) +
+          " tok=" + (tok ? "1" : "0") + " b0=" + std::to_string(buf[0]));
+
+    // SD-NAC-02: same contract on CMD18's FIRST block (the between-blocks
+    // path already emitted a 0xFF filler before each subsequent token;
+    // the first block was the one missing it).
+    sd.reset();
+    init_card(sd);
+    r1 = send_cmd_r1(sd, 18, 3);
+    gap = spi_read(sd);
+    tok = wait_token(sd);
+    uint8_t b1[512] = {};
+    if (tok) read_block(sd, b1);
+    (void)send_cmd_r1(sd, 12, 0);        // stop stream
+    sd.deselect();
+    check("SD-NAC-02",
+          "CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token",
+          (r1 == 0x00) && gap == 0xFF && tok && b1[0] == 0x03,
+          "r1=" + std::to_string(r1) + " gap=" + std::to_string(gap) +
+          " tok=" + (tok ? "1" : "0") + " b0=" + std::to_string(b1[0]));
+
+    // SD-NAC-03: the GH #84 host idiom. Atic Atac Next's command sender
+    // polls for R1 and then clocks EXACTLY ONE extra byte before
+    // returning; its data reader then token-polls from scratch. On a
+    // real card the extra clock eats a Nac 0xFF; with the pre-fix
+    // zero-gap emission it ate the 0xFE token, the token-poll consumed
+    // all of block 0 as non-token bytes and synced on block 1's token —
+    // shifting the whole stream one sector (RAM[k] = file[k+1]).
+    // Assert the first delivered block is STILL the requested sector.
+    sd.reset();
+    init_card(sd);
+    r1 = send_cmd_r1(sd, 18, 3);
+    (void)spi_read(sd);                  // the game's one-byte flush after R1
+    tok = wait_token(sd);
+    uint8_t f1[512] = {};
+    if (tok) read_block(sd, f1);
+    (void)send_cmd_r1(sd, 12, 0);
+    sd.deselect();
+    check("SD-NAC-03",
+          "CMD18 with one host flush byte after R1 still delivers the FIRST requested sector",
+          (r1 == 0x00) && tok && f1[0] == 0x03,
+          "r1=" + std::to_string(r1) + " tok=" + (tok ? "1" : "0") +
+          " b0=" + std::to_string(f1[0]) + " (b0==4 => one-sector shift)");
 }
 
 static void test_cmd18_stream_survives_deselect(SdCardDevice& sd) {
@@ -2085,6 +2156,7 @@ int main() {
     test_init(sd);
     test_cmd17_read(sd);
     test_cmd18_stream(sd);
+    test_nac_gap(sd);                // SD-NAC-01/02/03 (GH #84)
     test_cmd18_end_of_image(sd);
     test_cmd18_cs_deassert_aborts(sd);
     test_cmd18_stream_survives_deselect(sd);
