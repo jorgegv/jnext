@@ -168,7 +168,9 @@ binary calls ROM routines that need the system variables set up first.
 ### Recording and playback
 
 **--record** *FILE*  
-Record video and audio to an MP4. Requires **ffmpeg**(1) on the PATH.
+Record video and audio to an MP4. Requires **ffmpeg**(1) on the PATH. If
+the recording cannot be produced (encoder failure, no usable output),
+**jnext** reports the error and exits non-zero.
 
 **--wav-record** *FILE*  
 Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV. Works
@@ -670,7 +672,8 @@ The canonical distribution image the patched one above is produced from.
 
 **jnext** exits 0 on success and non-zero on error. In particular it
 exits non-zero when a **--delayed-screenshot** was requested but never
-taken, rather than silently writing nothing.
+taken, rather than silently writing nothing, and likewise when a
+**--record** recording fails to materialize as a usable output file.
 
 ## SEE ALSO
 

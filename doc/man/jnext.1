@@ -120,6 +120,8 @@ variables set up first.
 \f[B]\-\-record\f[R] \f[I]FILE\f[R]
 Record video and audio to an MP4.
 Requires \f[B]ffmpeg\f[R](1) on the PATH.
+If the recording cannot be produced (encoder failure, no usable output),
+\f[B]jnext\f[R] reports the error and exits non\-zero.
 .TP
 \f[B]\-\-wav\-record\f[R] \f[I]FILE\f[R]
 Record the mixed stereo output to a 44.1 kHz, 16\-bit PCM WAV.
@@ -813,7 +815,8 @@ The canonical distribution image the patched one above is produced from.
 \f[B]jnext\f[R] exits 0 on success and non\-zero on error.
 In particular it exits non\-zero when a
 \f[B]\-\-delayed\-screenshot\f[R] was requested but never taken, rather
-than silently writing nothing.
+than silently writing nothing, and likewise when a \f[B]\-\-record\f[R]
+recording fails to materialize as a usable output file.
 .SH SEE ALSO
 \f[B]ffmpeg\f[R](1)
 .PP
