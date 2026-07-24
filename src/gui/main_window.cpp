@@ -459,9 +459,18 @@ void MainWindow::create_menus() {
     // --- Machine menu ---
     QMenu* machine_menu = menuBar()->addMenu(tr("&Machine"));
 
-    QAction* reset = machine_menu->addAction(tr("&Reset"));
+    // Issue #45 — two distinct reset controls, mirroring real Next hardware:
+    // Power Reset = power off/on cold boot (full boot chain), Soft Reset =
+    // the front-panel reset button (back to NextZXOS, no firmware reload).
+    // Ctrl+R deliberately stays on Power Reset (it has always meant the cold
+    // boot); F4 matches the host soft-reset hotkey (zxnext.vhd:6370).
+    QAction* reset = machine_menu->addAction(tr("&Power Reset"));
     reset->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
     connect(reset, &QAction::triggered, this, &MainWindow::on_reset);
+
+    QAction* soft_reset = machine_menu->addAction(tr("&Soft Reset"));
+    soft_reset->setShortcut(QKeySequence(Qt::Key_F4));
+    connect(soft_reset, &QAction::triggered, this, &MainWindow::on_soft_reset);
 
     machine_menu->addSeparator();
 
@@ -701,8 +710,12 @@ void MainWindow::create_toolbar() {
     toolbar->setMovable(false);
 
     QAction* reset_btn = toolbar->addAction(
-        style()->standardIcon(QStyle::SP_BrowserReload), tr("Reset"));
+        style()->standardIcon(QStyle::SP_BrowserReload), tr("Power Reset"));
     connect(reset_btn, &QAction::triggered, this, &MainWindow::on_reset);
+
+    QAction* soft_reset_btn = toolbar->addAction(
+        style()->standardIcon(QStyle::SP_DialogResetButton), tr("Soft Reset"));
+    connect(soft_reset_btn, &QAction::triggered, this, &MainWindow::on_soft_reset);
 
     QAction* load_btn = toolbar->addAction(
         style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
@@ -855,6 +868,17 @@ void MainWindow::on_reset() {
     // program's own NR 0x02 hard reset).
     if (emulator_) {
         emulator_->request_hard_reset();
+    }
+}
+
+void MainWindow::on_soft_reset() {
+    // Issue #45 — Soft Reset = the front-panel soft reset, same dispatcher as
+    // the host F4 hotkey. Honours the VHDL config-mode gate (no-op while the
+    // firmware holds config mode, zxnext.vhd:6370). Also a no-op after a
+    // direct --load / File > Load: the firmware never ran there, so config
+    // mode is still held — matching hardware, where that state cannot exist.
+    if (emulator_) {
+        emulator_->on_hotkey_f4_soft_reset();
     }
 }
 

@@ -338,7 +338,10 @@ void HeadlessApp::run() {
         // Headless reset facility (env-gated, zero cost when unset): --headless
         // has no Reset button, so this exercises the Task 70 cold-boot paths for
         // tests. JNEXT_DELAYED_RESET_FRAMES=N, JNEXT_DELAYED_RESET_TYPE =
-        // hard (default) | soft | loadnex:/path.nex
+        // hard (default) | soft | f4 | loadnex:/path.nex
+        // "soft" calls Emulator::soft_reset() directly; "f4" goes through
+        // the host-F4 hotkey dispatcher (config-mode gate + reset_type FSM
+        // strobe), i.e. the exact GUI/SDL F4 path.
         static int t70_countdown = []() {
             const char* e = std::getenv("JNEXT_DELAYED_RESET_FRAMES");
             return e ? std::atoi(e) : -1;
@@ -347,6 +350,7 @@ void HeadlessApp::run() {
             const char* ty = std::getenv("JNEXT_DELAYED_RESET_TYPE");
             std::string t = ty ? ty : "hard";
             if (t == "soft") emulator_.soft_reset();
+            else if (t == "f4") emulator_.on_hotkey_f4_soft_reset();
             else if (t.rfind("loadnex:", 0) == 0) cold_boot(t.substr(8));
             else emulator_.request_hard_reset();  // flag -> polled after run_frame
             t70_countdown = -1;

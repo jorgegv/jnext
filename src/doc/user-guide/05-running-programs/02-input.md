@@ -30,7 +30,13 @@ Two things catch people out:
 
 The machine's own front-panel keys are on function keys: **F1** hard reset,
 **F4** soft reset, **F9** Multiface NMI, **F10** DivMMC. (With the debugger
-open, F9 belongs to the debugger.)
+open, F9 belongs to the debugger.) The two resets are also in the **Machine**
+menu and on the toolbar: **Power Reset** (Ctrl+R, same as F1) is a power
+off/on cold boot that re-runs the whole boot chain; **Soft Reset** (same as
+F4) is the front-panel reset button — it returns to NextZXOS without
+re-running the boot chain. Soft Reset does nothing while the firmware is
+still booting, or after a direct `--load` (the firmware never ran there, so
+there is no NextZXOS to return to — use Power Reset).
 
 ## Joysticks and gamepads
 

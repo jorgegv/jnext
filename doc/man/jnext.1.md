@@ -413,7 +413,11 @@ pixel-perfect rendering at integer scale, and a CRT scanline filter.
     RZX, Save Screenshot (Ctrl+S), Save Snapshot (Ctrl+Shift+S), Quit (Ctrl+Q).
 
 **Machine**
-:   Reset (Ctrl+R), Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 /
+:   Power Reset (Ctrl+R - power off/on cold boot, full boot chain), Soft Reset
+    (F4 - the front-panel reset button: back to NextZXOS without re-running
+    the boot chain; does nothing while the firmware still holds config mode,
+    or after a direct **\--load** where the firmware never ran),
+    Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 /
     14 / 28 MHz - the Next's own clock), Emulator Speed (0.5x / 1x / 2x / 4x /
     custom % - the host-side throttle).
 
@@ -440,7 +444,8 @@ pixel-perfect rendering at integer scale, and a CRT scanline filter.
 **Help**
 :   About.
 
-The toolbar has Reset, Load, Screenshot and an NMI button (Multiface NMI).
+The toolbar has Power Reset, Soft Reset, Load, Screenshot and an NMI button
+(Multiface NMI).
 
 CPU Speed and Emulator Speed are different things: the first changes the clock
 the emulated Z80 runs at, which is a real Next feature; the second changes how
