@@ -1055,9 +1055,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         std::transform(active.begin(), active.end(), active.begin(),
                                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                         const uint8_t mode = static_cast<uint8_t>(r.BC >> 8);
+                        // Review hardening (PR #100 finding 3): a bare ".."
+                        // has no parent_path() on POSIX, so it passes the
+                        // plain-name gate and resolves to the grandparent
+                        // directory. Today the downstream is_regular_file()
+                        // check rejects it incidentally; reject dot-names
+                        // explicitly so the sandbox does not depend on that.
                         const bool plain_name =
                             !requested.empty() && !requested.is_absolute() &&
-                            !requested.has_parent_path();
+                            !requested.has_parent_path() &&
+                            requested.filename() != ".." &&
+                            requested.filename() != ".";
                         const bool read_only =
                             (mode & 0x01) != 0 && (mode & 0x02) == 0;
                         if (plain_name && wanted == active && read_only) {

@@ -235,6 +235,18 @@ int main() {
     check("XNEX-13", "companion writes are refused",
           esx(emu, 0x9A, regs) && carry(regs) && reg_a(regs) == 0x08);
 
+    // XNEX-28 (PR #100 review finding 3, hardening): a BARE ".." has no
+    // parent_path() on POSIX and therefore slips past the plain-name gate,
+    // resolving to the grandparent directory. Pin the contract that it is
+    // refused — the explicit dot-name guard makes the rejection deliberate
+    // rather than an incidental side effect of the is_regular_file() check.
+    write_zstr(emu, 0x9300, "..");
+    regs = {};
+    regs.IX = 0x9300;
+    regs.BC = 0x0100;
+    check("XNEX-28", "bare dot-dot companion name is refused",
+          esx(emu, 0x9A, regs) && carry(regs));
+
     regs = {};
     regs.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
     regs.IX = 0;
