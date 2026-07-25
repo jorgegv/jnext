@@ -111,6 +111,17 @@ if(STATIC_BUILD)
     endif()
 endif()
 
+# Deliberate Windows API floor for the SDL-only (ENABLE_QT_UI=OFF) build:
+# Windows 7 (0x0601). mingw-w64 headers default _WIN32_WINNT to 0x0A00
+# (Windows 10), which would let jnext's own code silently grow Win10-only
+# imports; pinning it makes any such use a compile error instead (GH #108).
+# The Qt build inherits the header default — fedora's Qt6 DLLs have a hard
+# Windows 10 floor anyway (d3d12.dll import in Qt6Gui), so pinning there
+# would document a floor the bundled Qt cannot honour.
+if(WIN32 AND NOT ENABLE_QT_UI)
+    add_compile_definitions(_WIN32_WINNT=0x0601 WINVER=0x0601)
+endif()
+
 find_package(SDL2 REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(CURL REQUIRED)
@@ -254,6 +265,17 @@ if(WIN32)
     # (win_attach_parent_console(), src/platform/win_console.cpp). Qt6::EntryPointPrivate
     # (linked below) supplies the WinMain -> main() bridge the GUI subsystem needs.
     target_link_options(jnext PRIVATE -Wl,--subsystem,windows)
+    if(NOT ENABLE_QT_UI)
+        # GUI-subsystem startup calls WinMain(), and on Windows SDL.h renames
+        # jnext's main() to SDL_main(). The Qt build bridges via
+        # Qt6::EntryPointPrivate (whose main=qMain define also disarms the SDL
+        # rename); the SDL-only build needs SDL2main, whose WinMain calls
+        # SDL_main(). A hand-rolled WinMain -> main() bridge is WRONG here:
+        # with main.cpp's main renamed to SDL_main, its `main` reference
+        # resolves to the MinGW CRT's own GUI-startup main(), which calls
+        # WinMain again — an infinite startup loop before any output (GH #108).
+        target_link_libraries(jnext PRIVATE SDL2::SDL2main)
+    endif()
 endif()
 
 if(ENABLE_QT_UI)
