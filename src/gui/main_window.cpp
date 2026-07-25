@@ -1678,7 +1678,12 @@ void MainWindow::wheelEvent(QWheelEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    // Stop any active recording before closing.
+    // Stop any active recording before closing. The return value is not
+    // acted on here — there is no useful dialog to show mid-quit — but it is
+    // NOT lost (GH #86): a failed stop is latched in
+    // VideoRecorder::stop_failed(), which main.cpp reads after run() so a
+    // CLI-started (--record) recording that fails on this path still exits
+    // the process non-zero.
     if (emulator_ && emulator_->video_recorder().is_recording()) {
         emulator_->stop_recording();
     }

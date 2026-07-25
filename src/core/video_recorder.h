@@ -97,6 +97,15 @@ public:
     /// Is recording currently active?
     bool is_recording() const { return recording_; }
 
+    /// Has any stop() of an active recording failed in this recorder's
+    /// lifetime? (GH #86) This is the seam that lets a stop() whose return
+    /// value was discarded — MainWindow::closeEvent() stopping a CLI-started
+    /// recording when the user closes the window — still fail the process
+    /// exit status: main.cpp reads it after run(). Deliberately STICKY: a
+    /// later successful recording does not clear it, because the recording
+    /// that failed still never materialized.
+    bool stop_failed() const { return stop_failed_; }
+
     /// Get the output file path.
     const std::string& output_path() const { return output_path_; }
 
@@ -108,6 +117,7 @@ public:
 
 private:
     bool recording_ = false;
+    bool stop_failed_ = false;  ///< GH #86 — see stop_failed().
     std::string output_path_;
     std::string video_tmp_;
     std::string audio_tmp_;

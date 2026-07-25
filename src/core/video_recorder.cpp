@@ -193,6 +193,7 @@ bool VideoRecorder::stop()
         Log::emulator()->warn("VideoRecorder: no frames captured, skipping encode");
         std::remove(video_tmp_.c_str());
         std::remove(audio_tmp_.c_str());
+        stop_failed_ = true;
         return false;
     }
 
@@ -237,6 +238,7 @@ bool VideoRecorder::stop()
         std::remove(audio_tmp_.c_str());
         Log::emulator()->error("VideoRecorder: cannot replace output file {}: {}",
                                output_path_, output_ec.message());
+        stop_failed_ = true;
         return false;
     }
 
@@ -268,8 +270,23 @@ bool VideoRecorder::stop()
     std::remove(video_tmp_.c_str());
     std::remove(audio_tmp_.c_str());
 
+    // GH #86 (cosmetic): an encoder that creates its output file and then
+    // fails (or "succeeds" writing nothing) leaves a 0-byte artifact a later
+    // glance could mistake for a recording. Remove it on the failure paths
+    // below. Only a ZERO-length leftover is removed — a partial non-empty
+    // file may still hold recoverable data and stays for inspection.
+    auto remove_empty_output = [this]() {
+        std::error_code ec;
+        if (fs::exists(output_path_, ec) && !ec &&
+            fs::file_size(output_path_, ec) == 0 && !ec) {
+            fs::remove(output_path_, ec);
+        }
+    };
+
     if (ret != 0) {
         Log::emulator()->error("VideoRecorder: FFmpeg encoding failed (exit code {})", ret);
+        remove_empty_output();
+        stop_failed_ = true;
         return false;
     }
 
@@ -278,6 +295,8 @@ bool VideoRecorder::stop()
         Log::emulator()->error(
             "VideoRecorder: FFmpeg reported success but produced no usable output at {}",
             output_path_);
+        remove_empty_output();
+        stop_failed_ = true;
         return false;
     }
 

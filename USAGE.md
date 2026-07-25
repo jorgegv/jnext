@@ -170,7 +170,9 @@ binary calls ROM routines that need the system variables set up first.
 **--record** *FILE*  
 Record video and audio to an MP4. Requires **ffmpeg**(1) on the PATH. If
 the recording cannot be produced (encoder failure, no usable output),
-**jnext** reports the error and exits non-zero.
+**jnext** reports the error and exits non-zero. If the recording cannot
+even be started (no usable **ffmpeg**), **jnext** exits non-zero
+immediately, without running the emulation.
 
 **--wav-record** *FILE*  
 Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV. Works
