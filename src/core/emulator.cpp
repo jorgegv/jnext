@@ -5794,6 +5794,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     dma_.write_memory = [this](uint16_t addr, uint8_t val) { mmu_.write(addr, val); };
     dma_.read_io      = [this](uint16_t port) -> uint8_t { return port_.read(port); };
     dma_.write_io     = [this](uint16_t port, uint8_t val) { port_.write(port, val); };
+    // GH #106 — 28 MHz SRAM read wait during DMA cycles. Same gate +
+    // qualifier as the CPU path (GH #92, z80_cpu.cpp
+    // sram_wait28_read_tick): VHDL zxnext.vhd:3175 requires
+    // cpu_speed="11" (ContentionModel's committed NR 0x07), and during
+    // dma_holds_bus the DMA drives the very bus signals the wait
+    // expression reads (zxnext.vhd:1828-1835); per-target qualification
+    // (bank-7 BRAM / bootrom / inactive pages exempt) is
+    // Mmu::sram_read_wait28().
+    dma_.read_mem_wait_tstates = [this](uint16_t addr) -> uint8_t {
+        return (contention_.cpu_speed() == 3) ? mmu_.sram_read_wait28(addr)
+                                              : 0;
+    };
 
     // --- Phase 5 IM2 interrupt wiring ---
     //
@@ -7399,7 +7411,13 @@ uint64_t Emulator::step_one_instruction()
         // DMA takes the bus — CPU is stalled.
         // Execute a burst of transfers; each byte ≈ 2 T-states.
         int transferred = dma_.execute_burst(16);
-        master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
+        // GH #106 — add the 28 MHz SRAM read wait accumulated by the
+        // burst's source memory reads (zxnext.vhd:3171-3181 via the
+        // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
+        // waiting read, 0 at cpu_speed != 3).
+        master_cycles = (static_cast<uint64_t>(transferred) * 2
+                         + dma_.last_burst_read_wait_tstates())
+                        * clock_.cpu_divisor();
         if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
     } else if (boot_hold_frames_remaining_ > 0) {
         // G156 — NEX loading_delay/start_delay hold: no CPU instruction

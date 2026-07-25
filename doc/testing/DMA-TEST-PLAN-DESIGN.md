@@ -18,7 +18,9 @@ hardware.
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-dma`).
 Measured on main post-merge (commit `deeb9f6`):
 
-- **156 plan rows total**, mapped 1:1 to test IDs
+- **156 plan rows total**, mapped 1:1 to test IDs (162 after group 23,
+  the GH #106 28 MHz DMA read-wait rows added 2026-07-25; live suite
+  count 156)
 - **116/121 live pass (95.9%)**, 5 fail, 35 skip
 - **Fails (C-class legitimate emulator bugs)**:
   - 9.8, 14.6, 14.7 — block_length=0 transfers 1 byte instead of 0 (`src/peripheral/dma.cpp:560`, counter post-increment before length check). Task 2 backlog item 6.
@@ -463,6 +465,36 @@ R1 matches when `bit7=0 AND bits2:0="100"`. R2 matches when `bit7=0 AND
 bits2:0="000"`. These are mutually exclusive since R0 requires bit0 or bit1
 set, while R1 has bit2=1 and R2 has bits2:0=000.
 
+### 23. 28 MHz SRAM read wait during DMA cycles (GH #106) (6 tests)
+
+VHDL `zxnext.vhd:3171-3181`: at `cpu_speed="11"` every memory READ machine
+cycle whose target asserts `sram_req_t` or `cpu_bank5_sched` stretches by
+one 28 MHz cycle (= +1 T-state). The earlier form gated on
+`(cpu_m1_n='0' or dma_holds_bus='1')` is commented OUT at `:3174` — the
+shipped expression has no M1/DMA gate. During `dma_holds_bus` the DMA
+drives the bus signals the expression reads (`cpu_mreq_n`/`cpu_rd_n`/
+`cpu_a` muxes, `zxnext.vhd:1828-1835`) and the wait feeds back into the
+DMA via `dma_wait_n <= z80_wait_n and spi_wait_n`
+(`zxnext.vhd:1839,1844`) — so DMA source memory reads at 28 MHz wait
+exactly like CPU reads. Writes never wait (`cpu_rd_n='0'` required,
+`:3175`); I/O cycles never reach `sram_req` (`sram_memcycle` needs
+`cpu_mreq_n='0'`, `:3144`). GH #92 modeled the CPU path (CT-SW28-*);
+this group covers the DMA burst path.
+
+Rows 23.1-23.3 run a full Next `Emulator` (production wiring: committed
+NR 0x07 gate + `Mmu::sram_read_wait28()` qualifier, burst charged in
+`step_one_instruction`); rows 23.4-23.6 pin the `Dma` seam
+(`read_mem_wait_tstates` hook + `last_burst_read_wait_tstates()`).
+
+| # | Test | VHDL Reference | Verification |
+|---|------|----------------|--------------|
+| 23.1 | Burst duration at 28 MHz (mem->mem) | zxnext.vhd:1828-1835,1839,1844,3171-3181 | 8-byte SRAM->SRAM burst = 24 T (8×2 base + 8 read waits); data copied |
+| 23.2 | Burst duration at 14 MHz (mem->mem) | zxnext.vhd:3175 (`cpu_speed="11"` required) | Same 8-byte burst at cpu_speed=2 = 16 T, no stretch |
+| 23.3 | Exempt source: bank-7 BRAM (page 0x0E) | zxnext.vhd:6670-6685,1863,3175 | 8-byte burst sourced from bank 7 at 28 MHz = 16 T (dedicated port, no `sram_req`) |
+| 23.4 | Wait charged per source memory READ | zxnext.vhd:3171-3181,3175 | Hook called once per read at the stepped source address; accumulator = 8; writes exempt |
+| 23.5 | I/O source reads never wait | zxnext.vhd:3144 (`sram_memcycle` needs MREQ) | I/O->mem block: hook never called, accumulator 0 |
+| 23.6 | mem->I/O keeps the read-side wait | zxnext.vhd:3144,3175 | mem->I/O block: all 8 source reads wait; I/O destination irrelevant |
+
 ## Test Count Summary
 
 | Section | Tests |
@@ -489,7 +521,8 @@ set, while R1 has bit2=1 and R2 has bits2:0=000.
 | 20. DMA delay/interrupt | 4 |
 | 21. Timing bytes | 6 |
 | 22. Edge cases | 6 |
-| **Total** | **~144** |
+| 23. 28 MHz SRAM read wait (DMA, GH #106) | 6 |
+| **Total** | **~150** |
 
 ## Implementation Notes
 

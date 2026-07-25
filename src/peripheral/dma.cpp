@@ -638,6 +638,10 @@ void Dma::cmd_load() {
 // ─── Transfer execution ─────────────────────────────────────────────
 
 int Dma::execute_burst(int max_bytes) {
+    // GH #106 — fresh accumulator per call so a caller reading
+    // last_burst_read_wait_tstates() after a zero-transfer call sees 0.
+    last_burst_read_wait_tstates_ = 0;
+
     if (state_ != State::TRANSFERRING) return 0;
 
     // VHDL dma.vhd:439-464 — while the state machine is in WAITING_CYCLES
@@ -693,6 +697,17 @@ int Dma::execute_burst(int max_bytes) {
         } else {
             if (read_memory) data = read_memory(src_);
             else data = 0xFF;
+            // GH #106 — 28 MHz SRAM read wait on DMA-driven read cycles
+            // (zxnext.vhd:3171-3181). During dma_holds_bus the DMA drives
+            // cpu_mreq_n/cpu_rd_n/cpu_a (zxnext.vhd:1828-1835), so this
+            // source memory read is a real MREQ+RD machine cycle and
+            // stretches like a CPU read; the wait reaches the DMA via
+            // dma_wait_n (zxnext.vhd:1839,1844). Memory source only:
+            // I/O reads are IORQ cycles (sram_memcycle needs
+            // cpu_mreq_n='0', zxnext.vhd:3144); the destination write
+            // below never waits (cpu_rd_n='0' required, zxnext.vhd:3175).
+            if (read_mem_wait_tstates)
+                last_burst_read_wait_tstates_ += read_mem_wait_tstates(src_);
         }
 
         // Write byte to destination
