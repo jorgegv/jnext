@@ -22,6 +22,9 @@
 //                  download seam and invoked.
 //   PROV-PROG-02   A progress fn returning false (cancel) → download aborts →
 //                  Failed.
+//   PROV-URL-01..03  $JNEXT_SDCARD_DISTRO_URL test seam (GH #108 Phase B):
+//                  set+non-empty replaces kDistroUrl at the download seam;
+//                  unset or empty falls back to the canonical URL.
 //   PROV-FIXED-01  Skip-redownload: with a valid raw cspect-next-1gb.img
 //                  (+ matching .sha256) present, provision produces
 //                  cspect-next-1gb-fixed.img WITHOUT a download; both files
@@ -443,6 +446,39 @@ int main() {
         check("PROV-PROG-02", "cancel observed at download seam", saw_cancel);
         check("PROV-PROG-02", "cancelled download => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
+    }
+
+    // -- PROV-URL-01/02/03: $JNEXT_SDCARD_DISTRO_URL test seam (GH #108
+    //    Phase B). Set + non-empty replaces kDistroUrl in the download call;
+    //    unset or empty falls back to the canonical URL. Proven through the
+    //    download seam, which captures the URL it is handed.
+    {
+        std::string seen_url;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.download = [&](const std::string& url, const std::string&,
+                         const sdcard::ProgressFn&, std::string& err) {
+            seen_url = url; err = "stub: no network"; return false;
+        };
+
+        seen_url.clear();
+        setenv("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/fixture.zip", 1);
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-URL-01", "$JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl",
+              seen_url == "http://127.0.0.1:1/fixture.zip", seen_url);
+
+        seen_url.clear();
+        unsetenv("JNEXT_SDCARD_DISTRO_URL");
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-URL-02", "unset env => canonical kDistroUrl",
+              seen_url == sdcard::kDistroUrl, seen_url);
+
+        seen_url.clear();
+        setenv("JNEXT_SDCARD_DISTRO_URL", "", 1);
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-URL-03", "empty env => canonical kDistroUrl",
+              seen_url == sdcard::kDistroUrl, seen_url);
+        unsetenv("JNEXT_SDCARD_DISTRO_URL");
     }
 
     ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
