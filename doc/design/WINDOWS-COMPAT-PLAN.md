@@ -149,6 +149,48 @@ has a Win10 floor regardless.
 |------|----------|
 | Lower the Qt package below Win10 | **WONT** — floor is inside fedora's Qt6 binaries (d3d12 et al.), not reachable from jnext. |
 | Win7/8 support | **`make package-win-sdl`** (SDL-only, x64): Win 8.0+ by import evidence. |
-| True Win7 support | **Blocked** by fedora libcrypto-3's PathCch import; would need curl/OpenSSL made optional (owner decision) — documented, not implemented. |
-| 32-bit package | **Deferred to owner** (install mingw32 toolchain); audit shows no code blocker. |
+| True Win7 support | ~~Blocked~~ **Planned** — owner decision 2026-07-26: replace curl/OpenSSL on Windows with native WinHTTP + BCrypt (§7 Phase B), which deletes the PathCch blocker instead of amputating SD self-provisioning. |
+| 32-bit package | **Approved by owner 2026-07-26**, contingent on §7 Phases A/B (§7 Phase C); audit shows no code blocker. |
 | DirectX floor | Nothing to do jnext-side: SDL3 probes all renderers/audio backends at runtime with software/DirectSound fallbacks; jnext's Qt GUI renders via QImage (no RHI use) — the Qt D3D12 issue is a load-time import, not a rendering requirement. |
+
+## 7. Roadmap (owner-agreed 2026-07-26)
+
+Owner decisions driving this section: Qt5 is evaluated FIRST for the legacy legs
+(full GUI on Win7/8 beats SDL-only if the port cost is sane); SDL-only is the
+accepted fallback if Qt5 does not pan out; the Windows download path moves to
+OS-native APIs instead of dropping the feature; 32-bit ships once the above are
+settled; real-Win8-hardware verification is deferred until it matters.
+Explicitly REJECTED: downgrading the whole product to Qt5 to avoid dual
+maintenance — Qt5 (5.15 KDE Patch Collection) is upstream-EOL, the Flatpak/rpm/deb
+legs live on Qt6 runtimes, and Qt6's Wayland/HiDPI behaviour is what the emulator
+widget was tuned against. Qt6 stays the primary GUI everywhere; Qt5 (if adopted)
+is scoped to the legacy Windows packages only, kept green by a CI job that builds
+the same plain make target a local run uses.
+
+**Phase A — Qt5 feasibility spike (decision gate).** Fedora 44 ships
+`mingw64-qt5-qtbase` AND `mingw32-qt5-qtbase` at 5.15.18 (KDE Patch Collection);
+Qt 5.15 supports Windows 7 SP1+ and predates the D3D12/Win10-DPI imports that
+give Qt6 its floor. Deliverables: `#if QT_VERSION` port assessment of src/gui +
+src/debugger (count the delta), a trial `win-qt5-release` build, and a
+`pe-floor-audit.sh` run over the resulting bundle proving the Win7 claim.
+Gate: small delta → Qt5 full-GUI legacy legs (64-bit now, 32-bit in Phase C);
+large delta → SDL-only fallback stands (owner-accepted).
+
+**Phase B — native Windows provisioning path (independent of A).** The entire
+curl/OpenSSL surface is one file (`src/core/sdcard_provisioner.cpp`: one
+download + sha256). On Windows, replace with WinHTTP (download + progress) and
+BCrypt/CNG (sha256) behind the same provisioner interface; Linux/macOS keep
+curl/OpenSSL unchanged. Removes curl+OpenSSL DLLs from every Windows zip and
+deletes the single Win8-only import (libcrypto PathCch) → Win7 floor for the
+non-Qt6 legs. No new dependencies (OS-native APIs only).
+
+**Phase C — 32-bit packages.** After A+B: `package-win32` mirroring the winning
+leg (Qt5 full GUI if A passed, else SDL-only) via `mingw32-cmake`. Local builds
+need the owner-installed mingw32 toolchain; the CI container installs its own
+packages in the workflow, keeping CI-runs-exact-local-commands intact. Re-run
+the floor audit on the i686 bundle before claiming any floor.
+
+**Verification at every phase:** `pe-floor-audit.sh` on every produced bundle,
+`make package-test` structural rows for every new target, wine smoke (win7/win8
+profiles) as code-path checks — with the §5 caveat that only real hardware
+proves DLL availability floors.
