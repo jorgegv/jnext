@@ -7803,15 +7803,22 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // so we sample it immediately afterwards. No-op when pin-7 is
     // not in a UART mode — IoMode::pin7() reads pin7_ instead and
     // these stored fields are consulted only under modes 10/11.
-    //
-    // Note (Tier 2 W1): the corresponding `set_joy_left_bit5()` /
-    // `set_joy_right_bit5()` injectors (VHDL i_JOY_LEFT(5) /
-    // i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT yet fed because
-    // Joystick currently has no public bit-5 accessor. That follow-
-    // up is owned by the Joystick agent in a later wave; UART
-    // injectors close G72's primary observable here.
     iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
     iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
+
+    // GH #90 (G72 residual) — feed the joystick line-5 injectors from the
+    // live connector vectors, closing the RX half of the iomode mux.
+    // VHDL zxnext.vhd:3538:
+    //   joy_uart_rx <= ((not nr_0b_joy_iomode(0)) and not i_JOY_LEFT(5))
+    //               or (     nr_0b_joy_iomode(0)  and not i_JOY_RIGHT(5));
+    // i_JOY_*(5) is button C, ACTIVE HIGH (zxnext.vhd:90-91), and the
+    // Joystick raw 12-bit vectors are the direct i_JOY_* model
+    // (zxnext.vhd:3441-3442). The VHDL assign is combinational and not
+    // gated by NR 0x05/0x0B — gating lives in the consumers at
+    // zxnext.vhd:3340-3341 — so the feed is unconditional, mirroring the
+    // UART TX feed above.
+    iomode_.set_joy_left_bit5(joystick_.joy_left_bit5());
+    iomode_.set_joy_right_bit5(joystick_.joy_right_bit5());
 
     // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
     // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6

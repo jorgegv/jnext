@@ -2040,44 +2040,61 @@ static void test_iomode() {
               DETAIL("pin7 low=%d high=%d (want 0,1)", p_uart1_low, p_uart1_high));
     }
 
-    // IOMODE-07: NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted
-    //   per zxnext.vhd:3539. Composition:
-    //     joy_uart_rx = (NOT iomode_0 AND NOT JOY_LEFT(5)) OR
-    //                   (    iomode_0 AND NOT JOY_RIGHT(5))
-    //   iomode_0=0 selects the LEFT-connector button-5.
+    // IOMODE-07: mode "10" selects the LEFT connector's line 5. VHDL
+    //   zxnext.vhd:3538:
+    //     joy_uart_rx <= ((not nr_0b_joy_iomode(0)) and not i_JOY_LEFT(5))
+    //                 or (     nr_0b_joy_iomode(0)  and not i_JOY_RIGHT(5));
+    //   The connector selector is nr_0b_joy_iomode(0) = NR 0x0B bit 4
+    //   (the mode LSB), NOT bit 0 — bit 0 (nr_0b_joy_iomode_0) only picks
+    //   the destination UART channel (zxnext.vhd:3340-3341). i_JOY_LEFT(5)
+    //   is button C, ACTIVE HIGH (zxnext.vhd:90): idle → rx high, press →
+    //   rx low. 0xA0 and 0xA1 are both mode "10" → both select LEFT.
+    //   (GH #90 — row corrected; it previously encoded bit 0 as the
+    //   connector selector.)
     {
         IoMode m;
-        m.set_nr_0b(0xA0);
-        m.set_joy_left_bit5(true);  // idle
-        const bool rx_idle = m.joy_uart_rx();
-        m.set_joy_left_bit5(false); // button 5 pressed (active-low)
-        const bool rx_active = m.joy_uart_rx();
+        m.set_nr_0b(0xA0);                           // en=1, mode=10 → LEFT
+        const bool rx_idle = m.joy_uart_rx();        // JOY_LEFT(5)=0 → rx=1
+        m.set_joy_left_bit5(true);                   // press left C
+        const bool rx_pressed = m.joy_uart_rx();     // → rx=0
+        m.set_nr_0b(0xA1);                           // still mode "10" → LEFT
+        const bool rx_pressed_a1 = m.joy_uart_rx();  // bit 0 irrelevant → rx=0
+        m.set_joy_left_bit5(false);
+        m.set_joy_right_bit5(true);                  // RIGHT ignored in mode "10"
+        const bool rx_right_ignored = m.joy_uart_rx();  // → rx=1
         check("IOMODE-07",
-              "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted  "
-              "(zxnext.vhd:3539)",
-              rx_idle == false && rx_active == true,
-              DETAIL("rx_idle=%d rx_active=%d (want 0,1)", rx_idle, rx_active));
+              "mode \"10\" (0xA0/0xA1) → joy_uart_rx = NOT JOY_LEFT(5); "
+              "RIGHT ignored  (zxnext.vhd:3538, :90)",
+              rx_idle == true && rx_pressed == false &&
+              rx_pressed_a1 == false && rx_right_ignored == true,
+              DETAIL("idle=%d press=%d press_a1=%d right_ignored=%d "
+                     "(want 1,0,0,1)",
+                     rx_idle, rx_pressed, rx_pressed_a1, rx_right_ignored));
     }
 
-    // IOMODE-08: NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted.
-    //   iomode_0=1 selects the RIGHT-connector button-5.
+    // IOMODE-08: mode "11" selects the RIGHT connector's line 5 per
+    //   zxnext.vhd:3538 (nr_0b_joy_iomode(0)=1 → NOT i_JOY_RIGHT(5)).
+    //   (GH #90 — row corrected; it previously used 0xA1 [mode "10"]
+    //   expecting RIGHT, which per VHDL selects LEFT.)
     {
         IoMode m;
-        m.set_nr_0b(0xA1);
-        m.set_joy_right_bit5(true);  // idle
-        const bool rx_idle = m.joy_uart_rx();
-        m.set_joy_right_bit5(false); // pressed
-        const bool rx_active = m.joy_uart_rx();
-        // Verify LEFT connector is ignored under iomode_0=1.
-        m.set_joy_right_bit5(true);
-        m.set_joy_left_bit5(false);
-        const bool rx_left_ignored = m.joy_uart_rx();
+        m.set_nr_0b(0xB0);                           // en=1, mode=11 → RIGHT
+        const bool rx_idle = m.joy_uart_rx();        // JOY_RIGHT(5)=0 → rx=1
+        m.set_joy_right_bit5(true);                  // press right C
+        const bool rx_pressed = m.joy_uart_rx();     // → rx=0
+        m.set_nr_0b(0xB1);                           // still mode "11" → RIGHT
+        const bool rx_pressed_b1 = m.joy_uart_rx();  // bit 0 irrelevant → rx=0
+        m.set_joy_right_bit5(false);
+        m.set_joy_left_bit5(true);                   // LEFT ignored in mode "11"
+        const bool rx_left_ignored = m.joy_uart_rx();   // → rx=1
         check("IOMODE-08",
-              "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted; "
-              "LEFT ignored  (zxnext.vhd:3539)",
-              rx_idle == false && rx_active == true && rx_left_ignored == false,
-              DETAIL("idle=%d active=%d left_ignored=%d (want 0,1,0)",
-                     rx_idle, rx_active, rx_left_ignored));
+              "mode \"11\" (0xB0/0xB1) → joy_uart_rx = NOT JOY_RIGHT(5); "
+              "LEFT ignored  (zxnext.vhd:3538, :90)",
+              rx_idle == true && rx_pressed == false &&
+              rx_pressed_b1 == false && rx_left_ignored == true,
+              DETAIL("idle=%d press=%d press_b1=%d left_ignored=%d "
+                     "(want 1,0,0,1)",
+                     rx_idle, rx_pressed, rx_pressed_b1, rx_left_ignored));
     }
 
     // IOMODE-09: NR 0x0B=0xA0 (en=1, mode=10) → joy_uart_en = 1 per
@@ -2224,6 +2241,72 @@ static void test_iomode() {
                      iomode_en_after_write,
                      pin7_pre_run, pin7_post_run, uart0_tx_now,
                      pin7_pre_run2, pin7_post_run2, uart1_tx_now));
+    }
+
+    // IOMODE-11B — GH #90 closure: per-tick Joystick → IoMode line-5 feed
+    // (the RX half of the iomode mux; mirrors IOMODE-11A's idiom for the
+    // TX half).
+    //
+    // VHDL zxnext.vhd:3538 composes joy_uart_rx from i_JOY_LEFT(5) /
+    // i_JOY_RIGHT(5) (button C, ACTIVE HIGH per zxnext.vhd:90-91),
+    // connector selected by nr_0b_joy_iomode(0) = NR 0x0B bit 4. Without
+    // the production wire the mux is unit-correct but inert.
+    // Emulator's per-instruction tick cluster now calls
+    //   iomode_.set_joy_left_bit5(joystick_.joy_left_bit5())
+    //   iomode_.set_joy_right_bit5(joystick_.joy_right_bit5())
+    // right after the UART TX feed.
+    //
+    // Test idiom: (1) stomp IoMode's internal shadow with a value that
+    // disagrees with the live (idle) Joystick vectors — one run_frame()
+    // must overwrite it back; (2) press button C via the PRODUCTION
+    // surface (Joystick::set_joy_left/right, bit 5 of the raw i_JOY_*
+    // vector, zxnext.vhd:3441-3442) and observe joy_uart_rx() flip after
+    // a run_frame(); (3) prove the mode-"11" path reads the RIGHT
+    // connector while a LEFT press is ignored.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // NR 0x0B = 0xA0 — en=1, mode "10" → LEFT connector selected
+        // (zxnext.vhd:3538 selector = bit 4 = 0).
+        emu.port().out(0x243B, 0x0B);
+        emu.port().out(0x253B, 0xA0);
+
+        // (1) Stomp: pretend left C is pressed while the live Joystick
+        // vector is idle. Without the per-tick wire this sticks forever.
+        emu.iomode().set_joy_left_bit5(true);
+        const bool rx_stomped = emu.iomode().joy_uart_rx();   // 0 (pressed)
+        emu.run_frame();                                       // wire re-feeds
+        const bool rx_idle = emu.iomode().joy_uart_rx();       // 1 (idle high)
+
+        // (2) Press LEFT button C through the production surface.
+        emu.joystick().set_joy_left(0x0020);                   // i_JOY_LEFT(5)=1
+        emu.run_frame();
+        const bool rx_left_pressed = emu.iomode().joy_uart_rx();  // 0
+
+        // (3) Mode "11" (0xB0) → RIGHT connector; the still-pressed LEFT
+        // C must be ignored, then a RIGHT press must assert.
+        emu.port().out(0x243B, 0x0B);
+        emu.port().out(0x253B, 0xB0);
+        const bool rx_left_ignored = emu.iomode().joy_uart_rx();  // 1
+        emu.joystick().set_joy_right(0x0020);                  // i_JOY_RIGHT(5)=1
+        emu.run_frame();
+        const bool rx_right_pressed = emu.iomode().joy_uart_rx(); // 0
+
+        check("IOMODE-11B",
+              "Emulator per-tick feed: Joystick line-5 → IoMode "
+              "joy_uart_rx via run_frame()  (zxnext.vhd:3538, :90-91; "
+              "GH #90 closure)",
+              rx_stomped == false && rx_idle == true &&
+              rx_left_pressed == false && rx_left_ignored == true &&
+              rx_right_pressed == false,
+              DETAIL("stomped=%d idle=%d Lpress=%d Lignored=%d Rpress=%d "
+                     "(want 0,1,0,1,0)",
+                     rx_stomped, rx_idle, rx_left_pressed,
+                     rx_left_ignored, rx_right_pressed));
     }
 }
 
@@ -3454,22 +3537,44 @@ static void test_saveload() {
         io.tick_ctc_zc3();                          // may toggle pin7 per guard
         io.set_uart0_tx(false);
         io.set_uart1_tx(false);
-        io.set_joy_left_bit5(false);
-        io.set_joy_right_bit5(false);
+        io.set_joy_left_bit5(true);                // pressed (non-default; idle=0,
+        io.set_joy_right_bit5(true);               //  active-high per zxnext.vhd:90)
         const uint8_t raw = io.nr_0b_raw();
         const bool pin7 = io.pin7();
-        const bool jrx = io.joy_uart_rx();
+        const bool jrx = io.joy_uart_rx();         // 0x11 bit4=1 → RIGHT: !1 = 0
 
         const size_t n = rt_save(io, buf, sizeof buf);
-        io.reset();                                // perturb → raw 0x01, pin7 1, lines 1
+        // Perturb ALL persisted fields. reset() only restores raw/pin7 —
+        // the injected lines model external input pins and are NOT touched
+        // by reset (zxnext.vhd:3516 resets only joy_iomode_pin7), so they
+        // must be perturbed through their injectors or the row proves
+        // nothing about their serialisation (GH #90 review fix).
+        io.reset();                                // raw 0x01, pin7 1
+        io.set_uart0_tx(true);
+        io.set_uart1_tx(true);
+        io.set_joy_left_bit5(false);
+        io.set_joy_right_bit5(false);
         rt_load(io, buf, n);
 
         check("SL-IOM-01", "IoMode NR 0x0B raw byte + pin7 register restored",
               io.nr_0b_raw() == raw && io.pin7() == pin7,
               DETAIL("raw=%02X/%02X pin7=%d/%d", io.nr_0b_raw(), raw, io.pin7(), pin7));
+        // Probe all four injected lines post-restore. joy_uart_rx() under
+        // the restored raw 0x11 (bit4=1) reads the RIGHT line; then switch
+        // the selector to observe LEFT (0xA0: mode 10, bit4=0) and the
+        // uart0/uart1 shadows via pin7 (raw was already checked above, so
+        // post-check NR rewrites are fine).
+        const bool jrx_right = io.joy_uart_rx();   // restored 1 → rx 0
+        io.set_nr_0b(0xA0);                        // bit4=0 → LEFT; pin7=uart0_tx
+        const bool jrx_left = io.joy_uart_rx();    // restored 1 → rx 0
+        const bool uart0 = io.pin7();              // restored false
+        io.set_nr_0b(0xA1);                        // iomode_0=1 → pin7=uart1_tx
+        const bool uart1 = io.pin7();              // restored false
         check("SL-IOM-02", "IoMode injected UART-TX / joystick-bit5 lines restored",
-              io.joy_uart_rx() == jrx,
-              DETAIL("joy_uart_rx=%d/%d", io.joy_uart_rx(), jrx));
+              jrx_right == jrx && jrx_right == false && jrx_left == false &&
+              uart0 == false && uart1 == false,
+              DETAIL("jrxR=%d/%d jrxL=%d uart0=%d uart1=%d (want all 0)",
+                     jrx_right, jrx, jrx_left, uart0, uart1));
     }
 
     // ── Emulator full-stream round-trip (paired "input" sentinel) ───────────

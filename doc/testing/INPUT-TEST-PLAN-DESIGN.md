@@ -11,6 +11,10 @@ mouse, and the Multiface / Drive NMI buttons.
   - 6 remaining skips are all `IOMODE-05/06/07/08/09/10` — UART pin-7
     routing modes 10 and 11 of NR 0x0B. F-skip blocked on the future
     UART+I2C subsystem plan.
+- Update 2026-07-25 (GH #90): IOMODE-05..10 are live rows since the G72
+  closure; IOMODE-07/08 corrected per the §3.9 correction note (connector
+  selector is NR 0x0B bit 4, not bit 0) and IOMODE-11B added (production
+  per-tick Joystick→IoMode line-5 feed). `input_test` now 323 rows.
 - `test/input/input_integration_test.cpp` (NEW): **7 / 5 / 0 / 2**.
   - Hosts the 7 port-0xFE-byte-assembly rows re-homed from
     `input_test.cpp` (KBD-22/23, FE-01..05).
@@ -675,11 +679,26 @@ Coverage of NR 0x0B and the pin-7 mux, per §1.8.
 | IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)` | pin7 toggles | 3521-3524 |
 | IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0) | pin7 = uart0_tx | 3526-3530 |
 | IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1) | pin7 = uart1_tx | 3526-3530 |
-| IOMODE-07 | Write NR 0x0B = 0xA0, assert `JOY_LEFT(5)=0` | `joy_uart_rx` asserted (ctsn analogously on bit 4) | 3538-3539 |
-| IOMODE-08 | Write NR 0x0B = 0xA1, assert `JOY_RIGHT(5)=0` | `joy_uart_rx` asserted | 3538 |
+| IOMODE-07 | NR 0x0B = 0xA0/0xA1 (mode "10" → LEFT), press/release `JOY_LEFT(5)` (button C, active high); press `JOY_RIGHT(5)` | `joy_uart_rx` = NOT `JOY_LEFT(5)` (idle 1, press 0) under BOTH 0xA0 and 0xA1; RIGHT ignored | 90-91, 3538 |
+| IOMODE-08 | NR 0x0B = 0xB0/0xB1 (mode "11" → RIGHT), press/release `JOY_RIGHT(5)`; press `JOY_LEFT(5)` | `joy_uart_rx` = NOT `JOY_RIGHT(5)` (idle 1, press 0) under BOTH 0xB0 and 0xB1; LEFT ignored | 90-91, 3538 |
 | IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en` | `= 1` | 3536 |
 | IOMODE-10 | Write NR 0x0B = 0x80 | `joy_uart_en = 0` (iomode(1)=0) | 3536 |
 | IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured | verifies interaction with mode-111 selection | 3429-3438, 3510-3539 |
+| IOMODE-11A | Emulator-level: NR 0x0B mode 10/11 via NR write path; stomp IoMode UART shadows; `run_frame()` | per-tick production feed re-drives pin7 from `Uart::channel(N).tx_line_out()` (G72 closure) | 3526-3531 |
+| IOMODE-11B | Emulator-level: NR 0x0B = 0xA0 then 0xB0 via NR write path; stomp IoMode line-5 shadow; press button C via `Joystick::set_joy_left/right` (bit 5); `run_frame()` | per-tick production feed drives `joy_uart_rx` from the live connector vectors: stomp overwritten, LEFT press asserts under mode "10", is ignored under mode "11", RIGHT press asserts under mode "11" (GH #90 closure) | 90-91, 3441-3442, 3538 |
+
+**Correction note (2026-07-25, GH #90)**: IOMODE-07/08 previously encoded
+`nr_0b_joy_iomode_0` (NR 0x0B bit 0) as the `joy_uart_rx` connector
+selector, with an active-low reading of `JOY_*(5)`. The authoritative
+assign at `zxnext.vhd:3538` selects the connector with
+`nr_0b_joy_iomode(0)` — the LSB of the 2-bit MODE field, i.e. NR 0x0B
+**bit 4** (mode "10" → LEFT, "11" → RIGHT); bit 0 (`nr_0b_joy_iomode_0`)
+instead selects which UART channel *receives* the line
+(`zxnext.vhd:3340-3341`). `i_JOY_*` is declared ACTIVE HIGH at
+`zxnext.vhd:90-91` (bit 5 = button C), so the RX line idles high and a
+press drives it low. Rows, tests (`IOMODE-07/08`), and
+`IoMode::joy_uart_rx()` were corrected together; `joy_uart_cts_n`
+(`zxnext.vhd:3539`, `JOY_*(4)` = button B) remains unmodelled.
 
 ### 3.10 Kempston mouse (MOUSE-*)
 

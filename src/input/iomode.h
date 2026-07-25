@@ -88,18 +88,27 @@ public:
         return ((nr_0b_raw_ & 0x80) != 0) && ((nr_0b_raw_ & 0x20) != 0);
     }
 
-    /// joy_uart_rx composition per zxnext.vhd:3539:
-    ///   (NOT iomode_0 AND NOT i_JOY_LEFT(5)) OR
-    ///   (    iomode_0 AND NOT i_JOY_RIGHT(5))
-    /// iomode_0 selects which joystick connector's button-5 line feeds
-    /// the UART RX path (active-low).
+    /// joy_uart_rx composition per zxnext.vhd:3538:
+    ///   joy_uart_rx <= ((not nr_0b_joy_iomode(0)) and not i_JOY_LEFT(5))
+    ///               or (     nr_0b_joy_iomode(0)  and not i_JOY_RIGHT(5));
+    /// The connector selector is `nr_0b_joy_iomode(0)` — the LSB of the
+    /// 2-bit MODE field, i.e. NR 0x0B **bit 4** (mode "10" → LEFT
+    /// connector, mode "11" → RIGHT connector). It is NOT
+    /// `nr_0b_joy_iomode_0` (NR 0x0B bit 0): that bit instead selects
+    /// WHICH UART channel receives this line per zxnext.vhd:3340-3341
+    /// (bit0=0 → uart0_rx, bit0=1 → uart1_rx). `i_JOY_*(5)` is the
+    /// connector's button C, ACTIVE HIGH per zxnext.vhd:90-91, so the RX
+    /// line idles HIGH and a press drives it LOW (serial start-bit
+    /// polarity). (GH #90 — the pre-fix selector wrongly used bit 0.)
     bool    joy_uart_rx() const {
-        const bool iomode0 = ((nr_0b_raw_ & 0x01) != 0);
-        return iomode0 ? !joy_right_bit5_ : !joy_left_bit5_;
+        const bool mode_lsb = ((nr_0b_raw_ & 0x10) != 0);  // nr_0b_joy_iomode(0)
+        return mode_lsb ? !joy_right_bit5_ : !joy_left_bit5_;
     }
 
-    /// Inject joystick button-5 level (active-low at the VHDL signal
-    /// level — true means button NOT pressed, idle high).
+    /// Inject the raw joystick connector line 5 (button C) — VHDL
+    /// i_JOY_LEFT(5) / i_JOY_RIGHT(5), ACTIVE HIGH (true = pressed) per
+    /// zxnext.vhd:90-91. Fed every Emulator per-instruction tick from
+    /// Joystick::joy_left_bit5() / joy_right_bit5() (GH #90).
     void    set_joy_left_bit5(bool level)  { joy_left_bit5_  = level; }
     void    set_joy_right_bit5(bool level) { joy_right_bit5_ = level; }
 
@@ -148,8 +157,11 @@ private:
     // idle-line semantics when no UART traffic is present.
     bool    uart0_tx_  = true;
     bool    uart1_tx_  = true;
-    // Joystick connector button-5 lines (VHDL signals i_JOY_LEFT/RIGHT(5),
-    // active-low). Default '1' means idle / not pressed.
-    bool    joy_left_bit5_  = true;
-    bool    joy_right_bit5_ = true;
+    // Joystick connector line-5 inputs (VHDL i_JOY_LEFT(5)/i_JOY_RIGHT(5),
+    // ACTIVE HIGH per zxnext.vhd:90-91). Default false = button C not
+    // pressed → joy_uart_rx() idles high per zxnext.vhd:3538. Like the
+    // UART TX shadows above, production keeps these live via the Emulator
+    // per-instruction tick feed (GH #90).
+    bool    joy_left_bit5_  = false;
+    bool    joy_right_bit5_ = false;
 };
