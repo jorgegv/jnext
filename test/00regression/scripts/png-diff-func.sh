@@ -24,13 +24,15 @@ if want png-diff-func; then
             one="$TMP_DIR/png-diff-one.png"
             red="$TMP_DIR/png-diff-red.png"
             two="$TMP_DIR/png-diff-two.png"
+            wide="$TMP_DIR/png-diff-wide.png"
             if ! "${image_cmd[@]}" -size 4x3 xc:black "$base" 2>/dev/null \
                 || ! "${image_cmd[@]}" "$base" -fill white \
                     -draw 'point 1,1' "$one" 2>/dev/null \
                 || ! "${image_cmd[@]}" "$base" -fill red \
                     -draw 'point 1,1' "$red" 2>/dev/null \
                 || ! "${image_cmd[@]}" "$base" -fill white \
-                    -draw 'point 1,1 point 2,1' "$two" 2>/dev/null; then
+                    -draw 'point 1,1 point 2,1' "$two" 2>/dev/null \
+                || ! "${image_cmd[@]}" -size 5x3 xc:black "$wide" 2>/dev/null; then
                 fail_row " (could not create synthetic image fixtures)"
             else
                 same_count=$(png_diff "$base" "$base")
@@ -38,12 +40,17 @@ if want png-diff-func; then
                 red_count=$(png_diff "$base" "$red")
                 two_count=$(png_diff "$base" "$two")
                 missing_count=$(png_diff "$base" "$TMP_DIR/absent.png" 424242)
+                # Same content, different dimensions (4x3 vs 5x3): must hit the
+                # sentinel, never 0 — a dimension mismatch can only mean
+                # harness/renderer breakage (GH #85).
+                dims_count=$(png_diff "$base" "$wide" 424242)
                 if [[ "$same_count" -eq 0 && "$one_count" -eq 1 \
                       && "$red_count" -eq 1 && "$two_count" -eq 2 \
-                      && "$missing_count" -eq 424242 ]]; then
-                    pass_row " (0 identical; 1 single-channel/full-colour; 2 two-pixel; failure sentinel preserved)"
+                      && "$missing_count" -eq 424242 \
+                      && "$dims_count" -eq 424242 ]]; then
+                    pass_row " (0 identical; 1 single-channel/full-colour; 2 two-pixel; failure + dim-mismatch sentinels preserved)"
                 else
-                    fail_row " (same=$same_count one=$one_count red=$red_count two=$two_count missing=$missing_count)"
+                    fail_row " (same=$same_count one=$one_count red=$red_count two=$two_count missing=$missing_count dims=$dims_count)"
                 fi
             fi
         fi

@@ -115,15 +115,33 @@ standalone_summary() {
 # pixel is 65535), not a pixel count. Build an any-channel binary difference
 # mask instead, then its mean times its area is the literal number of changed
 # pixels. A command or parse failure yields <sentinel> (default 999999, i.e.
-# "treat as different").
+# "treat as different"), as does a pixel-dimension mismatch between the two
+# images (GH #85): -composite silently crops to the overlap, so two images of
+# different sizes could otherwise compare as identical — and a dimension
+# mismatch can only mean harness/renderer breakage.
 png_diff() {
-    local raw sentinel=${3:-999999}
+    local raw dims a_dim b_dim sentinel=${3:-999999}
     local -a image_cmd
     if command -v magick &>/dev/null; then
         image_cmd=(magick)
     elif command -v convert &>/dev/null; then
         image_cmd=(convert)
     else
+        echo "$sentinel"
+        return
+    fi
+
+    # IHDR dimension check first: "<w>x<h>;<w>x<h>;" for the two images.
+    # Single-frame PNGs assumed (every producer here is jnext's own
+    # --delayed-screenshot); a multi-frame input would emit extra
+    # ';'-separated fields and misalign b_dim (GH #85 review note).
+    dims=$("${image_cmd[@]}" "$1" "$2" -format '%wx%h;' info: 2>/dev/null) || {
+        echo "$sentinel"
+        return
+    }
+    a_dim=${dims%%;*}
+    b_dim=${dims#*;}; b_dim=${b_dim%%;*}
+    if [[ ! "$a_dim" =~ ^[0-9]+x[0-9]+$ || "$a_dim" != "$b_dim" ]]; then
         echo "$sentinel"
         return
     fi
