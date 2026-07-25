@@ -22,6 +22,16 @@
 #      test ID, rewrite the Status cell, the VHDL file:line cell and the
 #      Test file:line cell preserving column widths. Section boundaries are
 #      matched by exact header line.
+#   6. Protected rows: a data row carrying an explicit `<!-- protected -->`
+#      HTML comment after its closing `|` is hand-maintained (typically a
+#      cross-file pointer to a suite outside the section's source file,
+#      e.g. NR-C0-02 -> test/nmi/atic_atac_nmi_test.cpp) and is left
+#      byte-identical; its existing Status cell is trusted for the report
+#      counts. The marker is explicit and local to the row it protects —
+#      cross-file *scanning* is deliberately NOT done, for the same reason
+#      the banner/nearest-comment citation tiers were rejected: it infers,
+#      and a plausible-but-wrong row is worse than an honest `missing`.
+#      (GH #105)
 #
 # Usage:
 #     perl test/refresh-traceability-matrix.pl
@@ -188,6 +198,11 @@ my $ID_BARE_RE = qr{
 
 # "  FAIL ID: ..." or "  FAIL ID [..." — robust across all known harnesses.
 my $FAIL_RE = qr/^\s*FAIL\s+([A-Za-z0-9._\-]+)\s*[:\[]/;
+
+# Hand-maintained row marker: `<!-- protected: reason -->` after the row's
+# closing `|`. GFM ignores content beyond the header's column count and it
+# is an HTML comment anyway, so it renders invisibly.
+my $PROTECTED_RE = qr/<!--\s*protected\b[^>]*-->/;
 
 # skip("ID", ...) or stub("ID", ...) first-arg string literal. Both helpers
 # flag "not reachable via current C++ API" and are aggregated under the
@@ -482,7 +497,8 @@ sub cite_for {
 }
 
 sub refresh_section {
-    my ($lines, $start_idx, $binary, $source_rel, $drift) = @_;
+    my ($lines, $start_idx, $binary, $source_rel, $drift, $kept) = @_;
+    $kept //= [];
     my $fails = run_fails($binary);
     my ($checks, $skips) = grep_source($source_rel);
     my $cites     = grep_citations($source_rel);
@@ -508,6 +524,33 @@ sub refresh_section {
 
                 # Skip header row and separator row (only dashes/colons/spaces).
                 if ($tid_raw ne '' && $tid_raw ne 'Test ID' && $tid_raw !~ /^[-:\s]+$/) {
+                    # Protected row (strategy point 6): leave it byte-identical.
+                    # The existing Status cell is trusted for the counts, so
+                    # the section tally stays truthful.
+                    if ($line =~ $PROTECTED_RE) {
+                        my $cur = $cells[4];
+                        $cur =~ s/^\s+|\s+$//g;
+                        if    ($cur eq 'pass')    { $pass_ct++;    }
+                        elsif ($cur eq 'fail')    { $fail_ct++;    }
+                        elsif ($cur eq 'skip')    { $skip_ct++;    }
+                        elsif ($cur eq 'missing') { $missing_ct++; }
+                        else {
+                            warn "WARN: protected row $tid_raw carries "
+                               . "unrecognised status '$cur'\n";
+                        }
+                        # A marker on a row this section's own source DOES
+                        # cover is masking a locally computable status —
+                        # say so rather than silently freezing the row.
+                        warn "WARN: protected row $tid_raw is also covered by "
+                           . "$source_rel; the marker overrides a locally "
+                           . "computable status\n"
+                            if @{ resolve_ids($tid_raw, $checks, $skips) };
+                        push @$kept, $tid_raw;
+                        $touched++;
+                        $i++;
+                        next;
+                    }
+
                     my $new_status = status_for($tid_raw, $fails, $checks, $skips);
                     if    ($new_status eq 'pass')    { $pass_ct++;    }
                     elsif ($new_status eq 'fail')    { $fail_ct++;    }
@@ -590,6 +633,7 @@ sub main {
 
     my @report;
     my @drift;
+    my @kept;
     for my $entry (@SUBSYS) {
         my ($header, $binary, $source_rel) = @$entry;
         my $idx;
@@ -611,9 +655,12 @@ sub main {
             next;
         }
         my @section_drift;
+        my @section_kept;
         my ($touched, $p, $f, $s, $m, $c, $u, $d) =
-            refresh_section(\@lines, $idx, $binary, $source_rel, \@section_drift);
+            refresh_section(\@lines, $idx, $binary, $source_rel,
+                            \@section_drift, \@section_kept);
         push @drift, map { "$source_rel  $_" } @section_drift;
+        push @kept,  map { "$source_rel  $_" } @section_kept;
         push @report, [$header, $touched, $p, $f, $s, $m, $c, $u, $d];
     }
 
@@ -645,6 +692,12 @@ sub main {
         print "\nVHDL citations where the doc and the test source disagree ",
               "(doc kept, not overwritten):\n";
         print "  $_\n" for @drift;
+    }
+
+    if (@kept) {
+        print "\nProtected rows kept byte-identical ",
+              "(<!-- protected --> marker):\n";
+        print "  $_\n" for @kept;
     }
 }
 

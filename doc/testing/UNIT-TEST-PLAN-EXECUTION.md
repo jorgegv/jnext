@@ -347,6 +347,18 @@ The script's input assumptions:
 - Test binaries print `  FAIL ID: ...` or `  FAIL ID [...` for every
   failing row — this is the one output-format assumption the script makes,
   and it has held across every harness in the repo.
+- **Protected rows** (GH #105): a matrix data row whose coverage lives in
+  a file OTHER than the section's one scanned source (e.g. NR-C0-02, a
+  CTC plan row that passes in `test/nmi/atic_atac_nmi_test.cpp`
+  ATIC-NMI-02) is hand-maintained. Mark it with an explicit
+  `<!-- protected: reason -->` HTML comment after its closing `|`; the
+  script then leaves the entire row byte-identical, counts its existing
+  Status cell in the tally, and lists it in a "Protected rows kept"
+  report. The marker is row-local and explicit by design — cross-file
+  scanning was rejected as an inference tier. The script warns if a
+  protected row's ID IS covered by the section's own source (the marker
+  would then mask a computable status). Pinned by `SELF-09..12` in
+  `make traceability-selftest`.
 
 The manual fallback is below, in case the script is unavailable or the
 refresh touches areas the script doesn't automate (last-touch commit hash,
