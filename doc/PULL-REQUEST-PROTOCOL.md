@@ -90,6 +90,13 @@ _Reviewed at commit `<sha>` on `<date>`. Verdict: **APPROVE / REJECT**._
   a PR *is* a request to merge. Once the maintainer review is green (APPROVE,
   including any owner sign-offs this document requires), the PR is merged
   immediately — the contributor is never asked to confirm the merge.
+- **Push the merge commit before closing anything** (owner decision,
+  2026-07-26): after the local merge + bump, push `main` to origin FIRST, then
+  close the linked issue. Never close the PR manually — GitHub flips a still-open
+  PR to **merged** when the pushed merge reaches the base branch; a hand-closed
+  PR shows "closed" (rejected-looking) forever. This is the standing
+  authorization to push the merge commit of a PR landing; tags still follow the
+  usual batching rules and may follow later.
 - The rest of the landing flow (branch, green test triplet, independent review,
   bump) follows [../CLAUDE.md](../CLAUDE.md) → "Merging a completed feature/fix
   to `main`".
