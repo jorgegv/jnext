@@ -5,13 +5,20 @@
 // and cross-checked with the relevant wiring in zxnext.vhd.  The C++
 // implementation is never used as an oracle.
 //
-// One section per plan row from doc/testing/DMA-TEST-PLAN-DESIGN.md (156
-// rows across 22 groups).  Every live row is either a single check(id, ...)
-// or a skip(id, ...) with a one-line reason.
+// One section per plan row from doc/testing/DMA-TEST-PLAN-DESIGN.md (23
+// groups; group 23 = GH #106 28 MHz SRAM read wait during DMA cycles).
+// Every live row is either a single check(id, ...) or a skip(id, ...)
+// with a one-line reason.
 //
 // Run: ./build/test/dma_test
 
 #include "peripheral/dma.h"
+
+// Group 23 (GH #106) drives the production wiring through a full Emulator.
+#include "core/emulator.h"
+#include "core/emulator_config.h"
+#include "memory/contention.h"
+#include "memory/mmu.h"
 
 #include <array>
 #include <cstdarg>
@@ -2685,6 +2692,255 @@ void group22_edge() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Group 23 — 28 MHz SRAM read wait during DMA cycles (GH #106)
+//
+// VHDL zxnext.vhd:3171-3181:
+//
+//   if (sram_req_t = '1' or cpu_bank5_sched = '1') and cpu_rd_n = '0'
+//      and cpu_speed = "11" then sram_wait_n <= '0';
+//
+// The earlier form gating on (cpu_m1_n='0' or dma_holds_bus='1') is
+// commented OUT at :3174 — the shipped expression has no M1/DMA gate, so
+// it fires for ANY memory read cycle at cpu_speed="11". During
+// dma_holds_bus the DMA drives the very bus signals the expression reads
+// (cpu_mreq_n/cpu_rd_n/cpu_a <= dma_* muxes, zxnext.vhd:1828-1835), and
+// the wait reaches the DMA through dma_wait_n <= z80_wait_n and
+// spi_wait_n (zxnext.vhd:1839,1844). Therefore each DMA source MEMORY
+// read at 28 MHz stretches +1 T-state; destination writes never wait
+// (cpu_rd_n='0' required, :3175) and I/O cycles never reach sram_req
+// (sram_memcycle needs cpu_mreq_n='0', :3144).
+//
+// Rows 23.1-23.3 measure the full-stack burst duration through a real
+// Next Emulator (production lambda gate on committed NR 0x07 == 3 +
+// Mmu::sram_read_wait28 qualifier, mirroring GH #92's CPU-path rows
+// CT-SW28-*). Rows 23.4-23.6 pin the Dma-side seam (per-source-read
+// accumulation, read/write and MREQ/IORQ asymmetry) with a stub.
+// ══════════════════════════════════════════════════════════════════════
+
+// NR 0x07 write + bus-idle commit on BOTH consumers (clock divisor and
+// ContentionModel's committed cpu_speed) — the VHDL commit edge at
+// zxnext.vhd:5809,5817; same pattern as contention_test's sw28_set_speed.
+void g23_set_speed(Emulator& emu, uint8_t speed) {
+    emu.nextreg().write(0x07, speed);
+    emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+    emu.contention().commit_pending_cpu_speed_on_bus_idle(true);
+}
+
+// Program the production Dma (mem->mem A->B, continuous, both inc) via
+// the register protocol and run ONE emulator step while the DMA holds
+// the bus. Returns the step's T-state cost (execute_single_instruction
+// returns master_cycles / cpu_divisor). An 8-byte block completes inside
+// the single execute_burst(16) call of that step.
+int g23_run_dma_step(Emulator& emu, uint16_t src, uint16_t dst,
+                     uint16_t len) {
+    Dma& d = emu.dma();
+    auto w = [&](uint8_t v) { d.write(v, false); };
+    w(0x7D);
+    w(src & 0xFF); w((src >> 8) & 0xFF);
+    w(len & 0xFF); w((len >> 8) & 0xFF);
+    w(0x14);                     // R1: port A memory, increment
+    w(0x10);                     // R2: port B memory, increment
+    w(0xAD);                     // R4: continuous, port B addr follows
+    w(dst & 0xFF); w((dst >> 8) & 0xFF);
+    w(0xCF);                     // LOAD
+    w(0x87);                     // ENABLE
+    return emu.execute_single_instruction();
+}
+
+void group23_sram_read_wait28() {
+    set_group("G23 SW28 DMA Wait");
+
+    // 23.1 — 28 MHz burst duration, mem->mem from plain SRAM. 8 bytes at
+    // 2 T each = 16 T base; each of the 8 source reads waits +1
+    // (sram_req_t + cpu_rd_n='0' + cpu_speed="11", zxnext.vhd:3154,3167,
+    // 3175); the 8 destination writes are exempt (cpu_rd_n='1') -> 24 T.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) {
+            check("23.1", "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+        } else {
+            g23_set_speed(emu, 3);
+            emu.nextreg().write(0x54, 0x20);   // slot 4 -> plain SRAM page
+            for (int i = 0; i < 8; ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x8000 + i),
+                                static_cast<uint8_t>(0xA0 + i));
+            const int t = g23_run_dma_step(emu, 0x8000, 0x9000, 8);
+            bool copied = true;
+            for (int i = 0; i < 8; ++i)
+                copied = copied
+                    && emu.mmu().read(static_cast<uint16_t>(0x9000 + i))
+                           == static_cast<uint8_t>(0xA0 + i);
+            check("23.1",
+                  "8-byte mem->mem DMA burst from SRAM at cpu_speed=3 "
+                  "(28 MHz) = 24 T: 8 source reads wait +1 each, 8 dest "
+                  "writes exempt (zxnext.vhd:1828-1835,1839,1844,"
+                  "3171-3181)",
+                  t == 24 && copied,
+                  fmt("t=%d expected=24 copied=%d", t, (int)copied));
+        }
+    }
+
+    // 23.2 — identical burst at cpu_speed=2 (14 MHz): the wait arm
+    // requires cpu_speed="11" (zxnext.vhd:3175) -> unstretched 16 T.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) {
+            check("23.2", "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+        } else {
+            g23_set_speed(emu, 2);
+            emu.nextreg().write(0x54, 0x20);
+            for (int i = 0; i < 8; ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x8000 + i),
+                                static_cast<uint8_t>(0xB0 + i));
+            const int t = g23_run_dma_step(emu, 0x8000, 0x9000, 8);
+            bool copied = true;
+            for (int i = 0; i < 8; ++i)
+                copied = copied
+                    && emu.mmu().read(static_cast<uint16_t>(0x9000 + i))
+                           == static_cast<uint8_t>(0xB0 + i);
+            check("23.2",
+                  "Same 8-byte burst at cpu_speed=2 (14 MHz) = 16 T "
+                  "exactly — no sram_wait_n stretch below 28 MHz "
+                  "(zxnext.vhd:3175 requires cpu_speed=\"11\")",
+                  t == 16 && copied,
+                  fmt("t=%d expected=16 copied=%d", t, (int)copied));
+        }
+    }
+
+    // 23.3 — 28 MHz, source in bank-7 BRAM (page 0x0E): the dedicated
+    // CPU read port (cpu_bank7_do, zxnext.vhd:6670-6685 + cpu_di mux
+    // :1863) appears nowhere in the :3175 wait expression -> DMA source
+    // reads from bank 7 do NOT wait -> 16 T even at 28 MHz.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) {
+            check("23.3", "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+        } else {
+            g23_set_speed(emu, 3);
+            emu.nextreg().write(0x52, 0x0E);   // slot 2 (0x4000) -> bank-7 BRAM
+            emu.nextreg().write(0x54, 0x20);   // slot 4 (0x8000) -> plain SRAM
+            for (int i = 0; i < 8; ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x4000 + i),
+                                static_cast<uint8_t>(0xC0 + i));
+            const int t = g23_run_dma_step(emu, 0x4000, 0x8000, 8);
+            bool copied = true;
+            for (int i = 0; i < 8; ++i)
+                copied = copied
+                    && emu.mmu().read(static_cast<uint16_t>(0x8000 + i))
+                           == static_cast<uint8_t>(0xC0 + i);
+            check("23.3",
+                  "8-byte burst sourced from bank-7 BRAM (page 0x0E) at "
+                  "28 MHz = 16 T — cpu_bank7_do has a dedicated port and "
+                  "is absent from the wait expression (zxnext.vhd:"
+                  "6670-6685,1863,3175)",
+                  t == 16 && copied,
+                  fmt("t=%d expected=16 copied=%d", t, (int)copied));
+        }
+    }
+
+    // 23.4 — Dma seam: the wait hook fires once per source MEMORY read,
+    // at the stepped source address, and the destination write side never
+    // consults it (cpu_rd_n='0' required, zxnext.vhd:3175).
+    {
+        Dma dma;
+        fresh(dma);
+        std::vector<uint16_t> seen;
+        dma.read_mem_wait_tstates = [&seen](uint16_t a) -> uint8_t {
+            seen.push_back(a);
+            return 1;
+        };
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 8);
+        const int n = dma.execute_burst(16);
+        bool addrs_ok = seen.size() == 8;
+        for (size_t i = 0; addrs_ok && i < seen.size(); ++i)
+            addrs_ok = seen[i] == static_cast<uint16_t>(0x8000 + i);
+        check("23.4",
+              "Wait hook: one call per source memory READ at the stepped "
+              "source address; accumulator = 8 for an 8-byte mem->mem "
+              "block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0')",
+              n == 8 && addrs_ok && dma.last_burst_read_wait_tstates() == 8,
+              fmt("n=%d calls=%zu wait=%u  VHDL zxnext.vhd:3171-3181", n,
+                  seen.size(), dma.last_burst_read_wait_tstates()));
+    }
+
+    // 23.5 — I/O source: DMA reads from an I/O port are IORQ cycles, not
+    // MREQ — sram_memcycle requires cpu_mreq_n='0' (zxnext.vhd:3144), so
+    // no read ever waits: hook never called, accumulator 0.
+    {
+        Dma dma;
+        fresh(dma);
+        int calls = 0;
+        dma.read_mem_wait_tstates = [&calls](uint16_t) -> uint8_t {
+            ++calls;
+            return 1;
+        };
+        // A->B, port A = I/O source (R1 bit3=1), port B = memory inc.
+        zxn(dma, 0x7D);
+        zxn(dma, 0x30); zxn(dma, 0x00);    // port A (I/O) = 0x0030
+        zxn(dma, 0x08); zxn(dma, 0x00);    // len 8
+        zxn(dma, 0x1C);                    // R1: I/O, inc
+        zxn(dma, 0x10);                    // R2: memory, inc
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);    // port B = 0x9000
+        zxn(dma, 0xCF);
+        zxn(dma, 0x87);
+        const int n = dma.execute_burst(16);
+        check("23.5",
+              "I/O-source block: the wait hook is never consulted — I/O "
+              "reads assert IORQ, not MREQ; sram_memcycle needs "
+              "cpu_mreq_n='0' (zxnext.vhd:3144)",
+              n == 8 && calls == 0
+                  && dma.last_burst_read_wait_tstates() == 0,
+              fmt("n=%d calls=%d wait=%u", n, calls,
+                  dma.last_burst_read_wait_tstates()));
+    }
+
+    // 23.6 — mem->I/O: the READ side still waits (source memory reads are
+    // MREQ+RD cycles) even though the destination is an I/O write —
+    // read/write asymmetry per zxnext.vhd:3175 (cpu_rd_n='0').
+    {
+        Dma dma;
+        fresh(dma);
+        int calls = 0;
+        dma.read_mem_wait_tstates = [&calls](uint16_t) -> uint8_t {
+            ++calls;
+            return 1;
+        };
+        // A->B, port A = memory inc source, port B = I/O destination.
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);    // port A (mem) = 0x8000
+        zxn(dma, 0x08); zxn(dma, 0x00);    // len 8
+        zxn(dma, 0x14);                    // R1: memory, inc
+        zxn(dma, 0x18);                    // R2: I/O
+        zxn(dma, 0xAD);
+        zxn(dma, 0x30); zxn(dma, 0x00);    // port B (I/O) = 0x0030
+        zxn(dma, 0xCF);
+        zxn(dma, 0x87);
+        const int n = dma.execute_burst(16);
+        check("23.6",
+              "mem->I/O block: all 8 source memory reads wait; the I/O "
+              "destination write is irrelevant to the read-side wait "
+              "(zxnext.vhd:3144,3175)",
+              n == 8 && calls == 8
+                  && dma.last_burst_read_wait_tstates() == 8,
+              fmt("n=%d calls=%d wait=%u", n, calls,
+                  dma.last_burst_read_wait_tstates()));
+    }
+}
+
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2715,6 +2971,7 @@ int main() {
     group20_dma_delay();           std::printf("  G20 DMA Delay            done\n");
     group21_timing_bytes();        std::printf("  G21 Timing Bytes         done\n");
     group22_edge();                std::printf("  G22 Edge Cases           done\n");
+    group23_sram_read_wait28();    std::printf("  G23 SW28 DMA Wait        done\n");
 
     std::printf("\n================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

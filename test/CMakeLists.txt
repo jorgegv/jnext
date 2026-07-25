@@ -604,7 +604,12 @@ add_test(NAME audio_port_dispatch_tests COMMAND audio_port_dispatch_test)
 
 # DMA subsystem compliance test
 add_executable(dma_test dma/dma_test.cpp)
-target_link_libraries(dma_test PRIVATE jnext_peripheral jnext_memory jnext_port)
+# GH #106: group 23 builds full Emulator instances (28 MHz DMA read-wait
+# burst-duration rows), so dma_test links the same set as contention_test.
+target_link_libraries(dma_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(dma_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME dma_tests COMMAND dma_test)
 

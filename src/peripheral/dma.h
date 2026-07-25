@@ -107,6 +107,21 @@ public:
     /// Fires when a transfer block completes (for IM2 DMA interrupt level).
     std::function<void()> on_interrupt;
 
+    /// GH #106 — extra T-states charged per source MEMORY read cycle.
+    /// VHDL zxnext.vhd:3171-3181: at cpu_speed="11" (28 MHz) every memory
+    /// READ machine cycle whose target asserts sram_req or cpu_bank5_sched
+    /// stretches +1 T-state — and during dma_holds_bus the bus signals
+    /// (cpu_mreq_n/cpu_rd_n/cpu_a) are driven BY the DMA
+    /// (zxnext.vhd:1828-1835), so DMA-driven read cycles take the same
+    /// wait; it reaches the DMA via dma_wait_n <= z80_wait_n and spi_wait_n
+    /// (zxnext.vhd:1839,1844). The emulator wires this to the same
+    /// cpu_speed==3 gate + Mmu::sram_read_wait28() qualifier as the CPU
+    /// path (GH #92). Null (test harness default) = no extra wait.
+    /// Only source MEMORY reads consult it: I/O cycles assert IORQ, not
+    /// MREQ (sram_memcycle needs cpu_mreq_n='0', zxnext.vhd:3144), and
+    /// destination writes have cpu_rd_n='1' (zxnext.vhd:3175).
+    std::function<uint8_t(uint16_t addr)> read_mem_wait_tstates;
+
     // ── Accessors for debug / testing ─────────────────────────────────
 
     State       state() const { return state_; }
@@ -141,6 +156,14 @@ public:
     // Default 0 (3.5MHz) at reset.  NOTE: this is an input signal, not reset by soft reset.
     void    set_turbo(uint8_t t)   { turbo_ = t & 0x03; }
     uint8_t turbo() const          { return turbo_; }
+
+    /// GH #106 — read-wait T-states accumulated by the LAST execute_burst()
+    /// call (sum of read_mem_wait_tstates over its source memory reads).
+    /// Reset at the top of every execute_burst(); consumed by the caller in
+    /// the same step, so it is transient and NOT part of the save state.
+    uint32_t last_burst_read_wait_tstates() const {
+        return last_burst_read_wait_tstates_;
+    }
 
     // DMA_timer_s — 14-bit prescaler counter.  Exposed for test observation.
     uint16_t dma_timer() const     { return dma_timer_s_; }
@@ -286,6 +309,12 @@ private:
     // but the VHDL state machine reaches WAITING_CYCLES only after one
     // byte has traversed TRANSFERING_READ_1..TRANSFERING_WRITE_4.
     bool     in_waiting_cycles_ = false;
+
+    // GH #106 — per-burst accumulator for the 28 MHz SRAM read wait
+    // (see read_mem_wait_tstates above). Transient: reset by every
+    // execute_burst() call and consumed by the caller in the same
+    // emulator step — deliberately NOT serialized in save_state().
+    uint32_t last_burst_read_wait_tstates_ = 0;
 
     // VHDL dma.vhd:424 / :451 wait gate:
     //   R2_portB_preescaler_s > 0 AND ('0' & preescaler) > DMA_timer_s(13:5)
