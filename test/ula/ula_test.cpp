@@ -2044,6 +2044,116 @@ static void test_section6_ulanext() {
               fmt("x0=0x%08X mid=0x%08X x639=0x%08X exp sentinel=0x%08X",
                   got0, got1, got2, sentinel));
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GH #103 — FULL top/bottom border rows (render_border_line non-TMX
+    // branch) route through the ULAnext border cycle.
+    //
+    // VHDL zxula.vhd:414-415 — border_active_v = vc(8) or (vc(7) and
+    // vc(6)) forces border_active on EVERY cell of a top/bottom border
+    // row; the encoder dispatch (:492-528) makes NO row/strip distinction,
+    // so with i_ulanext_en='1' the full row must use
+    //     ula_pixel <= paper_base_index(7:3) & attr_active(5:3)
+    //               = 0x80 | border            (attr = border_clr, :418)
+    // plus ula_select_bgnd when i_ulanext_format=X"FF" (:500-502) →
+    // NR $4A fallback (zxnext.vhd:6987-6991).  Rows S6.24-S6.26 pin that
+    // for the non-TMX branch (STANDARD and HI_COLOUR; HI_RES rows were
+    // already routed via the use_tmx branch, S6.23).
+    // ─────────────────────────────────────────────────────────────────────
+
+    // S6.24 (GH #103) — STANDARD full top-border row, ULAnext list format:
+    // whole row indexes ULA palette entry 0x80|border, not std paper
+    // 0x10|border.  zxula.vhd:504 + :414-415 + :418.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x07);   // list format — no select_bgnd
+        bed.ula.set_border(3);
+        bed.ula.init_border_per_line();
+        // Poke entry 0x83 := (7,0,0) red.  The reset repeat holds colour 3
+        // there — identical to std paper entry 0x13 — so without the poke
+        // the wrong indexing is invisible.
+        bed.palette.write_control(0x00);
+        bed.palette.set_index(0x83);
+        bed.palette.write_8bit(0xE0);       // RRRGGGBB = 111 000 00
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);   // top border row
+
+        const uint32_t exp     = bed.palette.ula_colour(false, 0x83);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x13);
+        const uint32_t got0    = line[0];
+        const uint32_t got1    = line[Ula::FB_WIDTH / 2];
+        const uint32_t got2    = line[Ula::FB_WIDTH - 1];
+        check("S6.24",
+              "zxula.vhd:494-504,:414-415 — STANDARD full top-border row "
+              "under ULAnext indexes ULA palette entry 0x80|border (0x83), "
+              "not std paper 0x10|border (GH #103)",
+              got0 == exp && got1 == exp && got2 == exp && exp != std_old,
+              fmt("x0=0x%08X mid=0x%08X x639=0x%08X exp=0x%08X std_old=0x%08X",
+                  got0, got1, got2, exp, std_old));
+    }
+
+    // S6.25 (GH #103) — STANDARD full bottom-border row, format 0xFF:
+    // the border cycle asserts ula_select_bgnd (zxula.vhd:500-502) and the
+    // whole row takes the NR $4A fallback (zxnext.vhd:6987-6991).
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        bed.ula.set_border(2);
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF2468ACu;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::FB_HEIGHT - 1,
+                                bed.mmu);   // bottom border row
+
+        const uint32_t got0 = line[0];
+        const uint32_t got1 = line[Ula::FB_WIDTH / 2];
+        const uint32_t got2 = line[Ula::FB_WIDTH - 1];
+        check("S6.25",
+              "zxula.vhd:500-502 + zxnext.vhd:6987-6991 — STANDARD full "
+              "bottom-border row under ULAnext format 0xFF takes the NR $4A "
+              "fallback across the full row (GH #103)",
+              got0 == sentinel && got1 == sentinel && got2 == sentinel,
+              fmt("x0=0x%08X mid=0x%08X x639=0x%08X exp sentinel=0x%08X",
+                  got0, got1, got2, sentinel));
+    }
+
+    // S6.26 (GH #103) — HI_COLOUR full top-border row, ULAnext list format:
+    // HI_COLOUR (mode 010) does NOT select border_clr_tmx (zxula.vhd:426
+    // gates on shift_screen_mode(2), set only in HI_RES), so the full row
+    // goes through the same non-TMX branch and must use the ULAnext border
+    // cycle (zxula.vhd:494-504).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);      // HI_COLOUR
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x07);
+        bed.ula.set_border(5);
+        bed.ula.init_border_per_line();
+        bed.palette.write_control(0x00);
+        bed.palette.set_index(0x85);        // 0x80 | border(5)
+        bed.palette.write_8bit(0x1C);       // RRRGGGBB = 000 111 00 green
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);   // top border row
+
+        const uint32_t exp     = bed.palette.ula_colour(false, 0x85);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x15);
+        const uint32_t got0    = line[0];
+        const uint32_t got1    = line[Ula::FB_WIDTH / 2];
+        const uint32_t got2    = line[Ula::FB_WIDTH - 1];
+        check("S6.26",
+              "zxula.vhd:494-504,:414-415,:426 — HI_COLOUR full top-border "
+              "row under ULAnext indexes entry 0x80|border (0x85), not std "
+              "paper 0x15 (GH #103)",
+              got0 == exp && got1 == exp && got2 == exp && exp != std_old,
+              fmt("x0=0x%08X mid=0x%08X x639=0x%08X exp=0x%08X std_old=0x%08X",
+                  got0, got1, got2, exp, std_old));
+    }
 }
 
 // =========================================================================
@@ -2186,6 +2296,109 @@ static void test_section7_ulaplus() {
               "zxula.vhd:531 — attr(7) reinterpreted as palette-group bit in ULA+",
               stable && got == exp && group_bit_set,
               fmt("stable=%d got=0x%02X exp=0x%02X", stable, got, exp));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GH #104 — STANDARD/HI_COLOUR border (in-row strips AND full
+    // top/bottom rows) routes through the ULA+ encoder (HI_RES already
+    // did, via the G167 dispatch).
+    //
+    // VHDL zxula.vhd:535-540 with the non-TMX border attr
+    // border_clr = "00" & border & border (:418) and border_active_d=1
+    // (pixel_en=0, :470):
+    //   ula_pixel(7:3) = "11" & attr(7:6) & (sm2 OR not pixel_en)
+    //                  = "11" & "00" & "1"          = "11001"
+    //   ula_pixel(2:0) = attr(5:3) = border
+    // → ula_pixel = 0xC8 | border; the 64-entry ULA+ slot index (low6,
+    // per G103's ulap_colour) is 0x08 | border.  border_active_v
+    // (zxula.vhd:414-415) makes no row/strip distinction, so strips and
+    // full rows encode identically.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // S7.07 (GH #104) — STANDARD display-row border strips under ULA+
+    // index ULA+ slot 0x08|border, not std paper 0x10|border.
+    {
+        UlaBed bed;
+        bed.ula.set_ulap_en(true);
+        bed.ula.set_border(3);
+        bed.ula.init_border_per_line();
+        // Poke ULA+ slot 0x0B (= 0x08 | border(3)) := (7,0,0) red via the
+        // NR 0xFF poke side-channel (zxnext.vhd:6957-6958 + 4919); pure-7 /
+        // pure-0 channels round-trip exactly.
+        const uint8_t slot = 0x08 | 3;
+        bed.palette.nr_ff_poke(false, slot, 0xE0);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t exp     = bed.palette.ulap_colour(false, slot);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x13);
+        const uint32_t got_l   = line[0];
+        const uint32_t got_r   = line[Ula::DISP_X + Ula::DISP_W];
+        check("S7.07",
+              "zxula.vhd:535-540,:418 — STANDARD display-row border strips "
+              "under ULA+ index slot 0x08|border (0x0B), not std paper "
+              "0x10|border (GH #104)",
+              got_l == exp && got_r == exp && exp != std_old,
+              fmt("left=0x%08X right=0x%08X exp=0x%08X std_old=0x%08X",
+                  got_l, got_r, exp, std_old));
+    }
+
+    // S7.08 (GH #104) — HI_COLOUR display-row border strips under ULA+:
+    // same border-cycle encoding through render_display_line_hicolour
+    // (port 0xFF mode 010; sm2=0 but bit3 = NOT pixel_en = 1 regardless).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);      // HI_COLOUR
+        bed.ula.set_ulap_en(true);
+        bed.ula.set_border(5);
+        bed.ula.init_border_per_line();
+        const uint8_t slot = 0x08 | 5;
+        bed.palette.nr_ff_poke(false, slot, 0x1C);  // (0,7,0) green
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t exp     = bed.palette.ulap_colour(false, slot);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x15);
+        const uint32_t got_l   = line[Ula::DISP_X - 1];
+        const uint32_t got_r   = line[Ula::FB_WIDTH - 1];
+        check("S7.08",
+              "zxula.vhd:535-540,:418 — HI_COLOUR display-row border strips "
+              "under ULA+ index slot 0x08|border (0x0D), not std paper 0x15 "
+              "(GH #104)",
+              got_l == exp && got_r == exp && exp != std_old,
+              fmt("left=0x%08X right=0x%08X exp=0x%08X std_old=0x%08X",
+                  got_l, got_r, exp, std_old));
+    }
+
+    // S7.09 (GH #104) — full top-border row (render_border_line non-TMX
+    // branch) under ULA+: border_active_v (zxula.vhd:414-415) makes no
+    // row/strip distinction, so the full row uses the same ULA+ slot
+    // 0x08|border.
+    {
+        UlaBed bed;
+        bed.ula.set_ulap_en(true);
+        bed.ula.set_border(6);
+        bed.ula.init_border_per_line();
+        const uint8_t slot = 0x08 | 6;
+        bed.palette.nr_ff_poke(false, slot, 0x03);  // (0,0,7) blue
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);   // top border row
+
+        const uint32_t exp     = bed.palette.ulap_colour(false, slot);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x16);
+        const uint32_t got0    = line[0];
+        const uint32_t got1    = line[Ula::FB_WIDTH / 2];
+        const uint32_t got2    = line[Ula::FB_WIDTH - 1];
+        check("S7.09",
+              "zxula.vhd:535-540,:414-415,:418 — full top-border row under "
+              "ULA+ indexes slot 0x08|border (0x0E), not std paper 0x16 "
+              "(GH #104)",
+              got0 == exp && got1 == exp && got2 == exp && exp != std_old,
+              fmt("x0=0x%08X mid=0x%08X x639=0x%08X exp=0x%08X std_old=0x%08X",
+                  got0, got1, got2, exp, std_old));
     }
 }
 

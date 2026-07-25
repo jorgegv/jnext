@@ -25,6 +25,10 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 
 Update (2026-07-25, GH #96/#97): `ula_test.cpp` is **116 pass / 0 fail / 0 skip**. §6 gained 8 rows — S6.16-S6.19 pin the display-row border-strip ULAnext encoder routing fixed for GH #96 (STANDARD + HI_COLOUR, colour indexing and the format-0xFF NR $4A fallback), and S6.20-S6.23 give the four LR-140 select_bgnd fallback-mux replica sites (scrolled / hi-colour / hi-res / TMX border) one mutation-verified discriminative row each (GH #97).
 
+Update (2026-07-25, GH #103): `ula_test.cpp` is **119 pass / 0 fail / 0 skip**. §6 gained 3 rows — S6.24-S6.26 pin the FULL top/bottom border rows of `render_border_line`'s non-TMX branch routing through the ULAnext border cycle (`zxula.vhd:494-504`; `border_active_v` at `:414-415` makes no row/strip distinction), closing residual (a) of the GH #96 review note.
+
+Update (2026-07-25, GH #104): `ula_test.cpp` is **122 pass / 0 fail / 0 skip**. §7 gained 3 rows — S7.07-S7.09 pin the STANDARD/HI_COLOUR border (in-row strips AND full rows) routing through the ULA+ encoder (`zxula.vhd:535-540` with `border_active_d=1` → slot low6 = 0x08 | border), closing residual (b) of the GH #96 review note. Both GH #96 residuals are now closed.
+
 See `doc/testing/audits/task3-ula-phase4.md` for full per-wave critic verdicts and backlog items.
 
 ## Scope
@@ -369,13 +373,15 @@ are ink vs paper. A lookup selects the paper palette index:
 
 Where `paper_base_index = 0x80` ("10000000").
 
-### Test cases (22 tests)
+### Test cases (25 tests)
 
-Status (2026-07-25): all 22 `check()` — all pass. (S6.13 is reserved, see the
+Status (2026-07-25): all 25 `check()` — all pass. (S6.13 is reserved, see the
 coverage-gap note below; the two rows added for the ULA palette reset content
 took S6.14/S6.15; S6.16-S6.19 pin the GH #96 display-row border-strip
 encoder routing and S6.20-S6.23 give the four LR-140 select_bgnd fallback
-mux replicas one discriminative row each, GH #97.)
+mux replicas one discriminative row each, GH #97; S6.24-S6.26 pin the GH
+#103 full-border-row routing through the non-TMX `render_border_line`
+branch.)
 
 | # | Row ID | Test | Format | Pixel | Attr | Expected | Status |
 |---|------|------|--------|-------|------|----------|--------|
@@ -401,12 +407,15 @@ mux replicas one discriminative row each, GH #97.)
 | 20| S6.21 | HI_COLOUR-path paper select_bgnd consumer (GH #97) — zxula.vhd:525 + zxnext.vhd:6987-6991 | 0x05 | 0 | mode 010 | display paper cells take the NR $4A fallback | pass |
 | 21| S6.22 | HI_RES-path paper select_bgnd consumer (GH #97) — zxula.vhd:525,:419,:426-427 + zxnext.vhd:6987-6991 | 0x05 | 0 | mode 110 | display paper cells take the NR $4A fallback | pass |
 | 22| S6.23 | TMX border-row select_bgnd consumer (GH #97) — zxula.vhd:500-502 + zxnext.vhd:6987-6991 | 0xFF | - | mode 110, top border row | full border row takes the NR $4A fallback | pass |
+| 23| S6.24 | STANDARD full top-border row, ULAnext (GH #103) — zxula.vhd:494-504,:414-415,:418 | 0x07 | - | border=3 | full row indexes ULA palette entry 0x80\|border (0x83), not std paper 0x13 | pass |
+| 24| S6.25 | STANDARD full bottom-border row, format 0xFF (GH #103) — zxula.vhd:500-502 + zxnext.vhd:6987-6991 | 0xFF | - | border=2 | full row takes the NR $4A fallback (select_bgnd) | pass |
+| 25| S6.26 | HI_COLOUR full top-border row, ULAnext (GH #103) — zxula.vhd:494-504,:414-415,:426 | 0x07 | - | mode 010, border=5 | full row indexes entry 0x80\|border (0x85), not std paper 0x15 | pass |
 
 Integration coverage: **INT-ULANEXT-01** in `ula_integration_test.cpp` — enables NR 0x43 bit 0, sets NR 0x42=0x0F, verifies the rendered paper index matches the lookup at `zxula.vhd:503-515`.
 
 **Coverage gap (Wave B critic, non-blocking)**: the ULA+ 0x7F format encoder path is coded in src/ but not exercised by any test row in this section. **S6.13 stays reserved for it.**
 
-**Known residual (GH #96 review, 2026-07-25, non-blocking)**: two border sites still bypass the encoder dispatch and stay on the std-ULA path unconditionally: (a) `render_border_line`'s non-TMX branch (full top/bottom border rows in STANDARD/HI_COLOUR modes) does not route through the ULAnext border cycle (`zxula.vhd:494-504` applies there identically), and (b) the display-row border strips do not route through the ULA+ encoder (`zxula.vhd:531-541` with `border_active_d=1`) — GH #96 scoped only the ULAnext strips. Both need their own issue + rows before fixing.
+**Known residual (GH #96 review, 2026-07-25) — RESOLVED**: two border sites bypassed the encoder dispatch and stayed on the std-ULA path unconditionally. (a) `render_border_line`'s non-TMX branch (full top/bottom border rows in STANDARD/HI_COLOUR modes) did not route through the ULAnext border cycle (`zxula.vhd:494-504` applies there identically) — **FIXED (GH #103, rows S6.24-S6.26)**. (b) the display-row border strips did not route through the ULA+ encoder (`zxula.vhd:531-541` with `border_active_d=1`) — GH #96 scoped only the ULAnext strips — **FIXED (GH #104, rows S7.07-S7.09 in §7)**.
 
 **S6.14 / S6.15 (2026-07-22)** pin the content `PaletteManager::reset()` leaves
 in ULA palette indices `0x20-0xFF` — the region only the ULAnext and LoRes
@@ -454,9 +463,14 @@ Palette index format:
 - Bit 3 = `screen_mode(2) OR NOT pixel_en` (1 for paper or hi-res mode)
 - Bits 2-0 = ink colour (pixel on) or paper colour (pixel off)
 
-### Test cases (~6 tests)
+### Test cases (~9 tests)
 
-Status (Wave C, 2026-04-23): all 6 `check()` — all pass.
+Status (Wave C, 2026-04-23): all 6 `check()` — all pass. Update (2026-07-25,
+GH #104): +3 rows S7.07-S7.09 — STANDARD/HI_COLOUR border (in-row strips and
+full top/bottom rows) routes through the ULA+ encoder; the non-TMX border attr
+`border_clr = "00" & border & border` (zxula.vhd:418) with `border_active_d=1`
+encodes ULA+ slot low6 = 0x08 | border (zxula.vhd:535-540; border_active_v at
+:414-415 makes no row/strip distinction). All 9 pass.
 
 | # | Row ID | Test | Pixel | Attr | Mode | Expected | Status |
 |---|------|------|-------|------|------|----------|--------|
@@ -466,6 +480,9 @@ Status (Wave C, 2026-04-23): all 6 `check()` — all pass.
 | 4 | S7.04 | Paper, group 3 | 0 | 0xF8 | normal | 0xFF | pass |
 | 5 | S7.05 | Hi-res forces bit 3 high | 1 | 0x07 | hires | 0xCF | pass |
 | 6 | S7.06 | Flash bit NOT used (attr bit 7 = palette group) | - | 0x80 | normal | group 2 | pass |
+| 7 | S7.07 | STANDARD display-row border strips, ULA+ (GH #104) — zxula.vhd:535-540,:418 | - | border=3 | normal | strips index ULA+ slot 0x08\|border (0x0B), not std paper 0x13 | pass |
+| 8 | S7.08 | HI_COLOUR display-row border strips, ULA+ (GH #104) — zxula.vhd:535-540,:418 | - | border=5 | mode 010 | strips index slot 0x08\|border (0x0D), not std paper 0x15 | pass |
+| 9 | S7.09 | Full top-border row, ULA+ (GH #104) — zxula.vhd:535-540,:414-415,:418 | - | border=6 | normal | full row indexes slot 0x08\|border (0x0E), not std paper 0x16 | pass |
 
 Integration coverage: **INT-ULAPLUS-01** in `ula_integration_test.cpp` — enables port 0xFF3B and verifies palette-group-3 indices in a rendered row. S4.06 (flash disabled in ULA+ mode) also flipped to pass in Wave C.
 

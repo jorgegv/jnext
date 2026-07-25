@@ -417,30 +417,36 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S6.21  | HI_COLOUR-path paper select_bgnd (GH #97)       | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1983 |
 | S6.22  | HI_RES-path paper select_bgnd (GH #97)          | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:2011 |
 | S6.23  | TMX border-row select_bgnd (GH #97)             | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:2039 |
-| S7.01  | Ink, group 0                                    | zxnext.vhd:4547-4554 | pass    | test/ula/ula_test.cpp:2074 |
-| S7.02  | Paper, group 0                                  | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2090 |
-| S7.03  | Ink, group 3                                    | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2115 |
-| S7.04  | Paper, group 3                                  | zxula.vhd:531-541 | pass    | test/ula/ula_test.cpp:2139 |
-| S7.05  | Hi-res forces bit 3 high                        | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2155 |
-| S7.06  | Flash bit NOT used (attr bit 7 = palette group) | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2185 |
-| S8.01  | Default window, inside                          | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2202 |
-| S8.02  | Narrow window, inside                           | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2206 |
-| S8.03  | Narrow window, outside left                     | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2210 |
-| S8.04  | Narrow window, outside right                    | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2214 |
-| S8.05  | Narrow window, outside top                      | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2224 |
+| S6.24  | STANDARD full border row, ULAnext (GH #103)     | zxula.vhd:494-504 | pass    | test/ula/ula_test.cpp:2088 |
+| S6.25  | STANDARD full border row, format 0xFF (GH #103) | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:2116 |
+| S6.26  | HI_COLOUR full border row, ULAnext (GH #103)    | zxula.vhd:494-504 | pass    | test/ula/ula_test.cpp:2149 |
+| S7.01  | Ink, group 0                                    | zxnext.vhd:4547-4554 | pass    | test/ula/ula_test.cpp:2184 |
+| S7.02  | Paper, group 0                                  | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2200 |
+| S7.03  | Ink, group 3                                    | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2225 |
+| S7.04  | Paper, group 3                                  | zxula.vhd:531-541 | pass    | test/ula/ula_test.cpp:2249 |
+| S7.05  | Hi-res forces bit 3 high                        | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2265 |
+| S7.06  | Flash bit NOT used (attr bit 7 = palette group) | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2295 |
+| S7.07  | STANDARD strip border, ULA+ (GH #104)           | zxula.vhd:535-540 | pass    | test/ula/ula_test.cpp:2338 |
+| S7.08  | HI_COLOUR strip border, ULA+ (GH #104)          | zxula.vhd:535-540 | pass    | test/ula/ula_test.cpp:2366 |
+| S7.09  | Full border row, ULA+ (GH #104)                 | zxula.vhd:535-540 | pass    | test/ula/ula_test.cpp:2395 |
+| S8.01  | Default window, inside                          | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2415 |
+| S8.02  | Narrow window, inside                           | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2419 |
+| S8.03  | Narrow window, outside left                     | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2423 |
+| S8.04  | Narrow window, outside right                    | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2427 |
+| S8.05  | Narrow window, outside top                      | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2437 |
 | S8.06  | Narrow window, outside bottom                   | —              | missing | missing                                                                     |
 | S8.07  | Border area: never clipped                      | —              | missing | missing                                                                    |
-| S8.08  | y2 >= 0xC0 clamped to 0xBF                      | zxnext.vhd:6779-6783 | pass    | test/ula/ula_test.cpp:2255 |
+| S8.08  | y2 >= 0xC0 clamped to 0xBF                      | zxnext.vhd:6779-6783 | pass    | test/ula/ula_test.cpp:2468 |
 | S9.01  | No scroll                                       | —              | missing | missing                                          |
-| S9.02  | Scroll Y by 1                                   | zxula.vhd:192,206 | pass    | test/ula/ula_test.cpp:2323 |
-| S9.03  | Scroll Y by 191                                 | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2341 |
-| S9.04  | Scroll Y wraps at 192                           | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2360 |
-| S9.05  | Scroll X by 8 (1 char)                          | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2391 |
-| S9.06  | Scroll X by 1 (fine)                            | zxula.vhd:199,216 | pass    | test/ula/ula_test.cpp:2416 |
-| S9.07  | Scroll X by 255                                 | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2443 |
-| S9.08  | Fine scroll X enabled                           | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2470 |
-| S9.09  | Combined X+Y scroll                             | zxula.vhd:193-216 | pass    | test/ula/ula_test.cpp:2499 |
-| S9.10  | Y scroll wraps mid-third                        | zxula.vhd:206,223 | pass    | test/ula/ula_test.cpp:2521 |
+| S9.02  | Scroll Y by 1                                   | zxula.vhd:192,206 | pass    | test/ula/ula_test.cpp:2536 |
+| S9.03  | Scroll Y by 191                                 | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2554 |
+| S9.04  | Scroll Y wraps at 192                           | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2573 |
+| S9.05  | Scroll X by 8 (1 char)                          | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2604 |
+| S9.06  | Scroll X by 1 (fine)                            | zxula.vhd:199,216 | pass    | test/ula/ula_test.cpp:2629 |
+| S9.07  | Scroll X by 255                                 | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2656 |
+| S9.08  | Fine scroll X enabled                           | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2683 |
+| S9.09  | Combined X+Y scroll                             | zxula.vhd:193-216 | pass    | test/ula/ula_test.cpp:2712 |
+| S9.10  | Y scroll wraps mid-third                        | zxula.vhd:206,223 | pass    | test/ula/ula_test.cpp:2734 |
 | S10.01  | Border region, 48K                              | —              | missing | missing                                                     |
 | S10.02  | Active display, phase 0x9                       | —              | missing | missing                                           |
 | S10.03  | Active display, phase 0xB                       | —              | missing | missing                                           |
@@ -461,14 +467,14 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S11.10  | +3, bank 0 read                                 | —              | missing | missing                                         |
 | S11.11  | Pentagon timing                                 | —              | missing | missing                                         |
 | S11.12  | CPU speed > 3.5 MHz                             | —              | missing | missing                                         |
-| S12.01  | ULA enabled (default)                           | zxnext.vhd:5445  | pass    | test/ula/ula_test.cpp:2732 |
+| S12.01  | ULA enabled (default)                           | zxnext.vhd:5445  | pass    | test/ula/ula_test.cpp:2945 |
 | S12.02  | ULA disabled                                    | —              | missing | missing                                                       |
 | S12.03  | ULA disable + re-enable                         | —              | missing | missing                                                       |
 | S12.04  | Blend mode bits                                 | —              | missing | missing                                                       |
-| S13.01  | 48K frame length                                | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2764 |
-| S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2774 |
+| S13.01  | 48K frame length                                | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2977 |
+| S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2987 |
 | S13.03  | Pentagon frame length                           | —              | missing | missing                    |
-| S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2785 |
+| S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2998 |
 | S13.05  | Active display start 128K                       | —              | missing | missing                                                          |
 | S13.06  | Active display start Pentagon                   | —              | missing | missing                                                          |
 | S13.07  | ULA hc resets correctly                         | —              | missing | missing                                                          |
@@ -479,8 +485,8 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
 | S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
 | S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
-| S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:2868 |
-| S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:2887 |
+| S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3081 |
+| S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3100 |
 | S15.03  | Shadow disables Timex modes                     | —              | missing | missing                                                            |
 | S15.04  | Shadow bit toggles display                      | —              | missing | missing                                                            |
 | S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389-395               | pass   | test/ula/ula_test.cpp:860       |
@@ -499,15 +505,15 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S5-PSL.03  | Mid-frame HI_RES->STANDARD switch at line L: lines >= L revert to 256-px attribute path                      | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1392 |
 | S5-PSL.04  | `Ula::start_frame()` rewinds the per-scanline change-log; line-0 baseline reflects last-frame closing value  | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1421 |
 | S5-PSL.05  | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering               | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1473 |
-| S9-PSL.01  | Two NR 0x26 writes at scanlines L1 < L2 captured separately                                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2559      |
-| S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2607      |
-| S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2647      |
-| S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2678      |
-| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:2974      |
-| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3033      |
-| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:3614+                | pass   | test/ula/ula_test.cpp:3063      |
-| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3105      |
-| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3145      |
+| S9-PSL.01  | Two NR 0x26 writes at scanlines L1 < L2 captured separately                                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2772      |
+| S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2820      |
+| S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2860      |
+| S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2891      |
+| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3187      |
+| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3246      |
+| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:3614+                | pass   | test/ula/ula_test.cpp:3276      |
+| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3318      |
+| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3358      |
 
 ### Extra coverage (not in plan)
 
@@ -1449,164 +1455,164 @@ Last-touch commit: `651ea41d76a30d6745a4a83c7fa79d859d61ae77` (`651ea41d76`)
 
 | Test ID | Plan row title                         | VHDL file:line | Status  | Test file:line             |
 |---------|----------------------------------------|----------------|---------|----------------------------|
-| 1.1     | Write to port 0x6B sets ZXN mode       | dma.vhd:664-665  | pass    | test/dma/dma_test.cpp:166  |
-| 1.2     | Write to port 0x0B sets Z80-DMA mode   | dma.vhd:666-667  | pass    | test/dma/dma_test.cpp:176  |
-| 1.3     | Read from port 0x6B sets ZXN mode      | dma.vhd:673-674  | pass    | test/dma/dma_test.cpp:190  |
-| 1.4     | Read from port 0x0B sets Z80 mode      | dma.vhd:675-676  | pass    | test/dma/dma_test.cpp:201  |
+| 1.1     | Write to port 0x6B sets ZXN mode       | dma.vhd:664-665  | pass    | test/dma/dma_test.cpp:173  |
+| 1.2     | Write to port 0x0B sets Z80-DMA mode   | dma.vhd:666-667  | pass    | test/dma/dma_test.cpp:183  |
+| 1.3     | Read from port 0x6B sets ZXN mode      | dma.vhd:673-674  | pass    | test/dma/dma_test.cpp:197  |
+| 1.4     | Read from port 0x0B sets Z80 mode      | dma.vhd:675-676  | pass    | test/dma/dma_test.cpp:208  |
 | 1.5     | Mode defaults to ZXN (0) on reset      | —              | missing | missing                    |
-| 1.6     | Mode switches on each access           | dma.vhd:664-668  | pass    | test/dma/dma_test.cpp:218  |
-| 2.1     | R0 direction A->B                      | dma.vhd:656-658  | pass    | test/dma/dma_test.cpp:246  |
-| 2.2     | R0 direction B->A                      | dma.vhd:659-662  | pass    | test/dma/dma_test.cpp:262  |
-| 2.3     | R0 port A start address low byte       | dma.vhd:739      | pass    | test/dma/dma_test.cpp:275  |
-| 2.4     | R0 port A start address high byte      | dma.vhd:752      | pass    | test/dma/dma_test.cpp:288  |
-| 2.5     | R0 port A full 16-bit address          | dma.vhd:739,752  | pass    | test/dma/dma_test.cpp:302  |
-| 2.6     | R0 block length low byte               | dma.vhd:763      | pass    | test/dma/dma_test.cpp:314  |
-| 2.7     | R0 block length high byte              | dma.vhd:772      | pass    | test/dma/dma_test.cpp:327  |
-| 2.8     | R0 selective byte programming          | dma.vhd:518-538  | pass    | test/dma/dma_test.cpp:343  |
-| 3.1     | Port A is memory (default)             | dma.vhd:542      | pass    | test/dma/dma_test.cpp:372  |
-| 3.2     | Port A is I/O                          | dma.vhd:542      | pass    | test/dma/dma_test.cpp:391  |
-| 3.3     | Port A address increment               | dma.vhd:543      | pass    | test/dma/dma_test.cpp:401  |
-| 3.4     | Port A address decrement               | dma.vhd:543      | pass    | test/dma/dma_test.cpp:410  |
-| 3.5     | Port A address fixed                   | dma.vhd:543      | pass    | test/dma/dma_test.cpp:419  |
-| 3.6     | Port A timing byte                     | dma.vhd:776      | pass    | test/dma/dma_test.cpp:432  |
-| 4.1     | Port B is memory (default)             | dma.vhd:559      | pass    | test/dma/dma_test.cpp:457  |
-| 4.2     | Port B is I/O                          | dma.vhd:559      | pass    | test/dma/dma_test.cpp:476  |
-| 4.3     | Port B address increment               | dma.vhd:560      | pass    | test/dma/dma_test.cpp:486  |
-| 4.4     | Port B address decrement               | dma.vhd:560      | pass    | test/dma/dma_test.cpp:495  |
-| 4.5     | Port B address fixed                   | dma.vhd:560      | pass    | test/dma/dma_test.cpp:504  |
-| 4.6     | Port B timing byte                     | dma.vhd:790      | pass    | test/dma/dma_test.cpp:517  |
-| 4.7     | Port B prescaler byte                  | dma.vhd:799      | pass    | test/dma/dma_test.cpp:539  |
-| 4.8     | Port B prescaler = 0 (no delay)        | dma.vhd:424      | pass    | test/dma/dma_test.cpp:553  |
-| 5.1     | R3 with bit 6=1 triggers START_DMA     | dma.vhd:576-579  | pass    | test/dma/dma_test.cpp:575  |
-| 5.2     | R3 with bit 6=0 does not start         | dma.vhd:576      | pass    | test/dma/dma_test.cpp:584  |
-| 5.3     | R3 mask byte (bit 3)                   | dma.vhd:576-582  | pass    | test/dma/dma_test.cpp:598  |
-| 5.4     | R3 match byte (bit 4)                  | dma.vhd:576-582  | pass    | test/dma/dma_test.cpp:613  |
-| 6.1     | Byte mode (R4_mode = "00")             | dma.vhd:601      | pass    | test/dma/dma_test.cpp:636  |
-| 6.2     | Continuous mode (R4_mode = "01")       | dma.vhd:601      | pass    | test/dma/dma_test.cpp:645  |
-| 6.3     | Burst mode (R4_mode = "10")            | dma.vhd:601      | pass    | test/dma/dma_test.cpp:654  |
-| 6.4     | Default mode is continuous ("01")      | dma.vhd:236      | pass    | test/dma/dma_test.cpp:663  |
-| 6.5     | Port B start address low               | dma.vhd:816      | pass    | test/dma/dma_test.cpp:678  |
-| 6.6     | Port B start address high              | dma.vhd:827      | pass    | test/dma/dma_test.cpp:694  |
-| 6.7     | Port B full 16-bit address             | dma.vhd:816,827  | pass    | test/dma/dma_test.cpp:708  |
-| 6.8     | Mode "11" treated as "00" (byte)       | dma.vhd:601      | pass    | test/dma/dma_test.cpp:724  |
-| 7.1     | Auto-restart enabled                   | dma.vhd:473-491  | pass    | test/dma/dma_test.cpp:752  |
-| 7.2     | Auto-restart disabled (default)        | dma.vhd:238,494  | pass    | test/dma/dma_test.cpp:766  |
-| 7.3     | CE/WAIT mux bit                        | —              | pass    | test/dma/dma_test.cpp:778  |
+| 1.6     | Mode switches on each access           | dma.vhd:664-668  | pass    | test/dma/dma_test.cpp:225  |
+| 2.1     | R0 direction A->B                      | dma.vhd:656-658  | pass    | test/dma/dma_test.cpp:253  |
+| 2.2     | R0 direction B->A                      | dma.vhd:659-662  | pass    | test/dma/dma_test.cpp:269  |
+| 2.3     | R0 port A start address low byte       | dma.vhd:739      | pass    | test/dma/dma_test.cpp:282  |
+| 2.4     | R0 port A start address high byte      | dma.vhd:752      | pass    | test/dma/dma_test.cpp:295  |
+| 2.5     | R0 port A full 16-bit address          | dma.vhd:739,752  | pass    | test/dma/dma_test.cpp:309  |
+| 2.6     | R0 block length low byte               | dma.vhd:763      | pass    | test/dma/dma_test.cpp:321  |
+| 2.7     | R0 block length high byte              | dma.vhd:772      | pass    | test/dma/dma_test.cpp:334  |
+| 2.8     | R0 selective byte programming          | dma.vhd:518-538  | pass    | test/dma/dma_test.cpp:350  |
+| 3.1     | Port A is memory (default)             | dma.vhd:542      | pass    | test/dma/dma_test.cpp:379  |
+| 3.2     | Port A is I/O                          | dma.vhd:542      | pass    | test/dma/dma_test.cpp:398  |
+| 3.3     | Port A address increment               | dma.vhd:543      | pass    | test/dma/dma_test.cpp:408  |
+| 3.4     | Port A address decrement               | dma.vhd:543      | pass    | test/dma/dma_test.cpp:417  |
+| 3.5     | Port A address fixed                   | dma.vhd:543      | pass    | test/dma/dma_test.cpp:426  |
+| 3.6     | Port A timing byte                     | dma.vhd:776      | pass    | test/dma/dma_test.cpp:439  |
+| 4.1     | Port B is memory (default)             | dma.vhd:559      | pass    | test/dma/dma_test.cpp:464  |
+| 4.2     | Port B is I/O                          | dma.vhd:559      | pass    | test/dma/dma_test.cpp:483  |
+| 4.3     | Port B address increment               | dma.vhd:560      | pass    | test/dma/dma_test.cpp:493  |
+| 4.4     | Port B address decrement               | dma.vhd:560      | pass    | test/dma/dma_test.cpp:502  |
+| 4.5     | Port B address fixed                   | dma.vhd:560      | pass    | test/dma/dma_test.cpp:511  |
+| 4.6     | Port B timing byte                     | dma.vhd:790      | pass    | test/dma/dma_test.cpp:524  |
+| 4.7     | Port B prescaler byte                  | dma.vhd:799      | pass    | test/dma/dma_test.cpp:546  |
+| 4.8     | Port B prescaler = 0 (no delay)        | dma.vhd:424      | pass    | test/dma/dma_test.cpp:560  |
+| 5.1     | R3 with bit 6=1 triggers START_DMA     | dma.vhd:576-579  | pass    | test/dma/dma_test.cpp:582  |
+| 5.2     | R3 with bit 6=0 does not start         | dma.vhd:576      | pass    | test/dma/dma_test.cpp:591  |
+| 5.3     | R3 mask byte (bit 3)                   | dma.vhd:576-582  | pass    | test/dma/dma_test.cpp:605  |
+| 5.4     | R3 match byte (bit 4)                  | dma.vhd:576-582  | pass    | test/dma/dma_test.cpp:620  |
+| 6.1     | Byte mode (R4_mode = "00")             | dma.vhd:601      | pass    | test/dma/dma_test.cpp:643  |
+| 6.2     | Continuous mode (R4_mode = "01")       | dma.vhd:601      | pass    | test/dma/dma_test.cpp:652  |
+| 6.3     | Burst mode (R4_mode = "10")            | dma.vhd:601      | pass    | test/dma/dma_test.cpp:661  |
+| 6.4     | Default mode is continuous ("01")      | dma.vhd:236      | pass    | test/dma/dma_test.cpp:670  |
+| 6.5     | Port B start address low               | dma.vhd:816      | pass    | test/dma/dma_test.cpp:685  |
+| 6.6     | Port B start address high              | dma.vhd:827      | pass    | test/dma/dma_test.cpp:701  |
+| 6.7     | Port B full 16-bit address             | dma.vhd:816,827  | pass    | test/dma/dma_test.cpp:715  |
+| 6.8     | Mode "11" treated as "00" (byte)       | dma.vhd:601      | pass    | test/dma/dma_test.cpp:731  |
+| 7.1     | Auto-restart enabled                   | dma.vhd:473-491  | pass    | test/dma/dma_test.cpp:759  |
+| 7.2     | Auto-restart disabled (default)        | dma.vhd:238,494  | pass    | test/dma/dma_test.cpp:773  |
+| 7.3     | CE/WAIT mux bit                        | —              | pass    | test/dma/dma_test.cpp:785  |
 | 7.4     | R5 defaults on reset                   | —              | missing | missing                    |
-| 8.1     | 0xC3 — Reset                           | dma.vhd:638      | pass    | test/dma/dma_test.cpp:805  |
-| 8.2     | 0xC7 — Reset port A timing             | dma.vhd:648      | pass    | test/dma/dma_test.cpp:815  |
-| 8.3     | 0xCB — Reset port B timing             | dma.vhd:651      | pass    | test/dma/dma_test.cpp:826  |
-| 8.4     | 0xCF — Load                            | dma.vhd:654      | pass    | test/dma/dma_test.cpp:841  |
-| 8.5     | 0xCF — Load A->B direction             | dma.vhd:656-658  | pass    | test/dma/dma_test.cpp:855  |
-| 8.6     | 0xCF — Load B->A direction             | dma.vhd:660-662  | pass    | test/dma/dma_test.cpp:870  |
-| 8.7     | 0xCF — Load counter ZXN mode           | dma.vhd:664-665  | pass    | test/dma/dma_test.cpp:881  |
-| 8.8     | 0xCF — Load counter Z80 mode           | dma.vhd:666-667  | pass    | test/dma/dma_test.cpp:891  |
-| 8.9     | 0xD3 — Continue                        | dma.vhd:670-676  | pass    | test/dma/dma_test.cpp:905  |
-| 8.10    | 0xD3 — Continue ZXN mode               | dma.vhd:673-674  | pass    | test/dma/dma_test.cpp:917  |
-| 8.11    | 0xD3 — Continue Z80 mode               | dma.vhd:675-676  | pass    | test/dma/dma_test.cpp:927  |
-| 8.12    | 0x87 — Enable DMA                      | dma.vhd:725      | pass    | test/dma/dma_test.cpp:936  |
-| 8.13    | 0x83 — Disable DMA                     | dma.vhd:728      | pass    | test/dma/dma_test.cpp:946  |
-| 8.14    | 0x8B — Reinitialize status             | dma.vhd:691-692,902 | pass    | test/dma/dma_test.cpp:963  |
-| 8.15    | 0xBB — Read mask follows               | dma.vhd:731,859-860 | pass    | test/dma/dma_test.cpp:979  |
-| 8.16    | 0xBF — Read status byte                | dma.vhd:696-699  | pass    | test/dma/dma_test.cpp:995  |
-| 9.1     | Simple A->B, increment both            | dma.vhd:379-391  | pass    | test/dma/dma_test.cpp:1018 |
-| 9.2     | Simple B->A, increment both            | dma.vhd:660-662,389-391 | pass    | test/dma/dma_test.cpp:1038 |
-| 9.3     | A->B, decrement source                 | dma.vhd:384-387  | pass    | test/dma/dma_test.cpp:1059 |
-| 9.4     | A->B, fixed source (fill)              | dma.vhd:379-396  | pass    | test/dma/dma_test.cpp:1080 |
-| 9.5     | A->B, fixed dest (probe)               | dma.vhd:389-396  | pass    | test/dma/dma_test.cpp:1099 |
-| 9.6     | Block length = 1                       | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1113 |
-| 9.7     | Block length = 256                     | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1127 |
-| 9.8     | Block length = 0 (edge case)           | dma.vhd:361,426  | pass    | test/dma/dma_test.cpp:1144 |
-| 10.1    | Mem(A) -> IO(B), A inc, B fixed        | dma.vhd:559      | pass    | test/dma/dma_test.cpp:1175 |
-| 10.2    | Mem(A) -> IO(B), A inc, B inc          | dma.vhd:559,389-391 | pass    | test/dma/dma_test.cpp:1194 |
-| 10.3    | Verify MREQ on read, IORQ on write     | dma.vhd:186-190,290-296 | pass    | test/dma/dma_test.cpp:1225 |
-| 10.4    | IO(A) -> Mem(B)                        | dma.vhd:542      | pass    | test/dma/dma_test.cpp:1248 |
-| 10.5    | IO(A) -> IO(B)                         | dma.vhd:542,559  | pass    | test/dma/dma_test.cpp:1267 |
-| 10.6    | Port B address as I/O port             | dma.vhd:36       | pass    | test/dma/dma_test.cpp:1287 |
-| 11.1    | Both increment (A->B)                  | dma.vhd:379-391  | pass    | test/dma/dma_test.cpp:1309 |
-| 11.2    | Both decrement (A->B)                  | dma.vhd:384-396  | pass    | test/dma/dma_test.cpp:1328 |
-| 11.3    | Source inc, dest dec                   | dma.vhd:379-396  | pass    | test/dma/dma_test.cpp:1347 |
-| 11.4    | Source dec, dest fixed                 | dma.vhd:384-396  | pass    | test/dma/dma_test.cpp:1367 |
-| 11.5    | Both fixed (port-to-port)              | dma.vhd:379-396  | pass    | test/dma/dma_test.cpp:1387 |
-| 11.6    | Address wrap at 0xFFFF                 | dma.vhd:36,381   | pass    | test/dma/dma_test.cpp:1408 |
-| 12.1    | Continuous mode — full block           | dma.vhd:426-430,601 | pass    | test/dma/dma_test.cpp:1434 |
-| 12.2    | Burst mode — no prescaler              | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1457 |
-| 12.3    | Burst mode — with prescaler            | dma.vhd:424-425  | pass    | test/dma/dma_test.cpp:1479 |
-| 12.4    | Burst mode — bus release timing        | dma.vhd:445      | pass    | test/dma/dma_test.cpp:1502 |
-| 12.5    | Burst mode — bus re-request            | dma.vhd:451-460  | pass    | test/dma/dma_test.cpp:1527 |
-| 12.6    | Byte mode — single byte                | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1554 |
-| 12.7    | Continuous mode — no prescaler delay   | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1586 |
-| 12.8    | Burst mode — prescaler vs timer        | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1605 |
-| 13.1    | Prescaler = 0 (no wait)                | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1637 |
-| 13.2    | Prescaler > 0 at 3.5MHz                | dma.vhd:251      | pass    | test/dma/dma_test.cpp:1649 |
-| 13.3    | Prescaler > 0 at 7MHz                  | dma.vhd:252      | pass    | test/dma/dma_test.cpp:1660 |
-| 13.4    | Prescaler > 0 at 14MHz                 | dma.vhd:253      | pass    | test/dma/dma_test.cpp:1671 |
-| 13.5    | Prescaler > 0 at 28MHz                 | dma.vhd:254      | pass    | test/dma/dma_test.cpp:1682 |
-| 13.6    | Prescaler comparison                   | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1696 |
+| 8.1     | 0xC3 — Reset                           | dma.vhd:638      | pass    | test/dma/dma_test.cpp:812  |
+| 8.2     | 0xC7 — Reset port A timing             | dma.vhd:648      | pass    | test/dma/dma_test.cpp:822  |
+| 8.3     | 0xCB — Reset port B timing             | dma.vhd:651      | pass    | test/dma/dma_test.cpp:833  |
+| 8.4     | 0xCF — Load                            | dma.vhd:654      | pass    | test/dma/dma_test.cpp:848  |
+| 8.5     | 0xCF — Load A->B direction             | dma.vhd:656-658  | pass    | test/dma/dma_test.cpp:862  |
+| 8.6     | 0xCF — Load B->A direction             | dma.vhd:660-662  | pass    | test/dma/dma_test.cpp:877  |
+| 8.7     | 0xCF — Load counter ZXN mode           | dma.vhd:664-665  | pass    | test/dma/dma_test.cpp:888  |
+| 8.8     | 0xCF — Load counter Z80 mode           | dma.vhd:666-667  | pass    | test/dma/dma_test.cpp:898  |
+| 8.9     | 0xD3 — Continue                        | dma.vhd:670-676  | pass    | test/dma/dma_test.cpp:912  |
+| 8.10    | 0xD3 — Continue ZXN mode               | dma.vhd:673-674  | pass    | test/dma/dma_test.cpp:924  |
+| 8.11    | 0xD3 — Continue Z80 mode               | dma.vhd:675-676  | pass    | test/dma/dma_test.cpp:934  |
+| 8.12    | 0x87 — Enable DMA                      | dma.vhd:725      | pass    | test/dma/dma_test.cpp:943  |
+| 8.13    | 0x83 — Disable DMA                     | dma.vhd:728      | pass    | test/dma/dma_test.cpp:953  |
+| 8.14    | 0x8B — Reinitialize status             | dma.vhd:691-692,902 | pass    | test/dma/dma_test.cpp:970  |
+| 8.15    | 0xBB — Read mask follows               | dma.vhd:731,859-860 | pass    | test/dma/dma_test.cpp:986  |
+| 8.16    | 0xBF — Read status byte                | dma.vhd:696-699  | pass    | test/dma/dma_test.cpp:1002 |
+| 9.1     | Simple A->B, increment both            | dma.vhd:379-391  | pass    | test/dma/dma_test.cpp:1025 |
+| 9.2     | Simple B->A, increment both            | dma.vhd:660-662,389-391 | pass    | test/dma/dma_test.cpp:1045 |
+| 9.3     | A->B, decrement source                 | dma.vhd:384-387  | pass    | test/dma/dma_test.cpp:1066 |
+| 9.4     | A->B, fixed source (fill)              | dma.vhd:379-396  | pass    | test/dma/dma_test.cpp:1087 |
+| 9.5     | A->B, fixed dest (probe)               | dma.vhd:389-396  | pass    | test/dma/dma_test.cpp:1106 |
+| 9.6     | Block length = 1                       | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1120 |
+| 9.7     | Block length = 256                     | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1134 |
+| 9.8     | Block length = 0 (edge case)           | dma.vhd:361,426  | pass    | test/dma/dma_test.cpp:1151 |
+| 10.1    | Mem(A) -> IO(B), A inc, B fixed        | dma.vhd:559      | pass    | test/dma/dma_test.cpp:1182 |
+| 10.2    | Mem(A) -> IO(B), A inc, B inc          | dma.vhd:559,389-391 | pass    | test/dma/dma_test.cpp:1201 |
+| 10.3    | Verify MREQ on read, IORQ on write     | dma.vhd:186-190,290-296 | pass    | test/dma/dma_test.cpp:1232 |
+| 10.4    | IO(A) -> Mem(B)                        | dma.vhd:542      | pass    | test/dma/dma_test.cpp:1255 |
+| 10.5    | IO(A) -> IO(B)                         | dma.vhd:542,559  | pass    | test/dma/dma_test.cpp:1274 |
+| 10.6    | Port B address as I/O port             | dma.vhd:36       | pass    | test/dma/dma_test.cpp:1294 |
+| 11.1    | Both increment (A->B)                  | dma.vhd:379-391  | pass    | test/dma/dma_test.cpp:1316 |
+| 11.2    | Both decrement (A->B)                  | dma.vhd:384-396  | pass    | test/dma/dma_test.cpp:1335 |
+| 11.3    | Source inc, dest dec                   | dma.vhd:379-396  | pass    | test/dma/dma_test.cpp:1354 |
+| 11.4    | Source dec, dest fixed                 | dma.vhd:384-396  | pass    | test/dma/dma_test.cpp:1374 |
+| 11.5    | Both fixed (port-to-port)              | dma.vhd:379-396  | pass    | test/dma/dma_test.cpp:1394 |
+| 11.6    | Address wrap at 0xFFFF                 | dma.vhd:36,381   | pass    | test/dma/dma_test.cpp:1415 |
+| 12.1    | Continuous mode — full block           | dma.vhd:426-430,601 | pass    | test/dma/dma_test.cpp:1441 |
+| 12.2    | Burst mode — no prescaler              | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1464 |
+| 12.3    | Burst mode — with prescaler            | dma.vhd:424-425  | pass    | test/dma/dma_test.cpp:1486 |
+| 12.4    | Burst mode — bus release timing        | dma.vhd:445      | pass    | test/dma/dma_test.cpp:1509 |
+| 12.5    | Burst mode — bus re-request            | dma.vhd:451-460  | pass    | test/dma/dma_test.cpp:1534 |
+| 12.6    | Byte mode — single byte                | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1561 |
+| 12.7    | Continuous mode — no prescaler delay   | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1593 |
+| 12.8    | Burst mode — prescaler vs timer        | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1612 |
+| 13.1    | Prescaler = 0 (no wait)                | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1644 |
+| 13.2    | Prescaler > 0 at 3.5MHz                | dma.vhd:251      | pass    | test/dma/dma_test.cpp:1656 |
+| 13.3    | Prescaler > 0 at 7MHz                  | dma.vhd:252      | pass    | test/dma/dma_test.cpp:1667 |
+| 13.4    | Prescaler > 0 at 14MHz                 | dma.vhd:253      | pass    | test/dma/dma_test.cpp:1678 |
+| 13.5    | Prescaler > 0 at 28MHz                 | dma.vhd:254      | pass    | test/dma/dma_test.cpp:1689 |
+| 13.6    | Prescaler comparison                   | dma.vhd:424      | pass    | test/dma/dma_test.cpp:1703 |
 | 13.7    | turbo=10 (14MHz): source byte latched on rising edge of dma_d_p_s (G122, WONT 2026-05-03) | dma.vhd:172-181         | missing | missing                    |
 | 13.8    | turbo=10 (14MHz): rd_n / wr_n strobes extended across READ_4/WRITE_4 (G122, WONT 2026-05-03) | dma.vhd:158,160-161     | missing | missing                    |
-| 14.1    | ZXN mode: counter starts at 0          | dma.vhd:664-665  | pass    | test/dma/dma_test.cpp:1754 |
-| 14.2    | Z80 mode: counter starts at 0xFFFF     | dma.vhd:666-667  | pass    | test/dma/dma_test.cpp:1763 |
-| 14.3    | Counter increments per byte            | dma.vhd:361      | pass    | test/dma/dma_test.cpp:1775 |
-| 14.4    | ZXN: block_len=5 transfers 5 bytes     | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1787 |
-| 14.5    | Z80: block_len=5 transfers 6 bytes     | dma.vhd:426,666-667 | pass    | test/dma/dma_test.cpp:1802 |
-| 14.6    | ZXN: block_len=0 transfers 0 bytes     | dma.vhd:361,426  | pass    | test/dma/dma_test.cpp:1817 |
-| 14.7    | Z80: block_len=0 transfers 1 byte      | dma.vhd:361,426,667 | pass    | test/dma/dma_test.cpp:1829 |
-| 14.8    | Counter readback accuracy              | dma.vhd:933-947  | pass    | test/dma/dma_test.cpp:1847 |
-| 15.1    | DMA requests bus before transfer       | dma.vhd:278      | pass    | test/dma/dma_test.cpp:1870 |
-| 15.2    | DMA waits for bus acknowledge          | dma.vhd:296      | pass    | test/dma/dma_test.cpp:1886 |
-| 15.3    | DMA releases bus when idle             | dma.vhd:225,262  | pass    | test/dma/dma_test.cpp:1895 |
-| 15.4    | DMA defers to external BUSREQ          | dma.vhd:269      | pass    | test/dma/dma_test.cpp:1909 |
-| 15.5    | DMA defers to daisy chain              | dma.vhd:269      | pass    | test/dma/dma_test.cpp:1923 |
-| 15.6    | DMA defers to IM2 delay                | dma.vhd:269      | pass    | test/dma/dma_test.cpp:1936 |
-| 15.7    | Bus mux when DMA holds bus             | zxnext.vhd       | pass    | test/dma/dma_test.cpp:1949 |
+| 14.1    | ZXN mode: counter starts at 0          | dma.vhd:664-665  | pass    | test/dma/dma_test.cpp:1761 |
+| 14.2    | Z80 mode: counter starts at 0xFFFF     | dma.vhd:666-667  | pass    | test/dma/dma_test.cpp:1770 |
+| 14.3    | Counter increments per byte            | dma.vhd:361      | pass    | test/dma/dma_test.cpp:1782 |
+| 14.4    | ZXN: block_len=5 transfers 5 bytes     | dma.vhd:426      | pass    | test/dma/dma_test.cpp:1794 |
+| 14.5    | Z80: block_len=5 transfers 6 bytes     | dma.vhd:426,666-667 | pass    | test/dma/dma_test.cpp:1809 |
+| 14.6    | ZXN: block_len=0 transfers 0 bytes     | dma.vhd:361,426  | pass    | test/dma/dma_test.cpp:1824 |
+| 14.7    | Z80: block_len=0 transfers 1 byte      | dma.vhd:361,426,667 | pass    | test/dma/dma_test.cpp:1836 |
+| 14.8    | Counter readback accuracy              | dma.vhd:933-947  | pass    | test/dma/dma_test.cpp:1854 |
+| 15.1    | DMA requests bus before transfer       | dma.vhd:278      | pass    | test/dma/dma_test.cpp:1877 |
+| 15.2    | DMA waits for bus acknowledge          | dma.vhd:296      | pass    | test/dma/dma_test.cpp:1893 |
+| 15.3    | DMA releases bus when idle             | dma.vhd:225,262  | pass    | test/dma/dma_test.cpp:1902 |
+| 15.4    | DMA defers to external BUSREQ          | dma.vhd:269      | pass    | test/dma/dma_test.cpp:1916 |
+| 15.5    | DMA defers to daisy chain              | dma.vhd:269      | pass    | test/dma/dma_test.cpp:1930 |
+| 15.6    | DMA defers to IM2 delay                | dma.vhd:269      | pass    | test/dma/dma_test.cpp:1943 |
+| 15.7    | Bus mux when DMA holds bus             | zxnext.vhd       | pass    | test/dma/dma_test.cpp:1956 |
 | 15.8    | DMA cannot self-program                | —              | missing | missing                    |
-| 16.1    | Auto-restart reloads addresses         | dma.vhd:473-481  | pass    | test/dma/dma_test.cpp:1978 |
-| 16.2    | Auto-restart reloads counter           | dma.vhd:482-486  | pass    | test/dma/dma_test.cpp:1991 |
-| 16.3    | Auto-restart direction A->B            | dma.vhd:474-476  | pass    | test/dma/dma_test.cpp:2004 |
-| 16.4    | Auto-restart direction B->A            | dma.vhd:478-479  | pass    | test/dma/dma_test.cpp:2023 |
-| 16.5    | Continue preserves addresses           | dma.vhd:670-676  | pass    | test/dma/dma_test.cpp:2037 |
-| 16.6    | Continue vs Load                       | dma.vhd:656-662  | pass    | test/dma/dma_test.cpp:2057 |
-| 17.1    | Status byte format                     | dma.vhd:902      | pass    | test/dma/dma_test.cpp:2081 |
-| 17.2    | End-of-block flag clear initially      | dma.vhd:242      | pass    | test/dma/dma_test.cpp:2092 |
-| 17.3    | End-of-block set after transfer        | dma.vhd:471      | pass    | test/dma/dma_test.cpp:2105 |
-| 17.4    | At-least-one flag                      | dma.vhd:412      | pass    | test/dma/dma_test.cpp:2118 |
-| 17.5    | Status cleared by 0x8B                 | dma.vhd:691-692  | pass    | test/dma/dma_test.cpp:2132 |
-| 17.6    | Status cleared by 0xC3 (reset)         | dma.vhd:638-641  | pass    | test/dma/dma_test.cpp:2146 |
-| 17.7    | Default read mask                      | dma.vhd:239      | pass    | test/dma/dma_test.cpp:2170 |
-| 17.8    | Read sequence cycles through mask      | dma.vhd:902-922  | pass    | test/dma/dma_test.cpp:2189 |
-| 17.9    | Custom read mask (status+counter only) | dma.vhd:696-717  | pass    | test/dma/dma_test.cpp:2207 |
-| 17.10   | Read sequence wraps around             | dma.vhd:919-922  | pass    | test/dma/dma_test.cpp:2228 |
-| 18.1    | Read status byte                       | dma.vhd:902      | pass    | test/dma/dma_test.cpp:2266 |
-| 18.2    | Read counter LO                        | dma.vhd:933      | pass    | test/dma/dma_test.cpp:2276 |
-| 18.3    | Read counter HI                        | dma.vhd:935      | pass    | test/dma/dma_test.cpp:2286 |
-| 18.4    | Read port A addr LO (A->B)             | dma.vhd:910-912  | pass    | test/dma/dma_test.cpp:2297 |
-| 18.5    | Read port A addr HI (A->B)             | dma.vhd:913-915  | pass    | test/dma/dma_test.cpp:2307 |
-| 18.6    | Read port B addr LO (A->B)             | dma.vhd:916-918  | pass    | test/dma/dma_test.cpp:2317 |
-| 18.7    | Read port B addr HI (A->B)             | dma.vhd:919-921  | pass    | test/dma/dma_test.cpp:2327 |
-| 18.8    | Read port A/B in B->A mode             | dma.vhd:910-921  | pass    | test/dma/dma_test.cpp:2342 |
-| 19.1    | Hardware reset defaults                | dma.vhd:213-242  | pass    | test/dma/dma_test.cpp:2370 |
-| 19.2    | R6 0xC3 soft reset                     | dma.vhd:638-641  | pass    | test/dma/dma_test.cpp:2388 |
-| 19.3    | 0xC3 does not reset R0/R4 addresses    | dma.vhd:638-645  | pass    | test/dma/dma_test.cpp:2406 |
-| 19.4    | 0xC3 resets timing to "01"             | dma.vhd:641-642  | pass    | test/dma/dma_test.cpp:2418 |
-| 19.5    | 0xC3 resets prescaler to 0x00          | dma.vhd:643      | pass    | test/dma/dma_test.cpp:2435 |
-| 19.6    | 0xC3 resets auto-restart to 0          | dma.vhd:645      | pass    | test/dma/dma_test.cpp:2449 |
-| 20.1    | DMA delay blocks START_DMA             | dma.vhd:269      | pass    | test/dma/dma_test.cpp:2475 |
-| 20.2    | DMA delay mid-transfer                 | dma.vhd:427-428  | pass    | test/dma/dma_test.cpp:2491 |
+| 16.1    | Auto-restart reloads addresses         | dma.vhd:473-481  | pass    | test/dma/dma_test.cpp:1985 |
+| 16.2    | Auto-restart reloads counter           | dma.vhd:482-486  | pass    | test/dma/dma_test.cpp:1998 |
+| 16.3    | Auto-restart direction A->B            | dma.vhd:474-476  | pass    | test/dma/dma_test.cpp:2011 |
+| 16.4    | Auto-restart direction B->A            | dma.vhd:478-479  | pass    | test/dma/dma_test.cpp:2030 |
+| 16.5    | Continue preserves addresses           | dma.vhd:670-676  | pass    | test/dma/dma_test.cpp:2044 |
+| 16.6    | Continue vs Load                       | dma.vhd:656-662  | pass    | test/dma/dma_test.cpp:2064 |
+| 17.1    | Status byte format                     | dma.vhd:902      | pass    | test/dma/dma_test.cpp:2088 |
+| 17.2    | End-of-block flag clear initially      | dma.vhd:242      | pass    | test/dma/dma_test.cpp:2099 |
+| 17.3    | End-of-block set after transfer        | dma.vhd:471      | pass    | test/dma/dma_test.cpp:2112 |
+| 17.4    | At-least-one flag                      | dma.vhd:412      | pass    | test/dma/dma_test.cpp:2125 |
+| 17.5    | Status cleared by 0x8B                 | dma.vhd:691-692  | pass    | test/dma/dma_test.cpp:2139 |
+| 17.6    | Status cleared by 0xC3 (reset)         | dma.vhd:638-641  | pass    | test/dma/dma_test.cpp:2153 |
+| 17.7    | Default read mask                      | dma.vhd:239      | pass    | test/dma/dma_test.cpp:2177 |
+| 17.8    | Read sequence cycles through mask      | dma.vhd:902-922  | pass    | test/dma/dma_test.cpp:2196 |
+| 17.9    | Custom read mask (status+counter only) | dma.vhd:696-717  | pass    | test/dma/dma_test.cpp:2214 |
+| 17.10   | Read sequence wraps around             | dma.vhd:919-922  | pass    | test/dma/dma_test.cpp:2235 |
+| 18.1    | Read status byte                       | dma.vhd:902      | pass    | test/dma/dma_test.cpp:2273 |
+| 18.2    | Read counter LO                        | dma.vhd:933      | pass    | test/dma/dma_test.cpp:2283 |
+| 18.3    | Read counter HI                        | dma.vhd:935      | pass    | test/dma/dma_test.cpp:2293 |
+| 18.4    | Read port A addr LO (A->B)             | dma.vhd:910-912  | pass    | test/dma/dma_test.cpp:2304 |
+| 18.5    | Read port A addr HI (A->B)             | dma.vhd:913-915  | pass    | test/dma/dma_test.cpp:2314 |
+| 18.6    | Read port B addr LO (A->B)             | dma.vhd:916-918  | pass    | test/dma/dma_test.cpp:2324 |
+| 18.7    | Read port B addr HI (A->B)             | dma.vhd:919-921  | pass    | test/dma/dma_test.cpp:2334 |
+| 18.8    | Read port A/B in B->A mode             | dma.vhd:910-921  | pass    | test/dma/dma_test.cpp:2349 |
+| 19.1    | Hardware reset defaults                | dma.vhd:213-242  | pass    | test/dma/dma_test.cpp:2377 |
+| 19.2    | R6 0xC3 soft reset                     | dma.vhd:638-641  | pass    | test/dma/dma_test.cpp:2395 |
+| 19.3    | 0xC3 does not reset R0/R4 addresses    | dma.vhd:638-645  | pass    | test/dma/dma_test.cpp:2413 |
+| 19.4    | 0xC3 resets timing to "01"             | dma.vhd:641-642  | pass    | test/dma/dma_test.cpp:2425 |
+| 19.5    | 0xC3 resets prescaler to 0x00          | dma.vhd:643      | pass    | test/dma/dma_test.cpp:2442 |
+| 19.6    | 0xC3 resets auto-restart to 0          | dma.vhd:645      | pass    | test/dma/dma_test.cpp:2456 |
+| 20.1    | DMA delay blocks START_DMA             | dma.vhd:269      | pass    | test/dma/dma_test.cpp:2482 |
+| 20.2    | DMA delay mid-transfer                 | dma.vhd:427-428  | pass    | test/dma/dma_test.cpp:2498 |
 | 20.3    | IM2 DMA interrupt enable regs          | —              | missing | missing                    |
 | 20.4    | DMA delay signal composition           | —              | missing | missing                    |
-| 21.1    | Timing "00" = 4-cycle read/write       | dma.vhd:313      | pass    | test/dma/dma_test.cpp:2526 |
-| 21.2    | Timing "01" = 3-cycle (default)        | dma.vhd:314      | pass    | test/dma/dma_test.cpp:2534 |
-| 21.3    | Timing "10" = 2-cycle                  | dma.vhd:315      | pass    | test/dma/dma_test.cpp:2542 |
-| 21.4    | Timing "11" = 4-cycle                  | dma.vhd:316      | pass    | test/dma/dma_test.cpp:2550 |
-| 21.5    | Read timing from source port           | dma.vhd:311      | pass    | test/dma/dma_test.cpp:2566 |
-| 21.6    | Write timing from dest port            | dma.vhd:371      | pass    | test/dma/dma_test.cpp:2580 |
-| 22.1    | Disable during active transfer         | dma.vhd:728      | pass    | test/dma/dma_test.cpp:2602 |
-| 22.2    | Enable without Load                    | dma.vhd:725      | pass    | test/dma/dma_test.cpp:2613 |
-| 22.3    | Multiple Loads before Enable           | dma.vhd:656-668  | pass    | test/dma/dma_test.cpp:2632 |
-| 22.4    | Continue after auto-restart            | dma.vhd:670-676  | pass    | test/dma/dma_test.cpp:2650 |
-| 22.5    | R0 register decoding ambiguity         | dma.vhd:542      | pass    | test/dma/dma_test.cpp:2668 |
-| 22.6    | Simultaneous R0/R2 decode              | dma.vhd:518-520,559 | pass    | test/dma/dma_test.cpp:2681 |
+| 21.1    | Timing "00" = 4-cycle read/write       | dma.vhd:313      | pass    | test/dma/dma_test.cpp:2533 |
+| 21.2    | Timing "01" = 3-cycle (default)        | dma.vhd:314      | pass    | test/dma/dma_test.cpp:2541 |
+| 21.3    | Timing "10" = 2-cycle                  | dma.vhd:315      | pass    | test/dma/dma_test.cpp:2549 |
+| 21.4    | Timing "11" = 4-cycle                  | dma.vhd:316      | pass    | test/dma/dma_test.cpp:2557 |
+| 21.5    | Read timing from source port           | dma.vhd:311      | pass    | test/dma/dma_test.cpp:2573 |
+| 21.6    | Write timing from dest port            | dma.vhd:371      | pass    | test/dma/dma_test.cpp:2587 |
+| 22.1    | Disable during active transfer         | dma.vhd:728      | pass    | test/dma/dma_test.cpp:2609 |
+| 22.2    | Enable without Load                    | dma.vhd:725      | pass    | test/dma/dma_test.cpp:2620 |
+| 22.3    | Multiple Loads before Enable           | dma.vhd:656-668  | pass    | test/dma/dma_test.cpp:2639 |
+| 22.4    | Continue after auto-restart            | dma.vhd:670-676  | pass    | test/dma/dma_test.cpp:2657 |
+| 22.5    | R0 register decoding ambiguity         | dma.vhd:542      | pass    | test/dma/dma_test.cpp:2675 |
+| 22.6    | Simultaneous R0/R2 decode              | dma.vhd:518-520,559 | pass    | test/dma/dma_test.cpp:2688 |
 
 ## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`
 
