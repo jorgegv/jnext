@@ -2,6 +2,7 @@
 #include "core/log.h"
 #include "core/win_process.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -193,7 +194,7 @@ bool VideoRecorder::stop()
         Log::emulator()->warn("VideoRecorder: no frames captured, skipping encode");
         std::remove(video_tmp_.c_str());
         std::remove(audio_tmp_.c_str());
-        stop_failed_ = true;
+        latch_stop_failure();
         return false;
     }
 
@@ -238,7 +239,7 @@ bool VideoRecorder::stop()
         std::remove(audio_tmp_.c_str());
         Log::emulator()->error("VideoRecorder: cannot replace output file {}: {}",
                                output_path_, output_ec.message());
-        stop_failed_ = true;
+        latch_stop_failure();
         return false;
     }
 
@@ -286,7 +287,7 @@ bool VideoRecorder::stop()
     if (ret != 0) {
         Log::emulator()->error("VideoRecorder: FFmpeg encoding failed (exit code {})", ret);
         remove_empty_output();
-        stop_failed_ = true;
+        latch_stop_failure();
         return false;
     }
 
@@ -296,12 +297,29 @@ bool VideoRecorder::stop()
             "VideoRecorder: FFmpeg reported success but produced no usable output at {}",
             output_path_);
         remove_empty_output();
-        stop_failed_ = true;
+        latch_stop_failure();
         return false;
     }
 
     Log::emulator()->info("VideoRecorder: recording saved to {}", output_path_);
+    // GH #86: a successful recording to this path supersedes an earlier
+    // failed one — the requested artifact now exists and is valid.
+    failed_outputs_.erase(
+        std::remove(failed_outputs_.begin(), failed_outputs_.end(), output_path_),
+        failed_outputs_.end());
     return true;
+}
+
+bool VideoRecorder::output_failed(const std::string& path) const
+{
+    return std::find(failed_outputs_.begin(), failed_outputs_.end(), path) !=
+           failed_outputs_.end();
+}
+
+void VideoRecorder::latch_stop_failure()
+{
+    if (!output_failed(output_path_))
+        failed_outputs_.push_back(output_path_);
 }
 
 void VideoRecorder::capture_frame(const uint32_t* framebuffer, int width, int height)

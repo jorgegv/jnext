@@ -842,13 +842,10 @@ int main(int argc, char* argv[]) {
         if (app.emulator().video_recorder().is_recording()) {
             capture_ok = app.emulator().stop_recording() && capture_ok;
         }
-        // GH #86: the recording may already have been stopped WITHOUT us
-        // seeing the result — MainWindow::closeEvent() stops a still-active
-        // recording when the user closes the window and discards the return
-        // value. The recorder latches any failed stop in stop_failed(), so a
-        // CLI-requested (--record) recording that failed to materialize fails
-        // the exit status no matter which path stopped it.
-        if (!record_file.empty() && app.emulator().video_recorder().stop_failed()) {
+        // GH #86: a stop whose result was discarded (MainWindow::closeEvent)
+        // is latched per output path — see VideoRecorder::output_failed().
+        if (!record_file.empty() &&
+            app.emulator().video_recorder().output_failed(record_file)) {
             capture_ok = false;
         }
 
