@@ -15,6 +15,8 @@ Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.
 
-Host audio gain is stored as `gain_db` in the `[audio]` section. It accepts
--24 through +24; an invalid value falls back to 0 dB. An explicit
-`--audio-gain-db` value overrides the saved setting for that run.
+Host audio gains are stored in the `[audio]` section: `gain_db` is the master,
+with `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
+`gain_dac_db` for the individual sources. Each accepts -24 through +24; an
+invalid value falls back to 0 dB. An explicit matching `--audio-gain-...-db`
+value overrides the saved setting for that run.

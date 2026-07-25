@@ -2828,9 +2828,11 @@ keeps its own layout separately in <code>~/.jnext/Debugger.conf</code>.</p>
 <p>Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.</p>
-<p>Host audio gain is stored as <code>gain_db</code> in the <code>[audio]</code> section. It accepts
--24 through +24; an invalid value falls back to 0 dB. An explicit
-<code>--audio-gain-db</code> value overrides the saved setting for that run.</p>
+<p>Host audio gains are stored in the <code>[audio]</code> section: <code>gain_db</code> is the master,
+with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</code>, <code>gain_ay2_db</code>, and
+<code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an
+invalid value falls back to 0 dB. An explicit matching <code>--audio-gain-...-db</code>
+value overrides the saved setting for that run.</p>
 
 
 

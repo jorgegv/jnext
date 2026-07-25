@@ -51,6 +51,9 @@ private:
     QComboBox* joy2_source_combo_ = nullptr;
 
     QSlider* audio_gain_slider_ = nullptr;
+    QSlider* audio_beeper_gain_slider_ = nullptr;
+    QSlider* audio_ay_gain_slider_[3] = {nullptr, nullptr, nullptr};
+    QSlider* audio_dac_gain_slider_ = nullptr;
 
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;

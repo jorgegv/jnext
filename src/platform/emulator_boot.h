@@ -150,6 +150,10 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
     cfg.joy_source[0]  = emu.joystick_source(0);
     cfg.joy_source[1]  = emu.joystick_source(1);
     cfg.audio_gain_db  = emu.mixer().output_gain_db();
+    cfg.audio_gain_beeper_db = emu.mixer().beeper_gain_db();
+    for (int chip = 0; chip < 3; ++chip)
+        cfg.audio_gain_ay_db[chip] = emu.mixer().ay_gain_db(chip);
+    cfg.audio_gain_dac_db = emu.mixer().dac_gain_db();
 
     emulator_cold_boot(emu, cfg);
 

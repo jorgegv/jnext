@@ -40,6 +40,13 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
     audio_gain_slider_->setValue(static_cast<int>(std::lround(current.audio_gain_db)));
+    audio_beeper_gain_slider_->setValue(
+        static_cast<int>(std::lround(current.audio_gain_beeper_db)));
+    for (int chip = 0; chip < 3; ++chip)
+        audio_ay_gain_slider_[chip]->setValue(
+            static_cast<int>(std::lround(current.audio_gain_ay_db[chip])));
+    audio_dac_gain_slider_->setValue(
+        static_cast<int>(std::lround(current.audio_gain_dac_db)));
     joy1_source_combo_->setCurrentIndex(
         joy1_source_combo_->findData(static_cast<int>(current.joy_source[0])));
     joy2_source_combo_->setCurrentIndex(
@@ -147,39 +154,55 @@ QWidget* PreferencesDialog::build_audio_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
 
-    // Slider rather than a numeric field (PR #41 review): the range is
-    // symmetric so the 0 dB default sits at the centre; the label beside it
-    // carries the exact value.
-    auto* row = new QWidget(tab);
-    auto* h = new QHBoxLayout(row);
-    h->setContentsMargins(0, 0, 0, 0);
-    audio_gain_slider_ = new QSlider(Qt::Horizontal, row);
-    audio_gain_slider_->setObjectName(QStringLiteral("audioGainDbSlider"));
-    audio_gain_slider_->setRange(-24, 24);
-    audio_gain_slider_->setSingleStep(1);
-    audio_gain_slider_->setPageStep(6);
-    audio_gain_slider_->setTickPosition(QSlider::TicksBelow);
-    audio_gain_slider_->setTickInterval(6);
-    audio_gain_slider_->setToolTip(
-        tr("Host output gain after the emulated hardware mix; applies live to playback and recordings."));
-    auto* value = new QLabel(row);
-    value->setObjectName(QStringLiteral("audioGainDbValue"));
-    value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    value->setMinimumWidth(value->fontMetrics().horizontalAdvance(QStringLiteral("-24 dB")));
-    auto update_value = [value](int db) {
-        value->setText(QStringLiteral("%1%2 dB")
-                           .arg(db > 0 ? QStringLiteral("+") : QString())
-                           .arg(db));
+    auto add_gain = [this, tab, form](const QString& label, const QString& object_name,
+                                      const QString& tooltip, QSlider*& slider) {
+        auto* row = new QWidget(tab);
+        auto* h = new QHBoxLayout(row);
+        h->setContentsMargins(0, 0, 0, 0);
+        slider = new QSlider(Qt::Horizontal, row);
+        slider->setObjectName(object_name);
+        slider->setRange(-24, 24);
+        slider->setSingleStep(1);
+        slider->setPageStep(6);
+        slider->setTickPosition(QSlider::TicksBelow);
+        slider->setTickInterval(6);
+        slider->setToolTip(tooltip);
+        auto* value = new QLabel(row);
+        value->setObjectName(object_name + QStringLiteral("Value"));
+        value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        value->setMinimumWidth(
+            value->fontMetrics().horizontalAdvance(QStringLiteral("-24 dB")));
+        auto update_value = [value](int db) {
+            value->setText(QStringLiteral("%1%2 dB")
+                               .arg(db > 0 ? QStringLiteral("+") : QString())
+                               .arg(db));
+        };
+        connect(slider, &QSlider::valueChanged, value, update_value);
+        update_value(slider->value());
+        h->addWidget(slider, 1);
+        h->addWidget(value);
+        form->addRow(label, row);
     };
-    connect(audio_gain_slider_, &QSlider::valueChanged, value, update_value);
-    update_value(audio_gain_slider_->value());
-    h->addWidget(audio_gain_slider_, 1);
-    h->addWidget(value);
-    form->addRow(tr("Output gain:"), row);
+
+    add_gain(tr("Master:"), QStringLiteral("audioGainDbSlider"),
+             tr("Host output gain after the complete mix."),
+             audio_gain_slider_);
+    add_gain(tr("Beeper:"), QStringLiteral("audioGainBeeperDbSlider"),
+             tr("Host gain for EAR, MIC and tape-EAR sound."),
+             audio_beeper_gain_slider_);
+    add_gain(tr("AY #0:"), QStringLiteral("audioGainAy0DbSlider"),
+             tr("Host gain for TurboSound AY chip 0."), audio_ay_gain_slider_[0]);
+    add_gain(tr("AY #1:"), QStringLiteral("audioGainAy1DbSlider"),
+             tr("Host gain for TurboSound AY chip 1."), audio_ay_gain_slider_[1]);
+    add_gain(tr("AY #2:"), QStringLiteral("audioGainAy2DbSlider"),
+             tr("Host gain for TurboSound AY chip 2."), audio_ay_gain_slider_[2]);
+    add_gain(tr("DAC:"), QStringLiteral("audioGainDacDbSlider"),
+             tr("Host gain for Specdrum, Soundrive and Covox DAC audio."),
+             audio_dac_gain_slider_);
 
     auto* note = new QLabel(
-        tr("0 dB preserves the emulated mix. Positive values boost quiet software; "
-           "large boosts may clip."), tab);
+        tr("0 dB preserves each source. Subsystem gains are applied before the "
+           "master gain; large boosts may clip."), tab);
     note->setWordWrap(true);
     form->addRow(QString(), note);
 
@@ -237,6 +260,11 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();
     cfg.audio_gain_db = static_cast<float>(audio_gain_slider_->value());
+    cfg.audio_gain_beeper_db = static_cast<float>(audio_beeper_gain_slider_->value());
+    for (int chip = 0; chip < 3; ++chip)
+        cfg.audio_gain_ay_db[chip] =
+            static_cast<float>(audio_ay_gain_slider_[chip]->value());
+    cfg.audio_gain_dac_db = static_cast<float>(audio_dac_gain_slider_->value());
     cfg.joy_source[0] = static_cast<JoySource>(joy1_source_combo_->currentData().toInt());
     cfg.joy_source[1] = static_cast<JoySource>(joy2_source_combo_->currentData().toInt());
     cfg.last_load_dir  = last_load_dir_edit_->text();
