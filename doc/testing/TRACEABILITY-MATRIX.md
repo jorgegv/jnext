@@ -1864,7 +1864,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | zxnext.vhd:1941  | pass    | test/ctc/ctc_test.cpp:2098                         |
 | ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | zxnext.vhd:1964  | pass    | test/ctc/ctc_test.cpp:2133                         |
 | NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | zxnext.vhd:5597/1999 | pass    | test/ctc/ctc_test.cpp:2150                         |
-| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | pass | test/nmi/atic_atac_nmi_test.cpp (ATIC-NMI-02) |
+| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | missing | missing                                       |
 | NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | zxnext.vhd:5599/1975 | pass    | test/ctc/ctc_test.cpp:2178                         |
 | NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | missing | missing                                              |
 | NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | zxnext.vhd       | pass    | test/ctc/ctc_test.cpp:2196                         |
@@ -2547,29 +2547,29 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)`  | zxnext.vhd:3521-3524                    | pass   | test/input/input_test.cpp:2003 |
 | IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0)             | zxnext.vhd:3526-3531                    | pass   | test/input/input_test.cpp:2020 |
 | IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1)             | zxnext.vhd:3526-3531                    | pass   | test/input/input_test.cpp:2037 |
-| IOMODE-07 | Write NR 0x0B = 0xA0, assert `JOY_LEFT(5)=0`                 | zxnext.vhd:3539                         | pass   | test/input/input_test.cpp:2055 |
-| IOMODE-08 | Write NR 0x0B = 0xA1, assert `JOY_RIGHT(5)=0`                | zxnext.vhd:3539                         | pass   | test/input/input_test.cpp:2075 |
-| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en`                   | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2088 |
-| IOMODE-10 | Write NR 0x0B = 0x80                                         | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2107 |
-| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured      | zxnext.vhd:5157-5158,5200-5203          | pass   | test/input/input_test.cpp:2137 |
-| MOUSE-01  | `port_mouse_io_en=1`                                         | zxnext.vhd:3546                         | pass   | test/input/input_test.cpp:2245 |
-| MOUSE-02  | `port_mouse_io_en=1`                                         | zxnext.vhd:3553                         | pass   | test/input/input_test.cpp:2257 |
-| MOUSE-03  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2271 |
-| MOUSE-04  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2284 |
-| MOUSE-05  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2296 |
-| MOUSE-06  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2308 |
-| MOUSE-07  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2321 |
-| MOUSE-08  | `port_mouse_io_en=0`                                         | zxnext.vhd:2668-2670                    | pass   | test/input/input_test.cpp:2352 |
+| IOMODE-07 | NR 0x0B = 0xA0/0xA1 (mode "10" → LEFT), press `JOY_LEFT(5)`  | zxnext.vhd:3538                         | pass   | test/input/input_test.cpp:2065 |
+| IOMODE-08 | NR 0x0B = 0xB0/0xB1 (mode "11" → RIGHT), press `JOY_RIGHT(5)`| zxnext.vhd:3538                         | pass   | test/input/input_test.cpp:2090 |
+| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en`                   | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2105 |
+| IOMODE-10 | Write NR 0x0B = 0x80                                         | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2124 |
+| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured      | zxnext.vhd:5157-5158,5200-5203          | pass   | test/input/input_test.cpp:2154 |
+| MOUSE-01  | `port_mouse_io_en=1`                                         | zxnext.vhd:3546                         | pass   | test/input/input_test.cpp:2328 |
+| MOUSE-02  | `port_mouse_io_en=1`                                         | zxnext.vhd:3553                         | pass   | test/input/input_test.cpp:2340 |
+| MOUSE-03  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2354 |
+| MOUSE-04  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2367 |
+| MOUSE-05  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2379 |
+| MOUSE-06  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2391 |
+| MOUSE-07  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2404 |
+| MOUSE-08  | `port_mouse_io_en=0`                                         | zxnext.vhd:2668-2670                    | pass   | test/input/input_test.cpp:2435 |
 | MOUSE-09  | NR 0x0A bit 3 = 1 (reverse)                                  | —                                     | missing | missing                       |
 | MOUSE-10  | `port_mouse_io_en=1`                                         | —                                     | missing | missing                       |
 | MOUSE-11  | `port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11"`     | zxnext.vhd                              | missing | missing                       |
-| NMI-01    | NR 0x06 bit 3 = 1 (M1 en)                                    | —                                     | pass   | test/input/input_test.cpp:2702 |
-| NMI-02    | NR 0x06 bit 3 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2719 |
-| NMI-03    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2736 |
-| NMI-04    | NR 0x06 bit 4 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2753 |
-| NMI-05    | NR 0x06 bit 3 = 1                                            | zxnext.vhd:2090                         | pass   | test/input/input_test.cpp:2772 |
-| NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2790 |
-| NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2808 |
+| NMI-01    | NR 0x06 bit 3 = 1 (M1 en)                                    | —                                     | pass   | test/input/input_test.cpp:2785 |
+| NMI-02    | NR 0x06 bit 3 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2802 |
+| NMI-03    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2819 |
+| NMI-04    | NR 0x06 bit 4 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2836 |
+| NMI-05    | NR 0x06 bit 3 = 1                                            | zxnext.vhd:2090                         | pass   | test/input/input_test.cpp:2855 |
+| NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2873 |
+| NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2891 |
 | FE-01     | No keys, EAR=0, no `port_fe_ear`                             | —                                     | missing | missing                       |
 | FE-02     | EAR input high                                               | —                                     | missing | missing                       |
 | FE-03     | Write 0xFE bit 4 high (`port_fe_ear`=1), then read           | —                                     | missing | missing                       |
@@ -2578,16 +2578,16 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | JMODE-09      | NR 0x05=0x40 (joy0=Kempston1) -> MembraneStick::set_mode(joy0) called from Joystick::set_nr_05       | membrane_stick.vhd:117-149              | pass   | test/input/input_test.cpp:1086 |
 | KEMP-16       | NR 0x82 b7=0; joy0=100 (Kempston2); read port 0x37 -> floating-bus, NOT joystick byte                | zxnext.vhd:2408,2675                    | pass   | test/input/input_test.cpp:1294 |
 | KEMP-17       | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F -> floating-bus 0xFF (port_1f_hw_en=0)       | zxnext.vhd:2454-2455,2674-2675          | pass   | test/input/input_test.cpp:1369 |
-| MOUSE-12      | port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0 AND joy0=001 -> read 0xDF returns Kempston byte   | zxnext.vhd:2674                         | pass   | test/input/input_test.cpp:2431 |
-| MOUSE-13      | Host SDL mouse motion -> KempstonMouse X/Y deltas at port 0xFADF / 0xFBDF (G43)                      | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2479 |
-| MOUSE-14      | Host SDL mouse buttons -> KempstonMouse button bits at port 0xFBDF (G43)                             | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2518 |
-| MOUSE-15      | Host wheel scroll -> KempstonMouse wheel byte (NR 0x0A bit 3 reverse honoured) (G43)                 | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2550 |
+| MOUSE-12      | port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0 AND joy0=001 -> read 0xDF returns Kempston byte   | zxnext.vhd:2674                         | pass   | test/input/input_test.cpp:2514 |
+| MOUSE-13      | Host SDL mouse motion -> KempstonMouse X/Y deltas at port 0xFADF / 0xFBDF (G43)                      | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2562 |
+| MOUSE-14      | Host SDL mouse buttons -> KempstonMouse button bits at port 0xFBDF (G43)                             | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2601 |
+| MOUSE-15      | Host wheel scroll -> KempstonMouse wheel byte (NR 0x0A bit 3 reverse honoured) (G43)                 | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2633 |
 | KBDHYS-04     | `Emulator` main loop calls `Keyboard::tick_scan()` each membrane scan-cycle (production wire)        | membrane.vhd:178-191                    | pass   | test/input/input_test.cpp:674 |
 | KBDHYS-05     | `Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod)    | membrane.vhd:178-191                    | missing | missing                       |
-| JCAL-01       | NR 0x28 keymap_sel write (2-bit) persists to NextReg readback                                        | zxnext.vhd:6294-6300                    | pass   | test/input/input_test.cpp:2882 |
-| JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | pass   | test/input/input_test.cpp:2921 |
-| JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | pass   | test/input/input_test.cpp:2965 |
-| FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | pass   | test/input/input_test.cpp:3005 |
+| JCAL-01       | NR 0x28 keymap_sel write (2-bit) persists to NextReg readback                                        | zxnext.vhd:6294-6300                    | pass   | test/input/input_test.cpp:2965 |
+| JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | pass   | test/input/input_test.cpp:3004 |
+| JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | pass   | test/input/input_test.cpp:3048 |
+| FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | pass   | test/input/input_test.cpp:3088 |
 | HOTKEY-01     | Host SDL_SCANCODE_F8 -> NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by nr_06_hotkey_*_en  | zxnext.vhd:5790-5791,6342-6347          | missing | missing                       |
 | JOY-WIRE-01   | OUT (0x253B), 0x40 with reg=0x05 -> MembraneStick fold redirects through full NR-write path          | emulator.cpp:456-458                    | missing | missing                       |
 | JOY-WIRE-02   | Host SDL gamepad axis -> Kempston bits at port 0x1F (G42)                                            | joystick.vhd                            | missing | missing                       |
@@ -2598,7 +2598,8 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | HK-WIRE-03    | Host F9 SDL key dispatched into NMI source `assert_mf` injector (G152)                               | nmi_source.cpp                          | missing | missing                       |
 | HK-WIRE-04    | Host F10 SDL key dispatched into DivMMC button NMI injector (G152)                                   | divmmc.cpp                              | missing | missing                       |
 | FE-04A        | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44)                          | keyboard.cpp                            | missing | missing                       |
-| IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | pass   | test/input/input_test.cpp:2214 |
+| IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | pass   | test/input/input_test.cpp:2231 |
+| IOMODE-11B    | Emulator per-tick feed: Joystick line-5 (button C) -> IoMode joy_uart_rx via run_frame() (GH #90)    | zxnext.vhd:90-91,3441-3442,3538         | pass   | test/input/input_test.cpp:2299 |
 | ESP-01        | UART 0 TX bytes egress to ESP-01 host bridge when nr_a0 ESP-route enabled (G39)                      | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-02        | UART 0 RX bytes from ESP-01 host bridge land in `Uart` RX FIFO (G39)                                 | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-03        | ESP-01 reset line driven from NR 0xA0 / NextZXOS networking signal (G39)                             | zxnext.vhd                              | missing | missing                       |
@@ -2875,27 +2876,27 @@ Dashboard (Task 7 r2): 21 total / 8 pass / 0 fail / 13 skip.
 
 | Test ID    | Plan row title                                                              | VHDL file:line                      | Status | Test file:line                  |
 |------------|-----------------------------------------------------------------------------|-------------------------------------|--------|---------------------------------|
-| INIT-01    | CMD0 returns R1=0x01 (in-idle) before ACMD41                                | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:162 |
-| INIT-02    | After CMD0/8/55/41/58 init, CMD17 R1=0x00 (ready)                           | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:170 |
-| CMD17-01   | CMD17 sector=1 returns correct first 4 sector-identity bytes                | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:196 |
-| CMD18-01   | CMD18 first block sector=3 has identity bytes (b[0]=0x03)                   | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:240 |
-| CMD18-02   | CMD18 streamed blocks cover sector+1 and +2                                 | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:248 |
-| CMD18-03   | CMD12 aborts stream cleanly; subsequent CMD17 works                         | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:256 |
-| CMD18-04   | CS deassert during stream aborts cleanly; CMD17 afterwards works            | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:335 |
-| CMD18-05   | End-of-image (sectors 14..15) terminates cleanly; follow-up CMD17 works     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:296 |
+| INIT-01    | CMD0 returns R1=0x01 (in-idle) before ACMD41                                | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:171 |
+| INIT-02    | After CMD0/8/55/41/58 init, CMD17 R1=0x00 (ready)                           | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:179 |
+| CMD17-01   | CMD17 sector=1 returns correct first 4 sector-identity bytes                | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:205 |
+| CMD18-01   | CMD18 first block sector=3 has identity bytes (b[0]=0x03)                   | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:249 |
+| CMD18-02   | CMD18 streamed blocks cover sector+1 and +2                                 | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:257 |
+| CMD18-03   | CMD12 aborts stream cleanly; subsequent CMD17 works                         | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:265 |
+| CMD18-04   | CS deassert during stream aborts cleanly; CMD17 afterwards works            | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:344 |
+| CMD18-05   | End-of-image (sectors 14..15) terminates cleanly; follow-up CMD17 works     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:305 |
 | SD-01      | CMD0 CRC validation + CMD59 toggle absent (see G159)                        | (SD SPI spec)                         | missing | missing                         |
-| SD-02      | CMD13 returns R1 fall-through, not R2 (see G160)                            | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:406 |
+| SD-02      | CMD13 returns R1 fall-through, not R2 (see G160)                            | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:512 |
 | SD-10      | CMD9 SEND_CSD response not synthesised (see G40)                            | (SD SPI spec)                         | missing | missing                         |
 | SD-11      | CMD10 SEND_CID response not synthesised (see G40)                           | (SD SPI spec)                         | missing | missing                         |
-| SD-12      | CMD16 SET_BLOCKLEN ack absent (see G40)                                     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:429 |
-| SD-13      | CMD23 SET_BLOCK_COUNT not handled (see G40)                                 | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:452 |
-| SD-14      | CMD24 WRITE_BLOCK absent — read-only fixture (see G40)                      | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:578 |
-| SD-15      | CMD25 multi-block write not modelled (see G40)                              | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:800 |
-| MMC-01     | MMC CMD1 init path absent — SDHC only (see G41)                             | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:628 |
+| SD-12      | CMD16 SET_BLOCKLEN ack absent (see G40)                                     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:535 |
+| SD-13      | CMD23 SET_BLOCK_COUNT not handled (see G40)                                 | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:558 |
+| SD-14      | CMD24 WRITE_BLOCK absent — read-only fixture (see G40)                      | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:684 |
+| SD-15      | CMD25 multi-block write not modelled (see G40)                              | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:906 |
+| MMC-01     | MMC CMD1 init path absent — SDHC only (see G41)                             | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:734 |
 | MMC-02     | CMD8 illegal-cmd response on MMC not modelled (see G41)                     | (SD SPI spec)                         | missing | missing                         |
 | MMC-03     | MMC byte-vs-block addressing duality unsupported (see G41)                  | (SD SPI spec)                         | missing | missing                         |
-| BOOT-SD-01 | SD hot-plug round-trip not exposed at runtime (see G158)                    | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:693 |
-| BOOT-SD-02 | SD unmount mid-transfer untested — no GUI/CLI eject affordance (see G158)   | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:1878 |
+| BOOT-SD-01 | SD hot-plug round-trip not exposed at runtime (see G158)                    | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:799 |
+| BOOT-SD-02 | SD unmount mid-transfer untested — no GUI/CLI eject affordance (see G158)   | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:1984 |
 
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp` + `test/nmi/nmi_integration_test.cpp`
