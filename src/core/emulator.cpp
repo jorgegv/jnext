@@ -177,6 +177,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2s_.reset();
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
+    mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
+    for (int chip = 0; chip < 3; ++chip)
+        mixer_.set_ay_gain_db(chip, cfg.audio_gain_ay_db[chip]);
+    mixer_.set_dac_gain_db(cfg.audio_gain_dac_db);
     mixer_.set_capture_callback(cfg.audio_capture_callback);
     ctc_.reset();
     dma_.reset();

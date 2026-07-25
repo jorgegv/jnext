@@ -85,6 +85,12 @@ public:
     uint16_t pcm_left() const { return pcm_L_; }
     uint16_t pcm_right() const { return pcm_R_; }
 
+    /// Return one chip's post-mode/post-pan contribution to the hardware sum.
+    /// Like pcm_left()/pcm_right(), these values change only on a PSG tick.
+    /// This is a host-mixer observation only and does not alter guest state.
+    void chip_pcm(int idx, uint16_t& left, uint16_t& right) const;
+    bool chip_pcm_valid() const { return chip_pcm_valid_; }
+
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
 
@@ -105,10 +111,14 @@ private:
 
     uint16_t pcm_L_ = 0;
     uint16_t pcm_R_ = 0;
+    std::array<uint16_t, 3> chip_pcm_L_{};
+    std::array<uint16_t, 3> chip_pcm_R_{};
+    bool chip_pcm_valid_ = true;
 
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t chip_mute_mask_ = AudioMute::NONE;
 
     int active_ay_index() const;
+    void compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const;
     void compute_stereo_mix();
 };

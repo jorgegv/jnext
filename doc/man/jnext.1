@@ -133,9 +133,25 @@ writes.
 A cold boot starts a new segment.
 .TP
 \f[B]\-\-audio\-gain\-db\f[R] \f[I]DB\f[R]
-Set host audio gain from \-24 dB to +24 dB (default 0 dB).
+Set master host audio gain from \-24 dB to +24 dB (default 0 dB).
 The gain is applied after the emulated hardware mix; overflow saturates
 at the 16\-bit PCM limits.
+.TP
+\f[B]\-\-audio\-gain\-beeper\-db\f[R] \f[I]DB\f[R]
+Set host gain for beeper EAR/MIC/tape\-EAR audio from \-24 dB to +24 dB.
+.TP
+\f[B]\-\-audio\-gain\-ay0\-db\f[R] \f[I]DB\f[R]
+Set host gain for TurboSound AY chip 0 from \-24 dB to +24 dB.
+.TP
+\f[B]\-\-audio\-gain\-ay1\-db\f[R] \f[I]DB\f[R]
+Set host gain for TurboSound AY chip 1 from \-24 dB to +24 dB.
+.TP
+\f[B]\-\-audio\-gain\-ay2\-db\f[R] \f[I]DB\f[R]
+Set host gain for TurboSound AY chip 2 from \-24 dB to +24 dB.
+.TP
+\f[B]\-\-audio\-gain\-dac\-db\f[R] \f[I]DB\f[R]
+Set host gain for Specdrum, Soundrive and Covox DAC audio from \-24 dB
+to +24 dB.
 .TP
 \f[B]\-\-rzx\-play\f[R] \f[I]FILE\f[R]
 Play back an RZX recording.
@@ -400,13 +416,14 @@ DAC tracing (\f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]) records guest DAC
 writes before mixing.
 Channels are numbered 0\-3 (A\-D) and timestamps are CPU T\-states.
 .IP \(bu 2
-Host audio gain is available under \f[B]Settings > Preferences >
-Audio\f[R], or for one run with \f[B]\-\-audio\-gain\-db\f[R]
-\f[I]DB\f[R].
-It is applied after the emulated hardware mix, changes playback and
-recording volume without changing guest\-visible audio state, and
-survives cold boots.
-An explicit CLI value overrides the saved preference.
+Master and per\-subsystem host gains are available under \f[B]Settings >
+Preferences > Audio\f[R], or for one run with the
+\f[B]\-\-audio\-gain\-\f[R] family.
+Beeper, each TurboSound AY chip and the DAC family can be balanced
+independently before the master gain.
+They change playback and recording volume without changing
+guest\-visible audio state and survive cold boots.
+Each explicit CLI value overrides its corresponding saved preference.
 .SH LOGGING
 \f[B]\-\-log\-level\f[R] \f[I]SPEC\f[R] sets per\-subsystem log levels.
 A bare level sets every subsystem; a
@@ -805,8 +822,10 @@ jnext \-\-headless game.nex \-\-delayed\-screenshot us.png \(rs
 \f[CR]\(ti/.jnext/jnext.conf\f[R]
 GUI configuration, in INI format.
 Written by \f[B]Settings > Preferences\f[R].
-Host output gain is stored as \f[CR]gain_db\f[R] under
-\f[CR][audio]\f[R].
+Host gains are stored under \f[CR][audio]\f[R] as \f[CR]gain_db\f[R]
+(master), \f[CR]gain_beeper_db\f[R], \f[CR]gain_ay0_db\f[R],
+\f[CR]gain_ay1_db\f[R], \f[CR]gain_ay2_db\f[R], and
+\f[CR]gain_dac_db\f[R].
 CLI options always take precedence over saved values, and headless runs
 never read it.
 .TP

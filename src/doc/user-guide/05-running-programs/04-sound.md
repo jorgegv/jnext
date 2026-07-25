@@ -12,10 +12,14 @@ Which of these a program can actually use is up to the program and the machine
 it was written for. Stereo separation and channel balance are likewise set by
 the software, not by you — they are properties of the emulated hardware.
 
-**Settings > Preferences > Audio > Output gain** can trim or boost JNEXT's
-final stereo mix from -24 dB to +24 dB, and `--audio-gain-db DB` provides the
-same control for a single run. The setting applies live and affects playback
-and WAV/video recordings without changing the emulated machine's audio state.
+**Settings > Preferences > Audio** can trim or boost the master, beeper, each
+TurboSound AY chip, and the DAC family independently from -24 dB to +24 dB.
+For a single run, use `--audio-gain-db DB` for the master and
+`--audio-gain-beeper-db DB`, `--audio-gain-ay0-db DB`,
+`--audio-gain-ay1-db DB`, `--audio-gain-ay2-db DB`, or
+`--audio-gain-dac-db DB` for one subsystem. Preferences changes apply live;
+all six gains affect playback and WAV/video recordings without changing the
+emulated machine's audio state.
 Complete mute remains available through
 **Settings > Preferences > Startup > Start muted** or `--silent`; muting also
 skips sound synthesis entirely, which speeds up runs that do not need audio.

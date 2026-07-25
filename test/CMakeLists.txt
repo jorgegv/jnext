@@ -385,6 +385,14 @@ target_link_libraries(audio_gain_test PRIVATE
 target_include_directories(audio_gain_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_gain_tests COMMAND audio_gain_test)
 
+add_executable(subsystem_gain_test audio/subsystem_gain_test.cpp)
+target_link_libraries(subsystem_gain_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(subsystem_gain_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME subsystem_gain_tests COMMAND subsystem_gain_test)
+
 # Log change-gate test (Task 24). Drives a real Emulator through the port path
 # and counts the log lines NR 0x07 actually emits. Own binary: the natural home
 # (nextreg_integration_test) has a local fmt() that collides with spdlog's fmt.
@@ -663,6 +671,16 @@ if(ENABLE_QT_UI)
     target_link_libraries(app_config_test PRIVATE jnext_gui)
     target_include_directories(app_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME app_config_tests COMMAND app_config_test)
+
+    add_executable(audio_gain_config_test gui/audio_gain_config_test.cpp)
+    target_link_libraries(audio_gain_config_test PRIVATE jnext_gui)
+    target_include_directories(audio_gain_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME audio_gain_config_tests COMMAND audio_gain_config_test)
+
+    add_executable(audio_gain_preferences_test gui/audio_gain_preferences_test.cpp)
+    target_link_libraries(audio_gain_preferences_test PRIVATE jnext_gui)
+    target_include_directories(audio_gain_preferences_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME audio_gain_preferences_tests COMMAND audio_gain_preferences_test)
 
     # Task 63 (issue #9) — EmulatorWidget's present-count gate: the rule that
     # decides what counts as a frame reaching the screen. Needs jnext_gui (a

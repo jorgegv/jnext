@@ -136,9 +136,25 @@ debugger ones.
     boot starts a new segment.
 
 **\--audio-gain-db** *DB*
-:   Set host audio gain from -24 dB to +24 dB (default 0 dB). The gain is
+:   Set master host audio gain from -24 dB to +24 dB (default 0 dB). The gain is
     applied after the emulated hardware mix; overflow saturates at the 16-bit
     PCM limits.
+
+**\--audio-gain-beeper-db** *DB*
+:   Set host gain for beeper EAR/MIC/tape-EAR audio from -24 dB to +24 dB.
+
+**\--audio-gain-ay0-db** *DB*
+:   Set host gain for TurboSound AY chip 0 from -24 dB to +24 dB.
+
+**\--audio-gain-ay1-db** *DB*
+:   Set host gain for TurboSound AY chip 1 from -24 dB to +24 dB.
+
+**\--audio-gain-ay2-db** *DB*
+:   Set host gain for TurboSound AY chip 2 from -24 dB to +24 dB.
+
+**\--audio-gain-dac-db** *DB*
+:   Set host gain for Specdrum, Soundrive and Covox DAC audio from -24 dB to
+    +24 dB.
 
 **\--rzx-play** *FILE*
 :   Play back an RZX recording.
@@ -368,11 +384,12 @@ Notes worth knowing:
   though PCM follows it.
 - DAC tracing (**\--dac-trace** *FILE*) records guest DAC writes before mixing.
   Channels are numbered 0-3 (A-D) and timestamps are CPU T-states.
-- Host audio gain is available under **Settings > Preferences > Audio**, or
-  for one run with **\--audio-gain-db** *DB*. It is applied after the emulated
-  hardware mix, changes playback and recording volume without changing
-  guest-visible audio state, and survives cold boots. An explicit CLI value
-  overrides the saved preference.
+- Master and per-subsystem host gains are available under **Settings >
+  Preferences > Audio**, or for one run with the **\--audio-gain-** family.
+  Beeper, each TurboSound AY chip and the DAC family can be balanced
+  independently before the master gain. They change playback and recording
+  volume without changing guest-visible audio state and survive cold boots.
+  Each explicit CLI value overrides its corresponding saved preference.
 
 # LOGGING
 
@@ -603,7 +620,9 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 `~/.jnext/jnext.conf`
 :   GUI configuration, in INI format. Written by **Settings > Preferences**.
-    Host output gain is stored as `gain_db` under `[audio]`.
+    Host gains are stored under `[audio]` as `gain_db` (master),
+    `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
+    `gain_dac_db`.
     CLI options always take precedence over saved values, and headless runs
     never read it.
 

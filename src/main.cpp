@@ -108,6 +108,11 @@ static void print_usage(const char* prog) {
         "  --dac-trace FILE         Record timestamped physical DAC writes to CSV\n"
         "  --audio-gain-db DB       Host audio gain in dB (-24..+24, default 0);\n"
         "                           PCM overflow saturates\n"
+        "  --audio-gain-beeper-db DB  Beeper host gain (-24..+24 dB)\n"
+        "  --audio-gain-ay0-db DB   TurboSound AY #0 host gain (-24..+24 dB)\n"
+        "  --audio-gain-ay1-db DB   TurboSound AY #1 host gain (-24..+24 dB)\n"
+        "  --audio-gain-ay2-db DB   TurboSound AY #2 host gain (-24..+24 dB)\n"
+        "  --audio-gain-dac-db DB   DAC-family host gain (-24..+24 dB)\n"
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
@@ -203,8 +208,7 @@ int main(int argc, char* argv[]) {
     std::string record_file;
     std::string wav_record_file;
     std::string dac_trace_file;
-    float       audio_gain_db = 0.0f;
-    bool        audio_gain_db_set = false;
+    cli::AudioGainArgs audio_gain;
     std::string rzx_play_file;
     std::string rzx_record_file;
     int         speed_percent = 100;
@@ -383,21 +387,27 @@ int main(int argc, char* argv[]) {
             case cli::OptId::DacTrace:
                 dac_trace_file = v[0];
                 break;
-            case cli::OptId::AudioGainDb: {
+            case cli::OptId::AudioGainDb:
+            case cli::OptId::AudioGainBeeperDb:
+            case cli::OptId::AudioGainAy0Db:
+            case cli::OptId::AudioGainAy1Db:
+            case cli::OptId::AudioGainAy2Db:
+            case cli::OptId::AudioGainDacDb: {
                 const std::string value = v[0];
+                float parsed = 0.0f;
                 try {
                     size_t consumed = 0;
-                    audio_gain_db = std::stof(value, &consumed);
-                    if (consumed != value.size() || !std::isfinite(audio_gain_db) ||
-                        audio_gain_db < -24.0f || audio_gain_db > 24.0f) {
+                    parsed = std::stof(value, &consumed);
+                    if (consumed != value.size() || !std::isfinite(parsed) ||
+                        parsed < -24.0f || parsed > 24.0f) {
                         throw std::invalid_argument("range");
                     }
-                    audio_gain_db_set = true;
                 } catch (const std::exception&) {
-                    fprintf(stderr,
-                            "--audio-gain-db: expected a number from -24 to +24 dB\n");
+                    fprintf(stderr, "%s: expected a number from -24 to +24 dB\n",
+                            arg.c_str());
                     return 1;
                 }
+                (void)cli::assign_audio_gain(opt->id, parsed, audio_gain);
                 break;
             }
             case cli::OptId::RzxPlay:
@@ -659,7 +669,11 @@ int main(int argc, char* argv[]) {
         cfg.rtc_fixed              = !rtc_fixed_arg.empty();
         cfg.rtc_fixed_tm           = rtc_fixed_tm;
         cfg.silent                 = silent;
-        cfg.audio_gain_db          = audio_gain_db;
+        cfg.audio_gain_db          = audio_gain.master;
+        cfg.audio_gain_beeper_db   = audio_gain.beeper;
+        for (int chip = 0; chip < 3; ++chip)
+            cfg.audio_gain_ay_db[chip] = audio_gain.ay[chip];
+        cfg.audio_gain_dac_db      = audio_gain.dac;
         cfg.joy_source[0]          = joy_source[0];   // Task 79 (CLI value)
         cfg.joy_source[1]          = joy_source[1];
 
@@ -675,7 +689,18 @@ int main(int argc, char* argv[]) {
                                                gui_app_config.data().machine_type);
             cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
             cfg.audio_gain_db = merge_cli_precedence(
-                audio_gain_db_set, audio_gain_db, gui_app_config.data().audio_gain_db);
+                audio_gain.master_set, audio_gain.master,
+                gui_app_config.data().audio_gain_db);
+            cfg.audio_gain_beeper_db = merge_cli_precedence(
+                audio_gain.beeper_set, audio_gain.beeper,
+                gui_app_config.data().audio_gain_beeper_db);
+            for (int chip = 0; chip < 3; ++chip)
+                cfg.audio_gain_ay_db[chip] = merge_cli_precedence(
+                    audio_gain.ay_set[chip], audio_gain.ay[chip],
+                    gui_app_config.data().audio_gain_ay_db[chip]);
+            cfg.audio_gain_dac_db = merge_cli_precedence(
+                audio_gain.dac_set, audio_gain.dac,
+                gui_app_config.data().audio_gain_dac_db);
             // Task 79 — per-connector input source: CLI wins, else saved config.
             cfg.joy_source[0] = merge_cli_precedence(joy_source_set[0], joy_source[0],
                                                      gui_app_config.data().joy_source[0]);
@@ -742,6 +767,11 @@ int main(int argc, char* argv[]) {
             // Preserve CLI precedence when the common live-apply path below
             // configures the mixer from AppConfigData.
             gui_app_config.data().audio_gain_db = cfg.audio_gain_db;
+            gui_app_config.data().audio_gain_beeper_db = cfg.audio_gain_beeper_db;
+            for (int chip = 0; chip < 3; ++chip)
+                gui_app_config.data().audio_gain_ay_db[chip] =
+                    cfg.audio_gain_ay_db[chip];
+            gui_app_config.data().audio_gain_dac_db = cfg.audio_gain_dac_db;
             if (auto* mw = app.main_window()) mw->apply_startup_config(gui_app_config.data());
         }
 #endif

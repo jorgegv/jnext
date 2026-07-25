@@ -34,6 +34,9 @@ void TurboSound::reset_ay_only()
     pan_.fill(0x03);  // Both L and R enabled for all chips
     pcm_L_ = 0;
     pcm_R_ = 0;
+    chip_pcm_L_.fill(0);
+    chip_pcm_R_.fill(0);
+    chip_pcm_valid_ = true;
 }
 
 void TurboSound::set_ay_mode(bool ay)
@@ -127,54 +130,49 @@ void TurboSound::compute_stereo_mix()
     uint16_t total_R = 0;
 
     for (int i = 0; i < 3; i++) {
-        // Check if this PSG is active
-        bool active;
-        if (i == 0) {
-            active = (ay_select_ == 3) || enabled_;
-        } else if (i == 1) {
-            active = (ay_select_ == 2) || enabled_;
-        } else {
-            active = (ay_select_ == 1) || enabled_;
-        }
+        compute_chip_stereo(i, chip_pcm_L_[i], chip_pcm_R_[i]);
 
-        if (!active) continue;
-
-        // Debugger-only per-chip mute (audio/audio_mute.h). Gates this chip
-        // out of the sum exactly like a pan of "00" would, but WITHOUT
-        // touching pan_ (which is real, CPU-writable hardware state). The
-        // chip has already been ticked above, so its oscillators/envelope
-        // keep running and un-muting resumes mid-waveform.
-        if ((chip_mute_mask_ >> i) & 1) continue;
-
-        uint16_t a = ay_[i].output_a();
-        uint16_t b = ay_[i].output_b();
-        uint16_t c = ay_[i].output_c();
-        bool mono = (mono_mode_ >> i) & 1;
-
-        // L_mux = C when (ACB or mono) else B
-        uint16_t L_mux = (stereo_mode_ || mono) ? c : b;
-        // L_sum = L_mux + A (9-bit)
-        uint16_t L_sum = L_mux + a;
-
-        // R_mux = L_sum when mono else C (9-bit: mono gives A+B+C partial)
-        uint16_t R_mux = mono ? L_sum : c;
-        // R_sum = R_mux + B (10-bit)
-        uint16_t R_sum = R_mux + b;
-
-        // L_fin = R_sum when mono else L_sum
-        uint16_t L_fin = mono ? R_sum : L_sum;
-
-        // Apply panning (pan bit 1 = left enable, bit 0 = right enable)
-        uint16_t psg_L = (pan_[i] & 0x02) ? L_fin : 0;
-        uint16_t psg_R = (pan_[i] & 0x01) ? R_sum : 0;
-
-        total_L += psg_L;
-        total_R += psg_R;
+        total_L += chip_pcm_L_[i];
+        total_R += chip_pcm_R_[i];
     }
 
     // Output: 12-bit (0-4095 max with all 3 PSGs at full volume)
     pcm_L_ = total_L & 0x0FFF;
     pcm_R_ = total_R & 0x0FFF;
+    chip_pcm_valid_ = true;
+}
+
+void TurboSound::chip_pcm(int idx, uint16_t& left, uint16_t& right) const
+{
+    left = right = 0;
+    if (idx < 0 || idx >= 3 || !chip_pcm_valid_) return;
+    left = chip_pcm_L_[idx];
+    right = chip_pcm_R_[idx];
+}
+
+void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const
+{
+    left = right = 0;
+
+    const bool active =
+        idx == 0 ? (ay_select_ == 3 || enabled_) :
+        idx == 1 ? (ay_select_ == 2 || enabled_) :
+                   (ay_select_ == 1 || enabled_);
+    if (!active || ((chip_mute_mask_ >> idx) & 1)) return;
+
+    const uint16_t a = ay_[idx].output_a();
+    const uint16_t b = ay_[idx].output_b();
+    const uint16_t c = ay_[idx].output_c();
+    const bool mono = (mono_mode_ >> idx) & 1;
+
+    const uint16_t left_mux = (stereo_mode_ || mono) ? c : b;
+    const uint16_t left_sum = left_mux + a;
+    const uint16_t right_mux = mono ? left_sum : c;
+    const uint16_t right_sum = right_mux + b;
+    const uint16_t left_final = mono ? right_sum : left_sum;
+
+    left = (pan_[idx] & 0x02) ? left_final : 0;
+    right = (pan_[idx] & 0x01) ? right_sum : 0;
 }
 
 void TurboSound::save_state(StateWriter& w) const
@@ -199,4 +197,14 @@ void TurboSound::load_state(StateReader& r)
     mono_mode_   = r.read_u8();
     pcm_L_       = r.read_u16();
     pcm_R_       = r.read_u16();
+
+    // Per-chip host observations were not part of the historical snapshot
+    // schema, and appending them here would shift every following component.
+    // Do not reconstruct them from current pan/mode: a snapshot may have been
+    // taken after a write but before the PSG tick which updates pcm_L_/pcm_R_.
+    // Mixer falls back to the serialized aggregate until the next PSG tick,
+    // preserving old snapshots and deferring host-only balancing momentarily.
+    chip_pcm_L_.fill(0);
+    chip_pcm_R_.fill(0);
+    chip_pcm_valid_ = false;
 }

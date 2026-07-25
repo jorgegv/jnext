@@ -22,6 +22,14 @@ QString machine_type_to_key(MachineType t) {
     }
 }
 
+void load_gain(QSettings& settings, const char* key, float& target)
+{
+    bool ok = false;
+    const double db = settings.value(key, static_cast<double>(target)).toDouble(&ok);
+    if (ok && std::isfinite(db) && db >= -24.0 && db <= 24.0)
+        target = static_cast<float>(db);
+}
+
 } // namespace
 
 QString AppConfig::default_config_path() {
@@ -85,11 +93,12 @@ void AppConfig::load() {
 
     settings_.beginGroup("audio");
     {
-        bool ok = false;
-        const double gain_db = settings_.value(
-            "gain_db", static_cast<double>(data_.audio_gain_db)).toDouble(&ok);
-        if (ok && std::isfinite(gain_db) && gain_db >= -24.0 && gain_db <= 24.0)
-            data_.audio_gain_db = static_cast<float>(gain_db);
+        load_gain(settings_, "gain_db", data_.audio_gain_db);
+        load_gain(settings_, "gain_beeper_db", data_.audio_gain_beeper_db);
+        load_gain(settings_, "gain_ay0_db", data_.audio_gain_ay_db[0]);
+        load_gain(settings_, "gain_ay1_db", data_.audio_gain_ay_db[1]);
+        load_gain(settings_, "gain_ay2_db", data_.audio_gain_ay_db[2]);
+        load_gain(settings_, "gain_dac_db", data_.audio_gain_dac_db);
     }
     settings_.endGroup();
 
@@ -133,6 +142,11 @@ void AppConfig::save() const {
 
     settings_.beginGroup("audio");
     settings_.setValue("gain_db", data_.audio_gain_db);
+    settings_.setValue("gain_beeper_db", data_.audio_gain_beeper_db);
+    settings_.setValue("gain_ay0_db", data_.audio_gain_ay_db[0]);
+    settings_.setValue("gain_ay1_db", data_.audio_gain_ay_db[1]);
+    settings_.setValue("gain_ay2_db", data_.audio_gain_ay_db[2]);
+    settings_.setValue("gain_dac_db", data_.audio_gain_dac_db);
     settings_.endGroup();
 
     settings_.beginGroup("paths");

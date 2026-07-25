@@ -1144,6 +1144,10 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->tape().set_fast_load(cfg.tape_fast_load);
         emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
         emulator_->mixer().set_output_gain_db(cfg.audio_gain_db);
+        emulator_->mixer().set_beeper_gain_db(cfg.audio_gain_beeper_db);
+        for (int chip = 0; chip < 3; ++chip)
+            emulator_->mixer().set_ay_gain_db(chip, cfg.audio_gain_ay_db[chip]);
+        emulator_->mixer().set_dac_gain_db(cfg.audio_gain_dac_db);
     }
     if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
 
