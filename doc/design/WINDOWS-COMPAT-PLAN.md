@@ -49,7 +49,10 @@ reviewed, not just the curated list).
 
 ## 2. SDL-only variant `make package-win-sdl`: floor **Windows 8.0**
 
-`ENABLE_QT_UI=OFF` + MinGW cross-build → `jnext-<ver>-windows-x64-sdl.zip`
+`ENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF` + MinGW cross-build (the debugger
+option defaults ON and its `src/debugger` does `find_package(Qt6 REQUIRED)` at
+configure time — OFF keeps the build genuinely Qt-free; the exe is identical
+either way) → `jnext-<ver>-windows-x64-sdl.zip`
 (16 DLLs, no Qt). Audit result: the **single** remaining post-Win7 import in
 the whole bundle is fedora libcrypto-3's `PathCchRemoveFileSpec`
 (`api-ms-win-core-path-l1-1-0.dll`, Windows 8+). Everything else is

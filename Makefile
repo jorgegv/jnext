@@ -192,7 +192,12 @@ win-sdl-release:
 		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
 		exit 1; \
 	fi
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) -DENABLE_QT_UI=OFF -DENABLE_TESTS=OFF
+	@# ENABLE_DEBUGGER=OFF is load-bearing: it defaults ON and src/debugger
+	@# does find_package(Qt6 REQUIRED) at configure time, which would make the
+	@# "Qt6 not needed" toolchain guard above a lie on a Qt-less host. The
+	@# shipped exe is identical either way (the debugger ifdefs live only in
+	@# src/gui, which the SDL build never compiles).
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN_SDL_RELEASE) -j$(JOBS)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN_SDL_RELEASE)
 	@printf "$(BOLD)Windows SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe\n"
