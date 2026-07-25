@@ -197,6 +197,76 @@ check('SELF-08', 'a longer identifier ending in .vhd is not read as a citation',
       !defined $cites2->{'IDENT-01'},
       "got " . ($cites2->{'IDENT-01'} // '(none)'));
 
+# ── Protected-row marker (GH #105) ────────────────────────────────────
+#
+# A hand-maintained row (e.g. a cross-file pointer like NR-C0-02 ->
+# test/nmi/atic_atac_nmi_test.cpp) carries `<!-- protected -->` after its
+# closing `|`. refresh_section must leave it byte-identical — before the
+# fix its status+file cells were recomputed against the section's ONE
+# source file and downgraded to `missing | missing` on every regen.
+# An unprotected row in the same section must still regenerate normally.
+
+my $src3 = write_fixture('test/fixture/section_test.cpp', <<'CPP');
+void section() {
+    {
+        check("UNPROT-01", "regenerated normally — VHDL fixture_a.vhd:10",
+              cond, detail);
+    }
+    {
+        check("PROT-02", "locally covered yet marked protected",
+              cond, detail);
+    }
+}
+CPP
+
+# Fixture suite binary: no FAIL lines, so source-scanned rows read `pass`.
+my $bin = "$FIXTURE_ROOT/bin/section_suite";
+mkdir "$FIXTURE_ROOT/bin";
+open(my $bfh, '>', $bin) or die "write $bin: $!";
+print $bfh "#!/bin/sh\n";
+print $bfh "echo '  PASS UNPROT-01: ok'\n";
+print $bfh "echo 'Total:    1  Passed:    1  Failed:    0  Skipped:    0'\n";
+close $bfh;
+chmod 0755, $bin;
+
+my $prot_row = '| PROT-01   | hand-maintained cross-file row | fixture_b.vhd:200 | pass    | test/other/other_suite_test.cpp (OTHER-77) | <!-- protected: cross-file, hand-maintained -->';
+my $prot2_row = '| PROT-02   | protected but locally covered  | fixture_c.vhd:300 | pass    | test/other/other_suite_test.cpp (OTHER-78) | <!-- protected -->';
+my @mlines = (
+    '## Fixture — `test/fixture/section_test.cpp`',
+    '',
+    '| Test ID   | Description                    | VHDL file:line    | Status  | Test file:line                             |',
+    '|-----------|--------------------------------|-------------------|---------|--------------------------------------------|',
+    '| UNPROT-01 | regenerated normally           | fixture_a.vhd:10  | missing | missing                                    |',
+    $prot_row,
+    $prot2_row,
+);
+
+my $sec_warnings = [];
+my (@drift, @kept);
+{
+    local $SIG{__WARN__} = sub { push @$sec_warnings, $_[0] };
+    refresh_section(\@mlines, 0, 'bin/section_suite',
+                    'test/fixture/section_test.cpp', \@drift, \@kept);
+}
+
+check('SELF-09', 'protected row survives refresh_section byte-identical',
+      $mlines[5] eq $prot_row,
+      "got [$mlines[5]]");
+
+check('SELF-10', 'unprotected row in the same section still regenerates',
+      $mlines[4] =~ /\|\s*pass\s*\|/
+        && $mlines[4] =~ m{test/fixture/section_test\.cpp:\d+},
+      "got [$mlines[4]]");
+
+check('SELF-11', 'protected rows are reported in the kept list',
+      "@kept" eq 'PROT-01 PROT-02',
+      "kept=[@kept]");
+
+check('SELF-12', 'a marker shadowing a locally covered row is warned about',
+      scalar(grep { /protected row PROT-02 is also covered/ } @$sec_warnings) == 1
+        && !grep { /protected row PROT-01 is also covered/ } @$sec_warnings,
+      scalar(@$sec_warnings) . " warning(s): @$sec_warnings");
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);
