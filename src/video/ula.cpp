@@ -704,12 +704,25 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     //
     // VHDL zxula.vhd:418 — `border_clr <= "00" & port_fe & port_fe`, so
     // attr = (border<<3) | border (paper bits 5:3 = ink bits 2:0 = border
-    // 0..7), attr(6)=0.  border_active_d=1 forces paper cycle through
-    // the std-ULA encoder (zxula.vhd:543-553), yielding
-    // ula_pixel = std_ula_paper_pixel(attr) = 0x10 | (border & 7).
+    // 0..7), attr(6)=0.  border_active_d=1 selects the border cycle of the
+    // ACTIVE encoder (GH #96 — mirrors the G167 HI_RES dispatch):
+    //   - ULAnext (zxula.vhd:494-504): ula_pixel = pbi(7:3) & attr(5:3)
+    //     = 0x80 | border, plus ula_select_bgnd when format = 0xFF, which
+    //     routes to the NR $4A fallback (zxnext.vhd:6987-6991, LR-140).
+    //   - std-ULA (zxula.vhd:543-553): ula_pixel = 0x10 | (border & 7).
     const uint8_t border_attr  = static_cast<uint8_t>(
         ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
-    const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
+    uint32_t border_argb;
+    if (ulanext_en_ && palette_) {
+        const auto border_pix = compute_ulanext_pixel(
+            /*pixel_en*/false, /*border*/true, border_attr);
+        border_argb = border_pix.select_bgnd
+                          ? select_bgnd_argb_
+                          : palette_->ula_colour(active_ula_palette_,
+                                                 border_pix.pixel);
+    } else {
+        border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
+    }
     for (int x = 0; x < DISP_X; ++x) {
         row[x] = border_argb;
         // VHDL zxula.vhd:415 — border_active_v is asserted at every left-
@@ -945,11 +958,24 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
         (alt_file_ ? 0x6000u : 0x4000u) | poff);
     const uint16_t attr_base  = static_cast<uint16_t>(0x6000u | poff);
 
-    // Fill left border.  See render_display_line for the std-ULA encoder
-    // derivation — border_active_d=1 forces paper cycle through std_ula_paper_pixel.
+    // Fill left border.  See render_display_line for the encoder-dispatch
+    // derivation (GH #96) — border_active_d=1 selects the border cycle of
+    // the ACTIVE encoder: ULAnext ula_pixel = 0x80 | border with the
+    // format-0xFF NR $4A fallback (zxula.vhd:494-504 + zxnext.vhd:6987-6991),
+    // std-ULA ula_pixel = 0x10 | border (zxula.vhd:543-553).
     const uint8_t border_attr_hc  = static_cast<uint8_t>(
         ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
-    const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr_hc));
+    uint32_t border_argb;
+    if (ulanext_en_ && palette_) {
+        const auto border_pix = compute_ulanext_pixel(
+            /*pixel_en*/false, /*border*/true, border_attr_hc);
+        border_argb = border_pix.select_bgnd
+                          ? select_bgnd_argb_
+                          : palette_->ula_colour(active_ula_palette_,
+                                                 border_pix.pixel);
+    } else {
+        border_argb = lookup_colour(std_ula_paper_pixel(border_attr_hc));
+    }
     for (int x = 0; x < DISP_X; ++x) {
         row[x] = border_argb;
         if (border_dst) border_dst[x] = true;

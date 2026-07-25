@@ -1800,6 +1800,250 @@ static void test_section6_ulanext() {
                   got_paper, exp_paper, got_border, exp_border,
                   got_ink, exp_ink));
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GH #96 — display-row border strips route through the ULAnext encoder.
+    //
+    // VHDL zxula.vhd:494-504 makes NO distinction between border pixels on
+    // border rows and border pixels left/right of the display area on a
+    // display row: `border_active_d = '1'` selects the border cycle of the
+    // ACTIVE encoder, so with i_ulanext_en='1'
+    //     ula_pixel <= paper_base_index(7:3) & attr_active(5:3)
+    //               = 0x80 | border            (attr = border_clr, :418)
+    // and additionally `ula_select_bgnd <= '1'` when i_ulanext_format=X"FF"
+    // (:500-502), which zxnext.vhd:6987-6991 routes to the NR $4A fallback.
+    // Rows S6.16-S6.19 pin that for the STANDARD and HI_COLOUR in-row
+    // strips (HI_RES was already routed by G167).
+    //
+    // GH #97 — rows S6.20-S6.23 give the four LR-140 select_bgnd fallback
+    // mux replicas (SCROLLED / HICOLOUR / HIRES / TMX-BORDER consumer
+    // sites in src/video/ula.cpp) one discriminative row each: reverting a
+    // replica's `select_bgnd ? select_bgnd_argb_ : palette lookup` mux
+    // must fail exactly that row.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // S6.16 (GH #96) — STANDARD display-row strips, ULAnext list format:
+    // strips index ULA palette entry 0x80|border, not std paper 0x10|border.
+    // zxula.vhd:504 (border cycle of the ULAnext encoder) + :418.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x07);   // list format — no select_bgnd
+        bed.ula.set_border(3);
+        bed.ula.init_border_per_line();
+        // Poke entry 0x83 := (7,0,0) red.  The reset repeat holds colour 3
+        // (magenta) there — identical to std paper entry 0x13 — so without
+        // the poke the wrong indexing is invisible.
+        bed.palette.write_control(0x00);
+        bed.palette.set_index(0x83);
+        bed.palette.write_8bit(0xE0);       // RRRGGGBB = 111 000 00
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t exp     = bed.palette.ula_colour(false, 0x83);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x13);
+        const uint32_t got_l   = line[0];
+        const uint32_t got_r   = line[Ula::DISP_X + Ula::DISP_W];
+        check("S6.16",
+              "zxula.vhd:494-504 — STANDARD display-row border strips under "
+              "ULAnext index ULA palette entry 0x80|border (0x83), not std "
+              "paper 0x10|border (GH #96)",
+              got_l == exp && got_r == exp && exp != std_old,
+              fmt("left=0x%08X right=0x%08X exp=0x%08X std_old=0x%08X",
+                  got_l, got_r, exp, std_old));
+    }
+
+    // S6.17 (GH #96) — STANDARD display-row strips, format 0xFF:
+    // border cycle asserts ula_select_bgnd (zxula.vhd:500-502) and the
+    // strip takes the NR $4A fallback (zxnext.vhd:6987-6991).
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        bed.ula.set_border(2);
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF123456u;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t got_l = line[Ula::DISP_X - 1];
+        const uint32_t got_r = line[Ula::FB_WIDTH - 1];
+        check("S6.17",
+              "zxula.vhd:500-502 + zxnext.vhd:6987-6991 — STANDARD display-"
+              "row border strips under ULAnext format 0xFF take the NR $4A "
+              "fallback (GH #96)",
+              got_l == sentinel && got_r == sentinel,
+              fmt("left=0x%08X right=0x%08X exp sentinel=0x%08X",
+                  got_l, got_r, sentinel));
+    }
+
+    // S6.18 (GH #96) — HI_COLOUR display-row strips, ULAnext list format:
+    // same border-cycle routing as S6.16 through the
+    // render_display_line_hicolour path (port 0xFF mode 010, zxula.vhd:191).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);      // HI_COLOUR
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x07);
+        bed.ula.set_border(5);
+        bed.ula.init_border_per_line();
+        bed.palette.write_control(0x00);
+        bed.palette.set_index(0x85);        // 0x80 | border(5)
+        bed.palette.write_8bit(0x1C);       // RRRGGGBB = 000 111 00 green
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t exp     = bed.palette.ula_colour(false, 0x85);
+        const uint32_t std_old = bed.palette.ula_colour(false, 0x15);
+        const uint32_t got_l   = line[0];
+        const uint32_t got_r   = line[Ula::DISP_X + Ula::DISP_W];
+        check("S6.18",
+              "zxula.vhd:494-504 — HI_COLOUR display-row border strips under "
+              "ULAnext index entry 0x80|border (0x85), not std paper 0x15 "
+              "(GH #96)",
+              got_l == exp && got_r == exp && exp != std_old,
+              fmt("left=0x%08X right=0x%08X exp=0x%08X std_old=0x%08X",
+                  got_l, got_r, exp, std_old));
+    }
+
+    // S6.19 (GH #96) — HI_COLOUR display-row strips, format 0xFF → NR $4A
+    // fallback (zxula.vhd:500-502 + zxnext.vhd:6987-6991).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);      // HI_COLOUR
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        bed.ula.set_border(1);
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF654321u;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t got_l = line[Ula::DISP_X - 1];
+        const uint32_t got_r = line[Ula::FB_WIDTH - 1];
+        check("S6.19",
+              "zxula.vhd:500-502 + zxnext.vhd:6987-6991 — HI_COLOUR display-"
+              "row border strips under ULAnext format 0xFF take the NR $4A "
+              "fallback (GH #96)",
+              got_l == sentinel && got_r == sentinel,
+              fmt("left=0x%08X right=0x%08X exp sentinel=0x%08X",
+                  got_l, got_r, sentinel));
+    }
+
+    // S6.20 (GH #97) — SCROLLED-path paper select_bgnd consumer.
+    // Non-list format (zxula.vhd:525 `when others` → ula_select_bgnd) on a
+    // paper cycle must resolve to the NR $4A fallback (zxnext.vhd:6987-6991)
+    // through the X-scrolled per-pixel path (scroll_x != 0 forces it;
+    // zxula.vhd:199).  Pixel bytes are 0x00, so every display cell is paper.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x05);   // non-list → paper select_bgnd
+        bed.ula.set_ula_scroll_x_coarse(8); // force the scrolled path
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF0FEDC0u;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t got0 = line[Ula::DISP_X + 0];
+        const uint32_t got1 = line[Ula::DISP_X + Ula::DISP_W - 1];
+        check("S6.20",
+              "zxula.vhd:525 + zxnext.vhd:6987-6991 — scrolled-path ULAnext "
+              "paper with non-list format 0x05 takes the NR $4A fallback "
+              "(scroll_x=8 forces the per-pixel path) (GH #97)",
+              got0 == sentinel && got1 == sentinel,
+              fmt("first=0x%08X last=0x%08X exp sentinel=0x%08X",
+                  got0, got1, sentinel));
+    }
+
+    // S6.21 (GH #97) — HI_COLOUR-path paper select_bgnd consumer.
+    // Same VHDL contract as S6.20 through render_display_line_hicolour.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);      // HI_COLOUR
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x05);
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF0ABCDEu;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t got0 = line[Ula::DISP_X + 0];
+        const uint32_t got1 = line[Ula::DISP_X + Ula::DISP_W - 1];
+        check("S6.21",
+              "zxula.vhd:525 + zxnext.vhd:6987-6991 — HI_COLOUR ULAnext "
+              "paper with non-list format 0x05 takes the NR $4A fallback "
+              "(GH #97)",
+              got0 == sentinel && got1 == sentinel,
+              fmt("first=0x%08X last=0x%08X exp sentinel=0x%08X",
+                  got0, got1, sentinel));
+    }
+
+    // S6.22 (GH #97) — HI_RES-path paper select_bgnd consumer.
+    // In HI_RES the attr is the synthesized border_clr_tmx (zxula.vhd:419,
+    // 426-427); a paper cycle under non-list format still hits the
+    // `when others` arm (zxula.vhd:525) and must take the NR $4A fallback.
+    // Screen bytes are 0x00 so every display cell is a paper cell.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x06);      // HI_RES, port_ff(5:3)=0
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x05);
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF0F1E2Du;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu);
+
+        const uint32_t got0 = line[Ula::DISP_X + 0];
+        const uint32_t got1 = line[Ula::DISP_X + Ula::DISP_W - 1];
+        check("S6.22",
+              "zxula.vhd:525 + zxnext.vhd:6987-6991 — HI_RES ULAnext paper "
+              "with non-list format 0x05 takes the NR $4A fallback (GH #97)",
+              got0 == sentinel && got1 == sentinel,
+              fmt("first=0x%08X last=0x%08X exp sentinel=0x%08X",
+                  got0, got1, sentinel));
+    }
+
+    // S6.23 (GH #97) — TMX full-border-row select_bgnd consumer
+    // (render_border_line, use_tmx path).  Top border row in HI_RES with
+    // ULAnext format 0xFF: the border cycle asserts ula_select_bgnd
+    // (zxula.vhd:500-502) and the whole row takes the NR $4A fallback
+    // (zxnext.vhd:6987-6991).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x06);      // HI_RES → border_clr_tmx source
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        bed.ula.init_border_per_line();
+        const uint32_t sentinel = 0xFF13579Bu;
+        bed.ula.set_select_bgnd_argb(sentinel);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);   // top border row
+
+        const uint32_t got0 = line[0];
+        const uint32_t got1 = line[Ula::FB_WIDTH / 2];
+        const uint32_t got2 = line[Ula::FB_WIDTH - 1];
+        check("S6.23",
+              "zxula.vhd:500-502 + zxnext.vhd:6987-6991 — TMX border row "
+              "(HI_RES) under ULAnext format 0xFF takes the NR $4A fallback "
+              "across the full row (GH #97)",
+              got0 == sentinel && got1 == sentinel && got2 == sentinel,
+              fmt("x0=0x%08X mid=0x%08X x639=0x%08X exp sentinel=0x%08X",
+                  got0, got1, got2, sentinel));
+    }
 }
 
 // =========================================================================
