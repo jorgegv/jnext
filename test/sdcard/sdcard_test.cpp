@@ -2028,8 +2028,8 @@ static void test_sd_33_cmd10_cid_mdt_year() {
     (void)send_cmd_r1(sd, 55, 0);
     (void)send_cmd_r1(sd, 41, 0x40000000);  // ACMD41 -> initialized_=true
 
-    // CMD10 SEND_CID — response is NCR + R1(0x00) + 0xFE + 16 CID bytes +
-    // 2 CRC bytes (20 bytes total).
+    // CMD10 SEND_CID — response is NCR + R1(0x00) + Nac gap + 0xFE + 16 CID
+    // bytes + 2 CRC bytes (21 bytes total, GH #98).
     uint8_t r1 = send_cmd_r1(sd, 10, 0);
     // GH #98: CMD10 now inserts a ≥1-byte Nac gap (§ 7.5.2) between R1 and
     // the token, so token-poll like a real host instead of assuming the
