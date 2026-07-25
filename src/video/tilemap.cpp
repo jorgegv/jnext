@@ -27,6 +27,7 @@ void Tilemap::reset()
     def_base_addr_ = decode_base_addr(0x0C);
     scroll_x_      = 0;
     scroll_y_      = 0;
+    fetch_per_line_active_ = false;
 
     // Per-scanline NR 0x6B change log cleared. Baseline reset to current
     // (zero) state; start_frame_nr6b() will re-snapshot from the live
@@ -362,8 +363,12 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // Use per-scanline scroll values (captured during the frame loop).
     const uint16_t line_scroll_x = (y >= 0 && y < kSnapshotLines) ? scroll_x_per_line_[y] : scroll_x_;
     const uint8_t  line_scroll_y = (y >= 0 && y < kSnapshotLines) ? scroll_y_per_line_[y] : scroll_y_;
-
-
+    const uint32_t line_map_base = (fetch_per_line_active_ && y >= 0 && y < kSnapshotLines)
+        ? map_base_addr_per_line_[y] : map_base_addr_;
+    const uint32_t line_def_base = (fetch_per_line_active_ && y >= 0 && y < kSnapshotLines)
+        ? def_base_addr_per_line_[y] : def_base_addr_;
+    const uint8_t line_default_attr = (fetch_per_line_active_ && y >= 0 && y < kSnapshotLines)
+        ? default_attr_per_line_[y] : default_attr_;
 
     // Compute the absolute Y position with scroll applied (wraps at 256).
     const int abs_y = (y + line_scroll_y) & 0xFF;
@@ -470,13 +475,13 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             cached_tile_col = tile_col;
 
             // Read tile index from map memory.
-            uint32_t map_addr = map_base_addr_ + (map_row_offset + tile_col) * map_entry_size;
+            uint32_t map_addr = line_map_base + (map_row_offset + tile_col) * map_entry_size;
             uint8_t tile_index = vram_read(ram, map_addr);
 
             // Read or apply attribute.
             uint8_t attr;
             if (force_attr_) {
-                attr = default_attr_;
+                attr = line_default_attr;
             } else {
                 attr = vram_read(ram, map_addr + 1);
             }
@@ -534,7 +539,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             // on the pixel column), so we prefetch nothing for it.
             if (text_mode_) {
                 // eff_py == pixel_y (no transform in text mode).
-                uint32_t def_addr = def_base_addr_
+                uint32_t def_addr = line_def_base
                     + static_cast<uint32_t>(full_tile_index) * 8
                     + static_cast<uint32_t>(pixel_y);
                 row_text = vram_read(ram, def_addr);
@@ -544,7 +549,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                 // path (where it becomes transformed_x after the swap).
                 eff_py_tile = y_mirror ? (7 - pixel_y) : pixel_y;
                 if (!rotate) {
-                    uint32_t row_base = def_base_addr_
+                    uint32_t row_base = line_def_base
                         + static_cast<uint32_t>(full_tile_index) * 32
                         + static_cast<uint32_t>(eff_py_tile) * 4;
                     row_std[0] = vram_read(ram, row_base + 0);
@@ -584,7 +589,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             int eff_px = eff_x_mirror ? (7 - pixel_x) : pixel_x;
             int eff_py = eff_py_tile;                 // = y_mirror ? 7-pixel_y : pixel_y
             { int tmp = eff_px; eff_px = eff_py; eff_py = tmp; }  // rotate swap
-            uint32_t def_addr = def_base_addr_
+            uint32_t def_addr = line_def_base
                 + static_cast<uint32_t>(full_tile_index) * 32
                 + static_cast<uint32_t>(eff_py) * 4
                 + (eff_px >> 1);
@@ -672,4 +677,5 @@ void Tilemap::load_state(StateReader& r)
     clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
     clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
     palette_sel_ = r.read_bool();   // NR 0x6B bit 4
+    fetch_per_line_active_ = false;
 }

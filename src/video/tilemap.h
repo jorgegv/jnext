@@ -139,6 +139,26 @@ public:
         scroll_y_per_line_.fill(scroll_y_);
     }
 
+    /// Snapshot the tile-fetch inputs that may change at raster boundaries.
+    /// NR 0x6C/0x6E/0x6F feed the tilemap pipeline continuously in hardware;
+    /// keeping one value for the whole rendered frame breaks HUD/playfield
+    /// splits such as TX-1696.
+    void snapshot_fetch_for_line(int line) {
+        if (line >= 0 && line < kSnapshotLines) {
+            map_base_addr_per_line_[line] = map_base_addr_;
+            def_base_addr_per_line_[line] = def_base_addr_;
+            default_attr_per_line_[line] = default_attr_;
+        }
+    }
+
+    /// Initialize per-line tile-fetch state from the frame-start registers.
+    void init_fetch_per_line() {
+        map_base_addr_per_line_.fill(map_base_addr_);
+        def_base_addr_per_line_.fill(def_base_addr_);
+        default_attr_per_line_.fill(default_attr_);
+        fetch_per_line_active_ = true;
+    }
+
     /// Test/debug accessor: per-line snapshotted X scroll for a scanline.
     /// Returns 0 if the line index is out of range.
     uint16_t scroll_x_for_line(int line) const {
@@ -309,6 +329,14 @@ private:
     // Sized via kSnapshotLines (>= max lines_per_frame across all machines).
     std::array<uint16_t, kSnapshotLines> scroll_x_per_line_{};
     std::array<uint8_t,  kSnapshotLines> scroll_y_per_line_{};
+
+    // Per-scanline tile-fetch snapshots. NR 0x6C/0x6E/0x6F are live
+    // pipeline inputs in tilemap.vhd; raster code can switch them between a
+    // fixed HUD and a scrolling playfield inside one frame.
+    std::array<uint32_t, kSnapshotLines> map_base_addr_per_line_{};
+    std::array<uint32_t, kSnapshotLines> def_base_addr_per_line_{};
+    std::array<uint8_t,  kSnapshotLines> default_attr_per_line_{};
+    bool fetch_per_line_active_ = false;
 
     // Clip window — VHDL reset defaults from zxnext.vhd:4977-4980
     // (0x00 / 0x9F / 0x00 / 0xFF cover the full 320x256 visible area;
