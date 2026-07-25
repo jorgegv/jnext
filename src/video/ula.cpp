@@ -1232,11 +1232,28 @@ void Ula::render_border_line(uint32_t* row, bool* border_dst)
     if (!use_tmx) {
         // Standard non-Timex border path (port 0xFE bits 2:0).
         // VHDL :418 — border_clr <= "00" & port_fe(2:0) & port_fe(2:0)
-        // (attr(5:3) = attr(2:0) = border_colour, attr(6)=0).  Through
-        // std-ULA encoder paper cycle: ula_pixel = 0x10 | (border & 7).
+        // (attr(5:3) = attr(2:0) = border_colour, attr(6)=0).
+        // border_active_v (zxula.vhd:414-415) makes NO distinction between
+        // full top/bottom border rows and in-row strips: border_active_d=1
+        // selects the border cycle of the ACTIVE encoder (GH #103 — same
+        // dispatch as the GH #96 strip sites):
+        //   - ULAnext (zxula.vhd:494-504): ula_pixel = pbi(7:3) & attr(5:3)
+        //     = 0x80 | border, plus ula_select_bgnd when format = 0xFF,
+        //     which routes to the NR $4A fallback (zxnext.vhd:6987-6991).
+        //   - std-ULA (zxula.vhd:543-553): ula_pixel = 0x10 | (border & 7).
         const uint8_t border_attr = static_cast<uint8_t>(
             ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
-        const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
+        uint32_t border_argb;
+        if (ulanext_en_ && palette_) {
+            const auto bp = compute_ulanext_pixel(/*pixel_en*/false,
+                                                  /*border*/true, border_attr);
+            border_argb = bp.select_bgnd
+                              ? select_bgnd_argb_
+                              : palette_->ula_colour(active_ula_palette_,
+                                                     bp.pixel);
+        } else {
+            border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
+        }
         for (int x = 0; x < FB_WIDTH; ++x) {
             row[x] = border_argb;
             // VHDL zxula.vhd:415 — border_active_v is forced high on every
