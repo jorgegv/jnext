@@ -40,6 +40,7 @@ need to be accurate for high-fidelity demos like Nirvana.
 | Fallback colour (NR 0x4A) | `fallback_per_line_` snapshot | Renderer | copper_demo |
 | ULA enabled (NR 0x68 bit 7) | `ula_enabled_per_line_` snapshot | Renderer | UDIS-01/02 |
 | Tilemap scroll X/Y (NR 0x2F/0x30/0x31) | `scroll_x/y_per_line_` snapshot | Tilemap | core |
+| Tilemap fetch state (NR 0x6C/0x6E/0x6F) | map/definition/default-attribute snapshots | Tilemap | TM-SPLIT-01..04 |
 | **Palette (NR 0x40/0x41/0x44)** | **change-log + replay (32 KB cap)** | PaletteManager | beast.nex |
 | NR 0x15 b4:2 layer priority + b0 sprite enable | `write_nr15` change-log + replay (1024 cap) — wired 2026-07-23 (GH #73; rows PSCAN-G02-01..05) | Renderer | beast.nex (0x80↔0x01 toggle) |
 

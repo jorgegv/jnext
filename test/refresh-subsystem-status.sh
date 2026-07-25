@@ -127,6 +127,7 @@ BEGIN {
     M["extended_nex_test"]             = "Extended NEX streaming"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
+    M["tilemap_fetch_split_test"]      = "Tilemap raster splits"
     M["lores_test"]                    = "LoRes"
     M["lores_integration_test"]        = "LoRes (integration)"
     M["nmi_test"]                      = "NMI Source Pipeline"
