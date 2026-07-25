@@ -164,7 +164,7 @@ win-release:
 		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain/libraries incomplete.\n"; \
 		printf "  Install them all:\n"; \
 		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \\\\\n"; \
-		printf "    mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \\\\\n"; \
+		printf "    mingw64-sdl2-compat mingw64-zlib \\\\\n"; \
 		printf "    mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
 		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
 		exit 1; \
@@ -188,7 +188,7 @@ win-sdl-release:
 		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain incomplete.\n"; \
 		printf "  Install it:\n"; \
 		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-sdl2-compat \\\\\n"; \
-		printf "    mingw64-curl mingw64-openssl mingw64-zlib mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
+		printf "    mingw64-zlib mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
 		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
 		exit 1; \
 	fi
