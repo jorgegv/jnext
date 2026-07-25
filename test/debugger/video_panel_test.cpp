@@ -91,6 +91,13 @@
 //           third array. Layer2::render_scanline_debug used to read the live
 //           register directly, so a mid-frame NR 0x14 write flattened every
 //           row in the view to the frame's END-OF-PAUSE value.
+//   DVP-22  GH #95: the ULA Primary/Shadow views thread the per-line NR 0x4A
+//           fallback into Ula::render_scanline_bank, so a ULAnext
+//           `ula_select_bgnd` pixel (zxula.vhd:490/499-501/525, consumed at
+//           zxnext.vhd:6986-6991) shows the row's replayed fallback rather
+//           than a stale scratch value — the DVP-05/18/21 per-line-snapshot
+//           bug class at a fourth call site (render_scanline_bank bypasses
+//           Renderer::render_row's set_select_bgnd_argb push).
 //
 // Qt is required (the panel is a QWidget), but no display is: the test forces
 // the offscreen QPA platform.  Run: ./build/test/debugger_video_panel_test
@@ -918,6 +925,113 @@ static void test_ula_clip_window(Emulator& emu) {
           "…and clips the border strips when clip_x1 > 0 / clip_x2 < 255",
           border != argb_ink,
           fmt("got=0x%08X", border));
+}
+
+// ── DVP-22: ULA views thread the per-line NR 0x4A fallback (GH #95) ───
+//
+// LR-140 made Ula::render_scanline substitute the NR $4A fallback colour for
+// any ULAnext pixel whose encoding asserts `ula_select_bgnd`
+// (zxula.vhd:490 default '0', :499-501 border under format 0xFF, :525 the
+// "when others" paper arm; consumer zxnext.vhd:6986-6991).  In the live
+// pipeline Renderer::render_row pushes the row's REPLAYED fallback into the
+// ULA (set_select_bgnd_argb) before every render_scanline call.  The panel's
+// ULA Primary/Shadow views call Ula::render_scanline_bank directly, which
+// bypassed that push — so a ULAnext select_bgnd pixel rendered with whatever
+// value was last pushed (the class reset scratch 0xFFFF00FF if no frame had
+// rendered), and a mid-frame NR $4A split was invisible in those views.
+//
+// Stimulus: ULAnext enabled with format 0xFF — every paper cycle hits the
+// zxula.vhd:525 "when others" arm and asserts ula_select_bgnd — and an
+// all-paper screen (pixel bytes 0x00), so every display pixel takes the
+// fallback.  NR 0x4A changes mid-frame via the same direct
+// snapshot_fallback_for_line pokes DVP-18 uses (the Copper end-to-end proof
+// of how that array is filled is DVP-18b's job; not duplicated here).
+
+static void test_ula_view_select_bgnd_fallback(Emulator& emu) {
+    set_group("DVP-ULA-BGND");
+
+    constexpr uint8_t SKY    = 0x13;   // #0092FF
+    constexpr uint8_t GROUND = 0xE0;   // bright red
+    constexpr int     SPLIT  = 100;    // framebuffer row of the NR 0x4A write
+
+    const uint32_t argb_sky    = Renderer::rrrgggbb_to_argb(SKY);
+    const uint32_t argb_ground = Renderer::rrrgggbb_to_argb(GROUND);
+    // What an un-threaded render_scanline_bank paints: the Ula class reset
+    // scratch — NR $4A reset X"E3" expanded (zxnext.vhd:5014).
+    const uint32_t argb_stale  = Renderer::rrrgggbb_to_argb(0xE3);
+
+    check("DVP-22a",
+          "test premise: sky/ground fallbacks differ from each other and from "
+          "the stale reset scratch an un-threaded render would show",
+          argb_sky != argb_ground && argb_sky != argb_stale
+              && argb_ground != argb_stale,
+          fmt("sky=0x%08X ground=0x%08X stale=0x%08X",
+              argb_sky, argb_ground, argb_stale));
+
+    emu.layer2().set_enabled(false);
+
+    Ula& ula = emu.ula();
+    ula.set_ula_enabled(true);
+    ula.set_screen_mode(0x00);          // Timex STANDARD
+    ula.set_shadow_screen_en(false);
+    ula.set_clip_x1(0); ula.set_clip_x2(255);
+    ula.set_clip_y1(0); ula.set_clip_y2(191);
+
+    // ULAnext with the invalid format 0xFF: every paper cycle asserts
+    // ula_select_bgnd (zxula.vhd:525).
+    ula.set_ulanext_en(true);
+    ula.set_ulanext_format(0xFF);
+
+    // All-paper pixel bytes in BOTH banks, so every display pixel of both
+    // views is a select_bgnd paper cycle.  Attributes zeroed for determinism
+    // (the select_bgnd arm ignores them).
+    uint8_t* b5 = emu.mmu().bank5_vram();
+    uint8_t* b7 = emu.mmu().bank7_bram();
+    for (int i = 0; i < 0x1B00; ++i) { b5[i] = 0x00; b7[i] = 0x00; }
+
+    Renderer& r = emu.renderer();
+    r.set_fallback_colour(SKY);
+
+    begin_frame(emu);   // init_fallback_per_line() → every row = SKY
+
+    // Simulate the raster walking the frame with NR 0x4A changing at SPLIT —
+    // the snapshot half of what Emulator::on_scanline does (DVP-18 idiom).
+    for (int row = 0; row < SPLIT; ++row) r.snapshot_fallback_for_line(row);
+    r.set_fallback_colour(GROUND);
+    for (int row = SPLIT; row < Renderer::FB_HEIGHT; ++row)
+        r.snapshot_fallback_for_line(row);
+
+    const int cell = 64 + 2 * 10;   // display column 10, inside the clip
+
+    QImage img = render_view(emu, VideoLayerView::Layer::ULA_PRIMARY,
+                             Renderer::FB_HEIGHT - 1);
+    check("DVP-22",
+          "ULA PRIMARY view: a ULAnext select_bgnd paper pixel above the "
+          "split shows that row's NR 0x4A fallback (zxula.vhd:525 → "
+          "zxnext.vhd:6986-6991), not a stale scratch value",
+          px(img, cell, SPLIT - 1) == argb_sky,
+          fmt("row%d=0x%08X want sky=0x%08X (stale=0x%08X)",
+              SPLIT - 1, px(img, cell, SPLIT - 1), argb_sky, argb_stale));
+    check("DVP-22b",
+          "…and the row the NR 0x4A write landed on, and rows below, already "
+          "show the new fallback — the view threads the PER-LINE snapshot "
+          "through render_scanline_bank",
+          px(img, cell, SPLIT) == argb_ground
+              && px(img, cell, fb_row_of(180)) == argb_ground,
+          fmt("row%d=0x%08X row%d=0x%08X want ground=0x%08X",
+              SPLIT, px(img, cell, SPLIT),
+              fb_row_of(180), px(img, cell, fb_row_of(180)), argb_ground));
+
+    QImage sh = render_view(emu, VideoLayerView::Layer::ULA_SHADOW,
+                            Renderer::FB_HEIGHT - 1);
+    check("DVP-22c",
+          "ULA SHADOW view threads the same per-line fallback (same call "
+          "site, use_bank7 variant)",
+          px(sh, cell, SPLIT - 1) == argb_sky
+              && px(sh, cell, SPLIT) == argb_ground,
+          fmt("row%d=0x%08X (want sky) row%d=0x%08X (want ground)",
+              SPLIT - 1, px(sh, cell, SPLIT - 1),
+              SPLIT, px(sh, cell, SPLIT)));
 }
 
 // ── DVP-10/11: "Run to EOF" / "Run to EOSL" raster targets ────────────
@@ -2045,6 +2159,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_ula_clip_window(emu);
         std::printf("  Group: DVP-ULA-CLIP   — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_ula_view_select_bgnd_fallback(emu);
+        std::printf("  Group: DVP-ULA-BGND   — done\n");
     }
     test_run_to_targets();
     std::printf("  Group: DVP-RUNTO      — done\n");

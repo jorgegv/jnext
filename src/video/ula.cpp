@@ -559,12 +559,24 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
 // STANDARD-mode-only path, so a Timex hi-colour / hi-res program's shadow
 // screen was decoded with the wrong layout.)
 
-void Ula::render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7)
+// GH #95: this direct-call path bypasses Renderer::render_row, which is
+// where the live pipeline pushes the row's NR $4A fallback into
+// select_bgnd_argb_ before every render_scanline call (renderer.cpp).  A
+// ULAnext pixel that asserts `ula_select_bgnd` (zxula.vhd:490/499-501/525,
+// consumed at zxnext.vhd:6986-6991) would therefore render with a stale
+// value, so the caller threads the row's expanded fallback in as a
+// parameter.  Saved/restored like the bank selector.
+
+void Ula::render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7,
+                               uint32_t select_bgnd_argb)
 {
-    const bool saved_bank7 = vram_use_bank7_;
-    vram_use_bank7_ = use_bank7;
+    const bool     saved_bank7 = vram_use_bank7_;
+    const uint32_t saved_bgnd  = select_bgnd_argb_;
+    vram_use_bank7_   = use_bank7;
+    select_bgnd_argb_ = select_bgnd_argb;
     render_scanline(dst, row, mmu, /*border_dst=*/nullptr);
-    vram_use_bank7_ = saved_bank7;
+    vram_use_bank7_   = saved_bank7;
+    select_bgnd_argb_ = saved_bgnd;
 }
 
 // ---------------------------------------------------------------------------

@@ -680,11 +680,26 @@ public:
     /// exactly as in the live path.  Saves/restores the live bank selector,
     /// so it does NOT disturb emulation state.  Border-flag plumbing is
     /// unused for the debugger view (always nullptr).
-    void render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7);
+    ///
+    /// `select_bgnd_argb` is the row's NR $4A fallback colour, expanded to
+    /// ARGB (GH #95).  render_scanline reads it wherever a ULAnext pixel
+    /// asserts `ula_select_bgnd` (zxula.vhd:490/499-501/525, consumed at
+    /// zxnext.vhd:6986-6991), and in the live path Renderer::render_row
+    /// pushes the per-row replayed value via set_select_bgnd_argb before
+    /// every call.  This direct-call path bypasses render_row, so the
+    /// caller must thread the same per-row source of truth
+    /// (Renderer::fallback_for_line) explicitly — a parameter, not a
+    /// default, so it cannot silently go stale again (the Task 46
+    /// transparent_rgb precedent on Layer2::render_scanline_debug).
+    /// Saved/restored around the call like the bank selector.
+    void render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7,
+                              uint32_t select_bgnd_argb);
 
     /// Shadow-screen (bank 7) convenience wrapper for render_scanline_bank.
-    void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu) {
-        render_scanline_bank(dst, row, mmu, /*use_bank7=*/true);
+    void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu,
+                                 uint32_t select_bgnd_argb) {
+        render_scanline_bank(dst, row, mmu, /*use_bank7=*/true,
+                             select_bgnd_argb);
     }
 
     /// Advance flash state (call once per frame after all scanlines rendered).

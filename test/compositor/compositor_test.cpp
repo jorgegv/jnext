@@ -4317,8 +4317,13 @@ struct Fix {
 
     /// Render only the ULA half of the pipeline for one row, WITHOUT the
     /// LoRes substitution — the "pure ULA reference" LR-20/LR-165 compare
-    /// against. Same sequence render_row uses minus apply_lores.
+    /// against. Same sequence render_row uses minus apply_lores — including
+    /// the per-row NR $4A fallback push (GH #95: render_scanline consumes
+    /// select_bgnd_argb_, and without this push the reference depended on
+    /// whatever a preceding render() call happened to leave behind).
     void render_ula_only(uint32_t* out, int fb_row) {
+        r.ula().set_select_bgnd_argb(
+            Renderer::rrrgggbb_to_argb(r.fallback_for_line(fb_row)));
         r.ula().render_scanline(out, fb_row, mmu, nullptr);
         if (!r.ula_enabled_per_line_[fb_row])
             std::fill_n(out, Renderer::FB_WIDTH, TRANSP);

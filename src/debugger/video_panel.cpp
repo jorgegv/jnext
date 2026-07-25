@@ -374,9 +374,17 @@ void VideoLayerView::render_to_image(int vc)
                 // Force the bank: the live render_scanline() follows the
                 // port-0x7FFD b3 shadow selector, so with the shadow screen
                 // active the "Primary (bank 5)" view used to show bank 7.
+                // GH #95: thread the row's NR $4A fallback into the direct
+                // bank render — render_scanline_bank bypasses render_row's
+                // per-row set_select_bgnd_argb push, so a ULAnext
+                // `ula_select_bgnd` pixel (zxula.vhd:490/499-501/525 →
+                // zxnext.vhd:6986-6991) would otherwise show a stale value.
+                // Same per-line snapshot the BACKGROUND view reads below.
                 emu.ula().render_scanline_bank(
                     dst, row, emu.mmu(),
-                    /*use_bank7=*/layer_ == Layer::ULA_SHADOW);
+                    /*use_bank7=*/layer_ == Layer::ULA_SHADOW,
+                    Renderer::rrrgggbb_to_argb(
+                        emu.renderer().fallback_for_line(row)));
                 // The ULA is the one layer whose clip window (NR 0x1A) is
                 // applied by the COMPOSITOR rather than inside its own
                 // render_scanline (VHDL zxnext.vhd:7104 — ula_clipped feeds
