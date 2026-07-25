@@ -68,7 +68,13 @@ using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 
 // Download seam: fetch `url` into local file `dest_path`, reporting progress
 // via `progress` (may be empty). Returns true on success, else sets `err`.
-// Default impl uses libcurl.
+// Default impl is platform-native: libcurl on Linux/macOS
+// (sdcard_provisioner_net_curl.cpp), WinHTTP on Windows
+// (sdcard_provisioner_net_win.cpp — GH #108 Phase B, so the Windows packages
+// carry no curl/OpenSSL DLLs and stay Win7-clean). Test seam: the env var
+// $JNEXT_SDCARD_DISTRO_URL, when set and non-empty, replaces kDistroUrl in
+// provision_sd_card (points the real download path at a local fixture server;
+// never documented to users).
 using DownloadFn = std::function<bool(const std::string& url,
                                       const std::string& dest_path,
                                       const ProgressFn& progress,
@@ -106,9 +112,10 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work);
 bool default_copy_file(const std::string& src, const std::string& dst,
                        std::string& err);
 
-// SHA256 helpers (OpenSSL EVP). `sha256_hex` digests an in-memory buffer;
-// `sha256_file` digests a whole file. Both return a lowercase hex string
-// ("" on error, e.g. the file cannot be read).
+// SHA256 helpers (OpenSSL EVP on Linux/macOS, BCrypt/CNG on Windows — same
+// per-platform split as the download above). `sha256_hex` digests an
+// in-memory buffer; `sha256_file` digests a whole file. Both return a
+// lowercase hex string ("" on error, e.g. the file cannot be read).
 std::string sha256_hex(const std::vector<uint8_t>& bytes);
 std::string sha256_file(const std::string& path);
 

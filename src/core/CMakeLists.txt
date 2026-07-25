@@ -58,4 +58,14 @@ target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOU
 target_link_libraries(jnext_core PUBLIC
     jnext_input jnext_peripheral jnext_debug jnext_profiler
     jnext_cpu jnext_memory jnext_video jnext_audio jnext_port
-    spdlog::spdlog zot_tzx ZLIB::ZLIB CURL::libcurl OpenSSL::Crypto)
+    spdlog::spdlog zot_tzx ZLIB::ZLIB)
+# SD-card provisioner network/hash backend (GH #108 Phase B): OS-native
+# WinHTTP + BCrypt on Windows (system import libs, present in every MinGW
+# sysroot — OS components, not dependencies), libcurl + OpenSSL elsewhere.
+# The matching source split is sdcard_provisioner_net_{win,curl}.cpp, each
+# whole-file-#ifdef'd so the GLOB above stays platform-correct.
+if(WIN32)
+    target_link_libraries(jnext_core PUBLIC winhttp bcrypt)
+else()
+    target_link_libraries(jnext_core PUBLIC CURL::libcurl OpenSSL::Crypto)
+endif()
