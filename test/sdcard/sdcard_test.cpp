@@ -16,7 +16,7 @@
 //                         new command ends the stream. NextZXOS's esxDOS
 //                         driver relies on this across driver calls —
 //                         the 2026-07-10 NextZXOS-boot fix).
-//   SD-NAC-01/02/03     — ≥1 idle (0xFF) Nac gap byte between R1 and the
+//   SD-NAC-01..05       — ≥1 idle (0xFF) Nac gap byte between R1 and the
 //                         0xFE data token on CMD17/CMD18 first block (SD
 //                         Physical Layer Simplified Spec § 7.5.2). GH #84:
 //                         zero-gap token emission shifted Atic Atac Next's
@@ -409,6 +409,41 @@ static void test_nac_gap(SdCardDevice& sd) {
           (r1 == 0x00) && tok && f1[0] == 0x03,
           "r1=" + std::to_string(r1) + " tok=" + (tok ? "1" : "0") +
           " b0=" + std::to_string(f1[0]) + " (b0==4 => one-sector shift)");
+
+    // SD-NAC-04: same § 7.5.2 contract on CMD9 SEND_CSD (GH #98 — the
+    // #84 fix reviewer spotted that the CSD/CID block reads still emitted
+    // R1 and 0xFE back-to-back). Byte after R1 must be an idle 0xFF, the
+    // token must still follow, and the payload must still be the CSD
+    // (CSD_STRUCTURE=01 -> first byte 0x40, SD spec § 5.3.3).
+    sd.reset();
+    init_card(sd);
+    r1 = send_cmd_r1(sd, 9, 0);
+    gap = spi_read(sd);
+    tok = wait_token(sd);
+    uint8_t csd0 = tok ? spi_read(sd) : 0;
+    for (int i = 0; i < 15 + 2 && tok; ++i) (void)spi_read(sd);  // rest + CRC
+    sd.deselect();
+    check("SD-NAC-04",
+          "CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token",
+          (r1 == 0x00) && gap == 0xFF && tok && csd0 == 0x40,
+          "r1=" + std::to_string(r1) + " gap=" + std::to_string(gap) +
+          " tok=" + (tok ? "1" : "0") + " csd0=" + std::to_string(csd0));
+
+    // SD-NAC-05: same contract on CMD10 SEND_CID. Payload check: CID[0] is
+    // the Manufacturer ID 0x03 (SD spec § 5.2).
+    sd.reset();
+    init_card(sd);
+    r1 = send_cmd_r1(sd, 10, 0);
+    gap = spi_read(sd);
+    tok = wait_token(sd);
+    uint8_t cid0 = tok ? spi_read(sd) : 0;
+    for (int i = 0; i < 15 + 2 && tok; ++i) (void)spi_read(sd);  // rest + CRC
+    sd.deselect();
+    check("SD-NAC-05",
+          "CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token",
+          (r1 == 0x00) && gap == 0xFF && tok && cid0 == 0x03,
+          "r1=" + std::to_string(r1) + " gap=" + std::to_string(gap) +
+          " tok=" + (tok ? "1" : "0") + " cid0=" + std::to_string(cid0));
 }
 
 static void test_cmd18_stream_survives_deselect(SdCardDevice& sd) {
@@ -1993,10 +2028,14 @@ static void test_sd_33_cmd10_cid_mdt_year() {
     (void)send_cmd_r1(sd, 55, 0);
     (void)send_cmd_r1(sd, 41, 0x40000000);  // ACMD41 -> initialized_=true
 
-    // CMD10 SEND_CID — response is NCR + R1(0x00) + 0xFE + 16 CID bytes +
-    // 2 CRC bytes (20 bytes total).
+    // CMD10 SEND_CID — response is NCR + R1(0x00) + Nac gap + 0xFE + 16 CID
+    // bytes + 2 CRC bytes (21 bytes total, GH #98).
     uint8_t r1 = send_cmd_r1(sd, 10, 0);
-    uint8_t token = spi_read(sd);  // 0xFE start-of-data token
+    // GH #98: CMD10 now inserts a ≥1-byte Nac gap (§ 7.5.2) between R1 and
+    // the token, so token-poll like a real host instead of assuming the
+    // token is the very next byte. The gap contract itself is SD-NAC-05's
+    // job; this row only needs the CID payload.
+    bool token_found = wait_token(sd);
     uint8_t cid_bytes[16];
     for (int i = 0; i < 16; ++i) {
         cid_bytes[i] = spi_read(sd);
@@ -2018,7 +2057,7 @@ static void test_sd_33_cmd10_cid_mdt_year() {
     const int year_full = 2000 + year_offset;
 
     const bool r1_ok        = (r1 == 0x00);
-    const bool token_ok     = (token == 0xFE);
+    const bool token_ok     = token_found;
     const bool cid14_ok     = (cid_bytes[14] == 0xA5);   // discriminative byte
     const bool year_ok      = (year_full == 2026);
     const bool month_ok     = (month == 0x05);
@@ -2030,7 +2069,7 @@ static void test_sd_33_cmd10_cid_mdt_year() {
           "CID[14] = 0xA5 encoding year_offset=0x1A = 2026.",
           r1_ok && token_ok && cid14_ok && year_ok && month_ok,
           "r1=" + std::to_string(r1) +
-          " token=" + std::to_string(token) +
+          " token_found=" + (token_found ? "1" : "0") +
           " cid[14]=" + std::to_string(cid_bytes[14]) +
           " year=" + std::to_string(year_full) +
           " month=" + std::to_string(month));
@@ -2156,7 +2195,7 @@ int main() {
     test_init(sd);
     test_cmd17_read(sd);
     test_cmd18_stream(sd);
-    test_nac_gap(sd);                // SD-NAC-01/02/03 (GH #84)
+    test_nac_gap(sd);                // SD-NAC-01..05 (GH #84, GH #98)
     test_cmd18_end_of_image(sd);
     test_cmd18_cs_deassert_aborts(sd);
     test_cmd18_stream_survives_deselect(sd);
