@@ -3661,6 +3661,114 @@ static void test_sw28_sram_read_wait() {
                       static_cast<unsigned long long>(t35)));
         }
     }
+
+    // CT-SW28-19 — DivMMC overlay reads DO wait at 28 MHz. The arbiter
+    // branches for divmmc_rom_en (zxnext.vhd:3084-3091) and divmmc_ram_en
+    // (:3092-3099) both force sram_active='1' unconditionally — DivMMC
+    // ROM lives in SRAM bank "000001000" and DivMMC RAM in "00001"&bank —
+    // so overlay reads assert sram_req and wait exactly like plain SRAM.
+    // Non-vacuity: a marker round-trip through the DivMMC RAM window
+    // (0x2000-0x3FFF, bank 0) proves the conmem mapping is live — with
+    // conmem off that write would hit read-only ROM and be dropped.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-19", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.port().out(0x00E3, 0x80);      // conmem=1 (divmmc.vhd port 0xE3 bit 7)
+            emu.mmu().write(0x2140, 0xA7);     // marker into DivMMC RAM bank 0
+            const uint64_t t_rom = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            const uint64_t t_ram = sw28_step(emu, {0x7E}, /*hl=*/0x2140);
+            const uint8_t a_ram = static_cast<uint8_t>(
+                emu.cpu().get_registers().AF >> 8);
+            check("CT-SW28-19",
+                  "DivMMC overlay reads at 28 MHz wait: LD A,(HL) from the "
+                  "DivMMC ROM window = 9 T and from the DivMMC RAM window "
+                  "= 9 T with the RAM marker read back — both arbiter "
+                  "branches force sram_active='1' (zxnext.vhd:3084-3099) "
+                  "so sram_req_t + cpu_rd_n='0' waits (:3175)",
+                  t_rom == 9 && t_ram == 9 && a_ram == 0xA7,
+                  fmt("t_rom=%llu t_ram=%llu expected=9/9 A=0x%02X "
+                      "expected=0xA7",
+                      static_cast<unsigned long long>(t_rom),
+                      static_cast<unsigned long long>(t_ram), a_ram));
+        }
+    }
+
+    // CT-SW28-20 — Multiface overlay reads DO wait at 28 MHz. With
+    // mf_mem_en='1' the early decode maps slot 0 to SRAM region
+    // "00000101"&cpu_a(13) with sram_pre_active='1' (zxnext.vhd:3028-3035)
+    // — MF ROM and MF RAM are both SRAM-backed, so reads wait. Activation
+    // mirrors the hardware sequence: button press (nmi_active,
+    // multiface.vhd:141) then the M1 fetch at 0x0066 latches mf_enable
+    // (multiface.vhd:169,176). Non-vacuity: is_mem_active() precondition
+    // + marker round-trip through the MF RAM half (cpu_a(13)=1,
+    // writable per sram_pre_rdonly = NOT cpu_a(13), zxnext.vhd:3035).
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-20", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.multiface().set_enabled(true);
+            emu.multiface().button_press();
+            emu.multiface().on_m1(0x0066, /*mreq_low=*/true);
+            const bool mf_active = emu.multiface().is_mem_active();
+            emu.mmu().write(0x2180, 0x5C);     // marker into MF RAM half
+            const uint64_t t_rom = sw28_step(emu, {0x7E}, /*hl=*/0x0180);
+            const uint64_t t_ram = sw28_step(emu, {0x7E}, /*hl=*/0x2180);
+            const uint8_t a_ram = static_cast<uint8_t>(
+                emu.cpu().get_registers().AF >> 8);
+            check("CT-SW28-20",
+                  "Multiface overlay reads at 28 MHz wait: LD A,(HL) from "
+                  "the MF ROM half = 9 T and from the MF RAM half = 9 T "
+                  "with the RAM marker read back — mf_mem_en decode maps "
+                  "slot 0 to SRAM with sram_pre_active='1' "
+                  "(zxnext.vhd:3028-3035) so reads wait (:3175)",
+                  mf_active && t_rom == 9 && t_ram == 9 && a_ram == 0x5C,
+                  fmt("mf_active=%d t_rom=%llu t_ram=%llu expected=9/9 "
+                      "A=0x%02X expected=0x5C", mf_active ? 1 : 0,
+                      static_cast<unsigned long long>(t_rom),
+                      static_cast<unsigned long long>(t_ram), a_ram));
+        }
+    }
+
+    // CT-SW28-21 — Layer2 read-over reads DO wait at 28 MHz. With port
+    // 0x123B bit 2 (rd_en) the read is redirected to the Layer 2 bank in
+    // SRAM: sram_layer2_map_en (zxnext.vhd:3077) selects the arbiter
+    // branch at :3100-3107 whose active gate is the INDEPENDENT
+    // sram_active = NOT sram_pre_layer2_A21_A13(8) — for any realistic
+    // bank (default NR 0x12 = 8) the page is populated, sram_req fires
+    // and the read waits. Non-vacuity: marker written through the L2
+    // write-over path (bit 0) reads back through the read-over path.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-21", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            // bit0 wr_en + bit2 rd_en, seg=00 (low half 0x0000-0x3FFF
+            // always L2-mapped in the non-MF cases, zxnext.vhd:3043-3057).
+            emu.port().out(0x123B, 0x05);
+            emu.mmu().write(0x21C0, 0x99);     // marker into L2 bank RAM
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x21C0);
+            const uint8_t a = static_cast<uint8_t>(
+                emu.cpu().get_registers().AF >> 8);
+            check("CT-SW28-21",
+                  "Layer2 read-over read at 28 MHz = 9 T with the L2 "
+                  "marker read back — sram_layer2_map_en (zxnext.vhd:3077) "
+                  "routes the read to the L2 bank in SRAM, active gate "
+                  "sram_active = NOT layer2_A21_A13(8) (:3100-3107), so "
+                  "sram_req_t waits (:3175)",
+                  t == 9 && a == 0x99,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x99",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
