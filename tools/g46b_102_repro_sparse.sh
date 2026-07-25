@@ -7,7 +7,7 @@
 # than reproducing an organic bug.
 # Usage: g46b_102_repro_sparse.sh <sdcard.img> <out-png> <screenshot-frame> <exit-frame> [extra jnext args...]
 set -euo pipefail
-BIN=/home/jorgegv/src/spectrum/jnext-worktrees/fix-102/build/gui-release/jnext
+BIN="${JNEXT_BIN:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/build/gui-release/jnext}"
 SD="$1"; OUT="$2"; SFRAME="$3"; EFRAME="$4"; shift 4
 
 args=(--headless --machine next --sdcard "$SD" --sdcard-readonly --rtc "2026-01-01 12:00:00")
