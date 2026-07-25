@@ -77,6 +77,16 @@ public:
     uint16_t joy_left_bits()  const { return joy_left_bits_; }
     uint16_t joy_right_bits() const { return joy_right_bits_; }
 
+    /// Raw connector line 5 — VHDL `i_JOY_LEFT(5)` / `i_JOY_RIGHT(5)`,
+    /// ACTIVE HIGH (true = button C pressed) per zxnext.vhd:90-91
+    /// ("active high  MODE X Z Y START A C B U D L R" → bit 5 = C) and
+    /// the 12-bit vector layout at zxnext.vhd:3441-3442. Consumed by the
+    /// NR 0x0B iomode `joy_uart_rx` mux (zxnext.vhd:3538) via the
+    /// Emulator per-tick feed into IoMode::set_joy_left_bit5() /
+    /// set_joy_right_bit5() (GH #90).
+    bool joy_left_bit5()  const { return (joy_left_bits_  & 0x0020) != 0; }
+    bool joy_right_bit5() const { return (joy_right_bits_ & 0x0020) != 0; }
+
     /// Raw NR 0x05 last-write byte. Pass-8: used by Emulator::init() to
     /// detect whether the cached NR 0x05 byte (preserved across reset by
     /// NextReg) is in sync with the joystick subsystem state, so the
