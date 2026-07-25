@@ -50,6 +50,19 @@ public:
     // Returns the NR 0x50–0x57 register-visible value. At reset this matches
     // the VHDL zxnext.vhd:4611-4618 defaults (MMU0/MMU1 = 0xFF ROM sentinel).
     uint8_t get_page(int slot) const { return nr_mmu_[slot]; }
+
+    // GH #92 — 28 MHz SRAM read wait qualifier (see sram_read_wait28_[]
+    // member comment for the VHDL derivation, zxnext.vhd:3171-3181).
+    // Returns 1 when a CPU memory READ machine cycle at `addr` would incur
+    // the one-cycle sram_wait_n stretch at cpu_speed="11", else 0. The
+    // boot-ROM overlay is resolved here (mirrors the read() gate at the
+    // top of the cascade): bootrom reads are served from BRAM
+    // (cpu_di <= bootrom_do, zxnext.vhd:1857) and never assert sram_req.
+    // Callers gate on cpu_speed==3 BEFORE calling — this is 28 MHz-only.
+    inline uint8_t sram_read_wait28(uint16_t addr) const {
+        if (boot_rom_en_ && addr < 0x4000 && boot_rom_) return 0;
+        return sram_read_wait28_[addr >> 13];
+    }
     // Returns the effective physical page backing `slot` — combines the NR
     // 0x50–0x57 explicit override (nr_mmu_[slot] when != 0xFF) with the
     // legacy-paging dynamic resolution (slots_[slot], kept up to date by
@@ -1521,6 +1534,20 @@ private:
     const uint8_t* read_ptr_[8];
     uint8_t*       write_ptr_[8];
     bool           read_only_[8];
+    // GH #92 — per-slot "28 MHz SRAM read wait" flag, derived state kept in
+    // lockstep with read_ptr_[] by rebuild_ptr()/map_rom_physical(). VHDL
+    // zxnext.vhd:3171-3181 inserts one 28 MHz wait cycle (= +1 T-state at
+    // cpu_speed="11") on every memory READ machine cycle whose target is
+    // either the external SRAM (`sram_req_t`, :3154+:3167 — normal RAM,
+    // ROM-in-SRAM, DivMMC ROM/RAM, AltROM, MF, Layer2-mapped, config-mode)
+    // or the shared-port bank-5 BRAM (`cpu_bank5_sched`, :6592). The only
+    // read sources that do NOT wait: the dedicated bank-7 BRAM (page 0x0E,
+    // cpu_di <= cpu_bank7_do at :1863 — bank7_ram has its own CPU port,
+    // :6670-6685, and appears nowhere in the :3175 wait expression), the
+    // boot ROM (cpu_di <= bootrom_do, :1857 — handled in the getter, not
+    // here), and inactive/unpopulated pages (mmu_A21_A13(8)='1' at :3061
+    // suppresses sram_pre_active → no sram_req). 1 = wait, 0 = no wait.
+    uint8_t        sram_read_wait28_[8] = {1, 1, 1, 1, 1, 1, 1, 1};
     bool           paging_locked_ = false;
     // VHDL p3_floating_bus_dat latch (zxnext.vhd:4498-4509). Captures the
     // last contended CPU r/w data byte; surfaced through port 0x0FFD on

@@ -43,8 +43,10 @@
 
 #include "contention_helpers.h"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -3350,6 +3352,317 @@ static void test_cpu_seam_raster_window()
     }
 }
 
+// ── GH #92 — 28 MHz SRAM read wait (sram_wait_n) ──────────────────────
+//
+// VHDL zxnext.vhd:3171-3181:
+//
+//   if (sram_req_t = '1' or cpu_bank5_sched = '1') and cpu_rd_n = '0'
+//      and cpu_speed = "11" then sram_wait_n <= '0';
+//
+// At cpu_speed="11" (28 MHz) every memory READ machine cycle whose target
+// asserts sram_req (external SRAM, :3154) or cpu_bank5_sched (bank-5
+// shared-port BRAM, :6592) stretches by exactly ONE 28 MHz cycle = +1
+// T-state (sram_req_t pulses on the request's leading edge, :3167; the
+// registered sram_wait_n covers the next clock; the T80 samples WAIT in
+// T2). Reads only (cpu_rd_n='0'); refresh excluded (cpu_rfsh_n gate in
+// sram_memcycle, :3144); I/O and internal (no-MREQ) cycles never reach
+// sram_req. Exempt read sources: dedicated bank-7 BRAM (page 0x0E —
+// cpu_bank7_do, :6670-6685 + cpu_di mux :1863, absent from the :3175
+// wait expression), boot ROM (cpu_di <= bootrom_do, :1857), inactive
+// pages (mmu_A21_A13(8)='1' → sram_pre_active='0', :3061).
+//
+// Rows use a full Next Emulator: code in plain RAM page 0x20 (never-
+// contended high page, so speed-0 rows are contention-free too), one
+// instruction stepped via execute_single_instruction(), T-states measured
+// as a monotonic_tstates() delta (lores LR-163 harness pattern).
+
+namespace {
+
+// printf-style detail formatter (local to the SW28 rows).
+std::string fmt(const char* f, ...) {
+    char buf[256];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return buf;
+}
+
+// NR 0x07 write + bus-idle commit on BOTH consumers (clock divisor and
+// ContentionModel's effective cpu_speed) — the VHDL commit edge at
+// zxnext.vhd:5809,5817, same pattern as CT-TURBO-04.
+void sw28_set_speed(Emulator& emu, uint8_t speed) {
+    emu.nextreg().write(0x07, speed);
+    emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+    emu.contention().commit_pending_cpu_speed_on_bus_idle(true);
+}
+
+// Install `code` at 0x8000 (slot 4, remapped to plain RAM page 0x20 via
+// the real NR 0x54 path), point PC there, HL/BC as given, and return the
+// T-state cost of stepping exactly one instruction.
+uint64_t sw28_step(Emulator& emu, std::initializer_list<uint8_t> code,
+                   uint16_t hl, uint16_t bc = 0x0000) {
+    emu.nextreg().write(0x54, 0x20);   // slot 4 → page 0x20 (plain SRAM)
+    uint16_t a = 0x8000;
+    for (uint8_t b : code) emu.mmu().write(a++, b);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000;
+    r.HL = hl;
+    r.BC = bc;
+    r.halted = false;
+    emu.cpu().set_registers(r);
+    const uint64_t before = emu.monotonic_tstates();
+    emu.execute_single_instruction();
+    return emu.monotonic_tstates() - before;
+}
+
+} // namespace
+
+static void test_sw28_sram_read_wait() {
+    set_group("CT-SW28");
+
+    struct SpeedRow { const char* id; uint8_t speed; uint64_t expect; };
+    // LD A,(HL): M1 fetch (4) + data read (3) = 7 T base. At 28 MHz both
+    // reads wait (+1 each) → 9 T. At speeds 0/1/2 the :3175 expression is
+    // false (cpu_speed /= "11") → unchanged 7 T.
+    const SpeedRow speed_rows[] = {
+        {"CT-SW28-01", 0, 7},
+        {"CT-SW28-02", 1, 7},
+        {"CT-SW28-03", 2, 7},
+        {"CT-SW28-04", 3, 9},
+    };
+    for (const auto& row : speed_rows) {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check(row.id, "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+            continue;
+        }
+        sw28_set_speed(emu, row.speed);
+        // Data at 0x9000 — same never-contended page 0x20 as the code.
+        const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x9000);
+        check(row.id,
+              row.speed == 3
+                  ? "LD A,(HL) from SRAM at cpu_speed=3 (28 MHz) = 9 T: "
+                    "fetch and data read each stretch +1 (sram_req_t + "
+                    "cpu_rd_n='0', zxnext.vhd:3154,3167,3171-3181)"
+                  : "LD A,(HL) from SRAM at cpu_speed!=3 = 7 T exactly — "
+                    "the sram_wait_n arm requires cpu_speed=\"11\" "
+                    "(zxnext.vhd:3175); no stretch at 3.5/7/14 MHz",
+              t == row.expect,
+              fmt("speed=%u t=%llu expected=%llu", row.speed,
+                  static_cast<unsigned long long>(t),
+                  static_cast<unsigned long long>(row.expect)));
+    }
+
+    struct InstrRow {
+        const char* id;
+        std::initializer_list<uint8_t> code;
+        uint16_t hl, bc;
+        uint64_t expect;
+        const char* desc;
+    };
+    const InstrRow instr_rows[] = {
+        {"CT-SW28-05", {0x77}, 0x9000, 0, 8,
+         "LD (HL),A at 28 MHz = 8 T: M1 fetch waits (+1), the WRITE cycle "
+         "does not — the wait arm requires cpu_rd_n='0' "
+         "(zxnext.vhd:3175); base 4+3=7"},
+        {"CT-SW28-06", {0x00}, 0x9000, 0, 5,
+         "NOP at 28 MHz = 5 T: single M1 fetch read waits (+1) "
+         "(zxnext.vhd:3171-3181); base 4"},
+        {"CT-SW28-07", {0x21, 0x34, 0x12}, 0x9000, 0, 13,
+         "LD HL,nn at 28 MHz = 13 T: M1 fetch + two operand reads all "
+         "wait (+3 total) — sram_req_t fires per memory READ cycle, not "
+         "per instruction (zxnext.vhd:3154,3167,3175); base 4+3+3=10"},
+        {"CT-SW28-08", {0xDD, 0x21, 0x34, 0x12}, 0x9000, 0, 18,
+         "LD IX,nn at 28 MHz = 18 T: DD prefix M1, opcode M1 and both "
+         "operand reads each wait (+4 total) — every prefix fetch is its "
+         "own MREQ+RD machine cycle (zxnext.vhd:3144,3175); base 14"},
+        {"CT-SW28-09", {0x19}, 0x9000, 0, 12,
+         "ADD HL,DE at 28 MHz = 12 T: only the M1 fetch waits (+1); the 7 "
+         "internal cycles never assert MREQ so sram_memcycle stays low "
+         "(zxnext.vhd:3144); base 4+7=11"},
+        // DJNZ offset=0xFE (self). B=1 → not taken: base 4 (M1) + 1
+        // (IR no-MREQ) + 3 (displacement READ — a real MREQ+RD cycle,
+        // FUSE contend_read(PC,3)) = 8; fetch + displacement wait → 10.
+        {"CT-SW28-10", {0x10, 0xFE}, 0x9000, 0x0100, 10,
+         "DJNZ not-taken at 28 MHz = 10 T: M1 fetch and the displacement "
+         "read each wait (+2); the IR tail cycle is no-MREQ and exempt "
+         "(zxnext.vhd:3144,3175); base 8"},
+        // B=2 → taken: base 4+1+3 (displacement via readbyte) +5 (no-MREQ
+        // tail) = 13; same two reads wait → 15.
+        {"CT-SW28-11", {0x10, 0xFE}, 0x9000, 0x0200, 15,
+         "DJNZ taken at 28 MHz = 15 T: exactly the same two READ cycles "
+         "wait (+2) as the not-taken form; the 5 internal jump cycles are "
+         "no-MREQ and exempt (zxnext.vhd:3144,3175); base 13"},
+        {"CT-SW28-12", {0xDB, 0x1F}, 0x9000, 0, 13,
+         "IN A,(n) at 28 MHz = 13 T: M1 fetch and port-number operand "
+         "read wait (+2); the I/O cycle itself is IORQ, not MREQ — "
+         "sram_memcycle requires cpu_mreq_n='0' (zxnext.vhd:3144); "
+         "base 4+3+4=11"},
+    };
+    for (const auto& row : instr_rows) {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check(row.id, "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+            continue;
+        }
+        sw28_set_speed(emu, 3);
+        const uint64_t t = sw28_step(emu, row.code, row.hl, row.bc);
+        check(row.id, row.desc, t == row.expect,
+              fmt("t=%llu expected=%llu",
+                  static_cast<unsigned long long>(t),
+                  static_cast<unsigned long long>(row.expect)));
+    }
+
+    // CT-SW28-13 — bank-5 reads DO wait: the shared-port BRAM read is
+    // scheduled (cpu_bank5_sched, zxnext.vhd:6592) and that signal is an
+    // explicit OR-term of the wait expression (:3175).
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-13", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x52, 0x0A);   // slot 2 (0x4000) → bank-5 lower
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x4100);
+            check("CT-SW28-13",
+                  "LD A,(HL) from bank-5 BRAM (page 0x0A) at 28 MHz = 9 T: "
+                  "cpu_bank5_sched is an explicit OR-term of the wait "
+                  "expression (zxnext.vhd:6592 + :3175) — bank-5 reads "
+                  "wait exactly like external SRAM",
+                  t == 9,
+                  fmt("t=%llu expected=9",
+                      static_cast<unsigned long long>(t)));
+        }
+    }
+
+    // CT-SW28-14 — bank-7 (page 0x0E) reads do NOT wait: the CPU reads
+    // the dedicated bank7_ram port (cpu_bank7_do, zxnext.vhd:6670-6685,
+    // cpu_di mux :1863); neither sram_req (sram_active='0' via
+    // mem_active_bank7, :2962+:3061) nor cpu_bank5_sched fires.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-14", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x52, 0x0E);   // slot 2 (0x4000) → bank-7 BRAM
+            emu.mmu().write(0x4100, 0x5A);     // lands in bank7_bram_
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x4100);
+            const uint8_t a = static_cast<uint8_t>(
+                emu.cpu().get_registers().AF >> 8);
+            check("CT-SW28-14",
+                  "LD A,(HL) from bank-7 BRAM (page 0x0E) at 28 MHz = 8 T "
+                  "(fetch +1 only, data read exempt) and reads the BRAM "
+                  "byte — cpu_bank7_do has a dedicated CPU port and is "
+                  "absent from the wait expression (zxnext.vhd:6670-6685, "
+                  ":1863, :3175)",
+                  t == 8 && a == 0x5A,
+                  fmt("t=%llu expected=8 A=0x%02X expected=0x5A",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    // CT-SW28-15 — inactive page: MMU slot 2..7 mapped ≥0xE0 →
+    // mmu_A21_A13(8)='1' → sram_pre_active='0' (zxnext.vhd:2964+:3061);
+    // no sram_req, no wait; the read returns the undriven bus (0xFF).
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-15", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x52, 0xE5);   // slot 2 (0x4000) → inactive
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x4100);
+            const uint8_t a = static_cast<uint8_t>(
+                emu.cpu().get_registers().AF >> 8);
+            check("CT-SW28-15",
+                  "LD A,(HL) from an inactive page (NR 0x52=0xE5) at "
+                  "28 MHz = 8 T (fetch +1 only) returning 0xFF — "
+                  "mmu_A21_A13(8)='1' suppresses sram_pre_active "
+                  "(zxnext.vhd:2964,3061), so sram_req never fires",
+                  t == 8 && a == 0xFF,
+                  fmt("t=%llu expected=8 A=0x%02X expected=0xFF",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    // CT-SW28-16 / -17 — boot ROM overlay vs legacy ROM at 0x0000. With
+    // bootrom_en the read is served from BRAM (cpu_di <= bootrom_do,
+    // zxnext.vhd:1857) — exempt. Without it, slot-0 ROM is served from
+    // external SRAM (zxnext.vhd:3052-3053, sram_pre_active='1') — waits.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-16", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+            check("CT-SW28-17", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            // A bare test Emulator (empty cfg.sd_card_image) never loads
+            // the embedded nextboot.rom, so install one via the public
+            // set_boot_rom() (copies into the Mmu's own 8 KB buffer and
+            // asserts boot_rom_en — mirrors the production init path).
+            std::vector<uint8_t> boot(0x2000, 0x00);
+            boot[0x0010] = 0x42;
+            emu.mmu().set_boot_rom(boot.data(), boot.size());
+            const uint64_t t_boot = sw28_step(emu, {0x7E}, /*hl=*/0x0010);
+            const uint8_t a_boot = static_cast<uint8_t>(
+                emu.cpu().get_registers().AF >> 8);
+            check("CT-SW28-16",
+                  "LD A,(HL) from the boot ROM overlay at 28 MHz = 8 T "
+                  "(fetch +1 only) and reads the bootrom byte — bootrom "
+                  "reads come from BRAM (cpu_di <= bootrom_do, "
+                  "zxnext.vhd:1857,3199-3204) and never assert sram_req",
+                  t_boot == 8 && a_boot == 0x42,
+                  fmt("t=%llu expected=8 A=0x%02X expected=0x42",
+                      static_cast<unsigned long long>(t_boot), a_boot));
+            emu.mmu().set_boot_rom_enabled(false);
+            const uint64_t t_rom = sw28_step(emu, {0x7E}, /*hl=*/0x0010);
+            check("CT-SW28-17",
+                  "LD A,(HL) from slot-0 ROM (bootrom off) at 28 MHz = "
+                  "9 T — ROM is served from external SRAM "
+                  "(zxnext.vhd:3052-3053, sram_pre_active='1') and the "
+                  "data read waits like any SRAM read",
+                  t_rom == 9,
+                  fmt("t=%llu expected=9",
+                      static_cast<unsigned long long>(t_rom)));
+        }
+    }
+
+    // CT-SW28-18 — the wait is not sticky: dropping back to cpu_speed=0
+    // restores the unstretched 7 T (the :3175 expression re-evaluates
+    // cpu_speed every cycle; jnext's flag path re-reads the committed
+    // speed on every read).
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-18", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            const uint64_t t28 = sw28_step(emu, {0x7E}, /*hl=*/0x9000);
+            sw28_set_speed(emu, 0);
+            const uint64_t t35 = sw28_step(emu, {0x7E}, /*hl=*/0x9000);
+            check("CT-SW28-18",
+                  "NR 0x07 3→0 round-trip: 9 T at 28 MHz then 7 T again "
+                  "at 3.5 MHz — the wait arm follows the committed "
+                  "cpu_speed (zxnext.vhd:3175 + 5809,5817), no sticky "
+                  "state",
+                  t28 == 9 && t35 == 7,
+                  fmt("t28=%llu expected=9 t35=%llu expected=7",
+                      static_cast<unsigned long long>(t28),
+                      static_cast<unsigned long long>(t35)));
+        }
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -3423,6 +3736,10 @@ int main() {
 
     test_cpu_seam_raster_window();
     std::printf("  Group: T50-CPU-SEAM   — done\n");
+
+    // GH #92 — 28 MHz SRAM read wait (zxnext.vhd:3171-3181).
+    test_sw28_sram_read_wait();
+    std::printf("  Group: CT-SW28        — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

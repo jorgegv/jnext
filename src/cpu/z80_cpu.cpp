@@ -198,6 +198,35 @@ inline uint8_t mem_active_page_for(uint16_t address) {
     return s_contention_mmu->get_page(slot);
 }
 
+/// GH #92 — 28 MHz SRAM read wait state (zxnext.vhd:3171-3181).
+///
+///   process (i_CLK_28) ... if (sram_req_t = '1' or cpu_bank5_sched = '1')
+///      and cpu_rd_n = '0' and cpu_speed = "11" then sram_wait_n <= '0';
+///
+/// At cpu_speed="11" (28 MHz) EVERY memory READ machine cycle whose target
+/// asserts sram_req (external SRAM: RAM, ROM-in-SRAM, DivMMC, AltROM, MF,
+/// Layer2-mapped, config-mode) or cpu_bank5_sched (bank-5 shared-port BRAM)
+/// stretches by exactly one 28 MHz cycle = +1 T-state: sram_req_t /
+/// cpu_bank5_sched pulse on the leading edge of the cycle (:3167/:6592),
+/// sram_wait_n goes low for the following clock, and the T80 samples WAIT
+/// in T2 → one wait state. Applies to opcode/prefix M1 fetches, operand
+/// reads and data reads alike (the M1-only restriction at :3174 is
+/// commented OUT in the shipped core). Writes (cpu_rd_n='1'), refresh
+/// (cpu_rfsh_n gate in sram_memcycle, :3144), I/O and the FUSE no-MREQ
+/// internal cycles never wait. Per-target qualification (bank-7 BRAM,
+/// bootrom, unpopulated pages are exempt) lives in
+/// Mmu::sram_read_wait28(), maintained at remap time.
+///
+/// cpu_speed() is ContentionModel's committed NR 0x07 value — the same
+/// bus-idle-latched `cpu_speed` signal the VHDL expression reads
+/// (zxnext.vhd:5816-5820). Null s_contention (FUSE Z80 standalone
+/// harness) or null s_contention_mmu keeps this inert.
+inline void sram_wait28_read_tick(libspectrum_word address) {
+    if (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu) {
+        tstates += s_contention_mmu->sram_read_wait28(address);
+    }
+}
+
 } // anonymous namespace
 
 extern "C" {
@@ -227,6 +256,10 @@ libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
             /*rd_n*/false,  /*wr_n*/true,
             address, pos.hc, pos.vc);
     }
+    // GH #92 — 28 MHz SRAM read wait (zxnext.vhd:3171-3181); +1 T-state
+    // per data-read machine cycle at cpu_speed="11". Mutually exclusive
+    // with the contention branch above (contention needs cpu_speed==0).
+    sram_wait28_read_tick(address);
     tstates += 3;
     return s_mem->read(address);
 }
@@ -362,6 +395,13 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
             /*rd_n*/false,   /*wr_n*/true,
             address, pos.hc, pos.vc);
     }
+    // GH #92 — 28 MHz SRAM read wait (zxnext.vhd:3171-3181). contend_read
+    // sites are REAL memory-read machine cycles with MREQ+RD asserted:
+    // opcode/prefix M1 fetches (contend_read(PC,4)) and the displacement
+    // read of a not-taken JR/DJNZ (contend_read(PC,3)) — each stretches by
+    // +1 T-state at cpu_speed="11". The no-MREQ macros below do NOT get
+    // this: sram_memcycle requires cpu_mreq_n='0' (zxnext.vhd:3144).
+    sram_wait28_read_tick(address);
     tstates += time;
 }
 
