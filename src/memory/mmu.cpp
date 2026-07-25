@@ -177,6 +177,13 @@ void Mmu::reset(bool hard) {
 
 void Mmu::rebuild_ptr(int slot) {
     uint8_t page = slots_[slot];
+    // GH #92 — default: reads wait at 28 MHz (external SRAM asserts
+    // sram_req, zxnext.vhd:3154+3175). The branches below clear the flag
+    // for the read sources that never reach the SRAM/bank-5 wait
+    // expression: unmapped slots (sram_pre_active='0') and the dedicated
+    // bank-7 BRAM (page 0x0E). Bank 5 KEEPS the flag — its shared-port
+    // read is scheduled and waits via cpu_bank5_sched (zxnext.vhd:3175+6592).
+    sram_read_wait28_[slot] = 1;
     if (page == 0xFF || read_only_[slot]) {
         // ROM or unmapped
         if (read_only_[slot]) {
@@ -189,6 +196,9 @@ void Mmu::rebuild_ptr(int slot) {
         } else {
             read_ptr_[slot] = nullptr;
             write_ptr_[slot] = nullptr;
+            // GH #92: MMU<i>=0xFF in slots 2..7 → mmu_A21_A13(8)='1' →
+            // sram_pre_active='0' (zxnext.vhd:3061) — no sram_req, no wait.
+            sram_read_wait28_[slot] = 0;
         }
     } else {
         // VHDL floating-bus / inactive-slot gate (zxnext.vhd:2964 +
@@ -225,6 +235,9 @@ void Mmu::rebuild_ptr(int slot) {
                 // Inactive slot — SRAM does not respond.
                 read_ptr_[slot]  = nullptr;
                 write_ptr_[slot] = nullptr;
+                // GH #92: mmu_A21_A13(8)='1' → sram_pre_active='0'
+                // (zxnext.vhd:3061) — no sram_req, no 28 MHz read wait.
+                sram_read_wait28_[slot] = 0;
             } else {
                 // Slot 0/1: legacy ROM (sram_rom-derived). Mirror
                 // engage_legacy_rom_paging_slot() but without touching
@@ -287,6 +300,11 @@ void Mmu::rebuild_ptr(int slot) {
         if (rom_in_sram_ && page == 0x0E) {
             read_ptr_[slot]  = bank7_bram_.data();
             write_ptr_[slot] = bank7_bram_.data();
+            // GH #92: bank-7 BRAM has a DEDICATED CPU read port
+            // (cpu_bank7_do, zxnext.vhd:6670-6685 + cpu_di mux :1863) and
+            // appears nowhere in the 28 MHz wait expression at :3175
+            // (only sram_req_t and cpu_bank5_sched do) — reads never wait.
+            sram_read_wait28_[slot] = 0;
             return;
         }
         // Bank 5 (pages 0x0A/0x0B) is a dedicated 16K dual-port VRAM on
@@ -331,6 +349,9 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     // Next mode: read from SRAM pages 0..7 (ROM-in-SRAM). Non-Next: rom_.
     read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(rom_page) : rom_.page_ptr(rom_page);
     write_ptr_[slot] = nullptr;
+    // GH #92: legacy ROM is served from external SRAM (zxnext.vhd:3052,
+    // sram_pre_active='1' at :3053) — reads wait at 28 MHz.
+    sram_read_wait28_[slot] = 1;
     // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
     // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
     // (map_128k_bank / map_plus3_bank) overwrite with physical page.
