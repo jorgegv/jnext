@@ -24,6 +24,8 @@
 #include "memory/mmu.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 
 // ── FUSE Z80 core (C linkage) ───────────────────────────────────────────
 
@@ -697,6 +699,20 @@ int Z80Cpu::execute() {
 
     // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
+
+    // G46(b) #102 investigation probe — per-instruction trace for a narrow
+    // window (caller sets/clears the FILE* via set_g46b_itrace()).
+    if (g46b_itrace_file_) {
+        std::fprintf(g46b_itrace_file_,
+            "%llu,%04x,%02x,%02x,%02x,%02x,%04x,%04x,%04x,%04x,%04x,%04x,%04x,%d,%d\n",
+            static_cast<unsigned long long>(tstates), pc,
+            mem_.read(pc),
+            mem_.read(static_cast<uint16_t>(pc + 1)),
+            mem_.read(static_cast<uint16_t>(pc + 2)),
+            mem_.read(static_cast<uint16_t>(pc + 3)),
+            z80.af.w, z80.bc.w, z80.de.w, z80.hl.w, z80.sp.w, z80.ix.w, z80.iy.w,
+            z80.halted ? 1 : 0, z80.iff1);
+    }
 
     // Stackless NMI leaves the CPU's SP two bytes below its entry value but
     // suppresses the actual stack RAM writes. On RETN/RETI the FPGA suppresses
