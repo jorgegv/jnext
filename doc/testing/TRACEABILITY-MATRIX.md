@@ -478,7 +478,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
 | S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
 | S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:2868 |
-| S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:2883 |
+| S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:2887 |
 | S15.03  | Shadow disables Timex modes                     | —              | missing | missing                                                            |
 | S15.04  | Shadow bit toggles display                      | —              | missing | missing                                                            |
 | S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389-395               | pass   | test/ula/ula_test.cpp:860       |
@@ -501,11 +501,11 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2607      |
 | S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2647      |
 | S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2678      |
-| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:2970      |
-| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3029      |
-| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:3614+                | pass   | test/ula/ula_test.cpp:3059      |
-| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3101      |
-| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3141      |
+| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:2974      |
+| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3033      |
+| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:3614+                | pass   | test/ula/ula_test.cpp:3063      |
+| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3105      |
+| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3145      |
 
 ### Extra coverage (not in plan)
 
@@ -1874,11 +1874,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | zxnext.vhd:1941  | pass    | test/ctc/ctc_test.cpp:2098                         |
 | ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | zxnext.vhd:1964  | pass    | test/ctc/ctc_test.cpp:2133                         |
 | NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | zxnext.vhd:5597/1999 | pass    | test/ctc/ctc_test.cpp:2150                         |
-<<<<<<< HEAD
 | NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | pass    | test/nmi/atic_atac_nmi_test.cpp (ATIC-NMI-02) |
-=======
-| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | missing | missing                                       |
->>>>>>> fix/96-97-ulanext-border
 | NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | zxnext.vhd:5599/1975 | pass    | test/ctc/ctc_test.cpp:2178                         |
 | NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | missing | missing                                              |
 | NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | zxnext.vhd       | pass    | test/ctc/ctc_test.cpp:2196                         |
