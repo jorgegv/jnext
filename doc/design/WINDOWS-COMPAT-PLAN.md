@@ -176,6 +176,93 @@ src/debugger (count the delta), a trial `win-qt5-release` build, and a
 Gate: small delta → Qt5 full-GUI legacy legs (64-bit now, 32-bit in Phase C);
 large delta → SDL-only fallback stands (owner-accepted).
 
+### Phase A findings (2026-07-26, branch `fix/108-qt5-spike`) — verdict: **GO**
+
+Full Qt6-only usage inventory of `src/gui` + `src/debugger` (the only Qt-using
+trees — verified by tree-wide grep: no Qt in `src/platform`, `src/main.cpp`
+(only `gui/qt_app.h`, itself Qt-free), or `test/`; `app_config_test` links Qt
+transitively via `jnext_gui`). All 66 distinct `<QXxx>` headers used exist in
+Qt 5.15. Native `qt5-qtbase-devel` is NOT installed on the dev host, so this is
+a source-level assessment (every claim checked against Qt 5.15 API docs), not a
+compile proof — the Linux-Qt5 validation build below converts it.
+
+**Qt6-only source usages needing `#if QT_VERSION` guards — 4 lines, 2 files:**
+
+| Site | Qt6-only call | Qt5.15 replacement |
+|------|---------------|--------------------|
+| `src/debugger/disasm_panel.cpp:365` | `QMouseEvent::position()` | `localPos()` (or portable `pos()` — already `int`-cast) |
+| `src/debugger/disasm_panel.cpp:368` | `QMouseEvent::position()` | same |
+| `src/gui/main_window.cpp:1605` | `QMouseEvent::globalPosition().toPoint()` | `globalPos()` |
+| `src/gui/main_window.cpp:1637` | `QMouseEvent::globalPosition().toPoint()` | `globalPos()` |
+
+`position()`/`globalPosition()` are Qt6 `QSinglePointEvent` API; Qt 5.15 has
+neither. Guard form: `#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)` so the Qt6
+compile path stays textually identical (avoids Qt6 deprecation noise that a
+portable `pos()`/`globalPos()` rewrite would emit).
+
+**Additive Qt5-only parity — 1 file, ~4 guarded lines:** `src/gui/qt_app.cpp`
+must set `Qt::AA_EnableHighDpiScaling` + `AA_UseHighDpiPixmaps` *before* the
+`QApplication` ctor (Qt5 HiDPI is opt-in; both are default/no-op in Qt6).
+
+**CMake — 3 sites:** `src/gui/CMakeLists.txt:1,14` and
+`src/debugger/CMakeLists.txt:1,10` (dual `find_package(QT NAMES Qt6 Qt5)` +
+`Qt${QT_VERSION_MAJOR}::Widgets`), and root `CMakeLists.txt:291-292` (WIN32
+entry point: `Qt6::EntryPointPrivate` → `Qt5::WinMain`; fedora ships it as
+`libqt5main.a` in `mingw64-qt5-qtbase`). The APPLE macdeployqt block is
+untouched — the Qt5 leg is Windows-only. **Total delta: ~25 lines across 6
+files.**
+
+**Verified Qt5.15-clean (no change needed):** `QKeySequence(Qt::CTRL |
+Qt::Key_X)` (int promotion — the 5.15-recommended form),
+`QFontDatabase::systemFont` (static since 5.2), `horizontalAdvance` (5.11),
+`QWidget::screen()` (5.14), every dual-overload signal connect already wrapped
+in `QOverload<int>::of` (`QSpinBox::valueChanged`,
+`QComboBox::currentIndexChanged` ×3), `angleDelta()`,
+`QContextMenuEvent::globalPos()`, `QMouseEvent::pos()`
+(`memory_panel.cpp:400`), `QSignalBlocker` (5.3), `QTimer` PreciseTimer +
+context-lambda `singleShot` (5.4), `devicePixelRatioF()` (5.6), `QDataStream`
+of QSize/QPoint (wire format identical across 5/6). **Hunted, zero hits:**
+QRegExp/QRegularExpression, QKeyCombination, QDesktopWidget, QOpenGL*,
+QStringView/QStringRef, QTextCodec, qputenv, QVariant::typeId, enterEvent
+overrides, checkStateChanged, module-scoped `<QtGui/...>` includes, QWindow /
+native-interface use, QtConcurrent/QThread, QtNetwork (curl is used instead).
+
+**Toolchain evidence (dnf repoquery, fedora 44):** `mingw64-qt5-qtbase` 5.15.18
+ships `Qt5Config.cmake`/`Qt5WidgetsConfig.cmake` (sys-root cmake dir),
+`Qt5Core/Gui/Widgets.dll`, `qt5/plugins/platforms/qwindows.dll` and
+`libqt5main.a`; `mingw64-qt5-qmake` ships the cross host tools AUTOMOC needs
+(`x86_64-w64-mingw32-{moc,rcc,uic}-qt5`). The package's auto-generated
+`mingw64(*.dll)` requires contain **no d3d12/dcomp** — d3d11/dxgi only, both
+present on Win7 RTM — consistent with Qt 5.15's official Win7 SP1+ support.
+Not final proof: the floor claim still needs `pe-floor-audit.sh` on a real
+`win-qt5-release` bundle.
+
+**Risk spots (none gate-blocking):**
+1. WinMain/SDL_main/qMain interplay (§2's trap class): `Qt5::WinMain` injects
+   `QT_NEEDS_QMAIN` → `main=qMain`, believed equivalent to
+   `Qt6::EntryPointPrivate`'s SDL-rename disarm — verify under wine on the
+   trial build before claiming it.
+2. AUTOMOC must resolve `Qt5::moc` to the cross moc from `mingw64-qt5-qmake`
+   — check at first configure.
+3. `bundle-dlls.sh` + `packaging-test.sh` structural rows are written for
+   `Qt6*.dll`; a `win-qt5` leg needs its own DLL list (`Qt5*.dll`, plugin path
+   `lib/qt5/plugins/platforms`).
+4. Qt5 HiDPI behaves differently even with the attributes (integer-ish
+   scaling); acceptable for the Win7-era target (DPI 96 dominant).
+
+**Owner install list:**
+- MinGW Qt5 trial build (64-bit): `mingw64-qt5-qtbase mingw64-qt5-qtbase-devel
+  mingw64-qt5-qmake`
+- Linux Qt5 validation build (compile-proves this assessment):
+  `qt5-qtbase-devel`
+- Phase C 32-bit (if this leg ships): `mingw32-qt5-qtbase
+  mingw32-qt5-qtbase-devel mingw32-qt5-qmake`
+
+**Gate verdict: GO.** The delta is ~25 lines / 6 files, every Qt6-only usage is
+cleanly guardable, there is no architectural Qt6 coupling (no RHI, no QOpenGL,
+no Qt6-only widgets or signals), and the fedora mingw Qt5 stack provides
+everything the trial build needs including the WinMain bridge.
+
 **Phase B — native Windows provisioning path (independent of A).** The entire
 curl/OpenSSL surface is one file (`src/core/sdcard_provisioner.cpp`: one
 download + sha256). On Windows, replace with WinHTTP (download + progress) and
