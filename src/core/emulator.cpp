@@ -6691,6 +6691,11 @@ void Emulator::begin_new_frame()
     // Initialize per-line tilemap scroll to current values.
     // Interrupt handlers may change scroll mid-frame for split-screen effects.
     tilemap_.init_scroll_per_line();
+    // The tilemap map/definition bases and default attribute are live
+    // inputs to the tile fetcher just like scroll. Games such as TX-1696
+    // switch NR 0x6E/0x6F at raster boundaries to draw a fixed HUD and a
+    // separately-scrolling playfield in one frame.
+    tilemap_.init_fetch_per_line();
 
     // Per-scanline tilemap NR 0x6B change log (G06) — baseline snapshot
     // and reset of the per-frame log so Copper / interrupt-handler writes
@@ -8416,8 +8421,10 @@ void Emulator::on_scanline(int line)
     // that used to clobber it with the frame's FINAL scroll value is removed.
     {
         const int cur_fb_row = line - video_timing_.vblank_top();
-        if (cur_fb_row >= 0 && cur_fb_row < Renderer::FB_HEIGHT)
+        if (cur_fb_row >= 0 && cur_fb_row < Renderer::FB_HEIGHT) {
             tilemap_.snapshot_scroll_for_line(cur_fb_row);
+            tilemap_.snapshot_fetch_for_line(cur_fb_row);
+        }
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging
     // per-scanline change-log entries. Renderer::render_frame iterates

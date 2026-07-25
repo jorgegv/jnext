@@ -592,6 +592,15 @@ target_link_libraries(tilemap_test PRIVATE jnext_video jnext_memory jnext_port j
 target_include_directories(tilemap_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tilemap_tests COMMAND tilemap_test)
 
+# Tilemap mid-frame map/definition/default-attribute split regression.
+add_executable(tilemap_fetch_split_test tilemap/tilemap_fetch_split_test.cpp)
+target_link_libraries(tilemap_fetch_split_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(tilemap_fetch_split_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tilemap_fetch_split_tests COMMAND tilemap_fetch_split_test)
+
 # Contention Model compliance test (2026-04-24)
 # Scaffolding commit: all 68 plan rows start as skip() pending the
 # Phase A VHDL audit of ContentionModel. See
