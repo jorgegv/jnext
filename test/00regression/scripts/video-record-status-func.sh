@@ -19,6 +19,7 @@ if want video-record-status-func; then
         echo '[ "$1" = "-version" ] && exit 0'
         echo 'for output_path do :; done'
         echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "empty-success" ] && exit 0'
+        echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "partial-fail" ] && { printf partial > "$output_path"; exit 42; }'
         echo ': > "$output_path"'
         echo 'exit 42'
     } > "$fake_bin/ffmpeg"
@@ -99,6 +100,19 @@ if want video-record-status-func; then
     fi
     abort_elapsed=$(( $(date +%s) - abort_t0 ))
 
+    # Leg 7 (GH #86 MINOR): an encoder that writes PARTIAL non-empty data
+    # and then fails must still fail the exit contract, but the partial file
+    # is KEPT for inspection (only 0-byte leftovers are removed).
+    partial_file="$TMP_DIR/jnext_test_partial_recording.mp4"
+    if partial_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=partial-fail \
+        timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --record "$partial_file" \
+        --delayed-automatic-exit-frames 5 2>&1); then
+        partial_rc=0
+    else
+        partial_rc=$?
+    fi
+
     # GH #86 strengthened ! -s to ! -e on failed_file/empty_file: a failing
     # encoder's 0-byte artifact must be REMOVED, not merely empty.
     if [[ "$success_rc" -eq 0 && -s "$success_file" \
@@ -107,15 +121,17 @@ if want video-record-status-func; then
           && "$empty_rc" -ne 0 && ! -e "$empty_file" \
           && "$dir_rc" -ne 0 && -f "$dir_target/keep.txt" \
           && "$abort_rc" -ne 0 && "$abort_rc" -ne 124 \
-          && "$abort_elapsed" -le 15 && ! -e "$abort_file" ]] \
+          && "$abort_elapsed" -le 15 && ! -e "$abort_file" \
+          && "$partial_rc" -ne 0 && -s "$partial_file" ]] \
         && grep -qF "Failed to start recording" <<< "$start_out" \
         && grep -qF "FFmpeg encoding failed" <<< "$failed_out" \
         && grep -qF "reported success but produced no usable output" <<< "$empty_out" \
         && grep -qF "cannot replace output file" <<< "$dir_out" \
-        && grep -qF "Failed to start recording" <<< "$abort_out"; then
-        pass_row " (success exits 0; start, encode, empty-output and stale-removal failures exit non-zero; start failure aborts early)"
+        && grep -qF "Failed to start recording" <<< "$abort_out" \
+        && grep -qF "FFmpeg encoding failed" <<< "$partial_out"; then
+        pass_row " (success exits 0; start, encode, empty-output and stale-removal failures exit non-zero; start failure aborts early; partial output kept)"
     else
-        fail_row " (success_rc=$success_rc success_size=$([[ -s "$success_file" ]] && echo nonzero || echo zero) start_rc=$start_rc fail_rc=$failed_rc empty_rc=$empty_rc dir_rc=$dir_rc abort_rc=$abort_rc abort_elapsed=${abort_elapsed}s)"
+        fail_row " (success_rc=$success_rc success_size=$([[ -s "$success_file" ]] && echo nonzero || echo zero) start_rc=$start_rc fail_rc=$failed_rc empty_rc=$empty_rc dir_rc=$dir_rc abort_rc=$abort_rc abort_elapsed=${abort_elapsed}s partial_rc=$partial_rc partial_size=$([[ -s "$partial_file" ]] && echo nonzero || echo zero))"
     fi
 fi
 

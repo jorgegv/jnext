@@ -128,6 +128,7 @@ bool sf_setup()
              "for out do :; done\n"
              "case \"$JNEXT_TEST_FFMPEG_MODE\" in\n"
              "  encode-fail)   : > \"$out\"; exit 42 ;;\n"    // 0-byte artifact, then fail
+             "  partial-fail)  printf partialdata > \"$out\"; exit 42 ;;\n"
              "  empty-success) : > \"$out\"; exit 0 ;;\n"     // 0-byte artifact, "success"
              "  success)       printf x > \"$out\"; exit 0 ;;\n"
              "esac\n"
@@ -159,6 +160,11 @@ bool sf_start_with_frame(VideoRecorder& rec, const std::string& name)
     const uint32_t frame[16] = {};  // 4x4 ARGB
     rec.capture_frame(frame, 4, 4);
     return true;
+}
+
+std::string sf_path(const std::string& name)
+{
+    return (g_sf_dir / name).string();
 }
 
 bool sf_output_exists(const std::string& name)
@@ -395,8 +401,9 @@ int main()
               started && stopped && !rec.stop_failed());
     }
     {
-        // Sticky by design: the CLI-requested recording that failed still
-        // never materialized, so a LATER successful one must not clear it.
+        // Sticky across a DIFFERENT path: the failed recording at sticky1
+        // never materialized; a later success at sticky2 must not clear it.
+        // (A success at the SAME path does clear it — SF-12.)
         VideoRecorder rec;
         sf_mode("encode-fail");
         bool ok = sf_ready && sf_start_with_frame(rec, "sticky1.mp4");
@@ -414,6 +421,50 @@ int main()
         const bool stopped = started && rec.stop();  // no capture_frame(): nothing to encode
         check("SF-10", "stop() with no frames captured returns false and latches",
               started && !stopped && rec.stop_failed());
+    }
+    {
+        // GH #86 review round 2 BLOCKER row — REVERSE ordering. The CLI
+        // file (A) records fine FIRST; an unrelated ad-hoc recording (B)
+        // fails LATER. The path-scoped check main.cpp uses must stay clean
+        // for A while reporting B — an object-scoped latch cannot pass.
+        VideoRecorder rec;
+        sf_mode("success");
+        bool ok = sf_ready && sf_start_with_frame(rec, "cli_a.mp4");
+        ok = ok && rec.stop();
+        sf_mode("encode-fail");
+        ok = ok && sf_start_with_frame(rec, "adhoc_b.mp4");
+        const bool b_failed = ok && !rec.stop();
+        check("SF-11", "an unrelated later failure (B) does not mark an earlier successful output (A)",
+              ok && b_failed && !rec.output_failed(sf_path("cli_a.mp4")) &&
+                  rec.output_failed(sf_path("adhoc_b.mp4")));
+    }
+    {
+        // Same-path retry: a later SUCCESSFUL recording to the SAME path
+        // clears that path's failure — the requested artifact now exists.
+        VideoRecorder rec;
+        sf_mode("encode-fail");
+        bool ok = sf_ready && sf_start_with_frame(rec, "retry.mp4");
+        ok = ok && !rec.stop() && rec.output_failed(sf_path("retry.mp4"));
+        sf_mode("success");
+        ok = ok && sf_start_with_frame(rec, "retry.mp4");
+        const bool second_ok = ok && rec.stop();
+        check("SF-12", "a successful re-record to the SAME path clears that path's failure",
+              ok && second_ok && !rec.output_failed(sf_path("retry.mp4")) &&
+                  !rec.stop_failed());
+    }
+    {
+        // A PARTIAL, NON-EMPTY artifact from a failing encoder is KEPT for
+        // inspection (only 0-byte leftovers are removed) — and the failure
+        // still latches.
+        VideoRecorder rec;
+        sf_mode("partial-fail");
+        const bool started = sf_ready && sf_start_with_frame(rec, "partial.mp4");
+        const bool stopped = started && rec.stop();
+        std::error_code sz_ec;
+        const auto sz = fs::file_size(g_sf_dir / "partial.mp4", sz_ec);
+        check("SF-13", "a failed encode's partial non-empty output is kept, and still latches",
+              started && !stopped && rec.output_failed(sf_path("partial.mp4")) &&
+                  !sz_ec && sz > 0);
     }
     if (sf_ready) {
         std::error_code ec;
