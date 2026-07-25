@@ -132,6 +132,9 @@ png_diff() {
     fi
 
     # IHDR dimension check first: "<w>x<h>;<w>x<h>;" for the two images.
+    # Single-frame PNGs assumed (every producer here is jnext's own
+    # --delayed-screenshot); a multi-frame input would emit extra
+    # ';'-separated fields and misalign b_dim (GH #85 review note).
     dims=$("${image_cmd[@]}" "$1" "$2" -format '%wx%h;' info: 2>/dev/null) || {
         echo "$sentinel"
         return
