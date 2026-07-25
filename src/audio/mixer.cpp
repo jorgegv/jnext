@@ -11,6 +11,30 @@ void Mixer::set_output_gain_db(float db)
     output_gain_ = std::pow(10.0f, db / 20.0f);
 }
 
+void Mixer::set_beeper_gain_db(float db)
+{
+    beeper_gain_db_ = db;
+    beeper_gain_ = std::pow(10.0f, db / 20.0f);
+}
+
+void Mixer::set_ay_gain_db(int chip, float db)
+{
+    if (chip < 0 || chip >= 3) return;
+    ay_gain_db_[chip] = db;
+    ay_gain_[chip] = std::pow(10.0f, db / 20.0f);
+}
+
+float Mixer::ay_gain_db(int chip) const
+{
+    return chip >= 0 && chip < 3 ? ay_gain_db_[chip] : 0.0f;
+}
+
+void Mixer::set_dac_gain_db(float db)
+{
+    dac_gain_db_ = db;
+    dac_gain_ = std::pow(10.0f, db / 20.0f);
+}
+
 void Mixer::reset()
 {
     std::fill(buffer_.begin(), buffer_.end(), 0);
@@ -26,7 +50,7 @@ void Mixer::reset()
 }
 
 void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
-                uint16_t& pcm_L, uint16_t& pcm_R) const
+                int32_t& pcm_L, int32_t& pcm_R) const
 {
     // VHDL audio_mixer.vhd scaling (all values are 13-bit unsigned, 0-8191):
     //
@@ -53,11 +77,42 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
         tape_ear = 0;
     }
 
-    uint16_t ay_L = ts.pcm_left();    // 12-bit, already correct scale
-    uint16_t ay_R = ts.pcm_right();
+    auto scale = [](int32_t sample, float gain) {
+        return gain == 1.0f
+            ? sample
+            : static_cast<int32_t>(std::lround(static_cast<float>(sample) * gain));
+    };
 
-    uint16_t dac_L = dac.pcm_left() << 2;   // 9-bit × 4
-    uint16_t dac_R = dac.pcm_right() << 2;
+    int32_t ay_L = 0;
+    int32_t ay_R = 0;
+    if ((ay_gain_[0] == 1.0f && ay_gain_[1] == 1.0f && ay_gain_[2] == 1.0f) ||
+        !ts.chip_pcm_valid()) {
+        // Preserve the historical 0 dB path exactly: the hardware output is
+        // latched on a PSG tick, so a just-written pan/mode change must not
+        // become audible early through a host-only control. Old snapshots do
+        // not contain the per-chip cache, so they also use their serialized
+        // aggregate until one PSG tick rebuilds the cache.
+        ay_L = ts.pcm_left();
+        ay_R = ts.pcm_right();
+    } else {
+        for (int chip = 0; chip < 3; ++chip) {
+            uint16_t chip_L = 0;
+            uint16_t chip_R = 0;
+            ts.chip_pcm(chip, chip_L, chip_R);
+            ay_L += scale(chip_L, ay_gain_[chip]);
+            ay_R += scale(chip_R, ay_gain_[chip]);
+        }
+    }
+
+    // DAC is unsigned around a physical midpoint. Scale only its signed
+    // excursion, then restore the midpoint so every gain leaves silence at
+    // exactly DAC_REST_LEVEL and cannot introduce a DC offset.
+    int32_t dac_L = DAC_REST_LEVEL +
+        scale((static_cast<int32_t>(dac.pcm_left()) << 2) - DAC_REST_LEVEL,
+              dac_gain_);
+    int32_t dac_R = DAC_REST_LEVEL +
+        scale((static_cast<int32_t>(dac.pcm_right()) << 2) - DAC_REST_LEVEL,
+              dac_gain_);
 
     // Pi I2S term: mirrors audio_mixer.vhd:89-90 (10-bit zero-extended
     // to 13-bit). Mixer does not own the I2s; Emulator wires it via
@@ -98,8 +153,9 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
     // audio_mixer.vhd:99-100 13-bit sum — every term is in the 13-bit
     // domain; uint16_t is a superset of 13-bit-unsigned so no clamping
     // is needed at this point.
-    pcm_L = ear + mic + tape_ear + ay_L + dac_L + i2s_L;
-    pcm_R = ear + mic + tape_ear + ay_R + dac_R + i2s_R;
+    const int32_t beeper_term = scale(ear + mic + tape_ear, beeper_gain_);
+    pcm_L = beeper_term + ay_L + dac_L + i2s_L;
+    pcm_R = beeper_term + ay_R + dac_R + i2s_R;
 }
 
 void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
@@ -107,12 +163,12 @@ void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& da
 {
     if (master_cycles == 0) return;
 
-    uint16_t pcm_L, pcm_R;
+    int32_t pcm_L, pcm_R;
     mix(beeper, ts, dac, pcm_L, pcm_R);
 
     // Weight this level by how long it actually held. See emit_sample().
-    acc_l_ += static_cast<uint64_t>(pcm_L) * master_cycles;
-    acc_r_ += static_cast<uint64_t>(pcm_R) * master_cycles;
+    acc_l_ += static_cast<int64_t>(pcm_L) * master_cycles;
+    acc_r_ += static_cast<int64_t>(pcm_R) * master_cycles;
     acc_cycles_ += master_cycles;
 }
 
@@ -131,10 +187,14 @@ void Mixer::emit_sample()
     // Time-weighted average of the 13-bit mix over this sample's interval. The
     // x4 gain is applied BEFORE the division so the fractional part of the
     // average survives into the output; +acc_cycles_/2 rounds to nearest.
-    const int32_t avg4_L =
-        static_cast<int32_t>((acc_l_ * 4 + acc_cycles_ / 2) / acc_cycles_);
-    const int32_t avg4_R =
-        static_cast<int32_t>((acc_r_ * 4 + acc_cycles_ / 2) / acc_cycles_);
+    const auto rounded_average_x4 = [cycles = static_cast<int64_t>(acc_cycles_)]
+                                    (int64_t sum) {
+        const int64_t scaled = sum * 4;
+        const int64_t bias = scaled >= 0 ? cycles / 2 : -(cycles / 2);
+        return static_cast<int32_t>((scaled + bias) / cycles);
+    };
+    const int32_t avg4_L = rounded_average_x4(acc_l_);
+    const int32_t avg4_R = rounded_average_x4(acc_r_);
 
     acc_l_ = acc_r_ = acc_cycles_ = 0;
 

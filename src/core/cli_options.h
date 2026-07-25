@@ -25,6 +25,7 @@
 #ifndef JNEXT_CORE_CLI_OPTIONS_H
 #define JNEXT_CORE_CLI_OPTIONS_H
 
+#include <array>
 #include <cstddef>
 #include <cstring>
 
@@ -67,6 +68,11 @@ enum class OptId {
     WavRecord,
     DacTrace,
     AudioGainDb,
+    AudioGainBeeperDb,
+    AudioGainAy0Db,
+    AudioGainAy1Db,
+    AudioGainAy2Db,
+    AudioGainDacDb,
     RzxPlay,
     RzxRecord,
     Speed,
@@ -84,6 +90,52 @@ enum class OptId {
     Help,
     Version,
 };
+
+// Parsed gain values plus the independent "CLI supplied this value" bits used
+// for saved-configuration precedence. Keeping the option-to-slot mapping here
+// makes it directly testable instead of hiding it in main.cpp control flow.
+struct AudioGainArgs {
+    float master = 0.0f;
+    float beeper = 0.0f;
+    std::array<float, 3> ay{0.0f, 0.0f, 0.0f};
+    float dac = 0.0f;
+
+    bool master_set = false;
+    bool beeper_set = false;
+    std::array<bool, 3> ay_set{false, false, false};
+    bool dac_set = false;
+};
+
+inline bool assign_audio_gain(OptId id, float db, AudioGainArgs& gains) {
+    switch (id) {
+    case OptId::AudioGainDb:
+        gains.master = db;
+        gains.master_set = true;
+        return true;
+    case OptId::AudioGainBeeperDb:
+        gains.beeper = db;
+        gains.beeper_set = true;
+        return true;
+    case OptId::AudioGainAy0Db:
+        gains.ay[0] = db;
+        gains.ay_set[0] = true;
+        return true;
+    case OptId::AudioGainAy1Db:
+        gains.ay[1] = db;
+        gains.ay_set[1] = true;
+        return true;
+    case OptId::AudioGainAy2Db:
+        gains.ay[2] = db;
+        gains.ay_set[2] = true;
+        return true;
+    case OptId::AudioGainDacDb:
+        gains.dac = db;
+        gains.dac_set = true;
+        return true;
+    default:
+        return false;
+    }
+}
 
 // Documentation status of a spelling. Every value is a claim the alignment
 // check enforces — none of them is a way to opt out of checking.
@@ -132,6 +184,11 @@ inline constexpr Option OPTIONS[] = {
     { "--wav-record",                1, Doc::Documented, OptId::WavRecord },
     { "--dac-trace",                 1, Doc::Documented, OptId::DacTrace },
     { "--audio-gain-db",             1, Doc::Documented, OptId::AudioGainDb },
+    { "--audio-gain-beeper-db",      1, Doc::Documented, OptId::AudioGainBeeperDb },
+    { "--audio-gain-ay0-db",         1, Doc::Documented, OptId::AudioGainAy0Db },
+    { "--audio-gain-ay1-db",         1, Doc::Documented, OptId::AudioGainAy1Db },
+    { "--audio-gain-ay2-db",         1, Doc::Documented, OptId::AudioGainAy2Db },
+    { "--audio-gain-dac-db",         1, Doc::Documented, OptId::AudioGainDacDb },
     { "--rzx-play",                  1, Doc::Documented, OptId::RzxPlay },
     { "--rzx-record",                1, Doc::Documented, OptId::RzxRecord },
     { "--rewind-buffer-size",        1, Doc::Documented, OptId::RewindBufferSize },

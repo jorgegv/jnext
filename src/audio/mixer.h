@@ -91,6 +91,12 @@ public:
     /// Host output gain applied after the emulated hardware mix.
     void set_output_gain_db(float db);
     float output_gain_db() const { return output_gain_db_; }
+    void set_beeper_gain_db(float db);
+    float beeper_gain_db() const { return beeper_gain_db_; }
+    void set_ay_gain_db(int chip, float db);
+    float ay_gain_db(int chip) const;
+    void set_dac_gain_db(float db);
+    float dac_gain_db() const { return dac_gain_db_; }
 
     /// Wire the I2s source (not owned). When set, generate_sample() adds
     /// the latched 10-bit L/R pair (zero-extended) into the 13-bit sum,
@@ -116,12 +122,12 @@ private:
     /// The VHDL 13-bit unsigned mix (audio_mixer.vhd:99-100) of the current
     /// source levels. Pure function of the sources — no state, no filtering.
     void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
-             uint16_t& pcm_L, uint16_t& pcm_R) const;
+             int32_t& pcm_L, int32_t& pcm_R) const;
 
     // Box-filter accumulator: sum of (13-bit mix x master cycles held), and the
     // total cycles, since the last emit_sample().
-    uint64_t acc_l_ = 0;
-    uint64_t acc_r_ = 0;
+    int64_t acc_l_ = 0;
+    int64_t acc_r_ = 0;
     uint64_t acc_cycles_ = 0;
 
     // Ring buffer: stereo int16_t pairs
@@ -144,4 +150,10 @@ private:
     // Host output setting; not emulated machine state.
     float output_gain_db_{0.0f};
     float output_gain_{1.0f};
+    float beeper_gain_db_{0.0f};
+    float beeper_gain_{1.0f};
+    float ay_gain_db_[3]{0.0f, 0.0f, 0.0f};
+    float ay_gain_[3]{1.0f, 1.0f, 1.0f};
+    float dac_gain_db_{0.0f};
+    float dac_gain_{1.0f};
 };
