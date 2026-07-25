@@ -1864,7 +1864,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | zxnext.vhd:1941  | pass    | test/ctc/ctc_test.cpp:2098                         |
 | ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | zxnext.vhd:1964  | pass    | test/ctc/ctc_test.cpp:2133                         |
 | NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | zxnext.vhd:5597/1999 | pass    | test/ctc/ctc_test.cpp:2150                         |
-| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | missing | missing                                       |
+| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | pass    | test/nmi/atic_atac_nmi_test.cpp (ATIC-NMI-02) |
 | NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | zxnext.vhd:5599/1975 | pass    | test/ctc/ctc_test.cpp:2178                         |
 | NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | missing | missing                                              |
 | NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | zxnext.vhd       | pass    | test/ctc/ctc_test.cpp:2196                         |
