@@ -214,10 +214,16 @@ jobs:
           submodules: recursive
       - name: make package-win
         run: make package-win
+      # SDL-only Windows 8+ compatible variant (GH #108) — same container,
+      # same plain make target a local run uses.
+      - name: make package-win-sdl
+        run: make package-win-sdl
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
-          path: build/win-release/*.zip
+          path: |
+            build/win-release/*.zip
+            build/win-sdl-release/*.zip
 
   # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
   # DECLARED EXCEPTION to the "every build step is a make target" rule above.

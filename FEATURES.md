@@ -72,6 +72,7 @@
 - Native Linux packages via CMake CPack: TGZ, DEB, RPM; plus a Fedora `packaging/rpm/jnext.spec` and a Debian/Ubuntu `packaging/debian/` source package
 - Flatpak manifest (`packaging/flatpak/`)
 - Self-contained Windows build: cross-compiled with Fedora MinGW (`make win-release` / `make package-win`), with all Qt6/SDL2/SDL3 runtime DLLs and the `qwindows` platform plugin bundled beside the exe — runs on a stock Windows machine (verified under wine: GUI, ROM load, and SD-image download all work)
+- SDL-only Windows variant (`make package-win-sdl`): no Qt, audited **Windows 8+** compatible (the Qt package needs Windows 10) — see `doc/design/WINDOWS-COMPAT-PLAN.md` (GH #108)
 - Freedesktop integration: `.desktop` launcher, AppStream metainfo, application icon (installed via `make`/`cmake --install`)
 - GitHub Actions: CI (build + FUSE + unit + golden-screenshot regression against a provisioned SD image) and a release workflow that publishes packages on `v*` tags
 

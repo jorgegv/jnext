@@ -280,6 +280,35 @@ else
     skp_ci_fail package-win-manifest "jnext.exe absent (package-win not built here)"
 fi
 
+# --- package-win-sdl (SDL-only Windows 8+ variant, GH #108) ------------------
+# The SDL-only zip must contain the exe and the SDL2+SDL3 pair, and must NOT
+# contain any Qt DLL or plugin: a leaked Qt6 DLL would silently re-raise the
+# bundle's OS floor to Windows 10 (fedora's Qt6Gui hard-imports d3d12.dll —
+# see doc/design/WINDOWS-COMPAT-PLAN.md). No Qt toolchain needed here.
+if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    if make package-win-sdl >"$LOGDIR/win-sdl.log" 2>&1; then
+        z=$(ls -1 build/win-sdl-release/*.zip 2>/dev/null | head -1)
+        if [ -n "$z" ]; then
+            list=$(unzip -l "$z" 2>/dev/null)
+            if printf '%s' "$list" | grep -q "jnext.exe" \
+               && printf '%s' "$list" | grep -qi "SDL2.dll" \
+               && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -q "Qt6" \
+               && ! printf '%s' "$list" | grep -q "platforms/"; then
+                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL2/SDL3, no Qt)"
+            else
+                bad package-win-sdl ".zip missing exe/SDL DLLs, or Qt files leaked in" "$LOGDIR/win-sdl.log"
+            fi
+        else
+            bad package-win-sdl "no .zip produced" "$LOGDIR/win-sdl.log"
+        fi
+    else
+        bad package-win-sdl "make package-win-sdl failed" "$LOGDIR/win-sdl.log"
+    fi
+else
+    skp_ci_fail package-win-sdl "MinGW cross toolchain not installed"
+fi
+
 # --- package-flatpak ---------------------------------------------------------
 # A full flatpak-builder run needs org.kde.Sdk installed (a large runtime) and
 # network access, so it is only attempted when the SDK is present. Always at

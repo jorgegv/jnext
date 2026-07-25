@@ -65,6 +65,8 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make package-deb`     | `.deb` (via CPack, in `build/deb-release/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
 | `make win-release` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/win-release/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/win-release/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make win-sdl-release` | SDL-only Windows `jnext.exe` (no Qt) + runtime DLLs in `build/win-sdl-release/` | Fedora MinGW cross toolchain (Qt6 not needed)   | **Yes** (with the MinGW packages installed) |
+| `make package-win-sdl` | SDL-only Windows `.zip` (`jnext-<ver>-windows-x64-sdl.zip` in `build/win-sdl-release/`) — **Windows 8+ compatible** (GH #108, see below) | Fedora MinGW cross toolchain (Qt6 not needed) | **Yes** (with the MinGW packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak-release/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
 | `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
@@ -119,6 +121,25 @@ against `build/win-release/` (exe runnable in place); `package-win` runs it
 into a clean, correctly-named staging dir and zips that (not CPack `-G ZIP`,
 whose `/usr` install prefix would give a broken `usr/bin/jnext.exe` layout on
 Windows).
+
+### SDL-only Windows variant (Windows 8+, GH #108)
+
+The regular `package-win` zip has an audited hard **Windows 10 (1703) floor**:
+fedora's Qt6Gui.dll statically imports `d3d12.dll` and Qt6Core/qwindows import
+several Win10-only kernel32/user32 APIs — none fixable from jnext (evidence
+and method: [doc/design/WINDOWS-COMPAT-PLAN.md](../doc/design/WINDOWS-COMPAT-PLAN.md),
+re-runnable via `packaging/windows/pe-floor-audit.sh`).
+
+`make package-win-sdl` builds the same emulator core with the SDL frontend
+(`ENABLE_QT_UI=OFF`) and ships it without any Qt DLL. Its audited floor is
+**Windows 8.0** (single blocker below that: fedora libcrypto-3 imports
+`PathCchRemoveFileSpec`, a Win8+ API — so Windows 7 stays unsupported).
+Trade-off: no menu bar, no preferences dialog, no Qt debugger GUI — CLI and
+keyboard shortcuts only. The exe is GUI-subsystem like the Qt one and links
+`SDL2::SDL2main` for the `WinMain`→`SDL_main` bridge (Qt's EntryPoint fills
+that role in the Qt build). The target refuses to ship a bundle where Qt DLLs
+leaked in or SDL2/SDL3 are missing; `make package-test` re-checks the zip
+contents.
 
 ## Runtime dependencies — how they were derived
 
