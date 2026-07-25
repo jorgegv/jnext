@@ -122,6 +122,9 @@ Record video and audio to an MP4.
 Requires \f[B]ffmpeg\f[R](1) on the PATH.
 If the recording cannot be produced (encoder failure, no usable output),
 \f[B]jnext\f[R] reports the error and exits non\-zero.
+If the recording cannot even be started (no usable \f[B]ffmpeg\f[R]),
+\f[B]jnext\f[R] exits non\-zero immediately, without running the
+emulation.
 .TP
 \f[B]\-\-wav\-record\f[R] \f[I]FILE\f[R]
 Record the mixed stereo output to a 44.1 kHz, 16\-bit PCM WAV.

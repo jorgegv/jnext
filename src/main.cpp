@@ -812,10 +812,16 @@ int main(int argc, char* argv[]) {
         bool capture_ok = true;
 
         // Start video recording if requested (after init, before run).
+        // A start failure aborts the run RIGHT HERE (GH #86), exactly like
+        // the --wav-record/--dac-trace start blocks above: running the whole
+        // requested duration only to report at exit that no recording ever
+        // began wastes the full wall-clock of every failed CI/automation run.
         if (!record_file.empty()) {
             if (!app.emulator().start_recording(record_file)) {
                 Log::emulator()->error("Failed to start recording to {}", record_file);
-                capture_ok = false;
+                audio_recorder.stop();
+                dac_trace_recorder.stop();
+                return 1;
             }
         }
 
@@ -835,6 +841,12 @@ int main(int argc, char* argv[]) {
         // Stop recording before shutdown (encodes the MP4).
         if (app.emulator().video_recorder().is_recording()) {
             capture_ok = app.emulator().stop_recording() && capture_ok;
+        }
+        // GH #86: a stop whose result was discarded (MainWindow::closeEvent)
+        // is latched per output path — see VideoRecorder::output_failed().
+        if (!record_file.empty() &&
+            app.emulator().video_recorder().output_failed(record_file)) {
+            capture_ok = false;
         }
 
         if (audio_recorder.is_recording()) {

@@ -97,6 +97,24 @@ public:
     /// Is recording currently active?
     bool is_recording() const { return recording_; }
 
+    /// GH #86 — the stop-failure latch, scoped PER OUTPUT PATH.
+    ///
+    /// This is the seam that lets a stop() whose return value was discarded
+    /// — MainWindow::closeEvent() stopping a still-active recording when the
+    /// user closes the window — still fail the process exit status:
+    /// main.cpp asks output_failed(record_file) after run().
+    ///
+    /// Scoping (GH #86 review round 2): the latch records WHICH output
+    /// failed, so an unrelated ad-hoc GUI recording that fails cannot fail
+    /// the exit status of a --record run whose own file completed correctly
+    /// — and vice versa. A later SUCCESSFUL recording to the SAME path
+    /// clears that path's failure (the requested artifact then exists and
+    /// is valid); a success on a different path clears nothing.
+    bool output_failed(const std::string& path) const;
+
+    /// Any output failed, regardless of path (see output_failed()).
+    bool stop_failed() const { return !failed_outputs_.empty(); }
+
     /// Get the output file path.
     const std::string& output_path() const { return output_path_; }
 
@@ -107,7 +125,11 @@ public:
     static constexpr int SAMPLE_RATE = 44100;
 
 private:
+    /// Record output_path_ as failed (GH #86 — see output_failed()).
+    void latch_stop_failure();
+
     bool recording_ = false;
+    std::vector<std::string> failed_outputs_;  ///< GH #86 — see output_failed().
     std::string output_path_;
     std::string video_tmp_;
     std::string audio_tmp_;

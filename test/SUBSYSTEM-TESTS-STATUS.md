@@ -59,7 +59,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging               |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Video recorder (ffmpeg cmd) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
