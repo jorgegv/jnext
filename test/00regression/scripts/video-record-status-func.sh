@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pin --record's process-status contract (GH #78). Sourced by regression.sh;
-# also directly executable.
+# Pin --record's process-status contract (GH #78, GH #86). Sourced by
+# regression.sh; also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
@@ -81,18 +81,41 @@ if want video-record-status-func; then
         dir_rc=$?
     fi
 
+    # Leg 6 (GH #86): a --record START failure must abort the run
+    # IMMEDIATELY, not after the requested duration. Request a duration far
+    # beyond the timeout (500000 frames ≈ 2.7 h emulated): a working abort
+    # exits within seconds of init; the pre-fix behaviour (run everything,
+    # report at exit) hits the 40 s timeout (rc 124) and/or blows the
+    # wall-clock bound.
+    abort_file="$TMP_DIR/jnext_test_abort_early.mp4"
+    abort_t0=$(date +%s)
+    if abort_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
+        timeout --foreground --kill-after=5s 40s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --record "$abort_file" \
+        --delayed-automatic-exit-frames 500000 2>&1); then
+        abort_rc=0
+    else
+        abort_rc=$?
+    fi
+    abort_elapsed=$(( $(date +%s) - abort_t0 ))
+
+    # GH #86 strengthened ! -s to ! -e on failed_file/empty_file: a failing
+    # encoder's 0-byte artifact must be REMOVED, not merely empty.
     if [[ "$success_rc" -eq 0 && -s "$success_file" \
           && "$start_rc" -ne 0 && ! -e "$start_file" \
-          && "$failed_rc" -ne 0 && ! -s "$failed_file" \
-          && "$empty_rc" -ne 0 && ! -s "$empty_file" \
-          && "$dir_rc" -ne 0 && -f "$dir_target/keep.txt" ]] \
+          && "$failed_rc" -ne 0 && ! -e "$failed_file" \
+          && "$empty_rc" -ne 0 && ! -e "$empty_file" \
+          && "$dir_rc" -ne 0 && -f "$dir_target/keep.txt" \
+          && "$abort_rc" -ne 0 && "$abort_rc" -ne 124 \
+          && "$abort_elapsed" -le 15 && ! -e "$abort_file" ]] \
         && grep -qF "Failed to start recording" <<< "$start_out" \
         && grep -qF "FFmpeg encoding failed" <<< "$failed_out" \
         && grep -qF "reported success but produced no usable output" <<< "$empty_out" \
-        && grep -qF "cannot replace output file" <<< "$dir_out"; then
-        pass_row " (success exits 0; start, encode, empty-output and stale-removal failures exit non-zero)"
+        && grep -qF "cannot replace output file" <<< "$dir_out" \
+        && grep -qF "Failed to start recording" <<< "$abort_out"; then
+        pass_row " (success exits 0; start, encode, empty-output and stale-removal failures exit non-zero; start failure aborts early)"
     else
-        fail_row " (success_rc=$success_rc success_size=$([[ -s "$success_file" ]] && echo nonzero || echo zero) start_rc=$start_rc fail_rc=$failed_rc empty_rc=$empty_rc dir_rc=$dir_rc)"
+        fail_row " (success_rc=$success_rc success_size=$([[ -s "$success_file" ]] && echo nonzero || echo zero) start_rc=$start_rc fail_rc=$failed_rc empty_rc=$empty_rc dir_rc=$dir_rc abort_rc=$abort_rc abort_elapsed=${abort_elapsed}s)"
     fi
 fi
 

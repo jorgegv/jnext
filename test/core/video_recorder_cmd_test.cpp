@@ -35,7 +35,15 @@
 #include "core/video_recorder.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -82,6 +90,81 @@ VideoRecorder::EncodeSpec spec_with_audio(const std::string& dir, char sep)
     s.codec       = "libx264";
     s.codec_opts  = "-preset fast -crf 18 -pix_fmt yuv420p";
     return s;
+}
+
+// ---------------------------------------------------------------
+// GH #86 — stop-failure latch harness (POSIX-executed).
+//
+// stop_failed() is the seam that carries a discarded stop_recording()
+// result (MainWindow::closeEvent()) into main.cpp's exit status. These
+// helpers drive real start()/capture_frame()/stop() cycles against a stub
+// `ffmpeg` placed FIRST on PATH, whose behaviour is selected with the
+// JNEXT_TEST_FFMPEG_MODE environment variable (same convention as
+// test/00regression/scripts/video-record-status-func.sh). Like the
+// encode-command rows' redirections, actually EXECUTING the stub is
+// POSIX-only; the Windows build never compiles this suite
+// (make package-win configures -DENABLE_TESTS=OFF).
+// ---------------------------------------------------------------
+namespace fs = std::filesystem;
+
+fs::path g_sf_dir;  // scratch dir for the SF rows
+
+bool sf_setup()
+{
+#ifdef _WIN32
+    return false;  // never built; see header comment
+#else
+    g_sf_dir = fs::temp_directory_path() /
+               ("jnext_vr_stopfail_" + std::to_string(::getpid()));
+    std::error_code ec;
+    fs::create_directories(g_sf_dir, ec);
+    if (ec) return false;
+
+    const fs::path stub = g_sf_dir / "ffmpeg";
+    {
+        std::ofstream f(stub);
+        f << "#!/bin/sh\n"
+             "[ \"$1\" = \"-version\" ] && exit 0\n"
+             "for out do :; done\n"
+             "case \"$JNEXT_TEST_FFMPEG_MODE\" in\n"
+             "  encode-fail)   : > \"$out\"; exit 42 ;;\n"    // 0-byte artifact, then fail
+             "  empty-success) : > \"$out\"; exit 0 ;;\n"     // 0-byte artifact, "success"
+             "  success)       printf x > \"$out\"; exit 0 ;;\n"
+             "esac\n"
+             "exit 99\n";
+        if (!f) return false;
+    }
+    if (::chmod(stub.c_str(), 0755) != 0) return false;
+
+    const char* old_path = std::getenv("PATH");
+    const std::string new_path =
+        g_sf_dir.string() + ":" + (old_path ? old_path : "/usr/bin:/bin");
+    return ::setenv("PATH", new_path.c_str(), 1) == 0;
+#endif
+}
+
+void sf_mode(const char* mode)
+{
+#ifndef _WIN32
+    ::setenv("JNEXT_TEST_FFMPEG_MODE", mode, 1);
+#else
+    (void)mode;
+#endif
+}
+
+/// start() + one captured frame, so stop() reaches the encode step.
+bool sf_start_with_frame(VideoRecorder& rec, const std::string& name)
+{
+    if (!rec.start((g_sf_dir / name).string())) return false;
+    const uint32_t frame[16] = {};  // 4x4 ARGB
+    rec.capture_frame(frame, 4, 4);
+    return true;
+}
+
+bool sf_output_exists(const std::string& name)
+{
+    std::error_code ec;
+    return fs::exists(g_sf_dir / name, ec);
 }
 
 }  // namespace
@@ -260,6 +343,81 @@ int main()
         const char* what = "this is a POSIX build, so NATIVE_STYLE is Posix";
 #endif
         check("NS-01", what, ok);
+    }
+
+    // ---------------------------------------------------------------
+    // GH #86 — the stop-failure latch (stop_failed()).
+    //
+    // main.cpp reads this after run() so that a stop whose return value was
+    // discarded (MainWindow::closeEvent() on window close) still fails the
+    // exit status of a --record run. The closeEvent() call itself is a Qt
+    // GUI path that cannot be driven from this suite — these rows pin the
+    // seam it feeds. Executed against the PATH-stubbed ffmpeg (sf_setup).
+    // ---------------------------------------------------------------
+    const bool sf_ready = sf_setup();
+    check("SF-01", "harness: stub ffmpeg installed first on PATH", sf_ready,
+          g_sf_dir.string());
+    {
+        VideoRecorder rec;
+        check("SF-02", "a fresh recorder reports stop_failed() == false",
+              !rec.stop_failed());
+        const bool r = rec.stop();
+        check("SF-03", "stop() with no active recording returns false and does NOT latch "
+                       "(misuse guard, not a failed recording)",
+              !r && !rec.stop_failed());
+    }
+    {
+        VideoRecorder rec;
+        sf_mode("encode-fail");
+        const bool started = sf_ready && sf_start_with_frame(rec, "encfail.mp4");
+        const bool stopped = started && rec.stop();
+        check("SF-04", "a failed encode makes stop() return false AND latch stop_failed()",
+              started && !stopped && rec.stop_failed());
+        check("SF-05", "a failed encode leaves no 0-byte artifact behind (GH #86 cosmetic)",
+              started && !sf_output_exists("encfail.mp4"));
+    }
+    {
+        VideoRecorder rec;
+        sf_mode("empty-success");
+        const bool started = sf_ready && sf_start_with_frame(rec, "empty.mp4");
+        const bool stopped = started && rec.stop();
+        check("SF-06", "encoder success with a 0-byte output makes stop() false and latches",
+              started && !stopped && rec.stop_failed());
+        check("SF-07", "the 0-byte 'successful' output is removed (GH #86 cosmetic)",
+              started && !sf_output_exists("empty.mp4"));
+    }
+    {
+        VideoRecorder rec;
+        sf_mode("success");
+        const bool started = sf_ready && sf_start_with_frame(rec, "good.mp4");
+        const bool stopped = started && rec.stop();
+        check("SF-08", "a successful recording: stop() true, stop_failed() stays false",
+              started && stopped && !rec.stop_failed());
+    }
+    {
+        // Sticky by design: the CLI-requested recording that failed still
+        // never materialized, so a LATER successful one must not clear it.
+        VideoRecorder rec;
+        sf_mode("encode-fail");
+        bool ok = sf_ready && sf_start_with_frame(rec, "sticky1.mp4");
+        ok = ok && !rec.stop() && rec.stop_failed();
+        sf_mode("success");
+        ok = ok && sf_start_with_frame(rec, "sticky2.mp4");
+        const bool second_ok = ok && rec.stop();
+        check("SF-09", "the latch is STICKY: a later successful recording does not clear it",
+              ok && second_ok && rec.stop_failed());
+    }
+    {
+        VideoRecorder rec;
+        sf_mode("success");
+        const bool started = sf_ready && rec.start((g_sf_dir / "noframes.mp4").string());
+        const bool stopped = started && rec.stop();  // no capture_frame(): nothing to encode
+        check("SF-10", "stop() with no frames captured returns false and latches",
+              started && !stopped && rec.stop_failed());
+    }
+    if (sf_ready) {
+        std::error_code ec;
+        fs::remove_all(g_sf_dir, ec);
     }
 
     std::printf("\n====================================================\n");
