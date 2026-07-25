@@ -2634,7 +2634,11 @@ static void test_section15_shadow() {
         bed.ram.write(shadow_base + emu_pixel_addr_offset(0, 0), 0x00);
         bed.ram.write(shadow_base + (0x5800 - 0x4000), 0x07);
         std::array<uint32_t, Ula::FB_WIDTH> line{};
-        bed.ula.render_scanline_screen1(line.data(), 32, bed.mmu);
+        // GH #95 signature: the select_bgnd fallback ARGB is now threaded
+        // explicitly.  Std-ULA row — `ula_select_bgnd` stays '0' outside
+        // ULAnext (zxula.vhd:490), so the value is never consumed; pass the
+        // NR $4A reset expansion (0xE3 → 0xFFFF00FF, zxnext.vhd:5014).
+        bed.ula.render_scanline_screen1(line.data(), 32, bed.mmu, 0xFFFF00FFu);
         const uint32_t exp_paper0 = bed_paper_argb(bed.palette, 0);
         check("S15.02",
               "zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM",
