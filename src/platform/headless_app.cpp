@@ -316,6 +316,51 @@ void HeadlessApp::run() {
     if (benchmark_frames_ > 0)
         bench_start = bench_clock::now();
 
+    // G46(b) #102 investigation probe (env-gated, zero cost when unset).
+    // JNEXT_G46B_PCTRACE=<path>: dump a one-line-per-frame CPU snapshot
+    // (PC, opcode bytes at PC, key registers, halted/IM/IFF1) for a frame
+    // window, to find the first frame at which a formerly-moving PC settles
+    // into a static/repeating pattern (a "display frozen, CPU alive" bug
+    // signature). Window controlled by JNEXT_G46B_PCTRACE_START (default 0)
+    // and JNEXT_G46B_PCTRACE_FRAMES (default 1).
+    // G46(b) #102 per-instruction probe. JNEXT_G46B_ITRACE=<path>,
+    // JNEXT_G46B_ITRACE_START (default 0), JNEXT_G46B_ITRACE_FRAMES
+    // (default 1). Enables Z80Cpu::set_g46b_itrace() only for that frame
+    // window — per-instruction logging is far too high-volume to run for
+    // a whole session.
+    const char* g46b_itrace_path = std::getenv("JNEXT_G46B_ITRACE");
+    FILE* g46b_itrace_file = nullptr;
+    long  g46b_itrace_start = 0;
+    long  g46b_itrace_frames = 1;
+    if (g46b_itrace_path) {
+        g46b_itrace_file = std::fopen(g46b_itrace_path, "w");
+        if (const char* s = std::getenv("JNEXT_G46B_ITRACE_START"))
+            g46b_itrace_start = std::atol(s);
+        if (const char* f = std::getenv("JNEXT_G46B_ITRACE_FRAMES"))
+            g46b_itrace_frames = std::atol(f);
+        if (g46b_itrace_file) {
+            std::fprintf(g46b_itrace_file,
+                "tstates,pc,op0,op1,op2,op3,af,bc,de,hl,sp,ix,iy,halted,iff1\n");
+        }
+    }
+
+    const char* g46b_pctrace_path = std::getenv("JNEXT_G46B_PCTRACE");
+    FILE* g46b_pctrace_file = nullptr;
+    long  g46b_pctrace_start = 0;
+    long  g46b_pctrace_frames = 1;
+    long  g46b_frame_no = 0;
+    if (g46b_pctrace_path) {
+        g46b_pctrace_file = std::fopen(g46b_pctrace_path, "w");
+        if (const char* s = std::getenv("JNEXT_G46B_PCTRACE_START"))
+            g46b_pctrace_start = std::atol(s);
+        if (const char* f = std::getenv("JNEXT_G46B_PCTRACE_FRAMES"))
+            g46b_pctrace_frames = std::atol(f);
+        if (g46b_pctrace_file) {
+            std::fprintf(g46b_pctrace_file,
+                "frame,pc,op0,op1,op2,op3,af,bc,de,hl,sp,ix,iy,halted,im,iff1,fb_hash\n");
+        }
+    }
+
     // Task 70 — power-on cold boot: reconstruct the emulator in place and
     // re-run the proven startup init() path (shared with the Qt/SDL frontends,
     // platform/emulator_boot.h). Empty load_file => clean NextZXOS boot;
@@ -409,7 +454,46 @@ void HeadlessApp::run() {
         if (screenshot_countdown_ == 0)
             emulator_.renderer().set_layer_mask(screenshot_layers_);
 
+        if (g46b_itrace_file) {
+            const bool in_window = g46b_frame_no >= g46b_itrace_start &&
+                                    g46b_frame_no < g46b_itrace_start + g46b_itrace_frames;
+            emulator_.cpu().set_g46b_itrace(in_window ? g46b_itrace_file : nullptr);
+        }
+
         emulator_.run_frame();
+
+        if (g46b_pctrace_file &&
+            g46b_frame_no >= g46b_pctrace_start &&
+            g46b_frame_no < g46b_pctrace_start + g46b_pctrace_frames) {
+            Z80Registers r = emulator_.cpu().get_registers();
+            uint8_t op0 = emulator_.mmu().read(r.PC);
+            uint8_t op1 = emulator_.mmu().read(static_cast<uint16_t>(r.PC + 1));
+            uint8_t op2 = emulator_.mmu().read(static_cast<uint16_t>(r.PC + 2));
+            uint8_t op3 = emulator_.mmu().read(static_cast<uint16_t>(r.PC + 3));
+            // headless normally skips rendering most frames (perf; see
+            // emulator.cpp render_this_frame gate) so get_framebuffer() is
+            // stale except right before a requested screenshot. Force a
+            // render here so every probed frame's hash is real.
+            emulator_.renderer().render_frame(emulator_.get_framebuffer(),
+                emulator_.mmu(), emulator_.ram(), emulator_.palette(),
+                emulator_.layer2(), &emulator_.sprites(), &emulator_.tilemap());
+            uint64_t fb_hash = 1469598103934665603ull;  // FNV-1a 64-bit offset basis
+            const uint32_t* fb = emulator_.get_framebuffer();
+            const size_t fb_pixels = static_cast<size_t>(emulator_.get_framebuffer_width()) *
+                                      static_cast<size_t>(emulator_.get_framebuffer_height());
+            for (size_t i = 0; i < fb_pixels; ++i) {
+                fb_hash ^= fb[i];
+                fb_hash *= 1099511628211ull;  // FNV-1a 64-bit prime
+            }
+            std::fprintf(g46b_pctrace_file,
+                "%ld,%04x,%02x,%02x,%02x,%02x,%04x,%04x,%04x,%04x,%04x,%04x,%04x,%d,%d,%d,%016llx\n",
+                g46b_frame_no, r.PC, op0, op1, op2, op3,
+                r.AF, r.BC, r.DE, r.HL, r.SP, r.IX, r.IY,
+                r.halted ? 1 : 0, r.IM, r.IFF1,
+                static_cast<unsigned long long>(fb_hash));
+            std::fflush(g46b_pctrace_file);
+        }
+        ++g46b_frame_no;
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
             cold_boot(load_file);
@@ -510,6 +594,14 @@ void HeadlessApp::run() {
         } else if (exit_countdown_ > 0) {
             --exit_countdown_;
         }
+    }
+
+    if (g46b_pctrace_file) {
+        std::fclose(g46b_pctrace_file);
+    }
+    if (g46b_itrace_file) {
+        emulator_.cpu().set_g46b_itrace(nullptr);
+        std::fclose(g46b_itrace_file);
     }
 }
 
