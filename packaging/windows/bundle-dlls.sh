@@ -107,7 +107,12 @@ for d in $(imports "$EXE"); do QUEUE+=("$d"); done
 resolve_queue
 
 # --- Qt plugins (+ their own DLL closure) -----------------------------------
-for rel in $QT_PLUGIN_LIST; do
+# Only for a Qt-linked exe: the SDL-only build (ENABLE_QT_UI=OFF, GH #108)
+# imports no qt6core.dll and needs neither plugins nor qt.conf.
+QT_EXE=0
+if imports "$EXE" | grep -q '^qt6core\.dll$'; then QT_EXE=1; fi
+
+[ "$QT_EXE" -eq 1 ] && for rel in $QT_PLUGIN_LIST; do
     src="$QT_PLUGINS/$rel"
     if [ ! -f "$src" ]; then
         if [ "$rel" = "platforms/qwindows.dll" ]; then
@@ -147,7 +152,7 @@ if [ "$(cd "$(dirname "$EXE")" && pwd)/$(basename "$EXE")" != "$(cd "$DEST" && p
 fi
 
 # --- qt.conf: let Qt find the plugin subdirs from the exe directory ---------
-printf '[Paths]\nPlugins=.\n' > "$DEST/qt.conf"
+[ "$QT_EXE" -eq 1 ] && printf '[Paths]\nPlugins=.\n' > "$DEST/qt.conf"
 
 # Fail loud if any required non-system DLL could not be resolved — a partially
 # bundled zip would fail to start on Windows just like the bare exe does.
@@ -159,4 +164,8 @@ fi
 # Count DLLs only — $DEST may be the build dir itself (in-place bundling), whose
 # total file count includes the whole CMake tree and would be meaningless here.
 n=$(find "$DEST" -iname '*.dll' | wc -l)
-echo "bundled $n DLLs (+ Qt plugins + qt.conf) into $DEST"
+if [ "$QT_EXE" -eq 1 ]; then
+    echo "bundled $n DLLs (+ Qt plugins + qt.conf) into $DEST"
+else
+    echo "bundled $n DLLs (SDL-only exe: no Qt plugins/qt.conf) into $DEST"
+fi

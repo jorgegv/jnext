@@ -7,6 +7,7 @@ BUILD_DIR_SDL_RELEASE := build/sdl-release
 BUILD_DIR_GUI_DEBUG   := build/gui-debug
 BUILD_DIR_GUI_RELEASE := build/gui-release
 BUILD_DIR_WIN_RELEASE := build/win-release
+BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
 BUILD_DIR_MAC_RELEASE := build/mac-release
 BUILD_DIR_RPM_RELEASE := build/rpm-release
 BUILD_DIR_DEB_RELEASE := build/deb-release
@@ -74,6 +75,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
+       win-sdl-release package-win-sdl \
        package-contract-test packaging-selftest verify-macos-dmg
 .SILENT:
 
@@ -174,6 +176,26 @@ win-release:
 	@# the DLLs, the platforms/qwindows.dll plugin).
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
 	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_RELEASE)/jnext.exe\n"
+
+# Cross-compile the SDL-only Windows jnext.exe (no Qt — Windows 8+ compatible; GH #108)
+win-sdl-release:
+	@# Same toolchain check as win-release, minus the Qt6 requirement — the
+	@# SDL-only build (ENABLE_QT_UI=OFF) is exactly the Win7/8-era leg where
+	@# fedora's mingw Qt6 (hard Windows 10 floor) is unusable. See
+	@# doc/design/WINDOWS-COMPAT-PLAN.md for the audited floors.
+	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
+	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain incomplete.\n"; \
+		printf "  Install it:\n"; \
+		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-sdl2-compat \\\\\n"; \
+		printf "    mingw64-curl mingw64-openssl mingw64-zlib mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
+		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
+		exit 1; \
+	fi
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) -DENABLE_QT_UI=OFF -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(BUILD_DIR_WIN_SDL_RELEASE) -j$(JOBS)
+	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN_SDL_RELEASE)
+	@printf "$(BOLD)Windows SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe\n"
 
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
@@ -684,6 +706,31 @@ package-win: win-release
 	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip"; \
 	 ( cd "$(BUILD_DIR_WIN_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_RELEASE)/*.zip
+
+# Cross-compile + ZIP the SDL-only Windows build (Windows 8+ compatible; GH #108)
+# Mirrors package-win. Extra structural checks: the SDL-only bundle must carry
+# no Qt DLL/plugin (that would silently re-raise the OS floor to Windows 10)
+# and must include the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
+# which LoadLibrary()s SDL3.dll at runtime).
+package-win-sdl: win-sdl-release
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 name="jnext-$$ver-windows-x64-sdl"; \
+	 stage="$(BUILD_DIR_WIN_SDL_RELEASE)/dist/$$name"; \
+	 rm -rf "$(BUILD_DIR_WIN_SDL_RELEASE)/dist"; mkdir -p "$$stage"; \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe "$$stage"; \
+	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1 || [ -d "$$stage/platforms" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Qt files leaked into the SDL-only bundle.\n"; exit 1; \
+	 fi; \
+	 for dll in SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$dll" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$dll missing from the SDL-only bundle.\n"; exit 1; \
+		fi; \
+	 done; \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
+	 cp -r doc/user-guide "$$stage"/user-guide; \
+	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip"; \
+	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
 
 # The whole recipe is one shell invocation so the non-Darwin early-exit
 # actually stops it — a bare `exit 0` on its own recipe line would only end
