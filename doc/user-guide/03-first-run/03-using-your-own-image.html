@@ -2825,6 +2825,16 @@
 offered or performed. In the graphical version you can also mount one from
 <strong>File &gt; Mount SD Card Image</strong>, and set a permanent default in Preferences
 (chapter 4).</p>
+<p>The image is opened <strong>read-write</strong>, and whatever the emulated machine writes to
+the card is kept. Booting is not one of those things: reaching the NextZXOS
+welcome screen and the menu writes nothing at all, and leaves the image
+byte-identical. What changes it is <em>file</em> work done through NextZXOS — saving
+from NextBASIC, a DOS command such as <code>.mkdir</code>, the Browser copying or deleting
+something, or a program writing a file. Those changes persist into later runs,
+exactly as they would on a real card, so two runs sharing one image are not
+independent once one of them has written.</p>
+<p>Add <code>--sdcard-readonly</code> when a run must not disturb the image: the emulated
+machine then sees a write-protected card and the host file is never touched.</p>
 
 
 

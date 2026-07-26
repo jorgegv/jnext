@@ -459,7 +459,12 @@ aliases.
 
 Subsystems are `cpu`, `memory`, `ula`, `video`, `audio`, `port`,
 `nextreg`, `dma`, `copper`, `uart`, `input`, `platform`, `emulator`,
-`sdcard`, `divmmc`, `spi`, `ctc`, `i2c` and `multiface`.
+`sdcard`, `divmmc`, `spi`, `ctc`, `i2c`, `multiface` and `esxdos`. The
+last one is a tracer rather than a subsystem: at `trace` level every
+`RST $08` esxdos call is logged with its arguments and its result,
+including calls jnext does not service. It does not need
+**--esxdos-stub** — the interesting case is a NextZXOS-expecting program
+running without the stub, where those calls are otherwise invisible.
 
 ## PROFILING
 
@@ -516,8 +521,9 @@ command-line options always take precedence over them.
 **Help**  
 About.
 
-The toolbar has Power Reset, Soft Reset, Load, Screenshot and an NMI
-button (Multiface NMI).
+The toolbar has Power Reset, Soft Reset, Load, Screenshot, an NMI button
+(Multiface NMI) and, in a debugger-enabled build, a bug button that
+opens the debugger.
 
 CPU Speed and Emulator Speed are different things: the first changes the
 clock the emulated Z80 runs at, which is a real Next feature; the second
@@ -548,6 +554,12 @@ changes how fast the emulator runs relative to real time.
 
 Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
 is toggled with F11 only (it used to also be exited with Esc).
+
+The function keys are host controls, not Spectrum keys. F1 is Power
+Reset (the same as Ctrl+R), F4 is Soft Reset, F9 fires the Multiface
+NMI, F10 fires the DivMMC NMI, F2 cycles the window scale and F11
+toggles fullscreen. With the debugger open F9 belongs to the debugger
+(Pause / Break) instead.
 
 Alt is a modifier here, never a Spectrum key. Only Alt + E/G/C and Alt +
 the key left of `1` are used, because the menu bar claims Alt +
@@ -612,15 +624,23 @@ or `make gui-debug`); the SDL-only build has no way to open it.
   Buffer Size… Unchecking the toggle pauses snapshotting but keeps the
   recorded history; set the buffer size to 0 to free the memory
 
-| Key      | Action         |
-|----------|----------------|
-| F5       | Run / Continue |
-| F6       | Step Into      |
-| F7       | Step Over      |
-| F8       | Step Out       |
-| F9       | Pause / Break  |
-| Shift+F6 | Frame Back     |
-| Shift+F7 | Step Back      |
+| Key      | Action             |
+|----------|--------------------|
+| F2       | Enable Trace       |
+| F3       | Export Trace       |
+| F5       | Run / Continue     |
+| F6       | Single Step (into) |
+| F7       | Step Over          |
+| F8       | Step Out           |
+| F9       | Pause / Break      |
+| Shift+F6 | Frame Back         |
+| Shift+F7 | Step Back          |
+
+The window may be resized below what the panels need: the panel area
+then scrolls rather than clipping, and the control toolbar along the
+bottom stays visible, with any buttons that no longer fit reachable from
+its overflow menu. Its size is remembered between sessions and clamped
+to the screen it reopens on.
 
 ## MAGIC BREAKPOINT AND MAGIC PORT
 

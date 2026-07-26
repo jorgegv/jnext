@@ -2904,7 +2904,10 @@ block position.</p>
 <h2 id="video">Video<a class="headerlink" href="#video" title="Permanent link">&para;</a></h2>
 <p><strong>File &gt; Record MPEG4 Video…</strong> (Ctrl+F5) starts recording video with audio to
 an MP4; <strong>Stop</strong> (Ctrl+F6) ends it. From the command line, <code>--record FILE</code>.</p>
-<p>This needs <strong>ffmpeg</strong> installed and on your PATH — JNEXT feeds it the frames.</p>
+<p>This needs <strong>ffmpeg</strong> installed and on your PATH — JNEXT feeds it the frames.
+If it is missing, <code>--record</code> fails immediately: JNEXT says so and exits
+non-zero without emulating anything, rather than running a session you would
+find out afterwards had never been recorded.</p>
 <p>To capture only the audio, <code>--wav-record FILE</code> writes a standard WAV. It needs
 neither ffmpeg nor a sound card, so it works in automated runs.</p>
 <h2 id="rzx-recording-what-you-did">RZX: recording what you did<a class="headerlink" href="#rzx-recording-what-you-did" title="Permanent link">&para;</a></h2>
