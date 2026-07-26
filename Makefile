@@ -8,6 +8,7 @@ BUILD_DIR_GUI_DEBUG   := build/gui-debug
 BUILD_DIR_GUI_RELEASE := build/gui-release
 BUILD_DIR_WIN_RELEASE := build/win-release
 BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
+BUILD_DIR_WIN32_SDL_RELEASE := build/win32-sdl-release
 BUILD_DIR_MAC_RELEASE := build/mac-release
 BUILD_DIR_RPM_RELEASE := build/rpm-release
 BUILD_DIR_DEB_RELEASE := build/deb-release
@@ -75,7 +76,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
-       win-sdl-release package-win-sdl \
+       win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        package-contract-test packaging-selftest verify-macos-dmg
 .SILENT:
 
@@ -201,6 +202,31 @@ win-sdl-release:
 	$(CMAKE) --build $(BUILD_DIR_WIN_SDL_RELEASE) -j$(JOBS)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN_SDL_RELEASE)
 	@printf "$(BOLD)Windows SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe\n"
+
+# Cross-compile the SDL-only 32-bit (i686) Windows jnext.exe — repo-internal (GH #108 Phase C)
+win32-sdl-release:
+	@# i686 twin of win-sdl-release: mingw32-cmake + the mingw32-* library set.
+	@# SDL-only is the meaningful 32-bit leg today — fedora's mingw32 Qt6 would
+	@# carry the same Windows 10 floor as the x64 Qt package, defeating the
+	@# point of a 32-bit build (doc/design/WINDOWS-COMPAT-PLAN.md §4/§7).
+	@if ! command -v mingw32-cmake >/dev/null 2>&1 \
+	   || ! command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW i686 cross toolchain incomplete.\n"; \
+		printf "  Install it:\n"; \
+		printf "  $(BOLD)sudo dnf install mingw32-gcc mingw32-gcc-c++ mingw32-sdl2-compat \\\\\n"; \
+		printf "    mingw32-zlib mingw32-libpng mingw32-winpthreads$(RESET)\n"; \
+		printf "  (mingw32-filesystem supplies mingw32-cmake.)\n"; \
+		exit 1; \
+	fi
+	@# ENABLE_DEBUGGER=OFF is load-bearing for the same reason as in
+	@# win-sdl-release: it defaults ON and src/debugger does
+	@# find_package(Qt6 REQUIRED) at configure time.
+	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_SDL_RELEASE) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(BUILD_DIR_WIN32_SDL_RELEASE) -j$(JOBS)
+	@# bundle-dlls.sh reads the exe's PE machine field and resolves DLLs from
+	@# the i686 sysroot automatically.
+	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN32_SDL_RELEASE)
+	@printf "$(BOLD)Windows 32-bit SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe\n"
 
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
@@ -736,6 +762,33 @@ package-win-sdl: win-sdl-release
 	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip"; \
 	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
+
+# Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
+# SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.
+# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
+# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
+# Exercised in CI by the package-win32-sdl row of `make package-test`.
+#
+# Cross-compile + ZIP the SDL-only 32-bit (i686) Windows build — repo-internal (GH #108 Phase C)
+package-win32-sdl: win32-sdl-release
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 name="jnext-$$ver-windows-x86-sdl"; \
+	 stage="$(BUILD_DIR_WIN32_SDL_RELEASE)/dist/$$name"; \
+	 rm -rf "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist"; mkdir -p "$$stage"; \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe "$$stage"; \
+	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1 || [ -d "$$stage/platforms" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Qt files leaked into the SDL-only bundle.\n"; exit 1; \
+	 fi; \
+	 for dll in SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$dll" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$dll missing from the SDL-only bundle.\n"; exit 1; \
+		fi; \
+	 done; \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
+	 cp -r doc/user-guide "$$stage"/user-guide; \
+	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip"; \
+	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_SDL_RELEASE)/*.zip
 
 # The whole recipe is one shell invocation so the non-Darwin early-exit
 # actually stops it — a bare `exit 0` on its own recipe line would only end

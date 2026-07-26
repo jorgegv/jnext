@@ -33,12 +33,28 @@ fi
 
 EXE=$1
 DEST=$2
-SYSROOT=${MINGW_SYSROOT:-/usr/x86_64-w64-mingw32/sys-root/mingw}
-OBJDUMP=${MINGW_OBJDUMP:-x86_64-w64-mingw32-objdump}
-BIN="$SYSROOT/bin"
-QT_PLUGINS="$SYSROOT/lib/qt6/plugins"
 
 [ -f "$EXE" ]     || { echo "error: exe not found: $EXE" >&2; exit 1; }
+
+# --- architecture detection (GH #108 Phase C) --------------------------------
+# One script serves both the x86_64 and the i686 (win32) packages: the default
+# sysroot and objdump derive from the exe's own PE COFF Machine field, read
+# straight out of the file (e_lfanew dword at 0x3c -> "PE\0\0" -> Machine word;
+# 014c = i386, 8664 = x86-64). No toolchain needed for the detection itself,
+# which avoids a chicken-and-egg on hosts with only one cross stack installed.
+# MINGW_SYSROOT / MINGW_OBJDUMP env overrides still win.
+pe_off=$(od -An -tu4 -j 0x3c -N 4 "$EXE" | tr -d ' ')
+machine=$(od -An -tx2 -j "$((pe_off + 4))" -N 2 "$EXE" | tr -d ' ')
+case "$machine" in
+    014c) ARCH=i686 ;;
+    8664) ARCH=x86_64 ;;
+    *) echo "error: unrecognised PE Machine field '$machine' in $EXE" >&2; exit 1 ;;
+esac
+
+SYSROOT=${MINGW_SYSROOT:-/usr/$ARCH-w64-mingw32/sys-root/mingw}
+OBJDUMP=${MINGW_OBJDUMP:-$ARCH-w64-mingw32-objdump}
+BIN="$SYSROOT/bin"
+QT_PLUGINS="$SYSROOT/lib/qt6/plugins"
 [ -d "$BIN" ]     || { echo "error: MinGW sysroot bin not found: $BIN" >&2; exit 1; }
 command -v "$OBJDUMP" >/dev/null 2>&1 || { echo "error: $OBJDUMP not found" >&2; exit 1; }
 
