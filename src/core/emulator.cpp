@@ -6825,13 +6825,14 @@ void Emulator::begin_new_frame()
     // run_frame() only when a new frame is actually beginning — never when resuming a
     // frame the debugger paused mid-way. See the guard at its call site.
 
-    // Per-frame sample of the IM2 DMA-delay latch into the DMA peripheral.
-    // VHDL zxnext.vhd:2001-2010 models this as a per-CPU-clock latch, but
-    // the jnext architecture runs the DMA start-gate check coarsely, so a
-    // per-frame sample (user-resolved decision 2026-04-21, option A) is
-    // adequate for the currently-covered test rows (DMA-01/02/03/05, NR CC/CD/CE-01).
-    // Finer-grain wiring can be revisited if a specific workload requires it.
-    dma_.set_dma_delay(im2_.dma_delay());
+    // GH #102 session 4 — the once-per-frame sample of the IM2 DMA-delay
+    // latch (user-resolved decision 2026-04-21, option A: "adequate...
+    // finer-grain wiring can be revisited if a specific workload requires
+    // it") was superseded by a per-instruction resample in
+    // step_one_instruction() once TX-1696 demonstrated the coarse
+    // granularity causing wild execution (see that call site for the full
+    // citation). No sample is needed here: the per-instruction call runs
+    // before any DMA/CPU work happens in the frame's first instruction too.
     // Snapshot at frame boundary — scheduler queue is empty here, which is
     // required for correct serialisation (no pending events to save).
     if (rewind_buffer_ && rewind_enabled_ && !replay_mode_) {
@@ -7417,6 +7418,39 @@ uint64_t Emulator::step_one_instruction()
     // the trace record), silently dropping interrupts while stepping.
     uint64_t master_cycles;
     bool dma_stalled_cpu_this_step = false;
+
+    // GH #102 session 4 — resample the LIVE im2_.dma_delay() latch every
+    // instruction, not once per video frame. VHDL zxnext.vhd:2001-2010
+    // drives im2_dma_delay from a `rising_edge(i_CLK_CPU)` process — it
+    // updates every CPU clock, and Im2Controller::step_dma_delay() (called
+    // from im2_.tick(), itself called once per instruction below) already
+    // tracks that value with per-instruction freshness. Before this fix,
+    // only begin_new_frame() ever called dma_.set_dma_delay(im2_.dma_delay()),
+    // once per ~70000+ T-state video frame; the GH #102 fix (2e16105f) that
+    // let the CPU keep running during a deferred ENABLE made that staleness
+    // directly observable for the first time: a genuinely brief real-
+    // hardware defer (im2_dma_int clearing within a handful of T-states
+    // once the pending device is serviced) instead persisted for up to a
+    // full video frame in jnext, because dma_delay_ could not refresh mid-
+    // frame. TX-1696's own interrupt-driven, per-frame "DMA memory-copy via
+    // HL/DE/BC" utility runs roughly every ~2500 T-states — hundreds of
+    // times inside a single video frame — so an artificially-elongated
+    // defer let vastly more foreground/interrupt-driven code execute than
+    // real hardware ever would while that specific transfer was nominally
+    // "about to start", desynchronising a `JP (HL)` jump-table dispatch
+    // from a still-pending DMA-driven update and landing PC in
+    // uninitialised data — decoded by the CPU as a wild RST 38, which
+    // wrote NR 0x02 bit 0 (soft reset) and rebooted to the NextZXOS
+    // Welcome screen. This was flagged as a known, deliberate limitation
+    // when the once-per-frame sample was introduced (`doc/design/
+    // TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md` "Resolved open
+    // question — DMA delay granularity (Q4, 2026-04-21)": "If a concrete
+    // regression or new software later demonstrates a divergence, we
+    // upgrade to per-tick in a targeted follow-up") — TX-1696 is that
+    // regression. begin_new_frame()'s once-per-frame call is now
+    // superseded (this per-instruction call runs first in every frame
+    // too) and has been removed.
+    dma_.set_dma_delay(im2_.dma_delay());
 
     if (dma_.state() == Dma::State::TRANSFERRING) {
         // Progress the DMA (and its arbitration FSM, dma.cpp
