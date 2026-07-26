@@ -11,6 +11,7 @@ BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
 BUILD_DIR_WIN_QT5_RELEASE := build/win-qt5-release
 BUILD_DIR_QT5_CHECK   := build/qt5-check
 BUILD_DIR_WIN32_SDL_RELEASE := build/win32-sdl-release
+BUILD_DIR_WIN32_QT5_RELEASE := build/win32-qt5-release
 BUILD_DIR_MAC_RELEASE := build/mac-release
 BUILD_DIR_RPM_RELEASE := build/rpm-release
 BUILD_DIR_DEB_RELEASE := build/deb-release
@@ -79,7 +80,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
-       win-qt5-release package-win-qt5 qt5-guard-build \
+       win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
        package-contract-test packaging-selftest verify-macos-dmg
 .SILENT:
 
@@ -265,6 +266,31 @@ win32-sdl-release:
 	@# the i686 sysroot automatically.
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN32_SDL_RELEASE)
 	@printf "$(BOLD)Windows 32-bit SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe\n"
+
+# Cross-compile the Qt5 full-GUI 32-bit (i686) Windows jnext.exe (Win7 32-bit leg; GH #108 Phase C)
+win32-qt5-release:
+	@# i686 twin of win-qt5-release: mingw32-cmake + the mingw32 Qt5 stack.
+	@# Guard mirrors win-qt5-release — Qt5 runtime+devel (Qt5Config.cmake in
+	@# the i686 sysroot) AND the cross host tools (i686-w64-mingw32-moc-qt5
+	@# from mingw32-qt5-qmake — AUTOMOC needs them).
+	@if ! command -v mingw32-cmake >/dev/null 2>&1 \
+	   || ! command -v i686-w64-mingw32-gcc >/dev/null 2>&1 \
+	   || [ ! -f /usr/i686-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake ] \
+	   || ! command -v i686-w64-mingw32-moc-qt5 >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW i686 Qt5 cross toolchain incomplete.\n"; \
+		printf "  Install it:\n"; \
+		printf "  $(BOLD)sudo dnf install mingw32-gcc mingw32-gcc-c++ mingw32-qt5-qtbase \\\\\n"; \
+		printf "    mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-sdl2-compat \\\\\n"; \
+		printf "    mingw32-zlib mingw32-libpng mingw32-winpthreads$(RESET)\n"; \
+		printf "  (mingw32-filesystem supplies mingw32-cmake.)\n"; \
+		exit 1; \
+	fi
+	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_QT5_RELEASE) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
+	$(CMAKE) --build $(BUILD_DIR_WIN32_QT5_RELEASE) -j$(JOBS)
+	@# bundle-dlls.sh reads the exe's PE machine field (i686 sysroot) and the
+	@# qt5core.dll import (Qt5 plugin root) — no flags needed for either.
+	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN32_QT5_RELEASE)
+	@printf "$(BOLD)Windows 32-bit Qt5 full-GUI executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe\n"
 
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
@@ -824,6 +850,32 @@ package-win-qt5: win-qt5-release
 	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip"; \
 	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
+
+# Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
+# DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
+# Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
+# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C.
+#
+# Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
+package-win32-qt5: win32-qt5-release
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 name="jnext-$$ver-windows-x86-qt5"; \
+	 stage="$(BUILD_DIR_WIN32_QT5_RELEASE)/dist/$$name"; \
+	 rm -rf "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist"; mkdir -p "$$stage"; \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe "$$stage"; \
+	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
+	 fi; \
+	 for f in Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$f" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
+		fi; \
+	 done; \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
+	 cp -r doc/user-guide "$$stage"/user-guide; \
+	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip"; \
+	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_QT5_RELEASE)/*.zip
 
 # Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
 # SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.

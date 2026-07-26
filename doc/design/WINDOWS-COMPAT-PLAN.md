@@ -147,10 +147,10 @@ script serves both packages.
   downloaded the 1 GB fixture zip, the BCrypt SHA-256 sidecar **matched
   host `sha256sum` exactly**, the extracted raw was byte-identical
   (`cmp`), and FatFs repatched + mounted the image for a 48K boot.
-- **Qt5-i686 side note** (pending §7 Phase A): fedora's `mingw32-qt5-qtbase`
+- **Qt5-i686 side note**: fedora's `mingw32-qt5-qtbase`
   5.15.18 `Qt5Gui.dll` audits **clean** at the curated-list level (exit 0) —
-  consistent with Qt 5.15's Win7 support claim; a Qt5-i686 leg would reuse
-  the same `win32` plumbing if Phase A gates GO.
+  consistent with Qt 5.15's Win7 support claim. Superseded 2026-07-26 by the
+  §7 Phase C i686-Qt5 leg, whose floor audit covers the WHOLE staged bundle.
 - Remaining unknowns: only what wine cannot prove — real-Windows DLL
   availability floors and TLS behaviour need real 32-bit Windows hardware
   (§5 caveat; owner).
@@ -423,9 +423,37 @@ in ci.yml's package job. Evidence in §4: floor audit exit 0 (Win7-clean),
 wine smoke incl. the 1 GB LFS proof (NextZXOS menu pixel-identical to the
 x64 reference) and a full loopback WinHTTP+BCrypt provisioning run on i686 —
 all validating the i686 target independently of the GUI toolkit.
-**Outstanding for Phase C**: the i686-Qt5 leg once Phase A merges
-(mingw32-qt5 5.15.18 Qt5Gui audits clean — §4 side note), and real 32-bit
-Windows hardware verification (owner).
+**i686-Qt5 leg DONE 2026-07-26** (branch `fix/108-win32-qt5`) — the third
+and last published Windows artifact: `make win32-qt5-release` + `make
+package-win32-qt5` → `jnext-<ver>-windows-x86-qt5.zip` (mingw32-cmake,
+`ENABLE_QT_UI=ON ENABLE_DEBUGGER=ON JNEXT_FORCE_QT5=ON`; guard checks the
+i686 `Qt5Config.cmake` + `i686-w64-mingw32-moc-qt5` from `mingw32-qt5-{qtbase,
+qtbase-devel,qmake}`). Phase A's arch-agnostic CMake carried over unchanged:
+the `mingw32` + `Qt5::WinMain` link bridge and `QT_NEEDS_QMAIN` resolved
+against the i686 `libqt5main.a` first try, AUTOMOC used the i686 cross moc,
+and `bundle-dlls.sh` composed its Phase C arch detection with its Phase A
+Qt5-major detection with no changes. Bundle: 26 DLLs — the i686 twins of the
+x64 Qt5 set (incl. `libgcc_s_dw2-1.dll`, the i686 DWARF-2 unwinder, where
+x64 has `libgcc_s_seh-1.dll`) + `platforms/qwindows.dll`,
+`styles/qwindowsvistastyle.dll`, imageformats, `qt.conf`. **Whole-bundle
+floor audit** (`pe-floor-audit.sh` over jnext.exe + all 26 DLLs,
+`MINGW_OBJDUMP=i686-w64-mingw32-objdump`): **exit 0, zero flagged imports,
+zero not-on-Win7 DLLs** — the §4 curated-list side note on Qt5Gui now proven
+bundle-wide; PE headers all MajorOSystemVersion/MajorSubsystemVersion 4
+(i686 GNU ld defaults, loader-permissive). **Wine smoke** (wine-staging 11.0
+WoW64, fresh prefix, win7 profile): `--version` OK; 48K headless boot
+screenshot OK; full Qt5 GUI launch under Xvfb (qwindows platform plugin
+loaded, TBBlue splash captured); and the 1 GB LFS end-to-end proof —
+NextZXOS boot to menu against a fresh copy of the canonical image,
+**pixel-identical (AE 0) to `boot-nextzxos-menu-reference.png`**. Wine
+caveat: the WoW64 prefix lacked 32-bit plain-name `d3d11.dll`/`dxgi.dll`
+(fedora ships dxvk x86_64-only), aliased from wine's own `wine-d3d11/dxgi`
+in the test prefix — a host wine packaging gap, not a bundle defect (both
+are in-box on real Win7 SP1, and both are in the audit's system-DLL list).
+A `package-win32-qt5` row in packaging-test.sh (same assertions as the x64
+Qt5 row, i686 toolchain guard) keeps it green in CI via the mingw32-qt5
+trio in ci.yml's package job; release.yml's windows job builds + publishes
+the zip. **Outstanding**: real 32-bit Windows hardware verification (owner).
 
 **Verification at every phase:** `pe-floor-audit.sh` on every produced bundle,
 `make package-test` structural rows for every new target, wine smoke (win7/win8

@@ -204,7 +204,8 @@ jobs:
       # The mingw64-qt5-* trio backs make package-win-qt5 (GH #108 Phase A:
       # the Qt5 full-GUI Win7/8 legacy zip): qtbase carries the Qt5 DLLs +
       # Qt5Config.cmake + libqt5main.a, qmake carries the cross moc/rcc/uic
-      # AUTOMOC needs.
+      # AUTOMOC needs. The mingw32-* set is the i686 twin backing
+      # make package-win32-qt5 (GH #108 Phase C: the 32-bit Qt5 zip).
       - name: Install MinGW cross toolchain + build tools
         run: |
           dnf install -y \
@@ -213,6 +214,10 @@ jobs:
             mingw64-qt6-qtbase mingw64-sdl2-compat \
             mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake \
             mingw64-zlib mingw64-libpng mingw64-winpthreads \
+            mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
+            mingw32-sdl2-compat \
+            mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
+            mingw32-zlib mingw32-libpng mingw32-winpthreads \
             qt6-qtbase-devel
       - uses: actions/checkout@v4
         with:
@@ -227,12 +232,17 @@ jobs:
       # lineup: x64-Qt6, x64-Qt5, i686-Qt5.
       - name: make package-win-qt5
         run: make package-win-qt5
+      # 32-bit Qt5 leg (GH #108 Phase C) — the third and last published
+      # Windows artifact: jnext-<ver>-windows-x86-qt5.zip (Win7 SP1+, 32-bit).
+      - name: make package-win32-qt5
+        run: make package-win32-qt5
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
           path: |
             build/win-release/*.zip
             build/win-qt5-release/*.zip
+            build/win32-qt5-release/*.zip
 
   # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
   # DECLARED EXCEPTION to the "every build step is a make target" rule above.
