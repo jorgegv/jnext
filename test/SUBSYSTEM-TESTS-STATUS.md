@@ -33,7 +33,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      209 |      209 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Compositor            |      228 |      228 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Compositor            |      229 |      229 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -82,6 +82,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5686** | **5686** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5687** | **5687** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

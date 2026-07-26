@@ -123,6 +123,26 @@ optional once-per-frame warn log) vs. **assert/abort** in debug builds.
 Decision: drop + warn. Pragmatic; matches the existing scheduler
 overflow handling.
 
+**SUPERSEDED (GH #110, 2026-07-26).** The fixed 4096 cap was measured
+undersized on real content: TX-1696's per-frame bulk palette DMA peaks
+at **14 111 writes/frame** (sustained 12.5k–14.1k during gameplay), so
+the cap tripped by scanline ~58 and any raster effect below the
+overflow point would render subtly wrong. New decision: the log is a
+**growable `std::vector`** — `reserve(CHANGE_LOG_RESERVE = 4096)` at
+construction, `clear()` at frame start retains capacity, so growth is
+amortized and steady state never allocates. The drop+warn contract is
+retained only at `MAX_CHANGES_PER_FRAME = 1 000 000`, a sanity canary
+for runaway-write bugs (writes past it still apply to the live palette;
+only per-scanline replay fidelity degrades). The sibling change-logs
+were measured against the same TX-1696 run and do NOT overflow:
+tilemap NR 0x6B peak 1/frame (cap 1024), sprite attribute peak
+883/frame (cap 8192), sprite pattern peak 14 848/frame (cap 81 920) —
+left as fixed arrays. Test rows (`test/compositor/compositor_test.cpp`):
+**PSCAN-06** (log grows past the old 4096 cap and write #4097 still
+replays per-scanline — fails on the pre-fix code) and **PSCAN-04**
+(degradation contract re-pinned at the sanity bound: log saturates,
+live palette still tracks, warn latches once per frame).
+
 ## Out of scope
 
 The same delta-log pattern would generalise to other Copper-reachable

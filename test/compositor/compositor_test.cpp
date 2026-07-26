@@ -2810,12 +2810,14 @@ static void test_PSCAN() {
                      none_yet, ten_ok, fifty_ok, hundred_ok));
     }
 
-    // PSCAN-04 — change-log cap silently drops further writes once
-    //   MAX_CHANGES_PER_FRAME is reached. Live palette still mutates
-    //   (so non-render uses of PaletteManager are unaffected) — only
-    //   the per-scanline replay loses fidelity beyond the cap. The
-    //   `overflow_warned_` flag must latch true exactly once per frame
-    //   so the warning can't degenerate into per-write log spam.
+    // PSCAN-04 — degradation contract at the sanity bound (GH #110).
+    //   MAX_CHANGES_PER_FRAME is no longer a working cap but a runaway-
+    //   write canary (1M/frame): writes past it are dropped from the LOG
+    //   only — the live palette still mutates (apply_change is
+    //   unconditional), so non-render uses are unaffected and only
+    //   per-scanline replay fidelity is lost. The `overflow_warned_`
+    //   flag must latch true exactly once per frame so the warning
+    //   can't degenerate into per-write log spam.
     {
         PaletteManager p;
         p.reset();
@@ -2827,15 +2829,27 @@ static void test_PSCAN() {
         // Pre-overflow: warning latch must be clear.
         const bool warned_before = p.overflow_warned_;
 
-        // Drive 1 past the cap. Auto-inc is enabled so each write also
-        // bumps the index; the live palette wraps but we only care
-        // about change_log_size capping at MAX and overflow_warned_
-        // latching at the first write past the cap.
+        // Drive 1 past the sanity bound. Auto-inc is enabled so each
+        // write also bumps the index; the live palette wraps but we
+        // care about change_log_size saturating at MAX and
+        // overflow_warned_ latching at the first write past the bound.
         const size_t over = PaletteManager::MAX_CHANGES_PER_FRAME + 1;
         for (size_t i = 0; i < over; ++i)
             p.write_8bit(static_cast<uint8_t>(i & 0xFF));
 
         const bool warned_after = p.overflow_warned_;
+        const bool size_saturated =
+            p.change_log_size() == PaletteManager::MAX_CHANGES_PER_FRAME;
+
+        // Past-bound writes must still mutate the LIVE palette: drive
+        // index 7 through two distinct colours while the log is full.
+        p.set_index(7);
+        p.write_8bit(0x00);                              // black
+        const uint32_t live_a = p.ula_colour(false, 7);
+        p.set_index(7);
+        p.write_8bit(0xE0);                              // bright red
+        const uint32_t live_b = p.ula_colour(false, 7);
+        const bool live_tracks_past_bound = (live_a != live_b);
 
         // Drive ANOTHER 100 writes to confirm the latch stays "armed"
         // (i.e., still true) — what we are pinning down is that
@@ -2851,17 +2865,74 @@ static void test_PSCAN() {
         const bool warned_after_reset = p.overflow_warned_;
 
         check("PSCAN-04",
-              "change_log_size caps at MAX; overflow_warned_ latches once "
-              "and survives further writes; start_frame() resets it",
+              "change_log_size saturates at the sanity bound; live palette "
+              "still tracks past it; overflow_warned_ latches once and "
+              "survives further writes; start_frame() resets it",
               p.change_log_size() == 0
+              && size_saturated
+              && live_tracks_past_bound
               && warned_before == false
               && warned_after == true
               && warned_persists == true
               && warned_after_reset == false,
-              DETAIL("size=%zu warned_before=%d warned_after=%d "
-                     "warned_persists=%d warned_after_reset=%d",
-                     p.change_log_size(), warned_before, warned_after,
+              DETAIL("size=%zu saturated=%d live_tracks=%d warned_before=%d "
+                     "warned_after=%d warned_persists=%d warned_after_reset=%d",
+                     p.change_log_size(), size_saturated,
+                     live_tracks_past_bound, warned_before, warned_after,
                      warned_persists, warned_after_reset));
+    }
+
+    // PSCAN-06 — GH #110 discriminator: the log GROWS past the old
+    //   fixed cap of 4096. TX-1696 bulk-uploads ~14k palette entries
+    //   per frame; before the fix, a raster-effect write landing after
+    //   entry 4096 was dropped from the log, so per-scanline replay
+    //   silently used the stale colour. Recipe: 4096 bulk writes at
+    //   line 10, then ONE write at line 100 — entry 4097 — and prove
+    //   the late write replays at exactly line 100.
+    {
+        PaletteManager p;
+        p.reset();
+        p.start_frame();
+        p.write_control(0x00);   // ULA first, auto-inc enabled
+        p.set_index(0);
+        p.set_current_line(10);
+
+        const size_t old_cap = 4096;   // pre-GH#110 MAX_CHANGES_PER_FRAME
+
+        // Bulk phase: old_cap writes of black at line 10 (auto-inc
+        // wraps the 256-entry index 16 times; every write logs).
+        for (size_t i = 0; i < old_cap; ++i) p.write_8bit(0x00);
+
+        // Raster phase: entry old_cap+1, tagged line 100.
+        p.set_current_line(100);
+        p.set_index(5);
+        p.write_8bit(0xE0);      // bright red
+        const uint32_t late_colour = p.ula_colour(false, 5);
+
+        const bool grew_past_old_cap = p.change_log_size() == old_cap + 1;
+        // No warning at ~4k writes/frame any more — the canary sits at
+        // the 1M sanity bound.
+        const bool no_warn = !p.overflow_warned_;
+
+        // Replay: lines 0..99 must apply only the bulk (index 5 black,
+        // NOT the late colour); line 100 must apply the late write.
+        p.rewind_to_baseline();
+        for (int line = 0; line < 100; ++line) p.apply_changes_for_line(line);
+        const uint32_t before_100 = p.ula_colour(false, 5);
+        p.apply_changes_for_line(100);
+        const uint32_t at_100 = p.ula_colour(false, 5);
+
+        const bool late_write_per_scanline =
+            before_100 != late_colour && at_100 == late_colour;
+
+        check("PSCAN-06",
+              "log grows past the old 4096 cap; write #4097 still replays "
+              "per-scanline at its own line; no overflow warn (GH #110)",
+              grew_past_old_cap && no_warn && late_write_per_scanline,
+              DETAIL("size=%zu no_warn=%d before_100=0x%08X at_100=0x%08X "
+                     "late=0x%08X",
+                     p.change_log_size(), no_warn, before_100, at_100,
+                     late_colour));
     }
 
     // PSCAN-05 — end-to-end through Renderer::render_frame: a baseline

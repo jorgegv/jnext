@@ -69,6 +69,11 @@ static uint32_t rgb333_to_argb(uint16_t rgb333)
 
 PaletteManager::PaletteManager()
 {
+    // GH #110 — pre-reserve the common-case log capacity so no palette
+    // write allocates until a frame exceeds CHANGE_LOG_RESERVE entries;
+    // beyond that, vector growth is amortized and capacity persists
+    // across frames (start_frame() clears without shrinking).
+    change_log_.reserve(CHANGE_LOG_RESERVE);
     reset();
 }
 
@@ -413,18 +418,19 @@ void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
     // zxnext.vhd:6952, 6957 (8-bit nr_palette_idx drives the dpram
     // address with no folding; the single 256-entry × 2-bank ULA
     // store covers the full encoder output range 0x00..0xFF).
-    if (change_count_ < MAX_CHANGES_PER_FRAME) {
-        change_log_[change_count_++] = PaletteChange{
+    if (change_log_.size() < MAX_CHANGES_PER_FRAME) {
+        change_log_.push_back(PaletteChange{
             current_line_,
             target_palette_,
             index_,
             rgb333,
             priority,
-        };
+        });
     } else if (!overflow_warned_) {
         Log::video()->warn(
-            "PaletteManager: change-log full at line {} (cap {} per frame); "
-            "further palette writes this frame will not be per-scanline. "
+            "PaletteManager: change-log sanity bound hit at line {} ({} "
+            "writes in one frame — runaway-write bug?); further palette "
+            "writes this frame will not be per-scanline. GH #110 / "
             "TASK-PER-SCANLINE-PALETTE-PLAN.md §Q1.",
             current_line_, MAX_CHANGES_PER_FRAME);
         overflow_warned_ = true;
@@ -507,7 +513,7 @@ void PaletteManager::start_frame()
         baseline_tilemap_argb_[p]    = tilemap_argb_[p];
         baseline_layer2_priority_[p] = layer2_priority_[p];
     }
-    change_count_     = 0;
+    change_log_.clear();   // capacity retained (GH #110)
     render_cursor_    = 0;
     current_line_     = 0;
     overflow_warned_  = false;
@@ -533,8 +539,9 @@ void PaletteManager::apply_changes_for_line(int line)
 {
     // Log is in scanline order (writes append with monotonic
     // current_line_). Advance the cursor while entries match the
-    // requested line. Total cost across a full render is O(change_count_).
-    while (render_cursor_ < change_count_
+    // requested line. Total cost across a full render is
+    // O(change_log_.size()).
+    while (render_cursor_ < change_log_.size()
         && change_log_[render_cursor_].line == line) {
         apply_change(change_log_[render_cursor_]);
         ++render_cursor_;
@@ -552,7 +559,7 @@ void PaletteManager::flush_remaining_changes()
     // 14/28 MHz) finishes its NR 0x40/0x41 setup during vblank, so without
     // this flush the active tilemap palette stays at its (zero) baseline
     // every frame and every tilemap pixel renders as palette[0] = black.
-    while (render_cursor_ < change_count_) {
+    while (render_cursor_ < change_log_.size()) {
         apply_change(change_log_[render_cursor_]);
         ++render_cursor_;
     }
