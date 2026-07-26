@@ -338,9 +338,27 @@ win7`. Every PNG pixel-identical to the Linux-Qt5 run.
 regression **106/106** (`JNEXT_TEST_JOBS=4`, logged) — all green on the
 default build with zero Qt5 anywhere.
 
-Remaining before shipping the leg (not gate-blocking): a `package-win-qt5`
-zip + packaging-test structural row (Qt5 DLL list), CI job for the plain make
-target, and real-Win7/8-hardware verification of the audited floor.
+**Shipping surface (added same day, owner-required):**
+- `make package-win-qt5` → `jnext-<ver>-windows-x64-qt5.zip` (a PUBLISHED
+  release artifact per the owner's lineup), with in-target structural checks
+  (Qt5Core + qwindows + SDL2/SDL3 present, no Qt6 leak) and a
+  `package-win-qt5` packaging-test row (Qt5 DLLs + qwindows present, NO Qt6,
+  no curl/OpenSSL chain — note iconv.dll is legitimate here, Qt5Core imports
+  it — and jnext.exe GUI-subsystem). `make package-test`: 16 pass / 0 fail /
+  0 skip. The zip's staged dist re-audits floor-clean (exit 0, zero flags).
+- `make qt5-guard-build` — Linux Qt5 compile guard (configure with
+  `JNEXT_FORCE_QT5=ON`, full GUI+debugger build, `--version` smoke): the
+  dual-maintenance enforcement target.
+- CI (plain make targets, nothing piped): ci.yml gains a `qt5-guard` job
+  (fedora:44, `qt5-qtbase-devel`, runs `make qt5-guard-build`) and its
+  packaging job installs `mingw64-qt5-qtbase{,-devel}` + `mingw64-qt5-qmake`
+  so the new packaging-test row builds rather than skp_ci_fail-ing;
+  release.yml's windows job installs the same trio, runs
+  `make package-win-qt5`, and uploads the qt5 zip (the publish job's
+  `dist/**/*` then attaches it to the Release).
+
+Remaining before calling the leg done: real-Win7/8-hardware verification of
+the audited floor (§5 caveat).
 
 **Phase B — native Windows provisioning path (independent of A). DONE
 2026-07-26** (branch `fix/108-native-provisioner`). The curl/OpenSSL surface
