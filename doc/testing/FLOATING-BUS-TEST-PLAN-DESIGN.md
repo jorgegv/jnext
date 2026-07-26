@@ -491,6 +491,40 @@ pins the reset default — without it, a bug that leaves
 row in this plan. FB-6B exercises the `port_ff_io_en` leg of line
 2813's three-term AND that is not reachable from FB-07 alone.
 
+## Section 8: GH #109 — floating bus is scoped to the LSB-0xFF decode
+
+### VHDL reference
+
+`zxnext.vhd:2571+2583` — `port_ff <= '1' when cpu_a(7 downto 0) = X"FF"`
+(LSB-only decode: EVERY 0x??FF port is the port-0xFF mux, and ONLY
+those). `zxnext.vhd:2803-2806` — `port_internal_rd_response` OR-list:
+a port matching none of the listed read strobes produces no internal
+response. `zxnext.vhd:1868-1878` — the cpu_di IORQ mux: with no
+internal response and no expansion-bus device, `cpu_di <= X"FF"`,
+unconditionally, in every machine timing.
+
+Pre-fix, jnext wired `Emulator::floating_bus_read` (the port-0xFF
+mux) as `PortDispatch`'s catch-all default for every unmatched port —
+so in 48K/128K timing an undecoded port read leaked the ULA floating
+bus, and under NextZXOS (Timex gates set) it leaked the last
+port-0xFF write (#102 session-3 finding,
+`doc/issues/g46b-102-tx1696-freeze-session3.md` §2). GH #109 moved
+the mux onto a registered LSB-0xFF read handler and made the
+dispatch default return 0xFF.
+
+### Test rows
+
+| Row ID | Machine | Stimulus | Expected | VHDL cite |
+|--------|---------|----------|----------|-----------|
+| FB-109-01 | 48K | Active capture phase (T%8=2), VRAM seeded 0x5A; read undecoded port 0x40A7 | 0xFF (undecoded default; floating bus must NOT leak) | `zxnext.vhd:1877, 2583, 2803-2806` |
+| FB-109-02 | 48K | Same geometry; read port 0x40FF (LSB 0xFF, high byte ≠ 0) | 0x5A (VRAM byte — LSB-only port_ff decode keeps ALL 0x??FF ports on the mux) | `zxnext.vhd:2571+2583, 2813, 4513`; `zxula.vhd:319-340, 573` |
+
+FB-109-01 is the discriminator (fails pre-fix). FB-109-02 pins that
+the narrowing did not shrink the mux below its true LSB-only scope.
+The Next-mode/Timex-arm side of GH #109 lives in the port-dispatch
+plan (rows GH109-01/02 in
+`IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md`).
+
 ## Reset defaults (VHDL-verified)
 
 | Signal | Default | Cite | Kind |
@@ -523,7 +557,8 @@ capture after reset).
 | 4 | Per-machine selection (port 0xFF)     | 3  |
 | 5 | Port 0xFF read wiring                 | 2  |
 | 6 | NR 0x08 override + gate               | 3  |
-| | **Total** | **26** |
+| 8 | GH #109 LSB-0xFF scope                | 2  |
+| | **Total** | **28** |
 
 Of the 26: **5 are the re-homed ULA rows** (FB-01, FB-03, FB-04,
 FB-06, FB-07 — note FB-03 and FB-04 were re-scoped to the correct

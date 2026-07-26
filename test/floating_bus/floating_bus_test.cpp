@@ -1073,6 +1073,69 @@ static void test_section7_d3f_followup(void) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Section 8 — GH #109: floating bus is scoped to the LSB-0xFF decode
+// VHDL: zxnext.vhd:2571+2583 (port_ff <= '1' when cpu_a(7:0) = X"FF" —
+//       LSB-only, ANY high byte);
+//       zxnext.vhd:2803-2806 (port_internal_rd_response OR-list — no
+//       strobe matches a genuinely undecoded port);
+//       zxnext.vhd:1868-1878 (cpu_di IORQ mux — no internal response +
+//       no expansion bus → cpu_di <= X"FF", every machine timing).
+// Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §8 (GH #109)
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_section8_gh109_scope(void) {
+    set_group("FB-8-GH109");
+
+    // FB-109-01 — DISCRIMINATOR (fails pre-fix). 48K machine, active
+    // capture phase, VRAM seeded: a read of an UNDECODED odd port
+    // (0x40A7 — LSB 0xA7 matches no VHDL decode: not port_fe (A0=1),
+    // not port_ff (LSB != 0xFF), not port_fd family (A1:0 = 11), not
+    // any LSB in zxnext.vhd:2541-2574) must return 0xFF per the cpu_di
+    // default (zxnext.vhd:1877) — the ULA floating bus reaches port
+    // 0xFF ONLY (zxnext.vhd:2583+4513). Pre-fix, floating_bus_read()
+    // was the dispatch default and returned the seeded VRAM byte here.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x5A;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x40A7);
+        check("FB-109-01",
+              "48K active capture: undecoded port 0x40A7 returns 0xFF, not "
+              "the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583)",
+              v == 0xFF, fmt("v=0x%02X (want 0xFF; VRAM marker=0x%02X)",
+                             v, MARKER));
+    }
+
+    // FB-109-02 — scope-preservation pin. Same 48K active-capture
+    // geometry: a read of port 0x40FF (LSB 0xFF, NON-ZERO high byte)
+    // IS the port_ff decode (LSB-only per zxnext.vhd:2571+2583) and
+    // must return the ULA floating-bus VRAM byte (zxnext.vhd:2813 ULA
+    // arm + :4513 48K gate; zxula.vhd:319-340,573). Pins that GH #109's
+    // narrowing moved the mux to a registered LSB-0xFF read handler
+    // without shrinking it below its true scope (all 0x??FF ports).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x5A;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x40FF);
+        check("FB-109-02",
+              "48K active capture: port 0x40FF (LSB-only port_ff decode) "
+              "returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Section HARNESS — Phase 3 fixture-helper smoke rows (Branch C)
 // These rows do NOT belong to the 26 plan rows. They exist to keep the
 // helpers compile-tested independently of the FB-NN rows.
@@ -1192,7 +1255,8 @@ int main() {
     std::printf("Emulator Floating Bus Compliance Tests\n");
     std::printf("======================================\n");
     std::printf("(26 plan rows + 1 port-conflict neighbour (FB-3X) +\n");
-    std::printf(" 5 FB-HARNESS-NN smoke rows; plan:\n");
+    std::printf(" 5 FB-HARNESS-NN smoke rows + later additions incl.\n");
+    std::printf(" 2 GH #109 rows (Section 8); plan:\n");
     std::printf(" doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md)\n\n");
 
     test_section1_border();
@@ -1215,6 +1279,9 @@ int main() {
 
     test_section7_d3f_followup();
     std::printf("  Section 7 (D3F-followup gates) — %2d rows\n", 3);
+
+    test_section8_gh109_scope();
+    std::printf("  Section 8 (GH #109 FF scope)   — %2d rows\n", 2);
 
     test_harness_smoke();
     std::printf("  Harness smoke (FB-HARNESS-NN)  — %2d rows\n", 5);
