@@ -916,52 +916,52 @@ Last-touch commit: `d599cd27615bf61efea60c49fdeb38dc7a6116b3` (`d599cd2761`)
 | TM-31   | 512-tile index construction     | tilemap.vhd:393  | pass    | test/tilemap/tilemap_test.cpp:639  |
 | TM-32   | 512-tile ULA-over interaction   | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:655  |
 | TM-40   | Text mode enable                | tilemap.vhd:191  | pass    | test/tilemap/tilemap_test.cpp:681  |
-| TM-41   | Text mode pixel extraction      | tilemap.vhd:385-386 | pass    | test/tilemap/tilemap_test.cpp:698  |
-| TM-42   | Text mode palette construction  | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:721  |
-| TM-43   | Text mode no transforms         | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:741  |
+| TM-41   | Text mode pixel extraction      | tilemap.vhd:385-386 | pass    | test/tilemap/tilemap_test.cpp:709  |
+| TM-42   | Text mode palette construction  | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:732  |
+| TM-43   | Text mode no transforms         | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:762  |
 | TM-44   | Text mode transparency          | —              | missing | missing                            |
-| TM-50   | Strip flags mode                | tilemap.vhd:190  | pass    | test/tilemap/tilemap_test.cpp:787  |
-| TM-51   | Default attr applied            | tilemap.vhd:366  | pass    | test/tilemap/tilemap_test.cpp:805  |
-| TM-52   | Strip flags + 40-col            | tilemap.vhd:395-398 | pass    | test/tilemap/tilemap_test.cpp:824  |
-| TM-53   | Strip flags + 80-col            | tilemap.vhd:328,395-398 | pass    | test/tilemap/tilemap_test.cpp:845  |
-| TM-60   | Map base address (bank 5)       | tilemap.vhd:403  | pass    | test/tilemap/tilemap_test.cpp:872  |
-| TM-61   | Map base address (bank 7)       | tilemap.vhd:402  | pass    | test/tilemap/tilemap_test.cpp:887  |
-| TM-62   | Tile def base (bank 5)          | tilemap.vhd:403  | pass    | test/tilemap/tilemap_test.cpp:902  |
-| TM-63   | Tile def base (bank 7)          | tilemap.vhd:402  | pass    | test/tilemap/tilemap_test.cpp:916  |
-| TM-64   | Address offset computation      | tilemap.vhd:403  | pass    | test/tilemap/tilemap_test.cpp:937  |
-| TM-65   | Tile address with/without flags | tilemap.vhd:396  | pass    | test/tilemap/tilemap_test.cpp:964  |
-| TM-70   | Standard pixel address          | tilemap.vhd:394  | pass    | test/tilemap/tilemap_test.cpp:1019 |
-| TM-71   | Text mode pixel address         | tilemap.vhd:394  | pass    | test/tilemap/tilemap_test.cpp:1034 |
-| TM-72   | Pixel nibble selection          | tilemap.vhd:383  | pass    | test/tilemap/tilemap_test.cpp:1053 |
-| TM-80   | X scroll basic                  | tilemap.vhd:309-318 | pass    | test/tilemap/tilemap_test.cpp:1079 |
-| TM-81   | X scroll wrap at 320 (40-col)   | tilemap.vhd:315  | pass    | test/tilemap/tilemap_test.cpp:1099 |
-| TM-82   | X scroll wrap at 640 (80-col)   | tilemap.vhd:314  | pass    | test/tilemap/tilemap_test.cpp:1118 |
-| TM-83   | Y scroll basic                  | tilemap.vhd:326  | pass    | test/tilemap/tilemap_test.cpp:1137 |
-| TM-84   | Y scroll wrap at 256            | tilemap.vhd:326  | pass    | test/tilemap/tilemap_test.cpp:1155 |
-| TM-85   | Per-line scroll update          | tilemap.vhd:345  | pass    | test/tilemap/tilemap_test.cpp:1182 |
-| TM-90   | Standard transparency index     | tilemap.vhd:427  | pass    | test/tilemap/tilemap_test.cpp:1245 |
-| TM-91   | Default transparency (0xF)      | zxnext.vhd       | pass    | test/tilemap/tilemap_test.cpp:1253 |
-| TM-92   | Custom transparency index       | tilemap.vhd:427  | pass    | test/tilemap/tilemap_test.cpp:1267 |
+| TM-50   | Strip flags mode                | tilemap.vhd:190  | pass    | test/tilemap/tilemap_test.cpp:811  |
+| TM-51   | Default attr applied            | tilemap.vhd:366  | pass    | test/tilemap/tilemap_test.cpp:829  |
+| TM-52   | Strip flags + 40-col            | tilemap.vhd:395-398 | pass    | test/tilemap/tilemap_test.cpp:848  |
+| TM-53   | Strip flags + 80-col            | tilemap.vhd:328,395-398 | pass    | test/tilemap/tilemap_test.cpp:869  |
+| TM-60   | Map base address (bank 5)       | tilemap.vhd:403  | pass    | test/tilemap/tilemap_test.cpp:896  |
+| TM-61   | Map base address (bank 7)       | tilemap.vhd:402  | pass    | test/tilemap/tilemap_test.cpp:911  |
+| TM-62   | Tile def base (bank 5)          | tilemap.vhd:403  | pass    | test/tilemap/tilemap_test.cpp:926  |
+| TM-63   | Tile def base (bank 7)          | tilemap.vhd:402  | pass    | test/tilemap/tilemap_test.cpp:940  |
+| TM-64   | Address offset computation      | tilemap.vhd:403  | pass    | test/tilemap/tilemap_test.cpp:961  |
+| TM-65   | Tile address with/without flags | tilemap.vhd:396  | pass    | test/tilemap/tilemap_test.cpp:988  |
+| TM-70   | Standard pixel address          | tilemap.vhd:394  | pass    | test/tilemap/tilemap_test.cpp:1043 |
+| TM-71   | Text mode pixel address         | tilemap.vhd:394  | pass    | test/tilemap/tilemap_test.cpp:1058 |
+| TM-72   | Pixel nibble selection          | tilemap.vhd:383  | pass    | test/tilemap/tilemap_test.cpp:1077 |
+| TM-80   | X scroll basic                  | tilemap.vhd:309-318 | pass    | test/tilemap/tilemap_test.cpp:1103 |
+| TM-81   | X scroll wrap at 320 (40-col)   | tilemap.vhd:315  | pass    | test/tilemap/tilemap_test.cpp:1123 |
+| TM-82   | X scroll wrap at 640 (80-col)   | tilemap.vhd:314  | pass    | test/tilemap/tilemap_test.cpp:1142 |
+| TM-83   | Y scroll basic                  | tilemap.vhd:326  | pass    | test/tilemap/tilemap_test.cpp:1161 |
+| TM-84   | Y scroll wrap at 256            | tilemap.vhd:326  | pass    | test/tilemap/tilemap_test.cpp:1179 |
+| TM-85   | Per-line scroll update          | tilemap.vhd:345  | pass    | test/tilemap/tilemap_test.cpp:1206 |
+| TM-90   | Standard transparency index     | tilemap.vhd:427  | pass    | test/tilemap/tilemap_test.cpp:1269 |
+| TM-91   | Default transparency (0xF)      | zxnext.vhd       | pass    | test/tilemap/tilemap_test.cpp:1277 |
+| TM-92   | Custom transparency index       | tilemap.vhd:427  | pass    | test/tilemap/tilemap_test.cpp:1291 |
 | TM-93   | Text mode transparency (RGB)    | —              | missing | missing                            |
 | TM-94   | Text mode vs standard path      | —              | missing | missing                            |
-| TM-100  | Palette select 0                | zxnext.vhd       | pass    | test/tilemap/tilemap_test.cpp:1357 |
-| TM-101  | Palette select 1                | —              | pass    | test/tilemap/tilemap_test.cpp:1365 |
-| TM-102  | Palette routing                 | —              | pass    | test/tilemap/tilemap_test.cpp:1379 |
-| TM-103  | Standard pixel composition      | tilemap.vhd:382-383 | pass    | test/tilemap/tilemap_test.cpp:1393 |
-| TM-104  | Text mode pixel composition     | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:1407 |
-| TM-110  | Default clip (full area)        | tilemap.vhd:424  | pass    | test/tilemap/tilemap_test.cpp:1497 |
-| TM-111  | Custom clip window              | —              | pass    | test/tilemap/tilemap_test.cpp:1519 |
-| TM-112  | Clip X coordinates              | tilemap.vhd:416-417,424 | pass    | test/tilemap/tilemap_test.cpp:1550 |
-| TM-113  | Clip Y coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1576 |
+| TM-100  | Palette select 0                | zxnext.vhd       | pass    | test/tilemap/tilemap_test.cpp:1466 |
+| TM-101  | Palette select 1                | —              | pass    | test/tilemap/tilemap_test.cpp:1474 |
+| TM-102  | Palette routing                 | —              | pass    | test/tilemap/tilemap_test.cpp:1488 |
+| TM-103  | Standard pixel composition      | tilemap.vhd:382-383 | pass    | test/tilemap/tilemap_test.cpp:1502 |
+| TM-104  | Text mode pixel composition     | tilemap.vhd:386  | pass    | test/tilemap/tilemap_test.cpp:1516 |
+| TM-110  | Default clip (full area)        | tilemap.vhd:424  | pass    | test/tilemap/tilemap_test.cpp:1606 |
+| TM-111  | Custom clip window              | —              | pass    | test/tilemap/tilemap_test.cpp:1628 |
+| TM-112  | Clip X coordinates              | tilemap.vhd:416-417,424 | pass    | test/tilemap/tilemap_test.cpp:1659 |
+| TM-113  | Clip Y coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1685 |
 | TM-114  | Clip index cycling              | —              | missing | missing                            |
 | TM-115  | Clip index reset                | —              | missing | missing                            |
-| TM-116  | Clip readback                   | —              | pass    | test/tilemap/tilemap_test.cpp:1596 |
-| TM-120  | Tilemap on top (default)        | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1615 |
-| TM-121  | Tilemap always on top           | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1628 |
-| TM-122  | Per-tile below flag             | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1641 |
+| TM-116  | Clip readback                   | —              | pass    | test/tilemap/tilemap_test.cpp:1705 |
+| TM-120  | Tilemap on top (default)        | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1724 |
+| TM-121  | Tilemap always on top           | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1737 |
+| TM-122  | Per-tile below flag             | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1750 |
 | TM-123  | Below flag in compositor        | —              | missing | missing                            |
-| TM-124  | tm_on_top overrides per-tile    | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1660 |
-| TM-125  | 512-mode forces below           | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1673 |
+| TM-124  | tm_on_top overrides per-tile    | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1769 |
+| TM-125  | 512-mode forces below           | tilemap.vhd:388  | pass    | test/tilemap/tilemap_test.cpp:1782 |
 | TM-130  | Stencil mode (ULA AND TM)       | —              | missing | missing                            |
 | TM-131  | Stencil transparency            | —              | missing | missing                            |
 | TM-140  | TM disabled, tm_on_top=0        | —              | missing | missing                            |
@@ -1077,150 +1077,150 @@ Last-touch commit: `3fda139` (compositor 5-feature fix: sprite_en, L2 priority, 
 
 | Test ID            | Plan row title                                               | VHDL file:line   | Status  | Test file:line                           |
 |--------------------|--------------------------------------------------------------|------------------|---------|------------------------------------------|
-| TR-10              | ULA pixel with palette output ≠ NR 0x14 is opaque            | zxnext.vhd:7100    | pass    | test/compositor/compositor_test.cpp:211  |
-| TR-11              | ULA pixel with palette output = NR 0x14 is transparent; fal… | zxnext.vhd:7100,7214 | pass    | test/compositor/compositor_test.cpp:234  |
-| TR-12              | ULA palette entry whose LSB differs from NR 0x14 LSB is sti… | zxnext.vhd:7100    | pass    | test/compositor/compositor_test.cpp:260  |
-| TR-13              | `ula_clipped_2=1` forces ULA transparent regardless of RGB   | zxnext.vhd:7100    | pass    | test/compositor/compositor_test.cpp:277  |
-| TR-14              | `ula_en_2=0` forces ULA transparent even if mix_transparent… | zxnext.vhd:7103    | pass    | test/compositor/compositor_test.cpp:291  |
-| TR-15              | Compositor is resolution-agnostic at the ULA input boundary… | —                | pass    | test/compositor/compositor_test.cpp:305  |
-| TR-16              | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → UL… | zxnext.vhd:7100,7214 | pass    | test/compositor/compositor_test.cpp:324  |
-| TR-17              | `ula_border_2` is ignored by stage-2 mix in modes 000/001/0… | —                | pass    | test/compositor/compositor_test.cpp:342  |
-| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | zxnext.vhd:6934,6819 | pass    | test/compositor/compositor_test.cpp:361  |
-| TR-20              | Tilemap text-mode RGB compare                                | zxnext.vhd:7109    | pass    | test/compositor/compositor_test.cpp:374  |
-| TR-21              | Tilemap non-text (attribute) ignores RGB compare             | —                | pass    | test/compositor/compositor_test.cpp:391  |
-| TR-22              | Tilemap `pixel_en=0` transparent regardless of mode          | zxnext.vhd:7109    | pass    | test/compositor/compositor_test.cpp:404  |
-| TR-23              | `tm_en_2=0` forces TM transparent                            | zxnext.vhd:7109    | pass    | test/compositor/compositor_test.cpp:417  |
-| TR-30              | Layer 2 RGB compare                                          | zxnext.vhd:7121    | pass    | test/compositor/compositor_test.cpp:430  |
-| TR-31              | Layer 2 `pixel_en=0` transparent                             | —                | pass    | test/compositor/compositor_test.cpp:442  |
-| TR-32              | Layer 2 opaque pixel with non-zero `layer2_priority_2` prop… | zxnext.vhd:7123    | pass    | test/compositor/compositor_test.cpp:460  |
-| TR-33              | Layer 2 priority forced to 0 when layer is transparent       | zxnext.vhd:7123    | pass    | test/compositor/compositor_test.cpp:475  |
-| TR-40              | Sprite `pixel_en=0` transparent                              | —                | pass    | test/compositor/compositor_test.cpp:487  |
-| TR-41              | Sprite `pixel_en=1` opaque regardless of NR 0x14             | —                | pass    | test/compositor/compositor_test.cpp:504  |
-| TRI-10             | Sprite index matching NR 0x4B produces pixel_en=0 → composi… | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:832  |
-| TRI-11             | Sprite index ≠ NR 0x4B and inside active area → pixel_en=1   | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:843  |
-| TRI-20             | Tilemap nibble matching NR 0x4C → pixel_en=0                 | zxnext.vhd:4395  | pass    | test/compositor/compositor_test.cpp:856  |
-| FB-10              | Fallback appears when all layers transparent (mode 000)      | —                | pass    | test/compositor/compositor_test.cpp:881  |
-| FB-11              | Fallback=0x00                                                | —                | pass    | test/compositor/compositor_test.cpp:891  |
-| FB-12              | Fallback=0x4A = `0100_1010`                                  | —                | pass    | test/compositor/compositor_test.cpp:901  |
-| FB-13              | Fallback=0x01 = `0000_0001`                                  | —                | pass    | test/compositor/compositor_test.cpp:909  |
-| FB-14              | Fallback=0x02 = `0000_0010`                                  | —                | pass    | test/compositor/compositor_test.cpp:917  |
-| FB-15              | Fallback not used when any layer opaque                      | —                | pass    | test/compositor/compositor_test.cpp:929  |
-| FB-16              | Reset default is 0xE3                                        | —                | pass    | test/compositor/compositor_test.cpp:938  |
-| FB-17              | All 8 priority modes converge on fallback when every layer…  | —                | pass    | test/compositor/compositor_test.cpp:958  |
-| PRI-010-SLU-3      | Mode 000, all three opaque                                   | —                | pass    | test/compositor/compositor_test.cpp:1002 |
-| PRI-010-SLU-LU     | Mode 000, only L+U                                           | —                | pass    | test/compositor/compositor_test.cpp:1003 |
-| PRI-010-SLU-U      | Mode 000, only U                                             | —                | pass    | test/compositor/compositor_test.cpp:1004 |
-| PRI-010-SLU-0      | Mode 000, none                                               | —                | pass    | test/compositor/compositor_test.cpp:1005 |
-| PRI-011-LSU-3      | Mode 001, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1008 |
-| PRI-011-LSU-SU     | Mode 001, S+U only                                           | —                | pass    | test/compositor/compositor_test.cpp:1009 |
-| PRI-011-LSU-U      | Mode 001, U only                                             | —                | pass    | test/compositor/compositor_test.cpp:1010 |
-| PRI-010-SUL-3      | Mode 010, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1013 |
-| PRI-010-SUL-UL     | Mode 010, U+L                                                | —                | pass    | test/compositor/compositor_test.cpp:1014 |
-| PRI-010-SUL-L      | Mode 010, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:1015 |
-| PRI-011-LUS-3      | Mode 011, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1018 |
-| PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | pass    | test/compositor/compositor_test.cpp:1019 |
-| PRI-011-LUS-S      | Mode 011, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:1020 |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | zxnext.vhd:7256    | pass    | test/compositor/compositor_test.cpp:1043 |
-| PRI-100-USL-3      | Mode 100, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1023 |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | pass    | test/compositor/compositor_test.cpp:1057 |
-| PRI-100-USL-L      | Mode 100, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:1024 |
-| PRI-101-ULS-3      | Mode 101, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1027 |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | pass    | test/compositor/compositor_test.cpp:1074 |
-| PRI-101-ULS-S      | Mode 101, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:1028 |
-| PRI-B-0            | In every mode 000..101 with all three transparent, fallback… | —                | pass    | test/compositor/compositor_test.cpp:1099 |
-| PRI-B-1            | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparen… | —                | pass    | test/compositor/compositor_test.cpp:1110 |
-| PRI-B-2            | Mode 001: even if sprite opaque, L2 opaque beats it          | —                | pass    | test/compositor/compositor_test.cpp:1122 |
-| L2P-10             | Promotion in mode 000 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:1142 |
-| L2P-11             | Promotion in mode 010 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:1143 |
-| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:1144 |
-| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:1145 |
-| L2P-14             | No-op in mode 001 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:1146 |
-| L2P-15             | No-op in mode 011 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:1147 |
-| L2P-16             | `layer2_transparent=1` suppresses promotion                  | —                | pass    | test/compositor/compositor_test.cpp:1169 |
-| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:1193 |
-| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:1208 |
-| BL-10              | Add no clamp                                                 | —                | pass    | test/compositor/compositor_test.cpp:1323 |
-| BL-11              | Add clamp hi                                                 | —                | pass    | test/compositor/compositor_test.cpp:1336 |
-| BL-12              | Add 0+0                                                      | —                | pass    | test/compositor/compositor_test.cpp:1349 |
-| BL-13              | Add, `mix_top` opaque beats blend                            | —                | pass    | test/compositor/compositor_test.cpp:1365 |
-| BL-14              | Add, sprite between mix_top and mix_bot                      | —                | pass    | test/compositor/compositor_test.cpp:1379 |
-| BL-15              | Add, mix_bot wins after sprite transp                        | —                | pass    | test/compositor/compositor_test.cpp:1395 |
-| BL-16              | Add, final fallback to blend                                 | —                | pass    | test/compositor/compositor_test.cpp:1409 |
-| BL-20              | Sub, ≤4 clamps to 0                                          | —                | pass    | test/compositor/compositor_test.cpp:1423 |
-| BL-21              | Sub, ≥12 clamps to 7                                         | —                | pass    | test/compositor/compositor_test.cpp:1437 |
-| BL-22              | Sub, middle value                                            | —                | pass    | test/compositor/compositor_test.cpp:1451 |
-| BL-23              | Sub gated by `mix_rgb_transparent`                           | —                | pass    | test/compositor/compositor_test.cpp:1465 |
-| BL-24              | Sub, mix_top opaque wins over blend                          | —                | pass    | test/compositor/compositor_test.cpp:1478 |
-| BL-25              | Sub, sprite between                                          | —                | pass    | test/compositor/compositor_test.cpp:1490 |
-| BL-26              | Sub, mix_bot fallback                                        | —                | pass    | test/compositor/compositor_test.cpp:1502 |
-| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | pass    | test/compositor/compositor_test.cpp:1519 |
-| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | pass    | test/compositor/compositor_test.cpp:1535 |
-| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | pass    | test/compositor/compositor_test.cpp:1550 |
-| L2P-19             | Native 640: layer2_priority_[] not pixel-doubled (G93)       | zxnext.vhd:7039  | pass    | test/compositor/compositor_test.cpp:1265 |
-| BL-30              | Mode 01 prio6: mix_bot=ULA wins (TM transp, tm_below=0)      | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1575 |
-| BL-31              | Mode 01 prio6: mix_top=TM (ULA masked, tm_below=0)           | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1598 |
-| BL-32              | Mode 01 prio6: tm_below=1 swap, mix_top=ULA wins             | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1621 |
-| BL-40              | Mode 10 prio6: mix_rgb=ula_final, add(L2,ULA)                | zxnext.vhd:7149  | pass    | test/compositor/compositor_test.cpp:1642 |
-| BL-41              | Mode 10 prio6: ulatm merge → TM (tm_below=1), add(L2,TM)     | zxnext.vhd:7115  | pass    | test/compositor/compositor_test.cpp:1664 |
-| BL-42              | Mode 10 prio6: stencil ULA&TM routes via ula_final_rgb       | zxnext.vhd:7130  | pass    | test/compositor/compositor_test.cpp:1689 |
-| BL-50              | Mode 11 prio6: mix_bot=ULA wins (tm_below=0)                 | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1715 |
-| BL-51              | Mode 11 prio6: tm_below=1, mix_top=ULA wins                  | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1738 |
-| BL-52              | Mode 11 prio6: TM as mix_rgb when ULA overlays transp        | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1762 |
-| BL-60              | Mode 11 prio7 (sub): sub(L2,TM) = (4,2,0) cascade-to-mixer   | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1785 |
+| TR-10              | ULA pixel with palette output ≠ NR 0x14 is opaque            | zxnext.vhd:7100    | pass    | test/compositor/compositor_test.cpp:216  |
+| TR-11              | ULA pixel with palette output = NR 0x14 is transparent; fal… | zxnext.vhd:7100,7214 | pass    | test/compositor/compositor_test.cpp:239  |
+| TR-12              | ULA palette entry whose LSB differs from NR 0x14 LSB is sti… | zxnext.vhd:7100    | pass    | test/compositor/compositor_test.cpp:265  |
+| TR-13              | `ula_clipped_2=1` forces ULA transparent regardless of RGB   | zxnext.vhd:7100    | pass    | test/compositor/compositor_test.cpp:282  |
+| TR-14              | `ula_en_2=0` forces ULA transparent even if mix_transparent… | zxnext.vhd:7103    | pass    | test/compositor/compositor_test.cpp:296  |
+| TR-15              | Compositor is resolution-agnostic at the ULA input boundary… | —                | pass    | test/compositor/compositor_test.cpp:310  |
+| TR-16              | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → UL… | zxnext.vhd:7100,7214 | pass    | test/compositor/compositor_test.cpp:329  |
+| TR-17              | `ula_border_2` is ignored by stage-2 mix in modes 000/001/0… | —                | pass    | test/compositor/compositor_test.cpp:347  |
+| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | zxnext.vhd:6934,6819 | pass    | test/compositor/compositor_test.cpp:366  |
+| TR-20              | Tilemap text-mode RGB compare                                | zxnext.vhd:7109    | pass    | test/compositor/compositor_test.cpp:379  |
+| TR-21              | Tilemap non-text (attribute) ignores RGB compare             | —                | pass    | test/compositor/compositor_test.cpp:396  |
+| TR-22              | Tilemap `pixel_en=0` transparent regardless of mode          | zxnext.vhd:7109    | pass    | test/compositor/compositor_test.cpp:409  |
+| TR-23              | `tm_en_2=0` forces TM transparent                            | zxnext.vhd:7109    | pass    | test/compositor/compositor_test.cpp:422  |
+| TR-30              | Layer 2 RGB compare                                          | zxnext.vhd:7121    | pass    | test/compositor/compositor_test.cpp:484  |
+| TR-31              | Layer 2 `pixel_en=0` transparent                             | —                | pass    | test/compositor/compositor_test.cpp:496  |
+| TR-32              | Layer 2 opaque pixel with non-zero `layer2_priority_2` prop… | zxnext.vhd:7123    | pass    | test/compositor/compositor_test.cpp:514  |
+| TR-33              | Layer 2 priority forced to 0 when layer is transparent       | zxnext.vhd:7123    | pass    | test/compositor/compositor_test.cpp:529  |
+| TR-40              | Sprite `pixel_en=0` transparent                              | —                | pass    | test/compositor/compositor_test.cpp:541  |
+| TR-41              | Sprite `pixel_en=1` opaque regardless of NR 0x14             | —                | pass    | test/compositor/compositor_test.cpp:558  |
+| TRI-10             | Sprite index matching NR 0x4B produces pixel_en=0 → composi… | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:886  |
+| TRI-11             | Sprite index ≠ NR 0x4B and inside active area → pixel_en=1   | sprites.vhd:1067 | pass    | test/compositor/compositor_test.cpp:897  |
+| TRI-20             | Tilemap nibble matching NR 0x4C → pixel_en=0                 | zxnext.vhd:4395  | pass    | test/compositor/compositor_test.cpp:910  |
+| FB-10              | Fallback appears when all layers transparent (mode 000)      | —                | pass    | test/compositor/compositor_test.cpp:935  |
+| FB-11              | Fallback=0x00                                                | —                | pass    | test/compositor/compositor_test.cpp:945  |
+| FB-12              | Fallback=0x4A = `0100_1010`                                  | —                | pass    | test/compositor/compositor_test.cpp:955  |
+| FB-13              | Fallback=0x01 = `0000_0001`                                  | —                | pass    | test/compositor/compositor_test.cpp:963  |
+| FB-14              | Fallback=0x02 = `0000_0010`                                  | —                | pass    | test/compositor/compositor_test.cpp:971  |
+| FB-15              | Fallback not used when any layer opaque                      | —                | pass    | test/compositor/compositor_test.cpp:983  |
+| FB-16              | Reset default is 0xE3                                        | —                | pass    | test/compositor/compositor_test.cpp:992  |
+| FB-17              | All 8 priority modes converge on fallback when every layer…  | —                | pass    | test/compositor/compositor_test.cpp:1012 |
+| PRI-010-SLU-3      | Mode 000, all three opaque                                   | —                | pass    | test/compositor/compositor_test.cpp:1056 |
+| PRI-010-SLU-LU     | Mode 000, only L+U                                           | —                | pass    | test/compositor/compositor_test.cpp:1057 |
+| PRI-010-SLU-U      | Mode 000, only U                                             | —                | pass    | test/compositor/compositor_test.cpp:1058 |
+| PRI-010-SLU-0      | Mode 000, none                                               | —                | pass    | test/compositor/compositor_test.cpp:1059 |
+| PRI-011-LSU-3      | Mode 001, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1062 |
+| PRI-011-LSU-SU     | Mode 001, S+U only                                           | —                | pass    | test/compositor/compositor_test.cpp:1063 |
+| PRI-011-LSU-U      | Mode 001, U only                                             | —                | pass    | test/compositor/compositor_test.cpp:1064 |
+| PRI-010-SUL-3      | Mode 010, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1067 |
+| PRI-010-SUL-UL     | Mode 010, U+L                                                | —                | pass    | test/compositor/compositor_test.cpp:1068 |
+| PRI-010-SUL-L      | Mode 010, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:1069 |
+| PRI-011-LUS-3      | Mode 011, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1072 |
+| PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | pass    | test/compositor/compositor_test.cpp:1073 |
+| PRI-011-LUS-S      | Mode 011, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:1074 |
+| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | zxnext.vhd:7256    | pass    | test/compositor/compositor_test.cpp:1097 |
+| PRI-100-USL-3      | Mode 100, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1077 |
+| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | pass    | test/compositor/compositor_test.cpp:1111 |
+| PRI-100-USL-L      | Mode 100, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:1078 |
+| PRI-101-ULS-3      | Mode 101, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:1081 |
+| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | pass    | test/compositor/compositor_test.cpp:1128 |
+| PRI-101-ULS-S      | Mode 101, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:1082 |
+| PRI-B-0            | In every mode 000..101 with all three transparent, fallback… | —                | pass    | test/compositor/compositor_test.cpp:1153 |
+| PRI-B-1            | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparen… | —                | pass    | test/compositor/compositor_test.cpp:1164 |
+| PRI-B-2            | Mode 001: even if sprite opaque, L2 opaque beats it          | —                | pass    | test/compositor/compositor_test.cpp:1176 |
+| L2P-10             | Promotion in mode 000 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:1196 |
+| L2P-11             | Promotion in mode 010 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:1197 |
+| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:1198 |
+| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:1199 |
+| L2P-14             | No-op in mode 001 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:1200 |
+| L2P-15             | No-op in mode 011 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:1201 |
+| L2P-16             | `layer2_transparent=1` suppresses promotion                  | —                | pass    | test/compositor/compositor_test.cpp:1223 |
+| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:1247 |
+| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:1262 |
+| BL-10              | Add no clamp                                                 | —                | pass    | test/compositor/compositor_test.cpp:1377 |
+| BL-11              | Add clamp hi                                                 | —                | pass    | test/compositor/compositor_test.cpp:1390 |
+| BL-12              | Add 0+0                                                      | —                | pass    | test/compositor/compositor_test.cpp:1403 |
+| BL-13              | Add, `mix_top` opaque beats blend                            | —                | pass    | test/compositor/compositor_test.cpp:1419 |
+| BL-14              | Add, sprite between mix_top and mix_bot                      | —                | pass    | test/compositor/compositor_test.cpp:1433 |
+| BL-15              | Add, mix_bot wins after sprite transp                        | —                | pass    | test/compositor/compositor_test.cpp:1449 |
+| BL-16              | Add, final fallback to blend                                 | —                | pass    | test/compositor/compositor_test.cpp:1463 |
+| BL-20              | Sub, ≤4 clamps to 0                                          | —                | pass    | test/compositor/compositor_test.cpp:1477 |
+| BL-21              | Sub, ≥12 clamps to 7                                         | —                | pass    | test/compositor/compositor_test.cpp:1491 |
+| BL-22              | Sub, middle value                                            | —                | pass    | test/compositor/compositor_test.cpp:1505 |
+| BL-23              | Sub gated by `mix_rgb_transparent`                           | —                | pass    | test/compositor/compositor_test.cpp:1519 |
+| BL-24              | Sub, mix_top opaque wins over blend                          | —                | pass    | test/compositor/compositor_test.cpp:1532 |
+| BL-25              | Sub, sprite between                                          | —                | pass    | test/compositor/compositor_test.cpp:1544 |
+| BL-26              | Sub, mix_bot fallback                                        | —                | pass    | test/compositor/compositor_test.cpp:1556 |
+| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | pass    | test/compositor/compositor_test.cpp:1573 |
+| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | pass    | test/compositor/compositor_test.cpp:1589 |
+| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | pass    | test/compositor/compositor_test.cpp:1604 |
+| L2P-19             | Native 640: layer2_priority_[] not pixel-doubled (G93)       | zxnext.vhd:7039  | pass    | test/compositor/compositor_test.cpp:1319 |
+| BL-30              | Mode 01 prio6: mix_bot=ULA wins (TM transp, tm_below=0)      | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1629 |
+| BL-31              | Mode 01 prio6: mix_top=TM (ULA masked, tm_below=0)           | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1652 |
+| BL-32              | Mode 01 prio6: tm_below=1 swap, mix_top=ULA wins             | zxnext.vhd:7163  | pass    | test/compositor/compositor_test.cpp:1675 |
+| BL-40              | Mode 10 prio6: mix_rgb=ula_final, add(L2,ULA)                | zxnext.vhd:7149  | pass    | test/compositor/compositor_test.cpp:1696 |
+| BL-41              | Mode 10 prio6: ulatm merge → TM (tm_below=1), add(L2,TM)     | zxnext.vhd:7115  | pass    | test/compositor/compositor_test.cpp:1718 |
+| BL-42              | Mode 10 prio6: stencil ULA&TM routes via ula_final_rgb       | zxnext.vhd:7130  | pass    | test/compositor/compositor_test.cpp:1743 |
+| BL-50              | Mode 11 prio6: mix_bot=ULA wins (tm_below=0)                 | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1769 |
+| BL-51              | Mode 11 prio6: tm_below=1, mix_top=ULA wins                  | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1792 |
+| BL-52              | Mode 11 prio6: TM as mix_rgb when ULA overlays transp        | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1816 |
+| BL-60              | Mode 11 prio7 (sub): sub(L2,TM) = (4,2,0) cascade-to-mixer   | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1839 |
 | UB-G26-01          | UTB-40/41 mix_top/mix_bot swap on tm_pixel_below_2 (G26)     | zxnext.vhd:7163  | missing | missing                                  |
-| UB-G26-02          | L2 priority over opaque mix_top in modes 110/111 (G26)       | zxnext.vhd:7300  | pass    | test/compositor/compositor_test.cpp:1932 |
+| UB-G26-02          | L2 priority over opaque mix_top in modes 110/111 (G26)       | zxnext.vhd:7300  | pass    | test/compositor/compositor_test.cpp:1986 |
 | PFF-G108-01        | NR 0x69 b5:0 → port_ff_reg(5:0) fan-out missing (G108)       | zxnext.vhd:3617  | missing | missing                                  |
 | PFF-G108-02        | NR 0x22 b2 → port_ff_reg(6) fan-out missing (G108)           | zxnext.vhd:3619  | missing | missing                                  |
 | PFF-G108-03        | NR 0xC4 b0 → port_ff_reg(6) inverted fan-out missing (G108)  | zxnext.vhd:3621  | missing | missing                                  |
-| UDIS-03            | NR 0x68 b6:5 decode → Renderer::blend_mode (UDIS-03 closed)  | zxnext.vhd:7141  | pass    | test/compositor/compositor_test.cpp:2345 |
-| BLANK-G27-01       | rgb_blank_n_6 lockstep with rgb_out_6 pipeline (G27)         | zxnext.vhd:7395  | pass    | test/compositor/compositor_test.cpp:2544 |
-| PSCAN-01           | write_8bit appends change-log entry tagged with current_li…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2727 |
-| PSCAN-02           | rewind_to_baseline restores live palette to frame start      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2748 |
-| PSCAN-03           | apply_changes_for_line replays only matching lines, monoto…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2805 |
-| PSCAN-04           | change_log cap; overflow_warned_ latches once per frame      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2853 |
-| PSCAN-05           | Renderer::render_frame replays per-line palette mid-frame    | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2941 |
-| PSCAN-G04-01       | NR 0x14 per-scanline replay not implemented (G04)            | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3179 |
+| UDIS-03            | NR 0x68 b6:5 decode → Renderer::blend_mode (UDIS-03 closed)  | zxnext.vhd:7141  | pass    | test/compositor/compositor_test.cpp:2399 |
+| BLANK-G27-01       | rgb_blank_n_6 lockstep with rgb_out_6 pipeline (G27)         | zxnext.vhd:7395  | pass    | test/compositor/compositor_test.cpp:2598 |
+| PSCAN-01           | write_8bit appends change-log entry tagged with current_li…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2781 |
+| PSCAN-02           | rewind_to_baseline restores live palette to frame start      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2802 |
+| PSCAN-03           | apply_changes_for_line replays only matching lines, monoto…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2859 |
+| PSCAN-04           | change_log cap; overflow_warned_ latches once per frame      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2921 |
+| PSCAN-05           | Renderer::render_frame replays per-line palette mid-frame    | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3066 |
+| PSCAN-G04-01       | NR 0x14 per-scanline replay not implemented (G04)            | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3304 |
 | PSCAN-G04-02       | NR 0x4B per-scanline replay not implemented (G04)            | zxnext.vhd:5016  | missing | missing                                  |
 | PSCAN-G04-03       | NR 0x4C per-scanline replay not implemented (G04)            | zxnext.vhd:5018  | missing | missing                                  |
-| PSCAN-G11-01       | NR 0x68 b0 stencil per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3233 |
-| PSCAN-G11-02       | NR 0x68 b6:5 blend per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3261 |
-| PSCAN-G11-03       | NR 0x68 b3 ulap_en per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3294 |
-| UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1815 |
-| UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1828 |
-| UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1841 |
-| UTB-30             | Mode 11, TM as U, ULA floats below                           | —                | pass    | test/compositor/compositor_test.cpp:1859 |
-| UTB-31             | Mode 11, TM as U, ULA floats above                           | —                | pass    | test/compositor/compositor_test.cpp:1874 |
-| UTB-40             | Mode 01 (`others`), below=0                                  | zxnext.vhd:7163-7177 | pass    | test/compositor/compositor_test.cpp:1890 |
-| UTB-41             | Mode 01, below=1                                             | zxnext.vhd:7163-7177 | pass    | test/compositor/compositor_test.cpp:1903 |
-| STEN-10            | Bitwise AND                                                  | —                | pass    | test/compositor/compositor_test.cpp:2059 |
-| STEN-11            | AND with zero                                                | —                | pass    | test/compositor/compositor_test.cpp:2076 |
-| STEN-12            | ULA transparent → stencil transparent                        | —                | pass    | test/compositor/compositor_test.cpp:2092 |
-| STEN-13            | TM transparent → stencil transparent                         | —                | pass    | test/compositor/compositor_test.cpp:2108 |
-| STEN-14            | Both transparent → transparent                               | —                | pass    | test/compositor/compositor_test.cpp:2121 |
-| STEN-15            | Stencil inactive if `tm_en=0` (even with bit set)            | —                | pass    | test/compositor/compositor_test.cpp:2136 |
-| STEN-16            | Stencil inactive if `ula_en=0`                               | —                | pass    | test/compositor/compositor_test.cpp:2149 |
-| STEN-17            | Stencil off (bit=0), both enabled                            | —                | pass    | test/compositor/compositor_test.cpp:2162 |
-| SOB-10             | Sprite rgb arrives at compositor with `sprite_pixel_en_2=1`… | sprites.vhd        | pass    | test/compositor/compositor_test.cpp:2371 |
-| LINE-10            | Write NR 0x15[4:2] mid-line                                  | zxnext.vhd:6799    | pass    | test/compositor/compositor_test.cpp:2402 |
-| LINE-11            | Write NR 0x14 mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:2419 |
-| LINE-12            | Write NR 0x4A mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:2433 |
-| LINE-13            | Copper write to NR 0x15 at end of line                       | —                | pass    | test/compositor/compositor_test.cpp:2446 |
-| LINE-14            | Two writes in one line: only the last is visible next line   | —                | pass    | test/compositor/compositor_test.cpp:2456 |
-| BLANK-10           | Active area passes through                                   | —                | pass    | test/compositor/compositor_test.cpp:2477 |
-| BLANK-11           | Horizontal blanking forces 0                                 | —                | pass    | test/compositor/compositor_test.cpp:2491 |
-| BLANK-12           | Vertical blanking forces 0                                   | —                | pass    | test/compositor/compositor_test.cpp:2494 |
-| BLANK-13           | Fallback colour is NOT shown during blank                    | —                | pass    | test/compositor/compositor_test.cpp:2497 |
-| PAL-10             | ULA pixel index → ULA/TM palette                             | —                | pass    | test/compositor/compositor_test.cpp:2572 |
-| PAL-11             | ULA background substitution uses fallback                    | —                | pass    | test/compositor/compositor_test.cpp:2590 |
-| PAL-12             | LoRes pixel overrides ULA background                         | —                | pass    | test/compositor/compositor_test.cpp:2603 |
-| PAL-13             | L2 palette select 0 vs 1 (NR 0x43[2])                        | —                | pass    | test/compositor/compositor_test.cpp:2620 |
-| PAL-14             | L2 palette bit 15 surfaces as `layer2_priority_2`            | —                | pass    | test/compositor/compositor_test.cpp:2636 |
-| PAL-15             | Sprite palette is L2/Sprite RAM `sc(0)=1`                    | —                | pass    | test/compositor/compositor_test.cpp:2648 |
-| RST-10             | After reset, all layers are transparent (TM disabled, S dis… | —                | pass    | test/compositor/compositor_test.cpp:2668 |
-| RST-11             | After reset, mode is 000 (SLU)                               | —                | pass    | test/compositor/compositor_test.cpp:2681 |
-| RST-12             | After reset, NR 0x4A = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2690 |
-| RST-13             | After reset, NR 0x14 = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2700 |
-| PRI-BOUND          | 3                                                            | —                | pass    | test/compositor/compositor_test.cpp:1084 |
+| PSCAN-G11-01       | NR 0x68 b0 stencil per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3358 |
+| PSCAN-G11-02       | NR 0x68 b6:5 blend per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3386 |
+| PSCAN-G11-03       | NR 0x68 b3 ulap_en per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3419 |
+| UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1869 |
+| UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1882 |
+| UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1895 |
+| UTB-30             | Mode 11, TM as U, ULA floats below                           | —                | pass    | test/compositor/compositor_test.cpp:1913 |
+| UTB-31             | Mode 11, TM as U, ULA floats above                           | —                | pass    | test/compositor/compositor_test.cpp:1928 |
+| UTB-40             | Mode 01 (`others`), below=0                                  | zxnext.vhd:7163-7177 | pass    | test/compositor/compositor_test.cpp:1944 |
+| UTB-41             | Mode 01, below=1                                             | zxnext.vhd:7163-7177 | pass    | test/compositor/compositor_test.cpp:1957 |
+| STEN-10            | Bitwise AND                                                  | —                | pass    | test/compositor/compositor_test.cpp:2113 |
+| STEN-11            | AND with zero                                                | —                | pass    | test/compositor/compositor_test.cpp:2130 |
+| STEN-12            | ULA transparent → stencil transparent                        | —                | pass    | test/compositor/compositor_test.cpp:2146 |
+| STEN-13            | TM transparent → stencil transparent                         | —                | pass    | test/compositor/compositor_test.cpp:2162 |
+| STEN-14            | Both transparent → transparent                               | —                | pass    | test/compositor/compositor_test.cpp:2175 |
+| STEN-15            | Stencil inactive if `tm_en=0` (even with bit set)            | —                | pass    | test/compositor/compositor_test.cpp:2190 |
+| STEN-16            | Stencil inactive if `ula_en=0`                               | —                | pass    | test/compositor/compositor_test.cpp:2203 |
+| STEN-17            | Stencil off (bit=0), both enabled                            | —                | pass    | test/compositor/compositor_test.cpp:2216 |
+| SOB-10             | Sprite rgb arrives at compositor with `sprite_pixel_en_2=1`… | sprites.vhd        | pass    | test/compositor/compositor_test.cpp:2425 |
+| LINE-10            | Write NR 0x15[4:2] mid-line                                  | zxnext.vhd:6799    | pass    | test/compositor/compositor_test.cpp:2456 |
+| LINE-11            | Write NR 0x14 mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:2473 |
+| LINE-12            | Write NR 0x4A mid-line                                       | —                | pass    | test/compositor/compositor_test.cpp:2487 |
+| LINE-13            | Copper write to NR 0x15 at end of line                       | —                | pass    | test/compositor/compositor_test.cpp:2500 |
+| LINE-14            | Two writes in one line: only the last is visible next line   | —                | pass    | test/compositor/compositor_test.cpp:2510 |
+| BLANK-10           | Active area passes through                                   | —                | pass    | test/compositor/compositor_test.cpp:2531 |
+| BLANK-11           | Horizontal blanking forces 0                                 | —                | pass    | test/compositor/compositor_test.cpp:2545 |
+| BLANK-12           | Vertical blanking forces 0                                   | —                | pass    | test/compositor/compositor_test.cpp:2548 |
+| BLANK-13           | Fallback colour is NOT shown during blank                    | —                | pass    | test/compositor/compositor_test.cpp:2551 |
+| PAL-10             | ULA pixel index → ULA/TM palette                             | —                | pass    | test/compositor/compositor_test.cpp:2626 |
+| PAL-11             | ULA background substitution uses fallback                    | —                | pass    | test/compositor/compositor_test.cpp:2644 |
+| PAL-12             | LoRes pixel overrides ULA background                         | —                | pass    | test/compositor/compositor_test.cpp:2657 |
+| PAL-13             | L2 palette select 0 vs 1 (NR 0x43[2])                        | —                | pass    | test/compositor/compositor_test.cpp:2674 |
+| PAL-14             | L2 palette bit 15 surfaces as `layer2_priority_2`            | —                | pass    | test/compositor/compositor_test.cpp:2690 |
+| PAL-15             | Sprite palette is L2/Sprite RAM `sc(0)=1`                    | —                | pass    | test/compositor/compositor_test.cpp:2702 |
+| RST-10             | After reset, all layers are transparent (TM disabled, S dis… | —                | pass    | test/compositor/compositor_test.cpp:2722 |
+| RST-11             | After reset, mode is 000 (SLU)                               | —                | pass    | test/compositor/compositor_test.cpp:2735 |
+| RST-12             | After reset, NR 0x4A = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2744 |
+| RST-13             | After reset, NR 0x14 = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:2754 |
+| PRI-BOUND          | 3                                                            | —                | pass    | test/compositor/compositor_test.cpp:1138 |
 
 ### Companion integration suite — `test/compositor/compositor_integration_test.cpp`
 
@@ -2712,20 +2712,20 @@ Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K
 | FB-03a        | +3 port 0x0FFD bit-0 force (latch=0xA4 → 0xA5)                                  | zxula.vhd:573 + zxnext.vhd:4517             | pass   | test/floating_bus/floating_bus_test.cpp:487     |
 | FB-04         | +3 port 0xFF at border ignores p3_floating_bus_dat shadow → 0xFF                | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:503     |
 | FB-04a        | +3 port 0x0FFD border fallback via p3_floating_bus_dat → 0xA5                   | zxula.vhd:573 + zxnext.vhd:4498-4509,4517   | pass   | test/floating_bus/floating_bus_test.cpp:519     |
-| FB-3A         | +3 port 0x0FFD + port_7ffd_locked=1 → 0xFF                                      | zxnext.vhd:4517                             | pass   | test/floating_bus/floating_bus_test.cpp:535     |
-| FB-3B         | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00                           | zxnext.vhd:2403,2589,2814                   | pass   | test/floating_bus/floating_bus_test.cpp:551     |
-| FB-3C         | 48K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                   | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:562     |
-| FB-3D         | 128K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:573     |
+| FB-3A         | +3 port 0x0FFD + port_7ffd_locked=1 → 0xFF                                      | zxnext.vhd:4517                             | pass   | test/floating_bus/floating_bus_test.cpp:590     |
+| FB-3B         | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00                           | zxnext.vhd:2403,2589,2814                   | pass   | test/floating_bus/floating_bus_test.cpp:617     |
+| FB-3C         | 48K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                   | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:631     |
+| FB-3D         | 128K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:643     |
 | FB-3E         | Pentagon port 0x0FFD → 0x00 (p3_timing_hw_en gate)                              | zxnext.vhd:2589,2814                        | missing | missing                                         |
-| FB-3F         | Next port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:599     |
-| FB-4A         | 128K active capture → ULA floating bus reaches port 0xFF (0x5A)                 | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:703     |
+| FB-3F         | Next port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:680     |
+| FB-4A         | 128K active capture → ULA floating bus reaches port 0xFF (0x5A)                 | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:814     |
 | FB-4B         | Pentagon active capture → port 0xFF hard-forced 0xFF                            | zxnext.vhd:4513                             | missing | missing                                         |
-| FB-4C         | Next-base active capture → port 0xFF hard-forced 0xFF                           | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:723     |
-| FB-06         | 48K CPU IN A,(0xFF) at border via port-dispatch default returns 0xFF            | zxnext.vhd:2713,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:753     |
-| FB-5A         | 48K CPU IN A,(0xFF) in active line sees VRAM marker (saturated row)             | zxnext.vhd:2713,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:802     |
-| FB-07         | 48K NR 0x08 b2=1 + port 0xFF write 0x05 → read returns 0x05 (Timex arm)         | zxnext.vhd:2813,5180,3630                   | pass   | test/floating_bus/floating_bus_test.cpp:842     |
-| FB-6A         | 48K reset NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins)       | zxnext.vhd:1118,2813,5180                   | pass   | test/floating_bus/floating_bus_test.cpp:858     |
-| FB-6B         | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF                    | zxnext.vhd:2397,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:877     |
+| FB-4C         | Next-base active capture → port 0xFF hard-forced 0xFF                           | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:834     |
+| FB-06         | 48K CPU IN A,(0xFF) at border via port-dispatch default returns 0xFF            | zxnext.vhd:2713,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:864     |
+| FB-5A         | 48K CPU IN A,(0xFF) in active line sees VRAM marker (saturated row)             | zxnext.vhd:2713,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:913     |
+| FB-07         | 48K NR 0x08 b2=1 + port 0xFF write 0x05 → read returns 0x05 (Timex arm)         | zxnext.vhd:2813,5180,3630                   | pass   | test/floating_bus/floating_bus_test.cpp:953     |
+| FB-6A         | 48K reset NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins)       | zxnext.vhd:1118,2813,5180                   | pass   | test/floating_bus/floating_bus_test.cpp:969     |
+| FB-6B         | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF                    | zxnext.vhd:2397,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:988     |
 
 ### Extra coverage (not in plan)
 
