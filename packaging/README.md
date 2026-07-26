@@ -89,7 +89,7 @@ any target.) Install the full toolchain + libraries first:
 
 ```sh
 sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
-  mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \
+  mingw64-sdl2-compat mingw64-zlib \
   mingw64-libpng mingw64-winpthreads
 ```
 
@@ -151,8 +151,8 @@ the `find_package()` calls in `CMakeLists.txt` / `src/*/CMakeLists.txt`:
 |-------------|-------------------------------------------------------------------|
 | SDL2        | root `CMakeLists.txt`, `src/platform`, `src/gui`, `src/input`     |
 | Qt6 Widgets (pulls Gui, Core) | `src/gui`, `src/debugger` (`ENABLE_QT_UI`/`ENABLE_DEBUGGER`) |
-| libcurl     | root `CMakeLists.txt` — SD-card image download                   |
-| OpenSSL (libcrypto) | root `CMakeLists.txt` — SHA-256 integrity check of the SD image |
+| libcurl     | root `CMakeLists.txt` — SD-card image download (POSIX only; Windows uses OS-native WinHTTP, GH #108) |
+| OpenSSL (libcrypto) | root `CMakeLists.txt` — SHA-256 integrity check of the SD image (POSIX only; Windows uses OS-native BCrypt/CNG, GH #108) |
 | zlib        | root `CMakeLists.txt` — SZX/RZX compression                      |
 | libpng      | `src/platform` — PNG screenshots                                 |
 

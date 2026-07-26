@@ -24,7 +24,7 @@ than failing inside CMake:
 
 ```sh
 sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
-    mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \
+    mingw64-sdl2-compat mingw64-zlib \
     mingw64-libpng mingw64-winpthreads
 ```
 

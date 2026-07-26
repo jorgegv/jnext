@@ -124,8 +124,16 @@ endif()
 
 find_package(SDL2 REQUIRED)
 find_package(ZLIB REQUIRED)
-find_package(CURL REQUIRED)
-find_package(OpenSSL REQUIRED)
+# curl/OpenSSL back the SD-card provisioner's download + SHA-256 on POSIX
+# only. Windows uses OS-native WinHTTP + BCrypt instead (GH #108 Phase B:
+# src/core/sdcard_provisioner_net_win.cpp), so the Windows packages ship no
+# curl/OpenSSL DLLs — fedora's libcrypto-3 imports PathCchRemoveFileSpec
+# (Windows 8+), which was the single import keeping the SDL-only bundle off
+# Windows 7.
+if(NOT WIN32)
+    find_package(CURL REQUIRED)
+    find_package(OpenSSL REQUIRED)
+endif()
 
 # spdlog — vendored as git submodule, header-only mode.
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)

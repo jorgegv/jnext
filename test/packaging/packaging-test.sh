@@ -222,11 +222,18 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
         # sdl2-compat SDL2.dll runtime-loads it; missing it → "Failed loading SDL3").
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
-            if printf '%s' "$list" | grep -q "jnext.exe" \
+            # GH #108 Phase B: the Windows provisioner is WinHTTP+BCrypt, so
+            # NO curl/OpenSSL DLL (nor any of their transitive-only deps) may
+            # appear in a Windows bundle. A reappearing libcrypto would drag
+            # PathCchRemoveFileSpec (Win8+) back in and silently re-raise the
+            # SDL bundle's OS floor.
+            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
+                bad package-win "curl/OpenSSL chain DLLs leaked back into the zip (GH #108 Phase B regression)" "$LOGDIR/win.log"
+            elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt6Core.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll"; then
-                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL2/SDL3 DLLs + qwindows plugin)"
+                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL2/SDL3 DLLs + qwindows plugin, no curl/OpenSSL)"
             else
                 bad package-win ".zip missing bundled DLLs, qwindows plugin, or SDL3.dll" "$LOGDIR/win.log"
             fi
@@ -290,12 +297,17 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
         z=$(ls -1 build/win-sdl-release/*.zip 2>/dev/null | head -1)
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
-            if printf '%s' "$list" | grep -q "jnext.exe" \
+            # Same GH #108 Phase B assertion as package-win, but here it IS the
+            # Win7 floor: libcrypto's PathCchRemoveFileSpec import was the one
+            # post-Win7 import in this bundle (WINDOWS-COMPAT-PLAN.md §2).
+            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
+                bad package-win-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win-sdl.log"
+            elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -qi "SDL2.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -q "Qt6" \
                && ! printf '%s' "$list" | grep -q "platforms/"; then
-                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL2/SDL3, no Qt)"
+                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL2/SDL3, no Qt, no curl/OpenSSL)"
             else
                 bad package-win-sdl ".zip missing exe/SDL DLLs, or Qt files leaked in" "$LOGDIR/win-sdl.log"
             fi

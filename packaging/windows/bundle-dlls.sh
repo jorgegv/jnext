@@ -43,7 +43,7 @@ QT_PLUGINS="$SYSROOT/lib/qt6/plugins"
 command -v "$OBJDUMP" >/dev/null 2>&1 || { echo "error: $OBJDUMP not found" >&2; exit 1; }
 
 # DLLs supplied by Windows itself — resolving/bundling these is wrong.
-SYS_DLL_RE='^(kernel32|user32|gdi32|shell32|shcore|advapi32|ole32|oleaut32|msvcrt|ws2_32|comdlg32|comctl32|winmm|imm32|setupapi|version|winspool|shlwapi|crypt32|dwmapi|uxtheme|rpcrt4|iphlpapi|netapi32|userenv|wtsapi32|dnsapi|secur32|bcrypt|ncrypt|authz|d3d9|d3d11|d3d12|dxgi|dwrite|opengl32|glu32|mpr|normaliz|wldap32|ntdll|api-ms-win.*)\.dll$'
+SYS_DLL_RE='^(kernel32|user32|gdi32|shell32|shcore|advapi32|ole32|oleaut32|msvcrt|ws2_32|comdlg32|comctl32|winmm|imm32|setupapi|version|winspool|shlwapi|crypt32|dwmapi|uxtheme|rpcrt4|iphlpapi|netapi32|userenv|wtsapi32|dnsapi|secur32|bcrypt|ncrypt|winhttp|authz|d3d9|d3d11|d3d12|dxgi|dwrite|opengl32|glu32|mpr|normaliz|wldap32|ntdll|api-ms-win.*)\.dll$'
 
 # Qt plugins to ship, as paths relative to the plugin root. qwindows is the
 # only mandatory one; the rest are graceful (warn, don't fail, if absent).
