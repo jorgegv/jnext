@@ -72,6 +72,7 @@ signals:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     void create_panels();
@@ -79,8 +80,8 @@ private:
     void save_geometry();
     void restore_geometry();
     /// GH #114 — open a DEFAULT-sized window at the size where nothing has to
-    /// scroll, when the screen has room for it. Called once the menu bar and
-    /// the button bar exist, since both count towards that size.
+    /// scroll, when the screen has room for it. Runs off the first show, since
+    /// it measures how much panel area the scroll area is currently hiding.
     void grow_default_size_to_natural();
     void set_attach_enabled(bool on);
     /// Stop attaching after the window system repeatedly ignored our moves,
@@ -97,6 +98,11 @@ private:
     // GH #114 — false once a size restored from the config file is in use, so
     // grow_default_size_to_natural() leaves a deliberately small window alone.
     bool size_is_default_ = true;
+    // GH #114 — the opening fit runs once per window, not on every re-show,
+    // and re-measures a bounded number of times (see grow_default_size_to_natural).
+    bool initial_fit_done_ = false;
+    int  initial_fit_passes_ = 0;
+    static constexpr int kMaxInitialFitPasses = 4;
 
     // Layout
     QSplitter* main_splitter_ = nullptr;

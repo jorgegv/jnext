@@ -338,45 +338,59 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
 
     rewind_toolbar_->setVisible(false);
     addToolBar(Qt::BottomToolBarArea, rewind_toolbar_);
+}
 
-    // The menu bar and the button bar exist only now, and they are part of the
-    // height a scroll-free window needs — hence here rather than in the
-    // constructor. See the function's comment.
-    grow_default_size_to_natural();
+void DebuggerWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    if (initial_fit_done_)
+        return;
+    initial_fit_done_ = true;
+    // Queued, not immediate: the scroll range this reads is only correct once
+    // the shown window has been laid out.
+    QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
 }
 
 void DebuggerWindow::grow_default_size_to_natural() {
     // GH #114: a window opening at its DEFAULT size still opens at the size
-    // where nothing has to scroll, whenever the screen has room for it.
+    // where nothing has to scroll, whenever the screen has room for it. That
+    // size used to be enforced by Qt as the window's minimum (1170x1069 with
+    // this panel set), which is exactly what made the window unshrinkable — so
+    // reproducing it here is what keeps the promise that a user with a big
+    // enough monitor sees precisely what they saw before.
     //
-    // That size used to be enforced by Qt as the window's minimum (measured
-    // 1170x1069 with this panel set), which is precisely what made the window
-    // unshrinkable. The panel minimums have not changed — only the refusal to
-    // go below them — so recomputing the same number here keeps the promise
-    // that a user with a big enough monitor sees exactly what they saw before.
+    // MEASURED, not estimated: the scroll range IS the amount of panel area
+    // currently out of view, so adding it to the window size is the size at
+    // which the scrollbars disappear. Summing the panels' minimums and the
+    // chrome around them was tried first and got the right answer only on the
+    // machine it was written on — the panels' minimums are not final until the
+    // widgets have been polished and laid out, which is why this runs off the
+    // first show rather than at construction.
     //
     // A size restored from the config file is left alone: a window the user
     // deliberately made small must come back small.
-    if (!size_is_default_ || !main_splitter_)
+    auto* scroll = qobject_cast<QScrollArea*>(centralWidget());
+    if (!size_is_default_ || !scroll)
         return;
 
-    QSize natural = main_splitter_->minimumSizeHint();
-    if (QMenuBar* mb = menuBar())
-        natural.rheight() += mb->sizeHint().height();
-    for (const QToolBar* tb : findChildren<QToolBar*>())
-        if (!tb->isHidden())
-            natural.rheight() += tb->sizeHint().height();
-    // statusBar() CREATES the status bar, and that is deliberate: the first
-    // update_rewind_ui() creates it unconditionally moments later anyway, so
-    // its height is part of the window whether counted here or not. Leaving it
-    // out simply made the opening window that much shorter than it used to be.
-    if (QStatusBar* sb = statusBar())
-        natural.rheight() += sb->sizeHint().height();
+    const int hidden_w = scroll->horizontalScrollBar()->maximum();
+    const int hidden_h = scroll->verticalScrollBar()->maximum();
+    if (hidden_w <= 0 && hidden_h <= 0)
+        return;   // nothing is out of view; the window is already big enough
 
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
-        std::max(width(), natural.width()), std::max(height(), natural.height()),
+        width() + hidden_w, height() + hidden_h,
         work_area_of(this), title_bar_height(this));
+    if (fit.w == width() && fit.h == height())
+        return;   // the screen has no more room to give
     resize(fit.w, fit.h);
+
+    // A panel's minimum can itself change as the window grows (a wider panel
+    // may need more height), so one pass lands close but not always exactly.
+    // Repeat while it keeps helping, with a hard bound: each pass either grows
+    // the window or returns above, so this terminates on its own — the bound is
+    // there so a pathological layout cannot ping-pong forever.
+    if (++initial_fit_passes_ < kMaxInitialFitPasses)
+        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
 }
 
 void DebuggerWindow::create_menus() {
