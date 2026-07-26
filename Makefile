@@ -9,6 +9,7 @@ BUILD_DIR_GUI_RELEASE := build/gui-release
 BUILD_DIR_WIN_RELEASE := build/win-release
 BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
 BUILD_DIR_WIN_QT5_RELEASE := build/win-qt5-release
+BUILD_DIR_QT5_CHECK   := build/qt5-check
 BUILD_DIR_MAC_RELEASE := build/mac-release
 BUILD_DIR_RPM_RELEASE := build/rpm-release
 BUILD_DIR_DEB_RELEASE := build/deb-release
@@ -77,6 +78,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
        win-sdl-release package-win-sdl \
+       win-qt5-release package-win-qt5 qt5-guard-build \
        package-contract-test packaging-selftest verify-macos-dmg
 .SILENT:
 
@@ -223,6 +225,20 @@ win-qt5-release:
 	$(CMAKE) --build $(BUILD_DIR_WIN_QT5_RELEASE) -j$(JOBS)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN_QT5_RELEASE)
 	@printf "$(BOLD)Windows Qt5 full-GUI executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe\n"
+
+# Build Linux jnext against Qt5 (JNEXT_FORCE_QT5) — dual-maintenance compile guard (GH #108)
+qt5-guard-build:
+	$(CMAKE) -B $(BUILD_DIR_QT5_CHECK) \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
+		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
+		-DENABLE_QT_UI=ON \
+		-DENABLE_DEBUGGER=ON \
+		-DJNEXT_FORCE_QT5=ON \
+		-DENABLE_TESTS=OFF
+	$(CMAKE) --build $(BUILD_DIR_QT5_CHECK) -j$(JOBS)
+	$(BUILD_DIR_QT5_CHECK)/jnext --version
 
 # Run the emulator with Qt GUI (release build)
 gui-release-run: gui-release
@@ -758,6 +774,30 @@ package-win-sdl: win-sdl-release
 	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip"; \
 	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
+
+# Cross-compile + ZIP the Qt5 full-GUI Windows build (Win7/8 legacy leg; GH #108 Phase A)
+# Mirrors package-win. Structural checks: Qt5 core DLL + qwindows plugin must
+# be present; NO Qt6 DLL may leak in (a mixed bundle would re-raise the OS
+# floor to Windows 10 via Qt6Gui's d3d12 import).
+package-win-qt5: win-qt5-release
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 name="jnext-$$ver-windows-x64-qt5"; \
+	 stage="$(BUILD_DIR_WIN_QT5_RELEASE)/dist/$$name"; \
+	 rm -rf "$(BUILD_DIR_WIN_QT5_RELEASE)/dist"; mkdir -p "$$stage"; \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe "$$stage"; \
+	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
+	 fi; \
+	 for f in Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$f" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
+		fi; \
+	 done; \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
+	 cp -r doc/user-guide "$$stage"/user-guide; \
+	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip"; \
+	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
 
 # The whole recipe is one shell invocation so the non-Darwin early-exit
 # actually stops it — a bare `exit 0` on its own recipe line would only end
