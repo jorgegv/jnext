@@ -1,8 +1,15 @@
 # G46(b) #102 session 2 — TX-1696 freeze: CSpect differential + root-cause hypothesis
 
-Status: **strong, VHDL-cited hypothesis; no fix applied** (tool-stability
-issue cut the session short of a build-verified fix — see "Session note"
-at the end).
+Status: **superseded by session 3**
+(`doc/issues/g46b-102-tx1696-freeze-session3.md`) — **FIXED**. The
+CSpect differential in part (a) below stands. The floating-bus
+root-cause hypothesis in part (c) does **not**: it was built on a
+column-indexing bug in this session's own `awk` port-value extraction
+(`$7` = `af`, not `bc` — the real port column is `$8`). Session 3
+re-derived the port trace correctly, found the actual mechanism (a
+DMA/IM2 bus-arbitration deadlock), and fixed it. Kept here for the
+CSpect-differential methodology and as a record of a hypothesis that
+looked strong but didn't survive re-verification.
 
 ## Recap
 
