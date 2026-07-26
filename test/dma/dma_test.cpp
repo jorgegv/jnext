@@ -2939,6 +2939,83 @@ void group23_sram_read_wait28() {
               fmt("n=%d calls=%d wait=%u", n, calls,
                   dma.last_burst_read_wait_tstates()));
     }
+
+    // 23.7 — GH #102 (TX-1696 freeze): ENABLE DMA issued while dma_delay_
+    // is already asserted must NOT permanently stall the CPU. VHDL
+    // zxnext.vhd `dma_holds_bus <= '1' when z80_busak_n = '0'` — the CPU
+    // is bus-stalled ONLY once arbitration has genuinely GRANTED the bus
+    // (Dma::dma_holds_bus(), dma.cpp:90-96), never merely because a
+    // transfer was enabled: `state_==TRANSFERRING` can sit deferred in
+    // Phase::START_DMA indefinitely while dma_delay_ is asserted
+    // (dma.vhd:267-269 — the same gate tests 15.6/20.1 exercise directly
+    // on Dma). Root-caused via a live TX-1696 repro: the game's own
+    // interrupt-driven sprite-pattern DMA upload landed mid-RETI, so
+    // im2_dma_delay_ (im2.cpp step_dma_delay(), driven by IM2 device
+    // S_REQ state — CTC0 in the live repro) was asserted the instant
+    // ENABLE fired. Emulator::step_one_instruction() used to gate the
+    // whole CPU-stall decision on the wider (and VHDL-incorrect)
+    // Dma::is_active(), which is ALSO true while merely deferred — this
+    // starved the CPU (and im2_.tick(), reachable only from the
+    // normal-instruction path) of the very execution it needed to
+    // service the pending interrupt and clear dma_delay_'s own gating
+    // condition: a permanent deadlock. See
+    // doc/issues/g46b-102-tx1696-freeze-session2.md session 3.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) {
+            check("23.7", "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+        } else {
+            Dma& d = emu.dma();
+            d.set_dma_delay(true);   // simulate a pending IM2 interrupt
+            emu.mmu().write(0x8000, 0xAB);
+            auto w = [&](uint8_t v) { d.write(v, false); };
+            w(0x7D);
+            w(0x00); w(0x80);            // port A (src) = 0x8000
+            w(0x01); w(0x00);            // len = 1
+            w(0x14);                     // R1: port A memory, increment
+            w(0x10);                     // R2: port B memory, increment
+            w(0xAD);                     // R4: continuous, port B follows
+            w(0x00); w(0x90);            // port B (dst) = 0x9000
+            w(0xCF);                     // LOAD
+            w(0x87);                     // ENABLE
+
+            const bool deferred_before =
+                d.state() == Dma::State::TRANSFERRING && !d.dma_holds_bus();
+
+            // Point PC at a RAM NOP so a genuine CPU step is observable.
+            Z80Registers regs = emu.cpu().get_registers();
+            regs.PC = 0x8100;
+            emu.cpu().set_registers(regs);
+            emu.mmu().write(0x8100, 0x00);   // NOP
+
+            emu.execute_single_instruction();
+            const uint16_t pc_after = emu.cpu().get_registers().PC;
+            const bool cpu_ran = (pc_after == 0x8101);
+            const bool dma_still_deferred =
+                d.state() == Dma::State::TRANSFERRING && !d.dma_holds_bus();
+
+            d.set_dma_delay(false);          // interrupt "serviced"
+            emu.execute_single_instruction();
+            const bool dma_completed =
+                d.state() == Dma::State::IDLE
+                    && emu.mmu().read(0x9000) == 0xAB;
+
+            check("23.7",
+                  "ENABLE DMA while dma_delay_=1: CPU keeps executing "
+                  "normally (not permanently stalled); transfer completes "
+                  "once the defer clears (GH #102 TX-1696 freeze fix)",
+                  deferred_before && cpu_ran && dma_still_deferred
+                      && dma_completed,
+                  fmt("deferred_before=%d cpu_ran=%d(pc=%04x) "
+                      "dma_still_deferred=%d dma_completed=%d",
+                      deferred_before, cpu_ran, pc_after,
+                      dma_still_deferred, dma_completed));
+        }
+    }
 }
 
 }  // namespace

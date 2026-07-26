@@ -7416,19 +7416,69 @@ uint64_t Emulator::step_one_instruction()
     // drifted (missing im2_.tick(), both /INT polls, md6_.tick() and
     // the trace record), silently dropping interrupts while stepping.
     uint64_t master_cycles;
+    bool dma_stalled_cpu_this_step = false;
 
-    if (dma_.is_active()) {
-        // DMA takes the bus — CPU is stalled.
-        // Execute a burst of transfers; each byte ≈ 2 T-states.
+    if (dma_.state() == Dma::State::TRANSFERRING) {
+        // Progress the DMA (and its arbitration FSM, dma.cpp
+        // tick_arbitration()) every step a transfer is enabled, regardless
+        // of whether the bus has actually been granted yet — mirrors real
+        // hardware, where BUSRQ can be asserted for multiple cycles before
+        // BUSAK is granted.
         int transferred = dma_.execute_burst(16);
-        // GH #106 — add the 28 MHz SRAM read wait accumulated by the
-        // burst's source memory reads (zxnext.vhd:3171-3181 via the
-        // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
-        // waiting read, 0 at cpu_speed != 3).
-        master_cycles = (static_cast<uint64_t>(transferred) * 2
-                         + dma_.last_burst_read_wait_tstates())
-                        * clock_.cpu_divisor();
-        if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+
+        // GH #102 fix (was: `if (dma_.is_active())` gating the whole
+        // branch). VHDL zxnext.vhd `dma_holds_bus <= '1' when
+        // z80_busak_n = '0'` — the CPU is bus-stalled ONLY once the
+        // arbitration handshake has genuinely GRANTED the bus
+        // (Dma::dma_holds_bus(), dma.cpp:90-96), not merely because a
+        // transfer was enabled: `state_==TRANSFERRING` can sit deferred in
+        // Phase::START_DMA indefinitely (dma_delay_/daisy_busy_/
+        // bus_busreq_n_ gate, dma.vhd:267-269 — tested by dma_test.cpp
+        // 15.4-15.6/20.1, which assert `cpu_busreq_n()==true` for exactly
+        // this case). `is_active()` returned true across BOTH cases,
+        // unconditionally taking this fast path and skipping the CPU
+        // instruction below — which also skips im2_.tick() further down
+        // (only reachable from the normal-instruction branch), so the IM2
+        // device state machine that can clear the `im2_dma_delay_` latch's
+        // own OR-term (`dma_int_pending()`, im2.cpp step_dma_delay()) never
+        // runs either: a permanent deadlock the CPU can never resolve
+        // because it is never allowed to execute the interrupt-service
+        // routine that would resolve it. Root-caused via TX-1696 (GH
+        // #102) — see doc/issues/g46b-102-tx1696-freeze-session2.md
+        // session 3 for the full trace (CTC0's IM2 device stuck at S_REQ,
+        // `im2_dma_delay_latched_` permanently true, DMA counter frozen at
+        // its post-LOAD value forever). While merely deferred the CPU (and
+        // im2_.tick()/CTC/UART ticking) must keep running normally below —
+        // that is the only way a dma_delay_-gated defer can ever clear.
+        //
+        // `transferred > 0` covers the common case where the WHOLE burst
+        // (up to 16 bytes) completes within this single execute_burst()
+        // call: the loop's own end-of-block handling already released the
+        // bus (state_=IDLE, cpu_busreq_n_=true) by the time control
+        // returns here, so dma_holds_bus() alone would read false even
+        // though the DMA genuinely held the bus for `transferred` bytes
+        // this step (dma_test.cpp 23.1-23.3 pin the resulting T-state
+        // cost). dma_holds_bus() alone still covers the two zero-byte
+        // "held but stalled" cases current tests already pin: continuous/
+        // byte-mode prescaler wait (in_waiting_cycles_, mode_ != 2 —
+        // cpu_busreq_n_ untouched, bus stays held) and the very first
+        // granted-but-empty-block edge case.
+        if (transferred > 0 || dma_.dma_holds_bus()) {
+            // Execute a burst of transfers; each byte ≈ 2 T-states.
+            // GH #106 — add the 28 MHz SRAM read wait accumulated by the
+            // burst's source memory reads (zxnext.vhd:3171-3181 via the
+            // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
+            // waiting read, 0 at cpu_speed != 3).
+            master_cycles = (static_cast<uint64_t>(transferred) * 2
+                             + dma_.last_burst_read_wait_tstates())
+                            * clock_.cpu_divisor();
+            if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+            dma_stalled_cpu_this_step = true;
+        }
+    }
+
+    if (dma_stalled_cpu_this_step) {
+        // master_cycles already computed above.
     } else if (boot_hold_frames_remaining_ > 0) {
         // G156 — NEX loading_delay/start_delay hold: no CPU instruction
         // is fetched or executed. Advance the clock in small NOP-sized
