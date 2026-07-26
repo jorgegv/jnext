@@ -83,6 +83,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5719** | **5719** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **5723** | **5723** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
