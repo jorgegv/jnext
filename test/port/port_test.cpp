@@ -2226,6 +2226,108 @@ static void test_group_d3f_nits() {
     }
 }
 
+// ── Group J. GH #109 — undecoded-port read default is X"FF" ───────────
+//
+// VHDL zxnext.vhd:1868-1878 — the IORQ arm of the cpu_di mux: when no
+// internal decode responds (`port_internal_rd_response = '0'`, :2803-2806)
+// and no expansion-bus device drives the bus, `cpu_di <= X"FF"` —
+// unconditionally, in every machine timing. The Timex/floating-bus mux
+// (:2813) is scoped to `port_ff_rd` only (LSB-0xFF decode, :2571+2583).
+//
+// Scenario from the #102 session-3 investigation
+// (doc/issues/g46b-102-tx1696-freeze-session3.md §2): under NextZXOS the
+// Timex gates are set (NR 0x08 b2 + NR 0x82 b0), and jnext's pre-fix
+// catch-all default returned the last port-0xFF write for EVERY
+// undecoded port — observed with BC in $1E00-$1FFF.
+
+static void test_group_gh109_undecoded_default() {
+    set_group("Group J — GH #109 undecoded default (X\"FF\")");
+
+    // GH109-01 — DISCRIMINATOR (fails pre-fix). Next machine,
+    // NextZXOS-like state: NR 0x08 b2 = 1 (nr_08_port_ff_rd_en,
+    // zxnext.vhd:5180), NR 0x82 b0 = 1 (port_ff_io_en, :2397 — reset
+    // default), port 0xFF written (port_ff_reg = 0x02, :3615-3616).
+    // Read undecoded port 0x1E03 (LSB 0x03 matches no decode in
+    // zxnext.vhd:2541-2574; A0=1 so not port_fe; A1:0=11 so not the
+    // port_fd family; not the CTC/UART 0x3B ranges). Expect 0xFF per
+    // cpu_di mux :1877. Pre-fix: 0x02 (the Timex arm leaked through
+    // the catch-all default).
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x08, 0x14);              // b2 (port_ff_rd_en) + b4 (default)
+        emu.port().out(0x00FF, 0x02);           // port_ff_reg = 0x02 (HI_COLOUR)
+        const uint8_t v = emu.port().in(0x1E03);
+        check("GH109-01",
+              "Next + Timex gates set: undecoded port 0x1E03 returns 0xFF "
+              "(cpu_di default, zxnext.vhd:1877), not the last port-0xFF "
+              "write (#102 session-3 scenario, BC in $1E00-$1FFF)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x02)", v));
+    }
+
+    // GH109-02 — legitimate-scope pin. Same fixture: port 0x1EFF has
+    // LSB 0xFF, so it IS the port_ff decode (`port_ff <= '1' when
+    // cpu_a(7:0) = X"FF"`, zxnext.vhd:2571+2583 — high byte ignored)
+    // and the Timex arm of the :2813 mux returns port_ff_dat_tmx (the
+    // last port-0xFF write, :3630). Pins that GH #109's narrowing kept
+    // the mux alive on ALL 0x??FF ports.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x08, 0x14);              // b2 + b4
+        emu.port().out(0x00FF, 0x02);           // port_ff_reg = 0x02
+        const uint8_t v = emu.port().in(0x1EFF);
+        check("GH109-02",
+              "Next + Timex gates set: port 0x1EFF (LSB-only port_ff "
+              "decode) returns the Timex register 0x02 "
+              "(zxnext.vhd:2571+2583,2813,3630)",
+              v == 0x02,
+              DETAIL("v=0x%02X (want 0x02)", v));
+    }
+
+    // GH109-03 — DISCRIMINATOR (fails pre-fix) for the MF closed-gate
+    // fallback. Same Timex fixture. At reset the Multiface is invisible
+    // (multiface.vhd — invisible='1' until button press), so mf_port_en
+    // is low and a read of LSB 0x3F reaches the handler's closed-gate
+    // fallback. With the gate closed no internal decode responds at
+    // this LSB (Profi DAC owns only the WRITE half) → cpu_di <= X"FF"
+    // (zxnext.vhd:1877). Pre-fix the fallback called
+    // floating_bus_read(), leaking the Timex register 0x02.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x08, 0x14);              // b2 + b4
+        emu.port().out(0x00FF, 0x02);           // port_ff_reg = 0x02
+        const uint8_t v = emu.port().in(0x713F);
+        check("GH109-03",
+              "MF closed-gate fallback (LSB 0x3F, MF invisible at reset) "
+              "returns 0xFF, not the leaked Timex register "
+              "(zxnext.vhd:1877; multiface.vhd mf_port_en gate)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x02)", v));
+    }
+
+    // GH109-04 — DISCRIMINATOR (fails pre-fix) for the FDC-trap-off
+    // fallback. Same Timex fixture. NR 0xD8 b0 resets to '0'
+    // (zxnext.vhd:5107), so `port_2ffd` (:2601) does not decode and a
+    // read of 0x2FFD is undecoded → cpu_di <= X"FF" (:1877). Pre-fix
+    // the handler's gate-off branch called floating_bus_read(),
+    // leaking the Timex register 0x02.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x08, 0x14);              // b2 + b4
+        emu.port().out(0x00FF, 0x02);           // port_ff_reg = 0x02
+        const uint8_t v = emu.port().in(0x2FFD);
+        check("GH109-04",
+              "port 0x2FFD with NR 0xD8 b0=0 (reset default) is undecoded "
+              "and returns 0xFF (zxnext.vhd:5107,2601,1877)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x02)", v));
+    }
+}
+
 // ── Main driver ───────────────────────────────────────────────────────
 
 static void print_summary() {
@@ -2261,6 +2363,7 @@ int main(int, char**) {
     test_group_automap();
     test_group_wired_or();
     test_group_d3f_nits();
+    test_group_gh109_undecoded_default();
 
     print_summary();
     return g_fail ? 1 : 0;

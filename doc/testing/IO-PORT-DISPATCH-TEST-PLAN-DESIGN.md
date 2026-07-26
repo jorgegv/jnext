@@ -395,6 +395,33 @@ from contributing.
 | BUS-02 | Disabled port yields default-read byte          | NR 0x84 b0 = 0; IN 0xFFFD                        | Default-read byte (floating bus), not stale AY data                  | `zxnext.vhd:2428, 2771`    |
 | BUS-03 | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff_io_en` | `port_ff_io_en=1`, NR 0x08 bit 2 (`nr_08_port_ff_rd_en`) = 0; IN 0x00FF | ULA floating-bus byte (the Timex SCLD read-data is masked out of the wired-OR when `nr_08_port_ff_rd_en='0'`) | `zxnext.vhd:2813` (`port_ff_rd_dat <= port_ff_dat_tmx when nr_08_port_ff_rd_en = '1' and port_ff_io_en = '1' and port_ff_rd = '1' else port_ff_dat_ula when port_ff_rd = '1' else X"00"`); declaration `zxnext.vhd:1118`; NR 0x08 write path `zxnext.vhd:5180` |
 
+### Group J. GH #109 — undecoded-port read default is X"FF"
+
+`zxnext.vhd:1868-1878` (cpu_di IORQ mux): a read with no internal
+decode response (`port_internal_rd_response = '0'`, `:2803-2806`) and
+no expansion-bus device returns `X"FF"` — unconditionally, in every
+machine timing. The Timex/floating-bus mux (`:2813`) is scoped to the
+LSB-only `port_ff` decode (`:2571+2583`). Pre-fix, jnext wired
+`Emulator::floating_bus_read` as the dispatch default for EVERY
+unmatched port, so under NextZXOS (Timex gates set) every undecoded
+port read returned the last port-0xFF write (#102 session-3 finding).
+
+NOTE: this supersedes the *prose* expected value of REG-24 ("floating-bus
+byte per 48K/128K/+3 rules") — the VHDL default for an unmapped port is
+0xFF in every machine timing. REG-24's assertion (`!= 0x00`) remains
+valid and the row is unchanged.
+
+| ID       | Title                                            | Stimulus                                                                              | Expected                                                     | Oracle                                   |
+|----------|--------------------------------------------------|---------------------------------------------------------------------------------------|--------------------------------------------------------------|------------------------------------------|
+| GH109-01 | Undecoded port returns 0xFF despite Timex gates  | Next; NR 0x08 b2=1, NR 0x82 b0=1 (default); OUT 0xFF,0x02; IN 0x1E03 (#102 scenario)  | 0xFF (pre-fix: 0x02, the leaked Timex register)              | `zxnext.vhd:1877, 2803-2806`             |
+| GH109-02 | LSB-0xFF decode keeps the mux on all 0x??FF      | Same fixture; IN 0x1EFF                                                               | 0x02 (Timex register — high byte ignored by the decode)      | `zxnext.vhd:2571+2583, 2813, 3630`       |
+| GH109-03 | MF closed-gate fallback is the undecoded default | Same fixture (MF invisible at reset → mf_port_en=0); IN 0x713F                        | 0xFF (pre-fix: 0x02 via the handler's floating_bus_read() fallback) | `zxnext.vhd:1877`; `multiface.vhd` mf_port_en gate |
+| GH109-04 | FDC-trap-off 0x2FFD is the undecoded default     | Same fixture (NR 0xD8 b0 reset default '0'); IN 0x2FFD                                | 0xFF (pre-fix: 0x02 via the handler's floating_bus_read() fallback) | `zxnext.vhd:5107, 2601, 1877`            |
+
+The 48K floating-bus side of the same fix (undecoded port must NOT
+leak the ULA floating bus) lives in the floating-bus plan
+(`FLOATING-BUS-TEST-PLAN-DESIGN.md` §8, rows FB-109-01/02).
+
 ## Out-of-scope / explicitly not tested
 
 - Internal signal cycle-accuracy of the VHDL two-stage decode. The C++

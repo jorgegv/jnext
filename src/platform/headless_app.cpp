@@ -366,8 +366,10 @@ void HeadlessApp::run() {
     // (default 1). Logs every port read served by PortDispatch's DEFAULT
     // (no handler matched) path — PC/port/value/frame — via
     // Emulator::set_g46b_port_trace(). Answers "is this specific port
-    // read genuinely undecoded (falls to floating_bus_read()), or does it
-    // hit a real registered handler" — see doc/issues/g46b-102-*.md.
+    // read genuinely undecoded (returns the 0xFF default, GH #109), or
+    // does it hit a real registered handler" — see doc/issues/g46b-102-*.md.
+    // NB since GH #109 port-0xFF (LSB) reads have a real handler and no
+    // longer appear in this trace.
     const char* g46b_porttrace_path = std::getenv("JNEXT_G46B_PORTTRACE");
     FILE* g46b_porttrace_file = nullptr;
     long  g46b_porttrace_start = 0;

@@ -542,9 +542,13 @@ public:
     /// Returns true on success.
     bool rewind_to_frame(uint32_t frame_num);
 
-    /// Floating bus read — returns the byte the ULA is currently fetching
-    /// from VRAM at this T-state position. Only active in 48K/128K modes.
-    /// Returns 0xFF when outside active display or in Next/Pentagon modes.
+    /// Port 0xFF read mux (VHDL zxnext.vhd:2813) — Timex register when
+    /// NR 0x08 b2 + NR 0x82 b0 are set, else the ULA floating bus in
+    /// 48K/128K timing (byte being fetched from VRAM at this T-state),
+    /// else 0xFF (border / +3 / Pentagon / Next timing). Registered as
+    /// the READ handler of the LSB-only 0x00FF port decode (zxnext.vhd:
+    /// 2583) — GH #109: NOT a default for unmatched ports; those return
+    /// 0xFF per zxnext.vhd:1877.
     uint8_t floating_bus_read() const;
 
     /// G46(b) #102 session 3 probe (env-gated, zero cost when unset): log
