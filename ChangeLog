@@ -1,14 +1,36 @@
 # ChangeLog
 
-## Unreleased (2026-07-23)
+## v0.99.37 (2026-07-27)
+
+### User Features
+- Per-subsystem audio gains (beeper, each AY, DAC) plus a master gain, in CLI and Preferences
+- Power Reset (cold boot) and Soft Reset are now separate menu, toolbar and keyboard controls
+- Extended NEX files that stream their own payload from the host now load directly
 
 ### Bug Fixes
 - Windows: file paths with non-ASCII characters now work for loading, screenshots, SD images and recording
+- Atic Atac Next now runs, from the loading screen through the cutscene to its main menu
+- SD card reads now leave the timing gap a real card leaves before the data token
+- TX-1696 no longer freezes shortly after PLAY, nor reboots itself later on
+- Tilemap map, tile and attribute changes now take effect per scanline, so raster splits render
+- CP/M screen no longer garbled: text-mode tilemap now hides the ULA behind it
+- Palette changes past 4096 per frame are no longer dropped on palette-heavy programs
 - Mid-frame NR $15 layer-priority changes now render per scanline instead of at frame-end value
-- Sprite tie: NR $34 no longer clobbers the pattern bit; port-to-mirror reverse sync implemented
+- Sprites addressed through both NextREG and the I/O ports now stay on the same slot and pattern
+- ULA+ and ULAnext borders and background pixels now render with the correct colour
+- Reads of undecoded or blocked I/O ports now return $FF instead of zero
+- +3 floating bus returns the raw latch during the border, as the hardware does
+- 28 MHz CPU and DMA reads now take the SRAM wait state; timing was about 7% fast
+- Joystick pin-7 input state is now visible to programs that read it
+- `--record` now fails loudly on encoder error instead of exiting 0 with a 0-byte MP4
+- Debugger window can now be shrunk to fit small screens, scrolling and keeping its buttons
+- Debugger ULA views now show the current NR $4A fallback colour instead of a stale one
 
 ### Internal JNEXT Development
+- Unit suites: 5724 rows across 78 suites, zero skips; regression suite 100 to 107 rows
 - Harness self-tests extended: real cleanup bodies, packaging failure-path reporting, bounded selftest invocations
+- Screenshot diffs report literal pixel counts and fail loudly when image dimensions differ
+- Traceability matrix regeneration no longer clobbers hand-written cross-file citations
 
 ## v0.99.0 (2026-07-23)
 
