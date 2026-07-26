@@ -27,7 +27,7 @@
 - Debugger ULA views now show the current NR $4A fallback colour instead of a stale one
 
 ### Internal JNEXT Development
-- Unit suites: 5724 rows across 78 suites, zero skips; regression suite 99 to 106 rows
+- Unit suites: 5724 rows across 78 suites, zero skips; regression suite 100 to 107 rows
 - Harness self-tests extended: real cleanup bodies, packaging failure-path reporting, bounded selftest invocations
 - Screenshot diffs report literal pixel counts and fail loudly when image dimensions differ
 - Traceability matrix regeneration no longer clobbers hand-written cross-file citations
