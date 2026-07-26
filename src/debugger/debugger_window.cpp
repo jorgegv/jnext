@@ -50,8 +50,6 @@
 #include <QSignalBlocker>
 #include <QDir>
 
-#include <algorithm>
-
 namespace {
 // Debugger window geometry lives alongside the main GUI config under ~/.jnext
 // (see src/gui/app_config.cpp), a plain INI file rather than the platform
