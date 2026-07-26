@@ -357,7 +357,49 @@ void HeadlessApp::run() {
             g46b_pctrace_frames = std::atol(f);
         if (g46b_pctrace_file) {
             std::fprintf(g46b_pctrace_file,
-                "frame,pc,op0,op1,op2,op3,af,bc,de,hl,sp,ix,iy,halted,im,iff1,fb_hash\n");
+                "frame,pc,op0,op1,op2,op3,af,bc,de,hl,sp,ix,iy,halted,im,iff1,fb_hash,dma_state,dma_counter,dma_block_len,im2_dma_delay,devstates\n");
+        }
+    }
+
+    // G46(b) #102 session 3 probe. JNEXT_G46B_PORTTRACE=<path>,
+    // JNEXT_G46B_PORTTRACE_START (default 0), JNEXT_G46B_PORTTRACE_FRAMES
+    // (default 1). Logs every port read served by PortDispatch's DEFAULT
+    // (no handler matched) path — PC/port/value/frame — via
+    // Emulator::set_g46b_port_trace(). Answers "is this specific port
+    // read genuinely undecoded (falls to floating_bus_read()), or does it
+    // hit a real registered handler" — see doc/issues/g46b-102-*.md.
+    const char* g46b_porttrace_path = std::getenv("JNEXT_G46B_PORTTRACE");
+    FILE* g46b_porttrace_file = nullptr;
+    long  g46b_porttrace_start = 0;
+    long  g46b_porttrace_frames = 1;
+    if (g46b_porttrace_path) {
+        g46b_porttrace_file = std::fopen(g46b_porttrace_path, "w");
+        if (const char* s = std::getenv("JNEXT_G46B_PORTTRACE_START"))
+            g46b_porttrace_start = std::atol(s);
+        if (const char* f = std::getenv("JNEXT_G46B_PORTTRACE_FRAMES"))
+            g46b_porttrace_frames = std::atol(f);
+        if (g46b_porttrace_file) {
+            std::fprintf(g46b_porttrace_file, "frame,pc,port,value\n");
+        }
+    }
+
+    // G46(b) #102 session 3 one-shot probe: JNEXT_G46B_MEMDUMP="frame,addr,len,path"
+    // dumps `len` bytes at `addr` (CPU view) to `path` the moment g46b_frame_no
+    // reaches `frame`. Used to decode the DMA WR-sequence table TX-1696 OTIRs
+    // to port 0x0B — see doc/issues/g46b-102-*.md session 3.
+    long g46b_memdump_frame = -1;
+    uint16_t g46b_memdump_addr = 0;
+    int g46b_memdump_len = 0;
+    std::string g46b_memdump_path;
+    if (const char* md = std::getenv("JNEXT_G46B_MEMDUMP")) {
+        long f = 0, l = 0;
+        unsigned long a = 0;
+        char path[512] = {0};
+        if (std::sscanf(md, "%ld,%lx,%ld,%511s", &f, &a, &l, path) == 4) {
+            g46b_memdump_frame = f;
+            g46b_memdump_addr = static_cast<uint16_t>(a);
+            g46b_memdump_len = static_cast<int>(l);
+            g46b_memdump_path = path;
         }
     }
 
@@ -457,10 +499,38 @@ void HeadlessApp::run() {
         if (g46b_itrace_file) {
             const bool in_window = g46b_frame_no >= g46b_itrace_start &&
                                     g46b_frame_no < g46b_itrace_start + g46b_itrace_frames;
+            if (in_window) {
+                // Session 3: unambiguous frame-boundary marker so the CSV
+                // can be segmented by frame in post-processing without
+                // relying on the (per-frame-resetting, but ambiguous
+                // across multiple same-frame occurrences) tstates column.
+                std::fprintf(g46b_itrace_file, "# FRAME %ld\n", g46b_frame_no);
+            }
             emulator_.cpu().set_g46b_itrace(in_window ? g46b_itrace_file : nullptr);
         }
 
+        if (g46b_porttrace_file) {
+            const bool in_window = g46b_frame_no >= g46b_porttrace_start &&
+                                    g46b_frame_no < g46b_porttrace_start + g46b_porttrace_frames;
+            emulator_.set_g46b_port_trace(in_window ? g46b_porttrace_file : nullptr);
+            emulator_.set_g46b_port_trace_frame(g46b_frame_no);
+        }
+
         emulator_.run_frame();
+
+        if (g46b_memdump_frame >= 0 && g46b_frame_no == g46b_memdump_frame) {
+            std::FILE* mf = std::fopen(g46b_memdump_path.c_str(), "w");
+            if (mf) {
+                for (int i = 0; i < g46b_memdump_len; ++i) {
+                    uint8_t b = emulator_.mmu().read(
+                        static_cast<uint16_t>(g46b_memdump_addr + i));
+                    std::fprintf(mf, "%02x ", b);
+                }
+                std::fprintf(mf, "\n");
+                std::fclose(mf);
+            }
+            g46b_memdump_frame = -1;  // one-shot
+        }
 
         if (g46b_pctrace_file &&
             g46b_frame_no >= g46b_pctrace_start &&
@@ -485,12 +555,27 @@ void HeadlessApp::run() {
                 fb_hash ^= fb[i];
                 fb_hash *= 1099511628211ull;  // FNV-1a 64-bit prime
             }
+            // Session 3: DMA state/counter + IM2 dma_delay + all 14 IM2
+            // device states appended for the #102 investigation
+            // (dma_state: 0=IDLE,1=TRANSFERRING per Dma::State enum order;
+            // devstates: 14 hex digits, one per DevIdx 0..13, DevState
+            // 0=S_0,1=S_REQ,2=S_ACK,3=S_ISR).
+            char devstates[16] = {0};
+            for (int di = 0; di < 14; ++di) {
+                devstates[di] = static_cast<char>('0' +
+                    static_cast<int>(emulator_.im2().state(
+                        static_cast<Im2Controller::DevIdx>(di))));
+            }
+            devstates[14] = '\0';
             std::fprintf(g46b_pctrace_file,
-                "%ld,%04x,%02x,%02x,%02x,%02x,%04x,%04x,%04x,%04x,%04x,%04x,%04x,%d,%d,%d,%016llx\n",
+                "%ld,%04x,%02x,%02x,%02x,%02x,%04x,%04x,%04x,%04x,%04x,%04x,%04x,%d,%d,%d,%016llx,%d,%d,%d,%d,%s\n",
                 g46b_frame_no, r.PC, op0, op1, op2, op3,
                 r.AF, r.BC, r.DE, r.HL, r.SP, r.IX, r.IY,
                 r.halted ? 1 : 0, r.IM, r.IFF1,
-                static_cast<unsigned long long>(fb_hash));
+                static_cast<unsigned long long>(fb_hash),
+                static_cast<int>(emulator_.dma().state()),
+                emulator_.dma().counter(), emulator_.dma().block_length(),
+                emulator_.im2().dma_delay() ? 1 : 0, devstates);
             std::fflush(g46b_pctrace_file);
         }
         ++g46b_frame_no;
@@ -602,6 +687,10 @@ void HeadlessApp::run() {
     if (g46b_itrace_file) {
         emulator_.cpu().set_g46b_itrace(nullptr);
         std::fclose(g46b_itrace_file);
+    }
+    if (g46b_porttrace_file) {
+        emulator_.set_g46b_port_trace(nullptr);
+        std::fclose(g46b_porttrace_file);
     }
 }
 

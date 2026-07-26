@@ -545,8 +545,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.clear_io_observers();
 
     // Floating bus: unmatched port reads return ULA bus value in 48K/128K modes.
-    port_.set_default_read([this](uint16_t) -> uint8_t {
-        return floating_bus_read();
+    port_.set_default_read([this](uint16_t port) -> uint8_t {
+        uint8_t val = floating_bus_read();
+        // G46(b) #102 session 3 probe (env-gated, zero cost when unset).
+        if (g46b_port_trace_file_) {
+            std::fprintf(g46b_port_trace_file_, "%ld,%04x,%04x,%02x\n",
+                g46b_port_trace_frame_, cpu_.get_registers().PC, port, val);
+        }
+        return val;
     });
 
     // ── Multiface port dispatch (Wave 1 B2 — TASK-8-MULTIFACE-PLAN.md) ──
