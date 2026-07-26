@@ -659,11 +659,14 @@ static void test_section3_p3_paths(void) {
     // (see Section 3 prologue). Read at the reset raster position
     // (border) → `zxula.vhd:573` second waveform → the raw latch.
     //
-    // GH #112 rewrite (owner-approved, 2026-07-26): the expected value
-    // was 0x01 — the reset-default latch 0x00 with jnext's spurious
-    // border-arm bit-0 force applied. The VHDL applies no such force to
-    // the second waveform (see the FB-3X / FB-04b commentary), so the
-    // latch comes back verbatim. The latch is now SEEDED with 0x42
+    // GH #112 rewrite (2026-07-26): the expected value was 0x01 — the
+    // reset-default latch 0x00 with jnext's spurious border-arm bit-0
+    // force applied. The VHDL applies no such force to the second
+    // waveform (see the FB-3X / FB-04b commentary), so the latch comes
+    // back verbatim. This row was NOT enumerated in GH #112's issue
+    // text — the issue named only FIX-FB-EFFLOCK-01 and FB-3X — but it
+    // is load-bearing on the same force and the fix breaks it, so it
+    // had to be rewritten too. The latch is now SEEDED with 0x42
     // rather than left at its 0x00 reset default: post-fix an unseeded
     // row would assert 0x00, which a hardcoded-zero regression would
     // also satisfy — the row must be able to fail for its own reason.
