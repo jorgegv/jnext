@@ -4345,8 +4345,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //         floating_bus_r (last VRAM byte the ULA fetched) with bit 0
     //         OR'd with i_timing_p3 — i.e. bit 0 forced high on +3.
     //       * Border / non-active: i_p3_floating_bus = the contended-CPU
-    //         latch (Mmu::p3_floating_bus_dat()) — bit 0 also OR'd with
-    //         i_timing_p3 on +3 by the same expression.
+    //         latch (Mmu::p3_floating_bus_dat()) returned RAW.
+    //         GH #112: zxula.vhd:573 is a conditional signal assignment
+    //         (LRM 10.5.3) — an ordered priority chain of independent
+    //         waveforms. The `or i_timing_p3` term sits inside the
+    //         parenthesised concatenation of the FIRST waveform only;
+    //         the second waveform is the bare signal name
+    //         `i_p3_floating_bus`, with no operator applied. Its sole
+    //         driver (zxnext.vhd:4478 port map → the clocked process at
+    //         :4499-4508) latches cpu_di / cpu_do verbatim, so bit 0 is
+    //         whatever the CPU bus carried. Forcing it here was a
+    //         deviation.
     //
     // Verify9-memory class-(c) → class-(a) fix: pre-fix the handler
     // unconditionally returned the contended-CPU latch (border arm).
@@ -4388,9 +4397,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (ula_floating_bus_active_arm(active_byte)) {
                 return static_cast<uint8_t>(active_byte | 0x01);
             }
-            // Border / non-active: i_p3_floating_bus arm (the contended
-            // CPU r/w latch, Mmu::p3_floating_bus_dat()), bit 0 forced.
-            return static_cast<uint8_t>(mmu_.p3_floating_bus_dat() | 0x01);
+            // VHDL zxula.vhd:573 second arm — border / non-active:
+            // `i_p3_floating_bus` RAW. GH #112: the `or i_timing_p3`
+            // bit-0 force is scoped to the first waveform (active
+            // display) only; this arm is a bare signal reference whose
+            // driver (zxnext.vhd:4478 → :4499-4508) stores cpu_di /
+            // cpu_do unmodified.
+            return mmu_.p3_floating_bus_dat();
         },
         nullptr);
 
