@@ -49,14 +49,44 @@ while IFS= read -r line; do
         cmd+=("--load" "$PROJECT_DIR/$nex_file")
     fi
 
-    # Append extra CLI arguments (e.g. --delayed-keypress 2 0)
+    # Append extra CLI arguments (e.g. --delayed-keypress 2 0).
+    #
+    # `@private-sd` is a HARNESS sentinel, not a jnext flag: it is stripped
+    # here and gives this row its own SD-card clone instead of the run-wide
+    # one. Needed by any row whose guest WRITES to the card — jnext opens the
+    # image read-write and NextZXOS writes back, and every other row in the
+    # run resolves the SAME $RUN_DIR/sdcard image (see the JNEXT_CONFIG_DIR
+    # note in test-functions.inc). The run-wide clone protects the MASTER from
+    # the run; this protects the other ROWS from this row.
+    #
+    # Proven, not theoretical (GH #113): boot-nextzxos-cpm drives the NextZXOS
+    # CP/M loader, which imports 31 files onto the card. Without this, the
+    # later-running tape-save-boot-func and sdcard-readonly-func rows booted
+    # the mutated image and their frame-400 welcome comparison failed — a
+    # reproducible 2-row FAIL that looks exactly like a rendering regression.
+    #
+    # Opt-in rather than always-on: the clone is a reflink on the dev host but
+    # degrades to a real 1 GB copy where reflink is unavailable (CI containers),
+    # so only rows that need it pay.
+    row_env=()
     if [[ -n "$extra_args" ]]; then
         read -ra extra_array <<< "$extra_args"
-        cmd+=("${extra_array[@]}")
+        for extra_arg in "${extra_array[@]}"; do
+            if [[ "$extra_arg" == "@private-sd" ]]; then
+                priv_cfg="$RUN_DIR/private/$test_name"
+                mkdir -p "$priv_cfg/sdcard"
+                cp --reflink=auto \
+                   "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
+                   "$priv_cfg/sdcard/cspect-next-1gb-fixed.img"
+                row_env=(env "JNEXT_CONFIG_DIR=$priv_cfg")
+            else
+                cmd+=("$extra_arg")
+            fi
+        done
     fi
 
     # Launch in background
-    "${cmd[@]}" &>/dev/null &
+    "${row_env[@]}" "${cmd[@]}" &>/dev/null &
 
     # Throttle: wait if we've reached MAX_JOBS
     while [[ $(jobs -rp | wc -l) -ge $MAX_JOBS ]]; do
