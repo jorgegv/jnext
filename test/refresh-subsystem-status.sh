@@ -143,6 +143,7 @@ BEGIN {
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"
     M["debugger_quit_gate_test"]       = "Debugger Quit Gate"
     M["window_attach_test"]            = "Debugger Window Attach"
+    M["debugger_window_size_test"]     = "Debugger Window Sizing"
     M["emulator_boot_test"]            = "Emulator Boot"
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"
