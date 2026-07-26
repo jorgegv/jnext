@@ -431,3 +431,14 @@ Windows hardware verification (owner).
 `make package-test` structural rows for every new target, wine smoke (win7/win8
 profiles) as code-path checks — with the §5 caveat that only real hardware
 proves DLL availability floors.
+
+## 8. Documented alternative (plan B): qt6windows7
+
+Tester suggestion (GH #108, janko-jj, 2026-07-26):
+[crystalidea/qt6windows7](https://github.com/crystalidea/qt6windows7) — a
+patched Qt 6 (≤ 6.8.x) that runs on Windows 7/8, with pre-built DLLs.
+Evaluated and NOT adopted while the Qt5 legs stand: it would mean shipping
+third-party pre-built DLLs (or building a patched Qt fork from source) and
+pinning Qt ≤ 6.8.x vs fedora's mingw 6.11, trading auditable distro packages
+for a patched fork. Re-evaluate only if Qt5 dual-maintenance (the ~25 guarded
+lines + qt5-guard CI job) becomes a real burden.
