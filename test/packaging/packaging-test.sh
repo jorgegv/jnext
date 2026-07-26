@@ -362,6 +362,36 @@ else
     skp_ci_fail package-win-qt5 "MinGW Qt5 cross toolchain not installed"
 fi
 
+# --- package-win32-sdl (SDL-only 32-bit i686 variant, GH #108 Phase C) -------
+# Same assertions as the x64 SDL row: exe + the SDL2/SDL3 pair present, no Qt
+# DLL/plugin, no curl/OpenSSL chain (each would silently raise the bundle's
+# audited Win7 floor). Toolchain: mingw32-cmake + i686-w64-mingw32-gcc.
+if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then
+    if make package-win32-sdl >"$LOGDIR/win32-sdl.log" 2>&1; then
+        z=$(ls -1 build/win32-sdl-release/*.zip 2>/dev/null | head -1)
+        if [ -n "$z" ]; then
+            list=$(unzip -l "$z" 2>/dev/null)
+            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
+                bad package-win32-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win32-sdl.log"
+            elif printf '%s' "$list" | grep -q "jnext.exe" \
+               && printf '%s' "$list" | grep -qi "SDL2.dll" \
+               && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -q "Qt6" \
+               && ! printf '%s' "$list" | grep -q "platforms/"; then
+                ok package-win32-sdl "$(basename "$z") (jnext.exe + SDL2/SDL3, no Qt, no curl/OpenSSL)"
+            else
+                bad package-win32-sdl ".zip missing exe/SDL DLLs, or Qt files leaked in" "$LOGDIR/win32-sdl.log"
+            fi
+        else
+            bad package-win32-sdl "no .zip produced" "$LOGDIR/win32-sdl.log"
+        fi
+    else
+        bad package-win32-sdl "make package-win32-sdl failed" "$LOGDIR/win32-sdl.log"
+    fi
+else
+    skp_ci_fail package-win32-sdl "MinGW i686 (mingw32) cross toolchain not installed"
+fi
+
 # --- package-flatpak ---------------------------------------------------------
 # A full flatpak-builder run needs org.kde.Sdk installed (a large runtime) and
 # network access, so it is only attempted when the SDK is present. Always at

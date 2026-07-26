@@ -220,9 +220,11 @@ jobs:
       - name: make package-win
         run: make package-win
       # Qt5 full-GUI Win7/8 legacy variant (GH #108 Phase A) — same container,
-      # same plain make target a local run uses. The SDL-only variant is a
-      # repo-internal validation leg (owner decision 2026-07-26): built by CI
-      # via package-test, never published.
+      # same plain make target a local run uses. The SDL-only variants (x64 AND
+      # the i686 twin package-win32-sdl) are repo-internal validation legs
+      # (owner decision 2026-07-26): exercised by ci.yml's package job via
+      # `make package-test`, never built or published here. Final published
+      # lineup: x64-Qt6, x64-Qt5, i686-Qt5.
       - name: make package-win-qt5
         run: make package-win-qt5
       - uses: actions/upload-artifact@v4
