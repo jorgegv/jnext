@@ -362,10 +362,17 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
 
 void DisasmPanel::mousePressEvent(QMouseEvent* event)
 {
-    int line = line_at_y(static_cast<int>(event->position().y()));
+    // Qt5/Qt6 (GH #108 Phase A): QMouseEvent::position() is Qt6 QSinglePointEvent
+    // API; Qt 5.15 spells the same widget-local QPointF localPos().
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF evpos = event->position();
+#else
+    const QPointF evpos = event->localPos();
+#endif
+    int line = line_at_y(static_cast<int>(evpos.y()));
     if (line < 0) return;
 
-    if (static_cast<int>(event->position().x()) < GUTTER_WIDTH) {
+    if (static_cast<int>(evpos.x()) < GUTTER_WIDTH) {
         // Toggle breakpoint
         uint16_t addr = entries_[line].line.addr;
         auto& bps = emulator_->debug_state().breakpoints();

@@ -36,7 +36,6 @@ DEST=$2
 SYSROOT=${MINGW_SYSROOT:-/usr/x86_64-w64-mingw32/sys-root/mingw}
 OBJDUMP=${MINGW_OBJDUMP:-x86_64-w64-mingw32-objdump}
 BIN="$SYSROOT/bin"
-QT_PLUGINS="$SYSROOT/lib/qt6/plugins"
 
 [ -f "$EXE" ]     || { echo "error: exe not found: $EXE" >&2; exit 1; }
 [ -d "$BIN" ]     || { echo "error: MinGW sysroot bin not found: $BIN" >&2; exit 1; }
@@ -45,9 +44,13 @@ command -v "$OBJDUMP" >/dev/null 2>&1 || { echo "error: $OBJDUMP not found" >&2;
 # DLLs supplied by Windows itself — resolving/bundling these is wrong.
 SYS_DLL_RE='^(kernel32|user32|gdi32|shell32|shcore|advapi32|ole32|oleaut32|msvcrt|ws2_32|comdlg32|comctl32|winmm|imm32|setupapi|version|winspool|shlwapi|crypt32|dwmapi|uxtheme|rpcrt4|iphlpapi|netapi32|userenv|wtsapi32|dnsapi|secur32|bcrypt|ncrypt|winhttp|authz|d3d9|d3d11|d3d12|dxgi|dwrite|opengl32|glu32|mpr|normaliz|wldap32|ntdll|api-ms-win.*)\.dll$'
 
-# Qt plugins to ship, as paths relative to the plugin root. qwindows is the
-# only mandatory one; the rest are graceful (warn, don't fail, if absent).
-QT_PLUGIN_LIST="platforms/qwindows.dll styles/qmodernwindowsstyle.dll imageformats/qgif.dll imageformats/qico.dll imageformats/qjpeg.dll"
+# Qt major is detected from the exe's imports further down (qt6core.dll vs
+# qt5core.dll — the Qt5 leg is GH #108 Phase A); plugin root and the native
+# style plugin name differ per major. qwindows is the only mandatory plugin;
+# the rest are graceful (warn, don't fail, if absent).
+QT_PLUGIN_LIST_COMMON="platforms/qwindows.dll imageformats/qgif.dll imageformats/qico.dll imageformats/qjpeg.dll"
+QT6_STYLE_PLUGIN="styles/qmodernwindowsstyle.dll"
+QT5_STYLE_PLUGIN="styles/qwindowsvistastyle.dll"
 
 mkdir -p "$DEST"
 
@@ -108,9 +111,20 @@ resolve_queue
 
 # --- Qt plugins (+ their own DLL closure) -----------------------------------
 # Only for a Qt-linked exe: the SDL-only build (ENABLE_QT_UI=OFF, GH #108)
-# imports no qt6core.dll and needs neither plugins nor qt.conf.
+# imports no qtNcore.dll and needs neither plugins nor qt.conf. The import
+# tells us the Qt major, which picks the plugin root + style plugin name.
 QT_EXE=0
-if imports "$EXE" | grep -q '^qt6core\.dll$'; then QT_EXE=1; fi
+QT_PLUGIN_LIST=""
+QT_PLUGINS=""
+if imports "$EXE" | grep -q '^qt6core\.dll$'; then
+    QT_EXE=1
+    QT_PLUGINS="$SYSROOT/lib/qt6/plugins"
+    QT_PLUGIN_LIST="$QT_PLUGIN_LIST_COMMON $QT6_STYLE_PLUGIN"
+elif imports "$EXE" | grep -q '^qt5core\.dll$'; then
+    QT_EXE=1
+    QT_PLUGINS="$SYSROOT/lib/qt5/plugins"
+    QT_PLUGIN_LIST="$QT_PLUGIN_LIST_COMMON $QT5_STYLE_PLUGIN"
+fi
 
 [ "$QT_EXE" -eq 1 ] && for rel in $QT_PLUGIN_LIST; do
     src="$QT_PLUGINS/$rel"

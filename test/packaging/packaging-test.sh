@@ -90,6 +90,7 @@ summary() {
 }
 
 MINGW_QT6=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake
+MINGW_QT5=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake
 
 if [ "$mode" = contracts ]; then
     printf "${BOLD}=== jnext packaging contract tests (scripts only, no builds) ===${RESET}\n\n"
@@ -319,6 +320,46 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
     fi
 else
     skp_ci_fail package-win-sdl "MinGW cross toolchain not installed"
+fi
+
+# --- package-win-qt5 (Qt5 full-GUI Win7/8 legacy leg, GH #108 Phase A) -------
+# The Qt5 zip must contain the exe, the Qt5 core DLL and the qwindows platform
+# plugin, and must NOT contain any Qt6 DLL (a mixed bundle would re-raise the
+# OS floor to Windows 10 via Qt6Gui's d3d12 import) nor the curl/OpenSSL chain
+# (Phase B: Windows provisioning is WinHTTP+BCrypt; libcrypto's PathCch import
+# would break the audited Win7 floor). Note: iconv.dll is legitimate here —
+# fedora's Qt5Core imports it (audited Win7-clean); it is only forbidden in the
+# SDL bundle's list. The exe must also be a GUI-subsystem binary, same
+# assertion as package-win-subsys.
+if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT5" ]; then
+    if make package-win-qt5 >"$LOGDIR/win-qt5.log" 2>&1; then
+        z=$(ls -1 build/win-qt5-release/*.zip 2>/dev/null | head -1)
+        if [ -n "$z" ]; then
+            list=$(unzip -l "$z" 2>/dev/null)
+            subsys=$(x86_64-w64-mingw32-objdump -p build/win-qt5-release/jnext.exe 2>/dev/null | grep -i "^Subsystem")
+            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
+                bad package-win-qt5 "curl/OpenSSL chain DLLs in the zip — Win7 floor regression (GH #108)" "$LOGDIR/win-qt5.log"
+            elif printf '%s' "$list" | grep -q "Qt6"; then
+                bad package-win-qt5 "Qt6 DLLs leaked into the Qt5 bundle — Win10 floor regression (GH #108)" "$LOGDIR/win-qt5.log"
+            elif ! printf '%s' "$subsys" | grep -qi "Windows GUI" \
+               || printf '%s' "$subsys" | grep -qi "CUI"; then
+                bad package-win-qt5 "jnext.exe not GUI subsystem — got: ${subsys:-<none>}" "$LOGDIR/win-qt5.log"
+            elif printf '%s' "$list" | grep -q "jnext.exe" \
+               && printf '%s' "$list" | grep -q "Qt5Core.dll" \
+               && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
+               && printf '%s' "$list" | grep -qi "SDL3.dll"; then
+                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL2/SDL3 DLLs + qwindows, no Qt6, no curl/OpenSSL)"
+            else
+                bad package-win-qt5 ".zip missing exe, Qt5 DLLs, qwindows plugin, or SDL3.dll" "$LOGDIR/win-qt5.log"
+            fi
+        else
+            bad package-win-qt5 "no .zip produced" "$LOGDIR/win-qt5.log"
+        fi
+    else
+        bad package-win-qt5 "make package-win-qt5 failed" "$LOGDIR/win-qt5.log"
+    fi
+else
+    skp_ci_fail package-win-qt5 "MinGW Qt5 cross toolchain not installed"
 fi
 
 # --- package-flatpak ---------------------------------------------------------

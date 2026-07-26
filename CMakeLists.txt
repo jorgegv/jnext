@@ -97,6 +97,9 @@ endif()
 option(ENABLE_TESTS    "Build unit tests"       ON)
 option(ENABLE_DEBUGGER "Include Qt debugger UI" ON)
 option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
+# GH #108 Phase A: build the GUI/debugger against Qt 5.15 instead of Qt 6 —
+# the legacy-Windows (Win7/8) legs only; Qt6 remains the default everywhere.
+option(JNEXT_FORCE_QT5 "Force the GUI/debugger onto Qt5 (legacy Windows legs)" OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
 option(STATIC_BUILD    "Link statically (requires static SDL2/Qt6 builds)" OFF)
 # macOS packaging only (`make package-macos`); see the APPLE block further down.
@@ -115,10 +118,12 @@ endif()
 # Windows 7 (0x0601). mingw-w64 headers default _WIN32_WINNT to 0x0A00
 # (Windows 10), which would let jnext's own code silently grow Win10-only
 # imports; pinning it makes any such use a compile error instead (GH #108).
-# The Qt build inherits the header default — fedora's Qt6 DLLs have a hard
+# The Qt6 build inherits the header default — fedora's Qt6 DLLs have a hard
 # Windows 10 floor anyway (d3d12.dll import in Qt6Gui), so pinning there
-# would document a floor the bundled Qt cannot honour.
-if(WIN32 AND NOT ENABLE_QT_UI)
+# would document a floor the bundled Qt cannot honour. The Qt5 leg
+# (JNEXT_FORCE_QT5, GH #108 Phase A) targets Win7 like the SDL-only leg, so
+# it gets the same pin — Qt 5.15's own minimum is Win7 SP1.
+if(WIN32 AND (NOT ENABLE_QT_UI OR JNEXT_FORCE_QT5))
     add_compile_definitions(_WIN32_WINNT=0x0601 WINVER=0x0601)
 endif()
 
@@ -158,6 +163,23 @@ add_subdirectory(src/port)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)
+
+# GH #108 Phase A — Qt major selection, decided ONCE here and consumed by
+# src/gui and src/debugger (find_package(Qt${JNEXT_QT_MAJOR})) and the WIN32
+# entry-point block below. Default is Qt6 whenever it is present:
+#   - JNEXT_FORCE_QT5=ON  -> Qt5, unconditionally (legacy Windows legs);
+#   - otherwise           -> find_package(QT NAMES Qt6 Qt5): Qt6 is listed
+#     first so it always wins when installed; Qt5 is only ever picked as a
+#     fallback on a host with no Qt6 at all.
+if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
+    if(JNEXT_FORCE_QT5)
+        set(JNEXT_QT_MAJOR 5)
+    else()
+        find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
+        set(JNEXT_QT_MAJOR ${QT_VERSION_MAJOR})
+    endif()
+    message(STATUS "jnext GUI/debugger Qt major: ${JNEXT_QT_MAJOR}")
+endif()
 
 if(ENABLE_QT_UI)
     add_subdirectory(src/gui)
@@ -296,8 +318,29 @@ if(ENABLE_QT_UI)
     # above); --headless/--version stdout/stderr still reach a parent console via
     # win_attach_parent_console(). Windows-only (a no-op on the Linux build).
     if(WIN32)
-        find_package(Qt6 REQUIRED COMPONENTS Core)   # provides the entry point
-        target_link_libraries(jnext PRIVATE Qt6::EntryPointPrivate)
+        if(JNEXT_QT_MAJOR EQUAL 5)
+            # Qt5 (GH #108 Phase A): qt5main's WinMain -> qMain() bridge
+            # (fedora ships it as libqt5main.a in mingw64-qt5-qtbase).
+            # Unlike Qt6::EntryPointPrivate, fedora's Qt5::WinMain target
+            # carries NO interface compile definitions and no link-order
+            # helper, so both are replicated here:
+            #  - QT_NEEDS_QMAIN makes qwindowdefs.h rename main.cpp's main()
+            #    to qMain() (which libqt5main.a's WinMain calls). It lands
+            #    AFTER SDL.h's main=SDL_main in the TU, so it wins — the
+            #    same include-order mechanics the Qt6 build relies on.
+            #  - linking mingw32 BEFORE Qt5::WinMain pulls crtexewin.o (whose
+            #    fallback main() references WinMain) while libqt5main.a is
+            #    still ahead on the line — Qt6 does the identical trick via
+            #    its EntryPointMinGW32 helper target; without it the archive
+            #    member is never pulled and the link dies with
+            #    "undefined reference to WinMain".
+            find_package(Qt5 REQUIRED COMPONENTS Core)
+            target_compile_definitions(jnext PRIVATE QT_NEEDS_QMAIN)
+            target_link_libraries(jnext PRIVATE mingw32 Qt5::WinMain)
+        else()
+            find_package(Qt6 REQUIRED COMPONENTS Core)   # provides the entry point
+            target_link_libraries(jnext PRIVATE Qt6::EntryPointPrivate)
+        endif()
     endif()
 endif()
 

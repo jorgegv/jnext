@@ -201,12 +201,17 @@ jobs:
       # git is needed for actions/checkout's submodule fetch; the rest is the
       # MinGW cross toolchain + host Qt6 tools (moc/rcc/uic from qt6-qtbase-devel)
       # that make package-win needs. mingw64-cmake ships in mingw64-filesystem.
+      # The mingw64-qt5-* trio backs make package-win-qt5 (GH #108 Phase A:
+      # the Qt5 full-GUI Win7/8 legacy zip): qtbase carries the Qt5 DLLs +
+      # Qt5Config.cmake + libqt5main.a, qmake carries the cross moc/rcc/uic
+      # AUTOMOC needs.
       - name: Install MinGW cross toolchain + build tools
         run: |
           dnf install -y \
             make git findutils gawk grep coreutils diffutils zip \
             mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
             mingw64-qt6-qtbase mingw64-sdl2-compat \
+            mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake \
             mingw64-zlib mingw64-libpng mingw64-winpthreads \
             qt6-qtbase-devel
       - uses: actions/checkout@v4
@@ -218,12 +223,17 @@ jobs:
       # same plain make target a local run uses.
       - name: make package-win-sdl
         run: make package-win-sdl
+      # Qt5 full-GUI Win7/8 legacy variant (GH #108 Phase A) — same container,
+      # same plain make target a local run uses.
+      - name: make package-win-qt5
+        run: make package-win-qt5
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
           path: |
             build/win-release/*.zip
             build/win-sdl-release/*.zip
+            build/win-qt5-release/*.zip
 
   # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
   # DECLARED EXCEPTION to the "every build step is a make target" rule above.
