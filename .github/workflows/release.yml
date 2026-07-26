@@ -216,6 +216,11 @@ jobs:
         run: make package-win
       # SDL-only Windows 8+ compatible variant (GH #108) — same container,
       # same plain make target a local run uses.
+      # NOTE (owner decision 2026-07-26): the i686 twin, package-win32-sdl, is
+      # deliberately NOT built or published here — SDL-only packages are being
+      # discarded as published artifacts (final lineup: x64-Qt6, x64-Qt5,
+      # i686-Qt5). win32-sdl stays a repo-internal validation target, exercised
+      # by ci.yml's package job via `make package-test`.
       - name: make package-win-sdl
         run: make package-win-sdl
       - uses: actions/upload-artifact@v4

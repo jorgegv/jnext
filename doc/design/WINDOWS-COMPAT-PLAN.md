@@ -105,30 +105,55 @@ post-Win7 API fails to **compile** instead of silently raising the import
 floor. The Qt build keeps the mingw header default (0x0A00) — its bundled Qt
 has a Win10 floor regardless.
 
-## 4. 32-bit (i686) verdict: feasible, blocked only by toolchain install
+## 4. 32-bit (i686) SDL leg: **BUILT + audited Win7-clean** (§7 Phase C, 2026-07-26)
 
-- fedora 44 ships the full i686 cross stack: `mingw32-gcc`/`-gcc-c++`,
-  `mingw32-qt6-qtbase` 6.11.1, `mingw32-sdl2-compat`, `mingw32-SDL3`,
-  `mingw32-curl`, `mingw32-openssl`, `mingw32-zlib`, `mingw32-libpng`,
-  `mingw32-winpthreads`. **None is installed on the dev host**, and this
-  branch does not install system packages — so no `package-win32` target was
-  built or claimed. Owner action: `sudo dnf install mingw32-gcc
-  mingw32-gcc-c++ mingw32-sdl2-compat
-  mingw32-zlib mingw32-libpng mingw32-winpthreads` (curl/openssl no longer
-  needed since §7 Phase B — Windows uses WinHTTP/BCrypt) and mirror
-  `win-sdl-release` with `mingw32-cmake` (the meaningful i686 leg is the
-  SDL-only one: i686 Qt6 exists but would carry the same Win10 floor,
-  defeating the point of a 32-bit build).
-- **Large-file handling is NOT a blocker**: SD image I/O is
-  `std::fstream`+`std::streamoff` throughout (`src/peripheral/sd_card.cpp`,
-  `src/core/sd_rom_extractor.cpp`), mingw libstdc++ is built with
-  `_GLIBCXX_USE_LFS` (64-bit fseeko64 offsets even on i686), and the
-  canonical image is 1 GB — under the 2 GiB signed-32 limit anyway.
-- Expected i686 floors: same as x86_64 per leg (the old Win8 libcrypto PathCch
-  concern is moot — §7 Phase B removed OpenSSL from Windows builds entirely).
-- Residual unknowns until an i686 build actually runs: none identified by
-  code audit, but the claim "builds and passes smoke on i686" is deliberately
-  **not** made here.
+> **Repo-internal validation target, not a published artifact** (owner
+> decision 2026-07-26, see §7 Phase C): the published 32-bit leg will be
+> i686-Qt5 after Phase A merges. Everything below — toolchain, bundling,
+> floor audit, wine/LFS evidence — validates i686 itself and carries over.
+
+Toolchain (owner-installed): `mingw32-gcc`/`-gcc-c++` 16.1.1,
+`mingw32-sdl2-compat`, `mingw32-SDL3`, `mingw32-zlib`, `mingw32-libpng`,
+`mingw32-winpthreads` (curl/openssl not needed since §7 Phase B).
+Targets: `make win32-sdl-release` / `make package-win32-sdl`
+(`mingw32-cmake`, `ENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF`) →
+`jnext-<ver>-windows-x86-sdl.zip`. The `_WIN32_WINNT=0x0601` compile pin,
+the 16 MB stack reserve, the GUI subsystem + SDL2main link and the UTF-8
+manifest all fire for i686 too (same arch-agnostic CMake blocks).
+`bundle-dlls.sh` now reads the exe's PE COFF Machine field and resolves DLLs
+from the matching sysroot (`/usr/i686-w64-mingw32/...` for `014c`), so one
+script serves both packages.
+
+- **Bundle**: the exact i686 twins of the x64 SDL set — 8 DLLs
+  (`libgcc_s_dw2-1.dll` in place of x64's SEH libgcc; SDL2/SDL3,
+  libstdc++-6, libwinpthread-1, libpng16-16, zlib1, libspdlog), no Qt,
+  no curl/OpenSSL.
+- **Floor audit** (`pe-floor-audit.sh` over the whole staged bundle):
+  **exit 0 — zero post-Win7 imports** in all 9 files. PE headers
+  MajorOSystemVersion 4 / MajorSubsystemVersion 4 (i686 GNU ld defaults —
+  NT4-era, not a limiter). The audit's objdump parsing was positively
+  verified on i686 PE (345 import symbols parsed from jnext.exe, 395 from
+  SDL3.dll; the flag path still fires on mingw64 Qt6Gui.dll). i686 msvcrt
+  helpers like `___chkstk_ms` are libgcc-internal, not imports — absent
+  from the tables, as expected.
+- **Large-file proof (the classic i686 LFS risk), under wine 11 (fresh
+  prefix, 32-bit PE run natively)**: `--version` OK; 48K headless boot
+  screenshot OK; **full NextZXOS boot to the menu against the canonical
+  1 GB image — pixel-identical (0 differing pixels) to the checked-in x64
+  Linux regression reference** (`boot-nextzxos-menu`), exercising 1 GB of
+  FAT32 seeks through both the host-side ROM extractor and the runtime
+  SPI/SD `std::fstream` path. Additionally the **full provisioning path**
+  ran on i686 via the `$JNEXT_SDCARD_DISTRO_URL` loopback seam: WinHTTP
+  downloaded the 1 GB fixture zip, the BCrypt SHA-256 sidecar **matched
+  host `sha256sum` exactly**, the extracted raw was byte-identical
+  (`cmp`), and FatFs repatched + mounted the image for a 48K boot.
+- **Qt5-i686 side note** (pending §7 Phase A): fedora's `mingw32-qt5-qtbase`
+  5.15.18 `Qt5Gui.dll` audits **clean** at the curated-list level (exit 0) —
+  consistent with Qt 5.15's Win7 support claim; a Qt5-i686 leg would reuse
+  the same `win32` plumbing if Phase A gates GO.
+- Remaining unknowns: only what wine cannot prove — real-Windows DLL
+  availability floors and TLS behaviour need real 32-bit Windows hardware
+  (§5 caveat; owner).
 
 ## 5. Verification method (repeatable)
 
@@ -204,11 +229,27 @@ sidecar hash matched host `sha256sum`, FatFs repatched the image, and a 404
 failed loud with no partial files. Wine cannot prove real-Windows TLS or DLL
 floors (§5 caveat) — those await real hardware.
 
-**Phase C — 32-bit packages.** After A+B: `package-win32` mirroring the winning
-leg (Qt5 full GUI if A passed, else SDL-only) via `mingw32-cmake`. Local builds
-need the owner-installed mingw32 toolchain; the CI container installs its own
-packages in the workflow, keeping CI-runs-exact-local-commands intact. Re-run
-the floor audit on the i686 bundle before claiming any floor.
+**Phase C — 32-bit packages. i686 SDL validation infrastructure DONE
+2026-07-26** (branch `fix/108-win32`; valid regardless of the Phase A Qt5
+gate). **Owner product decision 2026-07-26: SDL-only Windows packages are
+DISCARDED as published artifacts** — the final published lineup is x64-Qt6
+(Win10), x64-Qt5 (Win7, full GUI) and **i686-Qt5** (Win7, full GUI;
+`jnext-<ver>-windows-x86-qt5.zip`, built after Phase A's Qt5 guards merge).
+The win32-sdl work therefore ships as **repo-internal infrastructure only**:
+it is the 32-bit toolchain/LFS validation and the plumbing the i686-Qt5 leg
+will reuse. Delivered: `make win32-sdl-release` + `make package-win32-sdl`
+(`jnext-<ver>-windows-x86-sdl.zip`, internal — deliberately NOT in
+release.yml's published artifacts); PE-architecture detection in
+`bundle-dlls.sh` (i686/x86_64 sysroot from the exe's COFF Machine field);
+a `package-win32-sdl` row in `test/packaging/packaging-test.sh` (same
+assertions as the x64 SDL row), kept green in CI by the mingw32 package set
+in ci.yml's package job. Evidence in §4: floor audit exit 0 (Win7-clean),
+wine smoke incl. the 1 GB LFS proof (NextZXOS menu pixel-identical to the
+x64 reference) and a full loopback WinHTTP+BCrypt provisioning run on i686 —
+all validating the i686 target independently of the GUI toolkit.
+**Outstanding for Phase C**: the i686-Qt5 leg once Phase A merges
+(mingw32-qt5 5.15.18 Qt5Gui audits clean — §4 side note), and real 32-bit
+Windows hardware verification (owner).
 
 **Verification at every phase:** `pe-floor-audit.sh` on every produced bundle,
 `make package-test` structural rows for every new target, wine smoke (win7/win8
