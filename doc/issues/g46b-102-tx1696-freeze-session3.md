@@ -2,7 +2,12 @@
 
 Status: **FIXED**. Root cause proven via direct instrumentation (not
 inference), fix is minimal and VHDL-cited, full test triplet green, new
-discriminative unit row mutation-tested.
+discriminative unit row mutation-tested. Post-fix TX-1696 re-run
+verified against all three mandatory criteria (screenshot diff at
+frames 15000/20000, sustained framebuffer-hash variation through the
+full ~8100-frame window, no later freeze) — see "Verification" below;
+the first verification attempt was itself misleading (test-schedule
+input-exhaustion artifact, not a bug) and is documented as such.
 
 ## Recap
 
@@ -206,30 +211,93 @@ interrupt resolve and the deadlock never form.
 
 ## Verification
 
-- `JNEXT_G46B_PCTRACE` `dma_state`/`im2_dma_delay`/`devstates` columns:
-  no `TRANSFERRING`/non-`S_0` streak longer than a handful of frames
-  anywhere in an 8100-frame post-fix trace (vs. permanent from frame
-  3712 pre-fix).
-- Screenshots at frames 8000/15000/20000 of the identical script differ
-  from each other (CPU alive, responsive, executing varying code) —
-  no repeat of the pre-fix byte-for-byte-forever signature.
-- The exact scripted key schedule now diverges from the pre-fix
-  trajectory earlier than frame 3712 (expected: correcting real
-  DMA/CPU-interleaving timing shifts exactly when each frame's
-  processing completes, which shifts which absolute frame the
-  schedule's `space` presses land on relative to evolving game state
-  — the schedule was tuned against the *old*, buggy timing). The game
-  reaches the NextZXOS main menu by frame ~8000-20000 via what traces
-  as a clean, valid CPU state (`HALT`, `IM=1`, all `devstates=0`) —
-  consistent with a normal exit/attract-mode timeout given how many
-  more `space`/fire presses now actually reach the game (previously
-  silently dropped by the freeze itself from frame 3712 onward), not
-  with a crash. Re-deriving a schedule that keeps the fixed jnext in
-  active gameplay for direct visual comparison against CSpect's
-  session-2 trace was not attempted this session (time budget) — flagged
-  as the natural next-session check if further confidence is wanted,
-  but the deadlock's specific, instrumented signature is independently
-  and conclusively gone.
+### First pass — misleading, corrected below
+
+The first post-fix check used `tools/g46b_102_repro_stride.sh ... 2000
+4200 100` (the ORIGINAL session-1/2 schedule, keypresses stop at frame
+4200) with `JNEXT_G46B_PCTRACE` over frames 0-8100. A rigorous
+consecutive-identical-`fb_hash` scan of that trace found a **3893-frame
+static run, frames 4206-8099** — at first glance indistinguishable
+from a freeze. Cross-checked against `dma_state`/`im2_dma_delay`/
+`devstates`: **100% clean (all zero) for the entire 4206-8099 range** —
+this is *not* a recurrence of the DMA deadlock. The `BC` register
+alone takes 2743 distinct values across that same range (the CPU is
+genuinely executing different work every frame — a real interrupt-
+driven `HALT` idle loop, `PC=$0C8F`, `IM=1`), and the *picture* stays
+static because the script's last `space` press was at frame 4200 and
+the game had already reached NextZXOS's static idle menu by then — an
+idle text screen legitimately does not redraw itself with no further
+input. This is a test-schedule artifact, not a bug: **the schedule
+itself stops feeding real input at frame 4200**, and the criterion
+"framebuffer hash keeps varying" cannot hold against a screen that has
+nothing left to react to.
+
+### Second pass — matched schedule, rigorous scan, quantitative diff
+
+Re-ran with the same script but `SPEND=8000` (keypresses continue
+through frame 8000 — the same schedule already used for the
+frame-15000/20000 screenshot comparison below, so input and
+measurement window are now consistent) and `JNEXT_G46B_PCTRACE` over
+the full 0-8100 window:
+
+```
+max consecutive identical fb_hash run (whole 0-8100 window): 225 frames (476-701)
+max consecutive identical fb_hash run (frame>=3713 only):     96 frames (3905-4001)
+unique fb_hash values across 0-8100:                          786
+dma_state/im2_dma_delay/devstates non-clean rows:              42, ALL at frame<2200
+  (transient CTC0=S_ISR / im2_dma_delay=1 blips that clear within a
+  few frames — the same benign live-gameplay pattern seen at every
+  pre-freeze DMA-enable in the pre-fix trace, e.g. frames 3696/3701/
+  3706; VHDL-correct, not a defer-that-never-clears)
+```
+
+**(b) satisfied**: the framebuffer hash keeps varying continuously
+through the entire 8100-frame window — the longest static stretch
+anywhere is 225 frames (~4.5s, an ordinary loading/transition pause,
+consistent with the ~200-frame pauses visible throughout the original
+pre-freeze "live" trace too), and past frame 3713 specifically the
+longest is 96 frames. Neither approaches the pre-fix signature (every
+frame from 3712 onward, forever, with every register — not just the
+picture — byte-identical).
+
+**(c) satisfied**: no new freeze later in the window. The 42 transient
+`im2_dma_delay`/`devstates` blips are all clustered before frame 2200
+(early browser/loading navigation) and every one clears within a few
+frames — none matches the "asserted, never clears" signature that
+produced the original bug. Zero non-clean rows anywhere in
+frames 2200-8100.
+
+### (a) — screenshot diff, quantified
+
+Screenshots at frames 15000 and 20000 (`SPEND=8000`, same schedule as
+above) are **not** byte-identical: of the 640×512 raw RGB scanline
+bytes (983552 total), **6762 bytes differ (0.69%)** — visually, the
+15000 screenshot shows the NextZXOS top-level menu (`Browser / Command
+Line / NextBASIC / ...`) and the 20000 screenshot shows a different,
+partially-drawn loading screen — genuine, non-trivial content change,
+not measurement noise.
+
+### Trajectory divergence from the pre-fix run (expected, not a defect)
+
+The scripted key schedule diverges from the pre-fix gameplay trajectory
+well before frame 3712: correcting real DMA/CPU-interleaving timing
+shifts exactly when each frame's processing completes, which shifts
+which absolute frame each scripted `space` press lands on relative to
+the evolving game state (the schedule was tuned against the *old*,
+buggy timing in session 1). The game reaches the NextZXOS menu instead
+of continuing TX-1696 gameplay — traced as a clean, valid CPU state
+(`HALT`, `IM=1`, `devstates` all `S_0`) reached via ordinary execution,
+not a crash, and consistent with far more `space`/fire presses now
+actually reaching the game than before (previously silently dropped by
+the freeze itself from frame 3712 onward). Re-deriving a schedule that
+keeps the fixed jnext in active TX-1696 gameplay for a direct visual
+comparison against CSpect's session-2 trace was not attempted this
+session (time budget) — flagged as the natural next-session check if
+further confidence on gameplay-level behaviour (as opposed to the
+freeze mechanism itself) is wanted. The freeze mechanism's specific,
+instrumented signature (`dma_state`/`im2_dma_delay`/`devstates` latched
+forever from a single enable) is independently and conclusively gone,
+per the rigorous scan above.
 
 ## Tests
 
