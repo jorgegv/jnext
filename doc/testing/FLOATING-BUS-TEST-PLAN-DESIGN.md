@@ -323,9 +323,9 @@ timing cannot see port 0x0FFD at all) AND on
 | FB-04  | +3 | 0xFF | Border; last contended mem r/w wrote 0xA5 | 0xFF (port 0xFF hard-forced on +3, shadow does not reach port 0xFF) | `zxnext.vhd:4513` |
 | FB-04a | +3 | 0x0FFD | Border; last contended mem r/w wrote 0xA5; `port_7ffd_locked = 0` | 0xA5 (from `ula_floating_bus` border arm via `i_p3_floating_bus` latch `p3_floating_bus_dat`) | `zxula.vhd:573` + `zxnext.vhd:4498-4509,4517` |
 | FB-3A  | +3 | 0x0FFD | Border; `port_7ffd_locked = 1` | 0xFF (`port_p3_floating_bus_dat` forced to `X"FF"` when locked) | `zxnext.vhd:4517` |
-| FB-3B  | +3 | 0x0FFD | Active display; `port_p3_floating_bus_io_en = 0` (bit 4 of `internal_port_enable` cleared) | 0x00 (decode `port_p3_float = 0` → `port_p3_float_rd` never asserts → wired-or `else X"00"` arm at `zxnext.vhd:2814`) | `zxnext.vhd:2403, 2589, 2814` |
-| FB-3C  | 48K | 0x0FFD | Active display, any phase (any `port_7ffd_locked`) | 0x00 (decode gated by `p3_timing_hw_en` → port 0x0FFD not decoded on 48K; `port_p3_float_rd_dat = X"00"`) | `zxnext.vhd:2589, 2814` |
-| FB-3D  | 128K | 0x0FFD | Active display, any phase | 0x00 (same reason as FB-3C; port 0x0FFD is not floating-bus-reactive on 128K) | `zxnext.vhd:2589, 2814` |
+| FB-3B  | +3 | 0x0FFD | Active display; `port_p3_floating_bus_io_en = 0` (bit 4 of `internal_port_enable` cleared) | 0xFF (decode `port_p3_float = 0` → `port_p3_float_rd` never asserts → no `port_internal_rd_response` → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877` |
+| FB-3C  | 48K | 0x0FFD | Active display, any phase (any `port_7ffd_locked`) | 0xFF (decode gated by `p3_timing_hw_en` → port 0x0FFD not decoded on 48K → no read strobe → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
+| FB-3D  | 128K | 0x0FFD | Active display, any phase | 0xFF (same reason as FB-3C; port 0x0FFD is not floating-bus-reactive on 128K) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
 | FB-3E  | Pentagon | 0x0FFD | Active display, any phase | 0x00 (`p3_timing_hw_en = 0` on Pentagon) | `zxnext.vhd:2589, 2814` |
 | FB-3F  | Next | 0x0FFD | Active display, any phase | 0x00 (`p3_timing_hw_en = 0` on Next-base) | `zxnext.vhd:2589, 2814` |
 
@@ -343,13 +343,18 @@ floating-bus surface on 48K/128K/Pentagon/Next because the
 `p3_timing_hw_en` decode AND-term at `zxnext.vhd:2589` blocks the
 decode altogether.
 
-Note: the read-value `0x00` in FB-3B..FB-3F is the wired-or default
-at `zxnext.vhd:2814` (`X"00"` when `port_p3_float_rd = '0'`). In
-practice any further fallback in the host dispatcher may replace
-this with an open-bus 0xFF; Phase 0 will walk
-`Port::default_read` vs. the `port_internal_rd_response` mux at
-`zxnext.vhd:2803-2806` and lock down whether 0x00 or 0xFF is the
-faithful value — the rows' expectation will follow the VHDL.
+Note (resolved by GH #111, owner-approved rewrite 2026-07-26): the
+blocked-decode read value is `0xFF`, NOT the `X"00"` at
+`zxnext.vhd:2814`. That `X"00"` is only the wired-or contribution
+into `port_rd_dat` (`:2837`); with the decode blocked the strobe
+`port_p3_float_rd <= iord and port_p3_float` (`:2716`) never asserts,
+no other strobe in the `port_internal_rd_response` OR-list
+(`:2803-2806`) decodes 0x0FFD (port_7ffd decodes it on non-+3 timing
+but is write-only), so the cpu_di IORQ mux falls through to its
+unconditional `cpu_di <= X"FF"` default (`:1877`). FB-3B/3C/3D
+originally asserted 0x00 (the misreading this note anticipated);
+rewritten to 0xFF per two independent VHDL derivations (GH #109
+thread + GH #111).
 
 ## Section 4: Per-machine ULA-vs-0xFF selection
 
