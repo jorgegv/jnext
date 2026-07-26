@@ -70,7 +70,9 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make win-qt5-release` | Qt5 full-GUI Windows `jnext.exe` + runtime DLLs in `build/win-qt5-release/` — **Windows 7 SP1+** (GH #108 Phase A) | Fedora MinGW **Qt5** cross toolchain (see below) | **Yes** (with the MinGW Qt5 packages installed) |
 | `make package-win-qt5` | Qt5 full-GUI Windows `.zip` (`jnext-<ver>-windows-x64-qt5.zip` in `build/win-qt5-release/`) — **Windows 7 SP1+** (GH #108 Phase A, see below) | Fedora MinGW **Qt5** cross toolchain (see below) | **Yes** (with the MinGW Qt5 packages installed) |
 | `make win32-sdl-release` | SDL-only **32-bit** (i686) Windows `jnext.exe` (no Qt) + runtime DLLs in `build/win32-sdl-release/` — **repo-internal validation target, not published** (GH #108 Phase C) | Fedora MinGW **i686** cross toolchain (`mingw32-*`, Qt not needed) | **Yes** (with the mingw32 packages installed) |
-| `make package-win32-sdl` | SDL-only **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-sdl.zip` in `build/win32-sdl-release/`) — Win7-clean by import audit; **repo-internal, not a release artifact** (the published 32-bit leg will be i686-Qt5 — see doc/design/WINDOWS-COMPAT-PLAN.md §7) | Fedora MinGW **i686** cross toolchain (`mingw32-*`, Qt not needed) | **Yes** (with the mingw32 packages installed) |
+| `make package-win32-sdl` | SDL-only **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-sdl.zip` in `build/win32-sdl-release/`) — Win7-clean by import audit; **repo-internal, not a release artifact** (the published 32-bit leg is i686-Qt5 — see doc/design/WINDOWS-COMPAT-PLAN.md §7) | Fedora MinGW **i686** cross toolchain (`mingw32-*`, Qt not needed) | **Yes** (with the mingw32 packages installed) |
+| `make win32-qt5-release` | Qt5 full-GUI **32-bit** (i686) Windows `jnext.exe` + runtime DLLs in `build/win32-qt5-release/` — **Windows 7 SP1+** (GH #108 Phase C) | Fedora MinGW **i686 Qt5** cross toolchain (`mingw32-qt5-*`, see below) | **Yes** (with the mingw32 Qt5 packages installed) |
+| `make package-win32-qt5` | Qt5 full-GUI **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-qt5.zip` in `build/win32-qt5-release/`) — **Windows 7 SP1+**, **published** third Windows leg (GH #108 Phase C, see below) | Fedora MinGW **i686 Qt5** cross toolchain (`mingw32-qt5-*`, see below) | **Yes** (with the mingw32 Qt5 packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak-release/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
 | `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
@@ -130,9 +132,11 @@ Windows).
 
 **Published** Windows packages: **x64-Qt6** (`package-win`, Windows 10 1703+,
 the full-featured default), **x64-Qt5** (`package-win-qt5`, Windows 7 SP1+,
-same full GUI + debugger), and — future, GH #108 Phase C — **i686-Qt5**
-(Windows 7 SP1+, 32-bit). The **SDL-only** targets (`package-win-sdl` and the
-Phase C 32-bit counterpart) are **repo-internal validation legs**: they prove
+same full GUI + debugger), and **i686-Qt5** (`package-win32-qt5`, Windows 7
+SP1+, 32-bit — GH #108 Phase C; same full GUI + debugger, built with the
+`mingw32-qt5` cross stack and audited Win7-clean bundle-wide). The
+**SDL-only** targets (`package-win-sdl` and the
+32-bit `package-win32-sdl`) are **repo-internal validation legs**: they prove
 the emulator core + packaging floor independently of Qt and remain buildable
 and structurally tested, but they are not part of the published release
 lineup.
@@ -184,6 +188,21 @@ target refuses to ship a bundle where Qt6 DLLs leaked in (that would re-raise
 the floor to Windows 10) or Qt5Core/qwindows/SDL2/SDL3 are missing;
 `make package-test` re-checks the zip contents, including that the exe is a
 GUI-subsystem binary and the curl/OpenSSL chain stays absent.
+
+The **32-bit leg** (`make package-win32-qt5`, GH #108 Phase C) is the exact
+i686 twin: same CMake options via `mingw32-cmake`, same structural checks,
+same Win7 SP1 floor (whole-bundle `pe-floor-audit.sh` exit 0 — evidence in
+WINDOWS-COMPAT-PLAN.md §7 Phase C). Its toolchain is the mingw32 mirror:
+
+```sh
+sudo dnf install mingw32-gcc mingw32-gcc-c++ mingw32-qt5-qtbase \
+  mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-sdl2-compat \
+  mingw32-zlib mingw32-libpng mingw32-winpthreads
+```
+
+(the cross host tools are `i686-w64-mingw32-{moc,rcc,uic}-qt5`; the bundle
+carries `libgcc_s_dw2-1.dll` — i686 uses the DWARF-2 unwinder where x64 uses
+SEH.)
 
 ## Runtime dependencies — how they were derived
 

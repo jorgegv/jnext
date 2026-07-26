@@ -116,7 +116,7 @@ self-provisioning built in. Pick by your Windows version:
 |-------------------------------|---------------------------|--------------------------|
 | `jnext-*-windows-x64.zip`     | full GUI + debugger (Qt6) | Windows 10 1703 or later |
 | `jnext-*-windows-x64-qt5.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later   |
-| 32-bit (i686) Qt5             | full GUI + debugger (Qt5) | Windows 7 SP1 or later — **planned, not yet published** |
+| `jnext-*-windows-x86-qt5.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later, 32-bit |
 
 Details and the audited compatibility floors:
 [packaging/README.md](packaging/README.md) and
