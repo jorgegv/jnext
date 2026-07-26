@@ -600,13 +600,26 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                 pixel_4bit = pattern_byte & 0x0F;
         }
 
-        // Check transparency.
+        // Check transparency.  VHDL tilemap.vhd:427,429:
+        //   pixel_en_standard_s <= '1' when pixel_en_s = '1' and
+        //                          (video_data(3 downto 0) /= transp_colour_i)
+        //   pixel_en_f <= (pixel_en_standard_s and not pixel_textmode_s)
+        //                 or (pixel_en_s and pixel_textmode_s);
+        //
+        // In TEXT MODE the index-vs-transparency-colour test is bypassed
+        // entirely — pixel_en_f collapses to pixel_en_s, so EVERY in-window
+        // pixel is emitted, background bit (0) included, carrying colour
+        // index (attr[7:1] << 1) | 0 (tilemap.vhd:386).  Text-mode
+        // transparency is decided later, at the compositor, by comparing the
+        // looked-up palette RGB against NR 0x14 (zxnext.vhd:7109) — which
+        // Renderer::composite_scanline_mode already does.
+        //
+        // GH #113: skipping background pixels here (the old
+        // `text_mode_ && pixel_4bit == 0 → continue`) made the whole text-mode
+        // paper area transparent, so lower layers showed through it.  That is
+        // what garbled the NextZXOS CP/M 80-column screen: leftover ULA
+        // content bled through the tilemap's paper.
         if (!text_mode_ && pixel_4bit == transp_idx)
-            continue;
-
-        // In text mode, pixel_4bit is 0 or 1. A value of 0 means transparent
-        // (no pixel drawn), value 1 means foreground.
-        if (text_mode_ && pixel_4bit == 0)
             continue;
 
         // Build the full 8-bit palette index.
