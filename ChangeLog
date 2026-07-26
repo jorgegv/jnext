@@ -5,7 +5,7 @@
 ### User Features
 - Per-subsystem audio gains (beeper, each AY, DAC) plus a master gain, in CLI and Preferences
 - Power Reset (cold boot) and Soft Reset are now separate menu, toolbar and keyboard controls
-- Extended NEX files that stream their own payload from the host now load from the CLI
+- Extended NEX files that stream their own payload from the host now load directly
 
 ### Bug Fixes
 - Windows: file paths with non-ASCII characters now work for loading, screenshots, SD images and recording
@@ -16,7 +16,7 @@
 - CP/M screen no longer garbled: text-mode tilemap now hides the ULA behind it
 - Palette changes past 4096 per frame are no longer dropped on palette-heavy programs
 - Mid-frame NR $15 layer-priority changes now render per scanline instead of at frame-end value
-- Sprite tie: NR $34 no longer clobbers the pattern bit; port-to-mirror reverse sync implemented
+- Sprites addressed through both NextREG and the I/O ports now stay on the same slot and pattern
 - ULA+ and ULAnext borders and background pixels now render with the correct colour
 - Reads of undecoded or blocked I/O ports now return $FF instead of zero
 - +3 floating bus returns the raw latch during the border, as the hardware does
