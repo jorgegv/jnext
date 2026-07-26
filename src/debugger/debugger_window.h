@@ -78,6 +78,10 @@ private:
     void create_menus();
     void save_geometry();
     void restore_geometry();
+    /// GH #114 — open a DEFAULT-sized window at the size where nothing has to
+    /// scroll, when the screen has room for it. Called once the menu bar and
+    /// the button bar exist, since both count towards that size.
+    void grow_default_size_to_natural();
     void set_attach_enabled(bool on);
     /// Stop attaching after the window system repeatedly ignored our moves,
     /// and tell the user — visibly, and recoverably.
@@ -89,6 +93,10 @@ private:
 
     Emulator* emulator_;
     DebuggerManager* debugger_mgr_ = nullptr;
+
+    // GH #114 — false once a size restored from the config file is in use, so
+    // grow_default_size_to_natural() leaves a deliberately small window alone.
+    bool size_is_default_ = true;
 
     // Layout
     QSplitter* main_splitter_ = nullptr;

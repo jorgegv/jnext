@@ -149,6 +149,87 @@ inline AttachDecision compute_attached_placement(const AttachRect& main_frame,
     return d;
 }
 
+// ---------------------------------------------------------------------------
+// Issue #114 — making the debugger window FIT the screen it opens on.
+// ---------------------------------------------------------------------------
+//
+// The same contract as the clamp above — never leave the user a window they
+// cannot reach — applied to SIZE rather than position, which is why it lives
+// here beside it and reuses AttachRect.
+//
+// The debugger opens at 1170x900 and used to declare a hard 1170 minimum width.
+// On a small monitor (the report was a 1366x768 Windows 8.1 laptop) part of the
+// window, including the bottom button bar, sat off-screen with no way to bring
+// it back. The window's panel area scrolls now, but a window whose FRAME is
+// bigger than the work area is still partly unreachable — and a size saved on a
+// large monitor and restored on a small one walks straight back into the bug.
+//
+// These helpers only ever SHRINK: a size that already fits comes back
+// untouched, so a user with room gets exactly what they had before.
+
+/// A window size in Qt logical pixels. Client area, as QWidget::resize sets it.
+struct WindowSize {
+    int w = 0;
+    int h = 0;
+};
+
+/// Shrink `want_w` x `want_h` so the whole window fits in `screen` (a work
+/// area, i.e. panels/taskbar already excluded).
+///
+/// `deco_h` is the height the window manager adds above the client area for the
+/// title bar. It comes off the height budget because what has to fit on the
+/// screen is the FRAME, not the client rect. Pass 0 when it is not known.
+///
+/// A degenerate work area returns the request unchanged: guessing a size from a
+/// zero-sized screen is worse than honouring what was asked for.
+inline WindowSize clamp_window_size_to_screen(int want_w, int want_h,
+                                              const AttachRect& screen,
+                                              int deco_h = 0)
+{
+    WindowSize s{want_w, want_h};
+    if (screen.w <= 0 || screen.h <= 0)
+        return s;
+    if (s.w > screen.w)
+        s.w = screen.w;
+    const int max_h = screen.h - (deco_h > 0 ? deco_h : 0);
+    if (max_h > 0 && s.h > max_h)
+        s.h = max_h;
+    return s;
+}
+
+/// Pull a window of `w` x `h` whose FRAME top-left is at (`x`, `y`) fully
+/// inside `screen`'s work area, leaving `deco_h` for the title bar.
+///
+/// Position only — the size is never changed here, so run
+/// clamp_window_size_to_screen() first when the size may itself be too big.
+/// A degenerate work area yields no reposition, as everywhere else in this file.
+inline AttachPlacement clamp_window_to_work_area(int x, int y, int w, int h,
+                                                 const AttachRect& screen,
+                                                 int deco_h = 0)
+{
+    AttachPlacement p;
+    if (screen.w <= 0 || screen.h <= 0)
+        return p;
+
+    p.reposition = true;
+    p.x = x;
+    p.y = y;
+
+    const int screen_right  = screen.x + screen.w;
+    const int screen_bottom = screen.y + screen.h;
+
+    if (p.x + w > screen_right)
+        p.x = screen_right - w;
+    if (p.y + h + deco_h > screen_bottom)
+        p.y = screen_bottom - h - deco_h;
+
+    // Last, so that a window still larger than the work area lands AT the
+    // origin instead of off the top-left of it.
+    if (p.x < screen.x) p.x = screen.x;
+    if (p.y < screen.y) p.y = screen.y;
+    return p;
+}
+
 /// Human-readable reason attachment is not tracking, for the UI to show.
 /// Returns nullptr when it IS tracking.
 inline const char* attach_status_reason(AttachStatus s)

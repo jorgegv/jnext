@@ -33,6 +33,8 @@
 #include <QSettings>
 #include <QDataStream>
 #include <QSplitter>
+#include <QScrollArea>
+#include <QStyle>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QGroupBox>
@@ -47,6 +49,8 @@
 #include <QSpinBox>
 #include <QSignalBlocker>
 #include <QDir>
+
+#include <algorithm>
 
 namespace {
 // Debugger window geometry lives alongside the main GUI config under ~/.jnext
@@ -63,6 +67,37 @@ QString jnext_config_dir() {
 QString debugger_config_path() {
     return jnext_config_dir() + QStringLiteral("/Debugger.conf");
 }
+
+// GH #114 — the size the debugger opens at when nothing is saved. Unchanged
+// from before the issue: a user with room must see exactly what they saw.
+constexpr int kDefaultWidth  = 1170;
+constexpr int kDefaultHeight = 900;
+
+// Floor for a size read back from the config file. Not a usability minimum
+// (the window may legitimately be tiny now — that is the whole point of the
+// issue); purely a sanity gate against a corrupt or truncated entry.
+constexpr int kSaneMinWidth  = 200;
+constexpr int kSaneMinHeight = 150;
+
+jnext::AttachRect to_attach_rect(const QRect& r) {
+    return jnext::AttachRect{r.x(), r.y(), r.width(), r.height()};
+}
+
+/// Work area of the screen `w` is on (falling back to the primary screen for a
+/// window that has not been shown yet). An empty rect when Qt knows of no
+/// screen at all — the clamp helpers treat that as "do not clamp".
+jnext::AttachRect work_area_of(const QWidget* w) {
+    const QScreen* scr = w->screen() ? w->screen() : QGuiApplication::primaryScreen();
+    return scr ? to_attach_rect(scr->availableGeometry()) : jnext::AttachRect{};
+}
+
+/// Height the window manager will add above the client area for the title bar.
+/// resize() sizes the CLIENT area but it is the FRAME that has to fit on the
+/// screen, and PM_TitleBarHeight is the only decoration metric available before
+/// the window has been mapped.
+int title_bar_height(const QWidget* w) {
+    return w->style()->pixelMetric(QStyle::PM_TitleBarHeight, nullptr, w);
+}
 } // namespace
 
 DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
@@ -72,8 +107,11 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     setWindowTitle(tr("JNEXT Debugger"));
     create_panels();
 
-    setMinimumWidth(1170);
-    resize(1170, 900);
+    // GH #114: no hard minimum width. The panel area scrolls (see
+    // create_panels), so the window may be shrunk to whatever the menu bar and
+    // the button bar need, and the panels are panned instead of cut off.
+    const jnext::AttachRect work = work_area_of(this);
+    const int deco_h = title_bar_height(this);
 
     // Issue #39: first gate on whether this window may position itself. On
     // Wayland a client cannot place its own toplevel (xdg-shell has no such
@@ -92,14 +130,28 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     // Restore saved size. Position is restored only when the window is NOT
     // attached — an attached window's position is derived from the emulator
     // window, so restoring one would just be overwritten on the first move.
+    int want_w = kDefaultWidth;
+    int want_h = kDefaultHeight;
     QByteArray saved_size = settings.value("debugger/size").toByteArray();
     if (!saved_size.isEmpty()) {
         QDataStream ds(saved_size);
-        int w, h;
+        int w = 0, h = 0;
         ds >> w >> h;
-        if (w >= 1170 && h > 100)
-            resize(w, h);
+        // GH #114: any sane saved size is honoured, not just one at least as
+        // wide as the old 1170 minimum — deliberately shrinking the window and
+        // having it come back that way is the point of the issue.
+        if (w >= kSaneMinWidth && h >= kSaneMinHeight) {
+            want_w = w;
+            want_h = h;
+            size_is_default_ = false;
+        }
     }
+    // GH #114: and whichever size that is — default or saved — is clamped to
+    // the screen. A geometry saved on a large monitor and restored on a small
+    // one is the back door through which the unreachable window returns.
+    const jnext::WindowSize fit =
+        jnext::clamp_window_size_to_screen(want_w, want_h, work, deco_h);
+    resize(fit.w, fit.h);
 
     attach_enabled_ = settings.value("debugger/attached", true).toBool();
 
@@ -115,8 +167,16 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
             // a monitor may have been unplugged since it was saved, and an
             // unreachable debugger window is precisely what this issue forbids.
             for (const QScreen* s : QGuiApplication::screens()) {
-                if (s->availableGeometry().contains(QPoint(x, y))) {
-                    move(x, y);
+                const QRect avail = s->availableGeometry();
+                if (avail.contains(QPoint(x, y))) {
+                    // GH #114: an on-screen top-left is not enough — the window
+                    // restored onto a smaller monitor can still hang off the
+                    // right or the bottom, taking the button bar with it. Pull
+                    // it fully inside that screen's work area.
+                    const jnext::AttachPlacement p = jnext::clamp_window_to_work_area(
+                        x, y, width(), height(), to_attach_rect(avail), deco_h);
+                    if (p.reposition)
+                        move(p.x, p.y);
                     break;
                 }
             }
@@ -278,6 +338,45 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
 
     rewind_toolbar_->setVisible(false);
     addToolBar(Qt::BottomToolBarArea, rewind_toolbar_);
+
+    // The menu bar and the button bar exist only now, and they are part of the
+    // height a scroll-free window needs — hence here rather than in the
+    // constructor. See the function's comment.
+    grow_default_size_to_natural();
+}
+
+void DebuggerWindow::grow_default_size_to_natural() {
+    // GH #114: a window opening at its DEFAULT size still opens at the size
+    // where nothing has to scroll, whenever the screen has room for it.
+    //
+    // That size used to be enforced by Qt as the window's minimum (measured
+    // 1170x1069 with this panel set), which is precisely what made the window
+    // unshrinkable. The panel minimums have not changed — only the refusal to
+    // go below them — so recomputing the same number here keeps the promise
+    // that a user with a big enough monitor sees exactly what they saw before.
+    //
+    // A size restored from the config file is left alone: a window the user
+    // deliberately made small must come back small.
+    if (!size_is_default_ || !main_splitter_)
+        return;
+
+    QSize natural = main_splitter_->minimumSizeHint();
+    if (QMenuBar* mb = menuBar())
+        natural.rheight() += mb->sizeHint().height();
+    for (const QToolBar* tb : findChildren<QToolBar*>())
+        if (!tb->isHidden())
+            natural.rheight() += tb->sizeHint().height();
+    // statusBar() CREATES the status bar, and that is deliberate: the first
+    // update_rewind_ui() creates it unconditionally moments later anyway, so
+    // its height is part of the window whether counted here or not. Leaving it
+    // out simply made the opening window that much shorter than it used to be.
+    if (QStatusBar* sb = statusBar())
+        natural.rheight() += sb->sizeHint().height();
+
+    const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
+        std::max(width(), natural.width()), std::max(height(), natural.height()),
+        work_area_of(this), title_bar_height(this));
+    resize(fit.w, fit.h);
 }
 
 void DebuggerWindow::create_menus() {
@@ -923,7 +1022,22 @@ void DebuggerWindow::create_panels() {
     main_splitter_->setHandleWidth(1);
     main_splitter_->setChildrenCollapsible(false);
 
-    setCentralWidget(main_splitter_);
+    // GH #114: the panels live inside a scroll area so the window can be made
+    // SMALLER than their combined minimum size and panned instead. The panel
+    // minimums are real (a hex dump or a disassembly listing below a certain
+    // size is useless), so they stay — what changes is that falling below them
+    // now produces scrollbars rather than a window that refuses to shrink and
+    // hangs off a small screen.
+    //
+    // Only the central widget is scrolled. The debug-controls toolbar is a
+    // QMainWindow toolbar (addToolBar, see set_debugger_manager) and therefore
+    // OUTSIDE this scroll area, which is what keeps the button bar on screen at
+    // every window size.
+    auto* scroll = new QScrollArea();
+    scroll->setWidget(main_splitter_);
+    scroll->setWidgetResizable(true);   // splitter still fills a roomy window
+    scroll->setFrameShape(QFrame::NoFrame);
+    setCentralWidget(scroll);
 }
 
 void DebuggerWindow::activate_follow_pc() {
