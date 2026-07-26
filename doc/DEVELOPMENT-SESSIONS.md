@@ -126,4 +126,23 @@
 |        |      | #75 took SIX review rounds — rounds 3-5 found defects WORSE than the original (trap resume deleted the clone mid-run,       |
 |        |      | 58 FAIL/4 PASS), none visible to a green triplet. CI package job RED since v0.98.92 (fedora44 lacked python3-pyyaml), fixed |
 |        |      | + all 17 failure sites made diagnosable. Closed #56 #59 #64 #66 #71 #75 #77; filed #79 #80. v0.98.73->.101, v0.99.0 PUBLIC. |
+| 23/7   |      | Post-v0.99.0 wave, six issues closed: #62 Windows UTF-8 manifest (non-ASCII paths failed on the narrow CRT),               |
+|        |      | #73 NR $15 per-line replay wired (the change-log had shipped with zero callers), #74 sprite_tie completion                 |
+|        |      | (pattern_slot_msb_ gate + reverse sync), #79/#80/#81 harness self-test gaps: stubbed cleanup bodies, no log-dump           |
+|        |      | pin, no per-row timeout. v0.99.1->.8                                                                                       |
+| 24/7   |      | ATIC ATAC SAGA CLOSED: #84 root cause = missing SD Nac gap byte between R1 and the 0xFE data token; #99 post-fix           |
+|        |      | stall; #29 extended/self-streaming NEX (PR #100, jon263). PR #41 host audio gain; PR #82 (#76 png_diff literal             |
+|        |      | pixel counts), PR #83 (#78 --record exit contract). Compositor LR skips retired -> tree-wide ZERO unit skips               |
+|        |      | (5527/5527/0/0). #87 frozen-doc audit closed. Issues #85-#97 filed. v0.99.9->.14                                           |
+| 25/7   |      | Ten issues + PR #101 (#53 TX-1696 tilemap raster fetch splits, jon263): #45 Power/Soft Reset split, #98 CMD9/CMD10         |
+|        |      | Nac gap, #95 debugger NR $4A fallback, #85 png_diff dimension sentinels, #90 joystick bit-5 pin-7 feed, #96/#97            |
+|        |      | ULAnext border strips + select_bgnd replicas, #86 --record failure gaps, #92 28 MHz SRAM read wait (~7% fast; 8            |
+|        |      | owner-approved reference regens), #103/#104 ULAnext full border rows + ULA+ border encoder, #105 traceability              |
+|        |      | matrix protected-row marker, #106 DMA SRAM wait, PR #107 per-subsystem audio gains (#88). #91 not-planned. v0.99.15->.28   |
+| 26/7   |      | #102 TX-1696 CLOSED after 4 sessions: freeze = DMA stall gated on is_active() instead of dma_holds_bus; that fix           |
+|        |      | then exposed a reboot = im2_dma_delay sampled per frame, not per instruction. #110 palette change-log growable             |
+|        |      | (TX-1696 peaks 14k writes/frame vs the 4096 cap), #109 undecoded ports return 0xFF (floating_bus_read was the              |
+|        |      | default handler for ALL unmatched ports), #111/#112 +3 float-port blocked decode and border arm, #113 CP/M tilemap         |
+|        |      | paper opaque, #114 debugger window scroll-panning. #108 Win7/8 + 32-bit builds feature-complete on their own               |
+|        |      | branch (not merged, per owner policy). v0.99.29->.36; v0.99.37 release prep.                                               |
 | TOTAL: | 383h |                                                                                                      |
