@@ -33,7 +33,7 @@ comes entirely from fedora's Qt 6.11 DLLs:
 | `Qt6Widgets.dll` | `GetSystemMetricsForDpi`, `SystemParametersInfoForDpi` ← user32 | Win10 1607 |
 | `platforms/qwindows.dll` | 9 user32 DPI-context APIs incl. `SetProcessDpiAwarenessContext` | Win10 1703 |
 | `platforms/qwindows.dll` | `GetDpiForMonitor` ← shcore.dll | Windows 8.1 |
-| `libcrypto-3-x64.dll` | `PathCchRemoveFileSpec` ← `api-ms-win-core-path-l1-1-0.dll` | Windows 8 |
+| ~~`libcrypto-3-x64.dll`~~ | ~~`PathCchRemoveFileSpec` ← `api-ms-win-core-path-l1-1-0.dll`~~ (gone — §7 Phase B removed curl/OpenSSL from all Windows bundles) | ~~Windows 8~~ |
 
 Verdict: the Qt package **cannot run below Windows 10 1703**, and every
 blocker is inside fedora-built Qt6 DLLs we do not compile. Nothing jnext-side
@@ -47,25 +47,33 @@ libwinpthread), SDL2/SDL3, zlib/libpng/spdlog and the whole curl chain except
 libcrypto also audit clean to Win7 level (full 490-symbol system-import set
 reviewed, not just the curated list).
 
-## 2. SDL-only variant `make package-win-sdl`: floor **Windows 8.0**
+## 2. SDL-only variant `make package-win-sdl`: floor **Windows 7** (import-audit evidence; §7 Phase B)
 
 `ENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF` + MinGW cross-build (the debugger
 option defaults ON and its `src/debugger` does `find_package(Qt6 REQUIRED)` at
 configure time — OFF keeps the build genuinely Qt-free; the exe is identical
 either way) → `jnext-<ver>-windows-x64-sdl.zip`
-(16 DLLs, no Qt). Audit result: the **single** remaining post-Win7 import in
-the whole bundle is fedora libcrypto-3's `PathCchRemoveFileSpec`
-(`api-ms-win-core-path-l1-1-0.dll`, Windows 8+). Everything else is
-Win7-clean.
+(8 DLLs, no Qt, no curl/OpenSSL). Audit result (2026-07-26, post-Phase B):
+`pe-floor-audit.sh` over the full bundle reports **ZERO post-Win7 imports**
+(exit 0) — jnext.exe + SDL2/SDL3 + libgcc/libstdc++/libwinpthread +
+libpng16/zlib1/libspdlog all clean.
 
-- **Windows 8.0 / 8.1: expected to work** (all imports resolve).
-- **Windows 7: blocked** — `libcrypto-3-x64.dll` fails to load, and it is a
-  startup (non-delay) dependency of `libcurl-4.dll`, which `jnext.exe` links
-  for SD-image self-provisioning (`find_package(CURL REQUIRED)` +
-  `OpenSSL::Crypto` in `src/core`). Fixing this would mean either fedora
-  rebuilding OpenSSL without PathCch (not ours) or making curl/OpenSSL
-  optional in jnext core (a feature amputation — SD download + hash verify —
-  needing an owner decision; not done here).
+- **Windows 7 SP1 and later: expected to work by import evidence** (real-Win7
+  hardware verification still pending — see §5's wine caveat).
+- History: before Phase B the floor was Windows 8.0 — the one blocker was
+  fedora libcrypto-3's `PathCchRemoveFileSpec`
+  (`api-ms-win-core-path-l1-1-0.dll`, Win8+), a startup dependency of
+  `libcurl-4.dll`, linked for SD-image self-provisioning. Phase B (2026-07-26)
+  deleted the whole chain: on Windows the provisioner now uses OS-native
+  WinHTTP (download) + BCrypt/CNG (SHA-256) in
+  `src/core/sdcard_provisioner_net_win.cpp`, and the Windows build links
+  neither curl nor OpenSSL. Eight DLLs left every Windows bundle (libcurl,
+  libcrypto, libssl, libssh2, libidn2, libpsl, libunistring, iconv);
+  `test/packaging/packaging-test.sh` asserts they never come back. Every
+  WinHTTP/BCrypt symbol imported (11 + 7, verified against the built exe's
+  import table) is Win7 SP1-available; TLS 1.2 is opted in explicitly via
+  `WINHTTP_OPTION_SECURE_PROTOCOLS` (on an unpatched Win7 without KB3140245
+  the option call fails and the OS default applies).
 
 Runtime graphics/audio of the SDL leg degrade gracefully by design (verified
 against SDL3.dll: d3d9/d3d11/d3d12/vulkan/opengl renderers and
@@ -105,8 +113,9 @@ has a Win10 floor regardless.
   `mingw32-winpthreads`. **None is installed on the dev host**, and this
   branch does not install system packages — so no `package-win32` target was
   built or claimed. Owner action: `sudo dnf install mingw32-gcc
-  mingw32-gcc-c++ mingw32-sdl2-compat mingw32-curl mingw32-openssl
-  mingw32-zlib mingw32-libpng mingw32-winpthreads` and mirror
+  mingw32-gcc-c++ mingw32-sdl2-compat
+  mingw32-zlib mingw32-libpng mingw32-winpthreads` (curl/openssl no longer
+  needed since §7 Phase B — Windows uses WinHTTP/BCrypt) and mirror
   `win-sdl-release` with `mingw32-cmake` (the meaningful i686 leg is the
   SDL-only one: i686 Qt6 exists but would carry the same Win10 floor,
   defeating the point of a 32-bit build).
@@ -115,8 +124,8 @@ has a Win10 floor regardless.
   `src/core/sd_rom_extractor.cpp`), mingw libstdc++ is built with
   `_GLIBCXX_USE_LFS` (64-bit fseeko64 offsets even on i686), and the
   canonical image is 1 GB — under the 2 GiB signed-32 limit anyway.
-- Expected i686 floors: same as x86_64 per leg (the Win8 libcrypto PathCch
-  import must be re-verified on `mingw32-openssl` after install).
+- Expected i686 floors: same as x86_64 per leg (the old Win8 libcrypto PathCch
+  concern is moot — §7 Phase B removed OpenSSL from Windows builds entirely).
 - Residual unknowns until an i686 build actually runs: none identified by
   code audit, but the claim "builds and passes smoke on i686" is deliberately
   **not** made here.
@@ -148,8 +157,8 @@ has a Win10 floor regardless.
 | Item | Decision |
 |------|----------|
 | Lower the Qt package below Win10 | **WONT** — floor is inside fedora's Qt6 binaries (d3d12 et al.), not reachable from jnext. |
-| Win7/8 support | **`make package-win-sdl`** (SDL-only, x64): Win 8.0+ by import evidence. |
-| True Win7 support | ~~Blocked~~ **Planned** — owner decision 2026-07-26: replace curl/OpenSSL on Windows with native WinHTTP + BCrypt (§7 Phase B), which deletes the PathCch blocker instead of amputating SD self-provisioning. |
+| Win7/8 support | **`make package-win-sdl`** (SDL-only, x64): Win 7 SP1+ by import evidence (was 8.0 before Phase B). |
+| True Win7 support | ~~Blocked~~ ~~Planned~~ **DONE (Phase B, 2026-07-26)** — curl/OpenSSL replaced on Windows with OS-native WinHTTP + BCrypt behind the same provisioner interface; PathCch blocker deleted, `pe-floor-audit.sh` reports zero post-Win7 imports for the SDL bundle. Real-Win7-hardware confirmation pending (owner). |
 | 32-bit package | **Approved by owner 2026-07-26**, contingent on §7 Phases A/B (§7 Phase C); audit shows no code blocker. |
 | DirectX floor | Nothing to do jnext-side: SDL3 probes all renderers/audio backends at runtime with software/DirectSound fallbacks; jnext's Qt GUI renders via QImage (no RHI use) — the Qt D3D12 issue is a load-time import, not a rendering requirement. |
 
@@ -263,13 +272,24 @@ cleanly guardable, there is no architectural Qt6 coupling (no RHI, no QOpenGL,
 no Qt6-only widgets or signals), and the fedora mingw Qt5 stack provides
 everything the trial build needs including the WinMain bridge.
 
-**Phase B — native Windows provisioning path (independent of A).** The entire
-curl/OpenSSL surface is one file (`src/core/sdcard_provisioner.cpp`: one
-download + sha256). On Windows, replace with WinHTTP (download + progress) and
-BCrypt/CNG (sha256) behind the same provisioner interface; Linux/macOS keep
-curl/OpenSSL unchanged. Removes curl+OpenSSL DLLs from every Windows zip and
-deletes the single Win8-only import (libcrypto PathCch) → Win7 floor for the
-non-Qt6 legs. No new dependencies (OS-native APIs only).
+**Phase B — native Windows provisioning path (independent of A). DONE
+2026-07-26** (branch `fix/108-native-provisioner`). The curl/OpenSSL surface
+(one download + sha256) was split out of `sdcard_provisioner.cpp` into
+per-platform backends behind the unchanged provisioner interface:
+`sdcard_provisioner_net_curl.cpp` (POSIX, libcurl + OpenSSL EVP, verbatim) and
+`sdcard_provisioner_net_win.cpp` (Windows, WinHTTP + BCrypt/CNG — redirects,
+HTTP≥400 fail, 30 s connect / 120 s stall timeouts, progress + user abort,
+OS-store TLS validation, explicit TLS 1.2 opt-in). Windows builds link
+`winhttp`+`bcrypt` (OS components) and neither curl nor OpenSSL
+(`find_package(CURL/OpenSSL)` is now POSIX-only). Evidence: SDL bundle 16→8
+DLLs (curl chain gone), `pe-floor-audit.sh` exit 0 / zero flags; packaging-test
+rows assert the chain stays gone from BOTH Windows zips; wine (fresh prefix)
+ran `--version`, a 48K headless boot screenshot, AND a full provisioning
+exercise against a loopback HTTP fixture server via the
+`$JNEXT_SDCARD_DISTRO_URL` test seam — WinHTTP followed a 302, the BCrypt
+sidecar hash matched host `sha256sum`, FatFs repatched the image, and a 404
+failed loud with no partial files. Wine cannot prove real-Windows TLS or DLL
+floors (§5 caveat) — those await real hardware.
 
 **Phase C — 32-bit packages.** After A+B: `package-win32` mirroring the winning
 leg (Qt5 full GUI if A passed, else SDL-only) via `mingw32-cmake`. Local builds
