@@ -21,6 +21,17 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
+# Pin windres to the SAME absolute path fedora's mingw toolchain file uses.
+# Without the pin, CMake's own RC detection resolves windres through PATH —
+# /usr/sbin/... under a sbin-first PATH (GitHub job containers) — while later
+# re-reads of the toolchain file plant /usr/bin/... in the top-level scope
+# (its `IF(NOT $ENV{RC})` guard mis-fires once CMake exports RC after RC
+# detection). enable_language(RC) then sees cache != scope and CMake WIPES the
+# whole cache mid-configure — toolchain file included — and re-configures
+# natively, dying at find_package(ZLIB) (GH #108 CI failure, run 30200486697).
+MINGW64_RC        := -DCMAKE_RC_COMPILER=/usr/bin/x86_64-w64-mingw32-windres
+MINGW32_RC        := -DCMAKE_RC_COMPILER=/usr/bin/i686-w64-mingw32-windres
+
 # Documentation single source (see `make docs-man`). doc/man/jnext.1.md generates
 # BOTH outputs below, and both are committed: building jnext from source never
 # needs pandoc, only editing the docs does.
@@ -174,7 +185,7 @@ win-release:
 		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
 		exit 1; \
 	fi
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_RELEASE) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN_RELEASE) -j$(JOBS)
 	@# Bundle the Qt6/SDL2 runtime DLLs + Qt plugins next to the exe so it runs
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
@@ -202,7 +213,7 @@ win-sdl-release:
 	@# "Qt6 not needed" toolchain guard above a lie on a Qt-less host. The
 	@# shipped exe is identical either way (the debugger ifdefs live only in
 	@# src/gui, which the SDL build never compiles).
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN_SDL_RELEASE) -j$(JOBS)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN_SDL_RELEASE)
 	@printf "$(BOLD)Windows SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe\n"
@@ -223,7 +234,7 @@ win-qt5-release:
 		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
 		exit 1; \
 	fi
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_QT5_RELEASE) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_QT5_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN_QT5_RELEASE) -j$(JOBS)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN_QT5_RELEASE)
 	@printf "$(BOLD)Windows Qt5 full-GUI executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe\n"
@@ -260,7 +271,7 @@ win32-sdl-release:
 	@# ENABLE_DEBUGGER=OFF is load-bearing for the same reason as in
 	@# win-sdl-release: it defaults ON and src/debugger does
 	@# find_package(Qt6 REQUIRED) at configure time.
-	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_SDL_RELEASE) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
+	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_SDL_RELEASE) $(MINGW32_RC) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN32_SDL_RELEASE) -j$(JOBS)
 	@# bundle-dlls.sh reads the exe's PE machine field and resolves DLLs from
 	@# the i686 sysroot automatically.
@@ -285,7 +296,7 @@ win32-qt5-release:
 		printf "  (mingw32-filesystem supplies mingw32-cmake.)\n"; \
 		exit 1; \
 	fi
-	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_QT5_RELEASE) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
+	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_QT5_RELEASE) $(MINGW32_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN32_QT5_RELEASE) -j$(JOBS)
 	@# bundle-dlls.sh reads the exe's PE machine field (i686 sysroot) and the
 	@# qt5core.dll import (Qt5 plugin root) — no flags needed for either.
