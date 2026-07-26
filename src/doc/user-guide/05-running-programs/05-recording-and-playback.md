@@ -25,6 +25,9 @@ block position.
 an MP4; **Stop** (Ctrl+F6) ends it. From the command line, `--record FILE`.
 
 This needs **ffmpeg** installed and on your PATH — JNEXT feeds it the frames.
+If it is missing, `--record` fails immediately: JNEXT says so and exits
+non-zero without emulating anything, rather than running a session you would
+find out afterwards had never been recorded.
 
 To capture only the audio, `--wav-record FILE` writes a standard WAV. It needs
 neither ffmpeg nor a sound card, so it works in automated runs.

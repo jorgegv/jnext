@@ -2825,6 +2825,11 @@
 offered or performed. In the graphical version you can also mount one from
 <strong>File &gt; Mount SD Card Image</strong>, and set a permanent default in Preferences
 (chapter 4).</p>
+<p>The image is opened <strong>read-write</strong>, and what the emulated machine writes to the
+card is kept — booting NextZXOS changes the file, so two runs sharing one image
+are not independent. Add <code>--sdcard-readonly</code> when a run must not disturb the
+image: the emulated machine then sees a write-protected card and the host file
+is never touched.</p>
 
 
 
