@@ -494,7 +494,7 @@ NR 0x07 gate + `Mmu::sram_read_wait28()` qualifier, burst charged in
 | 23.4 | Wait charged per source memory READ | zxnext.vhd:3171-3181,3175 | Hook called once per read at the stepped source address; accumulator = 8; writes exempt |
 | 23.5 | I/O source reads never wait | zxnext.vhd:3144 (`sram_memcycle` needs MREQ) | I/O->mem block: hook never called, accumulator 0 |
 | 23.6 | mem->I/O keeps the read-side wait | zxnext.vhd:3144,3175 | mem->I/O block: all 8 source reads wait; I/O destination irrelevant |
-| 23.7 | ENABLE while `dma_delay_` asserted must not permanently stall the CPU (GH #102 TX-1696 freeze) | zxnext.vhd `dma_holds_bus <= '1' when z80_busak_n = '0'`; dma.vhd:267-269 (`dma_delay_i` defer gate) | Full-Emulator: ENABLE issued with `dma_delay_`=1 — DMA stays deferred (`state()==TRANSFERRING`, `dma_holds_bus()==false`) AND the CPU executes a normal instruction that step (PC advances); clearing the defer lets the transfer complete on the next step |
+| 23.7 | ENABLE while a genuine IM2 device request is pending must not permanently stall the CPU, and the LIVE per-instruction `im2_.dma_delay()` resample must track it (GH #102 TX-1696 freeze, session 3; reboot regression, session 4) | zxnext.vhd `dma_holds_bus <= '1' when z80_busak_n = '0'`; dma.vhd:267-269 (`dma_delay_i` defer gate); zxnext.vhd:2001-2010 (`im2_dma_delay`, `rising_edge(i_CLK_CPU)`) | Full-Emulator: CTC0 raised to S_REQ with `dma_int_en` set, then ENABLE issued — DMA stays deferred (`state()==TRANSFERRING`, `dma_holds_bus()==false`) AND the CPU executes a normal instruction that step (PC advances); clearing CTC0's `dma_int_en` (servicing the pending cause) lets the transfer complete on the next step |
 
 ## Test Count Summary
 
