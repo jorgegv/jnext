@@ -219,12 +219,10 @@ jobs:
           submodules: recursive
       - name: make package-win
         run: make package-win
-      # SDL-only Windows 8+ compatible variant (GH #108) — same container,
-      # same plain make target a local run uses.
-      - name: make package-win-sdl
-        run: make package-win-sdl
       # Qt5 full-GUI Win7/8 legacy variant (GH #108 Phase A) — same container,
-      # same plain make target a local run uses.
+      # same plain make target a local run uses. The SDL-only variant is a
+      # repo-internal validation leg (owner decision 2026-07-26): built by CI
+      # via package-test, never published.
       - name: make package-win-qt5
         run: make package-win-qt5
       - uses: actions/upload-artifact@v4
@@ -232,7 +230,6 @@ jobs:
           name: jnext-windows-package
           path: |
             build/win-release/*.zip
-            build/win-sdl-release/*.zip
             build/win-qt5-release/*.zip
 
   # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
