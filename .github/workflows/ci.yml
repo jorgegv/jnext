@@ -303,6 +303,7 @@ jobs:
             mingw64-zlib mingw64-libpng mingw64-winpthreads \
             mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
             mingw32-sdl2-compat \
+            mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
             mingw32-zlib mingw32-libpng mingw32-winpthreads
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
