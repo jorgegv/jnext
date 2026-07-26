@@ -851,11 +851,12 @@ package-win-qt5: win-qt5-release
 	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
 
-# Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
 # Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
 # DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
 # Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
 # doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C.
+#
+# Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
 package-win32-qt5: win32-qt5-release
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x86-qt5"; \
