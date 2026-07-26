@@ -191,9 +191,9 @@ Full Qt6-only usage inventory of `src/gui` + `src/debugger` (the only Qt-using
 trees — verified by tree-wide grep: no Qt in `src/platform`, `src/main.cpp`
 (only `gui/qt_app.h`, itself Qt-free), or `test/`; `app_config_test` links Qt
 transitively via `jnext_gui`). All 66 distinct `<QXxx>` headers used exist in
-Qt 5.15. Native `qt5-qtbase-devel` is NOT installed on the dev host, so this is
-a source-level assessment (every claim checked against Qt 5.15 API docs), not a
-compile proof — the Linux-Qt5 validation build below converts it.
+Qt 5.15. Initially a source-level assessment (no Qt5 devel on the host); after
+the owner installed the Qt5 toolchains it was **implemented and proven** — see
+"Phase A execution results" below.
 
 **Qt6-only source usages needing `#if QT_VERSION` guards — 4 lines, 2 files:**
 
@@ -271,6 +271,76 @@ Not final proof: the floor claim still needs `pe-floor-audit.sh` on a real
 cleanly guardable, there is no architectural Qt6 coupling (no RHI, no QOpenGL,
 no Qt6-only widgets or signals), and the fedora mingw Qt5 stack provides
 everything the trial build needs including the WinMain bridge.
+
+### Phase A execution results (2026-07-26, same branch) — **GO CONFIRMED, Win7 floor by import evidence**
+
+The assessment above was implemented and proven after the owner installed the
+Qt5 toolchains (`qt5-qtbase-devel`, `mingw64-qt5-qtbase{,-devel}`,
+`mingw64-qt5-qmake`; mingw32 stack staged for Phase C).
+
+**Delta as implemented (3 commits):**
+- `src/debugger/disasm_panel.cpp` — one `#if QT_VERSION` guard (`position()` /
+  `localPos()` hoisted into a `QPointF evpos`, both uses).
+- `src/gui/main_window.cpp` — `mouse_global_point()` helper in the existing
+  anonymous namespace (`globalPosition().toPoint()` / `globalPos()`), used at
+  both call sites.
+- `src/gui/qt_app.cpp` — Qt5-only `AA_EnableHighDpiScaling` +
+  `AA_UseHighDpiPixmaps` before the QApplication ctor.
+- CMake mechanism: root option **`JNEXT_FORCE_QT5`** (default OFF) → Qt major
+  decided ONCE at root into `JNEXT_QT_MAJOR`: forced 5 by the option, else
+  `find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)` — **Qt6 always
+  wins when installed**; Qt5 is only a fallback on a Qt6-less host.
+  `src/gui`/`src/debugger` consume `Qt${JNEXT_QT_MAJOR}`. The Win7
+  `_WIN32_WINNT=0x0601` pin now also covers `WIN32 AND JNEXT_FORCE_QT5`.
+- `Makefile` — `win-qt5-release` target (mirrors `win-release`, full GUI +
+  debugger, `JNEXT_FORCE_QT5=ON`); `bundle-dlls.sh` detects the Qt major from
+  the exe imports and picks `lib/qt5/plugins` + `qwindowsvistastyle.dll`.
+
+**The §2 WinMain trap fired, Qt5-flavoured, exactly as predicted** — and is
+fixed in CMake, not by hand-rolled code: fedora's `Qt5::WinMain`
+(`libqt5main.a`, WinMain → C++-mangled `qMain(int,char**)`) ships **no**
+interface compile definitions and no link-order helper, so (a) plain linking
+left WinMain unreferenced when the archive was scanned → `undefined reference
+to WinMain` from `crtexewin.o`, and (b) nothing renamed `main.cpp`'s `main`.
+The fix replicates Qt6's own mechanics: `target_compile_definitions(jnext
+PRIVATE QT_NEEDS_QMAIN)` (qwindowdefs.h's `#define main qMain` lands after
+SDL.h's rename in the TU, so it wins — identical include-order mechanics to
+the working Qt6 build) plus `target_link_libraries(jnext PRIVATE mingw32
+Qt5::WinMain)` — the same `-lmingw32`-before-the-entry-archive ordering Qt6
+encodes in its `EntryPointMinGW32` helper target.
+
+**Linux-Qt5 compile proof** (`-DJNEXT_FORCE_QT5=ON`, GUI+debugger ON): builds
+clean, links `libQt5{Core,Gui,Widgets}.so.5`; `--version` OK; headless 48K
+boot screenshot correct; full GUI ran with the frame timer + delayed
+screenshot (window on the live session). All screenshots pixel-identical
+(sha256 of decoded RGB) to each other.
+
+**MinGW Qt5 trial** (`make win-qt5-release`): builds + links (cross moc from
+`mingw64-qt5-qmake` picked up by AUTOMOC automatically); bundle = jnext.exe +
+27 DLLs + `platforms/qwindows.dll`, `styles/qwindowsvistastyle.dll`,
+`imageformats/{qgif,qico,qjpeg}.dll` + qt.conf.
+
+**Floor audit (`pe-floor-audit.sh` over the ENTIRE bundle — exe + all 25
+shipping DLLs + 5 plugin DLLs): exit 0, ZERO flags.** No WIN8/WIN8.1/WIN10
+symbol imports, no not-on-Win7 DLLs anywhere (PE headers MajorOSVersion 4.0
+throughout; no d3d12, no DPI-context APIs, no PathCch — the curl/OpenSSL
+chain is already gone via Phase B). By static-import evidence the Qt5
+full-GUI bundle has a **Windows 7 SP1 floor** — subject to the §5 caveat that
+only real hardware proves DLL availability.
+
+**Wine smoke (wine 11.0, fresh prefix): all green.** `--version`, headless
+48K boot screenshot, and the full Qt5 GUI (qwindows.dll platform plugin, Qt5
+event loop, delayed screenshot) — on the default profile AND `winecfg -v
+win7`. Every PNG pixel-identical to the Linux-Qt5 run.
+
+**Qt6 default proven untouched:** `make clean && make gui-release` (selects
+"Qt major: 6"), then unit **5688/5688** (76 suites), FUSE **1356/1356**,
+regression **106/106** (`JNEXT_TEST_JOBS=4`, logged) — all green on the
+default build with zero Qt5 anywhere.
+
+Remaining before shipping the leg (not gate-blocking): a `package-win-qt5`
+zip + packaging-test structural row (Qt5 DLL list), CI job for the plain make
+target, and real-Win7/8-hardware verification of the audited floor.
 
 **Phase B — native Windows provisioning path (independent of A). DONE
 2026-07-26** (branch `fix/108-native-provisioner`). The curl/OpenSSL surface
