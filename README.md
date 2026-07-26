@@ -106,6 +106,22 @@ right-clicking the downloaded zip and ticking **Properties → Unblock**. Detail
 and what a signature would and would not prove:
 **[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
 
+### Which Windows package?
+
+All Windows packages are self-contained portable zips — no installer, no
+redistributables, every runtime DLL bundled, and the SD-card image
+self-provisioning built in. Pick by your Windows version:
+
+| Package                       | What you get              | Runs on                  |
+|-------------------------------|---------------------------|--------------------------|
+| `jnext-*-windows-x64.zip`     | full GUI + debugger (Qt6) | Windows 10 1703 or later |
+| `jnext-*-windows-x64-qt5.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later   |
+| 32-bit (i686) Qt5             | full GUI + debugger (Qt5) | Windows 7 SP1 or later — **planned, not yet published** |
+
+Details and the audited compatibility floors:
+[packaging/README.md](packaging/README.md) and
+[doc/design/WINDOWS-COMPAT-PLAN.md](doc/design/WINDOWS-COMPAT-PLAN.md).
+
 The **macOS** build is a `.dmg`; open it and drag **jnext** to Applications. The
 app is ad-hoc signed but **deliberately not notarised** — notarisation requires
 a paid Apple Developer Program membership — so Gatekeeper blocks the first

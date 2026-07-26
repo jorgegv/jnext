@@ -317,11 +317,12 @@ screenshot (window on the live session). All screenshots pixel-identical
 
 **MinGW Qt5 trial** (`make win-qt5-release`): builds + links (cross moc from
 `mingw64-qt5-qmake` picked up by AUTOMOC automatically); bundle = jnext.exe +
-27 DLLs + `platforms/qwindows.dll`, `styles/qwindowsvistastyle.dll`,
-`imageformats/{qgif,qico,qjpeg}.dll` + qt.conf.
+26 DLLs (21 top-level + 5 plugins: `platforms/qwindows.dll`,
+`styles/qwindowsvistastyle.dll`, `imageformats/{qgif,qico,qjpeg}.dll`) +
+qt.conf — 27 PE files with the exe.
 
-**Floor audit (`pe-floor-audit.sh` over the ENTIRE bundle — exe + all 25
-shipping DLLs + 5 plugin DLLs): exit 0, ZERO flags.** No WIN8/WIN8.1/WIN10
+**Floor audit (`pe-floor-audit.sh` over the ENTIRE bundle — the exe + all 21
+top-level DLLs + 5 plugin DLLs, 27 PE files): exit 0, ZERO flags.** No WIN8/WIN8.1/WIN10
 symbol imports, no not-on-Win7 DLLs anywhere (PE headers MajorOSVersion 4.0
 throughout; no d3d12, no DPI-context APIs, no PathCch — the curl/OpenSSL
 chain is already gone via Phase B). By static-import evidence the Qt5
