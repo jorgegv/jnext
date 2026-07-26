@@ -4326,10 +4326,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                          else X"FF";
     //
     // Cases consumed by this handler:
-    //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') →
-    //     port_p3_float_rd_dat = X"00" (zxnext.vhd:2814).
+    //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') → 0xFF.
     //   - port_p3_floating_bus_io_en=0 (NR 0x82 bit 4 cleared,
-    //     zxnext.vhd:2403): decode blocked → 0x00.
+    //     zxnext.vhd:2403): decode blocked → 0xFF.
+    //     GH #111: with the decode blocked, port_p3_float='0' (:2589),
+    //     so the strobe port_p3_float_rd <= iord and port_p3_float
+    //     (:2716) never asserts, port_internal_rd_response stays low
+    //     (:2803-2806 — no other listed strobe decodes 0x0FFD; the
+    //     port_7ffd decode that captures 0x0FFD on non-+3 timing is
+    //     write-only), and the cpu_di IORQ mux delivers its
+    //     unconditional default cpu_di <= X"FF" (:1877). The X"00" at
+    //     :2814 is only the wired-OR contribution into port_rd_dat
+    //     (:2837), never CPU-visible without its own strobe.
     //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517).
     //   - +3 + io_en=1 + port_7ffd_locked='0': ula_floating_bus, with
     //     two sub-arms:
@@ -4358,9 +4366,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // one-hot mirror of `machine_timing_p3` (VHDL :1283); using
             // `config_.type` would silently mis-decode when NR 0x03 is
             // written with `tim_sel != typ_sel`.
-            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0x00;
+            // GH #111: blocked decode → no read strobe (:2716) → no
+            // port_internal_rd_response (:2803-2806) → cpu_di default
+            // X"FF" (:1877), NOT the :2814 wired-OR X"00".
+            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0xFF;
             // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
-            if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0xFF;
             // VHDL zxnext.vhd:4517 — gates on `port_7ffd_locked` (the
             // EFFECTIVE lock signal at VHDL :3769), not the raw
             // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11

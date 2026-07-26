@@ -540,7 +540,18 @@ static void test_section3_p3_paths(void) {
     }
 
     // FB-3B — +3 port 0x0FFD with port_p3_floating_bus_io_en=0 (NR 0x82
-    // bit 4 cleared) → decode blocked → 0x00.
+    // bit 4 cleared) → decode blocked → 0xFF.
+    //
+    // GH #111 rewrite (owner-approved, 2026-07-26): a blocked decode
+    // means `port_p3_float = '0'` (zxnext.vhd:2589 with the
+    // port_p3_floating_bus_io_en AND-term, :2403), so the read strobe
+    // `port_p3_float_rd <= iord and port_p3_float` (:2716) never
+    // asserts, `port_internal_rd_response` stays low (:2803-2806 — no
+    // other strobe decodes 0x0FFD), and the cpu_di IORQ mux delivers
+    // its unconditional default `cpu_di <= X"FF"` (:1877). The X"00"
+    // at :2814 is only the wired-OR contribution into port_rd_dat
+    // (:2837), never CPU-visible without its own strobe. The previous
+    // 0x00 expectation encoded that misreading.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
@@ -549,31 +560,35 @@ static void test_section3_p3_paths(void) {
         emu.nextreg().write(0x82, 0xEF);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3B",
-              "+3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00 "
-              "(zxnext.vhd:2403, 2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "+3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0xFF "
+              "(zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877)",
+              v == 0xFF, fmt("v=0x%02X", v));
     }
 
-    // FB-3C — 48K port 0x0FFD → 0x00 (decode blocked by p3_timing_hw_en).
+    // FB-3C — 48K port 0x0FFD → 0xFF (decode blocked by p3_timing_hw_en;
+    // no strobe → no internal response → cpu_di default X"FF", GH #111).
+    // Note port_7ffd DOES decode 0x0FFD on non-+3 timing (:2593) but is
+    // write-only — it contributes no read strobe.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3C",
-              "48K port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
-              "(zxnext.vhd:2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "48K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) "
+              "(zxnext.vhd:2589, 2716, 2803-2806, 1877)",
+              v == 0xFF, fmt("v=0x%02X", v));
     }
 
-    // FB-3D — 128K port 0x0FFD → 0x00 (same gate as FB-3C).
+    // FB-3D — 128K port 0x0FFD → 0xFF (same blocked-decode path as
+    // FB-3C, GH #111).
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX128K);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3D",
-              "128K port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
-              "(zxnext.vhd:2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "128K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) "
+              "(zxnext.vhd:2589, 2716, 2803-2806, 1877)",
+              v == 0xFF, fmt("v=0x%02X", v));
     }
 
     // FB-3E RETIRED 2026-05-04: standalone Pentagon machine type dropped
