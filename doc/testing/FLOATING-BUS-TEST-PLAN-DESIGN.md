@@ -322,12 +322,13 @@ timing cannot see port 0x0FFD at all) AND on
 | FB-03a | +3 | 0x0FFD | Active display, VRAM capture phase; VRAM byte with bit 0 = 0; `port_7ffd_locked = 0` | Returned byte bit 0 forced to 1; bits 7:1 = VRAM byte | `zxula.vhd:573` + `zxnext.vhd:4517` |
 | FB-04  | +3 | 0xFF | Border; last contended mem r/w wrote 0xA5 | 0xFF (port 0xFF hard-forced on +3, shadow does not reach port 0xFF) | `zxnext.vhd:4513` |
 | FB-04a | +3 | 0x0FFD | Border; last contended mem r/w wrote 0xA5; `port_7ffd_locked = 0` | 0xA5 (from `ula_floating_bus` border arm via `i_p3_floating_bus` latch `p3_floating_bus_dat`) | `zxula.vhd:573` + `zxnext.vhd:4498-4509,4517` |
+| FB-04b | +3 | 0x0FFD | ONE emulator, both sources seeded 0x42 (bit 0 clear); read at border, then in the active-display capture phase | Border 0x42 (raw second waveform), active 0x43 (first waveform's `or i_timing_p3`) — the bit-0 force is present in exactly one arm | `zxula.vhd:573` + `zxnext.vhd:4478,4498-4509,4517` |
 | FB-3A  | +3 | 0x0FFD | Border; `port_7ffd_locked = 1` | 0xFF (`port_p3_floating_bus_dat` forced to `X"FF"` when locked) | `zxnext.vhd:4517` |
 | FB-3B  | +3 | 0x0FFD | Active display; `port_p3_floating_bus_io_en = 0` (bit 4 of `internal_port_enable` cleared) | 0xFF (decode `port_p3_float = 0` → `port_p3_float_rd` never asserts → no `port_internal_rd_response` → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877` |
 | FB-3C  | 48K | 0x0FFD | Active display, any phase (any `port_7ffd_locked`) | 0xFF (decode gated by `p3_timing_hw_en` → port 0x0FFD not decoded on 48K → no read strobe → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
 | FB-3D  | 128K | 0x0FFD | Active display, any phase | 0xFF (same reason as FB-3C; port 0x0FFD is not floating-bus-reactive on 128K) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
-| FB-3E  | Pentagon | 0x0FFD | Active display, any phase | 0x00 (`p3_timing_hw_en = 0` on Pentagon) | `zxnext.vhd:2589, 2814` |
-| FB-3F  | Next | 0x0FFD | Active display, any phase | 0x00 (`p3_timing_hw_en = 0` on Next-base) | `zxnext.vhd:2589, 2814` |
+| FB-3E  | ~~Pentagon~~ | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-3D (128K) and FB-3F (Next) still cover the decode-gate path. No `check()` row exists. | — | — |
+| FB-3F  | Next | 0x0FFD | Border; latch seeded 0x42; fresh Next-base (`tim_sel` default = 011 = +3 timing) | 0x42 — the decode is **active** (`p3_timing_hw_en` follows `machine_timing`, and Next-base defaults to +3 timing), so the border waveform returns the raw latch. NOT 0xFF (which is what a blocked decode yields, GH #111). | `zxnext.vhd:2589, 1099` + `zxula.vhd:573` |
 
 FB-03 is the re-homed S10.05: corrected expected value per
 `zxnext.vhd:4513` (port 0xFF forces 0xFF on +3). The bit-0 force
@@ -337,11 +338,44 @@ per `zxnext.vhd:4513`. The `p3_floating_bus_dat` behaviour exercised
 by the original row is on port 0x0FFD and is FB-04a. FB-3A is the
 `port_7ffd_locked` gate, now correctly targeting port 0x0FFD.
 FB-3B covers the `port_p3_floating_bus_io_en` AND-term of the
-port-0x0FFD decode (`zxnext.vhd:2589`). FB-3C/3D/3E/3F are
-VHDL-justified neighbours: they lock down that port 0x0FFD is NOT a
-floating-bus surface on 48K/128K/Pentagon/Next because the
-`p3_timing_hw_en` decode AND-term at `zxnext.vhd:2589` blocks the
-decode altogether.
+port-0x0FFD decode (`zxnext.vhd:2589`). FB-3C/3D are VHDL-justified
+neighbours: they lock down that port 0x0FFD is NOT a floating-bus
+surface on 48K/128K, because the `p3_timing_hw_en` AND-term at
+`zxnext.vhd:2589` blocks the decode altogether (blocked decode → no
+read strobe → `cpu_di` default `X"FF"`, GH #111). **FB-3F is not one
+of them**: `p3_timing_hw_en` mirrors `machine_timing`, and a
+Next-base machine boots with `tim_sel = 011` (+3 timing,
+`zxnext.vhd:1099`), so port 0x0FFD *is* decoded there — the row
+asserts the decoded border-arm value and exists to rule the blocked
+path OUT. FB-3E is retired (no Pentagon machine type since
+2026-05-04).
+
+### The bit-0 force is scoped to the active-display arm (GH #112)
+
+`zxula.vhd:573` is a **conditional signal assignment** (VHDL LRM
+§10.5.3) — an ordered priority chain of *independent* waveforms, not
+one Boolean expression:
+
+```vhdl
+o_ula_floating_bus <=
+     (floating_bus_r(7 downto 1) & (floating_bus_r(0) or i_timing_p3))
+         when (border_active_ula = '0' and floating_bus_en = '1')
+     else i_p3_floating_bus when i_timing_p3 = '1'
+     else X"FF";
+```
+
+`or i_timing_p3` sits inside the parenthesised concatenation of the
+**first** waveform. The second waveform is the bare signal
+`i_p3_floating_bus`, wired 1:1 from `p3_floating_bus_dat`
+(`zxnext.vhd:4478`); that signal's only driver (`:4498-4509`) latches
+`cpu_di` / `cpu_do` verbatim. So on +3 the border arm returns the
+last contended CPU bus byte **raw** — bit 0 included.
+
+jnext forced bit 0 on both arms until GH #112. FB-04a could not
+detect it (it seeds 0xA5, whose bit 0 is already set); **FB-04b** is
+the discriminative contrast row, and FB-3X / FB-3F /
+FIX-FB-EFFLOCK-01 were corrected from `latch | 0x01` to the raw
+latch at the same time.
 
 Note (resolved by GH #111, owner-approved rewrite 2026-07-26): the
 blocked-decode read value is `0xFF`, NOT the `X"00"` at
@@ -558,18 +592,24 @@ capture after reset).
 |---------|------|-----:|
 | 1 | Border-phase 0xFF                     | 2  |
 | 2 | Active-display capture                | 6  |
-| 3 | +3 port 0xFF vs port 0x0FFD           | 10 |
+| 3 | +3 port 0xFF vs port 0x0FFD           | 11 |
 | 4 | Per-machine selection (port 0xFF)     | 3  |
 | 5 | Port 0xFF read wiring                 | 2  |
 | 6 | NR 0x08 override + gate               | 3  |
 | 8 | GH #109 LSB-0xFF scope                | 2  |
-| | **Total** | **28** |
+| | **Total** | **29** |
+
+Nominal, i.e. as enumerated by this plan. One of them (FB-3E) is
+retired with no `check()` row, so 28 plan rows are live. The suite
+also carries the FB-3X port-conflict neighbour, 3 Section-7
+D3F-followup rows and 5 FB-HARNESS-NN smoke rows — see
+`test/unit-tests.conf` for the pinned total the harness enforces.
 
 Of the 26: **5 are the re-homed ULA rows** (FB-01, FB-03, FB-04,
 FB-06, FB-07 — note FB-03 and FB-04 were re-scoped to the correct
 +3 port-0xFF expected value per `zxnext.vhd:4513`) and **21 are
 VHDL-justified neighbours** (FB-02, FB-2A..FB-2F, FB-03a, FB-04a,
-FB-3A..FB-3F, FB-4A..FB-4C, FB-5A, FB-6A, FB-6B). Every neighbour
+FB-04b, FB-3A..FB-3F, FB-4A..FB-4C, FB-5A, FB-6A, FB-6B). Every neighbour
 cites a VHDL line that was read during Phase 0 preparation and that
 opens a distinct path in `zxula.vhd:573` / `zxnext.vhd:2589` /
 `:2713` / `:2813` / `:4513-4517`.
@@ -583,7 +623,7 @@ opens a distinct path in `zxula.vhd:573` / `zxnext.vhd:2589` /
 | S10.03 | covered by FB-2B / FB-2D (attribute-phase) |
 | S10.04 | FB-2E (reset phase) |
 | S10.05 | FB-03 (port 0xFF on +3 → 0xFF, corrected) + FB-03a (port 0x0FFD bit-0 force) |
-| S10.06 | FB-04 (port 0xFF on +3 → 0xFF, corrected) + FB-04a (port 0x0FFD border fallback) |
+| S10.06 | FB-04 (port 0xFF on +3 → 0xFF, corrected) + FB-04a (port 0x0FFD border fallback) + FB-04b (border-vs-active bit-0 contrast, GH #112) |
 | S10.07 | FB-06 |
 | S10.08 | FB-07 |
 
