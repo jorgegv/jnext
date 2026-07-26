@@ -25,10 +25,27 @@
 //       (the window is a QWidget) but no display: main() forces the offscreen
 //       QPA platform, the same idiom as the other debugger suites.
 //
-// Discriminative by construction — every DW row fails on the pre-#114 code:
-// DW-03 because resize() was refused outright, DW-04 because there was no
-// scroll area to produce scrollbars, DW-02/06 because the central widget WAS
-// the splitter, DW-08 because a saved size below 1170 wide was discarded.
+// Discriminative: NINE of the ten DW rows fail against the pre-#114 code, which
+// was reconstructed and run rather than reasoned about (central widget back to
+// the splitter, setMinimumWidth(1170) back, the old `w >= 1170` saved-size
+// guard back, the opening clamp removed) — 21 rows, 12 passed, 9 failed:
+// DW-01/10 because the window opened, and reopened, larger than the screen;
+// DW-02/07 because the central widget WAS the splitter; DW-03 because resize()
+// was refused outright (1170x1179); DW-04/05/08 because there was no scroll
+// area to produce or withhold scrollbars; DW-09 because a saved size below 1170
+// wide was discarded.
+//
+// DW-06 is the exception, and is recorded as one rather than quietly counted:
+// "the button bar is fully inside the window" was vacuously true before the fix
+// too, since the window could not shrink at all. It earns its place as the row
+// that would catch a FUTURE change clipping the bar, not as evidence about the
+// old code.
+//
+// The one behaviour this suite cannot reach is the window GROWING to its
+// natural size on a screen with room: the offscreen screen here is 800x800, so
+// the opening fit always clamps to the size it already has. That branch is
+// covered by debugger/window_grow_test.cpp, which needs its own process because
+// the offscreen screen geometry is fixed when QApplication is constructed.
 //
 // Run: ./build/test/debugger_window_size_test
 
