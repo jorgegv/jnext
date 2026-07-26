@@ -779,6 +779,39 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_quit_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
+
+    # Debugger Window Sizing test (GH #114 — "the debugger window does not fit
+    # on a small monitor"). Drives the real DebuggerWindow through
+    # DebuggerManager::set_enabled, shrinking it below the panels' combined
+    # minimum and asserting the scroll/pan behaviour and the button bar, plus
+    # the pure clamp arithmetic in src/debugger/window_attach.h. Needs Qt but no
+    # display — same offscreen QPA idiom as the panel suites above.
+    add_executable(debugger_window_size_test debugger/window_size_test.cpp)
+    set_target_properties(debugger_window_size_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_window_size_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_window_size_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_window_size_tests COMMAND debugger_window_size_test)
+
+    # Debugger Window Growing test (GH #114) — the roomy-screen half of the
+    # sizing coverage, and a separate binary because the offscreen QPA screen
+    # geometry is fixed at QApplication construction: the suite above runs on
+    # the default 800x800 screen (which is what makes its clamp rows
+    # discriminative), this one describes a 3000x2200 screen via the offscreen
+    # plugin's configfile so the window has somewhere to grow into. Same
+    # offscreen idiom otherwise, no display needed.
+    add_executable(debugger_window_grow_test debugger/window_grow_test.cpp)
+    set_target_properties(debugger_window_grow_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_window_grow_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_window_grow_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_window_grow_tests COMMAND debugger_window_grow_test)
 endif()
 
 # LoRes pixel-generator compliance tests (GH #63).
