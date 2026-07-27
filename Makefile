@@ -86,7 +86,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test lint-assertions harness-selftest traceability-selftest worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
@@ -317,7 +317,7 @@ gui-clean: gui-debug-clean gui-release-clean
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (screenshot + functional tests)
-regression: unit-test-build gui-release sdl-release docs-check cli-check
+regression: lint-makefile-help unit-test-build gui-release sdl-release docs-check cli-check
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -334,7 +334,13 @@ regression: unit-test-build gui-release sdl-release docs-check cli-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions unit-test-build docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help unit-test-build docs-check package-contract-test
+	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
+	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
+	@# a structural gate that must fail before anything expensive starts. GH #140 —
+	@# eight targets, `regression` and `unit-test` among them, advertised a sentence
+	@# fragment in `make` for as long as nobody re-read the listing. Fixing the eight
+	@# does not stop the ninth; the rule does.
 	@# lint-assertions is a prerequisite for the same reason as docs-check, and it is
 	@# FIRST because it is the cheapest gate here (~40 ms of ripgrep over test/ source
 	@# text — no compiler, no SD image, no display), so it fails before the build even
@@ -391,6 +397,14 @@ unit-test: lint-assertions unit-test-build docs-check package-contract-test
 # Build every ENABLE_QT_UI x ENABLE_DEBUGGER combination; fails if any breaks
 build-matrix:
 	@bash test/build-matrix.sh
+
+# Fail if any target's `make` help description would be discarded (GH #140)
+lint-makefile-help:
+	@# The help awk keeps only the LAST `# ` line before a target, so a rationale
+	@# block below a description silently replaces it. This enforces the project's
+	@# documented rule — one `# ` line above a target, rationale inside the recipe
+	@# as `@#` lines — structurally, on discarded content rather than on prose.
+	@bash test/lint-makefile-help.sh
 
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
