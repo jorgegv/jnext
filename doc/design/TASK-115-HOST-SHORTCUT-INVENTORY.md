@@ -133,7 +133,8 @@ Post-migration state. "Was" is the pre-#115 binding where it changed.
 | 11 | `Alt+D` | `Ctrl+D` | `main_window.cpp:740` | Toggle debugger (`#ifdef ENABLE_DEBUGGER`) | Cleared — SS+D `STEP` is back |
 | 12 | `QKeySequence::Preferences` | — | `main_window.cpp:751` | Preferences dialog | No — see note |
 
-**Quit still bypasses `closeEvent`** (`main_window.cpp:495-503`):
+**Quit used to bypass `closeEvent` — CLOSED by [#131](https://github.com/jorgegv/jnext/issues/131).**
+As #115 left it (`main_window.cpp:495-503` at the time):
 
 ```cpp
 QAction* quit = file_menu->addAction(tr("&Quit"));
@@ -141,14 +142,64 @@ quit->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
 connect(quit, &QAction::triggered, qApp, &QApplication::quit);
 ```
 
-The migration changed the key and nothing else. **Nothing guards it** — no
-confirmation, and because it goes straight to `QApplication::quit()` it does
-**not** route through `MainWindow::closeEvent` (declared `main_window.h:159`),
-so a Quit from here skips the recorder-stop and debugger-teardown that closing
-the window performs. The owner's #115 decision was the plain key migration and
-explicitly *not* a confirmation dialog, so this is recorded, not fixed. It is
-unchanged from the pre-#115 behaviour in every respect except which key
-reaches it.
+Going straight to `QApplication::quit()` skipped `MainWindow::closeEvent`
+(declared `main_window.h:159`) entirely, so a Quit from here did not stop an
+active recording and did not tear the debugger down — while closing the same
+window with `[X]` did both. One action, two behaviours, decided by how it was
+invoked. The #115 migration changed only the key, so this was recorded here
+rather than fixed.
+
+**What that actually cost the user — measured, not assumed.** This inventory
+(and issue #131 after it) named the *recording* as the harm. That turns out to
+be wrong: `main.cpp:870-873` stops any still-active recording once `run()`
+returns, and `~VideoRecorder()` (`video_recorder.cpp:32-35`) stops it again
+behind that. Verified end-to-end on the pre-fix binary under a real X server —
+`Alt+Q` during `--record` still produced a valid, muxed MP4 with no orphaned
+`.raw` temps. The real loss was the **debugger teardown**, and with it
+`DebuggerWindow::save_geometry()`, which a quit reaches only via
+`DebuggerManager::set_enabled(false)` (`debugger_manager.cpp:153`) or
+`DebuggerWindow::closeEvent` (`debugger_window.cpp:196`): a debugger window the
+user had resized or moved lost its layout on `File > Quit` and kept it on
+`[X]`. Recorded here so the next reader does not repeat the guess.
+
+It now routes through `close()`, which delivers a `QCloseEvent` synchronously
+and therefore runs `closeEvent`; `qApp->quit()` follows only if that close was
+accepted:
+
+```cpp
+connect(quit, &QAction::triggered, this, [this]() {
+    if (close()) qApp->quit();
+});
+```
+
+**Quit still always quits**, and that is a checked property rather than a hope.
+`MainWindow::closeEvent` contains no `event->ignore()` at all, and it cannot put
+a question to the user: `stop_recording()` opens no dialog, and the debugger
+teardown passes `prompt_on_corrupt=false` (Task 60f — the entire purpose of
+that flag, pinned by `debugger_quit_gate_test` QG-01/QG-04). It *can* block
+briefly, because stopping a recording runs the ffmpeg mux synchronously — the
+same wait the `[X]` path has always had. The `if` therefore guards a *future*
+veto (an "unsaved changes?" prompt, say), where declining should cancel the
+quit rather than have the app die anyway. `qApp->quit()` is kept explicit
+rather than left to `quitOnLastWindowClosed`, because that fallback depends on
+no other top-level window being open — a property of the application, not of
+this action.
+
+Pinned by `test/gui/quit_cleanup_test.cpp` (4 rows, Q131-01..04): the debugger
+ends disabled, its window ends hidden, a live recording is stopped and its raw
+temp file removed, and the main window ends hidden — which is what `close()`
+does and `QApplication::quit()` does not. Q131-03 proves `closeEvent`'s
+recorder branch RUNS; per the paragraph above it does not claim the file would
+otherwise be lost. Still **no confirmation dialog**: that remains the owner's
+explicit #115 decision, and #131 did not revisit it.
+
+One nuance worth recording. `closeEvent` discards `stop_recording()`'s result,
+which GH #86 already handled with the per-output-path `output_failed()` latch
+that `main.cpp:876-879` reads — but only for the `--record` path, since that is
+the only output path `main` knows. A GUI-menu-started recording whose encode
+FAILED therefore no longer influences the exit code on the Quit path. It never
+did on the `[X]` path either; #131 makes Quit consistent with `[X]`, which is
+the point, rather than introducing a new gap.
 
 **Note on #12 (`QKeySequence::Preferences`) — the earlier guess was wrong.**
 This inventory originally reasoned from Qt's documented standard-key table that
@@ -706,9 +757,11 @@ frozen.
   (a multimedia key), not an empty sequence. **macOS is still unverified** —
   if it is Cmd+`,` there, it does not collide with anything jnext binds, but
   nobody has run it.
-- **The `Alt+Q` → `QApplication::quit()` bypass of `closeEvent` remains**
-  (§3.1). Out of scope by the owner's explicit decision (no confirmation
-  dialog); recorded, not fixed. Worth its own issue.
+- ~~**The `Alt+Q` → `QApplication::quit()` bypass of `closeEvent` remains**~~ —
+  it got its own issue, [#131](https://github.com/jorgegv/jnext/issues/131), and
+  is **CLOSED**: Quit routes through `close()`. §3.1 has the new wiring and why
+  quitting still always quits. The *absence of a confirmation dialog* is
+  unchanged and still deliberate.
 - **H115-28 has a tier-2 blind spot, and a green row must not be read as
   "every chord in every tooltip is correct".** For an action that carries its
   own shortcut the row is exact (the chord must BE that shortcut). For an
@@ -748,6 +801,18 @@ frozen.
   plain `s_map` path and clears a matrix bit that is already clear. The same
   was true of the `Ctrl` chords before the migration. Noted so the next reader
   does not mistake it for new.
+- **`qt_key_to_sdl()` is still a LOGICAL-key table, and that leaves a residual.**
+  [#123](https://github.com/jorgegv/jnext/issues/123) added the shifted form of
+  every key the table already carried — 19 of them, `main_window.cpp` — which
+  covers the US/UK ASCII set. It does **not** cover a layout whose glyph falls
+  outside that set (Spanish `ñ` on the `;` key; the ISO key left of Z that types
+  `<`/`>`), nor `[` / `]`, which the table has never carried in either form. The
+  real machine has no such class of bug because its PS/2 keymap is indexed by
+  PHYSICAL scancode; matching that needs `QKeyEvent::nativeScanCode()` plus a
+  per-platform physical-key table (evdev on Linux, PC scancode on Windows,
+  virtual key on macOS). Deliberately not attempted with #123: a much larger,
+  per-platform change that cannot be verified on the two platforms this host
+  does not run.
 - **No hardware confirmation.** Everything here derives from the FPGA VHDL and
   from reading and running jnext. No physical ZX Spectrum Next was available.
 - **Not exercised on a real X11/Wayland desktop by an automated test.** The

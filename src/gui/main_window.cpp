@@ -554,13 +554,46 @@ void MainWindow::create_menus() {
 
     QAction* quit = file_menu->addAction(tr("&Quit"));
     quit->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
-    // NOTE (#115): this still calls QApplication::quit() directly, which
-    // BYPASSES MainWindow::closeEvent() — so a Quit from here does not run the
-    // recorder-stop / debugger-teardown that closing the window does. The
-    // #115 migration neither creates nor removes that bypass — Alt+Q reaches
-    // quit() exactly as Ctrl+Q did — but it is recorded here because nothing
-    // guards an accidental Quit: no confirmation, and no closeEvent.
-    connect(quit, &QAction::triggered, qApp, &QApplication::quit);
+    // Issue #131 — go through close() so closeEvent() actually RUNS. This used
+    // to connect straight to QApplication::quit(), which skips closeEvent
+    // entirely, so File > Quit and closing the window with [X] did different
+    // things: one action, two behaviours, decided only by how it was invoked.
+    //
+    // WHAT WAS ACTUALLY LOST, measured rather than assumed. The debugger
+    // teardown was skipped, and with it DebuggerWindow::save_geometry() — which
+    // runs from DebuggerManager::set_enabled(false) (debugger_manager.cpp:153)
+    // and from DebuggerWindow::closeEvent (debugger_window.cpp:196), and from
+    // nowhere else that a quit reaches. A user who resized or moved the
+    // debugger window and then chose File > Quit lost that layout, while [X]
+    // kept it.
+    //
+    // The RECORDING was NOT in fact lost, and this comment says so rather than
+    // repeating the issue's guess: main.cpp:870-873 stops any still-active
+    // recording once run() returns, and ~VideoRecorder() (video_recorder.cpp:
+    // 32-35) stops it again if anything ever got past that. Verified
+    // end-to-end on the pre-fix binary: Alt+Q during --record still produced a
+    // valid MP4. closeEvent's stop_recording() is the first of three, and
+    // making Quit run it restores the [X] ordering; it does not rescue a file
+    // that was being dropped.
+    //
+    // close() returns false only if closeEvent() ignored the event.
+    // MainWindow::closeEvent() never does — it contains no ignore() call — and
+    // it cannot put a question to the user either: stop_recording() shows no
+    // dialog, and the debugger teardown deliberately passes
+    // prompt_on_corrupt=false (Task 60f, pinned by debugger_quit_gate_test
+    // QG-01/QG-04). So Quit always quits today. The guard exists so that IF a
+    // veto is ever added — an "unsaved changes?" prompt, say — declining it
+    // cancels the quit instead of the app dying anyway. It can BLOCK, briefly:
+    // stopping a recording runs the ffmpeg mux synchronously. That is the same
+    // wait the [X] path has always had, and it finishes.
+    //
+    // qApp->quit() stays explicit rather than being left to
+    // quitOnLastWindowClosed: that fallback depends on no OTHER top-level
+    // window being open, which is a property of the whole application, not of
+    // this action.
+    connect(quit, &QAction::triggered, this, [this]() {
+        if (close()) qApp->quit();
+    });
 
     // --- Machine menu ---
     QMenu* machine_menu = menuBar()->addMenu(tr("&Machine"));

@@ -757,6 +757,22 @@ if(ENABLE_QT_UI)
     target_link_libraries(shifted_keys_test PRIVATE jnext_gui)
     target_include_directories(shifted_keys_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME shifted_keys_tests COMMAND shifted_keys_test)
+
+    # Issue #131 — File > Quit was wired straight to QApplication::quit(), so
+    # MainWindow::closeEvent() never ran and its cleanup (stop an active
+    # recording, tear the debugger down) was skipped. Asserts the OBSERVABLE
+    # effects of that cleanup after triggering the real Quit action. Needs a
+    # real MainWindow + Emulator + DebuggerManager, hence the ENABLE_DEBUGGER
+    # gate (MainWindow::debugger_manager() only exists there); no display
+    # (offscreen QPA forced in main()) and no real ffmpeg (a stub is put first
+    # on PATH, the video_recorder_cmd_test idiom).
+    if(ENABLE_DEBUGGER)
+        add_executable(quit_cleanup_test gui/quit_cleanup_test.cpp)
+        set_target_properties(quit_cleanup_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(quit_cleanup_test PRIVATE jnext_gui jnext_debugger)
+        target_include_directories(quit_cleanup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        add_test(NAME quit_cleanup_tests COMMAND quit_cleanup_test)
+    endif()
 endif()
 
 # GoogleTest-based tests (if available)
