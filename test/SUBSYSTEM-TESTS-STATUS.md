@@ -41,8 +41,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (AY+DAC+Beeper) |      138 |      138 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (NextREG)       |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -84,6 +84,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5727** | **5727** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5730** | **5730** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

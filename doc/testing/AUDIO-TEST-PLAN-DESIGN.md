@@ -436,6 +436,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-04  | AY input: zero-extended 12-bit to 13-bit          | `ay_L = '0' & ay_L_i` (range 0-2295)                      |
 | MX-05  | DAC input: 9-bit left-shifted by 2 + zero-padded  | `dac_L = "00" & dac_L_i & "00"` (range 0-2040)            |
 | MX-06  | I2S input: zero-extended 10-bit to 13-bit         | `i2s_L = "000" & pi_i2s_L_i` (range 0-1023)               |
+| MX-07  | I2S input is OFFSET BINARY: silence = 0x200, 0 = full-negative | `i2s.vhd:179` `o_audio_pi_L <= (not audio_pi_L(12)) & audio_pi_L(11 downto 3)` inverts the sign bit; `zxnext.vhd:2358-2359` substitutes the same 0x200 when disabled/muted/EAR |
 | MX-30  | Pi I2S source delivers a continuous 10-bit sample stream | I2s class exposes only a single set_sample(L,R) latch; no streaming source attached. skip — no Z80 software exercises Pi I2S today (Cat B); upgrade requires a real audio producer + frame-aligned sample queue (see G29) |
 
 ### 5.2 Final Mix
@@ -450,6 +451,8 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 | MX-13  | EAR and MIC go to both L and R                     | Beeper is always mono in the mix                           |
 | MX-14  | Max theoretical output = 5998                      | 512 + 128 + 2295 + 2040 + 1023 = 5998                     |
 | MX-15  | No saturation/clipping in mixer                    | 13-bit output is wide enough; no overflow possible         |
+| MX-16  | Silence with the Pi I2S input WIRED and idle is digital 0 | The resting mix is DAC 0x100&lt;&lt;2 + I2S 0x200 = 1536; the host AC-coupling reference must be that whole sum. MX-10/MX-11 assert the same on a Mixer with NO I2s — a configuration the emulator never has (`src/core/emulator.cpp:44`) |
+| MX-17  | An ASSEMBLED power-on machine emits digital 0 (end-to-end) | GH #116: silence read +2048 on every sample of every run, so SDL's zero-padding of a starved device buffer became a ~21.5 Hz square wave — the reported "motor" noise. Lives in `audio_nextreg_test` because only the full machine wires the I2s |
 
 ### 5.3 Speaker-Exclusive Mode
 

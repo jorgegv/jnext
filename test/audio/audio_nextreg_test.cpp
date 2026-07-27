@@ -613,12 +613,22 @@ static void test_nr_a2(Emulator& emu) {
     // sample 0x3FF, two NR 0xA2 settings, observe pcm_L delta.
     //   enabled  (NR 0xA2 = 0xC0): i2s_L = 0x3FF = 1023.
     //                              pcm_L = 0+0+0+0+1024+1023 = 2047.
-    //                              int16 = (2047-1024)*4        = +4092.
+    //                              int16 = (2047-1536)*4        = +2044.
     //   disabled (NR 0xA2 = 0x00): i2s_L = 0x200 = 512  (silence).
     //                              pcm_L = 0+0+0+0+1024+512  = 1536.
-    //                              int16 = (1536-1024)*4        = +2048.
-    //   delta = 4092 - 2048 = 2044  (= 511 * 4, the 10-bit gating delta
-    //                                in the int16 ×4 domain).
+    //                              int16 = (1536-1536)*4        =     0.
+    //   delta = 2044 - 0 = 2044  (= 511 * 4, the 10-bit gating delta
+    //                             in the int16 ×4 domain).
+    //
+    // GH #116: the 13-bit sums (2047 / 1536) are the VHDL quantities and are
+    // UNCHANGED, as is the delta — which is what this row is actually about.
+    // Only the two ABSOLUTE int16 values moved, by exactly the 2048 the
+    // AC-coupling reference was wrong by: emit_sample() now subtracts
+    // MIX_REST_LEVEL (1536 = DAC 1024 + I2S 0x200) instead of DAC_REST_LEVEL
+    // alone. The old "disabled" expectation of +2048 WAS the bug — that is
+    // the DC pedestal a silent machine sat on, and the amplitude of every
+    // zero-padded device seam. The disabled case must read exactly 0, and now
+    // does; see MX-17.
     {
         // Enabled scenario.
         fresh(emu);
@@ -651,8 +661,8 @@ static void test_nr_a2(Emulator& emu) {
               "Mixer gates Pi I2S contribution by NR 0xA2 enable/mute "
               "(audio_mixer.vhd:91-92, zxnext.vhd:2358-2359)",
               got_on == 1 && got_off == 1 &&
-              pcm_L_on == 4092 && pcm_L_off == 2048 && delta == 2044,
-              fmt("pcm_L on=%d off=%d delta=%d (want 4092/2048/2044)",
+              pcm_L_on == 2044 && pcm_L_off == 0 && delta == 2044,
+              fmt("pcm_L on=%d off=%d delta=%d (want 2044/0/2044)",
                   pcm_L_on, pcm_L_off, delta));
     }
 }
@@ -913,6 +923,54 @@ static void test_nr_mixer(Emulator& emu) {
               got_off == 1 && got_on == 1 && delta == 512 * 4,
               fmt("pcm_L exc_i=0:%d exc_i=1:%d delta=%d (want 2048)",
                   pcm_L_off, pcm_L_on, delta));
+    }
+
+    // MX-17 (GH #116) — THE row this suite was missing: an ASSEMBLED machine
+    // at power-on, with nothing driving any audio source, must emit digital
+    // ZERO. Not "a constant", not "its resting DC" — zero, because that is
+    // what the host audio path and every downstream consumer treat as silence
+    // (SDL pads a starved device buffer with zeros; the WAV/MP4 recorders
+    // write these samples verbatim).
+    //
+    // The bare-Mixer rows MX-10/MX-11 in test/audio/audio_test.cpp could not
+    // see the defect: they build a Mixer with no I2s source, while
+    // Emulator's constructor always wires one (src/core/emulator.cpp:44) and
+    // the gated pi_audio_L/R idles at 0x200 (zxnext.vhd:2358-2359). The
+    // emulator therefore rested 512 (13-bit) = 2048 (int16) above zero on
+    // every sample of every run, while the suite reported silence as 0.
+    //
+    // Why that was audible (the reported symptom): DC alone is inaudible, but
+    // it is the amplitude of every seam. When the host cannot emulate in real
+    // time the device queue empties and SDL pads with ZEROS — each pad became
+    // a 2048-tall step down and back. Reproduced on Linux under CPU
+    // starvation: the device stream alternated 1787 samples at 2048 / 261 at
+    // 0, a ~21.5 Hz square wave — "a motor running constant rrrrrr".
+    //
+    // Sample several times: the mixer's box filter integrates over an
+    // interval, so a one-shot read could in principle hide a level that is
+    // only wrong once settled.
+    {
+        fresh(emu);
+        int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
+        emu.mixer().read_samples(scratch, emu.mixer().available());
+
+        int  nonzero = 0;
+        int16_t worst = 0;
+        for (int i = 0; i < 16; ++i) {
+            emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+            int16_t s[2] = {0, 0};
+            emu.mixer().read_samples(s, 1);
+            if (s[0] != 0 || s[1] != 0) {
+                ++nonzero;
+                if (s[0] != 0) worst = s[0]; else worst = s[1];
+            }
+        }
+        check("MX-17",
+              "an assembled power-on machine emits DIGITAL ZERO — silence is "
+              "0, so a zero-padded device seam is inaudible [GH #116]",
+              nonzero == 0,
+              fmt("%d/16 samples non-zero (worst=%d) VHDL zxnext.vhd:2358-2359, "
+                  "i2s.vhd:179, audio_mixer.vhd:89-90,99-100", nonzero, worst));
     }
 }
 

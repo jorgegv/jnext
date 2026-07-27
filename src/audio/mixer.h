@@ -31,10 +31,31 @@ public:
     /// The DAC's idle level in the 13-bit mix domain. Both DAC channel pairs
     /// reset to 0x80 (soundrive.vhd: unsigned-8 midpoint = silence), so
     /// dac.pcm_left() idles at 0x80+0x80 = 0x100, and mix() scales it <<2.
-    /// This is ALSO the whole mix's resting DC level (nothing else is
-    /// non-zero at rest), which emit_sample() subtracts to AC-couple the
-    /// output — hence one constant, used by both.
     static constexpr int32_t DAC_REST_LEVEL = (0x80 + 0x80) << 2;  // 1024
+
+    /// The Pi I2S term's idle level in the 13-bit mix domain. The I2S input
+    /// is OFFSET BINARY, not sign-magnitude: i2s.vhd:179 builds it as
+    /// `(not audio_pi_L(12)) & audio_pi_L(11 downto 3)`, i.e. it inverts the
+    /// sign bit, so a signed zero (silence) leaves the entity as 0x200. The
+    /// same 0x200 is what zxnext.vhd:2358-2359 substitutes when the input is
+    /// disabled, muted or in EAR mode — the state the machine powers on in
+    /// and stays in for every ZX program (NR 0xA2 = 0). audio_mixer.vhd:89-90
+    /// zero-extends that 10-bit value straight into the 13-bit sum.
+    static constexpr int32_t I2S_REST_LEVEL = 0x200;  // 512
+
+    /// The whole mix's resting DC level: what mix() returns when EVERY source
+    /// is silent. emit_sample() subtracts it to AC-couple the output (real
+    /// hardware blocks DC with a capacitor), so this constant IS the emulator's
+    /// definition of digital silence.
+    ///
+    /// GH #116: it used to be DAC_REST_LEVEL alone, which stopped being the
+    /// resting level the moment the gated Pi-I2S term was wired in (commit
+    /// 043192af). Every sample of a silent machine then came out at
+    /// (1536-1024)*4 = +2048 instead of 0. DC is inaudible on its own, but it
+    /// is the amplitude of every seam: when the host cannot keep up, SDL pads
+    /// the device buffer with ZEROS, and each pad became a 2048-tall step down
+    /// and back — a periodic click train heard as a constant motor-like buzz.
+    static constexpr int32_t MIX_REST_LEVEL = DAC_REST_LEVEL + I2S_REST_LEVEL;  // 1536
 
     Mixer();
 
