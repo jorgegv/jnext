@@ -232,6 +232,11 @@ my %TOMBSTONE = (
 # reach further but attribute a neighbouring row's VHDL lines to this one,
 # and a plausible-but-wrong citation is worse than an honest `—`.
 #
+# The order holds ACROSS a section's sources too, not just within one file:
+# see cite_upgrades(). A `plan` answer read through one source is provisional
+# and yields to row-local evidence from the source that actually asserts the
+# row (GH #133).
+#
 # Citations are also validated against the real FPGA source tree, so a
 # typo'd or renamed VHDL filename is reported rather than published.
 
@@ -905,6 +910,52 @@ sub cite_src_for {
     return undef;
 }
 
+# May a citation just read from a source displace the one already held?
+#
+# grep_citations() orders its four tiers row-local-first, and that order has
+# to survive the merge ACROSS a section's sources too. It did not: the first
+# source to answer locked the row in, so a citation the primary source only
+# had from the PLAN DOC beat the row-local citation of the companion suite
+# that actually asserts the row. `NR_A0-01` published `zxnext.vhd:1241` — a
+# bare signal declaration — over the `zxnext.vhd:5080` reset default its
+# assertions exercise, and reported no drift while doing it, because the
+# hand-written cell agreed with the plan. Worse, the companion's OWN table
+# published the row-local citation for the same ID, so one document gave two
+# answers for one row. (GH #133)
+#
+# So a plan-doc citation is provisional: it holds the row until row-local
+# evidence turns up. ONE fence stops that becoming the borrowed-citation
+# defect the `next` tier is fenced against (SELF-04) and the companion
+# ownership gate refuses (SELF-46): the displacing citation must have been
+# read from the source that OWNS the row — the one this run will name in
+# `Test file:line`. What is published therefore always justifies what runs,
+# never a copy of it somewhere else.
+#
+# That single test also covers the two cases it might look like it misses,
+# because only ever ONE source is being merged in at a time:
+#
+#   - a plan-doc candidate is refused, since %where never holds a plan-doc
+#     path (and a second plan-doc answer could not differ anyway — every
+#     source of a subsystem reads the same plan doc);
+#   - a ROW-LOCAL incumbent is untouchable: it was read from the owner, so
+#     no other source's citation can equal the owner. Row-local citations
+#     keep merging first-source-wins, exactly as before. Spelling that out
+#     as its own guard was tried and is unreachable — mutation-testing
+#     SELF-60 found it dead, and dead code in a precedence rule reads as a
+#     case that is handled when it is only shadowed.
+#
+# A row asserted nowhere ($owner undef) keeps whatever the plan gave it.
+#
+# $have: the citation held so far. $new_from: the file the candidate was
+# read from. $owner: the source %where resolved this row to, or undef when
+# no source asserts it.
+sub cite_upgrades {
+    my ($have, $new_from, $owner) = @_;
+    return 1 unless defined $have;      # nothing held yet
+    return 0 unless defined $owner;     # asserted nowhere
+    return (defined $new_from && $new_from eq $owner) ? 1 : 0;
+}
+
 # $stop_idx, when given, is the line index of the next @SUBSYS section
 # header. Companion `###` sections are nested inside their parent `##`
 # section, so without it the parent's scan runs straight through the
@@ -949,10 +1000,13 @@ sub refresh_section {
             $checks{$id} = $c->{$id};
             $where{$id} = $src;
         }
+        # %where is already updated for this source above, so cite_upgrades()
+        # can tell "this source owns the row" from "this source merely read
+        # the row out of the shared plan doc". (GH #133)
         my %cf;
         my $cs = grep_citations($src, \%cf);
         for my $id (keys %$cs) {
-            next if defined $cites{$id};
+            next unless cite_upgrades($cites{$id}, $cf{$id}, $where{$id});
             $cites{$id}     = $cs->{$id};
             $cite_from{$id} = $cf{$id};
         }
@@ -1009,14 +1063,18 @@ sub refresh_section {
             my %cf;
             my $cs = grep_citations($src, \%cf);
             for my $id (keys %$cs) {
-                next if defined $ccites{$id};
+                next unless cite_upgrades($ccites{$id}, $cf{$id}, $where{$id});
                 $ccites{$id} = $cs->{$id};
                 $cfrom{$id}  = $cf{$id};
             }
         }
+        # The ownership gate stays: only rows this companion asserts. What
+        # changed is that a row-local citation now displaces a PLAN-DOC one
+        # the primary merged for a row it does not assert — that inversion is
+        # GH #133. A row-local incumbent is still untouchable (SELF-46).
         for my $id (keys %owned) {
             next unless defined $ccites{$id};
-            next if defined $cites{$id};
+            next unless cite_upgrades($cites{$id}, $cfrom{$id}, $where{$id});
             $cites{$id}     = $ccites{$id};
             $cite_from{$id} = $cfrom{$id};
         }

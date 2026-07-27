@@ -938,6 +938,210 @@ check('SELF-52', 'a citation supplied by the plan doc names the PLAN DOC, not a 
       ($drift_src{'DR-PLAN-01'} // '') eq 'doc/testing/UART-I2C-TEST-PLAN-DESIGN.md',
       'got ' . ($drift_src{'DR-PLAN-01'} // '(no drift line)') . "; drift=[@dd]");
 
+# ── Row-local evidence outranks the plan doc ACROSS sources (GH #133) ─
+#
+# grep_citations() orders its tiers row-local-before-plan inside one file,
+# and the merge across a section's sources used to throw that order away:
+# the first source to answer locked the row in. A primary source answers for
+# EVERY plan row, asserted there or not (the trailing plan loop), so its
+# plan-doc answer beat the row-local citation of the companion suite that
+# actually asserts the row. Live instance: `NR_A0-01` published
+# `zxnext.vhd:1241`, a bare signal declaration, over the `zxnext.vhd:5080`
+# reset default its assertions read — and reported no drift while doing it,
+# because the hand-written cell agreed with the plan. Ten rows across four
+# subsystems were affected, and four of them were published TWICE with
+# different citations, the parent table taking the plan's and the companion's
+# own table taking the row-local one.
+#
+# The upgrade is the easy half. The rows that matter are the four refusals:
+# a plan-only row must KEEP its plan citation (inventing a row-local one is
+# the borrowed-citation defect SELF-04 exists for), a row-local incumbent
+# must stay put, and a citation may only come from the source this run names
+# in `Test file:line` — so what is published always justifies what runs.
+#
+# Both fixtures borrow real `test/*` paths that %PLAN_DOC maps, so the plan
+# tier is exercised through the production mapping rather than an injected
+# copy that could drift from it. The files are written into the temp tree.
+
+# ── Companion source vs the primary's plan-doc answer ────────────────
+write_fixture('doc/testing/NEXTREG-TEST-PLAN-DESIGN.md', <<'MD');
+| Test ID    | Scenario                  | Expected                        |
+|------------|---------------------------|---------------------------------|
+| PC-COMP-01 | asserted in the companion | plan says fixture_a.vhd:1       |
+| PC-COMP-02 | asserted in the companion | plan says fixture_a.vhd:7       |
+| PC-PLAN-01 | asserted in the primary   | plan says fixture_a.vhd:2       |
+| PC-BARE-01 | asserted in the companion | plan says fixture_a.vhd:4       |
+MD
+
+# `PC-NEXT-01` is the primary's, and in the companion it sits immediately
+# after the uncited `PC-BARE-01` — the borrowable neighbour that makes
+# SELF-56 discriminative. The new precedence WIDENS what a broken `next`
+# tier could do: the old merge would have masked the borrowed citation
+# behind the plan-doc answer, this one would publish it.
+write_fixture('test/nextreg/nextreg_test.cpp', <<'CPP');
+void primary() {
+    check("PC-PLAN-01", "primary-owned, carrying no citation of its own",
+          cond, detail);
+    check("PC-NEXT-01", "primary-owned and cited here — VHDL fixture_b.vhd:30",
+          cond, detail);
+}
+CPP
+write_fixture('test/nextreg/nextreg_integration_test.cpp', <<'CPP');
+void companion() {
+    check("PC-COMP-01", "companion-owned and cited here — VHDL fixture_c.vhd:40",
+          cond, detail);
+    check("PC-COMP-02", "companion-owned and cited here — VHDL fixture_c.vhd:41",
+          cond, detail);
+    check("PC-BARE-01", "companion-owned, carrying no citation of its own",
+          cond, detail);
+    check("PC-NEXT-01", "companion copy, cited differently — VHDL fixture_d.vhd:50",
+          cond, detail);
+}
+CPP
+for my $s (qw(pcprimary pccompanion)) {
+    my $path = "$FIXTURE_ROOT/bin/$s";
+    open(my $h, '>', $path) or die "write $path: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $path;
+}
+
+# PC-COMP-01's cell is empty, so the citation this run PUBLISHES is readable
+# straight out of it. Every other cell carries a citation that disagrees with
+# all of them, so those rows drift and both halves of each drift line — the
+# citation and the file it is charged to — are observable.
+my @pcdoc = (
+    '## NextREG — `test/nextreg/nextreg_test.cpp`',
+    '',
+    '| Test ID    | Description              | VHDL file:line   | Status  | Test file:line                                  |',
+    '|------------|--------------------------|------------------|---------|-------------------------------------------------|',
+    '| PC-COMP-01 | companion-owned, cited   | —                | missing | missing                                         |',
+    '| PC-COMP-02 | companion-owned, cited   | fixture_a.vhd:99 | missing | missing                                         |',
+    '| PC-PLAN-01 | primary-owned, uncited   | fixture_a.vhd:99 | missing | missing                                         |',
+    '| PC-BARE-01 | companion-owned, uncited | fixture_a.vhd:99 | missing | missing                                         |',
+);
+my (@pcd, @pck);
+refresh_section(\@pcdoc, 0, 'bin/pcprimary', 'test/nextreg/nextreg_test.cpp',
+                \@pcd, \@pck, undef,
+                [['bin/pccompanion', 'test/nextreg/nextreg_integration_test.cpp']]);
+my %pc_row = map { $pcdoc[$_] =~ /^\|\s*([A-Za-z0-9._\-]+)\s*\|/ ? ($1 => $pcdoc[$_]) : () }
+             0 .. $#pcdoc;
+my %pc_drift = map { /^(\S+)\s+(\S+): doc=\[([^\]]*)\] source=\[([^\]]*)\]/
+                     ? ($2 => [$1, $4]) : () } @pcd;
+sub pc_drift_src  { return ($pc_drift{ $_[0] } || ['(no drift line)'])->[0]; }
+sub pc_drift_cite { return ($pc_drift{ $_[0] } || ['', '(no drift line)'])->[1]; }
+
+check('SELF-53', 'an empty cell for a companion-asserted row is filled with the COMPANION check\'s citation, not the plan doc\'s',
+      scalar(($pc_row{'PC-COMP-01'} // '') =~ /\|\s*fixture_c\.vhd:40\s*\|/
+             && ($pc_row{'PC-COMP-01'} // '') !~ /fixture_a\.vhd:1\b/),
+      'got [' . ($pc_row{'PC-COMP-01'} // '(row missing)') . ']');
+
+check('SELF-54', 'the upgraded citation is charged to the companion source it was read from, not to the plan doc',
+      scalar(pc_drift_cite('PC-COMP-02') eq 'fixture_c.vhd:41'
+             && pc_drift_src('PC-COMP-02') eq 'test/nextreg/nextreg_integration_test.cpp'),
+      'got src=' . pc_drift_src('PC-COMP-02')
+        . ' cite=' . pc_drift_cite('PC-COMP-02') . "; drift=[@pcd]");
+
+# The refusals.
+check('SELF-55', 'a row whose only citation is the plan doc\'s keeps it, still charged to the plan doc',
+      scalar(pc_drift_cite('PC-PLAN-01') eq 'fixture_a.vhd:2'
+             && pc_drift_src('PC-PLAN-01') eq 'doc/testing/NEXTREG-TEST-PLAN-DESIGN.md'),
+      'got src=' . pc_drift_src('PC-PLAN-01')
+        . ' cite=' . pc_drift_cite('PC-PLAN-01') . "; drift=[@pcd]");
+
+check('SELF-56', 'a companion-asserted row whose check carries no citation keeps the plan doc\'s rather than borrowing the next check\'s',
+      scalar(pc_drift_cite('PC-BARE-01') eq 'fixture_a.vhd:4'
+             && pc_drift_src('PC-BARE-01') eq 'doc/testing/NEXTREG-TEST-PLAN-DESIGN.md'),
+      'got src=' . pc_drift_src('PC-BARE-01')
+        . ' cite=' . pc_drift_cite('PC-BARE-01') . "; drift=[@pcd]");
+
+# ── The same inversion inside one multi-suite section (the Audio shape) ─
+#
+# No companion sub-table here: three suites back one `##` section and their
+# rows interleave in a single table, so the merge that inverts the tiers is
+# the primary loop's own. `NR-43` is the live instance.
+write_fixture('doc/testing/AUDIO-TEST-PLAN-DESIGN.md', <<'MD');
+| Test ID      | Scenario                    | Expected                  |
+|--------------|-----------------------------|---------------------------|
+| PM-SECOND-01 | asserted in the second suite| plan says fixture_a.vhd:5 |
+| PM-SECOND-02 | asserted in the second suite| plan says fixture_a.vhd:8 |
+| PM-FIRST-01  | asserted in the first suite | plan says fixture_a.vhd:6 |
+| PM-BOTH-01   | asserted in both suites     | plan says fixture_a.vhd:9 |
+MD
+
+write_fixture('test/audio/audio_test.cpp', <<'CPP');
+void first() {
+    check("PM-FIRST-01", "first-suite-owned, carrying no citation of its own",
+          cond, detail);
+    check("PM-BOTH-01", "first-suite copy, cited — VHDL fixture_d.vhd:80",
+          cond, detail);
+}
+CPP
+write_fixture('test/audio/audio_nextreg_test.cpp', <<'CPP');
+void second() {
+    check("PM-SECOND-01", "second-suite-owned, cited — VHDL fixture_b.vhd:60",
+          cond, detail);
+    check("PM-SECOND-02", "second-suite-owned, cited — VHDL fixture_b.vhd:61",
+          cond, detail);
+    check("PM-FIRST-01", "second-suite copy, cited — VHDL fixture_c.vhd:70",
+          cond, detail);
+    check("PM-BOTH-01", "second-suite copy, cited — VHDL fixture_b.vhd:81",
+          cond, detail);
+}
+CPP
+for my $s (qw(pmfirst pmsecond)) {
+    my $path = "$FIXTURE_ROOT/bin/$s";
+    open(my $h, '>', $path) or die "write $path: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $path;
+}
+
+my @pmdoc = (
+    '## Audio — `test/audio/audio_test.cpp`',
+    '',
+    '| Test ID      | Description               | VHDL file:line   | Status  | Test file:line                            |',
+    '|--------------|---------------------------|------------------|---------|-------------------------------------------|',
+    '| PM-SECOND-01 | second-suite-owned, cited | —                | missing | missing                                   |',
+    '| PM-SECOND-02 | second-suite-owned, cited | fixture_a.vhd:99 | missing | missing                                   |',
+    '| PM-FIRST-01  | first-suite-owned, uncited| fixture_a.vhd:99 | missing | missing                                   |',
+    '| PM-BOTH-01   | cited in both suites      | fixture_a.vhd:99 | missing | missing                                   |',
+);
+my (@pmd, @pmk);
+refresh_section(\@pmdoc, 0,
+                ['bin/pmfirst', 'bin/pmsecond'],
+                ['test/audio/audio_test.cpp', 'test/audio/audio_nextreg_test.cpp'],
+                \@pmd, \@pmk);
+my %pm_row = map { $pmdoc[$_] =~ /^\|\s*([A-Za-z0-9._\-]+)\s*\|/ ? ($1 => $pmdoc[$_]) : () }
+             0 .. $#pmdoc;
+my %pm_drift = map { /^(\S+)\s+(\S+): doc=\[([^\]]*)\] source=\[([^\]]*)\]/
+                     ? ($2 => [$1, $4]) : () } @pmd;
+sub pm_drift_src  { return ($pm_drift{ $_[0] } || ['(no drift line)'])->[0]; }
+sub pm_drift_cite { return ($pm_drift{ $_[0] } || ['', '(no drift line)'])->[1]; }
+
+check('SELF-57', 'in a multi-suite section, an empty cell takes the SECOND suite\'s row-local citation over the plan doc answer the first suite supplied',
+      scalar(($pm_row{'PM-SECOND-01'} // '') =~ /\|\s*fixture_b\.vhd:60\s*\|/
+             && ($pm_row{'PM-SECOND-01'} // '') !~ /fixture_a\.vhd:5\b/),
+      'got [' . ($pm_row{'PM-SECOND-01'} // '(row missing)') . ']');
+
+check('SELF-58', 'that upgraded citation is charged to the second suite, not to the section\'s first source',
+      scalar(pm_drift_cite('PM-SECOND-02') eq 'fixture_b.vhd:61'
+             && pm_drift_src('PM-SECOND-02') eq 'test/audio/audio_nextreg_test.cpp'),
+      'got src=' . pm_drift_src('PM-SECOND-02')
+        . ' cite=' . pm_drift_cite('PM-SECOND-02') . "; drift=[@pmd]");
+
+check('SELF-59', 'a second suite\'s citation does not answer for a row the FIRST suite owns: the plan doc\'s stands',
+      scalar(pm_drift_cite('PM-FIRST-01') eq 'fixture_a.vhd:6'
+             && pm_drift_src('PM-FIRST-01') eq 'doc/testing/AUDIO-TEST-PLAN-DESIGN.md'),
+      'got src=' . pm_drift_src('PM-FIRST-01')
+        . ' cite=' . pm_drift_cite('PM-FIRST-01') . "; drift=[@pmd]");
+
+check('SELF-60', 'among row-local citations the first source still wins: the second suite\'s does not displace it',
+      scalar(pm_drift_cite('PM-BOTH-01') eq 'fixture_d.vhd:80'
+             && pm_drift_src('PM-BOTH-01') eq 'test/audio/audio_test.cpp'),
+      'got src=' . pm_drift_src('PM-BOTH-01')
+        . ' cite=' . pm_drift_cite('PM-BOTH-01') . "; drift=[@pmd]");
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

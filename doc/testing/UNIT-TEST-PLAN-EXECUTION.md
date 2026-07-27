@@ -394,6 +394,19 @@ The script's input assumptions:
   `<!-- protected -->` marker is therefore only needed for a genuinely
   CROSS-subsystem pointer (NR-C0-02 → `atic_atac_nmi_test.cpp`). Pinned by
   `SELF-39..46`.
+- **Citation precedence across sources** (GH #133): first-source-wins governs
+  STATUS, not the VHDL citation. A source answers for every row of its plan
+  doc, asserted there or not, so applying first-source-wins to citations let
+  a plan-doc answer outrank the row-local citation of the suite that actually
+  asserts the row — `NR_A0-01` published `zxnext.vhd:1241`, a bare signal
+  declaration, over the `zxnext.vhd:5080` reset default its assertions read,
+  and reported no drift while doing it because the hand-written cell agreed
+  with the plan. A plan-doc citation is therefore provisional: row-local
+  evidence displaces it, but only evidence read from the source this run
+  names in `Test file:line`, so what is published always justifies what runs.
+  Ten rows across four subsystems were affected; four of them were published
+  twice with different citations, the parent table taking the plan's and the
+  companion's own table the row-local one. Pinned by `SELF-53..60`.
 
 The manual fallback is below, in case the script is unavailable or the
 refresh touches areas the script doesn't automate (last-touch commit hash,
