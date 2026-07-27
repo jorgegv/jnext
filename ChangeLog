@@ -1,5 +1,17 @@
 # ChangeLog
 
+## v0.99.41 (2026-07-27)
+
+### User Features
+- New Windows package for Windows 7 SP1 and later, with the same full GUI and debugger
+- New 32-bit x86 Windows package, for Windows installs that are not 64-bit
+
+### Internal JNEXT Development
+- Windows SD-image download and hashing use built-in WinHTTP and BCrypt; curl and OpenSSL dropped
+- Qt 5 compatibility layer behind a build option, with a CI job keeping it compiling
+- Traceability matrix reports the rows and suites it omits, and generates its own summary
+- Matrix scanner is comment-aware and section-scoped; 102 aliased test IDs triaged
+
 ## v0.99.37 (2026-07-27)
 
 ### User Features

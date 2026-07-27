@@ -145,4 +145,10 @@
 |        |      | default handler for ALL unmatched ports), #111/#112 +3 float-port blocked decode and border arm, #113 CP/M tilemap         |
 |        |      | paper opaque, #114 debugger window scroll-panning. #108 Win7/8 + 32-bit builds feature-complete on their own               |
 |        |      | branch (not merged, per owner policy). v0.99.29->.36; v0.99.37 release prep.                                               |
+| 27/7   |      | #108 CLOSED and MERGED: Windows 7/8 support. Qt5 compat layer behind JNEXT_FORCE_QT5 (~25 guarded lines) +                 |
+|        |      | qt5-guard CI job; WinHTTP+BCrypt replace the curl/OpenSSL chain for SD provisioning (the PathCch blocker);                 |
+|        |      | i686 leg added. Published lineup: x64-Qt6 (Win10 1703+), x64-Qt5 + x86-Qt5 (Win7 SP1+ by whole-bundle                      |
+|        |      | import audit; @janko-jj confirmed both on real Windows 8.1 hardware). #117/#118/#119 traceability matrix                   |
+|        |      | precision: symmetric omission reporting + generated Summary, comment-aware scanning, section-scoped                        |
+|        |      | recording, 102 sub-letter-aliased IDs triaged (12 given rows). v0.99.38->.40; v0.99.41 release prep.                       |
 | TOTAL: | 383h |                                                                                                      |

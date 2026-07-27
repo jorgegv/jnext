@@ -17,9 +17,22 @@
 -->
 # Windows
 
-Download `jnext-*-windows-x64.zip`, unzip it anywhere, and run `jnext.exe`.
-There is no installer: everything the program needs is in the folder, and
-deleting the folder uninstalls it.
+There are three Windows packages. All three are the same emulator, with the
+same full GUI and debugger — pick the one that matches your Windows:
+
+| Package                       | Runs on                        |
+|-------------------------------|--------------------------------|
+| `jnext-*-windows-x64.zip`     | Windows 10 (1703) or later     |
+| `jnext-*-windows-x64-qt5.zip` | Windows 7 SP1 or later         |
+| `jnext-*-windows-x86-qt5.zip` | Windows 7 SP1 or later, 32-bit |
+
+The Windows 7/8 packages are built against Qt 5 instead of Qt 6, which is what
+lets them run there — Qt 6 needs APIs that only exist from Windows 10 onwards.
+The 32-bit package is the one to take on a 32-bit Windows of any version.
+
+Unzip the one you picked anywhere, and run `jnext.exe`. There is no installer:
+everything the program needs is in the folder, and deleting the folder
+uninstalls it.
 
 The first time you run it, Windows SmartScreen may say it *prevented an
 unrecognised app from starting* and show no publisher name. That is expected,
@@ -68,7 +81,7 @@ the **General** tab tick **Unblock** at the bottom, then **OK**. If there is no
 The same thing from PowerShell:
 
 ```powershell
-Unblock-File .\jnext-*-windows-x64.zip
+Unblock-File .\jnext-*-windows-*.zip
 ```
 
 `Unblock-File` does exactly what that checkbox does.
