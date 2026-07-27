@@ -813,7 +813,7 @@ endif()
 - [x] Create a demo with sprite and Layer2 rendering that allows testing the emulator and Phase 3 functionality
 - [x] NEX file loader: parse the NEX V1.0/V1.1/V1.2 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure Layer 2 screen/palette / border / entry bank from header fields — `NexLoader` class in `src/core/nex_loader.h/.cpp`
 - [x] `--load FILE` CLI flag: auto-detects file format by extension (`.nex`) and loads accordingly; extensible for future `.sna`/`.z80`/`.tap` support
-- [x] Wire file loading into the emulator UI (File menu in Phase 6) — Load NEX via menu or Ctrl+O
+- [x] Wire file loading into the emulator UI (File menu in Phase 6) — Load NEX via menu or Alt+O (Ctrl+O until issue #115)
 - [x] **Milestone**: Can load and run `.nex` files from CLI and GUI
 
 ### Phase 4 — Audio ✓ COMPLETE
@@ -1038,7 +1038,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] General UI:
   - [x] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (Machine > Emulator Speed menu, Custom... dialog, status bar %, `--speed PERCENT` CLI)
-  - [x] Save PNG screenshot (File > Save Screenshot... Ctrl+S, toolbar button)
+  - [x] Save PNG screenshot (File > Save Screenshot... Alt+S, toolbar button)
   - [x] CLI: add options for all the previous functionalities where it makes sense:
     - ~~--magic-port-enable~~ ✓ `--magic-port PORT`
     - ~~--magic-port-mode~~ ✓ `--magic-port-mode MODE`

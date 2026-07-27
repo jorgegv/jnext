@@ -1,8 +1,15 @@
-# Task 115 — Host Shortcut Inventory and Reserved-Key Proposal
+# Task 115 — Host Shortcut Inventory, and the Alt Migration That Followed
 
-> **Status: INVENTORY AND PROPOSAL ONLY. No GUI behaviour was changed by this
-> document.** The reserved-shortcut list is a product decision for the project
-> owner. This document supplies the evidence needed to make it.
+> **Status: DECIDED AND IMPLEMENTED.** §§1-7 are the original inventory (the
+> evidence). §8 is the owner's decision and what shipped. §9 is the test suite
+> that pins it. Every table below has been updated to the post-migration state;
+> where the pre-migration value matters it is shown struck through or named
+> explicitly, so this file still reads as the record of what changed and why.
+>
+> **What shipped:** the six plain `Ctrl+<letter>` host shortcuts moved to
+> `Alt+<letter>`. Ctrl is the guest's Symbol Shift and is now left entirely to
+> the guest. Three menubar mnemonics were re-lettered to clear the collisions
+> the move created. Pinned by `test/gui/host_hotkey_test.cpp` (27 rows).
 >
 > Scope: issue [#115](https://github.com/jorgegv/jnext/issues/115) part 2
 > ("host shortcuts leak through — Ctrl+Q quits the emulator"). Part 1 (mapping
@@ -20,9 +27,10 @@
 On a ZX Spectrum, `Ctrl` is a shift key. After the part-1 fix it is **Symbol
 Shift** (`keymaps.vhd:84`); before it, it was Caps Shift. Either way **every
 `Ctrl+<letter>` chord is a legitimate guest keystroke**, so every `Ctrl+<letter>`
-host shortcut steals a real Spectrum key. jnext currently binds six of them.
+host shortcut steals a real Spectrum key. jnext bound six of them; §8 is how
+that was resolved.
 
-The codebase already knows this. `src/gui/main_window.cpp:612-616`, on the
+The codebase already knows this. `src/gui/main_window.cpp:650-655`, on the
 mouse-capture menu item:
 
 ```
@@ -44,14 +52,14 @@ This determines what any fix can and cannot do.
 
 ### 2.1 Focus
 
-- `src/gui/main_window.cpp:177` — `setCentralWidget(emulator_widget_)`
-- `src/gui/main_window.cpp:185` — `setFocusPolicy(Qt::StrongFocus)` on the window
+- `src/gui/main_window.cpp:178` — `setCentralWidget(emulator_widget_)`
+- `src/gui/main_window.cpp:186` — `setFocusPolicy(Qt::StrongFocus)` on the window
 - `src/gui/emulator_widget.cpp:8` — `EmulatorWidget`'s constructor **never** calls
   `setFocusPolicy`, so it keeps `QWidget`'s default `Qt::NoFocus`.
 
 The viewport is not a focus target. Key events land on `MainWindow` and the
 guest is fed from the *window's* handler via `handle_key()`
-(`src/gui/main_window.cpp:1518-1535`).
+(`src/gui/main_window.cpp:1593-1607`).
 
 ### 2.2 Precedence, highest first
 
@@ -60,10 +68,10 @@ guest is fed from the *window's* handler via `handle_key()`
    Qt delivers `QEvent::ShortcutOverride` then `QEvent::Shortcut` *before* the
    key ever arrives as a `KeyPress` at the focus widget.
 2. **`QMenuBar` Alt+letter mnemonics** — same layer.
-3. **`MainWindow::event()`** — `src/gui/main_window.cpp:1498-1517`. Intercepts
+3. **`MainWindow::event()`** — `src/gui/main_window.cpp:1573-1591`. Intercepts
    `Tab`/`Backtab` only.
 4. **`MainWindow::keyPressEvent` / `keyReleaseEvent`** —
-   `src/gui/main_window.cpp:1276`, `:1449`.
+   `src/gui/main_window.cpp:1351`, `:1524`.
 5. **`handle_key()` → `qt_key_to_sdl()` → `key_callback_` → guest.**
 
 ### 2.3 There is no fall-through mechanism at all
@@ -90,7 +98,7 @@ swallowed, and nothing in the codebase can currently override that.**
 ### 2.4 The precedence already creates dead code
 
 Because shortcuts outrank `keyPressEvent`, some `keyPressEvent` cases are
-unreachable. The source says so at `src/gui/main_window.cpp:1346-1349`:
+unreachable. The source says so at `src/gui/main_window.cpp:1420-1424`:
 
 ```
 // Note (#45): plain F4 is normally
@@ -99,8 +107,8 @@ unreachable. The source says so at `src/gui/main_window.cpp:1346-1349`:
 // so the F4 case below only sees modified presses (Shift/Ctrl+F4).
 ```
 
-- **F4** — `soft_reset` QAction (`:481`) wins; `case Qt::Key_F4` (`:1358`) is dead for plain F4.
-- **F11** — `fullscreen_action_` (`:681`) wins; `case Qt::Key_F11` (`:1330`) is dead.
+- **F4** — `soft_reset` QAction (`:519`) wins; `case Qt::Key_F4` (`:1433`) is dead for plain F4.
+- **F11** — `fullscreen_action_` (`:725`) wins; `case Qt::Key_F11` (`:1405`) is dead.
 
 ---
 
@@ -108,66 +116,87 @@ unreachable. The source says so at `src/gui/main_window.cpp:1346-1349`:
 
 ### 3.1 `QAction` shortcuts (12). All swallowed; guest never sees them.
 
-| # | Key | file:line | Action | Guest collision |
-|---|-----|-----------|--------|-----------------|
-| 1 | `Ctrl+O` | `main_window.cpp:368` | Load NEX dialog | **Yes** — SS+O is `;` |
-| 2 | `Ctrl+F5` | `main_window.cpp:377` | Start MPEG4 recording | No (F5 reserved anyway) |
-| 3 | `Ctrl+F6` | `main_window.cpp:395` | Stop MPEG4 recording | No |
-| 4 | `Ctrl+S` | `main_window.cpp:429` | Save Screenshot dialog | **Yes** — SS+S is `\|` |
-| 5 | `Ctrl+Shift+S` | `main_window.cpp:459` | Save Snapshot | **Yes** — CS+SS+S |
-| 6 | **`Ctrl+Q`** | `main_window.cpp:465` | **`QApplication::quit`** | **Yes** — SS+Q is `<=` |
-| 7 | `Ctrl+R` | `main_window.cpp:477` | Power Reset (cold boot) | **Yes** — SS+R is `<` |
-| 8 | `F4` | `main_window.cpp:481` | Soft Reset | No |
-| 9 | `Ctrl+T` | `main_window.cpp:627` | Open Tape File | **Yes** — SS+T is `>` |
-| 10 | `F11` | `main_window.cpp:681` | Fullscreen (checkable) | No |
-| 11 | `Ctrl+D` | `main_window.cpp:696` | Toggle debugger (`#ifdef ENABLE_DEBUGGER`) | **Yes** — SS+D is `STEP` |
-| 12 | `QKeySequence::Preferences` | `main_window.cpp:704` | Preferences dialog | See note |
+Post-migration state. "Was" is the pre-#115 binding where it changed.
 
-**Ctrl+Q, verbatim** (`main_window.cpp:464-466`):
+| # | Key | Was | file:line | Action | Guest collision |
+|---|-----|-----|-----------|--------|-----------------|
+| 1 | `Alt+O` | `Ctrl+O` | `main_window.cpp:396` | Load NEX dialog | Cleared — SS+O `;` is back |
+| 2 | `Ctrl+F5` | — | `main_window.cpp:405` | Start MPEG4 recording | No (F-key, no ZX meaning) |
+| 3 | `Ctrl+F6` | — | `main_window.cpp:423` | Stop MPEG4 recording | No |
+| 4 | `Alt+S` | `Ctrl+S` | `main_window.cpp:457` | Save Screenshot dialog | Cleared — SS+S `\|` is back |
+| 5 | `Ctrl+Shift+S` | — | `main_window.cpp:490` | Save Snapshot | **Yes, still** — CS+SS+S. Out of #115's scope (a three-key chord, not one of the six); see §8.3 |
+| 6 | **`Alt+Q`** | **`Ctrl+Q`** | `main_window.cpp:496` | **`QApplication::quit`** | Cleared — SS+Q `<=` is back |
+| 7 | `Alt+R` | `Ctrl+R` | `main_window.cpp:515` | Power Reset (cold boot) | Cleared — SS+R `<` is back |
+| 8 | `F4` | — | `main_window.cpp:519` | Soft Reset | No |
+| 9 | `Alt+T` | `Ctrl+T` | `main_window.cpp:668` | Open Tape File | Cleared — SS+T `>` is back |
+| 10 | `F11` | — | `main_window.cpp:725` | Fullscreen (checkable) | No |
+| 11 | `Alt+D` | `Ctrl+D` | `main_window.cpp:740` | Toggle debugger (`#ifdef ENABLE_DEBUGGER`) | Cleared — SS+D `STEP` is back |
+| 12 | `QKeySequence::Preferences` | — | `main_window.cpp:751` | Preferences dialog | No — see note |
+
+**Quit still bypasses `closeEvent`** (`main_window.cpp:495-503`):
 
 ```cpp
 QAction* quit = file_menu->addAction(tr("&Quit"));
-quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
+quit->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
 connect(quit, &QAction::triggered, qApp, &QApplication::quit);
 ```
 
-Defined once. **Nothing guards it** — no confirmation, and because it goes
-straight to `QApplication::quit()` it does **not** route through
-`MainWindow::closeEvent` (declared `main_window.h:159`). One slip and the
-session is gone.
+The migration changed the key and nothing else. **Nothing guards it** — no
+confirmation, and because it goes straight to `QApplication::quit()` it does
+**not** route through `MainWindow::closeEvent` (declared `main_window.h:159`),
+so a Quit from here skips the recorder-stop and debugger-teardown that closing
+the window performs. The owner's #115 decision was the plain key migration and
+explicitly *not* a confirmation dialog, so this is recorded, not fixed. It is
+unchanged from the pre-#115 behaviour in every respect except which key
+reaches it.
 
-**Note on #12 (`QKeySequence::Preferences`).** This is a `StandardKey`, resolved
-by `QPlatformTheme::keyBindings()`. In Qt's standard-key table `Preferences` is
-bound only under the macOS keyboard scheme (Cmd+`,`); on Linux/X11 and Windows
-it resolves to an empty sequence and consumes no host key. **This is inferred
-from Qt's documented standard-key semantics, not from jnext source, and was not
-empirically confirmed on this host** — worth a 30-second check before acting on
-it. If it *is* live on macOS it collides with the guest's `,` key (SS+N).
+**Note on #12 (`QKeySequence::Preferences`) — the earlier guess was wrong.**
+This inventory originally reasoned from Qt's documented standard-key table that
+`Preferences` resolves to an empty sequence on Linux and consumes no host key,
+and flagged it as unverified. It is now measured: on this host (Qt 6.11.1,
+Linux) it resolves to the portable sequence **`Settings`** — the dedicated
+`Qt::Key_Settings` multimedia key, not a modifier chord. Either way it claims
+no letter and collides with nothing, but the *reason* is not the one given
+before. Measured by `host_hotkey_test`'s H115-27 failure detail, which prints
+the complete live shortcut set. macOS (Cmd+`,`) is still unverified here.
 
 ### 3.2 Top-level menu mnemonics → global Alt+letter (8)
 
 Mechanism: `menuBar()->addMenu(tr("&X"))`. Qt makes a top-level menubar mnemonic
 an Alt+letter accelerator whenever the window is active. All swallowed.
 
-| Alt key | Title | file:line |
-|---|---|---|
-| `Alt+F` | `&File` | `main_window.cpp:365` |
-| `Alt+M` | `&Machine` | `main_window.cpp:469` |
-| `Alt+I` | `&Input` | `main_window.cpp:580` |
-| `Alt+T` | `&Tape` | `main_window.cpp:624` |
-| `Alt+D` | `&Debug` | `main_window.cpp:646` |
-| `Alt+V` | `&View` | `main_window.cpp:660` |
-| `Alt+S` | `&Settings` | `main_window.cpp:701` |
-| `Alt+H` | `&Help` | `main_window.cpp:708` |
+| Alt key | Title | Was | file:line |
+|---|---|---|---|
+| `Alt+F` | `&File` | — | `main_window.cpp:393` |
+| `Alt+M` | `&Machine` | — | `main_window.cpp:506` |
+| `Alt+I` | `&Input` | — | `main_window.cpp:618` |
+| `Alt+A` | `T&ape` | `Alt+T` (`&Tape`) | `main_window.cpp:665` |
+| `Alt+B` | `De&bug` | `Alt+D` (`&Debug`) | `main_window.cpp:690` |
+| `Alt+V` | `&View` | — | `main_window.cpp:704` |
+| `Alt+N` | `Setti&ngs` | `Alt+S` (`&Settings`) | `main_window.cpp:748` |
+| `Alt+H` | `&Help` | — | `main_window.cpp:755` |
 
-**Collision risk with the guest's Alt chords.** `src/input/keyboard.cpp:165-171`
+**Three of these were re-lettered by the migration, and had to be.** Moving the
+six shortcuts onto Alt put `Alt+S`, `Alt+T` and `Alt+D` into a namespace already
+claimed by `&Settings`, `&Tape` and `&Debug`. A letter claimed twice is an
+*ambiguous* Qt shortcut, and `QAction::event()` answers an ambiguous
+`QShortcutEvent` with a `qWarning` and nothing else — so **both** bindings stop
+working, with no visible error. Measured, not assumed: with `&Tape` and the
+`Alt+T` shortcut both live, four consecutive `Alt+T` presses fired the action
+**zero** times. The visible menu titles are unchanged ("Tape", "Debug",
+"Settings"); only which letter is underlined moved.
+
+**Collision risk with the guest's Alt chords.** `src/input/keyboard.cpp:163,172-174`
 binds `Alt+E` → EDIT, `Alt+G` → GRAPH, `Alt+C` → CAPS LOCK, and `:163`
-`Alt+`` ` `` → INV VIDEO. E, G and C happen not to be used by any top-level menu
-— **that is luck, not design**. Adding a menu titled `&Edit`, `&Graphics` or
-`&Config` would silently kill three guest keys. `keyboard.cpp:165-168` already
-records that `Alt+D` was unusable for exactly this reason.
+`Alt+`` ` `` → INV VIDEO. E, G and C are not used by any top-level menu or any
+shortcut — that used to be luck, and is now **checked**: `host_hotkey_test`
+row H115-27 fails if any host binding claims one. Adding a menu titled `&Edit`,
+`&Graphics` or `&Config`, or a shortcut on those letters, now fails a test
+instead of silently killing a guest key. The re-lettering above also had to
+avoid E/G/C, which is why `Settings` went to `N` rather than the more natural
+`&Settings`→`S&ettings`.
 
-### 3.3 `keyPressEvent` interceptions (`main_window.cpp:1276-1447`)
+### 3.3 `keyPressEvent` interceptions (`main_window.cpp:1351-1522`)
 
 All swallowed unless noted.
 
@@ -176,29 +205,29 @@ All swallowed unless noted.
 
 | Key | file:line | Effect |
 |---|---|---|
-| `F5` | `:1301` | Run |
-| `F6` | `:1306` | Step Into |
-| `F7` | `:1311` | Step Over |
-| `F8` | `:1316` | Step Out |
-| `F9` | `:1321` | Pause |
+| `F5` | `:1376` | Run |
+| `F6` | `:1381` | Step Into |
+| `F7` | `:1386` | Step Over |
+| `F8` | `:1391` | Step Out |
+| `F9` | `:1396` | Pause |
 
 **Unconditional:**
 
 | Key | file:line | Effect | Live? |
 |---|---|---|---|
-| `F11` | `:1330` | toggle fullscreen | Dead — QAction `:681` wins |
-| `F2` | `:1337` | cycle scale | **Live** |
-| `F1` | `:1350` | hard reset | Live (only if no Shift/Ctrl) |
-| `F4` | `:1358` | soft reset | Dead for plain F4 |
-| `F9` | `:1366` | Multiface NMI (debugger off) | Live |
-| `F10` | `:1377` | DivMMC NMI | Live |
-| `F3` | `:1405` | EmuFnKeys 3 | Live |
-| `F5` | `:1412` | EmuFnKeys 5 (expansion bus on) | Live |
-| `F6` | `:1419` | EmuFnKeys 6 (expansion bus off) | Live |
-| `F7` | `:1426` | EmuFnKeys 7 (scanline weight) | Live |
-| `F8` | `:1433` | EmuFnKeys 8 (CPU speed) | Live |
+| `F11` | `:1405` | toggle fullscreen | Dead — QAction `:725` wins |
+| `F2` | `:1412` | cycle scale | **Live** |
+| `F1` | `:1425` | hard reset | Live (only if no Shift/Ctrl) |
+| `F4` | `:1433` | soft reset | Dead for plain F4 |
+| `F9` | `:1441` | Multiface NMI (debugger off) | Live |
+| `F10` | `:1452` | DivMMC NMI | Live |
+| `F3` | `:1480` | EmuFnKeys 3 | Live |
+| `F5` | `:1487` | EmuFnKeys 5 (expansion bus on) | Live |
+| `F6` | `:1494` | EmuFnKeys 6 (expansion bus off) | Live |
+| `F7` | `:1501` | EmuFnKeys 7 (scanline weight) | Live |
+| `F8` | `:1508` | EmuFnKeys 8 (CPU speed) | Live |
 
-**The one deliberate fall-through** — `main_window.cpp:1285-1296`:
+**The one deliberate fall-through** — `main_window.cpp:1360-1371`:
 
 ```cpp
 if (mouse_captured_ &&
@@ -211,16 +240,16 @@ if (mouse_captured_ &&
 Ctrl+Alt releases the pointer **and** still reaches the guest, because
 swallowing the Alt key-down would desync `Keyboard::alt_held_`.
 
-`Esc` deliberately has no case (`:1334-1336`) — Task 77 made it the ZX BREAK key.
+`Esc` deliberately has no case (`:1409-1411`) — Task 77 made it the ZX BREAK key.
 
-### 3.4 `keyReleaseEvent` (`main_window.cpp:1449-1496`)
+### 3.4 `keyReleaseEvent` (`main_window.cpp:1524-1571`)
 
-Consumes releases of F11/F2 (`:1453-1456`), F1/F4/F9/F10 (`:1459-1462`), and
-F3/F5/F6/F7/F8 (`:1468-1481`, with a debugger-enabled exception at `:1485-1489`),
+Consumes releases of F11/F2 (`:1528-1531`), F1/F4/F9/F10 (`:1534-1537`), and
+F3/F5/F6/F7/F8 (`:1543-1556`, with a debugger-enabled exception at `:1560-1564`),
 so hotkey releases never bleed into the ZX matrix. Auto-repeat is filtered at
-`:1451` and again in `handle_key` at `:1520`.
+`:1526` and again in `handle_key` at `:1595`.
 
-### 3.5 `MainWindow::event()` — the Tab override (`main_window.cpp:1498-1517`)
+### 3.5 `MainWindow::event()` — the Tab override (`main_window.cpp:1573-1592`)
 
 ```cpp
 if (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab) {
@@ -240,7 +269,7 @@ hard-coded per-key special case, not a general mechanism.**
 ### 3.6 Net F-key state in the Qt frontend
 
 F1–F11 are **all** swallowed. **F12 is the only function key that reaches the
-guest** (`main_window.cpp:138` → `SDL_SCANCODE_F12`), where it is a no-op
+guest** (`main_window.cpp:139` → `SDL_SCANCODE_F12`), where it is a no-op
 because `keyboard.cpp` binds no F-keys.
 
 ---
@@ -318,11 +347,19 @@ menus, no mnemonics, no shortcut map, no focus traversal.
 consumed. `Esc` explicitly not intercepted (`:109-110`).
 Everything else is forwarded raw at `:142`.
 
-> **Frontend divergence — significant.** `Ctrl+Q`, `Ctrl+O`, `Ctrl+S`, `Ctrl+R`,
-> `Ctrl+T`, `Ctrl+D`, `Ctrl+Shift+S`, `Tab` and every `Alt+letter`
-> **reach the guest under SDL but are swallowed under Qt.** The two frontends do
-> not agree on what the guest can see. Any reserved list must be defined once
-> and enforced in both.
+> **Frontend divergence — mostly closed by the migration.** The six chords the
+> issue was about (`Ctrl+Q/O/S/R/T/D`) reached the guest under SDL and were
+> swallowed under Qt. **They now reach the guest under both**, because the fix
+> removed the Qt bindings rather than adding SDL ones — the frontends converged
+> on SDL's pre-existing (correct) behaviour, with no SDL change at all.
+>
+> **What still differs, and why it is not a defect to fix here:** `Ctrl+Shift+S`
+> (out of #115's scope, §8.3) and every `Alt+letter` are still Qt-only. That is
+> structural, not drift: the SDL frontend has no menu bar, no mnemonics and no
+> shortcut map (`sdl_app.cpp:87-143` is a flat `if`-chain on F-keys plus
+> Ctrl+Alt), so there is no menu for an accelerator to reach. A shared reserved
+> table would have nothing to enforce on the SDL side beyond the F-keys both
+> already intercept identically.
 
 **Headless** (`src/platform/headless_app.cpp`) has no interactive key handling at
 all — only scripted injection at `:486`.
@@ -387,126 +424,175 @@ un-reserving them is now stronger, not weaker.
 
 Two comments that justified their design by "Ctrl is Caps Shift" were updated
 in the same branch to say Symbol Shift — `sdl_app.cpp:92-94` (mouse release) and
-`main_window.cpp:612-616` (the no-shortcut rule quoted in §1). The reasoning in
+`main_window.cpp:650-655` (the no-shortcut rule quoted in §1). The reasoning in
 both is unaffected; only the name of the shift key changes.
 
 ---
 
-## 8. Proposed reserved list
+## 8. The decision, and what shipped
 
-Design rule: **reserve only what the hardware reserves, plus the minimum the
-host OS forces on us. Everything else falls through to the guest.**
+Design rule the owner adopted: **reserve only what the hardware reserves, plus
+the minimum the host OS forces on us. Everything else falls through to the
+guest — and where jnext genuinely needs a host chord, it takes it from `Alt`,
+never from `Ctrl`.**
 
-### 8.1 Recommended RESERVED
+### 8.1 RESERVED (unchanged by the migration)
 
 | Key | Rationale |
 |---|---|
 | `F1` – `F12` | Hardware reserves all twelve (`keymaps.vhd:72-79,96-102`); they are routed off-matrix via `o_ps2_func_keys_n` (`ps2_keyb.vhd:202-209`). jnext's existing assignments already match hardware meaning. Zero guest cost — no F-key exists on a Spectrum. |
-| `Ctrl+Alt` | Pointer release. Already implemented as a fall-through (the guest still sees both keys), so it costs the guest nothing. Established VM convention. |
+| `Ctrl+Alt` | Pointer release. Implemented as a fall-through (the guest still sees both keys), so it costs the guest nothing. Established VM convention. |
 | `Alt+F4` (Windows) / platform close | The window manager owns it; jnext cannot reliably keep it anyway. |
-| `Pause` / `Break` | Hardware reserves it (`keymaps.vhd:104`). Currently unbound in jnext — reserving it is free and matches hardware. |
+| `Pause` / `Break` | Hardware reserves it (`keymaps.vhd:104`). Still unbound in jnext — reserving it is free and matches hardware. |
 
-That is the whole list. It costs the guest **nothing**: no reserved key above
-has any ZX matrix meaning.
+F-keys and Pause/Break were **deliberately not migrated**: the hardware itself
+routes them off the key matrix, so intercepting them is hardware-faithful and
+costs the guest nothing.
 
-### 8.2 Recommended UN-RESERVED (returned to the guest)
+### 8.2 MIGRATED — the six plain `Ctrl+<letter>` chords → `Alt+<letter>`
 
-| Key | Currently | Guest meaning it steals | Replacement |
+| Was | Now | Action | Guest sequence handed back |
 |---|---|---|---|
-| **`Ctrl+Q`** | Quit | `SS+Q` = `<=` | Menu File → Quit; window close button; `Alt+F4` |
-| `Ctrl+O` | Load NEX | `SS+O` = `;` | Menu / toolbar Load button |
-| `Ctrl+S` | Screenshot | `SS+S` = `\|` | Menu / toolbar Screenshot button |
-| `Ctrl+Shift+S` | Save snapshot | `CS+SS+S` | Menu |
-| `Ctrl+R` | Power reset | `SS+R` = `<` | Menu / toolbar Reset button; F1 already does hard reset |
-| `Ctrl+T` | Open tape | `SS+T` = `>` | Tape menu |
-| `Ctrl+D` | Toggle debugger | `SS+D` = `STEP` | View menu / Debug toolbar button (already exists) |
-| `Ctrl+F5`, `Ctrl+F6` | Start/stop recording | none directly, but see note | Menu — and F5/F6 are reserved anyway |
-| `Alt+F/M/I/T/D/V/S/H` | Menu mnemonics | `Alt` chords the guest uses (`Alt+E/G/C` today — `keyboard.cpp:169-171` — more if part 1's hardware bindings are adopted) | See §8.4 |
+| `Ctrl+Q` | `Alt+Q` | Quit | `SS+Q` = `<=` |
+| `Ctrl+O` | `Alt+O` | Load NEX | `SS+O` = `;` |
+| `Ctrl+S` | `Alt+S` | Save Screenshot | `SS+S` = `\|` |
+| `Ctrl+R` | `Alt+R` | Power Reset | `SS+R` = `<` |
+| `Ctrl+T` | `Alt+T` | Open Tape File | `SS+T` = `>` |
+| `Ctrl+D` | `Alt+D` | Toggle debugger | `SS+D` = `STEP` |
 
-Every replacement already exists. **No functionality is lost — only its
-keyboard route.**
+**No functionality moved or was lost** — every action keeps its menu entry, its
+toolbar button where it had one, and its handler. Only the accelerator changed.
 
-### 8.3 Keys that must keep reaching the guest (already do — protect them)
+Three menubar mnemonics moved to make room (§3.2): `&Tape`→`T&ape` (Alt+A),
+`&Debug`→`De&bug` (Alt+B), `&Settings`→`Setti&ngs` (Alt+N). The visible menu
+titles are identical; only the underlined letter differs.
 
-`Esc` (BREAK), `Tab` (EXTEND MODE, via the `event()` override), arrows, `Space`,
-`Enter`, `Backspace`, all letters and digits, and the punctuation keys. A
-regression here is worse than the bug being fixed; §9 proposes the test.
+### 8.3 NOT migrated, and why
 
-### 8.4 The `Alt` question
+- **`Ctrl+Shift+S`** (Save Snapshot) — outside the owner's stated scope, which
+  was the six *plain* `Ctrl+<letter>` chords. It does still swallow the guest's
+  `CS+SS+S`. Known residual, deliberately left; the guard row H115-13 is scoped
+  to plain chords so it does not silently flip to green over this.
+- **`Ctrl+F5` / `Ctrl+F6`** (recording) — F-keys have no ZX matrix meaning, so
+  these steal nothing from the guest.
+- **The nine debugger accelerators** (§4.1) — checked, and none is a
+  `Ctrl+<letter>` chord: they are F5–F9 and Shift+F6/F7. `Qt::CTRL` appears
+  nowhere in `src/debugger/`. Nothing to migrate.
 
-`Alt+letter` is the awkward case: Qt makes menubar mnemonics into global
-accelerators, and the guest wants `Alt` chords. Three options, in the order I
-would recommend them:
+### 8.4 The `Alt` question — resolved as "Alt is host-only"
 
-1. **Keep the mnemonics but require the menubar to be activated first.**
-   Qt does this natively if the top-level menus carry **no** `&` mnemonic:
-   pressing and releasing bare `Alt` focuses the menubar, after which plain
-   letters navigate it. The guest gets every `Alt+letter` chord back, and the
-   menus stay fully keyboard-reachable. Cost: one extra keystroke to open a menu.
-2. **Keep mnemonics, and formally reserve the eight letters F/M/I/T/D/V/S/H**,
-   documenting them as unavailable to the guest. Cheapest to implement (zero
-   code) but permanently blocks eight `Alt` chords and leaves the "adding a menu
-   silently breaks a guest key" trap in place.
-3. **Suppress mnemonics only while the guest has focus.** Most faithful,
-   most code, and the mode is invisible to the user — I would not start here.
+`Alt+letter` is one namespace shared by menubar mnemonics and QAction
+shortcuts, and the guest wanted it too. The owner's decision: **Alt belongs to
+the host.** jnext claims `Alt+Q/O/S/R/T/D` (shortcuts) and `Alt+F/M/I/A/B/V/N/H`
+(mnemonics); the guest keeps only `Alt+E/G/C` (EDIT / GRAPH / CAPS LOCK) and
+``Alt+` `` (INV VIDEO), and those three are now test-protected (H115-27).
 
-### 8.5 Mechanism
+**Deliberate divergence from hardware, recorded here so no one later files it
+as a bug:** real Next hardware maps **Left Alt = EXTEND MODE** and
+**Right Alt = GRAPH** (`keymaps.vhd:85-94`). jnext will not do that — it
+follows the FUSE/ZEsarUX convention that puts EXTEND MODE on `Tab`
+(`keyboard.cpp:154`, and the `MainWindow::event()` override at
+`main_window.cpp:1573-1591` that makes `Tab` reachable at all). Reserving Alt
+for the host is the price paid for giving Ctrl back to the guest, and Ctrl is
+worth far more: Symbol Shift is used constantly in NextBASIC, whereas EXTEND
+MODE already has a working, conventional home.
 
-Given §2.3 (no override mechanism exists), the smallest change that implements
-any of the above:
+The two options this section previously preferred were both rejected:
+bare-`Alt` menubar activation (§8.4.1 as written) would have required dropping
+every mnemonic and depended on unverified Qt behaviour; focus-conditional
+mnemonic suppression (§8.4.3) is an invisible mode.
 
-1. **Preferred: stop creating the shortcut.** For the eight `Ctrl+*` QActions,
-   delete the `setShortcut(...)` call. The menu item, toolbar button and
-   `triggered` wiring all stay; only the accelerator goes. This is a one-line
-   deletion per action, needs no new machinery, and is trivially reviewable.
-   It also automatically fixes the Qt/SDL divergence in §5, because the SDL
-   frontend never had these shortcuts in the first place.
-2. **If shortcuts must be retained as a user option**, add a single
-   `QEvent::ShortcutOverride` handler on `MainWindow`. Qt sends
-   `ShortcutOverride` before dispatching a shortcut; accepting the event
-   cancels the shortcut and delivers a normal `KeyPress` instead. That is the
-   one Qt-sanctioned hook for "the focused widget wants this key more than the
-   shortcut does", and it is the natural home for a
-   `Settings → Preferences → Input → "Send all keys to the emulator"` toggle
-   (`AppConfig` already exists, `src/gui/app_config.*`). One handler covers
-   every current and future QAction.
-3. **Do not** use `grabKeyboard()`. It grabs at the window-system level, breaks
-   the window manager's own bindings, and is far more than is needed.
+### 8.5 Mechanism used
 
-Whichever is chosen, the reserved list must be **one shared table** consulted by
-both `MainWindow` and `sdl_app.cpp`, or the frontends will drift again (§5).
+Option 1 of the original proposal, with one change: rather than **deleting**
+the `setShortcut(...)` calls, each was **re-pointed** from `Qt::CTRL` to
+`Qt::ALT`, because the owner wanted the shortcuts kept, not removed. That is
+still a one-line edit per action with no new machinery, and it converged the
+Qt frontend onto the SDL frontend's behaviour for those six chords (§5)
+without touching `sdl_app.cpp` at all.
+
+The `QEvent::ShortcutOverride` handler (option 2) was **not** built: it is only
+needed if shortcuts must be retained on Ctrl behind a user toggle, and the
+migration removes that need. It remains the right design if a
+"send all keys to the emulator" preference is ever wanted.
+
+`grabKeyboard()` (option 3) was not used and should not be.
+
+The "one shared reserved table consulted by both frontends" idea was **not**
+implemented, and §5 explains why it would have nothing to enforce: SDL has no
+menus, so the only shared reserved set is the F-keys, which both frontends
+already intercept identically.
+
+### 8.6 Keys that must keep reaching the guest (protected)
+
+`Esc` (BREAK), `Tab` (EXTEND MODE, via the `event()` override), arrows,
+`Space`, `Enter`, `Backspace`, all letters and digits, the punctuation keys —
+**and now every `Ctrl+<letter>` chord**. A regression here is worse than the
+bug that was fixed, which is what §9 is for.
 
 ---
 
-## 9. Suggested tests (not written — part 2 is proposal-only)
+## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (27 rows)
 
-If the owner adopts §8, these are the rows that would make it stick:
+Registered in `test/CMakeLists.txt` and declared in `test/unit-tests.conf`
+(`?host_hotkey_test 27`). Needs a real `MainWindow`, no display — offscreen QPA
+is forced in `main()`, the same idiom as `esc_break_test`.
 
-1. **A no-`Ctrl`-shortcut assertion.** Walk every `QAction` on the main window
-   and assert none has a shortcut whose sequence contains
-   `Qt::ControlModifier` with a letter key. This is the row that would have
-   caught Ctrl+Q, and it keeps catching the next one.
-2. **A reserved-list agreement test** between the Qt and SDL frontends: both
-   must intercept exactly the §8.1 set and nothing else.
-3. **A guest-reachability test** for §8.3 (`Esc`, `Tab`, arrows, `Space`,
-   `Enter`, letters, digits) so un-reserving cannot regress into over-swallowing.
+| Rows | What they prove |
+|---|---|
+| H115-01..06 | Each `Ctrl+<letter>` chord arrives in the **emulated key matrix** as Symbol Shift + letter. Real `QKeyEvent`s → `MainWindow` → real `Keyboard` → `read_rows()`, the same call port `0xFE` makes. The property, not the menu label. |
+| H115-07..12 | Releasing the chord clears both matrix bits — no stuck key. |
+| H115-13 | No `QAction` under the main window binds a plain `Ctrl+<letter>`. The row that would have caught `Ctrl+Q`, and keeps catching the next one. |
+| H115-14..19 | Each migrated action carries exactly its `Alt+<letter>`. |
+| H115-20..25 | Each `Alt+<letter>` really activates its action through the live shortcut map, and types nothing into the guest. |
+| H115-26 | Menubar mnemonics and QAction shortcuts are disjoint — no ambiguous Alt binding. |
+| H115-27 | The guest's `Alt+E/G/C` are claimed by no host binding. |
 
-There is precedent for all three: `debugger_quit_gate_test` and `esc_break_test`
-already unit-test GUI key policy without a display.
+**Why these rows are not decoration.** `QApplication::sendEvent()` to a widget
+passes through `QApplication::notify()`, which consults the global
+`QShortcutMap` *before* dispatching the `KeyPress` — so a synthetic `Ctrl+O`
+here is swallowed by a live `Ctrl+O` QAction exactly as a real one would be.
+Verified by mutation, four cycles:
+
+| Mutation | Rows that fail |
+|---|---|
+| All six shortcuts back on `Ctrl` | 19: H115-01..06, 13, 14..19, 20..25. The detail line reads `sym_row7=0x1D letter_row2=0x1F` — Symbol Shift down, letter swallowed. Exactly the reported bug. |
+| `T&ape` back to `&Tape` (restore the mnemonic collision) | 2: H115-24 (`fired=0` — the shortcut silently stops working) and H115-26 |
+| `&Machine` → `Machin&e` (a future menu steals the guest's Alt+E) | 1: H115-27 |
+| Letter key-releases consumed in `keyReleaseEvent` | 6: H115-07..12, each with its own letter's bit stuck low |
+
+Every row is covered by at least one mutation.
+
+Two of the three tests this section originally suggested were built (the
+no-`Ctrl`-shortcut assertion, and guest-reachability for the six chords). The
+"reserved-list agreement test between the Qt and SDL frontends" was **not**:
+per §5 the frontends' only shared reserved set is the F-keys, and a test
+asserting agreement on a set of size zero beyond that proves nothing. Broad
+guest-reachability for `Esc`/`Tab` is already covered by `esc_break_test`.
 
 ---
 
 ## 10. Open items and things not verified
 
-- **`QKeySequence::Preferences`** (§3.1 #12) — platform binding inferred from
-  Qt's documented standard-key table, **not** confirmed empirically. Check on
-  macOS before relying on it.
-- **Bare `Alt` menubar activation** — `Alt` reaches the guest as a modifier
-  (`keyboard.cpp:267-270`), but whether `QMenuBar` *also* activates on
-  Alt-press-release is Qt-internal and platform-conditional. Not confirmed on
-  Linux/X11. Option §8.4.1 depends on this behaviour, so confirm it first.
+- **`QKeySequence::Preferences`** (§3.1 #12) — the earlier inference was wrong
+  and is corrected there: measured on this host it resolves to `Settings`
+  (a multimedia key), not an empty sequence. **macOS is still unverified** —
+  if it is Cmd+`,` there, it does not collide with anything jnext binds, but
+  nobody has run it.
+- **The `Alt+Q` → `QApplication::quit()` bypass of `closeEvent` remains**
+  (§3.1). Out of scope by the owner's explicit decision (no confirmation
+  dialog); recorded, not fixed. Worth its own issue.
 - **`Alt+W` double-binding** in the debugger (§4.2) is a real pre-existing
-  defect found during this inventory. It is out of scope for #115 and should get
-  its own issue.
+  defect found during the original inventory. Still unfixed, still out of scope
+  for #115, still wants its own issue.
+- **Stray key-release delivery.** Qt consults the shortcut map only for
+  `KeyPress`, so the `KeyRelease` matching an `Alt+<letter>` shortcut *is*
+  delivered to the guest. Measured, and inert — it clears a matrix bit that was
+  never set — and it behaved identically for the `Ctrl` chords before the
+  migration. Noted so the next reader does not mistake it for new.
 - **No hardware confirmation.** Everything here derives from the FPGA VHDL and
-  from reading jnext's source. No physical ZX Spectrum Next was available.
+  from reading and running jnext. No physical ZX Spectrum Next was available.
+- **Not exercised on a real X11/Wayland desktop by an automated test.** The
+  suite runs under the offscreen QPA platform. Window-manager-level Alt
+  handling (some desktops use Alt-drag to move windows) is a plausible source
+  of platform-specific surprises and wants a manual check on each platform.

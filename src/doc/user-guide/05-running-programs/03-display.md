@@ -31,7 +31,7 @@ jnext --headless demo.nex --delayed-screenshot l2.png \
 are treated as switched off, so what remains still composites normally.
 Leaving out `ula` also removes the border, since that is the ULA's job.
 
-**Screenshots.** **File > Save Screenshot…** (Ctrl+S) or the toolbar camera
+**Screenshots.** **File > Save Screenshot…** (Alt+S) or the toolbar camera
 button writes a PNG. JNEXT remembers the directory. For scripted, repeatable
 captures, see [chapter 7](../07-automation-and-ci/index.md).
 

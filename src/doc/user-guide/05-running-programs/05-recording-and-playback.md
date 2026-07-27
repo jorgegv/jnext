@@ -15,7 +15,7 @@ follow. Turn it on with **Tape > Fast Load** (uncheck it) or `--tape-realtime`.
 
 `.wav` files are always real time; there is no ROM routine to short-circuit.
 
-**Tape > Open Tape File…** (Ctrl+T) loads a tape, and **Eject** and **Rewind**
+**Tape > Open Tape File…** (Alt+T) loads a tape, and **Eject** and **Rewind**
 do what they say. The status bar shows the tape name and, while loading, the
 block position.
 

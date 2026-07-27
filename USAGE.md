@@ -483,14 +483,18 @@ The Qt6 build gives a native window with menus, a toolbar and a status
 bar (FPS, CPU speed, emulator speed, tape status, machine type), Hi-DPI
 pixel-perfect rendering at integer scale, and a CRT scanline filter.
 
+Menu shortcuts use **Alt**, never plain **Ctrl**: Ctrl is the Spectrum’s
+Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
+**THE KEYBOARD** below).
+
 **File**  
-Load a program (Ctrl+O - NEX/SNA/SZX/TAP/TZX/WAV/RZX), Mount SD Card
+Load a program (Alt+O - NEX/SNA/SZX/TAP/TZX/WAV/RZX), Mount SD Card
 Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record
-RZX / Stop RZX, Save Screenshot (Ctrl+S), Save Snapshot (Ctrl+Shift+S),
-Quit (Ctrl+Q).
+RZX / Stop RZX, Save Screenshot (Alt+S), Save Snapshot (Ctrl+Shift+S),
+Quit (Alt+Q).
 
 **Machine**  
-Power Reset (Ctrl+R - power off/on cold boot, full boot chain), Soft
+Power Reset (Alt+R - power off/on cold boot, full boot chain), Soft
 Reset (F4 - the front-panel reset button: back to NextZXOS without
 re-running the boot chain; does nothing while the firmware still holds
 config mode, or after a direct **--load** where the firmware never ran),
@@ -504,14 +508,14 @@ what drives that connector; Capture Mouse, which confines the host
 pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
 
 **Tape**  
-Open Tape File (Ctrl+T), Eject, Rewind, Fast Load (toggle).
+Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle).
 
 **Debug**  
 Magic Breakpoint (toggle).
 
 **View**  
 Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
-(Ctrl+D).
+(Alt+D).
 
 **Settings**  
 Preferences…, which opens the settings dialog (Startup, Input, Audio and
@@ -564,14 +568,25 @@ Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
 is toggled with F11 only (it used to also be exited with Esc).
 
 The function keys are host controls, not Spectrum keys. F1 is Power
-Reset (the same as Ctrl+R), F4 is Soft Reset, F9 fires the Multiface
-NMI, F10 fires the DivMMC NMI, F2 cycles the window scale and F11
-toggles fullscreen. With the debugger open F9 belongs to the debugger
-(Pause / Break) instead.
+Reset (the same as Alt+R), F4 is Soft Reset, F9 fires the Multiface NMI,
+F10 fires the DivMMC NMI, F2 cycles the window scale and F11 toggles
+fullscreen. With the debugger open F9 belongs to the debugger (Pause /
+Break) instead.
 
-Alt is a modifier here, never a Spectrum key. Only Alt + E/G/C and Alt +
-the key left of `1` are used, because the menu bar claims Alt +
-F/M/I/T/D/V/S/H.
+Ctrl is left alone for the guest. No plain Ctrl+letter is a jnext
+shortcut, so Symbol Shift sequences NextBASIC needs constantly - Ctrl+O
+`;`, Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q `<=`, Ctrl+S `|` -
+all reach the program you are running. Earlier releases bound those six
+to menu commands and the program never saw them.
+
+Alt is the opposite: it is a host modifier, never a Spectrum key. jnext
+claims Alt + Q/O/S/R/T/D (menu shortcuts) and Alt + F/M/I/A/B/V/N/H
+(menu bar), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS
+LOCK) and Alt + the key left of `1` (INV VIDEO). Real Next hardware
+instead maps Left Alt to EXTEND MODE and Right Alt to GRAPH; jnext
+deliberately does not, following the FUSE/ZEsarUX convention that puts
+EXTEND MODE on Tab. Ctrl+Shift+S (Save Snapshot) is the one surviving
+Ctrl shortcut with a Spectrum meaning (Caps Shift + Symbol Shift + S).
 
 Up to two USB gamepads are picked up automatically (hot-plug) and mapped
 to the Next’s two joystick ports; the joystick mode (Kempston / Sinclair
@@ -588,7 +603,7 @@ arrows and Space stop acting as ZX keys.
 
 ## THE DEBUGGER
 
-The debugger opens in its own window (**View \> Debugger**, Ctrl+D). It
+The debugger opens in its own window (**View \> Debugger**, Alt+D). It
 is driven from the Qt6 UI, so it needs a GUI build (`make gui-release`
 or `make gui-debug`); the SDL-only build has no way to open it.
 
