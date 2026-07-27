@@ -3,6 +3,7 @@
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
 #include "platform/render_policy.h"
+#include "platform/speed_report.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
 #ifdef ENABLE_DEBUGGER
@@ -144,6 +145,11 @@ void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
     //   - on_input_state_restored re-seeds the dispatcher shadow after rewind.
     // refresh_joystick_sources() then applies the CLI/config-resolved sources.
     gamepad_host_ = std::make_unique<GamepadHost>(emulator_.joystick());
+    // Issue #120 — (re)bind the key router to this machine's Keyboard. Runs at
+    // startup AND on every cold boot, which is exactly what attach() wants: it
+    // also clears any release the latch is holding, since that refers to a key
+    // of a machine that no longer exists (rows RT-08a/b/c).
+    key_router_.attach(emulator_.keyboard());
     emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
     emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
         if (gamepad_host_) gamepad_host_->set_source(slot, src);
@@ -233,9 +239,19 @@ bool QtApp::init(int argc, char* argv[]) {
     // Wire emulator pointer so menus can call into it.
     main_window_->set_emulator(&emulator_);
 
-    // Route keyboard events from the Qt window to the emulator keyboard matrix.
+    // Route keyboard events from the Qt window to the emulator keyboard matrix,
+    // through the issue-#120 minimum-hold latch: a press is applied at once,
+    // but a release arriving before any frame has run is HELD BACK until one
+    // has (post_frames() discharges it). Without that, a press and its release
+    // delivered in the same inter-frame gap — which is every keystroke short
+    // enough, and all of them once the frame rate drops — are both applied with
+    // no run_frame() in between and the guest never sees the key at all.
+    // The dispatch itself lives in host_key_latch::Router (and is unit-tested
+    // there, rows RT-*): this callback must stay a plain forward, so that the
+    // logic the guest depends on is not once again reachable only through a
+    // live QApplication.
     main_window_->set_key_callback([this](SDL_Scancode sc, bool pressed) {
-        emulator_.keyboard().set_key(sc, pressed);
+        key_router_.on_host_key(sc, pressed);
     });
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
@@ -490,6 +506,12 @@ void QtApp::TickEffects::present(bool carries_new_content) {
 void QtApp::TickEffects::post_frames(int frames_rendered) {
     QtApp& a = app;
 
+    // Issue #120 — end of tick: any key whose release was held back has now
+    // been seen by the guest and may come up. The gate on frames_rendered (a
+    // paused tick emulates nothing, so the hold is not yet honoured) lives in
+    // Router::on_tick_end and is pinned by rows RT-04a/b/c.
+    a.key_router_.on_tick_end(frames_rendered);
+
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the
     // emitted PNG is 640×512 (square pixels, G104 Phase 7).
@@ -640,6 +662,24 @@ void QtApp::on_status_tick() {
     // Read current CPU speed from NextREG 0x07 (bits 1:0).
     int speed_idx = emulator_.nextreg().cached(0x07) & 0x03;
 
+    // Issue #120 — pass the machine's own frame period so the status bar can
+    // report the speed ACHIEVED, not just the one requested.
+    //
+    // The rate handed over is normalised by the window ACTUALLY MEASURED, not
+    // by the nominal 1000 ms. status_timer_ is a plain QTimer with no
+    // setTimerType (above), i.e. Qt::CoarseTimer, whose documented tolerance is
+    // 5% of the interval — so `fps`, a raw frame count over a nominally-1 s
+    // window, carries up to ±5 percentage points of pure instrument error.
+    // Dividing by the real elapsed time removes that term outright, which is
+    // what lets the shortfall margin in speed_report.h be as tight as it is
+    // (the alternative would have been a margin wide enough to swallow the
+    // instrument's own jitter, i.e. one that never fires).
+    //
+    // Note this deliberately does NOT touch the `fps` figure shown in the FPS
+    // cell: that number has read as a frame COUNT for as long as it has
+    // existed, and changing it is not this issue's business.
+    const double measured_rate = speed_report::rate_from_window(fps, cad.elapsed_ms);
     main_window_->update_status(fps, static_cast<double>(cad.presented),
-                                speed_idx, speed_multiplier_);
+                                speed_idx, speed_multiplier_,
+                                emulator_.frame_period_ms(), measured_rate);
 }

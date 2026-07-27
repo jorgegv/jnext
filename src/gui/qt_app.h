@@ -3,11 +3,13 @@
 #include <string>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
+#include "platform/host_key_latch.h"
 #include "platform/screenshot.h"
 #include "video/renderer.h"
 
@@ -204,6 +206,20 @@ private:
     frame_sequencer::Sequencer seq_;
     uint64_t last_present_count_ = 0;  ///< EmulatorWidget::present_count() at last drain
     int64_t  last_status_ms_ = 0;      ///< steady_clock ms at last drain (real window)
+
+    // Issue #120 — host key routing. Qt key callbacks and the frame timer share
+    // one event loop, so a key event can only land BETWEEN two run_frame()
+    // calls: a press and its release delivered in the same gap set the matrix
+    // bit and clear it again with no frame in between, and the guest never sees
+    // the key. The router holds such a release until a frame has looked.
+    //
+    // BOTH the policy and the DISPATCH live in platform/host_key_latch.h, and
+    // both are unit-tested (host_key_latch_test, rows HK-* and RT-*). QtApp
+    // keeps only the three call sites — the key callback, the end-of-tick hook
+    // in TickEffects::post_frames(), and attach() in wire_gamepad_and_sources()
+    // — each a single forwarding statement. That split is deliberate: see the
+    // Router preamble for the v0.98.47 wiring regression it exists to prevent.
+    host_key_latch::Router<Keyboard, SDL_Scancode> key_router_;
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;

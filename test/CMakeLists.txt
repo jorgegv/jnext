@@ -540,6 +540,18 @@ add_executable(tick_stats_test platform/tick_stats_test.cpp)
 target_include_directories(tick_stats_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tick_stats_tests COMMAND tick_stats_test)
 
+# Achieved-vs-requested speed report (issue #120). Header-only policy under
+# test (src/platform/speed_report.h) — no Qt, no SDL, no emulator core.
+add_executable(speed_report_test platform/speed_report_test.cpp)
+target_include_directories(speed_report_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME speed_report_tests COMMAND speed_report_test)
+
+# Host key minimum-hold latch (issue #120). Header-only policy under test
+# (src/platform/host_key_latch.h) — no Qt, no SDL, no emulator core.
+add_executable(host_key_latch_test platform/host_key_latch_test.cpp)
+target_include_directories(host_key_latch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME host_key_latch_tests COMMAND host_key_latch_test)
+
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
 # NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds

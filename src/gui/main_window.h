@@ -117,8 +117,18 @@ public:
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
     /// calls/s); `presented_fps` is the rate at which frames actually reached
     /// the screen. Both are shown — see Task 63 / issue #9.
+    ///
+    /// `emu_speed` is what the user ASKED for (1.0 = normal) and
+    /// `frame_period_ms` is the machine's own frame period; together with
+    /// `measured_fps` they yield the speed actually ACHIEVED (issue #120 — the
+    /// cell used to show the request alone and read "100%" on a host managing
+    /// 30 fps). `measured_fps` is `fps` normalised by the window the caller
+    /// really timed; it exists separately because `fps` is displayed as a raw
+    /// frame count and the achieved figure must not inherit the status timer's
+    /// ±5% coarse-window error. Defaults to `fps` when not supplied.
     void update_status(double fps, double presented_fps, int cpu_speed_idx,
-                       double emu_speed = 1.0);
+                       double emu_speed = 1.0, double frame_period_ms = 0.0,
+                       double measured_fps = -1.0);
 
     /// Task 66 — apply the subset of saved GUI preferences that have no CLI
     /// competitor and are not already baked into the EmulatorConfig used for
