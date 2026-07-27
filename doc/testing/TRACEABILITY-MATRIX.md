@@ -2630,9 +2630,9 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | pass   | test/input/input_test.cpp:3088 |
 | HOTKEY-01     | Host SDL_SCANCODE_F8 -> NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by nr_06_hotkey_*_en  | zxnext.vhd:5790-5791,6342-6347          | pass    | test/input/input_integration_test.cpp:957 |
 | JOY-WIRE-01   | OUT (0x253B), 0x40 with reg=0x05 -> MembraneStick fold redirects through full NR-write path          | emulator.cpp:456-458                    | pass    | test/input/input_integration_test.cpp:612 |
-| JOY-WIRE-02   | Host SDL gamepad buttons -> Kempston bits at port 0x1F (G42)                                         | joystick.vhd                            | pass    | test/input/input_integration_test.cpp:667 |
-| JOY-WIRE-03   | Host SDL gamepad axis -> Kempston bits at port 0x1F (G42)                                            | joystick.vhd                            | pass    | test/input/input_integration_test.cpp:725 |
-| JOY-WIRE-04   | Host SDL gamepad mode -> Sinclair / Cursor / MD fold variants honoured per NR 0x05 (G42)             | joystick.vhd + membrane_stick.vhd       | pass    | test/input/input_integration_test.cpp:781 |
+| JOY-WIRE-02   | Host SDL gamepad buttons -> Kempston bits at port 0x1F (G42)                                         | zxnext.vhd:3441-3442                    | pass    | test/input/input_integration_test.cpp:667 |
+| JOY-WIRE-03   | Host SDL gamepad axis -> Kempston bits at port 0x1F (G42)                                            | —                                       | pass    | test/input/input_integration_test.cpp:725 |
+| JOY-WIRE-04   | Host SDL controller index 0/1 -> joy_left / joy_right lanes; index >= 2 ignored (G42)                | —                                       | pass    | test/input/input_integration_test.cpp:781 |
 | HK-WIRE-01    | Host F1 SDL key dispatched into `Emulator::trigger_hard_reset()` injector (G152)                     | emulator.h:328-329                      | missing | missing                       |
 | HK-WIRE-02    | Host F4 SDL key dispatched into `Emulator::trigger_soft_reset()` injector (G152)                     | emulator.h:328-329                      | missing | missing                       |
 | HK-WIRE-03    | Host F9 SDL key dispatched into NMI source `assert_mf` injector (G152)                               | nmi_source.cpp                          | missing | missing                       |
@@ -2666,7 +2666,7 @@ Hosts production-wire integration scenarios for the membrane keyboard, joystick 
 | JOY-WIRE-01 | Production NR 0x05 mode change propagates to MembraneStick (G126)               | membrane_stick.vhd:117-149              | pass    | test/input/input_integration_test.cpp:612   |
 | JOY-WIRE-02 | SDL gamepad button events route to Joystick::set_buttons (G42)                  | zxnext.vhd:3441-3442                      | pass    | test/input/input_integration_test.cpp:667   |
 | JOY-WIRE-03 | SDL gamepad axis events route to Joystick::set_axes (G42)                       | —                                       | pass    | test/input/input_integration_test.cpp:725   |
-| JOY-WIRE-04 | GUI Joystick→Mode menu wires JoystickMode (G42)                                 | —                                       | pass    | test/input/input_integration_test.cpp:781   |
+| JOY-WIRE-04 | SDL idx 0/1 -> joy_left / joy_right lanes; idx >= 2 ignored (G42)               | —                                       | pass    | test/input/input_integration_test.cpp:781   |
 | HOTKEY-01   | Host F2/F3/F7/F8 hotkeys cycle CPU-speed/50-60/scandouble/scanline (G132/G147)  | input/membrane/emu_fnkeys.vhd:53-202    | pass    | test/input/input_integration_test.cpp:957   |
 
 
