@@ -510,6 +510,14 @@ fast the emulator runs relative to real time.
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum Next
 with a PC keyboard attached. Earlier releases had the two swapped.
 
+Holding Shift while pressing a digit or one of the symbol keys above reaches
+the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0 is Delete,
+Shift+5 to Shift+8 are the four cursor keys, Shift+9 is Graph, and Shift+`;`
+is Caps Shift + Symbol Shift + O. jnext keys off the physical key rather than
+the character your host layout produces, the same way the Next's own PS/2
+keymap treats the shift keys as an independent overlay. Earlier releases
+dropped all nineteen of those keystrokes before the Spectrum saw them.
+
 Esc is the Spectrum's Break key, not a fullscreen shortcut. Fullscreen is
 toggled with F11 only (it used to also be exited with Esc).
 

@@ -745,6 +745,18 @@ if(ENABLE_QT_UI)
     target_compile_definitions(host_hotkey_test PRIVATE
         JNEXT_FEATURES_MD="${CMAKE_SOURCE_DIR}/FEATURES.md")
     add_test(NAME host_hotkey_tests COMMAND host_hotkey_test)
+
+    # Issue #123 — qt_key_to_sdl() switches on the LOGICAL key, so every
+    # shifted symbol (Shift+';' = Qt::Key_Colon, Shift+'2' = Qt::Key_At, ...)
+    # was dropped before Keyboard saw it. Drives real QKeyEvents through
+    # MainWindow and asserts each shifted key resolves to its unshifted
+    # sibling's PHYSICAL scancode, then reads the resulting matrix back. Needs
+    # a real MainWindow, no display (offscreen QPA forced in main()).
+    add_executable(shifted_keys_test gui/shifted_keys_test.cpp)
+    set_target_properties(shifted_keys_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(shifted_keys_test PRIVATE jnext_gui)
+    target_include_directories(shifted_keys_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME shifted_keys_tests COMMAND shifted_keys_test)
 endif()
 
 # GoogleTest-based tests (if available)

@@ -23,6 +23,17 @@ through modifiers:
 | Alt + C | Caps Lock |
 | `'` `;` `.` `,` | `"` `;` `.` `,` |
 | `/` `-` `=` | `/` `-` `=` (Symbol Shift + V / J / L) |
+| Shift + digit | Caps Shift + that digit |
+| Shift + symbol key | Caps Shift + that symbol key |
+
+Those last two rows are how you reach the Caps Shift layer without hunting for
+it: **Shift+1** is Edit, **Shift+2** Caps Lock, **Shift+3** True Video,
+**Shift+4** Inverse Video, **Shift+5** to **Shift+8** the four cursor keys,
+**Shift+9** Graph and **Shift+0** Delete. JNEXT keys off the *physical* key you
+pressed, not the character your host layout produces for it — the same way the
+Next's own PS/2 keymap treats the shift keys as a separate overlay. Earlier
+versions looked at the character instead, so all nineteen shifted digits and
+symbols were thrown away before the Spectrum saw them.
 
 Three things catch people out:
 

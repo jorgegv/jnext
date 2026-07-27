@@ -111,6 +111,56 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_Minus:      return SDL_SCANCODE_MINUS;       // '-' (SS+J)
         case Qt::Key_Equal:      return SDL_SCANCODE_EQUALS;      // '=' (SS+L)
 
+        // Issue #123 — the SHIFTED form of every key above.
+        //
+        // QKeyEvent::key() is the LOGICAL key, so Shift+';' arrives as
+        // Qt::Key_Colon and Shift+'2' as Qt::Key_At — neither of which this
+        // table held, so the keystroke was dropped here and Keyboard never saw
+        // it. That cost the guest 19 keys, including Caps Shift + 1..0, i.e.
+        // EDIT, CAPS LOCK, TRUE/INV VIDEO, the cursor compounds, GRAPH and
+        // DELETE as typed on a 48K.
+        //
+        // The real machine has no such problem because its PS/2 keymap is
+        // indexed by PHYSICAL scancode and the shift keys are an independent
+        // overlay: LShift/RShift only raise capshift_count (keymaps.vhd:83,
+        // ps2_keyb.vhd:196-198), they do not select a different keymap entry.
+        // SDL scancodes mean the same thing, so each shifted logical key below
+        // resolves to the SAME scancode as its unshifted sibling and the host
+        // Shift key asserts Caps Shift on its own — exactly the hardware
+        // behaviour.
+        //
+        // The pairings are MEASURED, not inferred: real X11 key events through
+        // Qt 6.11 on a US layout report each pair below with an identical
+        // QKeyEvent::nativeScanCode() on both members.
+        //
+        // KNOWN LIMIT, stated so a reader does not over-read this: these are
+        // the ASCII shifted glyphs of a US/UK layout. A layout whose glyph is
+        // outside that set — Spanish 'ñ' on the ';' key, or the ISO key left
+        // of Z that types '<'/'>' — still produces a logical key with no entry
+        // here and is still dropped. Fixing THAT needs
+        // QKeyEvent::nativeScanCode() plus a per-platform physical-key table
+        // (evdev / Windows scancode / macOS virtual key); recorded in
+        // doc/design/TASK-115-HOST-SHORTCUT-INVENTORY.md §10.
+        case Qt::Key_Exclam:      return SDL_SCANCODE_1;          // Shift+1 '!'
+        case Qt::Key_At:          return SDL_SCANCODE_2;          // Shift+2 '@'
+        case Qt::Key_NumberSign:  return SDL_SCANCODE_3;          // Shift+3 '#'
+        case Qt::Key_Dollar:      return SDL_SCANCODE_4;          // Shift+4 '$'
+        case Qt::Key_Percent:     return SDL_SCANCODE_5;          // Shift+5 '%'
+        case Qt::Key_AsciiCircum: return SDL_SCANCODE_6;          // Shift+6 '^'
+        case Qt::Key_Ampersand:   return SDL_SCANCODE_7;          // Shift+7 '&'
+        case Qt::Key_Asterisk:    return SDL_SCANCODE_8;          // Shift+8 '*'
+        case Qt::Key_ParenLeft:   return SDL_SCANCODE_9;          // Shift+9 '('
+        case Qt::Key_ParenRight:  return SDL_SCANCODE_0;          // Shift+0 ')'
+        case Qt::Key_Underscore:  return SDL_SCANCODE_MINUS;      // Shift+- '_'
+        case Qt::Key_Plus:        return SDL_SCANCODE_EQUALS;     // Shift+= '+'
+        case Qt::Key_Bar:         return SDL_SCANCODE_BACKSLASH;  // Shift+\ '|'
+        case Qt::Key_Colon:       return SDL_SCANCODE_SEMICOLON;  // Shift+; ':'
+        case Qt::Key_QuoteDbl:    return SDL_SCANCODE_APOSTROPHE; // Shift+' '"'
+        case Qt::Key_AsciiTilde:  return SDL_SCANCODE_GRAVE;      // Shift+` '~'
+        case Qt::Key_Less:        return SDL_SCANCODE_COMMA;      // Shift+, '<'
+        case Qt::Key_Greater:     return SDL_SCANCODE_PERIOD;     // Shift+. '>'
+        case Qt::Key_Question:    return SDL_SCANCODE_SLASH;      // Shift+/ '?'
+
         // Special keys
         case Qt::Key_Return: return SDL_SCANCODE_RETURN;
         case Qt::Key_Enter:  return SDL_SCANCODE_KP_ENTER;
