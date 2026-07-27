@@ -661,6 +661,152 @@ check('SELF-38', 'a ranged read still skips a generated Summary block that falls
       "GENSUM2-01=" . matrix_records('GENSUM2-01', $alpha)
         . " SHARED-01=" . matrix_records('SHARED-01', $alpha));
 
+# ── Companion sources on the STATUS side (GH #121) ────────────────────
+#
+# GH #117 let one @SUBSYS entry take several sources so RECORDING could see
+# a companion suite; the STATUS computation was not extended the same way, so
+# a row physically listed in a parent `##` table but asserted in its nested
+# `###` companion published `missing` while the assertion ran and passed
+# (PFF-G108-01/02/03, ULA-INT-04/06, NR-C2-01/NR-C3-01, INT-07 — 80 rows).
+# The two halves of one tool disagreeing again, in a narrower place.
+#
+# These rows pin BOTH directions of the contract. Widening the search is the
+# easy half and a careless fix would make everything read `pass`; the rows
+# that matter are the refusals — a row asserted nowhere still reads `missing`,
+# a companion's FAIL never lands on a row the primary source owns, and a
+# companion's citation never answers for a row the primary source owns.
+
+write_fixture('test/fixture/cparent_test.cpp', <<'CPP');
+void parent() {
+    check("CP-OWN-01",   "parent-owned — VHDL fixture_a.vhd:500", cond, detail);
+    check("CP-BOTH-01",  "parent copy of a shared ID", cond, detail);
+    check("CP-PFAIL-01", "parent copy; passes in THIS suite", cond, detail);
+    check("PRIM-BARE-01","parent assertion carrying no citation", cond, detail);
+    check("CC-PARENT-01","a companion-table row asserted in the PARENT source",
+          cond, detail);
+}
+CPP
+write_fixture('test/fixture/ccomp_test.cpp', <<'CPP');
+void companion() {
+    check("CP-COMP-01",  "companion-owned — VHDL fixture_b.vhd:600", cond, detail);
+    check("CP-BOTH-01",  "companion copy of a shared ID", cond, detail);
+    check("CP-CFAIL-01", "companion-owned and failing here", cond, detail);
+    check("CP-PFAIL-01", "companion copy; FAILS in THIS suite", cond, detail);
+    check("PRIM-BARE-01","companion copy — VHDL fixture_d.vhd:800", cond, detail);
+    check("COMP-CITE-01","companion-owned — VHDL fixture_c.vhd:700", cond, detail);
+}
+CPP
+for my $s (['cparent', ''],
+           ['ccomp', "echo '  FAIL CP-CFAIL-01: broke'\necho '  FAIL CP-PFAIL-01: broke'\n"]) {
+    my $path = "$FIXTURE_ROOT/bin/$s->[0]";
+    open(my $h, '>', $path) or die "write $path: $!";
+    print $h "#!/bin/sh\n", $s->[1];
+    close $h;
+    chmod 0755, $path;
+}
+
+# One document, a `##` parent whose table lists rows asserted on both sides,
+# and its nested `###` companion whose table lists a row asserted in the
+# parent. Column widths are wide enough that no row triggers the
+# "exceeds column width" path — that is a separate contract (SELF-10).
+my @cdoc = (
+    '## CompParent — `test/fixture/cparent_test.cpp`',                                    # 0
+    '',
+    '| Test ID      | Description              | VHDL file:line | Status  | Test file:line                       |',
+    '|--------------|--------------------------|----------------|---------|--------------------------------------|',
+    '| CP-OWN-01    | asserted in the parent   | —              | missing | missing                              |',
+    '| CP-COMP-01   | asserted in the companion| —              | missing | missing                              |',
+    '| CP-NONE-01   | asserted nowhere         | —              | missing | missing                              |',
+    '| CP-BOTH-01   | asserted in both         | —              | missing | missing                              |',
+    '| CP-CFAIL-01  | companion-owned, fails   | —              | missing | missing                              |',
+    '| CP-PFAIL-01  | parent-owned; comp fails | —              | missing | missing                              |',
+    '| PRIM-BARE-01 | parent-owned, uncited    | —              | missing | missing                              |',
+    '| COMP-CITE-01 | companion-owned, cited   | —              | missing | missing                              |',
+    '',
+    '### Companion integration suite — `test/fixture/ccomp_test.cpp`',                     # 13
+    '',
+    '| Test ID      | Description              | VHDL file:line | Status  | Test file:line                       |',
+    '|--------------|--------------------------|----------------|---------|--------------------------------------|',
+    '| CC-PARENT-01 | asserted in the parent   | —              | missing | missing                              |',
+);
+my $CDOC_COMPANION_IDX = 13;
+my %cdoc_row = map { $cdoc[$_] =~ /^\|\s*([A-Za-z0-9._\-]+)\s*\|/ ? ($1 => $_) : () }
+               0 .. $#cdoc;
+
+my (@pd, @pk);
+refresh_section(\@cdoc, 0, 'bin/cparent', 'test/fixture/cparent_test.cpp',
+                \@pd, \@pk, $CDOC_COMPANION_IDX,
+                [['bin/ccomp', 'test/fixture/ccomp_test.cpp']]);
+my (@qd, @qk);
+refresh_section(\@cdoc, $CDOC_COMPANION_IDX, 'bin/ccomp',
+                'test/fixture/ccomp_test.cpp', \@qd, \@qk, undef,
+                [['bin/cparent', 'test/fixture/cparent_test.cpp']]);
+
+sub cdoc_row { return $cdoc[ $cdoc_row{ $_[0] } ]; }
+
+my @cmapdoc = ('## Parent — `p`', '',
+               '### Companion integration suite — `c`', '',
+               '## Other — `o`');
+my $cmap = companion_map(\@cmapdoc, [
+    [0, ['## Parent — `p`',                        'bin/p', 'test/p.cpp']],
+    [2, ['### Companion integration suite — `c`',  'bin/c', 'test/c.cpp']],
+    [4, ['## Other — `o`',                         'bin/o', 'test/o.cpp']],
+]);
+sub cmap_srcs { return join(',', map { $_->[1] } @{ $cmap->{ $_[0] } }); }
+
+check('SELF-39', 'companion_map pairs a ## parent with its ### companion, and nothing across a ## boundary',
+      scalar(cmap_srcs(0) eq 'test/c.cpp'
+             && cmap_srcs(2) eq 'test/p.cpp'
+             && cmap_srcs(4) eq ''),
+      sprintf('parent=[%s] companion=[%s] other=[%s]',
+              cmap_srcs(0), cmap_srcs(2), cmap_srcs(4)));
+
+check('SELF-40', 'a parent-table row asserted only in the companion resolves, naming the COMPANION file',
+      scalar(cdoc_row('CP-COMP-01') =~ /\|\s*pass\s*\|/
+             && cdoc_row('CP-COMP-01') =~ m{test/fixture/ccomp_test\.cpp:\d+}),
+      'got [' . cdoc_row('CP-COMP-01') . ']');
+
+# The refusal that makes the rest mean something: widening to the subsystem
+# must not turn "asserted nowhere" into `pass`.
+check('SELF-41', 'a row asserted in NEITHER source still reads missing',
+      scalar(cdoc_row('CP-NONE-01') =~ /\|\s*missing\s*\|\s*missing\s*\|/),
+      'got [' . cdoc_row('CP-NONE-01') . ']');
+
+check('SELF-42', 'the primary source wins: an ID asserted in both names the PARENT file',
+      scalar(cdoc_row('CP-BOTH-01') =~ /\|\s*pass\s*\|/
+             && cdoc_row('CP-BOTH-01') =~ m{test/fixture/cparent_test\.cpp:\d+}),
+      'got [' . cdoc_row('CP-BOTH-01') . ']');
+
+# Resolving a row into a companion source without also reading that binary's
+# FAIL lines would publish `pass` for an assertion that fails — the exact
+# whitewash run_fails() refuses to allow for a missing binary.
+check('SELF-43', 'the companion binary FAIL set is honoured for the rows the companion owns',
+      scalar(cdoc_row('CP-CFAIL-01') =~ /\|\s*fail\s*\|/
+             && cdoc_row('CP-CFAIL-01') =~ m{test/fixture/ccomp_test\.cpp:\d+}),
+      'got [' . cdoc_row('CP-CFAIL-01') . ']');
+
+# And the opposite error: merging the companion's FAIL set wholesale would
+# publish a false `fail` on a row the primary source asserts and passes.
+check('SELF-44', 'a companion FAIL for an ID the PRIMARY source owns does NOT leak into this section',
+      scalar(cdoc_row('CP-PFAIL-01') =~ /\|\s*pass\s*\|/
+             && cdoc_row('CP-PFAIL-01') =~ m{test/fixture/cparent_test\.cpp:\d+}),
+      'got [' . cdoc_row('CP-PFAIL-01') . ']');
+
+check('SELF-45', 'the relation is symmetric: a companion-table row asserted in the parent resolves',
+      scalar(cdoc_row('CC-PARENT-01') =~ /\|\s*pass\s*\|/
+             && cdoc_row('CC-PARENT-01') =~ m{test/fixture/cparent_test\.cpp:\d+}),
+      'got [' . cdoc_row('CC-PARENT-01') . ']');
+
+# Citations follow ownership for the same reason the `next` tier is fenced:
+# a companion's row-local evidence must not answer for a row the primary
+# source owns, or a plausible-but-wrong citation gets published.
+check('SELF-46', 'a companion supplies a citation only for the rows it owns',
+      scalar(cdoc_row('COMP-CITE-01') =~ /\|\s*fixture_c\.vhd:700\s*\|/
+             && cdoc_row('PRIM-BARE-01') =~ /\|\s*—\s*\|/
+             && cdoc_row('PRIM-BARE-01') !~ /fixture_d\.vhd/),
+      'COMP-CITE-01=[' . cdoc_row('COMP-CITE-01') . '] '
+        . 'PRIM-BARE-01=[' . cdoc_row('PRIM-BARE-01') . ']');
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

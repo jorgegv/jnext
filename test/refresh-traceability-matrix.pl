@@ -16,6 +16,12 @@
 #        skip    if ID is a `skip()` call in source AND not in FAIL set
 #        pass    if ID is a `check()` call in source AND not in FAIL set
 #        missing if ID is not found in source at all
+#      "source" here is the section's own file(s) FIRST, then — only for IDs
+#      they do not mention — the other suites of the same `##` subsystem,
+#      which is the unit recording has used since GH #117/#118. Rows are
+#      routinely listed in a parent's table and asserted in its `###`
+#      companion suite; scanning the entry's own file alone published those
+#      as `missing` while the assertion passed. (GH #121)
 #   4. Recover each row's VHDL citation from row-local evidence (see the
 #      "VHDL citation extraction" block below).
 #   5. Edit the matrix in place: for each data row whose first cell is a
@@ -320,8 +326,20 @@ sub as_list {
     return ref $v eq 'ARRAY' ? @$v : ($v);
 }
 
+# Memoised: since GH #121 a section also consults the FAIL set of the other
+# suites in its own subsystem, so the seven companion binaries would each be
+# run twice (once for their own section, once for their parent's). The suites
+# are deterministic and the process makes no attempt to rebuild between
+# calls, so one run per binary per process is the same answer for less work.
+#
+# Keyed by PATH: a fixture that rewrites a stub binary at a path already run
+# would silently get the first content's FAIL set. Give each fixture stub its
+# own name.
+my %FAILS_CACHE;
+
 sub run_fails {
     my ($binary) = @_;
+    return $FAILS_CACHE{$binary} if exists $FAILS_CACHE{$binary};
     my $abs = "$ROOT/$binary";
 
     # Mirror Python subprocess.run's FileNotFoundError: refuse to "run" a
@@ -367,7 +385,7 @@ sub run_fails {
         die "refresh-traceability-matrix: $binary timed out after 180s\n";
     }
 
-    return \%fails;
+    return $FAILS_CACHE{$binary} = \%fails;
 }
 
 # The source file, read once, with whole-line `//` comments blanked to the
@@ -828,8 +846,13 @@ sub cite_for {
 # wrong source file) before the companion's own pass rewrites them. The
 # bytes written were already correct — the companion runs last — but the
 # tally double-counted, which a generated Summary cannot do.
+#
+# $companions, when given, is an arrayref of [binary, source_rel] pairs for
+# the OTHER @SUBSYS entries that share this section's `##` subsystem — see
+# the fallback block below (GH #121).
 sub refresh_section {
-    my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx) = @_;
+    my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx,
+        $companions) = @_;
     $kept //= [];
 
     # A section may be backed by several suites (see the Audio entry). The
@@ -864,6 +887,73 @@ sub refresh_section {
         for my $id (keys %$cs) { $cites{$id} //= $cs->{$id}; }
         $tombstone //= $TOMBSTONE{$src};
     }
+
+    # ── Companion sources: same subsystem, different @SUBSYS entry ────────
+    #
+    # A `###` companion suite is nested inside its parent `##` section, and
+    # rows are routinely LISTED in the parent's table while being ASSERTED
+    # in the companion — `PFF-G108-01/02/02b/03` under `## Compositor`,
+    # `ULA-INT-04/06` + `NR-C2-01/NR-C3-01` under `## CTC+Interrupts`,
+    # `INT-07` under `## UART+I2C/RTC`. Recording has judged those against
+    # the whole SUBSYSTEM since GH #118 (see subsystem_span); the status
+    # computation kept scanning the entry's own sources only, so the two
+    # halves of one tool disagreed again and those rows published `missing`
+    # while their assertion runs and passes. GH #117 fixed exactly this
+    # shape for RECORDING by letting one entry take several sources; this
+    # is the same fix on the STATUS side. (GH #121)
+    #
+    # Strictly a FALLBACK. Primary sources are merged first and win every
+    # key, so no row whose own source asserts it can change; only rows that
+    # would otherwise read `missing` can move. The search widens to the
+    # subsystem and no further — a row asserted nowhere in it still reads
+    # `missing`, and a neighbouring subsystem's identically-named row never
+    # answers for this one.
+    for my $comp (@{ $companions || [] }) {
+        my ($cbin, $csrc) = @$comp;
+        my %owned;
+        for my $src (as_list($csrc)) {
+            my ($c, $k) = grep_source($src);
+            for my $id (keys %$k) {
+                next if exists $checks{$id} || exists $skips{$id};
+                $skips{$id} = $k->{$id};
+                $where{$id} = $src;
+                $owned{$id} = 1;
+            }
+            for my $id (keys %$c) {
+                next if exists $checks{$id} || exists $skips{$id};
+                $checks{$id} = $c->{$id};
+                $where{$id} = $src;
+                $owned{$id} = 1;
+            }
+        }
+        next unless %owned;
+
+        # Citations, but ONLY for the IDs this companion actually owns. Its
+        # plan doc is the same one the primary already merged, and adopting
+        # its whole citation map would let a companion's row-local evidence
+        # answer for a row the primary source owns — the borrowed-citation
+        # defect the `next` tier is fenced against.
+        my %ccites;
+        for my $src (as_list($csrc)) {
+            my $cs = grep_citations($src);
+            for my $id (keys %$cs) { $ccites{$id} //= $cs->{$id}; }
+        }
+        for my $id (keys %owned) {
+            $cites{$id} //= $ccites{$id} if defined $ccites{$id};
+        }
+
+        # The FAIL set is restricted the same way, and this is the half that
+        # must not be forgotten: resolving a row into a companion source
+        # without also reading that binary's FAIL lines would publish `pass`
+        # for an assertion that fails. Merging it blind is the opposite
+        # error — a companion FAIL for an ID the PRIMARY source asserts is
+        # the companion's own row, and would publish a false `fail` here.
+        for my $b (as_list($cbin)) {
+            my $f = run_fails($b);
+            for my $id (keys %$f) { $fails{$id} = 1 if $owned{$id}; }
+        }
+    }
+
     my ($checks, $skips, $cites) = (\%checks, \%skips, \%cites);
 
     my ($pass_ct, $fail_ct, $skip_ct, $missing_ct) = (0, 0, 0, 0);
@@ -1101,6 +1191,41 @@ sub report_exit_code {
     return ($unrec_ct || scalar @$unmapped) ? 1 : 0;
 }
 
+# header index -> [[binary, source_rel], ...] for the OTHER @SUBSYS entries
+# that live in the same `##` subsystem. $found is main()'s [[idx, entry], ...].
+#
+# Split out of main() for the same reason report_exit_code() was: this is the
+# glue that decides which sources refresh_section may fall back to, and main()
+# is stripped when the selftest loads this file, so nothing else could pin it.
+#
+# The grouping key is subsystem_span() — the SAME unit recording has used
+# since GH #118. That is the whole point of GH #121: the two halves of this
+# tool now read one set of sources, so they cannot disagree about whether a
+# row asserted in a companion suite is covered. The relation is symmetric (a
+# parent lists its companions, a companion lists its parent) and stops dead at
+# the `##` boundary — a different subsystem is never a companion, so a row
+# asserted nowhere in this subsystem still reads `missing`.
+sub companion_map {
+    my ($lines, $found) = @_;
+    my (%span_of, %by_span, %entry_of);
+    for my $f (@$found) {
+        my ($from) = subsystem_span($lines, $f->[0]);
+        $span_of{ $f->[0] }  = $from;
+        $entry_of{ $f->[0] } = $f->[1];
+        push @{ $by_span{$from} }, $f->[0];
+    }
+    my %comp;
+    for my $idx (keys %span_of) {
+        my @c;
+        for my $other (sort { $a <=> $b } @{ $by_span{ $span_of{$idx} } }) {
+            next if $other == $idx;
+            push @c, [ $entry_of{$other}[1], $entry_of{$other}[2] ];
+        }
+        $comp{$idx} = \@c;
+    }
+    return \%comp;
+}
+
 sub main {
     open(my $in, '<', $MATRIX) or die "open $MATRIX: $!";
     my $text = do { local $/; <$in> };
@@ -1154,6 +1279,10 @@ sub main {
         $scope{ $f->[0] } = matrix_row_ids(\@lines, $from, $to);
     }
 
+    # Which other suites of this subsystem a section may fall back to for a
+    # row its own source does not assert (GH #121).
+    my $companion = companion_map(\@lines, \@found);
+
     my @report;
     my @drift;
     my @kept;
@@ -1169,7 +1298,8 @@ sub main {
         my @section_kept;
         my ($touched, $p, $f_ct, $s, $m, $c, $u, $d) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
-                            \@section_drift, \@section_kept, $stop);
+                            \@section_drift, \@section_kept, $stop,
+                            $companion->{$idx});
         my @sources = as_list($source_rel);
         push @drift, map { "$sources[0]  $_" } @section_drift;
         push @kept,  map { "$sources[0]  $_" } @section_kept;
