@@ -47,6 +47,11 @@
 //   AC-01  "&Window" put back on Alt+W  -> fails, naming both claimants
 //   AC-02  each of the four in-menu collisions put back, separately -> fails
 //   AC-03  a second action given F2                                 -> fails
+//          ... and an action given a colliding ALTERNATE sequence via
+//          setShortcuts({F3, F5}) -> fails too. That second mutation is the
+//          reason the harvest reads shortcuts() rather than shortcut(): run
+//          against the singular harvest it PASSES, silently, because F3 is
+//          still the primary. Both directions were run.
 //   AC-04  a bottom-bar QPushButton given "&Map"                    -> fails
 //   AC-05  one extra menu item added                                -> fails
 //   AK-02  "&Window" put back on Alt+W -> fails with the round-robin in the
@@ -320,24 +325,30 @@ static void test_accelerators(Fixture& fx)
                            : dups);
     }
 
-    // AC-03 — the third namespace: F-keys and friends. Clean today, and it is
-    // the check being absent, not the collision being present, that this suite
-    // exists to fix.
+    // The third namespace: F-keys and friends. Harvested via shortcuts()
+    // (PLURAL), not shortcut(): the singular form returns only an action's
+    // PRIMARY sequence, so an action given alternates through setShortcuts()
+    // would carry a colliding sequence this suite never looked at. All nine
+    // call sites in debugger_window.cpp use the singular setShortcut() today,
+    // so the two harvests agree — but a guard with a blind spot is worse than
+    // ordinary code with one, because everything else is relying on it to be
+    // the thing that catches the NEXT Alt+W.
+    std::vector<Accel> key_accels;
+    for (QAction* a : fx.dbg->findChildren<QAction*>())
+        for (const QKeySequence& seq : a->shortcuts()) {
+            if (seq.isEmpty()) continue;
+            key_accels.push_back(Accel{QStringLiteral("<window>"), a->text(),
+                                       seq.toString()});
+        }
+
+    // AC-03 — clean today, and it is the check being absent, not the collision
+    // being present, that this suite exists to fix.
     {
-        std::vector<Accel> keys;
-        for (QAction* a : fx.dbg->findChildren<QAction*>())
-            if (!a->shortcut().isEmpty())
-                keys.push_back(Accel{QStringLiteral("<window>"), a->text(),
-                                     a->shortcut().toString()});
-        const std::string dups = collisions(keys);
-        // "primary" is load-bearing: QAction::shortcut() returns only the
-        // primary sequence, so an action given alternates via setShortcuts()
-        // would have those unexamined. Nothing in src/debugger uses the plural
-        // form today (all nine call setShortcut()), and the description says
-        // what the harvest actually looked at rather than implying more.
-        check("AC-03", "no two actions share a primary key-sequence shortcut",
+        const std::string dups = collisions(key_accels);
+        check("AC-03", "no two actions share a key-sequence shortcut",
               dups.empty(),
-              dups.empty() ? fmt("%zu shortcuts, all distinct", keys.size()) : dups);
+              dups.empty() ? fmt("%zu shortcuts, all distinct", key_accels.size())
+                           : dups);
     }
 
     // AC-04 — the cross-mechanism row, and the reason it is separate from
@@ -388,11 +399,12 @@ static void test_accelerators(Fixture& fx)
     // Breakpoints, Watches, Window), thirty mnemonics, nine shortcuts. Adding
     // or removing a menu entry means updating these numbers, and that edit is
     // the point — it is the claim about how much of the menu tree is checked.
+    // It counts the SAME vector AC-03 checks, not a second walk that could
+    // drift from it: the denominator has to describe the harvest it vouches
+    // for, or it vouches for nothing.
     {
         const size_t top = only_scope(menu_accels, kMenuBar).size();
-        size_t shortcuts = 0;
-        for (QAction* a : fx.dbg->findChildren<QAction*>())
-            if (!a->shortcut().isEmpty()) ++shortcuts;
+        const size_t shortcuts = key_accels.size();
 
         const bool as_expected = top == 5
                               && popup_scopes.size() == 8
