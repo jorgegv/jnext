@@ -404,9 +404,10 @@ The script's input assumptions:
   with the plan. A plan-doc citation is therefore provisional: row-local
   evidence displaces it, but only evidence read from the source this run
   names in `Test file:line`, so what is published always justifies what runs.
-  Ten rows across four subsystems were affected; four of them were published
-  twice with different citations, the parent table taking the plan's and the
-  companion's own table the row-local one. Pinned by `SELF-53..60`.
+  Ten rows across four subsystems were affected; for four of them one run
+  computed two different answers for the same row ID, resolving it locally
+  while walking the companion's section and to the plan while walking the
+  parent's. Pinned by `SELF-53..60`.
 
 The manual fallback is below, in case the script is unavailable or the
 refresh touches areas the script doesn't automate (last-touch commit hash,

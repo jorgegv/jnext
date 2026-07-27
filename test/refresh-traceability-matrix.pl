@@ -919,9 +919,11 @@ sub cite_src_for {
 # that actually asserts the row. `NR_A0-01` published `zxnext.vhd:1241` — a
 # bare signal declaration — over the `zxnext.vhd:5080` reset default its
 # assertions exercise, and reported no drift while doing it, because the
-# hand-written cell agreed with the plan. Worse, the companion's OWN table
-# published the row-local citation for the same ID, so one document gave two
-# answers for one row. (GH #133)
+# hand-written cell agreed with the plan. Worse, one run computed TWO answers
+# for one row ID: a row listed in both a parent table and its companion's
+# resolved locally when the companion's section was walked (and reported
+# drift) and to the plan when the parent's was (and reported none) —
+# `NR_A0-03`, `DUAL-05`, `HOTKEY-01`, `JOY-WIRE-01`. (GH #133)
 #
 # So a plan-doc citation is provisional: it holds the row until row-local
 # evidence turns up. ONE fence stops that becoming the borrowed-citation
