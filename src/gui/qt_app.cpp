@@ -144,6 +144,10 @@ void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
     //   - on_input_state_restored re-seeds the dispatcher shadow after rewind.
     // refresh_joystick_sources() then applies the CLI/config-resolved sources.
     gamepad_host_ = std::make_unique<GamepadHost>(emulator_.joystick());
+    // Issue #120 — the Keyboard is reconstructed with an all-released matrix on
+    // a cold boot, so any release the latch is holding refers to a key of a
+    // machine that no longer exists. Drop it with the rest of the host wiring.
+    key_latch_.reset();
     emulator_.keyboard().set_joystick_dispatcher(&gamepad_host_->dispatcher());
     emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
         if (gamepad_host_) gamepad_host_->set_source(slot, src);
@@ -233,9 +237,20 @@ bool QtApp::init(int argc, char* argv[]) {
     // Wire emulator pointer so menus can call into it.
     main_window_->set_emulator(&emulator_);
 
-    // Route keyboard events from the Qt window to the emulator keyboard matrix.
+    // Route keyboard events from the Qt window to the emulator keyboard matrix,
+    // through the issue-#120 minimum-hold latch: a press is applied at once,
+    // but a release arriving before any frame has run is HELD BACK until one
+    // has (post_frames() discharges it). Without that, a press and its release
+    // delivered in the same inter-frame gap — which is every keystroke short
+    // enough, and all of them once the frame rate drops — are both applied with
+    // no run_frame() in between and the guest never sees the key at all.
     main_window_->set_key_callback([this](SDL_Scancode sc, bool pressed) {
-        emulator_.keyboard().set_key(sc, pressed);
+        if (pressed) {
+            key_latch_.on_press(sc);
+            emulator_.keyboard().set_key(sc, true);
+        } else if (key_latch_.on_release(sc)) {
+            emulator_.keyboard().set_key(sc, false);
+        }
     });
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
@@ -490,6 +505,19 @@ void QtApp::TickEffects::present(bool carries_new_content) {
 void QtApp::TickEffects::post_frames(int frames_rendered) {
     QtApp& a = app;
 
+    // Issue #120 — discharge the host key latch. Every frame of this tick has
+    // now run, so any key whose release was held back has been seen by the
+    // guest and may come up. Gated on frames_rendered: a tick that emulated
+    // nothing (debugger paused, audio-pacer skip) has not honoured the hold
+    // yet, and releasing there would reinstate the race the latch closes.
+    if (frames_rendered > 0) {
+        a.due_releases_.clear();
+        a.key_latch_.on_frames_ran(a.due_releases_);
+        for (int sc : a.due_releases_) {
+            a.emulator_.keyboard().set_key(static_cast<SDL_Scancode>(sc), false);
+        }
+    }
+
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the
     // emitted PNG is 640×512 (square pixels, G104 Phase 7).
@@ -640,6 +668,9 @@ void QtApp::on_status_tick() {
     // Read current CPU speed from NextREG 0x07 (bits 1:0).
     int speed_idx = emulator_.nextreg().cached(0x07) & 0x03;
 
+    // Issue #120 — pass the machine's own frame period so the status bar can
+    // report the speed ACHIEVED, not just the one requested.
     main_window_->update_status(fps, static_cast<double>(cad.presented),
-                                speed_idx, speed_multiplier_);
+                                speed_idx, speed_multiplier_,
+                                emulator_.frame_period_ms());
 }

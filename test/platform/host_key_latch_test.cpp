@@ -1,0 +1,316 @@
+// Host key minimum-hold latch test (GitHub issue #120).
+//
+// No VHDL oracle: this is a HOST input-sampling policy, not emulated hardware.
+// Its oracle is the stated contract in src/platform/host_key_latch.h, which in
+// turn derives from one fact about the frontend and one about the hardware:
+//
+//   * FRONTEND — Qt key callbacks and the frame timer are dispatched by the
+//     same event loop, so a key event can only land BETWEEN two run_frame()
+//     calls. The guest's only view of the matrix is inside run_frame(). The
+//     matrix is therefore sampled exactly once per emulated frame.
+//   * HARDWARE — the FPGA membrane scanner runs at pixel-clock rate
+//     (membrane.vhd), so a real press outlasts many scans and can never be
+//     missed. The one-frame sampling is purely an emulation artefact.
+//
+// The contract under test:
+//
+//   * a press is NEVER delayed;
+//   * a release is deferred if and only if no frame has run since the press;
+//   * a deferred release is delivered by the first tick that emulates a frame;
+//   * once a frame has run, releases pass through unchanged — the latch must
+//     not become a permanent one-frame lag on every key-up;
+//   * a re-press cancels a pending release;
+//   * a tick that emulated nothing must not discharge the latch.
+//
+// Every row derives from that contract, never from reading the implementation
+// back.
+//
+// Run: ./build/test/host_key_latch_test
+
+#include "platform/host_key_latch.h"
+
+#include <cstdio>
+#include <string>
+#include <vector>
+
+namespace {
+
+int g_pass = 0, g_fail = 0;
+
+void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
+{
+    if (cond) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
+    }
+}
+
+std::string got(const std::vector<int>& v)
+{
+    std::string s = "{";
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (i) s += ",";
+        s += std::to_string(v[i]);
+    }
+    return s + "}";
+}
+
+// Two arbitrary in-range scancodes (SDL_SCANCODE_A = 4, SDL_SCANCODE_B = 5).
+constexpr int KEY_A = 4;
+constexpr int KEY_B = 5;
+
+/// Drive one frontend tick that emulated at least one frame, returning the
+/// releases it discharged.
+std::vector<int> frame_tick(host_key_latch::Latch& l)
+{
+    std::vector<int> out;
+    l.on_frames_ran(out);
+    return out;
+}
+
+}  // namespace
+
+int main()
+{
+    using host_key_latch::Latch;
+
+    std::printf("Host key latch test (GitHub issue #120)\n");
+    std::printf("====================================================\n");
+
+    // --- HK-01: a press is never delayed -----------------------------------
+    {
+        Latch l;
+        check("HK-01", "on_press always asserts the key immediately",
+              l.on_press(KEY_A));
+    }
+
+    // --- HK-02: THE DEFECT — press and release inside one frame gap --------
+    // Without the latch this pair sets the matrix bit and clears it again with
+    // no frame in between, and the guest never sees the key. The release must
+    // be held back.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        check("HK-02a", "a release with no frame since the press is deferred",
+              !l.on_release(KEY_A));
+        check("HK-02b", "the latch reports the pending release",
+              l.has_deferred());
+    }
+
+    // --- HK-03: the deferred release is delivered by the next frame --------
+    // The key must come up again — a hold that never ends would jam the key
+    // down, which is a worse bug than the one being fixed.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);
+        const auto due = frame_tick(l);
+        check("HK-03a", "the first tick that emulates a frame discharges it",
+              due.size() == 1 && due[0] == KEY_A, got(due));
+        check("HK-03b", "nothing remains pending afterwards", !l.has_deferred());
+    }
+
+    // --- HK-04: the hold lasts exactly one frame, not more -----------------
+    // A second frame must not re-deliver the release.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);
+        frame_tick(l);
+        const auto second = frame_tick(l);
+        check("HK-04", "a release is discharged once, not on every frame",
+              second.empty(), got(second));
+    }
+
+    // --- HK-05: the normal path is untouched -------------------------------
+    // A press that has already spanned a frame releases immediately, in the
+    // same call. This is the case for every ordinary human keystroke, and the
+    // latch must be a no-op there or it would add a frame of input lag to
+    // everything.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        frame_tick(l);
+        check("HK-05a", "a release after a frame passes straight through",
+              l.on_release(KEY_A));
+        check("HK-05b", "and defers nothing", !l.has_deferred());
+    }
+
+    // --- HK-06: a held key never becomes deferred, however long ------------
+    // Ten frames of a key held down, then a release: still immediate. Pins that
+    // on_frames_ran() clears the freshness of keys that are STILL DOWN, not
+    // just of those being released.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        for (int i = 0; i < 10; ++i) frame_tick(l);
+        check("HK-06", "a long-held key releases immediately",
+              l.on_release(KEY_A) && !l.has_deferred());
+    }
+
+    // --- HK-07: a stray release passes through -----------------------------
+    // The key-up half of a chord pressed before the window had focus arrives
+    // with no matching press. Deferring it would hold back a release for a key
+    // that was never down.
+    {
+        Latch l;
+        check("HK-07", "a release with no preceding press is immediate",
+              l.on_release(KEY_A) && !l.has_deferred());
+    }
+
+    // --- HK-08: a re-press cancels the pending release ---------------------
+    // The key is physically down again; releasing it at the next frame would be
+    // a lie. The two taps merge into one press — see the header's note on why
+    // that matches the ROM's 50 Hz KEY-SCAN.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);          // deferred
+        l.on_press(KEY_A);            // down again before any frame
+        check("HK-08a", "a re-press clears the pending release",
+              !l.has_deferred());
+        const auto due = frame_tick(l);
+        check("HK-08b", "and no release is emitted at the next frame",
+              due.empty(), got(due));
+        // That frame ran with the key down, so the merged press HAS been seen:
+        // its release is now immediate, exactly like any ordinary keystroke.
+        check("HK-08c", "the merged press ends normally once a frame has run",
+              l.on_release(KEY_A) && !l.has_deferred());
+    }
+
+    // --- HK-08d: a merged press with NO frame at all is still latched -------
+    // Two taps inside one gap collapse into one press, and that press has still
+    // not been seen — so its release must be deferred like any other.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);
+        l.on_press(KEY_A);
+        check("HK-08d", "a merged press with no frame between defers its release",
+              !l.on_release(KEY_A) && l.has_deferred());
+        const auto due = frame_tick(l);
+        check("HK-08e", "and the merge discharges exactly one release",
+              due.size() == 1 && due[0] == KEY_A, got(due));
+    }
+
+    // --- HK-09: independent keys do not interfere --------------------------
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_press(KEY_B);
+        l.on_release(KEY_A);
+        l.on_release(KEY_B);
+        const auto due = frame_tick(l);
+        check("HK-09", "both keys deferred in one gap are both discharged",
+              due.size() == 2 &&
+              ((due[0] == KEY_A && due[1] == KEY_B) ||
+               (due[0] == KEY_B && due[1] == KEY_A)), got(due));
+    }
+
+    // --- HK-10: a repeated release does not queue twice --------------------
+    // Duplicate key-up events (seen when a host hotkey handler and the normal
+    // path both forward the same event) must not produce two clears.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);
+        l.on_release(KEY_A);
+        const auto due = frame_tick(l);
+        check("HK-10", "a duplicate release is not queued twice",
+              due.size() == 1 && due[0] == KEY_A, got(due));
+    }
+
+    // --- HK-11: a tick that emulated nothing must not discharge ------------
+    // A paused debugger runs no frames, so the guest has still not looked at
+    // the matrix. The caller is contracted not to call on_frames_ran() then;
+    // this row pins that the hold genuinely survives such ticks, i.e. the state
+    // lives in the latch and not in the caller's loop.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);
+        check("HK-11a", "the hold survives ticks that emulate nothing",
+              l.has_deferred());
+        const auto due = frame_tick(l);
+        check("HK-11b", "and is discharged by the first tick that does",
+              due.size() == 1 && due[0] == KEY_A, got(due));
+    }
+
+    // --- HK-12: out-of-range scancodes pass through unlatched --------------
+    // The frontend feeds real SDL_Scancode values, but an unmapped or negative
+    // code must never index the bitset.
+    {
+        Latch l;
+        check("HK-12a", "a negative scancode presses through",  l.on_press(-1));
+        check("HK-12b", "a negative scancode releases through", l.on_release(-1));
+        check("HK-12c", "an over-range scancode presses through",
+              l.on_press(host_key_latch::MAX_KEYS));
+        check("HK-12d", "an over-range scancode releases through",
+              l.on_release(host_key_latch::MAX_KEYS));
+        check("HK-12e", "and nothing is deferred for them", !l.has_deferred());
+    }
+
+    // --- HK-13: reset() drops everything -----------------------------------
+    // Cold boot reconstructs the Keyboard with an all-released matrix; a
+    // surviving pending release would clear a bit belonging to a machine that
+    // no longer exists.
+    {
+        Latch l;
+        l.on_press(KEY_A);
+        l.on_release(KEY_A);
+        l.reset();
+        check("HK-13a", "reset clears pending releases", !l.has_deferred());
+        const auto due = frame_tick(l);
+        check("HK-13b", "and none are emitted afterwards", due.empty(), got(due));
+        check("HK-13c", "reset also clears freshness, so a stray release passes",
+              l.on_release(KEY_A));
+    }
+
+    // --- HK-14: many taps across many frames stay in step ------------------
+    // A soak over the realistic pattern (every tap shorter than a frame gap):
+    // each tap must produce exactly one press and one release, and the latch
+    // must never accumulate.
+    {
+        Latch l;
+        int  discharged = 0;
+        bool always_deferred = true;
+        for (int i = 0; i < 200; ++i) {
+            l.on_press(KEY_A);
+            if (l.on_release(KEY_A)) always_deferred = false;
+            discharged += static_cast<int>(frame_tick(l).size());
+        }
+        check("HK-14a", "every sub-frame tap is deferred", always_deferred);
+        check("HK-14b", "200 taps discharge exactly 200 releases",
+              discharged == 200, "discharged=" + std::to_string(discharged));
+        check("HK-14c", "no state accumulates", !l.has_deferred());
+    }
+
+    // --- HK-15: alternating fast and slow taps ------------------------------
+    // Mixed traffic: the latch must switch between deferring and passing
+    // through without leaking state from one tap into the next.
+    {
+        Latch l;
+        bool ok = true;
+        for (int i = 0; i < 50; ++i) {
+            // Slow tap: a frame runs while the key is down -> immediate.
+            l.on_press(KEY_A);
+            frame_tick(l);
+            if (!l.on_release(KEY_A)) ok = false;
+            if (!frame_tick(l).empty()) ok = false;
+            // Fast tap: no frame while down -> deferred, then discharged.
+            l.on_press(KEY_A);
+            if (l.on_release(KEY_A)) ok = false;
+            if (frame_tick(l).size() != 1) ok = false;
+        }
+        check("HK-15", "alternating slow and fast taps stay independent", ok);
+    }
+
+    std::printf("\n====================================================\n");
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+                g_pass + g_fail, g_pass, g_fail, 0);
+    return g_fail > 0 ? 1 : 0;
+}

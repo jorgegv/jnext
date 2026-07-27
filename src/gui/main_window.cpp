@@ -13,6 +13,7 @@
 #include "platform/screenshot.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
+#include "platform/speed_report.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -786,7 +787,8 @@ void MainWindow::create_statusbar() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::update_status(double fps, double presented_fps,
-                               int cpu_speed_idx, double emu_speed) {
+                               int cpu_speed_idx, double emu_speed,
+                               double frame_period_ms) {
     // Task 63 (issue #9) — show BOTH figures, each labelled. Reporting only
     // the emulated rate under the bare name "FPS" is what made every user
     // report of judder ("but it says 59 fps") impossible to interpret.
@@ -809,10 +811,37 @@ void MainWindow::update_status(double fps, double presented_fps,
         }
     }
 
-    // Show emulator speed multiplier.
+    // Show the emulator speed. Issue #120 — this cell used to render the
+    // REQUESTED multiplier and nothing else, so it read "100%" on a host
+    // managing 30 fps just as it did on one keeping up perfectly. A reporter
+    // seeing "100%" beside a low frame rate reasonably concluded the two
+    // instruments disagreed; in truth only one of them measured anything.
+    //
+    // Now the requested figure is still what the cell normally shows (it is the
+    // setting, and on a healthy host it is also the truth), but a GENUINE
+    // shortfall is appended in parentheses. See speed_report.h for why the
+    // achieved figure is a percentage of the MACHINE'S OWN refresh — the Next's
+    // "50 Hz" is really 49.36 Hz, so a healthy jnext shows "FPS: 49.4" and must
+    // still score 100%.
+    const speed_report::Report sr =
+        speed_report::summarize(fps, frame_period_ms, emu_speed);
     if (emu_speed_label_) {
-        int pct = static_cast<int>(emu_speed * 100.0 + 0.5);
-        emu_speed_label_->setText(QString("%1%").arg(pct));
+        emu_speed_label_->setText(
+            sr.shortfall ? QString("%1% (%2%)").arg(sr.requested_pct).arg(sr.achieved_pct)
+                         : QString("%1%").arg(sr.requested_pct));
+        QString tip = tr("Requested emulation speed: %1%").arg(sr.requested_pct);
+        if (frame_period_ms > 0.0) {
+            tip += tr("\n100%% = %1 fps (this machine's true refresh rate)")
+                       .arg(1000.0 / frame_period_ms, 0, 'f', 2);
+        }
+        if (sr.achieved_valid) {
+            tip += tr("\nActually achieved: %1%").arg(sr.achieved_pct);
+        }
+        if (sr.shortfall) {
+            tip += tr("\n\nThe host is not keeping up. The figure in brackets is "
+                      "what it managed.");
+        }
+        emu_speed_label_->setToolTip(tip);
     }
 
     // Update tape status display

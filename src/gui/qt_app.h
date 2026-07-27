@@ -3,11 +3,13 @@
 #include <string>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
+#include "platform/host_key_latch.h"
 #include "platform/screenshot.h"
 #include "video/renderer.h"
 
@@ -204,6 +206,18 @@ private:
     frame_sequencer::Sequencer seq_;
     uint64_t last_present_count_ = 0;  ///< EmulatorWidget::present_count() at last drain
     int64_t  last_status_ms_ = 0;      ///< steady_clock ms at last drain (real window)
+
+    // Issue #120 — host key minimum-hold latch. Qt key callbacks and the frame
+    // timer share one event loop, so a key event can only land BETWEEN two
+    // run_frame() calls: a press and its release delivered in the same gap set
+    // the matrix bit and clear it again with no frame in between, and the guest
+    // never sees the key. The latch holds such a release back until a frame has
+    // looked. Fully specified (and unit-tested) in platform/host_key_latch.h;
+    // discharged in TickEffects::post_frames(), reset on cold boot.
+    host_key_latch::Latch key_latch_;
+    /// Scratch buffer for the discharge, kept as a member so the per-tick path
+    /// does no allocation in steady state.
+    std::vector<int>      due_releases_;
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;
