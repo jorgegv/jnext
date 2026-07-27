@@ -8,21 +8,27 @@ through modifiers:
 
 | PC key | Spectrum key |
 |---|---|
-| Ctrl (either) | Caps Shift |
-| Shift (either) | Symbol Shift |
+| Shift (either) | Caps Shift |
+| Ctrl (either) | Symbol Shift |
 | Backspace | Delete |
 | Arrow keys | Cursor keys |
 | Esc | **Break** |
 | Tab | Extend Mode |
+| Caps Lock | Caps Lock |
 | Key left of `1` | True Video |
+| `\` | Inverse Video |
 | Alt + key left of `1` | Inverse Video |
 | Alt + E | Edit |
 | Alt + G | Graph |
 | Alt + C | Caps Lock |
 | `'` `;` `.` `,` | `"` `;` `.` `,` |
+| `/` `-` `=` | `/` `-` `=` (Symbol Shift + V / J / L) |
 
-Two things catch people out:
+Three things catch people out:
 
+- **Shift is Caps Shift and Ctrl is Symbol Shift** — the same way round as a
+  real Spectrum Next with a PC keyboard plugged into it. Versions before
+  0.99.43 had these two swapped.
 - **Esc is Break**, not "get me out of fullscreen". Fullscreen is F11 and only
   F11.
 - **Alt is a host modifier, never a Spectrum key.** Only the four Alt
