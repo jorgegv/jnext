@@ -532,10 +532,10 @@ bug that was fixed, which is what §9 is for.
 
 ---
 
-## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (27 rows)
+## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (29 rows)
 
 Registered in `test/CMakeLists.txt` and declared in `test/unit-tests.conf`
-(`?host_hotkey_test 27`). Needs a real `MainWindow`, no display — offscreen QPA
+(`?host_hotkey_test 29`). Needs a real `MainWindow`, no display — offscreen QPA
 is forced in `main()`, the same idiom as `esc_break_test`.
 
 | Rows | What they prove |
@@ -547,12 +547,14 @@ is forced in `main()`, the same idiom as `esc_break_test`.
 | H115-20..25 | Each `Alt+<letter>` really activates its action through the live shortcut map, and types nothing into the guest. |
 | H115-26 | Menubar mnemonics and QAction shortcuts are disjoint — no ambiguous Alt binding. |
 | H115-27 | The guest's `Alt+E/G/C` are claimed by no host binding. |
+| H115-28 | No `QAction`'s text, tooltip or status tip names a modifier chord the product does not bind. Two tiers: an action with its own shortcut must name *that*; an action without one (a toolbar twin of a menu action) must name a chord *something* binds. |
+| H115-29 | Every modifier chord advertised in `FEATURES.md` is one the product really binds. |
 
 **Why these rows are not decoration.** `QApplication::sendEvent()` to a widget
 passes through `QApplication::notify()`, which consults the global
 `QShortcutMap` *before* dispatching the `KeyPress` — so a synthetic `Ctrl+O`
 here is swallowed by a live `Ctrl+O` QAction exactly as a real one would be.
-Verified by mutation, four cycles:
+Verified by mutation, seven cycles:
 
 | Mutation | Rows that fail |
 |---|---|
@@ -560,6 +562,9 @@ Verified by mutation, four cycles:
 | `T&ape` back to `&Tape` (restore the mnemonic collision) | 2: H115-24 (`fired=0` — the shortcut silently stops working) and H115-26 |
 | `&Machine` → `Machin&e` (a future menu steals the guest's Alt+E) | 1: H115-27 |
 | Letter key-releases consumed in `keyReleaseEvent` | 6: H115-07..12, each with its own letter's bit stuck low |
+| Toolbar bug-button tooltip back to `Ctrl+D` | 1: H115-28 — `Debug says Ctrl+D but nothing binds it` |
+| `FEATURES.md` back to `Ctrl+R` / `Ctrl+S` | 1: H115-29 — `unbound=Ctrl+R,Ctrl+S` |
+| Every chord deleted from `FEATURES.md` | 1: H115-29 — the vacuity guard (`found=`), so an unreadable file or a broken pattern fails instead of passing empty |
 
 Every row is covered by at least one mutation.
 
@@ -569,6 +574,88 @@ no-`Ctrl`-shortcut assertion, and guest-reachability for the six chords). The
 per §5 the frontends' only shared reserved set is the F-keys, and a test
 asserting agreement on a set of size zero beyond that proves nothing. Broad
 guest-reachability for `Esc`/`Tab` is already covered by `esc_break_test`.
+
+### 9.1 Why H115-28/29 exist — the seam the first cut missed
+
+The first cut of this migration re-pointed every `QAction` and every mnemonic
+correctly, passed all 27 rows, `docs-check`, `cli-check` and the full 5857-row
+unit run — and **still shipped two defects**, because the enumeration stopped at
+`QKeySequence` and mnemonic *objects* and never swept the tree for literal
+`"Ctrl+<letter>"` *text*:
+
+- `debugger_manager.cpp:246` — the toolbar bug-button tooltip still read
+  `Toggle Debugger (Ctrl+D)`. The product was telling the user to press the
+  exact chord the fix hands back to the guest, where it types `SS+D` = `STEP`.
+- `FEATURES.md:64,66` — still advertised `Ctrl+R` and `Ctrl+S`.
+
+Neither was catchable by any existing gate: nothing tests tooltip text, and
+`docs-check` cannot see `FEATURES.md` at all, so both were green.
+
+**The generalisable rule: a chord named in prose is a promise about a binding,
+and a promise is checkable whenever the binding is a live object.** H115-28/29
+make it checkable.
+
+**What they do NOT cover, stated so a green row is not over-read:**
+
+- `doc/man/jnext.1.md` and `src/doc/user-guide/**` are deliberately **not**
+  scanned. Both now carry a paragraph naming `Ctrl+O/D/R/T/Q/S` *on purpose* —
+  to tell the reader those chords reach the guest — so scanning them would need
+  the checker to skip that passage, and a checker exclusion is exactly how a
+  real defect hides (the project's standing rule: exceptions are declared in
+  the data, never as a scan exclusion). Those files remain a human-review
+  responsibility.
+- `README.md` is not scanned: it contains no chord at all today, so the branch
+  would be vacuous.
+- Bare F-keys are not matched — `Multiface NMI (F9)` names a `keyPressEvent`
+  key, not a `QAction` shortcut. `Ctrl+Alt` (mouse release) does not match
+  either, there being no key after the second modifier. That is why the group
+  needs **no** exception table today.
+
+---
+
+## 9.2 Full-tree sweep for literal chord text, and its disposition
+
+`git grep -nE 'Ctrl[+-][QOSRTD]'` over the whole tree, every hit classified.
+This is the sweep the first cut should have done.
+
+**Live prose describing current behaviour — FIXED:**
+
+| Hit | Was | Now |
+|---|---|---|
+| `src/debugger/debugger_manager.cpp:251` | tooltip `Toggle Debugger (Ctrl+D)` | `Alt+D` |
+| `FEATURES.md:64` | `Power Reset (Ctrl+R/F1, cold boot)` | `Alt+R/F1` |
+| `FEATURES.md:66` | `PNG screenshot (Ctrl+S, toolbar, …)` | `Alt+S` |
+| `src/core/emulator.cpp:7358` | comment `GUI "Save Screenshot" (Ctrl+S)` | `Alt+S` |
+
+**Correct as-is — chords that did not move:** `FEATURES.md:51`,
+`doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md:1109`, `test/mmu/mmu_test.cpp:4148`
+(all `Ctrl+Shift+S`); `doc/man/jnext.1.md:439` (`Ctrl+F5`/`Ctrl+F6`).
+
+**Historical record — deliberately LEFT naming the old chords:**
+
+- `.prompts/*.md` (7 hits across 2026-03-22 … 2026-07-19) — dated daily task
+  logs. Rewriting a log to match today's code destroys its only value.
+- `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` — declared frozen by
+  CLAUDE.md.
+- `doc/design/EMULATOR-DESIGN-PLAN.md:816` — a completed roadmap checkbox,
+  annotated in place as `Alt+O (Ctrl+O until issue #115)` rather than silently
+  rewritten.
+- `doc/design/WINDOWS-COMPAT-PLAN.md:249` — cites `QKeySequence(Qt::CTRL |
+  Qt::Key_X)` as the **Qt5-clean API shape**, not as a user-facing chord. The
+  claim is still true (`Qt::ALT | Qt::Key_X` is the same int-promotion form,
+  and `Qt::CTRL` uses remain for `Ctrl+F5`/`Ctrl+F6`/`Ctrl+Shift+S`).
+- This document, and `test/gui/host_hotkey_test.cpp` — both name the old
+  chords because describing the change is their job.
+
+**Not chords at all** (matched only a loose grep): `Ctrl-C` in shell scripts and
+harness comments, `ctrl` local variables, NextREG names like `Line IRQ Ctrl`,
+and `tools/debug/cspect-g46b-probe11.dbg:49` (`Ctrl+F5` is a *CSpect* key).
+
+**Noted, NOT fixed — out of scope, flagged for its own issue:**
+`doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md:637` lists `Ctrl+S` among
+"hardcoded debugger keys". The debugger has no `Ctrl+S` binding and never did,
+so that line was wrong before #115 and is unrelated to it — and the file is
+frozen.
 
 ---
 
@@ -585,11 +672,17 @@ guest-reachability for `Esc`/`Tab` is already covered by `esc_break_test`.
 - **`Alt+W` double-binding** in the debugger (§4.2) is a real pre-existing
   defect found during the original inventory. Still unfixed, still out of scope
   for #115, still wants its own issue.
-- **Stray key-release delivery.** Qt consults the shortcut map only for
-  `KeyPress`, so the `KeyRelease` matching an `Alt+<letter>` shortcut *is*
-  delivered to the guest. Measured, and inert — it clears a matrix bit that was
-  never set — and it behaved identically for the `Ctrl` chords before the
-  migration. Noted so the next reader does not mistake it for new.
+- **Stray key-release delivery — inert by construction, not merely by
+  measurement.** Qt consults the shortcut map only for `KeyPress`, so the
+  `KeyRelease` matching an `Alt+<letter>` shortcut *is* delivered to the guest.
+  It cannot desync anything: on an unpaired release `Keyboard::set_key` takes
+  `use_alt = alt_variant_[sc]` (`keyboard.cpp:288-292`), which was never set
+  because the press never arrived — and none of `Q/O/S/R/T/D` has an
+  `s_alt_compound` or `s_alt_extkey` entry in the first place, so `use_alt`
+  would resolve false on the press edge too. The release therefore takes the
+  plain `s_map` path and clears a matrix bit that is already clear. The same
+  was true of the `Ctrl` chords before the migration. Noted so the next reader
+  does not mistake it for new.
 - **No hardware confirmation.** Everything here derives from the FPGA VHDL and
   from reading and running jnext. No physical ZX Spectrum Next was available.
 - **Not exercised on a real X11/Wayland desktop by an automated test.** The
