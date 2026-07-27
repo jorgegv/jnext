@@ -362,11 +362,38 @@ bool MainWindow::crt_filter() const {
 // ---------------------------------------------------------------------------
 
 void MainWindow::create_menus() {
+    // -----------------------------------------------------------------------
+    // Issue #115 part 2 — host hotkeys live on Alt, never on Ctrl.
+    //
+    // Ctrl IS the guest's Symbol Shift (keymaps.vhd:84; jnext binds LCTRL/RCTRL
+    // to matrix {7,1} in keyboard.cpp:124-125), so every Ctrl+<letter> host
+    // shortcut silently ate a Symbol Shift sequence NextBASIC needs constantly:
+    // SS+O is ';', SS+D is STEP, SS+R is '<', SS+T is '>', SS+Q is '<=',
+    // SS+S is '|'. Qt's shortcut map outranks keyPressEvent, so the guest never
+    // saw them at all. All six moved to Alt+<letter>.
+    //
+    // Alt is therefore the HOST namespace and Ctrl is the GUEST's. That is a
+    // deliberate divergence from real hardware, which maps Left Alt to EXTEND
+    // MODE and Right Alt to GRAPH (keymaps.vhd:85-94): jnext follows the
+    // FUSE/ZEsarUX convention instead (EXTEND on Tab, keyboard.cpp:154) and
+    // gives up ever binding the Alt keys as guest shift keys. Deliberate, not
+    // an oversight — see doc/design/TASK-115-HOST-SHORTCUT-INVENTORY.md §8.
+    //
+    // Consequence for anyone adding a menu or a shortcut here: Alt+<letter> is
+    // ONE namespace shared by the QAction shortcuts below AND by the top-level
+    // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
+    // Qt shortcut — QAction::event() only prints a warning and does nothing, so
+    // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
+    // Reserved today: Alt+Q/O/S/R/T/D (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
+    // (keyboard.cpp:163,172-174).
+    // -----------------------------------------------------------------------
+
     // --- File menu ---
     QMenu* file_menu = menuBar()->addMenu(tr("&File"));
 
     QAction* load_nex = file_menu->addAction(tr("Load &NEX File..."));
-    load_nex->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_O));
+    load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
 
     QAction* mount_sd = file_menu->addAction(tr("&Mount SD Card Image..."));
@@ -427,7 +454,7 @@ void MainWindow::create_menus() {
     file_menu->addSeparator();
 
     screenshot_action_ = file_menu->addAction(tr("Save &Screenshot..."));
-    screenshot_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_S));
+    screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_S));
     connect(screenshot_action_, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
         QString path = QFileDialog::getSaveFileName(
@@ -455,7 +482,10 @@ void MainWindow::create_menus() {
 
     // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
     // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Ctrl+Shift+S = standard
-    // "Save As" muscle memory; complements Ctrl+S for screenshot.
+    // "Save As" muscle memory; complements Alt+S for screenshot.
+    // NOT migrated to Alt by issue #115: the owner's scope was the six plain
+    // Ctrl+<letter> chords, and Ctrl+Shift+S is a three-key chord. It does
+    // still swallow the guest's CS+SS+S — a known, deliberate residual.
     QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
     save_snapshot->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
@@ -463,7 +493,13 @@ void MainWindow::create_menus() {
     file_menu->addSeparator();
 
     QAction* quit = file_menu->addAction(tr("&Quit"));
-    quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
+    quit->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
+    // NOTE (#115): this still calls QApplication::quit() directly, which
+    // BYPASSES MainWindow::closeEvent() — so a Quit from here does not run the
+    // recorder-stop / debugger-teardown that closing the window does. The
+    // #115 migration neither creates nor removes that bypass — Alt+Q reaches
+    // quit() exactly as Ctrl+Q did — but it is recorded here because nothing
+    // guards an accidental Quit: no confirmation, and no closeEvent.
     connect(quit, &QAction::triggered, qApp, &QApplication::quit);
 
     // --- Machine menu ---
@@ -472,10 +508,11 @@ void MainWindow::create_menus() {
     // Issue #45 — two distinct reset controls, mirroring real Next hardware:
     // Power Reset = power off/on cold boot (full boot chain), Soft Reset =
     // the front-panel reset button (back to NextZXOS, no firmware reload).
-    // Ctrl+R deliberately stays on Power Reset (it has always meant the cold
-    // boot); F4 matches the host soft-reset hotkey (zxnext.vhd:6370).
+    // R deliberately stays on Power Reset (it has always meant the cold boot),
+    // now as Alt+R per #115; F4 matches the host soft-reset hotkey
+    // (zxnext.vhd:6370).
     QAction* reset = machine_menu->addAction(tr("&Power Reset"));
-    reset->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+    reset->setShortcut(QKeySequence(Qt::ALT | Qt::Key_R));
     connect(reset, &QAction::triggered, this, &MainWindow::on_reset);
 
     QAction* soft_reset = machine_menu->addAction(tr("&Soft Reset"));
@@ -622,10 +659,13 @@ void MainWindow::create_menus() {
             [this](bool on) { set_mouse_captured(on); });
 
     // --- Tape menu ---
-    QMenu* tape_menu = menuBar()->addMenu(tr("&Tape"));
+    // Mnemonic is Alt+A ("T&ape"), NOT Alt+T: Alt+T is the Open Tape File
+    // shortcut below, and one letter cannot serve both (#115 — an ambiguous
+    // Qt shortcut activates neither).
+    QMenu* tape_menu = menuBar()->addMenu(tr("T&ape"));
 
     QAction* tape_open = tape_menu->addAction(tr("&Open Tape File..."));
-    tape_open->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+    tape_open->setShortcut(QKeySequence(Qt::ALT | Qt::Key_T));
     connect(tape_open, &QAction::triggered, this, &MainWindow::on_tape_open);
 
     tape_eject_action_ = tape_menu->addAction(tr("&Eject Tape"));
@@ -644,7 +684,10 @@ void MainWindow::create_menus() {
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
 
     // --- Debug menu ---
-    QMenu* debug_menu = menuBar()->addMenu(tr("&Debug"));
+    // Mnemonic is Alt+B ("De&bug"), NOT Alt+D: Alt+D is the View > Debugger
+    // shortcut (#115). Alt+D was ALSO the reason keyboard.cpp could not give
+    // the guest Alt+D — that constraint is unchanged, only its owner moved.
+    QMenu* debug_menu = menuBar()->addMenu(tr("De&bug"));
 
     magic_bp_action_ = debug_menu->addAction(tr("Magic &Breakpoint"));
     magic_bp_action_->setCheckable(true);
@@ -694,12 +737,15 @@ void MainWindow::create_menus() {
 #ifdef ENABLE_DEBUGGER
     view_menu->addSeparator();
     debugger_action_ = view_menu->addAction(tr("&Debugger"));
-    debugger_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    debugger_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_D));
     debugger_action_->setCheckable(true);
 #endif
 
     // --- Settings menu (Task 66) ---
-    QMenu* settings_menu = menuBar()->addMenu(tr("&Settings"));
+    // Mnemonic is Alt+N ("Setti&ngs"), NOT Alt+S: Alt+S is the Save
+    // Screenshot shortcut (#115). E/G/C are also off-limits — the guest owns
+    // Alt+E/G/C (keyboard.cpp:163,172-174) — which leaves N.
+    QMenu* settings_menu = menuBar()->addMenu(tr("Setti&ngs"));
 
     QAction* preferences = settings_menu->addAction(tr("&Preferences..."));
     preferences->setShortcut(QKeySequence::Preferences);

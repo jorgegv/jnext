@@ -32,12 +32,26 @@ Three things catch people out:
 - **Esc is Break**, not "get me out of fullscreen". Fullscreen is F11 and only
   F11.
 - **Alt is a host modifier, never a Spectrum key.** Only the four Alt
-  combinations above are used, because the menu bar claims the rest.
+  combinations above are used, because the menu bar and the menu shortcuts
+  claim the rest.
+
+**Ctrl belongs to the program you are running.** No plain Ctrl+letter is a
+JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on — Ctrl+O `;`,
+Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q `<=`, Ctrl+S `|` — all reach the
+guest. Earlier versions bound those six to menu commands, which meant the
+program never saw them (and Ctrl+Q quit JNEXT outright). They live on **Alt**
+now. The one Ctrl shortcut left with a Spectrum meaning is Ctrl+Shift+S
+(Save Snapshot), which is Caps Shift + Symbol Shift + S.
+
+On real Next hardware Left Alt is Extend Mode and Right Alt is Graph. JNEXT
+does not do that: Alt is reserved for the host, and Extend Mode is on Tab —
+the same convention FUSE and ZEsarUX use. That is a deliberate trade, made so
+that Ctrl could be given back to the guest.
 
 The machine's own front-panel keys are on function keys: **F1** hard reset,
 **F4** soft reset, **F9** Multiface NMI, **F10** DivMMC. (With the debugger
 open, F9 belongs to the debugger.) The two resets are also in the **Machine**
-menu and on the toolbar: **Power Reset** (Ctrl+R, same as F1) is a power
+menu and on the toolbar: **Power Reset** (Alt+R, same as F1) is a power
 off/on cold boot that re-runs the whole boot chain; **Soft Reset** (same as
 F4) is the front-panel reset button — it returns to NextZXOS without
 re-running the boot chain. Soft Reset does nothing while the firmware is

@@ -8,7 +8,7 @@ registers, all as the hardware sees them at that instant.
 This chapter is a reference. Each panel and each function has its own section,
 so you can look one up while you are debugging.
 
-Open the debugger with **Ctrl+D**, with **View ▸ Debugger**, or with the bug
+Open the debugger with **Alt+D**, with **View ▸ Debugger**, or with the bug
 button on the emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
 panel refreshes. Closing it also resumes the machine if it was paused.

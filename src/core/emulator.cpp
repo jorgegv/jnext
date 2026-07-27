@@ -7355,7 +7355,7 @@ void Emulator::run_frame()
     //   Layer2 / Tilemap / compositor pixel  | pure reads, no member writes
     //   paths                                | (audited 2026-07-15)
     //
-    // GUI "Save Screenshot" (Ctrl+S) at speed > 1x captures the last RENDERED
+    // GUI "Save Screenshot" (Alt+S) at speed > 1x captures the last RENDERED
     // frame — consistent with what the window shows, at most ~20 ms stale.
     // Acknowledged benign consumer (C6 review MINOR).
     const bool render_this_frame =
