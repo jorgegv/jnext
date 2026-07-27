@@ -105,8 +105,19 @@ my @SUBSYS = (
      'build/test/copper_test',     'test/copper/copper_test.cpp'],
     ['## Compositor — `test/compositor/compositor_test.cpp`',
      'build/test/compositor_test', 'test/compositor/compositor_test.cpp'],
+    # Audio is the one section whose header names several suites but has no
+    # `### Companion` sub-tables — its AY/BP/IO/MX/NR/SD rows are interleaved
+    # in a single table. Scanning only audio_test.cpp reported 51 of its 79
+    # `missing` rows as untested when they are asserted in the two companion
+    # files, so the entry lists all three (GH #117 review). Both fields accept
+    # an arrayref; every other section stays a plain scalar.
     ['## Audio — `test/audio/audio_test.cpp`',
-     'build/test/audio_test',      'test/audio/audio_test.cpp'],
+     ['build/test/audio_test',
+      'build/test/audio_nextreg_test',
+      'build/test/audio_port_dispatch_test'],
+     ['test/audio/audio_test.cpp',
+      'test/audio/audio_nextreg_test.cpp',
+      'test/audio/audio_port_dispatch_test.cpp']],
     ['## DMA — `test/dma/dma_test.cpp`',
      'build/test/dma_test',        'test/dma/dma_test.cpp'],
     ['## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`',
@@ -162,7 +173,9 @@ my %PLAN_DOC = (
     'test/copper/copper_test.cpp'       => 'COPPER',
     'test/compositor/compositor_test.cpp'             => 'COMPOSITOR',
     'test/compositor/compositor_integration_test.cpp' => 'COMPOSITOR',
-    'test/audio/audio_test.cpp'         => 'AUDIO',
+    'test/audio/audio_test.cpp'               => 'AUDIO',
+    'test/audio/audio_nextreg_test.cpp'       => 'AUDIO',
+    'test/audio/audio_port_dispatch_test.cpp' => 'AUDIO',
     'test/dma/dma_test.cpp'             => 'DMA',
     'test/divmmc/divmmc_test.cpp'       => 'DIVMMC-SPI',
     'test/ctc/ctc_test.cpp'                     => 'CTC-INTERRUPTS',
@@ -269,13 +282,22 @@ my @SUBLETTERS = ('a', 'b', 'c');
 # is *both* a group banner and a real assertion elsewhere stays a row.
 my $SET_GROUP_RE = qr/\bset_group\s*\(\s*"[^"]*"/;
 
-# Declared suites the matrix deliberately has no section for. Keyed by the
-# `test/unit-tests.conf` suite name.
+# Declared suites deliberately outside the script's per-row scope. Keyed by
+# the `test/unit-tests.conf` suite name. Every entry needs a reason: this
+# map is the ONLY way a suite escapes the report, so an unreasoned entry is
+# a silent hole.
 my %NO_MATRIX_SECTION = (
-    # FUSE's data-driven runner has no in-source row IDs at all — it walks
-    # tests.in/tests.expected — so there is nothing to trace per row. The
-    # matrix says so itself under "Discrepancies noted".
+    # Data-driven runners: they walk tests.in/tests.expected and have no
+    # in-source row IDs at all, so there is nothing to trace per row. The
+    # matrix says so itself under "Discrepancies noted"; the `## Z80N`
+    # section's rows are opcode names and are permanently `missing`.
     'fuse_z80_test' => 'data-driven FUSE runner, no per-row IDs',
+    'z80n_test'     => 'data-driven FUSE-style runner, opcode names not row IDs',
+    # Narrative sections: hand-maintained tables that summarise ID *ranges*
+    # ("XNEX-01..04") or point at rows kept by hand, not per-row IDs this
+    # script can regenerate.
+    'extended_nex_test'  => 'narrative section, ID ranges not per-row IDs',
+    'atic_atac_nmi_test' => 'narrative section, hand-maintained (feeds protected NR-C0-02)',
 );
 
 # The head Summary table is generated between these markers. They are HTML
@@ -288,6 +310,13 @@ my $SUMMARY_END   = '<!-- END GENERATED SUMMARY -->';
 # selftest re-declare the literals: a copy could drift from the original
 # and the selftest would still pass.
 sub summary_markers { return ($SUMMARY_BEGIN, $SUMMARY_END); }
+
+# @SUBSYS binary/source fields are a plain scalar for a single-suite section
+# and an arrayref for a multi-suite one.
+sub as_list {
+    my ($v) = @_;
+    return ref $v eq 'ARRAY' ? @$v : ($v);
+}
 
 sub run_fails {
     my ($binary) = @_;
@@ -596,13 +625,28 @@ sub matrix_records {
     return 0;
 }
 
-# Declared suites with no section in this matrix at all — the suite-level
-# half of the same blindness. A suite counts as sectioned when any line of
-# the document names its source file; `%NO_MATRIX_SECTION` carries the
-# documented exemptions.
+# Declared suites this matrix does not trace — the suite-level half of the
+# same blindness.
+#
+# A suite counts as traced when @SUBSYS actually SCANS its source file, not
+# merely when some header mentions it. Mentioning was the first cut of this
+# check and it had exactly the hole it was written to find: the Audio header
+# named three suites while the code scanned one, so 51 rows implemented in
+# the other two were published as `missing` AND the gap satisfied the
+# mention test, making it invisible to both halves of the report. Anything
+# genuinely outside the script's per-row scope is now an explicit, reasoned
+# entry in %NO_MATRIX_SECTION rather than an accident of prose. (GH #117
+# review.)
 sub unmapped_suites {
     my ($lines) = @_;
-    my $matrix_text = join("\n", @{ without_generated_summary($lines) });
+    my %scanned;
+    for my $entry (@SUBSYS) {
+        for my $src (as_list($entry->[2])) {
+            (my $suite = $src) =~ s{.*/}{};
+            $suite =~ s/\.cpp$//;
+            $scanned{$suite} = 1;
+        }
+    }
     my $conf = "$ROOT/test/unit-tests.conf";
     open(my $fh, '<', $conf) or die "open $conf: $!";
     my @out;
@@ -610,8 +654,8 @@ sub unmapped_suites {
         next if $line =~ /^\s*#/ || $line !~ /\S/;
         my ($name, $rows) = split(' ', $line);
         $name =~ s/^\?//;               # `?` marks a GUI-gated suite
+        next if $scanned{$name};
         next if exists $NO_MATRIX_SECTION{$name};
-        next if index($matrix_text, "$name.cpp") != -1;
         push @out, [$name, $rows + 0];
     }
     close $fh;
@@ -665,14 +709,17 @@ sub status_for {
     return 'pass';
 }
 
+# Returns (source_rel, line) — the source is carried because a section can
+# be backed by several suites and the row must point at the one that
+# actually holds the assertion.
 sub line_for {
-    my ($tid, $checks, $skips) = @_;
+    my ($tid, $checks, $skips, $where) = @_;
     my $resolved = resolve_ids($tid, $checks, $skips);
     for my $r (@$resolved) {
-        return $checks->{$r} if exists $checks->{$r};
-        return $skips->{$r}  if exists $skips->{$r};
+        return ($where->{$r}, $checks->{$r}) if exists $checks->{$r};
+        return ($where->{$r}, $skips->{$r})  if exists $skips->{$r};
     }
-    return undef;
+    return (undef, undef);
 }
 
 # Citation for a row ID, following the same "MMU-01 -> MMU-01a/b/c" sub-row
@@ -695,10 +742,40 @@ sub cite_for {
 sub refresh_section {
     my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx) = @_;
     $kept //= [];
-    my $fails = run_fails($binary);
-    my ($checks, $skips) = grep_source($source_rel);
-    my $cites     = grep_citations($source_rel);
-    my $tombstone = $TOMBSTONE{$source_rel};
+
+    # A section may be backed by several suites (see the Audio entry). The
+    # merge is first-source-wins and the per-row `Test file:line` names the
+    # file the row was actually found in, so a merged section still points
+    # at one exact assertion.
+    my @binaries = as_list($binary);
+    my @sources  = as_list($source_rel);
+
+    my %fails;
+    for my $b (@binaries) {
+        my $f = run_fails($b);
+        $fails{$_} = 1 for keys %$f;
+    }
+    my $fails = \%fails;
+
+    my (%checks, %skips, %where, %cites);
+    my $tombstone;
+    for my $src (@sources) {
+        my ($c, $k) = grep_source($src);
+        for my $id (keys %$k) {
+            next if exists $checks{$id} || exists $skips{$id};
+            $skips{$id} = $k->{$id};
+            $where{$id} = $src;
+        }
+        for my $id (keys %$c) {
+            next if exists $checks{$id} || exists $skips{$id};
+            $checks{$id} = $c->{$id};
+            $where{$id} = $src;
+        }
+        my $cs = grep_citations($src);
+        for my $id (keys %$cs) { $cites{$id} //= $cs->{$id}; }
+        $tombstone //= $TOMBSTONE{$src};
+    }
+    my ($checks, $skips, $cites) = (\%checks, \%skips, \%cites);
 
     my ($pass_ct, $fail_ct, $skip_ct, $missing_ct) = (0, 0, 0, 0);
     my ($cited_ct, $uncited_ct, $drift_ct) = (0, 0, 0);
@@ -787,8 +864,8 @@ sub refresh_section {
                         push @$drift, "$tid_raw: doc=[$cur_cite] source=[$new_cite]";
                     }
 
-                    my $ln = line_for($tid_raw, $checks, $skips);
-                    my $location = defined($ln) ? "$source_rel:$ln" : 'missing';
+                    my ($lsrc, $ln) = line_for($tid_raw, $checks, $skips, \%where);
+                    my $location = defined($ln) ? "$lsrc:$ln" : 'missing';
                     my $orig_loc = $cells[5];
                     my $loc_width = length($orig_loc) - 2;
                     $loc_width = 0 if $loc_width < 0;
@@ -865,6 +942,19 @@ sub render_summary {
              . 'neither is auto-repaired, because the description that makes a row worth '
              . 'recording cannot be derived from the source (GH #117).';
     push @out, '';
+    push @out, '**Two deliberate loosenesses can hide an `unrecorded` row, so this '
+             . 'column is a floor, not a ceiling.** (1) *Sub-letter aliasing*: a source '
+             . 'row `X-01b` counts as recorded by matrix row `X-01`, matching how the '
+             . 'Status lookup resolves sub-rows. Usually right — `X-01a/b/c` are normally '
+             . 'sub-cases of one plan row — but not always: `FB-04b`, `IORQ-02b` and '
+             . '`IORQ-02c` were distinct regressions hidden this way and now have rows of '
+             . 'their own. Disabling the aliasing raises the count by ~100; those IDs are '
+             . 'untriaged and tracked as a follow-up to GH #117. (2) *Cross-section ID '
+             . 'collision*: recording is asked '
+             . 'globally ("listed anywhere"), so the same ID string used by two subsystems '
+             . '— `NR-03` and `SD-10` each appear in two sections — is counted as recorded '
+             . 'for both.';
+    push @out, '';
     if (@$unmapped) {
         my $rows = 0;
         $rows += $_->[1] for @$unmapped;
@@ -900,6 +990,15 @@ sub replace_summary {
       . "$MATRIX — expected a line '$SUMMARY_BEGIN' followed by '$SUMMARY_END'\n"
         unless defined $b && defined $e;
     splice(@$lines, $b + 1, $e - $b - 1, @$body);
+}
+
+# The process exit status, as a function of the two gaps — split out of
+# main() so it can be asserted directly: the selftest loads this file
+# without running main(), so the glue would otherwise be the one piece of
+# the contract nothing pins.
+sub report_exit_code {
+    my ($unrec_ct, $unmapped) = @_;
+    return ($unrec_ct || scalar @$unmapped) ? 1 : 0;
 }
 
 sub main {
@@ -960,19 +1059,26 @@ sub main {
         my ($touched, $p, $f_ct, $s, $m, $c, $u, $d) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
                             \@section_drift, \@section_kept, $stop);
-        push @drift, map { "$source_rel  $_" } @section_drift;
-        push @kept,  map { "$source_rel  $_" } @section_kept;
+        my @sources = as_list($source_rel);
+        push @drift, map { "$sources[0]  $_" } @section_drift;
+        push @kept,  map { "$sources[0]  $_" } @section_kept;
 
-        # The other direction (GH #117): rows this source asserts that the
-        # document records nowhere.
-        my $rows = grep_row_ids($source_rel);
-        # `ID:line` so the backlog can be walked straight to the assertion.
-        my @absent = map { "$_:$rows->{$_}" }
-                     sort grep { !matrix_records($_, $recorded) } keys %$rows;
-        push @unrec, [$source_rel, \@absent] if @absent;
+        # The other direction (GH #117): rows these sources assert that the
+        # document records nowhere. Reported per source file, so the backlog
+        # names the file to edit even for a multi-suite section.
+        my $absent_ct = 0;
+        for my $src (@sources) {
+            my $rows = grep_row_ids($src);
+            # `ID:line` so the backlog can be walked straight to the assertion.
+            my @absent = map { "$_:$rows->{$_}" }
+                         sort grep { !matrix_records($_, $recorded) } keys %$rows;
+            next unless @absent;
+            push @unrec, [$src, \@absent];
+            $absent_ct += scalar @absent;
+        }
 
-        push @report, [section_label($header, $source_rel), $touched,
-                       $p, $f_ct, $s, $m, $c, $u, $d, scalar @absent];
+        push @report, [section_label($header, $sources[0]), $touched,
+                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct];
     }
 
     replace_summary(\@lines,
@@ -1032,14 +1138,13 @@ sub main {
         print "  ", join(' ', map { "$_->[0]($_->[1])" } @$unmapped), "\n";
     }
 
-    if ($unrec_ct || @$unmapped) {
+    if (report_exit_code($unrec_ct, $unmapped)) {
         print "\nThe matrix WAS rewritten; it under-records the two sets above.\n",
               "Close them by adding the rows/sections by hand — the description\n",
               "column is the point of a matrix row and cannot be derived from\n",
               "the test source. (GH #117)\n";
-        return 1;
     }
-    return 0;
+    return report_exit_code($unrec_ct, $unmapped);
 }
 
 exit(main());

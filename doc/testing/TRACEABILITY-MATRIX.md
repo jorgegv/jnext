@@ -17,16 +17,16 @@
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   144 |  138 |    0 |    0 |       6 |         72 |
-| Audio                                      |   210 |  131 |    0 |    0 |      79 |          4 |
+| Audio                                      |   210 |  182 |    0 |    0 |      28 |          7 |
 | DMA                                        |   158 |  151 |    0 |    0 |       7 |          7 |
 | DivMMC+SPI                                 |   123 |   95 |    0 |    0 |      28 |         40 |
 | CTC+Interrupts                             |   180 |  133 |    0 |    0 |      47 |          0 |
 | UART+I2C/RTC                               |   112 |   93 |    0 |    0 |      19 |          6 |
 | NextREG                                    |   107 |   21 |    0 |    0 |      86 |          0 |
-| IO Port Dispatch                           |    90 |   86 |    0 |    0 |       4 |         26 |
+| IO Port Dispatch                           |    92 |   88 |    0 |    0 |       4 |         26 |
 | Input                                      |   178 |  153 |    0 |    0 |      25 |        169 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
-| Floating Bus                               |    26 |   24 |    0 |    0 |       2 |          6 |
+| Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         48 |
 | SD Card                                    |    21 |   16 |    0 |    0 |       5 |         21 |
@@ -38,11 +38,13 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2499 | 2035 |    0 |    0 |     464 |        789 |
+| **Total**                                  |  2502 | 2089 |    0 |    0 |     413 |        792 |
 
-Rows the sections above carry: **2499**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2433**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
+Rows the sections above carry: **2502**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2436**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list anywhere. Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
+
+**Two deliberate loosenesses can hide an `unrecorded` row, so this column is a floor, not a ceiling.** (1) *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. Usually right — `X-01a/b/c` are normally sub-cases of one plan row — but not always: `FB-04b`, `IORQ-02b` and `IORQ-02c` were distinct regressions hidden this way and now have rows of their own. Disabling the aliasing raises the count by ~100; those IDs are untriaged and tracked as a follow-up to GH #117. (2) *Cross-section ID collision*: recording is asked globally ("listed anywhere"), so the same ID string used by two subsystems — `NR-03` and `SD-10` each appear in two sections — is counted as recorded for both.
 
 **Suites with no section in this matrix: 44, 1180 live rows.** Their coverage is not traced here at all:
 
@@ -1379,37 +1381,37 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | SD-07   | NextREG 0x2C (left) writes to chB only                       | soundrive.vhd:89-91 | pass    | test/audio/audio_test.cpp:2068 |
 | SD-08   | NextREG 0x2E (right) writes to chC only                      | soundrive.vhd:95-97 | pass    | test/audio/audio_test.cpp:2078 |
 | SD-09   | Port I/O takes priority over NextREG                         | —              | missing | missing                        |
-| SD-10   | Soundrive mode 1 ports: 0x1F(A), 0x0F(B), 0x4F(C), 0x5F(D)   | zxnext.vhd:2429                         | missing | missing                                        |
-| SD-11   | Soundrive mode 2 ports: 0xF1(A), 0xF3(B), 0xF9(C), 0xFB(D)   | zxnext.vhd:2432                         | missing | missing                                        |
-| SD-12   | Profi Covox: 0x3F(A), 0x5F(D)                                | zxnext.vhd:2431/2661/2664               | missing | missing                                        |
-| SD-13   | Covox: 0x0F(B), 0x4F(C)                                      | zxnext.vhd:2659                         | missing | missing                                        |
-| SD-14   | Pentagon/ATM mono: 0xFB(A+D)                                 | zxnext.vhd:2433/2661/2664               | missing | missing                                        |
-| SD-15   | GS Covox: 0xB3(B+C)                                          | zxnext.vhd:2659/2662-2663               | missing | missing                                        |
-| SD-16   | SpecDrum: 0xDF(A+D)                                          | zxnext.vhd:2662                         | missing | missing                                        |
-| SD-17   | DAC requires `nr_08_dac_en=1`                                | zxnext.vhd:5179, :6436                  | missing | missing                                        |
-| SD-18   | Mono ports (FB, DF, B3) write to both A+D or B+C             | zxnext.vhd port-decode fan              | missing | missing                                        |
-| SD-19   | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition                                 | soundrive.vhd:69-78; zxnext.vhd:6436    | missing | missing                                        |
+| SD-10   | Soundrive mode 1 ports: 0x1F(A), 0x0F(B), 0x4F(C), 0x5F(D)   | zxnext.vhd:2429                         | pass    | test/audio/audio_port_dispatch_test.cpp:173    |
+| SD-11   | Soundrive mode 2 ports: 0xF1(A), 0xF3(B), 0xF9(C), 0xFB(D)   | zxnext.vhd:2432                         | pass    | test/audio/audio_port_dispatch_test.cpp:194    |
+| SD-12   | Profi Covox: 0x3F(A), 0x5F(D)                                | zxnext.vhd:2431/2661/2664               | pass    | test/audio/audio_port_dispatch_test.cpp:216    |
+| SD-13   | Covox: 0x0F(B), 0x4F(C)                                      | zxnext.vhd:2659                         | pass    | test/audio/audio_port_dispatch_test.cpp:239    |
+| SD-14   | Pentagon/ATM mono: 0xFB(A+D)                                 | zxnext.vhd:2433/2661/2664               | pass    | test/audio/audio_port_dispatch_test.cpp:269    |
+| SD-15   | GS Covox: 0xB3(B+C)                                          | zxnext.vhd:2659/2662-2663               | pass    | test/audio/audio_port_dispatch_test.cpp:286    |
+| SD-16   | SpecDrum: 0xDF(A+D)                                          | zxnext.vhd:2662                         | pass    | test/audio/audio_port_dispatch_test.cpp:304    |
+| SD-17   | DAC requires `nr_08_dac_en=1`                                | zxnext.vhd:5179, :6436                  | pass    | test/audio/audio_nextreg_test.cpp:956          |
+| SD-18   | Mono ports (FB, DF, B3) write to both A+D or B+C             | zxnext.vhd port-decode fan              | pass    | test/audio/audio_port_dispatch_test.cpp:331    |
+| SD-19   | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition                                 | soundrive.vhd:69-78; zxnext.vhd:6436    | pass    | test/audio/audio_nextreg_test.cpp:1012         |
 | SD-20   | Left output = chA + chB (9-bit unsigned)                     | soundrive.vhd:112 | pass    | test/audio/audio_test.cpp:2118 |
 | SD-21   | Right output = chC + chD (9-bit unsigned)                    | soundrive.vhd:113 | pass    | test/audio/audio_test.cpp:2128 |
 | SD-22   | Max output: chA=0xFF, chB=0xFF => L=0x1FE                    | soundrive.vhd:112 | pass    | test/audio/audio_test.cpp:2138 |
 | SD-23   | Reset output: L=0x100, R=0x100                               | soundrive.vhd:72-78,112-113 | pass    | test/audio/audio_test.cpp:2146 |
-| BP-01   | Port 0xFE write stores bits [4:0]                            | zxnext.vhd:3593                         | missing | missing                                        |
+| BP-01   | Port 0xFE write stores bits [4:0]                            | zxnext.vhd:3593                         | pass    | test/audio/audio_port_dispatch_test.cpp:369    |
 | BP-02   | Bit 4 is the EAR output (speaker)                            | zxnext.vhd:3598  | pass    | test/audio/audio_test.cpp:2177 |
 | BP-03   | Bit 3 is the MIC output                                      | zxnext.vhd:3599  | pass    | test/audio/audio_test.cpp:2186 |
 | BP-04   | Bits [2:0] are the border colour                             | —              | missing | missing                        |
 | BP-05   | Reset clears port_fe_reg to 0                                | zxnext.vhd:3591  | pass    | test/audio/audio_test.cpp:2198 |
-| BP-06   | Port 0xFE decoded as A0=0                                    | emulator.cpp:1163, :1192                | missing | missing                                        |
-| BP-10   | `beep_mic_final` = `EAR_in XOR (mic AND issue2) XOR mic`     | zxnext.vhd:6503                         | missing | missing                                        |
-| BP-11   | Issue 2 mode: MIC is XOR'd twice (cancels)                   | zxnext.vhd:6503                         | missing | missing                                        |
-| BP-12   | Issue 3 mode: MIC contributes to beep                        | zxnext.vhd:6503                         | missing | missing                                        |
-| BP-13   | Internal speaker exclusive mode                              | zxnext.vhd:6504                         | missing | missing                                        |
+| BP-06   | Port 0xFE decoded as A0=0                                    | emulator.cpp:1163, :1192                | pass    | test/audio/audio_port_dispatch_test.cpp:403    |
+| BP-10   | `beep_mic_final` = `EAR_in XOR (mic AND issue2) XOR mic`     | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:706          |
+| BP-11   | Issue 2 mode: MIC is XOR'd twice (cancels)                   | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:723          |
+| BP-12   | Issue 3 mode: MIC contributes to beep                        | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:742          |
+| BP-13   | Internal speaker exclusive mode                              | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:778          |
 | BP-20   | Port 0xFE read bit 6 = `EAR_in OR port_fe_ear`               | —              | missing | missing                        |
 | BP-21   | Port 0xFE read bit 5 = 1 (always set)                        | —              | missing | missing                        |
 | BP-22   | Port 0xFE read bits [4:0] = keyboard columns                 | —              | missing | missing                        |
 | BP-23   | Port 0xFE read bit 7 = 1                                     | —              | missing | missing                        |
 | MX-01   | EAR volume = 0x0200 (512) when active                        | audio_mixer.vhd:63,80 | pass    | test/audio/audio_test.cpp:2231 |
 | MX-02   | MIC volume = 0x0080 (128) when active                        | audio_mixer.vhd:64,81 | pass    | test/audio/audio_test.cpp:2243 |
-| MX-03   | EAR/MIC silenced when `exc_i=1`                              | audio_mixer.vhd (exc_i wire composition)| missing | missing                                        |
+| MX-03   | EAR/MIC silenced when `exc_i=1`                              | audio_mixer.vhd (exc_i wire composition)| pass    | test/audio/audio_nextreg_test.cpp:813          |
 | MX-04   | AY input: zero-extended 12-bit to 13-bit                     | audio_mixer.vhd:83-84 | pass    | test/audio/audio_test.cpp:2270 |
 | MX-05   | DAC input: 9-bit left-shifted by 2 + zero-padded             | audio_mixer.vhd:86-87 | pass    | test/audio/audio_test.cpp:2284 |
 | MX-06   | I2S input: zero-extended 10-bit to 13-bit                    | audio_mixer.vhd:89-90,99-100 | pass    | test/audio/audio_test.cpp:2309 |
@@ -1419,43 +1421,43 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | MX-13   | EAR and MIC go to both L and R                               | audio_mixer.vhd:99-100 | pass    | test/audio/audio_test.cpp:2365 |
 | MX-14   | Max theoretical output = 5998                                | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2381 |
 | MX-15   | No saturation/clipping in mixer                              | —              | missing | missing                        |
-| MX-20   | `exc_i=1`: EAR and MIC contribute 0 to mix                   | audio_mixer.vhd:80                      | missing | missing                                        |
+| MX-20   | `exc_i=1`: EAR and MIC contribute 0 to mix                   | audio_mixer.vhd:80                      | pass    | test/audio/audio_nextreg_test.cpp:835          |
 | MX-21   | `exc_i=0`: EAR and MIC contribute normally                   | —              | missing | missing                        |
-| MX-22   | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4      | zxnext.vhd:6504                         | missing | missing                                        |
-| MX-23   | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream gate)                           | audio_mixer.vhd:80-81                   | missing | missing                                        |
+| MX-22   | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4      | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:856          |
+| MX-23   | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream gate)                           | audio_mixer.vhd:80-81                   | pass    | test/audio/audio_nextreg_test.cpp:910          |
 | MX-30   | Pi I2S source delivers a continuous 10-bit sample stream (not single-latch)                 | audio_mixer.vhd (I2S input chain)       | missing | missing                                        |
-| NR-01   | `nr_06_psg_mode[1:0]` from NextREG 0x06 bits [1:0]           | zxnext.vhd (NR 0x06 fan-out)            | missing | missing                                        |
-| NR-02   | Mode "00": YM2149 mode                                       | zxnext.vhd (NR 0x06 b1:0)               | missing | missing                                        |
-| NR-03   | Mode "01": AY-8910 mode                                      | zxnext.vhd (NR 0x06 b1:0)               | missing | missing                                        |
-| NR-04   | Mode "10": YM2149 mode (bit 0 = 0)                           | zxnext.vhd (NR 0x06 b1:0)               | missing | missing                                        |
-| NR-05   | Mode "11": AY reset (silent)                                 | zxnext.vhd:6379                         | missing | missing                                        |
-| NR-06   | `nr_06_internal_speaker_beep` from bit 6                     | zxnext.vhd (NR 0x06 b6 latch)           | missing | missing                                        |
-| NR-10   | Bit 5: PSG stereo mode (0=ABC, 1=ACB)                        | zxnext.vhd (NR 0x08 b5 → stereo_mode)   | missing | missing                                        |
-| NR-11   | Bit 4: Internal speaker enable                               | zxnext.vhd (NR 0x08 b4 latch)           | missing | missing                                        |
-| NR-12   | Bit 3: DAC enable                                            | zxnext.vhd:5179                         | missing | missing                                        |
-| NR-13   | Bit 1: Turbosound enable                                     | zxnext.vhd (NR 0x08 b1 → turbosound_en) | missing | missing                                        |
-| NR-14   | Bit 0: Keyboard Issue 2 mode                                 | zxnext.vhd (NR 0x08 b0 latch)           | missing | missing                                        |
-| NR-20   | Bits [7:5] of NextREG 0x09: per-PSG mono                     | zxnext.vhd (NR 0x09 b7:5 → mono_mode)   | missing | missing                                        |
-| NR-21   | Bit 7: PSG2 mono, Bit 6: PSG1 mono, Bit 5: PSG0 mono         | zxnext.vhd (NR 0x09 b7:5 fan-out)       | missing | missing                                        |
-| NR-30   | NextREG 0x2C: write to Soundrive chB (left)                  | zxnext.vhd:4854; soundrive.vhd:95-97    | missing | missing                                        |
-| NR-31   | NextREG 0x2D: write to Soundrive chA+chD (mono)              | zxnext.vhd:4854; soundrive.vhd:95-97    | missing | missing                                        |
-| NR-32   | NextREG 0x2E: write to Soundrive chC (right)                 | zxnext.vhd:4854; soundrive.vhd:95-97    | missing | missing                                        |
-| NR-33   | NR 0x2C / NR 0x2E read returns `pi_audio_L/R(9 downto 2)` (not regs_[] shadow)              | zxnext.vhd:6006-6015                    | missing | missing                                        |
-| NR-34   | NR 0x2D read returns `nr_2d_i2s_sample & "000000"` (low 2 bits from prior 0x2C/0x2E read)   | zxnext.vhd:6006-6015                    | missing | missing                                        |
-| NR-43   | Mixer gates Pi I2S adder by `pi_i2s_en[L/R] AND NOT mute[L/R]`                              | audio_mixer.vhd:50-60                   | missing | missing                                        |
-| IO-01   | Port FFFD: `A[15:14]="11"`, A[2]=1, A[0]=1                   | zxnext.vhd:2647                         | missing | missing                                        |
-| IO-02   | Port BFFD: `A[15:14]="10"`, A[2]=1, A[0]=1                   | zxnext.vhd:2648                         | missing | missing                                        |
-| IO-03   | Port BFF5: BFFD with A[3]=0                                  | zxnext.vhd:2649/6395                    | missing | missing                                        |
+| NR-01   | `nr_06_psg_mode[1:0]` from NextREG 0x06 bits [1:0]           | zxnext.vhd (NR 0x06 fan-out)            | pass    | test/audio/audio_nextreg_test.cpp:157          |
+| NR-02   | Mode "00": YM2149 mode                                       | zxnext.vhd (NR 0x06 b1:0)               | pass    | test/audio/audio_nextreg_test.cpp:169          |
+| NR-03   | Mode "01": AY-8910 mode                                      | zxnext.vhd (NR 0x06 b1:0)               | pass    | test/audio/audio_nextreg_test.cpp:180          |
+| NR-04   | Mode "10": YM2149 mode (bit 0 = 0)                           | zxnext.vhd (NR 0x06 b1:0)               | pass    | test/audio/audio_nextreg_test.cpp:193          |
+| NR-05   | Mode "11": AY reset (silent)                                 | zxnext.vhd:6379                         | pass    | test/audio/audio_nextreg_test.cpp:219          |
+| NR-06   | `nr_06_internal_speaker_beep` from bit 6                     | zxnext.vhd (NR 0x06 b6 latch)           | pass    | test/audio/audio_nextreg_test.cpp:234          |
+| NR-10   | Bit 5: PSG stereo mode (0=ABC, 1=ACB)                        | zxnext.vhd (NR 0x08 b5 → stereo_mode)   | pass    | test/audio/audio_nextreg_test.cpp:266          |
+| NR-11   | Bit 4: Internal speaker enable                               | zxnext.vhd (NR 0x08 b4 latch)           | pass    | test/audio/audio_nextreg_test.cpp:284          |
+| NR-12   | Bit 3: DAC enable                                            | zxnext.vhd:5179                         | pass    | test/audio/audio_nextreg_test.cpp:300          |
+| NR-13   | Bit 1: Turbosound enable                                     | zxnext.vhd (NR 0x08 b1 → turbosound_en) | pass    | test/audio/audio_nextreg_test.cpp:314          |
+| NR-14   | Bit 0: Keyboard Issue 2 mode                                 | zxnext.vhd (NR 0x08 b0 latch)           | pass    | test/audio/audio_nextreg_test.cpp:329          |
+| NR-20   | Bits [7:5] of NextREG 0x09: per-PSG mono                     | zxnext.vhd (NR 0x09 b7:5 → mono_mode)   | pass    | test/audio/audio_nextreg_test.cpp:358          |
+| NR-21   | Bit 7: PSG2 mono, Bit 6: PSG1 mono, Bit 5: PSG0 mono         | zxnext.vhd (NR 0x09 b7:5 fan-out)       | pass    | test/audio/audio_nextreg_test.cpp:379          |
+| NR-30   | NextREG 0x2C: write to Soundrive chB (left)                  | zxnext.vhd:4854; soundrive.vhd:95-97    | pass    | test/audio/audio_nextreg_test.cpp:419          |
+| NR-31   | NextREG 0x2D: write to Soundrive chA+chD (mono)              | zxnext.vhd:4854; soundrive.vhd:95-97    | pass    | test/audio/audio_nextreg_test.cpp:435          |
+| NR-32   | NextREG 0x2E: write to Soundrive chC (right)                 | zxnext.vhd:4854; soundrive.vhd:95-97    | pass    | test/audio/audio_nextreg_test.cpp:450          |
+| NR-33   | NR 0x2C / NR 0x2E read returns `pi_audio_L/R(9 downto 2)` (not regs_[] shadow)              | zxnext.vhd:6006-6015                    | pass    | test/audio/audio_nextreg_test.cpp:484          |
+| NR-34   | NR 0x2D read returns `nr_2d_i2s_sample & "000000"` (low 2 bits from prior 0x2C/0x2E read)   | zxnext.vhd:6006-6015                    | pass    | test/audio/audio_nextreg_test.cpp:521          |
+| NR-43   | Mixer gates Pi I2S adder by `pi_i2s_en[L/R] AND NOT mute[L/R]`                              | audio_mixer.vhd:50-60                   | pass    | test/audio/audio_nextreg_test.cpp:650          |
+| IO-01   | Port FFFD: `A[15:14]="11"`, A[2]=1, A[0]=1                   | zxnext.vhd:2647                         | pass    | test/audio/audio_port_dispatch_test.cpp:437    |
+| IO-02   | Port BFFD: `A[15:14]="10"`, A[2]=1, A[0]=1                   | zxnext.vhd:2648                         | pass    | test/audio/audio_port_dispatch_test.cpp:453    |
+| IO-03   | Port BFF5: BFFD with A[3]=0                                  | zxnext.vhd:2649/6395                    | pass    | test/audio/audio_port_dispatch_test.cpp:472    |
 | IO-04   | FFFD read latched on falling CPU clock edge                  | —              | missing | missing                        |
-| IO-05   | BFFD readable as FFFD on +3 timing                           | zxnext.vhd:2771                         | missing | missing                                        |
-| IO-10   | DAC writes require `dac_hw_en=1`                             | zxnext.vhd:2775-2778, :6436             | missing | missing                                        |
-| IO-11   | Multiple port mappings can map to same channel               | zxnext.vhd port-decode alias            | missing | missing                                        |
-| IO-12   | Port FD conflict: F1 and F9 in mode 2                        | zxnext.vhd:2777                         | missing | missing                                        |
-| IO-13   | NR 0x84 b1 gates Soundrive Mode 2 ports (0xF1/F3/F9/FB)                                      | zxnext.vhd:2429-2435                    | missing | missing                                        |
-| IO-14   | NR 0x84 b3 gates Profi Covox ports (0x3F chA / 0x5F chD)                                     | zxnext.vhd:2429-2435                    | missing | missing                                        |
-| IO-15   | NR 0x84 b4 gates Covox ports (0x0F chB / 0x4F chC)                                           | zxnext.vhd:2429-2435                    | missing | missing                                        |
-| IO-16   | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                                                | zxnext.vhd:2429-2435                    | missing | missing                                        |
-| IO-17   | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                                                | zxnext.vhd:2429-2435                    | missing | missing                                        |
+| IO-05   | BFFD readable as FFFD on +3 timing                           | zxnext.vhd:2771                         | pass    | test/audio/audio_port_dispatch_test.cpp:533    |
+| IO-10   | DAC writes require `dac_hw_en=1`                             | zxnext.vhd:2775-2778, :6436             | pass    | test/audio/audio_nextreg_test.cpp:982          |
+| IO-11   | Multiple port mappings can map to same channel               | zxnext.vhd port-decode alias            | pass    | test/audio/audio_port_dispatch_test.cpp:570    |
+| IO-12   | Port FD conflict: F1 and F9 in mode 2                        | zxnext.vhd:2777                         | pass    | test/audio/audio_port_dispatch_test.cpp:608    |
+| IO-13   | NR 0x84 b1 gates Soundrive Mode 2 ports (0xF1/F3/F9/FB)                                      | zxnext.vhd:2429-2435                    | pass    | test/audio/audio_port_dispatch_test.cpp:664    |
+| IO-14   | NR 0x84 b3 gates Profi Covox ports (0x3F chA / 0x5F chD)                                     | zxnext.vhd:2429-2435                    | pass    | test/audio/audio_port_dispatch_test.cpp:684    |
+| IO-15   | NR 0x84 b4 gates Covox ports (0x0F chB / 0x4F chC)                                           | zxnext.vhd:2429-2435                    | pass    | test/audio/audio_port_dispatch_test.cpp:710    |
+| IO-16   | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                                                | zxnext.vhd:2429-2435                    | pass    | test/audio/audio_port_dispatch_test.cpp:732    |
+| IO-17   | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                                                | zxnext.vhd:2429-2435                    | pass    | test/audio/audio_port_dispatch_test.cpp:754    |
 
 ## DMA — `test/dma/dma_test.cpp`
 
@@ -2429,6 +2431,8 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | PR-05         | Default-read NOT used when any handler matches (even with 0… | —                    | pass    | test/port/port_test.cpp:1695 |
 | IORQ-01       | Interrupt ack not routed to `in`                             | zxnext.vhd:2705      | missing | missing                      |
 | IORQ-02       | Normal IN is routed                                          | zxnext.vhd:2705      | pass    | test/port/port_test.cpp:1786 |
+| IORQ-02b      | Port 0xFE bit 6 follows the OUT-0xFE bit-4 EAR latch         | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1803 |
+| IORQ-02c      | Pressed key reads the exact byte 0xBD ('O') / 0xBE (SPACE)   | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1826 |
 | RMW-01        | 0xFE border + beeper latch                                   | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:1848 |
 | CTN-01        | Contended-port timing on 0x4000-range port                   | —                    | missing | missing                      |
 | CTN-02        | Uncontended `IN A,(nn)` outside 0x4000 range                 | —                    | missing | missing                      |
@@ -2720,6 +2724,7 @@ Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K
 | FB-03a        | +3 port 0x0FFD bit-0 force (latch=0xA4 → 0xA5)                                  | zxula.vhd:573 + zxnext.vhd:4517             | pass   | test/floating_bus/floating_bus_test.cpp:487     |
 | FB-04         | +3 port 0xFF at border ignores p3_floating_bus_dat shadow → 0xFF                | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:503     |
 | FB-04a        | +3 port 0x0FFD border fallback via p3_floating_bus_dat → 0xA5                   | zxula.vhd:573 + zxnext.vhd:4498-4509,4517   | pass   | test/floating_bus/floating_bus_test.cpp:519     |
+| FB-04b        | +3 port 0x0FFD bit-0 force scoped to active display, not border                 | zxula.vhd:573                                 | pass    | test/floating_bus/floating_bus_test.cpp:568     |
 | FB-3A         | +3 port 0x0FFD + port_7ffd_locked=1 → 0xFF                                      | zxnext.vhd:4517                             | pass   | test/floating_bus/floating_bus_test.cpp:590     |
 | FB-3B         | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00                           | zxnext.vhd:2403,2589,2814                   | pass   | test/floating_bus/floating_bus_test.cpp:617     |
 | FB-3C         | 48K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                   | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:631     |
