@@ -17,14 +17,14 @@
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   144 |  141 |    0 |    0 |       3 |         72 |
-| Audio                                      |   210 |  182 |    0 |    0 |      28 |          9 |
+| Audio                                      |   210 |  182 |    0 |    0 |      28 |         12 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
 | DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         47 |
 | CTC+Interrupts                             |   180 |  149 |    0 |    0 |      31 |          0 |
 | UART+I2C/RTC                               |   112 |  106 |    0 |    0 |       6 |          6 |
 | NextREG                                    |   107 |   58 |    0 |    0 |      49 |          0 |
 | IO Port Dispatch                           |    97 |   93 |    0 |    0 |       4 |         26 |
-| Input                                      |   178 |  164 |    0 |    0 |      14 |        169 |
+| Input                                      |   178 |  164 |    0 |    0 |      14 |        180 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
@@ -38,17 +38,17 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2514 | 2180 |    0 |    0 |     334 |        821 |
+| **Total**                                  |  2514 | 2180 |    0 |    0 |     334 |        835 |
 
-Rows the sections above carry: **2514**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2448**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5727**.
+Rows the sections above carry: **2514**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2448**. Rows the 80 suites declared in `test/unit-tests.conf` run live: **5827**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
 **One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. The second looseness — *cross-section ID collision* — is closed: recording is asked against the owning `##` subsystem section rather than globally, which surfaced 29 rows that an identically-named row in a different subsystem had been vouching for (`SD-16..SD-23` by Audio, `PR-01..PR-05` by IO Port Dispatch, the `G108-*` set by ULA Video, `NR-10/11/13/14` + `PRI-01/02/04` by Audio and Memory/MMU, `SD2-01/02` by Memory/MMU). A `###` companion sub-section is judged against its parent `##`, not separately: its rows are part of the same subsystem's coverage story and several are recorded in the parent's own table (GH #118).
 
-**Suites with no section in this matrix: 44, 1183 live rows.** Their coverage is not traced here at all:
+**Suites with no section in this matrix: 46, 1269 live rows.** Their coverage is not traced here at all:
 
-`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4)
+`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `speed_report_test` (36), `host_key_latch_test` (50), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4)
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -1389,9 +1389,9 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | SD-14   | Pentagon/ATM mono: 0xFB(A+D)                                 | zxnext.vhd:2433/2661/2664               | pass    | test/audio/audio_port_dispatch_test.cpp:269    |
 | SD-15   | GS Covox: 0xB3(B+C)                                          | zxnext.vhd:2659/2662-2663               | pass    | test/audio/audio_port_dispatch_test.cpp:286    |
 | SD-16   | SpecDrum: 0xDF(A+D)                                          | zxnext.vhd:2662                         | pass    | test/audio/audio_port_dispatch_test.cpp:304    |
-| SD-17   | DAC requires `nr_08_dac_en=1`                                | zxnext.vhd:5179, :6436                  | pass    | test/audio/audio_nextreg_test.cpp:956          |
+| SD-17   | DAC requires `nr_08_dac_en=1`                                | zxnext.vhd:5179, :6436                  | pass    | test/audio/audio_nextreg_test.cpp:1014         |
 | SD-18   | Mono ports (FB, DF, B3) write to both A+D or B+C             | zxnext.vhd port-decode fan              | pass    | test/audio/audio_port_dispatch_test.cpp:331    |
-| SD-19   | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition                                 | soundrive.vhd:69-78; zxnext.vhd:6436    | pass    | test/audio/audio_nextreg_test.cpp:1012         |
+| SD-19   | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition                                 | soundrive.vhd:69-78; zxnext.vhd:6436    | pass    | test/audio/audio_nextreg_test.cpp:1070         |
 | SD-20   | Left output = chA + chB (9-bit unsigned)                     | soundrive.vhd:112 | pass    | test/audio/audio_test.cpp:2118 |
 | SD-21   | Right output = chC + chD (9-bit unsigned)                    | soundrive.vhd:113 | pass    | test/audio/audio_test.cpp:2128 |
 | SD-22   | Max output: chA=0xFF, chB=0xFF => L=0x1FE                    | soundrive.vhd:112 | pass    | test/audio/audio_test.cpp:2138 |
@@ -1402,30 +1402,30 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | BP-04   | Bits [2:0] are the border colour                             | —              | missing | missing                        |
 | BP-05   | Reset clears port_fe_reg to 0                                | zxnext.vhd:3591  | pass    | test/audio/audio_test.cpp:2198 |
 | BP-06   | Port 0xFE decoded as A0=0                                    | emulator.cpp:1163, :1192                | pass    | test/audio/audio_port_dispatch_test.cpp:403    |
-| BP-10   | `beep_mic_final` = `EAR_in XOR (mic AND issue2) XOR mic`     | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:706          |
-| BP-11   | Issue 2 mode: MIC is XOR'd twice (cancels)                   | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:723          |
-| BP-12   | Issue 3 mode: MIC contributes to beep                        | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:742          |
-| BP-13   | Internal speaker exclusive mode                              | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:778          |
+| BP-10   | `beep_mic_final` = `EAR_in XOR (mic AND issue2) XOR mic`     | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:716          |
+| BP-11   | Issue 2 mode: MIC is XOR'd twice (cancels)                   | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:733          |
+| BP-12   | Issue 3 mode: MIC contributes to beep                        | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:752          |
+| BP-13   | Internal speaker exclusive mode                              | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:788          |
 | BP-20   | Port 0xFE read bit 6 = `EAR_in OR port_fe_ear`               | —              | missing | missing                        |
 | BP-21   | Port 0xFE read bit 5 = 1 (always set)                        | —              | missing | missing                        |
 | BP-22   | Port 0xFE read bits [4:0] = keyboard columns                 | —              | missing | missing                        |
 | BP-23   | Port 0xFE read bit 7 = 1                                     | —              | missing | missing                        |
 | MX-01   | EAR volume = 0x0200 (512) when active                        | audio_mixer.vhd:63,80 | pass    | test/audio/audio_test.cpp:2231 |
 | MX-02   | MIC volume = 0x0080 (128) when active                        | audio_mixer.vhd:64,81 | pass    | test/audio/audio_test.cpp:2243 |
-| MX-03   | EAR/MIC silenced when `exc_i=1`                              | audio_mixer.vhd (exc_i wire composition)| pass    | test/audio/audio_nextreg_test.cpp:813          |
+| MX-03   | EAR/MIC silenced when `exc_i=1`                              | audio_mixer.vhd (exc_i wire composition)| pass    | test/audio/audio_nextreg_test.cpp:823          |
 | MX-04   | AY input: zero-extended 12-bit to 13-bit                     | audio_mixer.vhd:83-84 | pass    | test/audio/audio_test.cpp:2270 |
 | MX-05   | DAC input: 9-bit left-shifted by 2 + zero-padded             | audio_mixer.vhd:86-87 | pass    | test/audio/audio_test.cpp:2284 |
-| MX-06   | I2S input: zero-extended 10-bit to 13-bit                    | audio_mixer.vhd:89-90,99-100 | pass    | test/audio/audio_test.cpp:2309 |
-| MX-10   | Left output = ear + mic + ay_L + dac_L + i2s_L               | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2330 |
-| MX-11   | Right output = ear + mic + ay_R + dac_R + i2s_R              | audio_mixer.vhd:100 | pass    | test/audio/audio_test.cpp:2341 |
-| MX-12   | Reset zeroes both output channels                            | audio_mixer.vhd:95-97 | pass    | test/audio/audio_test.cpp:2352 |
-| MX-13   | EAR and MIC go to both L and R                               | audio_mixer.vhd:99-100 | pass    | test/audio/audio_test.cpp:2365 |
-| MX-14   | Max theoretical output = 5998                                | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2381 |
+| MX-06   | I2S input: zero-extended 10-bit to 13-bit                    | audio_mixer.vhd:89-90,99-100 | pass    | test/audio/audio_test.cpp:2319 |
+| MX-10   | Left output = ear + mic + ay_L + dac_L + i2s_L               | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2368 |
+| MX-11   | Right output = ear + mic + ay_R + dac_R + i2s_R              | audio_mixer.vhd:100 | pass    | test/audio/audio_test.cpp:2379 |
+| MX-12   | Reset zeroes both output channels                            | audio_mixer.vhd:95-97 | pass    | test/audio/audio_test.cpp:2416 |
+| MX-13   | EAR and MIC go to both L and R                               | audio_mixer.vhd:99-100 | pass    | test/audio/audio_test.cpp:2429 |
+| MX-14   | Max theoretical output = 5998                                | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2445 |
 | MX-15   | No saturation/clipping in mixer                              | —              | missing | missing                        |
-| MX-20   | `exc_i=1`: EAR and MIC contribute 0 to mix                   | audio_mixer.vhd:80                      | pass    | test/audio/audio_nextreg_test.cpp:835          |
+| MX-20   | `exc_i=1`: EAR and MIC contribute 0 to mix                   | audio_mixer.vhd:80                      | pass    | test/audio/audio_nextreg_test.cpp:845          |
 | MX-21   | `exc_i=0`: EAR and MIC contribute normally                   | —              | missing | missing                        |
-| MX-22   | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4      | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:856          |
-| MX-23   | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream gate)                           | audio_mixer.vhd:80-81                   | pass    | test/audio/audio_nextreg_test.cpp:910          |
+| MX-22   | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4      | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:866          |
+| MX-23   | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream gate)                           | audio_mixer.vhd:80-81                   | pass    | test/audio/audio_nextreg_test.cpp:920          |
 | MX-30   | Pi I2S source delivers a continuous 10-bit sample stream (not single-latch)                 | audio_mixer.vhd (I2S input chain)       | missing | missing                                        |
 | NR-01   | `nr_06_psg_mode[1:0]` from NextREG 0x06 bits [1:0]           | zxnext.vhd (NR 0x06 fan-out)            | pass    | test/audio/audio_nextreg_test.cpp:157          |
 | NR-02   | Mode "00": YM2149 mode                                       | zxnext.vhd (NR 0x06 b1:0)               | pass    | test/audio/audio_nextreg_test.cpp:169          |
@@ -1445,13 +1445,13 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | NR-32   | NextREG 0x2E: write to Soundrive chC (right)                 | zxnext.vhd:4854; soundrive.vhd:95-97    | pass    | test/audio/audio_nextreg_test.cpp:450          |
 | NR-33   | NR 0x2C / NR 0x2E read returns `pi_audio_L/R(9 downto 2)` (not regs_[] shadow)              | zxnext.vhd:6006-6015                    | pass    | test/audio/audio_nextreg_test.cpp:484          |
 | NR-34   | NR 0x2D read returns `nr_2d_i2s_sample & "000000"` (low 2 bits from prior 0x2C/0x2E read)   | zxnext.vhd:6006-6015                    | pass    | test/audio/audio_nextreg_test.cpp:521          |
-| NR-43   | Mixer gates Pi I2S adder by `pi_i2s_en[L/R] AND NOT mute[L/R]`                              | audio_mixer.vhd:50-60                   | pass    | test/audio/audio_nextreg_test.cpp:650          |
+| NR-43   | Mixer gates Pi I2S adder by `pi_i2s_en[L/R] AND NOT mute[L/R]`                              | audio_mixer.vhd:50-60                   | pass    | test/audio/audio_nextreg_test.cpp:660          |
 | IO-01   | Port FFFD: `A[15:14]="11"`, A[2]=1, A[0]=1                   | zxnext.vhd:2647                         | pass    | test/audio/audio_port_dispatch_test.cpp:437    |
 | IO-02   | Port BFFD: `A[15:14]="10"`, A[2]=1, A[0]=1                   | zxnext.vhd:2648                         | pass    | test/audio/audio_port_dispatch_test.cpp:453    |
 | IO-03   | Port BFF5: BFFD with A[3]=0                                  | zxnext.vhd:2649/6395                    | pass    | test/audio/audio_port_dispatch_test.cpp:472    |
 | IO-04   | FFFD read latched on falling CPU clock edge                  | —              | missing | missing                        |
 | IO-05   | BFFD readable as FFFD on +3 timing                           | zxnext.vhd:2771                         | pass    | test/audio/audio_port_dispatch_test.cpp:533    |
-| IO-10   | DAC writes require `dac_hw_en=1`                             | zxnext.vhd:2775-2778, :6436             | pass    | test/audio/audio_nextreg_test.cpp:982          |
+| IO-10   | DAC writes require `dac_hw_en=1`                             | zxnext.vhd:2775-2778, :6436             | pass    | test/audio/audio_nextreg_test.cpp:1040         |
 | IO-11   | Multiple port mappings can map to same channel               | zxnext.vhd port-decode alias            | pass    | test/audio/audio_port_dispatch_test.cpp:570    |
 | IO-12   | Port FD conflict: F1 and F9 in mode 2                        | zxnext.vhd:2777                         | pass    | test/audio/audio_port_dispatch_test.cpp:608    |
 | IO-13   | NR 0x84 b1 gates Soundrive Mode 2 ports (0xF1/F3/F9/FB)                                      | zxnext.vhd:2429-2435                    | pass    | test/audio/audio_port_dispatch_test.cpp:664    |
@@ -2466,168 +2466,168 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 
 | Test ID   | Plan row title                                               | VHDL file:line                        | Status | Test file:line                |
 |-----------|--------------------------------------------------------------|---------------------------------------|--------|-------------------------------|
-| MD-01     | Mode 101; `i_JOY_LEFT` = U+D+L+R+A+B (bits 6,4,3,2,1,0)      | zxnext.vhd:3441-3442                    | pass   | test/input/input_test.cpp:1393 |
-| KBD-01    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:141 |
-| KBD-02    | none                                                         | membrane.vhd:236,242                    | pass   | test/input/input_test.cpp:148 |
-| KBD-03    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:155 |
-| KBD-04    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:162 |
-| KBD-05    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:169 |
-| KBD-06    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:176 |
-| KBD-07    | none                                                         | membrane.vhd:243                        | pass   | test/input/input_test.cpp:189 |
-| KBD-08    | none                                                         | membrane.vhd:244                        | pass   | test/input/input_test.cpp:201 |
-| KBD-09    | none                                                         | membrane.vhd:245                        | pass   | test/input/input_test.cpp:212 |
-| KBD-10    | none                                                         | membrane.vhd:246                        | pass   | test/input/input_test.cpp:223 |
-| KBD-11    | none                                                         | membrane.vhd:247                        | pass   | test/input/input_test.cpp:234 |
-| KBD-12    | none                                                         | membrane.vhd:248                        | pass   | test/input/input_test.cpp:245 |
-| KBD-13    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:252 |
-| KBD-14    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:259 |
-| KBD-15    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:266 |
-| KBD-16    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:273 |
-| KBD-17    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:280 |
-| KBD-18    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:289 |
-| KBD-19    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:300 |
-| KBD-20    | none                                                         | membrane.vhd:242-251                    | pass   | test/input/input_test.cpp:309 |
-| KBD-21    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:319 |
+| MD-01     | Mode 101; `i_JOY_LEFT` = U+D+L+R+A+B (bits 6,4,3,2,1,0)      | zxnext.vhd:3441-3442                    | pass   | test/input/input_test.cpp:1401 |
+| KBD-01    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:149 |
+| KBD-02    | none                                                         | membrane.vhd:236,242                    | pass   | test/input/input_test.cpp:156 |
+| KBD-03    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:163 |
+| KBD-04    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:170 |
+| KBD-05    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:177 |
+| KBD-06    | none                                                         | membrane.vhd:242                        | pass   | test/input/input_test.cpp:184 |
+| KBD-07    | none                                                         | membrane.vhd:243                        | pass   | test/input/input_test.cpp:197 |
+| KBD-08    | none                                                         | membrane.vhd:244                        | pass   | test/input/input_test.cpp:209 |
+| KBD-09    | none                                                         | membrane.vhd:245                        | pass   | test/input/input_test.cpp:220 |
+| KBD-10    | none                                                         | membrane.vhd:246                        | pass   | test/input/input_test.cpp:231 |
+| KBD-11    | none                                                         | membrane.vhd:247                        | pass   | test/input/input_test.cpp:242 |
+| KBD-12    | none                                                         | membrane.vhd:248                        | pass   | test/input/input_test.cpp:253 |
+| KBD-13    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:260 |
+| KBD-14    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:267 |
+| KBD-15    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:274 |
+| KBD-16    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:281 |
+| KBD-17    | none                                                         | membrane.vhd:249                        | pass   | test/input/input_test.cpp:288 |
+| KBD-18    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:297 |
+| KBD-19    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:308 |
+| KBD-20    | none                                                         | membrane.vhd:242-251                    | pass   | test/input/input_test.cpp:317 |
+| KBD-21    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:327 |
 | KBD-22    | none                                                         | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:157 |
 | KBD-23    | none                                                         | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:181 |
-| KBDHYS-01 | Pulse CS for one scan, then release; read the next scan      | membrane.vhd:178,188-191,232            | pass   | test/input/input_test.cpp:363 |
-| KBDHYS-02 | Hold CS continuously across 3 scans                          | membrane.vhd:190                        | pass   | test/input/input_test.cpp:384 |
-| KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan                     | membrane.vhd:253                        | pass   | test/input/input_test.cpp:417 |
-| EXT-01    | Press UP, read NR 0xB0                                       | —                                     | pass   | test/input/input_test.cpp:712 |
-| EXT-02    | Press DOWN, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:717 |
-| EXT-03    | Press LEFT, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:722 |
-| EXT-04    | Press RIGHT, read NR 0xB0                                    | —                                     | pass   | test/input/input_test.cpp:727 |
-| EXT-05    | Press ';'                                                    | —                                     | pass   | test/input/input_test.cpp:732 |
-| EXT-06    | Press '"'                                                    | —                                     | pass   | test/input/input_test.cpp:737 |
-| EXT-07    | Press ','                                                    | —                                     | pass   | test/input/input_test.cpp:742 |
-| EXT-08    | Press '.'                                                    | —                                     | pass   | test/input/input_test.cpp:747 |
-| EXT-09    | Press DELETE                                                 | —                                     | pass   | test/input/input_test.cpp:758 |
-| EXT-10    | Press EDIT                                                   | —                                     | pass   | test/input/input_test.cpp:763 |
-| EXT-11    | Press BREAK                                                  | —                                     | pass   | test/input/input_test.cpp:768 |
-| EXT-12    | Press INV VIDEO                                              | —                                     | pass   | test/input/input_test.cpp:773 |
-| EXT-13    | Press TRUE VIDEO                                             | —                                     | pass   | test/input/input_test.cpp:778 |
-| EXT-14    | Press GRAPH                                                  | —                                     | pass   | test/input/input_test.cpp:783 |
-| EXT-15    | Press CAPS LOCK                                              | —                                     | pass   | test/input/input_test.cpp:788 |
-| EXT-16    | Press EXTEND                                                 | —                                     | pass   | test/input/input_test.cpp:793 |
-| EXT-17    | Press EDIT; read 0xF7FE (row 3)                              | membrane.vhd:236-240                    | pass   | test/input/input_test.cpp:812 |
-| EXT-18    | Press ','; read 0xDFFE (row 5)                               | membrane.vhd:217                        | pass   | test/input/input_test.cpp:828 |
-| EXT-19    | Press LEFT; read 0x7FFE (row 7)                              | membrane.vhd:225                        | pass   | test/input/input_test.cpp:841 |
-| EXT-20    | UP + DOWN + LEFT + RIGHT                                     | zxnext.vhd:6208                         | pass   | test/input/input_test.cpp:855 |
-| JMODE-01  | NR 0x05 = 0x00 = 0b0000_0000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:891 |
-| JMODE-02  | NR 0x05 = 0x68 = 0b0110_1000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:906 |
-| JMODE-02r | NR 0x05 = 0xC9 = 0b1100_1001                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:921 |
-| JMODE-03  | NR 0x05 = 0x40 = 0b0100_0000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:936 |
-| JMODE-04  | NR 0x05 = 0x08 = 0b0000_1000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:951 |
-| JMODE-05  | NR 0x05 = 0x88 = 0b1000_1000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:966 |
-| JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:981 |
-| JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:996 |
-| JMODE-08  | Power-on, read joystick mode                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:1020 |
-| KEMP-01   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1126 |
-| KEMP-02   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1134 |
-| KEMP-03   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1142 |
-| KEMP-04   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1150 |
-| KEMP-05   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1158 |
-| KEMP-06   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1166 |
-| KEMP-07   | joy0=001                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1175 |
-| KEMP-08   | joy0=001                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1183 |
-| KEMP-09   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1192 |
-| KEMP-10   | joy0=100                                                     | zxnext.vhd:3482                         | pass   | test/input/input_test.cpp:1201 |
-| KEMP-11   | joy0=100                                                     | —                                     | pass   | test/input/input_test.cpp:1209 |
-| KEMP-12   | joy0=000                                                     | zxnext.vhd:3475                         | pass   | test/input/input_test.cpp:1222 |
-| KEMP-13   | joy0=001, joy1=001, L.U + R.R                                | zxnext.vhd:3499                         | pass   | test/input/input_test.cpp:1233 |
-| KEMP-14   | joy0=001, joy1=100, L.U, R.D                                 | zxnext.vhd:3475-3488                    | pass   | test/input/input_test.cpp:1244 |
-| KEMP-15   | joy0=101, L.A pressed                                        | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1255 |
-| MD-02     | joy0=101                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1401 |
-| MD-03     | joy0=101                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1409 |
-| MD-04     | joy0=101                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1417 |
-| MD-05     | joy0=101                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1425 |
-| MD-06     | joy0=001                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1434 |
-| MD-07     | joy0=110                                                     | zxnext.vhd:3482                         | pass   | test/input/input_test.cpp:1444 |
-| MD-08     | joy1=110                                                     | zxnext.vhd:3494                         | pass   | test/input/input_test.cpp:1454 |
-| MD-09     | joy0=101, joy1=101 (both MD1 — illegal?)                     | zxnext.vhd:3499                         | pass   | test/input/input_test.cpp:1468 |
-| MD6-01    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1498 |
-| MD6-02    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1506 |
-| MD6-03    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1514 |
-| MD6-04    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1522 |
-| MD6-05    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1530 |
-| MD6-06    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1538 |
-| MD6-07    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1546 |
-| MD6-08    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1554 |
-| MD6-09    | both MD                                                      | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1563 |
-| MD6-10    | joy0=001 (Kempston, not MD), `i_JOY_LEFT(10)=1`              | zxnext.vhd:6215,3441-3442               | pass   | test/input/input_test.cpp:1581 |
-| MD6-11a   | 0000 (left, sub=000)                                         | md6_joystick_connector_x2.vhd:135-139 | pass   | test/input/input_test.cpp:1608 |
-| MD6-11b   | 0100 (left, sub=010)                                         | md6_joystick_connector_x2.vhd:141-144   | pass   | test/input/input_test.cpp:1627 |
-| MD6-11c   | 0110 (left, sub=011)                                         | md6_joystick_connector_x2.vhd:151-152   | pass   | test/input/input_test.cpp:1641 |
-| MD6-11d   | 1000 (left, sub=100)                                         | md6_joystick_connector_x2.vhd:157-158   | pass   | test/input/input_test.cpp:1657 |
-| MD6-11e   | 1010 (left, sub=101)                                         | md6_joystick_connector_x2.vhd:163-166   | pass   | test/input/input_test.cpp:1673 |
-| MD6-11f   | 0101 (right, sub=010)                                        | md6_joystick_connector_x2.vhd:146-149   | pass   | test/input/input_test.cpp:1687 |
-| MD6-11g   | 0111 (right, sub=011)                                        | md6_joystick_connector_x2.vhd:154-155   | pass   | test/input/input_test.cpp:1701 |
-| MD6-11h   | 1011 (right, sub=101)                                        | md6_joystick_connector_x2.vhd:168-171   | pass   | test/input/input_test.cpp:1716 |
-| MD6-11i   | 1000 (left, sub=100), 3-button pad                           | md6_joystick_connector_x2.vhd:163-166   | pass   | test/input/input_test.cpp:1732 |
-| SINC1-01  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1790 |
-| SINC1-02  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1795 |
-| SINC1-03  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1800 |
-| SINC1-04  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1805 |
-| SINC1-05  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1810 |
-| SINC2-01  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1819 |
-| SINC2-02  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1824 |
-| SINC2-03  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1829 |
-| SINC2-04  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1834 |
-| SINC2-05  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1839 |
-| SINC-06   | joy0=011, joy1=000, both LEFT                                | membrane_stick.vhd:192                  | pass   | test/input/input_test.cpp:1863 |
-| CURS-01   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1899 |
-| CURS-02   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1905 |
-| CURS-03   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1911 |
-| CURS-04   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1917 |
-| CURS-05   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1923 |
-| CURS-06   | joy0=010, LEFT + RIGHT                                       | —                                     | pass   | test/input/input_test.cpp:1936 |
-| IOMODE-01 | Reset                                                        | zxnext.vhd:3510-3539,5200-5203          | pass   | test/input/input_test.cpp:1963 |
-| IOMODE-02 | Write NR 0x0B = 0x80 (en=1, mode=00, iomode_0=0)             | zxnext.vhd:3520                         | pass   | test/input/input_test.cpp:1973 |
-| IOMODE-03 | Write NR 0x0B = 0x81 (en=1, mode=00, iomode_0=1)             | zxnext.vhd:3520                         | pass   | test/input/input_test.cpp:1983 |
-| IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)`  | zxnext.vhd:3521-3524                    | pass   | test/input/input_test.cpp:2003 |
-| IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0)             | zxnext.vhd:3526-3531                    | pass   | test/input/input_test.cpp:2020 |
-| IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1)             | zxnext.vhd:3526-3531                    | pass   | test/input/input_test.cpp:2037 |
-| IOMODE-07 | NR 0x0B = 0xA0/0xA1 (mode "10" → LEFT), press `JOY_LEFT(5)`  | zxnext.vhd:3538                         | pass   | test/input/input_test.cpp:2065 |
-| IOMODE-08 | NR 0x0B = 0xB0/0xB1 (mode "11" → RIGHT), press `JOY_RIGHT(5)`| zxnext.vhd:3538                         | pass   | test/input/input_test.cpp:2090 |
-| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en`                   | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2105 |
-| IOMODE-10 | Write NR 0x0B = 0x80                                         | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2124 |
-| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured      | zxnext.vhd:5157-5158,5200-5203          | pass   | test/input/input_test.cpp:2154 |
-| MOUSE-01  | `port_mouse_io_en=1`                                         | zxnext.vhd:3546                         | pass   | test/input/input_test.cpp:2328 |
-| MOUSE-02  | `port_mouse_io_en=1`                                         | zxnext.vhd:3553                         | pass   | test/input/input_test.cpp:2340 |
-| MOUSE-03  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2354 |
-| MOUSE-04  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2367 |
-| MOUSE-05  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2379 |
-| MOUSE-06  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2391 |
-| MOUSE-07  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2404 |
-| MOUSE-08  | `port_mouse_io_en=0`                                         | zxnext.vhd:2668-2670                    | pass   | test/input/input_test.cpp:2435 |
+| KBDHYS-01 | Pulse CS for one scan, then release; read the next scan      | membrane.vhd:178,188-191,232            | pass   | test/input/input_test.cpp:371 |
+| KBDHYS-02 | Hold CS continuously across 3 scans                          | membrane.vhd:190                        | pass   | test/input/input_test.cpp:392 |
+| KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan                     | membrane.vhd:253                        | pass   | test/input/input_test.cpp:425 |
+| EXT-01    | Press UP, read NR 0xB0                                       | —                                     | pass   | test/input/input_test.cpp:720 |
+| EXT-02    | Press DOWN, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:725 |
+| EXT-03    | Press LEFT, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:730 |
+| EXT-04    | Press RIGHT, read NR 0xB0                                    | —                                     | pass   | test/input/input_test.cpp:735 |
+| EXT-05    | Press ';'                                                    | —                                     | pass   | test/input/input_test.cpp:740 |
+| EXT-06    | Press '"'                                                    | —                                     | pass   | test/input/input_test.cpp:745 |
+| EXT-07    | Press ','                                                    | —                                     | pass   | test/input/input_test.cpp:750 |
+| EXT-08    | Press '.'                                                    | —                                     | pass   | test/input/input_test.cpp:755 |
+| EXT-09    | Press DELETE                                                 | —                                     | pass   | test/input/input_test.cpp:766 |
+| EXT-10    | Press EDIT                                                   | —                                     | pass   | test/input/input_test.cpp:771 |
+| EXT-11    | Press BREAK                                                  | —                                     | pass   | test/input/input_test.cpp:776 |
+| EXT-12    | Press INV VIDEO                                              | —                                     | pass   | test/input/input_test.cpp:781 |
+| EXT-13    | Press TRUE VIDEO                                             | —                                     | pass   | test/input/input_test.cpp:786 |
+| EXT-14    | Press GRAPH                                                  | —                                     | pass   | test/input/input_test.cpp:791 |
+| EXT-15    | Press CAPS LOCK                                              | —                                     | pass   | test/input/input_test.cpp:796 |
+| EXT-16    | Press EXTEND                                                 | —                                     | pass   | test/input/input_test.cpp:801 |
+| EXT-17    | Press EDIT; read 0xF7FE (row 3)                              | membrane.vhd:236-240                    | pass   | test/input/input_test.cpp:820 |
+| EXT-18    | Press ','; read 0xDFFE (row 5)                               | membrane.vhd:217                        | pass   | test/input/input_test.cpp:836 |
+| EXT-19    | Press LEFT; read 0x7FFE (row 7)                              | membrane.vhd:225                        | pass   | test/input/input_test.cpp:849 |
+| EXT-20    | UP + DOWN + LEFT + RIGHT                                     | zxnext.vhd:6208                         | pass   | test/input/input_test.cpp:863 |
+| JMODE-01  | NR 0x05 = 0x00 = 0b0000_0000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:899 |
+| JMODE-02  | NR 0x05 = 0x68 = 0b0110_1000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:914 |
+| JMODE-02r | NR 0x05 = 0xC9 = 0b1100_1001                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:929 |
+| JMODE-03  | NR 0x05 = 0x40 = 0b0100_0000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:944 |
+| JMODE-04  | NR 0x05 = 0x08 = 0b0000_1000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:959 |
+| JMODE-05  | NR 0x05 = 0x88 = 0b1000_1000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:974 |
+| JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:989 |
+| JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:1004 |
+| JMODE-08  | Power-on, read joystick mode                                 | zxnext.vhd:5157-5158                    | pass   | test/input/input_test.cpp:1028 |
+| KEMP-01   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1134 |
+| KEMP-02   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1142 |
+| KEMP-03   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1150 |
+| KEMP-04   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1158 |
+| KEMP-05   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1166 |
+| KEMP-06   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1174 |
+| KEMP-07   | joy0=001                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1183 |
+| KEMP-08   | joy0=001                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1191 |
+| KEMP-09   | joy0=001                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1200 |
+| KEMP-10   | joy0=100                                                     | zxnext.vhd:3482                         | pass   | test/input/input_test.cpp:1209 |
+| KEMP-11   | joy0=100                                                     | —                                     | pass   | test/input/input_test.cpp:1217 |
+| KEMP-12   | joy0=000                                                     | zxnext.vhd:3475                         | pass   | test/input/input_test.cpp:1230 |
+| KEMP-13   | joy0=001, joy1=001, L.U + R.R                                | zxnext.vhd:3499                         | pass   | test/input/input_test.cpp:1241 |
+| KEMP-14   | joy0=001, joy1=100, L.U, R.D                                 | zxnext.vhd:3475-3488                    | pass   | test/input/input_test.cpp:1252 |
+| KEMP-15   | joy0=101, L.A pressed                                        | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1263 |
+| MD-02     | joy0=101                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1409 |
+| MD-03     | joy0=101                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1417 |
+| MD-04     | joy0=101                                                     | zxnext.vhd:3479                         | pass   | test/input/input_test.cpp:1425 |
+| MD-05     | joy0=101                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1433 |
+| MD-06     | joy0=001                                                     | zxnext.vhd:3478                         | pass   | test/input/input_test.cpp:1442 |
+| MD-07     | joy0=110                                                     | zxnext.vhd:3482                         | pass   | test/input/input_test.cpp:1452 |
+| MD-08     | joy1=110                                                     | zxnext.vhd:3494                         | pass   | test/input/input_test.cpp:1462 |
+| MD-09     | joy0=101, joy1=101 (both MD1 — illegal?)                     | zxnext.vhd:3499                         | pass   | test/input/input_test.cpp:1476 |
+| MD6-01    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1506 |
+| MD6-02    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1514 |
+| MD6-03    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1522 |
+| MD6-04    | joy0=101                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1530 |
+| MD6-05    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1538 |
+| MD6-06    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1546 |
+| MD6-07    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1554 |
+| MD6-08    | joy1=110                                                     | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1562 |
+| MD6-09    | both MD                                                      | zxnext.vhd:6215                         | pass   | test/input/input_test.cpp:1571 |
+| MD6-10    | joy0=001 (Kempston, not MD), `i_JOY_LEFT(10)=1`              | zxnext.vhd:6215,3441-3442               | pass   | test/input/input_test.cpp:1589 |
+| MD6-11a   | 0000 (left, sub=000)                                         | md6_joystick_connector_x2.vhd:135-139 | pass   | test/input/input_test.cpp:1616 |
+| MD6-11b   | 0100 (left, sub=010)                                         | md6_joystick_connector_x2.vhd:141-144   | pass   | test/input/input_test.cpp:1635 |
+| MD6-11c   | 0110 (left, sub=011)                                         | md6_joystick_connector_x2.vhd:151-152   | pass   | test/input/input_test.cpp:1649 |
+| MD6-11d   | 1000 (left, sub=100)                                         | md6_joystick_connector_x2.vhd:157-158   | pass   | test/input/input_test.cpp:1665 |
+| MD6-11e   | 1010 (left, sub=101)                                         | md6_joystick_connector_x2.vhd:163-166   | pass   | test/input/input_test.cpp:1681 |
+| MD6-11f   | 0101 (right, sub=010)                                        | md6_joystick_connector_x2.vhd:146-149   | pass   | test/input/input_test.cpp:1695 |
+| MD6-11g   | 0111 (right, sub=011)                                        | md6_joystick_connector_x2.vhd:154-155   | pass   | test/input/input_test.cpp:1709 |
+| MD6-11h   | 1011 (right, sub=101)                                        | md6_joystick_connector_x2.vhd:168-171   | pass   | test/input/input_test.cpp:1724 |
+| MD6-11i   | 1000 (left, sub=100), 3-button pad                           | md6_joystick_connector_x2.vhd:163-166   | pass   | test/input/input_test.cpp:1740 |
+| SINC1-01  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1798 |
+| SINC1-02  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1803 |
+| SINC1-03  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1808 |
+| SINC1-04  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1813 |
+| SINC1-05  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1818 |
+| SINC2-01  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1827 |
+| SINC2-02  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1832 |
+| SINC2-03  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1837 |
+| SINC2-04  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1842 |
+| SINC2-05  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1847 |
+| SINC-06   | joy0=011, joy1=000, both LEFT                                | membrane_stick.vhd:192                  | pass   | test/input/input_test.cpp:1871 |
+| CURS-01   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1907 |
+| CURS-02   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1913 |
+| CURS-03   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1919 |
+| CURS-04   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1925 |
+| CURS-05   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1931 |
+| CURS-06   | joy0=010, LEFT + RIGHT                                       | —                                     | pass   | test/input/input_test.cpp:1944 |
+| IOMODE-01 | Reset                                                        | zxnext.vhd:3510-3539,5200-5203          | pass   | test/input/input_test.cpp:1971 |
+| IOMODE-02 | Write NR 0x0B = 0x80 (en=1, mode=00, iomode_0=0)             | zxnext.vhd:3520                         | pass   | test/input/input_test.cpp:1981 |
+| IOMODE-03 | Write NR 0x0B = 0x81 (en=1, mode=00, iomode_0=1)             | zxnext.vhd:3520                         | pass   | test/input/input_test.cpp:1991 |
+| IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)`  | zxnext.vhd:3521-3524                    | pass   | test/input/input_test.cpp:2011 |
+| IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0)             | zxnext.vhd:3526-3531                    | pass   | test/input/input_test.cpp:2028 |
+| IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1)             | zxnext.vhd:3526-3531                    | pass   | test/input/input_test.cpp:2045 |
+| IOMODE-07 | NR 0x0B = 0xA0/0xA1 (mode "10" → LEFT), press `JOY_LEFT(5)`  | zxnext.vhd:3538                         | pass   | test/input/input_test.cpp:2073 |
+| IOMODE-08 | NR 0x0B = 0xB0/0xB1 (mode "11" → RIGHT), press `JOY_RIGHT(5)`| zxnext.vhd:3538                         | pass   | test/input/input_test.cpp:2098 |
+| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en`                   | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2113 |
+| IOMODE-10 | Write NR 0x0B = 0x80                                         | zxnext.vhd:3537                         | pass   | test/input/input_test.cpp:2132 |
+| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured      | zxnext.vhd:5157-5158,5200-5203          | pass   | test/input/input_test.cpp:2162 |
+| MOUSE-01  | `port_mouse_io_en=1`                                         | zxnext.vhd:3546                         | pass   | test/input/input_test.cpp:2336 |
+| MOUSE-02  | `port_mouse_io_en=1`                                         | zxnext.vhd:3553                         | pass   | test/input/input_test.cpp:2348 |
+| MOUSE-03  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2362 |
+| MOUSE-04  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2375 |
+| MOUSE-05  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2387 |
+| MOUSE-06  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:2399 |
+| MOUSE-07  | `port_mouse_io_en=1`                                         | zxnext.vhd:3560                         | pass   | test/input/input_test.cpp:2412 |
+| MOUSE-08  | `port_mouse_io_en=0`                                         | zxnext.vhd:2668-2670                    | pass   | test/input/input_test.cpp:2443 |
 | MOUSE-09  | NR 0x0A bit 3 = 1 (reverse)                                  | —                                     | missing | missing                       |
 | MOUSE-10  | `port_mouse_io_en=1`                                         | —                                     | missing | missing                       |
 | MOUSE-11  | `port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11"`     | zxnext.vhd                              | missing | missing                       |
-| NMI-01    | NR 0x06 bit 3 = 1 (M1 en)                                    | —                                     | pass   | test/input/input_test.cpp:2785 |
-| NMI-02    | NR 0x06 bit 3 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2802 |
-| NMI-03    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2819 |
-| NMI-04    | NR 0x06 bit 4 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2836 |
-| NMI-05    | NR 0x06 bit 3 = 1                                            | zxnext.vhd:2090                         | pass   | test/input/input_test.cpp:2855 |
-| NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2873 |
-| NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2891 |
+| NMI-01    | NR 0x06 bit 3 = 1 (M1 en)                                    | —                                     | pass   | test/input/input_test.cpp:2793 |
+| NMI-02    | NR 0x06 bit 3 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2810 |
+| NMI-03    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2827 |
+| NMI-04    | NR 0x06 bit 4 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2844 |
+| NMI-05    | NR 0x06 bit 3 = 1                                            | zxnext.vhd:2090                         | pass   | test/input/input_test.cpp:2863 |
+| NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2881 |
+| NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2899 |
 | FE-01     | No keys, EAR=0, no `port_fe_ear`                             | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:206 |
 | FE-02     | EAR input high                                               | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:227 |
 | FE-03     | Write 0xFE bit 4 high (`port_fe_ear`=1), then read           | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:246 |
 | FE-04     | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0                    | zxnext.vhd:5182                         | pass    | test/input/input_integration_test.cpp:310 |
 | FE-05     | `expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus dri… | —                                     | missing | missing                       |
-| JMODE-09      | NR 0x05=0x40 (joy0=Kempston1) -> MembraneStick::set_mode(joy0) called from Joystick::set_nr_05       | membrane_stick.vhd:117-149              | pass   | test/input/input_test.cpp:1086 |
-| KEMP-16       | NR 0x82 b7=0; joy0=100 (Kempston2); read port 0x37 -> floating-bus, NOT joystick byte                | zxnext.vhd:2408,2675                    | pass   | test/input/input_test.cpp:1294 |
-| KEMP-17       | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F -> floating-bus 0xFF (port_1f_hw_en=0)       | zxnext.vhd:2454-2455,2674-2675          | pass   | test/input/input_test.cpp:1369 |
-| MOUSE-12      | port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0 AND joy0=001 -> read 0xDF returns Kempston byte   | zxnext.vhd:2674                         | pass   | test/input/input_test.cpp:2514 |
-| MOUSE-13      | Host SDL mouse motion -> KempstonMouse X/Y deltas at port 0xFADF / 0xFBDF (G43)                      | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2562 |
-| MOUSE-14      | Host SDL mouse buttons -> KempstonMouse button bits at port 0xFBDF (G43)                             | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2601 |
-| MOUSE-15      | Host wheel scroll -> KempstonMouse wheel byte (NR 0x0A bit 3 reverse honoured) (G43)                 | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2633 |
-| KBDHYS-04     | `Emulator` main loop calls `Keyboard::tick_scan()` each membrane scan-cycle (production wire)        | membrane.vhd:178-191                    | pass   | test/input/input_test.cpp:674 |
+| JMODE-09      | NR 0x05=0x40 (joy0=Kempston1) -> MembraneStick::set_mode(joy0) called from Joystick::set_nr_05       | membrane_stick.vhd:117-149              | pass   | test/input/input_test.cpp:1094 |
+| KEMP-16       | NR 0x82 b7=0; joy0=100 (Kempston2); read port 0x37 -> floating-bus, NOT joystick byte                | zxnext.vhd:2408,2675                    | pass   | test/input/input_test.cpp:1302 |
+| KEMP-17       | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F -> floating-bus 0xFF (port_1f_hw_en=0)       | zxnext.vhd:2454-2455,2674-2675          | pass   | test/input/input_test.cpp:1377 |
+| MOUSE-12      | port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0 AND joy0=001 -> read 0xDF returns Kempston byte   | zxnext.vhd:2674                         | pass   | test/input/input_test.cpp:2522 |
+| MOUSE-13      | Host SDL mouse motion -> KempstonMouse X/Y deltas at port 0xFADF / 0xFBDF (G43)                      | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2570 |
+| MOUSE-14      | Host SDL mouse buttons -> KempstonMouse button bits at port 0xFBDF (G43)                             | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2609 |
+| MOUSE-15      | Host wheel scroll -> KempstonMouse wheel byte (NR 0x0A bit 3 reverse honoured) (G43)                 | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2641 |
+| KBDHYS-04     | `Emulator` main loop calls `Keyboard::tick_scan()` each membrane scan-cycle (production wire)        | membrane.vhd:178-191                    | pass   | test/input/input_test.cpp:682 |
 | KBDHYS-05     | `Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod)    | membrane.vhd:178-191                    | missing | missing                       |
-| JCAL-01       | NR 0x28 keymap_sel write (2-bit) persists to NextReg readback                                        | zxnext.vhd:6294-6300                    | pass   | test/input/input_test.cpp:2965 |
-| JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | pass   | test/input/input_test.cpp:3004 |
-| JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | pass   | test/input/input_test.cpp:3048 |
-| FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | pass   | test/input/input_test.cpp:3088 |
+| JCAL-01       | NR 0x28 keymap_sel write (2-bit) persists to NextReg readback                                        | zxnext.vhd:6294-6300                    | pass   | test/input/input_test.cpp:2973 |
+| JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | pass   | test/input/input_test.cpp:3012 |
+| JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | pass   | test/input/input_test.cpp:3056 |
+| FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | pass   | test/input/input_test.cpp:3096 |
 | HOTKEY-01     | Host SDL_SCANCODE_F8 -> NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by nr_06_hotkey_*_en  | zxnext.vhd:5790-5791,6342-6347          | pass    | test/input/input_integration_test.cpp:957 |
 | JOY-WIRE-01   | OUT (0x253B), 0x40 with reg=0x05 -> MembraneStick fold redirects through full NR-write path          | emulator.cpp:456-458                    | pass    | test/input/input_integration_test.cpp:612 |
 | JOY-WIRE-02   | Host SDL gamepad buttons -> Kempston bits at port 0x1F (G42)                                         | zxnext.vhd:3441-3442                    | pass    | test/input/input_integration_test.cpp:667 |
@@ -2638,8 +2638,8 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | HK-WIRE-03    | Host F9 SDL key dispatched into NMI source `assert_mf` injector (G152)                               | nmi_source.cpp                          | missing | missing                       |
 | HK-WIRE-04    | Host F10 SDL key dispatched into DivMMC button NMI injector (G152)                                   | divmmc.cpp                              | missing | missing                       |
 | FE-04A        | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44)                          | keyboard.cpp                            | missing | missing                       |
-| IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | pass   | test/input/input_test.cpp:2231 |
-| IOMODE-11B    | Emulator per-tick feed: Joystick line-5 (button C) -> IoMode joy_uart_rx via run_frame() (GH #90)    | zxnext.vhd:90-91,3441-3442,3538         | pass   | test/input/input_test.cpp:2299 |
+| IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | pass   | test/input/input_test.cpp:2239 |
+| IOMODE-11B    | Emulator per-tick feed: Joystick line-5 (button C) -> IoMode joy_uart_rx via run_frame() (GH #90)    | zxnext.vhd:90-91,3441-3442,3538         | pass   | test/input/input_test.cpp:2307 |
 | ESP-01        | UART 0 TX bytes egress to ESP-01 host bridge when nr_a0 ESP-route enabled (G39)                      | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-02        | UART 0 RX bytes from ESP-01 host bridge land in `Uart` RX FIFO (G39)                                 | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-03        | ESP-01 reset line driven from NR 0xA0 / NextZXOS networking signal (G39)                             | zxnext.vhd                              | missing | missing                       |
