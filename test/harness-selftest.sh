@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=39
+EXPECTED_TOTAL=40
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -393,6 +393,58 @@ elapsed=$(( (t1 - t0) / 1000000 ))          # ms
 fast=y; [[ "$elapsed" -gt 8000 ]] && fast=n
 check "HS-44" "a hanging REAL-script invocation is bounded: rc=124, fast, run continues (GH #81)" 0 0 \
     "rc=$rc fast=$fast elapsed=${elapsed}ms" "rc=124 fast=y"
+
+# ------------------------- the lint gate must stay WIRED to `make unit-test` (GH #129)
+# test/lint-assertions.sh self-tests its own patterns on every invocation, so it can
+# prove it still DETECTS a tautology. Nothing proved it still RUNS — and that is the
+# defect: reachable only through the regression preflight, the lint never saw an
+# author's `make unit-test` loop, so a check(..., true) row passed its author, passed
+# an independent reviewer who mutation-tested everything around it, and turned CI red
+# only after landing on main, from where three more branches inherited it. Deleting
+# one word from the Makefile prerequisite restores exactly that state with every suite
+# still green, which is the same "guard silently un-wired" shape as HS-30/HS-40.
+#
+# Probed BEHAVIOURALLY with `make -n` (a dry run: builds nothing, ~10 ms) rather than
+# by grepping the Makefile text, so the row survives the wiring being expressed
+# differently and fails only when the lint genuinely stops being reached. The pattern
+# is anchored to the command form: recipe `@#` comment lines ARE printed under -n, so
+# an unanchored match on the name could be satisfied by a comment alone.
+#
+# TWO facts, because reachability alone is not the property this gate sells. Moving
+# the prerequisite to LAST keeps wired=y — the lint still runs, but only after the
+# compile it exists to spare you, which is the whole headline ("fails in ~40 ms
+# before any build"). So `first` pins that NOTHING precedes it.
+#
+# `first` rather than "precedes the `cmake --build` line", deliberately. It is the
+# strictly stronger claim (first implies before-everything, so a demotion to any
+# later slot is caught, not just a demotion past the build), and — the reason that
+# matters here — it needs NO second text anchor: it is positional on the lint line
+# itself. Anchoring on the build line would re-couple this row to recipe text
+# (`$(CMAKE) --build build -j$(JOBS)`, which renders host-dependently as
+# `cmake --build build -j12`), so a harmless rewording would turn the row red for a
+# reason unrelated to the gate. That is the same argument that put this probe on
+# `make -n` instead of a Makefile grep, applied once more.
+#
+# A deliberate future gate placed ahead of the lint therefore fails this row and must
+# update it — the pin philosophy this file already runs on (EXPECTED_TOTAL, the
+# manifest row counts, the conf `# expect:` lines): the claim is made on purpose.
+#
+# MAKEFLAGS is cleared because this self-test itself runs FROM a make recipe (`make
+# harness-selftest`, and harness-selftest-func inside the regression suite): an
+# inherited jobserver flag makes the nested make warn, and inherited goals would
+# change what is being probed. Bounded like every other real invocation here (GH #81).
+LINT_CMD_RE='^[[:space:]]*bash[[:space:]]+test/lint-assertions\.sh'
+dry=$(MAKEFLAGS= timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+          make -C "$PROJECT_DIR" --no-print-directory -n unit-test 2>&1 || true)
+dry_head=$(grep -vE '^[[:space:]]*$' <<<"$dry" | head -1)
+wired=n; grep -qE "$LINT_CMD_RE" <<<"$dry"      && wired=y
+first=n; grep -qE "$LINT_CMD_RE" <<<"$dry_head" && first=y
+# The offending first line rides along in the tuple: on a demotion the row must say
+# WHAT ran first, or the diagnosis costs a manual dry run. Truncated and newline-free
+# so one pathological recipe line cannot swamp the report.
+check "HS-45" "'make unit-test' reaches the lint, and reaches it FIRST (GH #129)" 0 0 \
+    "wired=$wired first=$first head=[$(cut -c1-60 <<<"${dry_head//$'\n'/ }")]" \
+    "wired=y" "first=y"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).

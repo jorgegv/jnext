@@ -86,7 +86,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test harness-selftest traceability-selftest worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions harness-selftest traceability-selftest worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
@@ -335,6 +335,21 @@ regression: unit-test-build gui-release sdl-release docs-check cli-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
+# lint-assertions is a prerequisite for the same reason as docs-check, and it is
+# FIRST because it is the cheapest gate here (~40 ms of ripgrep over test/ source
+# text — no compiler, no SD image, no display), so it fails before the build even
+# starts. Until GH #129 it was reachable ONLY through the regression preflight,
+# which an author iterating on `make unit-test` never runs: a check(..., true) row
+# passed its author, passed an independent reviewer, and turned CI red only after
+# landing on main, from where three more branches inherited it. A gate nobody's
+# inner loop reaches is not a gate.
+# It cannot be a row in test/unit-tests.conf: that manifest is cross-checked
+# against CMake's add_test() registry in BOTH directions, so a non-CMake entry
+# makes run-unit-tests.sh REFUSE to run ("NOT registered by CMake"). A make
+# prerequisite leaves the harness's refusal semantics untouched.
+# The regression suite keeps its OWN copy (scripts/00-preflight-lint.sh, row 1 of
+# the suite) — same as docs-check sits in both entry points. Do not "de-duplicate"
+# by deleting either one.
 # docs-check is a prerequisite, not a courtesy: the man page, USAGE.md and the
 # rendered user guide are all GENERATED and COMMITTED, so a stale committed
 # output is a silent lie that no other gate can see. Running it with every test
@@ -352,7 +367,7 @@ regression: unit-test-build gui-release sdl-release docs-check cli-check
 # roots, ~4 s, no compiler and no packaging toolchain. The half that actually
 # builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
 # own parallel job in ci.yml.
-unit-test: unit-test-build docs-check package-contract-test
+unit-test: lint-assertions unit-test-build docs-check package-contract-test
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -377,6 +392,16 @@ unit-test: unit-test-build docs-check package-contract-test
 # Build every ENABLE_QT_UI x ENABLE_DEBUGGER combination; fails if any breaks
 build-matrix:
 	@bash test/build-matrix.sh
+
+# A missing ripgrep is a hard FAILURE here, not a docs-check-style SKIP. pandoc and
+# mkdocs are genuinely optional (a source build ships the generated docs committed);
+# rg is already a hard requirement of `make regression`, whose preflight row FAILs
+# without it. Skipping would also defeat the point: a lint that does not run reads
+# as a pass, which is the whole shape of GH #129.
+#
+# Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
+lint-assertions:
+	@bash test/lint-assertions.sh
 
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
 harness-selftest:
