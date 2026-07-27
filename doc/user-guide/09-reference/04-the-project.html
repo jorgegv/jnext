@@ -198,8 +198,8 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the release this guide was rendered from">This version v0.99.2</li>
-      <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">Latest version &mdash;</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.43</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
 </a>
@@ -222,11 +222,14 @@
   (function () {
     var el = document.getElementById("jnext-latest-fact");
     if (!el || !window.fetch) return;
-    var api = "https://api.github.com/repos/jorgegv/jnext/releases/latest";
-    fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d && d.tag_name) el.textContent = "Latest version " + d.tag_name; })
-      .catch(function () { /* offline or rate-limited: keep the em dash */ });
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
   })();
 </script>
       </div>
@@ -276,8 +279,8 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the release this guide was rendered from">This version v0.99.2</li>
-      <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">Latest version &mdash;</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.43</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
 </a>
@@ -300,11 +303,14 @@
   (function () {
     var el = document.getElementById("jnext-latest-fact");
     if (!el || !window.fetch) return;
-    var api = "https://api.github.com/repos/jorgegv/jnext/releases/latest";
-    fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d && d.tag_name) el.textContent = "Latest version " + d.tag_name; })
-      .catch(function () { /* offline or rate-limited: keep the em dash */ });
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
   })();
 </script>
     </div>

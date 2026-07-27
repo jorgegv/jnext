@@ -640,7 +640,8 @@ bump-patch:
 	 printf "version: $$newver\n" > version.yaml && \
 	 bash packaging/sync-version.sh "$$newver" && \
 	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
-	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
+	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog \
+	         mkdocs.yml doc/user-guide && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
@@ -662,7 +663,8 @@ bump-minor:
 	 printf "version: $$newver\n" > version.yaml && \
 	 bash packaging/sync-version.sh "$$newver" && \
 	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
-	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
+	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog \
+	         mkdocs.yml doc/user-guide && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
@@ -683,7 +685,8 @@ bump-major:
 	 printf "version: $$newver\n" > version.yaml && \
 	 bash packaging/sync-version.sh "$$newver" && \
 	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
-	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog && \
+	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog \
+	         mkdocs.yml doc/user-guide && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 

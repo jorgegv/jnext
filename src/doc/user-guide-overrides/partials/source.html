@@ -7,15 +7,27 @@
   visibly stale. We drop that attribute so Material's cached fetch never runs,
   and show TWO facts instead:
 
-    * "This version <X>"   — the release the committed guide was rendered FROM.
-                     Static, from config.extra.doc_release in mkdocs.yml, so it
-                     is baked at render time and is always correct offline (the
-                     guide ships inside the packages). Deterministic: docs-check
-                     re-renders and byte-diffs, so nothing here may depend on
-                     wall-clock or network.
-    * "Latest version <Y>" — the CURRENT GitHub release, fetched live with
-                     cache: 'no-store' so it is never stale. Fails silently
-                     offline / when rate-limited, leaving the em dash.
+    * "This version <X>"   — the jnext version THIS COPY of the guide was
+                     rendered from. Static, from config.extra.doc_release in
+                     mkdocs.yml, which packaging/sync-version.sh rewrites from
+                     version.yaml on every bump (re-rendering the guide in the
+                     same step). Baked at render time, so it is correct offline
+                     — the guide ships inside the packages. Deterministic:
+                     docs-check re-renders and byte-diffs, so nothing here may
+                     depend on wall-clock or network.
+    * "Latest version <Y>" — version.yaml on GitHub main, fetched live. NOT the
+                     latest GitHub *release*: the point of the pair is "is the
+                     guide I am looking at current?", and a release tag would
+                     answer a different question (this guide is deployed from
+                     main, and main runs ahead of the last public release).
+                     Fails silently offline, leaving the em dash.
+
+  The fetch must never serve a stale answer, so it defeats caching twice:
+  cache: 'no-store' covers the browser, and a timestamp query parameter defeats
+  the CDN in front of raw.githubusercontent.com, which 'no-store' cannot reach.
+  Deliberately NO custom Cache-Control request header — that would make this a
+  non-simple cross-origin request and force a preflight the raw host need not
+  answer, trading a stale value for no value at all.
 
   The two stack one per line. Material lays its facts out as a flex ROW with an
   ellipsis, which put both on one line and truncated the first to "docs v0.99…"
@@ -32,8 +44,8 @@
   <div class="md-source__repository">
     {{ config.repo_name }}
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the release this guide was rendered from">This version {{ config.extra.doc_release }}</li>
-      <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">Latest version &mdash;</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: {{ config.extra.doc_release }}</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
 </a>
@@ -56,10 +68,13 @@
   (function () {
     var el = document.getElementById("jnext-latest-fact");
     if (!el || !window.fetch) return;
-    var api = "{{ config.repo_url | replace('https://github.com/', 'https://api.github.com/repos/') }}/releases/latest";
-    fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d && d.tag_name) el.textContent = "Latest version " + d.tag_name; })
-      .catch(function () { /* offline or rate-limited: keep the em dash */ });
+    var raw = "{{ config.repo_url | replace('https://github.com/', 'https://raw.githubusercontent.com/') }}/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
   })();
 </script>

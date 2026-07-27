@@ -15,6 +15,16 @@
 #                                       (PUBLIC releases only — gated on
 #                                        releases.yaml; private patch tags skip)
 #   - packaging/debian/changelog        the Debian changelog
+#   - mkdocs.yml                        extra.doc_release, shown as "This
+#                                       version" in the user guide header —
+#                                       ALWAYS the current version.yaml, so a
+#                                       reader can compare the guide they are
+#                                       looking at against "Latest version",
+#                                       which the page fetches live from
+#                                       version.yaml on GitHub main.
+#                                       The version is baked into EVERY page at
+#                                       render time, so the guide is re-rendered
+#                                       here too and a bump touches all of it.
 #
 # The flatpak manifest is NOT listed: it builds from the local checkout
 # (`type: git` + `path`), carrying no `tag: vX.Y.Z` to keep in sync.
@@ -30,18 +40,20 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 spec="$root/packaging/rpm/jnext.spec"
 metainfo="$root/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
 debchangelog="$root/packaging/debian/changelog"
+mkdocs="$root/mkdocs.yml"
 
 # Fail loud up front if any target file or the anchor an edit depends on is
 # missing. Without this, e.g. a spec with no `%changelog` line would get its
 # `Version:` rewritten but not its changelog — a silently inconsistent file
 # (rpmbuild warns/errors when the top %changelog version != Version:). Better
 # to abort the whole bump than to commit a half-synced tree.
-for f in "$spec" "$metainfo" "$debchangelog"; do
+for f in "$spec" "$metainfo" "$debchangelog" "$mkdocs"; do
     [ -f "$f" ] || { echo "sync-version: missing file: $f" >&2; exit 1; }
 done
 grep -qE '^Version:'                              "$spec"     || { echo "sync-version: no 'Version:' line in $spec" >&2; exit 1; }
 grep -qE '^%changelog$'                           "$spec"     || { echo "sync-version: no '%changelog' line in $spec" >&2; exit 1; }
 grep -qE '<releases>'                             "$metainfo" || { echo "sync-version: no '<releases>' element in $metainfo" >&2; exit 1; }
+grep -qE '^  doc_release:'                        "$mkdocs"   || { echo "sync-version: no 'doc_release:' line in $mkdocs" >&2; exit 1; }
 
 maint="ZXjogv <zx@jogv.es>"
 d_iso=$(date +%F)              # 2026-07-16
@@ -96,4 +108,20 @@ if ! head -n1 "$debchangelog" | grep -qE "^jnext \(${ver}-1\)"; then
     mv "$debchangelog.tmp" "$debchangelog"
 fi
 
-echo "sync-version: aligned $ver into spec, metainfo, debian changelog"
+# --- user guide: extra.doc_release + re-render -------------------------------
+# The header's "This version" is baked into every rendered page, and
+# docs-userguide-check byte-diffs a fresh render against the committed output.
+# So bumping the value WITHOUT re-rendering leaves a tree that fails its own
+# docs gate. Refuse the bump rather than commit that — same discipline as the
+# half-synced-spec case above.
+sed -i -E "s/^(  doc_release:[[:space:]]*).*/\1v$ver/" "$mkdocs"
+if command -v mkdocs >/dev/null 2>&1; then
+    make -C "$root" --no-print-directory docs-userguide >/dev/null
+else
+    echo "sync-version: mkdocs not installed — cannot re-render the user guide," >&2
+    echo "  and mkdocs.yml now says v$ver while the committed guide says otherwise." >&2
+    echo "  Install mkdocs-material, or revert mkdocs.yml, before bumping." >&2
+    exit 1
+fi
+
+echo "sync-version: aligned $ver into spec, metainfo, debian changelog, user guide"
