@@ -638,6 +638,30 @@ sub matrix_row_ids {
 
 # Mirror of resolve_ids()'s sub-letter aliasing, in the other direction: a
 # source row `MMU-01a` is recorded by matrix row `MMU-01`.
+#
+# GH #118 triaged all 102 IDs this was hiding. 90 are decompositions of the
+# parent plan row — `G2-01a/b/c` are three sample coordinates proving one
+# "256x192 row-major address" row, `AY-50a/b` are the "period 0 **or 1**"
+# the parent title already names. 12 were distinct assertions and now have
+# rows of their own (`NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`,
+# `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c`), joining
+# the earlier `FB-04b` / `IORQ-02b` / `IORQ-02c`.
+#
+# The aliasing is KEPT, for a reason independent of that 90/12 split:
+# resolve_ids() uses the SAME mapping in the other direction to compute a
+# parent row's Status from its sub-rows. Drop it here and the tool holds two
+# contradictory opinions about the same string — row `X-01` would read
+# `pass` *because* `X-01a` proves it, while `X-01a` was simultaneously
+# reported as recorded nowhere. That is precisely the half-of-the-tool-
+# disagrees-with-the-other-half defect GH #119 removed, and re-introducing
+# it to close a blind spot would be a bad trade.
+#
+# What closes the blind spot instead is visibility: every ID recorded ONLY
+# by this aliasing is now listed on every run (see recorded_only_by_alias()
+# and the ALIASED report in main()), so the next distinct sub-letter row
+# shows up in a list a human reads rather than waiting for someone to think
+# of asking. The set is a report, not a gate — 90 of these are legitimate
+# and failing the run on them would only teach people to ignore it.
 sub matrix_records {
     my ($id, $recorded) = @_;
     return 1 if $recorded->{$id};
@@ -646,6 +670,15 @@ sub matrix_records {
         return 1 if $recorded->{ substr($id, 0, length($id) - length($s)) };
     }
     return 0;
+}
+
+# True when the sub-letter aliasing is the ONLY thing recording this ID —
+# the matrix lists `X-01` but not `X-01b`. This is the blind spot made
+# visible; see matrix_records() for why the aliasing itself stays. (GH #118)
+sub recorded_only_by_alias {
+    my ($id, $recorded) = @_;
+    return 0 if $recorded->{$id};
+    return matrix_records($id, $recorded) ? 1 : 0;
 }
 
 # Declared suites this matrix does not trace — the suite-level half of the
@@ -965,18 +998,21 @@ sub render_summary {
              . 'neither is auto-repaired, because the description that makes a row worth '
              . 'recording cannot be derived from the source (GH #117).';
     push @out, '';
-    push @out, '**Two deliberate loosenesses can hide an `unrecorded` row, so this '
-             . 'column is a floor, not a ceiling.** (1) *Sub-letter aliasing*: a source '
-             . 'row `X-01b` counts as recorded by matrix row `X-01`, matching how the '
-             . 'Status lookup resolves sub-rows. Usually right — `X-01a/b/c` are normally '
-             . 'sub-cases of one plan row — but not always: `FB-04b`, `IORQ-02b` and '
-             . '`IORQ-02c` were distinct regressions hidden this way and now have rows of '
-             . 'their own. Disabling the aliasing raises the count by ~100; those IDs are '
-             . 'untriaged (GH #118). (2) *Cross-section ID '
-             . 'collision*: recording is asked '
-             . 'globally ("listed anywhere"), so the same ID string used by two subsystems '
-             . '— `NR-03` and `SD-10` each appear in two sections — is counted as recorded '
-             . 'for both (GH #118).';
+    push @out, '**One deliberate looseness remains, so treat this column as a floor.** '
+             . '*Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix '
+             . 'row `X-01`, matching how the Status lookup resolves sub-rows. It is kept '
+             . 'because `resolve_ids()` uses the same mapping in the other direction — '
+             . 'drop it and row `X-01` would read `pass` *because* `X-01a` proves it while '
+             . '`X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were '
+             . 'triaged (GH #118): 90 are decompositions of their parent plan row, and 12 '
+             . 'were distinct assertions that now have rows of their own — `NA-01b`, '
+             . '`NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, '
+             . '`REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, '
+             . '`IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the '
+             . '`ALIASED` report), so the next one that is not a sub-case is visible '
+             . 'instead of inferred. A second looseness — *cross-section ID collision*, '
+             . 'where recording is asked globally ("listed anywhere") so an ID string used '
+             . 'by two subsystems counts as recorded for both — is still open (GH #118).';
     push @out, '';
     if (@$unmapped) {
         my $rows = 0;
@@ -1071,6 +1107,7 @@ sub main {
     my @drift;
     my @kept;
     my @unrec;
+    my @aliased;
     for my $f (@found) {
         my ($idx, $entry) = @$f;
         my ($header, $binary, $source_rel) = @$entry;
@@ -1095,9 +1132,15 @@ sub main {
             # `ID:line` so the backlog can be walked straight to the assertion.
             my @absent = map { "$_:$rows->{$_}" }
                          sort grep { !matrix_records($_, $recorded) } keys %$rows;
-            next unless @absent;
-            push @unrec, [$src, \@absent];
-            $absent_ct += scalar @absent;
+            if (@absent) {
+                push @unrec, [$src, \@absent];
+                $absent_ct += scalar @absent;
+            }
+            # The sub-letter blind spot, made visible (GH #118).
+            my @alias = map { "$_:$rows->{$_}" }
+                        sort grep { recorded_only_by_alias($_, $recorded) }
+                        keys %$rows;
+            push @aliased, [$src, \@alias] if @alias;
         }
 
         push @report, [section_label($header, $sources[0]), $touched,
@@ -1159,6 +1202,25 @@ sub main {
                "section in this matrix (%d suites, %d live rows):\n",
                scalar @$unmapped, $rows);
         print "  ", join(' ', map { "$_->[0]($_->[1])" } @$unmapped), "\n";
+    }
+
+    # ── The GH #118 sub-letter blind spot, made visible ───────────────
+    #
+    # Not a gate: these ARE recorded, by their parent row, and 90 of the
+    # 102 triaged in GH #118 were right to be. Printed so the next one that
+    # is NOT — a distinct regression wearing a sub-letter, as `FB-04b`,
+    # `NA-01c` and `REG-03c` were — lands in a list a human reads.
+    my $alias_ct = 0;
+    $alias_ct += scalar @{ $_->[1] } for @aliased;
+    if (@aliased) {
+        print "\nALIASED — rows recorded ONLY by sub-letter aliasing, i.e. the ",
+              "matrix lists\nthe parent `X-01` but not `X-01b` ($alias_ct). ",
+              "Not a gap by itself: check that\neach is a sub-case of its ",
+              "parent plan row, not a distinct assertion (GH #118):\n";
+        for my $a (@aliased) {
+            printf("  %s (%d)\n", $a->[0], scalar @{ $a->[1] });
+            print "    ", join(' ', @{ $a->[1] }), "\n";
+        }
     }
 
     if (report_exit_code($unrec_ct, $unmapped)) {

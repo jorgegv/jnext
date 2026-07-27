@@ -11,7 +11,7 @@
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   202 |  171 |    0 |    0 |      31 |         58 |
-| ULA Video                                  |   163 |  113 |    0 |    0 |      50 |          6 |
+| ULA Video                                  |   164 |  114 |    0 |    0 |      50 |          6 |
 | Layer2                                     |   122 |  114 |    0 |    0 |       8 |         25 |
 | Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
@@ -19,18 +19,18 @@
 | Compositor                                 |   144 |  138 |    0 |    0 |       6 |         72 |
 | Audio                                      |   210 |  182 |    0 |    0 |      28 |          7 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
-| DivMMC+SPI                                 |   123 |   95 |    0 |    0 |      28 |         40 |
+| DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         40 |
 | CTC+Interrupts                             |   180 |  133 |    0 |    0 |      47 |          0 |
 | UART+I2C/RTC                               |   112 |   93 |    0 |    0 |      19 |          6 |
 | NextREG                                    |   107 |   21 |    0 |    0 |      86 |          0 |
-| IO Port Dispatch                           |    92 |   88 |    0 |    0 |       4 |         26 |
+| IO Port Dispatch                           |    97 |   93 |    0 |    0 |       4 |         26 |
 | Input                                      |   178 |  153 |    0 |    0 |      25 |        169 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         48 |
 | SD Card                                    |    21 |   16 |    0 |    0 |       5 |         21 |
-| NMI Source Pipeline                        |    54 |   48 |    0 |    0 |       6 |          7 |
+| NMI Source Pipeline                        |    56 |   50 |    0 |    0 |       6 |          7 |
 | Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
 | Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
 | Companion: ctc_interrupts_test             |    10 |   10 |    0 |    0 |       0 |         28 |
@@ -38,13 +38,13 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2502 | 2088 |    0 |    0 |     414 |        792 |
+| **Total**                                  |  2514 | 2100 |    0 |    0 |     414 |        792 |
 
-Rows the sections above carry: **2502**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2436**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
+Rows the sections above carry: **2514**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2448**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list anywhere. Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
-**Two deliberate loosenesses can hide an `unrecorded` row, so this column is a floor, not a ceiling.** (1) *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. Usually right — `X-01a/b/c` are normally sub-cases of one plan row — but not always: `FB-04b`, `IORQ-02b` and `IORQ-02c` were distinct regressions hidden this way and now have rows of their own. Disabling the aliasing raises the count by ~100; those IDs are untriaged (GH #118). (2) *Cross-section ID collision*: recording is asked globally ("listed anywhere"), so the same ID string used by two subsystems — `NR-03` and `SD-10` each appear in two sections — is counted as recorded for both (GH #118).
+**One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. A second looseness — *cross-section ID collision*, where recording is asked globally ("listed anywhere") so an ID string used by two subsystems counts as recorded for both — is still open (GH #118).
 
 **Suites with no section in this matrix: 44, 1180 live rows.** Their coverage is not traced here at all:
 
@@ -500,6 +500,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S15.03  | Shadow disables Timex modes                     | —              | missing | missing                                                            |
 | S15.04  | Shadow bit toggles display                      | —              | missing | missing                                                            |
 | S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389-395               | pass   | test/ula/ula_test.cpp:860       |
+| S5.10c     | HI_RES top-border row fills all 640 FB cells with TMX border colour                                         | —                             | pass   | test/ula/ula_test.cpp:975       |
 | S5.11      | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100)                                                  | zxula.vhd:419                   | pass   | test/ula/ula_test.cpp:1069      |
 | S5.12      | HI_RES display path dispatches through ULAnext encoder (G167)                                               | zxula.vhd:485-528               | pass   | test/ula/ula_test.cpp:1167      |
 | S5.13      | HI_RES display path dispatches through ULA+ encoder (G167)                                                  | zxula.vhd:531-541               | pass   | test/ula/ula_test.cpp:1260      |
@@ -1671,6 +1672,8 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | NR-06            | M1 at 0x3D00 with BB[7]=1: automap_rom3_instant_on           | zxnext.vhd:2898-2899,3138 | pass    | test/divmmc/divmmc_test.cpp:879  |
 | NR-07            | M1 at 0x3DFF with BB[7]=1: automap_rom3_instant_on           | zxnext.vhd:2898-2899 | pass    | test/divmmc/divmmc_test.cpp:891  |
 | NR-08            | Set BB[7]=0, M1 at 0x3D00: no trigger                        | zxnext.vhd:2898-2899 | pass    | test/divmmc/divmmc_test.cpp:904  |
+| NR-12a           | 0x0066 + BB[0] delayed alone: no automap same-cycle          | divmmc.vhd:148       | pass    | test/divmmc/divmmc_test.cpp:964  |
+| NR-12b           | 0x0066 + BB[0] delayed: hold promotes automap on next M1     | divmmc.vhd:128-141   | pass    | test/divmmc/divmmc_test.cpp:971  |
 | DA-01            | M1 at 0x1FF8 with automap held: automap deactivates          | divmmc.vhd:131   | pass    | test/divmmc/divmmc_test.cpp:1049 |
 | DA-02            | M1 at 0x1FFF with automap held: automap deactivates          | divmmc.vhd:131   | pass    | test/divmmc/divmmc_test.cpp:1062 |
 | DA-03            | M1 at 0x1FF7: no deactivation                                | zxnext.vhd       | pass    | test/divmmc/divmmc_test.cpp:1075 |
@@ -1697,6 +1700,8 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | NM-07            | button_nmi cleared when automap_held becomes 1               | divmmc.vhd:112-113 | pass    | test/divmmc/divmmc_test.cpp:1636 |
 | NM-08            | `o_disable_nmi` = automap_held OR button_nmi                 | divmmc.vhd:150 | pass    | test/divmmc/divmmc_test.cpp:1725 |
 | NA-01            | NR 0x0A[4]=0 (default): automap_reset asserted               | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:1958 |
+| NA-01b           | Cold boot: set_enabled(true) alone, NR 0x0A[4]=0 keeps reset | zxnext.vhd:1126,4112 | pass    | test/divmmc/divmmc_test.cpp:1980 |
+| NA-01c           | CONMEM gated by port_divmmc_io_en only, not by NR 0x0A[4]    | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:2005 |
 | NA-02            | NR 0x0A[4]=1: automap_reset deasserted                       | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:2022 |
 | NA-03            | port_divmmc_io_en=0: automap_reset asserted                  | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:2046 |
 | SM-01            | DivMMC ROM maps to SRAM address 0x010000-0x011FFF            | —              | missing | missing                          |
@@ -2356,8 +2361,13 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | LIBZ80-04     | INIR block transfer uses full BC                             | zxnext.vhd:2635      | pass    | test/port/port_test.cpp:230  |
 | LIBZ80-05     | MSB-only discrimination                                      | zxnext.vhd:2648      | pass    | test/port/port_test.cpp:246  |
 | REG-01        | ULA 0xFE matches any even address                            | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:271  |
+| REG-01b       | 0xFE decodes ANY even port (0xFC/0xF8/0x4242), not LSB 0xFE  | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:293  |
 | REG-02        | 0xFE does not match on odd address                           | zxnext.vhd:2582–2583 | pass    | test/port/port_test.cpp:305  |
+| REG-02b       | Timex 0xFF decodes any port with LSB 0xFF (e.g. 0x12FF)      | zxnext.vhd:2540-2571   | pass    | test/port/port_test.cpp:324  |
 | REG-03        | NextReg select 0x243B                                        | zxnext.vhd:2625      | pass    | test/port/port_test.cpp:336  |
+| REG-03a       | IN 0x243B before any select returns the reset value 0x24     | zxnext.vhd:4594-4596 | pass    | test/port/port_test.cpp:369  |
+| REG-03b       | IN 0x243B returns the selected NextREG number (GH #52)       | zxnext.vhd:4603      | pass    | test/port/port_test.cpp:378  |
+| REG-03c       | NextZXOS ISR save/restore of the 0x243B selection (GH #52)   | zxnext.vhd:4603      | pass    | test/port/port_test.cpp:401  |
 | REG-04        | NextReg data 0x253B                                          | zxnext.vhd:2626      | pass    | test/port/port_test.cpp:342  |
 | REG-05        | 0x243C/0x253C not decoded                                    | zxnext.vhd:2625      | pass    | test/port/port_test.cpp:427  |
 | REG-06+07     | AY select 0xFFFD real                                        | zxnext.vhd:2647      | pass    | test/port/port_test.cpp:441  |
@@ -2956,10 +2966,12 @@ NMI Source Pipeline plan (`doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md`) closed
 | HK-05           | Simultaneous MF + DivMMC press, both gates enabled: MF wins priority                          | zxnext.vhd:2107-2113                            | pass   | test/nmi/nmi_test.cpp:538                   |
 | HK-06           | Host F9 → NmiSource MF producer dispatch                                                      | zxnext.vhd:6340-6349, 2089-2091                 | pass   | test/nmi/nmi_test.cpp:559                   |
 | HK-07           | Host F10 → NmiSource DivMMC producer dispatch                                                 | zxnext.vhd:6340-6349, 2089-2091                 | pass   | test/nmi/nmi_test.cpp:576                   |
+| HK-07b          | F10 DivMMC NMI honours the port_divmmc_io_en gate (NR 0x83 b0)                                | zxnext.vhd:6349                                 | pass   | test/nmi/nmi_test.cpp:597                   |
 | HK-08           | Host F4 → soft-reset / reset_type FSM dispatch                                                | zxnext.vhd:6340-6349, 1732-1739                 | pass   | test/nmi/nmi_test.cpp:631                   |
 | HK-09           | Host F1 → hard-reset Emulator dispatch                                                        | zxnext.vhd:6340-6349                            | pass   | test/nmi/nmi_test.cpp:650                   |
 | Z80-04          | NR 0xC2/0xC3 NMIACK PC capture (LSB/MSB latches) — RE-HOMED 2026-04-28 to CTC plan (NR-C2-01/NR-C3-01) | zxnext.vhd:2050-2085, 6232-6236                 | missing | missing                                         |
 | MF-G162-01      | iotrap strobe OR'd into MF assert (nmi_sw_gen_mf includes nmi_gen_iotrap)                     | zxnext.vhd:3835-3837                            | pass   | test/nmi/nmi_test.cpp:708                   |
+| MF-G162-01b     | iotrap MF assert honours the NR 0x06 b3 gate (no latch when off)                              | zxnext.vhd:2090                                 | pass   | test/nmi/nmi_test.cpp:719                   |
 | MF-G162-02      | Port 0x2FFD/0x3FFD trap-decode handler                                                        | zxnext.vhd:3835-3837                            | pass   | test/nmi/nmi_test.cpp:765                   |
 | MF-G48-01       | Mode-decoded MF port table per nr_0a_mf_type                                                  | multiface.vhd                                   | pass   | test/nmi/nmi_test.cpp:822                   |
 | MF-G48-02       | NR 0x0A b7:6 nr_0a_mf_type forward to MF type                                                 | multiface.vhd                                   | pass   | test/nmi/nmi_test.cpp:849                   |

@@ -569,6 +569,30 @@ check('SELF-33', 'a row whose only check() is commented out regenerates as missi
              && $cmt[5] =~ /\|\s*pass\s*\|/),
       "CMT-01=[$cmt[4]] CMT-03=[$cmt[5]]");
 
+# ── The sub-letter blind spot, made visible (GH #118) ─────────────────
+#
+# The aliasing stays (resolve_ids() maps the same pair the other way, and
+# dropping only this half would let row `X-01` read `pass` *because*
+# `X-01a` proves it while `X-01a` was reported recorded nowhere). What
+# changed is that the set it hides is printed every run, so a distinct
+# assertion wearing a sub-letter — `FB-04b`, `NA-01c`, `REG-03c` — is seen
+# rather than inferred away. These pin the two ways that report can lie:
+# by staying silent about an aliased ID, or by accusing one that is not.
+
+check('SELF-34', 'an ID recorded ONLY via sub-letter aliasing is flagged; an exactly-recorded one is not',
+      scalar(recorded_only_by_alias('X-01a', $recorded)
+             && !recorded_only_by_alias('X-01', $recorded)
+             && !recorded_only_by_alias('MAIN-01', $recorded)),
+      'X-01a=' . recorded_only_by_alias('X-01a', $recorded)
+        . ' X-01=' . recorded_only_by_alias('X-01', $recorded)
+        . ' MAIN-01=' . recorded_only_by_alias('MAIN-01', $recorded));
+
+check('SELF-35', 'an ID recorded nowhere is unrecorded, NOT aliased — the two reports never overlap',
+      scalar(!recorded_only_by_alias('X-02a', $recorded)
+             && !matrix_records('X-02a', $recorded)),
+      'aliased=' . recorded_only_by_alias('X-02a', $recorded)
+        . ' recorded=' . matrix_records('X-02a', $recorded));
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);
