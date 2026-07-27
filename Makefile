@@ -403,20 +403,21 @@ build-matrix:
 lint-assertions:
 	@bash test/lint-assertions.sh
 
-# All three binary prerequisites are load-bearing, and are the same set `regression`
-# declares: HS-21..24/31/32 drive the regression preflight, which refuses to run
-# without the jnext binary it resolves (gui-release), build/test/rewind_test
-# (unit-test-build) and build/sdl-release/jnext (sdl-release). Declaring none of them
-# left the target that exists to prove the harness reports faults correctly failing
-# those 6 rows in any fresh worktree, for reasons unrelated to any injected fault
-# (GH #135).
-# docs-check and cli-check are deliberately NOT mirrored from `regression`: they gate
-# the generated docs and the CLI table, neither of which this self-test reads.
-# The suite's own harness-selftest-func row runs test/harness-selftest.sh directly,
-# not this target, so nothing here re-enters the regression prerequisites.
-#
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
 harness-selftest: unit-test-build gui-release sdl-release
+	@# All three binary prerequisites are load-bearing, and are the same set
+	@# `regression` declares: HS-21..24/31/32 drive the regression preflight, which
+	@# refuses to run without the jnext binary it resolves (gui-release),
+	@# build/test/rewind_test (unit-test-build) and build/sdl-release/jnext
+	@# (sdl-release). Declaring none of them left the target that exists to prove
+	@# the harness reports faults correctly failing those 6 rows in any fresh
+	@# worktree, for reasons unrelated to any injected fault (GH #135).
+	@# docs-check and cli-check are deliberately NOT mirrored from `regression`:
+	@# they gate the generated docs and the CLI table, neither of which this
+	@# self-test reads.
+	@# The suite's own harness-selftest-func row runs test/harness-selftest.sh
+	@# directly, not this target, so nothing here re-enters the regression
+	@# prerequisites.
 	@bash test/harness-selftest.sh
 
 # Self-test the traceability-matrix VHDL-citation extractor against fixtures
