@@ -729,6 +729,17 @@ if(ENABLE_QT_UI)
     target_link_libraries(esc_break_test PRIVATE jnext_gui)
     target_include_directories(esc_break_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esc_break_tests COMMAND esc_break_test)
+
+    # Issue #115 part 2 — host hotkeys on Alt, Ctrl left to the guest (Ctrl is
+    # Symbol Shift). Drives real QKeyEvents through MainWindow into a real
+    # Keyboard and reads the matrix back; also pins the Alt namespace free of
+    # ambiguous bindings. Needs a real MainWindow, no display (offscreen QPA
+    # forced in main()).
+    add_executable(host_hotkey_test gui/host_hotkey_test.cpp)
+    set_target_properties(host_hotkey_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(host_hotkey_test PRIVATE jnext_gui)
+    target_include_directories(host_hotkey_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME host_hotkey_tests COMMAND host_hotkey_test)
 endif()
 
 # GoogleTest-based tests (if available)
