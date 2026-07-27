@@ -32,9 +32,44 @@
 #      the banner/nearest-comment citation tiers were rejected: it infers,
 #      and a plausible-but-wrong row is worse than an honest `missing`.
 #      (GH #105)
+#   7. Report the OTHER direction too: row IDs the test source asserts that
+#      no row of this document records anywhere. Until GH #117 this script
+#      looked only at matrix rows, so it could report `missing` (a matrix
+#      row with no test) but never `unrecorded` (a test with no matrix
+#      row) — every row added since the matrix was last hand-extended was
+#      simply absent, and the document silently under-claimed coverage.
+#      The same blindness applied a level up: a whole test suite with no
+#      section here was invisible. Both are reported now, and a non-empty
+#      report is a non-zero exit (see "Exit status" below).
+#   8. Regenerate the head `## Summary` table from this same run, between
+#      the `<!-- BEGIN/END GENERATED SUMMARY -->` markers. It used to be
+#      hand-typed, and had drifted three months and ~2000 rows out of date;
+#      hand-typing fresh numbers into it only restarts that drift.
+#
+# Why `unrecorded` is reported and NOT auto-added: the payload of a matrix
+# row is its *description* — the human-readable statement of what the row
+# covers — and this script has no honest source for one. The plan doc has a
+# description only for IDs that are plan rows (which are largely recorded
+# already); the test's own second argument is an assertion-failure message,
+# not a row title. Emitting a row whose only human-readable field is `—`
+# would make the count look right while the traceability the document exists
+# for is absent, and would be self-consistent on every later run so it would
+# never surface again. That is the same failure the banner/nearest-comment
+# citation tiers were rejected for. Nor can the script tell which of a
+# section's two tables ("plan rows" vs "Extra coverage (not in plan)") a new
+# ID belongs in — that is precisely the human judgement being recorded. So
+# the omission is reported, loudly, and closing it stays a deliberate act,
+# exactly as `test/unit-tests.conf` pins row counts rather than silently
+# adopting whatever a suite happens to emit. (GH #117)
 #
 # Usage:
 #     perl test/refresh-traceability-matrix.pl
+#
+# Exit status: 0 when the matrix records every row its mapped test sources
+# assert and every declared suite has a section; 1 when it does not. The
+# matrix is rewritten either way — a non-zero exit means "the file is
+# refreshed AND it under-records; here is the backlog", never "nothing was
+# written".
 #
 # Dependencies: the test binaries must already be built under `build/test/`.
 # This script does not build them.
@@ -225,6 +260,34 @@ my $ID_LITERAL_RE = qr{
 }x;
 
 my @SUBLETTERS = ('a', 'b', 'c');
+
+# `set_group("NAME")` prints a banner over a group of rows; NAME is a group
+# label, never a row. It is the only non-assertion helper in the 28 mapped
+# suites that wraps an ID-shaped literal (163 call sites, measured), so
+# dropping just this one call's argument is enough to make the `unrecorded`
+# report precise. The substitution is per-occurrence, not per-ID: an ID that
+# is *both* a group banner and a real assertion elsewhere stays a row.
+my $SET_GROUP_RE = qr/\bset_group\s*\(\s*"[^"]*"/;
+
+# Declared suites the matrix deliberately has no section for. Keyed by the
+# `test/unit-tests.conf` suite name.
+my %NO_MATRIX_SECTION = (
+    # FUSE's data-driven runner has no in-source row IDs at all — it walks
+    # tests.in/tests.expected — so there is nothing to trace per row. The
+    # matrix says so itself under "Discrepancies noted".
+    'fuse_z80_test' => 'data-driven FUSE runner, no per-row IDs',
+);
+
+# The head Summary table is generated between these markers. They are HTML
+# comments, so they render invisibly.
+my $SUMMARY_BEGIN = '<!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->';
+my $SUMMARY_END   = '<!-- END GENERATED SUMMARY -->';
+
+# The selftest loads this file without running main(), so it sees the subs
+# but not the file-lexical markers. Hand them over rather than let the
+# selftest re-declare the literals: a copy could drift from the original
+# and the selftest would still pass.
+sub summary_markers { return ($SUMMARY_BEGIN, $SUMMARY_END); }
 
 sub run_fails {
     my ($binary) = @_;
@@ -446,6 +509,132 @@ sub grep_citations {
     return \%cites;
 }
 
+# ── The `unrecorded` direction (GH #117) ──────────────────────────────
+#
+# grep_source() above answers "may the matrix name this ID?" and is
+# deliberately loose — a false positive there is harmless, because it only
+# matters for IDs the matrix already lists. This one answers the opposite
+# question, "does the test source assert a row the matrix does not list?",
+# and a false positive there is an accusation. So it is precise:
+#
+#   - `set_group()` arguments are dropped (group banner, not a row);
+#   - whole-line `//` comments are skipped — a quoted ID inside prose is a
+#     cross-reference, not an assertion (measured: 9 such phrases across
+#     the 28 suites, e.g. `// "ROM3-only" (NR 0xB9 bit=0) activates ...`).
+#     Block comments are not stripped; measured, no `/* */` body in any of
+#     the 28 suites contains an ID-shaped literal, and if one ever does the
+#     result is a noisy report, not a silent omission.
+#
+# Everything surviving both filters is a row: it is either the first
+# argument of an assertion helper (`check`, `check_pred`, a suite-local
+# wrapper lambda, `skip`, `stub`) or a table-driven initialiser entry.
+sub grep_row_ids {
+    my ($source_rel) = @_;
+    my $abs = "$ROOT/$source_rel";
+    open(my $fh, '<', $abs) or die "open $abs: $!";
+    my @src = <$fh>;
+    close $fh;
+
+    my %ids;
+    for my $lineno (1 .. scalar @src) {
+        my $line = $src[$lineno - 1];
+        next if $line =~ m{^\s*//};
+        $line =~ s/$SET_GROUP_RE/set_group(/g;
+        while ($line =~ /$ID_LITERAL_RE/g) {
+            $ids{$1} //= $lineno;
+        }
+    }
+    return \%ids;
+}
+
+# The document minus its own generated block. Everything that reads the
+# matrix as evidence must read this, never the raw file: the generated
+# Summary is a table too, and its Section column is full of section names
+# and companion source files. Harvesting those would let the previous run's
+# output count as evidence for the next one — a generator validated against
+# its own past output can never catch its own bad data.
+sub without_generated_summary {
+    my ($lines) = @_;
+    my (@out, $skipping);
+    for my $line (@$lines) {
+        if (!$skipping && index($line, $SUMMARY_BEGIN) == 0) { $skipping = 1; next; }
+        if ($skipping) { $skipping = 0 if index($line, $SUMMARY_END) == 0; next; }
+        push @out, $line;
+    }
+    return \@out;
+}
+
+# Every ID this document records, from every table in it. Deliberately not
+# per-section and deliberately not restricted to the 5-column status tables:
+# the question is "is this row recorded anywhere", so an ID listed under
+# "Extra coverage (not in plan)" (4 columns, no Status) counts.
+sub matrix_row_ids {
+    my ($lines) = @_;
+    my %ids;
+    for my $line (@{ without_generated_summary($lines) }) {
+        next unless $line =~ /^\|/;
+        my @cells = split(/\|/, $line, -1);
+        next unless scalar @cells >= 5;
+        my $tid = $cells[1];
+        $tid =~ s/^\s+|\s+$//g;
+        $tid =~ s/^`|`$//g;
+        next if $tid eq '' || $tid =~ /^Test ID/ || $tid =~ /^[-:\s]+$/;
+        $ids{$tid} = 1;
+    }
+    return \%ids;
+}
+
+# Mirror of resolve_ids()'s sub-letter aliasing, in the other direction: a
+# source row `MMU-01a` is recorded by matrix row `MMU-01`.
+sub matrix_records {
+    my ($id, $recorded) = @_;
+    return 1 if $recorded->{$id};
+    for my $s (@SUBLETTERS) {
+        next unless length($id) > length($s) && substr($id, -length($s)) eq $s;
+        return 1 if $recorded->{ substr($id, 0, length($id) - length($s)) };
+    }
+    return 0;
+}
+
+# Declared suites with no section in this matrix at all — the suite-level
+# half of the same blindness. A suite counts as sectioned when any line of
+# the document names its source file; `%NO_MATRIX_SECTION` carries the
+# documented exemptions.
+sub unmapped_suites {
+    my ($lines) = @_;
+    my $matrix_text = join("\n", @{ without_generated_summary($lines) });
+    my $conf = "$ROOT/test/unit-tests.conf";
+    open(my $fh, '<', $conf) or die "open $conf: $!";
+    my @out;
+    while (my $line = <$fh>) {
+        next if $line =~ /^\s*#/ || $line !~ /\S/;
+        my ($name, $rows) = split(' ', $line);
+        $name =~ s/^\?//;               # `?` marks a GUI-gated suite
+        next if exists $NO_MATRIX_SECTION{$name};
+        next if index($matrix_text, "$name.cpp") != -1;
+        push @out, [$name, $rows + 0];
+    }
+    close $fh;
+    return \@out;
+}
+
+# (suite count, pinned row count) declared in test/unit-tests.conf — the
+# project's own claim about how much it tests, and the denominator the head
+# Summary compares itself against.
+sub declared_totals {
+    my $conf = "$ROOT/test/unit-tests.conf";
+    open(my $fh, '<', $conf) or die "open $conf: $!";
+    my ($suites, $rows) = (0, 0);
+    while (my $line = <$fh>) {
+        next if $line =~ /^\s*#/ || $line !~ /\S/;
+        my (undef, $n) = split(' ', $line);
+        $suites++;
+        $rows += $n;
+    }
+    close $fh;
+    return ($suites, $rows);
+}
+
 sub resolve_ids {
     my ($tid, $checks, $skips) = @_;
     return [$tid] if exists $checks->{$tid} || exists $skips->{$tid};
@@ -496,8 +685,15 @@ sub cite_for {
     return undef;
 }
 
+# $stop_idx, when given, is the line index of the next @SUBSYS section
+# header. Companion `###` sections are nested inside their parent `##`
+# section, so without it the parent's scan runs straight through the
+# companion's rows and counts them a second time (as `missing`, against the
+# wrong source file) before the companion's own pass rewrites them. The
+# bytes written were already correct — the companion runs last — but the
+# tally double-counted, which a generated Summary cannot do.
 sub refresh_section {
-    my ($lines, $start_idx, $binary, $source_rel, $drift, $kept) = @_;
+    my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx) = @_;
     $kept //= [];
     my $fails = run_fails($binary);
     my ($checks, $skips) = grep_source($source_rel);
@@ -512,6 +708,7 @@ sub refresh_section {
     while ($i < scalar @$lines) {
         my $line = $lines->[$i];
 
+        last if defined $stop_idx && $i >= $stop_idx;
         last if $line =~ /^## / && $i > $start_idx + 1;
 
         if ($line =~ /^\| / && index(substr($line, 2), '|') != -1) {
@@ -621,6 +818,90 @@ sub refresh_section {
             $cited_ct, $uncited_ct, $drift_ct);
 }
 
+# Short, unique label for a section. The seven companion suites all share
+# the header text "### Companion integration suite — ...", so they are
+# labelled by their source file instead.
+sub section_label {
+    my ($header, $source_rel) = @_;
+    if ($header =~ /^###/) {
+        (my $base = $source_rel) =~ s{.*/}{};
+        $base =~ s/\.cpp$//;
+        return "Companion: $base";
+    }
+    my $short = $header;
+    $short =~ s/^#+\s*//;
+    $short =~ s/ — .*//;
+    return $short;
+}
+
+# The head Summary table, built from this same run. No timestamp: a
+# regenerated date churns the diff on every run even when nothing moved,
+# and git already records when the file changed.
+sub render_summary {
+    my ($report, $unmapped, $recorded_total, $declared_suites, $declared_rows) = @_;
+    my @out;
+    push @out, '| Section                                    |  Rows | pass | fail | skip | missing | unrecorded |';
+    push @out, '|--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|';
+    my @t = (0, 0, 0, 0, 0, 0);
+    for my $row (@$report) {
+        my ($label, $rows, $p, $f, $s, $m, $u) = @$row;
+        push @out, sprintf('| %-42s | %5d | %4d | %4d | %4d | %7d | %10d |',
+                           $label, $rows, $p, $f, $s, $m, $u);
+        my @v = ($rows, $p, $f, $s, $m, $u);
+        $t[$_] += $v[$_] for 0 .. 5;
+    }
+    push @out, sprintf('| %-42s | %5d | %4d | %4d | %4d | %7d | %10d |',
+                       '**Total**', @t);
+    push @out, '';
+    push @out, sprintf(
+        'Rows the sections above carry: **%d**. Distinct row IDs recorded anywhere in '
+      . 'this document (every table, including "Extra coverage"): **%d**. Rows the '
+      . '%d suites declared in `test/unit-tests.conf` run live: **%d**.',
+        $t[0], $recorded_total, $declared_suites, $declared_rows);
+    push @out, '';
+    push @out, '**`missing`** = a row this document lists that its suite\'s test source '
+             . 'no longer asserts. **`unrecorded`** = the reverse: a row the test source '
+             . 'asserts that this document does not list anywhere. Both are real gaps; '
+             . 'neither is auto-repaired, because the description that makes a row worth '
+             . 'recording cannot be derived from the source (GH #117).';
+    push @out, '';
+    if (@$unmapped) {
+        my $rows = 0;
+        $rows += $_->[1] for @$unmapped;
+        push @out, sprintf(
+            '**Suites with no section in this matrix: %d, %d live rows.** '
+          . 'Their coverage is not traced here at all:',
+            scalar @$unmapped, $rows);
+        push @out, '';
+        push @out, join(', ', map { "`$_->[0]` ($_->[1])" } @$unmapped);
+    } else {
+        push @out, '**Every suite declared in `test/unit-tests.conf` has a section here.**';
+    }
+    push @out, '';
+    push @out, 'The runtime pass/fail view of all declared suites lives in '
+             . '`test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is '
+             . 'its canonical source; this table is the *document\'s own* view — what the '
+             . 'matrix records and what it misses.';
+    return \@out;
+}
+
+# Swap the generated block in place. A missing marker is fatal: silently
+# appending (or silently doing nothing) is how the old hand-typed table
+# drifted three months out of date in the first place.
+sub replace_summary {
+    my ($lines, $body) = @_;
+    my ($b, $e);
+    for my $i (0 .. $#$lines) {
+        $b = $i if !defined $b && index($lines->[$i], $SUMMARY_BEGIN) == 0;
+        $e = $i if defined $b && index($lines->[$i], $SUMMARY_END) == 0;
+        last if defined $e;
+    }
+    die "refresh-traceability-matrix: generated-summary markers not found in "
+      . "$MATRIX — expected a line '$SUMMARY_BEGIN' followed by '$SUMMARY_END'\n"
+        unless defined $b && defined $e;
+    splice(@$lines, $b + 1, $e - $b - 1, @$body);
+}
+
 sub main {
     open(my $in, '<', $MATRIX) or die "open $MATRIX: $!";
     my $text = do { local $/; <$in> };
@@ -631,9 +912,15 @@ sub main {
     my @lines = split(/\n/, $text, -1);
     pop @lines if @lines && $lines[-1] eq '';
 
-    my @report;
-    my @drift;
-    my @kept;
+    # Which rows the document records has to be read BEFORE any section is
+    # rewritten, and from the whole file: the `unrecorded` question is
+    # "anywhere in this document", not "in this section".
+    my $recorded = matrix_row_ids(\@lines);
+    my $unmapped = unmapped_suites(\@lines);
+
+    # Resolve every section header first, so each section knows where the
+    # next one starts (see refresh_section's $stop_idx).
+    my @found;
     for my $entry (@SUBSYS) {
         my ($header, $binary, $source_rel) = @$entry;
         my $idx;
@@ -654,15 +941,44 @@ sub main {
             print "NOT FOUND: $header\n";
             next;
         }
+        push @found, [$idx, $entry];
+    }
+    my @header_idx = sort { $a <=> $b } map { $_->[0] } @found;
+
+    my @report;
+    my @drift;
+    my @kept;
+    my @unrec;
+    for my $f (@found) {
+        my ($idx, $entry) = @$f;
+        my ($header, $binary, $source_rel) = @$entry;
+        my $stop;
+        for my $h (@header_idx) { $stop = $h, last if $h > $idx; }
+
         my @section_drift;
         my @section_kept;
-        my ($touched, $p, $f, $s, $m, $c, $u, $d) =
+        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
-                            \@section_drift, \@section_kept);
+                            \@section_drift, \@section_kept, $stop);
         push @drift, map { "$source_rel  $_" } @section_drift;
         push @kept,  map { "$source_rel  $_" } @section_kept;
-        push @report, [$header, $touched, $p, $f, $s, $m, $c, $u, $d];
+
+        # The other direction (GH #117): rows this source asserts that the
+        # document records nowhere.
+        my $rows = grep_row_ids($source_rel);
+        # `ID:line` so the backlog can be walked straight to the assertion.
+        my @absent = map { "$_:$rows->{$_}" }
+                     sort grep { !matrix_records($_, $recorded) } keys %$rows;
+        push @unrec, [$source_rel, \@absent] if @absent;
+
+        push @report, [section_label($header, $source_rel), $touched,
+                       $p, $f_ct, $s, $m, $c, $u, $d, scalar @absent];
     }
+
+    replace_summary(\@lines,
+        render_summary([map { [@{$_}[0 .. 5], $_->[9]] } @report],
+                       $unmapped, scalar(keys %$recorded),
+                       declared_totals()));
 
     open(my $out, '>', $MATRIX) or die "write $MATRIX: $!";
     print $out join("\n", @lines), "\n";
@@ -670,23 +986,19 @@ sub main {
 
     # cited/uncit count only the rows this run filled or could not fill —
     # rows that already carried a hand-written citation are in neither.
-    printf("\n%-22s %5s %5s %5s %5s %5s %6s %6s %6s\n",
+    # `unrec` is the GH #117 direction: source rows the document omits.
+    printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s\n",
            'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
-           'cited', 'uncit', 'drift');
-    print('-' x 76, "\n");
-    my @totals = (0, 0, 0, 0, 0, 0, 0, 0);
+           'cited', 'uncit', 'drift', 'unrec');
+    print('-' x 99, "\n");
+    my @totals = (0, 0, 0, 0, 0, 0, 0, 0, 0);
     for my $row (@report) {
-        my ($header, $touched, $p, $f, $s, $m, $c, $u, $d) = @$row;
-        my $short = $header;
-        $short =~ s/^## //;
-        $short =~ s/ — .*//;
-        printf("%-22s %5d %5d %5d %5d %5d %6d %6d %6d\n",
-               $short, $touched, $p, $f, $s, $m, $c, $u, $d);
-        $totals[$_] += (($touched, $p, $f, $s, $m, $c, $u, $d)[$_]) for 0 .. 7;
+        my ($label, @v) = @$row;
+        printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d\n", $label, @v);
+        $totals[$_] += $v[$_] for 0 .. 8;
     }
-    print('-' x 76, "\n");
-    printf("%-22s %5d %5d %5d %5d %5d %6d %6d %6d\n",
-           'TOTAL', @totals);
+    print('-' x 99, "\n");
+    printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d\n", 'TOTAL', @totals);
 
     if (@drift) {
         print "\nVHDL citations where the doc and the test source disagree ",
@@ -699,6 +1011,35 @@ sub main {
               "(<!-- protected --> marker):\n";
         print "  $_\n" for @kept;
     }
+
+    # ── The GH #117 report ────────────────────────────────────────────
+    my $unrec_ct = 0;
+    $unrec_ct += scalar @{ $_->[1] } for @unrec;
+    if (@unrec) {
+        print "\nUNRECORDED — rows the test source asserts that this matrix ",
+              "does not list anywhere ($unrec_ct):\n";
+        for my $u (@unrec) {
+            printf("  %s (%d)\n", $u->[0], scalar @{ $u->[1] });
+            print "    ", join(' ', @{ $u->[1] }), "\n";
+        }
+    }
+    if (@$unmapped) {
+        my $rows = 0;
+        $rows += $_->[1] for @$unmapped;
+        printf("\nUNMAPPED SUITES — declared in test/unit-tests.conf with no ".
+               "section in this matrix (%d suites, %d live rows):\n",
+               scalar @$unmapped, $rows);
+        print "  ", join(' ', map { "$_->[0]($_->[1])" } @$unmapped), "\n";
+    }
+
+    if ($unrec_ct || @$unmapped) {
+        print "\nThe matrix WAS rewritten; it under-records the two sets above.\n",
+              "Close them by adding the rows/sections by hand — the description\n",
+              "column is the point of a matrix row and cannot be derived from\n",
+              "the test source. (GH #117)\n";
+        return 1;
+    }
+    return 0;
 }
 
-main();
+exit(main());

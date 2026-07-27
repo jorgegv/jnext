@@ -7,43 +7,51 @@
 
 ## Summary
 
-| Subsystem             | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
-|-----------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
-| FUSE Z80              |      1356 |    1356 | 1356 |    0 |         0 |       0 | HEAD              |
-| Z80N CPU              |        85 |      85 |   85 |    0 |         0 |       0 | HEAD              |
-| Rewind                |        28 |      28 |   18 |    0 |        10 |       0 | HEAD              |
-| Copper                |        82 |      82 |   76 |    0 |         6 |       0 | HEAD              |
-| Memory/MMU            |       178 |     178 |  137 |    0 |        41 |       0 | HEAD              |
-| NextREG (bare)        |        63 |      63 |   21 |    0 |        42 |       0 | HEAD              |
-| NextREG (integration) |        74 |      74 |   73 |    0 |         1 |       0 | HEAD              |
-| Input                 |       152 |     152 |  139 |    0 |        13 |       0 | HEAD              |
-| Input (integration)   |        17 |      17 |   11 |    0 |         6 |       0 | HEAD              |
-| CTC + Interrupts      |       133 |     133 |  129 |    0 |         4 |       0 | HEAD              |
-| CTC (integration)     |        21 |      21 |   12 |    0 |         9 |       0 | HEAD              |
-| Layer 2               |       115 |     115 |  100 |    0 |        15 |       0 | HEAD              |
-| UART + I2C/RTC        |       102 |     102 |   92 |    0 |        10 |       0 | HEAD              |
-| UART (integration)    |        13 |      13 |   12 |    0 |         1 |       0 | HEAD              |
-| DivMMC + SPI          |       110 |     110 |  100 |    0 |        10 |       0 | HEAD              |
-| SD Card               |        21 |      21 |    8 |    0 |        13 |       0 | HEAD              |
-| Sprites               |       209 |     209 |  209 |    0 |         0 |       0 | `44c21eed80`      |
-| Compositor            |       143 |     143 |  130 |    0 |        13 |       0 | HEAD              |
-| Compositor (int)      |         2 |       2 |    2 |    0 |         0 |       0 | HEAD              |
-| ULA Video             |        98 |      98 |   82 |    0 |        16 |       0 | HEAD              |
-| ULA Video (int)       |        11 |      11 |    9 |    0 |         2 |       0 | HEAD              |
-| Floating Bus          |        32 |      32 |   32 |    0 |         0 |       0 | HEAD              |
-| VideoTiming           |        27 |      27 |   22 |    0 |         5 |       0 | HEAD              |
-| Contention            |        76 |      76 |   68 |    0 |         8 |       0 | HEAD              |
-| I/O Port Dispatch     |        87 |      87 |   83 |    0 |         4 |       0 | HEAD              |
-| Audio (AY+DAC+Beeper) |       141 |     141 |  132 |    0 |         9 |       0 | HEAD              |
-| Audio (NextREG)       |        33 |      33 |   25 |    0 |         8 |       0 | HEAD              |
-| Audio (port dispatch) |        21 |      21 |   16 |    0 |         5 |       0 | HEAD              |
-| DMA                   |       152 |     152 |  150 |    0 |         2 |       0 | HEAD              |
-| Tilemap               |        69 |      69 |   59 |    0 |        10 |       0 | HEAD              |
-| NMI Source Pipeline   |        55 |      55 |   32 |    0 |        23 |       0 | HEAD              |
-| NMI (integration)     |         9 |       9 |    5 |    0 |         4 |       0 | HEAD              |
-| **Total**             |  **3684** | **3684** | **3384** | **0** | **300** | **0** | HEAD              |
+<!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
+| Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
+|--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
+| Memory/MMU                                 |   202 |  171 |    0 |    0 |      31 |         58 |
+| ULA Video                                  |   163 |  113 |    0 |    0 |      50 |          6 |
+| Layer2                                     |   122 |  114 |    0 |    0 |       8 |         25 |
+| Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
+| Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
+| Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
+| Compositor                                 |   144 |  138 |    0 |    0 |       6 |         72 |
+| Audio                                      |   210 |  131 |    0 |    0 |      79 |          4 |
+| DMA                                        |   158 |  151 |    0 |    0 |       7 |          7 |
+| DivMMC+SPI                                 |   123 |   95 |    0 |    0 |      28 |         40 |
+| CTC+Interrupts                             |   180 |  133 |    0 |    0 |      47 |          0 |
+| UART+I2C/RTC                               |   112 |   93 |    0 |    0 |      19 |          6 |
+| NextREG                                    |   107 |   21 |    0 |    0 |      86 |          0 |
+| IO Port Dispatch                           |    90 |   86 |    0 |    0 |       4 |         26 |
+| Input                                      |   178 |  153 |    0 |    0 |      25 |        169 |
+| Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
+| Floating Bus                               |    26 |   24 |    0 |    0 |       2 |          6 |
+| VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
+| Contention                                 |    76 |   70 |    0 |    0 |       6 |         48 |
+| SD Card                                    |    21 |   16 |    0 |    0 |       5 |         21 |
+| NMI Source Pipeline                        |    54 |   48 |    0 |    0 |       6 |          7 |
+| Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
+| Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
+| Companion: ctc_interrupts_test             |    10 |   10 |    0 |    0 |       0 |         28 |
+| Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        211 |
+| Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
+| Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
+| **Total**                                  |  2499 | 2035 |    0 |    0 |     464 |        789 |
 
-Updated 2026-04-27 from `test/SUBSYSTEM-TESTS-STATUS.md` runtime totals across all 32 suites. **Convention**: the **head Summary table above** is the *runtime* view — `Plan rows = In-test = runtime live count` per suite, with `Missing = 0` by construction. The **per-section detail blocks below** are the *plan-mapping* view — they list every plan-doc row including re-home pointers and not-yet-implemented entries, so a section's row count can exceed the matching head-Summary `Plan rows` value. The two views are intentionally different. The dashboard at `test/SUBSYSTEM-TESTS-STATUS.md` is the canonical runtime source; the plan docs at `doc/testing/*-TEST-PLAN-DESIGN.md` are the canonical plan-row source. The script's bottom-line aggregate (run `perl test/refresh-traceability-matrix.pl`) reports plan-doc row totals across all 21 sub-section anchors plus 6 companion-integration anchors; that aggregate ≠ the head Summary's runtime aggregate by design.
+Rows the sections above carry: **2499**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2433**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
+
+**`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list anywhere. Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
+
+**Suites with no section in this matrix: 44, 1180 live rows.** Their coverage is not traced here at all:
+
+`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (54), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4)
+
+The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
+<!-- END GENERATED SUMMARY -->
+
+This table is regenerated by `test/refresh-traceability-matrix.pl` from the same run that rewrites the rows below, and only between the markers above. It was hand-maintained until GH #117 and had drifted three months and ~2000 rows out of date; typing fresh numbers into it by hand only restarts that drift, so do not.
 
 ### The `VHDL file:line` column
 
