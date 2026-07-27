@@ -597,6 +597,9 @@ make it checkable.
 
 **What they do NOT cover, stated so a green row is not over-read:**
 
+- **H115-28's tier 2 proves only that a named chord is bound to *something*, not
+  that it is the *right* something.** See §10 — this is the guard's own
+  disclosed limit, and it is inherent, not an implementation slip.
 - `doc/man/jnext.1.md` and `src/doc/user-guide/**` are deliberately **not**
   scanned. Both now carry a paragraph naming `Ctrl+O/D/R/T/Q/S` *on purpose* —
   to tell the reader those chords reach the guest — so scanning them would need
@@ -633,8 +636,21 @@ This is the sweep the first cut should have done.
 
 **Historical record — deliberately LEFT naming the old chords:**
 
-- `.prompts/*.md` (7 hits across 2026-03-22 … 2026-07-19) — dated daily task
-  logs. Rewriting a log to match today's code destroys its only value.
+- `.prompts/*.md` — dated daily task logs. Rewriting a log to match today's
+  code destroys its only value. **6** matches of `Ctrl[+-][QOSRTD]` across
+  **4** files: `2026-03-22` ×1, `2026-04-07` ×1, `2026-05-03` ×1,
+  `2026-05-04` ×3. Of those, only **2** name a chord that actually moved
+  (`Ctrl+D` in `2026-03-22:97`, `Ctrl+S` in `2026-04-07:51`); the other 4 are
+  the `Ctrl+S` *prefix* of `Ctrl+Shift+S`, which did not move. `2026-07-12:552`
+  says `Ctrl+d` (lower case, so no match) and `2026-07-19` names only `Ctrl+Alt`
+  and `Ctrl+M` — neither is one of the six.
+
+  > An earlier revision of this section said "7 hits across 2026-03-22 …
+  > 2026-07-19". Both halves were wrong: the count, and a range endpoint that
+  > contains no matching hit at all. Corrected on a recount. Noted rather than
+  > silently patched because a wrong number in the record of a sweep is the
+  > same defect class as the stale tooltip this whole section exists to
+  > document.
 - `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` — declared frozen by
   CLAUDE.md.
 - `doc/design/EMULATOR-DESIGN-PLAN.md:816` — a completed roadmap checkbox,
@@ -669,6 +685,31 @@ frozen.
 - **The `Alt+Q` → `QApplication::quit()` bypass of `closeEvent` remains**
   (§3.1). Out of scope by the owner's explicit decision (no confirmation
   dialog); recorded, not fixed. Worth its own issue.
+- **H115-28 has a tier-2 blind spot, and a green row must not be read as
+  "every chord in every tooltip is correct".** For an action that carries its
+  own shortcut the row is exact (the chord must BE that shortcut). For an
+  action with **no** shortcut of its own — a toolbar twin of a menu action,
+  like the debug bug-button — the row can only ask "is this chord bound to
+  *something*". So a tooltip naming a **real but wrong** chord passes silently.
+  Demonstrated, not theorised: setting that tooltip to
+  `Toggle Debugger (Alt+S)` — a live chord, but Save Screenshot's — still
+  reports **29/29 green**.
+
+  This is inherent rather than an implementation slip: Qt offers no structural
+  way to declare "this toolbar action mirrors that menu action", so nothing is
+  available to compare against. It is also strictly narrower than the defects
+  the row was built for, which were chords bound to **nothing** — the actual
+  historical failure mode, twice over (`Ctrl+D` in the tooltip, `Ctrl+R`/`Ctrl+S`
+  in `FEATURES.md`).
+
+  Worth recording why it went undisclosed for a round: the mutation table in §9
+  exercised only the reverted-to-**unbound** case, which is the case the row
+  catches. A mutation that only ever reproduces the bug you already know about
+  cannot find the limits of your own guard. Closing the gap properly needs an
+  explicit twin declaration (e.g. the toolbar action carrying the menu action's
+  pointer, or `setShortcut` on both), which is a change to the product's own
+  structure and out of scope for #115.
+
 - **`Alt+W` double-binding** in the debugger (§4.2) is a real pre-existing
   defect found during the original inventory. Still unfixed, still out of scope
   for #115, still wants its own issue.
