@@ -368,23 +368,49 @@ sub run_fails {
     return \%fails;
 }
 
-sub grep_source {
-    my ($source_rel) = @_;
-    my $abs = "$ROOT/$source_rel";
-    my (%checks, %skips);
-
+# The source file, read once, with whole-line `//` comments blanked to the
+# empty string. Blanked and not removed, so an index still equals its line
+# number minus one.
+#
+# Both ID scanners need exactly this rule, and for the same reason: an ID
+# quoted inside a `//` line is prose or a disabled assertion, never a live
+# one. grep_row_ids() has applied it since GH #117; grep_source() did not,
+# so the commented-out `check("7.3", ...)` at `test/dma/dma_test.cpp:785`
+# published matrix row 7.3 as `pass` for an assertion that does not run —
+# the two halves of one tool disagreeing about the same file (GH #119).
+# One reader, one rule, so they cannot drift apart again.
+#
+# `grep_citations()` deliberately does NOT use this: its `named` tier reads
+# comment blocks on purpose, and it already skips comment lines when
+# harvesting ID literals.
+#
+# Block comments are still not stripped. Measured: no `/* */` body in any of
+# the 28 mapped suites contains an ID-shaped literal, and stripping them
+# needs a string-literal-aware scanner (a `"/*"` inside a description would
+# otherwise swallow the rest of the file) — a larger change than the defect
+# warrants, and one that trades a loud wrong answer for a silent one.
+sub source_lines {
+    my ($abs) = @_;
     open(my $fh, '<', $abs) or die "open $abs: $!";
     my @src = <$fh>;
     close $fh;
+    for my $l (@src) { $l = '' if $l =~ m{^\s*//}; }
+    return \@src;
+}
 
-    for my $lineno (1 .. scalar @src) {
-        my $line = $src[$lineno - 1];
+sub grep_source {
+    my ($source_rel) = @_;
+    my $src = source_lines("$ROOT/$source_rel");
+    my (%checks, %skips);
+
+    for my $lineno (1 .. scalar @$src) {
+        my $line = $src->[$lineno - 1];
         while ($line =~ /$SKIP_RE/g) {
             $skips{$1} //= $lineno;
         }
     }
-    for my $lineno (1 .. scalar @src) {
-        my $line = $src[$lineno - 1];
+    for my $lineno (1 .. scalar @$src) {
+        my $line = $src->[$lineno - 1];
         while ($line =~ /$ID_LITERAL_RE/g) {
             my $tid = $1;
             next if exists $skips{$tid};
@@ -540,34 +566,31 @@ sub grep_citations {
 
 # ── The `unrecorded` direction (GH #117) ──────────────────────────────
 #
-# grep_source() above answers "may the matrix name this ID?" and is
-# deliberately loose — a false positive there is harmless, because it only
-# matters for IDs the matrix already lists. This one answers the opposite
-# question, "does the test source assert a row the matrix does not list?",
-# and a false positive there is an accusation. So it is precise:
+# grep_source() above answers "may the matrix name this ID?"; this one
+# answers the opposite question, "does the test source assert a row the
+# matrix does not list?". Both must be precise, and about the same thing:
 #
-#   - `set_group()` arguments are dropped (group banner, not a row);
-#   - whole-line `//` comments are skipped — a quoted ID inside prose is a
-#     cross-reference, not an assertion (measured: 9 such phrases across
-#     the 28 suites, e.g. `// "ROM3-only" (NR 0xB9 bit=0) activates ...`).
-#     Block comments are not stripped; measured, no `/* */` body in any of
-#     the 28 suites contains an ID-shaped literal, and if one ever does the
-#     result is a noisy report, not a silent omission.
+#   - whole-line `//` comments are skipped, by the shared source_lines()
+#     reader — a quoted ID inside prose is a cross-reference and a quoted ID
+#     inside a disabled `check()` is not an assertion at all (measured: 9
+#     such phrases across the 28 suites, e.g. `// "ROM3-only" (NR 0xB9
+#     bit=0) activates ...`). Until GH #119 only this scanner applied the
+#     rule, which is how matrix row `7.3` read `pass`;
+#   - `set_group()` arguments are dropped here only (group banner, not a
+#     row). grep_source() stays loose about them on purpose: a false
+#     positive there is harmless because it only matters for IDs the matrix
+#     already lists, whereas a false positive here is an accusation.
 #
 # Everything surviving both filters is a row: it is either the first
 # argument of an assertion helper (`check`, `check_pred`, a suite-local
 # wrapper lambda, `skip`, `stub`) or a table-driven initialiser entry.
 sub grep_row_ids {
     my ($source_rel) = @_;
-    my $abs = "$ROOT/$source_rel";
-    open(my $fh, '<', $abs) or die "open $abs: $!";
-    my @src = <$fh>;
-    close $fh;
+    my $src = source_lines("$ROOT/$source_rel");
 
     my %ids;
-    for my $lineno (1 .. scalar @src) {
-        my $line = $src[$lineno - 1];
-        next if $line =~ m{^\s*//};
+    for my $lineno (1 .. scalar @$src) {
+        my $line = $src->[$lineno - 1];
         $line =~ s/$SET_GROUP_RE/set_group(/g;
         while ($line =~ /$ID_LITERAL_RE/g) {
             $ids{$1} //= $lineno;

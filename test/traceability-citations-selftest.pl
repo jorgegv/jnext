@@ -514,6 +514,61 @@ check('SELF-30', 'both gaps empty exits 0',
       report_exit_code(0, []) == 0,
       "got " . report_exit_code(0, []));
 
+# ── Commented-out assertions (GH #119) ────────────────────────────────
+#
+# A `check()` inside a `//` comment does not run, so the row it names has
+# no coverage. grep_row_ids() has known that since GH #117; grep_source()
+# did not, so the two halves of this one tool disagreed about the same
+# file — matrix row `7.3` (`test/dma/dma_test.cpp:785`, deliberately
+# disabled pending re-enabled VHDL) was published `pass` for an assertion
+# that does not exist, while the omission scanner correctly said nothing.
+# Both now read through source_lines(), so they cannot drift apart again.
+
+my $src5 = write_fixture('test/fixture/commented_test.cpp', <<'CPP');
+void live() {
+    //  {
+    //      check("CMT-01", "disabled — VHDL fixture_a.vhd:900",
+    //            cond, detail);
+    //  }
+
+    // CMT-02 is disabled HERE but asserted for real further down:
+    //      check("CMT-02", "an older, disabled form", cond, detail);
+    check("CMT-03", "a live row — VHDL fixture_b.vhd:901", cond, detail);
+    check("CMT-02", "the live form — VHDL fixture_c.vhd:902", cond, detail);
+}
+CPP
+
+my ($c5, $k5) = grep_source($src5);
+my $r5 = grep_row_ids($src5);
+
+check('SELF-31', 'a commented-out check() is a row to NEITHER scanner',
+      scalar(!exists $c5->{'CMT-01'} && !exists $k5->{'CMT-01'}
+             && !exists $r5->{'CMT-01'}),
+      'grep_source=' . (exists $c5->{'CMT-01'} ? "line $c5->{'CMT-01'}" : '(none)')
+        . ' grep_row_ids=' . (exists $r5->{'CMT-01'} ? "line $r5->{'CMT-01'}" : '(none)'));
+
+check('SELF-32', 'an ID disabled in a comment but asserted live resolves to the LIVE line',
+      scalar(exists $c5->{'CMT-02'} && $c5->{'CMT-02'} == 10),
+      'got ' . ($c5->{'CMT-02'} // '(none)') . ', want 10');
+
+# End-to-end: the status a disabled row is published with.
+my @cmt = (
+    '## Commented — `test/fixture/commented_test.cpp`',
+    '',
+    '| Test ID | Description | VHDL file:line | Status  | Test file:line                       |',
+    '|---------|-------------|----------------|---------|--------------------------------------|',
+    '| CMT-01  | disabled    | —              | pass    | test/fixture/commented_test.cpp:3    |',
+    '| CMT-03  | live        | —              | missing | missing                              |',
+);
+my (@cd, @ck);
+refresh_section(\@cmt, 0, 'bin/section_suite',
+                'test/fixture/commented_test.cpp', \@cd, \@ck);
+
+check('SELF-33', 'a row whose only check() is commented out regenerates as missing, not pass',
+      scalar($cmt[4] =~ /\|\s*missing\s*\|\s*missing\s*\|/
+             && $cmt[5] =~ /\|\s*pass\s*\|/),
+      "CMT-01=[$cmt[4]] CMT-03=[$cmt[5]]");
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

@@ -18,7 +18,7 @@
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   144 |  138 |    0 |    0 |       6 |         72 |
 | Audio                                      |   210 |  182 |    0 |    0 |      28 |          7 |
-| DMA                                        |   158 |  151 |    0 |    0 |       7 |          7 |
+| DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
 | DivMMC+SPI                                 |   123 |   95 |    0 |    0 |      28 |         40 |
 | CTC+Interrupts                             |   180 |  133 |    0 |    0 |      47 |          0 |
 | UART+I2C/RTC                               |   112 |   93 |    0 |    0 |      19 |          6 |
@@ -38,7 +38,7 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2502 | 2089 |    0 |    0 |     413 |        792 |
+| **Total**                                  |  2502 | 2088 |    0 |    0 |     414 |        792 |
 
 Rows the sections above carry: **2502**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2436**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
 
@@ -1507,7 +1507,7 @@ Last-touch commit: `651ea41d76a30d6745a4a83c7fa79d859d61ae77` (`651ea41d76`)
 | 6.8     | Mode "11" treated as "00" (byte)       | dma.vhd:601      | pass    | test/dma/dma_test.cpp:731  |
 | 7.1     | Auto-restart enabled                   | dma.vhd:473-491  | pass    | test/dma/dma_test.cpp:759  |
 | 7.2     | Auto-restart disabled (default)        | dma.vhd:238,494  | pass    | test/dma/dma_test.cpp:773  |
-| 7.3     | CE/WAIT mux bit                        | —              | pass    | test/dma/dma_test.cpp:785  |
+| 7.3     | CE/WAIT mux bit                        | —              | missing | missing                    |
 | 7.4     | R5 defaults on reset                   | —              | missing | missing                    |
 | 8.1     | 0xC3 — Reset                           | dma.vhd:638      | pass    | test/dma/dma_test.cpp:812  |
 | 8.2     | 0xC7 — Reset port A timing             | dma.vhd:648      | pass    | test/dma/dma_test.cpp:822  |
