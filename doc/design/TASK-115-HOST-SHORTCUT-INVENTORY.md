@@ -9,7 +9,9 @@
 > **What shipped:** the six plain `Ctrl+<letter>` host shortcuts moved to
 > `Alt+<letter>`. Ctrl is the guest's Symbol Shift and is now left entirely to
 > the guest. Three menubar mnemonics were re-lettered to clear the collisions
-> the move created. Pinned by `test/gui/host_hotkey_test.cpp` (27 rows).
+> the move created. Pinned by `test/gui/host_hotkey_test.cpp` (33 rows — 27 at
+> the time of the migration, plus H115-28/29 from §9.1 and H115-30..33 from
+> issue #130; `test/unit-tests.conf` is the authority).
 >
 > Scope: issue [#115](https://github.com/jorgegv/jnext/issues/115) part 2
 > ("host shortcuts leak through — Ctrl+Q quits the emulator"). Part 1 (mapping
@@ -185,13 +187,18 @@ rather than left to `quitOnLastWindowClosed`, because that fallback depends on
 no other top-level window being open — a property of the application, not of
 this action.
 
-Pinned by `test/gui/quit_cleanup_test.cpp` (4 rows, Q131-01..04): the debugger
+Pinned by `test/gui/quit_cleanup_test.cpp` (5 rows, Q131-01..05): the debugger
 ends disabled, its window ends hidden, a live recording is stopped and its raw
-temp file removed, and the main window ends hidden — which is what `close()`
-does and `QApplication::quit()` does not. Q131-03 proves `closeEvent`'s
-recorder branch RUNS; per the paragraph above it does not claim the file would
-otherwise be lost. Still **no confirmation dialog**: that remains the owner's
-explicit #115 decision, and #131 did not revisit it.
+temp file removed, the debugger window's size is written to `Debugger.conf`,
+and the main window ends hidden — which is what `close()` does and
+`QApplication::quit()` does not. **Q131-05 is the row for the loss identified
+above**: it resizes the debugger window, triggers Quit, and reads the size back
+out of `<config dir>/Debugger.conf` (`JNEXT_CONFIG_DIR`-isolated), so the harm
+is asserted where the user would meet it — in the file the next session loads.
+Q131-03 proves `closeEvent`'s recorder branch RUNS; per the paragraph above it
+does not claim the file would otherwise be lost. Still **no confirmation
+dialog**: that remains the owner's explicit #115 decision, and #131 did not
+revisit it.
 
 One nuance worth recording. `closeEvent` discards `stop_recording()`'s result,
 which GH #86 already handled with the per-output-path `output_failed()` latch
