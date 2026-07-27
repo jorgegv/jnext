@@ -491,15 +491,63 @@ int main()
               new_kb.calls == Calls{{KEY_B, true}}, got(new_kb));
     }
 
-    // --- RT-09: an unattached router is inert, not a crash -------------------
-    // The Qt key callback is registered before the first attach(); an event
-    // arriving in that window must be dropped quietly.
+    // --- RT-09: events arriving before attach() are DROPPED, not banked ------
+    // QtApp registers the Qt key callback before the first attach(), so events
+    // can reach the router with no sink bound. "Survives" is not a testable
+    // property and must not be asserted as one (the original row here did
+    // exactly that — `check(..., true)` — and was caught by
+    // test/lint-assertions.sh, which exists because a 2026-04-14 audit found
+    // whole subsystems passing on assertions that could not fail).
+    //
+    // The checkable property is what the machine sees. An unattached router
+    // must DISCARD those events, not bank them: a router that queued them
+    // would replay a keystroke into the emulated keyboard the moment it was
+    // attached — a phantom key at boot, and again after every cold boot, since
+    // attach() runs on both paths.
     {
-        TestRouter r;
+        FakeKeyboard kb;
+        TestRouter   r;
+        // A full sub-frame tap plus a still-held key, all with no sink bound —
+        // i.e. state the latch would be carrying if it had seen them.
         r.on_host_key(KEY_A, true);
         r.on_host_key(KEY_A, false);
+        r.on_host_key(KEY_B, true);
         r.on_tick_end(1);
-        check("RT-09", "an unattached router survives events and ticks", true);
+
+        r.attach(kb);
+        check("RT-09a", "attaching does not replay anything from before it",
+              kb.calls.empty(), got(kb));
+        r.on_tick_end(1);
+        check("RT-09b", "nor does the first tick after attaching",
+              kb.calls.empty(), got(kb));
+
+        // ...and the router is now indistinguishable from one that was never
+        // used. Drive it and a fresh router through the SAME script — one
+        // sub-frame tap (deferred) and one ordinary keystroke (immediate) — and
+        // require identical sink traffic. This is what "survives" actually
+        // means: leaked freshness or a stale deferred entry would make the
+        // recovered router treat one of these two differently.
+        const auto script = [](TestRouter& rr) {
+            rr.on_host_key(KEY_A, true);
+            rr.on_host_key(KEY_A, false);   // sub-frame tap -> release deferred
+            rr.on_tick_end(1);              // ...and discharged here
+            rr.on_host_key(KEY_B, true);
+            rr.on_tick_end(1);              // B has now been seen by a frame
+            rr.on_host_key(KEY_B, false);   // ordinary keystroke -> immediate
+        };
+        FakeKeyboard fresh_kb;
+        TestRouter   fresh;
+        fresh.attach(fresh_kb);
+        script(r);
+        script(fresh);
+        check("RT-09c", "a recovered router matches a never-used one exactly",
+              kb.calls == fresh_kb.calls, got(kb) + " vs " + got(fresh_kb));
+        // Equality alone could be satisfied by both being wrong in the same
+        // way, so pin the absolute traffic too.
+        const Calls expected{{KEY_A, true},  {KEY_A, false},
+                             {KEY_B, true},  {KEY_B, false}};
+        check("RT-09d", "and that shared behaviour is the CORRECT one",
+              kb.calls == expected, got(kb));
     }
 
     // --- RT-10: soak — the realistic pattern, end to end ---------------------
