@@ -2916,9 +2916,36 @@
   click-path, and it also depends on which tool the user extracts with.
 -->
 <h1 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h1>
-<p>Download <code>jnext-*-windows-x64.zip</code>, unzip it anywhere, and run <code>jnext.exe</code>.
-There is no installer: everything the program needs is in the folder, and
-deleting the folder uninstalls it.</p>
+<p>There are three Windows packages. All three are the same emulator, with the
+same full GUI and debugger — pick the one that matches your Windows:</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Runs on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jnext-*-windows-x64.zip</code></td>
+<td>Windows 10 (1703) or later</td>
+</tr>
+<tr>
+<td><code>jnext-*-windows-x64-qt5.zip</code></td>
+<td>Windows 7 SP1 or later</td>
+</tr>
+<tr>
+<td><code>jnext-*-windows-x86-qt5.zip</code></td>
+<td>Windows 7 SP1 or later, 32-bit</td>
+</tr>
+</tbody>
+</table>
+<p>The Windows 7/8 packages are built against Qt 5 instead of Qt 6, which is what
+lets them run there — Qt 6 needs APIs that only exist from Windows 10 onwards.
+The 32-bit package is the one to take on a 32-bit Windows of any version.</p>
+<p>Unzip the one you picked anywhere, and run <code>jnext.exe</code>. There is no installer:
+everything the program needs is in the folder, and deleting the folder
+uninstalls it.</p>
 <p>The first time you run it, Windows SmartScreen may say it <em>prevented an
 unrecognised app from starting</em> and show no publisher name. That is expected,
 and the next section explains why. Getting past it takes one of the routes
@@ -2955,7 +2982,7 @@ Clearing it from the <strong>zip, before you extract it</strong>, is the tidier 
 the <strong>General</strong> tab tick <strong>Unblock</strong> at the bottom, then <strong>OK</strong>. If there is no
 <strong>Unblock</strong> box, the file carries no tag and there is nothing to do.</p>
 <p>The same thing from PowerShell:</p>
-<pre><code class="language-powershell">Unblock-File .\jnext-*-windows-x64.zip
+<pre><code class="language-powershell">Unblock-File .\jnext-*-windows-*.zip
 </code></pre>
 <p><code>Unblock-File</code> does exactly what that checkbox does.</p>
 <p>Do it <strong>before extracting</strong>, because whether the tag reaches the files inside

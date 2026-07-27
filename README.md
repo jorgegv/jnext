@@ -86,7 +86,9 @@ for your system from the
 | **Ubuntu 24.04**         | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb`                     |
 | **Ubuntu 26.04**         | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`                     |
 | **Flatpak (any distro)** | `flatpak install ./jnext-*-x86_64.flatpak`                             |
-| **Windows (x64)**        | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
+| **Windows 10/11 (x64)**  | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
+| **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-qt5.zip`, unzip, run `jnext.exe`         |
+| **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-qt5.zip`, unzip, run `jnext.exe`         |
 | **macOS**                | Download `jnext-*-Darwin.dmg`, open it, drag **jnext** to Applications |
 
 The Linux packages put a `jnext` command on your `PATH`.
@@ -96,8 +98,8 @@ The Linux packages put a `jnext` command on your `PATH`.
 > throughput; normal (100 %) speed is unaffected. For maximum turbo performance use
 > the native RPM/DEB packages, which keep LTO.
 
-The **Windows** build is a self-contained, portable zip — no installer, with
-all the Qt and SDL runtime DLLs bundled. Unzip it anywhere and run `jnext.exe`;
+The **Windows** builds are self-contained, portable zips — no installer, with
+all the Qt and SDL runtime DLLs bundled. Unzip one anywhere and run `jnext.exe`;
 delete the folder to uninstall. The executable is **deliberately not
 code-signed** — an Authenticode certificate is a recurring annual cost — so on
 first launch Windows SmartScreen warns about an unrecognized publisher. Click
