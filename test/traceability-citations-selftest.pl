@@ -807,6 +807,54 @@ check('SELF-46', 'a companion supplies a citation only for the rows it owns',
       'COMP-CITE-01=[' . cdoc_row('COMP-CITE-01') . '] '
         . 'PRIM-BARE-01=[' . cdoc_row('PRIM-BARE-01') . ']');
 
+# ── Underscore-bearing row IDs (GH #125) ──────────────────────────────
+#
+# `NR_A0-01/02/03` are asserted in `test/uart/uart_integration_test.cpp` and
+# listed in two matrix tables, and every one of them published `missing`: the
+# ID prefix class was `[A-Z][A-Z0-9]*`, which stops dead at the underscore.
+# All three ID scanners read that one pattern, so the rows were invisible on
+# the status side AND to the `unrecorded` report that exists to catch a row
+# with no matrix entry — the gap hid itself.
+#
+# Widening the pattern is the easy half and the dangerous one: an ID regex
+# loose enough to match C++ identifiers would attach row status to enum
+# members and log strings, silently, exactly as a too-eager citation tier
+# attaches a neighbour's VHDL lines. So SELF-48 is the row that matters —
+# the dash still separates an ID from an identifier, and `_` buys nothing
+# beyond the uppercase prefix.
+
+my $src6 = write_fixture('test/fixture/underscore_test.cpp', <<'CPP');
+void rows() {
+    check("NR_A0-01", "underscore row — VHDL fixture_a.vhd:1241", cond, detail);
+    skip("NR_B1-02", "underscore skip row");
+
+    emu.set_machine("ZXN_ISSUE2");
+    emu.log("pi_uart_en-flag");
+    emu.log("_A0-01");
+}
+CPP
+
+my ($c6, $k6) = grep_source($src6);
+my $r6 = grep_row_ids($src6);
+my $cites6 = grep_citations($src6);
+
+check('SELF-47', 'an underscore-bearing ID is a row to BOTH scanners, as a check and as a skip',
+      scalar(exists $c6->{'NR_A0-01'} && exists $k6->{'NR_B1-02'}
+             && exists $r6->{'NR_A0-01'} && exists $r6->{'NR_B1-02'}),
+      'grep_source check=' . (exists $c6->{'NR_A0-01'} ? "line $c6->{'NR_A0-01'}" : '(none)')
+        . ' skip=' . (exists $k6->{'NR_B1-02'} ? "line $k6->{'NR_B1-02'}" : '(none)')
+        . '; grep_row_ids=' . join(',', sort keys %$r6));
+
+check('SELF-48', 'the widening stops at the dash: an enum member, a lowercase-led identifier and a leading underscore are not rows',
+      scalar(!exists $r6->{'ZXN_ISSUE2'} && !exists $c6->{'ZXN_ISSUE2'}
+             && !exists $r6->{'pi_uart_en-flag'} && !exists $c6->{'pi_uart_en-flag'}
+             && !exists $r6->{'_A0-01'} && !exists $c6->{'_A0-01'}),
+      'rows seen: ' . join(',', sort keys %$r6));
+
+check('SELF-49', 'an underscore-bearing row takes its own call-tier citation',
+      ($cites6->{'NR_A0-01'} // '') eq 'fixture_a.vhd:1241',
+      'got ' . ($cites6->{'NR_A0-01'} // '(none)'));
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

@@ -267,13 +267,37 @@ my $SKIP_RE = qr/\b(?:skip|stub)\s*\(\s*"([A-Za-z0-9._\-]+)"/;
 
 # Plan-row-shaped string literal anywhere in the source. Three shapes:
 #   1. Dashed prefix:  "MMU-01", "AY-110", "TM-CB5", "I2C-P05a",
-#                      "G1.AT-01", "G10.SC-01", "S1.05-mode"
+#                      "G1.AT-01", "G10.SC-01", "S1.05-mode", "NR_A0-01"
 #   2. Numeric dotted: "9.7", "14.6", "14.7a" (DMA plan rows)
 #   3. Section-dotted: "S13.14", "S2.08" (ULA sections)
+#
+# The prefix admits `_` (GH #125). Without it the class stopped dead at the
+# underscore, so `NR_A0-01/02/03` — asserted in `uart_integration_test.cpp`
+# and listed in two matrix tables — matched nothing and published `missing`
+# no matter what asserted them. The blindness was total and silent: all three
+# ID scanners (grep_source, grep_row_ids, grep_citations' id_line) read this
+# one pattern, so the rows were absent from the status side AND from the
+# `unrecorded` report that exists to catch exactly that. $SKIP_RE and $FAIL_RE
+# had always accepted `_`, so a skip()ped underscore row was half-visible —
+# the two halves of one tool disagreeing about what an ID is.
+#
+# Widening an ID regex fails the same way a loose citation tier does: match
+# too much and row status silently attaches to things that are not rows.
+# So `_` is admitted ONLY inside the uppercase prefix, and the dash still
+# does the real work of separating an ID from an identifier. Refused, by
+# construction and pinned in SELF-48:
+#   "ZXN_ISSUE2"       enum member — uppercase and underscored, but no dash
+#   "pi_uart_en-flag"  C++ variable — dashed, but does not start uppercase
+#   "_A0-01"           leading underscore is not an ID prefix
+# Measured over all 81 files under `test/` (*.cpp + *.h, comment lines
+# included, so the figure is an upper bound), the widening admits exactly
+# four new literals, all in `test/uart/uart_integration_test.cpp`: the three
+# NR_A0 rows and the `set_group("NR_A0-INT")` banner, which the set_group
+# filter in grep_row_ids drops as it drops every other banner.
 my $ID_LITERAL_RE = qr{
     "
     (
-        [A-Z][A-Z0-9]* (?: \.[A-Z][A-Z0-9]* )* - [A-Za-z0-9._\-+]+
+        [A-Z][A-Z0-9_]* (?: \.[A-Z][A-Z0-9_]* )* - [A-Za-z0-9._\-+]+
       | \d+ \. \d+ [a-z]?
       | S \d+ \. \d+ [a-z]?
     )
