@@ -807,6 +807,137 @@ check('SELF-46', 'a companion supplies a citation only for the rows it owns',
       'COMP-CITE-01=[' . cdoc_row('COMP-CITE-01') . '] '
         . 'PRIM-BARE-01=[' . cdoc_row('PRIM-BARE-01') . ']');
 
+# ── Underscore-bearing row IDs (GH #125) ──────────────────────────────
+#
+# `NR_A0-01/02/03` are asserted in `test/uart/uart_integration_test.cpp` and
+# listed in two matrix tables, and every one of them published `missing`: the
+# ID prefix class was `[A-Z][A-Z0-9]*`, which stops dead at the underscore.
+# All three ID scanners read that one pattern, so the rows were invisible on
+# the status side AND to the `unrecorded` report that exists to catch a row
+# with no matrix entry — the gap hid itself.
+#
+# Widening the pattern is the easy half and the dangerous one: an ID regex
+# loose enough to match C++ identifiers would attach row status to enum
+# members and log strings, silently, exactly as a too-eager citation tier
+# attaches a neighbour's VHDL lines. So SELF-48 is the row that matters —
+# the dash still separates an ID from an identifier, and `_` buys nothing
+# beyond the uppercase prefix.
+
+my $src6 = write_fixture('test/fixture/underscore_test.cpp', <<'CPP');
+void rows() {
+    check("NR_A0-01", "underscore row — VHDL fixture_a.vhd:1241", cond, detail);
+    skip("NR_B1-02", "underscore skip row");
+
+    emu.set_machine("ZXN_ISSUE2");
+    emu.log("pi_uart_en-flag");
+    emu.log("_A0-01");
+}
+CPP
+
+my ($c6, $k6) = grep_source($src6);
+my $r6 = grep_row_ids($src6);
+my $cites6 = grep_citations($src6);
+
+check('SELF-47', 'an underscore-bearing ID is a row to BOTH scanners, as a check and as a skip',
+      scalar(exists $c6->{'NR_A0-01'} && exists $k6->{'NR_B1-02'}
+             && exists $r6->{'NR_A0-01'} && exists $r6->{'NR_B1-02'}),
+      'grep_source check=' . (exists $c6->{'NR_A0-01'} ? "line $c6->{'NR_A0-01'}" : '(none)')
+        . ' skip=' . (exists $k6->{'NR_B1-02'} ? "line $k6->{'NR_B1-02'}" : '(none)')
+        . '; grep_row_ids=' . join(',', sort keys %$r6));
+
+check('SELF-48', 'the widening stops at the dash: an enum member, a lowercase-led identifier and a leading underscore are not rows',
+      scalar(!exists $r6->{'ZXN_ISSUE2'} && !exists $c6->{'ZXN_ISSUE2'}
+             && !exists $r6->{'pi_uart_en-flag'} && !exists $c6->{'pi_uart_en-flag'}
+             && !exists $r6->{'_A0-01'} && !exists $c6->{'_A0-01'}),
+      'rows seen: ' . join(',', sort keys %$r6));
+
+check('SELF-49', 'an underscore-bearing row takes its own call-tier citation',
+      ($cites6->{'NR_A0-01'} // '') eq 'fixture_a.vhd:1241',
+      'got ' . ($cites6->{'NR_A0-01'} // '(none)'));
+
+# ── Which source a drift line is charged to (GH #126) ─────────────────
+#
+# A drift line was prefixed with the section's FIRST source, whoever actually
+# supplied the citation. Rows resolved through a companion suite were charged
+# to the primary file — `test/uart/uart_test.cpp INT-07`, `test/input/
+# input_test.cpp JOY-WIRE-01/02` — which never mentions them, so the reader is
+# sent to a file where neither the ID nor the citation appears. It misdirects;
+# it does not corrupt a matrix cell.
+#
+# The label must name the file the reported `source=[...]` was literally read
+# from, and that is NOT always a test source: the plan-doc tier is a real
+# citation source, and it is the one the two live examples actually came from
+# (`uart_test.cpp` does not mention INT-07 at all — the citation is the
+# UART-I2C plan doc's). Charging those to the companion because the ASSERTION
+# lives there would substitute one plausible-but-wrong pointer for another:
+# `JOY-WIRE-01`'s companion check cites `zxnext.vhd:5157-5158` while the drift
+# line reports the plan's `membrane_stick.vhd:124-131`.
+#
+# The fixture borrows the real `test/uart/*` paths on purpose: %PLAN_DOC maps
+# them, so the plan tier is exercised through the production mapping rather
+# than an injected copy that could drift from it. The files are fixtures in a
+# temp tree; nothing real is read.
+
+write_fixture('doc/testing/UART-I2C-TEST-PLAN-DESIGN.md', <<'MD');
+| Test ID    | Scenario            | Expected                          |
+|------------|---------------------|-----------------------------------|
+| DR-PLAN-01 | cited only by the plan | see fixture_c.vhd:33 for the rule |
+MD
+
+write_fixture('test/uart/uart_test.cpp', <<'CPP');
+void primary() {
+    check("DR-PRIM-01", "primary-owned and cited here — VHDL fixture_a.vhd:11",
+          cond, detail);
+    check("DR-PLAN-01", "primary-owned, carrying no citation of its own",
+          cond, detail);
+}
+CPP
+write_fixture('test/uart/uart_integration_test.cpp', <<'CPP');
+void companion() {
+    check("DR-COMP-01", "companion-owned and cited here — VHDL fixture_b.vhd:22",
+          cond, detail);
+}
+CPP
+for my $s (qw(dprimary dcompanion)) {
+    my $path = "$FIXTURE_ROOT/bin/$s";
+    open(my $h, '>', $path) or die "write $path: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $path;
+}
+
+# Every row carries a hand-written citation that disagrees with the extracted
+# one, so every row drifts and each drift line's prefix is observable.
+my @ddoc = (
+    '## UART — `test/uart/uart_test.cpp`',
+    '',
+    '| Test ID    | Description               | VHDL file:line   | Status  | Test file:line                            |',
+    '|------------|--------------------------|------------------|---------|-------------------------------------------|',
+    '| DR-PRIM-01 | cited in the primary     | fixture_d.vhd:99 | missing | missing                                   |',
+    '| DR-PLAN-01 | cited only by the plan   | fixture_d.vhd:99 | missing | missing                                   |',
+    '| DR-COMP-01 | cited in the companion   | fixture_d.vhd:99 | missing | missing                                   |',
+);
+my (@dd, @dk);
+refresh_section(\@ddoc, 0, 'bin/dprimary', 'test/uart/uart_test.cpp',
+                \@dd, \@dk, undef,
+                [['bin/dcompanion', 'test/uart/uart_integration_test.cpp']]);
+my %drift_src = map { /^(\S+)\s+(\S+):/ ? ($2 => $1) : () } @dd;
+
+check('SELF-50', 'a drift line for a row resolved through the companion names the COMPANION source',
+      ($drift_src{'DR-COMP-01'} // '') eq 'test/uart/uart_integration_test.cpp',
+      'got ' . ($drift_src{'DR-COMP-01'} // '(no drift line)') . "; drift=[@dd]");
+
+# The refusal: charging everything to the companion would pass SELF-50 alone.
+check('SELF-51', 'a drift line for a row the primary source cites still names the PRIMARY',
+      ($drift_src{'DR-PRIM-01'} // '') eq 'test/uart/uart_test.cpp',
+      'got ' . ($drift_src{'DR-PRIM-01'} // '(no drift line)') . "; drift=[@dd]");
+
+# The tier the two live examples actually came from: no test source carries
+# this citation, so naming one would be a fresh wrong pointer.
+check('SELF-52', 'a citation supplied by the plan doc names the PLAN DOC, not a test source',
+      ($drift_src{'DR-PLAN-01'} // '') eq 'doc/testing/UART-I2C-TEST-PLAN-DESIGN.md',
+      'got ' . ($drift_src{'DR-PLAN-01'} // '(no drift line)') . "; drift=[@dd]");
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);
