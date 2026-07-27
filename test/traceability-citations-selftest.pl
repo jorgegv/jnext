@@ -514,6 +514,153 @@ check('SELF-30', 'both gaps empty exits 0',
       report_exit_code(0, []) == 0,
       "got " . report_exit_code(0, []));
 
+# ── Commented-out assertions (GH #119) ────────────────────────────────
+#
+# A `check()` inside a `//` comment does not run, so the row it names has
+# no coverage. grep_row_ids() has known that since GH #117; grep_source()
+# did not, so the two halves of this one tool disagreed about the same
+# file — matrix row `7.3` (`test/dma/dma_test.cpp:785`, deliberately
+# disabled pending re-enabled VHDL) was published `pass` for an assertion
+# that does not exist, while the omission scanner correctly said nothing.
+# Both now read through source_lines(), so they cannot drift apart again.
+
+my $src5 = write_fixture('test/fixture/commented_test.cpp', <<'CPP');
+void live() {
+    //  {
+    //      check("CMT-01", "disabled — VHDL fixture_a.vhd:900",
+    //            cond, detail);
+    //  }
+
+    // CMT-02 is disabled HERE but asserted for real further down:
+    //      check("CMT-02", "an older, disabled form", cond, detail);
+    check("CMT-03", "a live row — VHDL fixture_b.vhd:901", cond, detail);
+    check("CMT-02", "the live form — VHDL fixture_c.vhd:902", cond, detail);
+}
+CPP
+
+my ($c5, $k5) = grep_source($src5);
+my $r5 = grep_row_ids($src5);
+
+check('SELF-31', 'a commented-out check() is a row to NEITHER scanner',
+      scalar(!exists $c5->{'CMT-01'} && !exists $k5->{'CMT-01'}
+             && !exists $r5->{'CMT-01'}),
+      'grep_source=' . (exists $c5->{'CMT-01'} ? "line $c5->{'CMT-01'}" : '(none)')
+        . ' grep_row_ids=' . (exists $r5->{'CMT-01'} ? "line $r5->{'CMT-01'}" : '(none)'));
+
+check('SELF-32', 'an ID disabled in a comment but asserted live resolves to the LIVE line',
+      scalar(exists $c5->{'CMT-02'} && $c5->{'CMT-02'} == 10),
+      'got ' . ($c5->{'CMT-02'} // '(none)') . ', want 10');
+
+# End-to-end: the status a disabled row is published with.
+my @cmt = (
+    '## Commented — `test/fixture/commented_test.cpp`',
+    '',
+    '| Test ID | Description | VHDL file:line | Status  | Test file:line                       |',
+    '|---------|-------------|----------------|---------|--------------------------------------|',
+    '| CMT-01  | disabled    | —              | pass    | test/fixture/commented_test.cpp:3    |',
+    '| CMT-03  | live        | —              | missing | missing                              |',
+);
+my (@cd, @ck);
+refresh_section(\@cmt, 0, 'bin/section_suite',
+                'test/fixture/commented_test.cpp', \@cd, \@ck);
+
+check('SELF-33', 'a row whose only check() is commented out regenerates as missing, not pass',
+      scalar($cmt[4] =~ /\|\s*missing\s*\|\s*missing\s*\|/
+             && $cmt[5] =~ /\|\s*pass\s*\|/),
+      "CMT-01=[$cmt[4]] CMT-03=[$cmt[5]]");
+
+# ── The sub-letter blind spot, made visible (GH #118) ─────────────────
+#
+# The aliasing stays (resolve_ids() maps the same pair the other way, and
+# dropping only this half would let row `X-01` read `pass` *because*
+# `X-01a` proves it while `X-01a` was reported recorded nowhere). What
+# changed is that the set it hides is printed every run, so a distinct
+# assertion wearing a sub-letter — `FB-04b`, `NA-01c`, `REG-03c` — is seen
+# rather than inferred away. These pin the two ways that report can lie:
+# by staying silent about an aliased ID, or by accusing one that is not.
+
+check('SELF-34', 'an ID recorded ONLY via sub-letter aliasing is flagged; an exactly-recorded one is not',
+      scalar(recorded_only_by_alias('X-01a', $recorded)
+             && !recorded_only_by_alias('X-01', $recorded)
+             && !recorded_only_by_alias('MAIN-01', $recorded)),
+      'X-01a=' . recorded_only_by_alias('X-01a', $recorded)
+        . ' X-01=' . recorded_only_by_alias('X-01', $recorded)
+        . ' MAIN-01=' . recorded_only_by_alias('MAIN-01', $recorded));
+
+check('SELF-35', 'an ID recorded nowhere is unrecorded, NOT aliased — the two reports never overlap',
+      scalar(!recorded_only_by_alias('X-02a', $recorded)
+             && !matrix_records('X-02a', $recorded)),
+      'aliased=' . recorded_only_by_alias('X-02a', $recorded)
+        . ' recorded=' . matrix_records('X-02a', $recorded));
+
+# ── Section-scoped recording (GH #118) ────────────────────────────────
+#
+# "Is this row recorded?" used to be asked of the whole document, so an ID
+# string reused by another subsystem answered yes on the wrong subsystem's
+# behalf: `SD-16..SD-23` are asserted in `sdcard_test.cpp` and recorded
+# nowhere in the SD Card section — the Audio section's identically-named
+# rows were vouching for them. 29 rows across five subsystems were hidden.
+#
+# The unit is the SUBSYSTEM, not the @SUBSYS entry: a `###` companion is
+# judged against its parent `##`, because several companions' rows are
+# recorded in the parent's own table. Scoping to the entry would accuse the
+# document of omitting 12 rows it plainly lists, and a false accusation
+# costs as much as a silent omission.
+
+my @scoped = (
+    '## Alpha — `test/fixture/alpha_test.cpp`',
+    '',
+    $SUMMARY_BEGIN,
+    '| Section    | Rows | pass | fail | missing |',
+    '|------------|-----:|-----:|-----:|--------:|',
+    '| GENSUM2-01 |   12 |   12 |    0 |       0 |',
+    $SUMMARY_END,
+    '',
+    '| Test ID   | Plan row title      | VHDL file:line | Status | Test file:line |',
+    '|-----------|---------------------|----------------|--------|----------------|',
+    '| SHARED-01 | recorded in Alpha   | —              | pass   | a.cpp:1        |',
+    '| A-01      | alpha row           | —              | pass   | a.cpp:2        |',
+    '',
+    '### Companion integration suite — `test/fixture/alpha_companion_test.cpp`',
+    '',
+    '| Test ID   | Plan row title      | VHDL file:line | Status | Test file:line |',
+    '|-----------|---------------------|----------------|--------|----------------|',
+    '| COMP-01   | companion row       | —              | pass   | c.cpp:1        |',
+    '',
+    '## Beta — `test/fixture/beta_test.cpp`',
+    '',
+    '| Test ID   | Plan row title      | VHDL file:line | Status | Test file:line |',
+    '|-----------|---------------------|----------------|--------|----------------|',
+    '| B-01      | beta row            | —              | pass   | b.cpp:1        |',
+    '| SHARED-01 | same ID, other subsystem | —         | pass   | b.cpp:2        |',
+);
+my ($a_from, $a_to) = subsystem_span(\@scoped, 0);    # `## Alpha`
+my ($c_from, $c_to) = subsystem_span(\@scoped, 14);   # `### Companion ...`
+my ($b_from, $b_to) = subsystem_span(\@scoped, 20);   # `## Beta`
+my $alpha = matrix_row_ids(\@scoped, $a_from, $a_to);
+my $comp  = matrix_row_ids(\@scoped, $c_from, $c_to);
+my $beta  = matrix_row_ids(\@scoped, $b_from, $b_to);
+
+check('SELF-36', 'recording is section-scoped: a row recorded only in another subsystem does not count',
+      scalar(!matrix_records('B-01', $alpha) && matrix_records('B-01', $beta)
+             && !matrix_records('A-01', $beta)),
+      "B-01-in-alpha=" . matrix_records('B-01', $alpha)
+        . " B-01-in-beta=" . matrix_records('B-01', $beta)
+        . " A-01-in-beta=" . matrix_records('A-01', $beta));
+
+check('SELF-37', 'a ### companion is judged against its parent ##, so a parent-table row records it',
+      scalar($c_from == $a_from && $c_to == $a_to
+             && matrix_records('A-01', $comp) && matrix_records('COMP-01', $alpha)),
+      "alpha=[$a_from,$a_to) companion=[$c_from,$c_to) "
+        . "A-01-in-comp=" . matrix_records('A-01', $comp)
+        . " COMP-01-in-alpha=" . matrix_records('COMP-01', $alpha));
+
+check('SELF-38', 'a ranged read still skips a generated Summary block that falls inside the range',
+      scalar(!matrix_records('GENSUM2-01', $alpha)
+             && matrix_records('SHARED-01', $alpha)),
+      "GENSUM2-01=" . matrix_records('GENSUM2-01', $alpha)
+        . " SHARED-01=" . matrix_records('SHARED-01', $alpha));
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

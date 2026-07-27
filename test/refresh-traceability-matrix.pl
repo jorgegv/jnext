@@ -33,7 +33,9 @@
 #      and a plausible-but-wrong row is worse than an honest `missing`.
 #      (GH #105)
 #   7. Report the OTHER direction too: row IDs the test source asserts that
-#      no row of this document records anywhere. Until GH #117 this script
+#      no row of the owning subsystem's section records (per section, not
+#      globally, since GH #118 — an ID string reused by another subsystem
+#      must not vouch for this one). Until GH #117 this script
 #      looked only at matrix rows, so it could report `missing` (a matrix
 #      row with no test) but never `unrecorded` (a test with no matrix
 #      row) — every row added since the matrix was last hand-extended was
@@ -368,23 +370,49 @@ sub run_fails {
     return \%fails;
 }
 
-sub grep_source {
-    my ($source_rel) = @_;
-    my $abs = "$ROOT/$source_rel";
-    my (%checks, %skips);
-
+# The source file, read once, with whole-line `//` comments blanked to the
+# empty string. Blanked and not removed, so an index still equals its line
+# number minus one.
+#
+# Both ID scanners need exactly this rule, and for the same reason: an ID
+# quoted inside a `//` line is prose or a disabled assertion, never a live
+# one. grep_row_ids() has applied it since GH #117; grep_source() did not,
+# so the commented-out `check("7.3", ...)` at `test/dma/dma_test.cpp:785`
+# published matrix row 7.3 as `pass` for an assertion that does not run —
+# the two halves of one tool disagreeing about the same file (GH #119).
+# One reader, one rule, so they cannot drift apart again.
+#
+# `grep_citations()` deliberately does NOT use this: its `named` tier reads
+# comment blocks on purpose, and it already skips comment lines when
+# harvesting ID literals.
+#
+# Block comments are still not stripped. Measured: no `/* */` body in any of
+# the 28 mapped suites contains an ID-shaped literal, and stripping them
+# needs a string-literal-aware scanner (a `"/*"` inside a description would
+# otherwise swallow the rest of the file) — a larger change than the defect
+# warrants, and one that trades a loud wrong answer for a silent one.
+sub source_lines {
+    my ($abs) = @_;
     open(my $fh, '<', $abs) or die "open $abs: $!";
     my @src = <$fh>;
     close $fh;
+    for my $l (@src) { $l = '' if $l =~ m{^\s*//}; }
+    return \@src;
+}
 
-    for my $lineno (1 .. scalar @src) {
-        my $line = $src[$lineno - 1];
+sub grep_source {
+    my ($source_rel) = @_;
+    my $src = source_lines("$ROOT/$source_rel");
+    my (%checks, %skips);
+
+    for my $lineno (1 .. scalar @$src) {
+        my $line = $src->[$lineno - 1];
         while ($line =~ /$SKIP_RE/g) {
             $skips{$1} //= $lineno;
         }
     }
-    for my $lineno (1 .. scalar @src) {
-        my $line = $src[$lineno - 1];
+    for my $lineno (1 .. scalar @$src) {
+        my $line = $src->[$lineno - 1];
         while ($line =~ /$ID_LITERAL_RE/g) {
             my $tid = $1;
             next if exists $skips{$tid};
@@ -540,34 +568,31 @@ sub grep_citations {
 
 # ── The `unrecorded` direction (GH #117) ──────────────────────────────
 #
-# grep_source() above answers "may the matrix name this ID?" and is
-# deliberately loose — a false positive there is harmless, because it only
-# matters for IDs the matrix already lists. This one answers the opposite
-# question, "does the test source assert a row the matrix does not list?",
-# and a false positive there is an accusation. So it is precise:
+# grep_source() above answers "may the matrix name this ID?"; this one
+# answers the opposite question, "does the test source assert a row the
+# matrix does not list?". Both must be precise, and about the same thing:
 #
-#   - `set_group()` arguments are dropped (group banner, not a row);
-#   - whole-line `//` comments are skipped — a quoted ID inside prose is a
-#     cross-reference, not an assertion (measured: 9 such phrases across
-#     the 28 suites, e.g. `// "ROM3-only" (NR 0xB9 bit=0) activates ...`).
-#     Block comments are not stripped; measured, no `/* */` body in any of
-#     the 28 suites contains an ID-shaped literal, and if one ever does the
-#     result is a noisy report, not a silent omission.
+#   - whole-line `//` comments are skipped, by the shared source_lines()
+#     reader — a quoted ID inside prose is a cross-reference and a quoted ID
+#     inside a disabled `check()` is not an assertion at all (measured: 9
+#     such phrases across the 28 suites, e.g. `// "ROM3-only" (NR 0xB9
+#     bit=0) activates ...`). Until GH #119 only this scanner applied the
+#     rule, which is how matrix row `7.3` read `pass`;
+#   - `set_group()` arguments are dropped here only (group banner, not a
+#     row). grep_source() stays loose about them on purpose: a false
+#     positive there is harmless because it only matters for IDs the matrix
+#     already lists, whereas a false positive here is an accusation.
 #
 # Everything surviving both filters is a row: it is either the first
 # argument of an assertion helper (`check`, `check_pred`, a suite-local
 # wrapper lambda, `skip`, `stub`) or a table-driven initialiser entry.
 sub grep_row_ids {
     my ($source_rel) = @_;
-    my $abs = "$ROOT/$source_rel";
-    open(my $fh, '<', $abs) or die "open $abs: $!";
-    my @src = <$fh>;
-    close $fh;
+    my $src = source_lines("$ROOT/$source_rel");
 
     my %ids;
-    for my $lineno (1 .. scalar @src) {
-        my $line = $src[$lineno - 1];
-        next if $line =~ m{^\s*//};
+    for my $lineno (1 .. scalar @$src) {
+        my $line = $src->[$lineno - 1];
         $line =~ s/$SET_GROUP_RE/set_group(/g;
         while ($line =~ /$ID_LITERAL_RE/g) {
             $ids{$1} //= $lineno;
@@ -576,31 +601,33 @@ sub grep_row_ids {
     return \%ids;
 }
 
-# The document minus its own generated block. Everything that reads the
-# matrix as evidence must read this, never the raw file: the generated
-# Summary is a table too, and its Section column is full of section names
-# and companion source files. Harvesting those would let the previous run's
-# output count as evidence for the next one — a generator validated against
-# its own past output can never catch its own bad data.
-sub without_generated_summary {
-    my ($lines) = @_;
-    my (@out, $skipping);
-    for my $line (@$lines) {
+# Every ID the document records over `[$from, $to)` — the whole file when
+# the bounds are omitted. Deliberately not restricted to the 5-column status
+# tables: an ID listed under "Extra coverage (not in plan)" (4 columns, no
+# Status) is recorded just as much as a plan row.
+#
+# The generated Summary block is skipped wherever it falls. It is a table
+# too, and its Section column is full of section names and companion source
+# files; harvesting those would let the previous run's output count as
+# evidence for the next one — a generator validated against its own past
+# output can never catch its own bad data.
+#
+# The bounds are what makes recording SECTION-SCOPED (GH #118). Asked
+# globally, an ID string used by two subsystems counted as recorded for
+# both: `SD-16..SD-23` are asserted in `sdcard_test.cpp` and recorded
+# nowhere in the SD Card section — the Audio section's identically-named
+# rows were vouching for them. 29 such rows were hidden this way, across
+# five subsystems.
+sub matrix_row_ids {
+    my ($lines, $from, $to) = @_;
+    $from //= 0;
+    $to   //= scalar @$lines;
+    my %ids;
+    my $skipping = 0;
+    for my $i ($from .. $to - 1) {
+        my $line = $lines->[$i];
         if (!$skipping && index($line, $SUMMARY_BEGIN) == 0) { $skipping = 1; next; }
         if ($skipping) { $skipping = 0 if index($line, $SUMMARY_END) == 0; next; }
-        push @out, $line;
-    }
-    return \@out;
-}
-
-# Every ID this document records, from every table in it. Deliberately not
-# per-section and deliberately not restricted to the 5-column status tables:
-# the question is "is this row recorded anywhere", so an ID listed under
-# "Extra coverage (not in plan)" (4 columns, no Status) counts.
-sub matrix_row_ids {
-    my ($lines) = @_;
-    my %ids;
-    for my $line (@{ without_generated_summary($lines) }) {
         next unless $line =~ /^\|/;
         my @cells = split(/\|/, $line, -1);
         next unless scalar @cells >= 5;
@@ -613,8 +640,61 @@ sub matrix_row_ids {
     return \%ids;
 }
 
+# The scope a source file's rows are judged against: its owning top-level
+# `## ` subsystem section, from that header to the next `## ` line.
+#
+# The unit is the SUBSYSTEM, not the @SUBSYS entry. A `###  Companion
+# integration suite` sub-section is nested inside its parent `##` and its
+# rows are part of the same subsystem's coverage story — several are
+# recorded in the parent's main table (`PFF-G108-01..03` under `## Compositor`,
+# `ULA-INT-04/06` under `## CTC+Interrupts`, `INT-07` under `## UART+I2C/RTC`).
+# Scoping to the @SUBSYS entry instead would report those 12 as "the matrix
+# does not list this row" when the matrix plainly does, and a reader acting
+# on that would add duplicates. A false accusation is as expensive as a
+# silent omission — the whole point of GH #117. So the companion is judged
+# against its parent, and the cross-SUBSYSTEM collision, which is the actual
+# defect, is what gets caught.
+sub subsystem_span {
+    my ($lines, $idx) = @_;
+    my $start = $idx;
+    if ($lines->[$idx] !~ /^## /) {
+        for (my $i = $idx; $i >= 0; $i--) {
+            if ($lines->[$i] =~ /^## /) { $start = $i; last; }
+        }
+    }
+    my $stop = scalar @$lines;
+    for my $i ($start + 1 .. $#$lines) {
+        if ($lines->[$i] =~ /^## /) { $stop = $i; last; }
+    }
+    return ($start + 1, $stop);
+}
+
 # Mirror of resolve_ids()'s sub-letter aliasing, in the other direction: a
 # source row `MMU-01a` is recorded by matrix row `MMU-01`.
+#
+# GH #118 triaged all 102 IDs this was hiding. 90 are decompositions of the
+# parent plan row — `G2-01a/b/c` are three sample coordinates proving one
+# "256x192 row-major address" row, `AY-50a/b` are the "period 0 **or 1**"
+# the parent title already names. 12 were distinct assertions and now have
+# rows of their own (`NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`,
+# `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c`), joining
+# the earlier `FB-04b` / `IORQ-02b` / `IORQ-02c`.
+#
+# The aliasing is KEPT, for a reason independent of that 90/12 split:
+# resolve_ids() uses the SAME mapping in the other direction to compute a
+# parent row's Status from its sub-rows. Drop it here and the tool holds two
+# contradictory opinions about the same string — row `X-01` would read
+# `pass` *because* `X-01a` proves it, while `X-01a` was simultaneously
+# reported as recorded nowhere. That is precisely the half-of-the-tool-
+# disagrees-with-the-other-half defect GH #119 removed, and re-introducing
+# it to close a blind spot would be a bad trade.
+#
+# What closes the blind spot instead is visibility: every ID recorded ONLY
+# by this aliasing is now listed on every run (see recorded_only_by_alias()
+# and the ALIASED report in main()), so the next distinct sub-letter row
+# shows up in a list a human reads rather than waiting for someone to think
+# of asking. The set is a report, not a gate — 90 of these are legitimate
+# and failing the run on them would only teach people to ignore it.
 sub matrix_records {
     my ($id, $recorded) = @_;
     return 1 if $recorded->{$id};
@@ -623,6 +703,15 @@ sub matrix_records {
         return 1 if $recorded->{ substr($id, 0, length($id) - length($s)) };
     }
     return 0;
+}
+
+# True when the sub-letter aliasing is the ONLY thing recording this ID —
+# the matrix lists `X-01` but not `X-01b`. This is the blind spot made
+# visible; see matrix_records() for why the aliasing itself stays. (GH #118)
+sub recorded_only_by_alias {
+    my ($id, $recorded) = @_;
+    return 0 if $recorded->{$id};
+    return matrix_records($id, $recorded) ? 1 : 0;
 }
 
 # Declared suites this matrix does not trace — the suite-level half of the
@@ -938,22 +1027,33 @@ sub render_summary {
     push @out, '';
     push @out, '**`missing`** = a row this document lists that its suite\'s test source '
              . 'no longer asserts. **`unrecorded`** = the reverse: a row the test source '
-             . 'asserts that this document does not list anywhere. Both are real gaps; '
+             . 'asserts that this document does not list **in the owning subsystem\'s '
+             . 'section** — asked per section, not globally, so an ID string reused by '
+             . 'another subsystem cannot vouch for it (GH #118). Both are real gaps; '
              . 'neither is auto-repaired, because the description that makes a row worth '
              . 'recording cannot be derived from the source (GH #117).';
     push @out, '';
-    push @out, '**Two deliberate loosenesses can hide an `unrecorded` row, so this '
-             . 'column is a floor, not a ceiling.** (1) *Sub-letter aliasing*: a source '
-             . 'row `X-01b` counts as recorded by matrix row `X-01`, matching how the '
-             . 'Status lookup resolves sub-rows. Usually right — `X-01a/b/c` are normally '
-             . 'sub-cases of one plan row — but not always: `FB-04b`, `IORQ-02b` and '
-             . '`IORQ-02c` were distinct regressions hidden this way and now have rows of '
-             . 'their own. Disabling the aliasing raises the count by ~100; those IDs are '
-             . 'untriaged (GH #118). (2) *Cross-section ID '
-             . 'collision*: recording is asked '
-             . 'globally ("listed anywhere"), so the same ID string used by two subsystems '
-             . '— `NR-03` and `SD-10` each appear in two sections — is counted as recorded '
-             . 'for both (GH #118).';
+    push @out, '**One deliberate looseness remains, so treat this column as a floor.** '
+             . '*Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix '
+             . 'row `X-01`, matching how the Status lookup resolves sub-rows. It is kept '
+             . 'because `resolve_ids()` uses the same mapping in the other direction — '
+             . 'drop it and row `X-01` would read `pass` *because* `X-01a` proves it while '
+             . '`X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were '
+             . 'triaged (GH #118): 90 are decompositions of their parent plan row, and 12 '
+             . 'were distinct assertions that now have rows of their own — `NA-01b`, '
+             . '`NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, '
+             . '`REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, '
+             . '`IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the '
+             . '`ALIASED` report), so the next one that is not a sub-case is visible '
+             . 'instead of inferred. The second looseness — *cross-section ID collision* '
+             . '— is closed: recording is asked against the owning `##` subsystem section '
+             . 'rather than globally, which surfaced 29 rows that an identically-named row '
+             . 'in a different subsystem had been vouching for (`SD-16..SD-23` by Audio, '
+             . '`PR-01..PR-05` by IO Port Dispatch, the `G108-*` set by ULA Video, '
+             . '`NR-10/11/13/14` + `PRI-01/02/04` by Audio and Memory/MMU, `SD2-01/02` by '
+             . 'Memory/MMU). A `###` companion sub-section is judged against its parent '
+             . '`##`, not separately: its rows are part of the same subsystem\'s coverage '
+             . 'story and several are recorded in the parent\'s own table (GH #118).';
     push @out, '';
     if (@$unmapped) {
         my $rows = 0;
@@ -1011,9 +1111,10 @@ sub main {
     my @lines = split(/\n/, $text, -1);
     pop @lines if @lines && $lines[-1] eq '';
 
-    # Which rows the document records has to be read BEFORE any section is
-    # rewritten, and from the whole file: the `unrecorded` question is
-    # "anywhere in this document", not "in this section".
+    # Read BEFORE any section is rewritten. The global set is still needed
+    # for the Summary's "recorded anywhere in this document" figure; the
+    # `unrecorded` question is now asked per subsystem (GH #118), against
+    # the scope subsystem_span() resolves below.
     my $recorded = matrix_row_ids(\@lines);
     my $unmapped = unmapped_suites(\@lines);
 
@@ -1044,10 +1145,20 @@ sub main {
     }
     my @header_idx = sort { $a <=> $b } map { $_->[0] } @found;
 
+    # Per-subsystem recording scope, resolved up front from the unrewritten
+    # document (GH #118). Keyed by the entry's own header index; several
+    # entries can share one scope (a `##` parent and its `###` companions).
+    my %scope;
+    for my $f (@found) {
+        my ($from, $to) = subsystem_span(\@lines, $f->[0]);
+        $scope{ $f->[0] } = matrix_row_ids(\@lines, $from, $to);
+    }
+
     my @report;
     my @drift;
     my @kept;
     my @unrec;
+    my @aliased;
     for my $f (@found) {
         my ($idx, $entry) = @$f;
         my ($header, $binary, $source_rel) = @$entry;
@@ -1067,14 +1178,21 @@ sub main {
         # document records nowhere. Reported per source file, so the backlog
         # names the file to edit even for a multi-suite section.
         my $absent_ct = 0;
+        my $scope = $scope{$idx};
         for my $src (@sources) {
             my $rows = grep_row_ids($src);
             # `ID:line` so the backlog can be walked straight to the assertion.
             my @absent = map { "$_:$rows->{$_}" }
-                         sort grep { !matrix_records($_, $recorded) } keys %$rows;
-            next unless @absent;
-            push @unrec, [$src, \@absent];
-            $absent_ct += scalar @absent;
+                         sort grep { !matrix_records($_, $scope) } keys %$rows;
+            if (@absent) {
+                push @unrec, [$src, \@absent];
+                $absent_ct += scalar @absent;
+            }
+            # The sub-letter blind spot, made visible (GH #118).
+            my @alias = map { "$_:$rows->{$_}" }
+                        sort grep { recorded_only_by_alias($_, $scope) }
+                        keys %$rows;
+            push @aliased, [$src, \@alias] if @alias;
         }
 
         push @report, [section_label($header, $sources[0]), $touched,
@@ -1123,7 +1241,7 @@ sub main {
     $unrec_ct += scalar @{ $_->[1] } for @unrec;
     if (@unrec) {
         print "\nUNRECORDED — rows the test source asserts that this matrix ",
-              "does not list anywhere ($unrec_ct):\n";
+              "does not list in the\nowning subsystem's section ($unrec_ct):\n";
         for my $u (@unrec) {
             printf("  %s (%d)\n", $u->[0], scalar @{ $u->[1] });
             print "    ", join(' ', @{ $u->[1] }), "\n";
@@ -1136,6 +1254,25 @@ sub main {
                "section in this matrix (%d suites, %d live rows):\n",
                scalar @$unmapped, $rows);
         print "  ", join(' ', map { "$_->[0]($_->[1])" } @$unmapped), "\n";
+    }
+
+    # ── The GH #118 sub-letter blind spot, made visible ───────────────
+    #
+    # Not a gate: these ARE recorded, by their parent row, and 90 of the
+    # 102 triaged in GH #118 were right to be. Printed so the next one that
+    # is NOT — a distinct regression wearing a sub-letter, as `FB-04b`,
+    # `NA-01c` and `REG-03c` were — lands in a list a human reads.
+    my $alias_ct = 0;
+    $alias_ct += scalar @{ $_->[1] } for @aliased;
+    if (@aliased) {
+        print "\nALIASED — rows recorded ONLY by sub-letter aliasing, i.e. the ",
+              "matrix lists\nthe parent `X-01` but not `X-01b` ($alias_ct). ",
+              "Not a gap by itself: check that\neach is a sub-case of its ",
+              "parent plan row, not a distinct assertion (GH #118):\n";
+        for my $a (@aliased) {
+            printf("  %s (%d)\n", $a->[0], scalar @{ $a->[1] });
+            print "    ", join(' ', @{ $a->[1] }), "\n";
+        }
     }
 
     if (report_exit_code($unrec_ct, $unmapped)) {
