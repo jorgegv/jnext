@@ -353,8 +353,10 @@ rows (and sections) by hand.
 
 The script's input assumptions:
 
-- Test source files are at `test/<sub>/<sub>_test.cpp` with one file per
-  subsystem.
+- Test source files are at `test/<sub>/<sub>_test.cpp`. Usually one file per
+  subsystem, but not always — Audio's section is backed by three suites and
+  seven subsystems have a companion integration suite; see the companion
+  bullet below.
 - `check("ID", ...)` and `skip("ID", ...)` calls use string literals for
   plan row IDs. Struct-of-rows loops with `check(r.id, ...)` are also
   handled: the script grep for any plan-row-shaped string literal in the
@@ -375,6 +377,23 @@ The script's input assumptions:
   protected row's ID IS covered by the section's own source (the marker
   would then mask a computable status). Pinned by `SELF-09..12` in
   `make traceability-selftest`.
+- **Companion sources** (GH #121): a section resolves a row against its
+  own source file(s) FIRST, and then — only for IDs those do not mention
+  — against the other suites of the same `##` subsystem. Rows are
+  routinely LISTED in a parent's table and ASSERTED in its nested
+  `### Companion integration suite` (`PFF-G108-01/02/03`, `ULA-INT-04/06`,
+  `NR-C2-01/NR-C3-01`, `INT-07` — 80 rows), and scanning the entry's own
+  file alone published every one of them as `missing` while the assertion
+  ran and passed. Recording has been subsystem-scoped since GH #117/#118;
+  this is the same unit on the status side, so the two halves of the tool
+  read one set of sources and cannot disagree. The widening stops dead at
+  the `##` boundary, the primary source wins every ID it asserts, and the
+  companion binary's FAIL set is consulted only for the rows the companion
+  owns — so a row asserted nowhere in the subsystem still reads `missing`,
+  and a companion FAIL never lands on a row the primary source passes. A
+  `<!-- protected -->` marker is therefore only needed for a genuinely
+  CROSS-subsystem pointer (NR-C0-02 → `atic_atac_nmi_test.cpp`). Pinned by
+  `SELF-39..46`.
 
 The manual fallback is below, in case the script is unavailable or the
 refresh touches areas the script doesn't automate (last-touch commit hash,
