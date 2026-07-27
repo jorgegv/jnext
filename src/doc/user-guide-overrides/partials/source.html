@@ -7,15 +7,22 @@
   visibly stale. We drop that attribute so Material's cached fetch never runs,
   and show TWO facts instead:
 
-    * "docs <X>"   — the release the committed guide was rendered FROM. Static,
-                     from config.extra.doc_release in mkdocs.yml, so it is baked
-                     at render time and is always correct offline (the guide
-                     ships inside the packages). Deterministic: docs-check
+    * "This version <X>"   — the release the committed guide was rendered FROM.
+                     Static, from config.extra.doc_release in mkdocs.yml, so it
+                     is baked at render time and is always correct offline (the
+                     guide ships inside the packages). Deterministic: docs-check
                      re-renders and byte-diffs, so nothing here may depend on
                      wall-clock or network.
-    * "latest <Y>" — the CURRENT GitHub release, fetched live with
+    * "Latest version <Y>" — the CURRENT GitHub release, fetched live with
                      cache: 'no-store' so it is never stale. Fails silently
                      offline / when rate-limited, leaving the em dash.
+
+  The two stack one per line. Material lays its facts out as a flex ROW with an
+  ellipsis, which put both on one line and truncated the first to "docs v0.99…"
+  — unreadable, and the two were easy to mistake for one another. The inline
+  <style> below is scoped to .jnext-facts so it cannot alter anything else, and
+  it also drops Material's .md-source__fact:before marker: that is a masked
+  icon square, and our facts set no mask, so it painted as a solid block.
 -#}
 <a href="{{ config.repo_url }}" title="{{ lang.t('source') }}" class="md-source">
   <div class="md-source__icon md-icon">
@@ -24,12 +31,27 @@
   </div>
   <div class="md-source__repository">
     {{ config.repo_name }}
-    <ul class="md-source__facts">
-      <li class="md-source__fact" title="the release this guide was rendered from">docs {{ config.extra.doc_release }}</li>
-      <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">latest &mdash;</li>
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the release this guide was rendered from">This version {{ config.extra.doc_release }}</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="the current GitHub release (fetched live)">Latest version &mdash;</li>
     </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
 <script>
   (function () {
     var el = document.getElementById("jnext-latest-fact");
@@ -37,7 +59,7 @@
     var api = "{{ config.repo_url | replace('https://github.com/', 'https://api.github.com/repos/') }}/releases/latest";
     fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d && d.tag_name) el.textContent = "latest " + d.tag_name; })
+      .then(function (d) { if (d && d.tag_name) el.textContent = "Latest version " + d.tag_name; })
       .catch(function () { /* offline or rate-limited: keep the em dash */ });
   })();
 </script>
