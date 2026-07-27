@@ -43,7 +43,7 @@ for my $vhd (qw(fixture_a.vhd fixture_b.vhd fixture_c.vhd fixture_d.vhd)) {
 $ENV{JNEXT_FPGA_SRC} = "$FIXTURE_ROOT/fpga";
 
 my $code = do { open(my $fh, '<', $SCRIPT) or die "open $SCRIPT: $!"; local $/; <$fh> };
-$code =~ s/\nmain\(\);\s*$//s
+$code =~ s/\nexit\(main\(\)\);\s*$//s
     or die "selftest: could not strip main() from $SCRIPT — has it been renamed?\n";
 $code =~ s/^my \$ROOT\s+= abs_path\(.*?\);$/my \$ROOT = "$FIXTURE_ROOT";/m
     or die "selftest: could not rebind \$ROOT in $SCRIPT\n";
@@ -52,7 +52,17 @@ die "selftest: failed to load $SCRIPT: $@" if $@;
 
 my ($total, $passed, $failed) = (0, 0, 0);
 
+# The arity guard is load-bearing, not defensive. `$x =~ /a/ && $x =~ /b/`
+# written directly in this argument list evaluates the second match in LIST
+# context: on failure it yields the empty list, so the detail string slides
+# into the $ok slot and the row PASSES with a broken assertion. That is a
+# harness that lies in exactly the direction nobody checks. Three rows were
+# written that way (SELF-10 since the original twelve); they now wrap the
+# condition in scalar(), and this guard stops the next one silently.
 sub check {
+    die "selftest: check() got " . scalar(@_) . " args, expected 4 — a "
+      . "condition collapsed to a list (wrap it in scalar())\n"
+        unless @_ == 4;
     my ($id, $desc, $ok, $detail) = @_;
     $total++;
     if ($ok) { $passed++; printf("  PASS %s: %s\n", $id, $desc); }
@@ -254,8 +264,8 @@ check('SELF-09', 'protected row survives refresh_section byte-identical',
       "got [$mlines[5]]");
 
 check('SELF-10', 'unprotected row in the same section still regenerates',
-      $mlines[4] =~ /\|\s*pass\s*\|/
-        && $mlines[4] =~ m{test/fixture/section_test\.cpp:\d+},
+      scalar($mlines[4] =~ /\|\s*pass\s*\|/
+             && $mlines[4] =~ m{test/fixture/section_test\.cpp:\d+}),
       "got [$mlines[4]]");
 
 check('SELF-11', 'protected rows are reported in the kept list',
@@ -264,8 +274,245 @@ check('SELF-11', 'protected rows are reported in the kept list',
 
 check('SELF-12', 'a marker shadowing a locally covered row is warned about',
       scalar(grep { /protected row PROT-02 is also covered/ } @$sec_warnings) == 1
-        && !grep { /protected row PROT-01 is also covered/ } @$sec_warnings,
+        && scalar(grep { /protected row PROT-01 is also covered/ } @$sec_warnings) == 0,
       scalar(@$sec_warnings) . " warning(s): @$sec_warnings");
+
+# ── The `unrecorded` direction (GH #117) ──────────────────────────────
+#
+# The script used to look only at matrix rows, so it could say "this row has
+# no test" but never "this test has no row" — and never "this whole suite
+# has no section". Both are reported now. The rows below pin the two things
+# that make the report trustworthy: it must be PRECISE (a false accusation
+# is as bad as a silent omission) and it must not read its own output.
+
+my $src4 = write_fixture('test/fixture/rows_test.cpp', <<'CPP');
+void rows() {
+    set_group("GRP-01");
+    // "PROSE-01" is named only in this comment — a cross-reference, not
+    // an assertion. VHDL fixture_a.vhd:1.
+    check("ROW-01", "a plain row", cond, detail);
+
+    set_group("ROW-02");
+    check("ROW-02", "a banner label that is also a real row", cond, detail);
+
+    struct Row { const char* id; };
+    const Row rows[] = { {"TAB-09"} };
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion", cond, detail);
+    }
+}
+CPP
+
+my $rows = grep_row_ids($src4);
+
+check('SELF-13', 'a set_group() banner label is not a row',
+      !exists $rows->{'GRP-01'},
+      "got " . (exists $rows->{'GRP-01'} ? "line $rows->{'GRP-01'}" : '(none)'));
+
+check('SELF-14', 'set_group() is excluded per occurrence, not per ID: a label that is also asserted stays a row',
+      exists $rows->{'ROW-02'},
+      "got " . (exists $rows->{'ROW-02'} ? "line $rows->{'ROW-02'}" : '(none)'));
+
+check('SELF-15', 'an ID quoted inside a // comment is not a row',
+      !exists $rows->{'PROSE-01'},
+      "got " . (exists $rows->{'PROSE-01'} ? "line $rows->{'PROSE-01'}" : '(none)'));
+
+check('SELF-16', 'plain check() and table-driven initialiser IDs are both rows',
+      exists $rows->{'ROW-01'} && exists $rows->{'TAB-09'},
+      "got ROW-01=" . (exists $rows->{'ROW-01'} ? 'yes' : 'no')
+        . " TAB-09=" . (exists $rows->{'TAB-09'} ? 'yes' : 'no'));
+
+# What the document records, read across every table shape it uses — and
+# NOT across its own generated Summary block. The fixture's Summary row is
+# deliberately as wide as a real data row, so the ONLY thing that can keep
+# it out of the recorded set is the marker-block skip.
+my ($SUMMARY_BEGIN, $SUMMARY_END) = summary_markers();
+
+my @doc = (
+    '## Summary',
+    $SUMMARY_BEGIN,
+    '| Section    | Rows | pass | fail | missing |',
+    '|------------|-----:|-----:|-----:|--------:|',
+    '| GENSUM-01  |   12 |   12 |    0 |       0 |',
+    $SUMMARY_END,
+    '',
+    '| Test ID | Plan row title | VHDL file:line | Status | Test file:line |',
+    '|---------|----------------|----------------|--------|----------------|',
+    '| MAIN-01 | five-column row with a Status cell | — | pass | x.cpp:1 |',
+    '| X-01    | sub-letter parent row              | — | pass | x.cpp:2 |',
+    '',
+    '### Extra coverage (not in plan)',
+    '',
+    '| Test ID | Assertion description | VHDL file:line | Test file:line |',
+    '|---------|-----------------------|----------------|----------------|',
+    '| XTRA-01 | four-column row, no Status cell | — | x.cpp:3 |',
+);
+my $recorded = matrix_row_ids(\@doc);
+
+check('SELF-17', 'an ID in a four-column "Extra coverage" table counts as recorded',
+      matrix_records('XTRA-01', $recorded) && matrix_records('MAIN-01', $recorded),
+      "XTRA-01=" . (matrix_records('XTRA-01', $recorded) ? 'yes' : 'no')
+        . " MAIN-01=" . (matrix_records('MAIN-01', $recorded) ? 'yes' : 'no'));
+
+check('SELF-18', 'a source sub-letter row X-01a is recorded by matrix row X-01',
+      matrix_records('X-01a', $recorded) && !matrix_records('X-02a', $recorded),
+      "X-01a=" . (matrix_records('X-01a', $recorded) ? 'yes' : 'no')
+        . " X-02a=" . (matrix_records('X-02a', $recorded) ? 'yes' : 'no'));
+
+# The generated Summary is a table too, and its first column holds section
+# names. Harvesting it would let the previous run's output vouch for the
+# next one — a generator validated against its own past output can never
+# catch its own bad data.
+check('SELF-19', 'rows inside the generated Summary block are not read back as recorded IDs',
+      !matrix_records('GENSUM-01', $recorded),
+      "got " . (matrix_records('GENSUM-01', $recorded) ? 'recorded' : '(not recorded)'));
+
+# Suite-level symmetry: a whole suite this matrix does not trace.
+#
+# "Traced" means @SUBSYS SCANS the suite's source, not that some header
+# mentions it. The first cut of this check used mention, and it had exactly
+# the hole it exists to find: the Audio header named three suites while the
+# code scanned one, so 51 rows asserted in the other two were published as
+# `missing` and the gap satisfied the mention test at the same time.
+write_fixture('test/unit-tests.conf', <<'CONF');
+# name                             rows
+mmu_test                            250
+orphan_test                          42
+mentioned_test                        7
+fuse_z80_test                      1356
+CONF
+
+# `mmu_test` is scanned by the real @SUBSYS; `orphan_test` is nowhere;
+# `mentioned_test` is named by a section header but scanned by nothing.
+my $unmapped = unmapped_suites([
+    '## Sectioned — `test/fixture/mentioned_test.cpp`',
+]);
+my %un = map { $_->[0] => $_->[1] } @$unmapped;
+
+check('SELF-20', 'a suite @SUBSYS actually scans is not flagged unmapped',
+      !exists $un{'mmu_test'},
+      "flagged=[" . join(' ', map { $_->[0] } @$unmapped) . "]");
+
+check('SELF-21', 'an untraced suite is flagged with its declared row count',
+      ($un{'orphan_test'} // -1) == 42,
+      "got " . ($un{'orphan_test'} // '(not flagged)'));
+
+check('SELF-22', 'a suite a section header MENTIONS but no @SUBSYS entry scans is still flagged',
+      exists $un{'mentioned_test'},
+      "mentioned_test " . (exists $un{'mentioned_test'} ? 'flagged' : 'NOT flagged'));
+
+check('SELF-23', 'a documented out-of-scope suite (FUSE data-driven runner) is exempt',
+      !exists $un{'fuse_z80_test'},
+      "flagged=[" . join(' ', map { $_->[0] } @$unmapped) . "]");
+
+# ── The generated Summary block ───────────────────────────────────────
+
+my @sum = ('before', $SUMMARY_BEGIN, 'old line 1', 'old line 2', $SUMMARY_END, 'after');
+replace_summary(\@sum, ['new']);
+check('SELF-24', 'replace_summary swaps only the marked block, leaving its surroundings intact',
+      "@sum" eq "before $SUMMARY_BEGIN new $SUMMARY_END after",
+      "got [@sum]");
+
+my @nomark = ('no markers here');
+my $died = 0;
+eval { replace_summary(\@nomark, ['new']); 1 } or $died = 1;
+check('SELF-25', 'a missing generated-Summary marker is fatal, not a silent no-op',
+      $died && "@nomark" eq 'no markers here',
+      $died ? "left=[@nomark]" : 'replace_summary returned without dying');
+
+# ── Section boundary (the double-count) ───────────────────────────────
+#
+# A companion `###` section is nested inside its parent `##` section, so
+# without a stop index the parent's scan runs straight through the
+# companion's rows and counts them a second time against the wrong source.
+
+my $par_row = '| UNPROT-01 | parent row      | fixture_a.vhd:10 | missing | missing        |';
+my $com_row = '| COMP-01   | companion row   | fixture_b.vhd:20 | pass    | other.cpp:7    |';
+my @nested = (
+    '## Fixture — `test/fixture/section_test.cpp`',
+    '',
+    '| Test ID   | Description     | VHDL file:line   | Status  | Test file:line |',
+    '|-----------|-----------------|------------------|---------|----------------|',
+    $par_row,
+    '',
+    '### Companion integration suite — `test/fixture/other_test.cpp`',
+    '',
+    $com_row,
+);
+my (@nd, @nk);
+my ($n_touched) = refresh_section(\@nested, 0, 'bin/section_suite',
+                                  'test/fixture/section_test.cpp', \@nd, \@nk, 6);
+
+check('SELF-26', 'the parent section stops at a nested companion header and leaves its rows alone',
+      $nested[8] eq $com_row && $n_touched == 1,
+      "touched=$n_touched row=[$nested[8]]");
+
+# ── Multi-suite sections ──────────────────────────────────────────────
+#
+# One section, several backing suites (the Audio shape: three suites whose
+# rows are interleaved in a single table, no `### Companion` sub-tables).
+# Both halves have to merge — the source scan AND the FAIL set — or rows
+# implemented in the second suite are published as untested.
+
+write_fixture('test/fixture/multi_a_test.cpp', <<'CPP');
+void a() {
+    check("MA-01", "row in the first suite — VHDL fixture_a.vhd:1", cond, detail);
+}
+CPP
+write_fixture('test/fixture/multi_b_test.cpp', <<'CPP');
+void b() {
+    check("MB-01", "row in the second suite — VHDL fixture_b.vhd:2", cond, detail);
+    check("MB-02", "failing row in the second suite", cond, detail);
+}
+CPP
+for my $s (['multi_a', ''], ['multi_b', "echo '  FAIL MB-02: broke'\n"]) {
+    my $path = "$FIXTURE_ROOT/bin/$s->[0]";
+    open(my $h, '>', $path) or die "write $path: $!";
+    print $h "#!/bin/sh\n", $s->[1];
+    close $h;
+    chmod 0755, $path;
+}
+
+my @multi = (
+    '## Multi — `test/fixture/multi_a_test.cpp` + `test/fixture/multi_b_test.cpp`',
+    '',
+    '| Test ID | Description | VHDL file:line | Status  | Test file:line                    |',
+    '|---------|-------------|----------------|---------|-----------------------------------|',
+    '| MA-01   | first suite | —              | missing | missing                           |',
+    '| MB-01   | second suite| —              | missing | missing                           |',
+    '| MB-02   | second suite| —              | missing | missing                           |',
+);
+my (@md, @mk);
+refresh_section(\@multi, 0,
+                ['bin/multi_a', 'bin/multi_b'],
+                ['test/fixture/multi_a_test.cpp', 'test/fixture/multi_b_test.cpp'],
+                \@md, \@mk);
+
+check('SELF-27', 'a row asserted only in the second suite resolves, and its Test file:line names THAT file',
+      scalar($multi[5] =~ /\|\s*pass\s*\|/
+             && $multi[5] =~ m{test/fixture/multi_b_test\.cpp:\d+}),
+      "got [$multi[5]]");
+
+check('SELF-28', 'the FAIL set is the union across every backing binary',
+      scalar($multi[6] =~ /\|\s*fail\s*\|/ && $multi[4] =~ /\|\s*pass\s*\|/),
+      "MB-02=[$multi[6]] MA-01=[$multi[4]]");
+
+# ── The exit-status contract ──────────────────────────────────────────
+#
+# main() is stripped when this file loads the script, so the glue that
+# turns the two gaps into a process exit status would otherwise be the one
+# part of the contract nothing pins.
+check('SELF-29', 'either gap non-empty exits 1',
+      report_exit_code(1, []) == 1
+        && report_exit_code(0, [['orphan_test', 42]]) == 1
+        && report_exit_code(3, [['orphan_test', 42]]) == 1,
+      sprintf("got %d/%d/%d", report_exit_code(1, []),
+              report_exit_code(0, [['orphan_test', 42]]),
+              report_exit_code(3, [['orphan_test', 42]])));
+
+check('SELF-30', 'both gaps empty exits 0',
+      report_exit_code(0, []) == 0,
+      "got " . report_exit_code(0, []));
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
