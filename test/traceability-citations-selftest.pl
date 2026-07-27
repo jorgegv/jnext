@@ -148,6 +148,29 @@ void group_bogus() {
               cond, detail);
     }
 }
+
+void group_continuation() {
+    // A citation's line list may continue without repeating the filename
+    // (GH #136). Both spellings below name TWO places in one file; stopping
+    // at the first publishes half of what the assertion exercises.
+    {
+        check("CONT-01",
+              "comma continuation — VHDL fixture_a.vhd:100, :200-204",
+              cond, detail);
+    }
+    {
+        check("CONT-02",
+              "plus continuation — VHDL fixture_b.vhd:10 + :20 + :30-31",
+              cond, detail);
+    }
+    // The boundary: prose between the two refs is NOT a separator. Reaching
+    // across it is how a citation starts absorbing the sentence around it.
+    {
+        check("CONT-03",
+              "prose interrupts — VHDL fixture_c.vhd:900 (the latch), :950",
+              cond, detail);
+    }
+}
 CPP
 
 my $cites = do {
@@ -192,6 +215,30 @@ check('SELF-06', 'whitelist: a .vhd name absent from the FPGA tree is dropped, n
 check('SELF-07', 'whitelist: the rejected filename is reported, not swallowed',
       scalar(grep { /not_a_real\.vhd/ } @$warnings) == 1,
       scalar(@$warnings) . " warning(s): @$warnings");
+
+# ── Filename-omitting continuations (GH #136) ─────────────────────────
+#
+# `zxnext.vhd:5080, :6188-6189` reads to a human as two places in one file,
+# and the extractor used to stop at `:5080` — publishing a citation that
+# covered half the assertion, with nothing anywhere to say so. When this was
+# found the shorthand was truncating 154 distinct row IDs across 20 suites.
+#
+# SELF-63 is the discriminative counterpart: widening the separator set is
+# only safe while it stays punctuation adjacent to the previous ref. The
+# moment it reaches across prose, the citation starts absorbing the
+# sentence, and a wrong citation is worse than an incomplete one.
+
+check('SELF-61', 'a comma continuation that omits the filename is carried, not dropped',
+      ($cites->{'CONT-01'} // '') eq 'fixture_a.vhd:100,200-204',
+      "got " . ($cites->{'CONT-01'} // '(none)'));
+
+check('SELF-62', 'a `+` continuation chain is carried and normalised to the published `,` form',
+      ($cites->{'CONT-02'} // '') eq 'fixture_b.vhd:10,20,30-31',
+      "got " . ($cites->{'CONT-02'} // '(none)'));
+
+check('SELF-63', 'a continuation separated by prose is NOT reached across',
+      ($cites->{'CONT-03'} // '') eq 'fixture_c.vhd:900',
+      "got " . ($cites->{'CONT-03'} // '(none)'));
 
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');
