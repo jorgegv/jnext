@@ -1009,16 +1009,26 @@ sub cite_upgrades {
 #                            which cite_in() already folds away on the
 #                            computed side
 #
-# Nothing else is, and the omissions are MEASURED rather than assumed. Over
-# the 361 drift entries the current matrix produces, those two rules together
-# account for all 20 cosmetic entries (18 and 2 respectively); whitespace
-# around a `:` and whitespace around a range's `-` account for ZERO — no cell
-# is spelled `foo.vhd : 10` or `10 - 20` — so admitting them would add a rule
+# Nothing else is, and every number below is MEASURED, over the 361 drift
+# entries the current matrix produces.
+#
+# The two rules are LAYERED, not additive, and the difference is what the
+# next person tuning this needs to know. Rule 1 alone closes 18 — and SD-17
+# and IO-10 are not among them. Rule 2 alone closes ZERO: the cells it exists
+# for are spelled `5179, :6436`, with a space between the separator and the
+# carried-forward colon, so `([,/]):` cannot match until rule 1 has closed
+# that gap. Together they close 20. Delete rule 1 and 2 does not survive on
+# its own; nothing does.
+#
+# Rules deliberately left out, each measured ON TOP of the two above and each
+# closing ZERO further entries: whitespace around a `:`, whitespace around a
+# range's `-`, and even collapsing all whitespace outright — no cell is
+# spelled `foo.vhd : 10` or `10 - 20`. Admitting any of them would add a rule
 # no fixture exercises, and an unexercised rule inside a comparator is one
 # nobody notices going wrong. Folding `+` to `,` (which cite_in does do on the
-# computed side) also accounts for zero, and is not whitespace at all: the ULA
-# section's S17.02 cell reads `zxnext.vhd:3614+`, prose for "3614 onwards",
-# and folding it would rewrite what it says.
+# computed side) closes zero further too, and is not whitespace at all: the
+# ULA section's S17.02 cell reads `zxnext.vhd:3614+`, prose for "3614
+# onwards", and folding it would rewrite what it says.
 #
 # ORDER is deliberately NOT normalised. `a.vhd:10,20` and `a.vhd:20,10` name
 # the same lines, but the order is the author's statement about which line is
