@@ -190,6 +190,12 @@ bool QtApp::init(int argc, char* argv[]) {
     // manager (issue #8) and never on Wayland or headless.
     qt_argc_ = argc;
     qt_argv_ = argv;
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    // Qt5 only (GH #108 Phase A): HiDPI scaling is opt-in on Qt5 (always on in
+    // Qt6) and must be set BEFORE the QApplication is constructed.
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
     qapp_ = new QApplication(qt_argc_, qt_argv_);
 
     // Task 63 (issue #9) — identify the display path once. Which Qt platform

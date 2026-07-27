@@ -1,4 +1,6 @@
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# JNEXT_QT_MAJOR (5 or 6) is decided once in the root CMakeLists (GH #108
+# Phase A); Qt6 is the default whenever present.
+find_package(Qt${JNEXT_QT_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(SDL2 REQUIRED)
 # std::thread in sdcard_download_dialog.cpp (SD-image busy dialog) — link the
 # platform threads library explicitly so the MinGW/macOS release legs link it
@@ -11,7 +13,7 @@ add_library(jnext_gui STATIC ${SOURCES})
 set_target_properties(jnext_gui PROPERTIES AUTOMOC ON)
 
 target_link_libraries(jnext_gui PUBLIC
-    Qt6::Widgets
+    Qt${JNEXT_QT_MAJOR}::Widgets
     SDL2::SDL2
     spdlog::spdlog
     Threads::Threads

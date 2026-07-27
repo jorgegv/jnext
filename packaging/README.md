@@ -65,6 +65,14 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make package-deb`     | `.deb` (via CPack, in `build/deb-release/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
 | `make win-release` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/win-release/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/win-release/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
+| `make win-sdl-release` | SDL-only Windows `jnext.exe` (no Qt) + runtime DLLs in `build/win-sdl-release/` — repo-internal validation leg | Fedora MinGW cross toolchain (Qt6 not needed)   | **Yes** (with the MinGW packages installed) |
+| `make package-win-sdl` | SDL-only Windows `.zip` (`jnext-<ver>-windows-x64-sdl.zip` in `build/win-sdl-release/`) — **Windows 7 SP1+** since GH #108 Phase B; repo-internal validation leg, not a published package (see below) | Fedora MinGW cross toolchain (Qt6 not needed) | **Yes** (with the MinGW packages installed) |
+| `make win-qt5-release` | Qt5 full-GUI Windows `jnext.exe` + runtime DLLs in `build/win-qt5-release/` — **Windows 7 SP1+** (GH #108 Phase A) | Fedora MinGW **Qt5** cross toolchain (see below) | **Yes** (with the MinGW Qt5 packages installed) |
+| `make package-win-qt5` | Qt5 full-GUI Windows `.zip` (`jnext-<ver>-windows-x64-qt5.zip` in `build/win-qt5-release/`) — **Windows 7 SP1+** (GH #108 Phase A, see below) | Fedora MinGW **Qt5** cross toolchain (see below) | **Yes** (with the MinGW Qt5 packages installed) |
+| `make win32-sdl-release` | SDL-only **32-bit** (i686) Windows `jnext.exe` (no Qt) + runtime DLLs in `build/win32-sdl-release/` — **repo-internal validation target, not published** (GH #108 Phase C) | Fedora MinGW **i686** cross toolchain (`mingw32-*`, Qt not needed) | **Yes** (with the mingw32 packages installed) |
+| `make package-win32-sdl` | SDL-only **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-sdl.zip` in `build/win32-sdl-release/`) — Win7-clean by import audit; **repo-internal, not a release artifact** (the published 32-bit leg is i686-Qt5 — see doc/design/WINDOWS-COMPAT-PLAN.md §7) | Fedora MinGW **i686** cross toolchain (`mingw32-*`, Qt not needed) | **Yes** (with the mingw32 packages installed) |
+| `make win32-qt5-release` | Qt5 full-GUI **32-bit** (i686) Windows `jnext.exe` + runtime DLLs in `build/win32-qt5-release/` — **Windows 7 SP1+** (GH #108 Phase C) | Fedora MinGW **i686 Qt5** cross toolchain (`mingw32-qt5-*`, see below) | **Yes** (with the mingw32 Qt5 packages installed) |
+| `make package-win32-qt5` | Qt5 full-GUI **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-qt5.zip` in `build/win32-qt5-release/`) — **Windows 7 SP1+**, **published** third Windows leg (GH #108 Phase C, see below) | Fedora MinGW **i686 Qt5** cross toolchain (`mingw32-qt5-*`, see below) | **Yes** (with the mingw32 Qt5 packages installed) |
 | `make package-flatpak` | Flatpak bundle (`build/flatpak-release/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
 | `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
@@ -87,7 +95,7 @@ any target.) Install the full toolchain + libraries first:
 
 ```sh
 sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
-  mingw64-sdl2-compat mingw64-curl mingw64-openssl mingw64-zlib \
+  mingw64-sdl2-compat mingw64-zlib \
   mingw64-libpng mingw64-winpthreads
 ```
 
@@ -120,6 +128,82 @@ into a clean, correctly-named staging dir and zips that (not CPack `-G ZIP`,
 whose `/usr` install prefix would give a broken `usr/bin/jnext.exe` layout on
 Windows).
 
+### The Windows package lineup (GH #108, owner-decided)
+
+**Published** Windows packages: **x64-Qt6** (`package-win`, Windows 10 1703+,
+the full-featured default), **x64-Qt5** (`package-win-qt5`, Windows 7 SP1+,
+same full GUI + debugger), and **i686-Qt5** (`package-win32-qt5`, Windows 7
+SP1+, 32-bit — GH #108 Phase C; same full GUI + debugger, built with the
+`mingw32-qt5` cross stack and audited Win7-clean bundle-wide). The
+**SDL-only** targets (`package-win-sdl` and the
+32-bit `package-win32-sdl`) are **repo-internal validation legs**: they prove
+the emulator core + packaging floor independently of Qt and remain buildable
+and structurally tested, but they are not part of the published release
+lineup.
+
+### SDL-only Windows variant (repo-internal, GH #108)
+
+The regular `package-win` zip has an audited hard **Windows 10 (1703) floor**:
+fedora's Qt6Gui.dll statically imports `d3d12.dll` and Qt6Core/qwindows import
+several Win10-only kernel32/user32 APIs — none fixable from jnext (evidence
+and method: [doc/design/WINDOWS-COMPAT-PLAN.md](../doc/design/WINDOWS-COMPAT-PLAN.md),
+re-runnable via `packaging/windows/pe-floor-audit.sh`).
+
+`make package-win-sdl` builds the same emulator core with the SDL frontend
+(`ENABLE_QT_UI=OFF`) and ships it without any Qt DLL. Its audited floor is
+**Windows 7 SP1** since GH #108 Phase B replaced the Windows download/hash
+path with OS-native WinHTTP + BCrypt and dropped the curl/OpenSSL DLL chain
+(whose libcrypto `PathCch` import was the old Win8 blocker).
+Trade-off: no menu bar, no preferences dialog, no Qt debugger GUI — CLI and
+keyboard shortcuts only. The exe is GUI-subsystem like the Qt one and links
+`SDL2::SDL2main` for the `WinMain`→`SDL_main` bridge (Qt's EntryPoint fills
+that role in the Qt build). The target refuses to ship a bundle where Qt DLLs
+leaked in or SDL2/SDL3 are missing; `make package-test` re-checks the zip
+contents.
+
+### Qt5 full-GUI Windows variant (Windows 7 SP1+, GH #108 Phase A)
+
+`make package-win-qt5` ships the **same full Qt GUI + debugger** as
+`package-win`, built against **Qt 5.15** (`-DJNEXT_FORCE_QT5=ON` — Qt6 stays
+the default everywhere; the option exists only for the legacy Windows legs).
+Qt 5.15 predates the D3D12/Win10-DPI imports that give Qt6 its floor, and the
+whole bundle audits **Windows 7 SP1-clean** with `pe-floor-audit.sh` (zero
+flags; evidence in
+[doc/design/WINDOWS-COMPAT-PLAN.md](../doc/design/WINDOWS-COMPAT-PLAN.md) §7
+Phase A). The port delta is four `#if QT_VERSION` guard sites plus a Qt5-only
+HiDPI opt-in; a `qt5-guard` CI job (`make qt5-guard-build`, native Linux Qt5)
+keeps the combination compiling. Extra toolchain on top of the Qt6 list:
+
+```sh
+sudo dnf install mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake
+```
+
+(`mingw64-qt5-qtbase` carries the Qt5 DLLs, `Qt5Config.cmake` and
+`libqt5main.a`; `mingw64-qt5-qmake` carries the cross `moc`/`rcc`/`uic`
+AUTOMOC needs.) The entry point differs from both other legs: fedora's
+`Qt5::WinMain` ships bare, so the build adds `QT_NEEDS_QMAIN` (renames
+`main`→`qMain` for `libqt5main.a`'s WinMain) and links `mingw32` before it —
+the same ordering trick Qt6 encodes in its `EntryPointMinGW32` helper. The
+target refuses to ship a bundle where Qt6 DLLs leaked in (that would re-raise
+the floor to Windows 10) or Qt5Core/qwindows/SDL2/SDL3 are missing;
+`make package-test` re-checks the zip contents, including that the exe is a
+GUI-subsystem binary and the curl/OpenSSL chain stays absent.
+
+The **32-bit leg** (`make package-win32-qt5`, GH #108 Phase C) is the exact
+i686 twin: same CMake options via `mingw32-cmake`, same structural checks,
+same Win7 SP1 floor (whole-bundle `pe-floor-audit.sh` exit 0 — evidence in
+WINDOWS-COMPAT-PLAN.md §7 Phase C). Its toolchain is the mingw32 mirror:
+
+```sh
+sudo dnf install mingw32-gcc mingw32-gcc-c++ mingw32-qt5-qtbase \
+  mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-sdl2-compat \
+  mingw32-zlib mingw32-libpng mingw32-winpthreads
+```
+
+(the cross host tools are `i686-w64-mingw32-{moc,rcc,uic}-qt5`; the bundle
+carries `libgcc_s_dw2-1.dll` — i686 uses the DWARF-2 unwinder where x64 uses
+SEH.)
+
 ## Runtime dependencies — how they were derived
 
 Not guessed: `ldd build/gui-release/jnext` was run on this host and the
@@ -130,8 +214,8 @@ the `find_package()` calls in `CMakeLists.txt` / `src/*/CMakeLists.txt`:
 |-------------|-------------------------------------------------------------------|
 | SDL2        | root `CMakeLists.txt`, `src/platform`, `src/gui`, `src/input`     |
 | Qt6 Widgets (pulls Gui, Core) | `src/gui`, `src/debugger` (`ENABLE_QT_UI`/`ENABLE_DEBUGGER`) |
-| libcurl     | root `CMakeLists.txt` — SD-card image download                   |
-| OpenSSL (libcrypto) | root `CMakeLists.txt` — SHA-256 integrity check of the SD image |
+| libcurl     | root `CMakeLists.txt` — SD-card image download (POSIX only; Windows uses OS-native WinHTTP, GH #108) |
+| OpenSSL (libcrypto) | root `CMakeLists.txt` — SHA-256 integrity check of the SD image (POSIX only; Windows uses OS-native BCrypt/CNG, GH #108) |
 | zlib        | root `CMakeLists.txt` — SZX/RZX compression                      |
 | libpng      | `src/platform` — PNG screenshots                                 |
 

@@ -2,8 +2,6 @@
 #include "core/fat32_image.h"
 #include "core/log.h"
 
-#include <curl/curl.h>
-#include <openssl/evp.h>
 #include <zlib.h>
 
 #include <array>
@@ -141,58 +139,6 @@ bool default_copy_file(const std::string& src, const std::string& dst,
     return true;
 }
 
-std::string sha256_hex(const std::vector<uint8_t>& bytes) {
-    unsigned char md[EVP_MAX_MD_SIZE];
-    unsigned int md_len = 0;
-    if (EVP_Digest(bytes.data(), bytes.size(), md, &md_len, EVP_sha256(),
-                   nullptr) != 1)
-        return {};
-    static const char* hexd = "0123456789abcdef";
-    std::string out;
-    out.reserve(md_len * 2);
-    for (unsigned int i = 0; i < md_len; ++i) {
-        out.push_back(hexd[md[i] >> 4]);
-        out.push_back(hexd[md[i] & 0x0F]);
-    }
-    return out;
-}
-
-std::string sha256_file(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return {};
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) return {};
-    std::string result;
-    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) == 1) {
-        std::vector<char> buf(1 << 20);
-        bool ok = true;
-        while (true) {
-            f.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-            const std::streamsize n = f.gcount();
-            if (n > 0 &&
-                EVP_DigestUpdate(ctx, buf.data(), static_cast<size_t>(n)) != 1) {
-                ok = false; break;
-            }
-            if (f.bad()) { ok = false; break; }
-            if (f.eof()) break;
-        }
-        if (ok) {
-            unsigned char md[EVP_MAX_MD_SIZE];
-            unsigned int md_len = 0;
-            if (EVP_DigestFinal_ex(ctx, md, &md_len) == 1) {
-                static const char* hexd = "0123456789abcdef";
-                result.reserve(md_len * 2);
-                for (unsigned int i = 0; i < md_len; ++i) {
-                    result.push_back(hexd[md[i] >> 4]);
-                    result.push_back(hexd[md[i] & 0x0F]);
-                }
-            }
-        }
-    }
-    EVP_MD_CTX_free(ctx);
-    return result;
-}
-
 // ---------------------------------------------------------------------------
 // config.ini (verbatim from tools/fix-sdcard-image.sh)
 // ---------------------------------------------------------------------------
@@ -208,108 +154,12 @@ std::vector<uint8_t> default_config_ini() {
     return std::vector<uint8_t>(p, p + std::strlen(kIni));
 }
 
-// ---------------------------------------------------------------------------
-// Download (default impl uses libcurl — no shell-out)
-// ---------------------------------------------------------------------------
-namespace {
-// libcurl write callback: append received bytes to the destination FILE*.
-size_t curl_write_to_file(char* ptr, size_t size, size_t nmemb, void* userdata) {
-    FILE* f = static_cast<FILE*>(userdata);
-    return std::fwrite(ptr, size, nmemb, f);
-}
-
-// libcurl progress (xferinfo) callback context: wraps the caller's ProgressFn.
-struct CurlProgressCtx {
-    const ProgressFn* fn = nullptr;
-    bool aborted = false;
-};
-// CURLOPT_XFERINFOFUNCTION: forward (dlnow, dltotal) to the ProgressFn.
-// Returning nonzero makes curl abort the transfer with
-// CURLE_ABORTED_BY_CALLBACK, which we surface as a download failure.
-int curl_xferinfo(void* p, curl_off_t dltotal, curl_off_t dlnow,
-                  curl_off_t /*ultotal*/, curl_off_t /*ulnow*/) {
-    auto* ctx = static_cast<CurlProgressCtx*>(p);
-    if (ctx && ctx->fn && *ctx->fn) {
-        const bool keep_going = (*ctx->fn)(static_cast<uint64_t>(dlnow),
-                                           static_cast<uint64_t>(dltotal));
-        if (!keep_going) { ctx->aborted = true; return 1; }
-    }
-    return 0;
-}
-} // namespace
-
-bool default_http_download(const std::string& url, const std::string& dest_path,
-                           const ProgressFn& progress, std::string& err) {
-    Log::emulator()->info("sdcard: downloading via libcurl: {}", url);
-
-    FILE* out = std::fopen(dest_path.c_str(), "wb");
-    if (!out) { err = "cannot create output file: " + dest_path; return false; }
-
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::fclose(out);
-        std::remove(dest_path.c_str());
-        err = "curl_easy_init failed";
-        return false;
-    }
-
-    CurlProgressCtx prog_ctx;
-    prog_ctx.fn = progress ? &progress : nullptr;
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // follow redirects
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);    // HTTP >= 400 -> error
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_to_file);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
-    if (progress) {
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curl_xferinfo);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog_ctx);
-    } else {
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
-    }
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);   // abort if the
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 120L);  // stream stalls
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "jnext-sdcard-provisioner");
-    // TLS verification stays at libcurl defaults (peer + host on).
-#ifdef _WIN32
-    // The MinGW libcurl is OpenSSL-backed, and OpenSSL has no CA bundle on
-    // Windows — its compiled-in default path (a Unix sysroot dir) does not
-    // exist there, so every HTTPS download fails with "Problem with the SSL CA
-    // cert". Tell it to use the Windows system certificate store (CRYPT32)
-    // instead of a bundle file. Windows-only: the Linux build keeps OpenSSL's
-    // working system-CA default.
-    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
-#endif
-
-    const CURLcode rc = curl_easy_perform(curl);
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-    curl_easy_cleanup(curl);
-
-    const bool flush_ok = (std::fflush(out) == 0);
-    std::fclose(out);
-
-    if (rc != CURLE_OK) {
-        std::remove(dest_path.c_str());
-        if (rc == CURLE_ABORTED_BY_CALLBACK || prog_ctx.aborted)
-            err = "download cancelled by user";
-        else
-            err = std::string("download failed: ") + curl_easy_strerror(rc);
-        return false;
-    }
-    if (!flush_ok) {
-        std::remove(dest_path.c_str());
-        err = "download failed: write/flush error on " + dest_path;
-        return false;
-    }
-    if (!file_exists(dest_path)) {
-        err = "download produced no file: " + dest_path;
-        return false;
-    }
-    return true;
-}
+// The network download (default_http_download) and the SHA-256 helpers
+// (sha256_hex / sha256_file) live in the per-platform backend files:
+//   sdcard_provisioner_net_curl.cpp  — libcurl + OpenSSL EVP (Linux/macOS)
+//   sdcard_provisioner_net_win.cpp   — WinHTTP + BCrypt/CNG (Windows, GH #108
+//                                      Phase B: no curl/OpenSSL DLLs shipped,
+//                                      Win7-clean import set)
 
 bool cli_progress(uint64_t downloaded, uint64_t total) {
     // Throttle to whole-percent changes to avoid flooding stderr.
@@ -635,8 +485,20 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return r;
         }
 
+        // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
+        // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
+        // above (GH #108 Phase B): it lets a harness point the REAL download
+        // path (libcurl / WinHTTP) at a local fixture server instead of the
+        // multi-hundred-MB specnext.com zip — e.g. the wine packaging smoke,
+        // which proves the Windows WinHTTP backend end-to-end against a
+        // loopback HTTP server. Not a user feature; deliberately absent from
+        // --help and the man page.
+        const char* env_url = std::getenv("JNEXT_SDCARD_DISTRO_URL");
+        const std::string distro_url =
+            (env_url && *env_url) ? std::string(env_url) : std::string(kDistroUrl);
+
         const std::string zip_tmp = dir + "/sn-emulator.zip.part";
-        if (!download(kDistroUrl, zip_tmp, opts.progress, err)) {
+        if (!download(distro_url, zip_tmp, opts.progress, err)) {
             r.status = ProvisionStatus::Failed;
             r.error  = "download failed: " + err;
             return r;

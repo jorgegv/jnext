@@ -22,9 +22,9 @@ name: Release
 #   * rpm     → `make package-rpm` in a fedora:44 container (Fedora-native deps —
 #               building the RPM on Ubuntu bakes in an incompatible libcurl node)
 #   * src     → `make package-src` → jnext-<ver>-src.zip (submodule-aware)
-#   * windows → `make package-win` (MinGW cross-build + DLL bundling) in a
-#               fedora:44 container — the one Windows build path (proven in a
-#               fedora:44 container, exe runs under wine)
+#   * windows → `make package-win` + `package-win-qt5` + `package-win32-qt5`
+#               (MinGW cross-build + DLL bundling) in a fedora:44 container —
+#               the three published Windows zips (exe runs under wine)
 #   * flatpak → flatpak-builder against org.kde.Sdk//6.8 (same manifest +
 #               runtime as a local `make package-flatpak`); bundle built locally
 #   * macos   → `make package-macos` native on macos-latest (proven green on a
@@ -201,23 +201,48 @@ jobs:
       # git is needed for actions/checkout's submodule fetch; the rest is the
       # MinGW cross toolchain + host Qt6 tools (moc/rcc/uic from qt6-qtbase-devel)
       # that make package-win needs. mingw64-cmake ships in mingw64-filesystem.
+      # The mingw64-qt5-* trio backs make package-win-qt5 (GH #108 Phase A:
+      # the Qt5 full-GUI Win7/8 legacy zip): qtbase carries the Qt5 DLLs +
+      # Qt5Config.cmake + libqt5main.a, qmake carries the cross moc/rcc/uic
+      # AUTOMOC needs. The mingw32-* set is the i686 twin backing
+      # make package-win32-qt5 (GH #108 Phase C: the 32-bit Qt5 zip).
       - name: Install MinGW cross toolchain + build tools
         run: |
           dnf install -y \
             make git findutils gawk grep coreutils diffutils zip \
             mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
-            mingw64-qt6-qtbase mingw64-sdl2-compat mingw64-curl \
-            mingw64-openssl mingw64-zlib mingw64-libpng mingw64-winpthreads \
+            mingw64-qt6-qtbase mingw64-sdl2-compat \
+            mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake \
+            mingw64-zlib mingw64-libpng mingw64-winpthreads \
+            mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
+            mingw32-sdl2-compat \
+            mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
+            mingw32-zlib mingw32-libpng mingw32-winpthreads \
             qt6-qtbase-devel
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: make package-win
         run: make package-win
+      # Qt5 full-GUI Win7/8 legacy variant (GH #108 Phase A) — same container,
+      # same plain make target a local run uses. The SDL-only variants (x64 AND
+      # the i686 twin package-win32-sdl) are repo-internal validation legs
+      # (owner decision 2026-07-26): exercised by ci.yml's package job via
+      # `make package-test`, never built or published here. Final published
+      # lineup: x64-Qt6, x64-Qt5, i686-Qt5.
+      - name: make package-win-qt5
+        run: make package-win-qt5
+      # 32-bit Qt5 leg (GH #108 Phase C) — the third and last published
+      # Windows artifact: jnext-<ver>-windows-x86-qt5.zip (Win7 SP1+, 32-bit).
+      - name: make package-win32-qt5
+        run: make package-win32-qt5
       - uses: actions/upload-artifact@v4
         with:
           name: jnext-windows-package
-          path: build/win-release/*.zip
+          path: |
+            build/win-release/*.zip
+            build/win-qt5-release/*.zip
+            build/win32-qt5-release/*.zip
 
   # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
   # DECLARED EXCEPTION to the "every build step is a make target" rule above.

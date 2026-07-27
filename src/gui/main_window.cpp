@@ -1547,6 +1547,17 @@ uint8_t qt_button_to_sdl(Qt::MouseButton b) {
     }
 }
 
+// Qt5/Qt6 (GH #108 Phase A): QMouseEvent::globalPosition() is Qt6
+// QSinglePointEvent API; Qt 5.15 spells the same screen-global point
+// globalPos() (already a QPoint).
+QPoint mouse_global_point(const QMouseEvent* e) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return e->globalPosition().toPoint();
+#else
+    return e->globalPos();
+#endif
+}
+
 } // anonymous namespace
 
 QPoint MainWindow::viewport_centre_global() const {
@@ -1602,7 +1613,7 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
     // from the pointer's absolute position inside the window and so was
     // bounded by the window and anchored to wherever the pointer entered.
     const QPoint centre = viewport_centre_global();
-    const QPoint global = event->globalPosition().toPoint();
+    const QPoint global = mouse_global_point(event);
 
     // Decision lives in pure code (platform/pointer_capture.h) so it is
     // reachable by tests; this handler is not.
@@ -1634,7 +1645,7 @@ void MainWindow::mousePressEvent(QMouseEvent* event) {
         const bool on_viewport =
             emulator_widget_ &&
             emulator_widget_->rect().contains(
-                emulator_widget_->mapFromGlobal(event->globalPosition().toPoint()));
+                emulator_widget_->mapFromGlobal(mouse_global_point(event)));
         if (on_viewport) {
             set_mouse_captured(true);
             event->accept();
