@@ -2939,6 +2939,141 @@ void group23_sram_read_wait28() {
               fmt("n=%d calls=%d wait=%u", n, calls,
                   dma.last_burst_read_wait_tstates()));
     }
+
+    // 23.7 — GH #102 (TX-1696 freeze, session 3; reboot regression, session
+    // 4): ENABLE DMA issued while a GENUINE IM2 device request is pending
+    // must NOT permanently stall the CPU, AND the defer must track the
+    // LIVE im2_.dma_delay() latch (not a value hand-forced once and left
+    // stale). VHDL `dma_holds_bus <= '1' when z80_busak_n = '0'` — the
+    // CPU is bus-stalled ONLY once arbitration has genuinely GRANTED the
+    // bus (Dma::dma_holds_bus(), dma.cpp:90-96), never merely because a
+    // transfer was enabled: `state_==TRANSFERRING` can sit deferred in
+    // Phase::START_DMA indefinitely while dma_delay_ is asserted
+    // (dma.vhd:267-269 — the same gate tests 15.6/20.1 exercise directly
+    // on Dma). Root-caused via a live TX-1696 repro: the game's own
+    // interrupt-driven DMA upload landed mid-RETI, so im2_dma_delay_
+    // (im2.cpp step_dma_delay(), driven by IM2 device S_REQ state — CTC0
+    // in the live repro) was asserted the instant ENABLE fired.
+    //
+    // Session 3's fix (2e16105f) let the CPU keep running during a
+    // deferred ENABLE, but it only re-sampled im2_.dma_delay() into
+    // Dma::set_dma_delay() ONCE PER VIDEO FRAME (begin_new_frame()) — a
+    // staleness explicitly flagged as a known limitation when that
+    // granularity was chosen (doc/design/
+    // TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md, "DMA delay granularity
+    // (Q4, 2026-04-21)": "If a concrete regression... demonstrates a
+    // divergence, we upgrade to per-tick"). Because TX-1696 issues this
+    // same DMA program roughly every ~2500 T-states (hundreds of times
+    // per video frame), a defer that should clear within a handful of
+    // T-states (VHDL zxnext.vhd:2001-2010's im2_dma_delay is a
+    // `rising_edge(i_CLK_CPU)` process) instead persisted for up to a
+    // full video frame, letting far more foreground/interrupt-driven code
+    // run than real hardware ever would while that transfer was nominally
+    // "about to start" — desynchronising a `JP (HL)` jump-table dispatch
+    // from a still-pending DMA-driven update, landing PC in uninitialised
+    // data decoded as a wild RST 38 that soft-reset the machine (NR 0x02
+    // bit 0) and rebooted to the NextZXOS Welcome screen. See
+    // doc/issues/g46b-102-tx1696-freeze-session2.md session 3 and
+    // doc/issues/g46b-102-tx1696-reboot-session4.md session 4.
+    //
+    // This row now drives a GENUINE pending IM2 condition (CTC0 raised to
+    // S_REQ with its dma_int_en bit set) instead of hand-forcing
+    // Dma::set_dma_delay() — the hand-forced value is no longer
+    // representative once step_one_instruction() resamples the LIVE
+    // im2_.dma_delay() every instruction: a stale forced value would be
+    // clobbered on the very next step, which is exactly the fix under
+    // test.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) {
+            check("23.7", "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+        } else {
+            Dma& d = emu.dma();
+            Im2Controller& im2 = emu.im2();
+
+            // Genuine pending cause: CTC0 -> S_REQ with dma_int_en set
+            // (peripherals.vhd:174-184 / zxnext.vhd:1994), exactly like
+            // the live TX-1696 trigger. NR 0xC0 bit 0 selects IM2 hardware
+            // mode first — im2_reset_n gates the im2_int_req latch that
+            // drives the S_0->S_REQ transition (im2.cpp:1113,1131-1140);
+            // without it the device's raw int_req never reaches state,
+            // dma_int_pending() stays false, and im2_.dma_delay() never
+            // latches (caught by this row itself when first written: pc
+            // never advanced because the "genuinely deferred" ENABLE
+            // completed its 1-byte transfer immediately, same-step).
+            emu.nextreg().write(0xC0, 0x01);
+            im2.set_dma_int_en_mask(
+                1u << static_cast<int>(Im2Controller::DevIdx::CTC0));
+            im2.set_int_en(Im2Controller::DevIdx::CTC0, true);
+            im2.raise_req(Im2Controller::DevIdx::CTC0);
+            im2.tick(1);   // CTC0: S_0 -> S_REQ; im2_dma_delay latches true
+
+            emu.mmu().write(0x8000, 0xAB);
+            auto w = [&](uint8_t v) { d.write(v, false); };
+            w(0x7D);
+            w(0x00); w(0x80);            // port A (src) = 0x8000
+            w(0x01); w(0x00);            // len = 1
+            w(0x14);                     // R1: port A memory, increment
+            w(0x10);                     // R2: port B memory, increment
+            w(0xAD);                     // R4: continuous, port B follows
+            w(0x00); w(0x90);            // port B (dst) = 0x9000
+            w(0xCF);                     // LOAD
+            w(0x87);                     // ENABLE
+
+            const bool deferred_before =
+                d.state() == Dma::State::TRANSFERRING && !d.dma_holds_bus();
+
+            // Point PC at a RAM NOP so a genuine CPU step is observable.
+            Z80Registers regs = emu.cpu().get_registers();
+            regs.PC = 0x8100;
+            emu.cpu().set_registers(regs);
+            emu.mmu().write(0x8100, 0x00);   // NOP
+
+            // CTC0 is still at S_REQ (never serviced) -> the defer must
+            // still hold on this step; the CPU must still run normally.
+            emu.execute_single_instruction();
+            const uint16_t pc_after = emu.cpu().get_registers().PC;
+            const bool cpu_ran = (pc_after == 0x8101);
+            const bool dma_still_deferred =
+                d.state() == Dma::State::TRANSFERRING && !d.dma_holds_bus();
+
+            // Service the pending condition: clear CTC0's dma_int_en bit
+            // (peripherals.vhd:174-184's dma_int_en term), which is
+            // sufficient to bring dma_int_pending() false without also
+            // replaying group20's DMA-03 RETI/SRL self-hold-window timing
+            // (dma_delay_ctrl_, im2.cpp:928-932) — that self-hold is
+            // already independently pinned by DMA-03 itself; this row
+            // never opens the RETI decode window, so the self-hold term
+            // (im2_dma_delay_latched_ AND dma_delay_ctrl_) stays false
+            // throughout and im2_.dma_delay() clears on the very next
+            // tick once dma_int_pending() does.
+            im2.set_dma_int_en_mask(0);
+            im2.tick(1);
+
+            emu.execute_single_instruction();
+            const bool dma_completed =
+                d.state() == Dma::State::IDLE
+                    && emu.mmu().read(0x9000) == 0xAB;
+
+            check("23.7",
+                  "ENABLE DMA while a genuine IM2 device request is "
+                  "pending: CPU keeps executing normally (not permanently "
+                  "stalled) while step_one_instruction() resamples the "
+                  "LIVE im2_.dma_delay() every instruction; transfer "
+                  "completes once the device is serviced (GH #102 "
+                  "TX-1696 freeze+reboot fix)",
+                  deferred_before && cpu_ran && dma_still_deferred
+                      && dma_completed,
+                  fmt("deferred_before=%d cpu_ran=%d(pc=%04x) "
+                      "dma_still_deferred=%d dma_completed=%d",
+                      deferred_before, cpu_ran, pc_after,
+                      dma_still_deferred, dma_completed));
+        }
+    }
 }
 
 }  // namespace

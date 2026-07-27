@@ -30,4 +30,4 @@ Press **F5** to carry on from there.
 Step Back is greyed out when the trace log is off, when the buffer is empty, or
 during RZX playback. If a snapshot ever fails to restore cleanly, JNEXT says so
 loudly and pauses rather than continuing on a half-restored machine; reset the
-machine (**Machine ▸ Reset**) to recover.
+machine (**Machine ▸ Power Reset**) to recover.

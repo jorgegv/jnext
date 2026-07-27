@@ -335,6 +335,22 @@ committing — usually it points at one of:
   This is the theatre-failure mode §8 exists to prevent — re-read the plan
   and re-add the assertion before committing the refresh.
 
+The **`unrec`** column is the same signal in the other direction (GH #117):
+rows the test source asserts that the matrix does not list *anywhere*. Until
+that column existed the script could only ever see rows the matrix already
+had, so every row added since the matrix was last extended by hand was
+silently unrecorded — and a whole suite with no section here was invisible
+too, which the "UNMAPPED SUITES" list now reports.
+
+**The script exits non-zero when either list is non-empty.** That is not a
+crash and it does not mean the refresh was skipped: the matrix is rewritten
+first, and the non-zero status says "refreshed, and it still under-records —
+here is the backlog". Rows are reported and never auto-added, because the
+description that makes a matrix row worth having cannot be derived from the
+test source, and a row whose only human-readable field is `—` would make the
+count look right while recording nothing. Close the backlog by adding the
+rows (and sections) by hand.
+
 The script's input assumptions:
 
 - Test source files are at `test/<sub>/<sub>_test.cpp` with one file per

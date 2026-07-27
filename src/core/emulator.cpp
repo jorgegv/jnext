@@ -544,9 +544,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.clear_handlers();
     port_.clear_io_observers();
 
-    // Floating bus: unmatched port reads return ULA bus value in 48K/128K modes.
-    port_.set_default_read([this](uint16_t) -> uint8_t {
-        return floating_bus_read();
+    // Genuinely undecoded port reads return X"FF" (GH #109).
+    // VHDL zxnext.vhd:1868-1878 — the IORQ arm of the cpu_di mux: when no
+    // internal port decode responds (`port_internal_rd_response = '0'`,
+    // :2803-2806) and no expansion-bus device drives the bus (jnext models
+    // none), `cpu_di <= X"FF"` — unconditionally, in EVERY machine timing.
+    // The Timex/floating-bus mux (:2813) is scoped to `port_ff_rd` only
+    // (LSB-0xFF decode, :2583) and is served by the registered port-0xFF
+    // read handler below — it must never leak into other unmatched ports.
+    port_.set_default_read([this](uint16_t port) -> uint8_t {
+        const uint8_t val = 0xFF;
+        // G46(b) #102 session 3 probe (env-gated, zero cost when unset).
+        if (g46b_port_trace_file_) {
+            std::fprintf(g46b_port_trace_file_, "%ld,%04x,%04x,%02x\n",
+                g46b_port_trace_frame_, cpu_.get_registers().PC, port, val);
+        }
+        return val;
     });
 
     // ── Multiface port dispatch (Wave 1 B2 — TASK-8-MULTIFACE-PLAN.md) ──
@@ -637,10 +650,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // updates BEFORE the read handler runs — see PortDispatch::read).
     //
     // When the gate is closed (MF disabled / wrong mode / invisible_eff=1)
-    // the handler falls back to the floating-bus default, mirroring VHDL's
-    // `port_mf_rd_dat <= ... else X"00"` OR'd into `port_rd_dat` (the bus
-    // is otherwise driven by Profi-DAC-WRITE-only at this LSB, so reads
-    // see floating bus on real hardware).
+    // the handler returns 0xFF: with mf_port_en=0 no internal decode
+    // responds at these LSBs (Profi DAC owns only the WRITE half), so
+    // `port_internal_rd_response=0` and the cpu_di mux falls to
+    // `cpu_di <= X"FF"` (zxnext.vhd:1877; GH #109 — pre-fix these
+    // fallbacks called floating_bus_read(), the port-0xFF-only mux).
 
     // ── MF+3 readback at LSB 0x3F (mf_type=00) — case mux on cpu_a(15:12) ──
     port_.register_handler(0x00FF, 0x003F,
@@ -648,7 +662,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (!multiface_.is_enabled() ||
                 multiface_.mf_type() != 0x00 ||  // MF+3 only (case "00")
                 multiface_.invisible_eff()) {
-                return floating_bus_read();
+                return 0xFF;  // undecoded — cpu_di <= X"FF" (zxnext.vhd:1877)
             }
             const uint8_t a_high = static_cast<uint8_t>((cpu_a >> 12) & 0x0F);
             switch (a_high) {
@@ -711,7 +725,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (!multiface_.is_enabled() ||
                 multiface_.invisible_eff() ||
                 multiface_.mf_type() != 0x01) {  // MF128 var A only
-                return floating_bus_read();
+                return 0xFF;  // undecoded — cpu_di <= X"FF" (zxnext.vhd:1877)
             }
             // MF128 readback (VHDL :4319): port_7ffd_reg(3) & 0x7F.
             const uint8_t shadow_bit =
@@ -732,7 +746,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (!multiface_.is_enabled() ||
                 multiface_.invisible_eff() ||
                 multiface_.mf_type() != 0x02) {  // MF128 var B only
-                return floating_bus_read();
+                return 0xFF;  // undecoded — cpu_di <= X"FF" (zxnext.vhd:1877)
             }
             // MF128 readback (VHDL :4319): port_7ffd_reg(3) & 0x7F.
             const uint8_t shadow_bit =
@@ -3997,10 +4011,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t port) -> uint8_t {
             // 0x2FFD READ — trap (VHDL:3835 port_2ffd_rd term).
             // When NR 0xD8 bit 0 is off, VHDL's `port_2ffd` decode is
-            // false and the access falls through to floating-bus /
-            // open-bus behaviour. We mirror that by returning 0xFF
-            // only when the gate is on (FDC not modelled); otherwise
-            // surface the floating-bus value via Mmu::floating_bus_read.
+            // false, no other internal decode responds at this address,
+            // and the read falls to `cpu_di <= X"FF"` (zxnext.vhd:1877;
+            // GH #109 — pre-fix returned floating_bus_read(), the
+            // port-0xFF-only mux). Gate on: FDC unmodelled → 0xFF too.
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
                 // VHDL zxnext.vhd:3871-3873 — port_2ffd_rd → cause "01"
@@ -4010,7 +4024,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 }
                 return 0xFF;  // FDC data port — open bus, FDC unmodelled.
             }
-            return floating_bus_read();
+            return 0xFF;  // undecoded — cpu_di <= X"FF" (zxnext.vhd:1877)
         },
         nullptr);  // 0x2FFD WRITE: VHDL-only port_2ffd_wr is NOT an iotrap source.
     port_.register_handler(0xF003, 0x3001,
@@ -4025,7 +4039,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 }
                 return 0xFF;
             }
-            return floating_bus_read();
+            return 0xFF;  // undecoded — cpu_di <= X"FF" (zxnext.vhd:1877)
         },
         [this](uint16_t, uint8_t v) {
             // 0x3FFD WRITE — trap (VHDL:3835 port_3ffd_wr term).
@@ -4242,7 +4256,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //          (vram_a bit 13, zxula.vhd:218,235).
     //        bits 5:3 = HI_RES paper colour (zxula.vhd:419 — encoded as
     //                   border_clr_tmx <= "01" & ~port_ff(5:3) & port_ff(5:3)).
-    // Read is not implemented on real hardware; omit read handler.
+    // Read IS decoded on real hardware: `port_ff_rd <= iord and port_ff`
+    // (zxnext.vhd:2713 — NOT gated by port_ff_io_en, unlike the write at
+    // :2714) always asserts `port_internal_rd_response` (:2803), and the
+    // read-data mux at :2813 selects Timex reg / ULA floating bus / 0xFF.
+    // That mux is implemented by Emulator::floating_bus_read(), registered
+    // HERE as the port's read handler (GH #109 — pre-fix it was wired as
+    // the catch-all default for every unmatched port instead, leaking the
+    // Timex/floating-bus mux into genuinely undecoded ports).
     // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0) = NR 0x82 bit 0.
     //
     // V17-NMP-03 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2540-2571 +
@@ -4252,7 +4273,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // would update Timex screen-mode register on real hardware but not in
     // jnext. Fix: change mask to 0x00FF / val 0x00FF (LSB-only match).
     port_.register_handler(0x00FF, 0x00FF,
-        nullptr,
+        [this](uint16_t) -> uint8_t { return floating_bus_read(); },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x82) & 0x01) == 0) return;
             // VHDL zxnext.vhd:3615-3616 — port_ff_wr branch latches
@@ -4305,10 +4326,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                          else X"FF";
     //
     // Cases consumed by this handler:
-    //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') →
-    //     port_p3_float_rd_dat = X"00" (zxnext.vhd:2814).
+    //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') → 0xFF.
     //   - port_p3_floating_bus_io_en=0 (NR 0x82 bit 4 cleared,
-    //     zxnext.vhd:2403): decode blocked → 0x00.
+    //     zxnext.vhd:2403): decode blocked → 0xFF.
+    //     GH #111: with the decode blocked, port_p3_float='0' (:2589),
+    //     so the strobe port_p3_float_rd <= iord and port_p3_float
+    //     (:2716) never asserts, port_internal_rd_response stays low
+    //     (:2803-2806 — no other listed strobe decodes 0x0FFD; the
+    //     port_7ffd decode that captures 0x0FFD on non-+3 timing is
+    //     write-only), and the cpu_di IORQ mux delivers its
+    //     unconditional default cpu_di <= X"FF" (:1877). The X"00" at
+    //     :2814 is only the wired-OR contribution into port_rd_dat
+    //     (:2837), never CPU-visible without its own strobe.
     //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517).
     //   - +3 + io_en=1 + port_7ffd_locked='0': ula_floating_bus, with
     //     two sub-arms:
@@ -4316,8 +4345,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //         floating_bus_r (last VRAM byte the ULA fetched) with bit 0
     //         OR'd with i_timing_p3 — i.e. bit 0 forced high on +3.
     //       * Border / non-active: i_p3_floating_bus = the contended-CPU
-    //         latch (Mmu::p3_floating_bus_dat()) — bit 0 also OR'd with
-    //         i_timing_p3 on +3 by the same expression.
+    //         latch (Mmu::p3_floating_bus_dat()) returned RAW.
+    //         GH #112: zxula.vhd:573 is a conditional signal assignment
+    //         (LRM 10.5.3) — an ordered priority chain of independent
+    //         waveforms. The `or i_timing_p3` term sits inside the
+    //         parenthesised concatenation of the FIRST waveform only;
+    //         the second waveform is the bare signal name
+    //         `i_p3_floating_bus`, with no operator applied. Its sole
+    //         driver (zxnext.vhd:4478 port map → the clocked process at
+    //         :4499-4508) latches cpu_di / cpu_do verbatim, so bit 0 is
+    //         whatever the CPU bus carried. Forcing it here was a
+    //         deviation.
     //
     // Verify9-memory class-(c) → class-(a) fix: pre-fix the handler
     // unconditionally returned the contended-CPU latch (border arm).
@@ -4337,9 +4375,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // one-hot mirror of `machine_timing_p3` (VHDL :1283); using
             // `config_.type` would silently mis-decode when NR 0x03 is
             // written with `tim_sel != typ_sel`.
-            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0x00;
+            // GH #111: blocked decode → no read strobe (:2716) → no
+            // port_internal_rd_response (:2803-2806) → cpu_di default
+            // X"FF" (:1877), NOT the :2814 wired-OR X"00".
+            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0xFF;
             // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
-            if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0xFF;
             // VHDL zxnext.vhd:4517 — gates on `port_7ffd_locked` (the
             // EFFECTIVE lock signal at VHDL :3769), not the raw
             // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11
@@ -4356,9 +4397,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (ula_floating_bus_active_arm(active_byte)) {
                 return static_cast<uint8_t>(active_byte | 0x01);
             }
-            // Border / non-active: i_p3_floating_bus arm (the contended
-            // CPU r/w latch, Mmu::p3_floating_bus_dat()), bit 0 forced.
-            return static_cast<uint8_t>(mmu_.p3_floating_bus_dat() | 0x01);
+            // VHDL zxula.vhd:573 second arm — border / non-active:
+            // `i_p3_floating_bus` RAW. GH #112: the `or i_timing_p3`
+            // bit-0 force is scoped to the first waveform (active
+            // display) only; this arm is a bare signal reference whose
+            // driver (zxnext.vhd:4478 → :4499-4508) stores cpu_di /
+            // cpu_do unmodified.
+            return mmu_.p3_floating_bus_dat();
         },
         nullptr);
 
@@ -5465,7 +5510,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // contract. Fix: pass `nullptr` for the read callback, mirroring the
     // pattern used for port 0x001F / 0x0037 (Kempston joystick — read-only,
     // unused-write nullptr) but inverted (write-only, unused-read nullptr).
-    // Falls through to `default_read_` (floating bus 0xFF in jnext).
+    // Falls through to `default_read_` (undecoded default 0xFF in jnext).
     port_.register_handler(0x00FF, 0x00E7,
         nullptr,
         [this](uint16_t, uint8_t val) {
@@ -6819,13 +6864,14 @@ void Emulator::begin_new_frame()
     // run_frame() only when a new frame is actually beginning — never when resuming a
     // frame the debugger paused mid-way. See the guard at its call site.
 
-    // Per-frame sample of the IM2 DMA-delay latch into the DMA peripheral.
-    // VHDL zxnext.vhd:2001-2010 models this as a per-CPU-clock latch, but
-    // the jnext architecture runs the DMA start-gate check coarsely, so a
-    // per-frame sample (user-resolved decision 2026-04-21, option A) is
-    // adequate for the currently-covered test rows (DMA-01/02/03/05, NR CC/CD/CE-01).
-    // Finer-grain wiring can be revisited if a specific workload requires it.
-    dma_.set_dma_delay(im2_.dma_delay());
+    // GH #102 session 4 — the once-per-frame sample of the IM2 DMA-delay
+    // latch (user-resolved decision 2026-04-21, option A: "adequate...
+    // finer-grain wiring can be revisited if a specific workload requires
+    // it") was superseded by a per-instruction resample in
+    // step_one_instruction() once TX-1696 demonstrated the coarse
+    // granularity causing wild execution (see that call site for the full
+    // citation). No sample is needed here: the per-instruction call runs
+    // before any DMA/CPU work happens in the frame's first instruction too.
     // Snapshot at frame boundary — scheduler queue is empty here, which is
     // required for correct serialisation (no pending events to save).
     if (rewind_buffer_ && rewind_enabled_ && !replay_mode_) {
@@ -7410,19 +7456,102 @@ uint64_t Emulator::step_one_instruction()
     // drifted (missing im2_.tick(), both /INT polls, md6_.tick() and
     // the trace record), silently dropping interrupts while stepping.
     uint64_t master_cycles;
+    bool dma_stalled_cpu_this_step = false;
 
-    if (dma_.is_active()) {
-        // DMA takes the bus — CPU is stalled.
-        // Execute a burst of transfers; each byte ≈ 2 T-states.
+    // GH #102 session 4 — resample the LIVE im2_.dma_delay() latch every
+    // instruction, not once per video frame. VHDL zxnext.vhd:2001-2010
+    // drives im2_dma_delay from a `rising_edge(i_CLK_CPU)` process — it
+    // updates every CPU clock, and Im2Controller::step_dma_delay() (called
+    // from im2_.tick(), itself called once per instruction below) already
+    // tracks that value with per-instruction freshness. Before this fix,
+    // only begin_new_frame() ever called dma_.set_dma_delay(im2_.dma_delay()),
+    // once per ~70000+ T-state video frame; the GH #102 fix (2e16105f) that
+    // let the CPU keep running during a deferred ENABLE made that staleness
+    // directly observable for the first time: a genuinely brief real-
+    // hardware defer (im2_dma_int clearing within a handful of T-states
+    // once the pending device is serviced) instead persisted for up to a
+    // full video frame in jnext, because dma_delay_ could not refresh mid-
+    // frame. TX-1696's own interrupt-driven, per-frame "DMA memory-copy via
+    // HL/DE/BC" utility runs roughly every ~2500 T-states — hundreds of
+    // times inside a single video frame — so an artificially-elongated
+    // defer let vastly more foreground/interrupt-driven code execute than
+    // real hardware ever would while that specific transfer was nominally
+    // "about to start", desynchronising a `JP (HL)` jump-table dispatch
+    // from a still-pending DMA-driven update and landing PC in
+    // uninitialised data — decoded by the CPU as a wild RST 38, which
+    // wrote NR 0x02 bit 0 (soft reset) and rebooted to the NextZXOS
+    // Welcome screen. This was flagged as a known, deliberate limitation
+    // when the once-per-frame sample was introduced (`doc/design/
+    // TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md` "Resolved open
+    // question — DMA delay granularity (Q4, 2026-04-21)": "If a concrete
+    // regression or new software later demonstrates a divergence, we
+    // upgrade to per-tick in a targeted follow-up") — TX-1696 is that
+    // regression. begin_new_frame()'s once-per-frame call is now
+    // superseded (this per-instruction call runs first in every frame
+    // too) and has been removed.
+    dma_.set_dma_delay(im2_.dma_delay());
+
+    if (dma_.state() == Dma::State::TRANSFERRING) {
+        // Progress the DMA (and its arbitration FSM, dma.cpp
+        // tick_arbitration()) every step a transfer is enabled, regardless
+        // of whether the bus has actually been granted yet — mirrors real
+        // hardware, where BUSRQ can be asserted for multiple cycles before
+        // BUSAK is granted.
         int transferred = dma_.execute_burst(16);
-        // GH #106 — add the 28 MHz SRAM read wait accumulated by the
-        // burst's source memory reads (zxnext.vhd:3171-3181 via the
-        // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
-        // waiting read, 0 at cpu_speed != 3).
-        master_cycles = (static_cast<uint64_t>(transferred) * 2
-                         + dma_.last_burst_read_wait_tstates())
-                        * clock_.cpu_divisor();
-        if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+
+        // GH #102 fix (was: `if (dma_.is_active())` gating the whole
+        // branch). VHDL zxnext.vhd `dma_holds_bus <= '1' when
+        // z80_busak_n = '0'` — the CPU is bus-stalled ONLY once the
+        // arbitration handshake has genuinely GRANTED the bus
+        // (Dma::dma_holds_bus(), dma.cpp:90-96), not merely because a
+        // transfer was enabled: `state_==TRANSFERRING` can sit deferred in
+        // Phase::START_DMA indefinitely (dma_delay_/daisy_busy_/
+        // bus_busreq_n_ gate, dma.vhd:267-269 — tested by dma_test.cpp
+        // 15.4-15.6/20.1, which assert `cpu_busreq_n()==true` for exactly
+        // this case). `is_active()` returned true across BOTH cases,
+        // unconditionally taking this fast path and skipping the CPU
+        // instruction below — which also skips im2_.tick() further down
+        // (only reachable from the normal-instruction branch), so the IM2
+        // device state machine that can clear the `im2_dma_delay_` latch's
+        // own OR-term (`dma_int_pending()`, im2.cpp step_dma_delay()) never
+        // runs either: a permanent deadlock the CPU can never resolve
+        // because it is never allowed to execute the interrupt-service
+        // routine that would resolve it. Root-caused via TX-1696 (GH
+        // #102) — see doc/issues/g46b-102-tx1696-freeze-session2.md
+        // session 3 for the full trace (CTC0's IM2 device stuck at S_REQ,
+        // `im2_dma_delay_latched_` permanently true, DMA counter frozen at
+        // its post-LOAD value forever). While merely deferred the CPU (and
+        // im2_.tick()/CTC/UART ticking) must keep running normally below —
+        // that is the only way a dma_delay_-gated defer can ever clear.
+        //
+        // `transferred > 0` covers the common case where the WHOLE burst
+        // (up to 16 bytes) completes within this single execute_burst()
+        // call: the loop's own end-of-block handling already released the
+        // bus (state_=IDLE, cpu_busreq_n_=true) by the time control
+        // returns here, so dma_holds_bus() alone would read false even
+        // though the DMA genuinely held the bus for `transferred` bytes
+        // this step (dma_test.cpp 23.1-23.3 pin the resulting T-state
+        // cost). dma_holds_bus() alone still covers the two zero-byte
+        // "held but stalled" cases current tests already pin: continuous/
+        // byte-mode prescaler wait (in_waiting_cycles_, mode_ != 2 —
+        // cpu_busreq_n_ untouched, bus stays held) and the very first
+        // granted-but-empty-block edge case.
+        if (transferred > 0 || dma_.dma_holds_bus()) {
+            // Execute a burst of transfers; each byte ≈ 2 T-states.
+            // GH #106 — add the 28 MHz SRAM read wait accumulated by the
+            // burst's source memory reads (zxnext.vhd:3171-3181 via the
+            // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
+            // waiting read, 0 at cpu_speed != 3).
+            master_cycles = (static_cast<uint64_t>(transferred) * 2
+                             + dma_.last_burst_read_wait_tstates())
+                            * clock_.cpu_divisor();
+            if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+            dma_stalled_cpu_this_step = true;
+        }
+    }
+
+    if (dma_stalled_cpu_this_step) {
+        // master_cycles already computed above.
     } else if (boot_hold_frames_remaining_ > 0) {
         // G156 — NEX loading_delay/start_delay hold: no CPU instruction
         // is fetched or executed. Advance the clock in small NOP-sized
@@ -8457,11 +8586,14 @@ uint8_t Emulator::floating_bus_read() const
     //
     // Branch A (TASK3-FLOATING-BUS-SKIP-REDUCTION-PLAN.md): wire the
     // per-machine gate, the NR 0x08 b2 Timex override, and the NR 0x82 b0
-    // `port_ff_io_en` gate that collapses the Timex arm. The default-port
-    // dispatch site at init() routes ALL unmatched port reads here, which
-    // is wider than VHDL's port_ff-only mux; the floating-bus content we
-    // synthesise is still meaningful for those calls because the bus
-    // settles to whatever ULA is driving when no decoder responds.
+    // `port_ff_io_en` gate that collapses the Timex arm.
+    //
+    // GH #109: this function is the read handler of the LSB-0xFF port
+    // registration (mask 0x00FF / value 0x00FF at init()), matching the
+    // VHDL scope exactly: `port_ff <= '1' when cpu_a(7:0) = X"FF"`
+    // (zxnext.vhd:2571+2583). It is NO LONGER the catch-all default for
+    // unmatched ports — a genuinely undecoded port read returns X"FF"
+    // via the dispatch default (zxnext.vhd:1877).
 
     // ---- 1. Timex arm: NR 0x08 bit 2 + NR 0x82 bit 0 (VHDL :2813, :2397) ----
     //

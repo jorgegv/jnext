@@ -22,7 +22,7 @@ right-hand edge as you drag or resize that window; the setting is remembered
 between sessions. This needs a window system that lets an application position
 its own windows, so it works on **X11** and is unavailable on **Wayland**,
 where the menu item is greyed out — see
-[8.3](../08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.md)
+[8.2](../08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.md)
 for why, and how to run under X11 if you want it.
 
 ![The debugger window](../img/debugger-window.png)
@@ -31,6 +31,13 @@ The layout is fixed: video-related tabs on the top left, disassembly in the
 centre, CPU registers and MMU down the right, and memory/stack tabs and
 watch/breakpoint tabs along the bottom. The splitters between the areas can be
 dragged.
+
+The window itself can be made smaller than the panels need. When it is, the
+panel area gains scrollbars and pans instead of cutting anything off, and the
+control toolbar along the bottom stays put — buttons that no longer fit move
+into a **»** overflow menu at its right-hand end. The size is remembered
+between sessions, and is clamped to the screen it reopens on, so a window saved
+on a large monitor never comes back unreachable on a small one.
 
 Four panels — CPU Registers, Disassembly, Stack and Call Stack — only show data
 while the machine is **paused**, and are greyed out while it runs. That is

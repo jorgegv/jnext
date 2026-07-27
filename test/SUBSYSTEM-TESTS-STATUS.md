@@ -31,16 +31,16 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card               |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      209 |      209 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Compositor            |      228 |      228 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Compositor            |      231 |      231 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Floating Bus          |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
-| I/O Port Dispatch     |      111 |      111 |      0 |       0 |    100% | 🟢 All tests pass. |
+| I/O Port Dispatch     |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      138 |      138 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -63,8 +63,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DMA                   |      156 |      156 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DMA                   |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap               |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -82,6 +82,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5688** | **5688** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **5724** | **5724** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

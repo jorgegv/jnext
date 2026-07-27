@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <memory>
 #include <string>
@@ -541,10 +542,22 @@ public:
     /// Returns true on success.
     bool rewind_to_frame(uint32_t frame_num);
 
-    /// Floating bus read — returns the byte the ULA is currently fetching
-    /// from VRAM at this T-state position. Only active in 48K/128K modes.
-    /// Returns 0xFF when outside active display or in Next/Pentagon modes.
+    /// Port 0xFF read mux (VHDL zxnext.vhd:2813) — Timex register when
+    /// NR 0x08 b2 + NR 0x82 b0 are set, else the ULA floating bus in
+    /// 48K/128K timing (byte being fetched from VRAM at this T-state),
+    /// else 0xFF (border / +3 / Pentagon / Next timing). Registered as
+    /// the READ handler of the LSB-only 0x00FF port decode (zxnext.vhd:
+    /// 2583) — GH #109: NOT a default for unmatched ports; those return
+    /// 0xFF per zxnext.vhd:1877.
     uint8_t floating_bus_read() const;
+
+    /// G46(b) #102 session 3 probe (env-gated, zero cost when unset): log
+    /// every port read served by PortDispatch's DEFAULT (no handler
+    /// matched) path — PC, port, returned value, frame. Frame number is
+    /// supplied by the caller once per frame via set_g46b_port_trace_frame()
+    /// since Emulator has no frame counter of its own.
+    void set_g46b_port_trace(std::FILE* f) { g46b_port_trace_file_ = f; }
+    void set_g46b_port_trace_frame(long frame) { g46b_port_trace_frame_ = frame; }
 
     /// VHDL-faithful `ula_floating_bus` active-arm helper (zxula.vhd:573).
     /// Computes the VRAM byte the ULA is fetching at the current raster
@@ -1061,6 +1074,12 @@ private:
     /// first cycle does not spuriously latch an NMI. See
     /// TASK-NMI-SOURCE-PIPELINE-PLAN.md §Phase 1.
     bool prev_nmi_generate_n_ = true;
+
+    /// G46(b) #102 session 3 probe state (env-gated via
+    /// set_g46b_port_trace()/set_g46b_port_trace_frame(); zero cost when
+    /// the FILE* is null — single pointer check at the call site).
+    std::FILE* g46b_port_trace_file_ = nullptr;
+    long       g46b_port_trace_frame_ = 0;
 
     /// NR 0x08 bits 5..0 mirror for read-back composition per VHDL
     /// zxnext.vhd:5906. Bit 7 is write-strobe-only (derived from paging

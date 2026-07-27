@@ -99,6 +99,10 @@ public:
     ///                                      it previously caused a heap
     ///                                      corruption crash for exactly
     ///                                      this reason (see attribute_mux.h)
+    ///   PaletteManager::change_log_ SAFE — growable vector (GH #110) but
+    ///                                      deliberately NOT serialised;
+    ///                                      per-frame transient, cleared at
+    ///                                      start_frame
     ///
     /// Everything else writes std::array / fixed-extent buffers, whose
     /// .size() is a compile-time constant.

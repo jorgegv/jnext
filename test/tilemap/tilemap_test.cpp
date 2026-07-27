@@ -686,11 +686,22 @@ void group5_textmode() {
     // then bit 7. Pattern 0xAA = 10101010 → src pixels 0,2,4,6 = 1;
     // 1,3,5,7 = 0. G104 phase 4 (40-col doubled): each src pixel emits
     // into TWO output cells, so:
-    //   dst[0,1] = lit, dst[2,3] = 0, dst[4,5] = lit, dst[6,7] = 0.
-    // VHDL: tilemap.vhd:385-386.
+    //   dst[0,1] = ink, dst[2,3] = paper, dst[4,5] = ink, dst[6,7] = paper.
+    //
+    // GH #113 CORRECTION. This row previously asserted the paper cells were
+    // 0 (transparent). That matched the C++ (which skipped `pixel_4bit == 0`
+    // in text mode) but NOT the VHDL: tilemap.vhd:429 makes pixel_en_f
+    // collapse to pixel_en_s whenever pixel_textmode_s = '1', so the
+    // index-transparency test at tilemap.vhd:427 is bypassed and BOTH
+    // half-bits emit a pixel. attr = 0x00 → pal_offset 0 → ink index
+    // (0<<1)|1 = 0x01, paper index (0<<1)|0 = 0x00 (tilemap.vhd:386).
+    // Both palette entries are painted distinctly so the assertion cannot
+    // pass on a defaulted/zero lookup.
+    // VHDL: tilemap.vhd:385-386 (extraction), 427/429 (text-mode enable).
     {
         fresh(tm, pal, ram);
-        paint_tm_palette_entry(pal, 0x01, 0xE0);
+        paint_tm_palette_entry(pal, 0x01, 0xE0);   // ink
+        paint_tm_palette_entry(pal, 0x00, 0x03);   // paper — distinct, non-zero
         fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0xAA);
         write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
         tm.set_control(0x88);
@@ -698,14 +709,14 @@ void group5_textmode() {
         check_pred("TM-41",
                    s.pixels[0] == pal.tilemap_colour(0x01) &&
                    s.pixels[1] == pal.tilemap_colour(0x01) &&
-                   s.pixels[2] == 0 &&
-                   s.pixels[3] == 0 &&
+                   s.pixels[2] == pal.tilemap_colour(0x00) &&
+                   s.pixels[3] == pal.tilemap_colour(0x00) &&
                    s.pixels[4] == pal.tilemap_colour(0x01) &&
                    s.pixels[5] == pal.tilemap_colour(0x01) &&
-                   s.pixels[6] == 0 &&
-                   s.pixels[7] == 0,
+                   s.pixels[6] == pal.tilemap_colour(0x00) &&
+                   s.pixels[7] == pal.tilemap_colour(0x00),
                    "VHDL tilemap.vhd:385-386 — shift_left(mem, abs_x(2:0))(7); "
-                   "G104 40-col doubled into 2-cell pairs");
+                   "429 — text mode emits paper too; G104 40-col 2-cell pairs");
     }
 
     // TM-42: 7-bit palette offset + 1-bit pixel. attr = 0x42 → bits 7:1 =
@@ -728,11 +739,21 @@ void group5_textmode() {
     // Both columns must show a lit pixel at screen x=0 of their tile.
     // G104 phase 4: 40-col doubles each src pixel — tile-0 src pixel 0
     // → dst[0,1]; tile-1 src pixel 8 (= screen x=8 in 320-grid) → dst[16,17].
-    // VHDL: tilemap.vhd:386 — transforms not used on the textmode path.
+    //
+    // GH #113 CORRECTION (same cause as TM-41): the trailing cells hold the
+    // tile's PAPER colour, not transparency — tilemap.vhd:429 bypasses the
+    // index-transparency test in text mode. attr 0x00 → paper index 0x00;
+    // attr 0x0E → pal_offset 0x07 → ink 0x0F, paper 0x0E. Asserting the two
+    // DIFFERENT paper indices also keeps the row's original discriminative
+    // power over the 7-bit palette-offset decode.
+    // VHDL: tilemap.vhd:386 — transforms not used on the textmode path;
+    //       tilemap.vhd:429 — text mode emits every in-window pixel.
     {
         fresh(tm, pal, ram);
         paint_tm_palette_entry(pal, 0x01, 0xE0);
         paint_tm_palette_entry(pal, 0x0F, 0x03);
+        paint_tm_palette_entry(pal, 0x00, 0x1C);   // tile-0 paper
+        paint_tm_palette_entry(pal, 0x0E, 0x60);   // tile-1 paper (distinct)
         fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0x80);   // only leftmost bit
         write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
         write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 1, 0x0E);
@@ -743,10 +764,13 @@ void group5_textmode() {
                    s.pixels[1]  == pal.tilemap_colour(0x01) &&
                    s.pixels[16] == pal.tilemap_colour(0x0F) &&
                    s.pixels[17] == pal.tilemap_colour(0x0F) &&
-                   s.pixels[2] == 0 && s.pixels[3] == 0 &&
-                   s.pixels[18] == 0 && s.pixels[19] == 0,
+                   s.pixels[2]  == pal.tilemap_colour(0x00) &&
+                   s.pixels[3]  == pal.tilemap_colour(0x00) &&
+                   s.pixels[18] == pal.tilemap_colour(0x0E) &&
+                   s.pixels[19] == pal.tilemap_colour(0x0E),
                    "VHDL tilemap.vhd:386 — attr(3..1) belong to palette offset "
-                   "in textmode, not transform controls; G104 40-col 2-cell pairs");
+                   "in textmode, not transform controls; 429 — paper emitted; "
+                   "G104 40-col 2-cell pairs");
     }
 
     // TM-44 — COVERED AT COMPOSITOR TIER (not a skip).  Text-mode RGB
@@ -1271,6 +1295,91 @@ void group10_transparency() {
     // TM-93 — COVERED AT COMPOSITOR TIER (not a skip).  Textmode RGB
     // transparency (zxnext.vhd:7109) is verified at
     // test/compositor/compositor_test.cpp row TR-20.
+
+    // ── GH #113: text mode bypasses the INDEX transparency test ──────────
+    //
+    // VHDL tilemap.vhd:427,429:
+    //   pixel_en_standard_s <= '1' when pixel_en_s = '1'
+    //                          and (video_data(3 downto 0) /= transp_colour_i);
+    //   pixel_en_f <= (pixel_en_standard_s and not pixel_textmode_s)
+    //                 or (pixel_en_s and pixel_textmode_s);
+    // With pixel_textmode_s = '1' the left term is masked off and pixel_en_f
+    // collapses to pixel_en_s — the clip/window gate alone.  So in text mode
+    // EVERY in-window pixel is emitted, paper (bit 0) included, and NR 0x4C
+    // has no effect at all.  jnext used to drop text-mode paper pixels, which
+    // made the NextZXOS CP/M 80-column screen transparent over its whole
+    // paper area and let leftover ULA content show through (GH #113).
+
+    // TM-96: an all-paper text-mode tile emits an opaque run — no cell is
+    // transparent, and every cell carries the paper index (attr[7:1]<<1)|0.
+    // 40-col doubling: one 8-pixel tile fills output cells 0..15.
+    // VHDL: tilemap.vhd:386 (paper index), 429 (text mode emits it).
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x00, 0x1C);          // paper, distinct
+        fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0x00);   // every bit = paper
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00); // attr 0 → offset 0
+        tm.set_control(0x88);                             // enable + textmode
+        auto s = render_line(tm, 0, ram, pal);
+        bool all_paper = true;
+        for (int i = 0; i < 16; ++i)
+            if (s.pixels[i] != pal.tilemap_colour(0x00)) all_paper = false;
+        check_pred("TM-96", all_paper,
+              "VHDL tilemap.vhd:429 — text mode emits paper pixels opaque; "
+              "an all-paper tile is a solid run, never transparent");
+    }
+
+    // TM-97: the paper index is the tile's own (attr[7:1]<<1)|0 — not 0 and
+    // not the ink index.  attr 0xFE → pal_offset 0x7F → ink 0xFF, paper 0xFE.
+    // Pattern 0xAA alternates, so ink and paper must alternate in 2-cell
+    // pairs with two DIFFERENT palette entries.
+    // VHDL: tilemap.vhd:386 — textmode pixel = tilemap_1(7 downto 1) & bit.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0xFF, 0xE0);   // ink
+        paint_tm_palette_entry(pal, 0xFE, 0x03);   // paper
+        fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0xAA);
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0xFE);
+        tm.set_control(0x88);
+        auto s = render_line(tm, 0, ram, pal);
+        check_pred("TM-97",
+                   s.pixels[0] == pal.tilemap_colour(0xFF) &&
+                   s.pixels[2] == pal.tilemap_colour(0xFE) &&
+                   s.pixels[4] == pal.tilemap_colour(0xFF) &&
+                   s.pixels[6] == pal.tilemap_colour(0xFE) &&
+                   pal.tilemap_colour(0xFF) != pal.tilemap_colour(0xFE),
+                   "VHDL tilemap.vhd:386 — paper index = attr(7:1)<<1 | 0, "
+                   "a real palette entry distinct from the ink index");
+    }
+
+    // TM-98: the paired row that pins the pixel_en_f MUX itself.  Identical
+    // stimulus — transparency index 0x00 and an all-zero tile definition —
+    // rendered once with NR 0x6B b3 = 0 and once with b3 = 1.  Non-text must
+    // DROP the pixel (pixel_en_standard_s, tilemap.vhd:427); text must EMIT
+    // it (tilemap.vhd:429).  The two outcomes differ only by the textmode
+    // bit, so this fails if the index test is applied in text mode (the
+    // GH #113 bug) AND if it is skipped in standard mode.
+    {
+        fresh(tm, pal, ram);
+        pal.set_tilemap_transparency(0x00);
+        paint_tm_palette_entry(pal, 0x00, 0x1C);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 0);       // 4bpp: all pixels 0
+        fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0x00);   // 1bpp: all paper
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
+
+        tm.set_control(0x80);                             // enable, textmode OFF
+        auto s_std = render_line(tm, 0, ram, pal);
+
+        tm.set_control(0x88);                             // enable, textmode ON
+        auto s_txt = render_line(tm, 0, ram, pal);
+
+        check_pred("TM-98",
+                   s_std.pixels[0] == 0u &&
+                   s_txt.pixels[0] == pal.tilemap_colour(0x00),
+                   "VHDL tilemap.vhd:427/429 — pixel_en_f masks the index "
+                   "transparency test in text mode only: same data drops in "
+                   "standard mode and emits in text mode");
+    }
 
     // TM-94 — COVERED AT COMPOSITOR TIER (not a skip).  pixel_en_f
     // selection between index- and RGB-based transparency pipelines

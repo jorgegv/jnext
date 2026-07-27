@@ -522,6 +522,61 @@ static void test_section3_p3_paths(void) {
               v == 0xA5, fmt("v=0x%02X", v));
     }
 
+    // FB-04b — GH #112: the bit-0 force at `zxula.vhd:573` is scoped to
+    // the ACTIVE-DISPLAY waveform only; the border waveform is raw.
+    //
+    // :573 is a conditional signal assignment (LRM 10.5.3) — an ordered
+    // chain of independent waveforms:
+    //     (floating_bus_r(7 downto 1) & (floating_bus_r(0) or i_timing_p3))
+    //         when (border_active_ula='0' and floating_bus_en='1')
+    //     else i_p3_floating_bus when i_timing_p3='1'
+    //     else X"FF";
+    // `or i_timing_p3` lives inside the parenthesised concatenation of
+    // waveform 1. Waveform 2 is the bare signal `i_p3_floating_bus`,
+    // wired 1:1 from `p3_floating_bus_dat` (zxnext.vhd:4478), whose sole
+    // driver (:4499-4508) latches cpu_di / cpu_do verbatim — no force.
+    //
+    // FB-03a already pins waveform 1 and FB-3X/FB-3F/FIX-FB-EFFLOCK-01
+    // pin waveform 2, but none of them pins the CONTRAST, which is the
+    // entire semantic content of the parenthesisation. FB-04a cannot:
+    // it seeds 0xA5, whose bit 0 is already 1, so it reads identically
+    // whether or not the force is (wrongly) applied.
+    //
+    // Method: ONE emulator, both source bytes seeded with 0x42 (bit 0
+    // CLEAR, so the force is observable). Read at the border → waveform
+    // 2 → 0x42 raw. Tick forward into active display → waveform 1 →
+    // 0x43. Same byte in, two different bytes out: the force is present
+    // in exactly one arm.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        // Waveform-2 source: the contended-CPU latch (bank 5 is
+        // contended on +3 timing → mmu().write updates it).
+        emu.mmu().write(0x4000, 0x42);
+        // Waveform-1 source: the VRAM pixel byte the ULA fetches at
+        // (LINE=100, TSTATE=34) → pixel_line=36, char_col=4.
+        const int LINE = 100, TSTATE = 34;
+        emu.ram().write(vram_pixel_ram_offset(LINE - 64, TSTATE / 8), 0x42);
+
+        // Border first (set_raster_position only ticks FORWARD).
+        set_raster_position(emu, 32, 64);          // V-border
+        const uint8_t v_border = read_port_default(emu, 0x0FFD);
+        // Then into the active-display capture phase.
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v_active = read_port_default(emu, 0x0FFD);
+
+        check("FB-04b",
+              "+3 port 0x0FFD bit-0 force is scoped to the active-display "
+              "arm only: same 0x42 source byte reads 0x42 at border (raw "
+              "i_p3_floating_bus) and 0x43 in active display "
+              "(floating_bus_r(0) or i_timing_p3) "
+              "(zxula.vhd:573 + zxnext.vhd:4478, 4499-4508, 4517)",
+              v_border == 0x42 && v_active == 0x43,
+              fmt("border=0x%02X (want 0x42) active=0x%02X (want 0x43); "
+                  "pre-GH#112-fix border would yield 0x43",
+                  v_border, v_active));
+    }
+
     // FB-3A — +3 port 0x0FFD with port_7ffd_locked=1 → 0xFF.
     // Lock paging by writing bit 5 of port 0x7FFD via the dispatcher.
     // (Direct mmu_.map_128k_bank() works too but going through the port
@@ -540,7 +595,18 @@ static void test_section3_p3_paths(void) {
     }
 
     // FB-3B — +3 port 0x0FFD with port_p3_floating_bus_io_en=0 (NR 0x82
-    // bit 4 cleared) → decode blocked → 0x00.
+    // bit 4 cleared) → decode blocked → 0xFF.
+    //
+    // GH #111 rewrite (owner-approved, 2026-07-26): a blocked decode
+    // means `port_p3_float = '0'` (zxnext.vhd:2589 with the
+    // port_p3_floating_bus_io_en AND-term, :2403), so the read strobe
+    // `port_p3_float_rd <= iord and port_p3_float` (:2716) never
+    // asserts, `port_internal_rd_response` stays low (:2803-2806 — no
+    // other strobe decodes 0x0FFD), and the cpu_di IORQ mux delivers
+    // its unconditional default `cpu_di <= X"FF"` (:1877). The X"00"
+    // at :2814 is only the wired-OR contribution into port_rd_dat
+    // (:2837), never CPU-visible without its own strobe. The previous
+    // 0x00 expectation encoded that misreading.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
@@ -549,31 +615,35 @@ static void test_section3_p3_paths(void) {
         emu.nextreg().write(0x82, 0xEF);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3B",
-              "+3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00 "
-              "(zxnext.vhd:2403, 2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "+3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0xFF "
+              "(zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877)",
+              v == 0xFF, fmt("v=0x%02X", v));
     }
 
-    // FB-3C — 48K port 0x0FFD → 0x00 (decode blocked by p3_timing_hw_en).
+    // FB-3C — 48K port 0x0FFD → 0xFF (decode blocked by p3_timing_hw_en;
+    // no strobe → no internal response → cpu_di default X"FF", GH #111).
+    // Note port_7ffd DOES decode 0x0FFD on non-+3 timing (:2593) but is
+    // write-only — it contributes no read strobe.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3C",
-              "48K port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
-              "(zxnext.vhd:2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "48K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) "
+              "(zxnext.vhd:2589, 2716, 2803-2806, 1877)",
+              v == 0xFF, fmt("v=0x%02X", v));
     }
 
-    // FB-3D — 128K port 0x0FFD → 0x00 (same gate as FB-3C).
+    // FB-3D — 128K port 0x0FFD → 0xFF (same blocked-decode path as
+    // FB-3C, GH #111).
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX128K);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3D",
-              "128K port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
-              "(zxnext.vhd:2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "128K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) "
+              "(zxnext.vhd:2589, 2716, 2803-2806, 1877)",
+              v == 0xFF, fmt("v=0x%02X", v));
     }
 
     // FB-3E RETIRED 2026-05-04: standalone Pentagon machine type dropped
@@ -586,21 +656,36 @@ static void test_section3_p3_paths(void) {
     // not config_.type). Next-base init seeds tim_sel=0x03 (+3 timing,
     // VHDL :1099 default) — so port_p3_float IS decoded on a fresh
     // Next emulator. This closes the pre-existing "FOLLOW-UP" note
-    // (see Section 3 prologue). The latch defaults to 0x00 →
-    // border-fallback path returns `latch | 0x01 = 0x01`.
+    // (see Section 3 prologue). Read at the reset raster position
+    // (border) → `zxula.vhd:573` second waveform → the raw latch.
     //
-    // Pre-fix the gate keyed on `config_.type` and returned 0x00 here,
-    // which the original FB-3F asserted; this was a documented drift
-    // from VHDL.
+    // GH #112 rewrite (2026-07-26): the expected value was 0x01 — the
+    // reset-default latch 0x00 with jnext's spurious border-arm bit-0
+    // force applied. The VHDL applies no such force to the second
+    // waveform (see the FB-3X / FB-04b commentary), so the latch comes
+    // back verbatim. This row was NOT enumerated in GH #112's issue
+    // text — the issue named only FIX-FB-EFFLOCK-01 and FB-3X — but it
+    // is load-bearing on the same force and the fix breaks it, so it
+    // had to be rewritten too. The latch is now SEEDED with 0x42
+    // rather than left at its 0x00 reset default: post-fix an unseeded
+    // row would assert 0x00, which a hardcoded-zero regression would
+    // also satisfy — the row must be able to fail for its own reason.
+    // 0x42 also stays distinct from the blocked-decode value 0xFF
+    // (GH #111), which is what this row exists to rule out.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().write(0x4000, 0x42);             // latch = 0x42
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3F",
               "Next port 0x0FFD decoded post-D3F-01 (machine_timing_ keyed) "
-              "→ p3_floating_bus_dat | 0x01 = 0x01 at default "
-              "(zxnext.vhd:2589 + :1099 default tim_sel=011)",
-              v == 0x01, fmt("v=0x%02X (want 0x01)", v));
+              "→ raw border-arm p3_floating_bus_dat = 0x42, NOT the "
+              "blocked-decode 0xFF "
+              "(zxnext.vhd:2589 + :1099 default tim_sel=011; "
+              "zxula.vhd:573 second arm)",
+              v == 0x42,
+              fmt("v=0x%02X (want 0x42; blocked decode would give 0xFF, "
+                  "pre-GH#112-fix 0x43)", v));
     }
 
     // FIX-FB-EFFLOCK-01 — testcov-memory follow-up coverage gap (#4 in the
@@ -622,10 +707,21 @@ static void test_section3_p3_paths(void) {
     //   5. effective_paging_locked() should be FALSE now.
     //   6. NR 0x82 bit 4 must be set (default 0xFF) so port_p3_floating_bus_io_en=1.
     //   7. Read port 0x0FFD — pre-fix returns 0xFF (raw lock asserted),
-    //      post-fix returns the floating-bus byte (with bit 0 forced
-    //      high per VHDL :573 +3 timing). The pre-fix vs post-fix split
-    //      hinges on `effective_paging_locked()` — observable via the
-    //      port-read result not being 0xFF.
+    //      post-fix returns the floating-bus byte. The pre-fix vs
+    //      post-fix split hinges on `effective_paging_locked()` —
+    //      observable via the port-read result not being 0xFF.
+    //
+    // GH #112 rewrite (owner-approved, 2026-07-26): the expected value
+    // was 0x43 (`latch | 0x01`). That encoded the border-arm bit-0
+    // force jnext used to apply, which the VHDL does NOT have.
+    // `zxula.vhd:573` is a conditional signal assignment (LRM 10.5.3);
+    // the `or i_timing_p3` term lives inside the parenthesised
+    // concatenation of the FIRST waveform (active display) only. The
+    // second waveform is the bare signal `i_p3_floating_bus`, driven
+    // 1:1 (zxnext.vhd:4478) from `p3_floating_bus_dat`, whose only
+    // driver (:4499-4508) latches cpu_di / cpu_do verbatim. The read
+    // here happens at the reset raster position (border), so the
+    // border arm is selected and the raw latch 0x42 must come back.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
@@ -645,16 +741,18 @@ static void test_section3_p3_paths(void) {
         // port_p3_floating_bus_io_en=1 — decode active).
         const uint8_t v = read_port_default(emu, 0x0FFD);
         // Pre-fix: gate uses raw paging_locked → returns 0xFF.
-        // Post-fix: gate uses effective_paging_locked → returns
-        //          (latch | 0x01) = 0x42 | 0x01 = 0x43 via the border-arm
-        //          fallback (set_raster_position not called → border arm).
+        // Post-fix: gate uses effective_paging_locked → returns the raw
+        //          latch 0x42 via the border-arm fallback
+        //          (set_raster_position not called → border arm).
         check("FIX-FB-EFFLOCK-01",
               "+3 port 0x0FFD with paging-locked but Pentagon-1024 "
-              "override drops effective_paging_locked → returns latch | 0x01 "
-              "(NOT 0xFF) — VHDL :3769/:4517; verify8 A4",
-              raw_locked && !eff_locked && v == 0x43,
+              "override drops effective_paging_locked → returns the raw "
+              "border-arm latch 0x42 (NOT 0xFF) — VHDL zxnext.vhd:3769, "
+              "4517 + zxula.vhd:573 second arm; verify8 A4 / GH #112",
+              raw_locked && !eff_locked && v == 0x42,
               fmt("raw_locked=%d eff_locked=%d v=0x%02X "
-                  "(exp 1/0/0x43; pre-fix would yield 0xFF)",
+                  "(exp 1/0/0x42; pre-efflock-fix would yield 0xFF, "
+                  "pre-GH#112-fix 0x43)",
                   raw_locked, eff_locked, v));
     }
 
@@ -662,10 +760,22 @@ static void test_section3_p3_paths(void) {
     // dispatch to the dedicated 0x0FFD handler and do NOT accidentally
     // fall through to the 0x7FFD bank-switching surface.
     //
-    // Method: seed p3_floating_bus_dat with a unique value (0x42), read
-    // 0x0FFD, expect 0x43 (0x42 | bit 0). 0x42 differs from any plausible
-    // 0x7FFD-related artifact (bank/screen bits) and the bit-0 force is
-    // a unique fingerprint of the 0x0FFD handler at emulator.cpp:1356-1367.
+    // Method: seed p3_floating_bus_dat with a unique value (0x42) and
+    // read 0x0FFD at the reset raster position (border) → the
+    // `zxula.vhd:573` SECOND waveform (`i_p3_floating_bus`) is selected
+    // and must hand the latch back verbatim: 0x42. The value is a
+    // fingerprint of the 0x0FFD handler: the 0x7FFD surface is
+    // write-only (zxnext.vhd:2593) and would leave the read at the
+    // dispatcher default 0xFF, and no plausible 0x7FFD bank/screen
+    // artifact equals 0x42.
+    //
+    // GH #112 rewrite (owner-approved, 2026-07-26): expected value was
+    // 0x43 and the comment cited `zxula.vhd:573`'s bit-0 force as
+    // covering the border arm. It does not — :573 is a conditional
+    // signal assignment (LRM 10.5.3) and `(floating_bus_r(0) or
+    // i_timing_p3)` is parenthesised inside the FIRST waveform only.
+    // The border arm is the bare signal `i_p3_floating_bus`
+    // (zxnext.vhd:4478 → the raw cpu_di/cpu_do latch at :4499-4508).
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
@@ -673,9 +783,10 @@ static void test_section3_p3_paths(void) {
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3X",
               "+3 port 0x0FFD dispatches to 0x0FFD handler not 0x7FFD "
-              "(specificity: mask 0xF003 > 0x8003) → 0x42 | 0x01 = 0x43 "
-              "(emulator.cpp:1356-1367 + port_dispatch.cpp:35-61)",
-              v == 0x43, fmt("v=0x%02X", v));
+              "(specificity: mask 0xF003 > 0x8003) → raw border-arm latch "
+              "0x42 (zxula.vhd:573 second arm + zxnext.vhd:4478, 4499-4508; "
+              "port_dispatch.cpp most-specific-match)",
+              v == 0x42, fmt("v=0x%02X (pre-GH#112-fix would yield 0x43)", v));
     }
 }
 
@@ -924,8 +1035,20 @@ static void test_section7_d3f_followup(void) {
     // To make the assertion observable: seed the +3 floating-bus latch
     // via `mmu_.set_p3_floating_bus_dat(0xA4)` and position the raster
     // in the V-border so the active-display arm is silent and the
-    // handler falls through to `mmu_.p3_floating_bus_dat() | 0x01`.
-    // Pre-fix returns 0x00 (gate fails); post-fix returns 0xA5.
+    // handler falls through to `mmu_.p3_floating_bus_dat()`.
+    // Pre-fix returns 0x00 (gate fails); post-fix returns 0xA4.
+    //
+    // GH #112 rewrite (2026-07-26): the expected value was 0xA5
+    // (`latch | 0x01`). That encoded jnext's spurious border-arm bit-0
+    // force — `zxula.vhd:573` is a conditional signal assignment (LRM
+    // 10.5.3) and `or i_timing_p3` is parenthesised inside the FIRST
+    // waveform only; the border waveform is the bare signal
+    // `i_p3_floating_bus` (zxnext.vhd:4478 → raw cpu_di/cpu_do latch at
+    // :4499-4508). The seed 0xA4 has bit 0 CLEAR, so this row is
+    // genuinely discriminative for the force — it was not enumerated in
+    // GH #112's issue text but is load-bearing on the same behaviour.
+    // Its own subject (the tim_sel gate) is untouched: pre-D3F-01 the
+    // gate failed and returned 0x00, which 0xA4 still rules out.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
@@ -942,7 +1065,7 @@ static void test_section7_d3f_followup(void) {
         const MachineTimingMode tim_after = emu.mmu().machine_timing();
 
         // Seed p3 floating-bus latch with 0xA4. The border-fallback
-        // path returns `latch | 0x01` = 0xA5.
+        // path returns it raw (GH #112): 0xA4.
         emu.mmu().set_p3_floating_bus_dat(0xA4);
 
         // Place raster at V-border (line < 64) so active-display arm
@@ -956,10 +1079,11 @@ static void test_section7_d3f_followup(void) {
         check("FB-D3F-01",
               "Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL "
               ":2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → "
-              "after run_frame() port 0x0FFD returns latch|0x01 = 0xA5 "
-              "(post-fix); pre-fix returned 0x00 (config_.type != ZX_PLUS3)",
-              tim_after == MachineTimingMode::TimingPlus3 && v == 0xA5,
-              fmt("v=0x%02X (want 0xA5); tim_after=%d (want %d=TimingPlus3)",
+              "after run_frame() port 0x0FFD returns the raw border-arm "
+              "latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 "
+              "(config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5",
+              tim_after == MachineTimingMode::TimingPlus3 && v == 0xA4,
+              fmt("v=0x%02X (want 0xA4); tim_after=%d (want %d=TimingPlus3)",
                   v, static_cast<int>(tim_after),
                   static_cast<int>(MachineTimingMode::TimingPlus3)));
     }
@@ -1069,6 +1193,69 @@ static void test_section7_d3f_followup(void) {
                   static_cast<int>(MachineTimingMode::TimingPlus3),
                   static_cast<int>(typ_after),
                   static_cast<int>(MachineType::ZX48K)));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Section 8 — GH #109: floating bus is scoped to the LSB-0xFF decode
+// VHDL: zxnext.vhd:2571+2583 (port_ff <= '1' when cpu_a(7:0) = X"FF" —
+//       LSB-only, ANY high byte);
+//       zxnext.vhd:2803-2806 (port_internal_rd_response OR-list — no
+//       strobe matches a genuinely undecoded port);
+//       zxnext.vhd:1868-1878 (cpu_di IORQ mux — no internal response +
+//       no expansion bus → cpu_di <= X"FF", every machine timing).
+// Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §8 (GH #109)
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_section8_gh109_scope(void) {
+    set_group("FB-8-GH109");
+
+    // FB-109-01 — DISCRIMINATOR (fails pre-fix). 48K machine, active
+    // capture phase, VRAM seeded: a read of an UNDECODED odd port
+    // (0x40A7 — LSB 0xA7 matches no VHDL decode: not port_fe (A0=1),
+    // not port_ff (LSB != 0xFF), not port_fd family (A1:0 = 11), not
+    // any LSB in zxnext.vhd:2541-2574) must return 0xFF per the cpu_di
+    // default (zxnext.vhd:1877) — the ULA floating bus reaches port
+    // 0xFF ONLY (zxnext.vhd:2583+4513). Pre-fix, floating_bus_read()
+    // was the dispatch default and returned the seeded VRAM byte here.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x5A;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x40A7);
+        check("FB-109-01",
+              "48K active capture: undecoded port 0x40A7 returns 0xFF, not "
+              "the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583)",
+              v == 0xFF, fmt("v=0x%02X (want 0xFF; VRAM marker=0x%02X)",
+                             v, MARKER));
+    }
+
+    // FB-109-02 — scope-preservation pin. Same 48K active-capture
+    // geometry: a read of port 0x40FF (LSB 0xFF, NON-ZERO high byte)
+    // IS the port_ff decode (LSB-only per zxnext.vhd:2571+2583) and
+    // must return the ULA floating-bus VRAM byte (zxnext.vhd:2813 ULA
+    // arm + :4513 48K gate; zxula.vhd:319-340,573). Pins that GH #109's
+    // narrowing moved the mux to a registered LSB-0xFF read handler
+    // without shrinking it below its true scope (all 0x??FF ports).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x5A;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x40FF);
+        check("FB-109-02",
+              "48K active capture: port 0x40FF (LSB-only port_ff decode) "
+              "returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
     }
 }
 
@@ -1192,7 +1379,9 @@ int main() {
     std::printf("Emulator Floating Bus Compliance Tests\n");
     std::printf("======================================\n");
     std::printf("(26 plan rows + 1 port-conflict neighbour (FB-3X) +\n");
-    std::printf(" 5 FB-HARNESS-NN smoke rows; plan:\n");
+    std::printf(" 5 FB-HARNESS-NN smoke rows + later additions incl.\n");
+    std::printf(" 2 GH #109 rows (Section 8) + 1 GH #112 row (FB-04b);\n");
+    std::printf(" plan:\n");
     std::printf(" doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md)\n\n");
 
     test_section1_border();
@@ -1202,7 +1391,7 @@ int main() {
     std::printf("  Section 2 (Capture phases)     — %2d rows\n", 6);
 
     test_section3_p3_paths();
-    std::printf("  Section 3 (+3 port 0xFF/0x0FFD)— %2d rows\n", 11);
+    std::printf("  Section 3 (+3 port 0xFF/0x0FFD)— %2d rows\n", 12);
 
     test_section4_per_machine();
     std::printf("  Section 4 (Per-machine select) — %2d rows\n", 3);
@@ -1215,6 +1404,9 @@ int main() {
 
     test_section7_d3f_followup();
     std::printf("  Section 7 (D3F-followup gates) — %2d rows\n", 3);
+
+    test_section8_gh109_scope();
+    std::printf("  Section 8 (GH #109 FF scope)   — %2d rows\n", 2);
 
     test_harness_smoke();
     std::printf("  Harness smoke (FB-HARNESS-NN)  — %2d rows\n", 5);

@@ -1,5 +1,5 @@
 Name:           jnext
-Version:        0.99.27
+Version:        0.99.38
 Release:        1%{?dist}
 Summary:        Real-time ZX Spectrum Next emulator with an integrated debugger
 
@@ -59,6 +59,39 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 %{_datadir}/icons/hicolor/512x512/apps/io.github.zxjogv.jnext.png
 
 %changelog
+* Mon Jul 27 2026 ZXjogv <zx@jogv.es> - 0.99.38-1
+- New release 0.99.38.
+
+* Mon Jul 27 2026 ZXjogv <zx@jogv.es> - 0.99.37-1
+- New release 0.99.37.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.36-1
+- New release 0.99.36.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.35-1
+- New release 0.99.35.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.34-1
+- New release 0.99.34.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.33-1
+- New release 0.99.33.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.32-1
+- New release 0.99.32.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.31-1
+- New release 0.99.31.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.30-1
+- New release 0.99.30.
+
+* Sun Jul 26 2026 ZXjogv <zx@jogv.es> - 0.99.29-1
+- New release 0.99.29.
+
+* Sat Jul 25 2026 ZXjogv <zx@jogv.es> - 0.99.28-1
+- New release 0.99.28.
+
 * Sat Jul 25 2026 ZXjogv <zx@jogv.es> - 0.99.27-1
 - New release 0.99.27.
 

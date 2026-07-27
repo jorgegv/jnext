@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 
 struct Z80Registers {
@@ -125,6 +126,13 @@ public:
     Z80Registers get_registers() const { return regs_; }
     void set_registers(const Z80Registers& r) { regs_ = r; }
 
+    // G46(b) #102 investigation probe (env-gated via the caller; zero cost
+    // when null). When set, execute() logs one CSV line per instruction
+    // (pre-execute PC/opcode/registers) to this file. Intended for a narrow
+    // frame window only (caller flips it on/off), never for a whole run —
+    // per-instruction volume is too high to log unconditionally.
+    void set_g46b_itrace(std::FILE* f) { g46b_itrace_file_ = f; }
+
     // Cheap read-only accessors (Task 27 C10): avoid a full Z80Registers
     // by-value copy on the per-instruction hot path when only the PC — or
     // a read-only view — is needed. get_registers() copies the whole
@@ -234,6 +242,7 @@ private:
     MemoryInterface& mem_;
     IoInterface&     io_;
     Z80Registers     regs_{};
+    std::FILE*       g46b_itrace_file_ = nullptr;  // G46(b) #102 probe
     bool             nmi_pending_ = false;
     bool             int_pending_ = false;
     uint8_t          int_vector_  = 0xFF;

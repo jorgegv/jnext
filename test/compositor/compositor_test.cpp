@@ -156,6 +156,11 @@ static void clear_layers(Renderer& r) {
         r.sprite_line_[i]  = TRANSP;
         r.tilemap_line_[i] = TRANSP;
         r.tm_pixel_below_[i] = false;
+        // Reset alongside tm_pixel_below_ so a row that sets the text-mode
+        // flag (TR-24/TR-25, GH #113) cannot leak it into the next row's
+        // NR 0x14 RGB-compare clause (zxnext.vhd:7109). No existing row set
+        // it, so adding the reset changes no existing outcome.
+        r.tm_pixel_textmode_[i] = false;
         r.layer2_priority_[i] = false;
         r.ula_border_[i]   = false;
     }
@@ -417,6 +422,55 @@ static void test_TR() {
         check("TR-23", "tm_en_2=0 => TM transparent (VHDL 7109)",
               got == PIX_ULA,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
+    }
+
+    // ── GH #113: the NextZXOS CP/M 80-column configuration, end to end ───
+    //
+    // NextZXOS programs, for CP/M: NR 0x6B = 0xCB (tm enable + 80x32 +
+    // textmode + 512-tile + tm_on_top), NR 0x15 = 0x00 (SLU), NR 0x68 = 0x00
+    // (ULA NOT disabled), NR 0x14 = 0xE3.  So the ULA keeps emitting whatever
+    // was left in screen RAM, and the ONLY thing that must hide it is the
+    // tilemap's own paper being opaque and sitting above the ULA:
+    //   tilemap.vhd:388 — tm_on_top=1 → pixel_below = 0
+    //   tilemap.vhd:429 — text mode emits paper (pixel_en_f = pixel_en_s)
+    //   zxnext.vhd:7116 — ulatm_rgb = TM when TM opaque and below = 0
+    // TR-24/TR-25 pin the compositor half of that chain; the tilemap half is
+    // pinned by tilemap_test TM-96/97/98.
+
+    // TR-24: text-mode PAPER pixel (opaque, RGB != NR 0x14) with below=0
+    //        covers an opaque ULA pixel completely. VHDL zxnext.vhd:7116.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);                 // NR 0x15 = 0x00, SLU
+        r.ula_line_[0]          = PIX_ULA;       // leftover ULA content
+        r.tilemap_line_[0]      = PIX_TM;        // text-mode paper, opaque
+        r.tm_pixel_textmode_[0] = true;          // NR 0x6B b3
+        r.tm_pixel_below_[0]    = false;         // NR 0x6B b0 = tm_on_top
+        uint32_t got = composite_one(r, vhdl_fallback_argb(0xE3));
+        check("TR-24",
+              "GH#113: textmode paper opaque + below=0 hides ULA (VHDL 7116)",
+              got == PIX_TM,
+              DETAIL("got=0x%08X expected=0x%08X ula=0x%08X",
+                     got, PIX_TM, PIX_ULA));
+    }
+
+    // TR-25: the discriminating counterpart — same opaque text-mode pixel,
+    //        but below=1 (per-tile ULA-over / tm_on_top clear).  Now the ULA
+    //        wins, proving TR-24 is the below=0 clause of 7116 and not a
+    //        blanket "tilemap always wins". VHDL zxnext.vhd:7116.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.ula_line_[0]          = PIX_ULA;
+        r.tilemap_line_[0]      = PIX_TM;
+        r.tm_pixel_textmode_[0] = true;
+        r.tm_pixel_below_[0]    = true;          // tilemap below the ULA
+        uint32_t got = composite_one(r, vhdl_fallback_argb(0xE3));
+        check("TR-25",
+              "GH#113 control: textmode paper with below=1 => ULA wins (VHDL 7116)",
+              got == PIX_ULA,
+              DETAIL("got=0x%08X expected=0x%08X tm=0x%08X",
+                     got, PIX_ULA, PIX_TM));
     }
 
     // TR-30: Layer 2 RGB compare vs NR 0x14. VHDL zxnext.vhd:7121.
@@ -2810,12 +2864,14 @@ static void test_PSCAN() {
                      none_yet, ten_ok, fifty_ok, hundred_ok));
     }
 
-    // PSCAN-04 — change-log cap silently drops further writes once
-    //   MAX_CHANGES_PER_FRAME is reached. Live palette still mutates
-    //   (so non-render uses of PaletteManager are unaffected) — only
-    //   the per-scanline replay loses fidelity beyond the cap. The
-    //   `overflow_warned_` flag must latch true exactly once per frame
-    //   so the warning can't degenerate into per-write log spam.
+    // PSCAN-04 — degradation contract at the sanity bound (GH #110).
+    //   MAX_CHANGES_PER_FRAME is no longer a working cap but a runaway-
+    //   write canary (1M/frame): writes past it are dropped from the LOG
+    //   only — the live palette still mutates (apply_change is
+    //   unconditional), so non-render uses are unaffected and only
+    //   per-scanline replay fidelity is lost. The `overflow_warned_`
+    //   flag must latch true exactly once per frame so the warning
+    //   can't degenerate into per-write log spam.
     {
         PaletteManager p;
         p.reset();
@@ -2827,15 +2883,27 @@ static void test_PSCAN() {
         // Pre-overflow: warning latch must be clear.
         const bool warned_before = p.overflow_warned_;
 
-        // Drive 1 past the cap. Auto-inc is enabled so each write also
-        // bumps the index; the live palette wraps but we only care
-        // about change_log_size capping at MAX and overflow_warned_
-        // latching at the first write past the cap.
+        // Drive 1 past the sanity bound. Auto-inc is enabled so each
+        // write also bumps the index; the live palette wraps but we
+        // care about change_log_size saturating at MAX and
+        // overflow_warned_ latching at the first write past the bound.
         const size_t over = PaletteManager::MAX_CHANGES_PER_FRAME + 1;
         for (size_t i = 0; i < over; ++i)
             p.write_8bit(static_cast<uint8_t>(i & 0xFF));
 
         const bool warned_after = p.overflow_warned_;
+        const bool size_saturated =
+            p.change_log_size() == PaletteManager::MAX_CHANGES_PER_FRAME;
+
+        // Past-bound writes must still mutate the LIVE palette: drive
+        // index 7 through two distinct colours while the log is full.
+        p.set_index(7);
+        p.write_8bit(0x00);                              // black
+        const uint32_t live_a = p.ula_colour(false, 7);
+        p.set_index(7);
+        p.write_8bit(0xE0);                              // bright red
+        const uint32_t live_b = p.ula_colour(false, 7);
+        const bool live_tracks_past_bound = (live_a != live_b);
 
         // Drive ANOTHER 100 writes to confirm the latch stays "armed"
         // (i.e., still true) — what we are pinning down is that
@@ -2851,17 +2919,74 @@ static void test_PSCAN() {
         const bool warned_after_reset = p.overflow_warned_;
 
         check("PSCAN-04",
-              "change_log_size caps at MAX; overflow_warned_ latches once "
-              "and survives further writes; start_frame() resets it",
+              "change_log_size saturates at the sanity bound; live palette "
+              "still tracks past it; overflow_warned_ latches once and "
+              "survives further writes; start_frame() resets it",
               p.change_log_size() == 0
+              && size_saturated
+              && live_tracks_past_bound
               && warned_before == false
               && warned_after == true
               && warned_persists == true
               && warned_after_reset == false,
-              DETAIL("size=%zu warned_before=%d warned_after=%d "
-                     "warned_persists=%d warned_after_reset=%d",
-                     p.change_log_size(), warned_before, warned_after,
+              DETAIL("size=%zu saturated=%d live_tracks=%d warned_before=%d "
+                     "warned_after=%d warned_persists=%d warned_after_reset=%d",
+                     p.change_log_size(), size_saturated,
+                     live_tracks_past_bound, warned_before, warned_after,
                      warned_persists, warned_after_reset));
+    }
+
+    // PSCAN-06 — GH #110 discriminator: the log GROWS past the old
+    //   fixed cap of 4096. TX-1696 bulk-uploads ~14k palette entries
+    //   per frame; before the fix, a raster-effect write landing after
+    //   entry 4096 was dropped from the log, so per-scanline replay
+    //   silently used the stale colour. Recipe: 4096 bulk writes at
+    //   line 10, then ONE write at line 100 — entry 4097 — and prove
+    //   the late write replays at exactly line 100.
+    {
+        PaletteManager p;
+        p.reset();
+        p.start_frame();
+        p.write_control(0x00);   // ULA first, auto-inc enabled
+        p.set_index(0);
+        p.set_current_line(10);
+
+        const size_t old_cap = 4096;   // pre-GH#110 MAX_CHANGES_PER_FRAME
+
+        // Bulk phase: old_cap writes of black at line 10 (auto-inc
+        // wraps the 256-entry index 16 times; every write logs).
+        for (size_t i = 0; i < old_cap; ++i) p.write_8bit(0x00);
+
+        // Raster phase: entry old_cap+1, tagged line 100.
+        p.set_current_line(100);
+        p.set_index(5);
+        p.write_8bit(0xE0);      // bright red
+        const uint32_t late_colour = p.ula_colour(false, 5);
+
+        const bool grew_past_old_cap = p.change_log_size() == old_cap + 1;
+        // No warning at ~4k writes/frame any more — the canary sits at
+        // the 1M sanity bound.
+        const bool no_warn = !p.overflow_warned_;
+
+        // Replay: lines 0..99 must apply only the bulk (index 5 black,
+        // NOT the late colour); line 100 must apply the late write.
+        p.rewind_to_baseline();
+        for (int line = 0; line < 100; ++line) p.apply_changes_for_line(line);
+        const uint32_t before_100 = p.ula_colour(false, 5);
+        p.apply_changes_for_line(100);
+        const uint32_t at_100 = p.ula_colour(false, 5);
+
+        const bool late_write_per_scanline =
+            before_100 != late_colour && at_100 == late_colour;
+
+        check("PSCAN-06",
+              "log grows past the old 4096 cap; write #4097 still replays "
+              "per-scanline at its own line; no overflow warn (GH #110)",
+              grew_past_old_cap && no_warn && late_write_per_scanline,
+              DETAIL("size=%zu no_warn=%d before_100=0x%08X at_100=0x%08X "
+                     "late=0x%08X",
+                     p.change_log_size(), no_warn, before_100, at_100,
+                     late_colour));
     }
 
     // PSCAN-05 — end-to-end through Renderer::render_frame: a baseline
