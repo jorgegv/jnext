@@ -949,11 +949,11 @@ sub render_summary {
              . 'sub-cases of one plan row — but not always: `FB-04b`, `IORQ-02b` and '
              . '`IORQ-02c` were distinct regressions hidden this way and now have rows of '
              . 'their own. Disabling the aliasing raises the count by ~100; those IDs are '
-             . 'untriaged and tracked as a follow-up to GH #117. (2) *Cross-section ID '
+             . 'untriaged (GH #118). (2) *Cross-section ID '
              . 'collision*: recording is asked '
              . 'globally ("listed anywhere"), so the same ID string used by two subsystems '
              . '— `NR-03` and `SD-10` each appear in two sections — is counted as recorded '
-             . 'for both.';
+             . 'for both (GH #118).';
     push @out, '';
     if (@$unmapped) {
         my $rows = 0;
