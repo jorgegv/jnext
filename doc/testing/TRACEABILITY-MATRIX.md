@@ -16,15 +16,15 @@
 | Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
-| Compositor                                 |   144 |  138 |    0 |    0 |       6 |         72 |
+| Compositor                                 |   144 |  141 |    0 |    0 |       3 |         72 |
 | Audio                                      |   210 |  182 |    0 |    0 |      28 |          9 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
 | DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         47 |
-| CTC+Interrupts                             |   180 |  133 |    0 |    0 |      47 |          0 |
-| UART+I2C/RTC                               |   112 |   93 |    0 |    0 |      19 |          6 |
-| NextREG                                    |   107 |   21 |    0 |    0 |      86 |          0 |
+| CTC+Interrupts                             |   180 |  149 |    0 |    0 |      31 |          0 |
+| UART+I2C/RTC                               |   112 |  106 |    0 |    0 |       6 |          6 |
+| NextREG                                    |   107 |   58 |    0 |    0 |      49 |          0 |
 | IO Port Dispatch                           |    97 |   93 |    0 |    0 |       4 |         26 |
-| Input                                      |   178 |  153 |    0 |    0 |      25 |        169 |
+| Input                                      |   178 |  164 |    0 |    0 |      14 |        169 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
@@ -38,7 +38,7 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2514 | 2100 |    0 |    0 |     414 |        821 |
+| **Total**                                  |  2514 | 2180 |    0 |    0 |     334 |        821 |
 
 Rows the sections above carry: **2514**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2448**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5727**.
 
@@ -1180,9 +1180,9 @@ Last-touch commit: `3fda139` (compositor 5-feature fix: sprite_en, L2 priority, 
 | BL-60              | Mode 11 prio7 (sub): sub(L2,TM) = (4,2,0) cascade-to-mixer   | zxnext.vhd:7156  | pass    | test/compositor/compositor_test.cpp:1839 |
 | UB-G26-01          | UTB-40/41 mix_top/mix_bot swap on tm_pixel_below_2 (G26)     | zxnext.vhd:7163  | missing | missing                                  |
 | UB-G26-02          | L2 priority over opaque mix_top in modes 110/111 (G26)       | zxnext.vhd:7300  | pass    | test/compositor/compositor_test.cpp:1986 |
-| PFF-G108-01        | NR 0x69 b5:0 → port_ff_reg(5:0) fan-out missing (G108)       | zxnext.vhd:3617  | missing | missing                                  |
-| PFF-G108-02        | NR 0x22 b2 → port_ff_reg(6) fan-out missing (G108)           | zxnext.vhd:3619  | missing | missing                                  |
-| PFF-G108-03        | NR 0xC4 b0 → port_ff_reg(6) inverted fan-out missing (G108)  | zxnext.vhd:3621  | missing | missing                                  |
+| PFF-G108-01        | NR 0x69 b5:0 → port_ff_reg(5:0) fan-out missing (G108)       | zxnext.vhd:3617  | pass    | test/compositor/compositor_integration_test.cpp:536 |
+| PFF-G108-02        | NR 0x22 b2 → port_ff_reg(6) fan-out missing (G108)           | zxnext.vhd:3619  | pass    | test/compositor/compositor_integration_test.cpp:555 |
+| PFF-G108-03        | NR 0xC4 b0 → port_ff_reg(6) inverted fan-out missing (G108)  | zxnext.vhd:3621  | pass    | test/compositor/compositor_integration_test.cpp:593 |
 | UDIS-03            | NR 0x68 b6:5 decode → Renderer::blend_mode (UDIS-03 closed)  | zxnext.vhd:7141  | pass    | test/compositor/compositor_test.cpp:2399 |
 | BLANK-G27-01       | rgb_blank_n_6 lockstep with rgb_out_6 pipeline (G27)         | zxnext.vhd:7395  | pass    | test/compositor/compositor_test.cpp:2598 |
 | PSCAN-01           | write_8bit appends change-log entry tagged with current_li…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2781 |
@@ -1887,26 +1887,26 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | IM2W-07    | im2_reset_n = mode_pulse AND NOT reset                       | im2_peripheral.vhd:105 | pass    | test/ctc/ctc_test.cpp:1966                         |
 | IM2W-08    | Unqualified interrupt (int_unq): bypasses int_en             | im2_peripheral.vhd:172 | pass    | test/ctc/ctc_test.cpp:1982                         |
 | IM2W-09    | isr_serviced edge detection across clock domains             | —              | missing | missing                                            |
-| ULA-INT-01 | ULA interrupt generated at specific HC/VC position           | —              | missing | missing                                              |
-| ULA-INT-02 | ULA interrupt disabled by port 0xFF bit (port_ff_interrupt_… | —              | missing | missing                                              |
-| ULA-INT-03 | ULA interrupt enable: ula_int_en[0] = NOT port_ff_interrupt… | —              | missing | missing                                              |
-| ULA-INT-04 | Line interrupt at configurable scanline                      | —              | missing | missing                                            |
-| ULA-INT-05 | Line interrupt enable: nr_22_line_interrupt_en               | —              | missing | missing                                              |
-| ULA-INT-06 | Line interrupt scanline 0 maps to c_max_vc                   | —              | missing | missing                                            |
+| ULA-INT-01 | ULA interrupt generated at specific HC/VC position           | zxnext.vhd:1937,1941 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:144      |
+| ULA-INT-02 | ULA interrupt disabled by port 0xFF bit (port_ff_interrupt_… | zxnext.vhd:3619-3620 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:174      |
+| ULA-INT-03 | ULA interrupt enable: ula_int_en[0] = NOT port_ff_interrupt… | zxnext.vhd:6239  | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:198      |
+| ULA-INT-04 | Line interrupt at configurable scanline                      | zxula_timing.vhd:577-582 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:249    |
+| ULA-INT-05 | Line interrupt enable: nr_22_line_interrupt_en               | zxnext.vhd:5607-5610 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:222      |
+| ULA-INT-06 | Line interrupt scanline 0 maps to c_max_vc                   | zxula_timing.vhd:566-570 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:276    |
 | ULA-INT-07 | ULA interrupt is priority index 11                           | zxnext.vhd:1941  | pass    | test/ctc/ctc_test.cpp:2078                         |
 | ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | zxnext.vhd:1941  | pass    | test/ctc/ctc_test.cpp:2098                         |
 | ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | zxnext.vhd:1964  | pass    | test/ctc/ctc_test.cpp:2133                         |
 | NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | zxnext.vhd:5597/1999 | pass    | test/ctc/ctc_test.cpp:2150                         |
 | NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | zxnext.vhd:2050-2085 | pass    | test/nmi/atic_atac_nmi_test.cpp (ATIC-NMI-02) | <!-- protected: cross-file, hand-maintained (GH #105) -->
 | NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | zxnext.vhd:5599/1975 | pass    | test/ctc/ctc_test.cpp:2178                         |
-| NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | missing | missing                                              |
+| NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | zxnext.vhd:6229-6230 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:832      |
 | NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | zxnext.vhd       | pass    | test/ctc/ctc_test.cpp:2196                         |
-| NR-C4-02   | Write NextREG 0xC4: bit [1] = line interrupt enable          | —              | missing | missing                                              |
-| NR-C4-03   | Read NextREG 0xC4: returns expbus & ula_int_en               | —              | missing | missing                                              |
+| NR-C4-02   | Write NextREG 0xC4: bit [1] = line interrupt enable          | zxnext.vhd:5607-5610 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:853      |
+| NR-C4-03   | Read NextREG 0xC4: returns expbus & ula_int_en               | zxnext.vhd:6239  | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:885      |
 | NR-C5-01   | Write NextREG 0xC5: CTC interrupt enable bits [3:0]          | zxnext.vhd:4078/1949 | pass    | test/ctc/ctc_test.cpp:2216                         |
 | NR-C5-02   | Read NextREG 0xC5: returns ctc_int_en[7:0]                   | —              | missing | missing                                            |
 | NR-C6-01   | Write NextREG 0xC6: UART interrupt enable                    | zxnext.vhd       | pass    | test/ctc/ctc_test.cpp:2235                         |
-| NR-C6-02   | Read NextREG 0xC6: returns 0_654_0_210                       | —              | missing | missing                                              |
+| NR-C6-02   | Read NextREG 0xC6: returns 0_654_0_210                       | zxnext.vhd:6244-6245 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:901      |
 | NR-C8-01   | Read NextREG 0xC8: line and ULA interrupt status             | zxnext.vhd:6247  | pass    | test/ctc/ctc_test.cpp:2255                         |
 | NR-C9-01   | Read NextREG 0xC9: CTC interrupt status [10:3]               | zxnext.vhd:6250  | pass    | test/ctc/ctc_test.cpp:2271                         |
 | NR-CA-01   | Read NextREG 0xCA: UART interrupt status                     | zxnext.vhd:6253  | pass    | test/ctc/ctc_test.cpp:2289                         |
@@ -1921,8 +1921,8 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | ISC-06     | Write NextREG 0xCA bits 5                                    | zxnext.vhd:1954  | pass    | test/ctc/ctc_test.cpp:2503                         |
 | ISC-07     | Write NextREG 0xCA bits 1                                    | zxnext.vhd:1954  | pass    | test/ctc/ctc_test.cpp:2524                         |
 | ISC-08     | Status bit re-set by new interrupt while clear pending       | im2_peripheral.vhd:160 | pass    | test/ctc/ctc_test.cpp:2562                         |
-| ISC-09     | Legacy NextREG 0x20 read: returns mixed status               | —              | missing | missing                                              |
-| ISC-10     | Legacy NextREG 0x22 read: includes pulse_int_n state         | —              | missing | missing                                              |
+| ISC-09     | Legacy NextREG 0x20 read: returns mixed status               | zxnext.vhd:5988-5989 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:941      |
+| ISC-10     | Legacy NextREG 0x22 read: includes pulse_int_n state         | zxnext.vhd:5991-5992 | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:971      |
 | DMA-01     | im2_dma_int set when any peripheral has dma_int=1            | peripherals.vhd:174-184 | pass    | test/ctc/ctc_test.cpp:2589                         |
 | DMA-02     | im2_dma_delay latched on im2_dma_int                         | zxnext.vhd:2001-2010 | pass    | test/ctc/ctc_test.cpp:2604                         |
 | DMA-03     | im2_dma_delay held by dma_delay signal                       | zxnext.vhd:2007  | pass    | test/ctc/ctc_test.cpp:2632                         |
@@ -1936,8 +1936,8 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | UNQ-05     | Unqualified interrupt sets int_status                        | im2_peripheral.vhd:160 | pass    | test/ctc/ctc_test.cpp:2804                         |
 | JOY-01     | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7        | —              | missing | missing                                            |
 | JOY-02     | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0           | —              | missing | missing                                            |
-| IM2C-G87-01     | RETI (ED 4D) seen by Im2Controller via real Z80Cpu M1 stream                         | —                               | missing | missing         |
-| IM2C-G87-02     | RETN (ED 45) seen by Im2Controller via real Z80Cpu M1 stream                         | —                               | missing | missing         |
+| IM2C-G87-01     | RETI (ED 4D) seen by Im2Controller via real Z80Cpu M1 stream                         | im2_control.vhd:158-209,234       | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:1026 |
+| IM2C-G87-02     | RETN (ED 45) seen by Im2Controller via real Z80Cpu M1 stream                         | im2_control.vhd:233-238           | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:1050 |
 | IM2-G89-01      | LDIRX samples INT/NMI between iterations                                             | —                               | missing | missing         |
 | IM2-G89-02      | LDDRX samples INT/NMI between iterations                                             | —                               | missing | missing         |
 | IM2-G89-03      | LDPIRX samples INT/NMI between iterations                                            | —                               | missing | missing         |
@@ -1946,8 +1946,8 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | CTC-TM-G120-01  | Mid-stream TC reload preserves prescaler (S_RUN_TC -> S_RUN)                         | ctc_chan.vhd:131-141              | pass   | test/ctc/ctc_test.cpp:493 |
 | IM2W-G119-01    | ZC/TO raised unconditionally; int_en AND at fabric edge (mid-pulse en flip)          | zxnext.vhd:1941                   | pass   | test/ctc/ctc_test.cpp:2036 |
 | PULSE-G121-01   | NR 0x03 machine-timing post-boot updates pulse_count_end                             | zxnext.vhd:2033                   | pass   | test/ctc/ctc_test.cpp:1766 |
-| NR-C2-01        | NMI captures PC into NR 0xC2 (RETN address LSB)                                      | —                               | missing | missing         |
-| NR-C3-01        | NMI captures PC into NR 0xC3 (RETN address MSB)                                      | —                               | missing | missing         |
+| NR-C2-01        | NMI captures PC into NR 0xC2 (RETN address LSB)                                      | zxnext.vhd:2050-2085,6232         | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:1084 |
+| NR-C3-01        | NMI captures PC into NR 0xC3 (RETN address MSB)                                      | zxnext.vhd:2050-2085,6236         | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
 | Z80-04          | Z80Cpu M1 hook fires per fetched byte (cross-link to G87 ED-prefix observability)    | —                               | missing | missing         |
 | CFG-08          | NR 0x02 reset_type[2:0] FSM advance on soft_reset rising edge (G153)                 | zxnext.vhd:1306,1732-1739       | missing | missing         |
 | NR02-07         | NR 0x02 read returns reset_type[2:0] in bits [1:0] + bit 2 (G153)                    | zxnext.vhd:5891                 | missing | missing         |
@@ -2057,8 +2057,8 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | DUAL-02 | Independent prescalers                                       | uart.vhd:282-286,355,371 | pass    | test/uart/uart_test.cpp:1309 |
 | DUAL-03 | Independent frame registers                                  | uart.vhd:300-305 | pass    | test/uart/uart_test.cpp:1324 |
 | DUAL-04 | Independent status registers                                 | uart.vhd:346-378 | pass    | test/uart/uart_test.cpp:1337 |
-| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | zxnext.vhd       | missing | missing                     |
-| DUAL-06 | Joystick UART mode multiplexing                              | —              | missing | missing                     |
+| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | zxnext.vhd       | pass    | test/uart/uart_integration_test.cpp:614 |
+| DUAL-06 | Joystick UART mode multiplexing                              | zxnext.vhd:3340-3341 | pass    | test/uart/uart_integration_test.cpp:663 |
 | I2C-01  | Reset state: SCL = 1, SDA = 1 (both released)                | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1372 |
 | I2C-02  | Write 0x00 to port 0x103B                                    | zxnext.vhd:3237-3238 | pass    | test/uart/uart_test.cpp:1384 |
 | I2C-03  | Write 0x01 to port 0x103B                                    | zxnext.vhd:3237-3238 | pass    | test/uart/uart_test.cpp:1396 |
@@ -2068,7 +2068,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | I2C-07  | Read port 0x113B                                             | zxnext.vhd:3266  | pass    | test/uart/uart_test.cpp:1441 |
 | I2C-08  | Only bit 0 is significant for write                          | zxnext.vhd:3238  | pass    | test/uart/uart_test.cpp:1453 |
 | I2C-09  | Bits 7:1 always read as 1                                    | zxnext.vhd:3259,3266 | pass    | test/uart/uart_test.cpp:1467 |
-| I2C-10  | I2C port enable gated by internal_port_enable(10)            | —              | missing | missing                     |
+| I2C-10  | I2C port enable gated by internal_port_enable(10)            | zxnext.vhd:2418  | pass    | test/uart/uart_integration_test.cpp:565 |
 | I2C-11  | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0          | zxnext.vhd:3259  | pass    | test/uart/uart_test.cpp:1496 |
 | I2C-12  | Reset releases both lines                                    | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1511 |
 | I2C-13  | NR 0xA0 bit 3 (pi_i2c1_en) gates GPIO 2/3 -> I2C1 wired-AND mux (G138)                                  | zxnext.vhd:2280,2309-2318               | pass    | test/uart/uart_test.cpp:1542 |
@@ -2097,16 +2097,16 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | RTC-16  | Clock halt bit (seconds register bit 7)                      | —              | pass    | test/uart/uart_test.cpp:1976 |
 | RTC-17  | NVRAM registers 0x08-0x3F (56 bytes)                         | —              | pass    | test/uart/uart_test.cpp:2008 |
 | RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | i2c.cpp:111                             | pass    | test/uart/uart_test.cpp:2059 |
-| INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | —              | missing | missing                     |
-| INT-02  | UART 0 RX near-full always triggers                          | —              | missing | missing                     |
-| INT-03  | UART 1 RX interrupt: same logic as UART 0                    | —              | missing | missing                     |
-| INT-04  | UART 0 TX empty interrupt                                    | —              | missing | missing                     |
-| INT-05  | UART 1 TX empty interrupt                                    | —              | missing | missing                     |
-| INT-06  | Interrupt enable controlled by NextREG 0xC6                  | —              | missing | missing                     |
-| INT-07  | Asymmetric vector-1 enable: NR 0xC6 b1=1, b0=0 -> UART0 RX vector fires on near-full only (G134)        | zxnext.vhd:1941-1944; uart.cpp:626-630  | missing | missing                      |
-| GATE-01 | UART port enable (internal_port_enable bit 12)               | —              | missing | missing                     |
-| GATE-02 | I2C port enable (internal_port_enable bit 10)                | —              | missing | missing                     |
-| GATE-03 | Enable controlled by NextREG 0x82-0x85                       | —              | missing | missing                     |
+| INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | zxnext.vhd:1941-1944 | pass    | test/uart/uart_integration_test.cpp:173 |
+| INT-02  | UART 0 RX near-full always triggers                          | zxnext.vhd:1942  | pass    | test/uart/uart_integration_test.cpp:202 |
+| INT-03  | UART 1 RX interrupt: same logic as UART 0                    | zxnext.vhd:1941-1944 | pass    | test/uart/uart_integration_test.cpp:217 |
+| INT-04  | UART 0 TX empty interrupt                                    | zxnext.vhd:1942  | pass    | test/uart/uart_integration_test.cpp:233 |
+| INT-05  | UART 1 TX empty interrupt                                    | zxnext.vhd:1941  | pass    | test/uart/uart_integration_test.cpp:259 |
+| INT-06  | Interrupt enable controlled by NextREG 0xC6                  | zxnext.vhd:1941  | pass    | test/uart/uart_integration_test.cpp:275 |
+| INT-07  | Asymmetric vector-1 enable: NR 0xC6 b1=1, b0=0 -> UART0 RX vector fires on near-full only (G134)        | zxnext.vhd:1941-1944; uart.cpp:626-630  | pass    | test/uart/uart_integration_test.cpp:316 |
+| GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420  | pass    | test/uart/uart_integration_test.cpp:394 |
+| GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418  | pass    | test/uart/uart_integration_test.cpp:443 |
+| GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412  | pass    | test/uart/uart_integration_test.cpp:536 |
 | NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:1241                         | missing | missing                      |
 | NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | missing | missing                      |
 | NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | missing | missing                     |
@@ -2139,27 +2139,27 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 |---------|--------------------------------------------------------|----------------|---------|-----------------------------------|
 | SEL-01  | Write 0x243B = 0x15, read 0x243B                       | zxnext.vhd:4597-4599 | pass    | test/nextreg/nextreg_test.cpp:123 |
 | SEL-02  | Reset, read 0x243B                                     | zxnext.vhd:4594-4596 | pass    | test/nextreg/nextreg_test.cpp:147 |
-| SEL-03  | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | —              | missing | missing                                                      |
+| SEL-03  | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | zxnext.vhd:5884-5885 | pass    | test/nextreg/nextreg_integration_test.cpp:865                |
 | SEL-04  | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | zxnext.vhd       | pass    | test/nextreg/nextreg_test.cpp:166 |
 | SEL-05a    | Z80N NEXTREG instruction preserves NR 0x07 selection (Z80N injects rr,vv directly) | zxnext.vhd:4739-4745 | missing | missing                           |
 | SEL-05b    | Discriminative pair: post-Z80N data write lands at preserved selection  | zxnext.vhd:4739-4745          | missing | missing                           |
-| RO-01   | Read NR 0x00                                           | —              | missing | missing                                                      |
-| RO-02   | Write NR 0x00, read back                               | —              | missing | missing                                                      |
-| RO-03   | Read NR 0x01                                           | —              | missing | missing                                                      |
-| RO-04   | Read NR 0x0E                                           | —              | missing | missing                                                      |
-| RO-05   | Read NR 0x0F                                           | —              | missing | missing                                                      |
-| RO-06   | Read NR 0x1E/0x1F                                      | —              | missing | missing                                                      |
-| RST-01  | After reset, read NR 0x14                              | —              | missing | missing                                                      |
-| RST-02  | After reset, read NR 0x15                              | —              | missing | missing                                                      |
-| RST-03  | After reset, read NR 0x4A                              | —              | missing | missing                                                      |
-| RST-04  | After reset, read NR 0x42                              | —              | missing | missing                                                      |
-| RST-05  | After reset, read NR 0x50-0x57                         | —              | missing | missing                                                      |
-| RST-06  | After reset, read NR 0x68                              | —              | missing | missing                                                      |
-| RST-07  | After reset, read NR 0x0B                              | —              | missing | missing                                                      |
-| RST-08  | After reset, read NR 0x82-0x85                         | —              | missing | missing                                                      |
-| RST-09  | After reset, read NR 0x1B clip                         | —              | missing | missing                                                      |
-| RW-01   | 0x07                                                   | —              | missing | missing                                                      |
-| RW-02   | 0x08                                                   | zxnext.vhd:5906 | missing | missing                                                      |
+| RO-01   | Read NR 0x00                                           | —              | pass    | test/nextreg/nextreg_integration_test.cpp:760                |
+| RO-02   | Write NR 0x00, read back                               | zxnext.vhd:5884-5885 | pass    | test/nextreg/nextreg_integration_test.cpp:776                |
+| RO-03   | Read NR 0x01                                           | —              | pass    | test/nextreg/nextreg_integration_test.cpp:787                |
+| RO-04   | Read NR 0x0E                                           | zxnext_top_issue2.vhd:38 | pass    | test/nextreg/nextreg_integration_test.cpp:799                |
+| RO-05   | Read NR 0x0F                                           | —              | pass    | test/nextreg/nextreg_integration_test.cpp:811                |
+| RO-06   | Read NR 0x1E/0x1F                                      | zxnext.vhd:5982-5986 | pass    | test/nextreg/nextreg_integration_test.cpp:837                |
+| RST-01  | After reset, read NR 0x14                              | zxnext.vhd:4947  | pass    | test/nextreg/nextreg_integration_test.cpp:168                |
+| RST-02  | After reset, read NR 0x15                              | zxnext.vhd:4948  | pass    | test/nextreg/nextreg_integration_test.cpp:179                |
+| RST-03  | After reset, read NR 0x4A                              | zxnext.vhd:5002  | pass    | test/nextreg/nextreg_integration_test.cpp:189                |
+| RST-04  | After reset, read NR 0x42                              | zxnext.vhd:4993  | pass    | test/nextreg/nextreg_integration_test.cpp:199                |
+| RST-05  | After reset, read NR 0x50-0x57                         | zxnext.vhd:4610-4618 | pass    | test/nextreg/nextreg_integration_test.cpp:224                |
+| RST-06  | After reset, read NR 0x68                              | zxnext.vhd:5029  | pass    | test/nextreg/nextreg_integration_test.cpp:234                |
+| RST-07  | After reset, read NR 0x0B                              | zxnext.vhd:4939-4941 | pass    | test/nextreg/nextreg_integration_test.cpp:245                |
+| RST-08  | After reset, read NR 0x82-0x85                         | zxnext.vhd:5052-5068 | pass    | test/nextreg/nextreg_integration_test.cpp:267                |
+| RST-09  | After reset, read NR 0x1B clip                         | zxnext.vhd:5971-5977 | pass    | test/nextreg/nextreg_integration_test.cpp:312                |
+| RW-01   | 0x07                                                   | zxnext.vhd:5902-5903 | pass    | test/nextreg/nextreg_integration_test.cpp:1621               |
+| RW-02   | 0x08                                                   | zxnext.vhd:5906 | pass    | test/nextreg/nextreg_integration_test.cpp:1673               |
 | RW-03   | 0x12                                                   | zxnext.vhd       | pass    | test/nextreg/nextreg_test.cpp:277 |
 | RW-04   | 0x14                                                   | zxnext.vhd       | pass    | test/nextreg/nextreg_test.cpp:289 |
 | RW-05   | 0x15                                                   | zxnext.vhd       | pass    | test/nextreg/nextreg_test.cpp:302 |
@@ -2170,37 +2170,37 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | RW-10   | 0x50-57                                                | zxnext.vhd:4607-4700 | pass    | test/nextreg/nextreg_test.cpp:373 |
 | RW-11   | 0x7F                                                   | zxnext.vhd       | pass    | test/nextreg/nextreg_test.cpp:384 |
 | RW-12   | 0x6B                                                   | zxnext.vhd       | pass    | test/nextreg/nextreg_test.cpp:396 |
-| CLIP-01 | Write NR 0x18 four times: 10,20,30,40                  | —              | missing | missing                                                      |
-| CLIP-02 | Write NR 0x18 five times                               | —              | missing | missing                                                      |
-| CLIP-03 | Write NR 0x1C bit 0 = 1                                | —              | missing | missing                                                      |
-| CLIP-04 | Write NR 0x1C bit 1 = 1                                | —              | missing | missing                                                      |
-| CLIP-05 | Write NR 0x1C bit 2 = 1                                | —              | missing | missing                                                      |
-| CLIP-06 | Write NR 0x1C bit 3 = 1                                | —              | missing | missing                                                      |
-| CLIP-07 | Read NR 0x1C                                           | —              | missing | missing                                                      |
-| CLIP-08 | Read NR 0x18 cycles through clip values                | —              | missing | missing                                                      |
+| CLIP-01 | Write NR 0x18 four times: 10,20,30,40                  | zxnext.vhd:5242-5249 | pass    | test/nextreg/nextreg_integration_test.cpp:898                |
+| CLIP-02 | Write NR 0x18 five times                               | zxnext.vhd:5242-5249 | pass    | test/nextreg/nextreg_integration_test.cpp:918                |
+| CLIP-03 | Write NR 0x1C bit 0 = 1                                | zxnext.vhd:5278-5281 | pass    | test/nextreg/nextreg_integration_test.cpp:937                |
+| CLIP-04 | Write NR 0x1C bit 1 = 1                                | zxnext.vhd:5242-5290 | pass    | test/nextreg/nextreg_integration_test.cpp:958                |
+| CLIP-05 | Write NR 0x1C bit 2 = 1                                | zxnext.vhd:5242-5290 | pass    | test/nextreg/nextreg_integration_test.cpp:980                |
+| CLIP-06 | Write NR 0x1C bit 3 = 1                                | zxnext.vhd:5242-5290 | pass    | test/nextreg/nextreg_integration_test.cpp:998                |
+| CLIP-07 | Read NR 0x1C                                           | zxnext.vhd:5979-5980 | pass    | test/nextreg/nextreg_integration_test.cpp:1017               |
+| CLIP-08 | Read NR 0x18 cycles through clip values                | zxnext.vhd:5947-5953 | pass    | test/nextreg/nextreg_integration_test.cpp:1062               |
 | MMU-01  | Reset defaults                                         | —              | missing | missing                                                      |
 | MMU-02  | Write NR 0x52 = 0x20, read back                        | zxnext.vhd:4613  | pass    | test/nextreg/nextreg_test.cpp:455 |
 | MMU-03  | Write port 0x7FFD, check MMU6/7                        | —              | missing | missing                                                      |
 | MMU-04  | NextREG write overrides port write                     | —              | missing | missing                                                      |
-| CFG-01  | Write NR 0x03 bits 6:4 for timing                      | —              | missing | missing                                                      |
-| CFG-02  | Write NR 0x03 bit 3 toggles dt_lock                    | —              | missing | missing                                                      |
+| CFG-01  | Write NR 0x03 bits 6:4 for timing                      | zxnext.vhd:1099,5893-5894 | pass    | test/nextreg/nextreg_integration_test.cpp:1953               |
+| CFG-02  | Write NR 0x03 bit 3 toggles dt_lock                    | zxnext.vhd:5121-5151,5894 | pass    | test/nextreg/nextreg_integration_test.cpp:1989               |
 | CFG-03  | Write NR 0x03 bits 2:0 = 111                           | zxnext.vhd:5147-5148 | pass    | test/nextreg/nextreg_test.cpp:515 |
 | CFG-04  | Write NR 0x03 bits 2:0 = 001-100                       | zxnext.vhd:5149-5150 | pass    | test/nextreg/nextreg_test.cpp:538 |
-| CFG-05  | Machine type only writable in config mode              | —              | missing | missing                                                      |
+| CFG-05  | Machine type only writable in config mode              | zxnext.vhd:5147-5151 | pass    | test/nextreg/nextreg_integration_test.cpp:2020               |
 | CFG-06     | Write NR 0x03 bits 2:0 = 000 — no-op on config_mode                     | zxnext.vhd:5147-5151          | pass    | test/nextreg/nextreg_test.cpp:562 |
 | CFG-07     | Power-on / reset default `nr_03_config_mode = 1`                        | zxnext.vhd:1102               | pass    | test/nextreg/nextreg_test.cpp:592 |
 | CFG-08     | NR 0x03 config_mode preservation across soft-reset                      | zxnext.vhd:1102, 5147-5151    | missing | missing                           |
-| PAL-01  | Write NR 0x40 = 0x10 (palette index)                   | —              | missing | missing                                                      |
-| PAL-02  | Write NR 0x41 (8-bit colour)                           | —              | missing | missing                                                      |
-| PAL-03  | Write NR 0x44 twice (9-bit colour)                     | —              | missing | missing                                                      |
-| PAL-04  | Read NR 0x41                                           | —              | missing | missing                                                      |
-| PAL-05  | Read NR 0x44                                           | —              | missing | missing                                                      |
-| PAL-06  | Auto-increment disabled (NR 0x43 bit 7)                | —              | missing | missing                                                      |
+| PAL-01  | Write NR 0x40 = 0x10 (palette index)                   | zxnext.vhd:4918-4920 | pass    | test/nextreg/nextreg_integration_test.cpp:1295               |
+| PAL-02  | Write NR 0x41 (8-bit colour)                           | zxnext.vhd:4918-4920 | pass    | test/nextreg/nextreg_integration_test.cpp:1309               |
+| PAL-03  | Write NR 0x44 twice (9-bit colour)                     | zxnext.vhd:4918-4920 | pass    | test/nextreg/nextreg_integration_test.cpp:1329               |
+| PAL-04  | Read NR 0x41                                           | zxnext.vhd       | pass    | test/nextreg/nextreg_integration_test.cpp:1344               |
+| PAL-05  | Read NR 0x44                                           | zxnext.vhd       | pass    | test/nextreg/nextreg_integration_test.cpp:1357               |
+| PAL-06  | Auto-increment disabled (NR 0x43 bit 7)                | zxnext.vhd:4918-4920 | pass    | test/nextreg/nextreg_integration_test.cpp:1381               |
 | PE-01   | Write NR 0x82 = 0x00                                   | zxnext.vhd:2392-2442,5052-5068 | pass    | test/nextreg/nextreg_test.cpp:681 |
 | PE-02   | Read NR 0x82 after write                               | zxnext.vhd:2392-2442,5052-5068 | pass    | test/nextreg/nextreg_test.cpp:693 |
-| PE-03   | Disable joystick port (bit 6)                          | —              | missing | missing                                                      |
+| PE-03   | Disable joystick port (bit 6)                          | zxnext.vhd:2392-2442 | pass    | test/nextreg/nextreg_integration_test.cpp:1439               |
 | PE-04   | Reset with reset_type=1                                | —              | missing | missing                                                      |
-| PE-05   | Reset with bus reset_type=0                            | —              | missing | missing                                                      |
+| PE-05   | Reset with bus reset_type=0                            | zxnext.vhd:1234-1235,6147-6150 | pass    | test/nextreg/nextreg_integration_test.cpp:1458               |
 | COP-01  | CPU write NR 0x15                                      | zxnext.vhd:4706-4777 | pass    | test/nextreg/nextreg_test.cpp:757 |
 | COP-02  | Copper write NR 0x15 simultaneously                    | —              | missing | missing                                                        |
 | COP-03  | CPU write while copper active                          | —              | missing | missing                                                        |
@@ -2488,8 +2488,8 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | KBD-19    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:300 |
 | KBD-20    | none                                                         | membrane.vhd:242-251                    | pass   | test/input/input_test.cpp:309 |
 | KBD-21    | none                                                         | membrane.vhd:251                        | pass   | test/input/input_test.cpp:319 |
-| KBD-22    | none                                                         | —                                     | missing | missing                       |
-| KBD-23    | none                                                         | —                                     | missing | missing                       |
+| KBD-22    | none                                                         | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:157 |
+| KBD-23    | none                                                         | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:181 |
 | KBDHYS-01 | Pulse CS for one scan, then release; read the next scan      | membrane.vhd:178,188-191,232            | pass   | test/input/input_test.cpp:363 |
 | KBDHYS-02 | Hold CS continuously across 3 scans                          | membrane.vhd:190                        | pass   | test/input/input_test.cpp:384 |
 | KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan                     | membrane.vhd:253                        | pass   | test/input/input_test.cpp:417 |
@@ -2610,10 +2610,10 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | NMI-05    | NR 0x06 bit 3 = 1                                            | zxnext.vhd:2090                         | pass   | test/input/input_test.cpp:2855 |
 | NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2873 |
 | NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2891 |
-| FE-01     | No keys, EAR=0, no `port_fe_ear`                             | —                                     | missing | missing                       |
-| FE-02     | EAR input high                                               | —                                     | missing | missing                       |
-| FE-03     | Write 0xFE bit 4 high (`port_fe_ear`=1), then read           | —                                     | missing | missing                       |
-| FE-04     | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0                    | —                                     | missing | missing                       |
+| FE-01     | No keys, EAR=0, no `port_fe_ear`                             | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:206 |
+| FE-02     | EAR input high                                               | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:227 |
+| FE-03     | Write 0xFE bit 4 high (`port_fe_ear`=1), then read           | zxnext.vhd:3459                         | pass    | test/input/input_integration_test.cpp:246 |
+| FE-04     | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0                    | zxnext.vhd:5182                         | pass    | test/input/input_integration_test.cpp:310 |
 | FE-05     | `expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus dri… | —                                     | missing | missing                       |
 | JMODE-09      | NR 0x05=0x40 (joy0=Kempston1) -> MembraneStick::set_mode(joy0) called from Joystick::set_nr_05       | membrane_stick.vhd:117-149              | pass   | test/input/input_test.cpp:1086 |
 | KEMP-16       | NR 0x82 b7=0; joy0=100 (Kempston2); read port 0x37 -> floating-bus, NOT joystick byte                | zxnext.vhd:2408,2675                    | pass   | test/input/input_test.cpp:1294 |
@@ -2628,11 +2628,11 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | pass   | test/input/input_test.cpp:3004 |
 | JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | pass   | test/input/input_test.cpp:3048 |
 | FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | pass   | test/input/input_test.cpp:3088 |
-| HOTKEY-01     | Host SDL_SCANCODE_F8 -> NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by nr_06_hotkey_*_en  | zxnext.vhd:5790-5791,6342-6347          | missing | missing                       |
-| JOY-WIRE-01   | OUT (0x253B), 0x40 with reg=0x05 -> MembraneStick fold redirects through full NR-write path          | emulator.cpp:456-458                    | missing | missing                       |
-| JOY-WIRE-02   | Host SDL gamepad axis -> Kempston bits at port 0x1F (G42)                                            | joystick.vhd                            | missing | missing                       |
-| JOY-WIRE-03   | Host SDL gamepad buttons -> Kempston bits at port 0x1F (G42)                                         | joystick.vhd                            | missing | missing                       |
-| JOY-WIRE-04   | Host SDL gamepad mode -> Sinclair / Cursor / MD fold variants honoured per NR 0x05 (G42)             | joystick.vhd + membrane_stick.vhd       | missing | missing                       |
+| HOTKEY-01     | Host SDL_SCANCODE_F8 -> NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by nr_06_hotkey_*_en  | zxnext.vhd:5790-5791,6342-6347          | pass    | test/input/input_integration_test.cpp:957 |
+| JOY-WIRE-01   | OUT (0x253B), 0x40 with reg=0x05 -> MembraneStick fold redirects through full NR-write path          | emulator.cpp:456-458                    | pass    | test/input/input_integration_test.cpp:612 |
+| JOY-WIRE-02   | Host SDL gamepad axis -> Kempston bits at port 0x1F (G42)                                            | joystick.vhd                            | pass    | test/input/input_integration_test.cpp:667 |
+| JOY-WIRE-03   | Host SDL gamepad buttons -> Kempston bits at port 0x1F (G42)                                         | joystick.vhd                            | pass    | test/input/input_integration_test.cpp:725 |
+| JOY-WIRE-04   | Host SDL gamepad mode -> Sinclair / Cursor / MD fold variants honoured per NR 0x05 (G42)             | joystick.vhd + membrane_stick.vhd       | pass    | test/input/input_integration_test.cpp:781 |
 | HK-WIRE-01    | Host F1 SDL key dispatched into `Emulator::trigger_hard_reset()` injector (G152)                     | emulator.h:328-329                      | missing | missing                       |
 | HK-WIRE-02    | Host F4 SDL key dispatched into `Emulator::trigger_soft_reset()` injector (G152)                     | emulator.h:328-329                      | missing | missing                       |
 | HK-WIRE-03    | Host F9 SDL key dispatched into NMI source `assert_mf` injector (G152)                               | nmi_source.cpp                          | missing | missing                       |
