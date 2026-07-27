@@ -90,11 +90,15 @@ if want sdl-reset-hotkey-func; then
         xvfb-run -a --server-args="-screen 0 2048x1536x24" bash -c '
             set -uo pipefail
             bin="$1"; out="$2"; log="$3"; geom="$4"; shift 4
-            # The capture is at emulated frame 700 (14 s at 1x — SdlApp has no
-            # speed multiplier), which is past the whole script below.
+            # The capture is at emulated frame 1150 (23 s at 1x — SdlApp has no
+            # speed multiplier), which is past the whole script below. Frames,
+            # not seconds, is the safe unit here: a loaded box emulates SLOWER
+            # than real time, so the capture drifts LATER in wall-clock while
+            # the sleeps below do not — i.e. further past the typing, never
+            # before it.
             "$bin" --machine 48k --silent \
-                --delayed-screenshot "$out" --delayed-screenshot-frames 700 \
-                --delayed-automatic-exit-frames 760 >"$log" 2>&1 &
+                --delayed-screenshot "$out" --delayed-screenshot-frames 1150 \
+                --delayed-automatic-exit-frames 1210 >"$log" 2>&1 &
             pid=$!
 
             wid=""
@@ -103,11 +107,10 @@ if want sdl-reset-hotkey-func; then
                 [ -n "$wid" ] && break
                 sleep 0.2
             done
-            # 5 s: 48K BASIC is at its prompt by emulated frame 150 (3 s at 1x),
-            # and a loaded runner emulates slower than real time. Pressing F1
-            # before the machine is up would still cold-boot it, so this margin
-            # is for the SECOND boot below, where the digits must land at a live
-            # K cursor.
+            # Settle before the F2 witness. Not the critical margin: F1
+            # pressed mid-boot still cold-boots the machine, so what matters is
+            # the margin given to the SECOND boot, below. (No apostrophes in
+            # this body: it is single-quoted, see the note above the function.)
             sleep 5
             if [ -n "$wid" ]; then
                 xdotool windowactivate --sync "$wid" 2>/dev/null || true
@@ -120,7 +123,16 @@ if want sdl-reset-hotkey-func; then
                     | sed -n "s/^\(WIDTH\|HEIGHT\)=/after_\1=/p" >>"$geom" || true
 
                 xdotool key F1 2>/dev/null || true
-                sleep 5
+                # THE CRITICAL MARGIN, AND A KNOWN REAL-TIME-PACED ONE — leave
+                # it generous. The digits below must land at the K cursor of the
+                # REBOOTED machine, which is up by emulated frame 150 (3 s at
+                # 1x; SdlApp has no speed multiplier, so emulated and wall time
+                # track each other). 12 s is 4x that requirement, the same
+                # headroom sdl-keypress-func gives its own settle step, because
+                # a loaded runner emulates slower than real time and a miss here
+                # FAILs rather than skips (see the outcome table above). Do not
+                # trim it back to "what works on an idle box".
+                sleep 12
                 xdotool windowactivate --sync "$wid" 2>/dev/null || true
                 for k in "$@"; do
                     xdotool keydown "$k" 2>/dev/null || true

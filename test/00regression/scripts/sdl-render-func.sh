@@ -41,6 +41,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #          sprites                         -> img/layers-beast-sprites-reference.png
 #          (adds the pending-load countdown and the layer-mask arm/disarm)
 #
+# NOT COVERED, DELIBERATELY: the --inject countdown (sdl_app.cpp:257-262). It is
+# the same three-branch countdown shape as the --load one this row does drive,
+# eight lines away in the same loop, so the marginal risk it carries alone does
+# not pay for another run of the emulator.
+#
 # Each run also carries a free second observation: SdlApp derives its own
 # SDL_Delay period from the emulated refresh (sdl_app.cpp:414-425) and logs it.
 # 48k is a 50 Hz machine (20 ms); beast.nex switches to 60 Hz via NR 0x05 bit 2
