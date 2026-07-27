@@ -593,6 +593,74 @@ check('SELF-35', 'an ID recorded nowhere is unrecorded, NOT aliased — the two 
       'aliased=' . recorded_only_by_alias('X-02a', $recorded)
         . ' recorded=' . matrix_records('X-02a', $recorded));
 
+# ── Section-scoped recording (GH #118) ────────────────────────────────
+#
+# "Is this row recorded?" used to be asked of the whole document, so an ID
+# string reused by another subsystem answered yes on the wrong subsystem's
+# behalf: `SD-16..SD-23` are asserted in `sdcard_test.cpp` and recorded
+# nowhere in the SD Card section — the Audio section's identically-named
+# rows were vouching for them. 29 rows across five subsystems were hidden.
+#
+# The unit is the SUBSYSTEM, not the @SUBSYS entry: a `###` companion is
+# judged against its parent `##`, because several companions' rows are
+# recorded in the parent's own table. Scoping to the entry would accuse the
+# document of omitting 12 rows it plainly lists, and a false accusation
+# costs as much as a silent omission.
+
+my @scoped = (
+    '## Alpha — `test/fixture/alpha_test.cpp`',
+    '',
+    $SUMMARY_BEGIN,
+    '| Section    | Rows | pass | fail | missing |',
+    '|------------|-----:|-----:|-----:|--------:|',
+    '| GENSUM2-01 |   12 |   12 |    0 |       0 |',
+    $SUMMARY_END,
+    '',
+    '| Test ID   | Plan row title      | VHDL file:line | Status | Test file:line |',
+    '|-----------|---------------------|----------------|--------|----------------|',
+    '| SHARED-01 | recorded in Alpha   | —              | pass   | a.cpp:1        |',
+    '| A-01      | alpha row           | —              | pass   | a.cpp:2        |',
+    '',
+    '### Companion integration suite — `test/fixture/alpha_companion_test.cpp`',
+    '',
+    '| Test ID   | Plan row title      | VHDL file:line | Status | Test file:line |',
+    '|-----------|---------------------|----------------|--------|----------------|',
+    '| COMP-01   | companion row       | —              | pass   | c.cpp:1        |',
+    '',
+    '## Beta — `test/fixture/beta_test.cpp`',
+    '',
+    '| Test ID   | Plan row title      | VHDL file:line | Status | Test file:line |',
+    '|-----------|---------------------|----------------|--------|----------------|',
+    '| B-01      | beta row            | —              | pass   | b.cpp:1        |',
+    '| SHARED-01 | same ID, other subsystem | —         | pass   | b.cpp:2        |',
+);
+my ($a_from, $a_to) = subsystem_span(\@scoped, 0);    # `## Alpha`
+my ($c_from, $c_to) = subsystem_span(\@scoped, 14);   # `### Companion ...`
+my ($b_from, $b_to) = subsystem_span(\@scoped, 20);   # `## Beta`
+my $alpha = matrix_row_ids(\@scoped, $a_from, $a_to);
+my $comp  = matrix_row_ids(\@scoped, $c_from, $c_to);
+my $beta  = matrix_row_ids(\@scoped, $b_from, $b_to);
+
+check('SELF-36', 'recording is section-scoped: a row recorded only in another subsystem does not count',
+      scalar(!matrix_records('B-01', $alpha) && matrix_records('B-01', $beta)
+             && !matrix_records('A-01', $beta)),
+      "B-01-in-alpha=" . matrix_records('B-01', $alpha)
+        . " B-01-in-beta=" . matrix_records('B-01', $beta)
+        . " A-01-in-beta=" . matrix_records('A-01', $beta));
+
+check('SELF-37', 'a ### companion is judged against its parent ##, so a parent-table row records it',
+      scalar($c_from == $a_from && $c_to == $a_to
+             && matrix_records('A-01', $comp) && matrix_records('COMP-01', $alpha)),
+      "alpha=[$a_from,$a_to) companion=[$c_from,$c_to) "
+        . "A-01-in-comp=" . matrix_records('A-01', $comp)
+        . " COMP-01-in-alpha=" . matrix_records('COMP-01', $alpha));
+
+check('SELF-38', 'a ranged read still skips a generated Summary block that falls inside the range',
+      scalar(!matrix_records('GENSUM2-01', $alpha)
+             && matrix_records('SHARED-01', $alpha)),
+      "GENSUM2-01=" . matrix_records('GENSUM2-01', $alpha)
+        . " SHARED-01=" . matrix_records('SHARED-01', $alpha));
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

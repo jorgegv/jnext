@@ -10,16 +10,16 @@
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   202 |  171 |    0 |    0 |      31 |         58 |
+| Memory/MMU                                 |   202 |  171 |    0 |    0 |      31 |         63 |
 | ULA Video                                  |   164 |  114 |    0 |    0 |      50 |          6 |
 | Layer2                                     |   122 |  114 |    0 |    0 |       8 |         25 |
 | Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   144 |  138 |    0 |    0 |       6 |         72 |
-| Audio                                      |   210 |  182 |    0 |    0 |      28 |          7 |
+| Audio                                      |   210 |  182 |    0 |    0 |      28 |          9 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
-| DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         40 |
+| DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         47 |
 | CTC+Interrupts                             |   180 |  133 |    0 |    0 |      47 |          0 |
 | UART+I2C/RTC                               |   112 |   93 |    0 |    0 |      19 |          6 |
 | NextREG                                    |   107 |   21 |    0 |    0 |      86 |          0 |
@@ -29,22 +29,22 @@
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         48 |
-| SD Card                                    |    21 |   16 |    0 |    0 |       5 |         21 |
+| SD Card                                    |    21 |   16 |    0 |    0 |       5 |         29 |
 | NMI Source Pipeline                        |    56 |   50 |    0 |    0 |       6 |          7 |
 | Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
 | Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
 | Companion: ctc_interrupts_test             |    10 |   10 |    0 |    0 |       0 |         28 |
-| Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        211 |
+| Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        218 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2514 | 2100 |    0 |    0 |     414 |        792 |
+| **Total**                                  |  2514 | 2100 |    0 |    0 |     414 |        821 |
 
 Rows the sections above carry: **2514**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2448**. Rows the 78 suites declared in `test/unit-tests.conf` run live: **5724**.
 
-**`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list anywhere. Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
+**`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
-**One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. A second looseness — *cross-section ID collision*, where recording is asked globally ("listed anywhere") so an ID string used by two subsystems counts as recorded for both — is still open (GH #118).
+**One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. The second looseness — *cross-section ID collision* — is closed: recording is asked against the owning `##` subsystem section rather than globally, which surfaced 29 rows that an identically-named row in a different subsystem had been vouching for (`SD-16..SD-23` by Audio, `PR-01..PR-05` by IO Port Dispatch, the `G108-*` set by ULA Video, `NR-10/11/13/14` + `PRI-01/02/04` by Audio and Memory/MMU, `SD2-01/02` by Memory/MMU). A `###` companion sub-section is judged against its parent `##`, not separately: its rows are part of the same subsystem's coverage story and several are recorded in the parent's own table (GH #118).
 
 **Suites with no section in this matrix: 44, 1180 live rows.** Their coverage is not traced here at all:
 
