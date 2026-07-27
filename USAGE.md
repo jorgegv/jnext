@@ -558,8 +558,7 @@ changes how fast the emulator runs relative to real time.
 | `=`                   | `=` (Symbol Shift + L)                  |
 
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
-Next with a PC keyboard attached. Releases before 0.99.43 had the two
-swapped.
+Next with a PC keyboard attached. Earlier releases had the two swapped.
 
 Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
 is toggled with F11 only (it used to also be exited with Esc).

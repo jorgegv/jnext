@@ -27,8 +27,8 @@ through modifiers:
 Three things catch people out:
 
 - **Shift is Caps Shift and Ctrl is Symbol Shift** — the same way round as a
-  real Spectrum Next with a PC keyboard plugged into it. Versions before
-  0.99.43 had these two swapped.
+  real Spectrum Next with a PC keyboard plugged into it. Earlier versions had
+  these two swapped.
 - **Esc is Break**, not "get me out of fullscreen". Fullscreen is F11 and only
   F11.
 - **Alt is a host modifier, never a Spectrum key.** Only the four Alt
