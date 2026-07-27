@@ -414,7 +414,9 @@ harness-selftest: unit-test-build gui-release sdl-release
 	@# worktree, for reasons unrelated to any injected fault (GH #135).
 	@# docs-check and cli-check are deliberately NOT mirrored from `regression`:
 	@# they gate the generated docs and the CLI table, neither of which this
-	@# self-test reads.
+	@# self-test reads. No workflow under .github/ invoked this target as of
+	@# GH #135, so adding them would buy no CI coverage either — CI reaches these
+	@# rows through the regression suite's harness-selftest-func row instead.
 	@# The suite's own harness-selftest-func row runs test/harness-selftest.sh
 	@# directly, not this target, so nothing here re-enters the regression
 	@# prerequisites.
