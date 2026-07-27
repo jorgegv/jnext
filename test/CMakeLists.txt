@@ -824,6 +824,28 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_window_grow_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_window_grow_tests COMMAND debugger_window_grow_test)
+
+    # Debugger accelerator-collision test (GH #124 — "&Watches" and "&Window"
+    # both bound Alt+W, and Qt answered by opening them alternately). Harvests
+    # every mnemonic and key sequence from the REAL DebuggerWindow and asserts
+    # uniqueness per Qt namespace, then presses the keys to prove the menu that
+    # opens is the one asked for. Needs Qt but no display — same offscreen QPA
+    # idiom as the panel suites above. Qt Test supplies the platform key-event
+    # entry point (qt_handleKeyEvent) that QShortcutMap listens on; a plain
+    # sendEvent() bypasses the shortcut map and would prove nothing. It ships
+    # in the same qtbase devel package as Widgets, so it is not a new
+    # dependency for any build that already compiles the debugger.
+    find_package(Qt${JNEXT_QT_MAJOR} REQUIRED COMPONENTS Test)
+    add_executable(debugger_accel_test debugger/accel_test.cpp)
+    set_target_properties(debugger_accel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_accel_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+        Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(debugger_accel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
 endif()
 
 # LoRes pixel-generator compliance tests (GH #63).
