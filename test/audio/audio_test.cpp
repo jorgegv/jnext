@@ -2330,7 +2330,7 @@ static void g_mixer() {
     // must be symmetric: full scale (1023) is +511 in the 13-bit domain and
     // zero (0) is -512, i.e. +2044 / -2048 signed after the x4 scale.
     //
-    // BEFORE the fix this row read L=0 for a full-negative input (and MX-DC-01
+    // BEFORE the fix this row read L=0 for a full-negative input (and MX-16
     // below read +2048 for silence): the mixer treated the term's most-negative
     // value as its rest point, offsetting every sample of every run by +2048.
     {
