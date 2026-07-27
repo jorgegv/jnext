@@ -38,6 +38,7 @@
 // ===========================================================================
 #include <QAction>
 #include <QApplication>
+#include <QFile>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMenu>
@@ -50,8 +51,12 @@
 #include <string>
 #include <vector>
 
+#include "core/emulator.h"
 #include "gui/main_window.h"
 #include "input/keyboard.h"
+#ifdef ENABLE_DEBUGGER
+#include "debugger/debugger_window.h"
+#endif
 
 namespace {
 
@@ -149,15 +154,18 @@ QStringList menubar_mnemonics(MainWindow& w) {
     return out;
 }
 
-// Every non-empty QAction shortcut under the main window, portable form.
-QStringList action_shortcuts(MainWindow& w) {
+// Every non-empty QAction shortcut under `root`, portable form. Takes a bare
+// QObject so it serves both the main window and (group 5) the debugger window.
+QStringList action_shortcuts_of(const QObject& root) {
     QStringList out;
-    for (QAction* a : w.findChildren<QAction*>()) {
+    for (QAction* a : root.findChildren<QAction*>()) {
         const QString s = seq_of(a);
         if (!s.isEmpty()) out << s;
     }
     return out;
 }
+
+QStringList action_shortcuts(MainWindow& w) { return action_shortcuts_of(w); }
 
 // ---------------------------------------------------------------------------
 // Group 1 — the six Symbol Shift sequences reach the emulated key matrix
@@ -269,13 +277,18 @@ void test_alt_activation(MainWindow& w) {
         //
         // Deliberately scoped to the press. Qt consults the shortcut map only
         // for QEvent::KeyPress, so the matching KeyRelease is NOT swallowed and
-        // does reach handle_key() — measured, not assumed. That stray release
-        // is inert: Keyboard::set_key(sc, false) clears a matrix bit that was
-        // never set (keyboard.cpp:285-300), and none of these six letters has
-        // an s_alt_* variant to mis-latch. The same asymmetry existed for the
-        // Ctrl chords before this change; it is Qt's, not jnext's. Asserting
-        // it here would pin incidental Qt behaviour, so the row asserts only
-        // what matters: no spurious keystroke is typed into the guest.
+        // does reach handle_key() — measured, not assumed.
+        //
+        // That stray release is inert BY CONSTRUCTION, not just in practice:
+        // on an unpaired release Keyboard::set_key takes
+        // `use_alt = alt_variant_[sc]` (keyboard.cpp:288-292), which was never
+        // set because the press never arrived — and none of Q/O/S/R/T/D has an
+        // s_alt_compound or s_alt_extkey entry at all, so use_alt resolves
+        // false on the press edge too. The release takes the plain s_map path
+        // and clears a bit that is already clear. The same asymmetry existed
+        // for the Ctrl chords before this change; it is Qt's, not jnext's.
+        // Asserting it here would pin incidental Qt behaviour, so the row
+        // asserts only what matters: no spurious keystroke reaches the guest.
         bool letter_pressed_in_guest = false;
         w.set_key_callback([&letter_pressed_in_guest, &h](SDL_Scancode sc, bool pressed) {
             if (sc == h.sdl && pressed) letter_pressed_in_guest = true;
@@ -344,6 +357,101 @@ void test_alt_namespace(MainWindow& w) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Group 5 — no UI string or feature list names a chord the product does not bind
+// ---------------------------------------------------------------------------
+//
+// WHY THIS GROUP EXISTS. The first cut of the #115 migration re-pointed every
+// QAction and every mnemonic correctly, and still shipped two defects, because
+// the enumeration stopped at QKeySequence objects and never swept for literal
+// "Ctrl+<letter>" TEXT:
+//
+//   * debugger_manager.cpp:246 — the toolbar bug-button tooltip still read
+//     "Toggle Debugger (Ctrl+D)" while that action's binding had moved to
+//     Alt+D. The product was instructing the user to press the exact chord the
+//     fix hands back to the guest (Ctrl+D types SS+D = STEP).
+//   * FEATURES.md:64,66 — still advertised Ctrl+R and Ctrl+S.
+//
+// Neither was catchable: nothing tests tooltip text, and `make docs-check`
+// cannot see FEATURES.md at all, so both passed every gate green.
+//
+// A chord named in prose is a PROMISE about a binding, and a promise is
+// checkable whenever the binding is a live object — which, in a suite that
+// already drives a real MainWindow, it is.
+
+// Any modifier chord, e.g. "Alt+D", "Ctrl+Shift+S", "Shift+F6".
+// Deliberately requires a modifier: a bare "F9" in a tooltip is a key handled
+// in keyPressEvent, not a QAction shortcut, and is not this group's business.
+// "Ctrl+Alt" (the mouse-capture release) does not match either — there is no
+// key after the second modifier — which is why this group needs no exception
+// table today. If one is ever needed it belongs HERE, declared with its
+// reason, never as a pattern that quietly skips the offending string.
+const char* const CHORD_RE =
+    "\\b(?:Ctrl|Alt|Shift|Meta)(?:\\+(?:Ctrl|Alt|Shift|Meta))*\\+(?:F\\d{1,2}|[A-Z])\\b";
+
+QStringList chords_in(const QString& text) {
+    static const QRegularExpression re(CHORD_RE);
+    QStringList out;
+    auto it = re.globalMatch(text);
+    while (it.hasNext()) out << it.next().captured(0);
+    return out;
+}
+
+// H115-28 — every modifier chord appearing in a QAction's user-visible text,
+// tooltip or status tip must name a REAL binding. Two tiers:
+//   * the action has its own shortcut  -> the chord must BE that shortcut;
+//   * the action has none (a toolbar twin of a menu action, like the bug
+//     button) -> the chord must at least be bound by some live action.
+// The second tier is what catches the tooltip defect: after the migration
+// "Ctrl+D" was bound by nothing at all.
+void test_ui_strings(MainWindow& w2, const QStringList& live) {
+    QStringList bad;
+    for (QAction* a : w2.findChildren<QAction*>()) {
+        const QString own = seq_of(a);
+        for (const QString& src : {a->text(), a->toolTip(), a->statusTip()}) {
+            for (const QString& c : chords_in(src)) {
+                const bool ok = own.isEmpty() ? live.contains(c) : (c == own);
+                if (!ok)
+                    bad << (a->text() + " says " + c +
+                            (own.isEmpty() ? " but nothing binds it"
+                                           : " but it is bound to " + own));
+            }
+        }
+    }
+    check("H115-28",
+          "no QAction text/tooltip/statustip names a chord the product does not bind",
+          bad.isEmpty(), ("offenders: " + bad.join(" | ")).toStdString());
+}
+
+// H115-29 — the same promise, made in FEATURES.md.
+//
+// SCOPE, stated precisely so nobody reads more into a green row than it earns.
+// This covers FEATURES.md ONLY. It deliberately does NOT scan doc/man/jnext.1.md
+// or src/doc/user-guide/**, even though those are exactly the "prose no gate can
+// see" files, because both now carry a paragraph that names Ctrl+O/D/R/T/Q/S ON
+// PURPOSE — to tell the reader those chords reach the guest. Scanning them would
+// need the checker to skip that passage, and a checker exclusion is precisely
+// how a real defect hides. Those files stay a human-review responsibility.
+// README.md is not scanned either: it contains no chord at all today, so the
+// branch would be vacuous.
+void test_features_md(const QStringList& live) {
+    QFile f(QString::fromUtf8(JNEXT_FEATURES_MD));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        check("H115-29", "every chord in FEATURES.md is one the product binds",
+              false, std::string("cannot open ") + JNEXT_FEATURES_MD);
+        return;
+    }
+    const QStringList found = chords_in(QString::fromUtf8(f.readAll()));
+    QStringList bad;
+    for (const QString& c : found)
+        if (!live.contains(c)) bad << c;
+    // `!found.isEmpty()` is part of the condition on purpose: an unreadable
+    // file or a broken pattern must FAIL, not pass vacuously.
+    check("H115-29", "every chord in FEATURES.md is one the product binds",
+          !found.isEmpty() && bad.isEmpty(),
+          ("found=" + found.join(',') + " unbound=" + bad.join(',')).toStdString());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -365,6 +473,45 @@ int main(int argc, char** argv) {
     test_bindings(w);
     test_alt_activation(w);
     test_alt_namespace(w);
+
+    // Group 5 needs a SECOND window, with an emulator attached: the bug-button
+    // whose tooltip regressed lives on the debug toolbar, and MainWindow only
+    // builds that (via DebuggerManager) once it has an emulator. Kept separate
+    // from `w` so groups 1-4 keep running against the bare window they were
+    // written and mutation-verified against.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        emu.init(cfg);
+
+        MainWindow w2;
+        w2.set_emulator(&emu);
+        QApplication::processEvents();
+
+        // The "live bindings" set spans BOTH windows. The debugger window is a
+        // separate top level (parent nullptr, debugger_manager.cpp:171), so its
+        // Shift+F6 / Shift+F7 are invisible to w2.findChildren — and FEATURES.md
+        // advertises both. One is built here purely to harvest its shortcuts.
+        //
+        // set_debugger_manager() is what builds its menus (debugger_window.cpp:
+        // 200-204) — the constructor alone yields an empty window, which is how
+        // the first cut of this row false-failed on Shift+F6/F7. It is handed
+        // the manager w2 already owns, never shown, and destroyed at once; the
+        // manager's own window (ensure_window) is never created, so no debugger
+        // state is toggled and the machine is not paused.
+        QStringList live = action_shortcuts(w2);
+#ifdef ENABLE_DEBUGGER
+        {
+            DebuggerWindow dbg(&emu, nullptr);
+            dbg.set_debugger_manager(w2.debugger_manager());
+            live += action_shortcuts_of(dbg);
+        }
+#endif
+        live.removeDuplicates();
+
+        test_ui_strings(w2, live);
+        test_features_md(live);
+    }
     std::printf("  Group: H115           - done\n");
 
     std::printf("\n==============================================================\n");

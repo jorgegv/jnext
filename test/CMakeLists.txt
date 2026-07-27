@@ -739,6 +739,11 @@ if(ENABLE_QT_UI)
     set_target_properties(host_hotkey_test PROPERTIES AUTOMOC ON)
     target_link_libraries(host_hotkey_test PRIVATE jnext_gui)
     target_include_directories(host_hotkey_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # H115-29 reads FEATURES.md and asserts every chord it advertises is one the
+    # product really binds. Same idiom cli_options_test uses for the man page:
+    # the path is a compile definition, not a runtime guess at the source tree.
+    target_compile_definitions(host_hotkey_test PRIVATE
+        JNEXT_FEATURES_MD="${CMAKE_SOURCE_DIR}/FEATURES.md")
     add_test(NAME host_hotkey_tests COMMAND host_hotkey_test)
 endif()
 
