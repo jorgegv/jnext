@@ -2290,8 +2290,18 @@ static void g_mixer() {
     // mixer sum. Other sources silent: Beeper EAR/MIC=off, TurboSound
     // disabled (AY_L/R=0). DAC at its VHDL-default 0x80/0x80 silence
     // level contributes (0x80+0x80)<<2 = 1024 per channel. With I2S set
-    // to max (1023,1023), pcm_L = 0+0+0+0+1024+1023 = 2047; signed =
-    // (2047 - 1024)*4 = 4092 on both channels. Same for pcm_R.
+    // to max (1023,1023), pcm_L = 0+0+0+0+1024+1023 = 2047 — the 13-bit
+    // sum audio_mixer.vhd:89-90,99-100 specifies, and it is unchanged.
+    //
+    // The SIGNED value this row asserts changed from 4092 to 2044 with the
+    // GH #116 fix, because the emulator's AC-coupling reference moved from
+    // DAC_REST_LEVEL (1024) to MIX_REST_LEVEL (1536). 4092 encoded the same
+    // defect this row's own subject exposes: it measured the I2S term's
+    // full-scale excursion from 0, but 0 is that term's most-NEGATIVE value,
+    // not its silence — i2s.vhd:179 emits offset binary, silence = 0x200.
+    // Measured from silence the excursion is +511 (13-bit), i.e. 2044 signed,
+    // and it is now symmetric: I2S = 0 gives -2048 (MX-07 below). Under the
+    // old reference, silence itself read +2048 and only full scale read 0.
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         I2s i2s;
@@ -2307,8 +2317,36 @@ static void g_mixer() {
         int16_t s[2];
         mx.read_samples(s, 1);
         check("MX-06", "I2S max (1023,1023) sums into L and R (10->13 zero-extend)",
-              s[0] == 4092 && s[1] == 4092,
+              s[0] == 2044 && s[1] == 2044,
               fmt("L=%d R=%d VHDL audio_mixer.vhd:89-90,99-100", s[0], s[1]));
+    }
+
+    // MX-07 (GH #116) - the I2S term's silence is its OFFSET-BINARY MIDPOINT
+    // 0x200, not zero. i2s.vhd:179 builds the 10-bit output as
+    //   o_audio_pi_L <= (not audio_pi_L(12)) & audio_pi_L(11 downto 3)
+    // — the sign bit is INVERTED, so a signed-zero sample leaves the entity as
+    // 0x200; and zxnext.vhd:2358-2359 substitutes that same 0x200 whenever the
+    // input is disabled, muted or in EAR mode. So the excursion around silence
+    // must be symmetric: full scale (1023) is +511 in the 13-bit domain and
+    // zero (0) is -512, i.e. +2044 / -2048 signed after the x4 scale.
+    //
+    // BEFORE the fix this row read L=0 for a full-negative input (and MX-DC-01
+    // below read +2048 for silence): the mixer treated the term's most-negative
+    // value as its rest point, offsetting every sample of every run by +2048.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        I2s i2s;
+        i2s.set_nr_a2_ctl(0xC0);        // enL=1 enR=1 — same gate as MX-06
+        i2s.set_sample(0, 0);           // full-negative excursion
+        mx.set_i2s_source(&i2s);
+        mx.generate_sample(bp, ts, dac);
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-07", "I2S min (0,0) is a full-NEGATIVE excursion about the "
+              "0x200 midpoint, not silence",
+              s[0] == -2048 && s[1] == -2048,
+              fmt("L=%d R=%d VHDL i2s.vhd:179, zxnext.vhd:2358-2359, "
+                  "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
     // WONT MX-30 — G29: Pi I2S real audio emulation. Today's I2s class is
@@ -2341,6 +2379,32 @@ static void g_mixer() {
         check("MX-11", "silence: pcm_R = 0",
               s[1] == 0,
               fmt("R=%d VHDL audio_mixer.vhd:100", s[1]));
+    }
+
+    // MX-16 (GH #116) - silence with the Pi I2S input WIRED and at its
+    // power-on state (NR 0xA2 = 0 → disabled → zxnext.vhd:2358-2359 forces
+    // pi_audio_L/R = 0x200). This is the configuration EVERY real run is in:
+    // Emulator's constructor wires the I2s unconditionally
+    // (src/core/emulator.cpp:44) and no ZX software touches NR 0xA2.
+    //
+    // MX-10/MX-11 above construct a Mixer with NO I2s, so they asserted
+    // silence on a configuration the emulator never has. That is how the
+    // defect survived: the suite's silence and the product's silence were
+    // different signals, and the product's was 2048 counts off. Measured on
+    // a 20 s NextZXOS boot before the fix, EVERY one of 1 117 694 recorded
+    // samples was exactly 2048 — never 0.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        I2s i2s;                       // power-on: nr_a2_ctl = 0 ⇒ gate closed
+        mx.set_i2s_source(&i2s);
+        mx.generate_sample(bp, ts, dac);
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-16", "silence with the Pi I2S input wired and idle is digital "
+              "ZERO, not its 0x200 midpoint",
+              s[0] == 0 && s[1] == 0,
+              fmt("L=%d R=%d VHDL zxnext.vhd:2358-2359, i2s.vhd:179, "
+                  "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
     // MX-12 - reset empties ring buffer.

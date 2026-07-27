@@ -16,18 +16,37 @@ the clicking over beeper music of Task 23.
 
 Detection
 ---------
-An underrun is a run of *exactly zero* stereo samples that is entered abruptly
-from a non-trivial signal level. The mixer never produces such a run: its output
-is the VHDL sum, which rests at a steady non-zero level (the DAC's 0x80/0x80 rest
-plus the I2S 0x200 midpoint), so an idle machine sits at a flat DC level and a
-beeper plateau sits at a flat tone level — neither is exactly zero, and neither
-arrives there in one sample. An SDL-injected hole, by contrast, cuts in from
-whatever the waveform was doing (…, 972, 971, | 0, 0, 0 … | 970, 969, …) — and
-the emulator's own stream resumes seamlessly on the far side of the gap, which
-is precisely what proves the zeros are foreign.
+An underrun is a run of *exactly zero* stereo samples, long enough to be
+audible, that is entered abruptly from a non-trivial signal level and left back
+to one. An SDL-injected hole cuts in from whatever the waveform was doing
+(…, 972, 971, | 0, 0, 0 … | 970, 969, …) and the emulator's own stream resumes
+seamlessly on the far side of the gap, which is precisely what proves the zeros
+are foreign.
 
-So: |sample immediately before the zero-run| >= EDGE and |sample immediately
-after| >= EDGE  =>  an SDL-injected hole, i.e. a click.
+So: run length >= MIN_RUN, and |sample immediately before the zero-run| >= EDGE
+and |sample immediately after| >= EDGE  =>  an SDL-injected hole, i.e. a click.
+
+WHAT MIN_RUN IS LOAD-BEARING FOR (changed by GH #116). This docstring used to
+claim the mixer never emits exactly zero — that an idle machine sits at a flat
+non-zero DC (the DAC's 0x80/0x80 rest plus the I2S 0x200 midpoint) and so any
+zero at all is foreign. That was true only because of the GH #116 defect: the
+mixer's AC-coupling reference omitted the I2S term's 0x200 midpoint, so a SILENT
+machine came out at +2048 on every sample instead of 0 — which is exactly what
+made SDL's zero-padding audible as a constant motor-like buzz. With the
+reference fixed, silence IS zero, so "any zero is foreign" no longer holds and
+run LENGTH is the whole discriminator.
+
+That is sound, and its failure mode is loud rather than silent. The stimulus
+(bin/beeper_tone.bin) is a ~2.2 kHz square wave whose low phase is 9-10 stereo
+pairs, well under MIN_RUN, so its own zero plateaus are not flagged; an SDL hole
+is a fragment of a 1024-frame device buffer, one to two decades longer. If the
+stimulus is ever slowed past MIN_RUN, EVERY low phase gets flagged and the test
+fails by thousands — it cannot quietly stop testing. And a real hole landing on
+a low phase merges with it and only gets longer, so detection cannot be masked.
+
+The one case this cannot see is a hole in a machine that is genuinely silent —
+but that hole is now zeros spliced into zeros, i.e. inaudible, which is the
+whole point of the GH #116 fix.
 
 Usage: check-audio-underruns.py <capture.raw> [--skip-secs N]
 Input is raw S16LE stereo at 44100 Hz (what SDL's `disk` audio driver writes).

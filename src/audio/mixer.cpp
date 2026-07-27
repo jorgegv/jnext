@@ -123,8 +123,18 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
     // ports (zxnext.vhd:6505-6506). With NR 0xA2 disabled or muted,
     // pi_audio_L/R is the 10-bit DC midpoint 0x200 ("silence"). The raw
     // sample latch (left()/right()) does NOT enter the mixer path.
-    uint16_t i2s_L = i2s_ ? i2s_->pi_audio_L() : 0u;   // 0..1023
-    uint16_t i2s_R = i2s_ ? i2s_->pi_audio_R() : 0u;
+    //
+    // GH #116: with no I2s wired the term is I2S_REST_LEVEL, NOT 0. Zero is
+    // the I2S input's most-negative excursion, not its silence (i2s.vhd:179
+    // inverts the sign bit, so silence leaves the entity as 0x200); the
+    // hardware input always exists and always idles there. Substituting 0
+    // would make an unwired Mixer rest 512 below a wired one, i.e. give the
+    // unit suite a different definition of silence from the emulator's —
+    // which is exactly how this defect stayed invisible (MX-10/MX-11 asserted
+    // "silence: pcm_L = 0" on a Mixer with no I2s, while every real run had
+    // one wired and rested at +2048).
+    uint16_t i2s_L = i2s_ ? i2s_->pi_audio_L() : static_cast<uint16_t>(I2S_REST_LEVEL);
+    uint16_t i2s_R = i2s_ ? i2s_->pi_audio_R() : static_cast<uint16_t>(I2S_REST_LEVEL);
 
     // Debugger-only source mute (audio/audio_mute.h). Guarded by a single
     // test on a member that is 0 in every normal run, so the common path
@@ -142,7 +152,8 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
             // The DAC's silence is its MIDPOINT, not zero: an idle Soundrive
             // sits at 0x80 per channel. Substituting 0 here would not mute the
             // DAC, it would slam it to full negative rail — emit_sample()
-            // subtracts DAC_REST_LEVEL as the mix's DC reference, so a zeroed
+            // subtracts MIX_REST_LEVEL, of which DAC_REST_LEVEL is this
+            // term's share, as the mix's DC reference, so a zeroed
             // DAC term reads as a permanent -1024 offset (a click on toggle
             // plus a chunk of lost headroom) instead of silence.
             dac_L = DAC_REST_LEVEL;
@@ -199,13 +210,14 @@ void Mixer::emit_sample()
     acc_l_ = acc_r_ = acc_cycles_ = 0;
 
     // Convert to signed 16-bit.  Center at the resting DC level so that
-    // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
-    // all other sources = 0, so resting level is 1024.
+    // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 and Pi I2S =
+    // 0x200 = 512 per channel, everything else 0, so resting level is 1536
+    // (Mixer::MIX_REST_LEVEL — see its comment for GH #116).
     // The real hardware has AC-coupled output (capacitor blocks DC); we
     // replicate that by subtracting the resting level instead of the 13-bit
     // midpoint.  Scale by 4 to use more of the int16 dynamic range.
-    int32_t sL = avg4_L - DAC_REST_LEVEL * 4;
-    int32_t sR = avg4_R - DAC_REST_LEVEL * 4;
+    int32_t sL = avg4_L - MIX_REST_LEVEL * 4;
+    int32_t sR = avg4_R - MIX_REST_LEVEL * 4;
 
     if (output_gain_ != 1.0f) {
         sL = static_cast<int32_t>(std::lround(static_cast<float>(sL) * output_gain_));

@@ -79,9 +79,12 @@ attenuated = peak(sys.argv[1])
 base = peak(sys.argv[2])
 gained = peak(sys.argv[3])
 
-# The fixture also contains the 0 dB I2S resting term, so total peaks do not
-# themselves double. Difference the same capture at three beeper gains to
-# cancel that constant term and measure only the beeper transfer.
+# Difference the same capture at three beeper gains: the ratio of differences
+# measures the beeper transfer alone and is independent of any constant term in
+# the peak. It was introduced because the capture carried the I2S resting term
+# as a DC pedestal, which no beeper gain scales; GH #116 removed that pedestal
+# (silence is now 0), and the differencing stays because it is the correct
+# gain-reference-independent measurement either way.
 actual = (gained - base) / (base - attenuated) if base != attenuated else 0.0
 expected = (2.0 - 1.0) / (1.0 - math.pow(10.0, -24.0 / 20.0))
 if abs(actual - expected) > 0.02:
