@@ -38,9 +38,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # QtApp IS what $JNEXT runs. test-functions.inc resolves $JNEXT to
 # build/gui-release/jnext, which `make regression` already builds as a declared
 # prerequisite, so this row needs NO new artifact and NO new preflight guard —
-# an absent Qt binary already fails most of the suite. (Documented limitation:
-# a caller who overrides JNEXT= to a non-Qt build gets a row that still
-# measures a real frontend, just not this one.)
+# an absent Qt binary already fails most of the suite.
+#
+# UNGUARDED GAP, DELIBERATELY. A caller who overrides JNEXT= to a non-Qt build
+# gets a row that still measures a real frontend, just not this one. That IS
+# checkable: `nm -D "$JNEXT" | grep -q QApplication` separates the two builds
+# (measured — 2 matches in gui-release, 0 in sdl-release). Note the trap:
+# `ldd | grep Qt6` does NOT work, it matches 4 libraries in BOTH, because the
+# debugger pulls Qt6 into sdl-release too. No guard is added anyway, because
+# screenshot-io-qt-func — the other Qt row — has the identical unguarded gap,
+# and consistency between the two Qt rows is worth more than closing it in one
+# of them. Guard both or neither.
 #
 # THE MEASUREMENT. Three runs of 48K BASIC, each ending in a
 # --delayed-screenshot at a fixed EMULATED frame:
@@ -69,26 +77,45 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # registering). The race is keysym-agnostic, so the row uses the vocabulary
 # that survives a hostile X server.
 #
-# HOW THE KEYS GET IN, WITH NO WINDOW MANAGER. Xvfb runs bare, so the whole
-# focus vocabulary the SDL row leans on is unavailable: `xdotool windowactivate`
-# refuses ("_NET_ACTIVE_WINDOW not supported") and `windowfocus --sync` dies
-# with BadMatch. Input focus stays at PointerRoot, which means key events go to
-# whatever window the pointer is over — and the pointer starts at the screen
-# centre 640,512, ONE PIXEL outside the 640x597 Qt window at 0,0. That is the
-# entire reason a naive port of this row scores 0 px on every run and looks
-# like a broken emulator. The fix is to put the pointer inside the window
-# before typing; no window manager is installed and none is added.
+# HOW THE KEYS GET IN, WITH NO WINDOW MANAGER. Xvfb runs bare. Two things
+# follow, and only the first is a dead end:
+#   - `xdotool windowactivate` genuinely refuses, even against the CORRECT
+#     window: "_NET_ACTIVE_WINDOW not supported", rc=1 (measured). It needs an
+#     EWMH-speaking window manager and there is none.
+#   - Input focus therefore stays at PointerRoot (getwindowfocus returns 1), so
+#     key events go to whatever window the pointer is over — and the pointer
+#     starts at the screen centre 640,512, ONE PIXEL outside the 640x597 Qt
+#     window at 0,0. Do nothing about either and every run scores 0 px and looks
+#     like a broken emulator. That is what a naive port of this row does.
+#
+# TWO mechanisms fix that, and BOTH were measured to work here, producing
+# byte-identical guest screens (each 1460 px against its control, 0 px against
+# each other): `xdotool windowfocus --sync <main window>` — which returns rc=0
+# with no error, both immediately after discovery and after the 6 s grace — and
+# moving the pointer into the window. Re-measured with openbox running inside
+# the Xvfb: both still deliver, 1460 px each. So there is no robustness argument
+# between them in either direction. This row moves the pointer because that is
+# the version with the run history behind it, NOT because focus was unavailable.
+#
+# NO BadMatch CLAIM HERE. An earlier draft of this header said `windowfocus
+# --sync` dies with BadMatch under bare Xvfb. It does not. BadMatch appears only
+# when focus is aimed at the WRONG window — the auxiliary Qt window that
+# `xdotool search --name JNEXT` returns FIRST (a 3x3 selection owner, or a 10x10
+# utility window named "jnext"; the ids vary per run). That is the same
+# wrong-window root cause the title match below already fixes, not a property of
+# Xvfb, and not a reason to prefer one delivery mechanism over the other.
 #
 # Two further traps this avoids:
-#   - `xdotool search --name JNEXT` on the Qt binary matches FOUR windows, and
-#     the first is a 10x10 Qt utility window at 10,10 named "jnext". The main
+#   - `xdotool search --name JNEXT` on the Qt binary matches FOUR windows and
+#     the first is one of those auxiliary windows, not the emulator. The main
 #     window is selected by its real title (src/gui/main_window.cpp:214) and
 #     its geometry is then sanity-checked, because that geometry is also what
 #     the pointer is aimed at.
 #   - ALL THREE runs move the pointer, including `control`. Only the typing
 #     differs between them, so a pixel diff can only be the keys. (The SDL twin
-#     touches focus in the typing runs only; here the pointer is the delivery
-#     mechanism itself, so it must be held constant.)
+#     touches focus in the typing runs only. Whichever mechanism delivers the
+#     keys, it has to be held constant across the three runs, or a side effect
+#     of the delivery step could be misread as a keypress.)
 if want qt-keypress-func; then
     begin_func qt-keypress-func
 
@@ -133,11 +160,12 @@ if want qt-keypress-func; then
             # enough the keys are lost in the `slow` run too and the row skips.
             sleep 6
             if [ -n "$wid" ]; then
-                # PointerRoot focus: the pointer IS the delivery target. Aim at
-                # the window centre. WIDTH/HEIGHT also sanity-check that this is
-                # the emulator window and not a stray 10x10 Qt utility window;
-                # too small and nothing is typed, so the run reads as "no keys"
-                # and the row skips rather than accusing the emulator.
+                # No focus call is made, so focus stays at PointerRoot and the
+                # pointer decides where keys land. Aim at the window centre.
+                # WIDTH/HEIGHT also sanity-check that this is the emulator
+                # window and not one of the auxiliary Qt windows; too small and
+                # nothing is typed, so the run reads as "no keys" and the row
+                # skips rather than accusing the emulator.
                 X=0; Y=0; WIDTH=0; HEIGHT=0   # set -u safety if the query fails
                 eval "$(xdotool getwindowgeometry --shell "$wid" 2>/dev/null)"
                 if [ "$WIDTH" -ge 320 ] && [ "$HEIGHT" -ge 240 ]; then
