@@ -407,23 +407,38 @@ private:
 /// careless edit — it reads as "nothing real depends on this".
 ///
 ///   * `--headless` does NOT build an SdlApp. It builds a HeadlessApp
-///     (src/main.cpp:912), a separate class with its own loop; SdlApp is
+///     (src/main.cpp:913), a separate class with its own loop; SdlApp is
 ///     instantiated only when ENABLE_QT_UI=OFF (src/main.cpp:944-951), which
 ///     the suite's binary ($JNEXT resolves to build/gui-release) is not. The
 ///     regression rows that do run a windowed frontend — grep the functional
 ///     scripts for QT_QPA_PLATFORM / xvfb-run rather than trusting a list here
 ///     — therefore exercise QtApp, not this.
-///   * What DOES depend on the SDL loop is a shipping product: the Windows
-///     `-legacy` packages and the lean/ARM64 build are ENABLE_QT_UI=OFF.
+///   * NOTHING CURRENTLY SHIPPED runs it either. Every published artifact is
+///     built ENABLE_QT_UI=ON: the three Windows zips (release.yml:227-232 —
+///     "Final published lineup: x64-Qt6, x64-Qt5, i686-Qt5"), the rpm
+///     (packaging/rpm/jnext.spec:40), the deb (packaging/debian/rules:7), the
+///     Flatpak (io.github.zxjogv.jnext.yml:42) and the macOS bundle
+///     (CMakeLists.txt:372 gates the whole bundle path on ENABLE_QT_UI).
+///     Do not read `-legacy` as "the SDL one": those zips come from
+///     package-win-qt5 / package-win32-qt5, which configure
+///     -DENABLE_QT_UI=ON -DJNEXT_FORCE_QT5=ON (Makefile:237,299). The name
+///     means Qt5, i.e. the Win7/8 AUDIENCE, not the toolchain (Makefile:849).
+///   * The only ENABLE_QT_UI=OFF package legs are package-win-sdl /
+///     package-win32-sdl (Makefile:216,274), named `-sdl`. They are
+///     repo-internal validation only — built by `make package-test` in ci.yml,
+///     never built or published by release.yml (owner decision 2026-07-26).
 ///
-/// Until GH #122 the SDL frontend had no regression coverage of ANY kind. It
-/// now has exactly one row, sdl-keypress-func, which builds build/sdl-release
-/// and drives it under Xvfb. Treat the rest of this loop as unproven.
+/// So this loop is currently UNSHIPPED, not unimportant, and the distinction
+/// matters in one direction only: a future published SDL leg would silently
+/// inherit whatever is wrong with it, and until GH #122 it had no regression
+/// coverage of ANY kind to notice with. It now has exactly one row,
+/// sdl-keypress-func, which builds build/sdl-release and drives it under Xvfb.
+/// Treat everything else about its timing as unproven and do not change it
+/// casually.
 ///
-/// Sharing would therefore mean either changing SDL's timing — a behaviour
-/// change in a frontend that ships (the Windows -legacy packages are
-/// ENABLE_QT_UI=OFF), and Task 91 is a behaviour-preserving refactor — or
-/// parameterising the sequencer until every
+/// Sharing would therefore mean either changing SDL's timing — unproven, so a
+/// change here cannot be shown to be safe, and Task 91 is a
+/// behaviour-preserving refactor — or parameterising the sequencer until every
 /// step is optional, which reintroduces exactly the untested branching the
 /// class exists to remove. The two policy pieces the frontends genuinely share
 /// (audio_pacing::frames_for_tick, render_policy::composite_frame_in_tick) are
