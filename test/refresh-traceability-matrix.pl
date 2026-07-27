@@ -1017,8 +1017,8 @@ sub cite_upgrades {
 # and IO-10 are not among them. Rule 2 alone closes ZERO: the cells it exists
 # for are spelled `5179, :6436`, with a space between the separator and the
 # carried-forward colon, so `([,/]):` cannot match until rule 1 has closed
-# that gap. Together they close 20. Delete rule 1 and 2 does not survive on
-# its own; nothing does.
+# that gap. Together they close 20. Remove rule 1, and rule 2 closes nothing
+# on its own — the 20 is not 18 plus 2.
 #
 # Rules deliberately left out, each measured ON TOP of the two above and each
 # closing ZERO further entries: whitespace around a `:`, whitespace around a
