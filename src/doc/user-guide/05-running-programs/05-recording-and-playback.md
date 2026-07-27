@@ -32,6 +32,10 @@ find out afterwards had never been recorded.
 To capture only the audio, `--wav-record FILE` writes a standard WAV. It needs
 neither ffmpeg nor a sound card, so it works in automated runs.
 
+Leaving JNEXT with a recording still running finishes the file rather than
+abandoning it — **File > Quit**, Alt+Q and closing the window all stop and
+finalise it.
+
 ## RZX: recording what you did
 
 An RZX file records your *input* rather than the screen, alongside a snapshot

@@ -111,6 +111,56 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_Minus:      return SDL_SCANCODE_MINUS;       // '-' (SS+J)
         case Qt::Key_Equal:      return SDL_SCANCODE_EQUALS;      // '=' (SS+L)
 
+        // Issue #123 — the SHIFTED form of every key above.
+        //
+        // QKeyEvent::key() is the LOGICAL key, so Shift+';' arrives as
+        // Qt::Key_Colon and Shift+'2' as Qt::Key_At — neither of which this
+        // table held, so the keystroke was dropped here and Keyboard never saw
+        // it. That cost the guest 19 keys, including Caps Shift + 1..0, i.e.
+        // EDIT, CAPS LOCK, TRUE/INV VIDEO, the cursor compounds, GRAPH and
+        // DELETE as typed on a 48K.
+        //
+        // The real machine has no such problem because its PS/2 keymap is
+        // indexed by PHYSICAL scancode and the shift keys are an independent
+        // overlay: LShift/RShift only raise capshift_count (keymaps.vhd:83,
+        // ps2_keyb.vhd:196-198), they do not select a different keymap entry.
+        // SDL scancodes mean the same thing, so each shifted logical key below
+        // resolves to the SAME scancode as its unshifted sibling and the host
+        // Shift key asserts Caps Shift on its own — exactly the hardware
+        // behaviour.
+        //
+        // The pairings are MEASURED, not inferred: real X11 key events through
+        // Qt 6.11 on a US layout report each pair below with an identical
+        // QKeyEvent::nativeScanCode() on both members.
+        //
+        // KNOWN LIMIT, stated so a reader does not over-read this: these are
+        // the ASCII shifted glyphs of a US/UK layout. A layout whose glyph is
+        // outside that set — Spanish 'ñ' on the ';' key, or the ISO key left
+        // of Z that types '<'/'>' — still produces a logical key with no entry
+        // here and is still dropped. Fixing THAT needs
+        // QKeyEvent::nativeScanCode() plus a per-platform physical-key table
+        // (evdev / Windows scancode / macOS virtual key); recorded in
+        // doc/design/TASK-115-HOST-SHORTCUT-INVENTORY.md §10.
+        case Qt::Key_Exclam:      return SDL_SCANCODE_1;          // Shift+1 '!'
+        case Qt::Key_At:          return SDL_SCANCODE_2;          // Shift+2 '@'
+        case Qt::Key_NumberSign:  return SDL_SCANCODE_3;          // Shift+3 '#'
+        case Qt::Key_Dollar:      return SDL_SCANCODE_4;          // Shift+4 '$'
+        case Qt::Key_Percent:     return SDL_SCANCODE_5;          // Shift+5 '%'
+        case Qt::Key_AsciiCircum: return SDL_SCANCODE_6;          // Shift+6 '^'
+        case Qt::Key_Ampersand:   return SDL_SCANCODE_7;          // Shift+7 '&'
+        case Qt::Key_Asterisk:    return SDL_SCANCODE_8;          // Shift+8 '*'
+        case Qt::Key_ParenLeft:   return SDL_SCANCODE_9;          // Shift+9 '('
+        case Qt::Key_ParenRight:  return SDL_SCANCODE_0;          // Shift+0 ')'
+        case Qt::Key_Underscore:  return SDL_SCANCODE_MINUS;      // Shift+- '_'
+        case Qt::Key_Plus:        return SDL_SCANCODE_EQUALS;     // Shift+= '+'
+        case Qt::Key_Bar:         return SDL_SCANCODE_BACKSLASH;  // Shift+\ '|'
+        case Qt::Key_Colon:       return SDL_SCANCODE_SEMICOLON;  // Shift+; ':'
+        case Qt::Key_QuoteDbl:    return SDL_SCANCODE_APOSTROPHE; // Shift+' '"'
+        case Qt::Key_AsciiTilde:  return SDL_SCANCODE_GRAVE;      // Shift+` '~'
+        case Qt::Key_Less:        return SDL_SCANCODE_COMMA;      // Shift+, '<'
+        case Qt::Key_Greater:     return SDL_SCANCODE_PERIOD;     // Shift+. '>'
+        case Qt::Key_Question:    return SDL_SCANCODE_SLASH;      // Shift+/ '?'
+
         // Special keys
         case Qt::Key_Return: return SDL_SCANCODE_RETURN;
         case Qt::Key_Enter:  return SDL_SCANCODE_KP_ENTER;
@@ -481,26 +531,69 @@ void MainWindow::create_menus() {
     });
 
     // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
-    // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Ctrl+Shift+S = standard
-    // "Save As" muscle memory; complements Alt+S for screenshot.
-    // NOT migrated to Alt by issue #115: the owner's scope was the six plain
-    // Ctrl+<letter> chords, and Ctrl+Shift+S is a three-key chord. It does
-    // still swallow the guest's CS+SS+S — a known, deliberate residual.
+    // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Shift+S keeps the standard
+    // "Save As" muscle memory and sits next to Alt+S for the screenshot.
+    //
+    // Issue #130 — this was Ctrl+Shift+S, the last residual of the #115
+    // migration (which moved only the six PLAIN Ctrl+<letter> chords). Ctrl is
+    // the guest's Symbol Shift and Shift is its Caps Shift, so Ctrl+Shift+S
+    // was a legitimate guest keystroke — CS+SS+S — that the Qt shortcut map
+    // swallowed before keyPressEvent ever ran. Moved onto Alt, where every
+    // other host chord lives.
+    //
+    // Alt+Shift+S collides with nothing: the live host set is Alt+F/M/I/A/B/V/
+    // N/H (menubar mnemonics, all PLAIN Alt+letter) plus Alt+O/S/Q/R/T/D,
+    // Ctrl+F5, Ctrl+F6, F4, F11 and Preferences. Its modifier set differs from
+    // Alt+S's, so Qt treats the two as distinct sequences, not as one
+    // ambiguous binding — pinned by host_hotkey_test H115-33.
     QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
-    save_snapshot->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    save_snapshot->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_S));
     connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
 
     file_menu->addSeparator();
 
     QAction* quit = file_menu->addAction(tr("&Quit"));
     quit->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
-    // NOTE (#115): this still calls QApplication::quit() directly, which
-    // BYPASSES MainWindow::closeEvent() — so a Quit from here does not run the
-    // recorder-stop / debugger-teardown that closing the window does. The
-    // #115 migration neither creates nor removes that bypass — Alt+Q reaches
-    // quit() exactly as Ctrl+Q did — but it is recorded here because nothing
-    // guards an accidental Quit: no confirmation, and no closeEvent.
-    connect(quit, &QAction::triggered, qApp, &QApplication::quit);
+    // Issue #131 — go through close() so closeEvent() actually RUNS. This used
+    // to connect straight to QApplication::quit(), which skips closeEvent
+    // entirely, so File > Quit and closing the window with [X] did different
+    // things: one action, two behaviours, decided only by how it was invoked.
+    //
+    // WHAT WAS ACTUALLY LOST, measured rather than assumed. The debugger
+    // teardown was skipped, and with it DebuggerWindow::save_geometry() — which
+    // runs from DebuggerManager::set_enabled(false) (debugger_manager.cpp:153)
+    // and from DebuggerWindow::closeEvent (debugger_window.cpp:196), and from
+    // nowhere else that a quit reaches. A user who resized or moved the
+    // debugger window and then chose File > Quit lost that layout, while [X]
+    // kept it.
+    //
+    // The RECORDING was NOT in fact lost, and this comment says so rather than
+    // repeating the issue's guess: main.cpp:870-873 stops any still-active
+    // recording once run() returns, and ~VideoRecorder() (video_recorder.cpp:
+    // 32-35) stops it again if anything ever got past that. Verified
+    // end-to-end on the pre-fix binary: Alt+Q during --record still produced a
+    // valid MP4. closeEvent's stop_recording() is the first of three, and
+    // making Quit run it restores the [X] ordering; it does not rescue a file
+    // that was being dropped.
+    //
+    // close() returns false only if closeEvent() ignored the event.
+    // MainWindow::closeEvent() never does — it contains no ignore() call — and
+    // it cannot put a question to the user either: stop_recording() shows no
+    // dialog, and the debugger teardown deliberately passes
+    // prompt_on_corrupt=false (Task 60f, pinned by debugger_quit_gate_test
+    // QG-01/QG-04). So Quit always quits today. The guard exists so that IF a
+    // veto is ever added — an "unsaved changes?" prompt, say — declining it
+    // cancels the quit instead of the app dying anyway. It can BLOCK, briefly:
+    // stopping a recording runs the ffmpeg mux synchronously. That is the same
+    // wait the [X] path has always had, and it finishes.
+    //
+    // qApp->quit() stays explicit rather than being left to
+    // quitOnLastWindowClosed: that fallback depends on no OTHER top-level
+    // window being open, which is a property of the whole application, not of
+    // this action.
+    connect(quit, &QAction::triggered, this, [this]() {
+        if (close()) qApp->quit();
+    });
 
     // --- Machine menu ---
     QMenu* machine_menu = menuBar()->addMenu(tr("&Machine"));

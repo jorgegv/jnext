@@ -4145,7 +4145,7 @@ void test_boot_format_loaders() {
     // CLOSED 2026-05-04 BOOT-SNAPSAVE-01: sna_saver IS now reachable from
     // the GUI. SnaSaver::save() lives at src/core/sna_saver.cpp:48 and is
     // invoked by MainWindow::on_save_snapshot() at src/gui/main_window.cpp
-    // (File > Save Snapshot..., Ctrl+Shift+S). Direct verification of the
+    // (File > Save Snapshot..., Alt+Shift+S). Direct verification of the
     // 49179-byte 48K SNA layout would require constructing a full
     // Emulator (jnext_core link), which this Mmu-tier suite intentionally
     // avoids. The byte-count contract is pinned by the SNA_48K_SIZE

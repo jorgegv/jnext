@@ -125,6 +125,8 @@ BEGIN {
     M["present_count_test"]            = "Present count (widget)"
     M["esc_break_test"]                = "Esc/BREAK + fullscreen routing"
     M["host_hotkey_test"]              = "Host hotkeys on Alt (Ctrl to guest)"
+    M["shifted_keys_test"]             = "Shifted symbols reach the guest"
+    M["quit_cleanup_test"]             = "Quit runs closeEvent cleanup"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
     M["cli_options_test"]              = "CLI options / docs"

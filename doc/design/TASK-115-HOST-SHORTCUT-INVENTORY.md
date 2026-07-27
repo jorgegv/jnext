@@ -9,7 +9,9 @@
 > **What shipped:** the six plain `Ctrl+<letter>` host shortcuts moved to
 > `Alt+<letter>`. Ctrl is the guest's Symbol Shift and is now left entirely to
 > the guest. Three menubar mnemonics were re-lettered to clear the collisions
-> the move created. Pinned by `test/gui/host_hotkey_test.cpp` (27 rows).
+> the move created. Pinned by `test/gui/host_hotkey_test.cpp` (33 rows — 27 at
+> the time of the migration, plus H115-28/29 from §9.1 and H115-30..33 from
+> issue #130; `test/unit-tests.conf` is the authority).
 >
 > Scope: issue [#115](https://github.com/jorgegv/jnext/issues/115) part 2
 > ("host shortcuts leak through — Ctrl+Q quits the emulator"). Part 1 (mapping
@@ -124,7 +126,7 @@ Post-migration state. "Was" is the pre-#115 binding where it changed.
 | 2 | `Ctrl+F5` | — | `main_window.cpp:405` | Start MPEG4 recording | No (F-key, no ZX meaning) |
 | 3 | `Ctrl+F6` | — | `main_window.cpp:423` | Stop MPEG4 recording | No |
 | 4 | `Alt+S` | `Ctrl+S` | `main_window.cpp:457` | Save Screenshot dialog | Cleared — SS+S `\|` is back |
-| 5 | `Ctrl+Shift+S` | — | `main_window.cpp:490` | Save Snapshot | **Yes, still** — CS+SS+S. Out of #115's scope (a three-key chord, not one of the six); see §8.3 |
+| 5 | `Alt+Shift+S` | `Ctrl+Shift+S` | `main_window.cpp:550` | Save Snapshot | Cleared — CS+SS+S is back. Was #115's one residual; moved by [#130](https://github.com/jorgegv/jnext/issues/130), see §8.3 |
 | 6 | **`Alt+Q`** | **`Ctrl+Q`** | `main_window.cpp:496` | **`QApplication::quit`** | Cleared — SS+Q `<=` is back |
 | 7 | `Alt+R` | `Ctrl+R` | `main_window.cpp:515` | Power Reset (cold boot) | Cleared — SS+R `<` is back |
 | 8 | `F4` | — | `main_window.cpp:519` | Soft Reset | No |
@@ -133,7 +135,8 @@ Post-migration state. "Was" is the pre-#115 binding where it changed.
 | 11 | `Alt+D` | `Ctrl+D` | `main_window.cpp:740` | Toggle debugger (`#ifdef ENABLE_DEBUGGER`) | Cleared — SS+D `STEP` is back |
 | 12 | `QKeySequence::Preferences` | — | `main_window.cpp:751` | Preferences dialog | No — see note |
 
-**Quit still bypasses `closeEvent`** (`main_window.cpp:495-503`):
+**Quit used to bypass `closeEvent` — CLOSED by [#131](https://github.com/jorgegv/jnext/issues/131).**
+As #115 left it (`main_window.cpp:495-503` at the time):
 
 ```cpp
 QAction* quit = file_menu->addAction(tr("&Quit"));
@@ -141,14 +144,69 @@ quit->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
 connect(quit, &QAction::triggered, qApp, &QApplication::quit);
 ```
 
-The migration changed the key and nothing else. **Nothing guards it** — no
-confirmation, and because it goes straight to `QApplication::quit()` it does
-**not** route through `MainWindow::closeEvent` (declared `main_window.h:159`),
-so a Quit from here skips the recorder-stop and debugger-teardown that closing
-the window performs. The owner's #115 decision was the plain key migration and
-explicitly *not* a confirmation dialog, so this is recorded, not fixed. It is
-unchanged from the pre-#115 behaviour in every respect except which key
-reaches it.
+Going straight to `QApplication::quit()` skipped `MainWindow::closeEvent`
+(declared `main_window.h:159`) entirely, so a Quit from here did not stop an
+active recording and did not tear the debugger down — while closing the same
+window with `[X]` did both. One action, two behaviours, decided by how it was
+invoked. The #115 migration changed only the key, so this was recorded here
+rather than fixed.
+
+**What that actually cost the user — measured, not assumed.** This inventory
+(and issue #131 after it) named the *recording* as the harm. That turns out to
+be wrong: `main.cpp:870-873` stops any still-active recording once `run()`
+returns, and `~VideoRecorder()` (`video_recorder.cpp:32-35`) stops it again
+behind that. Verified end-to-end on the pre-fix binary under a real X server —
+`Alt+Q` during `--record` still produced a valid, muxed MP4 with no orphaned
+`.raw` temps. The real loss was the **debugger teardown**, and with it
+`DebuggerWindow::save_geometry()`, which a quit reaches only via
+`DebuggerManager::set_enabled(false)` (`debugger_manager.cpp:153`) or
+`DebuggerWindow::closeEvent` (`debugger_window.cpp:196`): a debugger window the
+user had resized or moved lost its layout on `File > Quit` and kept it on
+`[X]`. Recorded here so the next reader does not repeat the guess.
+
+It now routes through `close()`, which delivers a `QCloseEvent` synchronously
+and therefore runs `closeEvent`; `qApp->quit()` follows only if that close was
+accepted:
+
+```cpp
+connect(quit, &QAction::triggered, this, [this]() {
+    if (close()) qApp->quit();
+});
+```
+
+**Quit still always quits**, and that is a checked property rather than a hope.
+`MainWindow::closeEvent` contains no `event->ignore()` at all, and it cannot put
+a question to the user: `stop_recording()` opens no dialog, and the debugger
+teardown passes `prompt_on_corrupt=false` (Task 60f — the entire purpose of
+that flag, pinned by `debugger_quit_gate_test` QG-01/QG-04). It *can* block
+briefly, because stopping a recording runs the ffmpeg mux synchronously — the
+same wait the `[X]` path has always had. The `if` therefore guards a *future*
+veto (an "unsaved changes?" prompt, say), where declining should cancel the
+quit rather than have the app die anyway. `qApp->quit()` is kept explicit
+rather than left to `quitOnLastWindowClosed`, because that fallback depends on
+no other top-level window being open — a property of the application, not of
+this action.
+
+Pinned by `test/gui/quit_cleanup_test.cpp` (5 rows, Q131-01..05): the debugger
+ends disabled, its window ends hidden, a live recording is stopped and its raw
+temp file removed, the debugger window's size is written to `Debugger.conf`,
+and the main window ends hidden — which is what `close()` does and
+`QApplication::quit()` does not. **Q131-05 is the row for the loss identified
+above**: it resizes the debugger window, triggers Quit, and reads the size back
+out of `<config dir>/Debugger.conf` (`JNEXT_CONFIG_DIR`-isolated), so the harm
+is asserted where the user would meet it — in the file the next session loads.
+Q131-03 proves `closeEvent`'s recorder branch RUNS; per the paragraph above it
+does not claim the file would otherwise be lost. Still **no confirmation
+dialog**: that remains the owner's explicit #115 decision, and #131 did not
+revisit it.
+
+One nuance worth recording. `closeEvent` discards `stop_recording()`'s result,
+which GH #86 already handled with the per-output-path `output_failed()` latch
+that `main.cpp:876-879` reads — but only for the `--record` path, since that is
+the only output path `main` knows. A GUI-menu-started recording whose encode
+FAILED therefore no longer influences the exit code on the Quit path. It never
+did on the `[X]` path either; #131 makes Quit consistent with `[X]`, which is
+the point, rather than introducing a new gap.
 
 **Note on #12 (`QKeySequence::Preferences`) — the earlier guess was wrong.**
 This inventory originally reasoned from Qt's documented standard-key table that
@@ -353,13 +411,16 @@ Everything else is forwarded raw at `:142`.
 > removed the Qt bindings rather than adding SDL ones — the frontends converged
 > on SDL's pre-existing (correct) behaviour, with no SDL change at all.
 >
-> **What still differs, and why it is not a defect to fix here:** `Ctrl+Shift+S`
-> (out of #115's scope, §8.3) and every `Alt+letter` are still Qt-only. That is
-> structural, not drift: the SDL frontend has no menu bar, no mnemonics and no
-> shortcut map (`sdl_app.cpp:87-143` is a flat `if`-chain on F-keys plus
-> Ctrl+Alt), so there is no menu for an accelerator to reach. A shared reserved
-> table would have nothing to enforce on the SDL side beyond the F-keys both
-> already intercept identically.
+> `Ctrl+Shift+S` converged the same way when [#130](https://github.com/jorgegv/jnext/issues/130)
+> moved it to `Alt+Shift+S` — again by removing a Qt binding, with no SDL change.
+>
+> **What still differs, and why it is not a defect to fix here:** every
+> `Alt+letter` (and now `Alt+Shift+S`) is Qt-only. That is structural, not
+> drift: the SDL frontend has no menu bar, no mnemonics and no shortcut map
+> (`sdl_app.cpp:87-143` is a flat `if`-chain on F-keys plus Ctrl+Alt), so there
+> is no menu for an accelerator to reach. A shared reserved table would have
+> nothing to enforce on the SDL side beyond the F-keys both already intercept
+> identically.
 
 **Headless** (`src/platform/headless_app.cpp`) has no interactive key handling at
 all — only scripted injection at `:486`.
@@ -470,9 +531,16 @@ titles are identical; only the underlined letter differs.
 ### 8.3 NOT migrated, and why
 
 - **`Ctrl+Shift+S`** (Save Snapshot) — outside the owner's stated scope, which
-  was the six *plain* `Ctrl+<letter>` chords. It does still swallow the guest's
-  `CS+SS+S`. Known residual, deliberately left; the guard row H115-13 is scoped
-  to plain chords so it does not silently flip to green over this.
+  was the six *plain* `Ctrl+<letter>` chords. It still swallowed the guest's
+  `CS+SS+S`, and was left as a known residual; the guard row H115-13 was scoped
+  to plain chords so it could not silently flip to green over this.
+  **CLOSED by [#130](https://github.com/jorgegv/jnext/issues/130)**: moved to
+  `Alt+Shift+S`. H115-13 keeps its plain-chord scope and the new H115-30 covers
+  the `Ctrl+Shift+<letter>` class, so both classes now have their own guard.
+  `Alt+Shift+S` collides with nothing: it is not a menubar mnemonic (those are
+  always plain `Alt+<letter>`), it is not one of the six migrated shortcuts, it
+  is not `Alt+E/G/C`, and its modifier set differs from `Alt+S`'s so Qt treats
+  the two as distinct sequences rather than one ambiguous binding (H115-33).
 - **`Ctrl+F5` / `Ctrl+F6`** (recording) — F-keys have no ZX matrix meaning, so
   these steal nothing from the guest.
 - **The nine debugger accelerators** (§4.1) — checked, and none is a
@@ -483,7 +551,8 @@ titles are identical; only the underlined letter differs.
 
 `Alt+letter` is one namespace shared by menubar mnemonics and QAction
 shortcuts, and the guest wanted it too. The owner's decision: **Alt belongs to
-the host.** jnext claims `Alt+Q/O/S/R/T/D` (shortcuts) and `Alt+F/M/I/A/B/V/N/H`
+the host.** jnext claims `Alt+Q/O/S/R/T/D` plus `Alt+Shift+S` (shortcuts, the
+last added by #130) and `Alt+F/M/I/A/B/V/N/H`
 (mnemonics); the guest keeps only `Alt+E/G/C` (EDIT / GRAPH / CAPS LOCK) and
 ``Alt+` `` (INV VIDEO), and those three are now test-protected (H115-27).
 
@@ -532,10 +601,10 @@ bug that was fixed, which is what §9 is for.
 
 ---
 
-## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (29 rows)
+## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (33 rows)
 
 Registered in `test/CMakeLists.txt` and declared in `test/unit-tests.conf`
-(`?host_hotkey_test 29`). Needs a real `MainWindow`, no display — offscreen QPA
+(`?host_hotkey_test 33`). Needs a real `MainWindow`, no display — offscreen QPA
 is forced in `main()`, the same idiom as `esc_break_test`.
 
 | Rows | What they prove |
@@ -549,6 +618,7 @@ is forced in `main()`, the same idiom as `esc_break_test`.
 | H115-27 | The guest's `Alt+E/G/C` are claimed by no host binding. |
 | H115-28 | No `QAction`'s text, tooltip or status tip names a modifier chord the product does not bind. Two tiers: an action with its own shortcut must name *that*; an action without one (a toolbar twin of a menu action) must name a chord *something* binds. |
 | H115-29 | Every modifier chord advertised in `FEATURES.md` is one the product really binds. |
+| H115-30..33 | **Issue #130.** No `QAction` binds `Ctrl+Shift+<letter>`; Save Snapshot carries `Alt+Shift+S`; `Ctrl+Shift+S` arrives in the matrix as CS+SS+S; `Alt+Shift+S` fires Save Snapshot and types no S into the guest. |
 
 **Why these rows are not decoration.** `QApplication::sendEvent()` to a widget
 passes through `QApplication::notify()`, which consults the global
@@ -630,9 +700,20 @@ This is the sweep the first cut should have done.
 | `FEATURES.md:66` | `PNG screenshot (Ctrl+S, toolbar, …)` | `Alt+S` |
 | `src/core/emulator.cpp:7358` | comment `GUI "Save Screenshot" (Ctrl+S)` | `Alt+S` |
 
-**Correct as-is — chords that did not move:** `FEATURES.md:51`,
-`doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md:1109`, `test/mmu/mmu_test.cpp:4148`
-(all `Ctrl+Shift+S`); `doc/man/jnext.1.md:439` (`Ctrl+F5`/`Ctrl+F6`).
+**Correct as-is at the time of #115 — chords that did not move THEN:**
+`FEATURES.md:51`, `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md:1109`,
+`test/mmu/mmu_test.cpp:4148` (all `Ctrl+Shift+S`); `doc/man/jnext.1.md:439`
+(`Ctrl+F5`/`Ctrl+F6`).
+
+> **#130 moved `Ctrl+Shift+S` after all**, so that sweep had to be re-run for
+> the new chord. Updated: `FEATURES.md:51` (guarded by H115-29),
+> `test/mmu/mmu_test.cpp:4148`, `doc/man/jnext.1.md` (both the File-menu list
+> and the Ctrl/Alt narrative, plus the regenerated `doc/man/jnext.1` and
+> `USAGE.md`), and `src/doc/user-guide/05-running-programs/02-input.md` with its
+> rendered output. Deliberately LEFT naming the old chord: `.prompts/*` (dated
+> logs), `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` (frozen), and this
+> document, whose job is to describe the change. `Ctrl+F5`/`Ctrl+F6` are
+> untouched and remain correct — they are the only `Qt::CTRL` shortcuts left.
 
 **Historical record — deliberately LEFT naming the old chords:**
 
@@ -659,7 +740,8 @@ This is the sweep the first cut should have done.
 - `doc/design/WINDOWS-COMPAT-PLAN.md:249` — cites `QKeySequence(Qt::CTRL |
   Qt::Key_X)` as the **Qt5-clean API shape**, not as a user-facing chord. The
   claim is still true (`Qt::ALT | Qt::Key_X` is the same int-promotion form,
-  and `Qt::CTRL` uses remain for `Ctrl+F5`/`Ctrl+F6`/`Ctrl+Shift+S`).
+  and `Qt::CTRL` uses remain for `Ctrl+F5`/`Ctrl+F6` — since #130 those two
+  are the only ones).
 - This document, and `test/gui/host_hotkey_test.cpp` — both name the old
   chords because describing the change is their job.
 
@@ -682,9 +764,11 @@ frozen.
   (a multimedia key), not an empty sequence. **macOS is still unverified** —
   if it is Cmd+`,` there, it does not collide with anything jnext binds, but
   nobody has run it.
-- **The `Alt+Q` → `QApplication::quit()` bypass of `closeEvent` remains**
-  (§3.1). Out of scope by the owner's explicit decision (no confirmation
-  dialog); recorded, not fixed. Worth its own issue.
+- ~~**The `Alt+Q` → `QApplication::quit()` bypass of `closeEvent` remains**~~ —
+  it got its own issue, [#131](https://github.com/jorgegv/jnext/issues/131), and
+  is **CLOSED**: Quit routes through `close()`. §3.1 has the new wiring and why
+  quitting still always quits. The *absence of a confirmation dialog* is
+  unchanged and still deliberate.
 - **H115-28 has a tier-2 blind spot, and a green row must not be read as
   "every chord in every tooltip is correct".** For an action that carries its
   own shortcut the row is exact (the chord must BE that shortcut). For an
@@ -724,6 +808,18 @@ frozen.
   plain `s_map` path and clears a matrix bit that is already clear. The same
   was true of the `Ctrl` chords before the migration. Noted so the next reader
   does not mistake it for new.
+- **`qt_key_to_sdl()` is still a LOGICAL-key table, and that leaves a residual.**
+  [#123](https://github.com/jorgegv/jnext/issues/123) added the shifted form of
+  every key the table already carried — 19 of them, `main_window.cpp` — which
+  covers the US/UK ASCII set. It does **not** cover a layout whose glyph falls
+  outside that set (Spanish `ñ` on the `;` key; the ISO key left of Z that types
+  `<`/`>`), nor `[` / `]`, which the table has never carried in either form. The
+  real machine has no such class of bug because its PS/2 keymap is indexed by
+  PHYSICAL scancode; matching that needs `QKeyEvent::nativeScanCode()` plus a
+  per-platform physical-key table (evdev on Linux, PC scancode on Windows,
+  virtual key on macOS). Deliberately not attempted with #123: a much larger,
+  per-platform change that cannot be verified on the two platforms this host
+  does not run.
 - **No hardware confirmation.** Everything here derives from the FPGA VHDL and
   from reading and running jnext. No physical ZX Spectrum Next was available.
 - **Not exercised on a real X11/Wayland desktop by an automated test.** The

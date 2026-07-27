@@ -490,7 +490,7 @@ Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **File**  
 Load a program (Alt+O - NEX/SNA/SZX/TAP/TZX/WAV/RZX), Mount SD Card
 Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record
-RZX / Stop RZX, Save Screenshot (Alt+S), Save Snapshot (Ctrl+Shift+S),
+RZX / Stop RZX, Save Screenshot (Alt+S), Save Snapshot (Alt+Shift+S),
 Quit (Alt+Q).
 
 **Machine**  
@@ -564,6 +564,15 @@ changes how fast the emulator runs relative to real time.
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
 Next with a PC keyboard attached. Earlier releases had the two swapped.
 
+Holding Shift while pressing a digit or one of the symbol keys above
+reaches the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0
+is Delete, Shift+5 to Shift+8 are the four cursor keys, Shift+9 is
+Graph, and Shift+`;` is Caps Shift + Symbol Shift + O. jnext keys off
+the physical key rather than the character your host layout produces,
+the same way the Next’s own PS/2 keymap treats the shift keys as an
+independent overlay. Earlier releases dropped all nineteen of those
+keystrokes before the Spectrum saw them.
+
 Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
 is toggled with F11 only (it used to also be exited with Esc).
 
@@ -573,20 +582,23 @@ F10 fires the DivMMC NMI, F2 cycles the window scale and F11 toggles
 fullscreen. With the debugger open F9 belongs to the debugger (Pause /
 Break) instead.
 
-Ctrl is left alone for the guest. No plain Ctrl+letter is a jnext
-shortcut, so Symbol Shift sequences NextBASIC needs constantly - Ctrl+O
-`;`, Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q `<=`, Ctrl+S `|` -
-all reach the program you are running. Earlier releases bound those six
-to menu commands and the program never saw them.
+Ctrl is left alone for the guest. No Ctrl+letter chord of any kind is a
+jnext shortcut, so the Symbol Shift sequences NextBASIC needs
+constantly - Ctrl+O `;`, Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q
+`<=`, Ctrl+S `|` - all reach the program you are running, and so does
+Ctrl+Shift+S (Caps Shift + Symbol Shift + S), which was the last one to
+move. Earlier releases bound those to menu commands and the program
+never saw them. The only Ctrl chords jnext still takes are Ctrl+F5 and
+Ctrl+F6 (start and stop video recording), and function keys have no
+Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext
-claims Alt + Q/O/S/R/T/D (menu shortcuts) and Alt + F/M/I/A/B/V/N/H
-(menu bar), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS
-LOCK) and Alt + the key left of `1` (INV VIDEO). Real Next hardware
-instead maps Left Alt to EXTEND MODE and Right Alt to GRAPH; jnext
-deliberately does not, following the FUSE/ZEsarUX convention that puts
-EXTEND MODE on Tab. Ctrl+Shift+S (Save Snapshot) is the one surviving
-Ctrl shortcut with a Spectrum meaning (Caps Shift + Symbol Shift + S).
+claims Alt + Q/O/S/R/T/D and Alt+Shift+S (menu shortcuts) plus Alt +
+F/M/I/A/B/V/N/H (menu bar), which leaves the guest only Alt + E/G/C
+(EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1` (INV VIDEO). Real
+Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
+GRAPH; jnext deliberately does not, following the FUSE/ZEsarUX
+convention that puts EXTEND MODE on Tab.
 
 Up to two USB gamepads are picked up automatically (hot-plug) and mapped
 to the Next’s two joystick ports; the joystick mode (Kempston / Sinclair
