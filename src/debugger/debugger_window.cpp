@@ -401,7 +401,9 @@ void DebuggerWindow::create_menus() {
     run_action_->setShortcut(QKeySequence(Qt::Key_F5));
     connect(run_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run);
 
-    pause_action_ = debug_menu->addAction(tr("Pause / &Break"));
+    // Mnemonic on "Pause", not on "Break": Alt+B belongs to "Step &Back"
+    // below. Two items in one menu cannot share a mnemonic (issue #124).
+    pause_action_ = debug_menu->addAction(tr("&Pause / Break"));
     pause_action_->setShortcut(QKeySequence(Qt::Key_F9));
     connect(pause_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_pause);
 
@@ -415,11 +417,14 @@ void DebuggerWindow::create_menus() {
     step_over_action_->setShortcut(QKeySequence(Qt::Key_F7));
     connect(step_over_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_over);
 
-    step_out_action_ = debug_menu->addAction(tr("Step Ou&t"));
+    // Alt+U, not Alt+T: "&Trace" below owns T (issue #124).
+    step_out_action_ = debug_menu->addAction(tr("Step O&ut"));
     step_out_action_->setShortcut(QKeySequence(Qt::Key_F8));
     connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
 
-    QAction* frame_back_action = debug_menu->addAction(tr("|< &Frame Back"));
+    // Alt+K: F is reserved for "Run to End of &Frame", which pairs with
+    // "Run to End of Scan &Line" (issue #124).
+    QAction* frame_back_action = debug_menu->addAction(tr("|< Frame Bac&k"));
     frame_back_action->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F6));
     connect(frame_back_action, &QAction::triggered, this, [this]() {
         if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
@@ -546,7 +551,8 @@ void DebuggerWindow::create_menus() {
         show_add_data_bp_dialog(WatchType::WRITE);
     });
 
-    QAction* add_rw_bp = bp_menu->addAction(tr("Add Read/&Write Breakpoint..."));
+    // Alt+B: W already belongs to "Add &Write Breakpoint..." (issue #124).
+    QAction* add_rw_bp = bp_menu->addAction(tr("Add Read/Write &Breakpoint..."));
     connect(add_rw_bp, &QAction::triggered, this, [this]() {
         show_add_data_bp_dialog(WatchType::READ_WRITE);
     });
@@ -570,7 +576,11 @@ void DebuggerWindow::create_menus() {
     });
 
     // --- Window menu (issue #39) ---
-    QMenu* window_menu = bar->addMenu(tr("&Window"));
+    // Alt+N, not Alt+W: "&Watches" above already claims W. When both did,
+    // Qt saw an AMBIGUOUS shortcut and opened them alternately — Watches on
+    // odd presses, Window on even — so neither could be opened on purpose
+    // (issue #124). Watches keeps W as the incumbent.
+    QMenu* window_menu = bar->addMenu(tr("Wi&ndow"));
 
     attach_action_ = window_menu->addAction(tr("&Attach to Emulator Window"));
     attach_action_->setCheckable(true);

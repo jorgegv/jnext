@@ -147,6 +147,7 @@ BEGIN {
     M["window_attach_test"]            = "Debugger Window Attach"
     M["debugger_window_size_test"]     = "Debugger Window Sizing"
     M["debugger_window_grow_test"]     = "Debugger Window Growing"
+    M["debugger_accel_test"]           = "Debugger Accelerators"
     M["emulator_boot_test"]            = "Emulator Boot"
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"
