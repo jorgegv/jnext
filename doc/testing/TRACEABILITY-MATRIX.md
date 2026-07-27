@@ -17,14 +17,14 @@
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   144 |  141 |    0 |    0 |       3 |         72 |
-| Audio                                      |   210 |  182 |    0 |    0 |      28 |         12 |
+| Audio                                      |   213 |  185 |    0 |    0 |      28 |          9 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
 | DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         47 |
 | CTC+Interrupts                             |   180 |  149 |    0 |    0 |      31 |          0 |
-| UART+I2C/RTC                               |   112 |  106 |    0 |    0 |       6 |          6 |
+| UART+I2C/RTC                               |   112 |  109 |    0 |    0 |       3 |          6 |
 | NextREG                                    |   107 |   58 |    0 |    0 |      49 |          0 |
 | IO Port Dispatch                           |    97 |   93 |    0 |    0 |       4 |         26 |
-| Input                                      |   178 |  164 |    0 |    0 |      14 |        180 |
+| Input                                      |   189 |  175 |    0 |    0 |      14 |        169 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
@@ -37,18 +37,18 @@
 | Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        218 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
-| Companion: uart_integration_test           |    13 |   12 |    0 |    0 |       1 |          0 |
-| **Total**                                  |  2514 | 2180 |    0 |    0 |     334 |        835 |
+| Companion: uart_integration_test           |    13 |   13 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  2528 | 2198 |    0 |    0 |     330 |        821 |
 
-Rows the sections above carry: **2514**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2448**. Rows the 80 suites declared in `test/unit-tests.conf` run live: **5827**.
+Rows the sections above carry: **2528**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2462**. Rows the 84 suites declared in `test/unit-tests.conf` run live: **5914**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
 **One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. The second looseness — *cross-section ID collision* — is closed: recording is asked against the owning `##` subsystem section rather than globally, which surfaced 29 rows that an identically-named row in a different subsystem had been vouching for (`SD-16..SD-23` by Audio, `PR-01..PR-05` by IO Port Dispatch, the `G108-*` set by ULA Video, `NR-10/11/13/14` + `PRI-01/02/04` by Audio and Memory/MMU, `SD2-01/02` by Memory/MMU). A `###` companion sub-section is judged against its parent `##`, not separately: its rows are part of the same subsystem's coverage story and several are recorded in the parent's own table (GH #118).
 
-**Suites with no section in this matrix: 46, 1269 live rows.** Their coverage is not traced here at all:
+**Suites with no section in this matrix: 50, 1356 live rows.** Their coverage is not traced here at all:
 
-`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `speed_report_test` (36), `host_key_latch_test` (50), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4)
+`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `speed_report_test` (36), `host_key_latch_test` (69), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `host_hotkey_test` (33), `shifted_keys_test` (22), `quit_cleanup_test` (5), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4), `debugger_accel_test` (8)
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -1416,12 +1416,15 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | MX-04   | AY input: zero-extended 12-bit to 13-bit                     | audio_mixer.vhd:83-84 | pass    | test/audio/audio_test.cpp:2270 |
 | MX-05   | DAC input: 9-bit left-shifted by 2 + zero-padded             | audio_mixer.vhd:86-87 | pass    | test/audio/audio_test.cpp:2284 |
 | MX-06   | I2S input: zero-extended 10-bit to 13-bit                    | audio_mixer.vhd:89-90,99-100 | pass    | test/audio/audio_test.cpp:2319 |
+| MX-07   | I2S min (0,0) is a full-NEGATIVE excursion, not silence      | i2s.vhd:179                               | pass    | test/audio/audio_test.cpp:2345 |
 | MX-10   | Left output = ear + mic + ay_L + dac_L + i2s_L               | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2368 |
 | MX-11   | Right output = ear + mic + ay_R + dac_R + i2s_R              | audio_mixer.vhd:100 | pass    | test/audio/audio_test.cpp:2379 |
 | MX-12   | Reset zeroes both output channels                            | audio_mixer.vhd:95-97 | pass    | test/audio/audio_test.cpp:2416 |
 | MX-13   | EAR and MIC go to both L and R                               | audio_mixer.vhd:99-100 | pass    | test/audio/audio_test.cpp:2429 |
 | MX-14   | Max theoretical output = 5998                                | audio_mixer.vhd:99 | pass    | test/audio/audio_test.cpp:2445 |
 | MX-15   | No saturation/clipping in mixer                              | —              | missing | missing                        |
+| MX-16   | Silence with the Pi I2S input wired and idle is digital 0    | zxnext.vhd:2358-2359                      | pass    | test/audio/audio_test.cpp:2403 |
+| MX-17   | An assembled power-on machine emits digital 0 (16 samples)   | zxnext.vhd:2358-2359                      | pass    | test/audio/audio_nextreg_test.cpp:968          |
 | MX-20   | `exc_i=1`: EAR and MIC contribute 0 to mix                   | audio_mixer.vhd:80                      | pass    | test/audio/audio_nextreg_test.cpp:845          |
 | MX-21   | `exc_i=0`: EAR and MIC contribute normally                   | —              | missing | missing                        |
 | MX-22   | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4      | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:866          |
@@ -2107,9 +2110,9 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420  | pass    | test/uart/uart_integration_test.cpp:394 |
 | GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418  | pass    | test/uart/uart_integration_test.cpp:443 |
 | GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412  | pass    | test/uart/uart_integration_test.cpp:536 |
-| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:1241                         | missing | missing                      |
-| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | missing | missing                      |
-| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | missing | missing                     |
+| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:1241                         | pass    | test/uart/uart_integration_test.cpp:701 |
+| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:730 |
+| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:761 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -2129,7 +2132,7 @@ Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, du
 | I2C-10     | DS1307 RTC read at 0x68 returns BCD-encoded snapshot                    | i2c.cpp                    | pass    | test/uart/uart_integration_test.cpp:565     |
 | DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:614     |
 | DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:663     |
-| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | missing | missing                                     |
+| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:761     |
 
 ## NextREG — `test/nextreg/nextreg_test.cpp`
 
@@ -2644,6 +2647,17 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | ESP-02        | UART 0 RX bytes from ESP-01 host bridge land in `Uart` RX FIFO (G39)                                 | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-03        | ESP-01 reset line driven from NR 0xA0 / NextZXOS networking signal (G39)                             | zxnext.vhd                              | missing | missing                       |
 | ESP-04        | ESP-01 host bridge gated off when no Wi-Fi backend selected (no-op fallback) (G39)                   | zxnext.vhd                              | missing | missing                       |
+| GH115-01      | LShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,113; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4868     |
+| GH115-02      | RShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,131; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4870     |
+| GH115-03      | LCtrl pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; release restores row 7 to 0x1F (GH #115)            | keymaps.vhd:84,113; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4875     |
+| GH115-04      | RCtrl (PS/2 extended 0x14) pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; clean release (GH #115)        | keymaps.vhd:84,165; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4877     |
+| GH115-05      | Converse of the inversion: LShift leaves row 7 at 0x1F and LCtrl leaves row 0 at 0x1F                | keymaps.vhd:83-84; ps2_keyb.vhd:197-198     | pass    | test/input/input_test.cpp:4891     |
+| GH115-06      | CapsLock pulls row 0 col 0 AND row 3 col 1 (CS + 2 = CAPS LOCK); both clear on release               | keymaps.vhd:43,89,131; membrane.vhd:236-237 | pass    | test/input/input_test.cpp:4900     |
+| GH115-07      | backslash pulls row 0 col 0 AND row 3 col 3 (CS + 4 = INV VIDEO); both clear on release              | keymaps.vhd:44,94,131; membrane.vhd:236-237 | pass    | test/input/input_test.cpp:4904     |
+| GH115-08      | slash pulls row 7 col 1 AND row 0 col 4 (SS + V = '/'); both clear on release                        | keymaps.vhd:42,127; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4907     |
+| GH115-09      | minus pulls row 7 col 1 AND row 6 col 3 (SS + J = '-'); both clear on release                        | keymaps.vhd:48,127; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4910     |
+| GH115-10      | equals pulls row 7 col 1 AND row 6 col 1 (SS + L = '='); both clear on release                       | keymaps.vhd:48,129; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4913     |
+| GH115-11      | CapsLock / backslash also read back on NR 0xB1 as 0x02 / 0x10; 0x00 with no key down                 | keymaps.vhd:43-44; membrane.vhd:253         | pass    | test/input/input_test.cpp:4930     |
 
 ### Companion integration suite — `test/input/input_integration_test.cpp`
 
