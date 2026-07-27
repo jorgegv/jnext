@@ -20,6 +20,11 @@
 #      a half-synced file
 #   9. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
 #      `&&`, so a sync failure aborts the bump (never commits a broken state)
+#  10. mkdocs.yml's extra.doc_release — the "This version" shown in the user
+#      guide header — is updated too, so the guide always states the version it
+#      was built from. (The re-render that must accompany it is not exercised
+#      here: this fake root deliberately has no src/doc/user-guide, which is the
+#      state the script skips rendering in.)
 #
 set -u
 
@@ -43,6 +48,10 @@ cp "$repo/packaging/sync-version.sh"                          "$tmp/packaging/"
 cp "$repo/packaging/rpm/jnext.spec"                           "$tmp/packaging/rpm/"
 cp "$repo/packaging/assets/io.github.zxjogv.jnext.metainfo.xml" "$tmp/packaging/assets/"
 cp "$repo/packaging/debian/changelog"                        "$tmp/packaging/debian/"
+# mkdocs.yml carries extra.doc_release, the user guide header's "This version".
+# Copied (not synthesised) so a change to the real key's name or indentation
+# fails here rather than silently skipping the field on the next bump.
+cp "$repo/mkdocs.yml"                                        "$tmp/"
 
 # releases.yaml — the PUBLIC-release allowlist sync-version.sh gates the
 # AppStream <releases> edit on ($root/releases.yaml, sync-version.sh:77-88).
@@ -58,6 +67,7 @@ printf 'releases:\n  - v9.9.9\n  - v9.9.10\n' > "$releases"
 spec="$tmp/packaging/rpm/jnext.spec"
 metainfo="$tmp/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
 deb="$tmp/packaging/debian/changelog"
+mkdocs="$tmp/mkdocs.yml"
 sync="$tmp/packaging/sync-version.sh"
 
 printf "${BOLD}=== sync-version.sh contract tests ===${RESET}\n\n"
@@ -71,6 +81,14 @@ if grep -qE '^Version:[[:space:]]*9\.9\.9$' "$spec" \
     ok "run aligns spec/metainfo/debian to the new version"
 else
     bad "a field was not updated to 9.9.9"
+fi
+# 10 — the user guide header's "This version" tracks version.yaml. Asserted
+# separately from the packaging fields above: it is the only synced field a
+# reader sees at a glance, so a silent miss here misinforms every visitor.
+if grep -qE '^  doc_release:[[:space:]]*v9\.9\.9$' "$mkdocs"; then
+    ok "mkdocs.yml doc_release updated to v9.9.9 (guide header 'This version')"
+else
+    bad "mkdocs.yml doc_release was not updated to v9.9.9 (got: $(grep -m1 -E '^  doc_release:' "$mkdocs" || echo '<no doc_release line>'))"
 fi
 # spec Version: must equal the TOP %changelog version (rpmbuild consistency)
 specver=$(grep -m1 -E '^Version:' "$spec" | awk '{print $2}')

@@ -115,13 +115,20 @@ fi
 # docs gate. Refuse the bump rather than commit that — same discipline as the
 # half-synced-spec case above.
 sed -i -E "s/^(  doc_release:[[:space:]]*).*/\1v$ver/" "$mkdocs"
-if command -v mkdocs >/dev/null 2>&1; then
-    make -C "$root" --no-print-directory docs-userguide >/dev/null
-else
-    echo "sync-version: mkdocs not installed — cannot re-render the user guide," >&2
-    echo "  and mkdocs.yml now says v$ver while the committed guide says otherwise." >&2
-    echo "  Install mkdocs-material, or revert mkdocs.yml, before bumping." >&2
-    exit 1
+# Re-render only where there is a guide to render. The contract test drives this
+# script against a synthetic root holding just the packaging files, so absent
+# sources are a legitimate state — but a tree that HAS the sources and no mkdocs
+# would commit a config saying v$ver beside a guide that does not, so that case
+# fails loud instead.
+if [ -d "$root/src/doc/user-guide" ]; then
+    if command -v mkdocs >/dev/null 2>&1; then
+        make -C "$root" --no-print-directory docs-userguide >/dev/null
+    else
+        echo "sync-version: mkdocs not installed — cannot re-render the user guide," >&2
+        echo "  and mkdocs.yml now says v$ver while the committed guide says otherwise." >&2
+        echo "  Install mkdocs-material, or revert mkdocs.yml, before bumping." >&2
+        exit 1
+    fi
 fi
 
 echo "sync-version: aligned $ver into spec, metainfo, debian changelog, user guide"
