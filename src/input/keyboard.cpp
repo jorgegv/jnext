@@ -162,10 +162,13 @@ static void init_map() {
     s_extkey[SDL_SCANCODE_GRAVE]      = ek(EK::TRUE_VIDEO);  // CS + 3
     s_alt_extkey[SDL_SCANCODE_GRAVE]  = ek(EK::INV_VIDEO);   // CS + 4
 
-    // EDIT / GRAPH / CAPS LOCK on Alt+E / Alt+G / Alt+C. Alt+D is NOT usable:
-    // the Qt main window's "&Debug" menu mnemonic consumes it before any key
-    // event reaches the emulator. Taken mnemonics are &File &Machine &Input
-    // &Tape &Debug &View &Settings &Help, so E, G and C are the free ones.
+    // EDIT / GRAPH / CAPS LOCK on Alt+E / Alt+G / Alt+C — the only three
+    // Alt+<letter> chords the guest gets, because since issue #115 Alt is the
+    // HOST namespace: the Qt main window consumes Alt+Q/O/S/R/T/D (QAction
+    // shortcuts) and Alt+F/M/I/A/B/V/N/H (menubar mnemonics) before any key
+    // event reaches the emulator. E, G and C are what is left over, and
+    // host_hotkey_test pins them free. Adding a menu or shortcut on E, G or C
+    // would silently kill one of these three.
     s_alt_extkey[SDL_SCANCODE_E]      = ek(EK::EDIT);        // CS + 1
     s_alt_extkey[SDL_SCANCODE_G]      = ek(EK::GRAPH);       // CS + 9
     s_alt_extkey[SDL_SCANCODE_C]      = ek(EK::CAPS_LOCK);   // CS + 2
