@@ -110,15 +110,23 @@ static Keyboard fresh_keyboard() {
 static SDL_Scancode sc_for(int row, int col) {
     // Matches the s_map table in src/input/keyboard.cpp and the §1.6
     // table in the plan. See membrane.vhd:150-175.
+    //
+    // Issue #115 — (0,0) is reached with SHIFT and (7,1) with CTRL, not the
+    // reverse. This helper only records WHICH HOST KEY lands on a cell; the
+    // cell identities it feeds (CAPS SHIFT at row 0 col 0, SYMBOL SHIFT at
+    // row 7 col 1) are unchanged, and so is every assertion below. The old
+    // entries encoded jnext's inverted binding, which contradicts
+    // keymaps.vhd:83-84 (+0x12/0x59 = bit 6 CAPS, 0x14 = bit 7 SYMBOL) and
+    // ps2_keyb.vhd:196-198.
     static const SDL_Scancode t[8][5] = {
-        {SDL_SCANCODE_LCTRL, SDL_SCANCODE_Z,     SDL_SCANCODE_X,     SDL_SCANCODE_C,     SDL_SCANCODE_V},
+        {SDL_SCANCODE_LSHIFT,SDL_SCANCODE_Z,     SDL_SCANCODE_X,     SDL_SCANCODE_C,     SDL_SCANCODE_V},
         {SDL_SCANCODE_A,     SDL_SCANCODE_S,     SDL_SCANCODE_D,     SDL_SCANCODE_F,     SDL_SCANCODE_G},
         {SDL_SCANCODE_Q,     SDL_SCANCODE_W,     SDL_SCANCODE_E,     SDL_SCANCODE_R,     SDL_SCANCODE_T},
         {SDL_SCANCODE_1,     SDL_SCANCODE_2,     SDL_SCANCODE_3,     SDL_SCANCODE_4,     SDL_SCANCODE_5},
         {SDL_SCANCODE_0,     SDL_SCANCODE_9,     SDL_SCANCODE_8,     SDL_SCANCODE_7,     SDL_SCANCODE_6},
         {SDL_SCANCODE_P,     SDL_SCANCODE_O,     SDL_SCANCODE_I,     SDL_SCANCODE_U,     SDL_SCANCODE_Y},
         {SDL_SCANCODE_RETURN,SDL_SCANCODE_L,     SDL_SCANCODE_K,     SDL_SCANCODE_J,     SDL_SCANCODE_H},
-        {SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT,SDL_SCANCODE_M,     SDL_SCANCODE_N,     SDL_SCANCODE_B},
+        {SDL_SCANCODE_SPACE, SDL_SCANCODE_LCTRL, SDL_SCANCODE_M,     SDL_SCANCODE_N,     SDL_SCANCODE_B},
     };
     return t[row][col];
 }
@@ -4794,6 +4802,139 @@ static void test_t77_kbd() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// 3.x Issue #115 — host-key → ZX matrix fidelity (GH115-*)
+//
+// The authority for "which HOST PC key drives which ZX matrix cell" is the
+// FPGA's own U.S. PS/2 keymap, which is what a real ZX Spectrum Next uses
+// when a PC keyboard is plugged into it:
+//
+//   input/keyboard/keymaps.vhd:81-104  — the human-readable assignment list
+//   input/keyboard/keymaps.vhd:53-208  — the keymap table itself, format
+//                                        documented at :57-63:
+//                                          bit 7 = SYMBOL, bit 6 = CAPS,
+//                                          bits 5-3 = row, bits 2-0 = col
+//                                          (col 7 = "no column action")
+//   input/keyboard/ps2_keyb.vhd:196-198 — bit 6 → membrane row 0 col 0
+//                                        (CAPS SHIFT), bit 7 → row 7 col 1
+//                                        (SYMBOL SHIFT)
+//   input/keyboard/keymaps.vhd:40-49    — the 8x7 membrane cell names, which
+//                                        agree with membrane.vhd:164-175
+//
+// jnext had SHIFT and CTRL inverted against that table.
+// ══════════════════════════════════════════════════════════════════════════
+
+static void test_gh115_keymap() {
+    set_group("GH115");
+
+    static const uint8_t sel[8] =
+        {0xFE, 0xFD, 0xFB, 0xF7, 0xEF, 0xDF, 0xBF, 0x7F};
+
+    // Assert `sc` pulls exactly cell (row,col) low and nothing else in that
+    // row, and that release restores the row to 0x1F.
+    auto single = [&](const char* id, const char* desc, SDL_Scancode sc,
+                      int row, int col) {
+        Keyboard kb; kb.reset();
+        kb.set_key(sc, true);
+        const uint8_t v = kb.read_rows(sel[row]);
+        const uint8_t want = static_cast<uint8_t>(0x1F & ~(1u << col));
+        kb.set_key(sc, false);
+        const uint8_t r = kb.read_rows(sel[row]);
+        check(id, desc, v == want && r == 0x1F,
+              DETAIL("row%d=0x%02X want=0x%02X released=0x%02X",
+                     row, v, want, r));
+    };
+
+    // Assert `sc` pulls col `ca` of row `ra` AND col `cb` of row `rb` low.
+    auto compound = [&](const char* id, const char* desc, SDL_Scancode sc,
+                        int ra, int ca, int rb, int cb) {
+        Keyboard kb; kb.reset();
+        kb.set_key(sc, true);
+        const uint8_t ra_v = kb.read_rows(sel[ra]);
+        const uint8_t rb_v = kb.read_rows(sel[rb]);
+        const bool down = ((ra_v & (1u << ca)) == 0) && ((rb_v & (1u << cb)) == 0);
+        kb.set_key(sc, false);
+        const uint8_t ra_r = kb.read_rows(sel[ra]);
+        const uint8_t rb_r = kb.read_rows(sel[rb]);
+        const bool cleared = (ra_r & (1u << ca)) && (rb_r & (1u << cb));
+        check(id, desc, down && cleared,
+              DETAIL("r%d=0x%02X r%d=0x%02X rel r%d=0x%02X r%d=0x%02X",
+                     ra, ra_v, rb, rb_v, ra, ra_r, rb, rb_r));
+    };
+
+    // ── The inversion itself ──────────────────────────────────────────
+    // keymaps.vhd:83 "Left / Right Shift = CAPS SHIFT"; scancode 0x12/0x59
+    // = "001000111" (keymaps.vhd:113,131) → bit 6 CAPS → ps2_keyb.vhd:198
+    // forces row 0 col 0.
+    single("GH115-01", "LShift → CAPS SHIFT (row 0 col 0)",
+           SDL_SCANCODE_LSHIFT, 0, 0);
+    single("GH115-02", "RShift → CAPS SHIFT (row 0 col 0)",
+           SDL_SCANCODE_RSHIFT, 0, 0);
+    // keymaps.vhd:84 "Left / Right Ctl = SYM SHIFT"; scancode 0x14 and
+    // extended 0x14 = "010000111" (keymaps.vhd:113,165) → bit 7 SYMBOL →
+    // ps2_keyb.vhd:197 forces row 7 col 1.
+    single("GH115-03", "LCtrl → SYMBOL SHIFT (row 7 col 1)",
+           SDL_SCANCODE_LCTRL, 7, 1);
+    single("GH115-04", "RCtrl → SYMBOL SHIFT (row 7 col 1)",
+           SDL_SCANCODE_RCTRL, 7, 1);
+
+    // GH115-05: the inversion must be gone in BOTH directions — Shift must
+    // not touch row 7 col 1, and Ctrl must not touch row 0 col 0. A one-way
+    // assertion would still pass if both keys drove both cells.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_LSHIFT, true);
+        const uint8_t sh_r7 = kb.read_rows(sel[7]);
+        kb.set_key(SDL_SCANCODE_LSHIFT, false);
+        kb.set_key(SDL_SCANCODE_LCTRL, true);
+        const uint8_t ct_r0 = kb.read_rows(sel[0]);
+        kb.set_key(SDL_SCANCODE_LCTRL, false);
+        check("GH115-05", "Shift leaves SYM SHIFT alone and Ctrl leaves CAPS SHIFT alone",
+              sh_r7 == 0x1F && ct_r0 == 0x1F,
+              DETAIL("shift.row7=0x%02X ctrl.row0=0x%02X (both want 0x1F)",
+                     sh_r7, ct_r0));
+    }
+
+    // ── Keys the real machine binds that jnext dropped entirely ───────
+    // keymaps.vhd:89 + scancode 0x58 = "000001101" → row 1 col 5 = CAPS LOCK
+    // (keymaps.vhd:43), which membrane.vhd:237 folds to CS + '2' (row 3 col 1).
+    compound("GH115-06", "CapsLock → CAPS LOCK = CS + 2",
+             SDL_SCANCODE_CAPSLOCK, 0, 0, 3, 1);
+    // keymaps.vhd:94 + scancode 0x5D = "000010110" → row 2 col 6 = INV VIDEO
+    // (keymaps.vhd:44), which membrane.vhd:237 folds to CS + '4' (row 3 col 3).
+    compound("GH115-07", "backslash → INV VIDEO = CS + 4",
+             SDL_SCANCODE_BACKSLASH, 0, 0, 3, 3);
+    // keymaps.vhd:127 scancode 0x4A = "010000100" → SYMBOL + row 0 col 4 (V).
+    compound("GH115-08", "slash → '/' = SS + V",
+             SDL_SCANCODE_SLASH, 7, 1, 0, 4);
+    // keymaps.vhd:127 scancode 0x4E = "010110011" → SYMBOL + row 6 col 3 (J).
+    compound("GH115-09", "minus → '-' = SS + J",
+             SDL_SCANCODE_MINUS, 7, 1, 6, 3);
+    // keymaps.vhd:129 scancode 0x55 = "010110001" → SYMBOL + row 6 col 1 (L).
+    compound("GH115-10", "equals → '=' = SS + L",
+             SDL_SCANCODE_EQUALS, 7, 1, 6, 1);
+
+    // GH115-11: CapsLock and backslash go through the EXTENDED-key register,
+    // so they must also appear in the NR 0xB1 readback — that is the half of
+    // the hardware path a bare compound cannot express (keymaps.vhd:43-44
+    // puts both in membrane columns 5/6, and membrane.vhd:253 is what feeds
+    // NR 0xB0/0xB1). CAPS LOCK is NR 0xB1 bit 1, INV VIDEO is bit 4.
+    {
+        Keyboard kb; kb.reset();
+        kb.set_key(SDL_SCANCODE_CAPSLOCK, true);
+        const uint8_t b1_caps = kb.nr_b1_byte();
+        kb.set_key(SDL_SCANCODE_CAPSLOCK, false);
+        kb.set_key(SDL_SCANCODE_BACKSLASH, true);
+        const uint8_t b1_inv = kb.nr_b1_byte();
+        kb.set_key(SDL_SCANCODE_BACKSLASH, false);
+        const uint8_t b1_idle = kb.nr_b1_byte();
+        check("GH115-11", "CapsLock/backslash also report on NR 0xB1",
+              b1_caps == 0x02 && b1_inv == 0x10 && b1_idle == 0x00,
+              DETAIL("caps=0x%02X inv=0x%02X idle=0x%02X (want 0x02/0x10/0x00)",
+                     b1_caps, b1_inv, b1_idle));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // 3.x NR 0xB2 — Extended MD Pad Buttons (NRB2-*)
 // VHDL: zxnext.vhd:6214-6215 (read mux), 3441-3442 (12-bit vector layout),
 //       3470-3494 (the port lanes that do NOT carry these bits).
@@ -5024,6 +5165,7 @@ int main() {
     test_joy_source();      printf("  Group: JSRC   done\n");
     test_t77_joy();         printf("  Group: T77J   done\n");
     test_t77_kbd();         printf("  Group: T77K   done\n");
+    test_gh115_keymap();    printf("  Group: GH115  done\n");
 
     printf("\n=====================================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -534,15 +534,17 @@ changes how fast the emulator runs relative to real time.
 | PC key                | Spectrum key                            |
 |-----------------------|-----------------------------------------|
 | Letter/number keys    | The corresponding key                   |
-| Ctrl (left/right)     | Caps Shift                              |
-| Shift (left/right)    | Symbol Shift                            |
+| Shift (left/right)    | Caps Shift                              |
+| Ctrl (left/right)     | Symbol Shift                            |
 | Backspace             | Delete (Caps Shift + 0)                 |
 | Arrow keys            | Cursor keys (Caps Shift + 5/6/7/8)      |
 | Enter                 | Enter                                   |
 | Space                 | Space                                   |
 | Esc                   | Break (Caps Shift + Space)              |
 | Tab                   | Extend Mode (Caps Shift + Symbol Shift) |
+| Caps Lock             | Caps Lock (Caps Shift + 2)              |
 | Key left of `1`       | True Video (Caps Shift + 3)             |
+| `\`                   | Inverse Video (Caps Shift + 4)          |
 | Alt + key left of `1` | Inverse Video (Caps Shift + 4)          |
 | Alt + E               | Edit (Caps Shift + 1)                   |
 | Alt + G               | Graph (Caps Shift + 9)                  |
@@ -551,6 +553,12 @@ changes how fast the emulator runs relative to real time.
 | `;`                   | `;` (Symbol Shift + O)                  |
 | `.`                   | `.` (Symbol Shift + M)                  |
 | `,`                   | `,` (Symbol Shift + N)                  |
+| `/`                   | `/` (Symbol Shift + V)                  |
+| `-`                   | `-` (Symbol Shift + J)                  |
+| `=`                   | `=` (Symbol Shift + L)                  |
+
+Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
+Next with a PC keyboard attached. Earlier releases had the two swapped.
 
 Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
 is toggled with F11 only (it used to also be exited with Esc).

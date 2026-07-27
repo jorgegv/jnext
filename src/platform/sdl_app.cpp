@@ -90,7 +90,8 @@ bool SdlApp::init(int argc, char* argv[]) {
             // convention, and the same combo the Qt frontend uses. It is
             // checked on the modifier keys themselves rather than bound to a
             // letter: every plain Ctrl+<key> is a real ZX sequence (Ctrl is
-            // Caps Shift), so a letter shortcut would steal it from the guest.
+            // Symbol Shift — issue #115), so a letter shortcut would steal it
+            // from the guest.
             if (mouse_captured_ &&
                 (sc == SDL_SCANCODE_LALT  || sc == SDL_SCANCODE_RALT ||
                  sc == SDL_SCANCODE_LCTRL || sc == SDL_SCANCODE_RCTRL)) {

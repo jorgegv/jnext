@@ -49,9 +49,24 @@ static void init_map() {
     std::memset(s_alt_extkey,   -1, sizeof(s_alt_extkey));
 
     // Row 0: CAPS-SHIFT  Z  X  C  V
-    // Ctrl keys map to Caps Shift (row 0, col 0).
-    s_map[SDL_SCANCODE_LCTRL]  = {0, 0};
-    s_map[SDL_SCANCODE_RCTRL]  = {0, 0};
+    //
+    // Issue #115 — the HOST SHIFT keys are CAPS SHIFT, and the host Ctrl keys
+    // are SYMBOL SHIFT (row 7, col 1 below). jnext had these two inverted.
+    // The Next FPGA's own PS/2 keymap is the authority for host-PC-key -> ZX
+    // matrix, and it says so at three independent points:
+    //   * keymaps.vhd:83-84  — "Left / Right Shift = CAPS SHIFT",
+    //                          "Left / Right Ctl   = SYM SHIFT"
+    //   * keymaps.vhd:113,131 — set-2 scancode 0x12 (LShift) and 0x59 (RShift)
+    //                          are both "001000111": bit 6 (CAPS) set, column
+    //                          field 111 = "no column action". Scancode 0x14
+    //                          (LCtrl, keymaps.vhd:113) and extended 0x14
+    //                          (RCtrl, keymaps.vhd:165) are both "010000111":
+    //                          bit 7 (SYMBOL) set. Format at keymaps.vhd:57-63.
+    //   * ps2_keyb.vhd:196-198 — keymap bit 6 feeds capshift_count, which
+    //                          forces membrane ROW 0 COL 0 low; bit 7 feeds
+    //                          symshift_count, which forces ROW 7 COL 1 low.
+    s_map[SDL_SCANCODE_LSHIFT] = {0, 0};
+    s_map[SDL_SCANCODE_RSHIFT] = {0, 0};
     s_map[SDL_SCANCODE_Z]      = {0, 1};
     s_map[SDL_SCANCODE_X]      = {0, 2};
     s_map[SDL_SCANCODE_C]      = {0, 3};
@@ -102,10 +117,12 @@ static void init_map() {
     s_map[SDL_SCANCODE_H]      = {6, 4};
 
     // Row 7: SPACE  SYM-SHIFT  M  N  B
-    // Shift keys map to Symbol Shift (row 7, col 1).
+    // Ctrl keys map to Symbol Shift (row 7, col 1) — keymaps.vhd:84 +
+    // scancode 0x14 = "010000111" (bit 7 SYMBOL), ps2_keyb.vhd:197. See the
+    // row-0 block above for the full issue-#115 derivation.
     s_map[SDL_SCANCODE_SPACE]  = {7, 0};
-    s_map[SDL_SCANCODE_LSHIFT] = {7, 1};
-    s_map[SDL_SCANCODE_RSHIFT] = {7, 1};
+    s_map[SDL_SCANCODE_LCTRL]  = {7, 1};
+    s_map[SDL_SCANCODE_RCTRL]  = {7, 1};
     s_map[SDL_SCANCODE_M]      = {7, 2};
     s_map[SDL_SCANCODE_N]      = {7, 3};
     s_map[SDL_SCANCODE_B]      = {7, 4};
@@ -158,6 +175,32 @@ static void init_map() {
     s_extkey[SDL_SCANCODE_SEMICOLON]  = ek(EK::SEMICOLON);   // SS + O
     s_extkey[SDL_SCANCODE_PERIOD]     = ek(EK::DOT);         // SS + M
     s_extkey[SDL_SCANCODE_COMMA]      = ek(EK::COMMA);       // SS + N
+
+    // ── Issue #115: keys the real machine maps and jnext dropped ──────
+    //
+    // These host keys are bound on real Next hardware (the FPGA's U.S. PS/2
+    // keymap) but had NO jnext binding at all, so they were silently dead.
+    // Each is additive — nothing above is displaced.
+    //
+    // CAPS LOCK on the host Caps Lock key: keymaps.vhd:89 plus set-2 scancode
+    // 0x58 = "000001101" (keymaps.vhd:131) → row 1, col 5, which the 8x7
+    // membrane names CAPS LOCK (keymaps.vhd:43, membrane.vhd:169). Reaching it
+    // via Alt+C as well (above) is a jnext convenience alias, kept.
+    s_extkey[SDL_SCANCODE_CAPSLOCK]   = ek(EK::CAPS_LOCK);   // CS + 2
+    // INV VIDEO on '\': keymaps.vhd:94 ("right side of same row as tab") plus
+    // scancode 0x5D = "000010110" (keymaps.vhd:131) → row 2, col 6 = INV VIDEO
+    // (keymaps.vhd:44, membrane.vhd:170). Alt+` alias above is kept.
+    s_extkey[SDL_SCANCODE_BACKSLASH]  = ek(EK::INV_VIDEO);   // CS + 4
+
+    // Symbol-shifted compounds the PS/2 keymap defines via its SYMBOL bit
+    // (bit 7 → row 7 col 1, ps2_keyb.vhd:197) plus a row/col field. Decoded
+    // from keymaps.vhd:127-129 with the format at keymaps.vhd:57-63:
+    //   '/' 0x4A = "010000100" → SYM + (0,4)=V   → "/"
+    //   '-' 0x4E = "010110011" → SYM + (6,3)=J   → "-"
+    //   '=' 0x55 = "010110001" → SYM + (6,1)=L   → "="
+    s_compound[SDL_SCANCODE_SLASH]  = {{7, 1}, {0, 4}};      // SS + V
+    s_compound[SDL_SCANCODE_MINUS]  = {{7, 1}, {6, 3}};      // SS + J
+    s_compound[SDL_SCANCODE_EQUALS] = {{7, 1}, {6, 1}};      // SS + L
 
     s_map_init = true;
 }
