@@ -330,7 +330,12 @@ static void test_accelerators(Fixture& fx)
                 keys.push_back(Accel{QStringLiteral("<window>"), a->text(),
                                      a->shortcut().toString()});
         const std::string dups = collisions(keys);
-        check("AC-03", "no two actions share a key-sequence shortcut",
+        // "primary" is load-bearing: QAction::shortcut() returns only the
+        // primary sequence, so an action given alternates via setShortcuts()
+        // would have those unexamined. Nothing in src/debugger uses the plural
+        // form today (all nine call setShortcut()), and the description says
+        // what the harvest actually looked at rather than implying more.
+        check("AC-03", "no two actions share a primary key-sequence shortcut",
               dups.empty(),
               dups.empty() ? fmt("%zu shortcuts, all distinct", keys.size()) : dups);
     }
@@ -393,7 +398,11 @@ static void test_accelerators(Fixture& fx)
                               && popup_scopes.size() == 8
                               && menu_accels.size() == 30
                               && shortcuts == 9;
-        check("AC-05", "the walk covers the whole menu tree",
+        // Described as what it is — a comparison against pinned sizes — not as
+        // "the walk covers the whole tree", which would claim a completeness
+        // four size checks cannot establish (add one menu and delete another
+        // and the counts still agree).
+        check("AC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
               fmt("menus=%zu (want 5), popups=%zu (want 8), mnemonics=%zu (want 30), "
                   "shortcuts=%zu (want 9)",
@@ -416,8 +425,8 @@ static void test_keystrokes(Fixture& fx)
         const std::string why = !fx.ok ? "fixture failed"
                               : !wh    ? "debugger window has no platform handle"
                                        : "debugger window is not the active window";
-        check("AK-01", "Alt+W opens the Watches menu", false, why);
-        check("AK-02", "Alt+W opens the same menu every time it is pressed", false, why);
+        check("AK-01", "the first Alt+W press opens the Watches menu", false, why);
+        check("AK-02", "Alt+W opens Watches on every press", false, why);
         check("AK-03", "Alt+N opens the Window menu", false, why);
         return;
     }
@@ -432,17 +441,24 @@ static void test_keystrokes(Fixture& fx)
     // AK-01 — which of the two menus keeps W. NOT a regression row: the broken
     // code opened Watches on this press too. It pins the decision, so a later
     // change that quietly hands W to some other menu is a visible edit.
-    check("AK-01", "Alt+W opens the Watches menu",
+    check("AK-01", "the first Alt+W press opens the Watches menu",
           opened.value(0) == QStringLiteral("Watches"),
           fmt("first press opened \"%s\"", opened.value(0).toUtf8().constData()));
 
     // AK-02 — THE regression row. Under the duplicate, Qt's ambiguous-shortcut
     // dispatch alternated: Watches, Window, Watches, Window.
+    //
+    // Note what this asserts, because the obvious reading is wrong: it requires
+    // Watches on ALL FOUR presses, which is the ASSIGNMENT on every press, not
+    // mere self-consistency. A collision-free swap that handed W to Window
+    // would report "Window, Window, Window, Window" — perfectly consistent —
+    // and this row would still fail, correctly. The description says exactly
+    // that, so a reader trusting the sentence is not misled.
     {
         bool all_watches = true;
         for (const QString& m : opened)
             if (m != QStringLiteral("Watches")) all_watches = false;
-        check("AK-02", "Alt+W opens the same menu every time it is pressed",
+        check("AK-02", "Alt+W opens Watches on every press",
               all_watches,
               fmt("four presses opened: %s", opened.join(QStringLiteral(", "))
                                                    .toUtf8().constData()));
