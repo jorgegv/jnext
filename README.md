@@ -87,8 +87,8 @@ for your system from the
 | **Ubuntu 26.04**         | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`                     |
 | **Flatpak (any distro)** | `flatpak install ./jnext-*-x86_64.flatpak`                             |
 | **Windows 10/11 (x64)**  | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
-| **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-qt5.zip`, unzip, run `jnext.exe`         |
-| **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-qt5.zip`, unzip, run `jnext.exe`         |
+| **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-legacy.zip`, unzip, run `jnext.exe`     |
+| **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-legacy.zip`, unzip, run `jnext.exe`     |
 | **macOS**                | Download `jnext-*-Darwin.dmg`, open it, drag **jnext** to Applications |
 
 The Linux packages put a `jnext` command on your `PATH`.
@@ -114,11 +114,11 @@ All Windows packages are self-contained portable zips — no installer, no
 redistributables, every runtime DLL bundled, and the SD-card image
 self-provisioning built in. Pick by your Windows version:
 
-| Package                       | What you get              | Runs on                  |
-|-------------------------------|---------------------------|--------------------------|
-| `jnext-*-windows-x64.zip`     | full GUI + debugger (Qt6) | Windows 10 1703 or later |
-| `jnext-*-windows-x64-qt5.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later   |
-| `jnext-*-windows-x86-qt5.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later, 32-bit |
+| Package                          | What you get              | Runs on                        |
+|----------------------------------|---------------------------|--------------------------------|
+| `jnext-*-windows-x64.zip`        | full GUI + debugger (Qt6) | Windows 10 1703 or later       |
+| `jnext-*-windows-x64-legacy.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later         |
+| `jnext-*-windows-x86-legacy.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later, 32-bit |
 
 Details and the audited compatibility floors:
 [packaging/README.md](packaging/README.md) and
