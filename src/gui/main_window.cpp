@@ -610,9 +610,10 @@ void MainWindow::create_menus() {
     capture_mouse_action_ = input_menu->addAction(tr("Capture &Mouse"));
     capture_mouse_action_->setCheckable(true);
     // Deliberately NO keyboard shortcut. Every plain Ctrl+<key> is a real ZX
-    // sequence — Ctrl maps to Caps Shift, so Ctrl+M IS Caps+M — and a host
-    // shortcut would swallow it before the guest ever saw it. Capture is by
-    // clicking the viewport (or this menu item); Ctrl+Alt releases.
+    // sequence — Ctrl maps to Symbol Shift (issue #115), so Ctrl+M IS SS+M —
+    // and a host shortcut would swallow it before the guest ever saw it.
+    // Capture is by clicking the viewport (or this menu item); Ctrl+Alt
+    // releases.
     capture_mouse_action_->setStatusTip(
         tr("Confine the host pointer so the Kempston mouse can move freely "
            "(click the screen to capture, Ctrl+Alt to release)"));
