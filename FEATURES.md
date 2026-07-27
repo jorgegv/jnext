@@ -61,9 +61,9 @@
 - True fullscreen with aspect-ratio letterbox
 - CRT scanline filter overlay
 - FPS counter, CPU speed, and machine mode in status bar
-- Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Ctrl+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
+- Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Alt+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
-- PNG screenshot (Ctrl+S, toolbar, `--delayed-screenshot`)
+- PNG screenshot (Alt+S, toolbar, `--delayed-screenshot`)
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
 - Preferences dialog (Settings → Preferences…): configure startup defaults, input sources, live host audio gain and remembered paths; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings

@@ -243,7 +243,12 @@ void DebuggerManager::create_debug_toolbar() {
         QIcon(bug_pix), QObject::tr("Debug"));
     dbg_toggle->setCheckable(true);
     dbg_toggle->setChecked(false);
-    dbg_toggle->setToolTip(QObject::tr("Toggle Debugger (Ctrl+D)"));
+    // Alt+D, not Ctrl+D (#115): this button shares the View > Debugger action's
+    // binding, which moved off Ctrl because Ctrl is the guest's Symbol Shift.
+    // A tooltip naming the old chord would tell the user to press the very
+    // sequence the fix hands back to the guest — Ctrl+D types SS+D (STEP).
+    // host_hotkey_test H115-28 pins this string against the real shortcut.
+    dbg_toggle->setToolTip(QObject::tr("Toggle Debugger (Alt+D)"));
     connect(dbg_toggle, &QAction::triggered, this, [this](bool checked) {
         set_enabled(checked);
     });
