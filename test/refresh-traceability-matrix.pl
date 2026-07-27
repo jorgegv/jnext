@@ -498,6 +498,16 @@ sub cite_in {
     return "$file:$lines";
 }
 
+# Repo-relative path of the plan doc backing a suite, or undef when it has
+# none. Shared by the reader below and by the provenance label grep_citations
+# hands out, so the two can never name different files for the same tier.
+sub plan_doc_path {
+    my ($source_rel) = @_;
+    my $stem = $PLAN_DOC{$source_rel};
+    return undef unless defined $stem;
+    return "doc/testing/$stem-TEST-PLAN-DESIGN.md";
+}
+
 # Read plan-doc rows: "| ID | ... | ... zxnext.vhd:1234 ... |" -> citation.
 my %PLAN_CACHE;
 sub plan_cites {
@@ -506,7 +516,7 @@ sub plan_cites {
     return {} unless defined $stem;
     return $PLAN_CACHE{$stem} if $PLAN_CACHE{$stem};
     my %cites;
-    my $path = "$ROOT/doc/testing/$stem-TEST-PLAN-DESIGN.md";
+    my $path = "$ROOT/" . plan_doc_path($source_rel);
     if (open(my $fh, '<', $path)) {
         while (my $line = <$fh>) {
             next unless $line =~ /^\|\s*`?([A-Za-z0-9][A-Za-z0-9._\-+]*)`?\s*\|/;
@@ -520,8 +530,15 @@ sub plan_cites {
 }
 
 # id -> VHDL citation, from the four row-local tiers described above.
+#
+# $from, when given, is filled in parallel with the file each citation was
+# literally read from: this source for the three row-local tiers, the plan
+# doc for the plan tier. It is what the drift report is charged against
+# (GH #126), and the plan-doc case is the whole reason it cannot be inferred
+# from the caller's source list — `test/uart/uart_test.cpp` supplies INT-07's
+# citation without ever mentioning INT-07, because the UART-I2C plan doc does.
 sub grep_citations {
-    my ($source_rel) = @_;
+    my ($source_rel, $from) = @_;
     my $abs = "$ROOT/$source_rel";
     open(my $fh, '<', $abs) or die "open $abs: $!";
     my @src = <$fh>;
@@ -574,7 +591,8 @@ sub grep_citations {
         $i++;
     }
 
-    my $plan = plan_cites($source_rel);
+    my $plan      = plan_cites($source_rel);
+    my $plan_path = plan_doc_path($source_rel);
     my %cites;
     for my $tid (keys %id_line) {
         my $L = $id_line{$tid};
@@ -599,12 +617,25 @@ sub grep_citations {
         if (!defined $cite && !$owns_call) {
             for my $c (@calls) { if ($c->{s} > $L) { $cite = $c->{cite}; last; } }
         }
-        $cite //= $plan->{$tid};
-        $cites{$tid} = $cite if defined $cite;
+        # Everything above is row-local evidence read out of this file; only
+        # the plan tier comes from somewhere else, and only it is charged
+        # elsewhere.
+        my $prov = $source_rel;
+        if (!defined $cite && defined $plan->{$tid}) {
+            $cite = $plan->{$tid};
+            $prov = $plan_path;
+        }
+        next unless defined $cite;
+        $cites{$tid} = $cite;
+        $from->{$tid} //= $prov if $from;
     }
     # Rows the plan doc cites but no test source mentions stay resolvable:
     # `missing` status still deserves its citation.
-    for my $tid (keys %$plan) { $cites{$tid} //= $plan->{$tid}; }
+    for my $tid (keys %$plan) {
+        next if defined $cites{$tid};
+        $cites{$tid} = $plan->{$tid};
+        $from->{$tid} //= $plan_path if $from;
+    }
     return \%cites;
 }
 
@@ -863,6 +894,17 @@ sub cite_for {
     return undef;
 }
 
+# The file cite_for()'s answer was literally read from. Same sub-row
+# resolution, so the citation and the file it is charged to can never come
+# from different rows. (GH #126)
+sub cite_src_for {
+    my ($tid, $from, $checks, $skips) = @_;
+    return $from->{$tid} if exists $from->{$tid};
+    my $resolved = resolve_ids($tid, $checks, $skips);
+    for my $r (@$resolved) { return $from->{$r} if exists $from->{$r}; }
+    return undef;
+}
+
 # $stop_idx, when given, is the line index of the next @SUBSYS section
 # header. Companion `###` sections are nested inside their parent `##`
 # section, so without it the parent's scan runs straight through the
@@ -893,7 +935,7 @@ sub refresh_section {
     }
     my $fails = \%fails;
 
-    my (%checks, %skips, %where, %cites);
+    my (%checks, %skips, %where, %cites, %cite_from);
     my $tombstone;
     for my $src (@sources) {
         my ($c, $k) = grep_source($src);
@@ -907,8 +949,13 @@ sub refresh_section {
             $checks{$id} = $c->{$id};
             $where{$id} = $src;
         }
-        my $cs = grep_citations($src);
-        for my $id (keys %$cs) { $cites{$id} //= $cs->{$id}; }
+        my %cf;
+        my $cs = grep_citations($src, \%cf);
+        for my $id (keys %$cs) {
+            next if defined $cites{$id};
+            $cites{$id}     = $cs->{$id};
+            $cite_from{$id} = $cf{$id};
+        }
         $tombstone //= $TOMBSTONE{$src};
     }
 
@@ -957,13 +1004,21 @@ sub refresh_section {
         # its whole citation map would let a companion's row-local evidence
         # answer for a row the primary source owns — the borrowed-citation
         # defect the `next` tier is fenced against.
-        my %ccites;
+        my (%ccites, %cfrom);
         for my $src (as_list($csrc)) {
-            my $cs = grep_citations($src);
-            for my $id (keys %$cs) { $ccites{$id} //= $cs->{$id}; }
+            my %cf;
+            my $cs = grep_citations($src, \%cf);
+            for my $id (keys %$cs) {
+                next if defined $ccites{$id};
+                $ccites{$id} = $cs->{$id};
+                $cfrom{$id}  = $cf{$id};
+            }
         }
         for my $id (keys %owned) {
-            $cites{$id} //= $ccites{$id} if defined $ccites{$id};
+            next unless defined $ccites{$id};
+            next if defined $cites{$id};
+            $cites{$id}     = $ccites{$id};
+            $cite_from{$id} = $cfrom{$id};
         }
 
         # The FAIL set is restricted the same way, and this is the half that
@@ -1064,7 +1119,16 @@ sub refresh_section {
                         }
                     } elsif (defined $new_cite && $new_cite ne $cur_cite) {
                         $drift_ct++;
-                        push @$drift, "$tid_raw: doc=[$cur_cite] source=[$new_cite]";
+                        # Charge the line to the file `source=[...]` was read
+                        # from, not to the section's first source (GH #126).
+                        # The fallback covers the one citation with no file
+                        # behind it — a %TOMBSTONE, which is keyed by source
+                        # and only ever set on a single-source section.
+                        my $from = cite_src_for($tid_raw, \%cite_from,
+                                                $checks, $skips)
+                                   // $sources[0];
+                        push @$drift,
+                             "$from  $tid_raw: doc=[$cur_cite] source=[$new_cite]";
                     }
 
                     my ($lsrc, $ln) = line_for($tid_raw, $checks, $skips, \%where);
@@ -1325,7 +1389,12 @@ sub main {
                             \@section_drift, \@section_kept, $stop,
                             $companion->{$idx});
         my @sources = as_list($source_rel);
-        push @drift, map { "$sources[0]  $_" } @section_drift;
+        # Drift lines arrive already charged to the file that supplied the
+        # citation (GH #126) — which may be a companion suite or a plan doc,
+        # neither of which is $sources[0]. Protected rows have no such file
+        # by construction: the marker exists because the coverage is
+        # elsewhere and hand-maintained, so they stay labelled by section.
+        push @drift, @section_drift;
         push @kept,  map { "$sources[0]  $_" } @section_kept;
 
         # The other direction (GH #117): rows these sources assert that the
