@@ -33,15 +33,34 @@ namespace speed_report {
 /// How far below the requested percentage the achieved one must fall before it
 /// is reported as a genuine shortfall.
 ///
-/// The measurement floor this has to clear, at the 1 s status window:
-///   * INTEGER FRAME QUANTISATION — a window of a 49.36 Hz machine reports 49
-///     or 50 whole frames, i.e. 99.3% or 101.3%: +-1.5%.
-///   * AUDIO PACING — audio_pacing::frames_for_tick legitimately runs a double
-///     or skips a frame to track the sound card's clock, moving a 1 s window by
-///     one more frame: another +-2%.
-/// Together ~4%. Ten points is comfortably clear of that, while a real 10%
-/// shortfall (44 fps on a 49.36 Hz machine) is already visible judder.
-inline constexpr int SHORTFALL_MARGIN_PCT = 10;
+/// DERIVED, NOT CHOSEN. Every source of error in a 1 s status window is a whole
+/// number of FRAMES, so the margin is expressed that way and converted once.
+/// One frame of a 1 s window is `frame_period_ms / 10` percentage points —
+/// 2.03 at the longest machine period (20.259 ms, Next 50 Hz), which is the
+/// worst case and therefore the one to size against.
+///
+/// The frames that can move a HEALTHY window:
+///   * 1 frame — INTEGER QUANTISATION. The window counts whole frames, so a
+///     49.36 Hz machine reports 49 or 50: at most one frame from the truth.
+///   * 2 frames — AUDIO PACING. audio_pacing::frames_for_tick legitimately runs
+///     a double or skips one to track the sound card (frame_sequencer.h step 6),
+///     each shifting the count by exactly one. Steady state on a healthy host
+///     is measured at ZERO of these (`audio-catchup: 0 doubles, 0 skips` in the
+///     cadence log), so two is already generous headroom, not a typical figure.
+/// Total 3 frames = 6.08 points; 7 is the next whole point above it.
+///
+/// What is deliberately NOT in this budget: the status timer's window jitter.
+/// status_timer_ is a Qt::CoarseTimer (5% documented tolerance) and a raw frame
+/// count over it would have contributed +-5 points on its own — more than
+/// everything above combined. Rather than widen the margin to swallow that, the
+/// caller divides the count by the window it ACTUALLY measured
+/// (QtApp::on_status_tick), which removes the term at source. Sizing a
+/// detection threshold around an instrument error that can simply be corrected
+/// is how a threshold ends up too wide to ever fire.
+///
+/// At 7, a host delivering 92% of the true rate is flagged; the previous
+/// hand-waved 10 let a real 91% shortfall show a clean "100%".
+inline constexpr int SHORTFALL_MARGIN_PCT = 7;
 
 struct Report {
     /// What the user asked for: 100 = normal speed. Always valid.
@@ -57,6 +76,21 @@ struct Report {
     /// SHORTFALL_MARGIN_PCT. Implies `achieved_valid`.
     bool shortfall = false;
 };
+
+/// Frames per second from a frame COUNT and the window that was actually
+/// timed. Named and tested rather than inlined at the call site because it is
+/// the whole reason SHORTFALL_MARGIN_PCT can be as tight as it is: the caller's
+/// status timer is a Qt::CoarseTimer with 5% tolerance, so a raw count read as
+/// "per second" carries more error than every other term in the margin budget
+/// combined.
+///
+/// A non-positive window is not a measurement, so the count is returned
+/// unchanged — the pre-normalisation reading, and never a division by zero.
+inline double rate_from_window(double frames, int64_t window_ms)
+{
+    return window_ms > 0 ? frames * 1000.0 / static_cast<double>(window_ms)
+                         : frames;
+}
 
 /// Summarise one status window.
 ///

@@ -22,6 +22,17 @@
 //   * a re-press cancels a pending release;
 //   * a tick that emulated nothing must not discharge the latch.
 //
+// TWO LAYERS, DELIBERATELY. The HK-* rows pin the Latch POLICY. The RT-* rows
+// pin the Router — the GLUE that connects it to the emulated keyboard — because
+// a green policy suite over unverified wiring is the exact shape of the
+// v0.98.47 regression documented in test/platform/frame_sequencer_test.cpp,
+// which survived 5000+ unit rows, the FUSE suite and the whole screenshot
+// regression. The RT-* rows assert against the SINK (what the keyboard was
+// actually told), not against latch internals, and each is written to fail on
+// one specific mis-wiring: the wrong Latch method for an event, a release path
+// that ignores the returned bool, a missing discharge loop, or a discharge
+// mis-gated on frames_rendered.
+//
 // Every row derives from that contract, never from reading the implementation
 // back.
 //
@@ -31,6 +42,7 @@
 
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -62,6 +74,37 @@ std::string got(const std::vector<int>& v)
 // Two arbitrary in-range scancodes (SDL_SCANCODE_A = 4, SDL_SCANCODE_B = 5).
 constexpr int KEY_A = 4;
 constexpr int KEY_B = 5;
+
+// --- Router fixtures ------------------------------------------------------
+// A recording stand-in for Keyboard. The Router is templated on the sink and
+// on the scancode type precisely so this double needs no production header:
+// the suite still builds with no Qt, no SDL and no emulator core.
+using Calls = std::vector<std::pair<int, bool>>;
+
+struct FakeKeyboard {
+    Calls calls;
+    void set_key(int sc, bool pressed) { calls.emplace_back(sc, pressed); }
+    int count(int sc, bool pressed) const
+    {
+        int n = 0;
+        for (const auto& c : calls)
+            if (c.first == sc && c.second == pressed) ++n;
+        return n;
+    }
+};
+
+using TestRouter = host_key_latch::Router<FakeKeyboard, int>;
+
+std::string got(const FakeKeyboard& kb)
+{
+    std::string s = "sink=[";
+    for (size_t i = 0; i < kb.calls.size(); ++i) {
+        if (i) s += " ";
+        s += std::to_string(kb.calls[i].first);
+        s += kb.calls[i].second ? "v" : "^";
+    }
+    return s + "]";
+}
 
 /// Drive one frontend tick that emulated at least one frame, returning the
 /// releases it discharged.
@@ -164,8 +207,10 @@ int main()
 
     // --- HK-08: a re-press cancels the pending release ---------------------
     // The key is physically down again; releasing it at the next frame would be
-    // a lie. The two taps merge into one press — see the header's note on why
-    // that matches the ROM's 50 Hz KEY-SCAN.
+    // a lie. The two taps merge into one press. That merge is a documented
+    // LIMITATION of jnext's frame-granular host-input delivery, NOT hardware
+    // behaviour — membrane.vhd:99-155 has no debounce and no interrupt gating,
+    // so real hardware can resolve two rapid taps. See the header.
     {
         Latch l;
         l.on_press(KEY_A);
@@ -307,6 +352,197 @@ int main()
             if (frame_tick(l).size() != 1) ok = false;
         }
         check("HK-15", "alternating slow and fast taps stay independent", ok);
+    }
+
+    // =======================================================================
+    // Router — THE GLUE. Rows above prove the policy; these prove the wiring.
+    //
+    // Every row here is written to fail on one specific mis-wiring that the
+    // Latch suite alone cannot see: calling the wrong Latch method for an
+    // event, ignoring on_release()'s return value, omitting the discharge loop,
+    // or mis-gating the discharge on frames_rendered. Assertions are made
+    // against the SINK — what the emulated keyboard was actually told — because
+    // that, not the latch's internal state, is what the guest experiences.
+    // =======================================================================
+
+    // --- RT-01: a press reaches the keyboard, immediately and exactly once --
+    // Fails if the press path calls on_release, or forgets the sink call.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_A, true);
+        check("RT-01", "a press is passed to the keyboard at once",
+              kb.calls == Calls{{KEY_A, true}}, got(kb));
+    }
+
+    // --- RT-02: a sub-frame release is NOT passed on -------------------------
+    // THE DEFECT, at the wiring level. Fails if the release path ignores what
+    // on_release() returned and clears the key regardless — which is exactly
+    // the pre-fix code, and exactly what a careless edit would restore.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);
+        check("RT-02", "a release with no frame since the press is withheld",
+              kb.calls == Calls{{KEY_A, true}}, got(kb));
+    }
+
+    // --- RT-03: the discharge loop exists ------------------------------------
+    // Fails outright if on_tick_end() drops the loop, or never calls
+    // on_frames_ran() — the key would then stay jammed down forever.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);
+        r.on_tick_end(1);
+        check("RT-03", "a tick that emulated a frame releases the held key",
+              kb.calls == Calls{{KEY_A, true}, {KEY_A, false}}, got(kb));
+    }
+
+    // --- RT-04: the discharge is gated on frames_rendered --------------------
+    // A paused tick must NOT discharge: no frame has looked at the matrix, so
+    // releasing there reinstates the race. Fails if the gate is dropped, or
+    // inverted, or written `>= 0` instead of `> 0`.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);
+        r.on_tick_end(0);
+        check("RT-04a", "a tick that emulated nothing does not discharge",
+              kb.calls == Calls{{KEY_A, true}}, got(kb));
+        r.on_tick_end(-1);
+        check("RT-04b", "a negative frame count does not discharge either",
+              kb.calls == Calls{{KEY_A, true}}, got(kb));
+        r.on_tick_end(1);
+        check("RT-04c", "the first tick that does emulate discharges it",
+              kb.calls == Calls{{KEY_A, true}, {KEY_A, false}}, got(kb));
+    }
+
+    // --- RT-05: an ordinary keystroke is completely unaffected ---------------
+    // The no-regression row: press, a frame runs, release. The keyboard must
+    // see exactly the two calls it saw before this change existed, in order and
+    // at the same moments — no added latency, no duplicate.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_A, true);
+        r.on_tick_end(1);
+        check("RT-05a", "a frame tick alone tells the keyboard nothing",
+              kb.calls == Calls{{KEY_A, true}}, got(kb));
+        r.on_host_key(KEY_A, false);
+        check("RT-05b", "the release reaches the keyboard in the same call",
+              kb.calls == Calls{{KEY_A, true}, {KEY_A, false}}, got(kb));
+        r.on_tick_end(1);
+        check("RT-05c", "and the next tick adds nothing",
+              kb.calls == Calls{{KEY_A, true}, {KEY_A, false}}, got(kb));
+    }
+
+    // --- RT-06: a held key is never spuriously released ----------------------
+    // Fails if the discharge releases everything it knows about rather than
+    // only what was deferred — which would drop keys out from under the user
+    // during gameplay, a far worse bug than the one being fixed.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_A, true);
+        for (int i = 0; i < 20; ++i) r.on_tick_end(1);
+        check("RT-06", "a key held across 20 frames is never released",
+              kb.calls == Calls{{KEY_A, true}}, got(kb));
+    }
+
+    // --- RT-07: the scancode survives the round trip -------------------------
+    // The deferred release travels through the latch as an int and comes back
+    // out cast to the sink's scancode type. Fails on a cast typo or an
+    // index/value mix-up — with two keys deferred, a bug that emitted the
+    // wrong one would be invisible with a single key.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(KEY_B, true);
+        r.on_host_key(KEY_B, false);
+        r.on_tick_end(1);
+        check("RT-07a", "the deferred release names the key that was pressed",
+              kb.calls == Calls{{KEY_B, true}, {KEY_B, false}}, got(kb));
+
+        FakeKeyboard kb2; TestRouter r2; r2.attach(kb2);
+        r2.on_host_key(KEY_A, true);
+        r2.on_host_key(KEY_B, true);
+        r2.on_host_key(KEY_A, false);
+        r2.on_host_key(KEY_B, false);
+        r2.on_tick_end(1);
+        check("RT-07b", "two keys deferred together are both released, once each",
+              kb2.count(KEY_A, false) == 1 && kb2.count(KEY_B, false) == 1 &&
+              kb2.calls.size() == 4, got(kb2));
+    }
+
+    // --- RT-08: attach() re-binds and clears -------------------------------
+    // Cold boot reconstructs the Keyboard. A release still pending must not be
+    // delivered to the NEW machine, and must not be delivered to the old one
+    // either. Fails if attach() forgets the reset, or does not re-point the
+    // sink.
+    {
+        FakeKeyboard old_kb, new_kb; TestRouter r; r.attach(old_kb);
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);      // deferred against the old machine
+        r.attach(new_kb);                 // cold boot
+        r.on_tick_end(1);
+        check("RT-08a", "a pending release does not reach the new machine",
+              new_kb.calls.empty(), got(new_kb));
+        check("RT-08b", "nor is it retro-delivered to the old one",
+              old_kb.calls == Calls{{KEY_A, true}}, got(old_kb));
+        r.on_host_key(KEY_B, true);
+        check("RT-08c", "and later events go to the new machine",
+              new_kb.calls == Calls{{KEY_B, true}}, got(new_kb));
+    }
+
+    // --- RT-09: an unattached router is inert, not a crash -------------------
+    // The Qt key callback is registered before the first attach(); an event
+    // arriving in that window must be dropped quietly.
+    {
+        TestRouter r;
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);
+        r.on_tick_end(1);
+        check("RT-09", "an unattached router survives events and ticks", true);
+    }
+
+    // --- RT-10: soak — the realistic pattern, end to end ---------------------
+    // 200 sub-frame taps, one per tick: exactly 200 presses and 200 releases,
+    // strictly alternating. Catches anything that accumulates, duplicates, or
+    // drops one event in N — none of which a handful of scripted rows would.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        for (int i = 0; i < 200; ++i) {
+            r.on_host_key(KEY_A, true);
+            r.on_host_key(KEY_A, false);
+            r.on_tick_end(1);
+        }
+        bool alternating = kb.calls.size() == 400;
+        for (size_t i = 0; alternating && i < kb.calls.size(); ++i) {
+            if (kb.calls[i].first != KEY_A) alternating = false;
+            if (kb.calls[i].second != (i % 2 == 0)) alternating = false;
+        }
+        check("RT-10", "200 sub-frame taps yield 200 clean press/release pairs",
+              alternating, "n=" + std::to_string(kb.calls.size()));
+    }
+
+    // --- RT-11: the guest-visible invariant, over mixed traffic --------------
+    // Whatever the mix of fast taps, slow taps and paused ticks, the sink must
+    // never see two presses of a key with no release between them, nor a
+    // release with no press — i.e. the router can never corrupt the matrix into
+    // a stuck or double-pressed state. This is the property a user would feel.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        for (int i = 0; i < 300; ++i) {
+            r.on_host_key(KEY_A, true);
+            if (i % 3 == 0) r.on_tick_end(1);      // slow tap
+            r.on_host_key(KEY_A, false);
+            if (i % 5 == 0) r.on_tick_end(0);      // a paused tick
+            r.on_tick_end(1);
+        }
+        bool down = false, sane = true;
+        for (const auto& c : kb.calls) {
+            if (c.second == down) sane = false;    // repeat press or repeat release
+            down = c.second;
+        }
+        check("RT-11a", "the sink never sees a repeated press or release", sane);
+        check("RT-11b", "and the key is left released at the end", !down);
     }
 
     std::printf("\n====================================================\n");

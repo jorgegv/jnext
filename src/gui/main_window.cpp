@@ -788,7 +788,7 @@ void MainWindow::create_statusbar() {
 
 void MainWindow::update_status(double fps, double presented_fps,
                                int cpu_speed_idx, double emu_speed,
-                               double frame_period_ms) {
+                               double frame_period_ms, double measured_fps) {
     // Task 63 (issue #9) — show BOTH figures, each labelled. Reporting only
     // the emulated rate under the bare name "FPS" is what made every user
     // report of judder ("but it says 59 fps") impossible to interpret.
@@ -823,8 +823,8 @@ void MainWindow::update_status(double fps, double presented_fps,
     // achieved figure is a percentage of the MACHINE'S OWN refresh — the Next's
     // "50 Hz" is really 49.36 Hz, so a healthy jnext shows "FPS: 49.4" and must
     // still score 100%.
-    const speed_report::Report sr =
-        speed_report::summarize(fps, frame_period_ms, emu_speed);
+    const speed_report::Report sr = speed_report::summarize(
+        measured_fps >= 0.0 ? measured_fps : fps, frame_period_ms, emu_speed);
     if (emu_speed_label_) {
         emu_speed_label_->setText(
             sr.shortfall ? QString("%1% (%2%)").arg(sr.requested_pct).arg(sr.achieved_pct)

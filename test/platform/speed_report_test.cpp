@@ -28,6 +28,7 @@
 
 #include "platform/speed_report.h"
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 
@@ -150,87 +151,134 @@ int main()
               p.achieved_pct == 100 - SHORTFALL_MARGIN_PCT - 1 && p.shortfall, got(p));
     }
 
-    // --- SR-07: the margin clears the measurement floor --------------------
-    // The margin exists to sit above quantisation (~1.5%) plus one pacer frame
-    // (~2%). If it is ever tuned below that sum the indicator starts flagging
-    // healthy machines, so assert the headroom directly.
-    check("SR-07", "shortfall margin clears quantisation + pacer noise",
-          SHORTFALL_MARGIN_PCT >= 5,
-          "margin=" + std::to_string(SHORTFALL_MARGIN_PCT));
+    // --- SR-07: the margin is the DERIVED value, bounded on both sides -----
+    // The header derives the margin as 3 frames of one-second-window error at
+    // the longest machine period (1 quantisation + 2 audio-pacer), converted at
+    // period/10 points per frame. Assert that derivation directly, and bound it
+    // ABOVE as well: a lower bound alone is what let the old hand-picked 10
+    // stand unchallenged, and a margin free to drift upwards is a margin that
+    // silently stops firing. The upper bound is the same budget rounded up to
+    // the next whole point — i.e. the margin must be the tightest whole number
+    // that still clears the noise, not merely some number above it.
+    {
+        const double one_frame_pts = NEXT50_MS / 10.0;          // 2.03
+        const double budget        = 3.0 * one_frame_pts;       // 6.08
+        const int    tightest      = static_cast<int>(budget) + 1;
+        check("SR-07a", "margin clears 3 frames of window error at the worst period",
+              SHORTFALL_MARGIN_PCT > budget,
+              "margin=" + std::to_string(SHORTFALL_MARGIN_PCT) +
+              " budget=" + std::to_string(budget));
+        check("SR-07b", "and is the TIGHTEST whole point that does",
+              SHORTFALL_MARGIN_PCT == tightest,
+              "margin=" + std::to_string(SHORTFALL_MARGIN_PCT) +
+              " tightest=" + std::to_string(tightest));
+    }
 
-    // --- SR-08: multipliers are comparable on the same scale ---------------
+    // --- SR-08: the noise budget really is quiet, and 3 frames is enough ----
+    // The rows above assert the ARITHMETIC of the budget; this one asserts its
+    // PURPOSE — that every window a healthy host can produce stays unflagged.
+    // Sweep the whole healthy range: the true rate displaced by up to 3 frames
+    // in either direction, which is quantisation plus the two pacer
+    // interventions the budget pays for.
+    {
+        const double target = NEXT50_HZ;
+        bool quiet = true;
+        for (int d = -3; d <= 3; ++d) {
+            const auto r = summarize(target + d, NEXT50_MS, 1.0);
+            if (r.shortfall) quiet = false;
+        }
+        check("SR-08a", "no window within the 3-frame noise budget is flagged",
+              quiet);
+        // And the very next frame down IS caught — the margin is a threshold,
+        // not a shrug. (4 frames low = 45.4 fps on a 49.36 Hz machine.)
+        const auto beyond = summarize(target - 4, NEXT50_MS, 1.0);
+        check("SR-08b", "a window one frame past the budget is flagged",
+              beyond.shortfall, got(beyond));
+    }
+
+    // --- SR-09: the complaint that drove the retune -------------------------
+    // A host delivering 91% of the true rate is a real, borderline-visible
+    // shortfall. At the old hand-picked margin of 10 it displayed a clean
+    // "100%"; it must now be reported.
+    {
+        const auto r = summarize(NEXT50_HZ * 0.91, NEXT50_MS, 1.0);
+        check("SR-09", "a host at 91% of true rate is reported, not hidden",
+              r.shortfall && r.achieved_pct == 91, got(r));
+    }
+
+    // --- SR-10: multipliers are comparable on the same scale ---------------
     // At 2x the machine must run at twice its refresh to be "keeping up". A
     // report that measured achieved against 1x would flag every fast-forward.
     {
         const auto ok    = summarize(NEXT50_HZ * 2.0, NEXT50_MS, 2.0);
         const auto short_ = summarize(NEXT50_HZ, NEXT50_MS, 2.0);
-        check("SR-08a", "2x actually achieving 2x reports 200% and no shortfall",
+        check("SR-10a", "2x actually achieving 2x reports 200% and no shortfall",
               ok.requested_pct == 200 && ok.achieved_pct == 200 && !ok.shortfall,
               got(ok));
-        check("SR-08b", "2x achieving only 1x is a shortfall at 100%",
+        check("SR-10b", "2x achieving only 1x is a shortfall at 100%",
               short_.requested_pct == 200 && short_.achieved_pct == 100 &&
               short_.shortfall, got(short_));
     }
 
-    // --- SR-09: half speed is a first-class target -------------------------
+    // --- SR-11: half speed is a first-class target -------------------------
     // --speed 50 asks for half the refresh; delivering it is 50%, not 100%,
     // and is not a shortfall.
     {
         const auto r = summarize(NEXT50_HZ / 2.0, NEXT50_MS, 0.5);
-        check("SR-09", "0.5x delivering half the refresh is on target",
+        check("SR-11", "0.5x delivering half the refresh is on target",
               r.requested_pct == 50 && r.achieved_pct == 50 && !r.shortfall,
               got(r));
     }
 
-    // --- SR-10: a paused machine is "no measurement", never 0% -------------
+    // --- SR-12: a paused machine is "no measurement", never 0% -------------
     // The debugger pauses emulation; the window then emulates nothing. Printing
     // "0%" there would be a false alarm on a deliberate state.
     {
         const auto r = summarize(0.0, NEXT50_MS, 1.0);
-        check("SR-10a", "zero emulated frames yields no achieved figure",
+        check("SR-12a", "zero emulated frames yields no achieved figure",
               !r.achieved_valid, got(r));
-        check("SR-10b", "zero emulated frames is not reported as a shortfall",
+        check("SR-12b", "zero emulated frames is not reported as a shortfall",
               !r.shortfall, got(r));
-        check("SR-10c", "the requested figure survives a paused window",
+        check("SR-12c", "the requested figure survives a paused window",
               r.requested_pct == 100, got(r));
     }
 
-    // --- SR-11: an unknown frame period yields no measurement --------------
+    // --- SR-13: an unknown frame period yields no measurement --------------
     // Before the machine's timing is known there is no rate to be a percentage
     // of. Refuse rather than invent one (a division by zero would otherwise
     // produce inf/NaN and a garbage label).
     {
         const auto z = summarize(50.0, 0.0, 1.0);
         const auto n = summarize(50.0, -1.0, 1.0);
-        check("SR-11a", "zero frame period yields no achieved figure",
+        check("SR-13a", "zero frame period yields no achieved figure",
               !z.achieved_valid && !z.shortfall, got(z));
-        check("SR-11b", "negative frame period yields no achieved figure",
+        check("SR-13b", "negative frame period yields no achieved figure",
               !n.achieved_valid && !n.shortfall, got(n));
     }
 
-    // --- SR-12: overachieving is reported, never clamped -------------------
+    // --- SR-14: overachieving is reported, never clamped -------------------
     // A host running slightly ahead of the audio clock (or a mid-window speed
     // change) can exceed 100. Clamping would hide a real disagreement between
     // the timer and the machine's period.
     {
         const auto r = summarize(NEXT50_HZ * 1.2, NEXT50_MS, 1.0);
-        check("SR-12", "achieved above the target is reported as-is",
+        check("SR-14", "achieved above the target is reported as-is",
               r.achieved_pct == 120 && !r.shortfall, got(r));
     }
 
-    // --- SR-13: the requested figure never depends on the measurement ------
+    // --- SR-15: the requested figure never depends on the measurement ------
     // Whatever the host does, the cell must still be able to say what was
     // asked for — that is the one thing the old indicator got right and the
     // fix must not regress.
     {
         const auto a = summarize(0.0, NEXT50_MS, 4.0);
         const auto b = summarize(3.0, NEXT50_MS, 4.0);
-        check("SR-13", "requested_pct tracks the multiplier in every case",
+        check("SR-15", "requested_pct tracks the multiplier in every case",
               a.requested_pct == 400 && b.requested_pct == 400,
               got(a) + " / " + got(b));
     }
 
-    // --- SR-14: shortfall implies a valid measurement ----------------------
+    // --- SR-16: shortfall implies a valid measurement ----------------------
     // A caller may reasonably branch on `shortfall` alone; it must never be
     // true while `achieved_pct` is meaningless.
     {
@@ -241,8 +289,54 @@ int main()
                 if (r.shortfall && !r.achieved_valid) implied = false;
             }
         }
-        check("SR-14", "shortfall is never set without a valid measurement",
+        check("SR-16", "shortfall is never set without a valid measurement",
               implied);
+    }
+
+    // --- SR-17: rate_from_window removes the coarse-timer error ------------
+    // The status timer is a Qt::CoarseTimer (5% tolerance), so the SAME healthy
+    // machine produces frame counts that differ by several percent purely
+    // because the window was short or long. Normalising by the window actually
+    // timed must collapse those to the same rate — that is what buys the tight
+    // margin, so it is asserted, not assumed.
+    {
+        using speed_report::rate_from_window;
+        // A 49.36 Hz machine, perfectly healthy, measured over three windows a
+        // coarse timer could plausibly deliver. The frame counts differ.
+        const double r_short = rate_from_window(47.0, 950);   // 950 ms window
+        const double r_exact = rate_from_window(49.0, 1000);
+        const double r_long  = rate_from_window(52.0, 1050);
+        const int a_short = summarize(r_short, NEXT50_MS, 1.0).achieved_pct;
+        const int a_exact = summarize(r_exact, NEXT50_MS, 1.0).achieved_pct;
+        const int a_long  = summarize(r_long,  NEXT50_MS, 1.0).achieved_pct;
+        check("SR-17a", "a short window is scaled up, a long one down",
+              r_short > 47.0 && r_long < 52.0,
+              std::to_string(r_short) + "/" + std::to_string(r_long));
+        check("SR-17b", "the three windows agree to within a point",
+              std::abs(a_short - a_exact) <= 1 && std::abs(a_long - a_exact) <= 1,
+              std::to_string(a_short) + "/" + std::to_string(a_exact) + "/" +
+              std::to_string(a_long));
+        check("SR-17c", "and none of them is flagged as a shortfall",
+              !summarize(r_short, NEXT50_MS, 1.0).shortfall &&
+              !summarize(r_long,  NEXT50_MS, 1.0).shortfall);
+        // Without normalisation the 950 ms window reads 47 frames -> 95%, which
+        // at the tightened margin is within 2 points of being flagged on a
+        // machine doing nothing wrong. This is the row that justifies the call.
+        check("SR-17d", "the un-normalised count is materially further off",
+              summarize(47.0, NEXT50_MS, 1.0).achieved_pct <
+              a_short - 3,
+              std::to_string(summarize(47.0, NEXT50_MS, 1.0).achieved_pct));
+    }
+
+    // --- SR-18: an unmeasurable window falls back, never divides by zero ----
+    {
+        using speed_report::rate_from_window;
+        check("SR-18a", "a 1000 ms window returns the count unchanged",
+              rate_from_window(49.0, 1000) == 49.0);
+        check("SR-18b", "a zero window returns the count, not inf/NaN",
+              rate_from_window(49.0, 0) == 49.0);
+        check("SR-18c", "a negative window returns the count too",
+              rate_from_window(49.0, -5) == 49.0);
     }
 
     std::printf("\n====================================================\n");

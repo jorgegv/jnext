@@ -40,11 +40,28 @@
 /// (`on_release` returns true, same call, same instant). The latch only ever
 /// acts on a press that would otherwise have been invisible.
 ///
-/// MERGED TAPS ARE CORRECT. Two complete taps of the same key inside one frame
-/// gap collapse into one continuous press. That is what real hardware does too:
-/// the ROM's KEY-SCAN runs from the 50 Hz interrupt, so two taps 10 ms apart are
-/// indistinguishable there as well. Preserving them would require queueing
-/// keystrokes the machine has no way to consume.
+/// MERGED TAPS ARE A KNOWN LIMITATION, NOT HARDWARE EQUIVALENCE. Two complete
+/// taps of the same key inside one frame gap collapse into one continuous
+/// press, and one of the two keystrokes is still lost.
+///
+/// Do NOT justify that by appeal to the hardware: it is NOT what a real Next
+/// does. `membrane.vhd:99-155` is a bare 9-state one-hot row scanner clocked by
+/// i_CLK/i_CLK_EN with NO debounce counter and NO interrupt gating — the only
+/// hold in the file is the deliberate two-scan CS/SYM shift hysteresis at
+/// :178, which EXTENDS a release rather than merging taps. Machine code
+/// polling port 0xFE fast enough therefore genuinely can observe two rapid
+/// taps on real hardware, and nothing in the VHDL merges them.
+///
+/// The merge is an artefact of THIS EMULATOR's host-input delivery
+/// granularity: jnext hands host key events to the guest at frame boundaries,
+/// so a gap can carry at most one press-release edge pair. Resolving it would
+/// need host-side input timestamping plus sub-frame injection into the running
+/// frame — a different and much larger change, deliberately out of scope here.
+///
+/// It is nevertheless a strict improvement on what it replaces: before the
+/// latch BOTH taps were lost (the matrix returned to released with no frame in
+/// between); after it, one press-release pair is delivered. Half recovered
+/// beats none, and the residue is documented rather than dressed up.
 namespace host_key_latch {
 
 /// SDL_NUM_SCANCODES. Hard-coded rather than included so this header stays
@@ -123,6 +140,80 @@ private:
     /// Releases held back, in arrival order. Bounded in practice by the number
     /// of keys a human can press inside one frame gap.
     std::vector<int>      deferred_;
+};
+
+/// The frontend GLUE — the part that actually matters, made testable.
+///
+/// WHY THIS IS A CLASS AND NOT FIFTEEN LINES INSIDE QtApp. The Latch above is a
+/// pure policy object and its suite proves the policy. What such a suite CANNOT
+/// reach is the code that CONNECTS it: which Latch method a key event calls,
+/// whether the release path honours the returned bool, whether the discharge
+/// loop exists at all, and whether it is gated on the tick having emulated
+/// anything. Left in the frontend, all four are reachable only through a live
+/// QApplication + Emulator + SDL audio device — i.e. by nothing.
+///
+/// That gap is not hypothetical in THIS codebase. See the header of
+/// test/platform/frame_sequencer_test.cpp: at v0.98.47 a wiring mutation
+/// (constructing a fresh audio_pacing::BandState per tick instead of persisting
+/// it) survived 5000+ unit rows, the FUSE suite and the entire screenshot
+/// regression, and was caught only by a human watching a live cadence log. The
+/// policy header was correct throughout; the glue around it was not. This is
+/// the same surface, so it gets the same treatment: the ordering and the
+/// dispatch move into a named unit a test can drive.
+///
+/// SINK CONCEPT. `Sink` provides `set_key(Scancode, bool)` — satisfied by
+/// `Keyboard` in production and by a recording double in the suite. `Scancode`
+/// is the sink's own scancode type (`SDL_Scancode` in production, `int` in
+/// tests); it is templated rather than fixed so no adapter shim is needed at
+/// the call site, since an untested adapter would reintroduce exactly the
+/// unverified glue this class exists to remove.
+template <typename Sink, typename Scancode>
+class Router {
+public:
+    /// Bind (or re-bind) the key sink. Called at startup and again on every
+    /// cold boot, which reconstructs the Keyboard with an all-released matrix —
+    /// hence the latch reset: a release still pending refers to a key of a
+    /// machine that no longer exists.
+    void attach(Sink& sink)
+    {
+        sink_ = &sink;
+        latch_.reset();
+    }
+
+    /// One host key event. A press is applied at once; a release is applied
+    /// only if the latch says the press has already been seen by a frame.
+    void on_host_key(Scancode sc, bool pressed)
+    {
+        if (!sink_) return;                       // events before attach()
+        if (pressed) {
+            latch_.on_press(static_cast<int>(sc));
+            sink_->set_key(sc, true);
+        } else if (latch_.on_release(static_cast<int>(sc))) {
+            sink_->set_key(sc, false);
+        }
+    }
+
+    /// End of a frontend tick. `frames_rendered` is the number of
+    /// Emulator::run_frame() calls the tick made; a tick that emulated NOTHING
+    /// (debugger paused, audio-pacer skip) must not discharge, because no frame
+    /// has looked at the matrix yet.
+    void on_tick_end(int frames_rendered)
+    {
+        if (!sink_ || frames_rendered <= 0) return;
+        due_.clear();
+        latch_.on_frames_ran(due_);
+        for (int sc : due_) sink_->set_key(static_cast<Scancode>(sc), false);
+    }
+
+    /// Latch state, for diagnostics and tests.
+    const Latch& latch() const { return latch_; }
+
+private:
+    Sink*            sink_ = nullptr;
+    Latch            latch_;
+    /// Discharge scratch, a member so the per-tick path does not allocate in
+    /// steady state.
+    std::vector<int> due_;
 };
 
 }  // namespace host_key_latch
