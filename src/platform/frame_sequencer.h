@@ -392,8 +392,7 @@ private:
 ///
 ///   * it paces with a blocking SDL_Delay to a whole-ms period, not a QTimer
 ///     against a fractional absolute deadline — it has no deadline schedule at
-///     all, and giving it one would change its rate (a behaviour change, in a
-///     frontend whose only consumer is the headless regression suite);
+///     all, and giving it one would change its rate;
 ///   * it has no speed multiplier, so no >1x compositor throttle;
 ///   * it emits no tick-stats and no cadence report (both are GUI diagnostics
 ///     driven by the Qt status timer, which SDL does not have);
@@ -402,9 +401,29 @@ private:
 ///   * it runs its frame loop BEFORE checking the cold-boot requests, where Qt
 ///     checks them first.
 ///
-/// Sharing would therefore mean either changing SDL's timing — forbidden, the
-/// screenshot regression depends on this path and Task 91 is a
-/// behaviour-preserving refactor — or parameterising the sequencer until every
+/// WHO ACTUALLY RUNS THE SDL LOOP (GH #132). An earlier version of this
+/// comment said the SDL frontend's "only consumer is the headless regression
+/// suite". That is wrong twice over, and wrong in the direction that invites a
+/// careless edit — it reads as "nothing real depends on this".
+///
+///   * `--headless` does NOT build an SdlApp. It builds a HeadlessApp
+///     (src/main.cpp:912), a separate class with its own loop; SdlApp is
+///     instantiated only when ENABLE_QT_UI=OFF (src/main.cpp:944-951), which
+///     the suite's binary ($JNEXT resolves to build/gui-release) is not. The
+///     regression rows that do run a windowed frontend — grep the functional
+///     scripts for QT_QPA_PLATFORM / xvfb-run rather than trusting a list here
+///     — therefore exercise QtApp, not this.
+///   * What DOES depend on the SDL loop is a shipping product: the Windows
+///     `-legacy` packages and the lean/ARM64 build are ENABLE_QT_UI=OFF.
+///
+/// Until GH #122 the SDL frontend had no regression coverage of ANY kind. It
+/// now has exactly one row, sdl-keypress-func, which builds build/sdl-release
+/// and drives it under Xvfb. Treat the rest of this loop as unproven.
+///
+/// Sharing would therefore mean either changing SDL's timing — a behaviour
+/// change in a frontend that ships (the Windows -legacy packages are
+/// ENABLE_QT_UI=OFF), and Task 91 is a behaviour-preserving refactor — or
+/// parameterising the sequencer until every
 /// step is optional, which reintroduces exactly the untested branching the
 /// class exists to remove. The two policy pieces the frontends genuinely share
 /// (audio_pacing::frames_for_tick, render_policy::composite_frame_in_tick) are
