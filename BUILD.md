@@ -269,6 +269,11 @@ make regression     # screenshot comparisons + functional tests, headless
   JNEXT_TEST_JOBS=4 make regression
   ```
 
+Both suites need **ripgrep** (`rg`) installed: each runs the
+tautological-assertion lint (`test/lint-assertions.sh`), which refuses to report
+a verdict without it rather than skipping — a lint that did not run must never
+read as a pass.
+
 The live per-subsystem test dashboard — what is verified against the ZX Next
 FPGA VHDL, and what is still skipped — is
 [test/SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md).

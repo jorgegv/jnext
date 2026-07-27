@@ -92,7 +92,8 @@ jobs:
       # needs no display), python3 (check-audio-underruns.py), unzip (the
       # SD-image provisioning step's own dependency, ultimately via
       # libcurl inside jnext, not this step directly, but kept explicit),
-      # ripgrep (the regression preflight lint), ffmpeg-free (video-record-func
+      # ripgrep (the tautological-assertion lint, run by BOTH `make unit-test`
+      # and the regression preflight — GH #129), ffmpeg-free (video-record-func
       # and ffprobe; the same package the maintainer has locally), and bc/file/
       # xxd, which functional rows shell out to. That set was established by
       # checking every external command the suite invokes against a bare

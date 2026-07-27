@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=39
+EXPECTED_TOTAL=40
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -393,6 +393,32 @@ elapsed=$(( (t1 - t0) / 1000000 ))          # ms
 fast=y; [[ "$elapsed" -gt 8000 ]] && fast=n
 check "HS-44" "a hanging REAL-script invocation is bounded: rc=124, fast, run continues (GH #81)" 0 0 \
     "rc=$rc fast=$fast elapsed=${elapsed}ms" "rc=124 fast=y"
+
+# ------------------------- the lint gate must stay WIRED to `make unit-test` (GH #129)
+# test/lint-assertions.sh self-tests its own patterns on every invocation, so it can
+# prove it still DETECTS a tautology. Nothing proved it still RUNS — and that is the
+# defect: reachable only through the regression preflight, the lint never saw an
+# author's `make unit-test` loop, so a check(..., true) row passed its author, passed
+# an independent reviewer who mutation-tested everything around it, and turned CI red
+# only after landing on main, from where three more branches inherited it. Deleting
+# one word from the Makefile prerequisite restores exactly that state with every suite
+# still green, which is the same "guard silently un-wired" shape as HS-30/HS-40.
+#
+# Probed BEHAVIOURALLY with `make -n` (a dry run: builds nothing, ~10 ms) rather than
+# by grepping the Makefile text, so the row survives the wiring being expressed
+# differently and fails only when the lint genuinely stops being reached. The pattern
+# is anchored to the command form: recipe `@#` comment lines ARE printed under -n, so
+# an unanchored match on the name could be satisfied by a comment alone.
+#
+# MAKEFLAGS is cleared because this self-test itself runs FROM a make recipe (`make
+# harness-selftest`, and harness-selftest-func inside the regression suite): an
+# inherited jobserver flag makes the nested make warn, and inherited goals would
+# change what is being probed. Bounded like every other real invocation here (GH #81).
+dry=$(MAKEFLAGS= timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+          make -C "$PROJECT_DIR" --no-print-directory -n unit-test 2>&1 || true)
+wired=n; grep -qE '^[[:space:]]*bash[[:space:]]+test/lint-assertions\.sh' <<<"$dry" && wired=y
+check "HS-45" "'make unit-test' reaches the tautological-assertion lint (GH #129)" 0 0 \
+    "wired=$wired" "wired=y"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).
