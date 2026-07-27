@@ -115,6 +115,51 @@ std::vector<int> frame_tick(host_key_latch::Latch& l)
     return out;
 }
 
+// --- SDL frontend fixtures (issue #122) -----------------------------------
+// A sink that also models the GUEST. The emulated machine can only observe the
+// matrix from inside run_frame() (a port 0xFE read), so the sink's state
+// BETWEEN frames is invisible to it. This records the state each emulated
+// frame would have sampled, which is what issue #122 is actually about: "the
+// key was set and cleared" and "the key was seen" are different statements,
+// and the whole defect is that the first happened without the second.
+struct GuestView {
+    FakeKeyboard      kb;
+    /// One entry per emulated frame: was KEY_A down when that frame sampled?
+    std::vector<bool> samples;
+    bool              down = false;
+
+    void set_key(int sc, bool pressed)
+    {
+        kb.set_key(sc, pressed);
+        if (sc == KEY_A) down = pressed;
+    }
+    /// One Emulator::run_frame() — the guest's single look at the matrix.
+    void run_frame() { samples.push_back(down); }
+
+    int frames_sampling_down() const
+    {
+        int n = 0;
+        for (bool s : samples)
+            if (s) ++n;
+        return n;
+    }
+};
+
+using GuestRouter = host_key_latch::Router<GuestView, int>;
+
+/// One SdlApp::run() iteration, in its real order: SDL_PollEvent() drains the
+/// whole host event queue first (sdl_app.cpp:228), then the audio pacer's
+/// frame count is emulated (sdl_app.cpp:276-287), then the tick discharges
+/// (sdl_app.cpp:292). `frames` is what audio_pacing::frames_for_tick()
+/// returned — legitimately 0 when the device queue is ahead, 2 when catching
+/// up.
+void sdl_tick(GuestRouter& r, GuestView& g, const Calls& poll_batch, int frames)
+{
+    for (const auto& e : poll_batch) r.on_host_key(e.first, e.second);
+    for (int i = 0; i < frames; ++i) g.run_frame();
+    r.on_tick_end(frames);
+}
+
 }  // namespace
 
 int main()
@@ -591,6 +636,143 @@ int main()
         }
         check("RT-11a", "the sink never sees a repeated press or release", sane);
         check("RT-11b", "and the key is left released at the end", !down);
+    }
+
+    // =======================================================================
+    // SDL frontend tick shape (GitHub issue #122).
+    //
+    // src/platform/sdl_app.cpp had the SAME defect as the Qt frontend and now
+    // uses the SAME Router — but its tick is a DIFFERENT machine
+    // (frame_sequencer.h:388-412), so the sequence of Router calls it produces
+    // is not the one the RT-* rows above drive:
+    //
+    //   * SDL_PollEvent() drains the WHOLE host event queue at the top of one
+    //     run() iteration (sdl_app.cpp:228), so a press and its release can
+    //     arrive as one batch with no frame between them — this is the race;
+    //   * the audio pacer then decides how many frames that iteration
+    //     emulates: ZERO when the device queue is ahead of the card, TWO when
+    //     it is catching up (sdl_app.cpp:272-287, audio_pacing.h);
+    //   * only then does the tick discharge (sdl_app.cpp:292).
+    //
+    // These rows also assert something the RT-* rows deliberately do not: not
+    // what the SINK was told, but what the GUEST could observe. See GuestView.
+    // =======================================================================
+
+    // --- SDL-01: THE DEFECT, as the SDL loop actually produces it ------------
+    // One poll batch carrying a complete tap, then the tick's frame. Before the
+    // fix the matrix bit was set and cleared inside that batch and the frame
+    // sampled a released key: the keystroke was silently lost.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        sdl_tick(r, g, Calls{{KEY_A, true}, {KEY_A, false}}, 1);
+        check("SDL-01a", "a tap delivered in one poll batch is still seen by a frame",
+              g.frames_sampling_down() == 1,
+              "frames_down=" + std::to_string(g.frames_sampling_down()));
+        check("SDL-01b", "and the guest saw a press, not just a sink write",
+              g.samples == std::vector<bool>{true}, got(g.kb));
+    }
+
+    // --- SDL-02: the key does not jam down -----------------------------------
+    // The hold must end. A tap that never comes up is a worse bug than a tap
+    // that is lost, and on this path nothing else would ever clear it.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        sdl_tick(r, g, Calls{{KEY_A, true}, {KEY_A, false}}, 1);
+        sdl_tick(r, g, Calls{}, 1);
+        check("SDL-02a", "the deferred release lands after exactly one frame",
+              g.samples == std::vector<bool>{true, false}, got(g.kb));
+        check("SDL-02b", "and the sink saw one press and one release",
+              g.kb.calls == Calls{{KEY_A, true}, {KEY_A, false}}, got(g.kb));
+    }
+
+    // --- SDL-03: the audio pacer's ZERO-frame tick ---------------------------
+    // frames_for_tick() returns 0 whenever the device queue is ahead of the
+    // card, so an SDL iteration can legitimately emulate nothing. That tick has
+    // not honoured the hold, and discharging on it would reinstate the race in
+    // exactly the situation the pacer makes common. This is the SDL-specific
+    // shape of RT-04a: here the zero comes from the audio pacer, not a pause.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        sdl_tick(r, g, Calls{{KEY_A, true}, {KEY_A, false}}, 0);
+        check("SDL-03a", "a tick the pacer gave no frames sees nothing and holds",
+              g.samples.empty() && g.kb.calls == Calls{{KEY_A, true}}, got(g.kb));
+        sdl_tick(r, g, Calls{}, 1);
+        check("SDL-03b", "the next tick that emulates finally shows the guest the key",
+              g.samples == std::vector<bool>{true}, got(g.kb));
+        sdl_tick(r, g, Calls{}, 1);
+        check("SDL-03c", "and only then does it come up",
+              g.samples == std::vector<bool>{true, false}, got(g.kb));
+    }
+
+    // --- SDL-04: the catch-up tick that emulates TWO frames ------------------
+    // The other end of the pacer's range. Both frames must see the key, and the
+    // release must be discharged ONCE — a discharge per frame rather than per
+    // tick would clear a key the user is still holding.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        sdl_tick(r, g, Calls{{KEY_A, true}, {KEY_A, false}}, 2);
+        check("SDL-04a", "both frames of a catch-up tick sample the key down",
+              g.samples == std::vector<bool>{true, true}, got(g.kb));
+        check("SDL-04b", "and the release is delivered exactly once",
+              g.kb.count(KEY_A, false) == 1 && g.kb.calls.size() == 2, got(g.kb));
+    }
+
+    // --- SDL-05: an ordinary keystroke gains no latency ----------------------
+    // The no-regression row for this path: a key held across a tick boundary
+    // must come up in the very tick its release is polled, not one later. Fails
+    // if the release path defers unconditionally instead of only when no frame
+    // has run since the press.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        sdl_tick(r, g, Calls{{KEY_A, true}},  1);
+        sdl_tick(r, g, Calls{{KEY_A, false}}, 1);
+        check("SDL-05a", "the release polled in tick 2 is applied before its frame",
+              g.samples == std::vector<bool>{true, false}, got(g.kb));
+        check("SDL-05b", "no extra sink traffic was generated",
+              g.kb.calls == Calls{{KEY_A, true}, {KEY_A, false}}, got(g.kb));
+    }
+
+    // --- SDL-06: a held key is not stolen by the pacer -----------------------
+    // Keys are HELD in games. Across a run of ticks of every shape the pacer
+    // produces, a key the user has not released must never come up.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        sdl_tick(r, g, Calls{{KEY_A, true}}, 1);
+        for (int i = 0; i < 30; ++i) sdl_tick(r, g, Calls{}, i % 3);   // 0,1,2,...
+        check("SDL-06a", "a held key is never released by any tick shape",
+              g.kb.calls == Calls{{KEY_A, true}}, got(g.kb));
+        check("SDL-06b", "and every emulated frame sampled it down",
+              !g.samples.empty() &&
+                  g.frames_sampling_down() == static_cast<int>(g.samples.size()),
+              "down=" + std::to_string(g.frames_sampling_down()) + "/" +
+                  std::to_string(g.samples.size()));
+    }
+
+    // --- SDL-07: soak — the property, over the pacer's whole tick mix --------
+    // 300 taps, each delivered as one poll batch, across ticks that emulate 0,
+    // 1 or 2 frames. THE invariant of issue #122: every tap is observed by at
+    // least one frame. Nothing may be lost, and the key must be left up.
+    {
+        GuestView g; GuestRouter r; r.attach(g);
+        int  taps = 0;
+        bool every_tap_seen = true;
+        for (int i = 0; i < 300; ++i) {
+            const int before = g.frames_sampling_down();
+            sdl_tick(r, g, Calls{{KEY_A, true}, {KEY_A, false}}, i % 3);
+            ++taps;
+            // A tap on a zero-frame tick is not lost, only postponed: the hold
+            // survives, so give it the tick that follows before judging.
+            if (i % 3 == 0) sdl_tick(r, g, Calls{}, 1);
+            if (g.frames_sampling_down() <= before) every_tap_seen = false;
+            sdl_tick(r, g, Calls{}, 1);            // let the release land
+        }
+        check("SDL-07a", "every one of 300 poll-batch taps is seen by a frame",
+              every_tap_seen && taps == 300, "taps=" + std::to_string(taps));
+        check("SDL-07b", "the sink saw exactly 300 presses and 300 releases",
+              g.kb.count(KEY_A, true) == 300 && g.kb.count(KEY_A, false) == 300,
+              got(g.kb));
+        check("SDL-07c", "and the key is left up",
+              !g.down && !r.latch().has_deferred());
     }
 
     std::printf("\n====================================================\n");

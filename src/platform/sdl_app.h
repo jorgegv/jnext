@@ -6,6 +6,7 @@
 #include "sdl_input.h"
 #include "sdl_audio.h"
 #include "screenshot.h"
+#include "host_key_latch.h"
 #include "core/emulator.h"
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
@@ -83,6 +84,19 @@ private:
     // Closes G42 (JOY-WIRE-02/03/04); Task 79 moved the controller
     // open/close/route logic into the shared GamepadHost.
     std::unique_ptr<GamepadHost> gamepad_host_;
+
+    /// Issue #122 — host key events go through the issue-#120 minimum-hold
+    /// latch instead of straight into the matrix. SDL_PollEvent() and the frame
+    /// loop are the SAME loop iteration (run()), so a key event can only land
+    /// BETWEEN two run_frame() calls — the identical sampling window that made
+    /// the Qt frontend drop keystrokes, and for the identical reason.
+    ///
+    /// BOTH the policy and the DISPATCH live in platform/host_key_latch.h, and
+    /// both are unit-tested (host_key_latch_test, rows HK-* and RT-*). SdlApp
+    /// supplies only the three call sites: on_host_key() in the input_.on_key
+    /// callback, on_tick_end() after the frame loop in run(), and attach() in
+    /// init() plus cold_boot()'s rewire_host hook.
+    host_key_latch::Router<Keyboard, SDL_Scancode> key_router_;
 
     // Pending --inject state
     std::string inject_file_;

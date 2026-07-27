@@ -83,6 +83,19 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[rewind-func]:-}" ]]; then
     fi
 fi
 
+# sdl-keypress-func drives the SDL-ONLY frontend, which is a different binary
+# from the one every other row uses: SdlApp is instantiated only when
+# ENABLE_QT_UI=OFF (src/main.cpp:944-951). Same rule as rewind_test above — it
+# is a build artifact the Makefile guarantees, so a missing one is a harness
+# fault in the first second, never a row that quietly reports nothing.
+if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[sdl-keypress-func]:-}" ]]; then
+    if [[ ! -x "$PROJECT_DIR/build/sdl-release/jnext" ]]; then
+        harness_fault "SDL-only jnext is not built: ${BOLD}$PROJECT_DIR/build/sdl-release/jnext${RESET}" \
+                      "It is the only build that runs SdlApp, so the suite cannot report an SDL keypress result without it." \
+                      "Build it with: ${BOLD}make sdl-release${RESET}  (or use ${BOLD}make regression${RESET}, which does)"
+    fi
+fi
+
 # --- The declared counts, pinned ---
 # `# expect: N` in each manifest. Without it, deleting a test from a conf
 # shrinks both sides of the completeness check below in lockstep and the suite

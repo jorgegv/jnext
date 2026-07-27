@@ -327,7 +327,11 @@ clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 # test would have caught). Building it here makes "the tests ran against this
 # source" true by construction instead of by discipline — 2026-07-19, after a
 # 14-hour-old binary produced two bogus FAILs immediately before a version bump.
-regression: unit-test-build gui-release docs-check cli-check
+# sdl-release is the SAME contract for a SECOND binary (GH #122): SdlApp runs
+# only when ENABLE_QT_UI=OFF, so gui-release compiles the SDL frontend but never
+# executes it, and sdl-keypress-func is the one row that does. `make clean`
+# deletes it (clean depends on sdl-release-clean), hence building it here.
+regression: unit-test-build gui-release sdl-release docs-check cli-check
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)

@@ -83,6 +83,15 @@ bool SdlApp::init(int argc, char* argv[]) {
     };
 
     input_.on_quit = [this]() { running_ = false; };
+
+    // Issue #122 — bind the key router to this machine's Keyboard BEFORE the
+    // callback below can fire (SDL_PollEvent only runs inside run(), so the
+    // window is empty in practice; ordering it this way keeps it empty by
+    // construction). Also re-run on every cold boot — see cold_boot() — which
+    // is what attach()'s latch reset is for: a release still held back refers
+    // to a key of a machine that no longer exists (rows RT-08a/b/c, RT-09a/b).
+    key_router_.attach(emulator_.keyboard());
+
     // Route SDL key events into emulator keyboard matrix; intercept host shortcuts.
     input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
         if (pressed) {
@@ -139,7 +148,19 @@ bool SdlApp::init(int argc, char* argv[]) {
                 break;
             }
         }
-        emulator_.keyboard().set_key(sc, pressed);
+        // Issue #122 — through the issue-#120 minimum-hold latch, NOT straight
+        // into the matrix. SDL_PollEvent() and the frame loop are the same
+        // run() iteration, so a press and its release delivered in one poll
+        // batch used to set the matrix bit and clear it again with no
+        // run_frame() in between: the guest never saw the key. A press is still
+        // applied at once; only a release that no frame has had the chance to
+        // see is held back, and on_tick_end() in run() discharges it.
+        //
+        // The dispatch itself lives in host_key_latch::Router (unit-tested
+        // there, rows RT-*): this callback must stay a plain forward, exactly
+        // as in QtApp, so the logic the guest depends on is not once again
+        // reachable only through a live SDL window.
+        key_router_.on_host_key(sc, pressed);
     };
 
     running_ = true;
@@ -175,6 +196,11 @@ void SdlApp::cold_boot(const std::string& load_file) {
         // Re-run the emulator-bound wiring init() does at startup.
         mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
         gamepad_host_     = std::make_unique<GamepadHost>(emulator_.joystick());
+        // Issue #122 — re-bind the key router to the reconstructed Keyboard,
+        // mirroring QtApp::wire_gamepad_and_sources. attach() also clears any
+        // release the latch is holding: it names a key of the machine that has
+        // just been destroyed, and the new Keyboard starts all-released.
+        key_router_.attach(emulator_.keyboard());
         emulator_.on_input_state_restored = [this]() {
             if (mouse_dispatcher_) mouse_dispatcher_->resync();
             if (gamepad_host_)     gamepad_host_->resync();
@@ -288,6 +314,22 @@ void SdlApp::run() {
             // The hint is per-frame within this tick; restore the default.
             emulator_.set_render_enabled(true);
         }
+
+        // Issue #122 — end of the tick's frames: any key whose release was held
+        // back has now been seen by the guest and may come up. The gate on
+        // frames_rendered lives in Router::on_tick_end and is pinned by rows
+        // RT-04a/b/c: a tick the audio pacer gave zero frames emulated nothing,
+        // so the hold has not been honoured and must not be discharged.
+        //
+        // Placed HERE, not after present() where QtApp's equivalent sits, for
+        // one structural reason: SDL checks its cold-boot requests AFTER the
+        // frames where Qt checks them before (frame_sequencer.h:402-403), and
+        // those checks `continue`. Discharging further down would therefore be
+        // skipped on a tick that did emulate frames. The outcome is the same
+        // either way — cold_boot() re-attaches, which resets the latch — but
+        // this placement keeps "frames ran => the hold is discharged" true
+        // unconditionally instead of true-by-consequence.
+        key_router_.on_tick_end(frames_rendered);
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
             cold_boot(load_file);
