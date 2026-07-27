@@ -28,6 +28,12 @@ Run: `perl test/refresh-traceability-matrix.pl`
 
 Commit the result if it produced changes (`docs(traceability): refresh for vX.Y.Z`).
 
+**A non-zero exit here is expected and is NOT a bump blocker.** It means the
+matrix was rewritten *and* still under-records — the script lists the rows its
+mapped test sources assert that the matrix omits, plus the suites with no
+section at all (GH #117). Note whether that backlog grew since the last bump;
+it never blocks. Only step 1's test failures block a bump.
+
 ### 3. Update the unit-test status report
 
 Run: `bash test/refresh-subsystem-status.sh`
