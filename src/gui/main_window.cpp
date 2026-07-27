@@ -93,13 +93,22 @@ SDL_Scancode qt_key_to_sdl(int key) {
         // Task 77 — host keys for the Spectrum compound keys wired in
         // Keyboard::init_map(). Without these the mappings are unreachable
         // from the Qt GUI (this table is the only route to set_key()).
-        case Qt::Key_Tab:        return SDL_SCANCODE_TAB;         // BREAK
+        case Qt::Key_Tab:        return SDL_SCANCODE_TAB;         // EXTEND MODE
         case Qt::Key_Backtab:    return SDL_SCANCODE_TAB;         // Shift+Tab
         case Qt::Key_QuoteLeft:  return SDL_SCANCODE_GRAVE;       // TRUE/INV VIDEO
         case Qt::Key_Apostrophe: return SDL_SCANCODE_APOSTROPHE;  // '"' (SS+P)
         case Qt::Key_Semicolon:  return SDL_SCANCODE_SEMICOLON;   // ';' (SS+O)
         case Qt::Key_Period:     return SDL_SCANCODE_PERIOD;      // '.' (SS+M)
         case Qt::Key_Comma:      return SDL_SCANCODE_COMMA;       // ',' (SS+N)
+
+        // Issue #115 — host keys the Next's own PS/2 keymap binds but which
+        // this table dropped, so they never reached Keyboard::set_key() from
+        // the GUI at all. Matrix derivation is in Keyboard::init_map().
+        case Qt::Key_CapsLock:   return SDL_SCANCODE_CAPSLOCK;    // CAPS LOCK
+        case Qt::Key_Backslash:  return SDL_SCANCODE_BACKSLASH;   // INV VIDEO
+        case Qt::Key_Slash:      return SDL_SCANCODE_SLASH;       // '/' (SS+V)
+        case Qt::Key_Minus:      return SDL_SCANCODE_MINUS;       // '-' (SS+J)
+        case Qt::Key_Equal:      return SDL_SCANCODE_EQUALS;      // '=' (SS+L)
 
         // Special keys
         case Qt::Key_Return: return SDL_SCANCODE_RETURN;

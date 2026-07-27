@@ -167,7 +167,7 @@ static void test_kbd_full_fe(Emulator& emu) {
     // Combined with bits 7/5 = 1 and EAR idle = 0 → 0xA0 | 0x1E = 0xBE.
     {
         fresh(emu);
-        emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // = (0,0) = CAPS SHIFT
+        emu.keyboard().set_key(SDL_SCANCODE_LSHIFT, true);  // = (0,0) = CAPS SHIFT (#115)
         const uint8_t v = read_fe(emu, 0xFE);               // row 0 selected
         const bool bit7 = (v & 0x80) != 0;
         const bool bit6 = (v & 0x40) != 0;
@@ -461,7 +461,7 @@ static void test_fe_read(Emulator& emu) {
         fresh(emu);
         const uint8_t v_idle = read_fe(emu, 0xFE);
 
-        emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // CAPS SHIFT
+        emu.keyboard().set_key(SDL_SCANCODE_LSHIFT, true);  // CAPS SHIFT (#115)
         const uint8_t v_key = read_fe(emu, 0xFE);
 
         emu.port().out(0x00FE, 0x00);                       // border=0, EAR=0, MIC=0
@@ -533,7 +533,7 @@ static void test_fe_read(Emulator& emu) {
         fresh(emu);
         const uint8_t v_idle = read_fe(emu, 0xFE);
 
-        emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // CAPS SHIFT
+        emu.keyboard().set_key(SDL_SCANCODE_LSHIFT, true);  // CAPS SHIFT (#115)
         const uint8_t v_key = read_fe(emu, 0xFE);
 
         emu.port().out(0x00FE, 0x00);
