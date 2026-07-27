@@ -44,6 +44,7 @@
        patch tags are NOT listed here (sync-version.sh gates this on
        releases.yaml membership). -->
   <releases>
+    <release version="0.99.41" date="2026-07-27"/>
     <release version="0.99.37" date="2026-07-27"/>
     <release version="0.99.0" date="2026-07-23"/>
     <release version="0.98.72" date="2026-07-20"/>
