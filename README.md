@@ -72,7 +72,7 @@ rough or missing; they are listed, not hidden:
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
-Linux, Windows (x64), and macOS are supported.
+Linux, Windows (x64 and 32-bit x86), and macOS are supported.
 
 ## Install
 

@@ -22,9 +22,9 @@ name: Release
 #   * rpm     → `make package-rpm` in a fedora:44 container (Fedora-native deps —
 #               building the RPM on Ubuntu bakes in an incompatible libcurl node)
 #   * src     → `make package-src` → jnext-<ver>-src.zip (submodule-aware)
-#   * windows → `make package-win` (MinGW cross-build + DLL bundling) in a
-#               fedora:44 container — the one Windows build path (proven in a
-#               fedora:44 container, exe runs under wine)
+#   * windows → `make package-win` + `package-win-qt5` + `package-win32-qt5`
+#               (MinGW cross-build + DLL bundling) in a fedora:44 container —
+#               the three published Windows zips (exe runs under wine)
 #   * flatpak → flatpak-builder against org.kde.Sdk//6.8 (same manifest +
 #               runtime as a local `make package-flatpak`); bundle built locally
 #   * macos   → `make package-macos` native on macos-latest (proven green on a
