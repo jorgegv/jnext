@@ -20,11 +20,11 @@
 There are three Windows packages. All three are the same emulator, with the
 same full GUI and debugger — pick the one that matches your Windows:
 
-| Package                       | Runs on                        |
-|-------------------------------|--------------------------------|
-| `jnext-*-windows-x64.zip`     | Windows 10 (1703) or later     |
-| `jnext-*-windows-x64-qt5.zip` | Windows 7 SP1 or later         |
-| `jnext-*-windows-x86-qt5.zip` | Windows 7 SP1 or later, 32-bit |
+| Package                          | Runs on                        |
+|----------------------------------|--------------------------------|
+| `jnext-*-windows-x64.zip`        | Windows 10 (1703) or later     |
+| `jnext-*-windows-x64-legacy.zip` | Windows 7 SP1 or later         |
+| `jnext-*-windows-x86-legacy.zip` | Windows 7 SP1 or later, 32-bit |
 
 The Windows 7/8 packages are built against Qt 5 instead of Qt 6, which is what
 lets them run there — Qt 6 needs APIs that only exist from Windows 10 onwards.

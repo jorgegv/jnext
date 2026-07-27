@@ -365,7 +365,7 @@ regression **106/106** (`JNEXT_TEST_JOBS=4`, logged) — all green on the
 default build with zero Qt5 anywhere.
 
 **Shipping surface (added same day, owner-required):**
-- `make package-win-qt5` → `jnext-<ver>-windows-x64-qt5.zip` (a PUBLISHED
+- `make package-win-qt5` → `jnext-<ver>-windows-x64-legacy.zip` (a PUBLISHED
   release artifact per the owner's lineup), with in-target structural checks
   (Qt5Core + qwindows + SDL2/SDL3 present, no Qt6 leak) and a
   `package-win-qt5` packaging-test row (Qt5 DLLs + qwindows present, NO Qt6,
@@ -410,7 +410,7 @@ floors (§5 caveat) — those await real hardware.
 gate). **Owner product decision 2026-07-26: SDL-only Windows packages are
 DISCARDED as published artifacts** — the final published lineup is x64-Qt6
 (Win10), x64-Qt5 (Win7, full GUI) and **i686-Qt5** (Win7, full GUI;
-`jnext-<ver>-windows-x86-qt5.zip`, built after Phase A's Qt5 guards merge).
+`jnext-<ver>-windows-x86-legacy.zip`, built after Phase A's Qt5 guards merge).
 The win32-sdl work therefore ships as **repo-internal infrastructure only**:
 it is the 32-bit toolchain/LFS validation and the plumbing the i686-Qt5 leg
 will reuse. Delivered: `make win32-sdl-release` + `make package-win32-sdl`
@@ -425,7 +425,7 @@ x64 reference) and a full loopback WinHTTP+BCrypt provisioning run on i686 —
 all validating the i686 target independently of the GUI toolkit.
 **i686-Qt5 leg DONE 2026-07-26** (branch `fix/108-win32-qt5`) — the third
 and last published Windows artifact: `make win32-qt5-release` + `make
-package-win32-qt5` → `jnext-<ver>-windows-x86-qt5.zip` (mingw32-cmake,
+package-win32-qt5` → `jnext-<ver>-windows-x86-legacy.zip` (mingw32-cmake,
 `ENABLE_QT_UI=ON ENABLE_DEBUGGER=ON JNEXT_FORCE_QT5=ON`; guard checks the
 i686 `Qt5Config.cmake` + `i686-w64-mingw32-moc-qt5` from `mingw32-qt5-{qtbase,
 qtbase-devel,qmake}`). Phase A's arch-agnostic CMake carried over unchanged:

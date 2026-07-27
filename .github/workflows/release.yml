@@ -233,7 +233,7 @@ jobs:
       - name: make package-win-qt5
         run: make package-win-qt5
       # 32-bit Qt5 leg (GH #108 Phase C) — the third and last published
-      # Windows artifact: jnext-<ver>-windows-x86-qt5.zip (Win7 SP1+, 32-bit).
+      # Windows artifact: jnext-<ver>-windows-x86-legacy.zip (Win7 SP1+, 32-bit).
       - name: make package-win32-qt5
         run: make package-win32-qt5
       - uses: actions/upload-artifact@v4

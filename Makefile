@@ -839,12 +839,14 @@ package-win-sdl: win-sdl-release
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
 
 # Cross-compile + ZIP the Qt5 full-GUI Windows build (Win7/8 legacy leg; GH #108 Phase A)
-# Mirrors package-win. Structural checks: Qt5 core DLL + qwindows plugin must
+# Mirrors package-win. The ZIP is named -legacy (the audience) not -qt5 (the
+# toolchain) — that is the published GitHub asset name, keep it in step with
+# README.md. Structural checks: Qt5 core DLL + qwindows plugin must
 # be present; NO Qt6 DLL may leak in (a mixed bundle would re-raise the OS
 # floor to Windows 10 via Qt6Gui's d3d12 import).
 package-win-qt5: win-qt5-release
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x64-qt5"; \
+	 name="jnext-$$ver-windows-x64-legacy"; \
 	 stage="$(BUILD_DIR_WIN_QT5_RELEASE)/dist/$$name"; \
 	 rm -rf "$(BUILD_DIR_WIN_QT5_RELEASE)/dist"; mkdir -p "$$stage"; \
 	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe "$$stage"; \
@@ -865,12 +867,13 @@ package-win-qt5: win-qt5-release
 # Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
 # DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
 # Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
-# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C.
+# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C. ZIP named -legacy, not -qt5
+# (same reason as the x64 leg).
 #
 # Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
 package-win32-qt5: win32-qt5-release
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x86-qt5"; \
+	 name="jnext-$$ver-windows-x86-legacy"; \
 	 stage="$(BUILD_DIR_WIN32_QT5_RELEASE)/dist/$$name"; \
 	 rm -rf "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist"; mkdir -p "$$stage"; \
 	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe "$$stage"; \
