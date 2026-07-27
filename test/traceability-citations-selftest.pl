@@ -1189,6 +1189,92 @@ check('SELF-60', 'among row-local citations the first source still wins: the sec
       'got src=' . pm_drift_src('PM-BOTH-01')
         . ' cite=' . pm_drift_cite('PM-BOTH-01') . "; drift=[@pmd]");
 
+# ── Drift is judged on canonicalised spelling (GH #142) ───────────────
+#
+# The drift report is how a human notices a citation has gone wrong, so an
+# entry that is only a different SPELLING of the same lines is noise hiding a
+# real one. `zxnext.vhd:5633, 6260` was reported as disagreeing with the
+# canonical `zxnext.vhd:5633,6260`; 20 of the 361 entries the live matrix
+# produces were cosmetic that way.
+#
+# Both sides of the comparison are canonicalised. The STORED CELL IS NOT —
+# a hand-written citation is never overwritten, and SELF-65 is the row that
+# pins that: a comparator that "fixed" the cell instead would satisfy every
+# other row here.
+#
+# SELF-68 and SELF-69 are the refusals, and they are what stops the whole
+# thing degenerating into "never report drift": a different line number still
+# drifts, and so does a REORDERING — `80, 70` against `70,80` is folded for
+# whitespace and still reported, because the order a citation is written in
+# is the author's statement about which line is the primary evidence.
+
+my $ws_src = write_fixture('test/fixture/ws_test.cpp', <<'CPP');
+void spellings() {
+    check("WS-COMMA-01", "cited — VHDL fixture_a.vhd:100,200-204",
+          cond, detail);
+    check("WS-SLASH-01", "cited — VHDL fixture_b.vhd:10/20/30",
+          cond, detail);
+    check("WS-CONT-01", "cited — VHDL fixture_c.vhd:300, :400-402",
+          cond, detail);
+    check("WS-REAL-01", "cited — VHDL fixture_d.vhd:50,60",
+          cond, detail);
+    check("WS-ORDER-01", "cited — VHDL fixture_a.vhd:70,80",
+          cond, detail);
+}
+CPP
+
+my $ws_bin = "$FIXTURE_ROOT/bin/ws_suite";
+open(my $wfh, '>', $ws_bin) or die "write $ws_bin: $!";
+print $wfh "#!/bin/sh\n";
+close $wfh;
+chmod 0755, $ws_bin;
+
+# Every VHDL cell below is hand-written, and each is a different spelling
+# question. Widths are padded so no row trips the "exceeds column width"
+# warning, which would drown the real signal.
+my $ws_comma_cell = ' fixture_a.vhd:100, 200-204   ';
+my @wslines = (
+    '## Fixture — `test/fixture/ws_test.cpp`',
+    '',
+    '| Test ID     | Description             | VHDL file:line               | Status  | Test file:line                              |',
+    '|-------------|-------------------------|------------------------------|---------|---------------------------------------------|',
+    "| WS-COMMA-01 | space after a `,`       |$ws_comma_cell| missing | missing                                     |",
+    '| WS-SLASH-01 | spaces around `/`       | fixture_b.vhd:10 / 20 / 30   | missing | missing                                     |',
+    '| WS-CONT-01  | GH #136 `, :NNN` form   | fixture_c.vhd:300, :400-402  | missing | missing                                     |',
+    '| WS-REAL-01  | a different line        | fixture_d.vhd:50, 61         | missing | missing                                     |',
+    '| WS-ORDER-01 | the same lines, swapped | fixture_a.vhd:80, 70         | missing | missing                                     |',
+);
+
+my (@wsd, @wsk);
+refresh_section(\@wslines, 0, 'bin/ws_suite', 'test/fixture/ws_test.cpp',
+                \@wsd, \@wsk);
+my %ws_drift = map { /^\S+\s+(\S+): doc=\[(.*)\] source=\[(.*)\]$/
+                     ? ($1 => "$2 vs $3") : () } @wsd;
+
+check('SELF-64', 'a stored cell spelled `100, 200-204` does not drift against the canonical `100,200-204`',
+      !exists $ws_drift{'WS-COMMA-01'},
+      'got drift ' . ($ws_drift{'WS-COMMA-01'} // '(none)'));
+
+check('SELF-65', 'that cell is written back byte-identical — the comparison canonicalises, the document does not',
+      (split(/\|/, $wslines[4], -1))[3] eq $ws_comma_cell,
+      'got [' . (split(/\|/, $wslines[4], -1))[3] . "] want [$ws_comma_cell]");
+
+check('SELF-66', 'whitespace around `/` separators is not drift either',
+      !exists $ws_drift{'WS-SLASH-01'},
+      'got drift ' . ($ws_drift{'WS-SLASH-01'} // '(none)'));
+
+check('SELF-67', 'a stored cell using the filename-omitting `, :NNN` continuation does not drift',
+      !exists $ws_drift{'WS-CONT-01'},
+      'got drift ' . ($ws_drift{'WS-CONT-01'} // '(none)'));
+
+check('SELF-68', 'the refusal: a genuinely different line number still drifts',
+      ($ws_drift{'WS-REAL-01'} // '') eq 'fixture_d.vhd:50, 61 vs fixture_d.vhd:50,60',
+      'got drift ' . ($ws_drift{'WS-REAL-01'} // '(none)'));
+
+check('SELF-69', 'the refusal: order is NOT normalised — the same lines in a different order still drift',
+      ($ws_drift{'WS-ORDER-01'} // '') eq 'fixture_a.vhd:80, 70 vs fixture_a.vhd:70,80',
+      'got drift ' . ($ws_drift{'WS-ORDER-01'} // '(none)'));
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 exit($failed ? 1 : 0);

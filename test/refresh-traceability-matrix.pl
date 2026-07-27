@@ -994,6 +994,45 @@ sub cite_upgrades {
     return (defined $new_from && $new_from eq $owner) ? 1 : 0;
 }
 
+# A citation string reduced to the form the drift comparison judges it by.
+#
+# ONLY the comparison is normalised. The stored cell is not touched — a
+# hand-written citation is never overwritten, and this changes nothing about
+# that. What it removes is a false *report*: the drift list is how a human
+# notices a citation has gone wrong, so every entry that is merely a
+# different spelling of the same lines is noise hiding a real one.
+#
+# Two spellings are folded, and both are in the matrix today:
+#
+#   zxnext.vhd:5633, 6260    whitespace around a `,` or `/` list separator
+#   zxnext.vhd:5179, :6436   the filename-omitting continuation of GH #136,
+#                            which cite_in() already folds away on the
+#                            computed side
+#
+# Nothing else is, and the omissions are MEASURED rather than assumed. Over
+# the 361 drift entries the current matrix produces, those two rules together
+# account for all 20 cosmetic entries (18 and 2 respectively); whitespace
+# around a `:` and whitespace around a range's `-` account for ZERO — no cell
+# is spelled `foo.vhd : 10` or `10 - 20` — so admitting them would add a rule
+# no fixture exercises, and an unexercised rule inside a comparator is one
+# nobody notices going wrong. Folding `+` to `,` (which cite_in does do on the
+# computed side) also accounts for zero, and is not whitespace at all: the ULA
+# section's S17.02 cell reads `zxnext.vhd:3614+`, prose for "3614 onwards",
+# and folding it would rewrite what it says.
+#
+# ORDER is deliberately NOT normalised. `a.vhd:10,20` and `a.vhd:20,10` name
+# the same lines, but the order is the author's statement about which line is
+# the primary evidence, and equating them would silently swallow a real
+# disagreement between the human and the extractor about exactly that.
+# Measured over the same 361: zero entries are pure reorderings, so the
+# strictness costs nothing today and keeps the report honest when one appears.
+sub canon_citation {
+    my ($c) = @_;
+    $c =~ s{\s*([,/])\s*}{$1}g;   # "5633, 6260" -> "5633,6260"
+    $c =~ s{([,/]):}{$1}g;        # "5179,:6436" -> "5179,6436"
+    return $c;
+}
+
 # $stop_idx, when given, is the line index of the next @SUBSYS section
 # header. Companion `###` sections are nested inside their parent `##`
 # section, so without it the parent's scan runs straight through the
@@ -1198,6 +1237,10 @@ sub refresh_section {
                     # that already carries a citation was written by hand and
                     # stays — but a disagreement with the extracted one is
                     # reported, so drift surfaces without being clobbered.
+                    # "Disagreement" is judged on canon_citation() of BOTH
+                    # sides, so a cell spelled `5633, 6260` is not reported
+                    # against the canonical `5633,6260`. The cell is compared
+                    # normalised and written back untouched. (GH #142)
                     my $cur_cite = $cells[3];
                     $cur_cite =~ s/^\s+|\s+$//g;
                     my $new_cite = cite_for($tid_raw, $cites, $checks, $skips)
@@ -1213,7 +1256,9 @@ sub refresh_section {
                         } else {
                             $uncited_ct++;
                         }
-                    } elsif (defined $new_cite && $new_cite ne $cur_cite) {
+                    } elsif (defined $new_cite
+                             && canon_citation($new_cite)
+                                ne canon_citation($cur_cite)) {
                         $drift_ct++;
                         # Charge the line to the file `source=[...]` was read
                         # from, not to the section's first source (GH #126).
