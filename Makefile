@@ -167,7 +167,6 @@ gui-release:
 		-DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
 
-# Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
 win-release:
 	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
@@ -393,14 +392,13 @@ unit-test: lint-assertions unit-test-build docs-check package-contract-test
 build-matrix:
 	@bash test/build-matrix.sh
 
-# A missing ripgrep is a hard FAILURE here, not a docs-check-style SKIP. pandoc and
-# mkdocs are genuinely optional (a source build ships the generated docs committed);
-# rg is already a hard requirement of `make regression`, whose preflight row FAILs
-# without it. Skipping would also defeat the point: a lint that does not run reads
-# as a pass, which is the whole shape of GH #129.
-#
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
+	@# A missing ripgrep is a hard FAILURE here, not a docs-check-style SKIP. pandoc and
+	@# mkdocs are genuinely optional (a source build ships the generated docs committed);
+	@# rg is already a hard requirement of `make regression`, whose preflight row FAILs
+	@# without it. Skipping would also defeat the point: a lint that does not run reads
+	@# as a pass, which is the whole shape of GH #129.
 	@bash test/lint-assertions.sh
 
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
@@ -430,21 +428,20 @@ traceability-selftest:
 bench:
 	@bash test/bench/bench.sh
 
-# build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
-# CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and
-# ENABLE_QT_UI defaults OFF — so `make clean` silently downgraded ./build/jnext to an
-# SDL binary with no main window, and the next person to check the GUI found no window
-# and concluded their change had broken it. That cost a previous author two capture
-# runs. Qt6 was never optional here anyway: ENABLE_DEBUGGER already defaults ON and
-# src/debugger does find_package(Qt6 REQUIRED). The Qt-less configuration keeps its
-# coverage — `make sdl-release` / `make sdl-debug` still build exactly that.
-#
-# The else-branch: the `if` only fires on a fresh build/, so a build/ configured by
-# hand with other flags would be reused in silence — the same trap, one step removed.
-# Refuse to build on it rather than hand back a binary that isn't what it claims.
-#
 # Configure + build the canonical build/ directory (prerequisite for unit-test)
 unit-test-build:
+	@# build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
+	@# CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and
+	@# ENABLE_QT_UI defaults OFF — so `make clean` silently downgraded ./build/jnext to an
+	@# SDL binary with no main window, and the next person to check the GUI found no window
+	@# and concluded their change had broken it. That cost a previous author two capture
+	@# runs. Qt6 was never optional here anyway: ENABLE_DEBUGGER already defaults ON and
+	@# src/debugger does find_package(Qt6 REQUIRED). The Qt-less configuration keeps its
+	@# coverage — `make sdl-release` / `make sdl-debug` still build exactly that.
+	@#
+	@# The else-branch: the `if` only fires on a fresh build/, so a build/ configured by
+	@# hand with other flags would be reused in silence — the same trap, one step removed.
+	@# Refuse to build on it rather than hand back a binary that isn't what it claims.
 	@if [ ! -f build/CMakeCache.txt ]; then \
 		$(CMAKE) -B build -S . \
 			-DCMAKE_C_COMPILER=$(CC) \
@@ -910,14 +907,13 @@ package-win-qt5: win-qt5-release
 	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
 
-# Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
-# DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
-# Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
-# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C. ZIP named -legacy, not -qt5
-# (same reason as the x64 leg).
-#
 # Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
 package-win32-qt5: win32-qt5-release
+	@# Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
+	@# DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
+	@# Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
+	@# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C. ZIP named -legacy, not -qt5
+	@# (same reason as the x64 leg).
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x86-legacy"; \
 	 stage="$(BUILD_DIR_WIN32_QT5_RELEASE)/dist/$$name"; \
@@ -937,14 +933,13 @@ package-win32-qt5: win32-qt5-release
 	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_QT5_RELEASE)/*.zip
 
-# Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
-# SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.
-# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
-# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
-# Exercised in CI by the package-win32-sdl row of `make package-test`.
-#
 # Cross-compile + ZIP the SDL-only 32-bit (i686) Windows build — repo-internal (GH #108 Phase C)
 package-win32-sdl: win32-sdl-release
+	@# Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
+	@# SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.
+	@# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
+	@# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
+	@# Exercised in CI by the package-win32-sdl row of `make package-test`.
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x86-sdl"; \
 	 stage="$(BUILD_DIR_WIN32_SDL_RELEASE)/dist/$$name"; \
@@ -964,12 +959,11 @@ package-win32-sdl: win32-sdl-release
 	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_SDL_RELEASE)/*.zip
 
-# The whole recipe is one shell invocation so the non-Darwin early-exit
-# actually stops it — a bare `exit 0` on its own recipe line would only end
-# that line and make would still run the build+cpack lines that follow.
-#
 # Build a macOS .dmg via CPack DragNDrop (Darwin only)
 package-macos:
+	@# The whole recipe is one shell invocation so the non-Darwin early-exit
+	@# actually stops it — a bare `exit 0` on its own recipe line would only end
+	@# that line and make would still run the build+cpack lines that follow.
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) macOS packaging requires a Mac (or the GitHub Actions\n"; \
 		printf "  macos-latest runner — see the macos job in .github/workflows/release.yml).\n"; \
