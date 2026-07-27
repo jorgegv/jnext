@@ -531,13 +531,23 @@ void MainWindow::create_menus() {
     });
 
     // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
-    // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Ctrl+Shift+S = standard
-    // "Save As" muscle memory; complements Alt+S for screenshot.
-    // NOT migrated to Alt by issue #115: the owner's scope was the six plain
-    // Ctrl+<letter> chords, and Ctrl+Shift+S is a three-key chord. It does
-    // still swallow the guest's CS+SS+S — a known, deliberate residual.
+    // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Shift+S keeps the standard
+    // "Save As" muscle memory and sits next to Alt+S for the screenshot.
+    //
+    // Issue #130 — this was Ctrl+Shift+S, the last residual of the #115
+    // migration (which moved only the six PLAIN Ctrl+<letter> chords). Ctrl is
+    // the guest's Symbol Shift and Shift is its Caps Shift, so Ctrl+Shift+S
+    // was a legitimate guest keystroke — CS+SS+S — that the Qt shortcut map
+    // swallowed before keyPressEvent ever ran. Moved onto Alt, where every
+    // other host chord lives.
+    //
+    // Alt+Shift+S collides with nothing: the live host set is Alt+F/M/I/A/B/V/
+    // N/H (menubar mnemonics, all PLAIN Alt+letter) plus Alt+O/S/Q/R/T/D,
+    // Ctrl+F5, Ctrl+F6, F4, F11 and Preferences. Its modifier set differs from
+    // Alt+S's, so Qt treats the two as distinct sequences, not as one
+    // ambiguous binding — pinned by host_hotkey_test H115-33.
     QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
-    save_snapshot->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    save_snapshot->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_S));
     connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
 
     file_menu->addSeparator();

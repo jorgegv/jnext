@@ -17,6 +17,13 @@
 //      through read_rows() — the same call port 0xFE makes.
 //   2. The migration is complete and stays complete — H115-13.
 //   3. Each new Alt+<letter> really activates its action — H115-20..25.
+//   3b. Issue #130 — Ctrl+Shift+S (Save Snapshot) was the ONE chord #115 left
+//      on Ctrl, because its scope was the six PLAIN Ctrl+<letter> chords. Ctrl
+//      is Symbol Shift and Shift is Caps Shift, so it ate the guest's CS+SS+S
+//      exactly as the other six ate their sequences. Rows H115-30..33 pin its
+//      move to Alt+Shift+S: the Ctrl+Shift+<letter> class is empty, the action
+//      carries the new chord, CS+SS+S reaches the matrix, and the new chord
+//      fires Save Snapshot without disturbing Alt+S.
 //   4. The Alt namespace has no ambiguous binding — H115-26/27. This one is
 //      load-bearing: Alt+<letter> is ONE namespace shared by QAction shortcuts
 //      and QMenuBar '&' mnemonics, and a letter claimed twice makes an
@@ -142,6 +149,10 @@ void disarm_actions(MainWindow& w) {
     for (int i = 0; i < N_HOTKEYS; ++i)
         if (QAction* a = find_action(w, HOTKEYS[i].action_text))
             QObject::disconnect(a, nullptr, nullptr, nullptr);
+    // Issue #130's Save Snapshot needs the same treatment: on_save_snapshot()
+    // opens a modal QFileDialog.
+    if (QAction* a = find_action(w, "Save S&napshot..."))
+        QObject::disconnect(a, nullptr, nullptr, nullptr);
 }
 
 // Every top-level menubar mnemonic, as "Alt+X" portable strings.
@@ -224,12 +235,11 @@ void test_bindings(MainWindow& w) {
     // first place, and it keeps catching the next one.
     //
     // Scope, stated precisely: "plain" means Ctrl plus a single letter and no
-    // other modifier. Ctrl+Shift+S (Save Snapshot) and Ctrl+F5 / Ctrl+F6
-    // (recording) are deliberately NOT matched — the owner's #115 scope was
-    // the six plain chords, and F-keys have no ZX matrix meaning at all.
-    // Ctrl+Shift+S does still swallow the guest's CS+SS+S; that residual is
-    // recorded in doc/design/TASK-115-HOST-SHORTCUT-INVENTORY.md, not hidden
-    // here.
+    // other modifier. Ctrl+F5 / Ctrl+F6 (recording) are deliberately NOT
+    // matched — F-keys have no ZX matrix meaning at all, so they steal nothing.
+    // Ctrl+Shift+S is not matched either, and no longer needs to be: issue #130
+    // moved it to Alt+Shift+S, and H115-30 below is the row that keeps the
+    // Ctrl+Shift+<letter> class clear.
     {
         static const QRegularExpression plain_ctrl_letter("^Ctrl\\+[A-Z]$");
         QStringList offenders;
@@ -311,6 +321,113 @@ void test_alt_activation(MainWindow& w) {
 
         // `fired` dies with this iteration — drop the connection with it.
         if (a) QObject::disconnect(a, nullptr, nullptr, nullptr);
+        w.set_key_callback(nullptr);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Group 3b — issue #130: Ctrl+Shift+S was the last chord left on Ctrl
+// ---------------------------------------------------------------------------
+//
+// #115 moved the six PLAIN Ctrl+<letter> chords and stopped there, leaving
+// Ctrl+Shift+S (Save Snapshot) behind because it is a three-key chord. But Ctrl
+// is Symbol Shift and Shift is Caps Shift, so CS+SS+S is as real a guest
+// keystroke as SS+O — the shortcut map swallowed it just the same. #130 moved
+// it to Alt+Shift+S.
+//
+// Save Snapshot's handler opens a modal QFileDialog, so it is disarmed like the
+// other six (see disarm_actions' comment: a row that activates it would HANG
+// the suite rather than fail, which would make mutation evidence unobtainable).
+
+const char* const SNAPSHOT_TEXT = "Save S&napshot...";
+
+void test_snapshot_chord(MainWindow& w) {
+    // H115-30 — the Ctrl+Shift+<letter> class is now empty, the same claim
+    // H115-13 makes for plain Ctrl+<letter>. Restore Ctrl+Shift+S and this
+    // fails.
+    {
+        static const QRegularExpression ctrl_shift_letter("^Ctrl\\+Shift\\+[A-Z]$");
+        QStringList offenders;
+        for (const QString& s : action_shortcuts(w))
+            if (ctrl_shift_letter.match(s).hasMatch()) offenders << s;
+        check("H115-30",
+              "no QAction binds Ctrl+Shift+<letter> (that is the guest's CS+SS+letter)",
+              offenders.isEmpty(),
+              ("offenders=" + offenders.join(',')).toStdString());
+    }
+
+    // H115-31 — Save Snapshot carries exactly Alt+Shift+S.
+    {
+        QAction* a = find_action(w, SNAPSHOT_TEXT);
+        check("H115-31", "action \"Save S&napshot...\" is bound to Alt+Shift+S",
+              a != nullptr && seq_of(a) == QStringLiteral("Alt+Shift+S"),
+              a ? ("got=" + seq_of(a)).toStdString() : "action not found");
+    }
+
+    // H115-32 — the property the issue is about, read out of the guest's own
+    // matrix: Ctrl+Shift+S typed by the user arrives as Caps Shift (0,0) +
+    // Symbol Shift (7,1) + S (1,1). Driven in the order a user produces it.
+    {
+        Keyboard kb;
+        kb.reset();
+        w.set_key_callback([&kb](SDL_Scancode sc, bool pressed) {
+            kb.set_key(sc, pressed);
+        });
+
+        send(w, Qt::Key_Shift,   Qt::NoModifier,                          true);
+        send(w, Qt::Key_Control, Qt::ShiftModifier,                       true);
+        send(w, Qt::Key_S,       Qt::ShiftModifier | Qt::ControlModifier, true);
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "caps_row0=0x%02X sym_row7=0x%02X s_row1=0x%02X",
+                      kb.read_rows(0xFEu), kb.read_rows(0x7Fu), kb.read_rows(0xFDu));
+        check("H115-32",
+              "Ctrl+Shift+S reaches the guest as CAPS SHIFT + SYM SHIFT + S",
+              key_down(kb, 0, 0) && key_down(kb, SYM_ROW, SYM_COL) && key_down(kb, 1, 1),
+              detail);
+
+        send(w, Qt::Key_S,       Qt::ShiftModifier | Qt::ControlModifier, false);
+        send(w, Qt::Key_Control, Qt::ShiftModifier,                       false);
+        send(w, Qt::Key_Shift,   Qt::NoModifier,                          false);
+        w.set_key_callback(nullptr);
+    }
+
+    // H115-33 — the new chord really fires through the live shortcut map, and
+    // the S keeps out of the guest. Same shape as H115-20..25, and the same
+    // scoping: Qt consults the shortcut map only for KeyPress, so the check is
+    // on the S PRESS. (The Shift key's own press does reach the guest as Caps
+    // Shift, which is correct and is what H115-32 asserts.)
+    //
+    // This is also the row that proves Alt+Shift+S did not collide with Alt+S:
+    // an AMBIGUOUS Qt shortcut fires NEITHER action, silently — the failure
+    // mode measured during #115 with the &Tape mnemonic — so a collision here
+    // would show up as fired=0.
+    {
+        QAction* snap = find_action(w, SNAPSHOT_TEXT);
+        bool fired = false;
+        if (snap) QObject::connect(snap, &QAction::triggered, [&fired]() { fired = true; });
+
+        bool s_pressed_in_guest = false;
+        w.set_key_callback([&s_pressed_in_guest](SDL_Scancode sc, bool pressed) {
+            if (sc == SDL_SCANCODE_S && pressed) s_pressed_in_guest = true;
+        });
+
+        send(w, Qt::Key_Alt,   Qt::NoModifier,                      true);
+        send(w, Qt::Key_Shift, Qt::AltModifier,                     true);
+        send(w, Qt::Key_S,     Qt::AltModifier | Qt::ShiftModifier, true);
+        QApplication::processEvents();
+        send(w, Qt::Key_S,     Qt::AltModifier | Qt::ShiftModifier, false);
+        send(w, Qt::Key_Shift, Qt::AltModifier,                     false);
+        send(w, Qt::Key_Alt,   Qt::NoModifier,                      false);
+
+        check("H115-33",
+              "Alt+Shift+S activates Save Snapshot and types no S into the guest",
+              snap != nullptr && fired && !s_pressed_in_guest,
+              std::string("fired=") + (fired ? "1" : "0") +
+              " s_pressed_in_guest=" + (s_pressed_in_guest ? "1" : "0"));
+
+        if (snap) QObject::disconnect(snap, nullptr, nullptr, nullptr);
         w.set_key_callback(nullptr);
     }
 }
@@ -472,6 +589,7 @@ int main(int argc, char** argv) {
     test_guest_reachability(w);
     test_bindings(w);
     test_alt_activation(w);
+    test_snapshot_chord(w);
     test_alt_namespace(w);
 
     // Group 5 needs a SECOND window, with an emulator attached: the bug-button

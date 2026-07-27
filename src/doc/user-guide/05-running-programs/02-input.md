@@ -46,13 +46,15 @@ Three things catch people out:
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest.
 
-**Ctrl belongs to the program you are running.** No plain Ctrl+letter is a
-JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on — Ctrl+O `;`,
-Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q `<=`, Ctrl+S `|` — all reach the
-guest. Earlier versions bound those six to menu commands, which meant the
-program never saw them (and Ctrl+Q quit JNEXT outright). They live on **Alt**
-now. The one Ctrl shortcut left with a Spectrum meaning is Ctrl+Shift+S
-(Save Snapshot), which is Caps Shift + Symbol Shift + S.
+**Ctrl belongs to the program you are running.** No Ctrl+letter chord of any
+kind is a JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on —
+Ctrl+O `;`, Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q `<=`, Ctrl+S `|` —
+all reach the guest, and so does Ctrl+Shift+S (Caps Shift + Symbol Shift + S).
+Earlier versions bound those to menu commands, which meant the program never
+saw them (and Ctrl+Q quit JNEXT outright). They live on **Alt** now:
+Save Snapshot, the last one to move, is **Alt+Shift+S**. The only Ctrl chords
+JNEXT still takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording),
+and function keys have no Spectrum meaning to lose.
 
 On real Next hardware Left Alt is Extend Mode and Right Alt is Graph. JNEXT
 does not do that: Alt is reserved for the host, and Extend Mode is on Tab —

@@ -124,7 +124,7 @@ Post-migration state. "Was" is the pre-#115 binding where it changed.
 | 2 | `Ctrl+F5` | — | `main_window.cpp:405` | Start MPEG4 recording | No (F-key, no ZX meaning) |
 | 3 | `Ctrl+F6` | — | `main_window.cpp:423` | Stop MPEG4 recording | No |
 | 4 | `Alt+S` | `Ctrl+S` | `main_window.cpp:457` | Save Screenshot dialog | Cleared — SS+S `\|` is back |
-| 5 | `Ctrl+Shift+S` | — | `main_window.cpp:490` | Save Snapshot | **Yes, still** — CS+SS+S. Out of #115's scope (a three-key chord, not one of the six); see §8.3 |
+| 5 | `Alt+Shift+S` | `Ctrl+Shift+S` | `main_window.cpp:550` | Save Snapshot | Cleared — CS+SS+S is back. Was #115's one residual; moved by [#130](https://github.com/jorgegv/jnext/issues/130), see §8.3 |
 | 6 | **`Alt+Q`** | **`Ctrl+Q`** | `main_window.cpp:496` | **`QApplication::quit`** | Cleared — SS+Q `<=` is back |
 | 7 | `Alt+R` | `Ctrl+R` | `main_window.cpp:515` | Power Reset (cold boot) | Cleared — SS+R `<` is back |
 | 8 | `F4` | — | `main_window.cpp:519` | Soft Reset | No |
@@ -353,13 +353,16 @@ Everything else is forwarded raw at `:142`.
 > removed the Qt bindings rather than adding SDL ones — the frontends converged
 > on SDL's pre-existing (correct) behaviour, with no SDL change at all.
 >
-> **What still differs, and why it is not a defect to fix here:** `Ctrl+Shift+S`
-> (out of #115's scope, §8.3) and every `Alt+letter` are still Qt-only. That is
-> structural, not drift: the SDL frontend has no menu bar, no mnemonics and no
-> shortcut map (`sdl_app.cpp:87-143` is a flat `if`-chain on F-keys plus
-> Ctrl+Alt), so there is no menu for an accelerator to reach. A shared reserved
-> table would have nothing to enforce on the SDL side beyond the F-keys both
-> already intercept identically.
+> `Ctrl+Shift+S` converged the same way when [#130](https://github.com/jorgegv/jnext/issues/130)
+> moved it to `Alt+Shift+S` — again by removing a Qt binding, with no SDL change.
+>
+> **What still differs, and why it is not a defect to fix here:** every
+> `Alt+letter` (and now `Alt+Shift+S`) is Qt-only. That is structural, not
+> drift: the SDL frontend has no menu bar, no mnemonics and no shortcut map
+> (`sdl_app.cpp:87-143` is a flat `if`-chain on F-keys plus Ctrl+Alt), so there
+> is no menu for an accelerator to reach. A shared reserved table would have
+> nothing to enforce on the SDL side beyond the F-keys both already intercept
+> identically.
 
 **Headless** (`src/platform/headless_app.cpp`) has no interactive key handling at
 all — only scripted injection at `:486`.
@@ -470,9 +473,16 @@ titles are identical; only the underlined letter differs.
 ### 8.3 NOT migrated, and why
 
 - **`Ctrl+Shift+S`** (Save Snapshot) — outside the owner's stated scope, which
-  was the six *plain* `Ctrl+<letter>` chords. It does still swallow the guest's
-  `CS+SS+S`. Known residual, deliberately left; the guard row H115-13 is scoped
-  to plain chords so it does not silently flip to green over this.
+  was the six *plain* `Ctrl+<letter>` chords. It still swallowed the guest's
+  `CS+SS+S`, and was left as a known residual; the guard row H115-13 was scoped
+  to plain chords so it could not silently flip to green over this.
+  **CLOSED by [#130](https://github.com/jorgegv/jnext/issues/130)**: moved to
+  `Alt+Shift+S`. H115-13 keeps its plain-chord scope and the new H115-30 covers
+  the `Ctrl+Shift+<letter>` class, so both classes now have their own guard.
+  `Alt+Shift+S` collides with nothing: it is not a menubar mnemonic (those are
+  always plain `Alt+<letter>`), it is not one of the six migrated shortcuts, it
+  is not `Alt+E/G/C`, and its modifier set differs from `Alt+S`'s so Qt treats
+  the two as distinct sequences rather than one ambiguous binding (H115-33).
 - **`Ctrl+F5` / `Ctrl+F6`** (recording) — F-keys have no ZX matrix meaning, so
   these steal nothing from the guest.
 - **The nine debugger accelerators** (§4.1) — checked, and none is a
@@ -483,7 +493,8 @@ titles are identical; only the underlined letter differs.
 
 `Alt+letter` is one namespace shared by menubar mnemonics and QAction
 shortcuts, and the guest wanted it too. The owner's decision: **Alt belongs to
-the host.** jnext claims `Alt+Q/O/S/R/T/D` (shortcuts) and `Alt+F/M/I/A/B/V/N/H`
+the host.** jnext claims `Alt+Q/O/S/R/T/D` plus `Alt+Shift+S` (shortcuts, the
+last added by #130) and `Alt+F/M/I/A/B/V/N/H`
 (mnemonics); the guest keeps only `Alt+E/G/C` (EDIT / GRAPH / CAPS LOCK) and
 ``Alt+` `` (INV VIDEO), and those three are now test-protected (H115-27).
 
@@ -532,10 +543,10 @@ bug that was fixed, which is what §9 is for.
 
 ---
 
-## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (29 rows)
+## 9. The tests that pin this — `test/gui/host_hotkey_test.cpp` (33 rows)
 
 Registered in `test/CMakeLists.txt` and declared in `test/unit-tests.conf`
-(`?host_hotkey_test 29`). Needs a real `MainWindow`, no display — offscreen QPA
+(`?host_hotkey_test 33`). Needs a real `MainWindow`, no display — offscreen QPA
 is forced in `main()`, the same idiom as `esc_break_test`.
 
 | Rows | What they prove |
@@ -549,6 +560,7 @@ is forced in `main()`, the same idiom as `esc_break_test`.
 | H115-27 | The guest's `Alt+E/G/C` are claimed by no host binding. |
 | H115-28 | No `QAction`'s text, tooltip or status tip names a modifier chord the product does not bind. Two tiers: an action with its own shortcut must name *that*; an action without one (a toolbar twin of a menu action) must name a chord *something* binds. |
 | H115-29 | Every modifier chord advertised in `FEATURES.md` is one the product really binds. |
+| H115-30..33 | **Issue #130.** No `QAction` binds `Ctrl+Shift+<letter>`; Save Snapshot carries `Alt+Shift+S`; `Ctrl+Shift+S` arrives in the matrix as CS+SS+S; `Alt+Shift+S` fires Save Snapshot and types no S into the guest. |
 
 **Why these rows are not decoration.** `QApplication::sendEvent()` to a widget
 passes through `QApplication::notify()`, which consults the global
@@ -630,9 +642,20 @@ This is the sweep the first cut should have done.
 | `FEATURES.md:66` | `PNG screenshot (Ctrl+S, toolbar, …)` | `Alt+S` |
 | `src/core/emulator.cpp:7358` | comment `GUI "Save Screenshot" (Ctrl+S)` | `Alt+S` |
 
-**Correct as-is — chords that did not move:** `FEATURES.md:51`,
-`doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md:1109`, `test/mmu/mmu_test.cpp:4148`
-(all `Ctrl+Shift+S`); `doc/man/jnext.1.md:439` (`Ctrl+F5`/`Ctrl+F6`).
+**Correct as-is at the time of #115 — chords that did not move THEN:**
+`FEATURES.md:51`, `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md:1109`,
+`test/mmu/mmu_test.cpp:4148` (all `Ctrl+Shift+S`); `doc/man/jnext.1.md:439`
+(`Ctrl+F5`/`Ctrl+F6`).
+
+> **#130 moved `Ctrl+Shift+S` after all**, so that sweep had to be re-run for
+> the new chord. Updated: `FEATURES.md:51` (guarded by H115-29),
+> `test/mmu/mmu_test.cpp:4148`, `doc/man/jnext.1.md` (both the File-menu list
+> and the Ctrl/Alt narrative, plus the regenerated `doc/man/jnext.1` and
+> `USAGE.md`), and `src/doc/user-guide/05-running-programs/02-input.md` with its
+> rendered output. Deliberately LEFT naming the old chord: `.prompts/*` (dated
+> logs), `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` (frozen), and this
+> document, whose job is to describe the change. `Ctrl+F5`/`Ctrl+F6` are
+> untouched and remain correct — they are the only `Qt::CTRL` shortcuts left.
 
 **Historical record — deliberately LEFT naming the old chords:**
 
@@ -659,7 +682,8 @@ This is the sweep the first cut should have done.
 - `doc/design/WINDOWS-COMPAT-PLAN.md:249` — cites `QKeySequence(Qt::CTRL |
   Qt::Key_X)` as the **Qt5-clean API shape**, not as a user-facing chord. The
   claim is still true (`Qt::ALT | Qt::Key_X` is the same int-promotion form,
-  and `Qt::CTRL` uses remain for `Ctrl+F5`/`Ctrl+F6`/`Ctrl+Shift+S`).
+  and `Qt::CTRL` uses remain for `Ctrl+F5`/`Ctrl+F6` — since #130 those two
+  are the only ones).
 - This document, and `test/gui/host_hotkey_test.cpp` — both name the old
   chords because describing the change is their job.
 
