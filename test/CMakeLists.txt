@@ -222,6 +222,19 @@ target_link_libraries(esp_socket_test PRIVATE jnext_peripheral)
 target_include_directories(esp_socket_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME esp_socket_tests COMMAND esp_socket_test)
 
+# Emulated ESP-01 AT command engine (GH #25, branch 3 — src/peripheral/esp_at.*).
+# Hermetic: every row drives the engine against an in-memory fake transport,
+# so no socket, DNS lookup or listener is involved. Rows assert EXACT BYTES
+# (the `> ` prompt's trailing space, `OK\r\n` framing, `+IPD,<len>:`) because
+# the bytes are the contract — three guest parsers busy-wait on them with no
+# timeout. Also pins the cycle-granularity `UartDevice::tick` hook and its
+# `UartChannel::tick` call site, which is why jnext_peripheral (which carries
+# uart.cpp) is the only link dependency, exactly as uart_test does.
+add_executable(esp_at_test esp/esp_at_test.cpp)
+target_link_libraries(esp_at_test PRIVATE jnext_peripheral)
+target_include_directories(esp_at_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME esp_at_tests COMMAND esp_at_test)
+
 # Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
 # Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class
 # tests (FFs, mode dispatch, port_io_dly edge detector, save/load round

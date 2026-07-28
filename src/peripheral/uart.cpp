@@ -684,6 +684,17 @@ void Uart::hard_reset() {
 }
 
 void Uart::tick(uint32_t master_cycles) {
+    // The ONE gate the per-instruction path pays for an attached backend
+    // (GH #25 branch 3). False in every path until something is attached, so
+    // it is a single predicted-not-taken branch for the whole UART — and it
+    // keeps `UartChannel::tick`, which is inlined below, byte-identical to
+    // what it was before this hook existed. See
+    // `UartChannel::service_attached_device` for the measurements that put it
+    // here rather than inside the channel.
+    if (device_attached_) {
+        channels_[0].service_attached_device(master_cycles);
+        channels_[1].service_attached_device(master_cycles);
+    }
     channels_[0].tick(master_cycles);
     channels_[1].tick(master_cycles);
 }
@@ -777,6 +788,7 @@ void Uart::attach_device(int channel, UartDevice* device) {
     }
 
     channels_[channel].attach_device(device);
+    device_attached_ = channels_[0].device() != nullptr || channels_[1].device() != nullptr;
 
     if (device) {
         // Hand the device a guest-bound sink rather than a Uart& — see
@@ -799,6 +811,7 @@ void Uart::detach_device(int channel) {
         device->set_rx_sink(nullptr);
     }
     channels_[channel].detach_device();
+    device_attached_ = channels_[0].device() != nullptr || channels_[1].device() != nullptr;
     uart_log()->debug("ch{} device detached (loopback restored)", channel);
 }
 
