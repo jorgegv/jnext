@@ -34,6 +34,7 @@
 #include "esp01/esp_log.h"
 #include "esp01/esp_threaded.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -41,6 +42,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace esp;
@@ -180,6 +182,56 @@ private:
     TransportState state_ = TransportState::Idle;
     std::string    error_;
     IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// Counts `poll()` calls, atomically, and is DELIBERATELY declared so that it
+/// outlives the wrapper that polls it — which is what lets a row observe
+/// whether the worker thread is really gone after destruction.
+class CountingPollTransport : public EspTransport {
+public:
+    std::atomic<int> polls{0};
+
+    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    void poll() override { polls.fetch_add(1); }
+    TransportState     state() const override { return TransportState::Idle; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override {}
+
+private:
+    std::string error_;
+    IpAddress   peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// Sleeps inside `poll()`, standing in for the transport's synchronous
+/// `getaddrinfo` — the one place the worker holds the core for a long time.
+class BlockingPollTransport : public EspTransport {
+public:
+    std::atomic<bool>         in_poll{false};
+    std::atomic<int>          polls{0};
+    std::chrono::milliseconds block_for{0};
+
+    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    void poll() override {
+        polls.fetch_add(1);   // counted on ENTRY, so `in_poll` and it agree
+        const auto d = block_for;
+        if (d.count() == 0) return;
+        in_poll.store(true);
+        std::this_thread::sleep_for(d);
+        in_poll.store(false);
+    }
+    TransportState     state() const override { return TransportState::Idle; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override {}
+
+private:
+    std::string error_;
+    IpAddress   peer_ = ipv4(192, 0, 2, 1);
 };
 
 // ── Rig ───────────────────────────────────────────────────────────────────
@@ -906,17 +958,36 @@ int main() {
     // every loop below is bounded so a stuck wrapper FAILS rather than hangs.
 
     {   // (a) Constructed but NEVER STARTED — the wrapper must behave exactly
-        //     like the bare core, byte for byte. This is the row that proves
-        //     "optional" is true.
+        //     like the bare core, byte for byte. This is the block that proves
+        //     "optional" is true, and it deliberately exercises `receive` and
+        //     `poll` SEPARATELY: an earlier version called both before
+        //     asserting, so either path alone satisfied it and mutations that
+        //     broke one were masked by the other (both verified to survive).
         FakeTransport tr;
         ThreadedEsp   esp{tr};
         std::string   guest;
         esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
         check("MODE-01", "an unstarted wrapper is not running", !esp.running());
+
+        // No poll() at all: with no worker, `receive` must reach the core
+        // directly rather than parking the byte in the inbound queue.
         for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check_eq("MODE-02", "driven INLINE, receive() alone answers as the bare core does",
+                 guest, "\r\nOK\r\n");
+        guest.clear();
+
+        // And the WALL-CLOCK half must still be reachable inline: a connect's
+        // reply is deferred until the transport settles, which only `poll()`
+        // does. Without a working inline poll() this reply never comes.
+        for (char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"))
+            esp.receive(static_cast<std::uint8_t>(c));
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check("MODE-02b", "...and a connect's reply is still deferred, not invented",
+              guest.empty());
         esp.poll();
         for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
-        check_eq("MODE-02", "driven INLINE it answers exactly as the bare core does", guest,
+        check_eq("MODE-02c", "...until an inline poll() settles the transport", guest,
                  "\r\nOK\r\n"); }
 
     {   // (b) Started. Same stimulus, same bytes — only the thread differs.
@@ -980,28 +1051,68 @@ int main() {
                  "\r\n+IPD,2:yo");
         esp.stop(); }
 
-    {   // (d) The destructor joins. If it did not, this scope's exit would
-        //     leave a thread running on a destroyed object — which is exactly
-        //     the cold-boot corruption the header's lifetime contract is
-        //     about. There is no portable "is that thread gone?" query, so
-        //     what is asserted is that destruction of a RUNNING wrapper
-        //     completes and leaves the process healthy enough to keep testing.
-        FakeTransport tr;
+    {   // (d) THE DESTRUCTOR JOINS. This is the row the lifetime contract
+        //     exists for: a wrapper that detached instead of joining would
+        //     leave a thread running over a destroyed object, and under
+        //     jnext's cold boot — placement-new at the same address — that is
+        //     silent corruption of the newly booted machine, not a crash.
+        //
+        //     "It did not crash" is NOT a test of that, and neither is "the
+        //     thread stopped eventually": a detach plus a stop flag usually
+        //     does stop promptly, which is why the first version of this row
+        //     SURVIVED replacing join() with detach(). What distinguishes them
+        //     is WHEN the destructor returns, so the wrapper is destroyed
+        //     while the worker is provably inside a long poll(): a join cannot
+        //     return until that poll() has, a detach returns straight through
+        //     it. `in_poll` right after destruction is therefore a direct
+        //     observation of the join, needing no sleep and no guesswork.
+        BlockingPollTransport tr;   // outlives the wrapper, deliberately
+        tr.block_for = std::chrono::milliseconds(200);
         {
             ThreadedEsp esp{tr};
             esp.start();
-            for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
-            // Destroyed here, WITHOUT an explicit stop(), and with work in
-            // flight — the shape a forgetful owner produces.
+            for (int i = 0; i < 2000 && !tr.in_poll.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            check("MODE-13", "the worker really ran while the wrapper was alive",
+                  tr.in_poll.load() && tr.polls.load() > 0);
+            // Destroyed here, WITHOUT an explicit stop() and with the worker
+            // mid-poll — the shape a forgetful owner produces.
         }
-        check("MODE-13", "destroying a running wrapper joins its thread rather than detaching",
-              true);
-        // Under TSan/ASan a missing join here is a hard error rather than a
-        // pass; under a plain build the value is that the process survives and
-        // the transport (a stack object about to die) is provably untouched
-        // afterwards.
-        check("MODE-14", "...and nothing touches the transport after the join",
-              tr.begin_calls == 0); }
+        check("MODE-14",
+              "destroying a running wrapper JOINS: the destructor cannot return "
+              "while the worker is still inside poll()",
+              !tr.in_poll.load()); }
+
+    {   // (e) `tick()` must not inherit a worker stall. The worker holds the
+        //     core across the transport's SYNCHRONOUS DNS lookup, which can be
+        //     seconds; a blocking lock in `tick()` would hand that stall to
+        //     the emulation thread, which is the whole thing this class exists
+        //     to avoid.
+        //
+        //     The bound is deliberately huge — the worker blocks for 300 ms
+        //     and `tick()` is allowed 200 ms — because a try-lock `tick()`
+        //     takes microseconds. Only a genuinely blocking implementation can
+        //     exceed it, so this cannot flake under a loaded box; it just has
+        //     to not be a blocking lock.
+        BlockingPollTransport tr;
+        ThreadedEsp           esp{tr};
+        std::string           guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        tr.block_for = std::chrono::milliseconds(300);
+        esp.start();
+        // Wait until the worker is provably inside the blocking poll().
+        for (int i = 0; i < 2000 && !tr.in_poll.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("MODE-15", "the worker is inside a long poll()", tr.in_poll.load());
+
+        const auto t0 = std::chrono::steady_clock::now();
+        esp.tick(BYTE_TICKS, BYTE_TICKS);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        check("MODE-16", "tick() returns immediately rather than waiting for it", ms < 200);
+        tr.block_for = std::chrono::milliseconds(0);
+        esp.stop(); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

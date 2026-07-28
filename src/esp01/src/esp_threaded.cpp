@@ -61,12 +61,13 @@ void ThreadedEsp::run() {
             return !inbound_.empty();
         });
     }
-    // One last pass so bytes the guest handed over just before the stop are
-    // not silently discarded.
-    std::lock_guard<std::mutex> lock(core_mutex_);
-    drain_inbound();
-    core_.poll();
-    wants_tick_.store(core_.wants_tick(), std::memory_order_release);
+    // DELIBERATELY NO FINAL PASS. An earlier version did one, to catch bytes
+    // the guest handed over just before the stop — but `poll()` can block for
+    // the transport's synchronous DNS lookup, so a trailing pass would make
+    // `stop()` (and therefore the destructor, and therefore a cold boot) wait
+    // for a SECOND resolver timeout. Shutdown is exactly when nobody wants
+    // those bytes. A host that does want the queue settled has `wait_idle`,
+    // which drains inline once the worker is down.
 }
 
 void ThreadedEsp::drain_inbound() {

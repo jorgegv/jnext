@@ -540,14 +540,21 @@ int main() {
         check("SEAM-03", "a byte renders as two upper-case hex digits, not as a character",
               log_hex_byte(0x0A) == "0x0A" && log_hex_byte(0xFE) == "0xFE");
 
-        // UNBOUND IS SILENT. `capture_log` restores the sink to nullptr after
-        // every window, so the state under test here is also the state the
-        // whole rest of this suite runs in.
+        // UNBOUND IS SILENT — and the row has to INSTALL a sink first, or it
+        // proves nothing. Asserting silence before any sink has ever been
+        // installed passes against a `set_log_sink` that ignores its argument
+        // entirely (verified: that mutation survived the first version of this
+        // row). So: install, prove it captures, clear, prove it stops.
+        // `capture_log` restores the sink to nullptr after every window, so
+        // the cleared state is also the state the rest of this suite runs in.
+        const auto installed = capture_log(LogLevel::Trace, [] { log_error("captured"); });
+        check("SEAM-04", "an installed sink receives the module's output",
+              installed.size() == 1 && installed[0].second == "captured");
         g_log.clear();
-        set_log_sink(nullptr);
         set_log_threshold(LogLevel::Trace);
         log_error("this must go nowhere at all");
-        check("SEAM-04", "with no sink installed nothing is emitted, at any level",
+        check("SEAM-04b",
+              "...and clearing the sink restores silence, at any level",
               g_log.empty());
         set_log_threshold(LogLevel::Info);
 
