@@ -37,16 +37,51 @@
 # have reset state" does not hold for this Makefile.
 #
 # Hence: reset on a target line (the oracle's own rule) OR on substantive make
-# content — a variable assignment or a file-level directive. Those detach what
-# is above them from the target below; blank lines and .PHONY do not. Recipe
-# lines deliberately do NOT reset: a comment cannot be attached to a target
-# through one, and resetting there would re-open the `a b:` shape.
+# content — a variable assignment or a file-level directive. Blank lines and
+# .PHONY do not reset. Recipe lines deliberately do NOT reset: a comment cannot
+# be attached to a target through one, and resetting there would re-open the
+# `a b:` shape.
+#
+# That second reset is a TRADE-OFF, not a general truth, and it is the reason
+# for the known gap below. A variable assignment usually means the comment above
+# it documents THAT, not the target further down — but the oracle does not reset
+# there, so anything the oracle discards across such a line is invisible here.
 #
 # One consequence is deliberate and worth stating: a banner comment separated
 # from a description by only a blank line IS flagged, because it is structurally
 # identical to the bug — same lines, same order, same discarded content, and no
 # rule can tell them apart. Put a variable, or a bare `#` (which the oracle
 # ignores), between them, or fold the banner into the one description line.
+#
+# KNOWN GAP — WONT (recorded 2026-07-28, argued below; do not re-derive it).
+# This shape reproduces the #140 symptom and this lint reports CLEAN:
+#
+#     # the real description
+#                                    <- blank
+#     SOME_VAR := value              <- or `include foo.mk`
+#                                    <- blank
+#     # rationale that wrongly wins
+#     some-target:
+#
+# The oracle prints the rationale and discards the real description. The
+# assignment cleared the running count, and with it the discard history, so an
+# orphaned comment landing after the boundary and before the target is invisible.
+# Pinned by the `gap` fixture in selftest() so it cannot be silently re-derived.
+#
+# Why WONT rather than fixed — both alternatives were built and measured:
+#   * Drop the substantive-line reset (a pure oracle mirror). Reinstates the
+#     false positives it was added for: `default` (38 lines — the file header)
+#     and `package-src` (14 — a section banner). Bare `make` prints a correct,
+#     complete description for BOTH today, so those flags would be pure noise.
+#   * Reset only when the comment block ABUTS the assignment (no blank between),
+#     treating a blank-separated one as orphaned. This is clean on the current
+#     Makefile and does catch both forms of the gap — but it converts the miss
+#     into a FALSE POSITIVE on a legitimate style: a comment, a blank line, then
+#     the variable it documents now flags the next target, whose help output was
+#     correct all along. Verified, not assumed. A gate that fails on a blank line
+#     costs more than the shape it catches.
+# Re-open if the shape ever appears in the Makefile (it does not today — the
+# lint is clean), or if someone finds a rule that closes it without either cost.
 #
 # Usage:  bash test/lint-makefile-help.sh [MAKEFILE]
 # Exit:   0 clean · 1 violations found · 2 self-test failed / bad usage
@@ -84,11 +119,12 @@ scan() {
 # exactly why the four shapes above went unnoticed. Every reset rule and every
 # non-reset above now has a fixture.
 selftest() {
-    local dir good bad got want rc=0
+    local dir good bad gap got want rc=0
     dir="$(mktemp -d)"
     trap 'rm -rf "$dir"' RETURN
     good="$dir/good.mk"
     bad="$dir/bad.mk"
+    gap="$dir/gap.mk"
 
     # Must stay CLEAN. The SOME_VAR block is the false-positive guard: it is the
     # shape of this Makefile's own file header, which a strict oracle mirror
@@ -148,8 +184,39 @@ selftest() {
         '	@echo hi'                                               \
         'endif'                                                     > "$bad"
 
+    # KNOWN GAP, pinned deliberately: these two DO reproduce the #140 symptom and
+    # this scanner does NOT catch them. See the "KNOWN GAP — WONT" note in the
+    # header for the two closures that were built and rejected. The fixture exists
+    # so the hole is a recorded decision rather than folklore.
+    printf '%s\n' \
+        '# the real description'                    \
+        ''                                          \
+        'SOME_VAR := value'                         \
+        ''                                          \
+        '# rationale that wrongly wins'             \
+        'across-assignment:'                        \
+        '	@echo hi'                               \
+        ''                                          \
+        '# the real description'                    \
+        ''                                          \
+        'include some.mk'                           \
+        ''                                          \
+        '# rationale that wrongly wins'             \
+        'across-include:'                           \
+        '	@echo hi'                               > "$gap"
+
     got="$(scan "$good")"
     [ -z "$got" ] || { echo "SELFTEST FAIL: flagged a clean fixture: $got" >&2; rc=1; }
+
+    got="$(scan "$gap")"
+    [ -z "$got" ] || {
+        echo "SELFTEST FAIL: the known gap now flags: $got" >&2
+        echo "  This is NOT a bug — the gap fixture pins behaviour the scanner is" >&2
+        echo "  documented as NOT catching (see 'KNOWN GAP — WONT' in the header)." >&2
+        echo "  If you closed it deliberately: prove the 14/clean pair and the good" >&2
+        echo "  fixture still hold, then delete this fixture and the WONT note." >&2
+        rc=1
+    }
 
     want='1:adjacent:2
 6:across-blank:2
