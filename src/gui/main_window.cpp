@@ -1217,12 +1217,24 @@ void MainWindow::update_esp_status() {
     if (want_visible != esp_cell_visible_) {
         esp_cell_visible_ = want_visible;
         esp_label_->setVisible(want_visible);
-        esp_seen_ = 0;                      // a cold boot rebuilds the log
     }
-    if (!want_visible) return;
+    if (!want_visible) {
+        esp_seen_id_ = 0;
+        return;
+    }
 
+    // The change test is (instance id, sequence), NOT the sequence alone. A
+    // cold boot with the ESP still enabled builds a FRESH log whose sequence
+    // restarts at 0, and the replacement routinely lands on the freed block —
+    // so neither the address nor the sequence on its own distinguishes "3 new
+    // events" from "the 3 events I already rendered", and the cell would keep
+    // showing pre-reboot text. The pair is strictly increasing across a
+    // rebuild, so there is no coincidence left to hit.
+    const std::uint64_t id  = log->instance_id();
     const std::uint64_t seq = log->sequence();
-    if (seq == esp_seen_ && seq != 0) return;   // nothing new: one compare
+    if (id == esp_seen_id_ && seq == esp_seen_seq_) return;   // nothing new
+    esp_seen_id_  = id;
+    esp_seen_seq_ = seq;
 
     if (seq == 0) {
         // Enabled, nothing attempted yet. Naming the restriction here is the
@@ -1244,10 +1256,8 @@ void MainWindow::update_esp_status() {
                 tip += QStringLiteral("\n  ") + QString::fromStdString(host);
         }
         esp_label_->setToolTip(tip);
-        esp_seen_ = 0;
         return;
     }
-    esp_seen_ = seq;
 
     const std::vector<EspEvent> events = log->snapshot();
     if (events.empty()) return;

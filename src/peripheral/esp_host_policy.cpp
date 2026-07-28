@@ -6,6 +6,7 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <utility>
 
@@ -54,6 +55,13 @@ const char* esp_event_text(EspEvent::Kind kind) {
         case EspEvent::Kind::TransportFault: return "transport fault";
     }
     return "unknown";
+}
+
+std::uint64_t EspConnectionLog::next_instance_id() {
+    // Starts at 1, so a consumer's zero-initialised "last id seen" can never
+    // match a real log and the first observation always renders.
+    static std::atomic<std::uint64_t> counter{0};
+    return counter.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 void EspConnectionLog::push(EspEvent event) {

@@ -135,10 +135,25 @@ public:
     /// Total events ever pushed, including those already aged out.
     std::uint64_t sequence() const;
 
+    /// Which log this is. Process-unique, monotonic, and never 0.
+    ///
+    /// A CONSUMER CANNOT USE THE ADDRESS FOR THIS. A cold boot destroys the
+    /// `Emulator` and placement-news a new one, and the replacement log
+    /// routinely lands on the freed block — so `&log` is stable across a
+    /// rebuild that reset `sequence()` to 0. An observer caching only the
+    /// sequence then treats "3 events into the new machine" as "the 3 events I
+    /// already rendered" and keeps showing pre-reboot text. Pairing the id with
+    /// the sequence makes the pair strictly increasing across a rebuild, so
+    /// there is no coincidence to hit.
+    std::uint64_t instance_id() const { return instance_id_; }
+
 private:
+    static std::uint64_t next_instance_id();
+
     mutable std::mutex   mutex_;
     std::deque<EspEvent> events_;
     std::uint64_t        sequence_ = 0;
+    const std::uint64_t  instance_id_ = next_instance_id();
 };
 
 // ---------------------------------------------------------------------------

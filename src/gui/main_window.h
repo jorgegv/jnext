@@ -299,10 +299,16 @@ private:
     QLabel*  tape_label_         = nullptr;
 
     // GH #25 — ESP status cell. Created always, SHOWN only when the emulator
-    // actually has an ESP; `esp_seen_` is the last connection-log sequence
-    // rendered, so the common case (nothing happened) is one integer compare.
-    QLabel*       esp_label_ = nullptr;
-    std::uint64_t esp_seen_  = 0;
+    // actually has an ESP.
+    //
+    // The "nothing changed" test is the (instance id, sequence) PAIR of the
+    // connection log last rendered, not the sequence alone: a cold boot builds
+    // a fresh log whose sequence restarts at 0, so the sequence on its own can
+    // repeat a value already rendered and leave the cell showing pre-reboot
+    // text. The id never repeats. Common case is still two integer compares.
+    QLabel*       esp_label_    = nullptr;
+    std::uint64_t esp_seen_id_  = 0;   // 0 = nothing rendered yet (ids start at 1)
+    std::uint64_t esp_seen_seq_ = 0;
     bool          esp_cell_visible_ = false;
 
     // Debug menu actions
