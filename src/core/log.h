@@ -85,10 +85,11 @@ public:
     /// connection made or refused" rule. So: connection opened/closed at info,
     /// policy refusals and DNS stalls at warn, socket failures at error, and
     /// everything else (byte counts, resolve results, poll state) at
-    /// debug/trace. NOTE for the branch that makes the ESP user-reachable: the
-    /// subsystem list in doc/man/jnext.1.md (--log-level) must gain `esp01`
-    /// then — it is deliberately not listed yet, because nothing wires the
-    /// transport up and documenting an inert logger would be a lie.
+    /// debug/trace. The ESP is user-reachable as of GH #25 branch 4 (`--esp`),
+    /// and `esp01` is documented in the `--log-level` list in
+    /// doc/man/jnext.1.md — the note that used to sit here asking a later
+    /// branch to add it is DISCHARGED, and the list is now gated by
+    /// LOG-09..11 rather than by anyone remembering.
     static std::shared_ptr<spdlog::logger>& esp01()      { static auto l = make("esp01");      return l; }
     /// esxdos / NextZXOS syscall tracing (Task 85). At TRACE level every
     /// RST $08 call is logged with its arguments and result, including calls
