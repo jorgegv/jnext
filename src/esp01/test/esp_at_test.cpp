@@ -236,9 +236,12 @@ private:
 };
 
 /// Blocks inside `poll()` while a connect is outstanding — a deliberate
-/// VIOLATION of `EspTransport::poll()`'s non-blocking contract, standing in for
-/// the synchronous `getaddrinfo` the shipped transport still performs. Used to
-/// prove that a badly-behaved transport cannot starve the guest-bound pacer.
+/// VIOLATION of `EspTransport::poll()`'s non-blocking contract. It stood in for
+/// the shipped transport's synchronous `getaddrinfo`; that is now asynchronous,
+/// so this fake no longer mirrors anything jnext ships and is KEPT
+/// DELIBERATELY: it stands in for any third-party transport that blocks, and it
+/// is the only thing that still discriminates here. Rewriting these rows to use
+/// `make_socket_transport` would silently gut them.
 class SlowResolveTransport : public EspTransport {
 public:
     std::chrono::milliseconds block_for{500};
@@ -1218,11 +1221,12 @@ int main() {
               "while the worker is still inside poll()",
               !tr.in_poll.load()); }
 
-    {   // (e) `tick()` must not inherit a worker stall. The worker holds the
-        //     core across the transport's SYNCHRONOUS DNS lookup, which can be
-        //     seconds; a blocking lock in `tick()` would hand that stall to
-        //     the emulation thread, which is the whole thing this class exists
-        //     to avoid.
+    {   // (e) `tick()` must not inherit a worker stall. Any transport that
+        //     blocks inside a call the worker makes under the core lock — a
+        //     third-party one, since the shipped transport no longer blocks
+        //     anywhere — would be handed straight to the emulation thread by a
+        //     blocking lock in `tick()`, which is the whole thing this class
+        //     exists to avoid.
         //
         //     The bound is deliberately huge — the worker blocks for 300 ms
         //     and `tick()` is allowed 200 ms — because a try-lock `tick()`
