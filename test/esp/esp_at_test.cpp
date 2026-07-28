@@ -26,6 +26,7 @@
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -90,6 +91,10 @@ class FakeTransport : public EspTransport {
 public:
     // Script knobs.
     bool           refuse_begin      = false;                    ///< begin_connect returns false
+    /// Model a host that silently black-holes SYN: poll() moves Resolving ->
+    /// Connecting and then never progresses, exactly as a stateful firewall
+    /// drop looks to the socket layer.
+    bool           never_settles     = false;
     TransportState settle_state      = TransportState::Connected;///< where poll() lands from Resolving
     std::size_t    send_cap          = static_cast<std::size_t>(-1);  ///< bytes accepted per send()
 
@@ -115,6 +120,10 @@ public:
     }
 
     void poll() override {
+        if (never_settles) {
+            if (state_ == TransportState::Resolving) state_ = TransportState::Connecting;
+            return;  // and there it stays, forever
+        }
         if (state_ == TransportState::Resolving) {
             state_ = settle_state;
             if (state_ == TransportState::Failed) error_ = "scripted failure";
@@ -369,6 +378,46 @@ int main() {
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",0\r\n");
         r.settle();
         check_eq("CON-09", "port 0 answers ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   // A well-formed keepalive followed by junk must not be waved through
+        // just because the field before it parsed.
+        Rig r;
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048,7200,XYZ\r\n");
+        r.settle();
+        check_eq("CON-04c", "trailing garbage after a VALID keepalive still answers ERROR",
+                 r.take(), "\r\nERROR\r\n");
+        check("CON-04d", "...and no connect was attempted", r.tr.begin_calls == 0); }
+    {   // A host that silently black-holes SYN. Without a deadline the guest
+        // gets NOTHING until the OS abandons the handshake (~127 s on Linux),
+        // and NXtel's post-Connect wait has no timeout and runs under `di` —
+        // so this is a guest freeze, not a slow connect.
+        Rig r;
+        r.tr.never_settles = true;
+        r.eng.set_connect_timeout(std::chrono::milliseconds(0));
+        r.send("AT+CIPSTART=\"TCP\",\"blackhole.test\",2048\r\n");
+        r.eng.poll();
+        r.drain();
+        const std::string first = r.take();
+        // Bounded: a working deadline fires on one of the first few polls.
+        for (int i = 0; i < 10 && r.eng.awaiting_connect(); ++i) r.settle();
+        check_eq("CON-11", "a connect that never completes is abandoned with ERROR",
+                 first + r.take(), "\r\nERROR\r\n");
+        check("CON-11b", "...and the engine stops waiting", !r.eng.awaiting_connect());
+        check("CON-11c", "...having released the socket", r.tr.close_calls > 0);
+        // The slot must be REUSABLE, not wedged.
+        r.tr.never_settles = false;
+        r.eng.set_connect_timeout(std::chrono::milliseconds(10000));
+        r.send("AT+CIPSTART=\"TCP\",\"good.test\",80\r\n");
+        r.settle();
+        check_eq("CON-12", "...and the slot is reusable afterwards", r.take(), "\r\nOK\r\n");
+        check("CON-12b", "...really connected", r.eng.connected()); }
+    {   // The deadline must not fire on a connect that is merely in progress.
+        Rig r;
+        r.tr.never_settles = true;
+        r.send("AT+CIPSTART=\"TCP\",\"slow.test\",2048\r\n");
+        for (int i = 0; i < 20; ++i) r.settle();
+        check_eq("CON-13", "a connect inside its deadline is still awaited, not refused",
+                 r.take(), "");
+        check("CON-13b", "...and remains pending", r.eng.awaiting_connect()); }
     {   Rig r;
         r.tr.refuse_begin = true;
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n");
@@ -433,7 +482,14 @@ int main() {
         check_eq("SEND-06", "a zero length answers ERROR", r.take(), "\r\nERROR\r\n");
         r.send("AT+CIPSEND=2049\r\n"); r.drain();
         check_eq("SEND-06b", "...as does one over the 2048-byte ceiling", r.take(),
-                 "\r\nERROR\r\n"); }
+                 "\r\nERROR\r\n");
+        // The boundary itself: rejecting 2049 proves nothing about where the
+        // limit is unless the largest LEGAL length is proven to be accepted.
+        r.send("AT+CIPSEND=2048\r\n"); r.drain();
+        check_eq("SEND-06c", "...but exactly 2048 IS accepted, prompt and all", r.take(),
+                 "\r\nOK\r\n> ");
+        check("SEND-06d", "...with the full payload outstanding",
+              r.eng.payload_outstanding() == 2048); }
     {   // 8-bit clean is a stated goal: CSpect fails here and NXtel needs it.
         Rig r;
         r.connect();
@@ -621,6 +677,22 @@ int main() {
         r.eng.tick(BYTE_TICKS, BYTE_TICKS / 10);   // 10x faster link
         check("PACE-05", "a faster byte-time delivers proportionally more bytes",
               r.guest.size() == 10); }
+    {   // The post-drain reset, pinned across a drain -> refill boundary that
+        // is mediated by a DIRECT queue() (another AT reply), not by poll().
+        // Without the reset the sub-byte remainder of the first burst survives
+        // and the next burst's first byte leaves up to a whole byte-time early.
+        Rig r;
+        r.send("AT\r\n");                                   // 6 bytes queued
+        r.eng.tick(BYTE_TICKS * 6 + (BYTE_TICKS - 1), BYTE_TICKS);
+        check("PACE-07", "a span drains the whole reply", r.guest.size() == 6);
+        r.send("AT\r\n");                                   // 6 more, via queue(), not poll()
+        r.eng.tick(1, BYTE_TICKS);
+        check("PACE-07b",
+              "...and the leftover sub-byte credit does NOT survive into the next burst",
+              r.guest.size() == 6);
+        r.eng.tick(BYTE_TICKS - 1, BYTE_TICKS);
+        check("PACE-07c", "...the next byte arrives a full byte-time after the refill",
+              r.guest.size() == 7); }
     {   Rig r;
         r.connect();
         r.tr.queue_from_peer("x");

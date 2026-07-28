@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 
 namespace esp {
@@ -313,6 +314,16 @@ void AtEngine::cmd_reset(const std::string&) {
 void AtEngine::cmd_cipstart(const std::string& args) {
     Connection& c = conn_[SINGLE_CID];
 
+    // `|| c.connecting` is UNREACHABLE today and kept deliberately. Reaching
+    // it needs a command dispatched while a connect is in flight, which
+    // `receive()` prevents by deferring every byte, and which the replay loop
+    // in `resolve_connect` prevents by stopping the moment `connecting` is set
+    // again. Both guards are NON-LOCAL, so a reader of this function cannot
+    // see them — and `open || connecting` is one coherent "the slot is busy"
+    // predicate, which per-slot CIPSTART (issue #154) will need in full. The
+    // contrast with the pacing reset deleted in `tick()` is deliberate: that
+    // was a redundant STATE MUTATION, which can silently paper over a bug;
+    // this is a redundant GUARD, which can only refuse something twice.
     if (c.open || c.connecting) {
         // Real firmware says `ALREADY CONNECTED`, which nothing parses.
         lg().debug("AT+CIPSTART while a connection exists — answering ERROR");
@@ -366,9 +377,10 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // no synchronous connect in the transport interface by design, and
     // answering OK before the socket is up would let the guest send into
     // nothing.
-    c.connecting = true;
-    lg().debug("AT+CIPSTART accepted: {}:{} on cid {} — reply deferred to poll()", c.host,
-               c.port, SINGLE_CID);
+    c.connecting       = true;
+    c.connect_deadline = std::chrono::steady_clock::now() + connect_timeout_;
+    lg().debug("AT+CIPSTART accepted: {}:{} on cid {} — reply deferred to poll() (deadline {} ms)",
+               c.host, c.port, SINGLE_CID, connect_timeout_.count());
 }
 
 void AtEngine::cmd_cipsend(const std::string& args)   { begin_send(args, "AT+CIPSEND"); }
@@ -549,7 +561,23 @@ void AtEngine::resolve_connect(std::size_t cid) {
     switch (c.transport->state()) {
         case TransportState::Resolving:
         case TransportState::Connecting:
-            return;  // still in flight; keep deferring guest input
+            if (std::chrono::steady_clock::now() < c.connect_deadline) {
+                return;  // still in flight; keep deferring guest input
+            }
+            // DEADLINE BLOWN. Without this the answer comes only when the OS
+            // abandons the handshake — ~127 s on Linux for a host that
+            // silently black-holes SYN — and NXtel's post-`Connect` wait
+            // (esp.asm:39-40) has no timeout and runs under `di`, so the guest
+            // does not slow down, it FREEZES. Answering ERROR is AT-protocol
+            // behaviour and belongs here, not in the transport: the transport
+            // has no idea a guest is blocked on a reply.
+            lg().warn("connection to {}:{} timed out after {} ms — answering ERROR", c.host,
+                      c.port, connect_timeout_.count());
+            c.connecting = false;
+            c.open       = false;
+            c.transport->close();  // slot returns to Idle/Closed and is reusable
+            queue_error();
+            break;
         case TransportState::Connected:
             c.connecting = false;
             c.open       = true;
@@ -679,11 +707,18 @@ void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
     if (out_.empty()) frame_ipd();
 
     if (out_.empty()) {
-        // Idle: do NOT bank cycles. Otherwise a long quiet period would
-        // accumulate credit and then release a burst at unbounded speed the
-        // instant data appeared — precisely the FIFO overrun this pacing
-        // exists to prevent.
-        pace_accum_ = 0;
+        // Idle: return WITHOUT banking, because `pace_accum_ += master_cycles`
+        // below is the only place cycles are ever added. That is what stops a
+        // long quiet period from accumulating credit and then releasing a
+        // burst at unbounded speed the instant data appears — precisely the
+        // FIFO overrun this pacing exists to prevent.
+        //
+        // There is deliberately no `pace_accum_ = 0` here. It used to be, and
+        // it was unkillable by mutation: `out_` is drained ONLY by the loop
+        // below, which zeroes the accumulator itself when it empties the
+        // queue, so this branch can never be reached with a non-zero
+        // accumulator. If a future change drains `out_` from anywhere else,
+        // that invariant breaks and the reset belongs back here.
         refresh_tick_gate();
         return;
     }
@@ -698,6 +733,11 @@ void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
     }
 
     if (out_.empty()) {
+        // THE reset that matters. Without it the sub-byte remainder survives
+        // into the next burst, so the first byte of a reply queued directly by
+        // a later command (not via poll()) can leave up to a whole byte-time
+        // early. Bounded, but it is exactly the pacing slip this whole
+        // mechanism exists to prevent.
         pace_accum_ = 0;
         frame_ipd();
     }

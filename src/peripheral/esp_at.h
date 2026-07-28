@@ -4,6 +4,7 @@
 #include "peripheral/uart_device.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -149,6 +150,30 @@
 ///  5. NO SAVE-STATE. A live TCP connection is host topology, not machine
 ///     state, and rewinding into a re-established socket is meaningless. The
 ///     branch that makes the ESP reachable owns the `replay_mode_` gate.
+///  6. ONLY `AT+CIPSTART` HAS A TIMEOUT. It needs one because a host that
+///     silently black-holes SYN — an ordinary stateful-firewall posture — is
+///     otherwise answered only when the OS gives up (~127 s on Linux), and the
+///     guest is not merely waiting during that: NXtel's `ESPReceiveWaitOK`
+///     after `Connect` (esp.asm:39-40) has no timeout AND runs under `di`, so
+///     a black-holed connect FREEZES the guest rather than degrading it. No
+///     other command can outlive its own dispatch, so none needs a deadline.
+///     TWO RESIDUAL GAPS, stated rather than hidden: (a) the deadline is
+///     checked in `poll()`, so it cannot preempt the transport's SYNCHRONOUS
+///     `getaddrinfo` (esp_socket.h documents that stall) — it bounds the TCP
+///     handshake, not name resolution; (b) an established connection that
+///     goes silent is never timed out, because TCP itself does not consider
+///     that an error and no evidenced client expects one.
+///  7. THE `+IPD` CHUNK FLOOR IS A CONSEQUENCE, NOT AN INVARIANT. nextsync
+///     budgets 5 chunks per server packet (`timeout=5` in its own source),
+///     which the research framed as "emit chunks >= 292 bytes". Only the 2048
+///     CEILING is enforced here. The floor emerges from coalescing — a chunk
+///     is cut only once the guest-bound queue has drained, so under load
+///     chunks are large — but it is probabilistic, not guaranteed: at 1.152M
+///     baud a 1460-byte chunk drains in ~10 ms, and sufficiently jittery TCP
+///     fragmentation could in principle cut a sub-292-byte chunk and pressure
+///     the budget. Unlikely on localhost/LAN and not deterministically
+///     unit-testable, so it is recorded as a known characteristic rather than
+///     defended by a floor the code does not implement.
 ///
 /// ---------------------------------------------------------------------------
 /// SHAPED FOR v1.1 (issue #154) WITHOUT IMPLEMENTING ANY OF IT
@@ -201,6 +226,23 @@ public:
     /// per `poll()` — together they bound one frame's socket work at 64 KB.
     static constexpr std::size_t RECV_CHUNK    = 1024;
     static constexpr int         RECV_MAX_ITER = 64;
+
+    /// Wall-clock deadline for an `AT+CIPSTART`, in milliseconds.
+    ///
+    /// TEN SECONDS, and the number is bounded from both sides:
+    ///   * ABOVE any real handshake. A TCP connect is one round trip; Linux
+    ///     retransmits a lost SYN at ~1 s and again at ~3 s, so even two lost
+    ///     SYNs complete by ~4 s and a third by ~7 s. 10 s clears that with
+    ///     margin, so a slow-but-real WAN host is never refused.
+    ///   * BELOW the OS giving up (~127 s on Linux, longer on some systems).
+    ///     That is the whole point: WE decide when to answer, not the kernel,
+    ///     because the kernel's answer arrives long after the guest has
+    ///     wedged.
+    /// It is deliberately not shorter. The guest is busy-waiting, not the
+    /// emulator — the frame loop keeps running and the UI stays live — so the
+    /// cost of a generous deadline is a stalled guest program, while the cost
+    /// of a mean one is refusing connections that would have worked.
+    static constexpr int DEFAULT_CONNECT_TIMEOUT_MS = 10000;
 
     /// The advertised network. Owner decision (GH #25, 2026-07-28, as
     /// corrected): a CONSTANT, obviously synthetic name — never the host
@@ -257,6 +299,12 @@ public:
     /// prescaler — but it is worth tracing.
     std::uint32_t requested_baud() const { return requested_baud_; }
 
+    /// Override the `AT+CIPSTART` deadline. Configuration, not a test hook:
+    /// the CLI/config branch is the natural place to expose it, and the unit
+    /// suite uses a zero timeout to make the expiry deterministic.
+    void set_connect_timeout(std::chrono::milliseconds t) { connect_timeout_ = t; }
+    std::chrono::milliseconds connect_timeout() const { return connect_timeout_; }
+
 private:
     enum class Mode : std::uint8_t { Command, Payload };
 
@@ -272,6 +320,9 @@ private:
         bool          close_pending = false;  ///< closed; CLOSED owed once buffers drain
         std::string   host;
         std::uint16_t port = 0;
+        /// When `connecting`, the wall-clock instant after which the connect
+        /// is abandoned with `ERROR`. Meaningless otherwise.
+        std::chrono::steady_clock::time_point connect_deadline{};
         /// Peer -> guest, unbounded, pre-framing (pacing stage 1).
         std::deque<std::uint8_t> rx;
         /// Guest -> peer, whatever the kernel would not take yet.
@@ -359,7 +410,8 @@ private:
     std::size_t               payload_cid_ = SINGLE_CID;
     std::vector<std::uint8_t> payload_;
 
-    std::uint32_t requested_baud_ = 0;
+    std::uint32_t             requested_baud_  = 0;
+    std::chrono::milliseconds connect_timeout_{DEFAULT_CONNECT_TIMEOUT_MS};
 
     /// Guest TX arriving while a connect is in flight. Every evidenced client
     /// busy-waits for the reply so this stays empty in practice, but a guest
