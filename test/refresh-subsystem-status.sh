@@ -91,6 +91,7 @@ BEGIN {
     M["layer2_test"]                   = "Layer 2"
     M["uart_test"]                     = "UART + I2C/RTC"
     M["uart_integration_test"]         = "UART (integration)"
+    M["esp_socket_test"]               = "ESP-01 socket transport"
     M["divmmc_test"]                   = "DivMMC + SPI"
     M["multiface_test"]                = "Multiface (core)"
     M["sdcard_test"]                   = "SD Card"
