@@ -996,7 +996,7 @@ int main() {
         Listener l;
         if (!l.start()) {
             for (const char* id : {"ASYNC-01", "ASYNC-02", "ASYNC-03", "ASYNC-04",
-                                   "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08",
+                                   "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08", "ASYNC-10",
                                    "ASYNC-09"})
                 skip(id, "could not bind a loopback listener");
         } else {
@@ -1095,6 +1095,13 @@ int main() {
                 const bool in_flight = wait_until(
                     [&] { return fake_dns::entered.load() > entered0; }, 2000);
 
+                // Captured BEFORE the close: the row is only meaningful if the
+                // transport is genuinely still waiting on the lookup at that
+                // moment. A synchronous resolve cannot be in this state at all
+                // — its stall lands inside poll() instead — so asserting it is
+                // what stops this row passing vacuously against one.
+                const bool still_resolving = (t->state() == TransportState::Resolving);
+
                 const auto t0 = std::chrono::steady_clock::now();
                 t->close();  // mid-lookup
                 const long close_ms = since_ms(t0);
@@ -1105,8 +1112,24 @@ int main() {
                 check("ASYNC-06",
                       "close() during a lookup returns at once and the late result "
                       "never resurrects the transport",
-                      in_flight && close_ms < 100 &&
+                      in_flight && still_resolving && close_ms < 100 &&
                           t->state() == TransportState::Closed && l.accept_one(50) < 0);
+
+                // (10) ...AND THE ABANDONED RESULT IS NEVER APPLIED TO THE NEXT
+                //      REQUEST. This is the row that makes release() dropping
+                //      the job load-bearing rather than tidy: the transport is
+                //      reused for a DIFFERENT address, and the answer the
+                //      orphaned lookup produced (127.0.0.1, already published
+                //      by now) must not be what it connects to. A stale block
+                //      still attached would be consumed by the very first
+                //      poll(), silently substituting one host for another.
+                t->begin_connect("127.0.0.2", l.port());
+                t->poll();
+                check("ASYNC-10",
+                      "a lookup abandoned by close() is never applied to the next "
+                      "connect",
+                      t->peer_address() == ipv4(127, 0, 0, 2));
+                t->close();
             }
 
             // (07..08) DESTROYING a transport mid-lookup — the shape
@@ -1119,8 +1142,7 @@ int main() {
             //      suite checks; the row itself proves the sequence happens.
             {
                 fake_dns::gate.store(false);
-                const int entered0   = fake_dns::entered.load();
-                const int completed0 = fake_dns::completed.load();
+                const int entered0 = fake_dns::entered.load();
 
                 auto t = make_socket_transport(loopback_ok(), fake_dns::gated);
                 t->begin_connect("orphaned.test", l.port());
@@ -1128,21 +1150,33 @@ int main() {
                 const bool in_flight = wait_until(
                     [&] { return fake_dns::entered.load() > entered0; }, 2000);
 
+                // Same guard as ASYNC-06, and sampled at the same instant: the
+                // lookup must still be outstanding when the destructor runs, or
+                // the row measures nothing.
+                const bool still_resolving = (t->state() == TransportState::Resolving);
+                const int  completed_before_destroy = fake_dns::completed.load();
+
                 const auto t0 = std::chrono::steady_clock::now();
                 t.reset();  // ~SocketTransport() with the lookup still parked
                 const long destroy_ms = since_ms(t0);
                 check("ASYNC-07",
                       "destroying a transport mid-lookup returns immediately instead "
                       "of waiting out the resolver",
-                      in_flight && destroy_ms < 100);
+                      in_flight && still_resolving && destroy_ms < 100);
 
                 fake_dns::gate.store(true);
-                const bool finished = wait_until(
-                    [&] { return fake_dns::completed.load() > completed0; }, 3000);
+                // The increment must land AFTER the destructor: that is the
+                // claim — the result block outlives the transport that started
+                // it, so the thread finishes writing into memory that is still
+                // alive. (Whether that write is legal is what an ASan/TSan run
+                // of this suite would prove; this row proves it happens at all.)
+                const bool finished_after_destroy = wait_until(
+                    [&] { return fake_dns::completed.load() > completed_before_destroy; },
+                    3000);
                 check("ASYNC-08",
-                      "...and the orphaned lookup still runs to completion, into a "
+                      "...and the orphaned lookup runs to completion AFTER it, into a "
                       "result block that outlived the transport",
-                      finished);
+                      finished_after_destroy);
             }
 
             // (09) THE AT+CIPSTART DEADLINE NOW BOUNDS NAME RESOLUTION. Design
