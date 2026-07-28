@@ -499,22 +499,32 @@ worktree-bootstrap:
 	@# itself (GH #75/#77). This target verifies that master exists and says how to
 	@# get it if not.
 	@#
-	@# Submodules (GH #149): a `git worktree add` does NOT populate them, so a fresh
-	@# worktree has an EMPTY third_party/spdlog and the only symptom is a compiler
-	@# error from deep inside the build — while this target, which CLAUDE.md sends
-	@# every agent through first, said "ready". Read from .gitmodules rather than
-	@# naming spdlog, so a second submodule is covered the day it is added; and
-	@# tested for CONTENT (empty directory) rather than for `git submodule status`
-	@# state, because content is what the build needs and it is also true in a
-	@# vendored source tarball, where the status query has nothing to say.
+	@# Submodules (GH #149): `git worktree add` does NOT populate them, so a fresh
+	@# worktree has an EMPTY third_party/spdlog while this target — the one CLAUDE.md
+	@# sends every agent through first — reported "ready.". Read from .gitmodules
+	@# rather than naming spdlog, so a second submodule is covered the day it is
+	@# added; and tested for CONTENT (empty directory) rather than `git submodule
+	@# status` state, because content is what the build needs and the content test is
+	@# also meaningful in a vendored source tarball, where the status query is silent.
 	@#
-	@# REPORTED, not initialised. This target checks; it has never mutated the
-	@# checkout. `git submodule update --init` is a write to someone's tree and, for
-	@# spdlog, a ~60 s network clone (measured) — the same reasons the SD master
-	@# below is reported rather than downloaded, which jnext could equally do
-	@# itself. Unlike the SD master it is a hard ERROR: nothing else provisions it
-	@# and no build can start without it.
+	@# MEASURED, because the issue's premise did not survive checking: a fresh
+	@# worktree with an empty submodule BUILDS FINE. CMakeLists.txt runs
+	@# `git submodule update --init --recursive` itself at configure time, and a
+	@# `make gui-release` in a probe worktree went green from an empty spdlog. What
+	@# is left is still worth saying, which is why this reports rather than stays
+	@# quiet: "ready." was a false claim about a worktree with a ~60 s network fetch
+	@# still pending, and if that fetch cannot run (offline, or a transient GitHub
+	@# failure) CMake only WARNS and the configure then dies on
+	@# add_subdirectory(third_party/spdlog).
+	@#
+	@# Hence a report, exit 0 — deliberately the same shape as the SD master below,
+	@# for the same reason: both are network-provisioned artifacts that something
+	@# else in the flow will fetch (CMake here, the suite's sdcard-provision row
+	@# there). Failing the target over a self-healing condition would be a false
+	@# alarm. And it REPORTS rather than initialising: this target has never mutated
+	@# a checkout, and `git submodule update --init` is a write to someone's tree.
 	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+	pending=0; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
 		exit 1; \
@@ -526,21 +536,28 @@ worktree-bootstrap:
 		[ -n "$$(ls -A "$$p" 2>/dev/null)" ] || empty="$$empty $$p"; \
 	done; \
 	if [ -n "$$empty" ]; then \
-		printf "$(BADGE_FAIL) ERROR $(RESET) empty git submodule(s):$(BOLD)%s$(RESET)\n" "$$empty"; \
-		printf "  A new worktree does not populate them; the build would fail with an obscure\n"; \
-		printf "  compiler error instead. Populate them with:\n"; \
-		printf "    $(BOLD)git submodule update --init --recursive$(RESET)\n"; \
-		exit 1; \
+		printf "  $(BOLD)missing$(RESET) git submodule(s):%s\n" "$$empty"; \
+		printf "$(BOLD)worktree-bootstrap: populate them with:$(RESET)\n"; \
+		printf "    git submodule update --init --recursive\n"; \
+		printf "  (the first cmake configure runs the same command for you — but silently,\n"; \
+		printf "   for ~60 s, and only if the network is up)\n"; \
+		pending=1; \
+	elif [ "$$n" -gt 0 ]; then \
+		printf "  $(CYAN)ok$(RESET) %d git submodule(s) populated\n" "$$n"; \
 	fi; \
-	[ "$$n" -eq 0 ] || printf "  $(CYAN)ok$(RESET) %d git submodule(s) populated\n" "$$n"; \
 	if [ -f "$$sd" ]; then \
 		printf "  $(CYAN)ok$(RESET) SD master %s\n" "$$sd"; \
-		printf "$(BOLD)worktree-bootstrap: ready.$(RESET)\n"; \
 	else \
 		printf "  $(BOLD)missing$(RESET) SD master %s\n" "$$sd"; \
 		printf "$(BOLD)worktree-bootstrap: provision it with:$(RESET)\n"; \
 		printf "    ./build/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 1\n"; \
 		printf "  (or run the regression suite, whose sdcard-provision row does it for you)\n"; \
+		pending=1; \
+	fi; \
+	if [ "$$pending" -eq 0 ]; then \
+		printf "$(BOLD)worktree-bootstrap: ready.$(RESET)\n"; \
+	else \
+		printf "$(BOLD)worktree-bootstrap: not ready yet — see the item(s) above.$(RESET)\n"; \
 	fi
 
 # Count lines of code (excluding comments and blanks), per directory and total
@@ -889,7 +906,7 @@ package-win: win-release
 	@# no CMake build junk) and zip that. Not CPack -G ZIP: CPack would apply the
 	@# Unix /usr install prefix, giving a broken usr/bin/jnext.exe layout on Windows.
 	@# Every step is `&&`-chained, and the structural check below mirrors the four
-	@# sibling package-win* recipes (GH #148). Until then this recipe alone ran
+	@# sibling package-win* recipes (GH #148). Before that, this recipe alone ran
 	@# bundle-dlls.sh `;`-terminated with nothing after it that read the bundle, so a
 	@# failed bundle zipped the docs, printed "ZIP(s) produced:" and exited 0 — an
 	@# artifact with no executable in it, published by release.yml. Required set:
