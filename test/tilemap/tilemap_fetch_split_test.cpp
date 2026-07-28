@@ -3,7 +3,8 @@
 // TX-1696 changes NR 0x6E/0x6F during the visible frame: one map/tile pair
 // draws the fixed HUD, another draws the scrolling playfield, then the HUD
 // pair is restored near the bottom. The FPGA tilemap consumes these registers
-// as live inputs (tilemap.vhd map_address_i / tile_address_i); rendering a
+// as live inputs (tilemap.vhd:57-58 tm_map_base_i / tm_tile_base_i, latched
+// per fetch at :349-350, and :44 default_flags_i at :366); rendering a
 // completed frame from only the final register values paints one configuration
 // across every scanline.
 //
@@ -130,7 +131,9 @@ void test_map_base_split() {
     check("TM-SPLIT-01",
           line0 == palette.tilemap_colour(0x01) &&
           line1 == palette.tilemap_colour(0x02),
-          "NR 0x6E map-base changes must affect only subsequent scanlines");
+          "NR 0x6E map-base changes must affect only subsequent scanlines "
+          "[tilemap.vhd:349 tm_map_base_q latched per fetch; :57; "
+          "zxnext.vhd:4407]");
 }
 
 void test_definition_base_split() {
@@ -156,7 +159,9 @@ void test_definition_base_split() {
     check("TM-SPLIT-02",
           line0 == palette.tilemap_colour(0x01) &&
           line1 == palette.tilemap_colour(0x02),
-          "NR 0x6F tile-definition changes must affect only subsequent scanlines");
+          "NR 0x6F tile-definition changes must affect only subsequent "
+          "scanlines [tilemap.vhd:350 tm_tile_base_q latched per fetch; "
+          ":58; zxnext.vhd:4408]");
 }
 
 void test_default_attribute_split() {
@@ -182,7 +187,9 @@ void test_default_attribute_split() {
     check("TM-SPLIT-03",
           line0 == palette.tilemap_colour(0x11) &&
           line1 == palette.tilemap_colour(0x21),
-          "NR 0x6C default-attribute changes must affect only subsequent scanlines");
+          "NR 0x6C default-attribute changes must affect only subsequent "
+          "scanlines [tilemap.vhd:366 default_flags_i consumed per fetch; "
+          "zxnext.vhd:4394]");
 }
 
 void test_emulator_copper_wiring() {
@@ -260,7 +267,8 @@ void test_emulator_copper_wiring() {
     char detail[256];
     std::snprintf(detail, sizeof(detail),
                   "full Emulator/Copper path must produce one NR 0x6E transition "
-                  "at row %d (first=%d count=%d unexpected-row=%d pixel=%08X map=%02X)",
+                  "at row %d [tilemap.vhd:349] "
+                  "(first=%d count=%d unexpected-row=%d pixel=%08X map=%02X)",
                   expected_transition, first_transition, transition_count,
                   unexpected_row, unexpected_pixel,
                   emulator.tilemap().get_map_base_raw());
