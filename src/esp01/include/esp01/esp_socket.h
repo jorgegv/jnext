@@ -290,6 +290,29 @@ public:
 /// THE IP-LITERAL PATH IS NOT ROUTED THROUGH IT. A numeric target is always
 /// parsed by the platform's `AI_NUMERICHOST` pass, so a supplied resolver can
 /// neither slow down nor reinterpret what an IP literal means.
+///
+/// ---------------------------------------------------------------------------
+/// WHAT THIS IS CALLED ON, AND WHAT HAPPENS IF IT MISBEHAVES
+/// ---------------------------------------------------------------------------
+/// If you are supplying one of these, this is the paragraph you cannot skip.
+///
+///   * IT RUNS ON A RESOLVER THREAD, not the caller's. It may block for as
+///     long as it likes — that is the entire point, and the reason it exists
+///     as a seam at all. It must not touch anything the calling thread owns
+///     without synchronising, because the transport that started it may have
+///     been destroyed before it returns.
+///   * IT MAY THROW, AND THE MODULE GUARANTEES WHAT HAPPENS IF IT DOES. An
+///     exception that escapes a `std::thread` entry point calls
+///     `std::terminate` — a process abort, not an error. So the module catches
+///     everything (`std::exception` and `...`) and degrades to a FAILED
+///     LOOKUP: the transport goes to `Failed`, `last_error()` names the
+///     exception, and the AT engine answers `ERROR` — a refusal path every
+///     evidenced client already handles. A partially-filled `out` is
+///     DISCARDED, so a resolver that appends some addresses and then throws
+///     cannot have those addresses connected to.
+///     Throwing is still the worse way to report failure — `return false` with
+///     `err` set is cheaper and carries a better message — but it is a
+///     supported way, not a way to kill the host program.
 using ResolveFn = std::function<bool(const std::string& host,
                                      std::vector<IpAddress>& out, std::string& err)>;
 

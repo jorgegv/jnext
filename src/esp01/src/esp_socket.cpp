@@ -27,6 +27,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <exception>
 #include <memory>
 #include <system_error>
 #include <thread>
@@ -241,11 +242,33 @@ private:
         const std::string host = host_;
         try {
             std::thread([job, host, fn]() {
+                // NOTHING MAY ESCAPE THIS LAMBDA. An exception that leaves a
+                // `std::thread`'s entry point does not propagate anywhere — it
+                // goes straight to `std::terminate`, killing the whole process.
+                // `resolver` is a PUBLIC seam documented for consumers who
+                // already own a resolver, and reporting failure by exception is
+                // ordinary in C++ network libraries, so this is a reachable
+                // path for anyone reusing the module rather than a theoretical
+                // one. A library that converts its caller's exception into a
+                // process abort is not reusable. Degrade to a FAILED LOOKUP
+                // instead: the engine already handles that (`AT+CIPSTART`
+                // answers `ERROR`), so a throwing resolver costs a connection,
+                // not the emulator.
                 std::vector<IpAddress> out;
                 std::string            err;
-                const bool             ok =
-                    fn ? fn(host, out, err)
-                       : net::resolve(host, /*numeric_only=*/false, out, err);
+                bool                   ok = false;
+                try {
+                    ok = fn ? fn(host, out, err)
+                            : net::resolve(host, /*numeric_only=*/false, out, err);
+                } catch (const std::exception& e) {
+                    ok  = false;
+                    out.clear();  // a partially-filled list must never be used
+                    err = std::string("the resolver threw: ") + e.what();
+                } catch (...) {
+                    ok  = false;
+                    out.clear();
+                    err = "the resolver threw a non-std exception";
+                }
                 job->ok    = ok;
                 job->addrs = std::move(out);
                 job->err   = std::move(err);
