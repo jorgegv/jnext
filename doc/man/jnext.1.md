@@ -120,6 +120,23 @@ debugger ones.
 :   Wait *N* frames before injecting (default 0). Use around 100 if the binary
     calls ROM routines that need the system variables set up first.
 
+## Networking (ESP-01 WiFi)
+
+**\--esp**
+:   Enable the emulated ESP-01 WiFi module on UART 0. **Off by default** - see
+    **NETWORKING** below for what turning it on gives the running program.
+
+**\--no-esp**
+:   Force the ESP off for this run, overriding a saved GUI preference that
+    enables it. Given both, whichever comes last on the command line wins.
+
+**\--esp-allow** *HOST*
+:   Only let the running program connect to *HOST*. Repeatable: give the option
+    once per host. Matching is exact and case-insensitive, with no wildcards,
+    and an IP address must be listed as itself. With no **\--esp-allow** at all
+    the program may name any host (subject to the always-refused addresses in
+    **NETWORKING**). Requires **\--esp**.
+
 ## Recording and playback
 
 **\--record** *FILE*
@@ -393,6 +410,69 @@ Notes worth knowing:
   volume without changing guest-visible audio state and survive cold boots.
   Each explicit CLI value overrides its corresponding saved preference.
 
+# NETWORKING (ESP-01 WiFi)
+
+A real ZX Spectrum Next has a header for an ESP-01 WiFi module on UART 0.
+**\--esp** emulates one, so software written for it - NXtel, nextsync, the
+NextZXOS `.HTTP` and `.zxdb-dl` dot commands - can reach the network through
+your host.
+
+## It is off by default, and that is the point
+
+An enabled ESP gives the running program an **outbound TCP pipe out of the
+emulator**, and the program can already read the SD-card image, which jnext
+opens read-write. A program you did not write is a program you are trusting
+when you turn this on. So jnext does not turn it on for you, and there is no
+way for a loaded program to turn it on for itself.
+
+When it *is* on, the Qt build shows an **ESP cell in the status bar** for as
+long as the run lasts. Its presence means the guest can reach the network; it
+names the host of the most recent connection, and shows a refusal or a fault
+in red. There is no way to have the ESP enabled without that cell being there.
+
+## What is always refused, whatever you allow
+
+These are refused by address, before any connection is attempted, and
+**\--esp-allow** cannot re-enable them:
+
+* loopback - `127.0.0.0/8` and `::1`, i.e. daemons on your own machine;
+* link-local - `169.254.0.0/16` and `fe80::/10`;
+* cloud metadata endpoints - `169.254.169.254` and `100.100.100.200`;
+* the unspecified addresses `0.0.0.0/8` and `::`;
+* multicast and reserved space - `224.0.0.0/4`, `240.0.0.0/4`, `ff00::/8`.
+
+IPv6 spellings of an IPv4 address (`::ffff:127.0.0.1`, NAT64, 6to4) are
+resolved to what they actually reach and judged on that, so they cannot be used
+to get around the list.
+
+**Your own LAN is reachable.** RFC1918 addresses (`192.168.x.x`, `10.x.x.x`,
+`172.16-31.x.x`) are deliberately *not* refused - reaching a machine on your own
+network is the main thing people use this for, and nextsync in particular
+connects to a PC on the LAN.
+
+## Narrowing it further
+
+**\--esp-allow** restricts the program to hosts you name:
+
+    jnext --esp --esp-allow nx.nxtel.org NXtel.nex
+
+Every connection to anything else is refused, the program gets the same `ERROR`
+it would get from a real module that could not connect, and the refusal is
+reported in the log and in the status bar.
+
+## There is no server mode
+
+The emulated module cannot listen for incoming connections - `AT+CIPSERVER` is
+not implemented. Nothing that runs on a Next uses it, so there is no inbound
+attack surface at all.
+
+## Nothing about your host leaks into the program
+
+The module reports a fixed synthetic identity: SSID `JNextWifiHost`, a
+`02:00:00:...` MAC and BSSID, and a `192.168.1.50` station address. None of it
+is read from your machine, so a program cannot learn your real SSID, MAC or
+local addresses by asking. The emulated module is not a radio and never scans.
+
 # LOGGING
 
 **\--log-level** *SPEC* sets per-subsystem log levels. A bare level sets every
@@ -408,7 +488,16 @@ Levels are `trace`, `debug`, `info` (default), `warn`, `err`, `critical` and
 
 Subsystems are `cpu`, `memory`, `ula`, `video`, `audio`, `port`, `nextreg`,
 `dma`, `copper`, `uart`, `input`, `platform`, `emulator`, `sdcard`, `divmmc`,
-`spi`, `ctc`, `i2c`, `multiface` and `esxdos`. The last one is a tracer rather
+`spi`, `ctc`, `i2c`, `multiface`, `esp01` and `esxdos`.
+
+`esp01` is the emulated ESP-01 WiFi module (**\--esp**). At the default `info`
+level it reports only the connections opened, refused and closed - the events
+**NETWORKING** describes as never silent. `debug` adds every AT command
+received and every response emitted, and `trace` adds the raw byte traffic in
+both directions. Turning it down to `off` silences the connection reports too,
+which is a deliberate choice on the user's part and not something jnext undoes.
+
+`esxdos` is a tracer rather
 than a subsystem: at `trace` level every `RST $08` esxdos call is logged with
 its arguments and its result, including calls jnext does not service. It does
 not need **\--esxdos-stub** — the interesting case is a NextZXOS-expecting
@@ -676,6 +765,13 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     Host gains are stored under `[audio]` as `gain_db` (master),
     `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
     `gain_dac_db`.
+    The emulated ESP-01 is stored under `[esp]` as `enabled` (`true`/`false`,
+    the persistent form of **\--esp**) and `allowed_hosts` (a comma-separated
+    list, the persistent form of **\--esp-allow**). Preferences has no page for
+    them: they are hand-edited, and whenever `enabled` is set the status bar
+    carries the ESP cell **NETWORKING** describes, so a config file cannot put
+    the guest on the network without saying so. **\--no-esp** overrides it for
+    one run.
     CLI options always take precedence over saved values, and headless runs
     never read it.
 

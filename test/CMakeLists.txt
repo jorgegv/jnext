@@ -226,6 +226,20 @@ target_link_libraries(esp_uart_adapter_test PRIVATE jnext_peripheral)
 target_include_directories(esp_uart_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME esp_uart_adapter_tests COMMAND esp_uart_adapter_test)
 
+# jnext's ESP-01 security / visibility / wiring suite (GH #25 branch 4). The
+# hostname allowlist, the connection-event log the GUI reads, the transport
+# decorator that enforces one and reports the other, and the Emulator wiring
+# (off by default, inert under replay, joined at destruction). It links the
+# full emulator stack because the WIRE-* rows drive a real Emulator — the only
+# way to prove the default really is "no ESP attached to UART 0".
+add_executable(esp_wiring_test esp/esp_wiring_test.cpp)
+target_link_libraries(esp_wiring_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(esp_wiring_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME esp_wiring_tests COMMAND esp_wiring_test)
+
 # Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
 # Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class
 # tests (FFs, mode dispatch, port_io_dly edge detector, save/load round
@@ -472,6 +486,10 @@ add_test(NAME cli_options_tests COMMAND cli_options_test)
 add_executable(log_test core/log_test.cpp)
 target_link_libraries(log_test PRIVATE spdlog::spdlog)
 target_include_directories(log_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# LOG-08/09 diff Log::SUBSYSTEMS against the man page's LOGGING list, the same
+# both-ways check cli_options_test applies to the flag set (GH #25 branch 4).
+target_compile_definitions(log_test PRIVATE
+    JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md")
 add_test(NAME log_tests COMMAND log_test)
 
 # Audio-clock pacing test (issue #7 / Task 23). Header-only policy under test
@@ -738,6 +756,15 @@ if(ENABLE_QT_UI)
     target_link_libraries(preferences_apply_test PRIVATE jnext_gui)
     target_include_directories(preferences_apply_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME preferences_apply_tests COMMAND preferences_apply_test)
+
+    # GH #25 branch 4 — the ESP status cell, the GUI half of "never silent
+    # about a connection made or refused". Drives a guest AT+CIPSTART through
+    # the real UART, so the whole chain is under test and not just the label.
+    add_executable(esp_status_test gui/esp_status_test.cpp)
+    set_target_properties(esp_status_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(esp_status_test PRIVATE jnext_gui)
+    target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME esp_status_tests COMMAND esp_status_test)
 
     add_executable(esc_break_test gui/esc_break_test.cpp)
     set_target_properties(esc_break_test PROPERTIES AUTOMOC ON)

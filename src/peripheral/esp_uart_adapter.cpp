@@ -71,19 +71,33 @@ EspUartAdapter::~EspUartAdapter() {
 }
 
 void EspUartAdapter::receive(std::uint8_t byte) {
+    if (inert_) return;
     esp_.receive(byte);
     mirror_gate();
 }
 
 void EspUartAdapter::poll() {
     esp_sync_log_level();
+    if (inert_) return;
     esp_.poll();
     mirror_gate();
 }
 
 void EspUartAdapter::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
+    if (inert_) return;
     esp_.tick(master_cycles, byte_ticks);
     mirror_gate();
+}
+
+void EspUartAdapter::set_inert(bool inert) {
+    if (inert == inert_) return;
+    inert_ = inert;
+    // Lower the hot-path gate immediately on the way in, so `UartChannel::tick`
+    // stops reaching the virtual at once rather than after one more call; on
+    // the way out, re-read the ESP so work that arrived while we were silent
+    // starts flowing again without waiting for the next `poll()`.
+    if (inert_) set_tick_wanted(false);
+    else        mirror_gate();
 }
 
 void EspUartAdapter::mirror_gate() {

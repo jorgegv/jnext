@@ -662,6 +662,17 @@ my %NO_MATRIX_SECTION = (
     'speed_report_test'    => 'host speed-percentage reporting',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
 
+    # ── Host policy around the emulated ESP-01 ───────────────────────
+    # `## ESP-01 socket transport` / `AT engine` / `jnext UART adapter` trace
+    # the module and its seam. This suite is one layer further out again: the
+    # hostname allowlist, the connection-event log the GUI status cell reads,
+    # and the Emulator wiring (off by default, inert under replay). The FPGA
+    # core has no allowlist, no status bar and no rewind, so there is nothing
+    # in it to cite — the oracle is the owner's security decisions recorded in
+    # doc/design/ESP01-EMULATOR-DESIGN.md §8.
+    'esp_wiring_test'  => 'jnext host ESP policy/visibility/wiring, no core counterpart',
+    'esp_status_test'  => 'host status-bar ESP indicator (GUI), no core counterpart',
+
     # ── Host input translation ───────────────────────────────────────
     # Qt/SDL event -> ZX matrix translation on the HOST side. The guest-side
     # membrane matrix these feed is traced by `## Input`; what is asserted

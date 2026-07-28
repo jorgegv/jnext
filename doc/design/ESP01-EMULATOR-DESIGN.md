@@ -907,9 +907,13 @@ and the module's exists purely so it does not pay to build a string the host wil
 security-relevant events and pair with the "never silent" requirement above (§8.2 records where
 that requirement is still unmet).
 
-<!-- VERIFY: `--log-level` subsystem documentation. src/core/log.h:89 carries a note that the
-     subsystem list in doc/man/jnext.1.md must gain `esp01`; at the time of writing the man page
-     did not list it. Confirm branch 4 lands that edit (and that docs-check passes). -->
+**CLOSED (branch 4).** `esp01` is now named in the `--log-level` subsystem list in
+`doc/man/jnext.1.md`, with a paragraph saying what each level shows. It is also **gated**: the
+subsystem set is DATA (`Log::SUBSYSTEMS`, which `Log::init()` iterates), and `log_test`'s
+`LOG-09..11` diff it against that list in **both** directions — implemented-but-undocumented and
+documented-but-unimplemented are both hard failures, exactly as `cli-check` does for the flag set.
+That gate exists because `docs-check` could never have caught this: it proves `jnext.1` and
+`USAGE.md` were regenerated from `jnext.1.md`, which stays true of an incomplete list.
 
 ---
 

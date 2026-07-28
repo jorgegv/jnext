@@ -60,6 +60,9 @@ enum class OptId {
     Silent,
     TapeRealtime,
     TapeSave,
+    Esp,
+    NoEsp,
+    EspAllow,
     MagicBreakpoint,
     EsxdosStub,
     MagicPort,
@@ -178,6 +181,16 @@ inline constexpr Option OPTIONS[] = {
     { "--inject-org",                1, Doc::Documented, OptId::InjectOrg },
     { "--inject-pc",                 1, Doc::Documented, OptId::InjectPc },
     { "--inject-delay",              1, Doc::Documented, OptId::InjectDelay },
+
+    // Networking (ESP-01 WiFi). Default OFF, and BOTH directions are spelled
+    // out: --no-esp exists because the enable can also come from the saved GUI
+    // preference, and a security capability the user cannot force off for one
+    // run is one they cannot audit. (Contrast --silent, whose saved form has no
+    // CLI negation — but --silent cannot reach the network.)
+    { "--esp",                       0, Doc::Documented, OptId::Esp },
+    { "--no-esp",                    0, Doc::Documented, OptId::NoEsp },
+    // Repeatable: each occurrence appends one host.
+    { "--esp-allow",                 1, Doc::Documented, OptId::EspAllow },
 
     // Recording and playback
     { "--record",                    1, Doc::Documented, OptId::Record },

@@ -30,12 +30,20 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
 namespace {
 
 int g_pass = 0, g_fail = 0;
+
+std::string join(const std::vector<std::string>& v) {
+    std::string s;
+    for (const auto& e : v) { if (!s.empty()) s += ", "; s += e; }
+    return s;
+}
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
 {
@@ -189,6 +197,69 @@ int main()
               msg("messages after info-level=%zu (want 1), after debug-level=%zu (want 2)",
                   after_info, after_debug));
         spdlog::drop("log_test_probe");
+    }
+
+    // --- LOG-09/10/11: the man page's subsystem list matches the code ---------
+    //
+    // GH #25 branch 4. `esp01` existed as a real, reachable subsystem while the
+    // man page's LOGGING list did not name it — the same undocumented-surface
+    // drift `cli-check` was built for on the flag side, at a seam nothing
+    // checked. `docs-check` cannot see it: it proves jnext.1 and USAGE.md were
+    // regenerated from jnext.1.md, which stays true of an incomplete list.
+    //
+    // So this diffs `Log::SUBSYSTEMS` against the list in BOTH directions.
+    {
+        std::ifstream in(JNEXT_MAN_SRC);
+        std::string   section;
+        if (!in) {
+            check("LOG-09", "the man page LOGGING section is readable", false,
+                  std::string("cannot open ") + JNEXT_MAN_SRC);
+            check("LOG-10", "no subsystem is implemented but undocumented", false, "no man page");
+            check("LOG-11", "no subsystem is documented but unimplemented", false, "no man page");
+        } else {
+            // From "Subsystems are" to the end of that sentence: the list is
+            // prose, so the sentence is the unit, not the line.
+            std::string all((std::istreambuf_iterator<char>(in)),
+                            std::istreambuf_iterator<char>());
+            const size_t start = all.find("Subsystems are");
+            const size_t stop  = (start == std::string::npos) ? std::string::npos
+                                                              : all.find('.', start);
+            if (start != std::string::npos && stop != std::string::npos)
+                section = all.substr(start, stop - start);
+
+            // Every `backticked` word in that sentence is a claimed subsystem.
+            std::vector<std::string> documented;
+            for (size_t i = 0; i < section.size(); ++i) {
+                if (section[i] != '`') continue;
+                const size_t end = section.find('`', i + 1);
+                if (end == std::string::npos) break;
+                documented.push_back(section.substr(i + 1, end - i - 1));
+                i = end;
+            }
+
+            // Without this the two diffs below pass vacuously on a broken scrape.
+            check("LOG-09", "the man page LOGGING subsystem list was found and parsed",
+                  documented.size() >= 15,
+                  msg("scraped %zu names", documented.size()));
+
+            std::vector<std::string> undocumented;
+            for (const char* name : Log::SUBSYSTEMS) {
+                bool found = false;
+                for (const std::string& d : documented) found = found || d == name;
+                if (!found) undocumented.push_back(name);
+            }
+            check("LOG-10", "no subsystem is implemented but undocumented",
+                  undocumented.empty(), join(undocumented));
+
+            std::vector<std::string> unimplemented;
+            for (const std::string& d : documented) {
+                bool found = false;
+                for (const char* name : Log::SUBSYSTEMS) found = found || d == name;
+                if (!found) unimplemented.push_back(d);
+            }
+            check("LOG-11", "no subsystem is documented but unimplemented",
+                  unimplemented.empty(), join(unimplemented));
+        }
     }
 
     std::printf("\n====================================================\n");

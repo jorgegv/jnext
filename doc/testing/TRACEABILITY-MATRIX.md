@@ -37,7 +37,7 @@
 | CPU/Z80N/IM2 regressions                   |    24 |   24 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   130 |  128 |    0 |    2 |       0 |         12 |
 | ESP-01 AT engine                           |   137 |  137 |    0 |    0 |       0 |         10 |
-| ESP-01 jnext UART adapter                  |    20 |   20 |    0 |    0 |       0 |          0 |
+| ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    59 |   59 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
 | Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
@@ -49,9 +49,9 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    18 |   18 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  3026 | 2694 |    0 |    2 |     330 |        843 |
+| **Total**                                  |  3036 | 2704 |    0 |    2 |     330 |        843 |
 
-Rows the sections above carry: **3026**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2936**. Rows the 87 suites declared in `test/unit-tests.conf` run live: **6230**.
+Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6325**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -61,7 +61,7 @@ Rows the sections above carry: **3026**. Distinct row IDs recorded anywhere in t
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 46 suites (2597 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 48 suites (2682 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -69,6 +69,7 @@ These 46 suites (2597 live rows) have no VHDL-derived plan row to map, so they h
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `esxdos_stub_test` | 46 | esxDOS API surface + jnext trap policy, not core logic |
 | `phantom_typist_test` | 22 | jnext auto-typing state machine (host keystroke injection) |
+| `esp_wiring_test` | 60 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
 | `sdcard_provisioner_test` | 57 | jnext SD-image download/patch policy (host side) |
@@ -78,7 +79,7 @@ These 46 suites (2597 live rows) have no VHDL-derived plan row to map, so they h
 | `subsystem_gain_test` | 26 | host per-subsystem gain control (a user setting) |
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
-| `emulator_boot_test` | 26 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 31 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 12 | host mouse-capture policy (window-manager behaviour) |
@@ -87,7 +88,7 @@ These 46 suites (2597 live rows) have no VHDL-derived plan row to map, so they h
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 69 | host key latch/debounce compensation; guest matrix is `## Input` |
-| `log_test` | 10 | jnext logging façade (spdlog wiring) |
+| `log_test` | 13 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 3 | jnext log-level gating |
 | `cli_options_test` | 13 | CLI flag table vs the man page (see `make cli-check`) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
@@ -96,10 +97,11 @@ These 46 suites (2597 live rows) have no VHDL-derived plan row to map, so they h
 | `atic_atac_nmi_test` | 4 | narrative section, hand-maintained (feeds protected NR-C0-02) |
 | `profiler_test` | 32 | jnext profiler output format (a developer tool) |
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
-| `app_config_test` | 52 | jnext.conf schema/precedence (host settings file) |
+| `app_config_test` | 57 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `present_count_test` | 17 | host present accounting (wall-clock, not core timing) |
+| `esp_status_test` | 12 | host status-bar ESP indicator (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 33 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
@@ -2827,12 +2829,14 @@ that is meant to have no jnext types.
 mixed: `HOOK-03/03b/03c` exercise the device gate in `Uart::tick` and
 `HOOK-06/06b` the framing-bit-7 UART reset, both of which the FPGA core does
 specify (`uart.vhd`, `uart_tx.vhd`, `uart_rx.vhd`), while the `ADP-*` and `LOG-*`
-rows are jnext-internal seam contracts. A tombstone is stamped on every uncited
+rows are jnext-internal seam contracts (`ADP-08..17` are the replay gate, whose
+oracle is jnext's own rewind/RZX model and not the core at all). A tombstone is
+stamped on every uncited
 row of its suite, so applying one here would claim "there is nothing to cite"
 about rows that have something to cite. Those cells read `—` instead — an honest
 "citation missing", closable by citing the VHDL in the test source.
 
-Runs at `20 / 20 pass / 0 fail / 0 skip`.
+Runs at `30 / 30 pass / 0 fail / 0 skip`.
 
 | Test ID     | Assertion description                                                                            | VHDL file:line         | Status  | Test file:line                           |
 |-------------|--------------------------------------------------------------------------------------------------|------------------------|---------|------------------------------------------|
@@ -2850,12 +2854,22 @@ Runs at `20 / 20 pass / 0 fail / 0 skip`.
 | ADP-05      | the adapter delivered all 6 reply bytes while it was alive                                       | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:240   |
 | ADP-06      | destroying the adapter clears the engine's sink rather than leaving it dangling                  | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:244   |
 | ADP-07      | the same adapter drives the THREADED `EspDevice` wrapper unchanged                               | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:265   |
-| LOG-01      | `Log::init()` registers jnext's `esp01` spdlog logger                                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:274   |
-| LOG-02      | `--log-level esp01=trace` reaches that logger                                                    | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:278   |
-| LOG-03      | a line the module emits through its own seam comes out of jnext's `esp01` logger                 | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:304   |
-| LOG-04      | …carrying the level the module chose, not a flattened one                                      | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:306   |
-| LOG-05      | an `esp01` logger at `off` raises the module's seam threshold to error                           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:317   |
-| LOG-06      | …and turning the logger up lowers the threshold within one `poll()`                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:321   |
+| ADP-08      | a fresh adapter is live, not inert                                                               | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:283   |
+| ADP-09      | an inert adapter does not forward guest TX bytes to the engine                                   | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:287   |
+| ADP-10      | …and holds the hot-path tick gate DOWN                                                         | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:289   |
+| ADP-11      | …and delivers nothing to the guest                                                             | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:291   |
+| ADP-12      | the engine has a reply queued and the gate is up (the discriminator for ADP-13)                  | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:303   |
+| ADP-13      | `set_inert(true)` lowers the gate immediately, not after one more call                           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:306   |
+| ADP-14      | `set_inert(false)` re-raises it from the ESP's own state, without waiting for `poll()`           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:308   |
+| ADP-15      | …and the reply held back during the inert window still arrives intact                          | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:312   |
+| ADP-16      | repeating `set_inert(false)` does not disturb a gate the engine legitimately raised              | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:323   |
+| ADP-17      | repeating `set_inert(true)` keeps the gate down                                                  | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:327   |
+| LOG-01      | `Log::init()` registers jnext's `esp01` spdlog logger                                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:336   |
+| LOG-02      | `--log-level esp01=trace` reaches that logger                                                    | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:340   |
+| LOG-03      | a line the module emits through its own seam comes out of jnext's `esp01` logger                 | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:366   |
+| LOG-04      | …carrying the level the module chose, not a flattened one                                      | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:368   |
+| LOG-05      | an `esp01` logger at `off` raises the module's seam threshold to error                           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:379   |
+| LOG-06      | …and turning the logger up lowers the threshold within one `poll()`                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:383   |
 
 ## NextREG — `test/nextreg/nextreg_test.cpp`
 

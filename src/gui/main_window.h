@@ -192,6 +192,26 @@ private:
     void on_tape_fast_load(bool checked);
     void update_tape_status();
 
+    /// GH #25 — refresh the ESP status cell from the emulator's connection log.
+    ///
+    /// THIS IS THE "NEVER SILENT" REQUIREMENT (design doc §8.1 item 7). The AT
+    /// engine already logs every connection made and refused, but those lines
+    /// go to STDERR, which a GUI user never sees — so the requirement was
+    /// satisfied for CLI and headless runs and unmet for the GUI, which is the
+    /// case that matters most: a user running a downloaded NEX from a window
+    /// manager has no terminal at all.
+    ///
+    /// A STATUS-BAR CELL rather than a transient message or a dialog. It is
+    /// persistent (a transient `showMessage` can be missed entirely, and this
+    /// is the one class of event that must not be), it is always in the same
+    /// place, it costs no interaction, and — because the cell EXISTS only when
+    /// the ESP is enabled — its mere presence answers "is the guest on the
+    /// network right now?" without the user knowing anything about the feature.
+    /// A modal dialog was rejected for the opposite reason: NXtel opens a
+    /// connection per session and a game could open several, and a prompt the
+    /// user learns to dismiss is worse than no prompt.
+    void update_esp_status();
+
     // Recording slots
     void on_record_start();
     void on_record_stop();
@@ -277,6 +297,19 @@ private:
     QAction* tape_rewind_action_ = nullptr;
     QAction* tape_fast_action_   = nullptr;
     QLabel*  tape_label_         = nullptr;
+
+    // GH #25 — ESP status cell. Created always, SHOWN only when the emulator
+    // actually has an ESP.
+    //
+    // The "nothing changed" test is the (instance id, sequence) PAIR of the
+    // connection log last rendered, not the sequence alone: a cold boot builds
+    // a fresh log whose sequence restarts at 0, so the sequence on its own can
+    // repeat a value already rendered and leave the cell showing pre-reboot
+    // text. The id never repeats. Common case is still two integer compares.
+    QLabel*       esp_label_    = nullptr;
+    std::uint64_t esp_seen_id_  = 0;   // 0 = nothing rendered yet (ids start at 1)
+    std::uint64_t esp_seen_seq_ = 0;
+    bool          esp_cell_visible_ = false;
 
     // Debug menu actions
     QAction* magic_bp_action_    = nullptr;
