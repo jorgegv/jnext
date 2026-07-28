@@ -6,8 +6,9 @@
 # Two entry points, because the suite has two very different halves (GH #61):
 #
 #   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
-#       The six packaging-script contract suites. Hermetic — pure bash on
-#       throwaway fake roots, no compiler, no packaging toolchain, ~4 seconds.
+#       The seven packaging-layer contract suites — six on the packaging
+#       scripts, one on the package-* recipes themselves (GH #148). Hermetic:
+#       pure bash on throwaway fake roots, no compiler, no toolchain, ~4 s.
 #       This half holds the highest-value rows (verify-bundle is the GH #46
 #       gate; sync-version is GH #60), so it is a prerequisite of `make
 #       unit-test` and runs on every local test run, exactly like docs-check.
@@ -94,7 +95,7 @@ MINGW_QT5=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake
 MINGW32_QT5=/usr/i686-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake
 
 if [ "$mode" = contracts ]; then
-    printf "${BOLD}=== jnext packaging contract tests (scripts only, no builds) ===${RESET}\n\n"
+    printf "${BOLD}=== jnext packaging contract tests (no builds) ===${RESET}\n\n"
 else
     printf "${BOLD}=== jnext packaging integration tests ===${RESET}\n\n"
 fi
@@ -144,6 +145,19 @@ if bash test/packaging/bundle-dlopen-deps-test.sh >"$LOGDIR/dlopendeps.log" 2>&1
     ok bundle-dlopen-deps "copies libSDL3 for sdl2-compat, no-ops otherwise, fails loud when absent"
 else
     bad bundle-dlopen-deps "contract test failed" "$LOGDIR/dlopendeps.log"
+fi
+
+# --- package-* recipe guard (a failing bundle step must abort, GH #148) ------
+# The only contract row that reads the Makefile rather than a packaging script.
+# It belongs with them: the package-win* recipes are hand-written and ship the
+# published Windows artifacts, which is the same reason (#61) this half gates
+# the scripts. package-win ran bundle-dlls.sh `;`-terminated inside a one-shell
+# recipe, so a failed bundle still zipped, printed "ZIP(s) produced:" and exited
+# 0 with no executable in the artifact.
+if bash test/packaging/package-recipe-guard-test.sh >"$LOGDIR/pkgrecipe.log" 2>&1; then
+    ok package-recipe "every bundle-dlls.sh invocation aborts its recipe on failure"
+else
+    bad package-recipe "contract test failed" "$LOGDIR/pkgrecipe.log"
 fi
 
 # ---- end of the hermetic contract half --------------------------------------
