@@ -62,6 +62,7 @@
 #include <cstring>
 #include <ctime>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -330,6 +331,17 @@ bool never(const std::string&, std::vector<IpAddress>&, std::string& err) {
     literal_leak.store(true);
     err = "the resolver was consulted for an IP literal";
     return false;
+}
+
+/// Appends an address and THEN throws, which is the nastier half of the
+/// contract: the module has to both survive the exception and discard the
+/// half-produced list. The address appended is a perfectly connectable one
+/// under `loopback_ok()`, so a module that kept it would connect somewhere.
+bool throws_after_appending(const std::string&, std::vector<IpAddress>& out,
+                            std::string&) {
+    entered.fetch_add(1);
+    out.push_back(ipv4(127, 0, 0, 1));
+    throw std::runtime_error("dns library blew up");
 }
 
 }  // namespace fake_dns
@@ -997,6 +1009,7 @@ int main() {
         if (!l.start()) {
             for (const char* id : {"ASYNC-01", "ASYNC-02", "ASYNC-03", "ASYNC-04",
                                    "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08", "ASYNC-10",
+                                   "ASYNC-11", "ASYNC-12",
                                    "ASYNC-09"})
                 skip(id, "could not bind a loopback listener");
         } else {
@@ -1018,6 +1031,39 @@ int main() {
                 t->close();
                 const int srv = l.accept_one(200);
                 if (srv >= 0) ::close(srv);
+            }
+
+            // (11) THE poll() THAT STARTS THE LOOKUP IS ITSELF BOUNDED. Every
+            //      other timing row here measures a call made AFTER the lookup
+            //      is already under way, which leaves the most important call
+            //      of all untimed: the one that hands the name to the resolver.
+            //      Replacing `detach()` with `join()` puts the whole stall
+            //      inside THIS call and leaves a populated job behind, so the
+            //      later rows time an operation that no longer has anything to
+            //      wait for and pass while the emulator froze one call earlier.
+            //      (Found in review, not by me — the rows below were written
+            //      measuring the wrong side of the operation they are named
+            //      for.)
+            {
+                fake_dns::gate.store(false);
+                const int entered0 = fake_dns::entered.load();
+
+                auto t = make_socket_transport(loopback_ok(), fake_dns::gated);
+                t->begin_connect("first-poll.test", l.port());
+
+                const auto t0 = std::chrono::steady_clock::now();
+                t->poll();  // THE call that starts the lookup
+                const long first_poll_ms = since_ms(t0);
+
+                // ...and it really did start one, so the measurement is of a
+                // genuine lookup rather than of a no-op.
+                const bool started = wait_until(
+                    [&] { return fake_dns::entered.load() > entered0; }, 2000);
+                check("ASYNC-11",
+                      "the poll() that STARTS a lookup returns immediately instead of "
+                      "waiting it out",
+                      first_poll_ms < 100 && started &&
+                          t->state() == TransportState::Resolving);
             }
 
             // (02..04) A NAME goes to the resolver thread. The gate is held shut,
@@ -1217,6 +1263,42 @@ int main() {
                       "AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the "
                       "TCP handshake",
                       got_error && ms < 1500);
+            }
+
+            // (12) A THROWING RESOLVER MUST NOT ABORT THE PROCESS. `ResolveFn`
+            //      is a public seam documented for consumers with their own
+            //      resolver, and an exception escaping a std::thread entry
+            //      point is `std::terminate` — not an error a caller can
+            //      handle, a process abort. It has to degrade to a failed
+            //      lookup instead, and the addresses the resolver managed to
+            //      append before throwing must be DISCARDED rather than
+            //      connected to.
+            //
+            //      NOTE THE FAILURE MODE: without the guard this row does not
+            //      print FAIL, the whole suite dies with SIGABRT — which the
+            //      harness reports as a crashed suite, i.e. loudly. It is
+            //      deliberately not forked (the way SIG-01/02 are): resolver
+            //      threads from the rows above are still parked at this point,
+            //      and forking with threads alive risks a child-side allocator
+            //      deadlock, which would be a worse test than no test.
+            {
+                const int entered0 = fake_dns::entered.load();
+                auto t = make_socket_transport(loopback_ok(),
+                                               fake_dns::throws_after_appending);
+                t->begin_connect("throwing.test", l.port());
+                bool settled = false;
+                for (int waited = 0; waited < 3000 && !settled; waited += 2) {
+                    t->poll();
+                    if (t->state() == TransportState::Failed) settled = true;
+                    else sleep_ms(2);
+                }
+                check("ASYNC-12",
+                      "a throwing resolver degrades to a failed lookup instead of "
+                      "aborting the process, and its half-built address list is "
+                      "discarded",
+                      settled && fake_dns::entered.load() > entered0 &&
+                          t->last_error().find("threw") != std::string::npos &&
+                          l.accept_one(50) < 0);
             }
 
             // Leave no resolver thread parked at exit.
