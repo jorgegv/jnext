@@ -168,10 +168,29 @@ public:
     }
 
     /// Force-create all loggers (call once at startup before parse_levels).
+    /// Every subsystem name `--log-level` accepts, as DATA.
+    ///
+    /// It is a list rather than a sequence of calls because the same failure
+    /// happened twice at this seam and neither time was visible to any gate:
+    /// `ctc`/`i2c`/`multiface` were missing from `init()`, so `--log-level
+    /// ctc=debug` silently did nothing (log_test's LOG-06); and `esp01` was
+    /// missing from the man page's LOGGING list, so a real subsystem was
+    /// undocumented (GH #25 branch 4). Both are now mechanical: `init()`
+    /// iterates this array, and `log_test` diffs it against the man page in
+    /// BOTH directions — exactly what `cli-check` does for the flag set.
+    ///
+    /// ADDING A SUBSYSTEM: add its accessor above, add its name here, and
+    /// document it in the LOGGING section of `doc/man/jnext.1.md`. Skip the
+    /// last step and `make unit-test` fails.
+    static constexpr const char* SUBSYSTEMS[] = {
+        "cpu",   "memory",  "ula",   "video",    "audio",     "port",  "nextreg",
+        "dma",   "copper",  "uart",  "input",    "platform",  "emulator",
+        "sdcard","divmmc",  "spi",   "ctc",      "i2c",       "multiface",
+        "esp01", "esxdos",
+    };
+
     static void init() {
-        cpu(); memory(); ula(); video(); audio(); port(); nextreg();
-        dma(); copper(); uart(); input(); platform(); emulator();
-        sdcard(); divmmc(); spi(); ctc(); i2c(); multiface(); esp01(); esxdos();
+        for (const char* name : SUBSYSTEMS) make(name);
     }
 
 private:
