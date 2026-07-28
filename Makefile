@@ -561,12 +561,31 @@ worktree-bootstrap:
 	fi
 
 # Count lines of code (excluding comments and blanks), per directory and total
+#
+# The subsystem list is DISCOVERED, not written down: every top-level directory
+# under src/ that holds sources, plus test/. Adding a subsystem needs no edit
+# here, and — the point of the change — cannot silently go uncounted. The old
+# hard-coded list had already lost src/profiler, and its `if [ -d ]` guard made
+# an unlisted directory and a deleted one look identical: both printed nothing.
+# A directory with no .cpp/.h (src/doc, src/save) is skipped by the same rule
+# that finds the others, so there is no list of exceptions to maintain either.
+#
+# A module that ships its own suite (src/esp01/test — GH #25) counts that suite
+# under the module, not under test/. That is deliberate: the proof ships with
+# the code, so it belongs to the component's line count.
+#
+# `grep -h` is load-bearing. With several files, grep prefixes every output
+# line with `filename:`, which anchors the following ^-patterns against the
+# path instead of the code — so the three comment filters matched NOTHING and
+# this target counted comments for as long as it has existed, while its own
+# header claimed otherwise. It over-reported by ~57% (165,897 vs 105,803).
 kloc-count:
 	printf "\n$(BOLD)Lines of code (excluding comments and blank lines):$(RESET)\n\n"
 	total=0; \
-	for dir in src/core src/cpu src/memory src/video src/audio src/port src/peripheral src/input src/platform src/debug src/debugger src/gui src/save test; do \
-		if [ -d "$$dir" ]; then \
-			count=$$(find $$dir -name '*.cpp' -o -name '*.h' | xargs grep -v '^\s*$$' | grep -v '^\s*//' | grep -v '^\s*/\*' | grep -v '^\s*\*' | wc -l); \
+	for dir in $$(find src -mindepth 1 -maxdepth 1 -type d | sort) test; do \
+		files=$$(find "$$dir" -name '*.cpp' -o -name '*.h'); \
+		if [ -n "$$files" ]; then \
+			count=$$(echo "$$files" | xargs grep -h -v '^\s*$$' | grep -v '^\s*//' | grep -v '^\s*/\*' | grep -v '^\s*\*' | wc -l); \
 			printf "  $(CYAN)$(BOLD)%-30s$(RESET) %6d\n" "$$dir" "$$count"; \
 			total=$$((total + count)); \
 		fi; \
