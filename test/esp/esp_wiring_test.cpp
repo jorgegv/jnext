@@ -22,6 +22,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/rzx.h"
 #include "core/log.h"
 #include "esp01/esp_at.h"
 #include "esp01/esp_socket.h"
@@ -549,6 +550,55 @@ int main() {
         auto* after = static_cast<EspUartAdapter*>(emu.uart().device(0));
         check("WIRE-11", "a soft reset does NOT rebuild the ESP",
               before != nullptr && after == before && after->inert());
+    }
+    {
+        // THE RZX HALF OF THE GATE. `replay_mode_` (rewind fast-forward) and
+        // `rzx_player_.is_playing()` are INDEPENDENT sources of the same
+        // hazard, and WIRE-07..10 only exercise the first: a reviewer dropped
+        // `|| rzx_player_.is_playing()` outright and the entire suite stayed
+        // green. RZX playback re-executes recorded instructions, so a replayed
+        // `AT+CIPSTART` opens a second real socket and a replayed `AT+CIPSEND`
+        // delivers the payload to the peer twice.
+        //
+        // Driven through the player's own public API rather than a file: a
+        // default `RzxRecording` with a few empty frames keeps `is_playing()`
+        // true for several frames (`begin_frame()` retires one per frame and
+        // stops when they run out) and installs no IN override, so the machine
+        // runs exactly as it otherwise would.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled = true;
+        Emulator emu;
+        emu.init(cfg);
+        auto* adapter = static_cast<EspUartAdapter*>(emu.uart().device(0));
+
+        emu.run_frame();
+        check("WIRE-13", "the ESP is live before RZX playback starts",
+              adapter != nullptr && !adapter->inert());
+
+        RzxRecording rec;
+        rec.frames.resize(4);            // enough to outlive the frames below
+        emu.rzx_player().start(std::move(rec));
+        emu.run_frame();
+        check("WIRE-14", "RZX playback makes the ESP inert",
+              adapter->inert() && emu.rzx_player().is_playing());
+
+        emu.run_frame();
+        check("WIRE-15", "...and it stays inert for as long as playback runs",
+              adapter->inert() && emu.rzx_player().is_playing());
+        check("WIRE-16", "...with the device still ATTACHED, so no UART loopback",
+              emu.uart().device(0) == adapter);
+
+        // The discriminator for "the two terms are ORed, not swapped": with
+        // replay_mode_ explicitly FALSE, RZX alone must still hold it inert.
+        emu.set_replay_mode(false);
+        emu.run_frame();
+        check("WIRE-17", "RZX alone holds it inert, with replay_mode_ clear",
+              adapter->inert() && emu.rzx_player().is_playing());
+
+        emu.rzx_player().stop();
+        emu.run_frame();
+        check("WIRE-18", "stopping RZX playback makes the ESP live again",
+              !adapter->inert() && !emu.rzx_player().is_playing());
     }
     {
         // The whole reason the ESP is owned by Emulator: ~Emulator() joins the
