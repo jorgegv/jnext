@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
+#include "peripheral/esp_host_policy.h"
 #include "video/renderer.h"
 #include "version.h"
 #include <cctype>
@@ -100,6 +101,17 @@ static void print_usage(const char* prog) {
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
         "  --esxdos-stub            Intercept RST $08 calls; provide in-memory config I/O\n"
         "                           and .RUN sibling-NEX chaining without booting NextZXOS\n"
+        "  --esp                    Enable the emulated ESP-01 WiFi module on UART 0.\n"
+        "                           OFF by default: it gives the guest an outbound TCP\n"
+        "                           pipe out of the emulator. Loopback, link-local and\n"
+        "                           cloud-metadata addresses are always refused; your\n"
+        "                           own LAN (RFC1918) is reachable.\n"
+        "  --no-esp                 Force the ESP off for this run, overriding a saved\n"
+        "                           GUI preference that enables it\n"
+        "  --esp-allow HOST         Only let the guest connect to HOST. Repeatable;\n"
+        "                           matching is exact and case-insensitive, and an IP\n"
+        "                           literal must be listed as itself. Without any\n"
+        "                           --esp-allow the guest may name any host.\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
@@ -202,6 +214,15 @@ int main(int argc, char* argv[]) {
     std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        esxdos_stub = false;
+    // GH #25 — emulated ESP-01. `esp_enabled_set` is what makes --no-esp mean
+    // something: without it the saved GUI preference could not be told apart
+    // from "the user did not ask", and the negation would be unrepresentable.
+    bool        esp_enabled = false;
+    bool        esp_enabled_set = false;
+    // Deduplication and blank rejection live in EspHostPolicy::add, so the CLI
+    // and the saved-config reader cannot disagree about what an entry means.
+    EspHostPolicy esp_allow;
+    bool        esp_allow_set = false;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -363,6 +384,25 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
+                break;
+            // --esp / --no-esp: last one wins, like any other repeated flag.
+            case cli::OptId::Esp:
+                esp_enabled = true;
+                esp_enabled_set = true;
+                break;
+            case cli::OptId::NoEsp:
+                esp_enabled = false;
+                esp_enabled_set = true;
+                break;
+            case cli::OptId::EspAllow:
+                // Repeatable. A blank entry is rejected rather than dropped: a
+                // silently ignored allowlist entry would leave the user
+                // believing a restriction is in force that is not.
+                if (!esp_allow.add(v[0])) {
+                    fprintf(stderr, "--esp-allow: HOST must not be empty.\n");
+                    return 1;
+                }
+                esp_allow_set = true;
                 break;
             case cli::OptId::MagicPort:
                 magic_port_enabled = true;
@@ -676,6 +716,8 @@ int main(int argc, char* argv[]) {
         cfg.audio_gain_dac_db      = audio_gain.dac;
         cfg.joy_source[0]          = joy_source[0];   // Task 79 (CLI value)
         cfg.joy_source[1]          = joy_source[1];
+        cfg.esp_enabled            = esp_enabled;     // GH #25 (CLI value)
+        cfg.esp_allowed_hosts      = esp_allow.allowed_hosts;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -713,8 +755,24 @@ int main(int argc, char* argv[]) {
                 cfg.joy_source[1] == JoySource::CursorKeys) {
                 cfg.joy_source[joy_source_set[0] ? 1 : 0] = JoySource::Sdl;
             }
+            // GH #25 — the ESP. CLI wins in BOTH directions: --esp turns it on
+            // when the preference is off, --no-esp turns it off when the
+            // preference is on. The allowlist is REPLACED rather than merged
+            // when the CLI gives any --esp-allow, because a merge would mean a
+            // saved entry the user cannot get rid of from the command line.
+            cfg.esp_enabled = merge_cli_precedence(esp_enabled_set, esp_enabled,
+                                                   gui_app_config.data().esp_enabled);
+            cfg.esp_allowed_hosts = merge_cli_precedence(
+                esp_allow_set, esp_allow.allowed_hosts,
+                gui_app_config.data().esp_allowed_hosts);
         }
 #endif
+        // An allowlist with nothing to restrict is a user error worth naming:
+        // it reads as "I have restricted the ESP" when in fact the ESP is off.
+        if (esp_allow_set && !cfg.esp_enabled) {
+            fprintf(stderr, "--esp-allow requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
         if (cfg.silent && !wav_record_file.empty()) {
             fprintf(stderr,
                     "--wav-record cannot be used while audio is disabled in preferences.\n");
