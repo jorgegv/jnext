@@ -1,6 +1,6 @@
 #pragma once
 
-#include "peripheral/esp_socket.h"
+#include "esp01/esp_socket.h"
 #include "peripheral/uart_device.h"
 
 #include <array>
@@ -17,7 +17,7 @@
 /// `EspTransport`, and nothing constructs it yet. No `Emulator` wiring, no
 /// CLI flags, no config, no per-frame `poll()` call site — those are branch 4.
 /// It is therefore constructible and fully testable standalone against a fake
-/// transport, which is exactly how `test/esp/esp_at_test.cpp` drives it: no
+/// transport, which is exactly how `src/esp01/test/esp_at_test.cpp` drives it: no
 /// sockets, no DNS, no listener.
 ///
 /// DEPENDENCY SURFACE, deliberately tiny: `EspTransport` (the seam),

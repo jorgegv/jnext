@@ -21,7 +21,7 @@
 // shims precisely so that the untestable surface is as small as possible.
 #ifdef _WIN32
 
-#include "peripheral/esp_socket_platform.h"
+#include "esp01/esp_socket_platform.h"
 
 // winsock2.h MUST precede windows.h or windows.h drags in the Winsock 1
 // declarations and they conflict.

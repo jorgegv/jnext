@@ -2,7 +2,7 @@
 // Rationale, evidence and the deliberate modelling simplifications are all in
 // esp_at.h — read that first; this file only implements what it states.
 
-#include "peripheral/esp_at.h"
+#include "esp01/esp_at.h"
 
 #include "core/log.h"
 

@@ -15,10 +15,10 @@
 // Only info and above are emitted at the default level, which is exactly the
 // owner's "nothing on by default except connection open/close".
 
-#include "peripheral/esp_socket.h"
+#include "esp01/esp_socket.h"
 
 #include "core/log.h"
-#include "peripheral/esp_socket_platform.h"
+#include "esp01/esp_socket_platform.h"
 
 #include <chrono>
 #include <utility>

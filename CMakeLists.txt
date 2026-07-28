@@ -192,6 +192,10 @@ add_subdirectory(src/cpu)
 add_subdirectory(src/video)
 add_subdirectory(src/audio)
 add_subdirectory(src/port)
+# The emulated ESP-01 is a SELF-CONTAINED module (GH #25 branch 3.5): it links
+# nothing from jnext, so it can be added before anything else and dropped into
+# another project unchanged. jnext_peripheral links it and owns the adapter.
+add_subdirectory(src/esp01)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)

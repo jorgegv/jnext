@@ -21,7 +21,7 @@
 // no TLS here — no ZX Next software found in the GH #25 survey uses SSL.
 #ifndef _WIN32
 
-#include "peripheral/esp_socket_platform.h"
+#include "esp01/esp_socket_platform.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>

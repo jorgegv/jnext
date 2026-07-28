@@ -21,7 +21,7 @@
 // Run: ./build/test/esp_at_test
 
 #include "core/log.h"
-#include "peripheral/esp_at.h"
+#include "esp01/esp_at.h"
 #include "peripheral/uart.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>

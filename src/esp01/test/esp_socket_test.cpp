@@ -25,7 +25,7 @@
 // Run: ./build/test/esp_socket_test
 
 #include "core/log.h"
-#include "peripheral/esp_socket.h"
+#include "esp01/esp_socket.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
