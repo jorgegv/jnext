@@ -29,6 +29,10 @@ use FindBin qw($RealBin);
 my $ROOT   = abs_path("$RealBin/..");
 my $SCRIPT = "$ROOT/test/refresh-traceability-matrix.pl";
 
+# Kept before $ROOT is shadowed inside the eval'd copy below: the end-to-end
+# rows need the REAL repository to build their fixture tree from.
+my $REAL_ROOT = $ROOT;
+
 # Load the extractor without running main(). $ROOT is rebound to the temp
 # tree so grep_citations() reads the fixture, and JNEXT_FPGA_SRC points at a
 # fake core holding exactly the .vhd names the fixture is allowed to cite —
@@ -414,43 +418,116 @@ check('SELF-19', 'rows inside the generated Summary block are not read back as r
       !matrix_records('GENSUM-01', $recorded),
       "got " . (matrix_records('GENSUM-01', $recorded) ? 'recorded' : '(not recorded)'));
 
-# Suite-level symmetry: a whole suite this matrix does not trace.
+# ── The suite accounting gate (GH #144) ───────────────────────────────
 #
-# "Traced" means @SUBSYS SCANS the suite's source, not that some header
-# mentions it. The first cut of this check used mention, and it had exactly
-# the hole it exists to find: the Audio header named three suites while the
-# code scanned one, so 51 rows asserted in the other two were published as
-# `missing` and the gap satisfied the mention test at the same time.
-write_fixture('test/unit-tests.conf', <<'CONF');
-# name                             rows
-mmu_test                            250
-orphan_test                          42
-mentioned_test                        7
-fuse_z80_test                      1356
-CONF
+# `test/unit-tests.conf` is the driver. Every suite it declares must be
+# TRACED (named in @SUBSYS) or TOMBSTONED (named in %NO_MATRIX_SECTION with a
+# reason), exactly one of the two, and nothing may be accounted for without
+# being declared. Anything else is a REFUSAL — the script exits 2 and rewrites
+# nothing.
+#
+# The rows below pin the refusals, because a gate that only ever says "fine"
+# is indistinguishable from no gate. Its predecessor was exactly that: a
+# warning line inside a report that runs at version-bump time, saturated at
+# 50 suites, so the 51st arrived invisible.
+#
+# suite_accounting() takes its three lists as arguments precisely so the
+# contract can be asserted without a repository around it.
+my $ACC_DECL = [ ['mmu_test', 250], ['orphan_test', 42], ['fuse_z80_test', 1356] ];
+my $ACC_SUB  = [ ['## Memory/MMU — x', 'mmu_test'] ];
+my $ACC_TOMB = { 'fuse_z80_test' => 'data-driven runner' };
 
-# `mmu_test` is scanned by the real @SUBSYS; `orphan_test` is nowhere;
-# `mentioned_test` is named by a section header but scanned by nothing.
-my $unmapped = unmapped_suites([
-    '## Sectioned — `test/fixture/mentioned_test.cpp`',
-]);
-my %un = map { $_->[0] => $_->[1] } @$unmapped;
+sub acc { return scalar @{ suite_accounting(@_) }; }
 
-check('SELF-20', 'a suite @SUBSYS actually scans is not flagged unmapped',
-      !exists $un{'mmu_test'},
-      "flagged=[" . join(' ', map { $_->[0] } @$unmapped) . "]");
+check('SELF-20', 'a declared suite that is traced and a declared suite that is tombstoned both pass the gate',
+      acc([ ['mmu_test', 250], ['fuse_z80_test', 1356] ], $ACC_SUB, $ACC_TOMB) == 0,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['mmu_test',250], ['fuse_z80_test',1356] ], $ACC_SUB, $ACC_TOMB) }) . "]");
 
-check('SELF-21', 'an untraced suite is flagged with its declared row count',
-      ($un{'orphan_test'} // -1) == 42,
-      "got " . ($un{'orphan_test'} // '(not flagged)'));
+check('SELF-21', 'THE GATE: a declared suite that is neither traced nor tombstoned is a complaint naming its row count',
+      scalar(grep { /^orphan_test \(42 rows\): declared/ }
+             @{ suite_accounting($ACC_DECL, $ACC_SUB, $ACC_TOMB) }) == 1,
+      "complaints=[" . join(' | ', @{ suite_accounting($ACC_DECL, $ACC_SUB, $ACC_TOMB) }) . "]");
 
-check('SELF-22', 'a suite a section header MENTIONS but no @SUBSYS entry scans is still flagged',
-      exists $un{'mentioned_test'},
-      "mentioned_test " . (exists $un{'mentioned_test'} ? 'flagged' : 'NOT flagged'));
+check('SELF-22', 'the reverse direction: a suite traced by @SUBSYS but absent from the manifest is a complaint',
+      scalar(grep { /^ghost_test: traced by \@SUBSYS/ }
+             @{ suite_accounting([ ['mmu_test', 250] ], [ ['## A', 'mmu_test'], ['## B', 'ghost_test'] ], {}) }) == 1,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['mmu_test',250] ], [ ['## A','mmu_test'], ['## B','ghost_test'] ], {}) }) . "]");
 
-check('SELF-23', 'a documented out-of-scope suite (FUSE data-driven runner) is exempt',
-      !exists $un{'fuse_z80_test'},
-      "flagged=[" . join(' ', map { $_->[0] } @$unmapped) . "]");
+check('SELF-23', 'a tombstone for a suite the manifest does not declare is a complaint too',
+      scalar(grep { /^gone_test: tombstoned .* but not/ }
+             @{ suite_accounting([ ['mmu_test', 250] ], $ACC_SUB, { 'gone_test' => 'why' }) }) == 1,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['mmu_test',250] ], $ACC_SUB, { 'gone_test' => 'why' }) }) . "]");
+
+check('SELF-71', 'a suite that is BOTH traced and tombstoned is a complaint — it must be exactly one',
+      scalar(grep { /^mmu_test: both traced/ }
+             @{ suite_accounting([ ['mmu_test', 250] ], $ACC_SUB, { 'mmu_test' => 'why' }) }) == 1,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['mmu_test',250] ], $ACC_SUB, { 'mmu_test' => 'why' }) }) . "]");
+
+check('SELF-72', 'a suite traced by two @SUBSYS entries is a complaint (the Audio shape must use ONE entry with several suites)',
+      scalar(grep { /^mmu_test: traced by two/ }
+             @{ suite_accounting([ ['mmu_test', 250] ],
+                                 [ ['## A', 'mmu_test'], ['## B', 'mmu_test'] ], {}) }) == 1,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['mmu_test',250] ], [ ['## A','mmu_test'], ['## B','mmu_test'] ], {}) }) . "]");
+
+check('SELF-73', 'an UNREASONED tombstone is a complaint — the reason is the whole point of the escape hatch',
+      scalar(grep { /^quiet_test: tombstoned with an empty reason/ }
+             @{ suite_accounting([ ['quiet_test', 3] ], [], { 'quiet_test' => '  ' }) }) == 1,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['quiet_test',3] ], [], { 'quiet_test' => '  ' }) }) . "]");
+
+check('SELF-74', 'a multi-suite @SUBSYS entry (the Audio shape) accounts for every suite it names',
+      acc([ ['audio_test', 1], ['audio_nextreg_test', 2], ['audio_port_dispatch_test', 3] ],
+          [ ['## Audio — x', ['audio_test', 'audio_nextreg_test', 'audio_port_dispatch_test']] ],
+          {}) == 0,
+      "complaints=[" . join(' | ', @{ suite_accounting([ ['audio_test',1], ['audio_nextreg_test',2], ['audio_port_dispatch_test',3] ], [ ['## Audio — x', ['audio_test','audio_nextreg_test','audio_port_dispatch_test']] ], {}) }) . "]");
+
+# ── Suite -> source, resolved from CMake ──────────────────────────────
+#
+# The source path is READ FROM CMAKE, never written by hand and never derived
+# from the suite name. 79 of 87 suite names do match their source basename and
+# 8 do not, and a convention that is right 91% of the time is the worst kind:
+# `cpu_int_pulse_test` is built from `cpu/int_pulse_test.cpp`, the six
+# `debugger_*` suites likewise, and the two ESP-01 module suites are declared
+# in `src/esp01/CMakeLists.txt` with their sources under `src/esp01/test/`.
+#
+# SELF-70 is the module-resident half, re-pointed from the basename mapping it
+# used to pin (GH #25) onto the mechanism that replaced it (GH #144): the same
+# property — a suite whose source lives OUTSIDE `test/` resolves correctly —
+# now holds because the path is read from the CMakeLists.txt that declares it,
+# resolved relative to that file's own directory.
+write_fixture('test/CMakeLists.txt', <<'CML');
+# a comment: add_executable(commented_test should/not/count.cpp)
+add_executable(mmu_test mmu/mmu_test.cpp ${CMAKE_SOURCE_DIR}/src/core/wav_loader.cpp)
+add_executable(cpu_int_pulse_test cpu/int_pulse_test.cpp)
+if(ENABLE_DEBUGGER)
+    add_executable(debugger_video_panel_test debugger/video_panel_test.cpp)
+endif()
+add_executable(jnext_tests ${GTEST_SOURCES})
+CML
+write_fixture('src/esp01/CMakeLists.txt', <<'CML');
+    add_executable(esp_at_test test/esp_at_test.cpp)
+CML
+my $csrc = cmake_sources();
+
+check('SELF-75', 'the first source of add_executable() is the suite source, extra translation units ignored',
+      ($csrc->{'mmu_test'} // '') eq 'test/mmu/mmu_test.cpp',
+      "got " . ($csrc->{'mmu_test'} // '(unresolved)'));
+
+check('SELF-78', 'a suite whose NAME differs from its source basename resolves from CMake, not from the name',
+      ($csrc->{'cpu_int_pulse_test'} // '') eq 'test/cpu/int_pulse_test.cpp',
+      "got " . ($csrc->{'cpu_int_pulse_test'} // '(unresolved)'));
+
+check('SELF-70', 'a MODULE-RESIDENT suite resolves relative to the CMakeLists.txt that declares it, outside test/',
+      ($csrc->{'esp_at_test'} // '') eq 'src/esp01/test/esp_at_test.cpp',
+      "got " . ($csrc->{'esp_at_test'} // '(unresolved)'));
+
+check('SELF-76', 'an add_executable() inside an if() block still resolves — the gate is a build option, not a scoping rule',
+      ($csrc->{'debugger_video_panel_test'} // '') eq 'test/debugger/video_panel_test.cpp',
+      "got " . ($csrc->{'debugger_video_panel_test'} // '(unresolved)'));
+
+check('SELF-77', 'a ${VAR} source LIST is refused rather than guessed at, and a commented-out declaration is ignored',
+      !exists $csrc->{'jnext_tests'} && !exists $csrc->{'commented_test'},
+      "jnext_tests=" . ($csrc->{'jnext_tests'} // '(absent)')
+      . " commented_test=" . ($csrc->{'commented_test'} // '(absent)'));
 
 # ── The generated Summary block ───────────────────────────────────────
 
@@ -544,22 +621,284 @@ check('SELF-28', 'the FAIL set is the union across every backing binary',
       scalar($multi[6] =~ /\|\s*fail\s*\|/ && $multi[4] =~ /\|\s*pass\s*\|/),
       "MB-02=[$multi[6]] MA-01=[$multi[4]]");
 
+# ── The `[FAIL]` harness spelling (GH #144) ───────────────────────────
+#
+# Three suites print `[FAIL] <name>` rather than the `  FAIL <name>:` form,
+# and two of them — `cpu_int_pulse_test` and `cpu_z80n_im2_regressions_test` —
+# are traced sections. A FAIL scanner blind to that spelling reads their FAIL
+# set as EMPTY and publishes `pass` for a row whose assertion fails, which is
+# the one direction a Status column must never be wrong in.
+write_fixture('test/fixture/bracket_test.cpp', <<'CPP');
+void b() {
+    check(res, "BR-01", cond, "passing row — VHDL fixture_a.vhd:1");
+    check(res, "BR-02", cond, "failing row");
+}
+CPP
+{
+    my $path = "$FIXTURE_ROOT/bin/bracket_suite";
+    open(my $h, '>', $path) or die "write $path: $!";
+    print $h "#!/bin/sh\necho '[PASS] BR-01'\necho '[FAIL] BR-02  detail here'\n";
+    close $h;
+    chmod 0755, $path;
+}
+my @bracket = (
+    '## Bracket — `test/fixture/bracket_test.cpp`',
+    '',
+    '| Test ID | Description | VHDL file:line | Status  | Test file:line                  |',
+    '|---------|-------------|----------------|---------|---------------------------------|',
+    '| BR-01   | passing     | —              | missing | missing                         |',
+    '| BR-02   | failing     | —              | missing | missing                         |',
+);
+my (@brd, @brk);
+refresh_section(\@bracket, 0, 'bin/bracket_suite',
+                'test/fixture/bracket_test.cpp', \@brd, \@brk);
+
+check('SELF-79', 'a `[FAIL] ID` line is read as a failure, not whitewashed into `pass`',
+      scalar($bracket[5] =~ /\|\s*fail\s*\|/),
+      "got [$bracket[5]]");
+
+check('SELF-80', 'the refusal: a `[PASS]` row in the same suite is NOT dragged into the FAIL set',
+      scalar($bracket[4] =~ /\|\s*pass\s*\|/),
+      "got [$bracket[4]]");
+
+# ── `set_group()` must not shadow the row's own call (GH #144) ────────
+#
+# `set_group("ID")` prints a banner; it is not the row's assertion.
+# grep_row_ids() has dropped it since GH #117. grep_citations() did not, so
+# the banner became the ID's first non-comment occurrence, the call-span
+# lookup found no call owning the row, and the citation silently fell through
+# to the file-header comment block that names it — publishing a neighbour's
+# lines over the ones the row's own check() carries. Measured over every
+# suite: two rows, and both were wrong.
+write_fixture('test/fixture/banner_test.cpp', <<'CPP');
+// Header block naming SG-01 and SG-02, citing fixture_d.vhd:900 for both.
+void g() {
+    set_group("SG-01");
+    check("SG-01", "row one — VHDL fixture_a.vhd:11", cond, detail);
+    set_group("SG-02");
+    check("SG-02", "row two — VHDL fixture_b.vhd:22", cond, detail);
+}
+CPP
+my $banner = grep_citations('test/fixture/banner_test.cpp');
+
+check('SELF-81', 'a row preceded by its own set_group() banner still takes the citation from its own check()',
+      ($banner->{'SG-01'} // '') eq 'fixture_a.vhd:11'
+        && ($banner->{'SG-02'} // '') eq 'fixture_b.vhd:22',
+      sprintf("SG-01=%s SG-02=%s", $banner->{'SG-01'} // '(none)',
+              $banner->{'SG-02'} // '(none)'));
+
+check('SELF-82', 'the banner label itself is not published as a row citation',
+      !exists $banner->{'fixture_d'},
+      'banner label leaked as a row');
+
+# ── EVERY citation in the evidence, not just the first (GH #144) ──────
+#
+# cite_in() was a scalar-context match, so a row whose check() named two files
+# published one. 27 of 126 published cells were a strict prefix of the truth,
+# and a prefix reads exactly like a complete answer — the drift report cannot
+# see it either, because the extractor agreed with itself every run.
+write_fixture('test/fixture/multicite_test.cpp', <<'CPP');
+void m() {
+    check("MC-01", "two files", cond, "fixture_a.vhd:10; fixture_b.vhd:20-22");
+    check("MC-02", "prose interrupts the filename-omitting tail",
+          cond, "fixture_a.vhd:30 (the gate), :44 (the latch)");
+    check("MC-03", "the same lines restated twice", cond,
+          "fixture_c.vhd:5 and again fixture_c.vhd:5");
+    check("MC-04", "a real file and an imaginary one", cond,
+          "fixture_a.vhd:70, not_in_the_core.vhd:99");
+}
+CPP
+my $mc = grep_citations('test/fixture/multicite_test.cpp');
+
+check('SELF-83', 'a second FILE in the same evidence is published, not dropped',
+      ($mc->{'MC-01'} // '') eq 'fixture_a.vhd:10, fixture_b.vhd:20-22',
+      "got " . ($mc->{'MC-01'} // '(none)'));
+
+check('SELF-84', 'the refusal: a filename-omitting tail behind prose is NOT reached across',
+      ($mc->{'MC-02'} // '') eq 'fixture_a.vhd:30',
+      "got " . ($mc->{'MC-02'} // '(none)'));
+
+check('SELF-85', 'a citation restated in the same evidence is published once, not twice',
+      ($mc->{'MC-03'} // '') eq 'fixture_c.vhd:5',
+      "got " . ($mc->{'MC-03'} // '(none)'));
+
+check('SELF-86', 'an unknown filename is dropped from the list while its valid neighbour survives',
+      ($mc->{'MC-04'} // '') eq 'fixture_a.vhd:70',
+      "got " . ($mc->{'MC-04'} // '(none)'));
+
+# Collecting every citation surfaced a legibility regression the single-match
+# version could not have: a description naming the headline line and a detail
+# naming the full set published `file:169, file:169,176`. A strict restatement
+# is suppressed by verbatim TOKEN SUBSET on the same filename — nothing is
+# merged, renumbered or reordered.
+write_fixture('test/fixture/subset_test.cpp', <<'CPP');
+void s() {
+    check("SS-01", "headline in the description (fixture_a.vhd:169)",
+          cond, "fixture_a.vhd:169,176");
+    check("SS-02", "disjoint line sets for one file stay both",
+          cond, "fixture_a.vhd:10 and fixture_a.vhd:20");
+    check("SS-03", "same lines, two different files, both stay",
+          cond, "fixture_a.vhd:5 mirrored at fixture_b.vhd:5");
+    check("SS-04", "a bare filename is redundant beside a lined one",
+          cond, "see fixture_c.vhd, specifically fixture_c.vhd:42");
+}
+CPP
+my $ss = grep_citations('test/fixture/subset_test.cpp');
+
+check('SELF-93', 'a strict restatement of the same file with fewer lines is suppressed',
+      ($ss->{'SS-01'} // '') eq 'fixture_a.vhd:169,176',
+      "got " . ($ss->{'SS-01'} // '(none)'));
+
+check('SELF-94', 'the refusal: DISJOINT line sets for the same file are both kept, in source order',
+      ($ss->{'SS-02'} // '') eq 'fixture_a.vhd:10, fixture_a.vhd:20',
+      "got " . ($ss->{'SS-02'} // '(none)'));
+
+check('SELF-95', 'the refusal: identical lines in two DIFFERENT files are both kept',
+      ($ss->{'SS-03'} // '') eq 'fixture_a.vhd:5, fixture_b.vhd:5',
+      "got " . ($ss->{'SS-03'} // '(none)'));
+
+check('SELF-96', 'a bare filename is suppressed beside a lined citation of the same file',
+      ($ss->{'SS-04'} // '') eq 'fixture_c.vhd:42',
+      "got " . ($ss->{'SS-04'} // '(none)'));
+
+# ── A guard call must not shadow the assertion (GH #144) ──────────────
+#
+# A row is routinely asserted twice: the real check(), and a fixture-init
+# guard reusing the same ID, which is textually FIRST. Taking only the first
+# occurrence let the guard — which carries no citation — shadow the assertion
+# that does, and 21 Multiface rows fell through to their banner comment.
+write_fixture('test/fixture/guard_test.cpp', <<'CPP');
+// Banner naming GD-01 and GD-02 and citing fixture_d.vhd:900 for both.
+void g() {
+    if (!init()) {
+        check("GD-01", "fixture init failed", false, "init returned false");
+        return;
+    }
+    check("GD-01", "the real assertion", cond, "fixture_a.vhd:12");
+    if (!init()) {
+        check("GD-02", "fixture init failed", false, "init returned false");
+        return;
+    }
+    check("GD-02", "an assertion with no citation of its own", cond, "no vhdl here");
+}
+CPP
+my $guard = grep_citations('test/fixture/guard_test.cpp');
+
+check('SELF-87', 'the CITED call wins over an earlier guard call reusing the same ID',
+      ($guard->{'GD-01'} // '') eq 'fixture_a.vhd:12',
+      "got " . ($guard->{'GD-01'} // '(none)'));
+
+check('SELF-88', 'the refusal: when NO call carrying the ID cites anything, the `next` tier stays fenced off',
+      ($guard->{'GD-02'} // '') eq 'fixture_d.vhd:900',
+      "got " . ($guard->{'GD-02'} // '(none)'));
+
+# ── `Test file:line` must name the SAME call the citation came from ───
+#
+# Fixing the citation half alone left the two halves of a row disagreeing:
+# line_for() still resolved from the first occurrence, so 22 Multiface rows
+# published the dormant fixture-init guard's line — a `check(id, "Emulator
+# init failed", false, ...)` that never executes — beside a citation read from
+# the real assertion six lines down. A reader following the column landed on a
+# line that is not the assertion.
+my (%gd_from, %gd_at);
+grep_citations('test/fixture/guard_test.cpp', \%gd_from, \%gd_at);
+my ($gd_checks, $gd_skips) = grep_source('test/fixture/guard_test.cpp');
+my %gd_where = map { $_ => 'test/fixture/guard_test.cpp' }
+               (keys %$gd_checks, keys %$gd_skips);
+
+my ($gd1_src, $gd1_line) =
+    line_for('GD-01', $gd_checks, $gd_skips, \%gd_where, \%gd_at);
+my ($gd1_src_old, $gd1_line_old) =
+    line_for('GD-01', $gd_checks, $gd_skips, \%gd_where);
+
+check('SELF-97', 'Test file:line names the CITED call, not the guard that reused the ID first',
+      defined $gd1_line && $gd1_line == 7 && $gd1_line_old == 4,
+      sprintf("cited-call line=%s first-occurrence line=%s",
+              $gd1_line // '(none)', $gd1_line_old // '(none)'));
+
+check('SELF-98', 'the citation and the line come from ONE call — the two halves cannot disagree',
+      ($guard->{'GD-01'} // '') eq 'fixture_a.vhd:12' && ($gd_at{'GD-01'} // 0) == 7,
+      sprintf("cite=%s at=%s", $guard->{'GD-01'} // '(none)',
+              $gd_at{'GD-01'} // '(none)'));
+
+check('SELF-99', 'the refusal: a row whose citation came from a COMMENT gets no line from it, and falls back to its own occurrence',
+      !defined $gd_at{'GD-02'},
+      "got " . ($gd_at{'GD-02'} // '(undef, correct)'));
+
+# ── Locating a section header (GH #144) ───────────────────────────────
+#
+# A suite named in @SUBSYS passes the accounting gate as TRACED, but if its
+# header is not actually in the document then nothing scans it and its rows
+# are recorded nowhere — the very condition the gate exists to make
+# impossible. That is a REFUSAL, and it was inline in main(), which this file
+# strips: the one part of the contract nothing could assert.
+my @rs_doc = (
+    '## Copper — `test/copper/copper_test.cpp`',
+    '',
+    '## ULA Video — `test/ula/ula_test.cpp` + `test/ula/ula_integration_test.cpp`',
+    '',
+    '## Copper Extra — `test/copper/other_test.cpp`',
+);
+my ($rs_found, $rs_missing) = resolve_sections(\@rs_doc, [
+    ['## Copper — `test/copper/copper_test.cpp`',  ['bin/c'], ['test/c.cpp']],
+    ['## ULA Video — `test/ula/ula_test.cpp`',     ['bin/u'], ['test/u.cpp']],
+    ['## Nowhere — `test/nope/nope_test.cpp`',     ['bin/n'], ['test/n.cpp']],
+]);
+
+check('SELF-89', 'THE REFUSAL: a traced suite whose section header is absent is reported, not skipped silently',
+      scalar(@$rs_missing) == 1
+        && $rs_missing->[0] eq '## Nowhere — `test/nope/nope_test.cpp`',
+      "missing=[" . join(' | ', @$rs_missing) . "]");
+
+check('SELF-90', 'a header that gained a " + `companion.cpp`" suffix still resolves by prefix',
+      scalar(@$rs_found) == 2 && $rs_found->[1][0] == 2,
+      "found=[" . join(' ', map { $_->[0] } @$rs_found) . "]");
+
+check('SELF-91', 'the refusal: the prefix match does not let `## Copper` swallow `## Copper Extra`',
+      scalar(@$rs_found) >= 1 && $rs_found->[0][0] == 0,
+      "Copper resolved to line " . ($rs_found->[0][0] // '(none)'));
+
+# resolve_sections() answers WHICH headers are absent; the CONSEQUENCE — exit
+# 2 and write nothing — was still inline in main(), which this file strips.
+# A reviewer reverted that refusal to print-and-continue and the selftest
+# stayed green, so it was a rule nothing could assert.
+my @rf_none = section_refusal([]);
+my @rf_some = section_refusal(['## Nowhere — `x`']);
+
+check('SELF-100', 'a missing section header exits 2 AND forbids writing the matrix',
+      $rf_some[0] == 2 && !$rf_some[1],
+      sprintf("got rc=%d may_write=%d", @rf_some));
+
+check('SELF-101', 'the refusal: with every section present the run proceeds and may write',
+      $rf_none[0] == 0 && $rf_none[1],
+      sprintf("got rc=%d may_write=%d", @rf_none));
+
+# ── Exit 3 is internal error, and must not read as the gate's exit 2 ──
+#
+# `die` derives its status from errno, so "binary not found" exited 2 (ENOENT)
+# — indistinguishable from a REFUSAL, which is the signal `make unit-test`
+# now acts on. Every internal error goes through fatal() instead, which stays
+# catchable so this file can assert the refusals at all.
+my $fatal_died = 0;
+eval { fatal('a synthetic internal error'); 1 } or $fatal_died = 1;
+check('SELF-92', 'fatal() raises rather than exiting, so a caller can still catch it',
+      $fatal_died && $@ =~ /^refresh-traceability-matrix: a synthetic internal error$/m,
+      $fatal_died ? "message=[$@]" : 'fatal() returned without raising');
+
 # ── The exit-status contract ──────────────────────────────────────────
 #
 # main() is stripped when this file loads the script, so the glue that
-# turns the two gaps into a process exit status would otherwise be the one
-# part of the contract nothing pins.
-check('SELF-29', 'either gap non-empty exits 1',
-      report_exit_code(1, []) == 1
-        && report_exit_code(0, [['orphan_test', 42]]) == 1
-        && report_exit_code(3, [['orphan_test', 42]]) == 1,
-      sprintf("got %d/%d/%d", report_exit_code(1, []),
-              report_exit_code(0, [['orphan_test', 42]]),
-              report_exit_code(3, [['orphan_test', 42]])));
+# turns the row-level gap into a process exit status would otherwise be the
+# one part of the contract nothing pins. The SUITE-level gap is deliberately
+# NOT an input here: it is a refusal that exits 2 before anything is read or
+# written, so it cannot be expressed as a return value from this sub.
+check('SELF-29', 'an unrecorded row exits 1',
+      report_exit_code(1) == 1 && report_exit_code(3) == 1,
+      sprintf("got %d/%d", report_exit_code(1), report_exit_code(3)));
 
-check('SELF-30', 'both gaps empty exits 0',
-      report_exit_code(0, []) == 0,
-      "got " . report_exit_code(0, []));
+check('SELF-30', 'no unrecorded row exits 0',
+      report_exit_code(0) == 0,
+      "got " . report_exit_code(0));
 
 # ── Commented-out assertions (GH #119) ────────────────────────────────
 #
@@ -1274,6 +1613,136 @@ check('SELF-68', 'the refusal: a genuinely different line number still drifts',
 check('SELF-69', 'the refusal: order is NOT normalised — the same lines in a different order still drift',
       ($ws_drift{'WS-ORDER-01'} // '') eq 'fixture_a.vhd:80, 70 vs fixture_a.vhd:70,80',
       'got drift ' . ($ws_drift{'WS-ORDER-01'} // '(none)'));
+
+# ── END TO END: main()'s own glue, in a subprocess (GH #144) ─────────
+#
+# Every row above loads this file's target WITHOUT main() and asserts a sub in
+# isolation. That has now missed the same structural gap three rounds running:
+# report_exit_code(), companion_map(), resolve_sections() and section_refusal()
+# were each extracted so they COULD be asserted, and each time main()'s USE of
+# them stayed untested. The proof it was not being tested: deleting main()'s
+# call to section_refusal() and restoring print-and-continue left this file
+# 101/101 green. Extracting a fifth helper would not have closed it.
+#
+# So this pair runs the REAL script as a REAL process against a throwaway
+# repository, and asserts the two things a refusal has to do: exit 2, and
+# leave the document byte-identical. Every line of main() between the argument
+# walk and the write is on that path.
+#
+# The fixture is the real repo's manifest, CMakeLists and matrix — because
+# @SUBSYS is baked into the script under test and must agree with them — plus
+# an EMPTY stub for every source and a do-nothing stub for every binary. Empty
+# sources mean every row resolves `missing`, which is irrelevant here: what is
+# under test is whether the process writes at all.
+{
+    my $E2E = "$FIXTURE_ROOT/e2e";
+    my @suites;
+    {
+        open(my $fh, '<', "$REAL_ROOT/test/unit-tests.conf")
+            or die "e2e: open unit-tests.conf: $!";
+        while (my $l = <$fh>) {
+            next if $l =~ /^\s*#/ || $l !~ /\S/;
+            my ($n) = split(' ', $l);
+            $n =~ s/^\?//;
+            push @suites, $n;
+        }
+        close $fh;
+    }
+
+    # Suite -> source, parsed here rather than through cmake_sources(): that
+    # sub is memoised and already answered for a different fixture above.
+    my %src_of;
+    for my $rel ('test/CMakeLists.txt', 'src/esp01/CMakeLists.txt') {
+        (my $dir = $rel) =~ s{/CMakeLists\.txt$}{};
+        open(my $fh, '<', "$REAL_ROOT/$rel") or next;
+        while (my $l = <$fh>) {
+            next if $l =~ /^\s*#/;
+            next unless $l =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
+            next if $2 =~ /^\$\{/;
+            $src_of{$1} = "$dir/$2";
+        }
+        close $fh;
+    }
+
+    my $build_e2e = sub {
+        my ($drop_section) = @_;
+        system('rm', '-rf', $E2E) == 0 or die "e2e: rm -rf: $?";
+        for my $d ('test', 'doc/testing', 'build/test', 'src/esp01/test') {
+            system('mkdir', '-p', "$E2E/$d") == 0 or die "e2e: mkdir $d: $?";
+        }
+        for my $f ('test/unit-tests.conf', 'test/CMakeLists.txt',
+                   'src/esp01/CMakeLists.txt',
+                   'test/refresh-traceability-matrix.pl') {
+            system('cp', "$REAL_ROOT/$f", "$E2E/$f") == 0
+                or die "e2e: cp $f: $?";
+        }
+        for my $s (values %src_of) {
+            (my $d = "$E2E/$s") =~ s{/[^/]+$}{};
+            system('mkdir', '-p', $d) == 0 or die "e2e: mkdir $d: $?";
+            open(my $h, '>', "$E2E/$s") or die "e2e: write $s: $!";
+            close $h;
+        }
+        for my $s (@suites) {
+            open(my $h, '>', "$E2E/build/test/$s") or die "e2e: stub $s: $!";
+            print $h "#!/bin/sh\n";
+            close $h;
+            chmod 0755, "$E2E/build/test/$s";
+        }
+        open(my $in, '<', "$REAL_ROOT/doc/testing/TRACEABILITY-MATRIX.md")
+            or die "e2e: open matrix: $!";
+        my @m = <$in>;
+        close $in;
+        @m = grep { !/^\Q$drop_section\E/ } @m if $drop_section;
+        open(my $out, '>', "$E2E/doc/testing/TRACEABILITY-MATRIX.md")
+            or die "e2e: write matrix: $!";
+        print $out @m;
+        close $out;
+        return "$E2E/doc/testing/TRACEABILITY-MATRIX.md";
+    };
+
+    my $digest = sub {
+        my ($p) = @_;
+        open(my $h, '<', $p) or return '(unreadable)';
+        local $/;
+        my $body = <$h>;
+        close $h;
+        return length($body) . ':' . unpack('%32C*', $body);
+    };
+
+    my $run = sub {
+        my $rc = system("perl '$E2E/test/refresh-traceability-matrix.pl' "
+                      . ">/dev/null 2>&1");
+        return $rc >> 8;
+    };
+
+    # (a) THE REFUSAL. One traced suite's `## ` header removed.
+    my $mpath  = $build_e2e->('## Multiface — ');
+    my $before = $digest->($mpath);
+    my $rc_a   = $run->();
+    my $after  = $digest->($mpath);
+
+    check('SELF-102', 'END TO END: a traced suite whose section is absent makes the real process exit 2',
+          $rc_a == 2, "got exit $rc_a");
+
+    check('SELF-103', 'END TO END: and that refusal leaves the document byte-identical',
+          $before eq $after,
+          $before eq $after ? "unchanged" : "REWRITTEN ($before -> $after)");
+
+    # (b) THE DISCRIMINATOR. Same tree, section present: the run must proceed
+    # past the refusal and rewrite. Without this, a script that refused
+    # unconditionally — or never wrote at all — would pass (a) too.
+    my $mpath_b  = $build_e2e->(undef);
+    my $before_b = $digest->($mpath_b);
+    my $rc_b     = $run->();
+    my $after_b  = $digest->($mpath_b);
+
+    check('SELF-104', 'END TO END: the discriminator — with every section present the process does NOT refuse',
+          $rc_b != 2, "got exit $rc_b");
+
+    check('SELF-105', 'END TO END: and it reaches the write, so (a) pinned a refusal and not a no-op script',
+          $before_b ne $after_b,
+          $before_b ne $after_b ? "rewritten" : "NOT rewritten ($before_b)");
+}
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);

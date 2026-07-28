@@ -137,9 +137,11 @@ int main() {
         const bool d28 = int_was_discarded(true, 28);  // 28+4=32, not >32 → live
         const bool d29 = int_was_discarded(true, 29);  // 29+4=33, >32      → discarded
         check(res, "INT-PULSE-48K-edge-28",
-              !d28, "48K/+3 (width=32): delta=28 must NOT discard /INT");
+              !d28, "48K/+3 (width=32): delta=28 must NOT discard /INT "
+              "[zxnext.vhd:2033, 2014-2015]");
         check(res, "INT-PULSE-48K-past-29",
-              d29,  "48K/+3 (width=32): delta=29 must discard /INT");
+              d29,  "48K/+3 (width=32): delta=29 must discard /INT "
+              "[zxnext.vhd:2033, 2014-2015]");
     }
 
     // 128K / Pentagon / Next-default — pulse width 36. Discard boundary
@@ -148,9 +150,11 @@ int main() {
         const bool d32 = int_was_discarded(false, 32);
         const bool d33 = int_was_discarded(false, 33);
         check(res, "INT-PULSE-128K-edge-32",
-              !d32, "128K/Pent/Next (width=36): delta=32 must NOT discard");
+              !d32, "128K/Pent/Next (width=36): delta=32 must NOT discard "
+              "[zxnext.vhd:2033, 2014-2015]");
         check(res, "INT-PULSE-128K-past-33",
-              d33,  "128K/Pent/Next (width=36): delta=33 must discard");
+              d33,  "128K/Pent/Next (width=36): delta=33 must discard "
+              "[zxnext.vhd:2033, 2014-2015]");
     }
 
     // The 4-T-state divergence band that the original Pass-1 fix addressed:
@@ -161,9 +165,11 @@ int main() {
         const bool short_expired = int_was_discarded(true,  29);
         const bool long_live     = !int_was_discarded(false, 32);
         check(res, "INT-PULSE-DELTA-DIVERGENCE-48K-expires",
-              short_expired, "48K/+3 pulse must expire across delta=29 boundary");
+              short_expired, "48K/+3 pulse must expire across delta=29 boundary "
+              "[zxnext.vhd:2033]");
         check(res, "INT-PULSE-DELTA-DIVERGENCE-128K-live",
-              long_live,     "128K/Pent/Next pulse must still be live at delta=32");
+              long_live,     "128K/Pent/Next pulse must still be live at delta=32 "
+              "[zxnext.vhd:2033]");
     }
 
     // V18R-CPU-01 discriminative regression — pulse-expired drop must be
@@ -185,11 +191,13 @@ int main() {
         check(res, "INT-PULSE-V18R-CPU-01-48K-pulse-expired-iff1-up",
               d_48K_30,
               "V18R-CPU-01: 48K/+3 delta=30 must DROP at 2nd execute() "
-              "even though IFF1=1 (VHDL /INT line went high at T=32)");
+              "even though IFF1=1 (VHDL /INT line went high at T=32, "
+              "zxnext.vhd:2017-2033)");
         check(res, "INT-PULSE-V18R-CPU-01-128K-pulse-expired-iff1-up",
               d_128_34,
               "V18R-CPU-01: 128K/Pent/Next delta=34 must DROP at 2nd "
-              "execute() even though IFF1=1 (VHDL /INT line went high at T=36)");
+              "execute() even though IFF1=1 (VHDL /INT line went high at "
+              "T=36, zxnext.vhd:2017-2033)");
     }
 
     // Setter / getter round-trip + default value (preserves byte-identical

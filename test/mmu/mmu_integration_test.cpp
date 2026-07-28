@@ -159,7 +159,7 @@ static void test_eff7_io_en_gate(Emulator& emu) {
         const bool b_ram = emu.mmu().port_eff7_ram_at_0000();
         check("MMU-EF7-IO-EN-00",
               "baseline: gate-open + EFF7=0x00 clears disable_p1024 + ram_at_0000 "
-              "[zxnext.vhd:3777-3779 storage]",
+              "[zxnext.vhd:3780-3782 storage]",
               !b_dis && !b_ram,
               fmt("disable_p1024=%d ram_at_0000=%d", b_dis, b_ram));
     }
@@ -236,7 +236,7 @@ static void test_nr_8c_preserves_nr_mmu(Emulator& emu) {
     const uint8_t pre = nr_read(emu, 0x50);
     check("V12-MEM-01-A",
           "NR 0x50 read-back returns verbatim 0xE5 after high-page write "
-          "[zxnext.vhd:4686-4699,6075-6082]",
+          "[zxnext.vhd:4686-4699,6059-6060]",
           pre == 0xE5,
           fmt("expected 0xE5, got 0x%02X", pre));
 
@@ -691,7 +691,7 @@ static void test_nr03_machine_type_cold_boot_default() {
     const uint8_t next_mt = nr_read(next_emu, 0x03) & 0x07;
     check("MT-DEF-01",
           "Next (ZXN_ISSUE2) cold-boot NR $03 machine-type = 011 (+3) "
-          "per VHDL :1103 power-on default",
+          "per the zxnext.vhd:1103 signal initialiser (the power-on default)",
           next_mt == 0x03,
           fmt("nr03_mtype=0x%02X (want 0x03)", next_mt));
 

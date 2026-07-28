@@ -380,7 +380,7 @@ static void g_mf_core()
         check("MF-CORE-10",
               "is_active() = is_mem_active() OR is_nmi_hold()",
               none && only_hold && both && drop_via_retn,
-              "zxnext.vhd:2099");
+              "zxnext.vhd:4305");
     }
 
     // MF-CORE-11 — load_rom_bytes round-trip.
@@ -517,7 +517,7 @@ static void g_mf_port_dispatch()
     {
         Emulator emu;
         if (!prep_emulator_for_mf(emu, 0x00)) {
-            check("MF-PORT-MFP3-OUT-3F",
+            check("MF-PORT-01",
                   "Emulator init failed", false, "init returned false");
             return;
         }
@@ -906,7 +906,9 @@ static void g_mf_mux()
         check("MF-MUX-07",
               "is_enabled=0 closes mf_port_en gate (mux suppressed)",
               got != 0x55,
-              "VHDL multiface.vhd:64, :103 (enable_i gate), zxnext.vhd:2816");
+              "VHDL multiface.vhd:103,195 — enable_i forces reset, which "
+              "holds the mf_port_en_o formula low; zxnext.vhd:2816 is the "
+              "read mux it gates");
     }
 
     // ── MF-MUX-08 — mf_type=01 (MF128 var A) else-branch readback ──────
@@ -1158,7 +1160,7 @@ static void g_mf_overlay()
     }
 
     // ── MF-OVL-05 — write to ROM area is ignored.
-    // VHDL zxnext.vhd:3034 — sram_pre_rdonly=NOT cpu_a(13)=1 for the ROM
+    // VHDL zxnext.vhd:3035 — sram_pre_rdonly=NOT cpu_a(13)=1 for the ROM
     // half. Writes must be silently dropped; MF ROM contents must remain
     // unchanged. Discriminative: stamp MF ROM, write a different byte at
     // the same address, verify ROM still holds the stamped value.
@@ -1176,11 +1178,11 @@ static void g_mf_overlay()
         check("MF-OVL-05",
               "write 0xAA to 0x0123 (ROM half) is ignored; MF ROM unchanged",
               before == after,
-              "VHDL zxnext.vhd:3034 (sram_pre_rdonly=1 for cpu_a(13)=0)");
+              "VHDL zxnext.vhd:3035 (sram_pre_rdonly=1 for cpu_a(13)=0)");
     }
 
     // ── MF-OVL-06 — addresses outside slot 0 fall through.
-    // VHDL zxnext.vhd:3030 — the override only fires on cpu_a(15:14)='00'
+    // VHDL zxnext.vhd:3029 — the override only fires on cpu_a(15:14)='00'
     // (i.e. addr < 0x4000). At 0x4000 and above, the MF overlay must NOT
     // intercept. Discriminative: pre-fill MF ROM with a recognisable
     // pattern; read at 0x4000 must NOT return that byte (the MMU's
@@ -1203,7 +1205,7 @@ static void g_mf_overlay()
         check("MF-OVL-06",
               "addr 0x4000 (outside slot 0): MF overlay does NOT fire",
               emu.multiface().is_mem_active() && got != mf_would_be,
-              "VHDL zxnext.vhd:3030 (cpu_a(15:14)='00' gate)");
+              "VHDL zxnext.vhd:3029 (cpu_a(15:14)='00' gate)");
     }
 
     // ── MF-OVL-07 — fetch_66 one-cycle bypass activates the overlay.
@@ -1263,7 +1265,8 @@ static void g_mf_overlay()
         check("MF-OVL-08",
               "on_retn_seen deactivates overlay; reads fall through",
               active_pre && inactive_post && fall_through,
-              "VHDL multiface.vhd:144, :178 (RETN clears nmi_active+mf_enable)");
+              "VHDL multiface.vhd:144-145,178-179 - the two RETN arms and the "
+              "clears they guard (nmi_active and mf_enable)");
     }
 
     // ── MF-OVL-09 — MF priority above DivMMC.
@@ -1300,7 +1303,8 @@ static void g_mf_overlay()
         check("MF-OVL-09",
               "both MF and DivMMC active: read at 0x0000 returns MF ROM (0xAA)",
               both_active && got == 0xAA,
-              "VHDL zxnext.vhd:2937 (1. multiface 2. divmmc priority)");
+              "VHDL zxnext.vhd:3030,3036,3084 — mf_mem_en forces "
+              "sram_pre_override=\"000\", whose bit 2 gates divmmc_rom_en");
     }
 
     // ── MF-OVL-10 — boot ROM priority above MF.
@@ -1327,7 +1331,8 @@ static void g_mf_overlay()
         check("MF-OVL-10",
               "boot ROM enabled + MF active: read at 0x0000 returns boot ROM (0xBB)",
               both_active && got == 0xBB,
-              "VHDL zxnext.vhd:2937 (0. bootrom > 1. multiface)");
+              "VHDL zxnext.vhd:1856-1857 (bootrom_en tested before any "
+              "SRAM/MF path in the cpu_di mux)");
     }
 }
 
@@ -1408,7 +1413,7 @@ static void g_mf_m1gate()
               "and port_io_dly, preserves mf_enable (multiface.vhd:195)",
               armed && !mf.mf_port_en() && !mf.port_io_dly() &&
                   mf.mf_enable(),
-              "multiface.vhd:126,195");
+              "multiface.vhd:128,195");
     }
 
     // MF-M1G-05 — mf_enable=1 IS a quiescent state: once the overlay is

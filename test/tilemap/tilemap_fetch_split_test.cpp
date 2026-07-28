@@ -3,9 +3,20 @@
 // TX-1696 changes NR 0x6E/0x6F during the visible frame: one map/tile pair
 // draws the fixed HUD, another draws the scrolling playfield, then the HUD
 // pair is restored near the bottom. The FPGA tilemap consumes these registers
-// as live inputs (tilemap.vhd map_address_i / tile_address_i); rendering a
+// as live inputs (tilemap.vhd:57-58 tm_map_base_i / tm_tile_base_i, latched
+// at fetch time at :349-350, and :44 default_flags_i at :366); rendering a
 // completed frame from only the final register values paints one configuration
 // across every scanline.
+//
+// GRANULARITY, stated exactly. The VHDL latch fires when the fetch state
+// machine re-enters S_IDLE, and :264 forces that on a HORIZONTAL counter
+// condition - once per tile COLUMN, ~40/80 times a scanline. So on hardware a
+// mid-scanline write takes effect from the next tile column of the SAME line.
+// jnext models the same latch at per-scanline granularity
+// (`Tilemap::snapshot_fetch_for_line`), which is the project's declared
+// accuracy model (EMULATOR-DESIGN-PLAN section 1: per-scanline compositing).
+// What these rows prove is therefore the LATCHING - a change does not
+// retroactively repaint what has already been fetched - not the period.
 //
 // All fixtures below are synthetic and generated in memory.
 
@@ -130,7 +141,10 @@ void test_map_base_split() {
     check("TM-SPLIT-01",
           line0 == palette.tilemap_colour(0x01) &&
           line1 == palette.tilemap_colour(0x02),
-          "NR 0x6E map-base changes must affect only subsequent scanlines");
+          "NR 0x6E map-base is latched at fetch time, so a change never "
+          "repaints already-fetched cells [tilemap.vhd:264,349 - S_IDLE is "
+          "forced per tile COLUMN, so hardware granularity is finer than "
+          "jnext's per-scanline model; zxnext.vhd:4407]");
 }
 
 void test_definition_base_split() {
@@ -156,7 +170,10 @@ void test_definition_base_split() {
     check("TM-SPLIT-02",
           line0 == palette.tilemap_colour(0x01) &&
           line1 == palette.tilemap_colour(0x02),
-          "NR 0x6F tile-definition changes must affect only subsequent scanlines");
+          "NR 0x6F tile-definition base is latched at fetch time, so a "
+          "change never repaints already-fetched cells [tilemap.vhd:264,350 "
+          "- S_IDLE is forced per tile COLUMN, so hardware granularity is "
+          "finer than jnext's per-scanline model; zxnext.vhd:4408]");
 }
 
 void test_default_attribute_split() {
@@ -182,7 +199,10 @@ void test_default_attribute_split() {
     check("TM-SPLIT-03",
           line0 == palette.tilemap_colour(0x11) &&
           line1 == palette.tilemap_colour(0x21),
-          "NR 0x6C default-attribute changes must affect only subsequent scanlines");
+          "NR 0x6C default attribute is consumed at fetch time, so a change "
+          "never repaints already-fetched cells [tilemap.vhd:264,366 - "
+          "S_READ_TILE_1 recurs per tile COLUMN, so hardware granularity is "
+          "finer than jnext's per-scanline model; zxnext.vhd:4394]");
 }
 
 void test_emulator_copper_wiring() {
@@ -260,11 +280,23 @@ void test_emulator_copper_wiring() {
     char detail[256];
     std::snprintf(detail, sizeof(detail),
                   "full Emulator/Copper path must produce one NR 0x6E transition "
-                  "at row %d (first=%d count=%d unexpected-row=%d pixel=%08X map=%02X)",
+                  "at row %d "
+                  "(first=%d count=%d unexpected-row=%d pixel=%08X map=%02X)",
                   expected_transition, first_transition, transition_count,
                   unexpected_row, unexpected_pixel,
                   emulator.tilemap().get_map_base_raw());
+    // TM-SPLIT-04 drives the same latch through Copper -> NextREG -> renderer
+    // at jnext's per-scanline granularity.
+    //
+    // The citation lives INSIDE the call, like every other row in this file.
+    // It sat in the comment above until GH #144 review round 3: that made this
+    // a `named`-tier row, and since the fixture-init guard above reuses this
+    // ID and is textually first, the matrix published the guard's line beside
+    // a citation that named no call at all — the two columns disagreeing,
+    // which is the defect the round was about.
     check("TM-SPLIT-04",
+          // VHDL tilemap.vhd:264,349 — tm_map_base_q is latched whenever the
+          // fetch FSM re-enters S_IDLE, which :264 forces once per tile COLUMN.
           unexpected_row < 0 &&
           transition_count == 1 &&
           first_transition == expected_transition,
