@@ -70,14 +70,46 @@
 # exactly as `test/unit-tests.conf` pins row counts rather than silently
 # adopting whatever a suite happens to emit. (GH #117)
 #
+# ── `test/unit-tests.conf` is the driver (GH #144) ────────────────────
+#
+# WHICH suites this document covers is not a second list any more. The
+# manifest is the driver, and every suite it declares must be accounted for
+# in exactly one of two ways:
+#
+#   traced      it appears in @SUBSYS, which says which `##` section it
+#               belongs to — the one genuinely editorial fact left;
+#   tombstoned  it appears in %NO_MATRIX_SECTION with a written reason.
+#
+# Anything else is a REFUSAL: exit 2, matrix untouched, in the manner of
+# `test/run-unit-tests.sh` refusing to run when its manifest and CMake
+# disagree. Both directions are checked, and so are duplicates.
+#
+# This replaces an advisory warning that had saturated. The old @SUBSYS was a
+# hand-written table of (header, binary, source path); it traced 28 suites for
+# the whole v0.98 series while the manifest grew 49 -> 80, so ~31 suites were
+# added and never traced. Each addition arrived as one more name on a warning
+# line that already listed fifty, inside a report that only runs at
+# version-bump time. Making it a hard failure is the anti-drift mechanism:
+# adding a suite now forces a deliberate decision, exactly as adding a test row
+# forces the manifest's row count to be edited.
+#
+# SOURCE PATHS ARE READ FROM CMAKE, not from a hand-written path and not from
+# a name convention — see cmake_sources(). 79 of 87 suite names do match their
+# source basename and 8 do not (`cpu_int_pulse_test` is built from
+# `cpu/int_pulse_test.cpp`; the six `debugger_*` suites likewise; and the two
+# ESP-01 module suites are declared in `src/esp01/CMakeLists.txt`, not
+# `test/`'s). A convention that is right 91% of the time is the worst kind.
+# This mirrors run-unit-tests.sh, which already treats CMake as the authority
+# for what a suite's binary is.
+#
 # Usage:
 #     perl test/refresh-traceability-matrix.pl
 #
 # Exit status: 0 when the matrix records every row its mapped test sources
-# assert and every declared suite has a section; 1 when it does not. The
-# matrix is rewritten either way — a non-zero exit means "the file is
-# refreshed AND it under-records; here is the backlog", never "nothing was
-# written".
+# assert; 1 when it does not; 2 when a declared suite is unaccounted for (or
+# an accounted one is not declared) — the refusal above. On 1 the matrix is
+# rewritten anyway: it means "the file is refreshed AND it under-records; here
+# is the backlog", never "nothing was written". On 2 nothing is written at all.
 #
 # Dependencies: the test binaries must already be built under `build/test/`.
 # This script does not build them.
@@ -94,89 +126,63 @@ use FindBin qw($RealBin);
 my $ROOT   = abs_path("$RealBin/..");
 my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
 
-# (section_header_line, test_binary, source_rel_path)
-# Every non-Z80N subsystem with per-row check()/skip() tracking. Z80N is
-# deliberately excluded: it uses the FUSE data-driven runner and its
-# per-row status is permanently `missing` by design.
+# (section_header_line, suite | [suites]) — WHICH `##` section a declared
+# suite's rows belong to. This is the whole of what stays hand-written about
+# the suite list, and it is genuinely editorial: nothing can derive that the
+# Audio section deliberately groups three suites under one heading, or that
+# `ula_integration_test` is a `###` companion of `## ULA Video` rather than a
+# subsystem of its own.
+#
+# The suite names are `test/unit-tests.conf` names. Binary and source path are
+# DERIVED (build/test/<suite>, and cmake_sources()); neither is written here.
+#
+# Z80N is deliberately absent: it uses the FUSE data-driven runner and its
+# per-row status is permanently `missing` by design — see %NO_MATRIX_SECTION.
 my @SUBSYS = (
-    ['## Memory/MMU — `test/mmu/mmu_test.cpp`',
-     'build/test/mmu_test',        'test/mmu/mmu_test.cpp'],
-    ['## ULA Video — `test/ula/ula_test.cpp`',
-     'build/test/ula_test',        'test/ula/ula_test.cpp'],
-    ['## Layer2 — `test/layer2/layer2_test.cpp`',
-     'build/test/layer2_test',     'test/layer2/layer2_test.cpp'],
-    ['## Sprites — `test/sprites/sprites_test.cpp`',
-     'build/test/sprites_test',    'test/sprites/sprites_test.cpp'],
-    ['## Tilemap — `test/tilemap/tilemap_test.cpp`',
-     'build/test/tilemap_test',    'test/tilemap/tilemap_test.cpp'],
-    ['## Copper — `test/copper/copper_test.cpp`',
-     'build/test/copper_test',     'test/copper/copper_test.cpp'],
-    ['## Compositor — `test/compositor/compositor_test.cpp`',
-     'build/test/compositor_test', 'test/compositor/compositor_test.cpp'],
+    ['## Memory/MMU — `test/mmu/mmu_test.cpp`',      'mmu_test'],
+    ['## ULA Video — `test/ula/ula_test.cpp`',       'ula_test'],
+    ['## Layer2 — `test/layer2/layer2_test.cpp`',    'layer2_test'],
+    ['## Sprites — `test/sprites/sprites_test.cpp`', 'sprites_test'],
+    ['## Tilemap — `test/tilemap/tilemap_test.cpp`', 'tilemap_test'],
+    ['## Copper — `test/copper/copper_test.cpp`',    'copper_test'],
+    ['## Compositor — `test/compositor/compositor_test.cpp`', 'compositor_test'],
     # Audio is the one section whose header names several suites but has no
     # `### Companion` sub-tables — its AY/BP/IO/MX/NR/SD rows are interleaved
     # in a single table. Scanning only audio_test.cpp reported 51 of its 79
     # `missing` rows as untested when they are asserted in the two companion
-    # files, so the entry lists all three (GH #117 review). Both fields accept
+    # files, so the entry lists all three (GH #117 review). The field accepts
     # an arrayref; every other section stays a plain scalar.
     ['## Audio — `test/audio/audio_test.cpp`',
-     ['build/test/audio_test',
-      'build/test/audio_nextreg_test',
-      'build/test/audio_port_dispatch_test'],
-     ['test/audio/audio_test.cpp',
-      'test/audio/audio_nextreg_test.cpp',
-      'test/audio/audio_port_dispatch_test.cpp']],
-    ['## DMA — `test/dma/dma_test.cpp`',
-     'build/test/dma_test',        'test/dma/dma_test.cpp'],
-    ['## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`',
-     'build/test/divmmc_test',     'test/divmmc/divmmc_test.cpp'],
-    ['## CTC+Interrupts — `test/ctc/ctc_test.cpp`',
-     'build/test/ctc_test',        'test/ctc/ctc_test.cpp'],
-    ['## UART+I2C/RTC — `test/uart/uart_test.cpp`',
-     'build/test/uart_test',       'test/uart/uart_test.cpp'],
-    ['## NextREG — `test/nextreg/nextreg_test.cpp`',
-     'build/test/nextreg_test',    'test/nextreg/nextreg_test.cpp'],
-    ['## IO Port Dispatch — `test/port/port_test.cpp`',
-     'build/test/port_test',       'test/port/port_test.cpp'],
-    ['## Input — `test/input/input_test.cpp`',
-     'build/test/input_test',      'test/input/input_test.cpp'],
-    ['## Rewind — `test/rewind/rewind_test.cpp`',
-     'build/test/rewind_test',     'test/rewind/rewind_test.cpp'],
-    ['## Floating Bus — `test/floating_bus/floating_bus_test.cpp`',
-     'build/test/floating_bus_test', 'test/floating_bus/floating_bus_test.cpp'],
-    ['## VideoTiming — `test/videotiming/videotiming_test.cpp`',
-     'build/test/videotiming_test', 'test/videotiming/videotiming_test.cpp'],
-    ['## Contention — `test/contention/contention_test.cpp`',
-     'build/test/contention_test', 'test/contention/contention_test.cpp'],
-    ['## SD Card — `test/sdcard/sdcard_test.cpp`',
-     'build/test/sdcard_test',     'test/sdcard/sdcard_test.cpp'],
-    ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`',
-     'build/test/nmi_test',        'test/nmi/nmi_test.cpp'],
+     ['audio_test', 'audio_nextreg_test', 'audio_port_dispatch_test']],
+    ['## DMA — `test/dma/dma_test.cpp`',             'dma_test'],
+    ['## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`', 'divmmc_test'],
+    ['## Multiface — `test/multiface/multiface_test.cpp`', 'multiface_test'],
+    ['## CTC+Interrupts — `test/ctc/ctc_test.cpp`',  'ctc_test'],
+    ['## UART+I2C/RTC — `test/uart/uart_test.cpp`',  'uart_test'],
+    ['## NextREG — `test/nextreg/nextreg_test.cpp`', 'nextreg_test'],
+    ['## IO Port Dispatch — `test/port/port_test.cpp`', 'port_test'],
+    ['## Input — `test/input/input_test.cpp`',       'input_test'],
+    ['## Rewind — `test/rewind/rewind_test.cpp`',    'rewind_test'],
+    ['## Floating Bus — `test/floating_bus/floating_bus_test.cpp`', 'floating_bus_test'],
+    ['## VideoTiming — `test/videotiming/videotiming_test.cpp`', 'videotiming_test'],
+    ['## Contention — `test/contention/contention_test.cpp`', 'contention_test'],
+    ['## LoRes — `test/lores/lores_test.cpp`',       'lores_test'],
+    ['## SD Card — `test/sdcard/sdcard_test.cpp`',   'sdcard_test'],
+    ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`', 'nmi_test'],
+    # CPU-side regression suites. Separate `##` sections rather than companions
+    # of `## Z80N`: that section is the data-driven FUSE runner's, its rows are
+    # opcode names, and merging scopes would let one vouch for the other.
+    ['## CPU interrupt pulse — `test/cpu/int_pulse_test.cpp`', 'cpu_int_pulse_test'],
+    ['## CPU/Z80N/IM2 regressions — `test/cpu/cpu_z80n_im2_regressions_test.cpp`',
+     'cpu_z80n_im2_regressions_test'],
     # The emulated ESP-01 (GH #25). Its two MODULE suites are the first in this
     # project whose sources live outside `test/`: they ship inside the
     # self-contained component at `src/esp01/`, so a consumer gets the proof
-    # with the code (src/esp01/CMakeLists.txt).
-    #
-    # NOTHING in this script had to change to accommodate that, and the entries
-    # below are the whole fix. `source_rel` has always been REPO-relative —
-    # every read is "$ROOT/$source_rel" — and unmapped_suites() matches
-    # `test/unit-tests.conf` on the path's BASENAME, so
-    # `src/esp01/test/esp_at_test.cpp` resolves to suite `esp_at_test` exactly
-    # as a `test/`-rooted path would. The BINARIES stay under `build/test/`
-    # because src/esp01/CMakeLists.txt sets RUNTIME_OUTPUT_DIRECTORY to
-    # ${CMAKE_BINARY_DIR}/test for precisely that reason — only the ctest
-    # registration lives at build/src/esp01/, and run-unit-tests.sh reads every
-    # CTestTestfile.cmake under the build tree, not just test/'s. So the next
-    # module-resident suite is one more line here, not another special case.
-    #
-    # SELF-70 pins the basename half. The other half — a source path that does
-    # NOT exist, which is exactly what a tidy-up making these entries
-    # `test/`-relative would produce — deliberately has no fixture: source_lines
-    # dies on it and the script exits 2 with the matrix untouched, which is
-    # already decisive (verified by mutation). A broken BASENAME needed the row
-    # because it fails the other way: the suite would just join the UNMAPPED
-    # list, and that signal is saturated — 50 suites / 1358 live rows are
-    # unmapped today, so a clean tree already exits 1.
+    # with the code (src/esp01/CMakeLists.txt). Nothing here says so — the
+    # source paths come from CMake, which is where that fact already lives, and
+    # the BINARIES are under `build/test/` like every other suite because
+    # src/esp01/CMakeLists.txt sets RUNTIME_OUTPUT_DIRECTORY to
+    # ${CMAKE_BINARY_DIR}/test for precisely that reason. SELF-70 pins it.
     #
     # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. The suites
     # reuse row IDs across files on purpose — `TRACE-01..04` mean different
@@ -187,68 +193,83 @@ my @SUBSYS = (
     # suite's `TRACE-01` vouch for the other's — the exact cross-section
     # collision GH #118 closed. Separate sections keep each scope honest.
     ['## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`',
-     'build/test/esp_socket_test', 'src/esp01/test/esp_socket_test.cpp'],
-    ['## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`',
-     'build/test/esp_at_test',     'src/esp01/test/esp_at_test.cpp'],
+     'esp_socket_test'],
+    ['## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`', 'esp_at_test'],
     ['## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`',
-     'build/test/esp_uart_adapter_test', 'test/esp/esp_uart_adapter_test.cpp'],
-    # Companion integration suites (sub-section ### headers).
+     'esp_uart_adapter_test'],
+    # Companion suites (sub-section ### headers), nested inside their parent
+    # `##` and judged against its scope.
+    ['### Companion integration suite — `test/mmu/mmu_integration_test.cpp`',
+     'mmu_integration_test'],
     ['### Companion integration suite — `test/ula/ula_integration_test.cpp`',
-     'build/test/ula_integration_test',     'test/ula/ula_integration_test.cpp'],
+     'ula_integration_test'],
     ['### Companion integration suite — `test/compositor/compositor_integration_test.cpp`',
-     'build/test/compositor_integration_test', 'test/compositor/compositor_integration_test.cpp'],
+     'compositor_integration_test'],
+    ['### Companion integration suite — `test/copper/copper_integration_test.cpp`',
+     'copper_integration_test'],
+    ['### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`',
+     'tilemap_fetch_split_test'],
+    ['### Companion integration suite — `test/lores/lores_integration_test.cpp`',
+     'lores_integration_test'],
     ['### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`',
-     'build/test/ctc_interrupts_test',      'test/ctc_interrupts/ctc_interrupts_test.cpp'],
+     'ctc_interrupts_test'],
     ['### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`',
-     'build/test/nextreg_integration_test', 'test/nextreg/nextreg_integration_test.cpp'],
+     'nextreg_integration_test'],
     ['### Companion integration suite — `test/nmi/nmi_integration_test.cpp`',
-     'build/test/nmi_integration_test',     'test/nmi/nmi_integration_test.cpp'],
+     'nmi_integration_test'],
     ['### Companion integration suite — `test/input/input_integration_test.cpp`',
-     'build/test/input_integration_test',   'test/input/input_integration_test.cpp'],
+     'input_integration_test'],
     ['### Companion integration suite — `test/uart/uart_integration_test.cpp`',
-     'build/test/uart_integration_test',    'test/uart/uart_integration_test.cpp'],
+     'uart_integration_test'],
 );
 
 # Per-suite plan doc, consulted as the last citation source when the test
-# source carries none. Keyed by source_rel so @SUBSYS stays untouched.
+# source carries none. Keyed by SUITE NAME, like every other hand-written
+# table here.
 my %PLAN_DOC = (
-    'test/mmu/mmu_test.cpp'             => 'MEMORY-MMU',
-    'test/ula/ula_test.cpp'             => 'ULA-VIDEO',
-    'test/ula/ula_integration_test.cpp' => 'ULA-VIDEO',
-    'test/layer2/layer2_test.cpp'       => 'LAYER2',
-    'test/sprites/sprites_test.cpp'     => 'SPRITES',
-    'test/tilemap/tilemap_test.cpp'     => 'TILEMAP',
-    'test/copper/copper_test.cpp'       => 'COPPER',
-    'test/compositor/compositor_test.cpp'             => 'COMPOSITOR',
-    'test/compositor/compositor_integration_test.cpp' => 'COMPOSITOR',
-    'test/audio/audio_test.cpp'               => 'AUDIO',
-    'test/audio/audio_nextreg_test.cpp'       => 'AUDIO',
-    'test/audio/audio_port_dispatch_test.cpp' => 'AUDIO',
-    'test/dma/dma_test.cpp'             => 'DMA',
-    'test/divmmc/divmmc_test.cpp'       => 'DIVMMC-SPI',
-    'test/ctc/ctc_test.cpp'                     => 'CTC-INTERRUPTS',
-    'test/ctc_interrupts/ctc_interrupts_test.cpp' => 'CTC-INTERRUPTS',
-    'test/uart/uart_test.cpp'             => 'UART-I2C',
-    'test/uart/uart_integration_test.cpp' => 'UART-I2C',
-    'test/nextreg/nextreg_test.cpp'             => 'NEXTREG',
-    'test/nextreg/nextreg_integration_test.cpp' => 'NEXTREG',
-    'test/port/port_test.cpp'             => 'IO-PORT-DISPATCH',
-    'test/input/input_test.cpp'             => 'INPUT',
-    'test/input/input_integration_test.cpp' => 'INPUT',
-    'test/floating_bus/floating_bus_test.cpp' => 'FLOATING-BUS',
-    'test/videotiming/videotiming_test.cpp'   => 'VIDEOTIMING',
-    'test/contention/contention_test.cpp'     => 'CONTENTION',
-    'test/nmi/nmi_test.cpp'                   => 'NMI-PIPELINE',
-    'test/nmi/nmi_integration_test.cpp'       => 'NMI-PIPELINE',
+    'mmu_test'                    => 'MEMORY-MMU',
+    'ula_test'                    => 'ULA-VIDEO',
+    'ula_integration_test'        => 'ULA-VIDEO',
+    'layer2_test'                 => 'LAYER2',
+    'sprites_test'                => 'SPRITES',
+    'tilemap_test'                => 'TILEMAP',
+    'copper_test'                 => 'COPPER',
+    'compositor_test'             => 'COMPOSITOR',
+    'compositor_integration_test' => 'COMPOSITOR',
+    'audio_test'                  => 'AUDIO',
+    'audio_nextreg_test'          => 'AUDIO',
+    'audio_port_dispatch_test'    => 'AUDIO',
+    'dma_test'                    => 'DMA',
+    'divmmc_test'                 => 'DIVMMC-SPI',
+    'ctc_test'                    => 'CTC-INTERRUPTS',
+    'ctc_interrupts_test'         => 'CTC-INTERRUPTS',
+    'uart_test'                   => 'UART-I2C',
+    'uart_integration_test'       => 'UART-I2C',
+    'nextreg_test'                => 'NEXTREG',
+    'nextreg_integration_test'    => 'NEXTREG',
+    'port_test'                   => 'IO-PORT-DISPATCH',
+    'input_test'                  => 'INPUT',
+    'input_integration_test'      => 'INPUT',
+    'floating_bus_test'           => 'FLOATING-BUS',
+    'videotiming_test'            => 'VIDEOTIMING',
+    'contention_test'             => 'CONTENTION',
+    'lores_test'                  => 'LORES',
+    'lores_integration_test'      => 'LORES',
+    'nmi_test'                    => 'NMI-PIPELINE',
+    'nmi_integration_test'        => 'NMI-PIPELINE',
 );
 
 # Suites with no VHDL counterpart at all: their spec is a jnext-internal
 # contract or an external standard, not the FPGA core. An empty `—` there
 # reads as "citation missing"; a tombstone says "there is nothing to cite",
-# which is a different — and permanent — fact. Keyed by source_rel.
+# which is a different — and permanent — fact. Keyed by suite name.
+#
+# NOT the same thing as %NO_MATRIX_SECTION below: this is a CITATION tombstone
+# on the rows of a suite that IS traced. A suite that has no section at all is
+# accounted for there instead.
 my %TOMBSTONE = (
-    'test/rewind/rewind_test.cpp'   => '(jnext-internal)',
-    'test/sdcard/sdcard_test.cpp'   => '(SD SPI spec)',
+    'rewind_test'   => '(jnext-internal)',
+    'sdcard_test'   => '(SD SPI spec)',
     # The ESP-01 is a THIRD-PARTY module hanging off the Next's UART 0 header.
     # The Next-side wire is VHDL (`zxnext.vhd:1611-1612` drives o_UART0_TX from
     # uart0_tx_esp; `:3381` labels the channel "uart 0 (esp)"), but nothing
@@ -259,9 +280,9 @@ my %TOMBSTONE = (
     # evidenced by the NextZXOS ESPAT.DRV, NXtel and nextsync clients, see
     # GH #25) and the host OS socket API plus the RFC address ranges the
     # security policy encodes.
-    'src/esp01/test/esp_socket_test.cpp' => '(host sockets)',
-    'src/esp01/test/esp_at_test.cpp'     => '(ESP-AT firmware)',
-    # DELIBERATELY ABSENT: test/esp/esp_uart_adapter_test.cpp. It is the one
+    'esp_socket_test' => '(host sockets)',
+    'esp_at_test'     => '(ESP-AT firmware)',
+    # DELIBERATELY ABSENT: esp_uart_adapter_test. It is the one
     # ESP suite that is a MIXTURE — HOOK-03/03b/03c drive `Uart::tick`'s device
     # gate and HOOK-06/06b the framing bit-7 UART reset, both of which the FPGA
     # core does specify (`uart.vhd`, `uart_tx.vhd`, `uart_rx.vhd`), while the
@@ -271,6 +292,83 @@ my %TOMBSTONE = (
     # Those rows read `—` instead: honest, and recoverable by citing the VHDL
     # in the test source, which is an edit for the branch that owns that file.
 );
+
+# ── Suite -> source path, read from CMake ─────────────────────────────
+#
+# CMake already knows what every suite is built from; a second copy of that
+# fact in this file is a copy that can drift, and a name convention derived
+# from it is worse — 79 of 87 suite names match their source basename and 8 do
+# not, so the convention is right often enough to look correct and wrong often
+# enough to lie. `test/run-unit-tests.sh` already treats CMake as the authority
+# for what a suite's binary is; this is the same rule for its source.
+#
+# One line, one `add_executable(<name> <first-source> ...)`, resolved relative
+# to the CMakeLists.txt that declares it — which is what makes the two
+# module-resident ESP-01 suites (declared in `src/esp01/CMakeLists.txt`, source
+# under `src/esp01/test/`) need no special case at all. SELF-70 pins that.
+#
+# Only the FIRST source is taken: a suite compiles its own test file plus, at
+# most, a handful of emulator translation units it needs (`mmu_test` links
+# `src/core/wav_loader.cpp`), and the row IDs live in the first. A `${VAR}`
+# first argument is skipped — it is a source LIST (`jnext_tests ${GTEST_SOURCES}`),
+# and guessing which file inside it holds the rows is exactly the kind of
+# inference this script refuses elsewhere. Such a suite simply resolves to
+# nothing, and the accounting gate below turns that into a refusal rather than
+# a silent omission.
+my %CMAKE_SRC;
+my $CMAKE_SCANNED = 0;
+sub cmake_sources {
+    return \%CMAKE_SRC if $CMAKE_SCANNED;
+    $CMAKE_SCANNED = 1;
+    my @lists;
+    if (open(my $fh, '-|', 'find', $ROOT, '-name', 'CMakeLists.txt',
+                          '-not', '-path', '*/third_party/*',
+                          '-not', '-path', '*/build*/*',
+                          '-not', '-path', '*/.git/*')) {
+        while (my $p = <$fh>) { chomp $p; push @lists, $p; }
+        close $fh;
+    }
+    for my $list (sort @lists) {
+        (my $dir = $list) =~ s{/CMakeLists\.txt$}{};
+        open(my $lf, '<', $list) or next;
+        while (my $line = <$lf>) {
+            next if $line =~ /^\s*#/;
+            next unless $line =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
+            my ($name, $src) = ($1, $2);
+            next if $src =~ /^\$\{/;
+            my $rel = "$dir/$src";
+            $rel =~ s{^\Q$ROOT\E/}{};
+            # A name declared twice with two different sources is CMake's
+            # problem, but silently keeping one of them would make this file
+            # disagree with the build. Say so.
+            if (exists $CMAKE_SRC{$name} && $CMAKE_SRC{$name} ne $rel) {
+                warn "WARN: add_executable($name) declared twice with "
+                   . "different sources: $CMAKE_SRC{$name} vs $rel\n";
+                next;
+            }
+            $CMAKE_SRC{$name} = $rel;
+        }
+        close $lf;
+    }
+    return \%CMAKE_SRC;
+}
+
+# source path -> suite name, for the two suite-keyed editorial tables above.
+#
+# Filled by main() from the resolved CMake map, which is authoritative. The
+# basename fallback exists for the SELFTEST only: it loads this file with
+# $ROOT rebound to a fixture tree that has no CMakeLists.txt, and its fixtures
+# use real `test/<dir>/<suite>.cpp` paths whose basename is the suite name. A
+# wrong answer here can only lose a plan-doc citation or a tombstone — it can
+# never invent one — so the fallback cannot publish anything false.
+my %SUITE_OF_SRC;
+sub suite_for_source {
+    my ($src) = @_;
+    return $SUITE_OF_SRC{$src} if exists $SUITE_OF_SRC{$src};
+    (my $base = $src) =~ s{.*/}{};
+    $base =~ s/\.cpp$//;
+    return $base;
+}
 
 # ── VHDL citation extraction ──────────────────────────────────────────
 #
@@ -346,8 +444,21 @@ my $ID_BARE_RE = qr{
     \b ( [A-Z][A-Z0-9]* (?: \.[A-Z][A-Z0-9]* )* - [A-Za-z0-9._\-+]*[A-Za-z0-9] )
 }x;
 
-# "  FAIL ID: ..." or "  FAIL ID [..." — robust across all known harnesses.
-my $FAIL_RE = qr/^\s*FAIL\s+([A-Za-z0-9._\-]+)\s*[:\[]/;
+# "  FAIL ID: ...", "  FAIL ID [...", or "[FAIL] ID" — the three spellings the
+# suites actually print.
+#
+# The bracketed form is not cosmetic. `cpu_int_pulse_test`,
+# `cpu_z80n_im2_regressions_test` and `cli_options_test` print `[FAIL] <name>`,
+# and the first two are traced sections. Without this arm their FAIL set would
+# read empty and every row of both would publish `pass` while its assertion
+# fails — the one direction a status column must never be wrong in. Found when
+# they were first traced (GH #144); pinned by SELF-71.
+#
+# The `[FAIL]` arm requires the ID to be the whole rest of the line up to
+# optional trailing detail, and is anchored at the start, so a `FAIL` appearing
+# inside a description cannot match.
+my $FAIL_RE = qr/^\s*(?:FAIL\s+([A-Za-z0-9._\-]+)\s*[:\[]
+                     |\[FAIL\]\s+([A-Za-z0-9._\-]+)\b)/x;
 
 # Hand-maintained row marker: `<!-- protected: reason -->` after the row's
 # closing `|`. GFM ignores content beyond the header's column count and it
@@ -409,21 +520,117 @@ my @SUBLETTERS = ('a', 'b', 'c');
 my $SET_GROUP_RE = qr/\bset_group\s*\(\s*"[^"]*"/;
 
 # Declared suites deliberately outside the script's per-row scope. Keyed by
-# the `test/unit-tests.conf` suite name. Every entry needs a reason: this
-# map is the ONLY way a suite escapes the report, so an unreasoned entry is
-# a silent hole.
+# the `test/unit-tests.conf` suite name. Every entry needs a reason: this map
+# is the ONLY way a suite escapes the accounting gate, so an unreasoned entry
+# is a silent hole — and one blanket reason covering forty suites is the same
+# hole with more words. The reasons below are grouped by the AUTHORITY the
+# suite is actually written against, because that is the fact a reader needs:
+# a tombstone claims there is no line of the FPGA core to cite, and that claim
+# has to be true and specific for each group.
+#
+# This document is the map from VHDL-derived plan row -> test -> citation. A
+# suite whose oracle is a file format, a host API, a GUI contract or a
+# jnext-internal policy has no plan row to map, so it has no section here. It
+# is still fully COUNTED — `test/unit-tests.conf` pins its row count and
+# `make unit-test` runs it — and its runtime view lives in
+# `test/SUBSYSTEM-TESTS-STATUS.md`.
 my %NO_MATRIX_SECTION = (
-    # Data-driven runners: they walk tests.in/tests.expected and have no
-    # in-source row IDs at all, so there is nothing to trace per row. The
-    # matrix says so itself under "Discrepancies noted"; the `## Z80N`
-    # section's rows are opcode names and are permanently `missing`.
+    # ── Data-driven runners ──────────────────────────────────────────
+    # They walk tests.in/tests.expected and have no in-source row IDs at all,
+    # so there is nothing to trace per row. The matrix says so itself under
+    # "Discrepancies noted"; the `## Z80N` section's rows are opcode names and
+    # are permanently `missing`.
     'fuse_z80_test' => 'data-driven FUSE runner, no per-row IDs',
     'z80n_test'     => 'data-driven FUSE-style runner, opcode names not row IDs',
-    # Narrative sections: hand-maintained tables that summarise ID *ranges*
-    # ("XNEX-01..04") or point at rows kept by hand, not per-row IDs this
-    # script can regenerate.
+
+    # ── Narrative sections ───────────────────────────────────────────
+    # Hand-maintained tables that summarise ID *ranges* ("XNEX-01..04") or
+    # point at rows kept by hand, not per-row IDs this script can regenerate.
     'extended_nex_test'  => 'narrative section, ID ranges not per-row IDs',
     'atic_atac_nmi_test' => 'narrative section, hand-maintained (feeds protected NR-C0-02)',
+
+    # ── Host-side file formats and media provisioning ────────────────
+    # The oracle is a published on-disk format or jnext's own provisioning
+    # policy. The FPGA core never parses a file — it sees SPI blocks, which
+    # `## SD Card` traces against the SD SPI spec.
+    'nex_loader_test'         => 'NEX file-format spec (host loader), no core counterpart',
+    'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
+    'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
+    'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
+    'video_recorder_cmd_test' => 'FFmpeg command-line construction (host encoder)',
+
+    # ── Guest-firmware surfaces jnext stands in for ──────────────────
+    # The oracle is the NextZXOS/esxDOS API contract and jnext's own trap
+    # policy, not the FPGA core: the core has no esxDOS in it.
+    'esxdos_stub_test'    => 'esxDOS API surface + jnext trap policy, not core logic',
+    'phantom_typist_test' => 'jnext auto-typing state machine (host keystroke injection)',
+
+    # ── Host audio pipeline, downstream of the modelled mixer ────────
+    # `## Audio` traces the VHDL-modelled AY/DAC/beeper/mixer chain. These
+    # four start where it ends: SDL pacing, WAV capture and the user gain
+    # controls, none of which exist in the core.
+    'audio_pacing_test'   => 'host SDL audio pacing/underrun policy, downstream of the mixer',
+    'audio_capture_test'  => 'host WAV capture of the mixer output',
+    'audio_gain_test'     => 'host output-gain control (a user setting, not a core register)',
+    'subsystem_gain_test' => 'host per-subsystem gain control (a user setting)',
+
+    # ── Host frame pacing, presentation and boot choreography ────────
+    # Wall-clock scheduling of run_frame()/present() on the host. The core
+    # free-runs off a 28 MHz clock and has no notion of a frame deadline, a
+    # dropped present or a speed percentage.
+    'present_cadence_test' => 'host present cadence policy (wall-clock, not core timing)',
+    'present_count_test'   => 'host present accounting (wall-clock, not core timing)',
+    'render_policy_test'   => 'host render/skip policy (wall-clock, not core timing)',
+    'frame_deadline_test'  => 'host frame-deadline scheduling (wall-clock)',
+    'frame_sequencer_test' => 'host frame sequencer (wall-clock run/present ordering)',
+    'tick_stats_test'      => 'host tick accounting for the status bar',
+    'speed_report_test'    => 'host speed-percentage reporting',
+    'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
+
+    # ── Host input translation ───────────────────────────────────────
+    # Qt/SDL event -> ZX matrix translation on the HOST side. The guest-side
+    # membrane matrix these feed is traced by `## Input`; what is asserted
+    # here is the host key latch and the frontend key bindings, which the core
+    # does not contain (it sees a PS/2 stream and a membrane, not a Qt event).
+    'host_key_latch_test' => 'host key latch/debounce compensation; guest matrix is `## Input`',
+    'pointer_capture_test' => 'host mouse-capture policy (window-manager behaviour)',
+    'esc_break_test'      => 'host ESC->BREAK binding; guest matrix is `## Input`',
+    'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
+    'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
+
+    # ── CLI, configuration, logging, profiling ───────────────────────
+    # jnext-internal contracts. `cli_options_test` is checked against the man
+    # page by `make cli-check`, which is its own two-way gate.
+    'cli_options_test'              => 'CLI flag table vs the man page (see `make cli-check`)',
+    'log_test'                      => 'jnext logging façade (spdlog wiring)',
+    'log_gate_test'                 => 'jnext log-level gating',
+    'profiler_test'                 => 'jnext profiler output format (a developer tool)',
+    'app_config_test'               => 'jnext.conf schema/precedence (host settings file)',
+    'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',
+    'preferences_apply_policy_test' => 'Preferences apply/revert policy (host GUI)',
+    'audio_gain_config_test'        => 'gain settings persistence (host settings file)',
+    'audio_gain_preferences_test'   => 'gain controls in the Preferences dialog (host GUI)',
+
+    # ── Debugger and window-manager GUI ──────────────────────────────
+    # Host GUI behaviour. Two of these — the video and audio panel suites —
+    # DO cite VHDL, and the citations are real: they justify what the correct
+    # DISPLAY is by pointing at the hardware behaviour behind it (e.g. NR 0x08
+    # bit 5 is a single stereo bit, `zxnext.vhd:5177` vs the independent bit 4
+    # at `:5178`). But the assertion is about the PANEL's rendering, and the
+    # hardware behaviour it leans on is already traced in `## Audio`,
+    # `## Compositor`, `## Layer2` and `## ULA Video`. They are also `?`-gated
+    # in the manifest — built only under `-DENABLE_DEBUGGER=ON` — so a section
+    # here would make this document's content depend on the host's build
+    # configuration, which a traceability record must not.
+    'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
+    'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
+    'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
+    'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',
+    'debugger_audio_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build)',
+    'debugger_quit_gate_test'   => 'debugger quit gating (host GUI lifecycle)',
+    'debugger_window_size_test' => 'debugger window geometry (host GUI)',
+    'debugger_window_grow_test' => 'debugger window geometry (host GUI)',
+    'debugger_accel_test'       => 'debugger keyboard accelerators (host GUI)',
 );
 
 # The head Summary table is generated between these markers. They are HTML
@@ -483,7 +690,8 @@ sub run_fails {
         alarm(180);
         while (my $line = <$fh>) {
             if ($line =~ $FAIL_RE) {
-                $fails{$1} = 1;
+                # Two alternatives, so the ID lands in whichever group matched.
+                $fails{ defined $1 ? $1 : $2 } = 1;
             }
         }
         alarm(0);
@@ -605,7 +813,7 @@ sub cite_in {
 # hands out, so the two can never name different files for the same tier.
 sub plan_doc_path {
     my ($source_rel) = @_;
-    my $stem = $PLAN_DOC{$source_rel};
+    my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
     return undef unless defined $stem;
     return "doc/testing/$stem-TEST-PLAN-DESIGN.md";
 }
@@ -614,7 +822,7 @@ sub plan_doc_path {
 my %PLAN_CACHE;
 sub plan_cites {
     my ($source_rel) = @_;
-    my $stem = $PLAN_DOC{$source_rel};
+    my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
     return {} unless defined $stem;
     return $PLAN_CACHE{$stem} if $PLAN_CACHE{$stem};
     my %cites;
@@ -688,7 +896,20 @@ sub grep_citations {
             $i = $j;
             next;
         }
+        # `set_group("ID")` is a group BANNER, not the row's assertion, and it
+        # is dropped here for the same reason grep_row_ids() drops it — one
+        # reader, one rule. Without the mask the banner is the ID's FIRST
+        # non-comment occurrence, so the call-span lookup below finds no call
+        # owning it and the row silently falls through to the `named` or
+        # `next` tier while its own check() sat a few lines lower carrying the
+        # right citation. Measured over every suite: two rows, `LR-163` and
+        # `LR-164`, and both were wrong — LR-164's own call cites
+        # `zxula.vhd:573` and the file header's block comment (which names both
+        # rows) was answering `zxnext.vhd:6603-6631` for it. That is the
+        # borrowed-citation failure this extractor is built to refuse, arriving
+        # through the one door left open. (GH #144)
         my $line = $src[$i];
+        $line =~ s/$SET_GROUP_RE/set_group(/g;
         while ($line =~ /$ID_LITERAL_RE/g) { $id_line{$1} //= $i; }
         $i++;
     }
@@ -889,37 +1110,16 @@ sub recorded_only_by_alias {
     return matrix_records($id, $recorded) ? 1 : 0;
 }
 
-# Declared suites this matrix does not trace — the suite-level half of the
-# same blindness.
-#
-# A suite counts as traced when @SUBSYS actually SCANS its source file, not
-# merely when some header mentions it. Mentioning was the first cut of this
-# check and it had exactly the hole it was written to find: the Audio header
-# named three suites while the code scanned one, so 51 rows implemented in
-# the other two were published as `missing` AND the gap satisfied the
-# mention test, making it invisible to both halves of the report. Anything
-# genuinely outside the script's per-row scope is now an explicit, reasoned
-# entry in %NO_MATRIX_SECTION rather than an accident of prose. (GH #117
-# review.)
-sub unmapped_suites {
-    my ($lines) = @_;
-    my %scanned;
-    for my $entry (@SUBSYS) {
-        for my $src (as_list($entry->[2])) {
-            (my $suite = $src) =~ s{.*/}{};
-            $suite =~ s/\.cpp$//;
-            $scanned{$suite} = 1;
-        }
-    }
+# [name, rows] for every suite `test/unit-tests.conf` declares, in file order.
+# The `?` prefix marks a GUI-gated suite and is not part of the name.
+sub declared_suites {
     my $conf = "$ROOT/test/unit-tests.conf";
     open(my $fh, '<', $conf) or die "open $conf: $!";
     my @out;
     while (my $line = <$fh>) {
         next if $line =~ /^\s*#/ || $line !~ /\S/;
         my ($name, $rows) = split(' ', $line);
-        $name =~ s/^\?//;               # `?` marks a GUI-gated suite
-        next if $scanned{$name};
-        next if exists $NO_MATRIX_SECTION{$name};
+        $name =~ s/^\?//;
         push @out, [$name, $rows + 0];
     }
     close $fh;
@@ -930,17 +1130,121 @@ sub unmapped_suites {
 # project's own claim about how much it tests, and the denominator the head
 # Summary compares itself against.
 sub declared_totals {
-    my $conf = "$ROOT/test/unit-tests.conf";
-    open(my $fh, '<', $conf) or die "open $conf: $!";
-    my ($suites, $rows) = (0, 0);
-    while (my $line = <$fh>) {
-        next if $line =~ /^\s*#/ || $line !~ /\S/;
-        my (undef, $n) = split(' ', $line);
-        $suites++;
-        $rows += $n;
+    my $declared = declared_suites();
+    my $rows = 0;
+    $rows += $_->[1] for @$declared;
+    return (scalar @$declared, $rows);
+}
+
+# ── The accounting gate (GH #144) ─────────────────────────────────────
+#
+# Every declared suite must be TRACED (named in @SUBSYS) or TOMBSTONED (named
+# in %NO_MATRIX_SECTION with a reason), and nothing may be both, neither, or
+# accounted for without being declared. Returns the list of complaints; empty
+# means accounted for.
+#
+# This is set algebra over three lists and takes them as arguments so it can
+# be asserted directly, without a repository around it.
+#
+# Why it is a REFUSAL and not a report: the predecessor was a warning line
+# inside a document that only regenerates at version-bump time, and it had
+# been firing for 21+ suites since before the tooling was finished. A
+# saturated warning is indistinguishable from no warning — the 51st name on a
+# line that already has fifty is not a signal. `test/run-unit-tests.sh` had
+# already learnt this and refuses to run at all when its manifest and CMake
+# disagree; this is the same posture for the same class of drift.
+sub suite_accounting {
+    my ($declared, $subsys, $tombstones) = @_;
+
+    my (%declared_rows, @complaints);
+    for my $d (@$declared) {
+        push @complaints, "$d->[0]: declared twice in test/unit-tests.conf"
+            if exists $declared_rows{ $d->[0] };
+        $declared_rows{ $d->[0] } = $d->[1];
     }
-    close $fh;
-    return ($suites, $rows);
+
+    my %traced;
+    for my $entry (@$subsys) {
+        for my $suite (as_list($entry->[1])) {
+            push @complaints, "$suite: traced by two \@SUBSYS entries"
+                if exists $traced{$suite};
+            $traced{$suite} = $entry->[0];
+        }
+    }
+
+    for my $suite (sort keys %traced) {
+        push @complaints, "$suite: traced by \@SUBSYS ($traced{$suite}) but "
+                        . "not declared in test/unit-tests.conf"
+            unless exists $declared_rows{$suite};
+        push @complaints, "$suite: both traced by \@SUBSYS and tombstoned in "
+                        . "%NO_MATRIX_SECTION — it must be exactly one"
+            if exists $tombstones->{$suite};
+    }
+
+    for my $suite (sort keys %$tombstones) {
+        push @complaints, "$suite: tombstoned in %NO_MATRIX_SECTION but not "
+                        . "declared in test/unit-tests.conf"
+            unless exists $declared_rows{$suite};
+        push @complaints, "$suite: tombstoned with an empty reason"
+            unless defined $tombstones->{$suite}
+                   && $tombstones->{$suite} =~ /\S/;
+    }
+
+    for my $d (@$declared) {
+        my ($suite, $rows) = @$d;
+        next if exists $traced{$suite} || exists $tombstones->{$suite};
+        push @complaints,
+             "$suite ($rows rows): declared in test/unit-tests.conf but "
+           . "neither traced by \@SUBSYS nor tombstoned in %NO_MATRIX_SECTION";
+    }
+
+    return \@complaints;
+}
+
+# Tombstoned suites with their declared row counts and reasons, for the head
+# Summary. Ordered as the manifest declares them.
+sub tombstoned_suites {
+    my ($declared) = @_;
+    return [ map  { [$_->[0], $_->[1], $NO_MATRIX_SECTION{ $_->[0] }] }
+             grep { exists $NO_MATRIX_SECTION{ $_->[0] } } @$declared ];
+}
+
+# @SUBSYS, with the derived halves filled in: [header, [binaries], [sources]],
+# which is the shape everything downstream already consumed. Also fills
+# %SUITE_OF_SRC, so the suite-keyed editorial tables resolve without a name
+# convention.
+#
+# A traced suite whose source CMake does not declare, or declares as a file
+# that is not on disk, is returned as a complaint rather than resolved: the
+# alternative is source_lines() dying halfway through with the matrix already
+# half-rewritten.
+sub resolve_subsys {
+    my ($subsys) = @_;
+    my $src_of = cmake_sources();
+    my (@resolved, @complaints);
+    for my $entry (@$subsys) {
+        my ($header, $suites) = @$entry;
+        my (@bins, @srcs);
+        for my $suite (as_list($suites)) {
+            my $src = $src_of->{$suite};
+            if (!defined $src) {
+                push @complaints, "$suite: traced by \@SUBSYS but no "
+                                . "add_executable($suite ...) found in any "
+                                . "CMakeLists.txt";
+                next;
+            }
+            if (!-f "$ROOT/$src") {
+                push @complaints, "$suite: CMake builds it from '$src', which "
+                                . "does not exist under $ROOT";
+                next;
+            }
+            $SUITE_OF_SRC{$src} = $suite;
+            push @bins, "build/test/$suite";
+            push @srcs, $src;
+        }
+        push @resolved, [$header, \@bins, \@srcs];
+    }
+    return (\@resolved, \@complaints);
 }
 
 sub resolve_ids {
@@ -1158,7 +1462,7 @@ sub refresh_section {
             $cites{$id}     = $cs->{$id};
             $cite_from{$id} = $cf{$id};
         }
-        $tombstone //= $TOMBSTONE{$src};
+        $tombstone //= $TOMBSTONE{ suite_for_source($src) };
     }
 
     # ── Companion sources: same subsystem, different @SUBSYS entry ────────
@@ -1334,8 +1638,8 @@ sub refresh_section {
                         # Charge the line to the file `source=[...]` was read
                         # from, not to the section's first source (GH #126).
                         # The fallback covers the one citation with no file
-                        # behind it — a %TOMBSTONE, which is keyed by source
-                        # and only ever set on a single-source section.
+                        # behind it — a %TOMBSTONE, which is per suite and
+                        # only ever set on a single-source section.
                         my $from = cite_src_for($tid_raw, \%cite_from,
                                                 $checks, $skips)
                                    // $sources[0];
@@ -1374,9 +1678,9 @@ sub refresh_section {
             $cited_ct, $uncited_ct, $drift_ct);
 }
 
-# Short, unique label for a section. The seven companion suites all share
-# the header text "### Companion integration suite — ...", so they are
-# labelled by their source file instead.
+# Short, unique label for a section. The companion suites all share the header
+# text "### Companion integration suite — ...", so they are labelled by their
+# source file instead.
 sub section_label {
     my ($header, $source_rel) = @_;
     if ($header =~ /^###/) {
@@ -1394,7 +1698,7 @@ sub section_label {
 # regenerated date churns the diff on every run even when nothing moved,
 # and git already records when the file changed.
 sub render_summary {
-    my ($report, $unmapped, $recorded_total, $declared_suites, $declared_rows) = @_;
+    my ($report, $tombstoned, $recorded_total, $declared_suites, $declared_rows) = @_;
     my @out;
     push @out, '| Section                                    |  Rows | pass | fail | skip | missing | unrecorded |';
     push @out, '|--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|';
@@ -1445,17 +1749,33 @@ sub render_summary {
              . '`##`, not separately: its rows are part of the same subsystem\'s coverage '
              . 'story and several are recorded in the parent\'s own table (GH #118).';
     push @out, '';
-    if (@$unmapped) {
+    push @out, '### Suites with no section here, and why';
+    push @out, '';
+    push @out, 'Every suite `test/unit-tests.conf` declares is accounted for: it is either '
+             . 'traced by a section above or listed below with the authority it is actually '
+             . 'written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` '
+             . 'refuses to run (exit 2) and rewrites nothing, in the manner of '
+             . '`test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That '
+             . 'refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the '
+             . 'whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 '
+             . 'additions arrived as one more name on a warning line that already listed fifty.';
+    push @out, '';
+    if (@$tombstoned) {
         my $rows = 0;
-        $rows += $_->[1] for @$unmapped;
+        $rows += $_->[1] for @$tombstoned;
         push @out, sprintf(
-            '**Suites with no section in this matrix: %d, %d live rows.** '
-          . 'Their coverage is not traced here at all:',
-            scalar @$unmapped, $rows);
+            'These %d suites (%d live rows) have no VHDL-derived plan row to map, so they '
+          . 'have no section here. They are still declared, counted and run; their runtime '
+          . 'view is `test/SUBSYSTEM-TESTS-STATUS.md`.',
+            scalar @$tombstoned, $rows);
         push @out, '';
-        push @out, join(', ', map { "`$_->[0]` ($_->[1])" } @$unmapped);
+        push @out, '| Suite | Rows | Authority it is written against |';
+        push @out, '|-------|-----:|---------------------------------|';
+        for my $t (@$tombstoned) {
+            push @out, sprintf('| `%s` | %d | %s |', $t->[0], $t->[1], $t->[2]);
+        }
     } else {
-        push @out, '**Every suite declared in `test/unit-tests.conf` has a section here.**';
+        push @out, 'There are none: every declared suite has a section above.';
     }
     push @out, '';
     push @out, 'The runtime pass/fail view of all declared suites lives in '
@@ -1482,13 +1802,16 @@ sub replace_summary {
     splice(@$lines, $b + 1, $e - $b - 1, @$body);
 }
 
-# The process exit status, as a function of the two gaps — split out of
+# The process exit status, as a function of the row-level gap — split out of
 # main() so it can be asserted directly: the selftest loads this file
 # without running main(), so the glue would otherwise be the one piece of
 # the contract nothing pins.
+#
+# The SUITE-level gap is not an input here: it is a refusal, checked before
+# anything is read or written, and exits 2 from main() directly.
 sub report_exit_code {
-    my ($unrec_ct, $unmapped) = @_;
-    return ($unrec_ct || scalar @$unmapped) ? 1 : 0;
+    my ($unrec_ct) = @_;
+    return $unrec_ct ? 1 : 0;
 }
 
 # header index -> [[binary, source_rel], ...] for the OTHER @SUBSYS entries
@@ -1527,6 +1850,27 @@ sub companion_map {
 }
 
 sub main {
+    # ── The accounting gate, BEFORE anything is read or written ───────
+    #
+    # A refusal must leave the document untouched, so it runs first and exits
+    # 2 without opening the matrix at all.
+    my $declared   = declared_suites();
+    my $complaints = suite_accounting($declared, \@SUBSYS, \%NO_MATRIX_SECTION);
+    my ($subsys, $resolve_complaints) = @$complaints ? ([], [])
+                                                     : resolve_subsys(\@SUBSYS);
+    push @$complaints, @$resolve_complaints;
+    if (@$complaints) {
+        print STDERR
+            "refresh-traceability-matrix: REFUSING to run — the suite list is\n"
+          . "not accounted for. `test/unit-tests.conf` is the driver: every\n"
+          . "suite it declares must be traced by \@SUBSYS or tombstoned in\n"
+          . "%NO_MATRIX_SECTION with a reason, and nothing may be both,\n"
+          . "neither, or accounted for without being declared.\n\n";
+        print STDERR "  $_\n" for @$complaints;
+        print STDERR "\nThe matrix was NOT rewritten.\n";
+        return 2;
+    }
+
     open(my $in, '<', $MATRIX) or die "open $MATRIX: $!";
     my $text = do { local $/; <$in> };
     close $in;
@@ -1540,13 +1884,13 @@ sub main {
     # for the Summary's "recorded anywhere in this document" figure; the
     # `unrecorded` question is now asked per subsystem (GH #118), against
     # the scope subsystem_span() resolves below.
-    my $recorded = matrix_row_ids(\@lines);
-    my $unmapped = unmapped_suites(\@lines);
+    my $recorded   = matrix_row_ids(\@lines);
+    my $tombstoned = tombstoned_suites($declared);
 
     # Resolve every section header first, so each section knows where the
     # next one starts (see refresh_section's $stop_idx).
-    my @found;
-    for my $entry (@SUBSYS) {
+    my (@found, @missing_sections);
+    for my $entry (@$subsys) {
         my ($header, $binary, $source_rel) = @$entry;
         my $idx;
         for my $i (0 .. $#lines) {
@@ -1563,10 +1907,27 @@ sub main {
             }
         }
         if (!defined $idx) {
-            print "NOT FOUND: $header\n";
+            push @missing_sections, $header;
             next;
         }
         push @found, [$idx, $entry];
+    }
+
+    # The same hole one level down. A suite named in @SUBSYS is TRACED as far
+    # as the accounting gate is concerned, but if its section header is not
+    # actually in the document then nothing scans it and its rows are recorded
+    # nowhere — the exact condition the gate exists to make impossible. This
+    # used to print `NOT FOUND` and carry on, which is a warning line inside a
+    # report again. Refuse, and write nothing.
+    if (@missing_sections) {
+        print STDERR
+            "refresh-traceability-matrix: REFUSING to run — \@SUBSYS traces a\n"
+          . "suite whose section is not in $MATRIX. A traced suite with no\n"
+          . "section is recorded nowhere, which is what tracing is supposed to\n"
+          . "prevent. Add the section, or tombstone the suite.\n\n";
+        print STDERR "  $_\n" for @missing_sections;
+        print STDERR "\nThe matrix was NOT rewritten.\n";
+        return 2;
     }
     my @header_idx = sort { $a <=> $b } map { $_->[0] } @found;
 
@@ -1636,7 +1997,7 @@ sub main {
 
     replace_summary(\@lines,
         render_summary([map { [@{$_}[0 .. 5], $_->[9]] } @report],
-                       $unmapped, scalar(keys %$recorded),
+                       $tombstoned, scalar(keys %$recorded),
                        declared_totals()));
 
     open(my $out, '>', $MATRIX) or die "write $MATRIX: $!";
@@ -1682,13 +2043,14 @@ sub main {
             print "    ", join(' ', @{ $u->[1] }), "\n";
         }
     }
-    if (@$unmapped) {
+    if (@$tombstoned) {
         my $rows = 0;
-        $rows += $_->[1] for @$unmapped;
-        printf("\nUNMAPPED SUITES — declared in test/unit-tests.conf with no ".
-               "section in this matrix (%d suites, %d live rows):\n",
-               scalar @$unmapped, $rows);
-        print "  ", join(' ', map { "$_->[0]($_->[1])" } @$unmapped), "\n";
+        $rows += $_->[1] for @$tombstoned;
+        printf("\nTOMBSTONED SUITES — declared in test/unit-tests.conf, no ".
+               "section here, reason recorded (%d suites, %d live rows).\n".
+               "Not a gap: each has an authority that is not the FPGA core. ".
+               "See the Summary table.\n",
+               scalar @$tombstoned, $rows);
     }
 
     # ── The GH #118 sub-letter blind spot, made visible ───────────────
@@ -1710,13 +2072,13 @@ sub main {
         }
     }
 
-    if (report_exit_code($unrec_ct, $unmapped)) {
-        print "\nThe matrix WAS rewritten; it under-records the two sets above.\n",
-              "Close them by adding the rows/sections by hand — the description\n",
-              "column is the point of a matrix row and cannot be derived from\n",
-              "the test source. (GH #117)\n";
+    if (report_exit_code($unrec_ct)) {
+        print "\nThe matrix WAS rewritten; it under-records the UNRECORDED set above.\n",
+              "Close it by adding the rows by hand — the description column is the\n",
+              "point of a matrix row and cannot be derived from the test source.\n",
+              "(GH #117)\n";
     }
-    return report_exit_code($unrec_ct, $unmapped);
+    return report_exit_code($unrec_ct);
 }
 
 exit(main());
