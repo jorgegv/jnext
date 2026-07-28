@@ -158,12 +158,17 @@
 ///     after `Connect` (esp.asm:39-40) has no timeout AND runs under `di`, so
 ///     a black-holed connect FREEZES the guest rather than degrading it. No
 ///     other command can outlive its own dispatch, so none needs a deadline.
-///     TWO RESIDUAL GAPS, stated rather than hidden: (a) the deadline is
-///     checked in `poll()`, so it cannot preempt the transport's SYNCHRONOUS
-///     `getaddrinfo` (esp_socket.h documents that stall) — it bounds the TCP
-///     handshake, not name resolution; (b) an established connection that
-///     goes silent is never timed out, because TCP itself does not consider
-///     that an error and no evidenced client expects one.
+///     ONE RESIDUAL GAP, stated rather than hidden: an ESTABLISHED connection
+///     that goes silent is never timed out, because TCP itself does not
+///     consider that an error and no evidenced client expects one.
+///     A SECOND GAP RECORDED HERE IS NOW CLOSED — the deadline used to bound
+///     the TCP handshake only, because it is checked in `poll()` and the
+///     transport's `getaddrinfo` was SYNCHRONOUS, so `poll()` did not return
+///     until the lookup was over. The socket transport now resolves on its own
+///     thread (esp_socket.h, `make_socket_transport`), so `poll()` returns
+///     while a lookup is outstanding and the check below actually runs against
+///     it. Pinned by `esp_socket_test` ASYNC-09: a 150 ms deadline fires
+///     against a resolver that would take 5 s to give up.
 ///  7. THE `+IPD` CHUNK FLOOR IS A CONSEQUENCE, NOT AN INVARIANT. nextsync
 ///     budgets 5 chunks per server packet (`timeout=5` in its own source),
 ///     which the research framed as "emit chunks >= 292 bytes". Only the 2048
