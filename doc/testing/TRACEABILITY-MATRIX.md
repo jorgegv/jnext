@@ -31,24 +31,27 @@
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         48 |
 | SD Card                                    |    21 |   16 |    0 |    0 |       5 |         29 |
 | NMI Source Pipeline                        |    56 |   50 |    0 |    0 |       6 |          7 |
+| ESP-01 socket transport                    |   130 |  128 |    0 |    2 |       0 |          0 |
+| ESP-01 AT engine                           |   137 |  137 |    0 |    0 |       0 |          0 |
+| ESP-01 jnext UART adapter                  |    20 |   20 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
 | Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
 | Companion: ctc_interrupts_test             |    10 |   10 |    0 |    0 |       0 |         28 |
 | Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        218 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
-| Companion: uart_integration_test           |    13 |   13 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  2528 | 2198 |    0 |    0 |     330 |        821 |
+| Companion: uart_integration_test           |    13 |   13 |    0 |    0 |       0 |          5 |
+| **Total**                                  |  2815 | 2483 |    0 |    2 |     330 |        826 |
 
-Rows the sections above carry: **2528**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2462**. Rows the 84 suites declared in `test/unit-tests.conf` run live: **5914**.
+Rows the sections above carry: **2815**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2725**. Rows the 87 suites declared in `test/unit-tests.conf` run live: **6208**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
 **One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. The second looseness — *cross-section ID collision* — is closed: recording is asked against the owning `##` subsystem section rather than globally, which surfaced 29 rows that an identically-named row in a different subsystem had been vouching for (`SD-16..SD-23` by Audio, `PR-01..PR-05` by IO Port Dispatch, the `G108-*` set by ULA Video, `NR-10/11/13/14` + `PRI-01/02/04` by Audio and Memory/MMU, `SD2-01/02` by Memory/MMU). A `###` companion sub-section is judged against its parent `##`, not separately: its rows are part of the same subsystem's coverage story and several are recorded in the parent's own table (GH #118).
 
-**Suites with no section in this matrix: 50, 1356 live rows.** Their coverage is not traced here at all:
+**Suites with no section in this matrix: 50, 1358 live rows.** Their coverage is not traced here at all:
 
-`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `speed_report_test` (36), `host_key_latch_test` (69), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `host_hotkey_test` (33), `shifted_keys_test` (22), `quit_cleanup_test` (5), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4), `debugger_accel_test` (8)
+`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `speed_report_test` (36), `host_key_latch_test` (69), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `host_hotkey_test` (33), `shifted_keys_test` (22), `quit_cleanup_test` (7), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4), `debugger_accel_test` (8)
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -2060,8 +2063,8 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | DUAL-02 | Independent prescalers                                       | uart.vhd:282-286,355,371 | pass    | test/uart/uart_test.cpp:1309 |
 | DUAL-03 | Independent frame registers                                  | uart.vhd:300-305 | pass    | test/uart/uart_test.cpp:1324 |
 | DUAL-04 | Independent status registers                                 | uart.vhd:346-378 | pass    | test/uart/uart_test.cpp:1337 |
-| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | zxnext.vhd       | pass    | test/uart/uart_integration_test.cpp:614 |
-| DUAL-06 | Joystick UART mode multiplexing                              | zxnext.vhd:3340-3341 | pass    | test/uart/uart_integration_test.cpp:663 |
+| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | zxnext.vhd       | pass    | test/uart/uart_integration_test.cpp:625 |
+| DUAL-06 | Joystick UART mode multiplexing                              | zxnext.vhd:3340-3341 | pass    | test/uart/uart_integration_test.cpp:674 |
 | I2C-01  | Reset state: SCL = 1, SDA = 1 (both released)                | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1372 |
 | I2C-02  | Write 0x00 to port 0x103B                                    | zxnext.vhd:3237-3238 | pass    | test/uart/uart_test.cpp:1384 |
 | I2C-03  | Write 0x01 to port 0x103B                                    | zxnext.vhd:3237-3238 | pass    | test/uart/uart_test.cpp:1396 |
@@ -2071,7 +2074,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | I2C-07  | Read port 0x113B                                             | zxnext.vhd:3266  | pass    | test/uart/uart_test.cpp:1441 |
 | I2C-08  | Only bit 0 is significant for write                          | zxnext.vhd:3238  | pass    | test/uart/uart_test.cpp:1453 |
 | I2C-09  | Bits 7:1 always read as 1                                    | zxnext.vhd:3259,3266 | pass    | test/uart/uart_test.cpp:1467 |
-| I2C-10  | I2C port enable gated by internal_port_enable(10)            | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:565 |
+| I2C-10  | I2C port enable gated by internal_port_enable(10)            | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:566 |
 | I2C-11  | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0          | zxnext.vhd:3259  | pass    | test/uart/uart_test.cpp:1496 |
 | I2C-12  | Reset releases both lines                                    | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1511 |
 | I2C-13  | NR 0xA0 bit 3 (pi_i2c1_en) gates GPIO 2/3 -> I2C1 wired-AND mux (G138)                                  | zxnext.vhd:2280,2309-2318               | pass    | test/uart/uart_test.cpp:1542 |
@@ -2100,19 +2103,19 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | RTC-16  | Clock halt bit (seconds register bit 7)                      | —              | pass    | test/uart/uart_test.cpp:1976 |
 | RTC-17  | NVRAM registers 0x08-0x3F (56 bytes)                         | —              | pass    | test/uart/uart_test.cpp:2008 |
 | RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | i2c.cpp:111                             | pass    | test/uart/uart_test.cpp:2059 |
-| INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:173 |
-| INT-02  | UART 0 RX near-full always triggers                          | zxnext.vhd:1942  | pass    | test/uart/uart_integration_test.cpp:202 |
-| INT-03  | UART 1 RX interrupt: same logic as UART 0                    | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:217 |
-| INT-04  | UART 0 TX empty interrupt                                    | zxnext.vhd:1942,1950 | pass    | test/uart/uart_integration_test.cpp:233 |
-| INT-05  | UART 1 TX empty interrupt                                    | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:259 |
-| INT-06  | Interrupt enable controlled by NextREG 0xC6                  | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:275 |
-| INT-07  | Asymmetric vector-1 enable: NR 0xC6 b1=1, b0=0 -> UART0 RX vector fires on near-full only (G134)        | zxnext.vhd:1941-1944; uart.cpp:626-630  | pass    | test/uart/uart_integration_test.cpp:316 |
-| GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420,2392 | pass    | test/uart/uart_integration_test.cpp:394 |
-| GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:443 |
-| GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:536 |
-| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:5080,6188-6189                 | pass    | test/uart/uart_integration_test.cpp:701 |
-| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:730 |
-| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:761 |
+| INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:174 |
+| INT-02  | UART 0 RX near-full always triggers                          | zxnext.vhd:1942  | pass    | test/uart/uart_integration_test.cpp:203 |
+| INT-03  | UART 1 RX interrupt: same logic as UART 0                    | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:218 |
+| INT-04  | UART 0 TX empty interrupt                                    | zxnext.vhd:1942,1950 | pass    | test/uart/uart_integration_test.cpp:234 |
+| INT-05  | UART 1 TX empty interrupt                                    | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:260 |
+| INT-06  | Interrupt enable controlled by NextREG 0xC6                  | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:276 |
+| INT-07  | Asymmetric vector-1 enable: NR 0xC6 b1=1, b0=0 -> UART0 RX vector fires on near-full only (G134)        | zxnext.vhd:1941-1944; uart.cpp:626-630  | pass    | test/uart/uart_integration_test.cpp:317 |
+| GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420,2392 | pass    | test/uart/uart_integration_test.cpp:395 |
+| GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:444 |
+| GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:537 |
+| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:5080,6188-6189                 | pass    | test/uart/uart_integration_test.cpp:945 |
+| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:974 |
+| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:1005 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -2120,19 +2123,381 @@ Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, du
 
 | Test ID    | Plan row title                                                          | VHDL file:line             | Status | Test file:line                              |
 |------------|-------------------------------------------------------------------------|----------------------------|--------|---------------------------------------------|
-| INT-01     | Bare UART RX → IM2 vector chain                                         | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:173     |
-| INT-02     | Bare UART TX → IM2 vector chain                                         | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:202     |
-| INT-03     | UART0 + UART1 share IM2 vector multiplex                                | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:217     |
-| INT-04     | UART RX overflow does not crash IM2 chain                               | zxnext.vhd:1942,1950         | pass    | test/uart/uart_integration_test.cpp:233     |
-| INT-05     | UART RX FIFO half-full triggers IM2                                     | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:259     |
-| INT-06     | UART TX FIFO empty triggers IM2                                         | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:275     |
-| GATE-01    | NR 0x82 b1 (port_7ffd_io_en) gates port-7FFD writes                     | zxnext.vhd:2420,2392         | pass    | test/uart/uart_integration_test.cpp:394     |
-| GATE-02    | NR 0x82 b0 gates port-FE attribute writes                               | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:443     |
-| GATE-03    | NR 0x84 DAC-port-pair enables                                           | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:536     |
-| I2C-10     | DS1307 RTC read at 0x68 returns BCD-encoded snapshot                    | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:565     |
-| DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:614     |
-| DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:663     |
-| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:761     |
+| INT-01     | Bare UART RX → IM2 vector chain                                         | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:174     |
+| INT-02     | Bare UART TX → IM2 vector chain                                         | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:203     |
+| INT-03     | UART0 + UART1 share IM2 vector multiplex                                | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:218     |
+| INT-04     | UART RX overflow does not crash IM2 chain                               | zxnext.vhd:1942,1950         | pass    | test/uart/uart_integration_test.cpp:234     |
+| INT-05     | UART RX FIFO half-full triggers IM2                                     | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:260     |
+| INT-06     | UART TX FIFO empty triggers IM2                                         | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:276     |
+| GATE-01    | NR 0x82 b1 (port_7ffd_io_en) gates port-7FFD writes                     | zxnext.vhd:2420,2392         | pass    | test/uart/uart_integration_test.cpp:395     |
+| GATE-02    | NR 0x82 b0 gates port-FE attribute writes                               | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:444     |
+| GATE-03    | NR 0x84 DAC-port-pair enables                                           | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:537     |
+| I2C-10     | DS1307 RTC read at 0x68 returns BCD-encoded snapshot                    | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:566     |
+| DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:625     |
+| DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:674     |
+| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:1005    |
+
+## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
+
+The outbound TCP transport of the emulated ESP-01 (GH #25) and the address
+policy that gates it. **The sources of this suite live inside the module, at
+`src/esp01/`, not under `test/`** — the ESP-01 emulation is a self-contained
+component meant to be reusable by other projects, so its tests ship with its
+code. It is still a first-class declared suite: `test/unit-tests.conf` pins its
+row count and `src/esp01/CMakeLists.txt` registers it with `add_test()`, with
+the binary emitted into `build/test/` like every other one.
+
+**The `VHDL file:line` column is a tombstone, `(host sockets)`, not a gap.** The
+FPGA core has no ESP8266 in it — only the pins that reach one (`zxnext.vhd:1611-1612`
+drives `o_UART0_TX` from `uart0_tx_esp`; `:3381` labels the channel `uart 0 (esp)`).
+Everything this suite tests is on the far side of those pins, so there is no line
+of the core to cite. Its authority is the host OS socket API, the RFC address
+ranges the policy encodes, and the owner's security decisions recorded on GH #25
+(default off, RFC1918 explicitly ALLOWED, loopback / link-local / cloud-metadata
+denied, no server mode).
+
+Runs at `130 / 130 pass / 0 fail / 0 skip` on a host that can bind a loopback
+listener and `fork()`. The `NET-*`, `NET-ERR-*`, `SEC-*`, `TRACE-01..04` and
+`SIG-*` rows self-skip when those are unavailable, so a constrained host reports
+skips rather than failures. `SIG-01/02` read `skip` in the Status column below
+even though they pass here: this document derives status from the SOURCE, and
+those two are the only rows whose unavailable-path uses the `skip()` helper —
+the rest print their own `SKIP` line. The column is honest about what the source
+says, not about this machine.
+
+| Test ID     | Assertion description                                                                                      | VHDL file:line         | Status  | Test file:line                           |
+|-------------|------------------------------------------------------------------------------------------------------------|------------------------|---------|------------------------------------------|
+| POL-LB-01   | 127.0.0.1 denied as Loopback under the default policy                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:266   |
+| POL-LB-02   | 127.0.0.0 (bottom of 127/8) denied as Loopback                                                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:267   |
+| POL-LB-03   | 127.255.255.255 (top of 127/8) denied as Loopback                                                          | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:268   |
+| POL-LB-04   | 126.255.255.255 (just below 127/8) allowed                                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:269   |
+| POL-LB-05   | 128.0.0.0 (just above 127/8) allowed                                                                       | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:270   |
+| POL-LB-06   | IPv6 ::1 denied as Loopback                                                                                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:271   |
+| POL-LB-07   | IPv6 ::2 is not loopback and is allowed                                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:273   |
+| POL-LB-08   | IPv4-mapped ::ffff:127.0.0.1 denied as Loopback — the mapped bypass is closed                            | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:275   |
+| POL-LB-09   | `deny_loopback = false` really allows 127.0.0.1 (the override the NET/TRACE rows run under)                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:277   |
+| POL-LB-10   | `deny_loopback = false` really allows ::1                                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:278   |
+| POL-LL-01   | 169.254.0.0 (bottom of 169.254/16) denied as LinkLocal                                                     | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:281   |
+| POL-LL-02   | 169.254.255.255 (top of 169.254/16) denied as LinkLocal                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:282   |
+| POL-LL-03   | 169.253.255.255 (just below the range) allowed                                                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:283   |
+| POL-LL-04   | 169.255.0.0 (just above the range) allowed                                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:284   |
+| POL-LL-05   | IPv6 fe80::1 denied as LinkLocal                                                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:285   |
+| POL-LL-06   | IPv6 febf:ffff:… (top of fe80::/10) denied as LinkLocal                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:286   |
+| POL-LL-07   | IPv6 fe7f::1 (just below fe80::/10) allowed                                                                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:289   |
+| POL-LL-08   | IPv6 fec0::1 (just above fe80::/10) allowed                                                                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:290   |
+| POL-MD-01   | 169.254.169.254 reported as CloudMetadata, not the vaguer LinkLocal it also matches                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:294   |
+| POL-MD-02   | Alibaba 100.100.100.200 denied as CloudMetadata although CGNAT itself is allowed                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:297   |
+| POL-MD-03   | 100.100.100.199 (adjacent to the Alibaba endpoint) allowed                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:298   |
+| POL-MD-04   | AWS IMDS over IPv6 fd00:ec2::254 denied as CloudMetadata although ULA itself is allowed                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:300   |
+| POL-MD-05   | fd00:ec2::253 (adjacent to the IMDS endpoint) allowed                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:302   |
+| POL-MD-06   | IPv4-mapped ::ffff:169.254.169.254 denied as CloudMetadata                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:304   |
+| POL-MD-07   | `deny_cloud_metadata = false` FALLS THROUGH to LinkLocal rather than allowing                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:310   |
+| POL-MD-08   | with metadata AND link-local both off, 169.254.169.254 really is allowed                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:313   |
+| POL-PRIV-01 | 10.0.0.1 allowed by default (owner decision: RFC1918 is reachable)                                         | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:317   |
+| POL-PRIV-02 | 10.255.255.255 (top of 10/8) allowed by default                                                            | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:318   |
+| POL-PRIV-03 | 172.16.0.1 allowed by default                                                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:319   |
+| POL-PRIV-04 | 172.31.255.255 (top of 172.16/12) allowed by default                                                       | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:320   |
+| POL-PRIV-05 | 192.168.1.1 allowed by default                                                                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:321   |
+| POL-PRIV-06 | CGNAT 100.64.0.1 allowed by default                                                                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:322   |
+| POL-PRIV-07 | IPv6 ULA fd12:3456::1 allowed by default                                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:323   |
+| POL-PRIV-08 | `deny_private = true` denies 10.0.0.1 as Private                                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:328   |
+| POL-PRIV-09 | `deny_private = true` denies 192.168.1.1 as Private                                                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:329   |
+| POL-PRIV-10 | `deny_private = true` denies 172.16.0.0 (bottom boundary of 172.16/12)                                     | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:330   |
+| POL-PRIV-11 | 172.15.255.255 (just below 172.16/12) stays allowed with `deny_private`                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:331   |
+| POL-PRIV-12 | 172.32.0.0 (just above 172.16/12) stays allowed with `deny_private`                                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:332   |
+| POL-PRIV-13 | `deny_private = true` denies CGNAT 100.64.0.1 as Private                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:333   |
+| POL-PRIV-14 | 100.63.255.255 (just below 100.64/10) stays allowed with `deny_private`                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:334   |
+| POL-PRIV-15 | `deny_private = true` denies IPv6 ULA fd12::1 as Private                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:335   |
+| POL-PRIV-16 | `deny_private = true` denies fc00::1 (bottom of fc00::/7)                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:337   |
+| POL-PRIV-17 | fe00::1 (just above fc00::/7) stays allowed with `deny_private`                                            | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:339   |
+| POL-RSV-01  | 0.0.0.0 denied as Unspecified                                                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:344   |
+| POL-RSV-02  | 0.255.255.255 (top of 0/8) denied as Unspecified                                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:345   |
+| POL-RSV-03  | 1.0.0.0 (just above 0/8) allowed                                                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:346   |
+| POL-RSV-04  | IPv6 :: denied as Unspecified                                                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:347   |
+| POL-RSV-05  | 224.0.0.1 denied as MulticastOrReserved                                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:348   |
+| POL-RSV-06  | 223.255.255.255 (just below the multicast range) allowed                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:349   |
+| POL-RSV-07  | 240.0.0.0 denied as MulticastOrReserved                                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:350   |
+| POL-RSV-08  | 255.255.255.255 denied as MulticastOrReserved                                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:351   |
+| POL-RSV-09  | IPv6 ff02::1 denied as MulticastOrReserved                                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:352   |
+| NORM-01     | ::ffff:1.2.3.4 unwraps to 1.2.3.4                                                                          | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:356   |
+| NORM-02     | NAT64 64:ff9b::1.2.3.4 unwraps to 1.2.3.4                                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:362   |
+| NORM-03     | the NAT64 route to loopback is closed: 64:ff9b::127.0.0.1 denied as Loopback                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:366   |
+| NORM-04     | IPv4-compatible ::1.2.3.4 unwraps to 1.2.3.4                                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:371   |
+| NORM-05     | :: keeps its IPv6 identity and is not folded to 0.0.0.0                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:374   |
+| NORM-06     | ::1 keeps its IPv6 identity and is not folded to 0.0.0.1                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:376   |
+| NORM-07     | ::0.0.0.5 is not unwrapped either                                                                          | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:378   |
+| NORM-08     | an ordinary global IPv6 address is returned unchanged                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:380   |
+| NORM-09     | an IPv4 address is returned unchanged                                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:383   |
+| POL-TUN-01  | 6to4 2002:7f00:1:: judged by its embedded endpoint: denied as Loopback                                     | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:390   |
+| POL-TUN-02  | 6to4 wrapping 169.254.169.254 denied as CloudMetadata                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:391   |
+| POL-TUN-03  | 6to4 wrapping 169.254.0.1 denied as LinkLocal                                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:392   |
+| POL-TUN-04  | 6to4 wrapping a public address (93.184.216.34) allowed                                                     | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:393   |
+| POL-TUN-05  | 6to4 wrapping RFC1918 10.0.0.1 allowed by default, like the bare address                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:397   |
+| POL-TUN-06  | …and denied as Private when `deny_private` is on — the endpoint takes the FULL policy                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:401   |
+| POL-TUN-07  | Teredo is deliberately NOT unwrapped: a 2001:0::/32 address spelling 127.0.0.1 stays allowed               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:408   |
+| POL-TUN-08  | ISATAP is an interface-identifier pattern, not a prefix: ::5efe:7f00:1 under a global prefix stays allowed | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:414   |
+| POL-TUN-09  | …while fe80::5efe:7f00:1, where ISATAP actually lives, is already denied as LinkLocal                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:418   |
+| POL-TUN-10  | `normalize()` leaves a 6to4 address as IPv6 rather than folding it to IPv4                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:421   |
+| POL-TUN-11  | a 6to4 address listed FIRST does not win the IPv4 preference pass in `select_candidate`                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:431   |
+| POL-TUN-12  | `tunnel_endpoint()` extracts the 6to4 gateway address                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:437   |
+| POL-TUN-13  | `tunnel_endpoint()` declines an ordinary IPv6 address                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:440   |
+| POL-TUN-14  | `tunnel_endpoint()` declines an IPv4 address whose first octets are 0x20,0x02                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:445   |
+| SEL-01      | an empty candidate list selects nothing and reports DenyReason::None                                       | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:453   |
+| SEL-02      | IPv4 is preferred even when an IPv6 candidate comes first                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:461   |
+| SEL-03      | a denied candidate is skipped in favour of an allowed one                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:469   |
+| SEL-04      | IPv6 is used when there is no IPv4 candidate                                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:477   |
+| SEL-05      | an all-denied list reports the FIRST candidate's deny reason                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:486   |
+| SEL-06      | with loopback allowed, IPv4 loopback still wins the preference pass over IPv6                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:495   |
+| SEL-07      | a mapped IPv4 candidate counts as IPv4 and is returned verbatim, not unwrapped                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:504   |
+| FMT-01      | `to_string()` renders IPv4 as a dotted quad                                                                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:510   |
+| FMT-02      | `to_string()` renders IPv6 in full uncompressed 8-group form                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:512   |
+| FMT-03      | IPv6 groups drop leading zeros but keep their positions                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:514   |
+| FMT-04      | every DenyReason has distinct, non-"unknown" text                                                          | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:517   |
+| FMT-05      | every TransportState has distinct, non-"unknown" text                                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:521   |
+| SEAM-01     | the logging seam's default threshold is info — the module's own quiet default                            | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:534   |
+| SEAM-02     | every LogLevel has distinct, non-"unknown" text                                                            | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:536   |
+| SEAM-03     | `log_hex_byte()` renders a byte as two upper-case hex digits, not as a character                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:540   |
+| SEAM-04     | an installed sink receives the module's output                                                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:551   |
+| SEAM-04b    | clearing the sink restores silence at any level (an unbound seam is silent)                                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:556   |
+| SEAM-05     | the threshold drops everything below it and keeps the rest                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:565   |
+| SEAM-06     | lowering the threshold lets trace through                                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:570   |
+| SEAM-07     | `{}` substitutes positionally, in order, for mixed argument types                                          | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:580   |
+| SEAM-08     | `{{` and `}}` render as literal braces                                                                     | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:582   |
+| SEAM-09     | a format spec inside the braces is ignored, not printed                                                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:583   |
+| SEAM-10     | surplus arguments and surplus placeholders are both harmless                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:585   |
+| TRACE-01    | an IP literal is resolved without a DNS lookup (AI_NUMERICHOST path, traced at debug)                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:611   |
+| TRACE-02    | at the default level a full connect/send/recv/close session logs open + close and nothing else             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:611   |
+| TRACE-03    | a policy refusal is logged at the default level — never silent                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:611   |
+| TRACE-04    | a host NAME takes the resolve path, not the numeric fast path                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:679   |
+| TR-01       | a fresh transport is Idle with no error string                                                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:690   |
+| TR-02       | an empty host is rejected outright, leaving the state Idle                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:692   |
+| TR-03       | port 0 is rejected outright, leaving the state Idle                                                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:694   |
+| TR-04       | `close()` on an idle transport stays Idle                                                                  | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:696   |
+| TR-05       | `send()` before Connected moves no bytes                                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:699   |
+| TR-06       | `recv()` before Connected moves no bytes                                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:701   |
+| TR-07       | `poll()` in Idle is a harmless no-op                                                                       | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:703   |
+| TR-08       | an accepted request parks in Resolving without resolving                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:706   |
+| TR-09       | a second `begin_connect()` while busy is refused                                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:709   |
+| SEC-01      | the default policy refuses a loopback connect through the real transport (state Failed)                    | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:726   |
+| SEC-02      | the refusal error string says WHY, naming the policy and the loopback rule                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:728   |
+| SEC-03      | a refused connect never reached the listener — the socket was never opened                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:731   |
+| NET-01      | `begin_connect()` to an in-process loopback listener is accepted                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:740   |
+| NET-02      | the connect completes through `poll()` alone, with no blocking call                                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:740   |
+| NET-03      | the listener sees the connection                                                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:740   |
+| NET-04      | `peer_address()` is the loopback address actually connected to                                             | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:740   |
+| NET-05      | `send()` accepts the bytes and the transport stays Connected                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:740   |
+| NET-06      | the server receives exactly what was sent, byte for byte                                                   | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:741   |
+| NET-07      | `recv()` with nothing pending returns 0 and stays Connected                                                | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:741   |
+| NET-08      | `recv()` returns exactly what the server sent                                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:741   |
+| NET-09      | a peer close moves the transport to Closed                                                                 | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:741   |
+| NET-10      | `send()`/`recv()` after Closed move no bytes                                                               | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:741   |
+| NET-11      | a closed transport is reusable: a second `begin_connect()` connects                                        | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:742   |
+| NET-12      | `close()` on a live connection ends in Closed and the server sees EOF                                      | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:742   |
+| NET-ERR-01  | a connect to a closed port ends in Failed rather than hanging                                              | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:816   |
+| NET-ERR-02  | the failure carries an explanatory error string naming `connect`                                           | (host sockets)         | pass    | src/esp01/test/esp_socket_test.cpp:816   |
+| SIG-01      | a blind send to a closed peer does not signal-kill the process (MSG_NOSIGNAL / SO_NOSIGPIPE)               | (host sockets)         | skip    | src/esp01/test/esp_socket_test.cpp:855   |
+| SIG-02      | …and surfaces as Failed with an error string instead                                                     | (host sockets)         | skip    | src/esp01/test/esp_socket_test.cpp:856   |
+
+## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`
+
+The AT command model of the emulated ESP-01 (GH #25), driven against an
+in-memory fake transport — no socket, no DNS, no listener — plus the optional
+threaded wrapper (`MODE-*`). Like the transport suite above, **its sources live
+inside the module at `src/esp01/`**, registered from `src/esp01/CMakeLists.txt`
+and pinned in `test/unit-tests.conf`.
+
+**The `VHDL file:line` column is a tombstone, `(ESP-AT firmware)`, not a gap.**
+The AT surface is not FPGA behaviour at all: it was derived from the Espressif
+AT firmware's response strings as evidenced by the software that actually parses
+them — the NextZXOS `ESPAT.DRV` and dot-command sources shipped on the official
+SD card, plus the NXtel and nextsync clients. That evidence, not `zxnext.vhd`, is
+what each row's exact byte framing answers to, and the full derivation is
+recorded in `doc/design/ESP01-EMULATOR-DESIGN.md`.
+
+Runs at `137 / 137 pass / 0 fail / 0 skip`.
+
+| Test ID     | Assertion description                                                                                          | VHDL file:line         | Status  | Test file:line                           |
+|-------------|----------------------------------------------------------------------------------------------------------------|------------------------|---------|------------------------------------------|
+| AT-01       | a bare CRLF is an empty command, answered ERROR (nextsync's first probe)                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:305       |
+| AT-02       | `AT` answers exactly `\r\nOK\r\n`                                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:309       |
+| AT-03       | `ATE0` answers OK                                                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:311       |
+| AT-03b      | …and leaves echo off                                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:312       |
+| AT-04       | `ATE1` is not itself echoed — echo was still off while its own bytes arrived                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:315       |
+| AT-04b      | …but echo is really on afterwards                                                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:318       |
+| AT-04c      | the NEXT line is echoed, terminator and all, before its reply                                                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:320       |
+| AT-04d      | `ATE0` still echoes itself before switching echo off                                                           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:323       |
+| AT-05       | `AT+CIPMUX=0` answers OK — the only supported mode                                                           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:326       |
+| AT-06       | `AT+CIPMUX=1` is REFUSED: accepting it would promise a `+IPD` form nextsync cannot read                        | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:329       |
+| AT-07       | `AT+CIPCLOSE` with nothing open answers ERROR (nextsync loops until it sees it)                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:334       |
+| AT-08       | `AT+RST` answers OK then the two WIFI URCs, never `ready`                                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:338       |
+| AT-09       | an unsupported command answers ERROR                                                                           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:341       |
+| AT-10       | a bare LF produces nothing — it is only ever the CR's partner                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:344       |
+| AT-10b      | …and is not echoed either, even with echo on                                                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:348       |
+| AT-11       | command names match case-insensitively                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:350       |
+| AT-12       | an overlong line answers exactly one ERROR                                                                     | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:362       |
+| AT-12b      | …and is refused WHOLE: its truncated prefix, a valid CIPSTART, is never run                                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:364       |
+| AT-13       | nextsync's `AT+UART_CUR=1152000,8,1,0,0` baud switch is acknowledged                                           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:368       |
+| AT-13b      | …and the requested baud is recorded for tracing                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:369       |
+| AT-14       | the `AT+UART_DEF` form is accepted too                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:373       |
+| AT-14b      | …as is the plain `AT+UART` form                                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:375       |
+| AT-14c      | syncfast's 2 Mbaud is recorded                                                                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:376       |
+| AT-15       | a non-numeric baud answers ERROR, not a clamped number                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:378       |
+| CON-01      | `AT+CIPSTART` answers NOTHING until the transport settles — there is no synchronous connect                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:386       |
+| CON-01b     | …and the engine reports that it is waiting                                                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:390       |
+| CON-02      | a settled connection answers OK                                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:392       |
+| CON-02b     | …the engine reports connected                                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:393       |
+| CON-02c     | …and the transport received the parsed host and port                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:394       |
+| CON-03      | a failed connect answers ERROR only — never FAIL, never CLOSED for a connection that never existed           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:400       |
+| CON-03b     | …and the engine is not connected                                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:404       |
+| CON-04      | NXtel's 4-argument `AT+CIPSTART` (with keepalive) connects                                                     | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:408       |
+| CON-04b     | …with host and port parsed past the keepalive argument                                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:410       |
+| CON-04c     | trailing garbage after a VALID keepalive still answers ERROR                                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:452       |
+| CON-04d     | …and no connect was attempted                                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:454       |
+| CON-05      | UDP is refused — v1.0 is TCP only                                                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:415       |
+| CON-05b     | …and no connect was ever started                                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:416       |
+| CON-06      | a second `AT+CIPSTART` while connected answers ERROR, not `ALREADY CONNECTED`                                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:421       |
+| CON-06b     | …and is rejected by the ENGINE: the transport is never asked a second time                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:424       |
+| CON-07      | guest input arriving during a connect is deferred, not answered early                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:431       |
+| CON-07b     | …then replayed in order once the connect settles                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:434       |
+| CON-08      | closing a live connection reports CLOSED then OK                                                               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:440       |
+| CON-08b     | …and the transport was really closed                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:442       |
+| CON-09      | port 0 answers ERROR                                                                                           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:446       |
+| CON-10      | a transport that refuses the request answers ERROR immediately                                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:491       |
+| CON-11      | a connect that never completes is abandoned with ERROR once the connect deadline expires                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:468       |
+| CON-11b     | …and the engine stops waiting                                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:470       |
+| CON-11c     | …having released the socket                                                                                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:471       |
+| CON-12      | the connection slot is reusable after a timed-out connect                                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:477       |
+| CON-12b     | …and the retry really connects                                                                               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:478       |
+| CON-13      | a connect still inside its deadline is awaited, not refused                                                    | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:484       |
+| CON-13b     | …and remains pending                                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:486       |
+| SEND-01     | `AT+CIPSEND` answers `\r\nOK\r\n> ` — TRAILING SPACE INCLUDED; three parsers busy-wait on it with no timeout | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:500       |
+| SEND-01b    | …and 3 payload bytes are outstanding                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:504       |
+| SEND-02     | the completed payload answers `\r\nSEND OK\r\n`                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:512       |
+| SEND-02b    | …and exactly the payload reached the peer                                                                    | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:514       |
+| SEND-03     | NXtel's 5 bytes after `CIPSEND=3`: 3 are payload, the trailing CRLF becomes an empty command line              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:525       |
+| SEND-03b    | …and the peer got exactly the 3 IAC bytes, not 5                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:529       |
+| SEND-04     | `AT+CIPSENDEX` is a distinct command with the same prompt                                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:535       |
+| SEND-04b    | …and the same completion                                                                                     | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:538       |
+| SEND-04c    | …delivering the payload                                                                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:539       |
+| SEND-05     | `AT+CIPSEND` with no connection answers ERROR and no prompt, which would otherwise hang the guest              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:542       |
+| SEND-06     | a zero length answers ERROR                                                                                    | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:548       |
+| SEND-06b    | …as does one over the 2048-byte ceiling                                                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:550       |
+| SEND-06c    | …but exactly 2048 IS accepted, prompt and all                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:555       |
+| SEND-06d    | …with the full payload outstanding                                                                           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:557       |
+| SEND-07     | the send path is 8-bit clean, NUL and ESC included                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:565       |
+| SEND-08     | a partial socket accept still answers SEND OK exactly once                                                     | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:572       |
+| SEND-08b    | …with only what the kernel took so far delivered                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:574       |
+| SEND-08c    | …and the remainder flushed by later polls                                                                    | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:577       |
+| SEND-09     | payload bytes are never echoed, even with echo on                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:583       |
+| IPD-01      | inbound data is framed as the unmultiplexed `+IPD,<len>:` form                                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:592       |
+| IPD-02      | `+IPD` is 8-bit clean and `<len>` counts raw bytes                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:598       |
+| IPD-03      | bytes trickling in while a chunk drains coalesce into ONE following chunk                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:615       |
+| IPD-04      | SEND OK then `+IPD`, with no stray `+` between them                                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:629       |
+| IPD-04b     | …the first `+` in the stream is the `+IPD`'s own                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:631       |
+| IPD-05      | a 3000-byte burst is split at the 2048-byte chunk ceiling                                                      | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:638       |
+| IPD-05b     | …and the remainder is a second chunk, not a dribble                                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:640       |
+| IPD-05c     | …totalling exactly the payload plus two headers                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:642       |
+| IPD-07      | once the header starts, every byte-slot delivers a byte — no gap can open inside `+IPD,<len>:`               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:661       |
+| IPD-07b     | …and the header arrived intact                                                                               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:665       |
+| IPD-08      | a peer close is reported only AFTER its last bytes have been framed                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:673       |
+| IPD-09      | no `+IPD` is cut while a command line is half-received                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:682       |
+| IPD-09b     | …it follows the completed command's reply                                                                    | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:685       |
+| IPD-10      | no `+IPD` is cut between the `>` prompt and the payload's SEND OK                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:694       |
+| IPD-10b     | …it follows SEND OK                                                                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:697       |
+| PACE-01     | a burst is drip-fed one byte per byte-time, never dumped into the 512-byte RX FIFO                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:707       |
+| PACE-02     | a 10-byte-time span releases exactly 10 bytes                                                                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:715       |
+| PACE-03     | sub-byte spans accumulate rather than rounding up to a byte                                                    | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:724       |
+| PACE-04     | idle time banks no credit — a quiet link must not burst at unbounded speed when data arrives                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:733       |
+| PACE-05     | a faster byte-time delivers proportionally more bytes (the live prescaler is followed)                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:744       |
+| PACE-06     | a zero byte-time neither divides by zero nor hangs                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:767       |
+| PACE-07     | a long span drains the whole reply                                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:753       |
+| PACE-07b    | …and the leftover sub-byte credit does NOT survive into the next burst                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:756       |
+| PACE-07c    | …the next byte arrives a full byte-time after the refill                                                     | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:760       |
+| HOOK-01     | an idle engine lowers the tick gate                                                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:777       |
+| HOOK-02     | queued output raises the tick gate                                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:779       |
+| HOOK-02b    | …and draining lowers it again                                                                                | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:781       |
+| DIAG-01     | `AT+CWJAP?` carries NXtel's `CWJAP:"` SSID anchor                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:787       |
+| DIAG-01b    | …and the `","` anchor that precedes the AP MAC                                                               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:789       |
+| DIAG-01c    | …ending in an OK                                                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:791       |
+| DIAG-02     | `AT+CIFSR` carries the `TAIP,"` and `TAMAC,"` anchors                                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:795       |
+| DIAG-03     | `AT+CIPSTA?` carries the `gateway:"` and `netmask:"` anchors                                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:800       |
+| DIAG-04     | `AT+GMR` carries both version anchors                                                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:807       |
+| DIAG-04b    | …each terminated by a `(` on its OWN line, so neither field renders as garbage                               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:818       |
+| DIAG-05     | `AT+CIPDNS_CUR?` carries the `+CIPDNS_CUR:` anchor twice                                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:824       |
+| DIAG-06     | every diagnostic reply terminates with the exact OK framing `.ESPBAUD` compares against                        | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:836       |
+| DIAG-07     | the advertised SSID is the fixed synthetic literal `JNextWifiHost`, never a host network                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:839       |
+| NEVER-01    | a full session emits none of the never-emit URCs (`busy p…`, `ALREADY CONNECTED`, `SEND FAIL`, …)          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:872       |
+| NEVER-02    | …and `AT+RST` drops the connection without an unsolicited CLOSED                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:873       |
+| TRACE-01    | at the default level a connection open is reported                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:908       |
+| TRACE-02    | …and so is the close                                                                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:910       |
+| TRACE-03    | …and NOTHING else — no AT chatter, no prompt, no `+IPD`, no pacing                                         | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:912       |
+| TRACE-04    | at debug every AT command received is traced                                                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:926       |
+| TRACE-05    | …every response emitted is traced, escaped so framing is visible                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:928       |
+| TRACE-06    | …the payload byte count is traced                                                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:930       |
+| TRACE-07    | …and the `+IPD` framing decision is traced                                                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:932       |
+| TRACE-08    | …but per-byte pacing is not — that is trace level                                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:934       |
+| TRACE-09    | at trace the RX pacing and queue state are visible                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:943       |
+| MODE-01     | an unstarted `ThreadedEsp` wrapper is not running                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:970       |
+| MODE-02     | driven INLINE, `receive()` alone answers as the bare core does                                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:976       |
+| MODE-02b    | …and a connect's reply is still deferred, not invented                                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:986       |
+| MODE-02c    | …until an inline `poll()` settles the transport                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:990       |
+| MODE-03     | `start()` brings the worker thread up                                                                          | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:999       |
+| MODE-04     | the worker drains guest input without being polled                                                             | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1003      |
+| MODE-05     | driven THREADED the wrapper answers with the identical bytes                                                   | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1004      |
+| MODE-06     | `stop()` joins the worker and reports it                                                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1007      |
+| MODE-07     | …and `stop()` is idempotent                                                                                  | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1009      |
+| MODE-08     | a connect completes on the worker thread                                                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1030      |
+| MODE-09     | …the CIPSEND prompt still comes back byte-exact                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1034      |
+| MODE-10     | …the payload is acknowledged                                                                                 | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1039      |
+| MODE-11     | …and really reached the transport                                                                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1040      |
+| MODE-12     | unsolicited peer data is framed and paced out unprompted                                                       | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1050      |
+| MODE-13     | the worker really ran while the wrapper was alive                                                              | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1076      |
+| MODE-14     | destroying a running wrapper JOINS: the destructor cannot return while the worker is inside `poll()`           | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1081      |
+| MODE-15     | the worker is provably inside a long `poll()` when the deadlock hazard is probed                               | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1106      |
+| MODE-16     | …and `tick()` returns immediately rather than waiting for that `poll()` to finish                            | (ESP-AT firmware)      | pass    | src/esp01/test/esp_at_test.cpp:1113      |
+
+## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
+
+jnext's own side of the ESP-01 seam: the `UartDevice` implementation
+(`src/peripheral/esp_uart_adapter.*`), the `Uart::tick` call site that consumes
+its hot-path gate, and the binding of the module's logging seam to jnext's
+`esp01` spdlog logger. This suite stays under `test/` precisely because it is
+jnext-specific — putting it in the module would drag jnext back into a component
+that is meant to have no jnext types.
+
+**No tombstone here, deliberately.** This is the one ESP suite whose authority is
+mixed: `HOOK-03/03b/03c` exercise the device gate in `Uart::tick` and
+`HOOK-06/06b` the framing-bit-7 UART reset, both of which the FPGA core does
+specify (`uart.vhd`, `uart_tx.vhd`, `uart_rx.vhd`), while the `ADP-*` and `LOG-*`
+rows are jnext-internal seam contracts. A tombstone is stamped on every uncited
+row of its suite, so applying one here would claim "there is nothing to cite"
+about rows that have something to cite. Those cells read `—` instead — an honest
+"citation missing", closable by citing the VHDL in the test source.
+
+Runs at `20 / 20 pass / 0 fail / 0 skip`.
+
+| Test ID     | Assertion description                                                                            | VHDL file:line         | Status  | Test file:line                           |
+|-------------|--------------------------------------------------------------------------------------------------|------------------------|---------|------------------------------------------|
+| HOOK-03     | `Uart::tick` does not tick a device that lowered its `UartDevice` gate                           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:142   |
+| HOOK-03b    | …and ticks it once per call when the gate is raised                                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:145   |
+| HOOK-03c    | …and stops entirely once the device is detached                                                | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:149   |
+| HOOK-04     | a real `Uart` round-trips `AT\r\n` through the adapter and back into the RX FIFO                 | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:165   |
+| HOOK-05     | delivery follows the live channel prescaler, not a hardcoded 115200                              | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:187   |
+| HOOK-06     | a UART held in reset (framing bit 7) stops device ticking — its RX FIFO is about to be cleared | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:197   |
+| HOOK-06b    | …and ticking resumes when the guest releases the reset                                         | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:202   |
+| ADP-01      | a fresh adapter mirrors the engine's lowered tick gate                                           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:213   |
+| ADP-02      | `receive()` forwards to the engine AND raises the mirrored gate                                  | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:216   |
+| ADP-03      | `tick()` forwards, and the engine's output reaches the adapter's RX sink                         | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:220   |
+| ADP-04      | …and the mirrored gate falls again once the engine is idle                                     | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:222   |
+| ADP-05      | the adapter delivered all 6 reply bytes while it was alive                                       | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:240   |
+| ADP-06      | destroying the adapter clears the engine's sink rather than leaving it dangling                  | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:244   |
+| ADP-07      | the same adapter drives the THREADED `EspDevice` wrapper unchanged                               | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:265   |
+| LOG-01      | `Log::init()` registers jnext's `esp01` spdlog logger                                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:274   |
+| LOG-02      | `--log-level esp01=trace` reaches that logger                                                    | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:278   |
+| LOG-03      | a line the module emits through its own seam comes out of jnext's `esp01` logger                 | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:304   |
+| LOG-04      | …carrying the level the module chose, not a flattened one                                      | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:306   |
+| LOG-05      | an `esp01` logger at `off` raises the module's seam threshold to error                           | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:317   |
+| LOG-06      | …and turning the logger up lowers the threshold within one `poll()`                            | —                    | pass    | test/esp/esp_uart_adapter_test.cpp:321   |
 
 ## NextREG — `test/nextreg/nextreg_test.cpp`
 

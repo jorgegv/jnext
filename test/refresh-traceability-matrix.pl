@@ -152,6 +152,39 @@ my @SUBSYS = (
      'build/test/sdcard_test',     'test/sdcard/sdcard_test.cpp'],
     ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`',
      'build/test/nmi_test',        'test/nmi/nmi_test.cpp'],
+    # The emulated ESP-01 (GH #25). Its two MODULE suites are the first in this
+    # project whose sources live outside `test/`: they ship inside the
+    # self-contained component at `src/esp01/`, so a consumer gets the proof
+    # with the code (src/esp01/CMakeLists.txt).
+    #
+    # NOTHING in this script had to change to accommodate that, and the entries
+    # below are the whole fix. `source_rel` has always been REPO-relative —
+    # every read is "$ROOT/$source_rel" — and unmapped_suites() matches
+    # `test/unit-tests.conf` on the path's BASENAME, so
+    # `src/esp01/test/esp_at_test.cpp` resolves to suite `esp_at_test` exactly
+    # as a `test/`-rooted path would. The BINARIES stay under `build/test/`
+    # because src/esp01/CMakeLists.txt sets RUNTIME_OUTPUT_DIRECTORY to
+    # ${CMAKE_BINARY_DIR}/test for precisely that reason — only the ctest
+    # registration lives at build/src/esp01/, and run-unit-tests.sh reads every
+    # CTestTestfile.cmake under the build tree, not just test/'s. So the next
+    # module-resident suite is one more line here, not another special case.
+    # SELF-70/71 pin both halves of that (basename mapping, and reading a
+    # source from a non-`test/` root).
+    #
+    # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. The suites
+    # reuse row IDs across files on purpose — `TRACE-01..04` mean different
+    # things in the socket suite (what the TRANSPORT logs) and in the AT suite
+    # (what the ENGINE logs), and `HOOK-01/02` (AT) continue as `HOOK-03..06b`
+    # (adapter). Recording and the companion status fallback are both scoped to
+    # the owning `##` subsystem, so filing them as one subsystem would let one
+    # suite's `TRACE-01` vouch for the other's — the exact cross-section
+    # collision GH #118 closed. Separate sections keep each scope honest.
+    ['## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`',
+     'build/test/esp_socket_test', 'src/esp01/test/esp_socket_test.cpp'],
+    ['## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`',
+     'build/test/esp_at_test',     'src/esp01/test/esp_at_test.cpp'],
+    ['## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`',
+     'build/test/esp_uart_adapter_test', 'test/esp/esp_uart_adapter_test.cpp'],
     # Companion integration suites (sub-section ### headers).
     ['### Companion integration suite — `test/ula/ula_integration_test.cpp`',
      'build/test/ula_integration_test',     'test/ula/ula_integration_test.cpp'],
@@ -209,6 +242,27 @@ my %PLAN_DOC = (
 my %TOMBSTONE = (
     'test/rewind/rewind_test.cpp'   => '(jnext-internal)',
     'test/sdcard/sdcard_test.cpp'   => '(SD SPI spec)',
+    # The ESP-01 is a THIRD-PARTY module hanging off the Next's UART 0 header.
+    # The Next-side wire is VHDL (`zxnext.vhd:1611-1612` drives o_UART0_TX from
+    # uart0_tx_esp; `:3381` labels the channel "uart 0 (esp)"), but nothing
+    # inside the ESP is: the FPGA core has no ESP8266 in it, only the pins that
+    # reach one. These two suites test what is on the FAR side of those pins,
+    # so there is no line of the core to cite — a permanent fact, not a missing
+    # citation. Their authority is the Espressif AT firmware surface (as
+    # evidenced by the NextZXOS ESPAT.DRV, NXtel and nextsync clients, see
+    # GH #25) and the host OS socket API plus the RFC address ranges the
+    # security policy encodes.
+    'src/esp01/test/esp_socket_test.cpp' => '(host sockets)',
+    'src/esp01/test/esp_at_test.cpp'     => '(ESP-AT firmware)',
+    # DELIBERATELY ABSENT: test/esp/esp_uart_adapter_test.cpp. It is the one
+    # ESP suite that is a MIXTURE — HOOK-03/03b/03c drive `Uart::tick`'s device
+    # gate and HOOK-06/06b the framing bit-7 UART reset, both of which the FPGA
+    # core does specify (`uart.vhd`, `uart_tx.vhd`, `uart_rx.vhd`), while the
+    # ADP and LOG rows are jnext-internal seam contracts. A tombstone is
+    # applied to every uncited row of its suite, so putting one here would
+    # stamp "there is nothing to cite" onto rows that have something to cite.
+    # Those rows read `—` instead: honest, and recoverable by citing the VHDL
+    # in the test source, which is an edit for the branch that owns that file.
 );
 
 # ── VHDL citation extraction ──────────────────────────────────────────
