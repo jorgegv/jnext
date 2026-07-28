@@ -10,7 +10,7 @@
 // deny set is the host itself and the host's own infrastructure — loopback,
 // link-local, and the cloud metadata endpoints that live inside link-local.
 
-#include "peripheral/esp_socket.h"
+#include "esp01/esp_socket.h"
 
 #include <cstdio>
 

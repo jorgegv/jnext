@@ -8,7 +8,7 @@
 #include <vector>
 
 /// Non-blocking outbound TCP transport for the emulated ESP-01 (GH #25,
-/// branch 2 of 5). This branch is the TRANSPORT ONLY: no AT parser, no ESP
+/// branch 2 of 6). This branch is the TRANSPORT ONLY: no AT parser, no ESP
 /// state machine, no `UartDevice` wiring, no CLI flags, no frame-loop call
 /// site. Those are branches 3 and 4.
 ///
@@ -213,6 +213,40 @@ public:
     /// Advance the state machine using zero-timeout readiness checks.
     /// Idempotent and cheap in every state; a no-op in `Idle`/`Closed`/`Failed`.
     /// Safe to call every frame.
+    ///
+    /// ─────────────────────────────────────────────────────────────────────
+    /// THIS CALL MUST NOT BLOCK. It is a CONTRACT, not advice.
+    /// ─────────────────────────────────────────────────────────────────────
+    /// If you are writing your own transport, this is the one paragraph of
+    /// this header you cannot skip.
+    ///
+    /// `esp::ThreadedEsp` (esp01/esp_threaded.h) runs this on a worker thread
+    /// that its destructor JOINS — joining is what makes the wrapper safe to
+    /// own as a member of an object that gets torn down and rebuilt, and it is
+    /// not negotiable. But a thread parked in a syscall cannot be joined in
+    /// bounded time, by anyone, ever. So the wrapper's shutdown is bounded by
+    /// exactly ONE call to this function, and a transport that blocks here
+    /// hands that duration straight to whoever destroys the wrapper.
+    ///
+    /// What that looks like in a host: in jnext the wrapper is destroyed by a
+    /// cold boot and by quitting, so a transport that blocks for a 20 s
+    /// resolver timeout freezes the emulator — GUI, audio and CPU — for 20 s
+    /// when the user presses Reset. Measured on a 2000 ms blocking `poll()`:
+    /// the destructor took 2007 ms.
+    ///
+    /// Do the slow part elsewhere and report progress through `state()`:
+    /// `Resolving` and `Connecting` exist precisely so that a lookup or a
+    /// handshake in flight is an OBSERVABLE STATE rather than a stall.
+    ///
+    /// KNOWN VIOLATION, stated rather than hidden: the transport this module
+    /// ships — `make_socket_transport` — DOES currently block here, because
+    /// its name resolution is a synchronous `getaddrinfo` (see that function's
+    /// own DNS note below, which documents the choice and its cost). Making it
+    /// asynchronous is the subject of its own change, `fix/esp-async-dns`,
+    /// which lands before anything wires the ESP into the emulator. Until it
+    /// does, a hostname target — an IP literal never resolves at all — can
+    /// stall a wrapper shutdown. `send`, `recv` and `close` are already
+    /// non-blocking and are not affected.
     virtual void poll() = 0;
 
     virtual TransportState     state() const      = 0;

@@ -13,6 +13,16 @@
 //      only exist because the policy is an injectable parameter rather than an
 //      `if` hard-coded into connect. That is the point of the split.
 //
+// PORTABILITY OF THE SUITE ITSELF, stated rather than glossed over. The policy
+// half is pure C++17 and runs anywhere the module builds. The transport half's
+// SCAFFOLDING — the in-process `Listener` below — is POSIX-only: it uses
+// <arpa/inet.h>, <netinet/in.h>, <poll.h>, <sys/socket.h> and <unistd.h>
+// directly, because a hermetic transport test needs a peer and the module
+// deliberately does not ship one. A consumer on Windows must supply Winsock
+// equivalents for `Listener` alone; nothing in the module under test needs
+// porting, only the test's peer. (jnext itself never hits this: every Windows
+// target builds with -DENABLE_TESTS=OFF.)
+//
 // NOT TESTED HERE, said plainly:
 //   * DNS failure. Every path through it needs a real resolver, so there is no
 //     hermetic version; the numeric (AI_NUMERICHOST) path that every row below
@@ -24,10 +34,8 @@
 //
 // Run: ./build/test/esp_socket_test
 
-#include "core/log.h"
-#include "peripheral/esp_socket.h"
-
-#include <spdlog/sinks/ringbuffer_sink.h>
+#include "esp01/esp_log.h"
+#include "esp01/esp_socket.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -41,6 +49,7 @@
 #include <ctime>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace esp;
@@ -66,6 +75,28 @@ static void skip(const char* id, const char* why) {
     ++g_total;
     ++g_skip;
     std::printf("  SKIP %s: %s\n", id, why);
+}
+
+// ── Log capture, through the module's own seam ────────────────────────────
+//
+// File-scope rather than captured by reference because `set_log_sink` installs
+// a `std::function` that outlives the capture window's scope by exactly one
+// statement (the restore), and a sink holding a reference to a dead local is a
+// trap waiting for whoever adds the next row. This costs nothing and cannot
+// dangle.
+using LogLine  = std::pair<LogLevel, std::string>;
+static std::vector<LogLine> g_log;
+
+/// Run `work` with the seam pointed at `g_log` and the threshold at `level`,
+/// then restore silence. Returns what was captured.
+static std::vector<LogLine> capture_log(LogLevel level, const std::function<void()>& work) {
+    g_log.clear();
+    set_log_sink([](LogLevel l, const std::string& m) { g_log.emplace_back(l, m); });
+    set_log_threshold(level);
+    work();
+    set_log_sink(nullptr);
+    set_log_threshold(LogLevel::Info);
+    return g_log;
 }
 
 // ── Policy helpers ────────────────────────────────────────────────────────
@@ -492,37 +523,82 @@ int main() {
                   std::string(transport_state_text(TransportState::Connected)) &&
               std::string(transport_state_text(TransportState::Idle)) != "unknown");
 
-    // ═══ LOG — the esp01 logger is REGISTERED, not merely declared ═════════
-    // A logger left out of Log::init() is unreachable from --log-level: it
-    // still works, but the user cannot turn it up. That regression already
-    // happened once (log_test LOG-06, for ctc/i2c/multiface).
-    Log::init();
-    check("LOG-01", "Log::init() registers the esp01 logger",
-          spdlog::get("esp01") != nullptr);
+    // ═══ SEAM — the logging seam itself (esp_log.h) ════════════════════════
+    // The module logs through its own sink rather than through jnext's
+    // spdlog wrapper, which is what lets a consumer bind their own. These rows
+    // pin the seam's contract; the TRACE rows below then use it to assert what
+    // the transport actually says. jnext's side of the binding — that the
+    // `esp01` spdlog logger is registered and reachable from --log-level — is
+    // tested where it lives, in test/esp/esp_uart_adapter_test.cpp.
     {
-        Log::parse_levels("esp01=trace");
-        check("LOG-02", "--log-level esp01=trace reaches the logger",
-              spdlog::get("esp01") &&
-                  spdlog::get("esp01")->level() == spdlog::level::trace);
-        Log::parse_levels("esp01=info");
+        check("SEAM-01", "the default threshold is info — the module's own quiet default",
+              log_threshold() == LogLevel::Info);
+        check("SEAM-02", "every level has distinct, non-'unknown' text",
+              std::string(log_level_text(LogLevel::Trace)) != std::string(log_level_text(LogLevel::Debug)) &&
+                  std::string(log_level_text(LogLevel::Warn)) != std::string(log_level_text(LogLevel::Error)) &&
+                  std::string(log_level_text(LogLevel::Info)) != "unknown");
+        check("SEAM-03", "a byte renders as two upper-case hex digits, not as a character",
+              log_hex_byte(0x0A) == "0x0A" && log_hex_byte(0xFE) == "0xFE");
+
+        // UNBOUND IS SILENT — and the row has to INSTALL a sink first, or it
+        // proves nothing. Asserting silence before any sink has ever been
+        // installed passes against a `set_log_sink` that ignores its argument
+        // entirely (verified: that mutation survived the first version of this
+        // row). So: install, prove it captures, clear, prove it stops.
+        // `capture_log` restores the sink to nullptr after every window, so
+        // the cleared state is also the state the rest of this suite runs in.
+        const auto installed = capture_log(LogLevel::Trace, [] { log_error("captured"); });
+        check("SEAM-04", "an installed sink receives the module's output",
+              installed.size() == 1 && installed[0].second == "captured");
+        g_log.clear();
+        set_log_threshold(LogLevel::Trace);
+        log_error("this must go nowhere at all");
+        check("SEAM-04b",
+              "...and clearing the sink restores silence, at any level",
+              g_log.empty());
+        set_log_threshold(LogLevel::Info);
+
+        const auto below = capture_log(LogLevel::Info, [] {
+            log_debug("chatter");
+            log_info("worth saying");
+        });
+        check("SEAM-05", "the threshold drops everything below it and keeps the rest",
+              below.size() == 1 && below[0].second == "worth saying" &&
+                  below[0].first == LogLevel::Info);
+
+        const auto lowered = capture_log(LogLevel::Trace, [] { log_trace("now visible"); });
+        check("SEAM-06", "lowering the threshold lets trace through",
+              lowered.size() == 1 && lowered[0].first == LogLevel::Trace);
+
+        const auto fmt = capture_log(LogLevel::Info, [] {
+            log_info("{} then {} then {}", 1, "two", 3.5);
+            log_info("{{literal}} braces", 0);
+            log_info("spec {:#04x} ignored, value substituted", 255);
+            log_info("no placeholder", 42);
+            log_info("two placeholders {} {}", 1);
+        });
+        check("SEAM-07", "{} substitutes positionally, in order, for mixed types",
+              fmt.size() == 5 && fmt[0].second == "1 then two then 3.5");
+        check("SEAM-08", "{{ and }} are literal braces", fmt[1].second == "{literal} braces");
+        check("SEAM-09", "a format spec inside the braces is ignored, not printed",
+              fmt[2].second == "spec 255 ignored, value substituted");
+        check("SEAM-10",
+              "surplus arguments and surplus placeholders are both harmless",
+              fmt[3].second == "no placeholder" && fmt[4].second == "two placeholders 1 {}");
     }
 
-    // ═══ TRACE — what the esp01 logger actually EMITS, and at which level ══
+    // ═══ TRACE — what the transport actually EMITS, and at which level ═════
     // The owner made tracing a first-class requirement with a hard default:
     // nothing on by default EXCEPT connection open/close (and a refusal, which
-    // must never be silent). These rows pin that contract from the outside,
-    // by capturing the logger's own output.
+    // must never be silent). These rows pin that contract from the outside, by
+    // capturing what the module hands to the seam — which is what makes them
+    // runnable by a consumer who binds a different sink, and makes them a test
+    // of the seam rather than of spdlog.
     {
-        // spdlog's ringbuffer_sink::last_formatted() COPIES, it does not drain,
-        // so each capture window gets its own sink rather than sharing one.
-        auto capture = [](const char* level, const std::function<void()>& work) {
-            auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
-            Log::esp01()->sinks().push_back(ring);
-            Log::parse_levels((std::string("esp01=") + level).c_str());
-            work();
-            Log::parse_levels("esp01=info");
-            Log::esp01()->sinks().pop_back();
-            return ring->last_formatted();
+        auto capture = [](LogLevel level, const std::function<void()>& work) {
+            std::vector<std::string> lines;
+            for (const auto& e : capture_log(level, work)) lines.push_back(e.second);
+            return lines;
         };
         auto joined = [](const std::vector<std::string>& lines) {
             std::string all;
@@ -539,7 +615,7 @@ int main() {
         } else {
             // (a) At debug, an IP-literal target must take the AI_NUMERICHOST
             //     path and say so — the evidence that no DNS lookup happened.
-            const auto dbg = capture("debug", [&] {
+            const auto dbg = capture(LogLevel::Debug, [&] {
                 auto t = make_socket_transport(loopback_ok());
                 t->begin_connect("127.0.0.1", l.port());
                 pump_until(*t, TransportState::Connected);
@@ -552,7 +628,7 @@ int main() {
 
             // (b) At the DEFAULT level, a whole connect/send/recv/close cycle
             //     emits exactly two lines: opened and closed. Nothing else.
-            const auto quiet = capture("info", [&] {
+            const auto quiet = capture(LogLevel::Info, [&] {
                 auto t = make_socket_transport(loopback_ok());
                 t->begin_connect("127.0.0.1", l.port());
                 pump_until(*t, TransportState::Connected);
@@ -573,7 +649,7 @@ int main() {
 
             // (c) A refusal is visible at the DEFAULT level too — the owner's
             //     "never silent about a connection made or refused" rule.
-            const auto refused = capture("info", [&] {
+            const auto refused = capture(LogLevel::Info, [&] {
                 auto t = make_socket_transport(kDefault);  // loopback denied
                 t->begin_connect("127.0.0.1", l.port());
                 t->poll();
@@ -589,7 +665,7 @@ int main() {
             //     server is contacted) while still exercising the real
             //     getaddrinfo branch, which is the only thing that tells
             //     AI_NUMERICHOST being present apart from it being absent.
-            const auto named = capture("debug", [&] {
+            const auto named = capture(LogLevel::Debug, [&] {
                 auto t = make_socket_transport(loopback_ok());
                 t->begin_connect("localhost", l.port());
                 pump_until(*t, TransportState::Connected);

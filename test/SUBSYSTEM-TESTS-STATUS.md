@@ -26,8 +26,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      121 |      121 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      126 |      126 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      145 |      145 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 jnext UART adapter |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -92,6 +93,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6168** | **6168** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6216** | **6216** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

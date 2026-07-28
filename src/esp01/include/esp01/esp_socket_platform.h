@@ -1,6 +1,6 @@
 #pragma once
 
-#include "peripheral/esp_socket.h"
+#include "esp01/esp_socket.h"
 
 #include <cstddef>
 #include <cstdint>

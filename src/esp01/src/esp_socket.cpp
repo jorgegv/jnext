@@ -13,12 +13,14 @@
 //   debug  request accepted, resolve timing + result count, byte counts
 //   trace  per-poll state, would-block events
 // Only info and above are emitted at the default level, which is exactly the
-// owner's "nothing on by default except connection open/close".
+// owner's "nothing on by default except connection open/close" — and that is
+// the default of the module's own seam (esp_log.h), not of a host's logger, so
+// the contract holds for a consumer that binds a sink and filters nothing.
 
-#include "peripheral/esp_socket.h"
+#include "esp01/esp_socket.h"
 
-#include "core/log.h"
-#include "peripheral/esp_socket_platform.h"
+#include "esp01/esp_log.h"
+#include "esp01/esp_socket_platform.h"
 
 #include <chrono>
 #include <utility>
@@ -40,12 +42,12 @@ public:
         if (state_ == TransportState::Resolving ||
             state_ == TransportState::Connecting ||
             state_ == TransportState::Connected) {
-            Log::esp01()->debug("connect to {}:{} rejected: busy in state {}", host,
+            log_debug("connect to {}:{} rejected: busy in state {}", host,
                                 port, transport_state_text(state_));
             return false;
         }
         if (host.empty() || port == 0) {
-            Log::esp01()->debug("connect rejected: empty host or port 0 (host='{}' port={})",
+            log_debug("connect rejected: empty host or port 0 (host='{}' port={})",
                                 host, port);
             return false;
         }
@@ -55,7 +57,7 @@ public:
         peer_       = IpAddress{};
         last_error_.clear();
         state_ = TransportState::Resolving;
-        Log::esp01()->debug("connect requested: {}:{} (resolution deferred to poll)",
+        log_debug("connect requested: {}:{} (resolution deferred to poll)",
                             host_, port_);
         return true;
     }
@@ -65,7 +67,7 @@ public:
             case TransportState::Resolving:  step_resolve();  break;
             case TransportState::Connecting: step_connect();  break;
             default:
-                Log::esp01()->trace("poll: nothing to do in state {}",
+                log_trace("poll: nothing to do in state {}",
                                     transport_state_text(state_));
                 break;
         }
@@ -86,9 +88,9 @@ public:
             return 0;
         }
         if (n == 0)
-            Log::esp01()->trace("send: would block ({} bytes offered)", len);
+            log_trace("send: would block ({} bytes offered)", len);
         else
-            Log::esp01()->debug("sent {}/{} bytes to {}", n, len, to_string(peer_));
+            log_debug("sent {}/{} bytes to {}", n, len, to_string(peer_));
         return n;
     }
 
@@ -103,15 +105,15 @@ public:
             return 0;
         }
         if (eof) {
-            Log::esp01()->info("connection to {}:{} closed by peer", host_, port_);
+            log_info("connection to {}:{} closed by peer", host_, port_);
             release();
             state_ = TransportState::Closed;
             return 0;
         }
         if (n == 0)
-            Log::esp01()->trace("recv: no data available");
+            log_trace("recv: no data available");
         else
-            Log::esp01()->debug("received {} bytes from {}", n, to_string(peer_));
+            log_debug("received {} bytes from {}", n, to_string(peer_));
         return n;
     }
 
@@ -121,9 +123,9 @@ public:
         release();
         state_ = TransportState::Closed;
         if (was_live)
-            Log::esp01()->info("connection to {}:{} closed locally", host_, port_);
+            log_info("connection to {}:{} closed locally", host_, port_);
         else
-            Log::esp01()->debug("transport closed before the connection was live");
+            log_debug("transport closed before the connection was live");
     }
 
 private:
@@ -138,7 +140,7 @@ private:
         release();
         last_error_ = std::move(why);
         state_      = TransportState::Failed;
-        Log::esp01()->error("{}:{} — {}", host_, port_, last_error_);
+        log_error("{}:{} — {}", host_, port_, last_error_);
     }
 
     /// Resolve, apply the address policy, and start the connect.
@@ -165,14 +167,14 @@ private:
                 return;
             }
             if (ms >= kSlowResolveMs)
-                Log::esp01()->warn(
+                log_warn(
                     "DNS lookup of '{}' blocked the emulator for {} ms ({} address(es))",
                     host_, ms, found.size());
             else
-                Log::esp01()->debug("resolved '{}' to {} address(es) in {} ms", host_,
+                log_debug("resolved '{}' to {} address(es) in {} ms", host_,
                                     found.size(), ms);
         } else {
-            Log::esp01()->debug("'{}' is a numeric address — no DNS lookup", host_);
+            log_debug("'{}' is a numeric address — no DNS lookup", host_);
         }
 
         IpAddress  chosen;
@@ -180,7 +182,7 @@ private:
         if (!select_candidate(found, policy_, chosen, reason)) {
             // Refusals are warn, not debug: the owner requires a visible line
             // on every connection made OR refused (GH #25 decision 1).
-            Log::esp01()->warn("connection to {}:{} REFUSED by address policy: {} ({})",
+            log_warn("connection to {}:{} REFUSED by address policy: {} ({})",
                                host_, port_, deny_reason_text(reason),
                                found.empty() ? std::string("no candidates")
                                              : to_string(found.front()));
@@ -202,7 +204,7 @@ private:
             case net::ConnectProgress::Connected: on_connected(); break;
             case net::ConnectProgress::Failed:    fail("connect failed: " + err); break;
             case net::ConnectProgress::Pending:
-                Log::esp01()->debug("connect to {}:{} in progress", to_string(peer_), port_);
+                log_debug("connect to {}:{} in progress", to_string(peer_), port_);
                 break;
         }
     }
@@ -213,14 +215,14 @@ private:
             case net::ConnectProgress::Connected: on_connected(); break;
             case net::ConnectProgress::Failed:    fail("connect failed: " + err); break;
             case net::ConnectProgress::Pending:
-                Log::esp01()->trace("connect to {}:{} still pending", to_string(peer_), port_);
+                log_trace("connect to {}:{} still pending", to_string(peer_), port_);
                 break;
         }
     }
 
     void on_connected() {
         state_ = TransportState::Connected;
-        Log::esp01()->info("connection OPENED to {}:{} (host '{}')", to_string(peer_),
+        log_info("connection OPENED to {}:{} (host '{}')", to_string(peer_),
                            port_, host_);
     }
 
@@ -250,7 +252,7 @@ const char* transport_state_text(TransportState s) {
 std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy) {
     std::string err;
     if (!net::init(err)) {
-        Log::esp01()->error("network initialisation failed: {}", err);
+        log_error("network initialisation failed: {}", err);
         return nullptr;
     }
     return std::unique_ptr<EspTransport>(new SocketTransport(policy));

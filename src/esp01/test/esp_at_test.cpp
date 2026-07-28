@@ -1,9 +1,19 @@
-// Emulated ESP-01 AT engine unit tests (GH #25, branch 3 — the AT model).
+// Emulated ESP-01 AT engine unit tests (GH #25 — the AT model, and the
+// optional threaded wrapper around it).
 //
 // HERMETIC BY CONSTRUCTION: every row drives `esp::AtEngine` against an
 // in-memory `FakeTransport`. No socket is opened, no name is resolved, no
 // listener is bound — the transport interface exists precisely so this suite
 // never touches the network (esp_socket.h, "THE TEST SEAM").
+//
+// PORTABLE BY CONSTRUCTION TOO: nothing here names a jnext type. The suite
+// ships with the module and builds against `esp01` alone. jnext's `UartDevice`
+// adapter and the `Uart::tick` call site are tested in
+// test/esp/esp_uart_adapter_test.cpp, on jnext's side of the line.
+//
+// BOTH DRIVE MODES ARE EXERCISED (group J). The core is passive and drivable
+// inline; `ThreadedEsp` is optional. An optional mode that no row runs is a
+// mode that rots, so both answer the same stimulus with the same bytes here.
 //
 // The rows assert EXACT BYTES, not semantics, because the bytes are the
 // contract. Three guest parsers busy-wait on them with no timeout:
@@ -20,12 +30,11 @@
 //
 // Run: ./build/test/esp_at_test
 
-#include "core/log.h"
-#include "peripheral/esp_at.h"
-#include "peripheral/uart.h"
+#include "esp01/esp_at.h"
+#include "esp01/esp_log.h"
+#include "esp01/esp_threaded.h"
 
-#include <spdlog/sinks/ringbuffer_sink.h>
-
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +42,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace esp;
@@ -58,6 +68,13 @@ static std::string printable(const std::string& s) {
     }
     return out;
 }
+
+/// Everything the module handed to the logging seam during a capture window,
+/// concatenated. File-scope rather than captured by reference: `set_log_sink`
+/// installs a `std::function` that outlives the window's scope by one
+/// statement, and a sink referencing a dead local is a trap for whoever adds
+/// the next row.
+static std::string g_log;
 
 static void check(const char* id, const std::string& desc, bool cond) {
     ++g_total;
@@ -167,6 +184,157 @@ private:
     IpAddress      peer_ = ipv4(192, 0, 2, 1);
 };
 
+/// Counts `poll()` calls, atomically, and is DELIBERATELY declared so that it
+/// outlives the wrapper that polls it — which is what lets a row observe
+/// whether the worker thread is really gone after destruction.
+class CountingPollTransport : public EspTransport {
+public:
+    std::atomic<int> polls{0};
+
+    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    void poll() override { polls.fetch_add(1); }
+    TransportState     state() const override { return TransportState::Idle; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override {}
+
+private:
+    std::string error_;
+    IpAddress   peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// Sleeps inside `poll()`, standing in for the transport's synchronous
+/// `getaddrinfo` — the one place the worker holds the core for a long time.
+class BlockingPollTransport : public EspTransport {
+public:
+    std::atomic<bool>         in_poll{false};
+    std::atomic<int>          polls{0};
+    std::chrono::milliseconds block_for{0};
+
+    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    void poll() override {
+        polls.fetch_add(1);   // counted on ENTRY, so `in_poll` and it agree
+        const auto d = block_for;
+        if (d.count() == 0) return;
+        in_poll.store(true);
+        std::this_thread::sleep_for(d);
+        in_poll.store(false);
+    }
+    TransportState     state() const override { return TransportState::Idle; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override {}
+
+private:
+    std::string error_;
+    IpAddress   peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// Blocks inside `poll()` while a connect is outstanding — a deliberate
+/// VIOLATION of `EspTransport::poll()`'s non-blocking contract, standing in for
+/// the synchronous `getaddrinfo` the shipped transport still performs. Used to
+/// prove that a badly-behaved transport cannot starve the guest-bound pacer.
+class SlowResolveTransport : public EspTransport {
+public:
+    std::chrono::milliseconds block_for{500};
+    std::atomic<bool>         in_poll{false};
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ != TransportState::Resolving) return;
+        in_poll.store(true);
+        std::this_thread::sleep_for(block_for);
+        in_poll.store(false);
+        state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// HONOURS the non-blocking contract: a connect stays `Resolving` across many
+/// polls, but no call ever blocks — the shape `fix/esp-async-dns` gives the
+/// real transport, and the shape every third-party transport must have.
+class AsyncResolveTransport : public EspTransport {
+public:
+    /// Polls to sit in `Resolving` before completing. Large enough that a
+    /// resolve is reliably still outstanding when the wrapper is destroyed.
+    int polls_before_connected = 1000000;
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ != TransportState::Resolving) return;
+        if (++polls_ >= polls_before_connected) state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
+    int            polls_ = 0;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// Connects instantly but blocks inside `send()` — another deliberate contract
+/// violation, and the only way to hold the engine lock (the LOCKED half of the
+/// worker pass) long enough to observe whether `set_output` waits on it.
+class SlowSendTransport : public EspTransport {
+public:
+    std::chrono::milliseconds send_delay{400};
+    std::atomic<bool>         in_send{false};
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ == TransportState::Resolving) state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t len) override {
+        if (state_ != TransportState::Connected) return 0;
+        in_send.store(true);
+        std::this_thread::sleep_for(send_delay);
+        in_send.store(false);
+        return len;
+    }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
 // ── Rig ───────────────────────────────────────────────────────────────────
 
 /// One byte time, in 28 MHz ticks, at the UART's 115200 8N1 default
@@ -180,7 +348,7 @@ struct Rig {
     std::string   guest;  ///< everything the engine has released toward the guest
 
     Rig() {
-        eng.set_rx_sink([this](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        eng.set_output([this](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
     }
 
     /// Guest transmits a string, byte by byte, exactly as `UartChannel`
@@ -196,7 +364,7 @@ struct Rig {
     /// `byte_ticks` per byte. Bounded so a stuck engine fails rather than
     /// spins.
     void drain(std::uint32_t byte_ticks = BYTE_TICKS) {
-        for (int i = 0; i < 200000 && eng.tick_wanted(); ++i) eng.tick(byte_ticks, byte_ticks);
+        for (int i = 0; i < 200000 && eng.wants_tick(); ++i) eng.tick(byte_ticks, byte_ticks);
     }
 
     /// poll() then drain() — the usual "let everything settle" step.
@@ -222,13 +390,12 @@ struct Rig {
 // ─────────────────────────────────────────────────────────────────────────
 
 int main() {
-    std::printf("\n=== ESP-01 AT engine tests (GH #25 branch 3) ===\n\n");
+    std::printf("\n=== ESP-01 AT engine tests (GH #25) ===\n\n");
 
-    // Silence the subsystem for the functional rows so the suite's own output
-    // is the only thing on the console. The TRACE group at the end raises it
-    // deliberately, per capture window, and asserts what comes out.
-    Log::init();
-    Log::parse_levels("esp01=off");
+    // No sink is installed, so the module is silent for every functional row
+    // below and the suite's own output is the only thing on the console — the
+    // seam's unbound default doing exactly what it promises. The TRACE group at
+    // the end binds a capture sink, per window, and asserts what comes out.
 
     // ══ Group A — the command surface, byte-exact ═══════════════════════
 
@@ -584,7 +751,7 @@ int main() {
         std::string  seen;
         bool         gap_after_plus = false;
         bool         started        = false;
-        for (int i = 0; i < 64 && r.eng.tick_wanted(); ++i) {
+        for (int i = 0; i < 64 && r.eng.wants_tick(); ++i) {
             const std::size_t before = r.guest.size();
             r.eng.tick(BYTE_TICKS, BYTE_TICKS);
             const std::size_t after = r.guest.size();
@@ -701,89 +868,18 @@ int main() {
         check("PACE-06", "a zero byte-time neither divides by zero nor hangs",
               r.guest.size() == 1); }
 
-    // ══ Group F — the UartDevice hook and its call site ═════════════════
+    // ══ Group F — the tick gate ═════════════════════════════════════════
+    //
+    // The gate itself is the module's; jnext's `UartDevice` mirror of it, and
+    // the `Uart::tick` call site that consumes it, are tested where they live
+    // — test/esp/esp_uart_adapter_test.cpp.
 
     {   Rig r;
-        check("HOOK-01", "an idle engine lowers the tick gate", !r.eng.tick_wanted());
+        check("HOOK-01", "an idle engine lowers the tick gate", !r.eng.wants_tick());
         r.send("AT\r\n");
-        check("HOOK-02", "queued output raises it", r.eng.tick_wanted());
+        check("HOOK-02", "queued output raises it", r.eng.wants_tick());
         r.drain();
-        check("HOOK-02b", "...and draining lowers it again", !r.eng.tick_wanted()); }
-    {   // The gate must really gate: a device that never asks is never ticked.
-        // Driven through `Uart::tick`, which is the real call site — the hook
-        // deliberately lives there and not inside `UartChannel::tick`, for the
-        // hot-path reason documented on `service_attached_device`.
-        struct CountingDevice : UartDevice {
-            int ticks = 0;
-            void receive(uint8_t) override {}
-            void tick(uint32_t, uint32_t) override { ++ticks; }
-            using UartDevice::set_tick_wanted;
-        } dev;
-        Uart uart;
-        uart.attach_device(0, &dev);
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-03", "Uart does not tick a device that lowered its gate", dev.ticks == 0);
-        dev.set_tick_wanted(true);
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-03b", "...and ticks it once per call when raised", dev.ticks == 100);
-        uart.detach_device(0);
-        dev.ticks = 0;
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-03c", "...and stops entirely once detached", dev.ticks == 0); }
-    {   // End to end through the REAL UartChannel: guest TX -> engine ->
-        // paced RX FIFO, at the channel's own byte time.
-        FakeTransport tr;
-        AtEngine      eng{tr};
-        Uart          uart;
-        uart.attach_device(0, &eng);
-        UartChannel&  ch = uart.channel(0);
-
-        for (char c : std::string("AT\r\n")) ch.write_tx(static_cast<uint8_t>(c));
-        // 4 TX byte times to get the command out, then 6 more for the reply.
-        for (int i = 0; i < 4 + 6; ++i) uart.tick(BYTE_TICKS);
-        std::string got;
-        while (ch.rx_avail()) got.push_back(static_cast<char>(ch.read_rx()));
-        check_eq("HOOK-04", "a real Uart round-trips a command through the engine", got,
-                 "\r\nOK\r\n");
-        uart.detach_device(0); }
-    {   // Same path, but the guest reprograms its prescaler first — the
-        // delivery rate must follow, with nothing else changed.
-        FakeTransport tr;
-        AtEngine      eng{tr};
-        Uart          uart;
-        uart.attach_device(0, &eng);
-        UartChannel&  ch = uart.channel(0);
-
-        // Prescaler LSB write: bit 7 clear sets the low 7 bits, set sets the
-        // next 7 (uart.h write_prescaler_lsb). 10 => a 10x faster link.
-        ch.write_prescaler_lsb(0x0A);
-        ch.write_prescaler_lsb(0x80);
-        for (char c : std::string("AT\r\n")) ch.write_tx(static_cast<uint8_t>(c));
-        const uint32_t fast_byte = 10 * 10;
-        for (int i = 0; i < 4 + 6; ++i) uart.tick(fast_byte);
-        std::string got;
-        while (ch.rx_avail()) got.push_back(static_cast<char>(ch.read_rx()));
-        check_eq("HOOK-05", "delivery follows the live prescaler, not a hardcoded 115200", got,
-                 "\r\nOK\r\n");
-        uart.detach_device(0); }
-    {   struct CountingDevice : UartDevice {
-            int ticks = 0;
-            void receive(uint8_t) override {}
-            void tick(uint32_t, uint32_t) override { ++ticks; }
-            using UartDevice::set_tick_wanted;
-        } dev;
-        dev.set_tick_wanted(true);
-        Uart uart;
-        uart.attach_device(0, &dev);
-        uart.channel(0).write_frame(0x98);   // framing bit 7 = UART held in reset
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-06",
-              "a UART held in reset stops device ticking — its RX FIFO is about to be cleared",
-              dev.ticks == 0);
-        uart.channel(0).write_frame(0x18);   // released: 8N1
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-06b", "...and resumes when the guest releases it", dev.ticks == 100);
-        uart.detach_device(0); }
+        check("HOOK-02b", "...and draining lowers it again", !r.eng.wants_tick()); }
 
     // ══ Group G — static diagnostics (NXtel's Network Settings screen) ══
 
@@ -883,30 +979,24 @@ int main() {
     //
     // The owner made tracing a first-class requirement with a hard default:
     // NOTHING on by default except connection open/close. These rows pin that
-    // from the outside, by capturing what the logger actually emits — the same
-    // technique esp_socket_test uses for the transport.
+    // from the outside, by capturing what the engine hands to the MODULE'S OWN
+    // logging seam (esp01/esp_log.h) — not to spdlog. That is what makes them
+    // runnable by a consumer who binds a different sink, and it makes them a
+    // test of the seam rather than of somebody else's logging library.
     {
-        // ringbuffer_sink::last_formatted() COPIES rather than drains, so each
-        // window gets a fresh sink instead of sharing one.
-        auto capture = [](const char* level, const std::function<void()>& work) {
-            auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(256);
-            // REPLACE the sink list rather than appending to it: at trace level
-            // a single session emits hundreds of lines, and dumping them on the
-            // console would bury the suite's own output.
-            auto saved = Log::esp01()->sinks();
-            Log::esp01()->sinks() = {ring};
-            Log::parse_levels((std::string("esp01=") + level).c_str());
+        auto capture = [](LogLevel level, const std::function<void()>& work) {
+            g_log.clear();
+            set_log_sink([](LogLevel, const std::string& m) { g_log += m; });
+            set_log_threshold(level);
             work();
-            Log::parse_levels("esp01=off");
-            Log::esp01()->sinks() = saved;
-            std::string all;
-            for (const auto& line : ring->last_formatted()) all += line;
-            return all;
+            set_log_sink(nullptr);
+            set_log_threshold(LogLevel::Info);
+            return g_log;
         };
 
         // A whole session — commands, prompt, payload, +IPD, close — run at
         // the DEFAULT level. Only the two connection events may appear.
-        const std::string quiet = capture("info", [] {
+        const std::string quiet = capture(LogLevel::Info, [] {
             Rig r;
             r.send("ATE0\r\nAT+CIPMUX=0\r\n");
             r.settle();
@@ -927,7 +1017,7 @@ int main() {
                   quiet.find("+IPD framing") == std::string::npos &&
                   quiet.find("paced") == std::string::npos);
 
-        const std::string dbg = capture("debug", [] {
+        const std::string dbg = capture(LogLevel::Debug, [] {
             Rig r;
             r.connect();
             r.send("AT+CIPSEND=2\r\n"); r.settle();
@@ -945,7 +1035,7 @@ int main() {
         check("TRACE-08", "...but per-byte pacing is not — that is trace level",
               dbg.find("paced") == std::string::npos);
 
-        const std::string trc = capture("trace", [] {
+        const std::string trc = capture(LogLevel::Trace, [] {
             Rig r;
             r.connect();
             r.tr.queue_from_peer("yo");
@@ -955,6 +1045,294 @@ int main() {
               trc.find("paced") != std::string::npos &&
                   trc.find("ticks/byte") != std::string::npos);
     }
+
+    // ══ Group J — BOTH DRIVE MODES ══════════════════════════════════════
+    //
+    // The threaded wrapper is OPTIONAL: the core must stay drivable inline, or
+    // the wrapper is not optional, it is mandatory-with-extra-steps. So both
+    // modes are exercised here, against the same fake transport and the same
+    // expected bytes — an alternative mode nothing runs is an alternative mode
+    // that rots.
+    //
+    // Determinism: no row sleeps for a guessed interval. `wait_idle` reports
+    // when the worker has drained what it was given and completed a pass, and
+    // every loop below is bounded so a stuck wrapper FAILS rather than hangs.
+
+    {   // (a) Constructed but NEVER STARTED — the wrapper must behave exactly
+        //     like the bare core, byte for byte. This is the block that proves
+        //     "optional" is true, and it deliberately exercises `receive` and
+        //     `poll` SEPARATELY: an earlier version called both before
+        //     asserting, so either path alone satisfied it and mutations that
+        //     broke one were masked by the other (both verified to survive).
+        FakeTransport tr;
+        ThreadedEsp   esp{tr};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        check("MODE-01", "an unstarted wrapper is not running", !esp.running());
+
+        // No poll() at all: with no worker, `receive` must reach the core
+        // directly rather than parking the byte in the inbound queue.
+        for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check_eq("MODE-02", "driven INLINE, receive() alone answers as the bare core does",
+                 guest, "\r\nOK\r\n");
+        guest.clear();
+
+        // And the WALL-CLOCK half must still be reachable inline: a connect's
+        // reply is deferred until the transport settles, which only `poll()`
+        // does. Without a working inline poll() this reply never comes.
+        for (char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"))
+            esp.receive(static_cast<std::uint8_t>(c));
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check("MODE-02b", "...and a connect's reply is still deferred, not invented",
+              guest.empty());
+        esp.poll();
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check_eq("MODE-02c", "...until an inline poll() settles the transport", guest,
+                 "\r\nOK\r\n"); }
+
+    {   // (b) Started. Same stimulus, same bytes — only the thread differs.
+        FakeTransport tr;
+        ThreadedEsp   esp{tr};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        esp.start();
+        check("MODE-03", "start() brings the worker up", esp.running());
+        for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
+        bool settled = esp.wait_idle(2000);
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check("MODE-04", "the worker drains guest input without being polled", settled);
+        check_eq("MODE-05", "driven THREADED it answers with the identical bytes", guest,
+                 "\r\nOK\r\n");
+        esp.stop();
+        check("MODE-06", "stop() joins and reports it", !esp.running());
+        esp.stop();
+        check("MODE-07", "...and stop() is idempotent", !esp.running()); }
+
+    {   // (c) A full session on the worker: connect, prompt, payload, +IPD.
+        //     The socket half is what actually runs on the other thread, so a
+        //     row that only sent `AT` would not exercise it.
+        FakeTransport tr;
+        ThreadedEsp   esp{tr};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        esp.start();
+
+        auto pump = [&](const std::string& s) {
+            for (unsigned char c : s) esp.receive(c);
+            for (int i = 0; i < 200; ++i) {
+                esp.wait_idle(50);
+                for (int j = 0; j < 4096 && esp.wants_tick(); ++j)
+                    esp.tick(BYTE_TICKS, BYTE_TICKS);
+                if (!esp.wants_tick()) break;
+            }
+        };
+        pump("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n");
+        check_eq("MODE-08", "a connect completes on the worker thread", guest, "\r\nOK\r\n");
+        guest.clear();
+
+        pump("AT+CIPSEND=2\r\n");
+        check_eq("MODE-09", "...the CIPSEND prompt still comes back byte-exact", guest,
+                 "\r\nOK\r\n> ");
+        guest.clear();
+
+        pump("hi");
+        check_eq("MODE-10", "...the payload is acknowledged", guest, "\r\nSEND OK\r\n");
+        check("MODE-11", "...and really reached the transport", tr.sent == "hi");
+        guest.clear();
+
+        tr.queue_from_peer("yo");
+        // No guest input this time: the worker must notice peer data on its own.
+        for (int i = 0; i < 200 && guest.size() < 12; ++i) {
+            esp.wait_idle(50);
+            for (int j = 0; j < 4096 && esp.wants_tick(); ++j)
+                esp.tick(BYTE_TICKS, BYTE_TICKS);
+        }
+        check_eq("MODE-12", "unsolicited peer data is framed and paced out unprompted", guest,
+                 "\r\n+IPD,2:yo");
+        esp.stop(); }
+
+    {   // (d) THE DESTRUCTOR JOINS. This is the row the lifetime contract
+        //     exists for: a wrapper that detached instead of joining would
+        //     leave a thread running over a destroyed object, and under
+        //     jnext's cold boot — placement-new at the same address — that is
+        //     silent corruption of the newly booted machine, not a crash.
+        //
+        //     "It did not crash" is NOT a test of that, and neither is "the
+        //     thread stopped eventually": a detach plus a stop flag usually
+        //     does stop promptly, which is why the first version of this row
+        //     SURVIVED replacing join() with detach(). What distinguishes them
+        //     is WHEN the destructor returns, so the wrapper is destroyed
+        //     while the worker is provably inside a long poll(): a join cannot
+        //     return until that poll() has, a detach returns straight through
+        //     it. `in_poll` right after destruction is therefore a direct
+        //     observation of the join, needing no sleep and no guesswork.
+        BlockingPollTransport tr;   // outlives the wrapper, deliberately
+        tr.block_for = std::chrono::milliseconds(200);
+        {
+            ThreadedEsp esp{tr};
+            esp.start();
+            for (int i = 0; i < 2000 && !tr.in_poll.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            check("MODE-13", "the worker really ran while the wrapper was alive",
+                  tr.in_poll.load() && tr.polls.load() > 0);
+            // Destroyed here, WITHOUT an explicit stop() and with the worker
+            // mid-poll — the shape a forgetful owner produces.
+        }
+        check("MODE-14",
+              "destroying a running wrapper JOINS: the destructor cannot return "
+              "while the worker is still inside poll()",
+              !tr.in_poll.load()); }
+
+    {   // (e) `tick()` must not inherit a worker stall. The worker holds the
+        //     core across the transport's SYNCHRONOUS DNS lookup, which can be
+        //     seconds; a blocking lock in `tick()` would hand that stall to
+        //     the emulation thread, which is the whole thing this class exists
+        //     to avoid.
+        //
+        //     The bound is deliberately huge — the worker blocks for 300 ms
+        //     and `tick()` is allowed 200 ms — because a try-lock `tick()`
+        //     takes microseconds. Only a genuinely blocking implementation can
+        //     exceed it, so this cannot flake under a loaded box; it just has
+        //     to not be a blocking lock.
+        BlockingPollTransport tr;
+        ThreadedEsp           esp{tr};
+        std::string           guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        tr.block_for = std::chrono::milliseconds(300);
+        esp.start();
+        // Wait until the worker is provably inside the blocking poll().
+        for (int i = 0; i < 2000 && !tr.in_poll.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("MODE-15", "the worker is inside a long poll()", tr.in_poll.load());
+
+        const auto t0 = std::chrono::steady_clock::now();
+        esp.tick(BYTE_TICKS, BYTE_TICKS);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        check("MODE-16", "tick() returns immediately rather than waiting for it", ms < 200);
+        tr.block_for = std::chrono::milliseconds(0);
+        esp.stop(); }
+
+    // ══ Group K — the worker must not starve the wire ═══════════════════
+    //
+    // Three properties, all of them found MISSING by review rather than by a
+    // green test, and all three measured on the version that lacked them.
+    // Their common cause was one line: the worker held the engine lock across
+    // `EspTransport::poll()`.
+
+    {   // STALL-01 — THE ONE THAT MATTERS. Bytes already queued for the guest
+        //     must keep flowing at their paced rate while the transport is
+        //     stalled. Measured on the version that held the lock across the
+        //     transport poll: 11 827 226 `tick()` calls over 400 ms of a
+        //     500 ms stall delivered ZERO of these 39 bytes.
+        //
+        //     This is not a latency nicety. The emulation thread is not
+        //     blocked — that is the entire point of the wrapper — so real
+        //     T-states elapse throughout, and the receivers on the far end of
+        //     this wire have no retry.
+        SlowResolveTransport tr;
+        tr.block_for = std::chrono::milliseconds(500);
+        ThreadedEsp esp{tr};
+        std::string guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+
+        // Both events land INLINE, before the worker exists, so the ordering
+        // is deterministic rather than raced: AT+RST queues its 36-byte reply
+        // into `out_`, then AT+CIPSTART puts the transport into Resolving.
+        for (unsigned char c : std::string("AT+RST\r\n")) esp.receive(c);
+        const std::string reset_reply = "\r\nOK\r\n\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n";
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp.receive(c);
+        check("STALL-01a", "nothing has been delivered yet — no tick() has run", guest.empty());
+
+        esp.start();
+        for (int i = 0; i < 5000 && !tr.in_poll.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-01b", "the worker is provably stalled inside the transport poll",
+              tr.in_poll.load());
+
+        // Pace from THIS thread — standing in for the emulation thread, which
+        // keeps executing Z80 instructions regardless of any ESP-side stall.
+        for (int i = 0; i < 4096 && guest.size() < reset_reply.size(); ++i)
+            esp.tick(BYTE_TICKS, BYTE_TICKS);
+        const bool still_stalled = tr.in_poll.load();
+        check_eq("STALL-01", "queued bytes reach the wire DURING a transport stall", guest,
+                 reset_reply);
+        check("STALL-01c", "...and they did so while the stall was still in progress",
+              still_stalled);
+        esp.stop(); }
+
+    {   // STALL-02 — shutdown is bounded when the transport honours its
+        //     contract. Measured on a CONTRACT-VIOLATING transport that blocks
+        //     2000 ms in poll(): the destructor took 2007 ms, which in jnext
+        //     is the emulator frozen for two seconds on Reset. That case
+        //     cannot be fixed here — joining a thread parked in a syscall is
+        //     unbounded for anyone — so it is a stated contract
+        //     (`EspTransport::poll`) and the row pins the other side of it:
+        //     given a transport that does NOT block, destruction while a
+        //     connect is still outstanding must be prompt.
+        //
+        //     The poll interval is deliberately 2 SECONDS, far longer than the
+        //     bound asserted. That is what makes the row discriminative: it
+        //     fails unless shutdown actively wakes the worker, rather than
+        //     waiting for its next scheduled pass.
+        AsyncResolveTransport tr;
+        auto esp = std::unique_ptr<ThreadedEsp>(
+            new ThreadedEsp(tr, std::chrono::milliseconds(2000)));
+        esp->start();
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp->receive(c);
+        // Wait for the WORKER to have picked the command up — the transport
+        // reaching Resolving is proof, and it costs nothing, whereas
+        // `wait_idle` would wait out the deliberately long poll interval and
+        // swallow the very window this row is timing.
+        for (int i = 0; i < 5000 && tr.state() != TransportState::Resolving; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-02a", "the connect is outstanding on the worker at destruction",
+              tr.state() == TransportState::Resolving);
+
+        // Time the DESTRUCTOR and nothing else.
+        const auto t0 = std::chrono::steady_clock::now();
+        esp.reset();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        check("STALL-02",
+              "destroying the wrapper mid-connect completes promptly, not at the next "
+              "scheduled pass",
+              ms < 500); }
+
+    {   // STALL-03 — installing a sink must never wait on the worker.
+        //     `set_output` used to take the engine lock, which meant it
+        //     inherited whatever the worker was doing. A slow `send()` is used
+        //     to hold that lock: it is another deliberate contract violation,
+        //     and it is the only way to make the LOCKED half of the worker
+        //     pass long enough to observe the difference — with the transport
+        //     poll now unlocked, a slow poll() no longer holds it at all.
+        SlowSendTransport tr;
+        tr.send_delay = std::chrono::milliseconds(400);
+        ThreadedEsp esp{tr};
+        esp.set_output([](std::uint8_t) {});
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp.receive(c);
+        esp.poll();                       // inline: settles the connect
+        for (unsigned char c : std::string("AT+CIPSEND=2\r\n")) esp.receive(c);
+        esp.start();
+        for (unsigned char c : std::string("hi")) esp.receive(c);   // -> flush_outbound -> send()
+        for (int i = 0; i < 5000 && !tr.in_send.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-03a", "the worker is inside a slow send(), holding the engine lock",
+              tr.in_send.load());
+
+        const auto t0 = std::chrono::steady_clock::now();
+        esp.set_output([](std::uint8_t) {});
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        check("STALL-03", "set_output() returns without waiting for the engine lock", ms < 150);
+        esp.stop(); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

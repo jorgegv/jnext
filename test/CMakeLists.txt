@@ -211,29 +211,20 @@ target_link_libraries(uart_integration_test PRIVATE
 target_include_directories(uart_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 
-# Emulated ESP-01 socket transport (GH #25, branch 2 — src/peripheral/esp_socket*).
-# Two halves, both hermetic: the address policy as a pure function (the whole
-# deny matrix, no sockets at all) and the transport against an in-process
-# listener bound to 127.0.0.1:0 (no DNS, no external host, no fixed port).
-# jnext_peripheral carries ws2_32 on Windows, but every Windows target builds
-# with -DENABLE_TESTS=OFF, so this suite is POSIX-only in practice.
-add_executable(esp_socket_test esp/esp_socket_test.cpp)
-target_link_libraries(esp_socket_test PRIVATE jnext_peripheral)
-target_include_directories(esp_socket_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME esp_socket_tests COMMAND esp_socket_test)
-
-# Emulated ESP-01 AT command engine (GH #25, branch 3 — src/peripheral/esp_at.*).
-# Hermetic: every row drives the engine against an in-memory fake transport,
-# so no socket, DNS lookup or listener is involved. Rows assert EXACT BYTES
-# (the `> ` prompt's trailing space, `OK\r\n` framing, `+IPD,<len>:`) because
-# the bytes are the contract — three guest parsers busy-wait on them with no
-# timeout. Also pins the cycle-granularity `UartDevice::tick` hook and its
-# `UartChannel::tick` call site, which is why jnext_peripheral (which carries
-# uart.cpp) is the only link dependency, exactly as uart_test does.
-add_executable(esp_at_test esp/esp_at_test.cpp)
-target_link_libraries(esp_at_test PRIVATE jnext_peripheral)
-target_include_directories(esp_at_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME esp_at_tests COMMAND esp_at_test)
+# The emulated ESP-01's own suites (esp_at_test, esp_socket_test) are NOT
+# declared here. They ship WITH the module and are registered from
+# src/esp01/CMakeLists.txt — see that file for why, and test/run-unit-tests.sh
+# (which reads every CTestTestfile.cmake under the build tree) for why the
+# declared-suite cross-check still sees them.
+#
+# What IS declared here is jnext's side of the seam: the `UartDevice` adapter,
+# the `Uart::tick` call site that consumes its hot-path gate, and the binding
+# of the module's logging seam to jnext's `esp01` spdlog logger. None of that
+# can live in the module without dragging jnext back in.
+add_executable(esp_uart_adapter_test esp/esp_uart_adapter_test.cpp)
+target_link_libraries(esp_uart_adapter_test PRIVATE jnext_peripheral)
+target_include_directories(esp_uart_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME esp_uart_adapter_tests COMMAND esp_uart_adapter_test)
 
 # Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
 # Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class

@@ -1,10 +1,10 @@
-// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 5).
+// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 6).
 // Rationale, evidence and the deliberate modelling simplifications are all in
 // esp_at.h — read that first; this file only implements what it states.
 
-#include "peripheral/esp_at.h"
+#include "esp01/esp_at.h"
 
-#include "core/log.h"
+#include "esp01/esp_log.h"
 
 #include <algorithm>
 #include <cctype>
@@ -14,12 +14,6 @@
 namespace esp {
 
 namespace {
-
-/// THE MODULE'S ONLY jnext DEPENDENCY beyond the transport and UartDevice
-/// seams, and deliberately funnelled through one function: every trace call
-/// below goes through `lg()`, so a later branch can put a logging sink behind
-/// this module without touching a single call site.
-inline spdlog::logger& lg() { return *Log::esp01(); }
 
 /// Case-insensitive prefix test; `rest` receives what follows the prefix. An
 /// EXACT match is the case where `rest` comes back empty, which is how the
@@ -159,7 +153,10 @@ void AtEngine::receive(std::uint8_t byte) {
         // so instead the input waits: nothing is lost and nothing is answered
         // out of order.
         deferred_.push_back(byte);
-        lg().trace("rx byte {:#04x} deferred (connect in flight)", byte);
+        // `log_hex_byte` rather than a `{:#04x}` spec: the seam substitutes
+        // `{}` and ignores specs on purpose (esp_log.h), and an ostream would
+        // print a `uint8_t` as a character.
+        log_trace("rx byte {} deferred (connect in flight)", log_hex_byte(byte));
         refresh_tick_gate();
         return;
     }
@@ -219,12 +216,12 @@ void AtEngine::dispatch_line() {
         // useless: 512 characters of an `AT+CIPSTART=` is still a valid
         // `AT+CIPSTART=`, so a truncate-and-run reading would open a
         // connection to a host the guest never named.
-        lg().debug("AT line over {} bytes — refusing the whole line", MAX_COMMAND_LEN);
+        log_debug("AT line over {} bytes — refusing the whole line", MAX_COMMAND_LEN);
         queue_error();
         return;
     }
 
-    lg().debug("AT <- \"{}\"", escape(line_));
+    log_debug("AT <- \"{}\"", escape(line_));
 
     // The empty line. nextsync sends it as its very first byte pair and again
     // after every baud switch, and parses `ERROR` as proof the link is alive.
@@ -242,15 +239,15 @@ void AtEngine::dispatch_line() {
         return;
     }
 
-    lg().debug("unsupported command \"{}\" — answering ERROR", escape(line_));
+    log_debug("unsupported command \"{}\" — answering ERROR", escape(line_));
     queue_error();
 }
 
 void AtEngine::finish_payload() {
     Connection& c = conn_[payload_cid_];
-    lg().debug("payload complete: {} byte(s) from the guest for cid {}", payload_.size(),
+    log_debug("payload complete: {} byte(s) from the guest for cid {}", payload_.size(),
                payload_cid_);
-    lg().trace("payload bytes: {}", escape(payload_.data(), payload_.size()));
+    log_trace("payload bytes: {}", escape(payload_.data(), payload_.size()));
 
     // Offer the whole payload to the socket at once; whatever the kernel will
     // not take is buffered and retried from poll(). `SEND OK` is emitted as
@@ -272,13 +269,13 @@ void AtEngine::cmd_at(const std::string&) { queue_ok(); }
 
 void AtEngine::cmd_echo_off(const std::string&) {
     echo_ = false;
-    lg().debug("echo off");
+    log_debug("echo off");
     queue_ok();
 }
 
 void AtEngine::cmd_echo_on(const std::string&) {
     echo_ = true;
-    lg().debug("echo on");
+    log_debug("echo on");
     queue_ok();
 }
 
@@ -291,7 +288,7 @@ void AtEngine::cmd_reset(const std::string&) {
         Connection& c = conn_[cid];
         if (!c.transport) continue;
         if (c.open || c.connecting) {
-            lg().info("AT+RST — dropping the connection to {}:{}", c.host, c.port);
+            log_info("AT+RST — dropping the connection to {}:{}", c.host, c.port);
             c.transport->close();
         }
         c.open          = false;
@@ -326,7 +323,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // this is a redundant GUARD, which can only refuse something twice.
     if (c.open || c.connecting) {
         // Real firmware says `ALREADY CONNECTED`, which nothing parses.
-        lg().debug("AT+CIPSTART while a connection exists — answering ERROR");
+        log_debug("AT+CIPSTART while a connection exists — answering ERROR");
         queue_error();
         return;
     }
@@ -335,14 +332,14 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     std::string proto;
     if (!take_quoted(rest, proto) || !ieq(proto, "TCP")) {
         // UDP and SSL are out of scope for v1.0 and have no consumer.
-        lg().debug("AT+CIPSTART protocol \"{}\" unsupported — answering ERROR", escape(proto));
+        log_debug("AT+CIPSTART protocol \"{}\" unsupported — answering ERROR", escape(proto));
         queue_error();
         return;
     }
 
     std::string host;
     if (!take_quoted(rest, host) || host.empty()) {
-        lg().debug("AT+CIPSTART has no usable host — answering ERROR");
+        log_debug("AT+CIPSTART has no usable host — answering ERROR");
         queue_error();
         return;
     }
@@ -352,14 +349,14 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // that we accept and ignore.
     std::uint32_t port = 0;
     if (!parse_uint(take_field(rest), 65535, port) || port == 0) {
-        lg().debug("AT+CIPSTART has no usable port — answering ERROR");
+        log_debug("AT+CIPSTART has no usable port — answering ERROR");
         queue_error();
         return;
     }
     if (!rest.empty()) {
         std::uint32_t keepalive = 0;
         if (!parse_uint(take_field(rest), 7200, keepalive) || !rest.empty()) {
-            lg().debug("AT+CIPSTART trailing arguments unparseable — answering ERROR");
+            log_debug("AT+CIPSTART trailing arguments unparseable — answering ERROR");
             queue_error();
             return;
         }
@@ -369,7 +366,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     c.port = static_cast<std::uint16_t>(port);
 
     if (!c.transport->begin_connect(c.host, c.port)) {
-        lg().warn("connection to {}:{} refused before it started", c.host, c.port);
+        log_warn("connection to {}:{} refused before it started", c.host, c.port);
         queue_error();
         return;
     }
@@ -379,7 +376,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // nothing.
     c.connecting       = true;
     c.connect_deadline = std::chrono::steady_clock::now() + connect_timeout_;
-    lg().debug("AT+CIPSTART accepted: {}:{} on cid {} — reply deferred to poll() (deadline {} ms)",
+    log_debug("AT+CIPSTART accepted: {}:{} on cid {} — reply deferred to poll() (deadline {} ms)",
                c.host, c.port, SINGLE_CID, connect_timeout_.count());
 }
 
@@ -388,14 +385,14 @@ void AtEngine::cmd_cipsendex(const std::string& args) { begin_send(args, "AT+CIP
 
 void AtEngine::begin_send(const std::string& args, const char* name) {
     if (!conn_[SINGLE_CID].open) {
-        lg().debug("{} with no open connection — answering ERROR", name);
+        log_debug("{} with no open connection — answering ERROR", name);
         queue_error();
         return;
     }
 
     std::uint32_t len = 0;
     if (!parse_uint(args, MAX_SEND_LEN, len) || len == 0) {
-        lg().debug("{} length \"{}\" out of range — answering ERROR", name, escape(args));
+        log_debug("{} length \"{}\" out of range — answering ERROR", name, escape(args));
         queue_error();
         return;
     }
@@ -409,7 +406,7 @@ void AtEngine::begin_send(const std::string& args, const char* name) {
     // THE prompt. Three parsers need these exact bytes and none of them has a
     // timeout; emitting anything else hangs the guest forever.
     queue("\r\nOK\r\n> ");
-    lg().debug("{}={} accepted — '>' prompt issued, awaiting {} payload byte(s)", name, len,
+    log_debug("{}={} accepted — '>' prompt issued, awaiting {} payload byte(s)", name, len,
                len);
 }
 
@@ -418,11 +415,11 @@ void AtEngine::cmd_cipclose(const std::string&) {
     if (!c.open && !c.connecting) {
         // nextsync loops AT+CIPCLOSE up to 10 times WHILE ERROR IS NOT SEEN,
         // so "nothing was open" must really answer ERROR or it spins.
-        lg().debug("AT+CIPCLOSE with nothing open — answering ERROR");
+        log_debug("AT+CIPCLOSE with nothing open — answering ERROR");
         queue_error();
         return;
     }
-    lg().info("connection to {}:{} closed by the guest (AT+CIPCLOSE)", c.host, c.port);
+    log_info("connection to {}:{} closed by the guest (AT+CIPCLOSE)", c.host, c.port);
     c.transport->close();
     c.open          = false;
     c.connecting    = false;
@@ -444,7 +441,7 @@ void AtEngine::cmd_cipmux(const std::string& args) {
     // accepting =1 would promise something that breaks the one client that
     // cannot ask for it back. The connection TABLE is sized for it (issue
     // #154); the COMMAND is not implemented.
-    lg().debug("AT+CIPMUX={} unsupported (single-connection only) — answering ERROR",
+    log_debug("AT+CIPMUX={} unsupported (single-connection only) — answering ERROR",
                escape(args));
     queue_error();
 }
@@ -453,7 +450,7 @@ void AtEngine::cmd_uart(const std::string& args) {
     std::string rest = args;
     std::uint32_t baud = 0;
     if (!parse_uint(take_field(rest), 5000000, baud) || baud == 0) {
-        lg().debug("AT+UART baud \"{}\" unparseable — answering ERROR", escape(args));
+        log_debug("AT+UART baud \"{}\" unparseable — answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -463,7 +460,7 @@ void AtEngine::cmd_uart(const std::string& args) {
     // own side is all that is needed for the rate to follow. nextsync does not
     // even wait for this OK — it switches immediately and re-probes with the
     // empty line.
-    lg().debug("AT+UART baud set to {} — pacing follows the live prescaler", baud);
+    log_debug("AT+UART baud set to {} — pacing follows the live prescaler", baud);
     queue_ok();
 }
 
@@ -523,7 +520,7 @@ void AtEngine::queue(const std::string& text) {
 
 void AtEngine::queue_raw(const std::uint8_t* data, std::size_t len) {
     if (len == 0) return;
-    lg().debug("AT -> \"{}\"", escape(data, len));
+    log_debug("AT -> \"{}\"", escape(data, len));
     for (std::size_t i = 0; i < len; ++i) out_.push_back(data[i]);
     refresh_tick_gate();
 }
@@ -541,10 +538,31 @@ void AtEngine::queue_ipd_header(std::size_t cid, bool multiplexed, std::size_t l
 // ─── Wall-clock half ──────────────────────────────────────────────────
 
 void AtEngine::poll() {
+    // Splitting this loop in two changes NOTHING for v1.0: only `SINGLE_CID`
+    // is ever given a transport, so "poll every slot, then service every slot"
+    // and the old "poll and service each slot in turn" execute the identical
+    // sequence of calls. When CIPMUX (issue #154) populates more slots they
+    // will differ in interleaving only — every slot is still polled before it
+    // is serviced, which is the ordering that matters.
+    advance_transports();
+    service_transports();
+}
+
+void AtEngine::advance_transports() {
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         Connection& c = conn_[cid];
         if (!c.transport) continue;  // v1.0: every slot but SINGLE_CID
+        // The ONLY statement in this function, deliberately. Nothing here
+        // reads or writes engine state, which is what lets a threaded host run
+        // it outside its own lock — see the header.
         c.transport->poll();
+    }
+}
+
+void AtEngine::service_transports() {
+    for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
+        Connection& c = conn_[cid];
+        if (!c.transport) continue;
         resolve_connect(cid);
         flush_outbound(cid);
         drain_socket(cid);
@@ -571,7 +589,7 @@ void AtEngine::resolve_connect(std::size_t cid) {
             // does not slow down, it FREEZES. Answering ERROR is AT-protocol
             // behaviour and belongs here, not in the transport: the transport
             // has no idea a guest is blocked on a reply.
-            lg().warn("connection to {}:{} timed out after {} ms — answering ERROR", c.host,
+            log_warn("connection to {}:{} timed out after {} ms — answering ERROR", c.host,
                       c.port, connect_timeout_.count());
             c.connecting = false;
             c.open       = false;
@@ -581,7 +599,7 @@ void AtEngine::resolve_connect(std::size_t cid) {
         case TransportState::Connected:
             c.connecting = false;
             c.open       = true;
-            lg().info("connection to {}:{} opened ({})", c.host, c.port,
+            log_info("connection to {}:{} opened ({})", c.host, c.port,
                       to_string(c.transport->peer_address()));
             queue_ok();
             break;
@@ -591,7 +609,7 @@ void AtEngine::resolve_connect(std::size_t cid) {
             // because no connection was ever established.
             c.connecting = false;
             c.open       = false;
-            lg().warn("connection to {}:{} failed: {}", c.host, c.port,
+            log_warn("connection to {}:{} failed: {}", c.host, c.port,
                       c.transport->last_error().empty() ? "refused" : c.transport->last_error());
             c.transport->close();
             queue_error();
@@ -619,10 +637,10 @@ void AtEngine::flush_outbound(std::size_t cid) {
     for (std::size_t i = 0; i < sent; ++i) c.tx.pop_front();
 
     if (sent != 0) {
-        lg().debug("flushed {}/{} byte(s) to the peer on cid {}, {} still queued", sent,
+        log_debug("flushed {}/{} byte(s) to the peer on cid {}, {} still queued", sent,
                    staged.size(), cid, c.tx.size());
     } else if (!c.tx.empty()) {
-        lg().trace("peer send buffer full on cid {}, {} byte(s) still queued", cid, c.tx.size());
+        log_trace("peer send buffer full on cid {}, {} byte(s) still queued", cid, c.tx.size());
     }
 }
 
@@ -640,7 +658,7 @@ void AtEngine::drain_socket(std::size_t cid) {
         if (c.transport->state() != TransportState::Connected) break;
     }
     if (total != 0) {
-        lg().debug("buffered {} byte(s) from the peer on cid {} ({} awaiting +IPD framing)",
+        log_debug("buffered {} byte(s) from the peer on cid {} ({} awaiting +IPD framing)",
                    total, cid, c.rx.size());
     }
 }
@@ -650,7 +668,7 @@ void AtEngine::note_peer_close(std::size_t cid) {
     if (!c.open) return;
     if (c.transport->state() == TransportState::Connected) return;
 
-    lg().info("connection to {}:{} closed by the peer", c.host, c.port);
+    log_info("connection to {}:{} closed by the peer", c.host, c.port);
     c.open = false;
     c.tx.clear();
     // The CLOSED notification waits until everything already received has been
@@ -680,7 +698,7 @@ void AtEngine::frame_ipd() {
         // drained, a busy peer produces few large chunks rather than many
         // small ones, which is what keeps nextsync inside its
         // 5-chunks-per-packet budget.
-        lg().debug("+IPD framing {} byte(s) on cid {}, {} left buffered", n, cid, c.rx.size() - n);
+        log_debug("+IPD framing {} byte(s) on cid {}, {} left buffered", n, cid, c.rx.size() - n);
         queue_ipd_header(cid, /*multiplexed=*/false, n);
         for (std::size_t i = 0; i < n; ++i) {
             out_.push_back(c.rx.front());
@@ -699,16 +717,16 @@ void AtEngine::frame_ipd() {
     }
 }
 
-void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
-    if (byte_ticks == 0) byte_ticks = 1;  // a zero prescaler would stall the pacer
+void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
+    if (ticks_per_byte == 0) ticks_per_byte = 1;  // a zero rate would stall the pacer
 
     // Cut a new +IPD the moment the wire falls quiet, so the pacer never
     // stalls with data buffered behind it.
     if (out_.empty()) frame_ipd();
 
     if (out_.empty()) {
-        // Idle: return WITHOUT banking, because `pace_accum_ += master_cycles`
-        // below is the only place cycles are ever added. That is what stops a
+        // Idle: return WITHOUT banking, because `pace_accum_ += elapsed_ticks`
+        // below is the only place ticks are ever added. That is what stops a
         // long quiet period from accumulating credit and then releasing a
         // burst at unbounded speed the instant data appears — precisely the
         // FIFO overrun this pacing exists to prevent.
@@ -723,10 +741,10 @@ void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
         return;
     }
 
-    pace_accum_ += master_cycles;
+    pace_accum_ += elapsed_ticks;
     std::size_t released = 0;
-    while (!out_.empty() && pace_accum_ >= byte_ticks) {
-        pace_accum_ -= byte_ticks;
+    while (!out_.empty() && pace_accum_ >= ticks_per_byte) {
+        pace_accum_ -= ticks_per_byte;
         send_to_guest(out_.front());
         out_.pop_front();
         ++released;
@@ -742,8 +760,8 @@ void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
         frame_ipd();
     }
     if (released != 0) {
-        lg().trace("paced {} byte(s) to the guest at {} ticks/byte ({} queued)", released,
-                   byte_ticks, out_.size());
+        log_trace("paced {} byte(s) to the guest at {} ticks/byte ({} queued)", released,
+                  ticks_per_byte, out_.size());
     }
     refresh_tick_gate();
 }
@@ -762,7 +780,7 @@ void AtEngine::refresh_tick_gate() {
     for (std::size_t cid = 0; !work && cid < MAX_CONNECTIONS; ++cid) {
         work = !conn_[cid].rx.empty() || conn_[cid].close_pending;
     }
-    set_tick_wanted(work);
+    tick_wanted_ = work;
 }
 
 }  // namespace esp
