@@ -326,9 +326,11 @@ public:
 ///     everything (`std::exception` and `...`) and degrades to a FAILED
 ///     LOOKUP: the transport goes to `Failed`, `last_error()` names the
 ///     exception, and the AT engine answers `ERROR` — a refusal path every
-///     evidenced client already handles. A partially-filled `out` is
-///     DISCARDED, so a resolver that appends some addresses and then throws
-///     cannot have those addresses connected to.
+///     evidenced client already handles. That holds however far your resolver
+///     got before throwing: the return value was never assigned, so the lookup
+///     counts as failed and its address list is never consulted. The module
+///     additionally discards a partially-filled `out`, as defence in depth
+///     rather than as the thing that makes the guarantee.
 ///     Throwing is still the worse way to report failure — `return false` with
 ///     `err` set is cheaper and carries a better message — but it is a
 ///     supported way, not a way to kill the host program.

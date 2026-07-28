@@ -254,6 +254,21 @@ private:
                 // instead: the engine already handles that (`AT+CIPSTART`
                 // answers `ERROR`), so a throwing resolver costs a connection,
                 // not the emulator.
+                //
+                // WHICH PROPERTY IS LOAD-BEARING, stated because the handlers
+                // below LOOK like they carry the guarantee and do not. `ok` is
+                // initialised false above, and `ok = fn(...)` cannot complete
+                // its assignment when the right-hand side throws — so a thrown
+                // lookup is a FAILED lookup by construction, and the consumer's
+                // `!job->ok` gate refuses it without ever examining the address
+                // list. The `ok = false` / `out.clear()` in the handlers
+                // RESTATE that; they do not establish it. Verified in review by
+                // deleting both `out.clear()` calls: the suite stays at 142/142
+                // and still connects nowhere. They are kept as defence in depth
+                // because they cost nothing and they keep the two properties
+                // independent — a later refactor that decouples the emptiness
+                // check from the `ok` check must not be able to turn a
+                // half-built list into a connect.
                 std::vector<IpAddress> out;
                 std::string            err;
                 bool                   ok = false;
@@ -262,7 +277,7 @@ private:
                             : net::resolve(host, /*numeric_only=*/false, out, err);
                 } catch (const std::exception& e) {
                     ok  = false;
-                    out.clear();  // a partially-filled list must never be used
+                    out.clear();  // defence in depth, not the barrier — see above
                     err = std::string("the resolver threw: ") + e.what();
                 } catch (...) {
                     ok  = false;
