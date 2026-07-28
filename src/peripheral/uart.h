@@ -4,6 +4,7 @@
 #include <functional>
 #include <type_traits>
 #include "core/saveable.h"
+#include "peripheral/uart_device.h"
 
 /// UART peripheral — dual-channel UART (ESP WiFi + Raspberry Pi).
 ///
@@ -237,11 +238,24 @@ public:
     /// `parity_err` sets the sticky parity-error status bit.
     void inject_rx_bit_frame(uint8_t byte, bool framing_err, bool parity_err);
 
+    // ── Device attachment ─────────────────────────────────────
+    //
+    // The backend on the far end of this channel's wire (ESP-01 on UART 0,
+    // Raspberry Pi on UART 1). Non-owning — see uart_device.h for the
+    // lifetime contract. Prefer the `Uart::attach_device(channel, dev)`
+    // facade, which also hands the device its guest-bound RX sink; these
+    // per-channel entry points only manage the pointer.
+
+    void attach_device(UartDevice* device) { device_ = device; }
+    void detach_device()                   { device_ = nullptr; }
+    UartDevice* device() const             { return device_; }
+
     // ── Callbacks ─────────────────────────────────────────────
 
-    /// Called when a byte has been fully transmitted from the TX FIFO.
-    /// The external handler receives the byte; if no handler is set,
-    /// the byte is looped back into the RX FIFO (loopback mode).
+    /// Called when a byte has been fully transmitted from the TX FIFO,
+    /// if no `UartDevice` is attached (an attached device takes precedence
+    /// — see `deliver_tx_byte`). If neither is present, the byte is looped
+    /// back into this channel's own RX FIFO (loopback mode).
     std::function<void(uint8_t byte)> on_tx_byte;
 
     /// Called when the TX FIFO becomes empty (for interrupt generation).
@@ -383,6 +397,17 @@ private:
     bool     rx_byte_parity_err_  = false;
     bool     rx_byte_framing_err_ = false;
 
+    // Attached backend (non-owning). Deliberately NOT part of save_state /
+    // load_state: which device is plugged in is host topology, not machine
+    // state, and a rewind snapshot must not resurrect a stale pointer.
+    UartDevice* device_ = nullptr;
+
+    /// Hand one outbound byte to whoever is listening: an attached
+    /// UartDevice first, else `on_tx_byte`. Returns false when neither is
+    /// present, leaving the caller to decide what an unheard byte means
+    /// (the byte-level engine loops it back; the bit-level one drops it).
+    bool deliver_tx_byte(uint8_t byte);
+
     /// Compute the number of 28 MHz ticks for one complete byte transfer.
     uint32_t byte_transfer_ticks() const;
 
@@ -438,6 +463,26 @@ public:
     /// Push a byte into the RX FIFO of the specified channel.
     /// @param channel  0 = ESP, 1 = Pi
     void inject_rx(int channel, uint8_t byte);
+
+    // ── Device attachment ─────────────────────────────────────
+
+    /// Attach a backend to a channel (0 = ESP, 1 = Pi).
+    ///
+    /// The Uart does NOT own the device — caller manages lifetime, exactly
+    /// as with `SpiMaster::attach_device`. Two things happen: the channel's
+    /// TX bytes start going to `device->receive()` instead of looping back,
+    /// and the device is handed an RxSink bound to this Uart + channel so it
+    /// can inject toward the guest. Attaching over an existing device
+    /// replaces it (the displaced device's sink is cleared first, so it
+    /// cannot keep injecting).
+    void attach_device(int channel, UartDevice* device);
+
+    /// Detach whatever is on `channel`, clearing its RxSink and restoring
+    /// the channel to loopback. Safe to call when nothing is attached.
+    void detach_device(int channel);
+
+    /// The device attached to `channel`, or nullptr.
+    UartDevice* device(int channel) const;
 
     // ── Interrupt callbacks ───────────────────────────────────
 

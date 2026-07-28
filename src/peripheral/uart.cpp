@@ -86,16 +86,30 @@ uint32_t UartChannel::byte_transfer_ticks() const {
     return ps * frame_bits();
 }
 
+bool UartChannel::deliver_tx_byte(uint8_t byte) {
+    // An attached backend is the physical thing on the wire and wins over
+    // `on_tx_byte`, which is an observer hook. Only one of them ever sees a
+    // given byte; a test that wants to watch traffic to a device does it
+    // from inside the device.
+    if (device_) {
+        device_->receive(byte);
+        return true;
+    }
+    if (on_tx_byte) {
+        on_tx_byte(byte);
+        return true;
+    }
+    return false;
+}
+
 void UartChannel::start_tx_from_fifo() {
     // Pop the next byte and begin its transmission (byte-level engine).
     uint8_t byte = tx_fifo_.pop();
     tx_busy_ = true;
     tx_timer_byte_ = byte_transfer_ticks();
 
-    if (on_tx_byte) {
-        on_tx_byte(byte);
-    } else {
-        // Loopback mode: feed TX output back into RX
+    if (!deliver_tx_byte(byte)) {
+        // Nothing on the wire: loopback mode: feed TX output back into RX
         inject_rx(byte);
     }
 }
@@ -449,11 +463,14 @@ void UartChannel::tx_engine_step() {
         }
     }
 
-    // ── On S_STOP_1/2 → S_IDLE edge, fire on_tx_byte for observers that
-    //    care (mirrors byte-level path's callback). ──────────────────
+    // ── On S_STOP_1/2 → S_IDLE edge, deliver the byte to the attached
+    //    device or to on_tx_byte (mirrors the byte-level path's callback).
+    //    The return value is deliberately discarded: unlike the byte-level
+    //    engine, this path has never looped an unheard byte back into RX,
+    //    and Wave-A/B rows depend on that asymmetry. ─────────────────
     if ((tx_state_ == TxState::S_STOP_1 || tx_state_ == TxState::S_STOP_2) &&
          tx_state_next_ == TxState::S_IDLE) {
-        if (on_tx_byte) on_tx_byte(tx_shift_);
+        (void)deliver_tx_byte(tx_shift_);
     }
 
     // ── Commit state_next → state (uart_tx.vhd:163-172) ────────────
@@ -745,6 +762,49 @@ uint8_t Uart::read(int port_reg) {
 void Uart::inject_rx(int channel, uint8_t byte) {
     if (channel < 0 || channel > 1) return;
     channels_[channel].inject_rx(byte);
+}
+
+void Uart::attach_device(int channel, UartDevice* device) {
+    if (channel < 0 || channel > 1) {
+        uart_log()->warn("attach_device: invalid channel {}", channel);
+        return;
+    }
+
+    // Clear the displaced device's sink first, so a replaced backend cannot
+    // keep injecting into a channel it no longer owns.
+    if (UartDevice* previous = channels_[channel].device()) {
+        if (previous != device) previous->set_rx_sink(nullptr);
+    }
+
+    channels_[channel].attach_device(device);
+
+    if (device) {
+        // Hand the device a guest-bound sink rather than a Uart& — see
+        // uart_device.h. Captures `this`, so the attacher must detach before
+        // this Uart dies (a hard reset reconstructs the whole Emulator).
+        device->set_rx_sink([this, channel](uint8_t byte) {
+            inject_rx(channel, byte);
+        });
+    }
+
+    uart_log()->debug("ch{} device {}", channel, device ? "attached" : "detached");
+}
+
+void Uart::detach_device(int channel) {
+    if (channel < 0 || channel > 1) {
+        uart_log()->warn("detach_device: invalid channel {}", channel);
+        return;
+    }
+    if (UartDevice* device = channels_[channel].device()) {
+        device->set_rx_sink(nullptr);
+    }
+    channels_[channel].detach_device();
+    uart_log()->debug("ch{} device detached (loopback restored)", channel);
+}
+
+UartDevice* Uart::device(int channel) const {
+    if (channel < 0 || channel > 1) return nullptr;
+    return channels_[channel].device();
 }
 
 void UartChannel::save_state(StateWriter& w) const

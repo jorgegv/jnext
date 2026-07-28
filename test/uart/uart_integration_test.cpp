@@ -19,6 +19,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "peripheral/uart_device.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -611,6 +612,16 @@ static void test_dual_05_channel_routing(Emulator& emu) {
         (sink1.size() == 1) && (sink1[0] == 0xBB)
         && (sink0.size() == 1) && (sink0[0] == 0xAA);
 
+    // Uninstall before `sink0`/`sink1` go out of scope. `emu` outlives this
+    // function and `fresh()` does NOT clear channel callbacks (it calls
+    // Emulator::init → Uart::reset, which resets FIFOs and timers only), so
+    // a lambda left installed here keeps a reference to a destroyed stack
+    // vector and any later row that transmits on these channels invokes it.
+    // That was latent for as long as nothing after DUAL-05 transmitted;
+    // the DEV rows below do, which surfaced it as a std::bad_alloc.
+    ch0.on_tx_byte = nullptr;
+    ch1.on_tx_byte = nullptr;
+
     check("DUAL-05",
           "uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 "
           "routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a "
@@ -670,6 +681,239 @@ static void test_dual_06_iomode_rx_mux(Emulator& emu) {
               u0_step1, u1_empty_step1 ? 1 : 0,
               u1_step2, u0_empty_step2 ? 1 : 0,
               u0_empty_step3 ? 1 : 0, u1_empty_step3 ? 1 : 0));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Section DEV — UartDevice attach/detach seam (DEV-01..04)
+// ══════════════════════════════════════════════════════════════════════
+//
+// Pins src/peripheral/uart_device.h + Uart::attach_device/detach_device.
+// The seam is the backend socket for the ESP-01 on UART 0 (zxnext.vhd:1611,
+// :3381 — UART 0 is the ESP, UART 1 the Pi header) and must be behaviour-
+// preserving when nothing is attached: an unattached channel keeps looping
+// TX back into its own RX FIFO, which is what the 116 pre-existing UART rows
+// observe.
+//
+// Every row drives the guest side through the REAL port path (OUT 0x153B to
+// select the channel, OUT 0x133B to transmit, IN 0x143B to receive) so the
+// seam is exercised exactly as a Z80 program would reach it.
+//
+// Lifetime discipline in this file: the stubs are stack-allocated and `emu`
+// outlives every scope, so each scope MUST detach before its stub dies —
+// a leaked attachment would leave a dangling UartDevice* for later rows.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// Minimal UartDevice backend: records everything the guest sends, and can
+// push bytes the other way on demand. `send_to_guest` is protected on the
+// base class, so this stub also proves the intended subclass access path.
+class StubUartDevice : public UartDevice {
+public:
+    void receive(uint8_t byte) override { rx.push_back(byte); }
+    void poll() override { ++polls; }
+
+    /// Push one byte toward the guest (models a socket delivering data).
+    void send(uint8_t byte) { send_to_guest(byte); }
+
+    std::vector<uint8_t> rx;
+    int                  polls = 0;
+};
+
+} // namespace
+
+static void test_uart_device_seam(Emulator& emu) {
+    set_group("DEV");
+
+    // DEV-01 — attaching a device diverts guest TX to it AND suppresses the
+    // loopback. Both halves matter: the first proves the device is wired in,
+    // the second proves it REPLACED the default loopback rather than running
+    // alongside it (a channel with an ESP on the wire does not also echo the
+    // guest's own bytes back at it).
+    {
+        fresh(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+
+        emu.port().out(0x153B, 0x00);       // select channel 0 (ESP)
+        emu.port().out(0x133B, 0xAA);       // guest transmits
+        tick_uart_byte(emu);
+
+        const bool device_saw   = (esp.rx.size() == 1) && (esp.rx[0] == 0xAA);
+        const bool no_loopback  = emu.uart().channel(0).rx_empty();
+
+        emu.uart().detach_device(0);
+
+        check("DEV-01",
+              "Uart::attach_device diverts channel TX to UartDevice::receive and "
+              "suppresses the default loopback [uart.cpp deliver_tx_byte; "
+              "zxnext.vhd:1611, :3381 UART 0 = ESP]",
+              device_saw && no_loopback,
+              fmt("device rx=%zu first=0x%02X (want 1/0xAA); ch0 RX empty=%d (want 1)",
+                  esp.rx.size(), esp.rx.empty() ? 0 : esp.rx[0],
+                  no_loopback ? 1 : 0));
+    }
+
+    // DEV-02 — the device's guest-bound sink lands in the real RX FIFO and
+    // drives the real IM2 UART0_RX vector, under the NR 0xC6 request mask.
+    //
+    // The mask is the same asymmetry INT-07 pins for inject_rx (VHDL
+    // zxnext.vhd:1941-1944): the request is
+    //   near_full OR (avail AND NOT nr_c6(1))
+    // so with bit 0 set the per-byte avail fires, and with bit 1 set instead
+    // it is suppressed. Asserting BOTH directions is what makes this row
+    // discriminative — a sink that bypassed inject_rx could still set the
+    // status bit in the positive half, but could not reproduce the mask.
+    //
+    // NOTE: int_status latches independently of the NR 0xC6 int_EN bits
+    // (see the loopback note on INT-05), so the negative control here is the
+    // request mask (bit 1), NOT "no enable bits set".
+    {
+        fresh(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+
+        // Positive: bit 0 set, bit 1 clear → per-byte avail fires.
+        nr_write(emu, 0xC6, 0x01);
+        esp.send(0x5A);                     // device → guest
+        settle(emu);
+        const uint8_t ca_avail = nr_read(emu, 0xCA);
+
+        // The byte must be readable by the guest at the RX port.
+        emu.port().out(0x153B, 0x00);       // select channel 0
+        const uint8_t got = emu.port().in(0x143B);
+
+        emu.uart().detach_device(0);
+
+        // Negative: fresh machine, bit 1 set + bit 0 clear → a single
+        // injected byte must NOT raise the UART0_RX status.
+        fresh(emu);
+        StubUartDevice esp2;
+        emu.uart().attach_device(0, &esp2);
+        nr_write(emu, 0xC6, 0x02);
+        esp2.send(0x5A);
+        settle(emu);
+        const uint8_t ca_masked = nr_read(emu, 0xCA);
+        emu.uart().detach_device(0);
+
+        check("DEV-02",
+              "UartDevice::send_to_guest injects through Uart::inject_rx: the guest "
+              "reads the byte at 0x143B and IM2 UART0_RX follows the NR 0xC6 request "
+              "mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950]",
+              got == 0x5A && (ca_avail & 0x03) != 0 && (ca_masked & 0x03) == 0,
+              fmt("guest read=0x%02X (want 0x5A); NR_CA with C6=0x01: 0x%02X "
+                  "(want bits1:0 set); with C6=0x02: 0x%02X (want bits1:0 clear)",
+                  got, ca_avail, ca_masked));
+    }
+
+    // DEV-03 — detach restores loopback AND kills the device's sink. This is
+    // what makes the seam behaviour-preserving by construction: a detached
+    // channel is indistinguishable from one that never had a device, and a
+    // detached device can no longer inject into a channel it does not own
+    // (the sink captures the Uart, so a live stale sink is also the dangling-
+    // reference hazard documented in uart_device.h).
+    {
+        fresh(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+        emu.uart().detach_device(0);
+
+        const size_t rx_before = esp.rx.size();
+
+        emu.port().out(0x153B, 0x00);
+        emu.port().out(0x133B, 0xBB);       // guest transmits post-detach
+        tick_uart_byte(emu);
+
+        const bool device_silent = (esp.rx.size() == rx_before);
+
+        // Loopback restored: the transmitted byte came back round.
+        const uint8_t looped = emu.port().in(0x143B);
+
+        // Sink cleared: a detached device cannot push into the guest.
+        esp.send(0x99);
+        const bool sink_dead = emu.uart().channel(0).rx_empty();
+
+        check("DEV-03",
+              "Uart::detach_device restores loopback and clears the device's RxSink "
+              "— a detached channel behaves exactly like one that never had a device "
+              "[uart_device.h lifetime contract]",
+              device_silent && looped == 0xBB && sink_dead,
+              fmt("device rx grew=%d (want 0); loopback read=0x%02X (want 0xBB); "
+                  "post-detach send left RX empty=%d (want 1)",
+                  device_silent ? 0 : 1, looped, sink_dead ? 1 : 0));
+    }
+
+    // DEV-05 — an attached device takes precedence over `on_tx_byte`, and the
+    // observer is SILENTLY SUPPRESSED rather than also fired. This pins the
+    // policy documented at uart.cpp deliver_tx_byte: exactly one consumer
+    // sees any given byte. It matters because `on_tx_byte` is public and
+    // still assigned by other rows in this suite (DUAL-05) and by uart_test —
+    // an implementation that fired both would double-deliver every ESP byte,
+    // and one that preferred the callback would strand the device entirely.
+    {
+        fresh(emu);
+        StubUartDevice esp;
+        std::vector<uint8_t> observer;
+
+        auto& ch0 = emu.uart().channel(0);
+        ch0.on_tx_byte = [&observer](uint8_t b) { observer.push_back(b); };
+        emu.uart().attach_device(0, &esp);   // attach with the hook ALREADY set
+
+        emu.port().out(0x153B, 0x00);        // select channel 0
+        emu.port().out(0x133B, 0xC3);
+        tick_uart_byte(emu);
+
+        const bool device_got   = (esp.rx.size() == 1) && (esp.rx[0] == 0xC3);
+        const bool observer_mute = observer.empty();
+
+        emu.uart().detach_device(0);
+        ch0.on_tx_byte = nullptr;            // never outlive `observer`
+
+        check("DEV-05",
+              "An attached UartDevice takes precedence over on_tx_byte: the device "
+              "receives the byte and the observer hook is suppressed, so exactly one "
+              "consumer sees it [uart.cpp deliver_tx_byte]",
+              device_got && observer_mute,
+              fmt("device rx=%zu first=0x%02X (want 1/0xC3); observer rx=%zu (want 0)",
+                  esp.rx.size(), esp.rx.empty() ? 0 : esp.rx[0], observer.size()));
+    }
+
+    // DEV-04 — attachment is per-channel. A device on UART 0 (ESP) must not
+    // see UART 1 (Pi) traffic or vice versa: zxnext.vhd:3343-3344 routes
+    // UART 0 TX to the ESP pin and UART 1 TX to the Pi pin, and uart.vhd
+    // gates tx_wr on uart_select_r bit 6. This is DUAL-05's invariant
+    // re-asserted across the device seam rather than the callback.
+    {
+        fresh(emu);
+        StubUartDevice esp;    // UART 0
+        StubUartDevice pi;     // UART 1
+        emu.uart().attach_device(0, &esp);
+        emu.uart().attach_device(1, &pi);
+
+        emu.port().out(0x153B, 0x00);       // select ch0
+        emu.port().out(0x133B, 0xAA);
+        tick_uart_byte(emu);
+
+        emu.port().out(0x153B, 0x40);       // select ch1
+        emu.port().out(0x133B, 0xBB);
+        tick_uart_byte(emu);
+
+        const bool esp_ok = (esp.rx.size() == 1) && (esp.rx[0] == 0xAA);
+        const bool pi_ok  = (pi.rx.size()  == 1) && (pi.rx[0]  == 0xBB);
+
+        emu.uart().detach_device(0);
+        emu.uart().detach_device(1);
+
+        check("DEV-04",
+              "UartDevice attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) "
+              "backends each see only their own channel's TX "
+              "[zxnext.vhd:3343-3344; uart.vhd tx_wr gated on uart_select_r bit 6]",
+              esp_ok && pi_ok,
+              fmt("ch0 device rx=%zu first=0x%02X (want 1/0xAA); "
+                  "ch1 device rx=%zu first=0x%02X (want 1/0xBB)",
+                  esp.rx.size(), esp.rx.empty() ? 0 : esp.rx[0],
+                  pi.rx.size(),  pi.rx.empty()  ? 0 : pi.rx[0]));
+    }
 }
 
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {
@@ -792,6 +1036,9 @@ int main() {
     test_dual_05_channel_routing(emu);
     test_dual_06_iomode_rx_mux(emu);
     std::printf("  Group: DUAL — done\n");
+
+    test_uart_device_seam(emu);
+    std::printf("  Group: DEV — done\n");
 
     test_nr_a0_pi_uart_routing(emu);
     std::printf("  Group: NR_A0-INT — done\n");
