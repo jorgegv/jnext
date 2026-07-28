@@ -507,15 +507,15 @@ worktree-bootstrap:
 	@# status` state, because content is what the build needs and the content test is
 	@# also meaningful in a vendored source tarball, where the status query is silent.
 	@#
-	@# MEASURED, because the issue's premise did not survive checking: a fresh
-	@# worktree with an empty submodule BUILDS FINE. CMakeLists.txt runs
-	@# `git submodule update --init --recursive` itself at configure time, and a
-	@# `make gui-release` in a probe worktree went green from an empty spdlog. What
-	@# is left is still worth saying, which is why this reports rather than stays
-	@# quiet: "ready." was a false claim about a worktree with a ~60 s network fetch
-	@# still pending, and if that fetch cannot run (offline, or a transient GitHub
-	@# failure) CMake only WARNS and the configure then dies on
-	@# add_subdirectory(third_party/spdlog).
+	@# The failure is REAL and CONDITIONAL ON THE NETWORK, both halves measured in
+	@# probe worktrees. With network, an empty submodule self-heals and the build
+	@# goes green: CMakeLists.txt:88 runs `git submodule update --init --recursive`
+	@# at configure time. Without it — offline, sandboxed, or a transient GitHub
+	@# failure — the clone fails, CMakeLists.txt:92 swallows that in a
+	@# message(WARNING), and the configure then dies at CMakeLists.txt:144,
+	@# `add_subdirectory(third_party/spdlog)`; reproduced under `unshare -rn`.
+	@# Either way "ready." was a false claim about a worktree with a ~60 s network
+	@# fetch still pending, which is why this reports rather than staying quiet.
 	@#
 	@# Hence a report, exit 0 — deliberately the same shape as the SD master below,
 	@# for the same reason: both are network-provisioned artifacts that something
