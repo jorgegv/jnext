@@ -80,8 +80,18 @@
 #     the variable it documents now flags the next target, whose help output was
 #     correct all along. Verified, not assumed. A gate that fails on a blank line
 #     costs more than the shape it catches.
-# Re-open if the shape ever appears in the Makefile (it does not today — the
-# lint is clean), or if someone finds a rule that closes it without either cost.
+# The shape is absent from this Makefile today. This lint's own clean report is
+# NOT what establishes that — it is documented above as blind to exactly this
+# shape, so citing it would be circular. What establishes it: run the first
+# alternative above, the pure oracle mirror (delete the two substantive-content
+# reset rules in scan(), leaving only the target-line rule), against the real
+# Makefile. It sees every discard the oracle makes, and it flags only `default`
+# (38) and `package-src` (14) — the two known-benign cases. Any other target
+# with a stacked description, of any shape including this one, would appear in
+# that list. It is a one-line edit; re-run it rather than trust this note.
+#
+# Re-open if that scan ever names a third target, or if someone finds a rule
+# that closes the gap without either cost above.
 #
 # Usage:  bash test/lint-makefile-help.sh [MAKEFILE]
 # Exit:   0 clean · 1 violations found · 2 self-test failed / bad usage
@@ -188,6 +198,8 @@ selftest() {
     # this scanner does NOT catch them. See the "KNOWN GAP — WONT" note in the
     # header for the two closures that were built and rejected. The fixture exists
     # so the hole is a recorded decision rather than folklore.
+    # It is reactive, not vacuous: mutate scan() to the pure oracle mirror (the
+    # first rejected closure) and this fixture flags both targets and fails.
     printf '%s\n' \
         '# the real description'                    \
         ''                                          \
