@@ -1239,7 +1239,7 @@ if it were the hardware; it is not, and the rows say so now.
 | TM-SPLIT-01 | NR 0x6E map-base is latched at fetch time, so a change never repaints already-fetched cells                | tilemap.vhd:264,349, zxnext.vhd:4407 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:141 |
 | TM-SPLIT-02 | NR 0x6F tile-definition base is latched at fetch time, so a change never repaints already-fetched cells    | tilemap.vhd:264,350, zxnext.vhd:4408 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:170 |
 | TM-SPLIT-03 | NR 0x6C default attribute is consumed at fetch time, so a change never repaints already-fetched cells      | tilemap.vhd:264,366, zxnext.vhd:4394 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:199 |
-| TM-SPLIT-04 | the same fetch-time latch holds through the full Emulator + Copper path, not just the bare Tilemap fixture | tilemap.vhd:264,349                  | pass    | test/tilemap/tilemap_fetch_split_test.cpp:214 |
+| TM-SPLIT-04 | the same fetch-time latch holds through the full Emulator + Copper path, not just the bare Tilemap fixture | tilemap.vhd:264,349                  | pass    | test/tilemap/tilemap_fetch_split_test.cpp:297 |
 
 ## Copper — `test/copper/copper_test.cpp`
 
