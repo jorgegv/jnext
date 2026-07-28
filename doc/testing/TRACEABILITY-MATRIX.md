@@ -20,6 +20,7 @@
 | Audio                                      |   213 |  185 |    0 |    0 |      28 |          9 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
 | DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         47 |
+| Multiface                                  |    56 |   56 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   180 |  149 |    0 |    0 |      31 |          0 |
 | UART+I2C/RTC                               |   112 |  109 |    0 |    0 |       3 |          6 |
 | NextREG                                    |   107 |   58 |    0 |    0 |      49 |          0 |
@@ -29,29 +30,87 @@
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         48 |
+| LoRes                                      |    48 |   48 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    21 |   16 |    0 |    0 |       5 |         29 |
 | NMI Source Pipeline                        |    56 |   50 |    0 |    0 |       6 |          7 |
+| CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
+| CPU/Z80N/IM2 regressions                   |    24 |   24 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   130 |  128 |    0 |    2 |       0 |          0 |
 | ESP-01 AT engine                           |   137 |  137 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    20 |   20 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |    59 |   59 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
 | Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
+| Companion: copper_integration_test         |     3 |    3 |    0 |    0 |       0 |          0 |
+| Companion: tilemap_fetch_split_test        |     4 |    4 |    0 |    0 |       0 |          0 |
+| Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    10 |   10 |    0 |    0 |       0 |         28 |
 | Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        218 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    18 |   18 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  2820 | 2488 |    0 |    2 |     330 |        821 |
+| **Total**                                  |  3027 | 2695 |    0 |    2 |     330 |        821 |
 
-Rows the sections above carry: **2820**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2730**. Rows the 87 suites declared in `test/unit-tests.conf` run live: **6208**.
+Rows the sections above carry: **3027**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2937**. Rows the 87 suites declared in `test/unit-tests.conf` run live: **6208**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
 **One deliberate looseness remains, so treat this column as a floor.** *Sub-letter aliasing*: a source row `X-01b` counts as recorded by matrix row `X-01`, matching how the Status lookup resolves sub-rows. It is kept because `resolve_ids()` uses the same mapping in the other direction — drop it and row `X-01` would read `pass` *because* `X-01a` proves it while `X-01a` was reported as recorded nowhere. All 102 IDs it was hiding were triaged (GH #118): 90 are decompositions of their parent plan row, and 12 were distinct assertions that now have rows of their own — `NA-01b`, `NA-01c`, `NR-12a`, `NR-12b`, `HK-07b`, `MF-G162-01b`, `REG-01b`, `REG-02b`, `REG-03a/b/c`, `S5.10c` — joining the earlier `FB-04b`, `IORQ-02b` and `IORQ-02c`. The set is now printed on every run (the `ALIASED` report), so the next one that is not a sub-case is visible instead of inferred. The second looseness — *cross-section ID collision* — is closed: recording is asked against the owning `##` subsystem section rather than globally, which surfaced 29 rows that an identically-named row in a different subsystem had been vouching for (`SD-16..SD-23` by Audio, `PR-01..PR-05` by IO Port Dispatch, the `G108-*` set by ULA Video, `NR-10/11/13/14` + `PRI-01/02/04` by Audio and Memory/MMU, `SD2-01/02` by Memory/MMU). A `###` companion sub-section is judged against its parent `##`, not separately: its rows are part of the same subsystem's coverage story and several are recorded in the parent's own table (GH #118).
 
-**Suites with no section in this matrix: 50, 1358 live rows.** Their coverage is not traced here at all:
+### Suites with no section here, and why
 
-`cpu_int_pulse_test` (11), `cpu_z80n_im2_regressions_test` (52), `copper_integration_test` (3), `mmu_integration_test` (59), `esxdos_stub_test` (46), `phantom_typist_test` (22), `multiface_test` (55), `sd_rom_extractor_test` (26), `fat32_image_test` (16), `sdcard_provisioner_test` (57), `audio_pacing_test` (43), `audio_capture_test` (17), `audio_gain_test` (11), `subsystem_gain_test` (26), `present_cadence_test` (34), `render_policy_test` (10), `emulator_boot_test` (26), `preferences_apply_policy_test` (20), `window_attach_test` (32), `pointer_capture_test` (12), `frame_deadline_test` (38), `frame_sequencer_test` (103), `tick_stats_test` (32), `speed_report_test` (36), `host_key_latch_test` (69), `log_test` (10), `log_gate_test` (3), `cli_options_test` (13), `video_recorder_cmd_test` (33), `nex_loader_test` (10), `tilemap_fetch_split_test` (4), `lores_test` (48), `lores_integration_test` (2), `profiler_test` (32), `resume_guard_test` (11), `app_config_test` (52), `audio_gain_config_test` (22), `audio_gain_preferences_test` (10), `present_count_test` (17), `esc_break_test` (6), `host_hotkey_test` (33), `shifted_keys_test` (22), `quit_cleanup_test` (7), `preferences_apply_test` (27), `debugger_video_panel_test` (87), `debugger_audio_panel_test` (15), `debugger_quit_gate_test` (5), `debugger_window_size_test` (21), `debugger_window_grow_test` (4), `debugger_accel_test` (8)
+Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
+
+These 46 suites (2597 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+
+| Suite | Rows | Authority it is written against |
+|-------|-----:|---------------------------------|
+| `fuse_z80_test` | 1356 | data-driven FUSE runner, no per-row IDs |
+| `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
+| `esxdos_stub_test` | 46 | esxDOS API surface + jnext trap policy, not core logic |
+| `phantom_typist_test` | 22 | jnext auto-typing state machine (host keystroke injection) |
+| `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
+| `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
+| `sdcard_provisioner_test` | 57 | jnext SD-image download/patch policy (host side) |
+| `audio_pacing_test` | 43 | host SDL audio pacing/underrun policy, downstream of the mixer |
+| `audio_capture_test` | 17 | host WAV capture of the mixer output |
+| `audio_gain_test` | 11 | host output-gain control (a user setting, not a core register) |
+| `subsystem_gain_test` | 26 | host per-subsystem gain control (a user setting) |
+| `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
+| `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
+| `emulator_boot_test` | 26 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
+| `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
+| `pointer_capture_test` | 12 | host mouse-capture policy (window-manager behaviour) |
+| `frame_deadline_test` | 38 | host frame-deadline scheduling (wall-clock) |
+| `frame_sequencer_test` | 103 | host frame sequencer (wall-clock run/present ordering) |
+| `tick_stats_test` | 32 | host tick accounting for the status bar |
+| `speed_report_test` | 36 | host speed-percentage reporting |
+| `host_key_latch_test` | 69 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `log_test` | 10 | jnext logging façade (spdlog wiring) |
+| `log_gate_test` | 3 | jnext log-level gating |
+| `cli_options_test` | 13 | CLI flag table vs the man page (see `make cli-check`) |
+| `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
+| `nex_loader_test` | 10 | NEX file-format spec (host loader), no core counterpart |
+| `extended_nex_test` | 28 | narrative section, ID ranges not per-row IDs |
+| `atic_atac_nmi_test` | 4 | narrative section, hand-maintained (feeds protected NR-C0-02) |
+| `profiler_test` | 32 | jnext profiler output format (a developer tool) |
+| `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
+| `app_config_test` | 52 | jnext.conf schema/precedence (host settings file) |
+| `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
+| `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
+| `present_count_test` | 17 | host present accounting (wall-clock, not core timing) |
+| `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
+| `host_hotkey_test` | 33 | host hotkey bindings (Alt vs the guest Symbol Shift) |
+| `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
+| `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
+| `preferences_apply_test` | 27 | Preferences dialog wiring (host GUI) |
+| `debugger_video_panel_test` | 87 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
+| `debugger_quit_gate_test` | 5 | debugger quit gating (host GUI lifecycle) |
+| `debugger_window_size_test` | 21 | debugger window geometry (host GUI) |
+| `debugger_window_grow_test` | 4 | debugger window geometry (host GUI) |
+| `debugger_accel_test` | 8 | debugger keyboard accelerators (host GUI) |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -134,6 +193,83 @@ Last-touch commit: `8d0cf05a15f77099a6a7ac35bcd5cc5ad223019f` (`8d0cf05a15`)
 | ED B6    | ED B6 LDIRSCALE   | —              | missing | missing        |
 | ED B7    | ED B7 LDPIRX      | —              | missing | missing        |
 | ED BC    | ED BC LDDRX       | —              | missing | missing        |
+
+## CPU/Z80N/IM2 regressions — `test/cpu/cpu_z80n_im2_regressions_test.cpp`
+
+Discriminative regressions for the Z80N opcodes and the IM2 fabric, each added
+alongside the fix it guards and each written to FAIL against the pre-fix
+emulator. Not a plan-derived compliance suite: the `## Z80N` section above
+records the FUSE-driven opcode sweep, and these are the individual behaviours
+that sweep does not reach (IncDecZ latching, `BSLA`/`BSRA`/`BSRF` shift
+saturation, OUTINB's extended M1, the IM2 daisy-chain's mode gating and RETI
+teardown).
+
+**24 of this suite's 52 rows are recorded below.** The other 28 do not carry a
+row ID at all: their names embed a commit reference (`Z80N-TSTATES-MUL
+(65b5918+86128d5)`) or are a sentence (`soft-reset-preserves-regfile: BC/DE/HL
+survive`), so there is nothing to key a matrix row on. That is a real gap in
+this suite, not a silent one — closing it means renaming those rows in the test
+source, which is an edit for the branch that owns that file.
+
+The `VHDL file:line` column is `—` throughout, and that too is recoverable
+rather than absent: the file cites `t80n.vhd`, `t80n_mcode.vhd`,
+`im2_control.vhd`, `im2_peripheral.vhd`, `im2_device.vhd` and `zxnext.vhd`
+lines in the comment block above every row, but keys them to the SHORT plan ID
+(`V17-Z80N-01a`) while the assertion uses the long one
+(`V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014`). The extractor only trusts
+row-local evidence that names the row's own ID — deliberately, because the
+alternative is attributing a neighbour's citation — so the fix is to put the
+citation in the `check()` call, exactly as `multiface_test.cpp` does.
+
+| Test ID                                                  | Assertion description                                                                                        | VHDL file:line | Status  | Test file:line                                  |
+|----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|----------------|---------|-------------------------------------------------|
+| V11-CPU-01-IM2-DDFD-ED-NO-RETI                           | `DD ED 4D` must not pulse reti_seen: after S_DDFD_T4 any non-DD/FD byte returns the decoder to S_0           | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1494 |
+| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH      | PIXELDN band-3 wrap preserves H[7:5] (the third-of-screen bits)                                              | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1558 |
+| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ   | OUTINB's extended 5T inner M1 emits per-T-state contend-no-MREQ on IR, not a bare `tstates += 1`             | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1716 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN         | DJNZ with B=1 (branch NOT taken) still updates the IncDecZ latch that LDWS reads as F.P                      | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1337 |
+| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361              | plain `DEC BC` updates IncDecZ                                                                               | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1869 |
+| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361              | plain `INC BC` updates IncDecZ (DPair=00 satisfies the latch gate)                                           | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1811 |
+| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ                | negative case: `INC HL` (DPair!=00) must NOT update IncDecZ                                                  | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:1937 |
+| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361     | DD-prefixed `INC BC` still updates IncDecZ (the prefix walk must not reclassify it)                          | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2024 |
+| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361     | FD-prefixed `INC BC` still updates IncDecZ                                                                   | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2084 |
+| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361     | DD-prefixed `DEC BC` still updates IncDecZ                                                                   | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2132 |
+| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361     | FD-prefixed `DEC BC` still updates IncDecZ                                                                   | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2178 |
+| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359       | DD-prefixed DJNZ still updates IncDecZ                                                                       | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2242 |
+| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359       | FD-prefixed DJNZ still updates IncDecZ                                                                       | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2290 |
+| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170       | im2_int_req is held at 0 while NR 0xC0 selects pulse mode, so no stale latch survives the switch to IM2 mode | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2358 |
+| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014               | BSRA with shift >= 16 replicates the sign bit across the whole result                                        | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2546 |
+| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014                 | BSRF with shift >= 16 fills with 1s (and does not invoke a C++ out-of-range shift)                           | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2419 |
+| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992                       | BSLA with shift >= 16 returns 0 (no bits left)                                                               | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2459 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7                    | raise(Im2Level::DMA) must not light CTC7's int_status — CTC4..7 i_int_req is hardwired to '0'              | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2650 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA                     | the same DMA alias path must not pollute the ULA frame interrupt's status either                             | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2680 |
+| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE                  | LDPIRX strobes only MEMPTR-lo, matching the VHDL microcode's WZ write                                        | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2598 |
+| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR                    | NR 0x20 int_unq is a ONE-cycle pulse: it must not re-arm im2_int_req on ticks after the ISR                  | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2772 |
+| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | a level-modelled raise_req() must still synthesise a one-cycle edge every frame, not only the first          | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2884 |
+| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974       | int_line_asserted()/ack_vector() gate on the Z80 being in IM 2, not only on NR 0xC0 bit 0                    | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:2982 |
+| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175     | on_reti() clears im2_int_req in lock-step with the S_ISR->S_0 transition, never leaving it stale             | —            | pass    | test/cpu/cpu_z80n_im2_regressions_test.cpp:3169 |
+
+## CPU interrupt pulse — `test/cpu/int_pulse_test.cpp`
+
+The /INT pulse window in `Z80Cpu`: how long the interrupt line stays asserted
+before an unaccepted request is discarded, and the fact that the width is
+machine-dependent (32 T-states on 48K/+3, 36 on 128K/Pentagon/Next). The rows
+bracket each boundary from both sides, cover the 4-T-state band where the two
+widths disagree, and pin the setter/getter round-trip that the FUSE Z80 runner
+depends on.
+
+| Test ID                                          | Assertion description                                                                                                 | VHDL file:line | Status  | Test file:line                  |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|----------------|---------|---------------------------------|
+| INT-PULSE-128K-edge-32                           | 128K/Pent/Next (width=36): delta=32 must NOT discard                                                                  | zxnext.vhd:2033,2014-2015 | pass    | test/cpu/int_pulse_test.cpp:152 |
+| INT-PULSE-128K-past-33                           | 128K/Pent/Next (width=36): delta=33 must discard                                                                      | zxnext.vhd:2033,2014-2015 | pass    | test/cpu/int_pulse_test.cpp:155 |
+| INT-PULSE-48K-edge-28                            | 48K/+3 (width=32): delta=28 must NOT discard /INT                                                                     | zxnext.vhd:2033,2014-2015 | pass    | test/cpu/int_pulse_test.cpp:139 |
+| INT-PULSE-48K-past-29                            | 48K/+3 (width=32): delta=29 must discard /INT                                                                         | zxnext.vhd:2033,2014-2015 | pass    | test/cpu/int_pulse_test.cpp:142 |
+| INT-PULSE-DELTA-DIVERGENCE-128K-live             | 128K/Pent/Next pulse must still be live at delta=32                                                                   | zxnext.vhd:2033 | pass    | test/cpu/int_pulse_test.cpp:170 |
+| INT-PULSE-DELTA-DIVERGENCE-48K-expires           | 48K/+3 pulse must expire across delta=29 boundary                                                                     | zxnext.vhd:2033 | pass    | test/cpu/int_pulse_test.cpp:167 |
+| INT-PULSE-V18R-CPU-01-128K-pulse-expired-iff1-up | V18R-CPU-01: 128K/Pent/Next delta=34 must DROP at 2nd execute() even though IFF1=1 (VHDL /INT line went high at T=36) | zxnext.vhd:2017-2033 | pass    | test/cpu/int_pulse_test.cpp:196 |
+| INT-PULSE-V18R-CPU-01-48K-pulse-expired-iff1-up  | V18R-CPU-01: 48K/+3 delta=30 must DROP at 2nd execute() even though IFF1=1 (VHDL /INT line went high at T=32)         | zxnext.vhd:2017-2033 | pass    | test/cpu/int_pulse_test.cpp:191 |
+| INT-PULSE-default-is-true                        | Z80Cpu default must keep machine_48_or_p3_=true (32-cycle width)                                                      | —            | pass    | test/cpu/int_pulse_test.cpp:209 |
+| INT-PULSE-setter-false                           | setter(false) must take effect                                                                                        | —            | pass    | test/cpu/int_pulse_test.cpp:213 |
+| INT-PULSE-setter-true                            | setter(true) must take effect                                                                                         | —            | pass    | test/cpu/int_pulse_test.cpp:217 |
 
 ## Memory/MMU — `test/mmu/mmu_test.cpp`
 
@@ -355,6 +491,81 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | RW-03   | Same page in two slots shares data          | —              | test/mmu/mmu_test.cpp:274 |
 | RW-04   | Write across slot 4/5 boundary              | —              | test/mmu/mmu_test.cpp:287 |
 | RW-05   | All 8 slots independently writable          | —              | test/mmu/mmu_test.cpp:305 |
+
+### Companion integration suite — `test/mmu/mmu_integration_test.cpp`
+
+Memory/MMU rows that need a whole `Emulator` rather than a bare `Mmu`: the
+NR-fan-out paths (`V12-MEM-*`, `V13-MEM-*`), the `0xEFF7` port gate, the
+machine-type default, the Multiface SRAM window seen from the memory side
+(`MF-SRAM-*`), the boot-hold frame counter (`G156-HOLD-*`), the SA-BYTES tape
+trap gate (`MMU-G33-TRAP-*`), the live machine switch (`SWITCH-*`) and the
+snapshot save round-trips (`SNAPSAVE-*`).
+
+The `SNAPSAVE-*` and `G156-HOLD-*` rows read `—` in the VHDL column and always
+will: a .szx/.nex round-trip is a file-format contract and the boot hold is a
+jnext-internal host-side delay, neither of which the FPGA core contains.
+
+| Test ID                             | Assertion description                                                                                                                  | VHDL file:line                 | Status  | Test file:line                         |
+|-------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|---------|----------------------------------------|
+| G156-HOLD-01                        | boot_hold_frames_remaining() reflects set_boot_hold_frames()                                                                           | —                            | pass    | test/mmu/mmu_integration_test.cpp:811  |
+| G156-HOLD-02                        | boot_hold_frames_remaining() decrements by exactly 1 per run_frame()                                                                   | —                            | pass    | test/mmu/mmu_integration_test.cpp:818  |
+| G156-HOLD-03                        | boot_hold_frames_remaining() reaches exactly 0 after the full hold count of run_frame() calls                                          | —                            | pass    | test/mmu/mmu_integration_test.cpp:828  |
+| G156-HOLD-04                        | PC and R are frozen across every held frame (no instruction executed while boot_hold_frames_remaining_ > 0)                            | —                            | pass    | test/mmu/mmu_integration_test.cpp:841  |
+| G156-HOLD-05                        | CPU resumes real execution once the hold ends — PC/R change over post-hold frames (the hold is not permanent)                        | —                            | pass    | test/mmu/mmu_integration_test.cpp:854  |
+| G156-HOLD-06                        | pre-save remaining is genuinely mid-hold (neither the initial value nor zero)                                                          | —                            | pass    | test/mmu/mmu_integration_test.cpp:875  |
+| G156-HOLD-07                        | save_state()/load_state() round-trip preserves boot_hold_frames_remaining_ exactly                                                     | —                            | pass    | test/mmu/mmu_integration_test.cpp:902  |
+| G156-HOLD-08                        | the restored hold correctly resumes: exactly the restored remaining count of run_frame() calls exhausts it to 0                        | —                            | pass    | test/mmu/mmu_integration_test.cpp:910  |
+| G156-HOLD-09                        | PC/R stayed frozen for the entire restored hold — no instruction executed while resuming a mid-hold snapshot                         | —                            | pass    | test/mmu/mmu_integration_test.cpp:917  |
+| MF-SRAM-01                          | Next MF window reads external SRAM pages 0x0A (ROM half) / 0x0B (RAM half) per VHDL :3029-3036                                         | —                            | pass    | test/mmu/mmu_integration_test.cpp:756  |
+| MF-SRAM-02                          | Next MF RAM half writes reach SRAM page 0x0B; ROM half is read-only (page 0x0A unchanged)                                              | —                            | pass    | test/mmu/mmu_integration_test.cpp:761  |
+| MF-SRAM-03                          | standalone (128K) MF window is unaffected by SRAM pages 0x0A/0x0B — reads the private buffer, not page 0x0A                          | —                            | pass    | test/mmu/mmu_integration_test.cpp:787  |
+| MF-SRAM-04                          | standalone (128K) MF RAM write stays in the private buffer, does NOT reach SRAM page 0x0B                                              | —                            | pass    | test/mmu/mmu_integration_test.cpp:792  |
+| MMU-EF7-IO-EN-00                    | baseline: gate-open + EFF7=0x00 clears disable_p1024 + ram_at_0000                                                                     | zxnext.vhd:3777-3779           | pass    | test/mmu/mmu_integration_test.cpp:160  |
+| MMU-EF7-IO-EN-01                    | NR 0x85 b2=0 — write 0x0C to 0xEFF7 dropped                                                                                          | zxnext.vhd:2604                | pass    | test/mmu/mmu_integration_test.cpp:177  |
+| MMU-EF7-IO-EN-02                    | NR 0x85 b2=1 — write 0x0C to 0xEFF7 sets disable_p1024 + ram_at_0000                                                                 | zxnext.vhd:2604                | pass    | test/mmu/mmu_integration_test.cpp:194  |
+| MMU-G33-TRAP-01                     | handle_sa_bytes_trap: A/IX/DE -> TAP block on file; exit PC=popped ret, SP+=2, IX+=DE, DE=0, carry set                                 | —                            | pass    | test/mmu/mmu_integration_test.cpp:1410 |
+| MMU-G33-TRAP-02                     | run_frame gate positive: SA-BYTES signature + PC=0x04C2 + armed saver -> trap fires once, CPU parked at return                         | —                            | pass    | test/mmu/mmu_integration_test.cpp:1445 |
+| MMU-G33-TRAP-03                     | run_frame gate negative: non-48K ROM bytes at 0x04C2 -> trap does NOT fire (the ungated trap corrupted a NextZXOS boot)                | —                            | pass    | test/mmu/mmu_integration_test.cpp:1476 |
+| MT-DEF-01                           | Next (ZXN_ISSUE2) cold-boot NR $03 machine-type = 011 (+3) per VHDL :1103 power-on default                                             | zxnext.vhd:1103                | pass    | test/mmu/mmu_integration_test.cpp:692  |
+| MT-DEF-02                           | +3 (ZX_PLUS3) cold-boot NR $03 machine-type = 011 (+3)                                                                                 | —                            | pass    | test/mmu/mmu_integration_test.cpp:704  |
+| SNAPSAVE-NEX-RT-00                  | NexSaver::save() returns a non-empty buffer                                                                                            | —                            | pass    | test/mmu/mmu_integration_test.cpp:1271 |
+| SNAPSAVE-NEX-RT-01                  | saved .nex bytes written to disk                                                                                                       | —                            | pass    | test/mmu/mmu_integration_test.cpp:1276 |
+| SNAPSAVE-NEX-RT-02                  | Emulator::load_nex() accepts the saved file                                                                                            | —                            | pass    | test/mmu/mmu_integration_test.cpp:1287 |
+| SNAPSAVE-NEX-RT-BORDER              | border colour round-trips via the .nex header                                                                                          | —                            | pass    | test/mmu/mmu_integration_test.cpp:1313 |
+| SNAPSAVE-NEX-RT-ENTRYBANK           | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator                   | —                            | pass    | test/mmu/mmu_integration_test.cpp:1318 |
+| SNAPSAVE-NEX-RT-PCSP                | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries)                              | —                            | pass    | test/mmu/mmu_integration_test.cpp:1294 |
+| SNAPSAVE-NEX-RT-RAM                 | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload                                                  | —                            | pass    | test/mmu/mmu_integration_test.cpp:1307 |
+| SNAPSAVE-SZX-RT-00                  | SzxSaver::save() returns a non-empty buffer and reports success for a supported machine (+3)                                           | —                            | pass    | test/mmu/mmu_integration_test.cpp:1042 |
+| SNAPSAVE-SZX-RT-01                  | saved .szx bytes written to disk                                                                                                       | —                            | pass    | test/mmu/mmu_integration_test.cpp:1048 |
+| SNAPSAVE-SZX-RT-02                  | Emulator::load_szx() accepts the saved file                                                                                            | —                            | pass    | test/mmu/mmu_integration_test.cpp:1059 |
+| SNAPSAVE-SZX-RT-48K-00              | SzxSaver::save() succeeds for 48K                                                                                                      | —                            | pass    | test/mmu/mmu_integration_test.cpp:1164 |
+| SNAPSAVE-SZX-RT-48K-01              | saved 48K .szx bytes written to disk                                                                                                   | —                            | pass    | test/mmu/mmu_integration_test.cpp:1185 |
+| SNAPSAVE-SZX-RT-48K-02              | Emulator::load_szx() accepts the saved 48K file                                                                                        | —                            | pass    | test/mmu/mmu_integration_test.cpp:1196 |
+| SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED | bank 1 (not part of a 48K's RAM) is never written by load_szx() — reads back as reset()'s zero fill                                  | —                            | pass    | test/mmu/mmu_integration_test.cpp:1233 |
+| SNAPSAVE-SZX-RT-48K-BORDER          | border colour round-trips via ZXSTSPECREGS.chFe for 48K                                                                                | —                            | pass    | test/mmu/mmu_integration_test.cpp:1240 |
+| SNAPSAVE-SZX-RT-48K-PAGESET         | the SAVED FILE's ZXSTRAMPAGE chPageNo set is exactly {0,2,5} — independently scanned from raw bytes, not via SzxLoader               | —                            | pass    | test/mmu/mmu_integration_test.cpp:1173 |
+| SNAPSAVE-SZX-RT-48K-RAM             | banks 0/2/5 (48K's real RAM) round-trip byte-for-byte via ZXSTRAMPAGE                                                                  | —                            | pass    | test/mmu/mmu_integration_test.cpp:1215 |
+| SNAPSAVE-SZX-RT-48K-REGS            | register set round-trips through save()->file->Emulator::load_szx() for 48K                                                            | —                            | pass    | test/mmu/mmu_integration_test.cpp:1202 |
+| SNAPSAVE-SZX-RT-BORDER              | border colour round-trips via ZXSTSPECREGS.chFe                                                                                        | —                            | pass    | test/mmu/mmu_integration_test.cpp:1098 |
+| SNAPSAVE-SZX-RT-PAGING              | classic paging ports (0x7FFD/0x1FFD) round-trip via ZXSTSPECREGS                                                                       | —                            | pass    | test/mmu/mmu_integration_test.cpp:1076 |
+| SNAPSAVE-SZX-RT-RAM                 | all 8 physical RAM banks (0-7) round-trip byte-for-byte via ZXSTRAMPAGE — a +3 save now carries its full RAM, not a truncated subset | —                            | pass    | test/mmu/mmu_integration_test.cpp:1091 |
+| SNAPSAVE-SZX-RT-REFUSED             | SzxSaver::save() refuses outright for a Next machine: ok=false, no data written, a non-empty error explaining why                      | —                            | pass    | test/mmu/mmu_integration_test.cpp:1122 |
+| SNAPSAVE-SZX-RT-REGS                | full register set (both AF/BC/DE/HL sets, IX/IY/SP/PC, I/R/IFF/IM/halted) round-trips through save()->file->Emulator::load_szx()       | —                            | pass    | test/mmu/mmu_integration_test.cpp:1068 |
+| SWITCH-01                           | live Next→128K machine switch clears Mmu::rom_in_sram                                                                                | —                            | pass    | test/mmu/mmu_integration_test.cpp:647  |
+| SWITCH-02                           | post-switch standalone bank-7 writes land in flat RAM, not the Next-only BRAM buffer                                                   | —                            | pass    | test/mmu/mmu_integration_test.cpp:659  |
+| V12-MEM-01-A                        | NR 0x50 read-back returns verbatim 0xE5 after high-page write                                                                          | zxnext.vhd:4686-4699,6059-6060 | pass    | test/mmu/mmu_integration_test.cpp:237  |
+| V12-MEM-01-B                        | NR 0x8C write does NOT clobber NR 0x50 verbatim value                                                                                  | zxnext.vhd:3813                | pass    | test/mmu/mmu_integration_test.cpp:249  |
+| V12-MEM-02-A                        | NR 0x08 bit 6 (contention_disable) reads back 1 after write+commit                                                                     | zxnext.vhd:5176,5800-5823,5906 | pass    | test/mmu/mmu_integration_test.cpp:306  |
+| V12-MEM-02-B                        | ContentionModel.contention_disable() is true post-commit on a live emulator                                                            | zxnext.vhd:5822-5823           | pass    | test/mmu/mmu_integration_test.cpp:314  |
+| V12-MEM-02-C                        | NR 0x08 bit 6 survives save/load round-trip [ContentionModel re-sync from Mmu.contention_disabled() in load_state]                     | —                            | pass    | test/mmu/mmu_integration_test.cpp:351  |
+| V12-MEM-02-D                        | ContentionModel.contention_disable() (effective) is true post-load                                                                     | zxnext.vhd:5823                | pass    | test/mmu/mmu_integration_test.cpp:361  |
+| V12-MEM-03-A                        | Mmu.machine_type() round-trips ZX48K through save/load                                                                                 | —                            | pass    | test/mmu/mmu_integration_test.cpp:459  |
+| V12-MEM-03-B                        | ContentionModel.type_ tracks Mmu.machine_type() across load_state — ZX48K + page=0x0A (bank 5) contends                              | zxnext.vhd:4490                | pass    | test/mmu/mmu_integration_test.cpp:485  |
+| V13-MEM-01-A                        | Baseline port 0x123B bit 1 = 0 after clearing both NR 0x69 and port 0x123B                                                             | zxnext.vhd:3933                | pass    | test/mmu/mmu_integration_test.cpp:545  |
+| V13-MEM-01-B                        | NR 0x69 bit 7 = 1 fans out into port 0x123B bit 1 = 1                                                                                  | zxnext.vhd:3924-3925           | pass    | test/mmu/mmu_integration_test.cpp:556  |
+| V13-MEM-01-C                        | NR 0x69 bit 7 read-back = 1 after NR 0x69 = 0x80 write (Layer2 mirror — pre-fix path, regression guard)                              | zxnext.vhd:6095-6096           | pass    | test/mmu/mmu_integration_test.cpp:567  |
+| V13-MEM-01-D                        | NR 0x69 bit 7 = 0 clears port 0x123B bit 1 (sweep guard — fix must not be a one-shot raise)                                          | zxnext.vhd:3924-3925           | pass    | test/mmu/mmu_integration_test.cpp:578  |
+| V13-MEM-01-E                        | NR 0x69 fan-out only touches port 0x123B bit 1 (other bits unchanged)                                                                  | zxnext.vhd:3924-3925           | pass    | test/mmu/mmu_integration_test.cpp:607  |
 
 ## ULA Video — `test/ula/ula_test.cpp` + `test/ula/ula_integration_test.cpp`
 
@@ -996,6 +1207,21 @@ Last-touch commit: `d599cd27615bf61efea60c49fdeb38dc7a6116b3` (`d599cd2761`)
 | TM-RR4  | Def base roundtrip                         | —              | test/tilemap/tilemap_test.cpp:1210 |
 | TM-RR5  | Reset restores all defaults                | —              | test/tilemap/tilemap_test.cpp:1233 |
 
+### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
+
+Raster-split fetch-state regression (TX-1696): NR `0x6E` / `0x6F` / `0x6C` are
+changed mid-frame so one map/tile pair draws a fixed HUD and another the
+scrolling playfield. The FPGA tilemap consumes these registers as live inputs,
+so rendering a completed frame from only their final values paints one
+configuration across every scanline.
+
+| Test ID     | Assertion description                                                                      | VHDL file:line | Status  | Test file:line                                |
+|-------------|--------------------------------------------------------------------------------------------|----------------|---------|-----------------------------------------------|
+| TM-SPLIT-01 | NR 0x6E map-base changes must affect only subsequent scanlines                             | tilemap.vhd:349 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:131 |
+| TM-SPLIT-02 | NR 0x6F tile-definition-base changes must affect only subsequent scanlines                 | tilemap.vhd:350 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:159 |
+| TM-SPLIT-03 | NR 0x6C default-attribute changes must affect only subsequent scanlines                    | tilemap.vhd:366 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:187 |
+| TM-SPLIT-04 | the same split survives the full Emulator + Copper path, not just the bare Tilemap fixture | —            | pass    | test/tilemap/tilemap_fetch_split_test.cpp:201 |
+
 ## Copper — `test/copper/copper_test.cpp`
 
 Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
@@ -1084,6 +1310,18 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | TIM-CYC-02      | Copper WAIT advances per 28 MHz cycle (boundary detection) (G117)         | device/copper.vhd:87-89,92-97               | missing | missing                          |
 | RST-04          | Soft reset preserves Copper instruction RAM (dpram2 has no reset) (G118)  | zxnext.vhd:3959-3996; copper.vhd:60-65      | pass   | test/copper/copper_test.cpp:1834 |
 | ARB-G65-01      | True tied-edge CPU+Copper write: cpu_req held into next cycle (G65)       | zxnext.vhd:4769,4775-4777                   | missing | missing                          |
+
+### Companion integration suite — `test/copper/copper_integration_test.cpp`
+
+Copper rows that need the full machine: the post-G117 cycle-accurate MOVE
+scheduler, the CPU-vs-Copper NextREG write arbitration, and the 50/60 Hz
+`c_max_vc` wrap re-push.
+
+| Test ID     | Assertion description                                                                                                                 | VHDL file:line           | Status  | Test file:line                              |
+|-------------|---------------------------------------------------------------------------------------------------------------------------------------|--------------------------|---------|---------------------------------------------|
+| G117-MPC-01 | 16 Copper MOVEs to NR 0x14 all fire within 3 Z80 instructions (post-G117 cycle-accurate scheduler)                                    | —                      | pass    | test/copper/copper_integration_test.cpp:165 |
+| G65-PRI-01  | Tied-edge CPU vs Copper NR write: CPU value wins as final                                                                             | zxnext.vhd:4769-4777     | pass    | test/copper/copper_integration_test.cpp:247 |
+| T58-CVC-01  | runtime 50->60 Hz switch re-pushes the Copper c_max_vc wrap: WAIT vpos=60 with NR 0x64 offset=100 fires at vc=224 in a 264-line frame | zxula_timing.vhd:457-470 | pass    | test/copper/copper_integration_test.cpp:287 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
@@ -1783,6 +2021,80 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | SD-01   | SD card: initial exchange returns 0xFF  | —              | test/divmmc/divmmc_test.cpp:945 |
 | SD-02   | SD card: deselect after reset           | —              | test/divmmc/divmmc_test.cpp:955 |
 | SD-03   | SD card: not mounted initially          | —              | test/divmmc/divmmc_test.cpp:962 |
+
+## Multiface — `test/multiface/multiface_test.cpp`
+
+The Multiface peripheral (`src/peripheral/multiface.{h,cpp}`), implemented in
+the Task 8 waves of 2026-05 against `device/multiface.vhd` and the `zxnext.vhd`
+glue that wires it to the port decoder, the NMI fabric and the memory map. The
+suite has no separate plan doc: it was written row-by-row from the VHDL, and
+each `check()` carries its own citation in the detail argument, which is where
+the `VHDL file:line` column below comes from.
+
+Four groups: `MF-CORE-*` the state machine (NMI arm, invisible latch, the
+`0x0066` fetch that raises `mf_enable`, RETN teardown), `MF-PORT-*` the four
+`mf_type` port-pair decodes and their negative cases, `MF-MUX-*` the read
+multiplexer priority `zxnext.vhd:4310-4322`, `MF-OVL-*` the 0x0000-0x1FFF
+overlay and its SRAM pages, and `MF-M1G-*` the M1 gating.
+
+| Test ID             | Assertion description                                                                          | VHDL file:line                 | Status  | Test file:line                         |
+|---------------------|------------------------------------------------------------------------------------------------|--------------------------------|---------|----------------------------------------|
+| MF-CORE-01          | reset defaults: nmi=0 invisible=1 mf_enable=0 port_io_dly=0 mem=0 hold=0                       | multiface.vhd:126,141,156,175  | pass    | test/multiface/multiface_test.cpp:118  |
+| MF-CORE-02          | button_press: arms nmi_active 0->1; second press no-op while nmi_active=1                      | multiface.vhd:135              | pass    | test/multiface/multiface_test.cpp:149  |
+| MF-CORE-03          | button_press clears invisible -> 0; invisible_eff = invisible AND NOT mode_48                  | multiface.vhd:158              | pass    | test/multiface/multiface_test.cpp:171  |
+| MF-CORE-04          | 0x0066 + m1 + mreq + nmi_active=1 -> mf_enable=1 (else stays 0)                                | multiface.vhd:169              | pass    | test/multiface/multiface_test.cpp:204  |
+| MF-CORE-05          | on_retn_seen clears both nmi_active and mf_enable                                              | multiface.vhd:144              | pass    | test/multiface/multiface_test.cpp:221  |
+| MF-CORE-06          | port_io_dly edge detector suppresses nmi_active clear when prior-cycle dly=1                   | multiface.vhd:128              | pass    | test/multiface/multiface_test.cpp:272  |
+| MF-CORE-07          | INVISIBLE: dis_wr+mode_128=set, en_wr+mode_p3=set, button=clear                                | multiface.vhd:158              | pass    | test/multiface/multiface_test.cpp:305  |
+| MF-CORE-08          | mf_enable_eff = mf_enable OR fetch_66 (FF carries forward post-fetch)                          | multiface.vhd:186              | pass    | test/multiface/multiface_test.cpp:338  |
+| MF-CORE-09          | mode dispatch: 00->p3, 11->48, 01/10->128 (combinational, ungated)                             | multiface.vhd:105-118          | pass    | test/multiface/multiface_test.cpp:356  |
+| MF-CORE-10          | is_active() = is_mem_active() OR is_nmi_hold()                                                 | zxnext.vhd:4305                | pass    | test/multiface/multiface_test.cpp:380  |
+| MF-CORE-11          | load_rom_bytes round-trips 8 KB buffer into rom_data()                                         | —                            | pass    | test/multiface/multiface_test.cpp:398  |
+| MF-CORE-12          | save_state / load_state round-trips FFs + mode + RAM                                           | —                            | pass    | test/multiface/multiface_test.cpp:437  |
+| MF-M1G-01           | quiescent M1 at 0x0066: no FF changes                                                          | multiface.vhd:169              | pass    | test/multiface/multiface_test.cpp:1353 |
+| MF-M1G-02           | M1 after a port strobe clocks port_io_dly 1->0                                                 | multiface.vhd:122-131          | pass    | test/multiface/multiface_test.cpp:1371 |
+| MF-M1G-03           | NMI armed: 0x0066 M1 latches mf_enable through the gate                                        | multiface.vhd:169,176          | pass    | test/multiface/multiface_test.cpp:1385 |
+| MF-M1G-04           | M1 after enable-rd strobe drops combinational mf_port_en and port_io_dly, preserves mf_enable  | multiface.vhd:195              | pass    | test/multiface/multiface_test.cpp:1406 |
+| MF-M1G-05           | mapped overlay survives quiescent M1s (incl. 0x0066 with nmi_active=0) — mf_enable untouched | multiface.vhd:171-184          | pass    | test/multiface/multiface_test.cpp:1427 |
+| MF-M1G-06           | disabled: M1 preserves forced reset state                                                      | multiface.vhd:103              | pass    | test/multiface/multiface_test.cpp:1441 |
+| MF-MUX-01           | MF+3 read 0x1xxx LSB 0x3F (FDC=0): bit 3 forced 0, bits 2:0 = port_1ffd_reg                    | zxnext.vhd:4312                | pass    | test/multiface/multiface_test.cpp:720  |
+| MF-MUX-01b          | MF+3 read 0x1xxx LSB 0x3F (FDC=1): bit 3 = cpu_do(3), bits 2:0 = port_1ffd_reg                 | zxnext.vhd:3744-3761           | pass    | test/multiface/multiface_test.cpp:750  |
+| MF-MUX-02           | MF+3 read 0x7xxx LSB 0x3F: returns full port_7ffd_reg                                          | zxnext.vhd:4313                | pass    | test/multiface/multiface_test.cpp:770  |
+| MF-MUX-03           | MF+3 read 0xDxxx LSB 0x3F: returns 0 / reg_6 / 0 / port_dffd_reg(4:0)                          | zxnext.vhd:4314                | pass    | test/multiface/multiface_test.cpp:792  |
+| MF-MUX-04           | MF+3 read 0xExxx LSB 0x3F: returns 0 / 0 / 0 / 0 / reg_3 / reg_2 / 0 / 0                       | zxnext.vhd:4315                | pass    | test/multiface/multiface_test.cpp:816  |
+| MF-MUX-05           | MF+3 read 0x0xxx LSB 0x3F: 'others' arm → port_fe_reg(2:0) (border bits, 0x02)               | zxnext.vhd:4316                | pass    | test/multiface/multiface_test.cpp:841  |
+| MF-MUX-06           | invisible_eff=1 closes mf_port_en gate (mux suppressed)                                        | multiface.vhd:195              | pass    | test/multiface/multiface_test.cpp:867  |
+| MF-MUX-07           | is_enabled=0 closes mf_port_en gate (mux suppressed)                                           | multiface.vhd:64,103           | pass    | test/multiface/multiface_test.cpp:900  |
+| MF-MUX-08           | MF128 var A read LSB 0xBF: returns port_7ffd_reg(3) & 0x7F (shadow on→0xFF, off→0x7F)      | zxnext.vhd:4319                | pass    | test/multiface/multiface_test.cpp:922  |
+| MF-MUX-09           | cpu_a(15:12) decode: 0x1xxx→port_1ffd (0x05), 0x7xxx→port_7ffd (0x42)                      | —                            | pass    | test/multiface/multiface_test.cpp:950  |
+| MF-MUX-10           | MF128 read at 0x1FBF: case-mux bypassed (else-branch = 0x7F, NOT port_1ffd & 0x0F)             | zxnext.vhd:4310-4322           | pass    | test/multiface/multiface_test.cpp:974  |
+| MF-OVL-01           | MF inactive (is_mem_active=0): read at 0x0000 does NOT match MF ROM                            | multiface.vhd:186              | pass    | test/multiface/multiface_test.cpp:1069 |
+| MF-OVL-02           | MF active: reads at 0x0000 and 0x1FFF return MF ROM bytes                                      | zxnext.vhd:3028-3035           | pass    | test/multiface/multiface_test.cpp:1093 |
+| MF-OVL-03           | MF active: reads at 0x2000 and 0x3FFF return MF RAM bytes                                      | zxnext.vhd:3028-3035           | pass    | test/multiface/multiface_test.cpp:1116 |
+| MF-OVL-04           | write 0x42 to 0x2123 lands in MF RAM[0x0123]; read-back matches                                | zxnext.vhd:3035                | pass    | test/multiface/multiface_test.cpp:1141 |
+| MF-OVL-05           | write 0xAA to 0x0123 (ROM half) is ignored; MF ROM unchanged                                   | zxnext.vhd:3035                | pass    | test/multiface/multiface_test.cpp:1168 |
+| MF-OVL-06           | addr 0x4000 (outside slot 0): MF overlay does NOT fire                                         | zxnext.vhd:3029                | pass    | test/multiface/multiface_test.cpp:1191 |
+| MF-OVL-07           | fetch_66 bypass + FF latch: overlay activates on the 0x0066 fetch                              | multiface.vhd:186              | pass    | test/multiface/multiface_test.cpp:1220 |
+| MF-OVL-08           | on_retn_seen deactivates overlay; reads fall through                                           | multiface.vhd:144              | pass    | test/multiface/multiface_test.cpp:1251 |
+| MF-OVL-09           | both MF and DivMMC active: read at 0x0000 returns MF ROM (0xAA)                                | zxnext.vhd:2937                | pass    | test/multiface/multiface_test.cpp:1278 |
+| MF-OVL-10           | boot ROM enabled + MF active: read at 0x0000 returns boot ROM (0xBB)                           | zxnext.vhd:2937                | pass    | test/multiface/multiface_test.cpp:1314 |
+| MF-PORT-01          | MF+3 (mf_type=00): OUT 0x3F → enable_wr strobe (port_io_dly=1)                               | zxnext.vhd:2612,2615,2730-2733 | pass    | test/multiface/multiface_test.cpp:537  |
+| MF-PORT-02          | MF+3 (mf_type=00): IN 0x3F → enable_rd strobe (port_io_dly=1)                                | zxnext.vhd:2612,2615,2730-2733 | pass    | test/multiface/multiface_test.cpp:540  |
+| MF-PORT-03          | MF+3 (mf_type=00): OUT 0xBF → disable_wr strobe (port_io_dly=1)                              | zxnext.vhd:2613,2616,2730-2733 | pass    | test/multiface/multiface_test.cpp:543  |
+| MF-PORT-04          | MF+3 (mf_type=00): IN 0xBF → disable_rd strobe (port_io_dly=1)                               | zxnext.vhd:2613,2616,2730-2733 | pass    | test/multiface/multiface_test.cpp:546  |
+| MF-PORT-05          | MF+3 (mf_type=00): OUT 0x9F → no MF strobe (LSB not active)                                  | —                            | pass    | test/multiface/multiface_test.cpp:549  |
+| MF-PORT-06          | MF+3 (mf_type=00): OUT 0x1F → no MF strobe (LSB not active)                                  | —                            | pass    | test/multiface/multiface_test.cpp:552  |
+| MF-PORT-07          | MF128 var A (mf_type=01): OUT 0xBF → enable_wr strobe                                        | zxnext.vhd:2612                | pass    | test/multiface/multiface_test.cpp:565  |
+| MF-PORT-08          | MF128 var A (mf_type=01): OUT 0x3F → disable_wr strobe                                       | zxnext.vhd:2613                | pass    | test/multiface/multiface_test.cpp:568  |
+| MF-PORT-09          | MF128 var B (mf_type=10): OUT 0x9F → enable_wr strobe                                        | zxnext.vhd:2612                | pass    | test/multiface/multiface_test.cpp:586  |
+| MF-PORT-10          | MF128 var B (mf_type=10): IN 0x1F → disable_rd strobe                                        | zxnext.vhd:2613                | pass    | test/multiface/multiface_test.cpp:589  |
+| MF-PORT-11          | MF128 var B (mf_type=10): OUT 0xBF → no MF strobe (var-A LSB)                                | —                            | pass    | test/multiface/multiface_test.cpp:592  |
+| MF-PORT-12          | MF1 (mf_type=11): IN 0x9F → enable_rd strobe                                                 | zxnext.vhd:2612                | pass    | test/multiface/multiface_test.cpp:610  |
+| MF-PORT-13          | MF1 (mf_type=11): OUT 0x1F → disable_wr strobe                                               | zxnext.vhd:2613                | pass    | test/multiface/multiface_test.cpp:613  |
+| MF-PORT-14          | MF1 (mf_type=11): IN 0x3F → no MF strobe (MF+3 LSB only)                                     | —                            | pass    | test/multiface/multiface_test.cpp:616  |
+| MF-PORT-15          | OUT 0x3F with NR 0x83 b1 = 0 → no MF strobe (gate held off)                                  | zxnext.vhd:2615                | pass    | test/multiface/multiface_test.cpp:633  |
+| MF-PORT-16          | OUT 0x3F: fires when mf_type b1=0, suppressed when mf_type b1=1                                | zxnext.vhd:2612-2613           | pass    | test/multiface/multiface_test.cpp:647  |
+| MF-PORT-MFP3-OUT-3F | guard row: emitted only if the Emulator fixture fails to initialise                            | —                            | pass    | test/multiface/multiface_test.cpp:520  |
 
 ## CTC+Interrupts — `test/ctc/ctc_test.cpp` + `test/ctc_interrupts/ctc_interrupts_test.cpp`
 
@@ -3279,6 +3591,85 @@ into this suite as part of the 2026-04-26 closure.
 | CT-FUSE-05   | FUSE-table retirement bypass-toggle (G53)                           | zxnext.vhd:4481                       | pass   | test/contention/contention_test.cpp:1981    |
 | CT-DELAY-01  | Full-frame integration drift bound — 48K/128K/+3 ∈ (0, 6·N]; Pent=0 | zxula.vhd:582-595, zxnext.vhd:4481-4492 | pass   | test/contention/contention_test.cpp:1599    |
 
+
+## LoRes — `test/lores/lores_test.cpp`
+
+The LoRes layer (`src/video/lores.{h,cpp}`), 128x96 8-bit and Radastan 4-bit.
+Plan: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md), whose row titles
+are the Description column below. LoRes is **not** a layer of its own — it
+substitutes the ULA-slot pixel (`zxnext.vhd:6980`), which is why its rows are
+about address generation and the NR `$15` b7 / `$32` / `$33` / `$6A` inputs
+rather than about compositing.
+
+The plan has 91 rows; this suite implements the 48 that are reachable from the
+`LoRes` class alone. Two more need a running CPU and the real memory-timing
+model and live in the companion suite below; the remainder are compositor- or
+demo-level and are recorded in the sections that own them.
+
+| Test ID | Plan row title                                                                                   | VHDL file:line      | Status  | Test file:line                |
+|---------|--------------------------------------------------------------------------------------------------|---------------------|---------|-------------------------------|
+| LR-100  | X scroll advances the source column                                                              | lores.vhd:82,91     | pass    | test/lores/lores_test.cpp:472 |
+| LR-101  | The X-scroll LSB is discarded in 8-bit mode                                                      | lores.vhd:82,91     | pass    | test/lores/lores_test.cpp:482 |
+| LR-102  | X scroll wraps mod 256 (= mod 128 LoRes pixels)                                                  | lores.vhd:82        | pass    | test/lores/lores_test.cpp:490 |
+| LR-103  | X scroll wraps within the row, never into the next row                                           | lores.vhd:82,91     | pass    | test/lores/lores_test.cpp:500 |
+| LR-104  | Radastan X scroll granularity: the low two bits select nibble then byte                          | lores.vhd:82,96,106 | pass    | test/lores/lores_test.cpp:516 |
+| LR-105  | Y scroll advances the source row                                                                 | lores.vhd:84-87,91  | pass    | test/lores/lores_test.cpp:527 |
+| LR-106  | The Y-scroll LSB is discarded away from the wrap boundary                                        | lores.vhd:86-87,91  | pass    | test/lores/lores_test.cpp:534 |
+| LR-107  | Y scroll wraps mod 192                                                                           | lores.vhd:84-87     | pass    | test/lores/lores_test.cpp:542 |
+| LR-108  | Y wrap is exact across the whole legal range                                                     | lores.vhd:84-87     | pass    | test/lores/lores_test.cpp:560 |
+| LR-109  | **Hardware quirk**: for `vc + scroll_y >= 384` the wrap is wrong                                 | lores.vhd:84-87     | pass    | test/lores/lores_test.cpp:570 |
+| LR-110  | The quirk's address consequence: the 3-bit `+1` field wraps to 0                                 | lores.vhd:93-94     | pass    | test/lores/lores_test.cpp:582 |
+| LR-111  | Scroll registers are independent                                                                 | lores.vhd:82,84,91  | pass    | test/lores/lores_test.cpp:590 |
+| LR-120  | LoRes IS clipped by NR `$1A` — it is not exempt                                                | lores.vhd:115       | pass    | test/lores/lores_test.cpp:618 |
+| LR-121  | Clip X bounds are inclusive at both ends                                                         | lores.vhd:115       | pass    | test/lores/lores_test.cpp:630 |
+| LR-122  | Clip Y bounds are inclusive at both ends                                                         | lores.vhd:115       | pass    | test/lores/lores_test.cpp:640 |
+| LR-123  | Clip X is in 256-pixel display units (it indexes `phc`), so a clip edge can fall mid-LoRes-pixel | lores.vhd:115       | pass    | test/lores/lores_test.cpp:656 |
+| LR-125  | An inverted X window (`x1 > x2`) draws nothing                                                   | lores.vhd:115       | pass    | test/lores/lores_test.cpp:671 |
+| LR-126  | An inverted Y window (`y1 > y2`) draws nothing                                                   | lores.vhd:115       | pass    | test/lores/lores_test.cpp:679 |
+| LR-160  | NR `$26` / `$27` (ULA scroll) do not move the LoRes image                                        | lores.vhd:37-61     | pass    | test/lores/lores_test.cpp:730 |
+| LR-23   | `pixel_en` is 0 for `phc >= 256`                                                                 | lores.vhd:115       | pass    | test/lores/lores_test.cpp:150 |
+| LR-24   | `pixel_en` is 0 for `vc >= 192` at default clip                                                  | lores.vhd:115       | pass    | test/lores/lores_test.cpp:163 |
+| LR-25   | `pixel_en` is 1 at the display corners                                                           | lores.vhd:115       | pass    | test/lores/lores_test.cpp:177 |
+| LR-40   | Top-left LoRes pixel reads bank-5 offset 0                                                       | lores.vhd:91        | pass    | test/lores/lores_test.cpp:195 |
+| LR-41   | Row stride is 128 bytes                                                                          | lores.vhd:91        | pass    | test/lores/lores_test.cpp:201 |
+| LR-42   | Column stride is 1 byte per 2 display pixels                                                     | lores.vhd:91        | pass    | test/lores/lores_test.cpp:207 |
+| LR-43   | A LoRes pixel is a 2×2 block of display pixels                                                  | lores.vhd:91        | pass    | test/lores/lores_test.cpp:214 |
+| LR-44   | Last byte of the top half                                                                        | lores.vhd:91,93     | pass    | test/lores/lores_test.cpp:222 |
+| LR-45   | First byte of the bottom half skips the attribute area                                           | lores.vhd:93-94     | pass    | test/lores/lores_test.cpp:228 |
+| LR-46   | Last byte of the bottom half                                                                     | lores.vhd:91,93     | pass    | test/lores/lores_test.cpp:234 |
+| LR-47   | No address in `0x1800-0x1FFF` is ever generated in 8-bit mode                                    | lores.vhd:93-94     | pass    | test/lores/lores_test.cpp:252 |
+| LR-48   | The half-select uses the **scrolled** y, not `vc`                                                | lores.vhd:86-87,93  | pass    | test/lores/lores_test.cpp:259 |
+| LR-51   | In 8-bit mode the Timex display-file bit and NR `$6A` bit 4 have no effect                       | lores.vhd:96,98     | pass    | test/lores/lores_test.cpp:281 |
+| LR-60   | Radastan row stride is 64 bytes                                                                  | lores.vhd:96        | pass    | test/lores/lores_test.cpp:297 |
+| LR-61   | Two LoRes pixels per byte                                                                        | lores.vhd:96        | pass    | test/lores/lores_test.cpp:303 |
+| LR-62   | `x(1) = 0` selects the HIGH nibble (left pixel of the pair)                                      | lores.vhd:106       | pass    | test/lores/lores_test.cpp:314 |
+| LR-63   | `dfile = 0` bases the image at offset 0                                                          | lores.vhd:96        | pass    | test/lores/lores_test.cpp:323 |
+| LR-64   | `dfile = 1` bases the image at offset `0x2000`                                                   | lores.vhd:96        | pass    | test/lores/lores_test.cpp:329 |
+| LR-65   | Radastan applies **no** `+0x800` correction at row 48                                            | lores.vhd:96        | pass    | test/lores/lores_test.cpp:335 |
+| LR-67   | The Radastan image is 6144 bytes, contiguous within its half                                     | lores.vhd:96        | pass    | test/lores/lores_test.cpp:352 |
+| LR-68   | Switching NR `$6A` bit 5 switches the address generator, nothing else latched                    | lores.vhd:98        | pass    | test/lores/lores_test.cpp:370 |
+| LR-80   | 8-bit: offset adds to the HIGH nibble only                                                       | lores.vhd:102,111   | pass    | test/lores/lores_test.cpp:403 |
+| LR-81   | 8-bit: the high-nibble add wraps at 4 bits with no carry out                                     | lores.vhd:102       | pass    | test/lores/lores_test.cpp:409 |
+| LR-82   | 8-bit: the low nibble is passed through untouched by any offset                                  | lores.vhd:111       | pass    | test/lores/lores_test.cpp:415 |
+| LR-83   | 8-bit: offset 0 is the identity                                                                  | lores.vhd:102       | pass    | test/lores/lores_test.cpp:421 |
+| LR-84   | Radastan: high nibble **is** the offset (not an add)                                             | lores.vhd:107,111   | pass    | test/lores/lores_test.cpp:426 |
+| LR-85   | Radastan: with ULA+ enabled the high nibble becomes `"11" & offset(1:0)`                         | lores.vhd:107       | pass    | test/lores/lores_test.cpp:432 |
+| LR-86   | Radastan + ULA+: offset bits 3:2 are ignored                                                     | lores.vhd:107       | pass    | test/lores/lores_test.cpp:439 |
+| LR-88   | The offset never affects `pixel_en`                                                              | lores.vhd:111,115   | pass    | test/lores/lores_test.cpp:457 |
+
+### Companion integration suite — `test/lores/lores_integration_test.cpp`
+
+The two LoRes plan rows that assert the ABSENCE of an effect on the CPU-visible
+side of the machine, and therefore need a full 128K emulator with contention
+and a floating bus rather than the bare `LoRes` class. Both follow from one
+hardware fact: the LoRes fetch uses bank 5's dual-port BRAM **port A**
+(`zxnext.vhd:6603-6631`) while ULA contention and the floating bus are
+functions of the ULA's own **port B** fetch.
+
+| Test ID | Plan row title                                        | VHDL file:line | Status  | Test file:line                            |
+|---------|-------------------------------------------------------|----------------|---------|-------------------------------------------|
+| LR-163  | Enabling LoRes does not change ULA memory contention  | zxula.vhd:583  | pass    | test/lores/lores_integration_test.cpp:122 |
+| LR-164  | Enabling LoRes does not change the floating-bus value | zxula.vhd:573  | pass    | test/lores/lores_integration_test.cpp:168 |
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 
