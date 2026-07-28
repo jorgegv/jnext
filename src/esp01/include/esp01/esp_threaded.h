@@ -34,7 +34,7 @@
 /// WHAT RUNS WHERE — the whole design in four lines
 /// ---------------------------------------------------------------------------
 ///   receive()        caller thread -> inbound queue -> WORKER feeds the core
-///   poll()           WORKER, continuously: sockets, DNS, connect timeouts
+///   poll()           WORKER, continuously: sockets, connect timeouts
 ///   tick()           CALLER thread, directly on the core (try-lock)
 ///   the ByteSink     CALLER thread, from inside tick(), never the worker
 ///
@@ -48,26 +48,63 @@
 /// lock — with `try_lock`, see below.
 ///
 /// ---------------------------------------------------------------------------
-/// THE TRY-LOCK, which is the one subtle thing here
+/// THE CORE LOCK IS NEVER HELD ACROSS A TRANSPORT POLL
 /// ---------------------------------------------------------------------------
-/// `poll()` on the worker holds the core lock, and the transport's `getaddrinfo`
-/// is SYNCHRONOUS (esp_socket.h says so at length) — seconds, on an unreachable
-/// resolver. A blocking `tick()` would inherit that stall, which is precisely
-/// the thing moving the socket work off the caller's thread was supposed to
-/// prevent. So `tick()` uses `try_lock` and, when it loses, RETURNS HAVING DONE
+/// This is the single most important property of the worker loop, and it was
+/// got WRONG first time round, so it is worth stating why.
+///
+/// `AtEngine::poll()` is deliberately available in two halves
+/// (`advance_transports` / `service_transports`). The worker runs the first —
+/// the half that calls `EspTransport::poll()` and touches no engine state —
+/// with the core lock RELEASED, and only takes the lock for the engine work
+/// either side of it. Holding the lock throughout, which is what the first
+/// version did, hands any transport slowness straight to `tick()` on the
+/// caller's thread.
+///
+/// That is not theoretical. Measured against a transport that blocks for
+/// 500 ms inside `poll()`: **11 827 226** `tick()` calls over 400 ms delivered
+/// **ZERO of the 39** bytes that were sitting in the engine's outbound queue
+/// BEFORE the stall started. The first version of this header explained that
+/// away as "a few bytes' worth of delivery latency while the ESP is busy —
+/// during which, by construction, the ESP has nothing to say". That claim is
+/// FALSE and the measurement is what disproves it: the bytes were already
+/// queued, so the ESP had plenty to say. And because the emulation thread is
+/// not blocked — the entire point of the wrapper — real T-states keep elapsing
+/// throughout, which is silence on a wire whose receivers have no retry.
+///
+/// ---------------------------------------------------------------------------
+/// THE TRY-LOCK, which is the one subtle thing left
+/// ---------------------------------------------------------------------------
+/// Even with the transport poll unlocked, `tick()` and the worker still
+/// contend for engine state, and a transport that violates its non-blocking
+/// contract in `send`/`recv` (esp_socket.h) would stall inside the LOCKED
+/// half. So `tick()` uses `try_lock` and, when it loses, RETURNS HAVING DONE
 /// NOTHING — the elapsed ticks are dropped, not banked.
 ///
 /// Dropping rather than banking is deliberate: banking would accumulate credit
-/// during the stall and then release a burst at unbounded speed the moment the
+/// during a stall and then release a burst at unbounded speed the moment the
 /// lock came free, which is exactly the RX FIFO overrun the pacing exists to
 /// prevent (`AtEngine::tick`'s idle branch makes the same choice for the same
-/// reason). What is lost is a few bytes' worth of delivery LATENCY while the
-/// ESP is busy — during which, by construction, the ESP has nothing to say.
+/// reason). What is lost now is the duration of one engine service pass —
+/// microseconds, bounded by the non-blocking contract — rather than the
+/// duration of a name lookup.
 ///
 /// ---------------------------------------------------------------------------
 /// LIFETIME CONTRACT — read this before constructing one
 /// ---------------------------------------------------------------------------
 ///   1. The destructor JOINS. Not detaches, not "signals and hopes".
+///      SO THE SHUTDOWN IS ONLY AS BOUNDED AS THE TRANSPORT. A thread parked
+///      in a syscall cannot be joined in bounded time by anyone, so `stop()`
+///      and the destructor are bounded by exactly ONE `EspTransport::poll()`
+///      call. That is why `poll()` carries an explicit non-blocking CONTRACT
+///      (esp_socket.h) rather than a preference: violate it and destroying
+///      this object takes as long as your transport does. Measured against a
+///      transport that blocks for 2000 ms: the destructor took 2007 ms, which
+///      in jnext is the emulator frozen for 2 s when the user presses Reset.
+///      The shipped `SocketTransport` currently violates it for a hostname
+///      target; `fix/esp-async-dns` is the change that makes it honest.
+///      Detaching instead would bound the destructor and is NOT an option —
+///      see hazard 3.
 ///   2. The transport must outlive the wrapper (the core holds a reference).
 ///   3. THE OWNER MUST DESTROY THE WRAPPER BEFORE ANYTHING THE SINK POINTS AT.
 ///      For jnext that means before `~Emulator()`, and the reason is specific
@@ -115,9 +152,16 @@ public:
 
     // ── EspDevice ─────────────────────────────────────────────────────────
 
-    /// Installs the sink on the core. Call it BEFORE `start()`, or accept that
-    /// it briefly contends with the worker for the core lock (it blocks; it is
-    /// not on the hot path).
+    /// Safe to call at ANY time, started or not, and bounded by a pointer
+    /// swap.
+    ///
+    /// The core is given a permanent trampoline at construction, and this only
+    /// swaps the user sink behind `sink_mutex_` — it never touches
+    /// `core_mutex_`. An earlier version did take the core lock and described
+    /// it as "briefly contends with the worker", which understated it by the
+    /// same margin as the try-lock note above: contending with a worker that
+    /// was inside a blocking transport call meant blocking for that call's
+    /// whole duration.
     void set_output(ByteSink sink) override;
 
     /// Never blocks on socket work: the byte goes into the inbound queue and
@@ -159,10 +203,23 @@ private:
     AtEngine                  core_;
     std::chrono::milliseconds poll_interval_;
 
-    /// Guards `core_`. Held by the worker across a whole service pass —
-    /// including the transport's synchronous DNS lookup, which is exactly why
-    /// `tick()` only ever try-locks it.
+    /// Guards `core_`'s ENGINE state. Explicitly NOT held across
+    /// `AtEngine::advance_transports()` — see the worker loop — so its hold
+    /// time is bounded by the non-blocking transport contract rather than by
+    /// however long a socket operation takes. `tick()` still only try-locks
+    /// it, because a contract-violating transport can still stall the locked
+    /// half through `send`/`recv`.
     mutable std::mutex core_mutex_;
+
+    /// Guards `user_sink_` and NOTHING else. Separate from `core_mutex_` so
+    /// that installing a sink is never delayed by the worker, and held only
+    /// for a swap or a single sink call — never across a transport operation.
+    ///
+    /// The trampoline installed on the core reads `user_sink_` under this;
+    /// it runs from `tick()` on the caller's thread, so the contention here is
+    /// between a caller installing a sink and the same caller pacing bytes.
+    mutable std::mutex sink_mutex_;
+    ByteSink           user_sink_;
 
     /// Guest -> ESP. Its own mutex, never held across anything but a deque
     /// push/pop, so the caller's `receive()` cannot be delayed by socket work.

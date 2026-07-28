@@ -234,6 +234,107 @@ private:
     IpAddress   peer_ = ipv4(192, 0, 2, 1);
 };
 
+/// Blocks inside `poll()` while a connect is outstanding — a deliberate
+/// VIOLATION of `EspTransport::poll()`'s non-blocking contract, standing in for
+/// the synchronous `getaddrinfo` the shipped transport still performs. Used to
+/// prove that a badly-behaved transport cannot starve the guest-bound pacer.
+class SlowResolveTransport : public EspTransport {
+public:
+    std::chrono::milliseconds block_for{500};
+    std::atomic<bool>         in_poll{false};
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ != TransportState::Resolving) return;
+        in_poll.store(true);
+        std::this_thread::sleep_for(block_for);
+        in_poll.store(false);
+        state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// HONOURS the non-blocking contract: a connect stays `Resolving` across many
+/// polls, but no call ever blocks — the shape `fix/esp-async-dns` gives the
+/// real transport, and the shape every third-party transport must have.
+class AsyncResolveTransport : public EspTransport {
+public:
+    /// Polls to sit in `Resolving` before completing. Large enough that a
+    /// resolve is reliably still outstanding when the wrapper is destroyed.
+    int polls_before_connected = 1000000;
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ != TransportState::Resolving) return;
+        if (++polls_ >= polls_before_connected) state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
+    int            polls_ = 0;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// Connects instantly but blocks inside `send()` — another deliberate contract
+/// violation, and the only way to hold the engine lock (the LOCKED half of the
+/// worker pass) long enough to observe whether `set_output` waits on it.
+class SlowSendTransport : public EspTransport {
+public:
+    std::chrono::milliseconds send_delay{400};
+    std::atomic<bool>         in_send{false};
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ == TransportState::Resolving) state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t len) override {
+        if (state_ != TransportState::Connected) return 0;
+        in_send.store(true);
+        std::this_thread::sleep_for(send_delay);
+        in_send.store(false);
+        return len;
+    }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
 // ── Rig ───────────────────────────────────────────────────────────────────
 
 /// One byte time, in 28 MHz ticks, at the UART's 115200 8N1 default
@@ -1112,6 +1213,125 @@ int main() {
                             .count();
         check("MODE-16", "tick() returns immediately rather than waiting for it", ms < 200);
         tr.block_for = std::chrono::milliseconds(0);
+        esp.stop(); }
+
+    // ══ Group K — the worker must not starve the wire ═══════════════════
+    //
+    // Three properties, all of them found MISSING by review rather than by a
+    // green test, and all three measured on the version that lacked them.
+    // Their common cause was one line: the worker held the engine lock across
+    // `EspTransport::poll()`.
+
+    {   // STALL-01 — THE ONE THAT MATTERS. Bytes already queued for the guest
+        //     must keep flowing at their paced rate while the transport is
+        //     stalled. Measured on the version that held the lock across the
+        //     transport poll: 11 827 226 `tick()` calls over 400 ms of a
+        //     500 ms stall delivered ZERO of these 39 bytes.
+        //
+        //     This is not a latency nicety. The emulation thread is not
+        //     blocked — that is the entire point of the wrapper — so real
+        //     T-states elapse throughout, and the receivers on the far end of
+        //     this wire have no retry.
+        SlowResolveTransport tr;
+        tr.block_for = std::chrono::milliseconds(500);
+        ThreadedEsp esp{tr};
+        std::string guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+
+        // Both events land INLINE, before the worker exists, so the ordering
+        // is deterministic rather than raced: AT+RST queues its 36-byte reply
+        // into `out_`, then AT+CIPSTART puts the transport into Resolving.
+        for (unsigned char c : std::string("AT+RST\r\n")) esp.receive(c);
+        const std::string reset_reply = "\r\nOK\r\n\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n";
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp.receive(c);
+        check("STALL-01a", "nothing has been delivered yet — no tick() has run", guest.empty());
+
+        esp.start();
+        for (int i = 0; i < 5000 && !tr.in_poll.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-01b", "the worker is provably stalled inside the transport poll",
+              tr.in_poll.load());
+
+        // Pace from THIS thread — standing in for the emulation thread, which
+        // keeps executing Z80 instructions regardless of any ESP-side stall.
+        for (int i = 0; i < 4096 && guest.size() < reset_reply.size(); ++i)
+            esp.tick(BYTE_TICKS, BYTE_TICKS);
+        const bool still_stalled = tr.in_poll.load();
+        check_eq("STALL-01", "queued bytes reach the wire DURING a transport stall", guest,
+                 reset_reply);
+        check("STALL-01c", "...and they did so while the stall was still in progress",
+              still_stalled);
+        esp.stop(); }
+
+    {   // STALL-02 — shutdown is bounded when the transport honours its
+        //     contract. Measured on a CONTRACT-VIOLATING transport that blocks
+        //     2000 ms in poll(): the destructor took 2007 ms, which in jnext
+        //     is the emulator frozen for two seconds on Reset. That case
+        //     cannot be fixed here — joining a thread parked in a syscall is
+        //     unbounded for anyone — so it is a stated contract
+        //     (`EspTransport::poll`) and the row pins the other side of it:
+        //     given a transport that does NOT block, destruction while a
+        //     connect is still outstanding must be prompt.
+        //
+        //     The poll interval is deliberately 2 SECONDS, far longer than the
+        //     bound asserted. That is what makes the row discriminative: it
+        //     fails unless shutdown actively wakes the worker, rather than
+        //     waiting for its next scheduled pass.
+        AsyncResolveTransport tr;
+        auto esp = std::unique_ptr<ThreadedEsp>(
+            new ThreadedEsp(tr, std::chrono::milliseconds(2000)));
+        esp->start();
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp->receive(c);
+        // Wait for the WORKER to have picked the command up — the transport
+        // reaching Resolving is proof, and it costs nothing, whereas
+        // `wait_idle` would wait out the deliberately long poll interval and
+        // swallow the very window this row is timing.
+        for (int i = 0; i < 5000 && tr.state() != TransportState::Resolving; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-02a", "the connect is outstanding on the worker at destruction",
+              tr.state() == TransportState::Resolving);
+
+        // Time the DESTRUCTOR and nothing else.
+        const auto t0 = std::chrono::steady_clock::now();
+        esp.reset();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        check("STALL-02",
+              "destroying the wrapper mid-connect completes promptly, not at the next "
+              "scheduled pass",
+              ms < 500); }
+
+    {   // STALL-03 — installing a sink must never wait on the worker.
+        //     `set_output` used to take the engine lock, which meant it
+        //     inherited whatever the worker was doing. A slow `send()` is used
+        //     to hold that lock: it is another deliberate contract violation,
+        //     and it is the only way to make the LOCKED half of the worker
+        //     pass long enough to observe the difference — with the transport
+        //     poll now unlocked, a slow poll() no longer holds it at all.
+        SlowSendTransport tr;
+        tr.send_delay = std::chrono::milliseconds(400);
+        ThreadedEsp esp{tr};
+        esp.set_output([](std::uint8_t) {});
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp.receive(c);
+        esp.poll();                       // inline: settles the connect
+        for (unsigned char c : std::string("AT+CIPSEND=2\r\n")) esp.receive(c);
+        esp.start();
+        for (unsigned char c : std::string("hi")) esp.receive(c);   // -> flush_outbound -> send()
+        for (int i = 0; i < 5000 && !tr.in_send.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-03a", "the worker is inside a slow send(), holding the engine lock",
+              tr.in_send.load());
+
+        const auto t0 = std::chrono::steady_clock::now();
+        esp.set_output([](std::uint8_t) {});
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        check("STALL-03", "set_output() returns without waiting for the engine lock", ms < 150);
         esp.stop(); }
 
     std::printf("\n======================================================\n");

@@ -538,10 +538,31 @@ void AtEngine::queue_ipd_header(std::size_t cid, bool multiplexed, std::size_t l
 // ─── Wall-clock half ──────────────────────────────────────────────────
 
 void AtEngine::poll() {
+    // Splitting this loop in two changes NOTHING for v1.0: only `SINGLE_CID`
+    // is ever given a transport, so "poll every slot, then service every slot"
+    // and the old "poll and service each slot in turn" execute the identical
+    // sequence of calls. When CIPMUX (issue #154) populates more slots they
+    // will differ in interleaving only — every slot is still polled before it
+    // is serviced, which is the ordering that matters.
+    advance_transports();
+    service_transports();
+}
+
+void AtEngine::advance_transports() {
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         Connection& c = conn_[cid];
         if (!c.transport) continue;  // v1.0: every slot but SINGLE_CID
+        // The ONLY statement in this function, deliberately. Nothing here
+        // reads or writes engine state, which is what lets a threaded host run
+        // it outside its own lock — see the header.
         c.transport->poll();
+    }
+}
+
+void AtEngine::service_transports() {
+    for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
+        Connection& c = conn_[cid];
+        if (!c.transport) continue;
         resolve_connect(cid);
         flush_outbound(cid);
         drain_socket(cid);

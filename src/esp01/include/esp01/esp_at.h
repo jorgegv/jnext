@@ -44,9 +44,8 @@
 ///     its `+IPD` reader silently CORRUPTS the multiplexed
 ///     `+IPD,<id>,<len>:` form rather than rejecting it (see
 ///     `queue_ipd_header` for the exact mechanism). Since no command can
-///     correct a wrong default
-///     at runtime, the default has to be right and the wrong value has to be
-///     rejected loudly.
+///     correct a wrong default at runtime, the default has to be right and the
+///     wrong value has to be rejected loudly.
 ///
 /// Widening the surface (full datasheet-level fidelity) is tracked as its own
 /// v1.1 issue. Do not grow this file by guessing. What this file DOES do is
@@ -339,10 +338,40 @@ public:
     /// a line; payload bytes are counted against the outstanding `AT+CIPSEND`.
     void receive(std::uint8_t byte) override;
 
-    /// Wall-clock service: advance each live transport, complete a pending
-    /// connect, flush queued outbound data, drain sockets into the per-slot
-    /// buffers and notice a peer close. Does NOT touch guest-bound pacing.
+    /// Wall-clock service: exactly `advance_transports()` followed by
+    /// `service_transports()`, which is what an inline consumer wants and is
+    /// byte-for-byte the behaviour this call has always had.
     void poll() override;
+
+    // ── The wall-clock half, split in two ─────────────────────────
+    //
+    // WHY THE SPLIT EXISTS. A threaded host serialises engine state under a
+    // lock of its own, and holding that lock across a transport call is a
+    // trap: the transport is the one part of this system that can sit in a
+    // syscall. `ThreadedEsp` runs `advance_transports()` OUTSIDE its lock and
+    // `service_transports()` inside it, which is what stops a slow transport
+    // from starving the guest-bound pacer of already-queued bytes. Measured on
+    // the version that did not split: 11 827 226 `tick()` calls over 400 ms
+    // delivered ZERO of the 39 bytes queued before the stall began.
+    //
+    // A host that does not care simply calls `poll()`.
+
+    /// Calls `EspTransport::poll()` on every live slot and NOTHING ELSE. Reads
+    /// no engine state, writes no engine state, touches no queue and no
+    /// pacing — the whole function is that one call in a loop. That is what
+    /// makes it safe to run unlocked alongside a `tick()` on another thread.
+    ///
+    /// It is still the slowest thing here, because `EspTransport::poll()` is
+    /// where an implementation does its socket work.
+    void advance_transports();
+
+    /// Everything else the wall-clock half does: settle a pending connect,
+    /// flush queued outbound data, drain sockets into the per-slot buffers,
+    /// notice a peer close, frame a `+IPD` and refresh the tick gate. Calls
+    /// only the transport operations contracted as NON-BLOCKING
+    /// (`send`/`recv`/`close`), and mutates engine state throughout — so a
+    /// threaded host must serialise this against `receive()` and `tick()`.
+    void service_transports();
 
     /// Emulated-time service: frame `+IPD` when the wire is quiet and release
     /// guest-bound bytes at one per `ticks_per_byte`.

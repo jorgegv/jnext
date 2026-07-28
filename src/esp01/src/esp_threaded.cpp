@@ -13,9 +13,25 @@ namespace esp {
 constexpr std::chrono::milliseconds ThreadedEsp::DEFAULT_POLL_INTERVAL;
 
 ThreadedEsp::ThreadedEsp(EspTransport& transport, std::chrono::milliseconds poll_interval)
-    : core_(transport), poll_interval_(poll_interval) {}
+    : core_(transport), poll_interval_(poll_interval) {
+    // THE TRAMPOLINE, installed once and never replaced. `set_output` then
+    // swaps `user_sink_` behind `sink_mutex_` alone and never touches
+    // `core_mutex_`, so installing a sink cannot be delayed by whatever the
+    // worker is doing. See `set_output` in the header.
+    core_.set_output([this](std::uint8_t byte) {
+        std::lock_guard<std::mutex> lock(sink_mutex_);
+        if (user_sink_) user_sink_(byte);
+    });
+}
 
-ThreadedEsp::~ThreadedEsp() { stop(); }
+ThreadedEsp::~ThreadedEsp() {
+    stop();
+    // The trampoline captured `this` and lives inside `core_`, which is
+    // declared first and therefore destroyed LAST — after `user_sink_` and
+    // `sink_mutex_`. Clearing it here means no ordering question survives the
+    // join, rather than relying on nobody calling `tick()` mid-destruction.
+    core_.set_output(nullptr);
+}
 
 void ThreadedEsp::start() {
     if (running_.load(std::memory_order_acquire)) return;
@@ -44,10 +60,24 @@ void ThreadedEsp::stop() {
 
 void ThreadedEsp::run() {
     while (!stopping_.load(std::memory_order_acquire)) {
+        // THE SERVICE PASS IS THREE STEPS, AND THE MIDDLE ONE IS UNLOCKED.
+        // That is the whole point of `AtEngine`'s poll split: the transport is
+        // the one part of this system that can sit in a syscall, and holding
+        // `core_mutex_` across it starves `tick()` on the caller's thread for
+        // as long as the transport takes. Measured on the version that held
+        // the lock throughout: 11 827 226 `tick()` calls over 400 ms of a
+        // 500 ms transport stall delivered ZERO of the 39 bytes that were already
+        // queued in `out_` before the stall began. The emulated CPU does not
+        // stop while the ESP is busy, so those are real T-states of silence on
+        // a wire whose receivers have no retry.
         {
             std::lock_guard<std::mutex> lock(core_mutex_);
             drain_inbound();
-            core_.poll();
+        }
+        core_.advance_transports();  // UNLOCKED — see above
+        {
+            std::lock_guard<std::mutex> lock(core_mutex_);
+            core_.service_transports();
             wants_tick_.store(core_.wants_tick(), std::memory_order_release);
         }
         passes_.fetch_add(1, std::memory_order_release);
@@ -87,8 +117,13 @@ void ThreadedEsp::drain_inbound() {
 }
 
 void ThreadedEsp::set_output(ByteSink sink) {
-    std::lock_guard<std::mutex> lock(core_mutex_);
-    core_.set_output(std::move(sink));
+    // DELIBERATELY NOT `core_mutex_`. An earlier version took it, and inherited
+    // exactly the hazard the poll split removes elsewhere: installing a sink
+    // would wait for whatever the worker was doing. `sink_mutex_` guards one
+    // assignment and is never held across anything, so this is bounded by a
+    // pointer swap no matter what else is in flight.
+    std::lock_guard<std::mutex> lock(sink_mutex_);
+    user_sink_ = std::move(sink);
 }
 
 void ThreadedEsp::receive(std::uint8_t byte) {
@@ -117,12 +152,14 @@ void ThreadedEsp::poll() {
 }
 
 void ThreadedEsp::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
-    // TRY-lock, never lock: the worker holds this across the transport's
-    // synchronous DNS lookup, and inheriting that stall on the caller's thread
-    // is exactly what this class exists to avoid. On contention the elapsed
-    // ticks are DROPPED rather than banked — banking would release a burst at
-    // unbounded speed once the lock came free, which is the RX FIFO overrun
-    // the pacing exists to prevent.
+    // TRY-lock, never lock. The worker no longer holds this across the
+    // transport poll (see `run()`), so the expected hold is microseconds — but
+    // a transport that violates its non-blocking contract in `send`/`recv`
+    // would stall inside the LOCKED half, and inheriting that on the caller's
+    // thread is exactly what this class exists to avoid. On contention the
+    // elapsed ticks are DROPPED rather than banked — banking would release a
+    // burst at unbounded speed once the lock came free, which is the RX FIFO
+    // overrun the pacing exists to prevent.
     std::unique_lock<std::mutex> lock(core_mutex_, std::try_to_lock);
     if (!lock.owns_lock()) {
         log_trace("tick skipped: the ESP worker holds the core ({} ticks dropped)",
