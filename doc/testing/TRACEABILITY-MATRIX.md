@@ -40,10 +40,10 @@
 | Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        218 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
-| Companion: uart_integration_test           |    13 |   13 |    0 |    0 |       0 |          5 |
-| **Total**                                  |  2815 | 2483 |    0 |    2 |     330 |        826 |
+| Companion: uart_integration_test           |    18 |   18 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  2820 | 2488 |    0 |    2 |     330 |        821 |
 
-Rows the sections above carry: **2815**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2725**. Rows the 87 suites declared in `test/unit-tests.conf` run live: **6208**.
+Rows the sections above carry: **2820**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2730**. Rows the 87 suites declared in `test/unit-tests.conf` run live: **6208**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -2119,7 +2119,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
-Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, dual-port + I2C bit-bang). Runs at `16 / 16 pass / 0 fail / 0 skip`. The suite reports no skips: the G135 NR 0xA0 Pi-UART-routing row this paragraph used to call a skip is `NR_A0-03` below, which reads `missing` — it is asserted nowhere at all, which is a larger gap than a skip, not a smaller one. All 13 IDs listed below are additionally listed in the parent `## UART+I2C/RTC` table above.
+Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, dual-port + I2C bit-bang). Runs at `21 / 21 pass / 0 fail / 0 skip`. The suite reports no skips: the G135 NR 0xA0 Pi-UART-routing row this paragraph used to call a skip is `NR_A0-03` below, which reads `missing` — it is asserted nowhere at all, which is a larger gap than a skip, not a smaller one. The first 13 IDs listed below are additionally listed in the parent `## UART+I2C/RTC` table above; the five `DEV-*` rows are not — they are the `UartDevice` attach/detach seam GH #25 branch 1 added here, whose backend on UART 0 is the emulated ESP-01 traced in the three `## ESP-01 …` sections below.
 
 | Test ID    | Plan row title                                                          | VHDL file:line             | Status | Test file:line                              |
 |------------|-------------------------------------------------------------------------|----------------------------|--------|---------------------------------------------|
@@ -2136,6 +2136,11 @@ Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, du
 | DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:625     |
 | DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:674     |
 | NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:1005    |
+| DEV-01     | UartDevice attach diverts channel TX to the device and suppresses loopback | zxnext.vhd:1611,3381       | pass    | test/uart/uart_integration_test.cpp:747     |
+| DEV-02     | UartDevice guest-bound sink injects via inject_rx; IM2 follows the NR 0xC6 mask | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:799     |
+| DEV-03     | detach_device restores loopback and clears the device's RxSink          | —                        | pass    | test/uart/uart_integration_test.cpp:836     |
+| DEV-04     | Device attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) stay separate | zxnext.vhd:3343-3344       | pass    | test/uart/uart_integration_test.cpp:907     |
+| DEV-05     | An attached UartDevice takes precedence over the on_tx_byte observer hook | —                        | pass    | test/uart/uart_integration_test.cpp:872     |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 
