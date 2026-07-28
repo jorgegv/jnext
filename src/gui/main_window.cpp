@@ -11,6 +11,7 @@
 #include "core/nex_saver.h"
 #include "core/log.h"
 #include "platform/screenshot.h"
+#include "peripheral/esp_host_policy.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
 #include "platform/speed_report.h"
@@ -924,10 +925,18 @@ void MainWindow::create_statusbar() {
     emu_speed_label_->setMinimumWidth(60);
     emu_speed_label_->setAlignment(Qt::AlignCenter);
 
+    // GH #25 — hidden until the emulator reports an ESP, so the status bar is
+    // byte-identical for every run that has not enabled one (the default).
+    esp_label_ = new QLabel(tr("ESP: on"));
+    esp_label_->setMinimumWidth(150);
+    esp_label_->setAlignment(Qt::AlignCenter);
+    esp_label_->setVisible(false);
+
     statusBar()->addWidget(fps_label_, 1);
     statusBar()->addWidget(speed_label_, 1);
     statusBar()->addWidget(emu_speed_label_, 1);
     statusBar()->addWidget(tape_label_, 1);
+    statusBar()->addWidget(esp_label_, 1);
     statusBar()->addPermanentWidget(machine_label_);
 }
 
@@ -995,6 +1004,9 @@ void MainWindow::update_status(double fps, double presented_fps,
 
     // Update tape status display
     update_tape_status();
+
+    // GH #25 — ESP connection visibility.
+    update_esp_status();
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,6 +1201,102 @@ void MainWindow::update_tape_status() {
     bool has_tape = tap.is_loaded() || tzx.is_loaded();
     if (tape_eject_action_)  tape_eject_action_->setEnabled(has_tape);
     if (tape_rewind_action_) tape_rewind_action_->setEnabled(has_tape);
+}
+
+// GH #25 — see the declaration in main_window.h for why this is a persistent
+// status cell and not a transient message or a dialog.
+void MainWindow::update_esp_status() {
+    if (!esp_label_) return;
+
+    const EspConnectionLog* log = emulator_ ? emulator_->esp_events() : nullptr;
+
+    // A null log means the ESP is disabled — which is the default, and every
+    // run before this branch existed. The cell then does not exist at all, so
+    // its PRESENCE is itself the "the guest can reach the network" indicator.
+    const bool want_visible = (log != nullptr);
+    if (want_visible != esp_cell_visible_) {
+        esp_cell_visible_ = want_visible;
+        esp_label_->setVisible(want_visible);
+        esp_seen_ = 0;                      // a cold boot rebuilds the log
+    }
+    if (!want_visible) return;
+
+    const std::uint64_t seq = log->sequence();
+    if (seq == esp_seen_ && seq != 0) return;   // nothing new: one compare
+
+    if (seq == 0) {
+        // Enabled, nothing attempted yet. Naming the restriction here is the
+        // whole point: "idle" alone would not tell the user whether their
+        // allowlist actually loaded.
+        const auto& allow = emulator_->esp_allowed_hosts();
+        esp_label_->setText(allow.empty() ? tr("ESP: on (any host)")
+                                          : tr("ESP: on (%1 allowed)").arg(allow.size()));
+        esp_label_->setStyleSheet(QString());
+        QString tip = tr("The emulated ESP-01 WiFi module is enabled: the running "
+                         "program can open outbound TCP connections.\n"
+                         "Loopback, link-local and cloud-metadata addresses are "
+                         "always refused.\n");
+        if (allow.empty()) {
+            tip += tr("No --esp-allow given, so any other host may be named.");
+        } else {
+            tip += tr("Allowed hosts:");
+            for (const std::string& host : allow)
+                tip += QStringLiteral("\n  ") + QString::fromStdString(host);
+        }
+        esp_label_->setToolTip(tip);
+        esp_seen_ = 0;
+        return;
+    }
+    esp_seen_ = seq;
+
+    const std::vector<EspEvent> events = log->snapshot();
+    if (events.empty()) return;
+
+    // The cell shows the LATEST event and keeps showing it. A refusal or a
+    // transport fault is red and stays red until something else happens, so a
+    // user who looks away does not lose it.
+    const EspEvent& last = events.back();
+    QString target = QString::fromStdString(last.host);
+    if (last.port != 0) target += QStringLiteral(":") + QString::number(last.port);
+
+    QString text;
+    bool    alarming = false;
+    switch (last.kind) {
+        case EspEvent::Kind::Refused:
+            text = tr("ESP: REFUSED %1").arg(target);
+            alarming = true;
+            break;
+        case EspEvent::Kind::Opened:
+            text = tr("ESP: %1").arg(target);
+            break;
+        case EspEvent::Kind::Failed:
+            text = tr("ESP: failed %1").arg(target);
+            break;
+        case EspEvent::Kind::Closed:
+            text = tr("ESP: closed %1").arg(target);
+            break;
+        case EspEvent::Kind::TransportFault:
+            text = tr("ESP: FAULT");
+            alarming = true;
+            break;
+    }
+    esp_label_->setText(text);
+    esp_label_->setStyleSheet(alarming ? QStringLiteral("color: red; font-weight: bold;")
+                                       : QString());
+
+    // The history goes in the tooltip: the cell can only show one event, and
+    // "it flashed something red a minute ago" has to remain answerable.
+    QString tip = tr("Emulated ESP-01 connection history (most recent last):");
+    for (const EspEvent& e : events) {
+        tip += QStringLiteral("\n  ") + QString::fromLatin1(esp_event_text(e.kind));
+        if (!e.host.empty()) {
+            tip += QStringLiteral(" ") + QString::fromStdString(e.host);
+            if (e.port != 0) tip += QStringLiteral(":") + QString::number(e.port);
+        }
+        if (!e.detail.empty())
+            tip += QStringLiteral(" (") + QString::fromStdString(e.detail) + QStringLiteral(")");
+    }
+    esp_label_->setToolTip(tip);
 }
 
 // ---------------------------------------------------------------------------

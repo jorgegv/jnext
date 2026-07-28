@@ -1,5 +1,6 @@
 #include "gui/app_config.h"
 #include "gui/emulator_widget.h"
+#include "peripheral/esp_host_policy.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -121,6 +122,20 @@ void AppConfig::load() {
             data_.joy_source[i] = parsed;
     }
     settings_.endGroup();
+
+    // GH #25 — the emulated ESP-01. Read through EspHostPolicy::add so a
+    // hand-edited file gets the same blank-rejection and de-duplication the
+    // CLI does; a security control that means two different things depending
+    // on where the value came from is not a control.
+    settings_.beginGroup("esp");
+    data_.esp_enabled = settings_.value("enabled", data_.esp_enabled).toBool();
+    {
+        EspHostPolicy policy;
+        const QStringList saved = settings_.value("allowed_hosts").toStringList();
+        for (const QString& host : saved) policy.add(host.toStdString());
+        data_.esp_allowed_hosts = policy.allowed_hosts;
+    }
+    settings_.endGroup();
 }
 
 void AppConfig::save() const {
@@ -158,6 +173,16 @@ void AppConfig::save() const {
     settings_.beginGroup("input");   // Task 79
     settings_.setValue("joy1_source", QString::fromLatin1(joy_source_str(data_.joy_source[0])));
     settings_.setValue("joy2_source", QString::fromLatin1(joy_source_str(data_.joy_source[1])));
+    settings_.endGroup();
+
+    settings_.beginGroup("esp");     // GH #25
+    settings_.setValue("enabled", data_.esp_enabled);
+    {
+        QStringList hosts;
+        for (const std::string& host : data_.esp_allowed_hosts)
+            hosts << QString::fromStdString(host);
+        settings_.setValue("allowed_hosts", hosts);
+    }
     settings_.endGroup();
 
     settings_.sync();

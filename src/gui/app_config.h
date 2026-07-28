@@ -3,6 +3,9 @@
 #include <QSettings>
 #include <QString>
 
+#include <string>
+#include <vector>
+
 #include "core/emulator_config.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
@@ -33,6 +36,24 @@ struct AppConfigData {
     // Default Sdl/Sdl reproduces the historical behaviour. Persisted as the
     // "sdl"/"keys" strings via joy_source_str()/parse_joy_source().
     JoySource   joy_source[2]          = { JoySource::Sdl, JoySource::Sdl };
+
+    // GH #25 — the emulated ESP-01 WiFi module. Defaults match the CLI's
+    // (off, no host restriction), so a machine with no config file is not on
+    // the network. A user who runs NXtel every day should not have to type
+    // --esp and seven --esp-allow entries every time, which is what makes this
+    // worth persisting at all.
+    //
+    // NOTHING SETS THESE FROM THE UI TODAY: there is no Preferences page for
+    // the ESP, so they are hand-edited (documented in the man page's FILES
+    // section) or left alone. That is deliberate rather than unfinished — but
+    // it is only acceptable because the enabled state is VISIBLE: the status
+    // bar grows an ESP cell whenever the module is on, so a config file that
+    // silently enables it cannot go unnoticed.
+    //
+    // `--no-esp` is the escape hatch: the CLI can always force it off for one
+    // run, in both directions, which is why that flag exists.
+    bool        esp_enabled            = false;
+    std::vector<std::string> esp_allowed_hosts;   // empty = any host
 
     // --- Paths (remembered across sessions) ---
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."
