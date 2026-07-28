@@ -51,7 +51,7 @@
 | Companion: uart_integration_test           |    18 |   18 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  3036 | 2704 |    0 |    2 |     330 |        843 |
 
-Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6311**.
+Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6325**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -61,7 +61,7 @@ Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in t
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 48 suites (2668 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 48 suites (2682 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -69,7 +69,7 @@ These 48 suites (2668 live rows) have no VHDL-derived plan row to map, so they h
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `esxdos_stub_test` | 46 | esxDOS API surface + jnext trap policy, not core logic |
 | `phantom_typist_test` | 22 | jnext auto-typing state machine (host keystroke injection) |
-| `esp_wiring_test` | 54 | jnext host ESP policy/visibility/wiring, no core counterpart |
+| `esp_wiring_test` | 60 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
 | `sdcard_provisioner_test` | 57 | jnext SD-image download/patch policy (host side) |
@@ -79,7 +79,7 @@ These 48 suites (2668 live rows) have no VHDL-derived plan row to map, so they h
 | `subsystem_gain_test` | 26 | host per-subsystem gain control (a user setting) |
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
-| `emulator_boot_test` | 26 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 31 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 12 | host mouse-capture policy (window-manager behaviour) |
@@ -101,7 +101,7 @@ These 48 suites (2668 live rows) have no VHDL-derived plan row to map, so they h
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `present_count_test` | 17 | host present accounting (wall-clock, not core timing) |
-| `esp_status_test` | 9 | host status-bar ESP indicator (GUI), no core counterpart |
+| `esp_status_test` | 12 | host status-bar ESP indicator (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 33 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |

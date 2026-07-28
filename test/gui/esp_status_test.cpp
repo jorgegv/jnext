@@ -36,6 +36,7 @@
 #include "gui/main_window.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
+#include "platform/emulator_boot.h"
 
 namespace {
 
@@ -160,6 +161,47 @@ void test_refusal_from_the_guest() {
           cell ? cell->toolTip().toStdString() : "no cell");
 }
 
+void test_cold_boot_resets_the_cell() {
+    // A cold boot builds a FRESH connection log whose sequence restarts at 0,
+    // and the replacement routinely lands on the block the old one was freed
+    // from — so an observer that cached only the sequence can mistake "N events
+    // into the new machine" for "the N events I already rendered" and keep
+    // showing pre-reboot text. That is why the change test is the
+    // (instance id, sequence) PAIR.
+    //
+    // The row forces the exact coincidence rather than hoping for it: it
+    // renders a refusal, reboots, and drives the new machine to the SAME
+    // sequence number before refreshing again.
+    Fixture f{true, {"allowed.test"}};
+    f.guest_sends("AT+CIPSTART=\"TCP\",\"evil.test\",80\r\n");
+    const bool first = f.wait_for_event();
+    f.refresh();
+    QLabel* cell = esp_cell(f.win);
+    check("ESPUI-10", "the pre-reboot refusal is on screen",
+          first && cell && cell->text().contains(QStringLiteral("REFUSED")),
+          cell ? cell->text().toStdString() : "no cell");
+
+    EmulatorConfig cfg;
+    cfg.type              = MachineType::ZX48K;
+    cfg.silent            = true;
+    cfg.esp_enabled       = true;
+    cfg.esp_allowed_hosts = {"allowed.test"};
+    emulator_cold_boot(f.emu, cfg);
+
+    // One event into the fresh machine — the same sequence value the stale
+    // cell was already showing.
+    f.guest_sends("AT+CIPSTART=\"TCP\",\"other.test\",81\r\n");
+    const bool second = f.wait_for_event();
+    f.refresh();
+    cell = esp_cell(f.win);
+    check("ESPUI-11", "the post-reboot refusal reaches the cell at the same sequence",
+          second && cell && cell->text().contains(QStringLiteral("other.test:81")),
+          cell ? cell->text().toStdString() : "no cell");
+    check("ESPUI-12", "...so no pre-reboot text survives the boot",
+          cell && !cell->text().contains(QStringLiteral("evil.test")),
+          cell ? cell->text().toStdString() : "no cell");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -171,6 +213,7 @@ int main(int argc, char** argv) {
     test_disabled();
     test_enabled_idle();
     test_refusal_from_the_guest();
+    test_cold_boot_resets_the_cell();
 
     std::printf("\n============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_total, g_pass, g_fail);
