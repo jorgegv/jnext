@@ -2,9 +2,10 @@
 
 **Issue:** [GH #25](https://github.com/jorgegv/jnext/issues/25) (v1.0) — follow-up
 [#154](https://github.com/jorgegv/jnext/issues/154) (full datasheet-level emulation).
-**Status:** v1.0 in progress. Branches 1 (UART device seam) and 2 (socket transport) merged;
-branch 3 (AT engine) merged at `6a79f6fd`; branch 3.5 (modularisation + this document) in flight;
-branches 4 (CLI/config/wiring) and 5 (functional test) not started.
+**Status:** v1.0 in progress, six branches. 1 (UART device seam), 2 (socket transport), 3 (AT
+engine, `6a79f6fd`) and 3.5 (modularisation, `779b7103`, v0.99.68) are **merged**;
+`fix/esp-async-dns` (§7.4) is in flight and lands before branch 4; branches 4 (CLI/config/wiring)
+and 5 (functional test) are not started.
 **Last updated:** 2026-07-28.
 **Audience:** jnext maintainers **and anyone reusing this module in another project**. The module
 is deliberately shaped to be liftable; this document is its specification, not a jnext-internal
@@ -116,7 +117,7 @@ Licences were compatible in every viable case, so **this turned purely on engine
 2. **The hard parts for jnext are provided by no candidate** — because no other emulator has this
    timing model or these constraints:
    - UART-tick-paced two-stage buffering (§6) — every candidate injects RX unpaced;
-   - the `UartDevice` seam and its cold-boot lifetime hazard (§7.6);
+   - the `UartDevice` seam and its cold-boot lifetime hazard (§7.7);
    - replay/rewind gating (`replay_mode_`);
    - the Windows socket split;
    - the security model (§8).
@@ -446,10 +447,20 @@ goes.
 - **`poll()` — wall clock.** All socket work: advance the transport, complete a pending connect,
   flush queued outbound data, drain the socket into the **unbounded** per-slot buffer, notice a
   peer close. No pacing at all: the ESP processes as fast as it likes.
-- **`tick(master_cycles, byte_ticks)` — emulated time.** Frames a `+IPD` when the wire falls quiet
-  and releases **one byte per `byte_ticks`**, where `byte_ticks` is
-  `UartChannel::byte_transfer_ticks()` = `prescaler() × frame_bits()` — read **live on every
-  call**, which is the whole reason `AT+UART_CUR` and `.ESPBAUD` work for free.
+- **`tick(elapsed_ticks, ticks_per_byte)` — emulated time.** Frames a `+IPD` when the wire falls
+  quiet and releases **one byte per `ticks_per_byte`**. jnext passes 28 MHz cycles and
+  `UartChannel::byte_transfer_ticks()` = `prescaler() × frame_bits()`, read **live on every call**,
+  which is the whole reason `AT+UART_CUR` and `.ESPBAUD` work for free.
+
+  **The units are the caller's.** The module owns no clock and never asks what time it is; it is
+  told how much time passed and how much time a byte costs, in whatever unit the caller counts in.
+  A consumer with no baud to model passes `(1, 1)` and gets one byte per call.
+
+  **The pacer lives in the core, deliberately, and not in the host.** It is inseparable from
+  `+IPD` coalescing: a chunk is cut only once `out_` has drained (`wire_is_quiet`), so a host that
+  drained at its own rate would cut a chunk per poll and destroy the large-chunk property §6.3
+  depends on. Keeping it in the core is what makes the module's output correct for *any* host,
+  not just for one that happens to drain the way jnext does.
 
 The accumulator only banks cycles while there is something to release; an idle period cannot bank
 credit and then dump a burst the instant data appears, and it is zeroed whenever the queue empties
@@ -506,8 +517,8 @@ One chunk is framed per quiet moment; the next follows when that one drains.
 ### 6.4 The guest is the bottleneck either way
 
 nextsync's own receive loop (`_receive`, `sync/uart.s`) is 93 T-states/byte, which at 28 MHz is a
-ceiling of **≈301 KB/s**. 2 Mbaud
-already delivers 200 KB/s. Any faster delivery scheme buys at most ≈1.5× over the fastest real
+ceiling of **≈301 KB/s**. 2 Mbaud already delivers 200 KB/s, so any faster delivery scheme buys at
+most ≈1.5× over the fastest real
 configuration; see [§11.2](#112-the-rx-pacing-may-be-replaceable--and-the-hazard-is-interrupt-saturation).
 
 ---
@@ -517,17 +528,32 @@ configuration; see [§11.2](#112-the-rx-pacing-may-be-replaceable--and-the-hazar
 ### 7.1 Layering (owner-approved)
 
 ```
-ESP core (passive):   bytes in -> bytes out, poll(), no clock, no threads, no jnext types
-    │ optional
-Threaded wrapper:     owns core + thread + two SPSC queues
-    │
-jnext adapter:        implements UartDevice; drains the outbound queue into the RX FIFO at baud
+EspDevice (interface)    set_output(ByteSink) / receive(byte) / poll()
+                         / tick(elapsed, per_byte) / wants_tick()
+    ├── AtEngine         the passive core: bytes in -> bytes out, no clock,
+    │                    no threads, no host types
+    └── ThreadedEsp      OPTIONAL wrapper: owns an AtEngine + a worker thread
+
+any host  ──drives──►  either implementation through EspDevice alone
+    └── jnext: EspUartAdapter implements UartDevice in terms of EspDevice,
+        and paces guest-bound bytes into the emulated RX FIFO at baud
 ```
 
-**The core is passive and must stay drivable inline.** That is what makes the wrapper *optional*
-rather than decorative: another project may want to drive the module from its own scheduler, or
-inline with no thread at all. **The test suite must exercise both modes** — branch 3.5/4 work;
-neither the wrapper nor its tests exist yet.
+Both the core and the wrapper implement the **same** `EspDevice` interface, so a host chooses
+threaded or inline by choosing which to construct and changes nothing else. Note what the core is
+*not*: `AtEngine` is **not** a `UartDevice` any more — that host type lives entirely on jnext's
+side of the line, in the adapter.
+
+**The core is passive and stays drivable inline.** That is what makes the wrapper *optional*
+rather than decorative: another project may drive the module from its own scheduler, or inline
+with no thread at all. **Both modes are exercised by the module's own suite** (`esp_at_test.cpp`
+drives `ThreadedEsp` as well as the bare engine) — an unexercised alternative mode rots.
+
+**The sink's threading contract is part of the interface**, not an implementation detail: the
+`ByteSink` is invoked **only from `tick()`**, never from `receive()` or `poll()`. So even under
+`ThreadedEsp` the guest-bound byte path never leaves the caller's thread, which is what makes it
+safe for jnext's sink to write straight into the emulated RX FIFO while a socket read is in flight
+on the worker.
 
 **Why threading is allowed at all.** The ESP's internal latency is not observable and does not
 need emulating: no Next software depends on `AT+CIPSTART` taking a particular time to parse, and
@@ -539,23 +565,73 @@ not the frame loop.
 
 **Consequence for branch 4:** `poll()` is **not** wired into `begin_new_frame()`. The frame loop
 drives only the baud-paced `tick()`. This removes the one place a slow `getaddrinfo` or socket
-read could stall the frame loop, which means the synchronous-DNS compromise in the transport stops
-being a compromise — it just happens off the emulation thread.
+read could stall the frame loop.
 
-### 7.2 Module layout
+It does **not**, on its own, remove the stall from the system — see §7.2, which is the part of
+this design that was got wrong first time and is now the most important property of the wrapper.
 
-Target layout (branch 3.5), with jnext-rooted includes replaced by self-rooted ones so a consumer
-does not have to replicate jnext's include root:
+### 7.2 The core lock is never held across a transport poll
+
+Moving socket work onto a worker thread only helps if the worker does not hand its slowness back
+to the emulation thread through the lock. The first implementation did exactly that — it held
+`core_mutex_` across `EspTransport::poll()` — and two measurements falsify the reasoning that was
+used to justify it:
+
+| Measurement | Result |
+|---|---|
+| Transport blocking 500 ms inside `poll()`; 39 bytes **already** in the engine's outbound queue *before* the stall | **11 827 226 `tick()` calls over ~400 ms delivered 0 of the 39 bytes.** Post-fix, the same repro delivers **39/39** |
+| Transport blocking 2000 ms inside `poll()`; wrapper destroyed | **Destructor took 2007 ms** |
+
+The shipped header had explained the first away as "a few bytes' worth of delivery latency while
+the ESP is busy — during which, by construction, the ESP has nothing to say". **That claim is
+false**, and the measurement is what disproves it: the bytes were already queued, so the ESP had
+plenty to say. Worse, the emulation thread is *not* blocked — the entire point of the wrapper — so
+real T-states keep elapsing throughout. That is silence on a wire whose receivers have no retry
+(§6.2).
+
+The design that follows:
+
+1. **`AtEngine::poll()` splits into two halves.** `advance_transports()` calls
+   `EspTransport::poll()` and touches no engine state; `service_transports()` does the engine
+   work. `poll()` is exactly the two in sequence, which is what an inline consumer wants. The
+   worker runs `advance_transports()` with the core lock **released** and takes the lock only for
+   the engine work either side of it.
+2. **`tick()` uses `try_lock`, and on failure returns having done nothing** — the elapsed ticks
+   are **dropped, not banked**. Banking would accumulate credit during a stall and then release a
+   burst at unbounded speed the moment the lock came free, which is precisely the RX FIFO overrun
+   the pacing exists to prevent (the engine's own idle branch makes the same choice for the same
+   reason). What is lost is now the duration of one engine service pass — microseconds, bounded by
+   the transport contract — rather than the duration of a name lookup.
+3. **`set_output()` never touches the core lock.** The core holds a permanent trampoline; the user
+   sink is swapped behind a separate `sink_mutex_`. An earlier version took the core lock and
+   described it as "briefly contends with the worker", which understated it by the same margin.
+
+**The residual, stated plainly:** the destructor **joins** — it does not detach — so `stop()` and
+`~ThreadedEsp()` are bounded by exactly **one** `EspTransport::poll()` call. Against a
+contract-violating transport that is unbounded, and **no change confined to the module can fix
+it**: a thread parked in a syscall cannot be joined in bounded time by anyone, and detaching is
+banned outright (§7.7 — `emulator_cold_boot()` placement-news the `Emulator` at the same address,
+so a surviving worker would service a core whose sink points into the newly booted machine:
+silent corruption, not a fault). The fix therefore has to be in the transport, which is why
+`EspTransport::poll()` now carries an explicit contract (§7.4).
+
+### 7.3 Module layout
+
+Landed layout (branch 3.5, merged at `779b7103`), with host-rooted includes replaced by self-rooted
+ones so a consumer does not have to replicate jnext's include root:
 
 ```
 src/esp01/
+  CMakeLists.txt     target `esp01`
   include/esp01/     esp_at.h, esp_socket.h, esp_log.h, esp_threaded.h,
                      esp_socket_platform.h  ← module-private by convention, not by path
   src/               esp_at.cpp, esp_socket.cpp, esp_address_policy.cpp, esp_log.cpp,
-                     esp_socket_posix.cpp, esp_socket_win.cpp
+                     esp_threaded.cpp, esp_socket_posix.cpp, esp_socket_win.cpp
   test/              esp_at_test.cpp, esp_socket_test.cpp
 src/peripheral/
   esp_uart_adapter.{h,cpp}   the jnext side: implements UartDevice
+test/esp/
+  esp_uart_adapter_test.cpp  the jnext side's own suite (§7.6)
 ```
 
 `esp_socket_platform.h` is **private** in the design sense — its own header says it is included
@@ -564,29 +640,66 @@ include it — but it currently sits in the public include directory alongside t
 enforces that. A consumer must treat it as internal. Moving it into `src/` would make the
 constraint structural rather than documentary.
 
-Includes read `#include "esp01/esp_at.h"`. CMake target: **`esp01`**.
+Includes read `#include "esp01/esp_at.h"`, inside the module and out. The `esp01` target links
+**nothing from jnext** — not `jnext_peripheral`, not `jnext_core`, not spdlog. Its only
+dependencies are the C++17 standard library, `Threads::Threads` (what `std::thread` needs on
+POSIX), and `ws2_32` on Windows — both OS components, so the project's no-new-dependency rule is
+untouched.
 
-<!-- VERIFY: the layout above was read from the in-flight feat/esp-modularise worktree and is NOT
-     merged. esp_threaded.h did not exist there at the time of writing. Reconcile the directory
-     names, the header file names, the CMake target name and the adapter path against the landed
-     tree after the merge, including whether esp_socket_platform.h stayed in include/esp01/. -->
+**Reuse is a verified property, not a claim.** Copying `src/esp01/` into an empty directory with a
+four-line `CMakeLists.txt` (`cmake_minimum_required` / `project` / `set(ENABLE_TESTS ON)` /
+`add_subdirectory(esp01)`) and **no jnext present at all** builds clean and both suites pass
+identically — 145/145 and 130/130 — with `ldd` on the resulting binaries showing only
+`libstdc++`, `libm`, `libgcc_s` and `libc`. Reproduced independently twice: once in review of the
+modularisation, and once while writing this document. A reuse claim that is never executed is a
+reuse claim that has already stopped being true.
 
-### 7.3 The seams
+### 7.4 The seams
 
-Four seams, in dependency order. Together they are what make the module liftable.
+Five seams, in dependency order. Together they are what make the module liftable.
 
 | Seam | Contract | Why it is a seam |
 |---|---|---|
-| **`EspTransport`** (abstract) | `begin_connect` / `poll` / `state` / `send` / `recv` / `close` / `last_error` / `peer_address`. **Nothing may block**, and the interface is shaped so a caller *cannot ask it to*: no synchronous connect in the vtable, `poll()` takes no timeout, `send`/`recv` return a **count** never a completion, and nothing returns a native handle. | A consumer can substitute its own transport. The AT engine is driven against an in-memory fake with no sockets, no DNS and no listener. |
-| **`UartDevice`** | `receive(byte)` (one byte out of the guest TX FIFO), `poll()`, `tick(master_cycles, byte_ticks)`, plus a `RxSink` **callback** for the guest-bound direction. | The callback — rather than a `Uart&` — is what keeps ESP code free of any UART header. A device can be unit-tested by pointing the sink at a `std::vector`. Attachment is **non-owning**, matching `SpiDevice` / `I2cDevice`. |
+| **`EspTransport`** (abstract) | `begin_connect` / `poll` / `state` / `send` / `recv` / `close` / `last_error` / `peer_address`. **Nothing may block** — see below, this is a hard contract, not a preference. The interface is shaped so a caller *cannot ask it to*: no synchronous connect in the vtable, `poll()` takes no timeout, `send`/`recv` return a **count** never a completion, and nothing returns a native handle. | A consumer can substitute its own transport. The AT engine is driven against an in-memory fake with no sockets, no DNS and no listener. |
+| **`EspDevice`** (abstract) | `set_output(ByteSink)` / `receive(byte)` / `poll()` / `tick(elapsed_ticks, ticks_per_byte)` / `wants_tick()`. Implemented by both `AtEngine` and `ThreadedEsp`. The `ByteSink` is a **callback**, and fires **only from `tick()`**. | Lets a host swap threaded for inline without touching anything else, and keeps the module free of any host header — a consumer can point the sink at a `std::vector` and unit-test the whole engine. |
+| **`UartDevice`** (host side) | The jnext seam `EspUartAdapter` implements: `receive(byte)`, `poll()`, `tick(master_cycles, byte_ticks)`, plus an `RxSink` for the guest-bound direction. | The adapter is the *whole* of the coupling and lives on jnext's side of the line. Attachment is **non-owning**, matching `SpiDevice` / `I2cDevice`. |
 | **Address policy** | Pure functions `classify_address` / `select_candidate` over `IpAddress` + `AddressPolicy`. No sockets, no DNS, no platform headers, no logging. | The security-relevant part must be exhaustively unit-testable offline **and** overridable — the socket suite's own in-process listener is on 127.0.0.1, which the default policy denies. |
-| **Logging** | Every trace call goes through a single accessor; the module must not require another project's logging framework. jnext binds it to the `esp01` spdlog logger in the adapter. | The one hard jnext dependency the module still had (`core/log.h`, 21 call sites in the socket layer plus the engine's `lg()`). Removing it makes the module **and its tests** portable in one move. |
+| **Logging** (`esp01/esp_log.h`) | `enum class LogLevel {Trace,Debug,Info,Warn,Error}`; `using LogSink = std::function<void(LogLevel, const std::string&)>`; `set_log_sink(LogSink)` (**`nullptr` restores silence**), `set_log_threshold(LogLevel)` (default `Info`), `log_threshold()`, `log_hex_byte(uint8_t)`, and `log_trace/debug/info/warn/error(fmt, args...)` with minimal `{}` substitution (`{{`/`}}` literal, format specs **ignored**). | Removes the module's last hard host dependency (`core/log.h`, 21 call sites). **Unbound means silent** — a consumer that ignores the header pays nothing and hears nothing, which is the only correct default for a library. |
 
-<!-- VERIFY: the logging seam's exact API (free function vs. sink object vs. macro, and how the
-     jnext binding is installed) is being decided on feat/esp-modularise. The contract above is
-     what must hold; substitute the real signature once it lands. -->
+**The logging binding is global, not per-instance**, and the reasoning is worth keeping: the module
+models one physical device on one UART; the transport is created by a *free function* and logs from
+a `SocketTransport` the engine never sees, while the address policy is pure free functions — so a
+per-instance sink would have to be threaded through both (and every future free function) to cover
+what a global covers for nothing. The cost is shared mutable state, so the sink is mutex-guarded
+and the **threshold is atomic**, which keeps the gate lock-free on the per-tick pacing path. jnext
+binds it in `esp_bind_logging()` (`esp_uart_adapter.cpp`) and calls `esp_sync_log_level()` from
+`EspUartAdapter::poll()` — once per frame — so a runtime `--log-level` change takes effect within a
+frame. **This is not a logging framework and must not become one:** no timestamps, no logger names,
+no file/line, no sink chaining. The host's real logger supplies all of that, because it already
+does.
 
-### 7.4 Platform split
+#### `EspTransport::poll()` — the non-blocking contract
+
+Promoted from a design preference to an **explicit interface obligation**, because §7.2's second
+measurement showed what violating it costs. If you are writing your own transport this is the one
+paragraph you cannot skip:
+
+- `ThreadedEsp` runs `poll()` on a worker thread whose destructor **joins**, and joining a thread
+  parked in a syscall is unbounded. So wrapper shutdown is bounded by exactly **one** `poll()`
+  call, and a transport that blocks there hands that duration to whoever destroys the wrapper. In
+  jnext that is a cold boot or a quit: a 20 s resolver timeout would freeze GUI, audio and CPU for
+  20 s when the user presses Reset.
+- Do the slow part elsewhere and report progress through `state()`. `Resolving` and `Connecting`
+  exist precisely so that a lookup or a handshake in flight is an **observable state** rather than
+  a stall.
+- **Known violation, stated rather than hidden:** the transport this module ships,
+  `make_socket_transport`, currently **does** block here, because its name resolution is a
+  synchronous `getaddrinfo` (§7.5). An IP literal never resolves at all, so only a hostname target
+  is affected; `send`, `recv` and `close` are already non-blocking. Making it asynchronous is its
+  own change, **`fix/esp-async-dns`**, which lands **before** branch 4 wires the ESP into the
+  emulator.
+
+### 7.5 Platform split
 
 Only the OS primitives are platform-split, and the split is drawn **below** the state machine, not
 whole-file: `esp_socket_platform.h` declares `init` / `resolve` / `open_nonblocking` /
@@ -599,17 +712,24 @@ once, in the portable file.
 confined to `poll()`, preceded by an `AI_NUMERICHOST` fast path that never touches the network
 (and nextsync is normally configured with a literal), and `Resolving` exists as a distinct
 observable state precisely so that moving the lookup onto a thread later changes only that file.
-With `poll()` on the wrapper thread (§7.1) the stall no longer reaches the frame loop at all.
+With `poll()` on the wrapper thread (§7.1) the stall no longer reaches the *frame loop*.
 
-### 7.5 Tests ship with the module
+It does still reach **wrapper shutdown**, which is why this is now recorded as a **known violation
+of the transport contract** (§7.4) rather than as an accepted compromise, and why
+`fix/esp-async-dns` lands before branch 4.
+
+### 7.6 Tests ship with the module
 
 A consumer gets the code and its proof together. Constraints on the move:
 
-1. **Sources live with the module; registration stays with jnext.** Both suites remain declared in
-   `test/unit-tests.conf` with their exact pinned row counts and registered via `add_test()`. The
-   declared-suite contract — the harness *refuses to run* if the manifest and CMake disagree, and
-   a missing suite is a loud failure — is not weakened for the sake of modularity. Only the file
-   location changes.
+1. **Sources live with the module; registration stays with jnext.** Both module suites remain
+   declared in `test/unit-tests.conf` with their exact pinned row counts and registered via
+   `add_test()` from `src/esp01/CMakeLists.txt` — `run-unit-tests.sh` reads *every*
+   `CTestTestfile.cmake` under the build tree, so the declared-suite cross-check sees them exactly
+   as it sees the rest. The contract — the harness *refuses to run* if the manifest and CMake
+   disagree, and a missing suite is a loud failure — is not weakened for the sake of modularity.
+   Only the file location changed. A consumer who does not want jnext's manifest simply runs the
+   two binaries.
 2. **The tracing rows must assert through the logging seam**, not through a spdlog ringbuffer
    sink. That is what makes them runnable by a consumer who binds a different sink, and it is a
    genuine test of the seam rather than of spdlog.
@@ -621,17 +741,31 @@ A consumer gets the code and its proof together. Constraints on the move:
    not introduce a dependency on one while tidying up — that would trade one coupling for a worse
    one.
 
-Current counts: `esp_socket_test` 121 rows, `esp_at_test` 126 rows.
+Three suites, and the split between them is itself part of the design:
 
-<!-- VERIFY: suite names and pinned row counts after the move — update from the landed
-     test/unit-tests.conf if branch 3.5 renamed or re-registered either suite. -->
+| Suite | Rows | Where | Why there |
+|---|---|---|---|
+| `esp_at_test` | **145** | `src/esp01/test/` | Portable: fake transport, no socket, no DNS. Drives **both** the bare `AtEngine` and `ThreadedEsp` |
+| `esp_socket_test` | **130** | `src/esp01/test/` | Address policy is pure and portable; the transport half needs a POSIX-only in-process listener |
+| `esp_uart_adapter_test` | **20** | `test/esp/` | **jnext-side**: the `Uart`-coupled rows and the spdlog-registration rows cannot live in a portable module suite now that `AtEngine` is not a `UartDevice` |
 
-### 7.6 Lifecycle
+That third suite is the visible cost of the core/adapter split, and it is the right cost: the rows
+that genuinely test jnext coupling now live with jnext, and the module's own suites stay runnable
+by a consumer who has never heard of `Uart` or spdlog.
+
+### 7.7 Lifecycle
 
 - **The wrapper joins its thread before `~Emulator()`.** `emulator_cold_boot`
   (`src/platform/emulator_boot.h:67-77`) does `emu.~Emulator(); new (&emu) Emulator();` — placement
   new **at the same address**. A live thread writing into the reconstructed object is **silent
-  corruption, not a crash**. Joining first removes the hazard entirely.
+  corruption, not a crash**. Joining first removes the hazard entirely, which is why the join is in
+  the **destructor** rather than in a shutdown method someone can forget to call. `stop()` is
+  exposed as well, so an owner can order the shutdown explicitly, but it is not required.
+- **Construction does not start the thread.** `ThreadedEsp` builds the core; `start()` is separate,
+  so an owner can construct, install the sink, and only then let anything run.
+- **Shutdown is bounded by one `EspTransport::poll()`, and no better.** See §7.2's residual: this
+  is the price of joining, it cannot be fixed inside the module, and it is why the transport
+  contract in §7.4 is a contract.
 - **The same hazard applies to the `RxSink`.** `Uart uart_` is a value member of `Emulator`, so a
   sink captured before a cold boot still holds a perfectly valid `Uart*` — pointing at the
   **newly booted** machine's UART. Nothing crashes; the device's next injection lands in the fresh
@@ -644,7 +778,7 @@ Current counts: `esp_socket_test` 121 rows, `esp_at_test` 126 rows.
   (`replay_mode_`, branch 4).
 - **Save-state is unchanged.** The ESP is not serialised (simplification 5).
 
-### 7.7 Hot-path cost
+### 7.8 Hot-path cost
 
 `UartChannel::tick` runs once per Z80 instruction (10⁵–10⁶ times/frame), which is far too hot for
 socket work — `poll()` must never hang off it. The emulated-time hook is gated inside
@@ -732,12 +866,18 @@ interface. Untested plumbing for an unreachable capability is worth less than th
 
 **Status:** the address policy is implemented and unit-tested. The **enable flag and the hostname
 allowlist are branch-4 work and do not exist yet.** The connection log line **partially exists**:
-the engine already logs connection open and close at `info` and connect failure at `warn`
-(`esp_at.cpp:584`, `:653`, `:594`) on the `esp01` logger, and those are emitted **by default** —
-spdlog's global default level is `info` (`registry.h:116`) and jnext never lowers it. Two gaps
-remain: there is no **allowlist-decision** line, because there is no allowlist; and the lines go to
-**stderr only**, which a GUI user never sees. "Never silent" is therefore satisfied for CLI and
-headless runs and **not** for the GUI.
+the engine logs connection open and close at `info` and connect failure at `warn`, and those are
+emitted **by default** — the module's own threshold defaults to `Info` (`esp_log.h`), spdlog's
+global default level is `info` (`registry.h:116`), and jnext never lowers either. Deliberately,
+those two events are the *only* `Info` lines the module produces; everything chatty is `Debug` or
+`Trace`.
+
+Two gaps remain, both **branch-4 obligations**:
+
+1. There is no **allowlist-decision** line, because there is no allowlist.
+2. The lines go to **stderr only**, which a GUI user never sees. "Never silent" is therefore
+   satisfied for CLI and headless runs and **fails for the GUI** — a security-relevant event that
+   is invisible to the user who most needs it is not a satisfied requirement.
 
 ### 8.3 No host network information may leak into the guest
 
@@ -750,14 +890,18 @@ module is not a radio.
 
 Every detail of an app's ESP interaction must be traceable: each AT command received, each response
 emitted, the `>` prompt handshake, payload byte counts, `+IPD` framing, connection open/close,
-socket errors, allowlist decisions, and the RX pacing / FIFO state. This uses the existing
-framework — spdlog named loggers selectable at runtime via `--log-level <subsystem>=<level>` — with
-a dedicated **`esp01`** subsystem (`src/core/log.h:92`). `SPDLOG_ACTIVE_LEVEL` strips trace/debug
-in release builds and the runtime check is an inline integer compare, so this is free when off.
+socket errors, allowlist decisions, and the RX pacing / FIFO state.
 
-**Nothing is on by default**, with the likely exception of TCP connection open/close at `info` —
-those are user-visible, security-relevant events and pair naturally with the "never silent"
-requirement above.
+The module emits through its **own seam** (§7.4) and knows nothing about spdlog. jnext binds that
+seam to a dedicated **`esp01`** spdlog logger (`src/core/log.h:92`), selectable at runtime via
+`--log-level <subsystem>=<level>` like every other subsystem, and re-reads the level once per frame
+so a change takes effect immediately. Two gates therefore apply in series — the module's own
+threshold (default `Info`, atomic, so the check is lock-free on the per-tick path) and spdlog's —
+and the module's exists purely so it does not pay to build a string the host will discard.
+
+**Nothing is on by default except TCP connection open/close at `info`** — those are user-visible,
+security-relevant events and pair with the "never silent" requirement above (§8.2 records where
+that requirement is still unmet).
 
 <!-- VERIFY: `--log-level` subsystem documentation. src/core/log.h:89 carries a note that the
      subsystem list in doc/man/jnext.1.md must gain `esp01`; at the time of writing the man page
@@ -792,6 +936,25 @@ hook.
 **Accepting `AT+CIPMUX=1` and ignoring it.** Rejected: it would promise a wire format that breaks
 the one client that cannot ask for it back (§1.4).
 
+**Holding the core lock across the transport poll.** Shipped first, then falsified by measurement:
+11 827 226 `tick()` calls delivered **0 of 39 already-queued bytes** across a 500 ms transport
+stall, against 39/39 after the split into `advance_transports()` / `service_transports()` (§7.2).
+The header's justification — "by construction, the ESP has nothing to say" — was simply untrue of
+bytes that were queued before the stall began. Recorded because the *reasoning* failed in a way
+that looked sound: a claim about the ESP's *future* output was used to dismiss a stall affecting
+its *past* output.
+
+**Detaching the worker thread instead of joining it.** Would bound the destructor, and is banned:
+`emulator_cold_boot()` placement-news the `Emulator` at the same address, so a surviving worker
+services a core whose sink points into the newly booted machine — silent corruption, not a fault
+(§7.7). The bound has to come from the transport honouring its non-blocking contract (§7.4), which
+is what `fix/esp-async-dns` delivers.
+
+**Banking the elapsed ticks when `tick()` loses the try-lock.** Rejected for the same reason the
+engine's idle branch does not bank: accumulated credit released at unbounded speed the moment the
+lock frees is exactly the RX FIFO overrun the pacing exists to prevent (§6.2). Dropping loses one
+engine service pass — microseconds — instead.
+
 **"The UART wire is synchronous, therefore the ESP cannot be threaded."** This argument was made
 during design and is **wrong**, and the correction matters because the conclusion it was used to
 support (no threading) was adopted for a while. The wire *is* synchronous — a baud rate is a shared
@@ -800,7 +963,7 @@ lives. A true statement about one stage was used to justify a conclusion about t
 The passive-core + optional-threaded-wrapper shape (§7.1) is what replaced it.
 
 **A resolver thread for DNS, in branch 2.** Deferred rather than rejected: it would have been the
-first thread jnext runs while the frame loop is live, and the cold-boot placement-new hazard (§7.6)
+first thread jnext runs while the frame loop is live, and the cold-boot placement-new hazard (§7.7)
 is exactly the situation in which a still-running thread holding a result slot corrupts a
 reconstructed object silently. With the threaded wrapper approved and `poll()` moved off the
 emulation thread, the question largely dissolves.
@@ -929,21 +1092,29 @@ review of this document.
 
 ### jnext code
 
+The module (portable — no jnext dependency):
+
 | Subject | Location |
 |---|---|
-| AT engine (rationale in the header) | `src/peripheral/esp_at.h`, `esp_at.cpp` |
-| Transport interface + DNS note | `src/peripheral/esp_socket.h` |
-| Address policy (pure, portable) | `src/peripheral/esp_address_policy.cpp` |
-| Platform primitives (private) | `src/peripheral/esp_socket_platform.h` + `_posix.cpp` / `_win.cpp` |
+| `EspDevice` interface + AT engine (rationale in the header) | `src/esp01/include/esp01/esp_at.h`, `src/esp01/src/esp_at.cpp` |
+| Transport interface, non-blocking `poll()` contract, DNS note | `src/esp01/include/esp01/esp_socket.h` |
+| Optional threaded wrapper + its lifetime contract | `src/esp01/include/esp01/esp_threaded.h`, `src/esp01/src/esp_threaded.cpp` |
+| Logging seam | `src/esp01/include/esp01/esp_log.h`, `src/esp01/src/esp_log.cpp` |
+| Address policy (pure, portable) | `src/esp01/src/esp_address_policy.cpp` |
+| Platform primitives (module-private) | `src/esp01/include/esp01/esp_socket_platform.h` + `src/esp01/src/esp_socket_{posix,win}.cpp` |
+| Build target, zero jnext links | `src/esp01/CMakeLists.txt` |
+| Module suites | `src/esp01/test/esp_at_test.cpp`, `esp_socket_test.cpp` |
+
+The jnext side:
+
+| Subject | Location |
+|---|---|
+| Adapter: `UartDevice` ← `EspDevice`, logging binding | `src/peripheral/esp_uart_adapter.{h,cpp}` |
+| Adapter suite | `test/esp/esp_uart_adapter_test.cpp` |
 | UART device seam + lifetime hazards | `src/peripheral/uart_device.h` |
-| Gated `tick()` call site | `src/peripheral/uart.h:276` |
+| Gated `tick()` call site (`service_attached_device`) | `src/peripheral/uart.h:276` |
 | `byte_transfer_ticks()` = prescaler × frame_bits | `src/peripheral/uart.cpp:83-87` |
 | NR 0x02 bit 7 latched, unconsumed | `src/core/emulator.cpp:2719` |
-| `esp01` logger | `src/core/log.h:92` |
+| `esp01` spdlog logger | `src/core/log.h:92` |
 | Cold-boot placement-new hazard | `src/platform/emulator_boot.h:67-77`, `:110-115` |
 | Suites + pinned row counts | `test/unit-tests.conf` |
-
-<!-- VERIFY: every `src/peripheral/esp_*` path above is the main-tree location; the move to
-     `src/esp01/...` has already landed on the unmerged feat/esp-modularise branch. Re-point this
-     table — and the esp_at.cpp line numbers cited in §8.2 — at the final locations after the
-     merge. -->
