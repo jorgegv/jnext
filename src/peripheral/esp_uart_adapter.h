@@ -54,10 +54,33 @@ public:
     /// tick count and the channel's live `byte_transfer_ticks()`.
     void tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) override;
 
+    /// REPLAY GATE (branch 4). While inert the adapter forwards nothing: guest
+    /// TX bytes are dropped, no RX is paced out, and the hot-path tick gate is
+    /// held down.
+    ///
+    /// WHY THE GATE IS HERE AND NOT A DETACH. Detaching the device from
+    /// `Uart` re-enables the channel's LOOPBACK (uart.h — an unattached
+    /// channel loops TX back into its own RX FIFO), so a replayed frame would
+    /// see bytes in the RX FIFO that the original run never had. Staying
+    /// attached and silent is what "the ESP is inert" actually has to mean.
+    ///
+    /// WHY IT IS NEEDED. Rewind fast-forward (`Emulator::replay_mode_`) and
+    /// RZX playback both RE-EXECUTE instructions the guest has already run. A
+    /// live network is not re-executable: replaying an `AT+CIPSTART` would open
+    /// a second real connection, and replaying an `AT+CIPSEND` would send the
+    /// payload to the peer twice. The ESP is not serialised either
+    /// (design doc, simplification 5), so there is nothing to rewind it to.
+    ///
+    /// A boolean, not a state machine — this file stays five forwarding
+    /// methods plus one gate.
+    void set_inert(bool inert);
+    bool inert() const { return inert_; }
+
 private:
     void mirror_gate();
 
     esp::EspDevice& esp_;
+    bool            inert_ = false;
 };
 
 /// Point the module's logging seam at jnext's `esp01` logger, and set its

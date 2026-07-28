@@ -5,6 +5,7 @@
 #include <ctime>
 #include <functional>
 #include <string>
+#include <vector>
 
 // MachineType is the canonical shared enum; defined once in contention.h.
 // All emulator modules that need the machine type include this header.
@@ -212,6 +213,24 @@ struct EmulatorConfig {
     float audio_gain_beeper_db = 0.0f;
     float audio_gain_ay_db[3] = {0.0f, 0.0f, 0.0f};
     float audio_gain_dac_db = 0.0f;
+
+    // GH #25 — the emulated ESP-01 WiFi module on UART 0.
+    //
+    // DEFAULT OFF, and that is the primary security control (design doc §8.1):
+    // an untrusted NEX with a reachable ESP gets an outbound byte pipe out of
+    // the emulator, and the guest can read the read-write SD image. So the
+    // guest is not on the network unless the user said so, once, explicitly
+    // (`--esp`, or the saved GUI preference).
+    //
+    // `esp_allowed_hosts` NARROWS that permission to named hosts. EMPTY MEANS
+    // "any host", not "no host" — see EspHostPolicy in
+    // src/peripheral/esp_host_policy.h for why deny-all would be the worse
+    // reading. What is denied regardless is the ADDRESS set the module's
+    // `esp::AddressPolicy` refuses (loopback, link-local, cloud metadata,
+    // unspecified, multicast); RFC1918 is deliberately allowed so the emulated
+    // ESP can reach the user's own LAN.
+    bool                     esp_enabled = false;
+    std::vector<std::string> esp_allowed_hosts;
 
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;

@@ -7,6 +7,9 @@
 #include "core/sd_rom_extractor.h"
 #include "core/sna_saver.h"
 #include "core/saveable.h"
+#include "esp01/esp_threaded.h"
+#include "peripheral/esp_host_policy.h"
+#include "peripheral/esp_uart_adapter.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -5964,6 +5967,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // emulator documents this exact bug causing an infinite mount loop).
     spi_.attach_device(0, &sd_card_);  // SD card in socket 0; socket 1 empty
 
+    // GH #25 — the emulated ESP-01 on UART 0, if the user enabled it. Off by
+    // default; built once and preserved across a soft reset (setup_esp()).
+    setup_esp();
+
     // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
     // composite Flash-CS gate from the post-power-on / post-init state.
     // Power-on defaults: nr_03_config_mode='1' (zxnext.vhd:1102) AND
@@ -7124,8 +7131,100 @@ void Emulator::begin_new_frame()
     schedule_frame_events();
 }
 
+// ---------------------------------------------------------------------------
+// GH #25 — the emulated ESP-01 on UART 0.
+// ---------------------------------------------------------------------------
+
+void Emulator::setup_esp()
+{
+    if (!config_.esp_enabled) return;
+
+    // A SOFT reset re-runs init() with preserve_memory=true. Rebuilding the ESP
+    // there would drop a live TCP connection on a reset the real module never
+    // even sees: NR 0x02 bit 0 resets the Next-side UART state machine, not the
+    // thing on the far end of the cable (design doc §4.3). So: build once.
+    if (esp_device_) return;
+
+    esp_events_ = std::make_unique<EspConnectionLog>();
+
+    EspHostPolicy host_policy;
+    for (const std::string& host : config_.esp_allowed_hosts)
+        host_policy.add(host);
+
+    // The DEFAULT address policy, unmodified: loopback / link-local / cloud
+    // metadata / unspecified / multicast denied, RFC1918 allowed so the guest
+    // can reach the user's own LAN (owner decision, design doc §8.1 item 4).
+    esp_transport_ = std::make_unique<EspGatedTransport>(
+        esp::make_socket_transport(esp::AddressPolicy{}), std::move(host_policy),
+        *esp_events_);
+
+    // The THREADED wrapper, not the bare engine: it is what keeps
+    // `EspTransport::poll()` off the frame loop, and its destructor joins the
+    // worker (see the member declarations in emulator.h for why that matters
+    // at exactly this address).
+    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_);
+    esp_adapter_ = std::make_unique<EspUartAdapter>(*esp_device_);
+    esp_device_->start();
+
+    uart_.attach_device(0, esp_adapter_.get());   // UART 0 is the ESP (zxnext.vhd:1611)
+
+    // ONE info line, at startup, naming the posture in force. The user turned a
+    // network capability on; telling them what it can reach is the least this
+    // can do, and it is also how the "is my allowlist actually loaded?"
+    // question gets answered without a debugger.
+    if (config_.esp_allowed_hosts.empty()) {
+        Log::esp01()->info(
+            "ESP-01 enabled on UART 0 — ANY host allowed (no --esp-allow given); "
+            "loopback, link-local and cloud-metadata addresses are always refused");
+    } else {
+        std::string list;
+        for (const std::string& host : config_.esp_allowed_hosts) {
+            if (!list.empty()) list += ", ";
+            list += host;
+        }
+        Log::esp01()->info("ESP-01 enabled on UART 0 — allowed hosts: {}", list);
+    }
+}
+
+void Emulator::service_esp_frame()
+{
+    if (!esp_adapter_) return;   // ESP disabled: one predicted-not-taken branch
+
+    // THE REPLAY GATE. Both of these re-execute instructions the guest has
+    // already run, and a network connection cannot be re-executed: a replayed
+    // AT+CIPSTART would open a second real socket and a replayed AT+CIPSEND
+    // would deliver the payload to the peer twice. The ESP is not serialised
+    // either (design doc, simplification 5), so there is nothing to rewind it
+    // to. See EspUartAdapter::set_inert for why this is a gate and not a
+    // detach.
+    const bool inert = replay_mode_ || rzx_player_.is_playing();
+    esp_adapter_->set_inert(inert);
+    if (inert) return;
+
+    esp_adapter_->poll();
+
+    // The transport is contractually non-throwing and jnext supplies the only
+    // one, so a non-zero count is a jnext bug. Say so once, loudly, in both
+    // places a user looks — and keep running; see esp_host_policy.h for why
+    // this does NOT disable the ESP.
+    if (esp_note_transport_fault(esp_device_->pass_exceptions(), esp_fault_reported_)) {
+        Log::esp01()->error(
+            "the ESP transport threw ({} service passes lost) — the emulated ESP has "
+            "stopped making progress and its worker is now idling. This is a jnext "
+            "bug; please report it at https://github.com/jorgegv/jnext/issues",
+            esp_device_->pass_exceptions());
+        esp_events_->push({EspEvent::Kind::TransportFault, {}, 0,
+                           "transport threw; the ESP has stopped making progress"});
+    }
+}
+
 void Emulator::run_frame()
 {
+    // GH #25 — ESP service, deliberately FIRST. The replay gate below must be
+    // applied before any instruction of a replayed frame executes, and
+    // rewind_to_cycle() (called from the branch just after this) re-enters
+    // run_frame() with replay_mode_ set, so each nested call gates itself here.
+    service_esp_frame();
 
     // Handle rewind step modes set by the GUI or scripting layer.
     // These are processed before the normal snapshot so we don't take a

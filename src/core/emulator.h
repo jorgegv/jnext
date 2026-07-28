@@ -66,6 +66,19 @@
 #include "debug/rewind_buffer.h"
 #include "profiler/profiler.h"
 
+// GH #25 — the emulated ESP-01 is held by pointer and forward-declared on
+// purpose. `emulator.h` is included by most of the tree; the ESP module's
+// headers pull in <thread>, <condition_variable> and the socket seam, and none
+// of that belongs in every translation unit for a peripheral that is off by
+// default. `~Emulator()` is defined out of line, which is what lets these stay
+// incomplete here.
+namespace esp {
+class EspTransport;
+class ThreadedEsp;
+}  // namespace esp
+class EspUartAdapter;
+class EspConnectionLog;
+
 /// Top-level machine class.
 ///
 /// Owns the Clock, Scheduler, and all core subsystems.
@@ -376,6 +389,20 @@ public:
     SdCardDevice& sd_card()   { return sd_card_; }
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
+
+    // ── Emulated ESP-01 (GH #25) ──────────────────────────────────────────
+    /// True when `EmulatorConfig::esp_enabled` built one. Everything below is
+    /// null / empty when it did not, which is the default.
+    bool esp_enabled() const { return esp_device_ != nullptr; }
+    /// User-visible connection events (made / refused / closed / faulted).
+    /// Null when the ESP is disabled — so "no cell in the status bar" and "no
+    /// ESP" are the same condition, and a user cannot have the feature on
+    /// without seeing that they do. Thread-safe; produced on the ESP worker.
+    const EspConnectionLog* esp_events() const { return esp_events_.get(); }
+    /// The hostname allowlist actually in force, as the user wrote it.
+    const std::vector<std::string>& esp_allowed_hosts() const {
+        return config_.esp_allowed_hosts;
+    }
     DivMmc&       divmmc()    { return divmmc_; }
     Multiface&    multiface() { return multiface_; }
     NmiSource&    nmi_source(){ return nmi_source_; }
@@ -850,6 +877,48 @@ private:
     I2cController   i2c_;
     I2cRtc          rtc_;
     Uart            uart_;
+
+    // ── Emulated ESP-01 on UART 0 (GH #25 branch 4) ──────────────────────
+    //
+    // DECLARATION ORDER IS THE LIFETIME CONTRACT, and it is load-bearing three
+    // times over. Members are destroyed in REVERSE declaration order, so:
+    //
+    //   esp_adapter_    dies FIRST  -> clears the ESP's ByteSink, which
+    //                                  captured `this`, before the ESP can
+    //                                  call it again.
+    //   esp_device_     dies SECOND -> ~ThreadedEsp JOINS the worker, so no
+    //                                  thread survives into anything below.
+    //   esp_transport_  dies THIRD  -> the transport outlived the wrapper that
+    //                                  was driving it, as esp_threaded.h
+    //                                  requires.
+    //   esp_events_     dies FOURTH -> the transport wrote into it from the
+    //                                  worker; it must outlive both.
+    //
+    // ...and ALL of them die before `uart_`, which is declared above, so the
+    // RxSink capturing `&uart_` can never be called against a dead UART.
+    //
+    // WHY THE ESP LIVES IN `Emulator` AT ALL rather than in a frontend. A cold
+    // boot is `emu.~Emulator(); new (&emu) Emulator();` — placement-new at the
+    // SAME address (platform/emulator_boot.h). A worker thread that survived
+    // that would service a core whose sink points into the NEWLY BOOTED
+    // machine: silent corruption, not a crash, invisible to every sanitiser
+    // (uart_device.h documents the same hazard for the RxSink). Owning the ESP
+    // here makes the join part of `~Emulator()` itself, so the hazard cannot
+    // exist — and none of the three frontends can get it wrong, which is the
+    // failure mode `ColdBootHooks` was created to stop repeating.
+    //
+    // The other side of that coin, stated rather than hidden: a hard reset
+    // therefore POWER-CYCLES the emulated ESP, dropping any live connection.
+    // Real hardware resets the ESP only from NR 0x02 bit 7 (design doc §4.2),
+    // so this is a modelling consequence of Task 70's whole-machine cold boot,
+    // not an ESP decision. A soft reset does NOT rebuild it (see setup_esp()).
+    std::unique_ptr<EspConnectionLog>   esp_events_;
+    std::unique_ptr<esp::EspTransport>  esp_transport_;
+    std::unique_ptr<esp::ThreadedEsp>   esp_device_;
+    std::unique_ptr<EspUartAdapter>     esp_adapter_;
+    /// One-shot latch for esp_note_transport_fault(); see its header comment.
+    bool esp_fault_reported_ = false;
+
     DivMmc          divmmc_;
     Multiface       multiface_;   // Wave 1 B1 (TASK-8-MULTIFACE-PLAN.md).
     NmiSource       nmi_source_;  // Phase 1 scaffold (TASK-NMI-SOURCE-PIPELINE-PLAN).
@@ -982,6 +1051,35 @@ private:
     /// frame the debugger paused mid-way, which would corrupt the frame still in flight
     /// (Task 40: it rewinds the Copper and clears the change logs the compositor replays).
     void begin_new_frame();
+
+    /// GH #25 — build the emulated ESP-01 and attach it to UART 0. Called from
+    /// init(); a no-op when `EmulatorConfig::esp_enabled` is false, and a no-op
+    /// on a SOFT reset that finds one already built (real hardware's soft reset
+    /// does not touch the module on the far end of the cable — design doc §4.3).
+    void setup_esp();
+
+    /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
+    /// drives the device outside the per-instruction `tick()`.
+    ///
+    /// DELIBERATELY NOT IN begin_new_frame(), per the owner decision recorded
+    /// in design doc §7.1: socket work lives on the `ThreadedEsp` worker so a
+    /// slow name lookup or socket read can never stall the frame loop. Nothing
+    /// this function calls does socket work — `ThreadedEsp::poll()` is a
+    /// documented no-op while the worker is running. What it actually does is:
+    ///
+    ///   1. apply the replay gate (`EspUartAdapter::set_inert`);
+    ///   2. mirror the ESP's `wants_tick()` into the hot-path gate, WITHOUT
+    ///      which a byte that arrives from the network on the worker thread is
+    ///      never noticed and never reaches the guest;
+    ///   3. re-read the `esp01` log level, so `--log-level` takes effect within
+    ///      one frame;
+    ///   4. surface a throwing transport exactly once.
+    ///
+    /// It sits at the top of run_frame() rather than inside the
+    /// `!frame_in_progress_` branch so that the replay gate is applied before
+    /// the FIRST instruction of a replayed frame, including the nested
+    /// run_frame() calls rewind_to_cycle() makes with `replay_mode_` set.
+    void service_esp_frame();
 
     /// Task 51 — re-derive every timing surface that depends on the EFFECTIVE
     /// machine-timing mode (tim_sel axis, `contention_.machine_timing()`):
