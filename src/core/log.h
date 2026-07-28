@@ -78,6 +78,18 @@ public:
     static std::shared_ptr<spdlog::logger>& ctc()        { static auto l = make("ctc");        return l; }
     static std::shared_ptr<spdlog::logger>& i2c()        { static auto l = make("i2c");        return l; }
     static std::shared_ptr<spdlog::logger>& multiface()  { static auto l = make("multiface");  return l; }
+    /// Emulated ESP-01 WiFi module (GH #25). Owner requirement: every detail of
+    /// a program's ESP interaction must be traceable, but NOTHING is on by
+    /// default except TCP connection open/close — those are user-visible,
+    /// security-relevant events and pair with the "never silent about a
+    /// connection made or refused" rule. So: connection opened/closed at info,
+    /// policy refusals and DNS stalls at warn, socket failures at error, and
+    /// everything else (byte counts, resolve results, poll state) at
+    /// debug/trace. NOTE for the branch that makes the ESP user-reachable: the
+    /// subsystem list in doc/man/jnext.1.md (--log-level) must gain `esp01`
+    /// then — it is deliberately not listed yet, because nothing wires the
+    /// transport up and documenting an inert logger would be a lie.
+    static std::shared_ptr<spdlog::logger>& esp01()      { static auto l = make("esp01");      return l; }
     /// esxdos / NextZXOS syscall tracing (Task 85). At TRACE level every
     /// RST $08 call is logged with its arguments and result, including calls
     /// jnext does NOT implement — those are the interesting ones when working
@@ -159,7 +171,7 @@ public:
     static void init() {
         cpu(); memory(); ula(); video(); audio(); port(); nextreg();
         dma(); copper(); uart(); input(); platform(); emulator();
-        sdcard(); divmmc(); spi(); ctc(); i2c(); multiface(); esxdos();
+        sdcard(); divmmc(); spi(); ctc(); i2c(); multiface(); esp01(); esxdos();
     }
 
 private:
