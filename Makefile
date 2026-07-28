@@ -498,12 +498,41 @@ worktree-bootstrap:
 	@# the SD image lives machine-wide at ~/.jnext/sdcard/ and jnext provisions it
 	@# itself (GH #75/#77). This target verifies that master exists and says how to
 	@# get it if not.
+	@#
+	@# Submodules (GH #149): a `git worktree add` does NOT populate them, so a fresh
+	@# worktree has an EMPTY third_party/spdlog and the only symptom is a compiler
+	@# error from deep inside the build — while this target, which CLAUDE.md sends
+	@# every agent through first, said "ready". Read from .gitmodules rather than
+	@# naming spdlog, so a second submodule is covered the day it is added; and
+	@# tested for CONTENT (empty directory) rather than for `git submodule status`
+	@# state, because content is what the build needs and it is also true in a
+	@# vendored source tarball, where the status query has nothing to say.
+	@#
+	@# REPORTED, not initialised. This target checks; it has never mutated the
+	@# checkout. `git submodule update --init` is a write to someone's tree and, for
+	@# spdlog, a ~60 s network clone (measured) — the same reasons the SD master
+	@# below is reported rather than downloaded, which jnext could equally do
+	@# itself. Unlike the SD master it is a hard ERROR: nothing else provisions it
+	@# and no build can start without it.
 	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
 		exit 1; \
 	fi; \
 	printf "  $(CYAN)ok$(RESET) roms/nextboot.rom\n"; \
+	n=0; empty=""; \
+	for p in $$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$$' 2>/dev/null | awk '{print $$2}'); do \
+		n=$$((n + 1)); \
+		[ -n "$$(ls -A "$$p" 2>/dev/null)" ] || empty="$$empty $$p"; \
+	done; \
+	if [ -n "$$empty" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) empty git submodule(s):$(BOLD)%s$(RESET)\n" "$$empty"; \
+		printf "  A new worktree does not populate them; the build would fail with an obscure\n"; \
+		printf "  compiler error instead. Populate them with:\n"; \
+		printf "    $(BOLD)git submodule update --init --recursive$(RESET)\n"; \
+		exit 1; \
+	fi; \
+	[ "$$n" -eq 0 ] || printf "  $(CYAN)ok$(RESET) %d git submodule(s) populated\n" "$$n"; \
 	if [ -f "$$sd" ]; then \
 		printf "  $(CYAN)ok$(RESET) SD master %s\n" "$$sd"; \
 		printf "$(BOLD)worktree-bootstrap: ready.$(RESET)\n"; \
