@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=41
+EXPECTED_TOTAL=43
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -476,6 +476,56 @@ early=n;   grep -qE "$MKHELP_CMD_RE" <<<"$dry_head2" && early=y
 check "HS-46" "the help-listing lint is wired to unit-test AND regression, ahead of the build (GH #140)" 0 0 \
     "unit=$u_wired regression=$r_wired early=$early" \
     "unit=y" "regression=y" "early=y"
+
+# ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)
+# `git worktree add` does not populate submodules, so a fresh worktree has an EMPTY
+# third_party/spdlog — and the target CLAUDE.md sends every agent through first printed
+# "worktree-bootstrap: ready." over it. The build usually self-heals (CMakeLists.txt
+# inits submodules at configure time), which is exactly why nothing else catches this:
+# it fails only when that fetch cannot run — offline, sandboxed, or a transient GitHub
+# failure — and CMake's init failure is a message(WARNING), so configure then dies at
+# add_subdirectory(third_party/spdlog). The claim under test is the readiness verdict,
+# not the build.
+#
+# The REAL Makefile runs against a throwaway fixture tree (`make -C <fixture> -f <real
+# Makefile>`), the way the packaging sub-tests sandbox the real scripts: there is no
+# hand-maintained copy of the recipe to drift. HOME is redirected at a fixture SD master
+# so the SD branch stays "ok" and the verdict line reflects the submodule alone.
+# MAKEFLAGS is cleared and the invocation bounded for the same reasons as HS-45/46.
+WTB="$T/wtb"
+wtb_fixture() {   # wtb_fixture <populated:y|n>
+    rm -rf "$WTB"
+    mkdir -p "$WTB/roms" "$WTB/third_party/spdlog" "$WTB/home/.jnext/sdcard"
+    : > "$WTB/roms/nextboot.rom"
+    : > "$WTB/home/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    printf '[submodule "third_party/spdlog"]\n\tpath = third_party/spdlog\n\turl = https://example.invalid/spdlog.git\n' \
+        > "$WTB/.gitmodules"
+    [[ "$1" == y ]] && : > "$WTB/third_party/spdlog/CMakeLists.txt"
+    return 0
+}
+run_wtb() {
+    MAKEFLAGS= HOME="$WTB/home" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+        make -C "$WTB" -f "$PROJECT_DIR/Makefile" --no-print-directory worktree-bootstrap 2>&1
+}
+
+# Reported, not failed: the condition self-heals wherever the network is up, so exit 0
+# is the contract (the SD master below behaves the same way). "not ready yet" and
+# "ready." are the two arms of one if/else, so asserting the first proves the second
+# did not print.
+wtb_fixture n
+out=$(run_wtb); rc=$?
+check "HS-47" "worktree-bootstrap: an EMPTY submodule is reported, and the tree is not called ready (GH #149)" 0 $rc "$out" \
+    "missing" "git submodule(s):" "third_party/spdlog" \
+    "git submodule update --init --recursive" \
+    "worktree-bootstrap: not ready yet"
+
+# The other arm, from the same fixture: populating the submodule must flip the verdict.
+# Without this row HS-47 would also pass on a target that printed "not ready" always.
+wtb_fixture y
+out=$(run_wtb); rc=$?
+check "HS-48" "worktree-bootstrap: a POPULATED submodule reports ok and reaches ready (GH #149)" 0 $rc "$out" \
+    "1 git submodule(s) populated" \
+    "worktree-bootstrap: ready."
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).

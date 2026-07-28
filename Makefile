@@ -498,20 +498,66 @@ worktree-bootstrap:
 	@# the SD image lives machine-wide at ~/.jnext/sdcard/ and jnext provisions it
 	@# itself (GH #75/#77). This target verifies that master exists and says how to
 	@# get it if not.
+	@#
+	@# Submodules (GH #149): `git worktree add` does NOT populate them, so a fresh
+	@# worktree has an EMPTY third_party/spdlog while this target — the one CLAUDE.md
+	@# sends every agent through first — reported "ready.". Read from .gitmodules
+	@# rather than naming spdlog, so a second submodule is covered the day it is
+	@# added; and tested for CONTENT (empty directory) rather than `git submodule
+	@# status` state, because content is what the build needs and the content test is
+	@# also meaningful in a vendored source tarball, where the status query is silent.
+	@#
+	@# The failure is REAL and CONDITIONAL ON THE NETWORK, both halves measured in
+	@# probe worktrees. With network, an empty submodule self-heals and the build
+	@# goes green: CMakeLists.txt:88 runs `git submodule update --init --recursive`
+	@# at configure time. Without it — offline, sandboxed, or a transient GitHub
+	@# failure — the clone fails, CMakeLists.txt:92 swallows that in a
+	@# message(WARNING), and the configure then dies at CMakeLists.txt:144,
+	@# `add_subdirectory(third_party/spdlog)`; reproduced under `unshare -rn`.
+	@# Either way "ready." was a false claim about a worktree with a ~60 s network
+	@# fetch still pending, which is why this reports rather than staying quiet.
+	@#
+	@# Hence a report, exit 0 — deliberately the same shape as the SD master below,
+	@# for the same reason: both are network-provisioned artifacts that something
+	@# else in the flow will fetch (CMake here, the suite's sdcard-provision row
+	@# there). Failing the target over a self-healing condition would be a false
+	@# alarm. And it REPORTS rather than initialising: this target has never mutated
+	@# a checkout, and `git submodule update --init` is a write to someone's tree.
 	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+	pending=0; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
 		exit 1; \
 	fi; \
 	printf "  $(CYAN)ok$(RESET) roms/nextboot.rom\n"; \
+	n=0; empty=""; \
+	for p in $$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$$' 2>/dev/null | awk '{print $$2}'); do \
+		n=$$((n + 1)); \
+		[ -n "$$(ls -A "$$p" 2>/dev/null)" ] || empty="$$empty $$p"; \
+	done; \
+	if [ -n "$$empty" ]; then \
+		printf "  $(BOLD)missing$(RESET) git submodule(s):%s\n" "$$empty"; \
+		printf "$(BOLD)worktree-bootstrap: populate them with:$(RESET)\n"; \
+		printf "    git submodule update --init --recursive\n"; \
+		printf "  (the first cmake configure runs the same command for you — but silently,\n"; \
+		printf "   for ~60 s, and only if the network is up)\n"; \
+		pending=1; \
+	elif [ "$$n" -gt 0 ]; then \
+		printf "  $(CYAN)ok$(RESET) %d git submodule(s) populated\n" "$$n"; \
+	fi; \
 	if [ -f "$$sd" ]; then \
 		printf "  $(CYAN)ok$(RESET) SD master %s\n" "$$sd"; \
-		printf "$(BOLD)worktree-bootstrap: ready.$(RESET)\n"; \
 	else \
 		printf "  $(BOLD)missing$(RESET) SD master %s\n" "$$sd"; \
 		printf "$(BOLD)worktree-bootstrap: provision it with:$(RESET)\n"; \
 		printf "    ./build/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 1\n"; \
 		printf "  (or run the regression suite, whose sdcard-provision row does it for you)\n"; \
+		pending=1; \
+	fi; \
+	if [ "$$pending" -eq 0 ]; then \
+		printf "$(BOLD)worktree-bootstrap: ready.$(RESET)\n"; \
+	else \
+		printf "$(BOLD)worktree-bootstrap: not ready yet — see the item(s) above.$(RESET)\n"; \
 	fi
 
 # Count lines of code (excluding comments and blanks), per directory and total
@@ -859,16 +905,29 @@ package-win: win-release
 	@# cleanly-named top-level layout (exe + DLLs + plugin subdirs + qt.conf + docs,
 	@# no CMake build junk) and zip that. Not CPack -G ZIP: CPack would apply the
 	@# Unix /usr install prefix, giving a broken usr/bin/jnext.exe layout on Windows.
-	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x64"; \
-	 stage="$(BUILD_DIR_WIN_RELEASE)/dist/$$name"; \
-	 rm -rf "$(BUILD_DIR_WIN_RELEASE)/dist"; mkdir -p "$$stage"; \
-	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe "$$stage"; \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
-	 cp -r doc/user-guide "$$stage"/user-guide; \
-	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip"; \
-	 ( cd "$(BUILD_DIR_WIN_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
-	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_RELEASE)/*.zip
+	@# Every step is `&&`-chained, and the structural check below mirrors the four
+	@# sibling package-win* recipes (GH #148). Before that, this recipe alone ran
+	@# bundle-dlls.sh `;`-terminated with nothing after it that read the bundle, so a
+	@# failed bundle zipped the docs, printed "ZIP(s) produced:" and exited 0 — an
+	@# artifact with no executable in it, published by release.yml. Required set:
+	@# the exe, the Qt6 core DLL, the mandatory qwindows platform plugin (no GUI
+	@# without it) and the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
+	@# which LoadLibrary()s SDL3.dll at runtime).
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 name="jnext-$$ver-windows-x64" && \
+	 stage="$(BUILD_DIR_WIN_RELEASE)/dist/$$name" && \
+	 rm -rf "$(BUILD_DIR_WIN_RELEASE)/dist" && mkdir -p "$$stage" && \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe "$$stage" && \
+	 for f in jnext.exe Qt6Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$f" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
+		fi; \
+	 done && \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp -r doc/user-guide "$$stage"/user-guide && \
+	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip" && \
+	 ( cd "$(BUILD_DIR_WIN_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n" && ls -1 $(BUILD_DIR_WIN_RELEASE)/*.zip
 
 # Cross-compile + ZIP the SDL-only Windows build (Windows 8+ compatible; GH #108)
 package-win-sdl: win-sdl-release
@@ -876,24 +935,24 @@ package-win-sdl: win-sdl-release
 	@# no Qt DLL/plugin (that would silently re-raise the OS floor to Windows 10)
 	@# and must include the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
 	@# which LoadLibrary()s SDL3.dll at runtime).
-	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x64-sdl"; \
-	 stage="$(BUILD_DIR_WIN_SDL_RELEASE)/dist/$$name"; \
-	 rm -rf "$(BUILD_DIR_WIN_SDL_RELEASE)/dist"; mkdir -p "$$stage"; \
-	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe "$$stage"; \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 name="jnext-$$ver-windows-x64-sdl" && \
+	 stage="$(BUILD_DIR_WIN_SDL_RELEASE)/dist/$$name" && \
+	 rm -rf "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && mkdir -p "$$stage" && \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe "$$stage" && \
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1 || [ -d "$$stage/platforms" ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt files leaked into the SDL-only bundle.\n"; exit 1; \
-	 fi; \
-	 for dll in SDL2.dll SDL3.dll; do \
-		if [ ! -f "$$stage/$$dll" ]; then \
-			printf "$(BADGE_FAIL) ERROR $(RESET) $$dll missing from the SDL-only bundle.\n"; exit 1; \
+	 fi && \
+	 for f in jnext.exe SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$f" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
-	 done; \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
-	 cp -r doc/user-guide "$$stage"/user-guide; \
-	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip"; \
-	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
-	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
+	 done && \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp -r doc/user-guide "$$stage"/user-guide && \
+	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip" && \
+	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n" && ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
 
 # Cross-compile + ZIP the Qt5 full-GUI Windows build (Win7/8 legacy leg; GH #108 Phase A)
 package-win-qt5: win-qt5-release
@@ -902,24 +961,24 @@ package-win-qt5: win-qt5-release
 	@# README.md. Structural checks: Qt5 core DLL + qwindows plugin must
 	@# be present; NO Qt6 DLL may leak in (a mixed bundle would re-raise the OS
 	@# floor to Windows 10 via Qt6Gui's d3d12 import).
-	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x64-legacy"; \
-	 stage="$(BUILD_DIR_WIN_QT5_RELEASE)/dist/$$name"; \
-	 rm -rf "$(BUILD_DIR_WIN_QT5_RELEASE)/dist"; mkdir -p "$$stage"; \
-	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe "$$stage"; \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 name="jnext-$$ver-windows-x64-legacy" && \
+	 stage="$(BUILD_DIR_WIN_QT5_RELEASE)/dist/$$name" && \
+	 rm -rf "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && mkdir -p "$$stage" && \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe "$$stage" && \
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
-	 fi; \
-	 for f in Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+	 fi && \
+	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
-	 done; \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
-	 cp -r doc/user-guide "$$stage"/user-guide; \
-	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip"; \
-	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
-	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
+	 done && \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp -r doc/user-guide "$$stage"/user-guide && \
+	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip" && \
+	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n" && ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
 
 # Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
 package-win32-qt5: win32-qt5-release
@@ -928,24 +987,24 @@ package-win32-qt5: win32-qt5-release
 	@# Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
 	@# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C. ZIP named -legacy, not -qt5
 	@# (same reason as the x64 leg).
-	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x86-legacy"; \
-	 stage="$(BUILD_DIR_WIN32_QT5_RELEASE)/dist/$$name"; \
-	 rm -rf "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist"; mkdir -p "$$stage"; \
-	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe "$$stage"; \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 name="jnext-$$ver-windows-x86-legacy" && \
+	 stage="$(BUILD_DIR_WIN32_QT5_RELEASE)/dist/$$name" && \
+	 rm -rf "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && mkdir -p "$$stage" && \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe "$$stage" && \
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
-	 fi; \
-	 for f in Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+	 fi && \
+	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
-	 done; \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
-	 cp -r doc/user-guide "$$stage"/user-guide; \
-	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip"; \
-	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
-	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_QT5_RELEASE)/*.zip
+	 done && \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp -r doc/user-guide "$$stage"/user-guide && \
+	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip" && \
+	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n" && ls -1 $(BUILD_DIR_WIN32_QT5_RELEASE)/*.zip
 
 # Cross-compile + ZIP the SDL-only 32-bit (i686) Windows build — repo-internal (GH #108 Phase C)
 package-win32-sdl: win32-sdl-release
@@ -954,24 +1013,24 @@ package-win32-sdl: win32-sdl-release
 	@# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
 	@# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
 	@# Exercised in CI by the package-win32-sdl row of `make package-test`.
-	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
-	 name="jnext-$$ver-windows-x86-sdl"; \
-	 stage="$(BUILD_DIR_WIN32_SDL_RELEASE)/dist/$$name"; \
-	 rm -rf "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist"; mkdir -p "$$stage"; \
-	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe "$$stage"; \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 name="jnext-$$ver-windows-x86-sdl" && \
+	 stage="$(BUILD_DIR_WIN32_SDL_RELEASE)/dist/$$name" && \
+	 rm -rf "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && mkdir -p "$$stage" && \
+	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_SDL_RELEASE)/jnext.exe "$$stage" && \
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1 || [ -d "$$stage/platforms" ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt files leaked into the SDL-only bundle.\n"; exit 1; \
-	 fi; \
-	 for dll in SDL2.dll SDL3.dll; do \
-		if [ ! -f "$$stage/$$dll" ]; then \
-			printf "$(BADGE_FAIL) ERROR $(RESET) $$dll missing from the SDL-only bundle.\n"; exit 1; \
+	 fi && \
+	 for f in jnext.exe SDL2.dll SDL3.dll; do \
+		if [ ! -f "$$stage/$$f" ]; then \
+			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
-	 done; \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/; \
-	 cp -r doc/user-guide "$$stage"/user-guide; \
-	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip"; \
-	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
-	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_SDL_RELEASE)/*.zip
+	 done && \
+	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp -r doc/user-guide "$$stage"/user-guide && \
+	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip" && \
+	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
+	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n" && ls -1 $(BUILD_DIR_WIN32_SDL_RELEASE)/*.zip
 
 # Build a macOS .dmg via CPack DragNDrop (Darwin only)
 package-macos:
@@ -1049,6 +1108,6 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
-# Contract-test the packaging SCRIPTS only (no package builds) — hermetic, ~4s
+# Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
 package-contract-test:
 	@bash test/packaging/packaging-test.sh --contracts-only
