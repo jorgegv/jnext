@@ -98,6 +98,12 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-09", "last_load_dir defaults to empty", d.last_load_dir.isEmpty());
     check("AC-10", "sd_card_path defaults to empty", d.sd_card_path.isEmpty());
     check("AC-11", "screenshot_dir defaults to empty", d.screenshot_dir.isEmpty());
+    // GH #25 — the ESP is a network capability, so "no config file" MUST mean
+    // "not on the network". This row is the one that would catch a default
+    // flipped by accident.
+    check("AC-53", "esp_enabled defaults to false (the guest is not on the network)",
+          d.esp_enabled == false && def.esp_enabled == false);
+    check("AC-54", "esp_allowed_hosts defaults to empty", d.esp_allowed_hosts.empty());
     check("AC-12", "loaded_from_existing_file() is false when no file existed",
           !cfg.loaded_from_existing_file());
 }
@@ -124,6 +130,8 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().last_load_dir          = "/home/user/games";
         writer.data().sd_card_path           = "/home/user/sd/next.img";
         writer.data().screenshot_dir         = "/home/user/shots";
+        writer.data().esp_enabled            = true;
+        writer.data().esp_allowed_hosts      = {"nx.nxtel.org", "sync.lan"};
         writer.save();
         written = writer.data();
     }
@@ -152,6 +160,9 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-44", "joy_source round-trips (Joy 1 keys, Joy 2 sdl)",
           d.joy_source[0] == written.joy_source[0] &&
           d.joy_source[1] == written.joy_source[1]);
+    check("AC-55", "esp_enabled round-trips", d.esp_enabled == written.esp_enabled);
+    check("AC-56", "esp_allowed_hosts round-trips in order",
+          d.esp_allowed_hosts == written.esp_allowed_hosts);
 }
 
 // ── AC-PARTIAL: a file with only SOME keys present ─────────────────────
@@ -209,6 +220,12 @@ static void test_malformed_values(QTemporaryDir& dir) {
         raw.beginGroup("audio");
         raw.setValue("gain_db", 25.0);                     // out of [-24,+24]
         raw.endGroup();
+        // GH #25 — a hand-edited allowlist goes through EspHostPolicy::add, so
+        // blanks and case-duplicates are handled exactly as on the CLI.
+        raw.beginGroup("esp");
+        raw.setValue("allowed_hosts",
+                     QStringList{"Example.Test", "  example.test  ", "", "   "});
+        raw.endGroup();
         raw.sync();
     }
 
@@ -229,6 +246,8 @@ static void test_malformed_values(QTemporaryDir& dir) {
           d.joy_source[0] == def.joy_source[0]);
     check("AC-49", "out-of-range audio gain falls back to default",
           d.audio_gain_db == def.audio_gain_db);
+    check("AC-57", "a hand-edited allowlist drops blanks and case-duplicates",
+          d.esp_allowed_hosts.size() == 1 && d.esp_allowed_hosts[0] == "Example.Test");
 
     // The slider narrowed the range to +/-24 dB (PR #41): a formerly-valid
     // deep attenuation must now fall back as well.

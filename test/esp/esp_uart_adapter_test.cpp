@@ -265,6 +265,68 @@ int main() {
         check_eq("ADP-07", "the same adapter drives the THREADED wrapper unchanged", guest,
                  "\r\nOK\r\n"); }
 
+    // ══ Group B2 — the replay gate (GH #25 branch 4) ═════════════════════
+    //
+    // Rewind fast-forward and RZX playback RE-EXECUTE instructions the guest
+    // has already run, and a network connection cannot be re-executed. The
+    // gate is on the adapter rather than a Uart detach because detaching
+    // re-enables the channel's loopback, which would put bytes in the replayed
+    // machine's RX FIFO that the original run never had. `Emulator` drives it
+    // once per run_frame(); these rows pin the adapter's half.
+
+    {   IdleTransport  tr;
+        AtEngine       eng{tr};
+        std::string    guest;
+        EspUartAdapter adapter{eng};
+        adapter.set_rx_sink([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+
+        check("ADP-08", "a fresh adapter is live, not inert", !adapter.inert());
+
+        adapter.set_inert(true);
+        for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
+        check("ADP-09", "an inert adapter does not forward guest TX to the engine",
+              !eng.wants_tick());
+        check("ADP-10", "...and holds the hot-path tick gate DOWN", !adapter.tick_wanted());
+        for (int i = 0; i < 32; ++i) adapter.tick(BYTE_TICKS, BYTE_TICKS);
+        check("ADP-11", "...and delivers nothing to the guest", guest.empty()); }
+
+    {   // Entering inert with the engine mid-reply must lower the gate at once
+        // rather than after one more call, and leaving it must pick the work
+        // back up without waiting for a poll().
+        IdleTransport  tr;
+        AtEngine       eng{tr};
+        std::string    guest;
+        EspUartAdapter adapter{eng};
+        adapter.set_rx_sink([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+
+        for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
+        check("ADP-12", "the engine has a reply queued and the gate is up",
+              adapter.tick_wanted());
+        adapter.set_inert(true);
+        check("ADP-13", "set_inert(true) lowers the gate immediately", !adapter.tick_wanted());
+        adapter.set_inert(false);
+        check("ADP-14", "set_inert(false) re-raises it from the ESP's own state",
+              adapter.tick_wanted());
+        for (int i = 0; i < 32 && adapter.tick_wanted(); ++i)
+            adapter.tick(BYTE_TICKS, BYTE_TICKS);
+        check_eq("ADP-15", "...and the reply that was held back still arrives intact", guest,
+                 "\r\nOK\r\n"); }
+
+    {   // Idempotent: Emulator calls set_inert() every single frame, so a
+        // repeated call must not disturb a gate the engine legitimately raised.
+        IdleTransport  tr;
+        AtEngine       eng{tr};
+        EspUartAdapter adapter{eng};
+        for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
+        adapter.set_inert(false);
+        adapter.set_inert(false);
+        check("ADP-16", "repeating set_inert(false) does not disturb a raised gate",
+              adapter.tick_wanted());
+        adapter.set_inert(true);
+        adapter.set_inert(true);
+        check("ADP-17", "repeating set_inert(true) keeps the gate down",
+              !adapter.tick_wanted() && adapter.inert()); }
+
     // ══ Group C — the logging binding ═══════════════════════════════════
     //
     // The module logs through its own seam; these rows prove jnext's end of it
