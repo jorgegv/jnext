@@ -1,24 +1,25 @@
 #pragma once
 
 #include "esp01/esp_socket.h"
-#include "peripheral/uart_device.h"
 
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 /// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 6).
 ///
-/// This branch is the ENGINE ONLY: it is a `UartDevice` driving an
-/// `EspTransport`, and nothing constructs it yet. No `Emulator` wiring, no
-/// CLI flags, no config, no per-frame `poll()` call site — those are branch 4.
-/// It is therefore constructible and fully testable standalone against a fake
-/// transport, which is exactly how `src/esp01/test/esp_at_test.cpp` drives it: no
-/// sockets, no DNS, no listener.
+/// This is the PASSIVE CORE: an `EspDevice` driving an `EspTransport`, with no
+/// thread, no clock and no host types, and nothing constructs it yet. No
+/// `Emulator` wiring, no CLI flags, no config, no per-frame `poll()` call site
+/// — those are branch 4. It is therefore constructible and fully testable
+/// standalone against a fake transport, which is exactly how
+/// `src/esp01/test/esp_at_test.cpp` drives it: no sockets, no DNS, no listener.
 ///
 /// DEPENDENCY SURFACE, deliberately tiny: `EspTransport` (the transport seam)
 /// and `esp_log.h` (the logging seam). NOTHING from jnext — not `core/log.h`,
@@ -40,8 +41,10 @@
 ///   * NO multiplexed connections. `AT+CIPMUX=1` is REFUSED with `ERROR`
 ///     rather than accepted-and-ignored, because nextsync never sends
 ///     `AT+CIPMUX` at all — it relies on the power-on default being 0 — and
-///     its `+IPD` reader is a byte FSM that dies on the multiplexed
-///     `+IPD,<id>,<len>:` form. Since no command can correct a wrong default
+///     its `+IPD` reader silently CORRUPTS the multiplexed
+///     `+IPD,<id>,<len>:` form rather than rejecting it (see
+///     `queue_ipd_header` for the exact mechanism). Since no command can
+///     correct a wrong default
 ///     at runtime, the default has to be right and the wrong value has to be
 ///     rejected loudly.
 ///
@@ -197,7 +200,70 @@
 ///     commands v1.1 wants is adding rows, not extending an if/else chain.
 namespace esp {
 
-class AtEngine : public UartDevice {
+/// WHAT A DRIVER OF THE EMULATED ESP-01 SEES. Bytes in, bytes out, two service
+/// points, one gate — and not one type from any host project.
+///
+/// Two things implement it, which is the whole reason it exists:
+///   * `AtEngine`, the PASSIVE core. Drive it inline: no thread, no clock of
+///     its own, nothing running behind your back.
+///   * `ThreadedEsp` (esp01/esp_threaded.h), the OPTIONAL wrapper that owns a
+///     core and a thread and does the socket half off your caller's thread.
+/// A consumer picks one and never learns which by accident: the contract is
+/// identical, so switching is a constructor change.
+///
+/// The interface used to be jnext's `UartDevice`, and that was the last piece
+/// of host coupling in the module (GH #25 branch 3.5). jnext's `UartDevice`
+/// implementation is now a five-method adapter that forwards to this
+/// (`src/peripheral/esp_uart_adapter.h`), which is where the coupling belongs.
+class EspDevice {
+public:
+    /// Guest-bound byte sink. A callback rather than a UART reference on
+    /// purpose: it keeps the module free of any host header, so a consumer can
+    /// point it at a `std::vector` and unit-test the whole engine.
+    ///
+    /// THREADING CONTRACT, and it is a real one: the sink is invoked ONLY from
+    /// `tick()`, never from `receive()` or `poll()`. So under `ThreadedEsp` it
+    /// still runs on whichever thread calls `tick()` — the emulation thread,
+    /// for jnext — and never on the wrapper's thread. A sink may therefore
+    /// touch caller-thread-only state (jnext's RX FIFO does).
+    using ByteSink = std::function<void(std::uint8_t byte)>;
+
+    virtual ~EspDevice() = default;
+
+    /// Install (or clear, with `nullptr`) the guest-bound sink. Whatever the
+    /// engine wanted to say while no sink was installed is DROPPED at the
+    /// pacing stage, not buffered forever.
+    virtual void set_output(ByteSink sink) = 0;
+
+    /// One byte has arrived from the guest's transmitter.
+    virtual void receive(std::uint8_t byte) = 0;
+
+    /// WALL-CLOCK service: sockets, connect completion, timeouts. Cheap and
+    /// idempotent; a host calls it at whatever cadence suits (jnext: once per
+    /// frame). Never delivers a byte to the sink.
+    virtual void poll() = 0;
+
+    /// EMULATED-TIME service: releases at most one guest-bound byte per
+    /// `ticks_per_byte` of `elapsed_ticks`.
+    ///
+    /// THE UNITS ARE THE CALLER'S. The module owns no clock and never asks
+    /// what time it is; it is told how much time passed and how much time a
+    /// byte costs, in whatever unit the caller counts in. jnext passes 28 MHz
+    /// ticks and `UartChannel::byte_transfer_ticks()`; a consumer with no baud
+    /// to model can pass `(1, 1)` and get one byte per call.
+    ///
+    /// `ticks_per_byte` is passed FRESH on every call rather than configured
+    /// once, so a mid-stream baud change (nextsync's `AT+UART_CUR`) takes
+    /// effect immediately.
+    virtual void tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) = 0;
+
+    /// Hot-path gate for `tick()`: false when there is provably nothing to
+    /// release and nothing waiting to be framed. A caller that ticks per
+    /// emulated instruction tests this first.
+    virtual bool wants_tick() const = 0;
+};
+
+class AtEngine : public EspDevice {
 public:
     /// Connection-slot ceiling. This is ESP-AT's own `AT+CIPMUX=1` limit
     /// (ids 0..4), which is why the table is this size and not some rounder
@@ -265,11 +331,13 @@ public:
     /// transport-less, which is what makes them inert in v1.0.
     explicit AtEngine(EspTransport& transport);
 
-    // ── UartDevice ────────────────────────────────────────────
+    // ── EspDevice ─────────────────────────────────────────────
 
-    /// One byte out of the guest's TX FIFO. Command bytes accumulate into a
-    /// line; payload bytes are counted against the outstanding `AT+CIPSEND`.
-    void receive(uint8_t byte) override;
+    void set_output(ByteSink sink) override { out_sink_ = std::move(sink); }
+
+    /// One byte out of the guest's transmitter. Command bytes accumulate into
+    /// a line; payload bytes are counted against the outstanding `AT+CIPSEND`.
+    void receive(std::uint8_t byte) override;
 
     /// Wall-clock service: advance each live transport, complete a pending
     /// connect, flush queued outbound data, drain sockets into the per-slot
@@ -277,8 +345,26 @@ public:
     void poll() override;
 
     /// Emulated-time service: frame `+IPD` when the wire is quiet and release
-    /// guest-bound bytes at one per `byte_ticks`.
-    void tick(uint32_t master_cycles, uint32_t byte_ticks) override;
+    /// guest-bound bytes at one per `ticks_per_byte`.
+    ///
+    /// WHY THE PACER LIVES IN THE CORE and not in the host's adapter, which
+    /// was a real choice with a real alternative. It is here because it is
+    /// INSEPARABLE from `+IPD` coalescing: a chunk is cut only when `out_` has
+    /// drained (`wire_is_quiet`), so a host that drained `out_` at its own rate
+    /// would see the engine cut a chunk on every poll — tiny chunks under load,
+    /// which is exactly the pressure on nextsync's 5-chunks-per-packet budget
+    /// that simplification 7 describes. Moving the pacer out would have meant
+    /// either exporting that invariant to every consumer or losing it.
+    ///
+    /// It is also NOT a clock (see `EspDevice::tick`): the caller supplies both
+    /// the elapsed time and the cost of a byte, in the caller's own units, so
+    /// the core still owns no notion of time. And a consumer that wants no
+    /// pacing at all passes `(1, 1)`.
+    void tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) override;
+
+    /// True while there is anything queued for the guest or anything waiting
+    /// to be framed into a `+IPD`.
+    bool wants_tick() const override { return tick_wanted_; }
 
     // ── Introspection (tests, and branch 4's status/trace UI) ─
     //
@@ -376,10 +462,15 @@ private:
     /// Queue a `+IPD` header. The ONE place the wire format is decided:
     /// unmultiplexed `+IPD,<len>:` when `multiplexed` is false (always, in
     /// v1.0), `+IPD,<id>,<len>:` when it is true. Emitting the multiplexed
-    /// form today would break nextsync outright — after `+IPD,` its FSM reads
-    /// the id digit, hits the `,` which is neither `:` nor a digit, and bails
-    /// — which is exactly why the decision is centralised rather than left to
-    /// whoever adds CIPMUX support.
+    /// form today would break nextsync outright, and WORSE THAN CLEANLY: its
+    /// reader accumulates before it validates —
+    ///     `datalen += r - '0';`  then  `if (r != ':' && (r < '0' || r > '9')) return 0;`
+    /// (`sync/nextsync.c`) — so the separating `,` is folded into the length as
+    /// a bogus digit worth `',' - '0'` = -4, and the parse CONTINUES with a
+    /// corrupted `<len>`, desynchronising the stream rather than failing. A
+    /// clean bail would at least be diagnosable; this is silent corruption,
+    /// which is exactly why the decision is centralised in one function rather
+    /// than left to whoever adds CIPMUX support.
     void queue_ipd_header(std::size_t cid, bool multiplexed, std::size_t len);
 
     // Socket-side helpers, all per-slot.
@@ -395,6 +486,18 @@ private:
     bool wire_is_quiet() const;
 
     void refresh_tick_gate();
+
+    /// Push one byte toward the guest. A no-op with no sink installed, which
+    /// is the correct behaviour for a detached module: the byte is discarded
+    /// at the wire, exactly as it would be with nothing plugged into the UART.
+    void send_to_guest(std::uint8_t byte) const {
+        if (out_sink_) out_sink_(byte);
+    }
+
+    ByteSink out_sink_;
+    /// Mirrors `wants_tick()`. A plain bool, not a virtual computation: the
+    /// caller may test it once per emulated instruction, so it must be a load.
+    bool     tick_wanted_ = false;
 
     std::array<Connection, MAX_CONNECTIONS> conn_{};
 
@@ -418,11 +521,11 @@ private:
     /// busy-waits for the reply so this stays empty in practice, but a guest
     /// that types ahead must not lose bytes.
     std::deque<std::uint8_t> deferred_;
-    /// Framed and ready for the guest, released one byte per `byte_ticks`.
+    /// Framed and ready for the guest, released one byte per `ticks_per_byte`.
     /// Module-wide, not per-connection: one UART, one wire.
     std::deque<std::uint8_t> out_;
 
-    /// 28 MHz ticks banked toward the next guest-bound byte. Reset to 0
+    /// Caller-unit ticks banked toward the next guest-bound byte. Reset to 0
     /// whenever `out_` empties so an idle period cannot bank credit and then
     /// dump a burst at full speed the moment data appears.
     std::uint32_t pace_accum_ = 0;

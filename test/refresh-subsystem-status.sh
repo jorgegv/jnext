@@ -93,6 +93,7 @@ BEGIN {
     M["uart_integration_test"]         = "UART (integration)"
     M["esp_socket_test"]               = "ESP-01 socket transport"
     M["esp_at_test"]                   = "ESP-01 AT command engine"
+    M["esp_uart_adapter_test"]         = "ESP-01 jnext UART adapter"
     M["divmmc_test"]                   = "DivMMC + SPI"
     M["multiface_test"]                = "Multiface (core)"
     M["sdcard_test"]                   = "SD Card"

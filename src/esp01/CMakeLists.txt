@@ -28,11 +28,6 @@ add_library(esp01 STATIC
 target_include_directories(esp01 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(esp01 PUBLIC cxx_std_17)
 
-# TEMPORARY, and gone by the next commit: `esp_at.h` still includes
-# `peripheral/uart_device.h`. The core/adapter-split commit removes it, after
-# which this target names nothing outside this directory.
-target_include_directories(esp01 PUBLIC ${CMAKE_SOURCE_DIR}/src)
-
 # Raw BSD sockets need no library at all on POSIX; Winsock needs ws2_32. Both
 # are OS components, not third-party dependencies — the same posture as the SD
 # card provisioner's winhttp/bcrypt (src/core/CMakeLists.txt), so the project's
@@ -72,12 +67,6 @@ if(ENABLE_TESTS)
     # suite's own header comment).
     add_executable(esp_socket_test test/esp_socket_test.cpp)
     target_link_libraries(esp_socket_test PRIVATE esp01)
-
-    # TEMPORARY, and removed by the next commit: esp_at_test still includes
-    # `peripheral/uart.h` for the rows that drive a real `UartChannel`. Those
-    # rows belong to the ADAPTER, not to the module, and the core/adapter-split
-    # commit moves them to test/esp/esp_uart_adapter_test.cpp.
-    target_link_libraries(esp_at_test PRIVATE jnext_peripheral)
 
     set_target_properties(esp_at_test esp_socket_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test)

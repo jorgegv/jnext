@@ -22,7 +22,6 @@
 
 #include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
-#include "peripheral/uart.h"
 
 #include <chrono>
 #include <cstdio>
@@ -185,7 +184,7 @@ struct Rig {
     std::string   guest;  ///< everything the engine has released toward the guest
 
     Rig() {
-        eng.set_rx_sink([this](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        eng.set_output([this](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
     }
 
     /// Guest transmits a string, byte by byte, exactly as `UartChannel`
@@ -201,7 +200,7 @@ struct Rig {
     /// `byte_ticks` per byte. Bounded so a stuck engine fails rather than
     /// spins.
     void drain(std::uint32_t byte_ticks = BYTE_TICKS) {
-        for (int i = 0; i < 200000 && eng.tick_wanted(); ++i) eng.tick(byte_ticks, byte_ticks);
+        for (int i = 0; i < 200000 && eng.wants_tick(); ++i) eng.tick(byte_ticks, byte_ticks);
     }
 
     /// poll() then drain() — the usual "let everything settle" step.
@@ -588,7 +587,7 @@ int main() {
         std::string  seen;
         bool         gap_after_plus = false;
         bool         started        = false;
-        for (int i = 0; i < 64 && r.eng.tick_wanted(); ++i) {
+        for (int i = 0; i < 64 && r.eng.wants_tick(); ++i) {
             const std::size_t before = r.guest.size();
             r.eng.tick(BYTE_TICKS, BYTE_TICKS);
             const std::size_t after = r.guest.size();
@@ -705,89 +704,18 @@ int main() {
         check("PACE-06", "a zero byte-time neither divides by zero nor hangs",
               r.guest.size() == 1); }
 
-    // ══ Group F — the UartDevice hook and its call site ═════════════════
+    // ══ Group F — the tick gate ═════════════════════════════════════════
+    //
+    // The gate itself is the module's; jnext's `UartDevice` mirror of it, and
+    // the `Uart::tick` call site that consumes it, are tested where they live
+    // — test/esp/esp_uart_adapter_test.cpp.
 
     {   Rig r;
-        check("HOOK-01", "an idle engine lowers the tick gate", !r.eng.tick_wanted());
+        check("HOOK-01", "an idle engine lowers the tick gate", !r.eng.wants_tick());
         r.send("AT\r\n");
-        check("HOOK-02", "queued output raises it", r.eng.tick_wanted());
+        check("HOOK-02", "queued output raises it", r.eng.wants_tick());
         r.drain();
-        check("HOOK-02b", "...and draining lowers it again", !r.eng.tick_wanted()); }
-    {   // The gate must really gate: a device that never asks is never ticked.
-        // Driven through `Uart::tick`, which is the real call site — the hook
-        // deliberately lives there and not inside `UartChannel::tick`, for the
-        // hot-path reason documented on `service_attached_device`.
-        struct CountingDevice : UartDevice {
-            int ticks = 0;
-            void receive(uint8_t) override {}
-            void tick(uint32_t, uint32_t) override { ++ticks; }
-            using UartDevice::set_tick_wanted;
-        } dev;
-        Uart uart;
-        uart.attach_device(0, &dev);
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-03", "Uart does not tick a device that lowered its gate", dev.ticks == 0);
-        dev.set_tick_wanted(true);
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-03b", "...and ticks it once per call when raised", dev.ticks == 100);
-        uart.detach_device(0);
-        dev.ticks = 0;
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-03c", "...and stops entirely once detached", dev.ticks == 0); }
-    {   // End to end through the REAL UartChannel: guest TX -> engine ->
-        // paced RX FIFO, at the channel's own byte time.
-        FakeTransport tr;
-        AtEngine      eng{tr};
-        Uart          uart;
-        uart.attach_device(0, &eng);
-        UartChannel&  ch = uart.channel(0);
-
-        for (char c : std::string("AT\r\n")) ch.write_tx(static_cast<uint8_t>(c));
-        // 4 TX byte times to get the command out, then 6 more for the reply.
-        for (int i = 0; i < 4 + 6; ++i) uart.tick(BYTE_TICKS);
-        std::string got;
-        while (ch.rx_avail()) got.push_back(static_cast<char>(ch.read_rx()));
-        check_eq("HOOK-04", "a real Uart round-trips a command through the engine", got,
-                 "\r\nOK\r\n");
-        uart.detach_device(0); }
-    {   // Same path, but the guest reprograms its prescaler first — the
-        // delivery rate must follow, with nothing else changed.
-        FakeTransport tr;
-        AtEngine      eng{tr};
-        Uart          uart;
-        uart.attach_device(0, &eng);
-        UartChannel&  ch = uart.channel(0);
-
-        // Prescaler LSB write: bit 7 clear sets the low 7 bits, set sets the
-        // next 7 (uart.h write_prescaler_lsb). 10 => a 10x faster link.
-        ch.write_prescaler_lsb(0x0A);
-        ch.write_prescaler_lsb(0x80);
-        for (char c : std::string("AT\r\n")) ch.write_tx(static_cast<uint8_t>(c));
-        const uint32_t fast_byte = 10 * 10;
-        for (int i = 0; i < 4 + 6; ++i) uart.tick(fast_byte);
-        std::string got;
-        while (ch.rx_avail()) got.push_back(static_cast<char>(ch.read_rx()));
-        check_eq("HOOK-05", "delivery follows the live prescaler, not a hardcoded 115200", got,
-                 "\r\nOK\r\n");
-        uart.detach_device(0); }
-    {   struct CountingDevice : UartDevice {
-            int ticks = 0;
-            void receive(uint8_t) override {}
-            void tick(uint32_t, uint32_t) override { ++ticks; }
-            using UartDevice::set_tick_wanted;
-        } dev;
-        dev.set_tick_wanted(true);
-        Uart uart;
-        uart.attach_device(0, &dev);
-        uart.channel(0).write_frame(0x98);   // framing bit 7 = UART held in reset
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-06",
-              "a UART held in reset stops device ticking — its RX FIFO is about to be cleared",
-              dev.ticks == 0);
-        uart.channel(0).write_frame(0x18);   // released: 8N1
-        for (int i = 0; i < 100; ++i) uart.tick(10);
-        check("HOOK-06b", "...and resumes when the guest releases it", dev.ticks == 100);
-        uart.detach_device(0); }
+        check("HOOK-02b", "...and draining lowers it again", !r.eng.wants_tick()); }
 
     // ══ Group G — static diagnostics (NXtel's Network Settings screen) ══
 

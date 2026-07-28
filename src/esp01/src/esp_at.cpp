@@ -696,16 +696,16 @@ void AtEngine::frame_ipd() {
     }
 }
 
-void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
-    if (byte_ticks == 0) byte_ticks = 1;  // a zero prescaler would stall the pacer
+void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
+    if (ticks_per_byte == 0) ticks_per_byte = 1;  // a zero rate would stall the pacer
 
     // Cut a new +IPD the moment the wire falls quiet, so the pacer never
     // stalls with data buffered behind it.
     if (out_.empty()) frame_ipd();
 
     if (out_.empty()) {
-        // Idle: return WITHOUT banking, because `pace_accum_ += master_cycles`
-        // below is the only place cycles are ever added. That is what stops a
+        // Idle: return WITHOUT banking, because `pace_accum_ += elapsed_ticks`
+        // below is the only place ticks are ever added. That is what stops a
         // long quiet period from accumulating credit and then releasing a
         // burst at unbounded speed the instant data appears — precisely the
         // FIFO overrun this pacing exists to prevent.
@@ -720,10 +720,10 @@ void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
         return;
     }
 
-    pace_accum_ += master_cycles;
+    pace_accum_ += elapsed_ticks;
     std::size_t released = 0;
-    while (!out_.empty() && pace_accum_ >= byte_ticks) {
-        pace_accum_ -= byte_ticks;
+    while (!out_.empty() && pace_accum_ >= ticks_per_byte) {
+        pace_accum_ -= ticks_per_byte;
         send_to_guest(out_.front());
         out_.pop_front();
         ++released;
@@ -740,7 +740,7 @@ void AtEngine::tick(std::uint32_t master_cycles, std::uint32_t byte_ticks) {
     }
     if (released != 0) {
         log_trace("paced {} byte(s) to the guest at {} ticks/byte ({} queued)", released,
-                   byte_ticks, out_.size());
+                  ticks_per_byte, out_.size());
     }
     refresh_tick_gate();
 }
@@ -759,7 +759,7 @@ void AtEngine::refresh_tick_gate() {
     for (std::size_t cid = 0; !work && cid < MAX_CONNECTIONS; ++cid) {
         work = !conn_[cid].rx.empty() || conn_[cid].close_pending;
     }
-    set_tick_wanted(work);
+    tick_wanted_ = work;
 }
 
 }  // namespace esp

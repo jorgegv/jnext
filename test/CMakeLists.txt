@@ -216,6 +216,15 @@ add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 # src/esp01/CMakeLists.txt — see that file for why, and test/run-unit-tests.sh
 # (which reads every CTestTestfile.cmake under the build tree) for why the
 # declared-suite cross-check still sees them.
+#
+# What IS declared here is jnext's side of the seam: the `UartDevice` adapter,
+# the `Uart::tick` call site that consumes its hot-path gate, and the binding
+# of the module's logging seam to jnext's `esp01` spdlog logger. None of that
+# can live in the module without dragging jnext back in.
+add_executable(esp_uart_adapter_test esp/esp_uart_adapter_test.cpp)
+target_link_libraries(esp_uart_adapter_test PRIVATE jnext_peripheral)
+target_include_directories(esp_uart_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME esp_uart_adapter_tests COMMAND esp_uart_adapter_test)
 
 # Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
 # Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class
