@@ -843,6 +843,41 @@ static void test_uart_device_seam(Emulator& emu) {
                   device_silent ? 0 : 1, looped, sink_dead ? 1 : 0));
     }
 
+    // DEV-05 — an attached device takes precedence over `on_tx_byte`, and the
+    // observer is SILENTLY SUPPRESSED rather than also fired. This pins the
+    // policy documented at uart.cpp deliver_tx_byte: exactly one consumer
+    // sees any given byte. It matters because `on_tx_byte` is public and
+    // still assigned by other rows in this suite (DUAL-05) and by uart_test —
+    // an implementation that fired both would double-deliver every ESP byte,
+    // and one that preferred the callback would strand the device entirely.
+    {
+        fresh(emu);
+        StubUartDevice esp;
+        std::vector<uint8_t> observer;
+
+        auto& ch0 = emu.uart().channel(0);
+        ch0.on_tx_byte = [&observer](uint8_t b) { observer.push_back(b); };
+        emu.uart().attach_device(0, &esp);   // attach with the hook ALREADY set
+
+        emu.port().out(0x153B, 0x00);        // select channel 0
+        emu.port().out(0x133B, 0xC3);
+        tick_uart_byte(emu);
+
+        const bool device_got   = (esp.rx.size() == 1) && (esp.rx[0] == 0xC3);
+        const bool observer_mute = observer.empty();
+
+        emu.uart().detach_device(0);
+        ch0.on_tx_byte = nullptr;            // never outlive `observer`
+
+        check("DEV-05",
+              "An attached UartDevice takes precedence over on_tx_byte: the device "
+              "receives the byte and the observer hook is suppressed, so exactly one "
+              "consumer sees it [uart.cpp deliver_tx_byte]",
+              device_got && observer_mute,
+              fmt("device rx=%zu first=0x%02X (want 1/0xC3); observer rx=%zu (want 0)",
+                  esp.rx.size(), esp.rx.empty() ? 0 : esp.rx[0], observer.size()));
+    }
+
     // DEV-04 — attachment is per-channel. A device on UART 0 (ESP) must not
     // see UART 1 (Pi) traffic or vice versa: zxnext.vhd:3343-3344 routes
     // UART 0 TX to the ESP pin and UART 1 TX to the Pi pin, and uart.vhd

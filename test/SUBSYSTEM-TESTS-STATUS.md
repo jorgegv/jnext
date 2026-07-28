@@ -25,7 +25,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC (integration)     |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART (integration)    |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (integration)    |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -90,6 +90,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **5920** | **5920** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **5921** | **5921** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

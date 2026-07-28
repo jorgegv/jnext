@@ -17,21 +17,52 @@
 ///
 ///   * Destroying a still-attached device leaves `UartChannel::device_`
 ///     dangling — detach first.
-///   * Destroying the `Uart` (or the whole `Emulator`) leaves the device
-///     holding an `RxSink` bound to freed memory — detach first. This is not
-///     hypothetical: a hard reset is a power-on cold boot that RECONSTRUCTS
-///     the Emulator (`headless_app.cpp:593`, `sdl_app.cpp:342`,
-///     `qt_app.cpp:446` → `cold_boot()`), so anything holding a device across
-///     a hard reset must detach and re-attach around it.
+///   * Destroying the `Uart` leaves the device holding an `RxSink` that
+///     captured a `Uart*` — detach first.
+///   * A COLD BOOT is the dangerous case, and it does NOT present as a
+///     dangling pointer. `emulator_cold_boot` (`platform/emulator_boot.h:67-77`)
+///     does `emu.~Emulator(); new (&emu) Emulator();` — placement-new at the
+///     SAME address — and `Uart uart_` is a value member (`emulator.h:852`),
+///     so a sink captured before the boot still holds a perfectly valid
+///     `Uart*`. It now silently addresses the NEWLY BOOTED machine's UART:
+///     nothing crashes, and the device's next `send_to_guest` injects into
+///     the fresh machine's RX FIFO. Silent corruption of post-reset guest
+///     state is worse than a crash, so do not expect a sanitiser to catch it.
+///     Every hard reset takes this path (`headless_app.cpp:593`,
+///     `sdl_app.cpp:342`, `qt_app.cpp:446`). The fix is to re-bind from
+///     `ColdBootHooks::rewire_host` (`emulator_boot.h:110-115`, invoked at
+///     `:160`) — the seam that exists precisely to re-point frontend objects
+///     at the reconstructed emulator — not an ad-hoc detach somewhere else.
 ///
-/// The device is deliberately NOT told about UART resets. `UartChannel::reset`
-/// fires on a machine soft reset and on a guest write of framing bit 7
-/// (uart.cpp:244-248) — both of which reset the Next's UART, not the module
-/// on the far end of the cable. There is no ESP reset line in the VHDL at all
-/// (NR 0xA8/0xA9 drive ESP GPIO0, the bootloader-select pin, and GPIO2 is
-/// input-only), so `AT+RST` is the only reset path a guest has. Giving this
-/// interface a `reset()` that the UART called would invent a capability the
-/// hardware does not have; device lifecycle stays with the owner.
+/// The device is deliberately NOT told about UART resets, and that is a
+/// narrower claim than "the ESP cannot be reset" — it can:
+///
+///   * A REAL ESP + expansion-bus reset line exists, driven by NextREG 0x02
+///     bit 7. `zxnext.vhd:5119` latches it (`nr_02_bus_reset <= nr_wr_dat(7)`)
+///     and `zxnext.vhd:1579` drives the pin (`o_RESET_PERIPHERAL <=
+///     nr_02_bus_reset`); `nextreg.txt` documents the write bit verbatim as
+///     "Assert and hold reset to the expansion bus and the esp wifi". jnext
+///     already latches it into `nr_02_bus_reset_` (`emulator.cpp:2719`) and
+///     NOTHING consumes it. nextsync uses exactly this as its "Resetting esp,
+///     try again" recovery path, so a device-facing hook for it is a real
+///     future requirement — one driven from the NR 0x02 WRITE, entirely
+///     separate from the UART channel reset below. It is deliberately not
+///     built here: this branch adds no NextREG wiring.
+///
+///   * What must NOT drive a device reset is `UartChannel::reset`. It fires
+///     on a machine soft reset and on a guest write of framing bit 7
+///     (uart.cpp:257-262), both of which reset only the Next-side UART state
+///     machine — `uart_tx.vhd:166` returns TX to S_IDLE, `uart_rx.vhd:219`
+///     returns RX to S_PAUSE. Neither touches the module on the far end of
+///     the cable, so hanging a device reset off this path would hand the
+///     guest a capability the silicon does not have.
+///
+/// (NR 0xA8/0xA9 are NOT a reset either: they drive ESP GPIO0, the
+/// bootloader-select pin, and GPIO2 is input-only.)
+///
+/// So `UartDevice` has no `reset()`: the one legitimate reset source needs a
+/// different hook than the one the UART could offer, and device lifecycle
+/// otherwise stays with the owner.
 class UartDevice {
 public:
     /// Guest-bound injection sink, handed to the device by
@@ -61,6 +92,25 @@ public:
     /// which is far too hot for socket work, so `poll()` must never be
     /// hung off it. The intended call site is once per frame from the host
     /// loop, wired by the CLI/config branch that owns the frame-loop change.
+    ///
+    /// `poll()` COVERS ONLY THE WALL-CLOCK HALF, and is structurally
+    /// insufficient for RX delivery — a gap this seam does not yet close.
+    /// The measured nextsync constraints (see issue #25) are that RX must be
+    /// drip-fed at the live `prescaler * frame_bits` rate, because:
+    ///   * nextsync reprograms the link to 1.152 Mbaud (`sync`) or 2 Mbaud
+    ///     (`syncfast`) via `AT+UART_CUR`, so the comfortable "230 bytes per
+    ///     frame at 115200" budget becomes 2304 bytes/frame into a 512-byte
+    ///     FIFO — 4.5x over, i.e. guaranteed silent truncation; and
+    ///   * each byte of an inbound `+IPD,<len>:` header gets a single ~314 us
+    ///     window with no outer retry, so ANY per-frame (20 ms) chunking
+    ///     fails 100% of the time regardless of FIFO size.
+    /// Delivery therefore has to be paced off the same clock the TX path
+    /// already uses (`tx_timer_byte_`, counted down in `UartChannel::tick`),
+    /// which means the AT-engine branch will need a cycle-driven device hook
+    /// — something like `UartDevice::tick(uint32_t master_cycles)` called
+    /// from `UartChannel::tick`. It is deliberately NOT declared here: an
+    /// unwired virtual with no call site and no test earns nothing, whereas
+    /// `poll()` at least pins the cadence argument above.
     virtual void poll() {}
 
     /// Install (or clear, with `nullptr`) the guest-bound sink.
