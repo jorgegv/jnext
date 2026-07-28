@@ -20,11 +20,10 @@
 /// transport, which is exactly how `src/esp01/test/esp_at_test.cpp` drives it: no
 /// sockets, no DNS, no listener.
 ///
-/// DEPENDENCY SURFACE, deliberately tiny: `EspTransport` (the seam),
-/// `UartDevice` (what this is), and the `esp01` logger — nothing from
-/// `src/core/` beyond that, and nothing from `Emulator` or `NextReg`. The
-/// logger is reached through ONE file-local accessor in the .cpp so a later
-/// branch can put a sink behind it without touching a single call site.
+/// DEPENDENCY SURFACE, deliberately tiny: `EspTransport` (the transport seam)
+/// and `esp_log.h` (the logging seam). NOTHING from jnext — not `core/log.h`,
+/// not `Emulator`, not `NextReg`, not even a jnext include root. That is what
+/// makes the module droppable into another project.
 ///
 /// ---------------------------------------------------------------------------
 /// THE COMMAND SET IS EVIDENCED, AND DELIBERATELY NARROW

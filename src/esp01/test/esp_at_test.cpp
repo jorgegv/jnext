@@ -20,11 +20,9 @@
 //
 // Run: ./build/test/esp_at_test
 
-#include "core/log.h"
 #include "esp01/esp_at.h"
+#include "esp01/esp_log.h"
 #include "peripheral/uart.h"
-
-#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <chrono>
 #include <cstdio>
@@ -58,6 +56,13 @@ static std::string printable(const std::string& s) {
     }
     return out;
 }
+
+/// Everything the module handed to the logging seam during a capture window,
+/// concatenated. File-scope rather than captured by reference: `set_log_sink`
+/// installs a `std::function` that outlives the window's scope by one
+/// statement, and a sink referencing a dead local is a trap for whoever adds
+/// the next row.
+static std::string g_log;
 
 static void check(const char* id, const std::string& desc, bool cond) {
     ++g_total;
@@ -224,11 +229,10 @@ struct Rig {
 int main() {
     std::printf("\n=== ESP-01 AT engine tests (GH #25 branch 3) ===\n\n");
 
-    // Silence the subsystem for the functional rows so the suite's own output
-    // is the only thing on the console. The TRACE group at the end raises it
-    // deliberately, per capture window, and asserts what comes out.
-    Log::init();
-    Log::parse_levels("esp01=off");
+    // No sink is installed, so the module is silent for every functional row
+    // below and the suite's own output is the only thing on the console — the
+    // seam's unbound default doing exactly what it promises. The TRACE group at
+    // the end binds a capture sink, per window, and asserts what comes out.
 
     // ══ Group A — the command surface, byte-exact ═══════════════════════
 
@@ -883,30 +887,24 @@ int main() {
     //
     // The owner made tracing a first-class requirement with a hard default:
     // NOTHING on by default except connection open/close. These rows pin that
-    // from the outside, by capturing what the logger actually emits — the same
-    // technique esp_socket_test uses for the transport.
+    // from the outside, by capturing what the engine hands to the MODULE'S OWN
+    // logging seam (esp01/esp_log.h) — not to spdlog. That is what makes them
+    // runnable by a consumer who binds a different sink, and it makes them a
+    // test of the seam rather than of somebody else's logging library.
     {
-        // ringbuffer_sink::last_formatted() COPIES rather than drains, so each
-        // window gets a fresh sink instead of sharing one.
-        auto capture = [](const char* level, const std::function<void()>& work) {
-            auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(256);
-            // REPLACE the sink list rather than appending to it: at trace level
-            // a single session emits hundreds of lines, and dumping them on the
-            // console would bury the suite's own output.
-            auto saved = Log::esp01()->sinks();
-            Log::esp01()->sinks() = {ring};
-            Log::parse_levels((std::string("esp01=") + level).c_str());
+        auto capture = [](LogLevel level, const std::function<void()>& work) {
+            g_log.clear();
+            set_log_sink([](LogLevel, const std::string& m) { g_log += m; });
+            set_log_threshold(level);
             work();
-            Log::parse_levels("esp01=off");
-            Log::esp01()->sinks() = saved;
-            std::string all;
-            for (const auto& line : ring->last_formatted()) all += line;
-            return all;
+            set_log_sink(nullptr);
+            set_log_threshold(LogLevel::Info);
+            return g_log;
         };
 
         // A whole session — commands, prompt, payload, +IPD, close — run at
         // the DEFAULT level. Only the two connection events may appear.
-        const std::string quiet = capture("info", [] {
+        const std::string quiet = capture(LogLevel::Info, [] {
             Rig r;
             r.send("ATE0\r\nAT+CIPMUX=0\r\n");
             r.settle();
@@ -927,7 +925,7 @@ int main() {
                   quiet.find("+IPD framing") == std::string::npos &&
                   quiet.find("paced") == std::string::npos);
 
-        const std::string dbg = capture("debug", [] {
+        const std::string dbg = capture(LogLevel::Debug, [] {
             Rig r;
             r.connect();
             r.send("AT+CIPSEND=2\r\n"); r.settle();
@@ -945,7 +943,7 @@ int main() {
         check("TRACE-08", "...but per-byte pacing is not — that is trace level",
               dbg.find("paced") == std::string::npos);
 
-        const std::string trc = capture("trace", [] {
+        const std::string trc = capture(LogLevel::Trace, [] {
             Rig r;
             r.connect();
             r.tr.queue_from_peer("yo");

@@ -18,6 +18,7 @@
 # is the whole of the coupling, and it lives on jnext's side of the line.
 
 add_library(esp01 STATIC
+    src/esp_log.cpp
     src/esp_socket.cpp
     src/esp_socket_posix.cpp
     src/esp_socket_win.cpp
@@ -27,14 +28,10 @@ add_library(esp01 STATIC
 target_include_directories(esp01 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(esp01 PUBLIC cxx_std_17)
 
-# TEMPORARY, and gone by the end of this branch. THIS COMMIT IS THE MOVE AND
-# ONLY THE MOVE: the sources still `#include "core/log.h"` (removed by the
-# logging-seam commit) and `esp_at.h` still includes `peripheral/uart_device.h`
-# (removed by the core/adapter-split commit). Declaring the two dependencies
-# here rather than folding those changes into the move keeps this commit
-# mechanical and reviewable — and keeps every commit on the branch building.
+# TEMPORARY, and gone by the next commit: `esp_at.h` still includes
+# `peripheral/uart_device.h`. The core/adapter-split commit removes it, after
+# which this target names nothing outside this directory.
 target_include_directories(esp01 PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(esp01 PUBLIC spdlog::spdlog)
 
 # Raw BSD sockets need no library at all on POSIX; Winsock needs ws2_32. Both
 # are OS components, not third-party dependencies — the same posture as the SD
@@ -76,13 +73,11 @@ if(ENABLE_TESTS)
     add_executable(esp_socket_test test/esp_socket_test.cpp)
     target_link_libraries(esp_socket_test PRIVATE esp01)
 
-    # TEMPORARY, and removed by the two commits that follow this one: the
-    # suites still reach for jnext's spdlog logger and (esp_at_test) for
-    # `peripheral/uart.h`. The logging seam commit removes the first and the
-    # core/adapter split commit removes the second, after which neither suite
-    # names anything outside this directory.
-    target_link_libraries(esp_at_test     PRIVATE jnext_peripheral)
-    target_link_libraries(esp_socket_test PRIVATE jnext_peripheral)
+    # TEMPORARY, and removed by the next commit: esp_at_test still includes
+    # `peripheral/uart.h` for the rows that drive a real `UartChannel`. Those
+    # rows belong to the ADAPTER, not to the module, and the core/adapter-split
+    # commit moves them to test/esp/esp_uart_adapter_test.cpp.
+    target_link_libraries(esp_at_test PRIVATE jnext_peripheral)
 
     set_target_properties(esp_at_test esp_socket_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test)
