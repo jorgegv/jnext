@@ -2305,17 +2305,17 @@ static void test_group14_esp() {
     // ThreadedEsp + EspGatedTransport a user's `--esp` builds), none of which
     // this bare-`Uart` suite has.
     //
-    // RE-HOME: see test/esp/esp_wiring_test.cpp ESP-01 — guest TX on UART 0
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-01 — guest TX on UART 0
     //   egresses to the real emulated ESP-01, which answers, instead of to
     //   the channel loopback (zxnext.vhd:1611-1612, :3381).
-    // RE-HOME: see test/esp/esp_wiring_test.cpp ESP-02 — the ESP's reply
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-02 — the ESP's reply
     //   lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under
     //   the NR 0xC6 request mask (zxnext.vhd:1941-1944).
-    // RE-HOME: see test/esp/esp_wiring_test.cpp ESP-03 — NR 0x02 bit 7
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-03 — NR 0x02 bit 7
     //   (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO
     //   device reset (zxnext.vhd:5119, :1579; design doc §4.2 and §10 —
     //   nextsync's recovery path is a v1.1 extension point).
-    // RE-HOME: see test/esp/esp_wiring_test.cpp ESP-04 — with no backend
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-04 — with no backend
     //   attached, UART 0 keeps the loopback these 116 rows observe.
     //
     // The socket half — a real TCP connect, AT+CIPSEND and +IPD framing

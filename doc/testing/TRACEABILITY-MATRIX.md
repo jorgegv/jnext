@@ -25,7 +25,7 @@
 | UART+I2C/RTC                               |   112 |  109 |    0 |    0 |       3 |          6 |
 | NextREG                                    |   107 |   58 |    0 |    0 |      49 |          0 |
 | IO Port Dispatch                           |    97 |   93 |    0 |    0 |       4 |         26 |
-| Input                                      |   189 |  175 |    0 |    0 |      14 |        169 |
+| Input                                      |   185 |  175 |    0 |    0 |      10 |        169 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
@@ -48,10 +48,10 @@
 | Companion: nextreg_integration_test        |    74 |   74 |    0 |    0 |       0 |        218 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
-| Companion: uart_integration_test           |    18 |   18 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  3036 | 2704 |    0 |    2 |     330 |        843 |
+| Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        843 |
 
-Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6325**.
+Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6329**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -2468,13 +2468,13 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420,2392 | pass    | test/uart/uart_integration_test.cpp:395 |
 | GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:444 |
 | GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:537 |
-| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:5080,6188-6189                 | pass    | test/uart/uart_integration_test.cpp:945 |
-| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:974 |
-| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:1005 |
+| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:5080,6188-6189                 | pass    | test/uart/uart_integration_test.cpp:1140 |
+| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:1169 |
+| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:1200 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
-Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, dual-port + I2C bit-bang). Runs at `21 / 21 pass / 0 fail / 0 skip`. The suite reports no skips: the G135 NR 0xA0 Pi-UART-routing row this paragraph used to call a skip is `NR_A0-03` below, which reads `missing` — it is asserted nowhere at all, which is a larger gap than a skip, not a smaller one. The first 13 IDs listed below are additionally listed in the parent `## UART+I2C/RTC` table above; the five `DEV-*` rows are not — they are the `UartDevice` attach/detach seam GH #25 branch 1 added here, whose backend on UART 0 is the emulated ESP-01 traced in the three `## ESP-01 …` sections below.
+Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, dual-port + I2C bit-bang). Runs at `25 / 25 pass / 0 fail / 0 skip`. The suite reports no skips: the G135 NR 0xA0 Pi-UART-routing row this paragraph used to call a skip is `NR_A0-03` below, which reads `missing` — it is asserted nowhere at all, which is a larger gap than a skip, not a smaller one. The first 13 IDs listed below are additionally listed in the parent `## UART+I2C/RTC` table above; the five `DEV-*` rows are not — they are the `UartDevice` attach/detach seam GH #25 branch 1 added here, whose backend on UART 0 is the emulated ESP-01 traced in the three `## ESP-01 …` sections below. The four `ESP-*` rows are the G39 placeholders GH #25 branch 5 closed: they re-home here from `uart_test.cpp`'s WONT comments, and unlike `DEV-*` they drive the real `ThreadedEsp` that `--esp` builds rather than a stub. `ESP-03` is deliberately RESTATED — the NR 0x02 bit-7 reset line is latched and read back but drives no device reset in v1.0 (design doc §4.2, §10).
 
 | Test ID    | Plan row title                                                          | VHDL file:line             | Status | Test file:line                              |
 |------------|-------------------------------------------------------------------------|----------------------------|--------|---------------------------------------------|
@@ -2490,12 +2490,16 @@ Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, du
 | I2C-10     | DS1307 RTC read at 0x68 returns BCD-encoded snapshot                    | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:566     |
 | DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:625     |
 | DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:674     |
-| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:1005    |
+| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:1200    |
 | DEV-01     | UartDevice attach diverts channel TX to the device and suppresses loopback | zxnext.vhd:1611,3381       | pass    | test/uart/uart_integration_test.cpp:747     |
 | DEV-02     | UartDevice guest-bound sink injects via inject_rx; IM2 follows the NR 0xC6 mask | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:799     |
 | DEV-03     | detach_device restores loopback and clears the device's RxSink          | —                        | pass    | test/uart/uart_integration_test.cpp:836     |
 | DEV-04     | Device attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) stay separate | zxnext.vhd:3343-3344       | pass    | test/uart/uart_integration_test.cpp:907     |
 | DEV-05     | An attached UartDevice takes precedence over the on_tx_byte observer hook | —                        | pass    | test/uart/uart_integration_test.cpp:872     |
+| ESP-01     | UART 0 TX egresses to the REAL emulated ESP-01, which answers, not to the channel loopback (G39) | zxnext.vhd:1611-1612,3381 | pass    | test/uart/uart_integration_test.cpp:1005 |
+| ESP-02     | The real ESP's reply lands in the UART 0 RX FIFO and raises UART0_RX under the NR 0xC6 mask (G39) | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:1037 |
+| ESP-03     | NR 0x02 b7 (o_RESET_PERIPHERAL) latches and reads back; v1.0 drives NO device reset (design doc §4.2) | zxnext.vhd:5119,1579 | pass    | test/uart/uart_integration_test.cpp:1082 |
+| ESP-04     | With no ESP backend attached, UART 0 keeps its loopback unchanged (G39)  | —                        | pass    | test/uart/uart_integration_test.cpp:1104 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 
@@ -3380,10 +3384,6 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | FE-04A        | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44)                          | keyboard.cpp                            | missing | missing                       |
 | IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | pass   | test/input/input_test.cpp:2239 |
 | IOMODE-11B    | Emulator per-tick feed: Joystick line-5 (button C) -> IoMode joy_uart_rx via run_frame() (GH #90)    | zxnext.vhd:90-91,3441-3442,3538         | pass   | test/input/input_test.cpp:2307 |
-| ESP-01        | UART 0 TX bytes egress to the attached ESP-01 backend rather than looping back (G39)                 | zxnext.vhd:1611-1612,3381               | missing | missing                       |
-| ESP-02        | ESP-01 backend bytes land in the UART 0 RX FIFO and raise the UART0_RX IM2 vector (G39)              | zxnext.vhd:1611-1612,3381               | missing | missing                       |
-| ESP-03        | NR 0x02 bit 7 (o_RESET_PERIPHERAL) resets the attached ESP-01, as nextsync's recovery path does      | zxnext.vhd:5119,1579,60                 | missing | missing                       |
-| ESP-04        | With no ESP backend attached the UART 0 channel keeps its loopback behaviour unchanged (G39)         | —                                     | missing | missing                       |
 | GH115-01      | LShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,113; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4868     |
 | GH115-02      | RShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,131; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4870     |
 | GH115-03      | LCtrl pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; release restores row 7 to 0x1F (GH #115)            | keymaps.vhd:84,113; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4875     |

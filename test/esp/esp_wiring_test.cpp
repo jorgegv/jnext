@@ -36,7 +36,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <cstdarg>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -62,37 +61,6 @@ static void check(const char* id, const char* desc, bool ok) {
         ++g_fail;
         std::printf("[FAIL] %-14s %s\n", id, desc);
     }
-}
-
-/// Same, plus what was actually observed — printed only on failure. The rows
-/// that compare byte streams need it: "the reply was wrong" is not a
-/// diagnosis, and re-deriving one by hand from a red row is the expensive way.
-static void check(const char* id, const char* desc, bool ok, const std::string& detail) {
-    check(id, desc, ok);
-    if (!ok) std::printf("               observed: %s\n", detail.c_str());
-}
-
-/// printf into a std::string, for those detail strings. (Not `fmt` — that is
-/// the fmtlib namespace spdlog pulls in.)
-static std::string detail_fmt(const char* format, ...) {
-    char    buf[512];
-    va_list args;
-    va_start(args, format);
-    std::vsnprintf(buf, sizeof(buf), format, args);
-    va_end(args);
-    return std::string(buf);
-}
-
-/// CR and LF rendered as escapes, so a failing byte-stream row is readable on
-/// one line and a stray terminator cannot hide in the output.
-static std::string visible(const std::string& s) {
-    std::string out;
-    for (char c : s) {
-        if (c == '\r')      out += "\\r";
-        else if (c == '\n') out += "\\n";
-        else                out += c;
-    }
-    return out;
 }
 
 // ── A transport the tests drive by hand ───────────────────────────────────
@@ -200,44 +168,6 @@ EmulatorConfig bare_config() {
     EmulatorConfig cfg;
     cfg.silent = true;
     return cfg;
-}
-
-// ── Driving UART 0 the way a Z80 program does (ESP-01..04) ───────────────
-//
-// Ports only: OUT 0x153B selects the channel, OUT 0x133B transmits, IN 0x133B
-// reads the status and IN 0x143B receives. Nothing here reaches past the port
-// dispatcher, so these rows exercise the same path a guest does.
-
-void uart0_select(Emulator& emu) { emu.port().out(0x153B, 0x00); }
-
-void uart0_send(Emulator& emu, const std::string& line) {
-    uart0_select(emu);
-    for (char c : line) emu.port().out(0x133B, static_cast<std::uint8_t>(c));
-}
-
-/// Run `frames` frames, harvesting everything that reaches the RX FIFO.
-/// Guest-bound bytes are paced at the channel's baud (2430 master cycles per
-/// byte at the 115200 reset default), so a reply cannot all be there at once —
-/// draining across frames is how a real program would see it too.
-std::string uart0_drain(Emulator& emu, int frames) {
-    std::string out;
-    for (int i = 0; i < frames; ++i) {
-        emu.run_frame();
-        uart0_select(emu);
-        while (emu.port().in(0x133B) & 0x01)          // status b0 = RX available
-            out += static_cast<char>(emu.port().in(0x143B));
-    }
-    return out;
-}
-
-void nr_write(Emulator& emu, std::uint8_t reg, std::uint8_t val) {
-    emu.port().out(0x243B, reg);
-    emu.port().out(0x253B, val);
-}
-
-std::uint8_t nr_read(Emulator& emu, std::uint8_t reg) {
-    emu.port().out(0x243B, reg);
-    return emu.port().in(0x253B);
 }
 
 }  // namespace
@@ -684,148 +614,6 @@ int main() {
                             std::chrono::steady_clock::now() - t0).count();
         check("WIRE-12", "destroying the Emulator joins the ESP worker promptly",
               ms < 1000);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // ESP-01..04 — the G39 rows, closed (GH #25 branch 5)
-    // ─────────────────────────────────────────────────────────────────────
-    //
-    // These four IDs sat `missing`/`missing` in the traceability matrix and as
-    // deliberate `// WONT` comments in test/uart/uart_test.cpp, from the era
-    // when jnext had no ESP at all. They are NOT duplicates of DEV-01..05 in
-    // uart_integration_test: those drive a hand-written `StubUartDevice`, and
-    // a stub cannot tell you whether the thing `--esp` actually builds — a
-    // `ThreadedEsp` wrapping a real `AtEngine` behind an `EspGatedTransport` —
-    // is on the wire and answering. Every row below uses the REAL one, reached
-    // through `Emulator::setup_esp` exactly as a user's `--esp` reaches it.
-    //
-    // No network: `AT` and `ATE1` never touch the transport, so nothing here
-    // resolves or connects. The socket half is proved by the
-    // `esp-loopback-func` regression row against a real TCP peer.
-    {
-        EmulatorConfig cfg = bare_config();
-        cfg.esp_enabled = true;
-        Emulator emu;
-        emu.init(cfg);
-
-        uart0_send(emu, "AT\r\n");
-        const std::string reply = uart0_drain(emu, 4);
-
-        // Two halves, and the second is the one a wiring mistake trips: an
-        // unattached channel loops the guest's own bytes back into its own RX
-        // FIFO (uart.cpp deliver_tx_byte), so "AT\r\n" coming back would look
-        // like traffic while proving the ESP is NOT there. Echo is off by
-        // default (design doc simplification 2), so the ESP never sends it.
-        check("ESP-01",
-              "guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses "
-              "the AT line and answers — not to the channel's loopback "
-              "[zxnext.vhd:1611-1612, :3381 UART 0 = ESP]",
-              reply == "\r\nOK\r\n",
-              detail_fmt("RX drained %zu bytes: '%s' (want '\\r\\nOK\\r\\n'; 'AT\\r\\n' "
-                  "would mean loopback, empty would mean nothing is attached)",
-                  reply.size(), visible(reply).c_str()));
-    }
-    {
-        // ESP-02 — the same reply reaches the guest through the real RX FIFO
-        // AND drives the real IM2 UART0_RX vector, under the NR 0xC6 request
-        // mask `near_full OR (avail AND NOT nr_c6(1))` (zxnext.vhd:1941-1944).
-        // Asserting BOTH directions of the mask is what makes it
-        // discriminative: a delivery path that bypassed `Uart::inject_rx`
-        // could still hand the guest the bytes, but could not reproduce the
-        // mask.
-        EmulatorConfig cfg = bare_config();
-        cfg.esp_enabled = true;
-
-        Emulator emu;
-        emu.init(cfg);
-        nr_write(emu, 0xC6, 0x01);              // per-byte avail contributes
-        uart0_send(emu, "AT\r\n");
-        const std::string got_avail = uart0_drain(emu, 4);
-        const std::uint8_t ca_avail = nr_read(emu, 0xCA);
-
-        Emulator emu2;
-        emu2.init(cfg);
-        nr_write(emu2, 0xC6, 0x02);             // near-full only; avail suppressed
-        uart0_send(emu2, "AT\r\n");
-        const std::string got_masked = uart0_drain(emu2, 4);
-        const std::uint8_t ca_masked = nr_read(emu2, 0xCA);
-
-        check("ESP-02",
-              "the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX "
-              "IM2 vector under the NR 0xC6 request mask — six bytes never reach the "
-              "3/4 near-full mark, so bit 1 suppresses it [zxnext.vhd:1941-1944]",
-              got_avail == "\r\nOK\r\n" && (ca_avail & 0x03) != 0 &&
-                  got_masked == "\r\nOK\r\n" && (ca_masked & 0x03) == 0,
-              detail_fmt("C6=0x01: rx='%s' NR_CA=0x%02X (want reply + bits set); "
-                  "C6=0x02: rx='%s' NR_CA=0x%02X (want reply + bits clear)",
-                  visible(got_avail).c_str(), ca_avail,
-                  visible(got_masked).c_str(), ca_masked));
-    }
-    {
-        // ESP-03 — RESTATED to what v1.0 actually built, and deliberately so.
-        //
-        // The row used to claim NR 0x02 bit 7 "resets the attached ESP-01, as
-        // nextsync's recovery path does". The hardware line is real —
-        // zxnext.vhd:5119 latches `nr_02_bus_reset <= nr_wr_dat(7)` and
-        // zxnext.vhd:1579 drives `o_RESET_PERIPHERAL` from it, with
-        // nextreg.txt:48 saying verbatim "Assert and hold reset to the
-        // expansion bus and the esp wifi" — and jnext latches and reads the
-        // bit back correctly. What jnext does NOT do is route it to the
-        // device: that is a v1.1 extension point (design doc §4.2, §10), left
-        // out on the stated grounds that it is a RECOVERY path, "degraded, not
-        // blocking", and that the hook belongs on the NR 0x02 write and not on
-        // `UartChannel::reset` (§4.3).
-        //
-        // So the row now pins the fact rather than the aspiration, and it is
-        // NOT a tautology: `ATE1` leaves observable state inside the AT engine
-        // (echo on), and a real hard reset would restore the power-on default
-        // (echo off, design doc simplification 2). Wire the reset up and this
-        // row goes red — which is exactly what should happen, because the
-        // design record has to change with it.
-        EmulatorConfig cfg = bare_config();
-        cfg.esp_enabled = true;
-        Emulator emu;
-        emu.init(cfg);
-
-        uart0_send(emu, "ATE1\r\n");             // echo ON: engine state to lose
-        uart0_drain(emu, 4);
-
-        nr_write(emu, 0x02, 0x80);               // assert the ESP / expbus reset
-        const std::uint8_t nr02 = nr_read(emu, 0x02);
-        uart0_drain(emu, 2);
-
-        uart0_send(emu, "AT\r\n");
-        const std::string after = uart0_drain(emu, 4);
-
-        check("ESP-03",
-              "NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 "
-              "drives NO device reset — the attached ESP keeps its state across it "
-              "(nextsync's recovery path is a v1.1 extension point, design doc §4.2) "
-              "[zxnext.vhd:5119, :1579; nextreg.txt:48]",
-              (nr02 & 0x80) != 0 && after.find("AT") != std::string::npos,
-              detail_fmt("NR 0x02 readback=0x%02X (want b7 set); reply after the reset='%s' "
-                  "(want the ATE1 echo still on — '\\r\\nOK\\r\\n' alone would mean "
-                  "the engine was reset)",
-                  nr02, visible(after).c_str()));
-    }
-    {
-        // ESP-04 — the converse, and the reason ESP-01's second half is worth
-        // asserting: with nothing attached, UART 0 keeps the loopback the 116
-        // pre-ESP UART rows observe. This is what `--esp` being default-off
-        // means at the wire.
-        Emulator emu;
-        emu.init(bare_config());
-
-        uart0_send(emu, "AT\r\n");
-        const std::string reply = uart0_drain(emu, 4);
-
-        check("ESP-04",
-              "with no ESP backend attached, UART 0 keeps its loopback: the guest's "
-              "own bytes come back and nothing answers them",
-              emu.uart().device(0) == nullptr && reply == "AT\r\n",
-              detail_fmt("device=%p rx='%s' (want null + 'AT\\r\\n')",
-                  static_cast<const void*>(emu.uart().device(0)),
-                  visible(reply).c_str()));
     }
 
     std::printf("\n======================================================\n");
