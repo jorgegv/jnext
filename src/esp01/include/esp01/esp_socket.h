@@ -8,7 +8,7 @@
 #include <vector>
 
 /// Non-blocking outbound TCP transport for the emulated ESP-01 (GH #25,
-/// branch 2 of 5). This branch is the TRANSPORT ONLY: no AT parser, no ESP
+/// branch 2 of 6). This branch is the TRANSPORT ONLY: no AT parser, no ESP
 /// state machine, no `UartDevice` wiring, no CLI flags, no frame-loop call
 /// site. Those are branches 3 and 4.
 ///

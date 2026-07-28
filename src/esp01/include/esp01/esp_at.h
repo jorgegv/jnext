@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-/// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 5).
+/// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 6).
 ///
 /// This branch is the ENGINE ONLY: it is a `UartDevice` driving an
 /// `EspTransport`, and nothing constructs it yet. No `Emulator` wiring, no
@@ -169,7 +169,9 @@
 ///     CEILING is enforced here. The floor emerges from coalescing — a chunk
 ///     is cut only once the guest-bound queue has drained, so under load
 ///     chunks are large — but it is probabilistic, not guaranteed: at 1.152M
-///     baud a 1460-byte chunk drains in ~10 ms, and sufficiently jittery TCP
+///     baud a 1460-byte chunk drains in ~12.7 ms (1460 x 10 bits / 1 152 000;
+///     the "~10 ms" written here originally was an arithmetic slip, corrected
+///     2026-07-28 — same order, same conclusion), and sufficiently jittery TCP
 ///     fragmentation could in principle cut a sub-292-byte chunk and pressure
 ///     the budget. Unlikely on localhost/LAN and not deterministically
 ///     unit-testable, so it is recorded as a known characteristic rather than

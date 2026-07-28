@@ -1,4 +1,4 @@
-// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 5).
+// AT command engine for the emulated ESP-01 (GH #25, branch 3 of 6).
 // Rationale, evidence and the deliberate modelling simplifications are all in
 // esp_at.h — read that first; this file only implements what it states.
 
