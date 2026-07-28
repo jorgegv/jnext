@@ -242,15 +242,15 @@ public:
     /// `Resolving` and `Connecting` exist precisely so that a lookup or a
     /// handshake in flight is an OBSERVABLE STATE rather than a stall.
     ///
-    /// KNOWN VIOLATION, stated rather than hidden: the transport this module
-    /// ships — `make_socket_transport` — DOES currently block here, because
-    /// its name resolution is a synchronous `getaddrinfo` (see that function's
-    /// own DNS note below, which documents the choice and its cost). Making it
-    /// asynchronous is the subject of its own change, `fix/esp-async-dns`,
-    /// which lands before anything wires the ESP into the emulator. Until it
-    /// does, a hostname target — an IP literal never resolves at all — can
-    /// stall a wrapper shutdown. `send`, `recv` and `close` are already
-    /// non-blocking and are not affected.
+    /// THE TRANSPORT THIS MODULE SHIPS HONOURS THIS. It used to be the
+    /// contract's one known violator: `make_socket_transport`'s name
+    /// resolution was a synchronous `getaddrinfo`, so a hostname target could
+    /// stall a wrapper shutdown for a resolver timeout (an IP literal never
+    /// resolved at all and was never affected, nor were `send`, `recv` and
+    /// `close`, which have always been non-blocking). Resolution now runs on
+    /// its own thread and `poll()` only tests a flag — see that function's DNS
+    /// note below for the lifetime design that makes the thread safe to
+    /// abandon, which is what lets the destructor stay bounded.
     virtual void poll() = 0;
 
     virtual TransportState     state() const      = 0;
