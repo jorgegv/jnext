@@ -2,11 +2,10 @@
 
 **Issue:** [GH #25](https://github.com/jorgegv/jnext/issues/25) (v1.0) — follow-up
 [#154](https://github.com/jorgegv/jnext/issues/154) (full datasheet-level emulation).
-**Status:** v1.0 in progress, six branches. 1 (UART device seam), 2 (socket transport), 3 (AT
-engine, `6a79f6fd`) and 3.5 (modularisation, `779b7103`, v0.99.68) are **merged**;
-`fix/esp-async-dns` (§7.4) is in flight and lands before branch 4; branches 4 (CLI/config/wiring)
-and 5 (functional test) are not started.
-**Last updated:** 2026-07-28.
+**Status:** v1.0 **complete**, six branches. 1 (UART device seam), 2 (socket transport), 3 (AT
+engine, `6a79f6fd`), 3.5 (modularisation, `779b7103`, v0.99.68), `fix/esp-async-dns` (§7.4), 4
+(CLI/config/wiring) and 5 (functional test + the pacing measurement) are all **merged**.
+**Last updated:** 2026-07-29.
 **Audience:** jnext maintainers **and anyone reusing this module in another project**. The module
 is deliberately shaped to be liftable; this document is its specification, not a jnext-internal
 note.
@@ -318,7 +317,9 @@ story, and it is why §6 exists.
   bit 1 (UART0 Rx near full) **set**, near-full is the only contributor — `nextreg.txt:1101`,
   *"Rx near full overrides Rx available"*. `rx_near_full` is the ¾ mark, i.e. 384 bytes
   (`serial/uart.vhd:427`, `-- held (3/4)`). NextZXOS's `ESPAT.DRV` is interrupt-driven — this
-  matters for the open question in [§11.2](#112-the-rx-pacing-may-be-replaceable--and-the-hazard-is-interrupt-saturation).
+  mattered for the pacing question, which [§11.2](#112-the-rx-pacing-is-settled--baud-pacing-stays)
+  now settles by measurement: refilling the FIFO on demand pins this bit's `near_full` term
+  permanently high and starves the guest.
 
 ---
 
@@ -519,7 +520,8 @@ One chunk is framed per quiet moment; the next follows when that one drains.
 nextsync's own receive loop (`_receive`, `sync/uart.s`) is 93 T-states/byte, which at 28 MHz is a
 ceiling of **≈301 KB/s**. 2 Mbaud already delivers 200 KB/s, so any faster delivery scheme buys at
 most ≈1.5× over the fastest real
-configuration; see [§11.2](#112-the-rx-pacing-may-be-replaceable--and-the-hazard-is-interrupt-saturation).
+configuration. **Measured** in [§11.2](#112-the-rx-pacing-is-settled--baud-pacing-stays): 1.42×,
+and paid for with 99.96 % of the guest's CPU.
 
 ---
 
@@ -753,6 +755,16 @@ Exact row counts are pinned in `test/unit-tests.conf`; the harness refuses to ru
 They are deliberately not restated here — an unenforced prose copy of an enforced number only ever
 goes stale.
 
+**And one row that is none of the three.** `esp-loopback-func`, in the screenshot/functional
+regression suite, is the only thing that proves the WHOLE path — a Z80 guest reaching port 0x133B,
+through `UartChannel`, `EspUartAdapter`, `AtEngine` and `EspGatedTransport`, out of a **real
+socket** to a **real TCP peer**, and every byte back again. The three unit suites each replace one
+end of that with a fake, by design; none of them can fail if the real socket path is broken. The
+row asserts the guest-visible AT stream as an **exact ordered byte sequence**, which is also what
+narrows §11.1. Its peer binds an **RFC1918** address rather than loopback, because the address
+policy denies loopback by default (§8.2) and a test is not a reason to relax a security decision —
+and RFC1918 is precisely the configuration owner decision 4 exists for.
+
 That third suite is the visible cost of the core/adapter split, and it is the right cost: the rows
 that genuinely test jnext coupling now live with jnext, and the module's own suites stay runnable
 by a consumer who has never heard of `Uart` or spdlog.
@@ -868,20 +880,25 @@ production clears the flag; the gap is latent, not live. Making it honest means 
 id end-to-end **and** finding a hermetic way to test it, which needs a link-local peer on a real
 interface. Untested plumbing for an unreachable capability is worth less than this paragraph.
 
-**Status:** the address policy is implemented and unit-tested. The **enable flag and the hostname
-allowlist are branch-4 work and do not exist yet.** The connection log line **partially exists**:
-the engine logs connection open and close at `info` and connect failure at `warn`, and those are
-emitted **by default** — the module's own threshold defaults to `Info` (`esp_log.h`), spdlog's
-global default level is `info` (`registry.h:116`), and jnext never lowers either. Deliberately,
-those two events are the *only* `Info` lines the module produces; everything chatty is `Debug` or
-`Trace`.
+**Status: all seven decisions are implemented** as of branch 4, and the two gaps this paragraph
+used to list are closed.
 
-Two gaps remain, both **branch-4 obligations**:
+The address policy is pure and unit-tested. `--esp` / `--no-esp` carry decision 1 and 2, and
+`--esp-allow` carries decision 3 (`EspHostPolicy`, matched case- and whitespace-insensitively;
+empty means "any host", never "no host"). The engine logs connection open and close at `info` and
+connect failure at `warn`, emitted **by default** — the module's own threshold defaults to `Info`
+(`esp_log.h`), spdlog's global default level is `info` (`registry.h:116`), and jnext never lowers
+either. Deliberately, those two events are the *only* `Info` lines the module produces; everything
+chatty is `Debug` or `Trace`.
 
-1. There is no **allowlist-decision** line, because there is no allowlist.
-2. The lines go to **stderr only**, which a GUI user never sees. "Never silent" is therefore
-   satisfied for CLI and headless runs and **fails for the GUI** — a security-relevant event that
-   is invisible to the user who most needs it is not a satisfied requirement.
+1. The **allowlist-decision** line exists: `EspGatedTransport` pushes a `Refused` event and logs
+   it, and `setup_esp` names the posture in force at startup — either the allowed hosts or
+   "ANY host allowed (no --esp-allow given)". `esp-cli-func` asserts the flag semantics against the
+   real binary, including that `--esp-allow` without `--esp` is a **refusal** rather than a silent
+   no-op.
+2. The GUI is no longer blind: `EspConnectionLog` is what the **status cell**
+   (`MainWindow::update_esp_status`) renders, so an opened or refused connection is visible to the
+   user who most needs it and not only on stderr.
 
 ### 8.3 No host network information may leak into the guest
 
@@ -929,8 +946,16 @@ worth it.
 
 **Per-frame RX batching.** Rejected on arithmetic: 4.5× FIFO overflow *and* a 20 ms gap inside the
 `+IPD,<len>:` header, which fails 100 % regardless of FIFO size (§6.2). Note this rejects
-*batching*; it does **not** by itself establish that baud pacing is the only alternative — see
-§11.2.
+*batching*; it does **not** by itself establish that baud pacing is the only alternative — that is
+the separate question §11.2 settles.
+
+**On-demand RX refill** (top the FIFO up whenever it has room). Rejected on **measurement**, not on
+arithmetic, and deliberately raced rather than dismissed. It avoids both of batching's failure
+modes and would have deleted the `tick()` hook outright — and it starves the guest: the main
+program's share of a bulk-transfer loop falls from 49.74 % to **0.04 %** at nextsync's 1.152 Mbaud,
+and to a measured **0.00 %** at 115200/3.5 MHz, while buying only **1.42×** throughput at the
+fastest configuration a real client uses. `rx_near_full` also goes from never asserted to asserted
+on 99.8 % of samples. Full rig, controls and numbers in §11.2.
 
 **Coupling the socket directly to `inject_rx()`.** Passes a unit test and destroys data in headless
 runs: `inject_rx` has no baud pacing at all (`uart.cpp` paces TX only) and the RX FIFO is 512 bytes
@@ -1003,7 +1028,9 @@ What v1.0 already leaves open, at zero cost today (§3):
 
 ## 11. Open questions — to be tested, not assumed
 
-Two things are genuinely unsettled. They are stated as questions, not as settled design.
+One of the two is now **settled by measurement** ([§11.2](#112-the-rx-pacing-is-settled--baud-pacing-stays)).
+The other ([§11.1](#111-nextsyncs-flush_uart_hard-needs-193-ms-of-continuous-silence)) is
+**narrowed but still open**, and is labelled untested rather than quietly dropped.
 
 ### 11.1 nextsync's `flush_uart_hard()` needs 19.3 ms of continuous silence
 
@@ -1014,42 +1041,113 @@ instantly-responding emulated ESP is **faster than real hardware**.
 
 The reasoning that it *should* be safe: the module only speaks when spoken to, and nextsync
 controls its own sends. But "we made it faster than hardware and something timing-sensitive broke"
-is exactly the class of bug that appears only against real software. **UNTESTED.** It belongs in
-the branch-5 acceptance test.
+is exactly the class of bug that appears only against real software.
 
-### 11.2 The RX pacing may be replaceable — and the hazard is interrupt saturation
+**Still UNTESTED against nextsync, and it is going to stay that way for now.** nextsync is not on
+the official SD card and its source is not on the development machine, so branch 5 could not run
+it; saying so is better than substituting a proxy and calling the question closed.
 
-There are **three** options, not two. The §6.2 argument rejects per-frame *batching*; it does not
-establish that baud pacing is the only alternative.
+**What branch 5 *did* narrow.** The `esp-loopback-func` regression row asserts the guest-visible
+byte stream of a whole session — init, connect, send, receive — as an **exact ordered sequence**,
+and the observed stream contains precisely the replies to the guest's own commands and nothing
+else. So the "module only speaks when spoken to" half of the reasoning is no longer an assumption:
+it is a pinned assertion, and any future unsolicited chatter (a banner, a stray `ready`, an early
+`CLOSED`) breaks that row. What remains genuinely open is the other half — a `+IPD` or a `CLOSED`
+arriving from the **peer** inside a flush window. That is a property of the peer's timing rather
+than of this engine, which is a materially smaller question than the one originally recorded.
+
+### 11.2 The RX pacing is SETTLED — baud pacing stays
+
+**Answered by measurement, branch 5.** The instruction was *"do not defend the shipped pacing
+merely because it is already built"*, so it was not defended — it was raced against the
+alternative, and it won by three orders of magnitude on the metric that matters.
+
+There were **three** options, not two. The §6.2 argument rejects per-frame *batching*; it never
+established that baud pacing was the only alternative:
 
 | Option | Verdict |
 |---|---|
 | Per-frame batch | **Fails** — 4.5× FIFO overflow *and* 20 ms gaps straddle the `+IPD,<len>:` header |
-| **Pace at configured baud** (shipped) | Works; costs the `tick(master_cycles, byte_ticks)` hook and its accumulator |
-| **On-demand refill** — top the FIFO up whenever it has space | **Avoids both failure modes**: no overflow because we only write when there is room; no gaps because the next byte is always already there |
+| **Pace at configured baud** (shipped) | **KEPT.** Costs the `tick(master_cycles, byte_ticks)` hook and its accumulator |
+| On-demand refill — top the FIFO up whenever it has space | **REJECTED on measurement**: it starves the guest, exactly as the hazard below predicted |
 
-**What on-demand refill would buy:** delete the `tick()` hook entirely, along with the hot-path
-work its placement required. `AT+UART_CUR` becomes an acknowledged no-op rather than a live pacing
-input. The speed gain is **modest, not transformative** — the guest is the bottleneck either way
-(§6.4), roughly 1.5× at best over the fastest real configuration.
+#### The experiment
 
-**The hazard to test, not assume: interrupt saturation.** With NR 0xC6 bit 1 clear the RX
-interrupt fires on **every byte pushed** (`push_rx_with_flag` → IM2 level 1,
-`zxnext.vhd:1941-1944`; §4.5 for the gate) and NextZXOS's `ESPAT.DRV` is
-interrupt-driven. On real hardware the 8.7 µs inter-byte gap at 1.152 Mbaud is what lets the main
-program run between IRQs. Refill the instant space appears and the ISR may return to find another
-byte already waiting — the Z80 could spend effectively all its time in the handler.
+nextsync — the pacing-critical client — is **not on the official SD card and its source is not on
+the development machine**, so it could not be the subject. Stating that plainly matters, because
+what was measured instead is a *model* of it and the difference should be visible to a reader.
 
-**That presents as "the transfer works but the program appears frozen"**, which is considerably
-nastier to diagnose than a checksum failure. Secondary effect: `rx_near_full` (¾ = 384 bytes) would
-be permanently asserted during a transfer, where at 115200 it rarely fires — changing the interrupt
-pattern the driver sees.
+The subject is a purpose-built Z80 guest that connects to a loopback-network TCP peer, asks for an
+endless stream, and then spends the run in a loop whose every iteration does **exactly one** of two
+things: consume a waiting RX byte (the "ISR"), or perform one unit of **main-program work**. Both
+arms are counted, and the guest reports both counters plus a `rx_near_full` sample count out of the
+magic port every 256 bytes. Two runs per configuration, identical frame budget (1000 measured
+frames after a 100-frame inject delay), identical guest, identical peer; the only difference is an
+env-gated pacing switch, so both arms come from one binary.
 
-**The experiment** (branch 5, cheap once the functional test exists): run **nextsync** against both
-pacings and watch whether the guest **makes progress**, not merely whether the transfer completes.
-If there is no starvation, the simpler design wins and the tick hook can be deleted.
+Two things were done to make the comparison *favour* on-demand rather than the incumbent:
 
-Explicitly: **do not defend the shipped pacing merely because it is already built.**
+- On-demand was implemented in its **best** form — refill gated on FIFO space, so it never drops a
+  byte. The naive form additionally overflows, and was not the one measured.
+- The guest polls rather than taking interrupts. That is not a weakening: the consume branch runs
+  precisely when a byte is available, which is precisely when an ISR would be entered, so the
+  arithmetic is the same one — without making the result depend on an IM2 vector table being set up
+  correctly. A real interrupt-driven driver (`ESPAT.DRV` is one) pays ISR entry/exit on top, so its
+  figures would be **worse** than these, not better.
+
+#### The numbers
+
+| Link rate / CPU | Pacing | bytes/frame | main-program share of the loop | `rx_near_full` asserted |
+|---|---|---|---|---|
+| 115 200, 3.5 MHz | **shipped** | 210.7 | **69.18 %** | 0.00 % |
+| 115 200, 3.5 MHz | on-demand | 463.1 | **0.00 %** | 99.96 % |
+| 115 200, 28 MHz | **shipped** | 212.5 | **95.60 %** | 0.00 % |
+| 115 200, 28 MHz | on-demand | 3 040.5 | **0.02 %** | 99.85 % |
+| 1.17 Mbaud, 28 MHz | **shipped** | 2 130.7 | **49.74 %** | 0.00 % |
+| 1.17 Mbaud, 28 MHz | on-demand | 3 034.4 | **0.04 %** | 99.79 % |
+
+Four independent checks say the rig measured what it claims to:
+
+- **The pacer really follows the live prescaler.** Shipped delivers 210.7 bytes/frame at 115200
+  against a theoretical 559 104 ÷ 2430 = 230.1 (92 %), and 2 130.7 at 1.17 Mbaud against
+  559 104 ÷ 240 = 2 329.6 (91 %). The *same* ratio at a ~10× different rate is the point — a
+  constant would not track. The residual ~9 % is `+IPD` chunk-boundary quiet time (§6.3).
+- **The CPU-speed knob took effect.** Work units are 8.7× higher at 28 MHz than at 3.5 MHz on the
+  shipped arm, i.e. the NR 0x07 = 3 write landed.
+- **On-demand is guest-limited, not network-limited.** At 28 MHz it settles at 184 T-states per
+  byte, which is this guest's own consume-and-count path. Before the `rx_near_full` counter was
+  added, the same arm measured 115 T/byte — and the bare poll-read-count path is 93 T, which is
+  also, by coincidence worth noting, exactly the figure §6.4 quotes for nextsync's own receive
+  loop. The peer pushed over 300 MB per run (~50 MB/s) and was never the constraint.
+- **Both arms saw the same peer and the same frame budget**, so "bytes/frame" is a like-for-like
+  throughput comparison in emulated time.
+
+#### The verdict
+
+**Keep the shipped pacing.** The trade is not close:
+
+- **What on-demand buys** at the fastest configuration a real client actually uses — nextsync's
+  1.152 Mbaud — is **1.42×**. That is §6.4's predicted "at most ≈1.5×", now measured instead of
+  reasoned. (The 14× at 115200 is not a real-world gain: it is the emulator ignoring a baud rate
+  the guest asked for.)
+- **What it costs** is the guest. The main program's share of the loop falls from 49.74 % to
+  0.04 % — a **1243× reduction** — and at 115200/3.5 MHz it reaches a measured **0.00 %**: the main
+  program did not advance once during the transfer. That is precisely the predicted failure,
+  *"the transfer works but the program appears frozen"*, and it is the nastier kind because nothing
+  reports an error.
+- **The secondary prediction held exactly too.** `rx_near_full` (¾ = 384 bytes) goes from **never**
+  asserted under pacing to asserted on **99.8 %** of samples under on-demand — the FIFO sits full,
+  permanently changing the interrupt pattern `ESPAT.DRV` sees.
+
+So the `tick(master_cycles, byte_ticks)` hook and its accumulator stay, `AT+UART_CUR` stays a live
+pacing input rather than an acknowledged no-op, and the "delete the hot-path hook" saving is not
+available at any acceptable price. The experimental switch was removed with the measurement; it was
+never a feature.
+
+**What would reopen this:** a measurement on a *real* interrupt-driven client showing the shipped
+pacing itself starving the main program. The 1.17 Mbaud row is the one to watch — 49.74 % free is
+comfortable, but it is half of what 115200 leaves, and 2 Mbaud (`syncfast`) is a further step down
+that the rig above can measure the day nextsync is available.
 
 ---
 
