@@ -109,10 +109,13 @@ void ThreadedEsp::run() {
         });
     }
     // DELIBERATELY NO FINAL PASS. An earlier version did one, to catch bytes
-    // the guest handed over just before the stop — but `poll()` can block for
-    // the transport's synchronous DNS lookup, so a trailing pass would make
-    // `stop()` (and therefore the destructor, and therefore a cold boot) wait
-    // for a SECOND resolver timeout. Shutdown is exactly when nobody wants
+    // the guest handed over just before the stop. The original reason to drop
+    // it was that `poll()` could block for the shipped transport's synchronous
+    // DNS lookup, making a trailing pass wait out a SECOND resolver timeout;
+    // that transport now resolves off-thread, so the reason has narrowed but
+    // not gone: shutdown is bounded by ONE `EspTransport::poll()` and a
+    // trailing pass would double it for ANY transport, including a
+    // third-party one that blocks. Shutdown is also exactly when nobody wants
     // those bytes. A host that does want the queue settled has `wait_idle`,
     // which drains inline once the worker is down.
 }
