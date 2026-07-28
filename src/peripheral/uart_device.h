@@ -93,9 +93,16 @@ public:
     /// hung off it. The intended call site is once per frame from the host
     /// loop, wired by the CLI/config branch that owns the frame-loop change.
     ///
-    /// `poll()` COVERS ONLY THE WALL-CLOCK HALF, and is structurally
-    /// insufficient for RX delivery — a gap this seam does not yet close.
-    /// The measured nextsync constraints (see issue #25) are that RX must be
+    /// `poll()` COVERS ONLY THE WALL-CLOCK HALF. The emulated-time half is
+    /// `tick()` below, which the AT-engine branch added together with its
+    /// call site and its tests.
+    virtual void poll() {}
+
+    /// Emulated-time service point, called from `UartChannel::tick` — i.e.
+    /// once per Z80 instruction, gated by `tick_wanted()`.
+    ///
+    /// WHY A SECOND HOOK EXISTS AT ALL. `poll()` cannot deliver RX. The
+    /// measured nextsync constraints (issue #25) are that RX must be
     /// drip-fed at the live `prescaler * frame_bits` rate, because:
     ///   * nextsync reprograms the link to 1.152 Mbaud (`sync`) or 2 Mbaud
     ///     (`syncfast`) via `AT+UART_CUR`, so the comfortable "230 bytes per
@@ -104,14 +111,34 @@ public:
     ///   * each byte of an inbound `+IPD,<len>:` header gets a single ~314 us
     ///     window with no outer retry, so ANY per-frame (20 ms) chunking
     ///     fails 100% of the time regardless of FIFO size.
-    /// Delivery therefore has to be paced off the same clock the TX path
-    /// already uses (`tx_timer_byte_`, counted down in `UartChannel::tick`),
-    /// which means the AT-engine branch will need a cycle-driven device hook
-    /// — something like `UartDevice::tick(uint32_t master_cycles)` called
-    /// from `UartChannel::tick`. It is deliberately NOT declared here: an
-    /// unwired virtual with no call site and no test earns nothing, whereas
-    /// `poll()` at least pins the cadence argument above.
-    virtual void poll() {}
+    /// So delivery is paced off exactly the clock the TX path already uses.
+    ///
+    /// @param master_cycles  28 MHz ticks elapsed, as handed to `UartChannel::tick`.
+    /// @param byte_ticks     28 MHz ticks for ONE complete frame at the CURRENT
+    ///                       framing and prescaler — `UartChannel::byte_transfer_ticks()`.
+    ///                       Passed rather than queried so that implementations
+    ///                       stay free of any UART header, exactly as `RxSink`
+    ///                       does for the injection direction; and passed FRESH
+    ///                       on every call so a mid-stream `AT+UART_CUR` baud
+    ///                       switch changes the delivery rate immediately.
+    ///
+    /// THE HOT-PATH CONTRACT. `UartChannel::tick` runs per Z80 instruction, so
+    /// this virtual must not be reached unless there is real work: the call
+    /// site is `if (device_ && device_->tick_wanted())`. With no device
+    /// attached — every pre-existing test and all of production until the
+    /// CLI/config branch — the cost is one null test on a pointer already in
+    /// the cache line being touched. With an attached but idle device it is
+    /// one further `bool` load. `byte_transfer_ticks()` is only computed
+    /// inside the guarded branch.
+    virtual void tick(uint32_t master_cycles, uint32_t byte_ticks) {
+        (void)master_cycles;
+        (void)byte_ticks;
+    }
+
+    /// Hot-path gate for `tick()`. Non-virtual by design: the whole point is
+    /// that an idle device costs a predictable branch, not a vtable
+    /// dispatch. Devices raise and lower it with `set_tick_wanted`.
+    bool tick_wanted() const { return tick_wanted_; }
 
     /// Install (or clear, with `nullptr`) the guest-bound sink.
     /// Called by `Uart::attach_device` / `Uart::detach_device`.
@@ -133,6 +160,12 @@ protected:
         if (rx_sink_) rx_sink_(byte);
     }
 
+    /// Raise/lower the `tick()` gate. Call it whenever the device's "do I
+    /// have pending work?" answer changes; leaving it raised is merely
+    /// wasteful, leaving it lowered with work outstanding STALLS the device.
+    void set_tick_wanted(bool wanted) { tick_wanted_ = wanted; }
+
 private:
     RxSink rx_sink_;
+    bool   tick_wanted_ = false;
 };

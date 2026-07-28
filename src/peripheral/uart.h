@@ -250,6 +250,36 @@ public:
     void detach_device()                   { device_ = nullptr; }
     UartDevice* device() const             { return device_; }
 
+    /// Emulated-time service for the attached backend (GH #25 branch 3).
+    ///
+    /// Called from `Uart::tick`, NOT from `UartChannel::tick`, and that
+    /// placement is MEASURED rather than aesthetic. `UartChannel::tick` runs
+    /// once per Z80 instruction and gets inlined into `Uart::tick`; putting
+    /// this work (a virtual call plus `byte_transfer_ticks()`) inside its body
+    /// grew it past the inliner's budget and cost 4.8% of headless emulation
+    /// throughput, 3.1% even with the body split out of line. Hoisted here,
+    /// behind `Uart`'s single `device_attached_` flag, `UartChannel::tick` is
+    /// byte-identical to what it was before this hook existed and the whole
+    /// thing costs ONE predicted-not-taken branch per instruction for the
+    /// entire UART: measured -0.3% (median) / -0.6% (min), i.e. inside
+    /// run-to-run noise. Method: 7 interleaved pairs of
+    /// `jnext --headless --machine next --delayed-automatic-exit-frames 900`
+    /// against a build with the hook deleted. MEASURE BEFORE MOVING IT.
+    ///
+    /// The framing-reset check is repeated here on purpose: bit 7 holds the
+    /// Next-side RX engine in S_PAUSE (uart_rx.vhd:219) and `reset()` empties
+    /// the RX FIFO, so a device must not inject while the guest holds the UART
+    /// down. A device that buffers host-side (the ESP does) loses nothing by
+    /// waiting.
+    void service_attached_device(uint32_t master_cycles) {
+        if (framing_ & 0x80) return;
+        if (device_ && device_->tick_wanted()) {
+            // Computed FRESH so a mid-stream prescaler or framing change
+            // (nextsync's `AT+UART_CUR` baud switch) re-paces delivery at once.
+            device_->tick(master_cycles, byte_transfer_ticks());
+        }
+    }
+
     // ── Callbacks ─────────────────────────────────────────────
 
     /// Called when a byte has been fully transmitted from the TX FIFO,
@@ -411,6 +441,8 @@ private:
     /// Compute the number of 28 MHz ticks for one complete byte transfer.
     uint32_t byte_transfer_ticks() const;
 
+
+
     /// Pop the next TX FIFO byte and begin its transmission (byte-level
     /// engine): sets tx_busy_, arms tx_timer_byte_, emits via on_tx_byte
     /// or loopback inject_rx(). Caller guarantees !tx_fifo_.empty().
@@ -504,4 +536,11 @@ public:
 private:
     std::array<UartChannel, 2> channels_;
     int select_ = 0;  // 0 = ESP (uart0), 1 = Pi (uart1)
+
+    /// True while ANY channel has a backend attached. The one gate the
+    /// per-instruction `tick` pays for; see `UartChannel::service_attached_device`
+    /// for why the check lives here rather than per channel. Maintained by
+    /// attach/detach and deliberately NOT serialised — which device is plugged
+    /// in is host topology, like `UartChannel::device_` itself.
+    bool device_attached_ = false;
 };
