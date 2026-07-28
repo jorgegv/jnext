@@ -89,7 +89,27 @@ if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             RESULT_VARIABLE GIT_SUBMOD_RESULT)
         if(NOT GIT_SUBMOD_RESULT EQUAL "0")
-            message(WARNING "git submodule update failed: ${GIT_SUBMOD_RESULT}")
+            # Fatal only when the failure left the submodule unusable (GH #152):
+            # warning-then-continue always ended in "third_party/spdlog does not
+            # contain a CMakeLists.txt file" 50 lines later, naming neither the
+            # submodule nor the network. A failed init with the content already
+            # in place is harmless, though — e.g. git's "dubious ownership"
+            # refusal (exit 128) on a workspace owned by another uid, which is
+            # why CI sets safe.directory (.github/workflows/ci.yml).
+            if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/spdlog/CMakeLists.txt")
+                message(WARNING
+                    "git submodule update failed (exit ${GIT_SUBMOD_RESULT}), but "
+                    "third_party/spdlog is present — continuing with that checkout, "
+                    "which may not be at the pinned revision.")
+            else()
+                message(FATAL_ERROR
+                    "git submodule update --init --recursive failed (exit "
+                    "${GIT_SUBMOD_RESULT}) and the third_party/spdlog submodule is "
+                    "empty; jnext cannot build without it.\n"
+                    "Usual cause: no network access, or a transient github.com failure.\n"
+                    "Fix: run  git submodule update --init --recursive  in "
+                    "${CMAKE_SOURCE_DIR}  and re-run the build.")
+            endif()
         endif()
     endif()
 endif()
@@ -141,6 +161,18 @@ if(NOT WIN32)
 endif()
 
 # spdlog — vendored as git submodule, header-only mode.
+# An empty third_party/spdlog still reaches this line whenever the init block
+# above did not run at all: no .git (GitHub's auto-generated source archives
+# ship the empty gitlink — packaging/README.md "Submodule gotcha"), no git
+# installed, or -DGIT_SUBMODULE=OFF. add_subdirectory's own error mentions
+# neither submodules nor a remedy, so diagnose it here (GH #152).
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/spdlog/CMakeLists.txt")
+    message(FATAL_ERROR
+        "third_party/spdlog is empty — jnext needs this git submodule to build.\n"
+        "From a git checkout:   git submodule update --init --recursive\n"
+        "From a source archive: use jnext-<version>-src.zip from the release page; "
+        "GitHub's auto-generated source archives do not include submodule content.")
+endif()
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 
 # ZOT TZX/TAP player by antirez — MIT License.
