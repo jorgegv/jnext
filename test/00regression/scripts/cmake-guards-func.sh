@@ -24,7 +24,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want cmake-guards-func; then
     begin_func cmake-guards-func
 
-    cg_t=$(mktemp -d); trap 'rm -rf "$cg_t"' EXIT
+    # Under $TMP_DIR, which the framework's ONE EXIT/INT/TERM trap already
+    # covers (test-functions.inc). Installing a trap here would SILENTLY
+    # REPLACE that handler for the rest of the process — every script is
+    # sourced into the same shell — and leak the run's 1-2 GB SD clone on
+    # every COMPLETED run, while the pass count stayed green. Same convention
+    # as sdcard-isolation-func.sh's $TMP_DIR/sdiso.$$.
+    cg_t="$TMP_DIR/cmake-guards.$$"
+    mkdir -p "$cg_t"
     cg_fail=""
 
     # build_sandbox <dir> <spdlog-mode: empty|sentinel> <git-mode: gitfile|archive>
@@ -116,6 +123,8 @@ if want cmake-guards-func; then
     cg_check CG-03 "failed init + present submodule keeps building" \
         "third_party/spdlog is present" \
         "CG-SENTINEL-REACHED-SPDLOG"
+
+    rm -rf "$cg_t"
 
     if [[ -z "$cg_fail" ]]; then
         pass_row " (CG-01/02 fatal at the failing step, CG-03 non-fatal)"
