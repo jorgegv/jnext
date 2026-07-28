@@ -728,8 +728,9 @@ static void test_group9()
         r.apply_lores(b.data(), ROW, ram, pal);
 
         check("LR-160", "NR $26 / $27 (ULA scroll) do not move the LoRes "
-              "image (lores.vhd:37-61 has no such port; "
-              "zxnext.vhd:4241-4271)",
+              "image (lores.vhd:82,84 - the address generator consumes "
+              "LoRes's own scroll_x_i/scroll_y_i, which zxnext.vhd:4241-4271 "
+              "drives from NR $32/$33, never from the ULA's NR $26/$27)",
               std::memcmp(a.data(), b.data(),
                           Renderer::FB_WIDTH * sizeof(uint32_t)) == 0,
               "ULA scroll leaked into the LoRes address generator");

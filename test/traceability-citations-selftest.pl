@@ -788,6 +788,39 @@ check('SELF-88', 'the refusal: when NO call carrying the ID cites anything, the 
       ($guard->{'GD-02'} // '') eq 'fixture_d.vhd:900',
       "got " . ($guard->{'GD-02'} // '(none)'));
 
+# ── `Test file:line` must name the SAME call the citation came from ───
+#
+# Fixing the citation half alone left the two halves of a row disagreeing:
+# line_for() still resolved from the first occurrence, so 22 Multiface rows
+# published the dormant fixture-init guard's line — a `check(id, "Emulator
+# init failed", false, ...)` that never executes — beside a citation read from
+# the real assertion six lines down. A reader following the column landed on a
+# line that is not the assertion.
+my (%gd_from, %gd_at);
+grep_citations('test/fixture/guard_test.cpp', \%gd_from, \%gd_at);
+my ($gd_checks, $gd_skips) = grep_source('test/fixture/guard_test.cpp');
+my %gd_where = map { $_ => 'test/fixture/guard_test.cpp' }
+               (keys %$gd_checks, keys %$gd_skips);
+
+my ($gd1_src, $gd1_line) =
+    line_for('GD-01', $gd_checks, $gd_skips, \%gd_where, \%gd_at);
+my ($gd1_src_old, $gd1_line_old) =
+    line_for('GD-01', $gd_checks, $gd_skips, \%gd_where);
+
+check('SELF-97', 'Test file:line names the CITED call, not the guard that reused the ID first',
+      defined $gd1_line && $gd1_line == 7 && $gd1_line_old == 4,
+      sprintf("cited-call line=%s first-occurrence line=%s",
+              $gd1_line // '(none)', $gd1_line_old // '(none)'));
+
+check('SELF-98', 'the citation and the line come from ONE call — the two halves cannot disagree',
+      ($guard->{'GD-01'} // '') eq 'fixture_a.vhd:12' && ($gd_at{'GD-01'} // 0) == 7,
+      sprintf("cite=%s at=%s", $guard->{'GD-01'} // '(none)',
+              $gd_at{'GD-01'} // '(none)'));
+
+check('SELF-99', 'the refusal: a row whose citation came from a COMMENT gets no line from it, and falls back to its own occurrence',
+      !defined $gd_at{'GD-02'},
+      "got " . ($gd_at{'GD-02'} // '(undef, correct)'));
+
 # ── Locating a section header (GH #144) ───────────────────────────────
 #
 # A suite named in @SUBSYS passes the accounting gate as TRACED, but if its
@@ -820,6 +853,21 @@ check('SELF-90', 'a header that gained a " + `companion.cpp`" suffix still resol
 check('SELF-91', 'the refusal: the prefix match does not let `## Copper` swallow `## Copper Extra`',
       scalar(@$rs_found) >= 1 && $rs_found->[0][0] == 0,
       "Copper resolved to line " . ($rs_found->[0][0] // '(none)'));
+
+# resolve_sections() answers WHICH headers are absent; the CONSEQUENCE — exit
+# 2 and write nothing — was still inline in main(), which this file strips.
+# A reviewer reverted that refusal to print-and-continue and the selftest
+# stayed green, so it was a rule nothing could assert.
+my @rf_none = section_refusal([]);
+my @rf_some = section_refusal(['## Nowhere — `x`']);
+
+check('SELF-100', 'a missing section header exits 2 AND forbids writing the matrix',
+      $rf_some[0] == 2 && !$rf_some[1],
+      sprintf("got rc=%d may_write=%d", @rf_some));
+
+check('SELF-101', 'the refusal: with every section present the run proceeds and may write',
+      $rf_none[0] == 0 && $rf_none[1],
+      sprintf("got rc=%d may_write=%d", @rf_none));
 
 # ── Exit 3 is internal error, and must not read as the gate's exit 2 ──
 #

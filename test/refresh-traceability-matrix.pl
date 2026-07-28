@@ -984,7 +984,7 @@ sub plan_cites {
 # from the caller's source list — `test/uart/uart_test.cpp` supplies INT-07's
 # citation without ever mentioning INT-07, because the UART-I2C plan doc does.
 sub grep_citations {
-    my ($source_rel, $from) = @_;
+    my ($source_rel, $from, $at) = @_;
     my $abs = "$ROOT/$source_rel";
     open(my $fh, '<', $abs) or fatal("open $abs: $!");
     my @src = <$fh>;
@@ -1072,11 +1072,25 @@ sub grep_citations {
         # applied. Order is preserved, so the first CITED call wins, and
         # $owns_call still latches on any owning call — the `next` tier stays
         # fenced off for a row that has a call but no citation in it.
+        # $at records WHICH call won, so `Test file:line` can point at the
+        # same assertion the citation came from. Without it the two halves of
+        # one row disagreed: line_for() resolved from the FIRST occurrence, so
+        # 22 Multiface rows named the dormant fixture-init guard — a
+        # `check(id, "Emulator init failed", false, ...)` that never executes —
+        # while the citation beside it came from the real assertion six lines
+        # down. Filled ONLY for a cited-call win, never for the `named`,
+        # `next` or `plan` tiers: those have no line in this file to point at,
+        # and inventing one is how a column starts lying. (GH #144)
+        my $cite_at;
         OCC: for my $occ (@{ $id_line{$tid} }) {
             for my $c (@calls) {
                 if ($c->{s} <= $occ && $occ <= $c->{e}) {
                     $owns_call = 1;
-                    if (defined $c->{cite}) { $cite = $c->{cite}; last OCC; }
+                    if (defined $c->{cite}) {
+                        $cite    = $c->{cite};
+                        $cite_at = $c->{s} + 1;
+                        last OCC;
+                    }
                     last;
                 }
             }
@@ -1105,6 +1119,7 @@ sub grep_citations {
         next unless defined $cite;
         $cites{$tid} = $cite;
         $from->{$tid} //= $prov if $from;
+        $at->{$tid}   //= $cite_at if $at && defined $cite_at;
     }
     # Rows the plan doc cites but no test source mentions stay resolvable:
     # `missing` status still deserves its citation.
@@ -1435,9 +1450,24 @@ sub status_for {
 # be backed by several suites and the row must point at the one that
 # actually holds the assertion.
 sub line_for {
-    my ($tid, $checks, $skips, $where) = @_;
+    my ($tid, $checks, $skips, $where, $cite_line) = @_;
     my $resolved = resolve_ids($tid, $checks, $skips);
     for my $r (@$resolved) {
+        # The line of the call whose CITATION was published, when there is
+        # one. %checks/%skips hold the FIRST occurrence of the ID, which for
+        # a row asserted twice — the real check() plus a fixture-init guard
+        # reusing the same ID — is the guard: a `check(id, "Emulator init
+        # failed", false, ...)` that never executes. 22 Multiface rows pointed
+        # at one. Preferring the cited call keeps the two halves of a row
+        # agreeing: `VHDL file:line` and `Test file:line` name the same
+        # assertion, or the row has neither.
+        #
+        # Only ever a line from THIS row's own call (grep_citations fills it
+        # for the call tier alone), and %where already resolved to the source
+        # that call lives in, so the pair cannot come from different files.
+        return ($where->{$r}, $cite_line->{$r})
+            if $cite_line && defined $cite_line->{$r}
+               && (exists $checks->{$r} || exists $skips->{$r});
         return ($where->{$r}, $checks->{$r}) if exists $checks->{$r};
         return ($where->{$r}, $skips->{$r})  if exists $skips->{$r};
     }
@@ -1592,7 +1622,7 @@ sub refresh_section {
     }
     my $fails = \%fails;
 
-    my (%checks, %skips, %where, %cites, %cite_from);
+    my (%checks, %skips, %where, %cites, %cite_from, %cite_line);
     my $tombstone;
     for my $src (@sources) {
         my ($c, $k) = grep_source($src);
@@ -1609,12 +1639,16 @@ sub refresh_section {
         # %where is already updated for this source above, so cite_upgrades()
         # can tell "this source owns the row" from "this source merely read
         # the row out of the shared plan doc". (GH #133)
-        my %cf;
-        my $cs = grep_citations($src, \%cf);
+        my (%cf, %cl);
+        my $cs = grep_citations($src, \%cf, \%cl);
         for my $id (keys %$cs) {
             next unless cite_upgrades($cites{$id}, $cf{$id}, $where{$id});
             $cites{$id}     = $cs->{$id};
             $cite_from{$id} = $cf{$id};
+            # Assigned, not //=: a citation that just lost to a better one
+            # must not keep the loser's line. undef is the right answer when
+            # the winner came from the plan doc or a comment block.
+            $cite_line{$id} = $cl{$id};
         }
         $tombstone //= $TOMBSTONE{ suite_for_source($src) };
     }
@@ -1664,14 +1698,15 @@ sub refresh_section {
         # its whole citation map would let a companion's row-local evidence
         # answer for a row the primary source owns — the borrowed-citation
         # defect the `next` tier is fenced against.
-        my (%ccites, %cfrom);
+        my (%ccites, %cfrom, %cline);
         for my $src (as_list($csrc)) {
-            my %cf;
-            my $cs = grep_citations($src, \%cf);
+            my (%cf, %cl);
+            my $cs = grep_citations($src, \%cf, \%cl);
             for my $id (keys %$cs) {
                 next unless cite_upgrades($ccites{$id}, $cf{$id}, $where{$id});
                 $ccites{$id} = $cs->{$id};
                 $cfrom{$id}  = $cf{$id};
+                $cline{$id}  = $cl{$id};
             }
         }
         # The ownership gate stays: only rows this companion asserts. What
@@ -1683,6 +1718,7 @@ sub refresh_section {
             next unless cite_upgrades($cites{$id}, $cfrom{$id}, $where{$id});
             $cites{$id}     = $ccites{$id};
             $cite_from{$id} = $cfrom{$id};
+            $cite_line{$id} = $cline{$id};
         }
 
         # The FAIL set is restricted the same way, and this is the half that
@@ -1801,7 +1837,8 @@ sub refresh_section {
                              "$from  $tid_raw: doc=[$cur_cite] source=[$new_cite]";
                     }
 
-                    my ($lsrc, $ln) = line_for($tid_raw, $checks, $skips, \%where);
+                    my ($lsrc, $ln) = line_for($tid_raw, $checks, $skips,
+                                               \%where, \%cite_line);
                     my $location = defined($ln) ? "$lsrc:$ln" : 'missing';
                     my $orig_loc = $cells[5];
                     my $loc_width = length($orig_loc) - 2;
@@ -2018,6 +2055,25 @@ sub resolve_sections {
     return (\@found, \@missing);
 }
 
+# The CONSEQUENCE of a missing section header, as a pure predicate: exit code,
+# and whether the matrix may be written.
+#
+# resolve_sections() answers "which headers are absent"; this answers "and
+# what then". Splitting them is not ceremony — the refusal was inline in
+# main(), which the selftest strips, and a reviewer reverted it to
+# print-and-continue with the selftest still 96/96 green. A rule nothing can
+# assert is a rule that has already been silently deleted once.
+#
+# Returns (exit_code, may_write): (0, 1) when nothing is missing, (2, 0) when
+# something is. `may_write` is the load-bearing half — a refusal that rewrote
+# the document anyway would leave it half-refreshed against a section list
+# the tool just declared incoherent.
+sub section_refusal {
+    my ($missing) = @_;
+    return (0, 1) unless @$missing;
+    return (2, 0);
+}
+
 sub companion_map {
     my ($lines, $found) = @_;
     my (%span_of, %by_span, %entry_of);
@@ -2121,7 +2177,8 @@ sub main_body {
     # nowhere — the exact condition the gate exists to make impossible. This
     # used to print `NOT FOUND` and carry on, which is a warning line inside a
     # report again. Refuse, and write nothing.
-    if (@missing_sections) {
+    my ($section_rc, $may_write) = section_refusal(\@missing_sections);
+    if (!$may_write) {
         print STDERR
             "refresh-traceability-matrix: REFUSING to run — \@SUBSYS traces a\n"
           . "suite whose section is not in $MATRIX. A traced suite with no\n"
@@ -2129,7 +2186,7 @@ sub main_body {
           . "prevent. Add the section, or tombstone the suite.\n\n";
         print STDERR "  $_\n" for @missing_sections;
         print STDERR "\nThe matrix was NOT rewritten.\n";
-        return 2;
+        return $section_rc;
     }
     my @header_idx = sort { $a <=> $b } map { $_->[0] } @found;
 

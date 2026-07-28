@@ -1265,7 +1265,8 @@ static void g_mf_overlay()
         check("MF-OVL-08",
               "on_retn_seen deactivates overlay; reads fall through",
               active_pre && inactive_post && fall_through,
-              "VHDL multiface.vhd:144, :178 (RETN clears nmi_active+mf_enable)");
+              "VHDL multiface.vhd:144-145,178-179 - the two RETN arms and the "
+              "clears they guard (nmi_active and mf_enable)");
     }
 
     // ── MF-OVL-09 — MF priority above DivMMC.
