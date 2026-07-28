@@ -101,8 +101,11 @@
 ///      this object takes as long as your transport does. Measured against a
 ///      transport that blocks for 2000 ms: the destructor took 2007 ms, which
 ///      in jnext is the emulator frozen for 2 s when the user presses Reset.
-///      The shipped `SocketTransport` currently violates it for a hostname
-///      target; `fix/esp-async-dns` is the change that makes it honest.
+///      The transport this module ships HONOURS the contract — its name
+///      resolution runs on its own thread, so nothing it does here can
+///      outlast a flag test — and the bound therefore holds in practice. A
+///      third-party transport that blocks re-opens it, which is why the
+///      contract is stated on `poll()` rather than assumed of it.
 ///      Detaching instead would bound the destructor and is NOT an option —
 ///      see hazard 3.
 ///   2. The transport must outlive the wrapper (the core holds a reference).
