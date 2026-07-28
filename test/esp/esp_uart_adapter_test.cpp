@@ -17,6 +17,7 @@
 #include "core/log.h"
 #include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
+#include "esp01/esp_threaded.h"
 #include "peripheral/esp_uart_adapter.h"
 #include "peripheral/uart.h"
 
@@ -242,6 +243,27 @@ int main() {
         for (int i = 0; i < 32 && eng.wants_tick(); ++i) eng.tick(BYTE_TICKS, BYTE_TICKS);
         check("ADP-06", "...and after its destruction the engine's sink is cleared, not dangling",
               calls == before); }
+
+    {   // The adapter accepts an EspDevice, so it drives the threaded wrapper
+        // with no change at all. This row is the proof that the abstraction is
+        // real rather than decorative.
+        IdleTransport  tr;
+        ThreadedEsp    esp{tr};
+        std::string    guest;
+        EspUartAdapter adapter{esp};
+        adapter.set_rx_sink([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        esp.start();
+        for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
+        // poll() is what re-evaluates the mirrored gate for work the ESP did on
+        // its own thread; jnext calls it once per frame.
+        for (int i = 0; i < 2000 && guest.size() < 6; ++i) {
+            adapter.poll();
+            for (int j = 0; j < 32 && adapter.tick_wanted(); ++j)
+                adapter.tick(BYTE_TICKS, BYTE_TICKS);
+            esp.wait_idle(1);
+        }
+        check_eq("ADP-07", "the same adapter drives the THREADED wrapper unchanged", guest,
+                 "\r\nOK\r\n"); }
 
     // ══ Group C — the logging binding ═══════════════════════════════════
     //

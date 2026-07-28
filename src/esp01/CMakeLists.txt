@@ -24,9 +24,15 @@ add_library(esp01 STATIC
     src/esp_socket_win.cpp
     src/esp_address_policy.cpp
     src/esp_at.cpp
+    src/esp_threaded.cpp
 )
 target_include_directories(esp01 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(esp01 PUBLIC cxx_std_17)
+
+# The threaded wrapper is optional to USE but always built, so a consumer never
+# has to reconfigure to get it. pthreads is what std::thread needs on POSIX.
+find_package(Threads REQUIRED)
+target_link_libraries(esp01 PUBLIC Threads::Threads)
 
 # Raw BSD sockets need no library at all on POSIX; Winsock needs ws2_32. Both
 # are OS components, not third-party dependencies — the same posture as the SD

@@ -1,9 +1,19 @@
-// Emulated ESP-01 AT engine unit tests (GH #25, branch 3 — the AT model).
+// Emulated ESP-01 AT engine unit tests (GH #25 — the AT model, and the
+// optional threaded wrapper around it).
 //
 // HERMETIC BY CONSTRUCTION: every row drives `esp::AtEngine` against an
 // in-memory `FakeTransport`. No socket is opened, no name is resolved, no
 // listener is bound — the transport interface exists precisely so this suite
 // never touches the network (esp_socket.h, "THE TEST SEAM").
+//
+// PORTABLE BY CONSTRUCTION TOO: nothing here names a jnext type. The suite
+// ships with the module and builds against `esp01` alone. jnext's `UartDevice`
+// adapter and the `Uart::tick` call site are tested in
+// test/esp/esp_uart_adapter_test.cpp, on jnext's side of the line.
+//
+// BOTH DRIVE MODES ARE EXERCISED (group J). The core is passive and drivable
+// inline; `ThreadedEsp` is optional. An optional mode that no row runs is a
+// mode that rots, so both answer the same stimulus with the same bytes here.
 //
 // The rows assert EXACT BYTES, not semantics, because the bytes are the
 // contract. Three guest parsers busy-wait on them with no timeout:
@@ -22,6 +32,7 @@
 
 #include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
+#include "esp01/esp_threaded.h"
 
 #include <chrono>
 #include <cstdio>
@@ -226,7 +237,7 @@ struct Rig {
 // ─────────────────────────────────────────────────────────────────────────
 
 int main() {
-    std::printf("\n=== ESP-01 AT engine tests (GH #25 branch 3) ===\n\n");
+    std::printf("\n=== ESP-01 AT engine tests (GH #25) ===\n\n");
 
     // No sink is installed, so the module is silent for every functional row
     // below and the suite's own output is the only thing on the console — the
@@ -881,6 +892,116 @@ int main() {
               trc.find("paced") != std::string::npos &&
                   trc.find("ticks/byte") != std::string::npos);
     }
+
+    // ══ Group J — BOTH DRIVE MODES ══════════════════════════════════════
+    //
+    // The threaded wrapper is OPTIONAL: the core must stay drivable inline, or
+    // the wrapper is not optional, it is mandatory-with-extra-steps. So both
+    // modes are exercised here, against the same fake transport and the same
+    // expected bytes — an alternative mode nothing runs is an alternative mode
+    // that rots.
+    //
+    // Determinism: no row sleeps for a guessed interval. `wait_idle` reports
+    // when the worker has drained what it was given and completed a pass, and
+    // every loop below is bounded so a stuck wrapper FAILS rather than hangs.
+
+    {   // (a) Constructed but NEVER STARTED — the wrapper must behave exactly
+        //     like the bare core, byte for byte. This is the row that proves
+        //     "optional" is true.
+        FakeTransport tr;
+        ThreadedEsp   esp{tr};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        check("MODE-01", "an unstarted wrapper is not running", !esp.running());
+        for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
+        esp.poll();
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check_eq("MODE-02", "driven INLINE it answers exactly as the bare core does", guest,
+                 "\r\nOK\r\n"); }
+
+    {   // (b) Started. Same stimulus, same bytes — only the thread differs.
+        FakeTransport tr;
+        ThreadedEsp   esp{tr};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        esp.start();
+        check("MODE-03", "start() brings the worker up", esp.running());
+        for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
+        bool settled = esp.wait_idle(2000);
+        for (int i = 0; i < 64 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check("MODE-04", "the worker drains guest input without being polled", settled);
+        check_eq("MODE-05", "driven THREADED it answers with the identical bytes", guest,
+                 "\r\nOK\r\n");
+        esp.stop();
+        check("MODE-06", "stop() joins and reports it", !esp.running());
+        esp.stop();
+        check("MODE-07", "...and stop() is idempotent", !esp.running()); }
+
+    {   // (c) A full session on the worker: connect, prompt, payload, +IPD.
+        //     The socket half is what actually runs on the other thread, so a
+        //     row that only sent `AT` would not exercise it.
+        FakeTransport tr;
+        ThreadedEsp   esp{tr};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        esp.start();
+
+        auto pump = [&](const std::string& s) {
+            for (unsigned char c : s) esp.receive(c);
+            for (int i = 0; i < 200; ++i) {
+                esp.wait_idle(50);
+                for (int j = 0; j < 4096 && esp.wants_tick(); ++j)
+                    esp.tick(BYTE_TICKS, BYTE_TICKS);
+                if (!esp.wants_tick()) break;
+            }
+        };
+        pump("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n");
+        check_eq("MODE-08", "a connect completes on the worker thread", guest, "\r\nOK\r\n");
+        guest.clear();
+
+        pump("AT+CIPSEND=2\r\n");
+        check_eq("MODE-09", "...the CIPSEND prompt still comes back byte-exact", guest,
+                 "\r\nOK\r\n> ");
+        guest.clear();
+
+        pump("hi");
+        check_eq("MODE-10", "...the payload is acknowledged", guest, "\r\nSEND OK\r\n");
+        check("MODE-11", "...and really reached the transport", tr.sent == "hi");
+        guest.clear();
+
+        tr.queue_from_peer("yo");
+        // No guest input this time: the worker must notice peer data on its own.
+        for (int i = 0; i < 200 && guest.size() < 12; ++i) {
+            esp.wait_idle(50);
+            for (int j = 0; j < 4096 && esp.wants_tick(); ++j)
+                esp.tick(BYTE_TICKS, BYTE_TICKS);
+        }
+        check_eq("MODE-12", "unsolicited peer data is framed and paced out unprompted", guest,
+                 "\r\n+IPD,2:yo");
+        esp.stop(); }
+
+    {   // (d) The destructor joins. If it did not, this scope's exit would
+        //     leave a thread running on a destroyed object — which is exactly
+        //     the cold-boot corruption the header's lifetime contract is
+        //     about. There is no portable "is that thread gone?" query, so
+        //     what is asserted is that destruction of a RUNNING wrapper
+        //     completes and leaves the process healthy enough to keep testing.
+        FakeTransport tr;
+        {
+            ThreadedEsp esp{tr};
+            esp.start();
+            for (char c : std::string("AT\r\n")) esp.receive(static_cast<std::uint8_t>(c));
+            // Destroyed here, WITHOUT an explicit stop(), and with work in
+            // flight — the shape a forgetful owner produces.
+        }
+        check("MODE-13", "destroying a running wrapper joins its thread rather than detaching",
+              true);
+        // Under TSan/ASan a missing join here is a hard error rather than a
+        // pass; under a plain build the value is that the process survives and
+        // the transport (a stack object about to die) is provably untouched
+        // afterwards.
+        check("MODE-14", "...and nothing touches the transport after the join",
+              tr.begin_calls == 0); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,
