@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <string>
 #include <thread>
 
 /// OPTIONAL thread wrapper for the emulated ESP-01 (GH #25, branch 3.5 of 6).
@@ -101,8 +102,11 @@
 ///      this object takes as long as your transport does. Measured against a
 ///      transport that blocks for 2000 ms: the destructor took 2007 ms, which
 ///      in jnext is the emulator frozen for 2 s when the user presses Reset.
-///      The shipped `SocketTransport` currently violates it for a hostname
-///      target; `fix/esp-async-dns` is the change that makes it honest.
+///      The transport this module ships HONOURS the contract — its name
+///      resolution runs on its own thread, so nothing it does here can
+///      outlast a flag test — and the bound therefore holds in practice. A
+///      third-party transport that blocks re-opens it, which is why the
+///      contract is stated on `poll()` rather than assumed of it.
 ///      Detaching instead would bound the destructor and is NOT an option —
 ///      see hazard 3.
 ///   2. The transport must outlive the wrapper (the core holds a reference).
@@ -195,8 +199,20 @@ public:
     /// Production code has no reason to call it.
     bool wait_idle(int timeout_ms);
 
+    /// How many service passes were lost to an exception thrown by the
+    /// transport. Should be 0 forever: `EspTransport`'s methods must not throw
+    /// (esp_socket.h). It is exposed rather than left to the log because "the
+    /// worker survived a throwing transport" is a property a test has to be
+    /// able to ASSERT, not grep for — and because a host that wants to
+    /// surface a broken transport can read it.
+    std::uint64_t pass_exceptions() const {
+        return pass_exceptions_.load(std::memory_order_acquire);
+    }
+
 private:
     void run();
+    /// Log and count one exception that escaped a service pass.
+    void note_pass_exception(const std::string& what);
     /// Feed the inbound queue into the core. Caller must hold `core_mutex_`.
     void drain_inbound();
 
@@ -236,6 +252,8 @@ private:
     /// Bumped after every completed service pass, so `wait_idle` can observe
     /// progress rather than guess at it.
     std::atomic<std::uint64_t> passes_{0};
+    /// Service passes lost to a throwing transport. See `pass_exceptions()`.
+    std::atomic<std::uint64_t> pass_exceptions_{0};
 
     /// Wakes the worker when guest input arrives, so a command is not held for
     /// up to `poll_interval_` before the core even sees it.

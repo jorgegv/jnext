@@ -8,10 +8,13 @@
 // Tracing (owner made it a first-class requirement on GH #25, decision 3):
 //   info   connection opened / closed              — user-visible, security-
 //   warn   connection refused by the address policy   relevant, ON by default
-//   warn   DNS failure, or a resolve slow enough to have stalled the frame
-//   error  connect / send / recv failure with the OS error text
+//   error  resolve / connect / send / recv failure with the OS error text
 //   debug  request accepted, resolve timing + result count, byte counts
-//   trace  per-poll state, would-block events
+//   trace  per-poll state, resolve still outstanding, would-block events
+// Resolve TIMING is debug, not warn: since the lookup moved off the calling
+// thread it can no longer stall anything, so a slow-but-successful resolve is
+// ordinary detail. The pathological case — a resolver that never answers — is
+// bounded by AT+CIPSTART's deadline, and that warning is the engine's to emit.
 // Only info and above are emitted at the default level, which is exactly the
 // owner's "nothing on by default except connection open/close" — and that is
 // the default of the module's own seam (esp_log.h), not of a host's logger, so
@@ -22,19 +25,42 @@
 #include "esp01/esp_log.h"
 #include "esp01/esp_socket_platform.h"
 
+#include <atomic>
 #include <chrono>
+#include <exception>
+#include <memory>
+#include <system_error>
+#include <thread>
 #include <utility>
 
 namespace esp {
 namespace {
 
-/// A resolve slower than this is reported at warn: it is the one place this
-/// layer can stall the frame loop, so it must never be silent.
-constexpr long kSlowResolveMs = 200;
+/// The result of ONE asynchronous name lookup, and the only thing a resolver
+/// thread can reach.
+///
+/// Heap-allocated and jointly owned by the thread and the transport, so its
+/// lifetime is the union of theirs rather than either one's. That is what makes
+/// abandoning a lookup free: the transport drops its reference and returns; the
+/// thread writes into memory that is still its own. See make_socket_transport()
+/// in esp_socket.h for the full argument.
+///
+/// SINGLE-SHOT, and the ordering is the contract: the thread writes `ok`,
+/// `addrs` and `err`, THEN releases `done`; the owner reads them only after
+/// acquiring `done`, and only once. Nothing is written after publication, so
+/// there is a happens-before edge and no data race — not "an unlikely race".
+struct ResolveJob {
+    std::atomic<bool>                     done{false};
+    bool                                  ok = false;
+    std::vector<IpAddress>                addrs;
+    std::string                           err;
+    std::chrono::steady_clock::time_point started{};
+};
 
 class SocketTransport final : public EspTransport {
 public:
-    explicit SocketTransport(const AddressPolicy& policy) : policy_(policy) {}
+    SocketTransport(const AddressPolicy& policy, ResolveFn resolver)
+        : policy_(policy), resolver_(std::move(resolver)) {}
 
     ~SocketTransport() override { release(); }
 
@@ -134,6 +160,13 @@ private:
             net::close(sock_);
             sock_ = net::kInvalidSocket;
         }
+        // ABANDON any lookup still in flight. Dropping our reference is the
+        // whole of it — no join, no cancel, no wait — which is why close(), a
+        // failure and ~SocketTransport() are all immediate even mid-resolve.
+        // It also guarantees a stale result can never be consumed: a later
+        // begin_connect() allocates a fresh block, so the abandoned one has no
+        // reader left at all.
+        job_.reset();
     }
 
     void fail(std::string why) {
@@ -143,42 +176,140 @@ private:
         log_error("{}:{} — {}", host_, port_, last_error_);
     }
 
-    /// Resolve, apply the address policy, and start the connect.
+    /// Advance name resolution WITHOUT EVER WAITING FOR IT. At most three
+    /// distinct visits, and none of them blocks:
     ///
-    /// The `AI_NUMERICHOST` pass runs first and never touches the network, so
-    /// an IP-literal target (the common nextsync configuration) reaches the
-    /// socket with zero blocking. Only a genuine name falls through to the
-    /// real lookup — the single blocking call in this layer, timed and
-    /// reported. See make_socket_transport()'s comment for why this is
-    /// synchronous.
+    ///   first    the `AI_NUMERICHOST` pass, on THIS thread. An IP literal is
+    ///            parsed here with no network traffic and no thread, and goes
+    ///            straight on to the policy gate — the pre-existing behaviour,
+    ///            unchanged, for the target nextsync actually uses. Anything
+    ///            else starts a resolver thread and returns at once.
+    ///   middle   one relaxed test of the result flag. Not ready → return.
+    ///   last     the result is consumed, exactly once, and the connect starts.
     void step_resolve() {
-        std::vector<IpAddress> found;
-        std::string            err;
-
-        if (!net::resolve(host_, /*numeric_only=*/true, found, err) || found.empty()) {
-            found.clear();
-            const auto t0 = std::chrono::steady_clock::now();
-            const bool ok = net::resolve(host_, /*numeric_only=*/false, found, err);
-            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now() - t0)
-                                .count();
-            if (!ok || found.empty()) {
-                fail("cannot resolve '" + host_ + "': " + (err.empty() ? "no addresses" : err));
-                return;
+        if (!job_) {
+            std::vector<IpAddress> literal;
+            std::string            err;
+            if (net::resolve(host_, /*numeric_only=*/true, literal, err) &&
+                !literal.empty()) {
+                log_debug("'{}' is a numeric address — no DNS lookup", host_);
+                connect_to_resolved(literal);
+            } else {
+                start_async_resolve();
             }
-            if (ms >= kSlowResolveMs)
-                log_warn(
-                    "DNS lookup of '{}' blocked the emulator for {} ms ({} address(es))",
-                    host_, ms, found.size());
-            else
-                log_debug("resolved '{}' to {} address(es) in {} ms", host_,
-                                    found.size(), ms);
-        } else {
-            log_debug("'{}' is a numeric address — no DNS lookup", host_);
+            return;
         }
 
-        IpAddress  chosen;
-        DenyReason reason = DenyReason::None;
+        if (!job_->done.load(std::memory_order_acquire)) {
+            log_trace("poll: still resolving '{}'", host_);
+            return;
+        }
+
+        // CONSUME ONCE, ON OUR OWN COPY. The block is detached from the
+        // transport before a single field is read out of it, and the addresses
+        // are MOVED into a local before the policy sees them. So the list
+        // classify_address() judges is bit-for-bit the list connect() is issued
+        // against: there is no second reader, nothing that can substitute an
+        // address between the verdict and the syscall, and no way to widen the
+        // allowlist by winning a race — the resolver thread never had a vote in
+        // the decision, only in the candidates.
+        const std::shared_ptr<ResolveJob> job = std::move(job_);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - job->started)
+                            .count();
+        if (!job->ok || job->addrs.empty()) {
+            fail("cannot resolve '" + host_ + "': " +
+                 (job->err.empty() ? "no addresses" : job->err));
+            return;
+        }
+        std::vector<IpAddress> found = std::move(job->addrs);
+        // Elapsed time is debug detail now, not a warning: a slow lookup no
+        // longer stalls anything, and the pathological case (a resolver that
+        // never answers) is bounded by AT+CIPSTART's deadline, which is where
+        // the visible warning belongs.
+        log_debug("resolved '{}' to {} address(es) in {} ms", host_, found.size(), ms);
+        connect_to_resolved(found);
+    }
+
+    /// Hand `host_` to a resolver thread and return. The thread captures a
+    /// reference to the result block plus COPIES of the host and the resolver
+    /// function — deliberately no `this`, which is the whole safety argument.
+    void start_async_resolve() {
+        auto job     = std::make_shared<ResolveJob>();
+        job->started = std::chrono::steady_clock::now();
+
+        ResolveFn         fn   = resolver_;
+        const std::string host = host_;
+        try {
+            std::thread([job, host, fn]() {
+                // NOTHING MAY ESCAPE THIS LAMBDA. An exception that leaves a
+                // `std::thread`'s entry point does not propagate anywhere — it
+                // goes straight to `std::terminate`, killing the whole process.
+                // `resolver` is a PUBLIC seam documented for consumers who
+                // already own a resolver, and reporting failure by exception is
+                // ordinary in C++ network libraries, so this is a reachable
+                // path for anyone reusing the module rather than a theoretical
+                // one. A library that converts its caller's exception into a
+                // process abort is not reusable. Degrade to a FAILED LOOKUP
+                // instead: the engine already handles that (`AT+CIPSTART`
+                // answers `ERROR`), so a throwing resolver costs a connection,
+                // not the emulator.
+                //
+                // WHICH PROPERTY IS LOAD-BEARING, stated because the handlers
+                // below LOOK like they carry the guarantee and do not. `ok` is
+                // initialised false above, and `ok = fn(...)` cannot complete
+                // its assignment when the right-hand side throws — so a thrown
+                // lookup is a FAILED lookup by construction, and the consumer's
+                // `!job->ok` gate refuses it without ever examining the address
+                // list. The `ok = false` / `out.clear()` in the handlers
+                // RESTATE that; they do not establish it. Verified in review by
+                // deleting both `out.clear()` calls: the suite stays at 142/142
+                // and still connects nowhere. They are kept as defence in depth
+                // because they cost nothing and they keep the two properties
+                // independent — a later refactor that decouples the emptiness
+                // check from the `ok` check must not be able to turn a
+                // half-built list into a connect.
+                std::vector<IpAddress> out;
+                std::string            err;
+                bool                   ok = false;
+                try {
+                    ok = fn ? fn(host, out, err)
+                            : net::resolve(host, /*numeric_only=*/false, out, err);
+                } catch (const std::exception& e) {
+                    ok  = false;
+                    out.clear();  // defence in depth, not the barrier — see above
+                    err = std::string("the resolver threw: ") + e.what();
+                } catch (...) {
+                    ok  = false;
+                    out.clear();
+                    err = "the resolver threw a non-std exception";
+                }
+                job->ok    = ok;
+                job->addrs = std::move(out);
+                job->err   = std::move(err);
+                // Publish LAST. Everything above happens-before any acquire of
+                // this flag, and nothing is written after it.
+                job->done.store(true, std::memory_order_release);
+            }).detach();
+        } catch (const std::system_error& e) {
+            // Thread exhaustion is a real failure mode, not an impossibility,
+            // and silently parking in Resolving forever would be the worst
+            // possible answer to it.
+            fail(std::string("cannot start resolver thread: ") + e.what());
+            return;
+        }
+        // Adopted only once the thread exists, so a failed spawn cannot leave
+        // behind a job nobody will ever complete.
+        job_ = std::move(job);
+        log_debug("resolving '{}' off the emulation thread", host_);
+    }
+
+    /// Apply the address policy to `found` and start the TCP connect. Runs on
+    /// the owning thread, always — a resolver thread never reaches this.
+    void connect_to_resolved(const std::vector<IpAddress>& found) {
+        std::string err;
+        IpAddress   chosen;
+        DenyReason  reason = DenyReason::None;
         if (!select_candidate(found, policy_, chosen, reason)) {
             // Refusals are warn, not debug: the owner requires a visible line
             // on every connection made OR refused (GH #25 decision 1).
@@ -227,12 +358,16 @@ private:
     }
 
     AddressPolicy     policy_;
+    ResolveFn         resolver_;  ///< null = the platform's getaddrinfo
     TransportState    state_ = TransportState::Idle;
     net::NativeSocket sock_  = net::kInvalidSocket;
     std::string       host_;
     std::uint16_t     port_ = 0;
     IpAddress         peer_;
     std::string       last_error_;
+    /// Non-null only between starting a lookup and consuming its result. The
+    /// resolver thread holds the other reference.
+    std::shared_ptr<ResolveJob> job_;
 };
 
 }  // namespace
@@ -249,13 +384,14 @@ const char* transport_state_text(TransportState s) {
     return "unknown";
 }
 
-std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy) {
+std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy,
+                                                    ResolveFn resolver) {
     std::string err;
     if (!net::init(err)) {
         log_error("network initialisation failed: {}", err);
         return nullptr;
     }
-    return std::unique_ptr<EspTransport>(new SocketTransport(policy));
+    return std::unique_ptr<EspTransport>(new SocketTransport(policy, std::move(resolver)));
 }
 
 }  // namespace esp

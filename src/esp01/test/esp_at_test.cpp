@@ -41,6 +41,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -235,9 +236,12 @@ private:
 };
 
 /// Blocks inside `poll()` while a connect is outstanding — a deliberate
-/// VIOLATION of `EspTransport::poll()`'s non-blocking contract, standing in for
-/// the synchronous `getaddrinfo` the shipped transport still performs. Used to
-/// prove that a badly-behaved transport cannot starve the guest-bound pacer.
+/// VIOLATION of `EspTransport::poll()`'s non-blocking contract. It stood in for
+/// the shipped transport's synchronous `getaddrinfo`; that is now asynchronous,
+/// so this fake no longer mirrors anything jnext ships and is KEPT
+/// DELIBERATELY: it stands in for any third-party transport that blocks, and it
+/// is the only thing that still discriminates here. Rewriting these rows to use
+/// `make_socket_transport` would silently gut them.
 class SlowResolveTransport : public EspTransport {
 public:
     std::chrono::milliseconds block_for{500};
@@ -296,6 +300,39 @@ public:
 private:
     TransportState state_ = TransportState::Idle;
     int            polls_ = 0;
+    std::string    error_;
+    IpAddress      peer_ = ipv4(192, 0, 2, 1);
+};
+
+/// THROWS out of its first `poll()`, then behaves. A deliberate violation of
+/// the no-throw contract on `EspTransport` (esp_socket.h), and the only way to
+/// prove the worker survives one: an exception escaping a std::thread entry
+/// point is `std::terminate`, so without the wrapper's guard this fake aborts
+/// the process. Throwing only ONCE is what lets the row then check the worker
+/// carried on and completed the connect, rather than merely checking it did
+/// not die.
+class ThrowOnceTransport : public EspTransport {
+public:
+    std::atomic<bool> threw{false};
+
+    bool begin_connect(const std::string&, std::uint16_t) override {
+        if (state_ != TransportState::Idle) return false;
+        state_ = TransportState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (!threw.exchange(true)) throw std::runtime_error("transport blew up");
+        if (state_ == TransportState::Resolving) state_ = TransportState::Connected;
+    }
+    TransportState     state() const override { return state_; }
+    const std::string& last_error() const override { return error_; }
+    const IpAddress&   peer_address() const override { return peer_; }
+    std::size_t send(const std::uint8_t*, std::size_t) override { return 0; }
+    std::size_t recv(std::uint8_t*, std::size_t) override { return 0; }
+    void close() override { state_ = TransportState::Closed; }
+
+private:
+    TransportState state_ = TransportState::Idle;
     std::string    error_;
     IpAddress      peer_ = ipv4(192, 0, 2, 1);
 };
@@ -1184,11 +1221,12 @@ int main() {
               "while the worker is still inside poll()",
               !tr.in_poll.load()); }
 
-    {   // (e) `tick()` must not inherit a worker stall. The worker holds the
-        //     core across the transport's SYNCHRONOUS DNS lookup, which can be
-        //     seconds; a blocking lock in `tick()` would hand that stall to
-        //     the emulation thread, which is the whole thing this class exists
-        //     to avoid.
+    {   // (e) `tick()` must not inherit a worker stall. Any transport that
+        //     blocks inside a call the worker makes under the core lock — a
+        //     third-party one, since the shipped transport no longer blocks
+        //     anywhere — would be handed straight to the emulation thread by a
+        //     blocking lock in `tick()`, which is the whole thing this class
+        //     exists to avoid.
         //
         //     The bound is deliberately huge — the worker blocks for 300 ms
         //     and `tick()` is allowed 200 ms — because a try-lock `tick()`
@@ -1278,6 +1316,19 @@ int main() {
         //     bound asserted. That is what makes the row discriminative: it
         //     fails unless shutdown actively wakes the worker, rather than
         //     waiting for its next scheduled pass.
+        //
+        //     KNOWN LIMIT OF THIS ROW'S SHAPE, recorded because the identical
+        //     trap was found in esp_socket_test's ASYNC-06/07 during review and
+        //     the lesson is worth more than either row: IT TIMES THE
+        //     DESTRUCTOR, which is a call that merely FOLLOWS the operation
+        //     that could stall, not one that contains it. It discriminates only
+        //     because `AsyncResolveTransport` never blocks anywhere, so there
+        //     is no earlier call for a stall to hide in. Give that fake a slow
+        //     `poll()` and the stall relocates to `start()`/the first pass:
+        //     this row goes quiet and still passes. TIME THE CALL THAT
+        //     CONTAINS THE STALL. (ASYNC-11 in esp_socket_test is that fix
+        //     applied on the other side: it times the `poll()` that starts a
+        //     lookup, not a later one.)
         AsyncResolveTransport tr;
         auto esp = std::unique_ptr<ThreadedEsp>(
             new ThreadedEsp(tr, std::chrono::milliseconds(2000)));
@@ -1332,6 +1383,47 @@ int main() {
                             std::chrono::steady_clock::now() - t0)
                             .count();
         check("STALL-03", "set_output() returns without waiting for the engine lock", ms < 150);
+        esp.stop(); }
+
+    {   // STALL-04 — A THROWING TRANSPORT MUST NOT ABORT THE PROCESS.
+        //     `EspTransport`'s methods run on the worker thread, and an
+        //     exception escaping a std::thread entry point is `std::terminate`
+        //     — a process abort, not an error anyone can handle. The wrapper
+        //     has to lose the pass and keep going, which is the same policy
+        //     the resolver thread uses in esp_socket.cpp.
+        //
+        //     The transport throws on its FIRST poll only, then behaves. That
+        //     is what makes this a real row rather than a crash test: with the
+        //     guard, the worker survives and the LATER passes still complete
+        //     the connect, so the guest gets its `OK` — proving the worker was
+        //     not merely alive but still working. Without the guard the suite
+        //     dies with SIGABRT and the harness reports a crashed suite, which
+        //     is loud but tells you less.
+        //
+        //     Deliberately not forked, unlike esp_socket_test's SIG rows: this
+        //     suite is portable by construction (nothing here names a POSIX
+        //     header) and buying a tidier failure mode with <sys/wait.h> would
+        //     cost the property that a consumer can run it anywhere.
+        ThrowOnceTransport tr;
+        ThreadedEsp esp{tr};
+        std::string guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        esp.start();
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp.receive(c);
+
+        bool ok_seen = false;
+        for (int i = 0; i < 3000 && !ok_seen; ++i) {
+            for (int k = 0; k < 256 && esp.wants_tick(); ++k) esp.tick(1, 1);
+            if (guest.find("OK") != std::string::npos) ok_seen = true;
+            else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        check("STALL-04a", "the worker recorded the exception rather than dying on it",
+              esp.pass_exceptions() >= 1 && tr.threw.load());
+        check("STALL-04",
+              "a transport that throws on the worker costs one service pass, not the "
+              "process: the connect still completes afterwards",
+              ok_seen);
         esp.stop(); }
 
     std::printf("\n======================================================\n");

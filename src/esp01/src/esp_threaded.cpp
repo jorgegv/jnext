@@ -70,15 +70,43 @@ void ThreadedEsp::run() {
         // queued in `out_` before the stall began. The emulated CPU does not
         // stop while the ESP is busy, so those are real T-states of silence on
         // a wire whose receivers have no retry.
-        {
-            std::lock_guard<std::mutex> lock(core_mutex_);
-            drain_inbound();
-        }
-        core_.advance_transports();  // UNLOCKED — see above
-        {
-            std::lock_guard<std::mutex> lock(core_mutex_);
-            core_.service_transports();
-            wants_tick_.store(core_.wants_tick(), std::memory_order_release);
+        //
+        // AND THE WHOLE PASS IS GUARDED. Every step below reaches consumer
+        // code: `advance_transports` calls `EspTransport::poll`,
+        // `service_transports` reaches `send`/`recv`/`close`/`state`, and
+        // `drain_inbound` reaches `core_.receive`, whose queue growth can throw
+        // `bad_alloc` even with a well-behaved transport. An exception that
+        // escapes a `std::thread` entry point does not propagate to anyone: it
+        // calls `std::terminate` and kills the host program. A wrapper whose
+        // contract is "own me as a member and I stay out of your way" cannot
+        // answer a consumer's exception with a process abort. So a throwing
+        // transport costs THIS pass and nothing else; the worker stays alive,
+        // `stop()` still joins, and the host keeps running. The same policy,
+        // and for the same reason, as the resolver thread's guard in
+        // esp_socket.cpp.
+        //
+        // WHAT A LOST PASS ACTUALLY COSTS, so nobody has to rediscover it:
+        // `drain_inbound` pops a byte from `inbound_` BEFORE handing it to
+        // `core_.receive`, deliberately, so the inbound mutex is not held
+        // across a call that can queue a whole response. A throw from
+        // `receive` therefore loses that ONE already-popped byte — a dropped
+        // character in the guest's TX stream, not a stalled queue. Bounded at
+        // one byte per throwing pass, and strictly better than terminate.
+        try {
+            {
+                std::lock_guard<std::mutex> lock(core_mutex_);
+                drain_inbound();
+            }
+            core_.advance_transports();  // UNLOCKED — see above
+            {
+                std::lock_guard<std::mutex> lock(core_mutex_);
+                core_.service_transports();
+                wants_tick_.store(core_.wants_tick(), std::memory_order_release);
+            }
+        } catch (const std::exception& e) {
+            note_pass_exception(e.what());
+        } catch (...) {
+            note_pass_exception("non-std exception");
         }
         passes_.fetch_add(1, std::memory_order_release);
 
@@ -92,12 +120,30 @@ void ThreadedEsp::run() {
         });
     }
     // DELIBERATELY NO FINAL PASS. An earlier version did one, to catch bytes
-    // the guest handed over just before the stop — but `poll()` can block for
-    // the transport's synchronous DNS lookup, so a trailing pass would make
-    // `stop()` (and therefore the destructor, and therefore a cold boot) wait
-    // for a SECOND resolver timeout. Shutdown is exactly when nobody wants
+    // the guest handed over just before the stop. The original reason to drop
+    // it was that `poll()` could block for the shipped transport's synchronous
+    // DNS lookup, making a trailing pass wait out a SECOND resolver timeout;
+    // that transport now resolves off-thread, so the reason has narrowed but
+    // not gone: shutdown is bounded by ONE `EspTransport::poll()` and a
+    // trailing pass would double it for ANY transport, including a
+    // third-party one that blocks. Shutdown is also exactly when nobody wants
     // those bytes. A host that does want the queue settled has `wait_idle`,
     // which drains inline once the worker is down.
+}
+
+void ThreadedEsp::note_pass_exception(const std::string& what) {
+    // FIRST one at error, the rest at debug. A transport that throws once
+    // throws every pass, and an error line every `poll_interval_` would bury
+    // the log that has to carry the diagnosis — while dropping it entirely
+    // would hide a real defect in the consumer's transport. The counter is the
+    // honest middle, and `pass_exceptions()` exposes it so a host (or a test)
+    // can see it happened at all rather than inferring it from log text.
+    const std::uint64_t n = pass_exceptions_.fetch_add(1, std::memory_order_release);
+    if (n == 0)
+        log_error("ESP worker: the transport threw ({}) — this service pass is lost. "
+                  "EspTransport methods must not throw; see esp_socket.h.", what);
+    else
+        log_debug("ESP worker: the transport threw again ({}), occurrence {}", what, n + 1);
 }
 
 void ThreadedEsp::drain_inbound() {
@@ -160,6 +206,15 @@ void ThreadedEsp::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte
     // elapsed ticks are DROPPED rather than banked — banking would release a
     // burst at unbounded speed once the lock came free, which is the RX FIFO
     // overrun the pacing exists to prevent.
+    //
+    // AND DELIBERATELY NO try/catch HERE, unlike `run()`. This runs on the
+    // CALLER's thread, so an exception — from the core, or from the host's own
+    // output sink, which `tick()` is the only thing that invokes — propagates
+    // to a caller who can decide what to do about it. `run()` is a thread ENTRY
+    // POINT: it has no caller to propagate to, which is what makes
+    // `std::terminate` the only outcome there and the guard necessary. Adding
+    // one here would be swallowing exceptions raised on somebody else's thread,
+    // which is not this class's to swallow.
     std::unique_lock<std::mutex> lock(core_mutex_, std::try_to_lock);
     if (!lock.owns_lock()) {
         log_trace("tick skipped: the ESP worker holds the core ({} ticks dropped)",
