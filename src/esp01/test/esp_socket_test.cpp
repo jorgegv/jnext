@@ -23,17 +23,29 @@
 // porting, only the test's peer. (jnext itself never hits this: every Windows
 // target builds with -DENABLE_TESTS=OFF.)
 //
+//   3. ASYNCHRONOUS NAME RESOLUTION, against an INJECTED resolver. A name
+//      lookup runs on its own thread now, so the properties worth proving are
+//      timing and lifetime properties — poll() returning while a lookup is
+//      outstanding, a transport destroyed mid-lookup — and neither can be
+//      proved against a real DNS server without a flaky test. The `ResolveFn`
+//      parameter of `make_socket_transport` exists for that, and the rows below
+//      drive it through a gate they open themselves, so nothing is timed
+//      against the network at all.
+//
 // NOT TESTED HERE, said plainly:
-//   * DNS failure. Every path through it needs a real resolver, so there is no
-//     hermetic version; the numeric (AI_NUMERICHOST) path that every row below
-//     takes is the one jnext actually uses for an IP-literal target.
+//   * A real DNS server. The ASYNC rows use the injected resolver and TRACE-04
+//     uses `localhost` (answered from /etc/hosts), so no row contacts a name
+//     server; what the platform's `getaddrinfo` does with a genuine WAN name is
+//     out of scope for a hermetic suite.
 //   * The Winsock twin (esp_socket_win.cpp). It cannot be built or run on the
 //     Linux dev host, and every Windows target sets -DENABLE_TESTS=OFF, so this
 //     suite never compiles there. The twin is kept to syscall shims for exactly
-//     that reason.
+//     that reason — and the async resolver added none of its own code to it,
+//     because the resolver thread is portable `std::thread` in the shared file.
 //
 // Run: ./build/test/esp_socket_test
 
+#include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
 #include "esp01/esp_socket.h"
 
@@ -44,11 +56,14 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <functional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -251,6 +266,74 @@ AddressPolicy loopback_ok() {
     return p;
 }
 
+/// Milliseconds since `t0`.
+long since_ms(std::chrono::steady_clock::time_point t0) {
+    return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - t0)
+                                 .count());
+}
+
+/// Spin until `pred()` or `timeout_ms` elapses. Returns what `pred()` last said.
+bool wait_until(const std::function<bool()>& pred, int timeout_ms) {
+    for (int waited = 0; waited < timeout_ms; waited += 2) {
+        if (pred()) return true;
+        sleep_ms(2);
+    }
+    return pred();
+}
+
+// ── The injected resolver the ASYNC rows drive ────────────────────────────
+//
+// EVERYTHING HERE IS FILE-SCOPE, and that is the point rather than laziness.
+// A resolver function is copied into a DETACHED thread that may still be
+// running long after the row which started it has returned — that is the exact
+// property ASYNC-07/08 exist to prove — so anything it touches must outlive
+// main()'s scopes. A lambda capturing a row's local by reference would dangle
+// in precisely the case these rows call safe. All cross-thread state is atomic
+// for the same reason: the suite must be clean under TSan, not merely quiet.
+namespace fake_dns {
+
+/// Every gated lookup parks here until a row opens the gate. A row that never
+/// opens it is exercising the resolver-that-never-answers case on purpose
+/// (ASYNC-09); main() opens it on the way out so no thread is left parked.
+std::atomic<bool> gate{false};
+std::atomic<int>  entered{0};    ///< lookups that reached the resolver at all
+std::atomic<int>  completed{0};  ///< lookups that ran to the end of the resolver
+std::atomic<bool> off_thread{false};
+std::atomic<bool> literal_leak{false};
+
+/// Set once, before any resolver thread can exist, so comparing against it
+/// from a resolver is a read of an already-published value.
+std::thread::id main_thread_id;
+
+/// Answers 127.0.0.1 — deliberately an address the DEFAULT policy DENIES, so
+/// ASYNC-05 can prove the gate is applied to what the RESOLVER said rather
+/// than to the name the guest typed. Caps its own wait so a forgotten gate
+/// cannot wedge the suite.
+bool gated(const std::string&, std::vector<IpAddress>& out, std::string& err) {
+    entered.fetch_add(1);
+    if (std::this_thread::get_id() != main_thread_id) off_thread.store(true);
+    const bool opened = wait_until([] { return gate.load(); }, 5000);
+    if (!opened) {
+        err = "the gate was never opened";
+        completed.fetch_add(1);
+        return false;
+    }
+    out.push_back(ipv4(127, 0, 0, 1));
+    completed.fetch_add(1);
+    return true;
+}
+
+/// MUST NEVER BE CALLED. An IP literal has to take the synchronous
+/// AI_NUMERICHOST path, which does not go through a ResolveFn at all.
+bool never(const std::string&, std::vector<IpAddress>&, std::string& err) {
+    literal_leak.store(true);
+    err = "the resolver was consulted for an IP literal";
+    return false;
+}
+
+}  // namespace fake_dns
+
 }  // namespace
 
 // ── Tests ─────────────────────────────────────────────────────────────────
@@ -261,6 +344,10 @@ int main() {
     std::printf("======================================================\n\n");
 
     const AddressPolicy kDefault;
+
+    // Published before any resolver thread can exist, so a resolver reading it
+    // is reading an already-visible value (ASYNC-03 compares against it).
+    fake_dns::main_thread_id = std::this_thread::get_id();
 
     // ═══ POL-LB — loopback, both boundaries, and the mapped bypass ═════════
     expect_default("POL-LB-01", ipv4(127, 0, 0, 1),       DenyReason::Loopback);
@@ -891,6 +978,216 @@ int main() {
                       "...and surfaces as Failed with an error string instead",
                       WIFEXITED(status) && WEXITSTATUS(status) == 0);
             }
+        }
+    }
+
+    // ═══ ASYNC — name resolution runs OFF the calling thread ═══════════════
+    //
+    // These rows run LAST, after SIG's fork(). A forked child inherits only the
+    // forking thread, so forking while a resolver thread holds an allocator
+    // lock is a classic child-side deadlock; ordering them after SIG means no
+    // resolver thread has ever existed when fork() is called.
+    //
+    // What is being proved is the thing the synchronous version got wrong: a
+    // lookup no longer blocks whoever calls poll(), so a Reset, a quit or a
+    // close() during an AT+CIPSTART returns at once instead of waiting out the
+    // resolver — and the AT+CIPSTART deadline finally covers resolution.
+    {
+        Listener l;
+        if (!l.start()) {
+            for (const char* id : {"ASYNC-01", "ASYNC-02", "ASYNC-03", "ASYNC-04",
+                                   "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08",
+                                   "ASYNC-09"})
+                skip(id, "could not bind a loopback listener");
+        } else {
+            // (01) An IP LITERAL STAYS SYNCHRONOUS. The resolver installed here
+            //      fails loudly if it is called at all, and one poll() has to be
+            //      enough to leave Resolving — both halves of "no thread was
+            //      involved".
+            {
+                fake_dns::literal_leak.store(false);
+                auto t = make_socket_transport(loopback_ok(), fake_dns::never);
+                t->begin_connect("127.0.0.1", l.port());
+                t->poll();
+                const TransportState after_one_poll = t->state();
+                check("ASYNC-01",
+                      "an IP literal resolves synchronously in the first poll() and "
+                      "never reaches the resolver",
+                      !fake_dns::literal_leak.load() &&
+                          after_one_poll != TransportState::Resolving);
+                t->close();
+                const int srv = l.accept_one(200);
+                if (srv >= 0) ::close(srv);
+            }
+
+            // (02..04) A NAME goes to the resolver thread. The gate is held shut,
+            //      so the lookup is provably outstanding while poll() is hammered.
+            {
+                fake_dns::gate.store(false);
+                fake_dns::off_thread.store(false);
+                const int entered0 = fake_dns::entered.load();
+
+                auto t = make_socket_transport(loopback_ok(), fake_dns::gated);
+                t->begin_connect("gated.test", l.port());
+                t->poll();  // starts the lookup
+                const bool in_flight = wait_until(
+                    [&] { return fake_dns::entered.load() > entered0; }, 2000);
+
+                // 200 polls while the resolver is parked. If poll() waited for
+                // the lookup this loop could not finish at all — the gate is
+                // still shut and stays shut for another 5 s.
+                const auto t0 = std::chrono::steady_clock::now();
+                for (int i = 0; i < 200; ++i) t->poll();
+                const long poll_ms = since_ms(t0);
+                check("ASYNC-02",
+                      "200 poll()s during an outstanding lookup return promptly and "
+                      "leave the transport in Resolving",
+                      in_flight && poll_ms < 100 &&
+                          t->state() == TransportState::Resolving);
+                check("ASYNC-03", "the lookup ran on a thread other than the caller's",
+                      fake_dns::off_thread.load());
+
+                fake_dns::gate.store(true);  // let it answer
+                const bool connected = pump_until(*t, TransportState::Connected, 3000);
+                const int  srv       = l.accept_one(1000);
+                check("ASYNC-04",
+                      "opening the gate completes the connect through the async path, "
+                      "to the address the resolver returned",
+                      connected && srv >= 0 && t->peer_address() == ipv4(127, 0, 0, 1));
+                if (srv >= 0) ::close(srv);
+            }
+
+            // (05) THE SECURITY GATE STILL BITES, and it bites the RESOLVED
+            //      address. The name says nothing; the resolver answers
+            //      127.0.0.1; the DEFAULT policy denies loopback. Refusal must
+            //      happen on this thread, after the result is consumed, and
+            //      nothing may reach the listener.
+            {
+                fake_dns::gate.store(true);  // answer immediately
+                auto t = make_socket_transport(kDefault, fake_dns::gated);
+                t->begin_connect("innocent-looking.test", l.port());
+                bool refused = false;
+                for (int waited = 0; waited < 3000 && !refused; waited += 2) {
+                    t->poll();
+                    if (t->state() == TransportState::Failed) refused = true;
+                    else sleep_ms(2);
+                }
+                check("ASYNC-05",
+                      "the address policy is enforced on the RESOLVED address, and the "
+                      "refused connect never reached the listener",
+                      refused && t->last_error().find("policy") != std::string::npos &&
+                          t->last_error().find("loopback") != std::string::npos &&
+                          l.accept_one(50) < 0);
+            }
+
+            // (06) ABANDONING a lookup is immediate, and its late answer is
+            //      never consumed. This is the other half of the security
+            //      argument: a result produced for one request can never be
+            //      applied to a later state of the transport.
+            {
+                fake_dns::gate.store(false);
+                const int entered0   = fake_dns::entered.load();
+                const int completed0 = fake_dns::completed.load();
+
+                auto t = make_socket_transport(loopback_ok(), fake_dns::gated);
+                t->begin_connect("abandoned.test", l.port());
+                t->poll();
+                const bool in_flight = wait_until(
+                    [&] { return fake_dns::entered.load() > entered0; }, 2000);
+
+                const auto t0 = std::chrono::steady_clock::now();
+                t->close();  // mid-lookup
+                const long close_ms = since_ms(t0);
+
+                fake_dns::gate.store(true);  // the abandoned lookup answers NOW
+                wait_until([&] { return fake_dns::completed.load() > completed0; }, 2000);
+                for (int i = 0; i < 50; ++i) t->poll();
+                check("ASYNC-06",
+                      "close() during a lookup returns at once and the late result "
+                      "never resurrects the transport",
+                      in_flight && close_ms < 100 &&
+                          t->state() == TransportState::Closed && l.accept_one(50) < 0);
+            }
+
+            // (07..08) DESTROYING a transport mid-lookup — the shape
+            //      emulator_cold_boot()'s `emu.~Emulator()` produces on Reset,
+            //      and the case that measured 2000 ms before this change. The
+            //      destructor must return at once, AND the orphaned thread must
+            //      go on to finish safely: the result block is jointly owned, so
+            //      it outlives the transport rather than dangling. The
+            //      memory-safety half of that is what an ASan/TSan run of this
+            //      suite checks; the row itself proves the sequence happens.
+            {
+                fake_dns::gate.store(false);
+                const int entered0   = fake_dns::entered.load();
+                const int completed0 = fake_dns::completed.load();
+
+                auto t = make_socket_transport(loopback_ok(), fake_dns::gated);
+                t->begin_connect("orphaned.test", l.port());
+                t->poll();
+                const bool in_flight = wait_until(
+                    [&] { return fake_dns::entered.load() > entered0; }, 2000);
+
+                const auto t0 = std::chrono::steady_clock::now();
+                t.reset();  // ~SocketTransport() with the lookup still parked
+                const long destroy_ms = since_ms(t0);
+                check("ASYNC-07",
+                      "destroying a transport mid-lookup returns immediately instead "
+                      "of waiting out the resolver",
+                      in_flight && destroy_ms < 100);
+
+                fake_dns::gate.store(true);
+                const bool finished = wait_until(
+                    [&] { return fake_dns::completed.load() > completed0; }, 3000);
+                check("ASYNC-08",
+                      "...and the orphaned lookup still runs to completion, into a "
+                      "result block that outlived the transport",
+                      finished);
+            }
+
+            // (09) THE AT+CIPSTART DEADLINE NOW BOUNDS NAME RESOLUTION. Design
+            //      simplification 6(a) recorded the opposite — the deadline is
+            //      checked in AtEngine::poll(), which a synchronous getaddrinfo
+            //      never returned from in time to be checked. With the lookup on
+            //      its own thread the check runs, so a resolver that never
+            //      answers is answered ERROR on OUR schedule.
+            //
+            //      The gate is deliberately left SHUT for the whole row: this
+            //      resolver would take 5 s to give up, and the deadline is 150
+            //      ms. Reverting to a synchronous resolve makes the very first
+            //      poll() take those 5 s and the row fails on elapsed time.
+            {
+                fake_dns::gate.store(false);
+                auto tr = make_socket_transport(loopback_ok(), fake_dns::gated);
+                AtEngine eng(*tr);
+                eng.set_connect_timeout(std::chrono::milliseconds(150));
+
+                std::string guest;
+                eng.set_output([&guest](std::uint8_t b) {
+                    guest.push_back(static_cast<char>(b));
+                });
+                for (unsigned char c :
+                     std::string("AT+CIPSTART=\"TCP\",\"never-answers.test\",80\r\n"))
+                    eng.receive(c);
+
+                const auto t0        = std::chrono::steady_clock::now();
+                bool       got_error = false;
+                for (int waited = 0; waited < 4000 && !got_error; waited += 2) {
+                    eng.poll();
+                    for (int k = 0; k < 256 && eng.wants_tick(); ++k) eng.tick(1, 1);
+                    if (guest.find("ERROR") != std::string::npos) got_error = true;
+                    else sleep_ms(2);
+                }
+                const long ms = since_ms(t0);
+                check("ASYNC-09",
+                      "AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the "
+                      "TCP handshake",
+                      got_error && ms < 1500);
+            }
+
+            // Leave no resolver thread parked at exit.
+            fake_dns::gate.store(true);
+            sleep_ms(20);
         }
     }
 
