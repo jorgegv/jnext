@@ -9,6 +9,11 @@ branches 4 (CLI/config/wiring) and 5 (functional test) not started.
 **Audience:** jnext maintainers **and anyone reusing this module in another project**. The module
 is deliberately shaped to be liftable; this document is its specification, not a jnext-internal
 note.
+**Licence:** the module is part of jnext and is therefore **GPLv3**, like the rest of the tree. A
+reuser is bound by that — which is worth stating plainly in a document that spends §1.2 verifying
+everyone else's licences. It also means the GPL-3.0 candidates surveyed there (sQLux-nextp8,
+cuzebox-esp8266) could have been lifted from without a licence problem; they were not, for the
+engineering reasons in §1.3.
 
 > **Authority.** Hardware behaviour is cited from the ZX Spectrum Next FPGA VHDL
 > (`cores/zxnext/src/`) and `nextreg.txt`. Guest-visible protocol behaviour is cited from the
@@ -128,7 +133,7 @@ does not "fix" them.
 | **Server / listen mode** (`AT+CIPSERVER`) | Appears **exactly once** in all software examined, and only to turn it **off**. NextZXOS's own listen/accept API is marked `***TODO, not implemented`. Not building it also removes the entire inbound attack surface. |
 | **UDP** | Zero consumers. nextsync is TCP-only; NXtel and the dot commands are TCP-only. |
 | **Passthrough** (`AT+CIPMODE`) | Appears **nowhere** in any examined software. |
-| **Multiplexed connections** (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` reader is a byte FSM that dies on `+IPD,<id>,<len>:`. Since **no command can correct a wrong default at runtime**, the default must be 0 and `=1` must be refused loudly rather than accepted-and-ignored. |
+| **Multiplexed connections** (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` byte FSM does not merely reject `+IPD,<id>,<len>:`, it **silently mis-parses** it into a corrupted length (§3, choice B). Since **no command can correct a wrong default at runtime**, the default must be 0 and `=1` must be refused loudly rather than accepted-and-ignored. |
 | **TLS** | No evidenced consumer. sQLux has it; nothing on the Next asks for it. |
 
 `AT+CIPMUX=1` is answered `ERROR`. That is the one place where refusing is safer than accepting:
@@ -211,7 +216,7 @@ can outlive its own dispatch, so none needs a deadline.
 server packet (`timeout=5` in its own source), which the research framed as "emit chunks ≥ 292
 bytes". Only the **2048-byte ceiling** (`MAX_IPD_CHUNK`) is enforced. The floor *emerges* from
 coalescing — a chunk is cut only once the guest-bound queue has drained, so under load chunks are
-large — but it is **probabilistic, not guaranteed**: at 1.152 Mbaud a 1460-byte chunk drains in
+large — but it is **probabilistic, not guaranteed**: at 1.152 Mbaud an MSS-sized 1460-byte chunk drains in
 **≈12.7 ms** (1460 × 10 bits ÷ 1 152 000), i.e. well inside a 20 ms frame, so sufficiently jittery
 TCP fragmentation could in principle cut a sub-292-byte chunk and pressure the budget. Unlikely on
 localhost/LAN and not deterministically unit-testable, so it is recorded as a known characteristic
@@ -237,9 +242,12 @@ skips a slot with no transport. The state machine already speaks in connection i
 differs (`+IPD,<len>:` vs `+IPD,<id>,<len>:`), so the choice is made in **one function**
 (`queue_ipd_header`) rather than baked into the call site. v1.0 passes `SINGLE_CID, false` and
 produces exactly the unmultiplexed bytes the parsers require. Emitting the multiplexed form today
-would break nextsync outright — after `+IPD,` its FSM reads the id digit, hits the `,` which is
-neither `:` nor a digit, and bails. Centralising the decision is exactly why whoever adds CIPMUX
-support cannot get it wrong by accident.
+would break nextsync outright. Its FSM accumulates **then** validates
+(`datalen += r - '0';` runs *before* the `if (r != ':' && (r < '0' || r > '9')) return 0;`, which
+applies to the *next* byte), so on `+IPD,0,14:` it silently folds the `,` into the length as a
+bogus digit (`',' - '0'` = −4), yielding a corrupted `<len>` and desynchronising the stream — it
+does not bail. A silent corruption is worse than a refusal, which is exactly why the decision is
+centralised rather than left to whoever adds CIPMUX support.
 
 **C. AT dispatch is a table.** `kCommands` maps a command string to a uniform
 `void(const std::string& args)` member handler, with a `prefix` flag distinguishing exact-match
@@ -255,7 +263,7 @@ design record and are corrected here; both corrections are VHDL-verified.
 
 ### 4.1 The ESP is UART 0
 
-`zxnext.vhd:1611` (`-- uart 0 (esp)`), `zxnext.vhd:3381` (`o_UART0_TX <= uart0_tx_esp`).
+`zxnext.vhd:1611` (`o_UART0_TX <= uart0_tx_esp`), `zxnext.vhd:3381` (`-- uart 0 (esp)`).
 UART **1** is the Raspberry Pi GPIO header. jnext follows this:
 `src/peripheral/uart.h:496` — *"0 = ESP, 1 = Pi"*.
 
@@ -304,9 +312,11 @@ story, and it is why §6 exists.
   addresses are `std_logic_vector(8 downto 0)`, i.e. 9 bits = 512 slots. `uart.vhd:798` gates the
   write on `(not uart0_rx_fifo_full)`, so a byte arriving at a full FIFO is **dropped**, not
   queued. `uart.vhd:540` latches `uart0_status_rx_err_overflow`.
-- **The RX interrupt fires per byte.** `zxnext.vhd:1941-1944` feeds
-  `uart0_rx_near_full or (uart0_rx_avail and not nr_c6_int_en_2_210(1))` into `im2_int_req`.
-  `rx_near_full` is the ¾ mark (384 bytes). NextZXOS's `ESPAT.DRV` is interrupt-driven — this
+- **The RX interrupt fires per byte when NR 0xC6 bit 1 is clear.** `zxnext.vhd:1941-1944` feeds
+  `uart0_rx_near_full or (uart0_rx_avail and not nr_c6_int_en_2_210(1))` into `im2_int_req`: with
+  bit 1 (UART0 Rx near full) **set**, near-full is the only contributor — `nextreg.txt:1101`,
+  *"Rx near full overrides Rx available"*. `rx_near_full` is the ¾ mark, i.e. 384 bytes
+  (`serial/uart.vhd:427`, `-- held (3/4)`). NextZXOS's `ESPAT.DRV` is interrupt-driven — this
   matters for the open question in [§11.2](#112-the-rx-pacing-may-be-replaceable--and-the-hazard-is-interrupt-saturation).
 
 ---
@@ -353,8 +363,9 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
   Emitting nothing hangs the guest **forever**: these are polled busy loops with no error path.
 - **`.ESPBAUD` does a full exact compare against `"OK\r\n"`.** This is why every terminator in the
   engine is CRLF and never a bare LF.
-- **`CLOSED` is detected by a 5-byte window** (`OSED\r`); the client source comment reads *"It
-  enough to check 'OSED\n' :-)"*.
+- **`CLOSED` is detected by a 5-byte window** — the client matches `OSED` plus its terminator, not
+  the whole word. (Its own comment reads *"It enough to check 'OSED\n' :-)"*, but the emitted
+  terminator here is CRLF like every other reply, so what the window actually sees is `OSED\r`.)
 - **`AT+CIPCLOSE` with nothing open must answer `ERROR`.** nextsync loops it up to 10 times *while
   `ERROR` is NOT seen*; answering `OK` costs about a second per connect.
 - **No `+` may appear between the guest's payload and the `+IPD`** — nextsync's FSM scans for the
@@ -460,8 +471,16 @@ Two independent failures follow, and per-frame batching fails **both**:
 1. **FIFO overflow.** 2304 bytes into a 512-byte drop-newest FIFO is **4.5× over** — guaranteed
    silent truncation, checksum failure, retry loop. (§4.5)
 2. **Header straddle — the fatal one.** After the leading `+`, each byte of the `+IPD,<len>:`
-   header gets a **single ≈314 µs window with no outer retry** in nextsync's FSM. A 20 ms delivery
-   gap anywhere inside the header therefore fails **100 % of the time, regardless of FIFO size**.
+   header gets a **single ≈314 µs window with no outer retry**. The window is nextsync's
+   `_receive_slow` (`sync/uart.s`): `ld l,#200` over a 44 T-state poll loop = 8800 T, which at
+   **28 MHz** (the CPU speed nextsync runs at) is 314.3 µs; `l` is reloaded on every call, so the
+   budget is per byte. "No outer retry" is literal: only the search *for* the leading `+` has a
+   budget (`TIMEOUT 20000`); every header byte after it is a bare
+   `if (receive_slow() != 'X') return 0;`. A 20 ms delivery gap anywhere inside the header
+   therefore fails **100 % of the time, regardless of FIFO size**.
+
+   The clock matters: at 3.5 MHz the same loop would be ≈2.5 ms, not 314 µs. Every microsecond
+   figure in this document assumes the 28 MHz CPU speed nextsync selects.
 
 Pacing at the live baud satisfies both automatically: there are no gaps, because every byte of the
 queue leaves at the same cadence.
@@ -475,15 +494,19 @@ it.
 `+IPD` chunks are capped at `MAX_IPD_CHUNK` = 2048 bytes and are cut **only when the guest-bound
 queue has drained**, so a busy peer produces few large chunks rather than many small ones. That is
 what keeps nextsync inside its 5-chunks-per-server-packet budget without an explicit floor
-(simplification 7). nextsync's server packets are 261 / 1029 / 1460 bytes, so its default config
-**deliberately overruns the 512-byte FIFO by ≈2×**, relying on the Z80 draining concurrently — its
-author says so in `nextsync.py:33-34`.
+(simplification 7). nextsync's server sends packets of 261 and 1029 bytes (`MAX_PAYLOAD = 1024`,
+`nextsync.py:26`, plus header), so its default config **deliberately overruns the 512-byte FIFO by
+≈2×**, relying on the Z80 draining concurrently — its author says so at `nextsync.py:31-32`. (The
+1460-byte figure quoted during the research is the Ethernet TCP MSS, i.e. a *transport* segment
+size, not a nextsync application packet; nothing reachable substantiates a 1460-byte application
+packet, so the claim is not made here.)
 
 One chunk is framed per quiet moment; the next follows when that one drains.
 
 ### 6.4 The guest is the bottleneck either way
 
-nextsync's own receive loop is 93 T-states/byte at 28 MHz — a ceiling of **≈301 KB/s**. 2 Mbaud
+nextsync's own receive loop (`_receive`, `sync/uart.s`) is 93 T-states/byte, which at 28 MHz is a
+ceiling of **≈301 KB/s**. 2 Mbaud
 already delivers 200 KB/s. Any faster delivery scheme buys at most ≈1.5× over the fastest real
 configuration; see [§11.2](#112-the-rx-pacing-may-be-replaceable--and-the-hazard-is-interrupt-saturation).
 
@@ -503,7 +526,8 @@ jnext adapter:        implements UartDevice; drains the outbound queue into the 
 
 **The core is passive and must stay drivable inline.** That is what makes the wrapper *optional*
 rather than decorative: another project may want to drive the module from its own scheduler, or
-inline with no thread at all. The test suite exercises **both** modes.
+inline with no thread at all. **The test suite must exercise both modes** — branch 3.5/4 work;
+neither the wrapper nor its tests exist yet.
 
 **Why threading is allowed at all.** The ESP's internal latency is not observable and does not
 need emulating: no Next software depends on `AT+CIPSTART` taking a particular time to parse, and
@@ -525,21 +549,27 @@ does not have to replicate jnext's include root:
 
 ```
 src/esp01/
-  include/esp01/     public interface:  esp_at.h, esp_socket.h, esp_log.h, esp_threaded.h
-  src/               implementation:    esp_at.cpp, esp_socket.cpp, esp_address_policy.cpp,
-                                        esp_socket_platform.h (private), esp_socket_posix.cpp,
-                                        esp_socket_win.cpp
+  include/esp01/     esp_at.h, esp_socket.h, esp_log.h, esp_threaded.h,
+                     esp_socket_platform.h  ← module-private by convention, not by path
+  src/               esp_at.cpp, esp_socket.cpp, esp_address_policy.cpp, esp_log.cpp,
+                     esp_socket_posix.cpp, esp_socket_win.cpp
   test/              esp_at_test.cpp, esp_socket_test.cpp
 src/peripheral/
-  esp_uart_adapter.{h,cpp}              the jnext side: implements UartDevice
+  esp_uart_adapter.{h,cpp}   the jnext side: implements UartDevice
 ```
+
+`esp_socket_platform.h` is **private** in the design sense — its own header says it is included
+only by `esp_socket.cpp` and the two platform twins, and nothing outside the module should ever
+include it — but it currently sits in the public include directory alongside the rest, so nothing
+enforces that. A consumer must treat it as internal. Moving it into `src/` would make the
+constraint structural rather than documentary.
 
 Includes read `#include "esp01/esp_at.h"`. CMake target: **`esp01`**.
 
-<!-- VERIFY: the layout above is the mandated target for branch feat/esp-modularise, which had not
-     landed when this document was written. Reconcile the directory names, the header file names
-     (esp_log.h / esp_threaded.h), the CMake target name and the adapter path against the landed
-     tree. -->
+<!-- VERIFY: the layout above was read from the in-flight feat/esp-modularise worktree and is NOT
+     merged. esp_threaded.h did not exist there at the time of writing. Reconcile the directory
+     names, the header file names, the CMake target name and the adapter path against the landed
+     tree after the merge, including whether esp_socket_platform.h stayed in include/esp01/. -->
 
 ### 7.3 The seams
 
@@ -617,8 +647,9 @@ Current counts: `esp_socket_test` 121 rows, `esp_at_test` 126 rows.
 ### 7.7 Hot-path cost
 
 `UartChannel::tick` runs once per Z80 instruction (10⁵–10⁶ times/frame), which is far too hot for
-socket work — `poll()` must never hang off it. The emulated-time hook is gated:
-`if (device_ && device_->tick_wanted())` (`src/peripheral/uart.h:276`), with `tick_wanted()`
+socket work — `poll()` must never hang off it. The emulated-time hook is gated inside
+`UartChannel::service_attached_device`: `if (device_ && device_->tick_wanted())`
+(`src/peripheral/uart.h:276`), with `tick_wanted()`
 **non-virtual** so an idle device costs a predictable branch rather than a vtable dispatch.
 `byte_transfer_ticks()` is computed only inside the guarded branch. With no device attached the
 cost is one null test on a pointer already in the cache line being touched.
@@ -699,8 +730,14 @@ production clears the flag; the gap is latent, not live. Making it honest means 
 id end-to-end **and** finding a hermetic way to test it, which needs a link-local peer on a real
 interface. Untested plumbing for an unreachable capability is worth less than this paragraph.
 
-**Status:** the address policy is implemented and unit-tested. The **enable flag, the hostname
-allowlist and the connection log line are branch-4 work and do not exist yet.**
+**Status:** the address policy is implemented and unit-tested. The **enable flag and the hostname
+allowlist are branch-4 work and do not exist yet.** The connection log line **partially exists**:
+the engine already logs connection open and close at `info` and connect failure at `warn`
+(`esp_at.cpp:584`, `:653`, `:594`) on the `esp01` logger, and those are emitted **by default** —
+spdlog's global default level is `info` (`registry.h:116`) and jnext never lowers it. Two gaps
+remain: there is no **allowlist-decision** line, because there is no allowlist; and the lines go to
+**stderr only**, which a GUI user never sees. "Never silent" is therefore satisfied for CLI and
+headless runs and **not** for the GUI.
 
 ### 8.3 No host network information may leak into the guest
 
@@ -799,7 +836,9 @@ Two things are genuinely unsettled. They are stated as questions, not as settled
 
 ### 11.1 nextsync's `flush_uart_hard()` needs 19.3 ms of continuous silence
 
-`flush_uart_hard()` requires **19.3 ms of continuous silence** on the wire before it proceeds. An
+`flush_uart_hard()` requires **19.3 ms of continuous silence** on the wire before it proceeds
+(`_flush_uart_hard`, `sync/uart.s`: `ld hl,#10000`, reloaded on every byte received — hence
+*continuous*, not cumulative; at 28 MHz, §6.2). An
 instantly-responding emulated ESP is **faster than real hardware**.
 
 The reasoning that it *should* be safe: the module only speaks when spoken to, and nextsync
@@ -823,8 +862,9 @@ work its placement required. `AT+UART_CUR` becomes an acknowledged no-op rather 
 input. The speed gain is **modest, not transformative** — the guest is the bottleneck either way
 (§6.4), roughly 1.5× at best over the fastest real configuration.
 
-**The hazard to test, not assume: interrupt saturation.** The RX interrupt fires on **every byte
-pushed** (`push_rx_with_flag` → IM2 level 1, `zxnext.vhd:1941-1944`) and NextZXOS's `ESPAT.DRV` is
+**The hazard to test, not assume: interrupt saturation.** With NR 0xC6 bit 1 clear the RX
+interrupt fires on **every byte pushed** (`push_rx_with_flag` → IM2 level 1,
+`zxnext.vhd:1941-1944`; §4.5 for the gate) and NextZXOS's `ESPAT.DRV` is
 interrupt-driven. On real hardware the 8.7 µs inter-byte gap at 1.152 Mbaud is what lets the main
 program run between IRQs. Refill the instant space appears and the ISR may return to find another
 byte already waiting — the Z80 could spend effectively all its time in the handler.
@@ -872,8 +912,20 @@ Explicitly: **do not defend the shipped pacing merely because it is already buil
 | `MatchSendFail` misload — why `SEND OK` works | `esp.asm:418-427` |
 | Inline CRLF-terminated blocks | `esp.asm:46-48`, `esp.asm:558-575`, `c31.asm:368-371` |
 | nextsync resets via NR 0x02 bit 7 | `nextsync.c:396-399` |
-| nextsync chunk budget / packet sizes | `nextsync.py:33-34` (author's own comment) |
+| nextsync `+IPD` accumulate-then-validate parse | `sync/nextsync.c` (`datalen += r - '0';` precedes the digit check) |
+| nextsync per-header-byte window (314 µs @ 28 MHz) | `sync/uart.s` `_receive_slow` (`ld l,#200`, 44 T loop, reloaded per call) |
+| nextsync silence requirement (19.3 ms, continuous) | `sync/uart.s` `_flush_uart_hard` (`ld hl,#10000`, reloaded per byte) |
+| nextsync receive loop 93 T-states/byte | `sync/uart.s` `_receive` |
+| nextsync packet sizes / FIFO overrun by design | `nextsync.py:26` (`MAX_PAYLOAD = 1024`), `:31-32` (author's own comment) |
 | CSpect is not 8-bit clean | `docs/dotcommands/http.md:76` |
+
+**Provenance note.** The `ESPATreadme.TXT`, `esp.asm`, `c31.asm` and dot-command citations were
+read during the research recorded on GH #25 and are **not independently re-verified here** — no
+NXtel or NextZXOS dot-command source exists on the development machine. They are not known to be
+wrong; they are unchecked. Simplification 6 and all of §5.2/§5.3 rest on them, so a reader with
+access to those sources should re-check them before relying on the exact line numbers. The
+`sync/uart.s` and `sync/nextsync.c` citations above **were** verified against source during the
+review of this document.
 
 ### jnext code
 
@@ -891,5 +943,7 @@ Explicitly: **do not defend the shipped pacing merely because it is already buil
 | Cold-boot placement-new hazard | `src/platform/emulator_boot.h:67-77`, `:110-115` |
 | Suites + pinned row counts | `test/unit-tests.conf` |
 
-<!-- VERIFY: every `src/peripheral/esp_*` path above moves to `src/esp01/...` when branch 3.5
-     lands. Re-point this table at the final locations. -->
+<!-- VERIFY: every `src/peripheral/esp_*` path above is the main-tree location; the move to
+     `src/esp01/...` has already landed on the unmerged feat/esp-modularise branch. Re-point this
+     table — and the esp_at.cpp line numbers cited in §8.2 — at the final locations after the
+     merge. -->
