@@ -2067,9 +2067,18 @@ multiplexer priority `zxnext.vhd:4310-4322`, `MF-OVL-*` the 0x0000-0x1FFF
 overlay and its SRAM pages, and `MF-M1G-*` the M1 gating.
 
 Several rows are asserted twice — once in the real `check()` and once in a
-fixture-init guard reusing the same ID. Both the citation and the
-`Test file:line` come from the CITED call, not from whichever is textually
-first, so the guard cannot shadow the assertion.
+fixture-init guard reusing the same ID, which is textually FIRST. Both the
+citation and the `Test file:line` are taken from the first call that carries a
+citation, so these uncited guards shadow neither, and the two columns of a row
+always name one and the same call.
+
+The rule is "first CITED call", not "not a guard" — nothing row-local can tell
+a guard from an assertion, and guessing from its wording is the kind of
+inference this document refuses. A guard that carries a citation of its own
+therefore does win, and 12 rows of `## Contention` are in exactly that shape:
+their citation is right and their `Test file:line` names the guard. Untouched
+here, and the fix is to drop the ID reuse in that suite.
+
 | Test ID    | Assertion description                                                                          | VHDL file:line                         | Status  | Test file:line                         |
 |------------|------------------------------------------------------------------------------------------------|----------------------------------------|---------|----------------------------------------|
 | MF-CORE-01 | reset defaults: nmi=0 invisible=1 mf_enable=0 port_io_dly=0 mem=0 hold=0                       | multiface.vhd:126,141,156,175          | pass    | test/multiface/multiface_test.cpp:118  |
