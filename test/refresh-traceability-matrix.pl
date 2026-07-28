@@ -168,8 +168,15 @@ my @SUBSYS = (
     # registration lives at build/src/esp01/, and run-unit-tests.sh reads every
     # CTestTestfile.cmake under the build tree, not just test/'s. So the next
     # module-resident suite is one more line here, not another special case.
-    # SELF-70/71 pin both halves of that (basename mapping, and reading a
-    # source from a non-`test/` root).
+    #
+    # SELF-70 pins the basename half. The other half — a source path that does
+    # NOT exist, which is exactly what a tidy-up making these entries
+    # `test/`-relative would produce — deliberately has no fixture: source_lines
+    # dies on it and the script exits 2 with the matrix untouched, which is
+    # already decisive (verified by mutation). A broken BASENAME needed the row
+    # because it fails the other way: the suite would just join the UNMAPPED
+    # list, and that signal is saturated — 50 suites / 1358 live rows are
+    # unmapped today, so a clean tree already exits 1.
     #
     # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. The suites
     # reuse row IDs across files on purpose — `TRACE-01..04` mean different

@@ -427,6 +427,7 @@ mmu_test                            250
 orphan_test                          42
 mentioned_test                        7
 fuse_z80_test                      1356
+esp_at_test                         137
 CONF
 
 # `mmu_test` is scanned by the real @SUBSYS; `orphan_test` is nowhere;
@@ -450,6 +451,24 @@ check('SELF-22', 'a suite a section header MENTIONS but no @SUBSYS entry scans i
 
 check('SELF-23', 'a documented out-of-scope suite (FUSE data-driven runner) is exempt',
       !exists $un{'fuse_z80_test'},
+      "flagged=[" . join(' ', map { $_->[0] } @$unmapped) . "]");
+
+# A MODULE-RESIDENT suite: its @SUBSYS source is `src/esp01/test/esp_at_test.cpp`,
+# outside `test/` entirely (GH #25 — the ESP-01 emulator ships its own proof
+# inside the reusable component). unmapped_suites() matches the conf on the
+# path's BASENAME, so a non-`test/` root must map exactly as a `test/`-rooted
+# one does.
+#
+# This row exists because breaking that mapping would be INVISIBLE otherwise.
+# The other half of the property — an @SUBSYS source path that does not exist,
+# which is what a "tidy-up" making these paths `test/`-relative would produce —
+# needs no fixture: source_lines() dies, and the script exits 2 leaving the
+# matrix untouched (verified by mutation). But a broken BASENAME would merely
+# add one more suite to the UNMAPPED list, and that signal is saturated: 50
+# suites / 1358 rows are already unmapped, so the script exits 1 on a clean
+# tree and one more entry changes nothing anyone would notice.
+check('SELF-70', 'a suite whose @SUBSYS source lives OUTSIDE test/ still maps by basename',
+      !exists $un{'esp_at_test'},
       "flagged=[" . join(' ', map { $_->[0] } @$unmapped) . "]");
 
 # ── The generated Summary block ───────────────────────────────────────
