@@ -765,7 +765,9 @@ if(ENABLE_QT_UI)
     # real MainWindow + Emulator + DebuggerManager, hence the ENABLE_DEBUGGER
     # gate (MainWindow::debugger_manager() only exists there); no display
     # (offscreen QPA forced in main()) and no real ffmpeg (a stub is put first
-    # on PATH, the video_recorder_cmd_test idiom).
+    # on PATH, the video_recorder_cmd_test idiom). Issue #139 added the Q139
+    # rows: the same cleanup's no-veto property depends on the two statements
+    # in closeEvent running in order, which the Q131 rows do not pin.
     if(ENABLE_DEBUGGER)
         add_executable(quit_cleanup_test gui/quit_cleanup_test.cpp)
         set_target_properties(quit_cleanup_test PROPERTIES AUTOMOC ON)

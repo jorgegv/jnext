@@ -1892,6 +1892,18 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         // Live-session gating is unchanged: F5/Run/Step/RunTo*, the Debug-menu
         // toggle and the debugger window [X] all still gate (prompt defaults
         // true) — only this quit path opts out.
+        //
+        // Issue #139 — THESE TWO STATEMENTS MUST STAY IN THIS ORDER. Closing
+        // the debugger window emits window_closed(), whose slot is
+        // set_enabled(false) with the DEFAULT prompt_on_corrupt=true
+        // (debugger_manager.cpp:175-177), and DebuggerWindow::closeEvent
+        // (debugger_window.cpp:185-198) calls event->ignore() if that disable
+        // is declined. Disabling FIRST makes the slot early-return on
+        // "already in the requested state" (debugger_manager.cpp:85-86), so no
+        // prompt is possible and the close is always accepted. Swapped, a
+        // corrupt machine gets the resume modal on the quit path and a vetoed
+        // debugger-window close — the Task 60f hang. Pinned by
+        // quit_cleanup_test Q139-01/Q139-02, which fail on the swap.
         debugger_mgr_->set_enabled(false, /*prompt_on_corrupt=*/false);
         if (auto* dbg_win = debugger_mgr_->debugger_window_ptr())
             dbg_win->close();

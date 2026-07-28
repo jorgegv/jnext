@@ -48,11 +48,59 @@
 // MainWindow owns QWidgets, so a QApplication is required — but not a display:
 // the offscreen QPA platform is forced in main(), the same idiom as
 // esc_break_test, host_hotkey_test and the debugger panel suites.
+//
+// ---------------------------------------------------------------------------
+// Issue #139 — the no-veto property rests on CALL ORDER, and the Q131 rows
+// above do not pin it.
+//
+// DebuggerWindow::closeEvent (debugger_window.cpp:185-198) CAN veto: it emits
+// window_closed(), whose slot is DebuggerManager::set_enabled(false) with the
+// DEFAULT prompt_on_corrupt=true, and if that disable is declined at the Task
+// 60e corruption prompt it calls event->ignore() and keeps the window open.
+//
+// MainWindow::closeEvent never reaches that branch only because it runs
+//     debugger_mgr_->set_enabled(false, /*prompt_on_corrupt=*/false);
+//     dbg_win->close();
+// in THAT order: by the time the window's closeEvent asks is_enabled(), the
+// answer is already false, so the slot early-returns (debugger_manager.cpp:
+// 85-86), no prompt is possible, and the close is accepted. Swap the two lines
+// and a corrupt machine gets a modal on the quit path and a vetoed debugger
+// window — Task 60f all over again.
+//
+// Every Q131 row above runs on a CLEAN machine, where the gate is a no-op, so
+// all five pass with the lines swapped. debugger_quit_gate_test pins what the
+// flag MEANS when set_enabled is called directly; it never goes through
+// MainWindow::closeEvent at all. The order itself was unpinned — that is this
+// issue, and Q139-01/02 below are the pin.
+//
+// Both rows use the state that makes the difference observable: debugger
+// enabled, machine paused, machine corrupt (Task 60b state latched through the
+// real load_state() path, as debugger_quit_gate_test does). A ModalWatcher
+// stands by to DECLINE any prompt, so the swapped build takes the veto branch
+// instead of hanging the suite.
+//
+//   Q139-01 asserts no modal appears. Swapped: window_closed() → gated
+//           set_enabled(false) → prompt.
+//   Q139-02 asserts the debugger window's QCloseEvent comes back ACCEPTED.
+//           Swapped: the declined prompt leaves is_enabled() true → ignore().
+//           Observed by overriding QApplication::notify() and reading
+//           isAccepted() AFTER delivery — an event filter runs before the
+//           widget's handler and so cannot see the verdict.
+//
+// Q139-02 is what makes the pair worth two rows rather than one: the end state
+// is identical either way (the second statement disables and HIDES the window
+// regardless), so "debugger off / window not visible" is not discriminative
+// here. The prompt and the vetoed close are.
 // ===========================================================================
+#include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
 #include <QDataStream>
+#include <QEvent>
+#include <QMessageBox>
 #include <QSettings>
+#include <QTimer>
+#include <vector>
 
 #include <cstdio>
 #include <cstdlib>
@@ -64,7 +112,9 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include "core/video_recorder.h"
+#include "debug/debug_state.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "gui/main_window.h"
@@ -75,11 +125,33 @@ namespace {
 
 int g_total = 0, g_pass = 0, g_fail = 0;
 
+// Every QCloseEvent delivered anywhere in the process, with the verdict read
+// back AFTER the receiver's handler ran (see CloseWatchingApp below).
+struct CloseRecord { const QObject* receiver; bool accepted; };
+std::vector<CloseRecord> g_close_events;
+
 void check(const char* id, const char* desc, bool cond, const std::string& detail) {
     ++g_total;
     if (cond) { ++g_pass; std::printf("  PASS %s: %s\n", id, desc); }
     else      { ++g_fail; std::printf("  FAIL %s: %s [%s]\n", id, desc, detail.c_str()); }
 }
+
+// Records the ACCEPTED/IGNORED verdict of every QCloseEvent. It has to be here
+// rather than in an event filter: a filter installed on the widget runs BEFORE
+// QWidget::event() dispatches to closeEvent(), so it sees the default (true)
+// and never the handler's decision. notify() brackets the whole delivery.
+class CloseWatchingApp : public QApplication {
+public:
+    CloseWatchingApp(int& argc, char** argv) : QApplication(argc, argv) {}
+
+    bool notify(QObject* receiver, QEvent* event) override {
+        if (event->type() != QEvent::Close)
+            return QApplication::notify(receiver, event);
+        const bool ret = QApplication::notify(receiver, event);
+        g_close_events.push_back(CloseRecord{receiver, event->isAccepted()});
+        return ret;
+    }
+};
 
 fs::path g_dir;   // scratch dir: holds the stub ffmpeg and the recording paths
 
@@ -288,13 +360,108 @@ void test_close_route() {
           " visible_after=" + (fx.win.isVisible() ? "1" : "0"));
 }
 
+// ---------------------------------------------------------------------------
+// Q139 — Quit's no-veto property, which rests on the two statements in
+// MainWindow::closeEvent running in the order they are written
+// ---------------------------------------------------------------------------
+
+// Latch the Task-60b corrupt state through the real public path: load_state()
+// with a buffer that fails the very first desync sentinel aborts at subsystem
+// #0, leaving memory and registers untouched and only the breadcrumb set. Same
+// helper as debugger_quit_gate_test::make_corrupt.
+bool make_corrupt(Emulator& emu) {
+    const uint8_t garbage[4] = {0, 0, 0, 0};
+    StateReader r(garbage, sizeof(garbage));
+    emu.load_state(r);
+    return !emu.last_state_error().empty();
+}
+
+// Auto-answers the corruption modal with No while set_enabled() blocks in the
+// dialog's nested event loop, recording that it appeared. Answering (rather
+// than just detecting) is what keeps a mis-ordered build from hanging the
+// suite: the spurious dialog is dismissed and Q139-01 fails cleanly.
+struct ModalWatcher {
+    bool   saw_modal = false;
+    QTimer timer;
+
+    ModalWatcher() {
+        QObject::connect(&timer, &QTimer::timeout, [this]() {
+            if (auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                saw_modal = true;
+                if (QAbstractButton* btn = mb->button(QMessageBox::No))
+                    btn->click();
+                else
+                    mb->done(QMessageBox::No);
+            }
+        });
+        timer.start(1);
+    }
+    void stop() { timer.stop(); }
+};
+
+void test_no_veto_on_corrupt_quit() {
+    Fixture fx;
+    if (!fx.ok) {
+        check("Q139-01", "fixture: Next emulator + MainWindow with a DebuggerManager",
+              false, "emulator init or debugger manager unavailable");
+        check("Q139-02", "fixture: Next emulator + MainWindow with a DebuggerManager",
+              false, "emulator init or debugger manager unavailable");
+        return;
+    }
+
+    DebuggerManager* mgr = fx.win.debugger_manager();
+    mgr->set_enabled(true);                       // creates + shows its window
+    QApplication::processEvents();
+    DebuggerWindow* dbg = mgr->debugger_window_ptr();
+
+    const bool corrupt = make_corrupt(fx.emu);
+    fx.emu.debug_state().pause();                 // arms the resume branch
+    const bool armed = mgr->is_enabled() && dbg != nullptr &&
+                       corrupt && fx.emu.debug_state().paused();
+
+    g_close_events.clear();
+    ModalWatcher watch;
+    QAction* q = quit_action(fx.win);
+    if (q) q->trigger();
+    watch.stop();
+    QApplication::processEvents();
+
+    // Q139-01 — no prompt on the quit path, on the one machine state that could
+    // produce one. Swap the two statements in MainWindow::closeEvent and
+    // dbg_win->close() runs first: window_closed() → set_enabled(false) with the
+    // default prompt_on_corrupt=true → the Task 60e modal → this flips.
+    check("Q139-01",
+          "Quit on a corrupt+paused machine shows no resume prompt "
+          "(debugger disabled before its window is closed)",
+          armed && q != nullptr && !watch.saw_modal,
+          std::string("armed=") + (armed ? "1" : "0") +
+          " action=" + (q ? "found" : "missing") +
+          " saw_modal=" + (watch.saw_modal ? "1" : "0") + " (expect 1,found,0)");
+
+    // Q139-02 — and the debugger window's close is ACCEPTED, not vetoed. Under
+    // the swap the declined prompt leaves is_enabled() true, so
+    // DebuggerWindow::closeEvent takes its event->ignore() branch and this flips.
+    // Asserted on the event's own verdict because the terminal state does not
+    // differ: set_enabled(false) hides the window either way.
+    bool saw_dbg_close = false, dbg_close_accepted = false;
+    for (const CloseRecord& r : g_close_events) {
+        if (r.receiver == dbg) { saw_dbg_close = true; dbg_close_accepted = r.accepted; }
+    }
+    check("Q139-02",
+          "Quit's close of the debugger window is accepted, never vetoed",
+          armed && saw_dbg_close && dbg_close_accepted,
+          std::string("armed=") + (armed ? "1" : "0") +
+          " close_delivered=" + (saw_dbg_close ? "1" : "0") +
+          " accepted=" + (dbg_close_accepted ? "1" : "0") + " (expect 1,1,1)");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
-    QApplication app(argc, argv);
+    CloseWatchingApp app(argc, argv);
 
-    std::printf("Issue #131 - Quit runs closeEvent's cleanup\n");
+    std::printf("Issue #131/#139 - Quit runs closeEvent's cleanup, in order\n");
     std::printf("==========================================\n\n");
 
     if (!install_ffmpeg_stub()) {
@@ -309,6 +476,9 @@ int main(int argc, char** argv) {
     test_geometry_persisted();
     test_close_route();
     std::printf("  Group: Q131           - done\n");
+
+    test_no_veto_on_corrupt_quit();
+    std::printf("  Group: Q139           - done\n");
 
     std::error_code ec;
     fs::remove_all(g_dir, ec);
