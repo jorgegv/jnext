@@ -1316,6 +1316,19 @@ int main() {
         //     bound asserted. That is what makes the row discriminative: it
         //     fails unless shutdown actively wakes the worker, rather than
         //     waiting for its next scheduled pass.
+        //
+        //     KNOWN LIMIT OF THIS ROW'S SHAPE, recorded because the identical
+        //     trap was found in esp_socket_test's ASYNC-06/07 during review and
+        //     the lesson is worth more than either row: IT TIMES THE
+        //     DESTRUCTOR, which is a call that merely FOLLOWS the operation
+        //     that could stall, not one that contains it. It discriminates only
+        //     because `AsyncResolveTransport` never blocks anywhere, so there
+        //     is no earlier call for a stall to hide in. Give that fake a slow
+        //     `poll()` and the stall relocates to `start()`/the first pass:
+        //     this row goes quiet and still passes. TIME THE CALL THAT
+        //     CONTAINS THE STALL. (ASYNC-11 in esp_socket_test is that fix
+        //     applied on the other side: it times the `poll()` that starts a
+        //     lookup, not a later one.)
         AsyncResolveTransport tr;
         auto esp = std::unique_ptr<ThreadedEsp>(
             new ThreadedEsp(tr, std::chrono::milliseconds(2000)));
