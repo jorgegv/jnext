@@ -94,22 +94,51 @@
 # forces the manifest's row count to be edited.
 #
 # SOURCE PATHS ARE READ FROM CMAKE, not from a hand-written path and not from
-# a name convention — see cmake_sources(). 79 of 87 suite names do match their
-# source basename and 8 do not (`cpu_int_pulse_test` is built from
-# `cpu/int_pulse_test.cpp`; the six `debugger_*` suites likewise; and the two
-# ESP-01 module suites are declared in `src/esp01/CMakeLists.txt`, not
-# `test/`'s). A convention that is right 91% of the time is the worst kind.
+# a name convention — see cmake_sources(). Two distinct things would have to
+# be guessed, and each has real exceptions:
+#
+#   the BASENAME — 80 of 87 suite names match their source basename and 7 do
+#   not: `cpu_int_pulse_test` is built from `int_pulse_test.cpp`, and the six
+#   `debugger_*` suites from `video_panel_test.cpp`, `audio_panel_test.cpp`,
+#   `quit_gate_test.cpp`, `window_size_test.cpp`, `window_grow_test.cpp`,
+#   `accel_test.cpp`;
+#
+#   the DIRECTORY — the two ESP-01 module suites keep their basename but live
+#   under `src/esp01/test/`, declared by `src/esp01/CMakeLists.txt` rather
+#   than `test/`'s, so no `test/`-rooted search finds them.
+#
+# A convention that is right 92% of the time is the worst kind.
 # This mirrors run-unit-tests.sh, which already treats CMake as the authority
 # for what a suite's binary is.
 #
-# Usage:
-#     perl test/refresh-traceability-matrix.pl
+# THE GATE IS WIRED IN. `--check-accounting` runs the accounting above and
+# nothing else — no test binary, no test source, the matrix neither opened nor
+# written — in 0.01 s with no build prerequisite, and `make unit-test` depends
+# on it exactly as it does on `docs-check` and `cli-check`. That matters more
+# than the rule itself: the warning this replaced was reachable only by a human
+# following the version-bump checklist, which is precisely how it stayed
+# saturated for a whole release series. A lock is worth what its door is worth.
 #
-# Exit status: 0 when the matrix records every row its mapped test sources
-# assert; 1 when it does not; 2 when a declared suite is unaccounted for (or
-# an accounted one is not declared) — the refusal above. On 1 the matrix is
-# rewritten anyway: it means "the file is refreshed AND it under-records; here
-# is the backlog", never "nothing was written". On 2 nothing is written at all.
+# The FULL refresh is deliberately not in the build: it needs a built test tree
+# and still exits 1 on the 821-row `unrecorded` backlog. That is a row-level
+# question with its own exit code, and the suite-level gate does not have to
+# wait for it.
+#
+# Usage:
+#     perl test/refresh-traceability-matrix.pl                  # full refresh
+#     perl test/refresh-traceability-matrix.pl --check-accounting
+#
+# Exit status:
+#     0  clean
+#     1  the matrix was rewritten and under-records rows (the GH #117 backlog)
+#     2  REFUSAL: the suite list is not accounted for; nothing was written
+#     3  internal error (unreadable file, un-runnable binary, missing marker)
+#
+# On 1 the matrix IS rewritten: it means "refreshed AND under-recording, here
+# is the backlog", never "nothing was written". On 2 and 3 nothing is written.
+# 3 is not decoration — `die` derives its status from errno, so "binary not
+# found" used to exit 2 (ENOENT) and read as a refusal, which is the one signal
+# `make unit-test` now acts on.
 #
 # Dependencies: the test binaries must already be built under `build/test/`.
 # This script does not build them.
@@ -123,8 +152,53 @@ use File::Spec;
 use Cwd qw(abs_path);
 use FindBin qw($RealBin);
 
+# ── Exit status vocabulary ────────────────────────────────────────────
+#
+#   0  clean
+#   1  the matrix was rewritten and under-records rows (the GH #117 backlog)
+#   2  REFUSAL: the suite list is not accounted for; nothing was written
+#   3  internal error (unreadable file, un-runnable binary, missing marker)
+#
+# 3 exists because `die` derives its status from errno, so "binary not found"
+# exited 2 (ENOENT) and "binary not executable" exited 255 — the first
+# indistinguishable from a refusal, which is precisely the signal a caller
+# will act on once the gate is wired into `make unit-test`. Every internal
+# error goes through fatal() instead.
+sub fatal {
+    my ($msg) = @_;
+    # `die`, not `exit`, so a caller may still catch it — the selftest asserts
+    # several of these refusals (SELF-25) and would otherwise be killed
+    # mid-run by the first one. main() turns it into exit 3.
+    die "refresh-traceability-matrix: $msg\n";
+}
+
 my $ROOT   = abs_path("$RealBin/..");
 my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
+
+# `--check-accounting` runs ONLY the suite-accounting gate and exits: no test
+# binary is run, no source is read, the matrix is neither opened nor written.
+# That is what lets it be a prerequisite of `make unit-test` alongside
+# `docs-check` and `cli-check` — 0.01 s and no build dependency, against 2.3 s
+# and a built test tree for the full refresh.
+#
+# Wiring it in is the point. A lock is only worth its door: the predecessor
+# warning was reachable only by a human following the version-bump checklist,
+# and that is exactly the trigger under which it saturated unnoticed for the
+# whole v0.98 series. The ROW-level backlog (821 unrecorded rows, exit 1) is
+# what keeps the full refresh out of the build for now; the gate is a
+# different question with a different exit code and does not have to wait for
+# it.
+# Parsed from main(), never at file scope: the selftest LOADS this file to get
+# at its subs, and a file-scope @ARGV walk would then read the selftest's own
+# arguments and exit before a single row ran.
+my $CHECK_ONLY = 0;
+sub parse_args {
+    for my $arg (@_) {
+        if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
+        fatal("unknown option '$arg'\n"
+            . "usage: refresh-traceability-matrix.pl [--check-accounting]");
+    }
+}
 
 # (section_header_line, suite | [suites]) — WHICH `##` section a declared
 # suite's rows belong to. This is the whole of what stays hand-written about
@@ -297,9 +371,10 @@ my %TOMBSTONE = (
 #
 # CMake already knows what every suite is built from; a second copy of that
 # fact in this file is a copy that can drift, and a name convention derived
-# from it is worse — 79 of 87 suite names match their source basename and 8 do
-# not, so the convention is right often enough to look correct and wrong often
-# enough to lie. `test/run-unit-tests.sh` already treats CMake as the authority
+# from it is worse — 80 of 87 suite names match their source basename and 7 do
+# not (and two more keep the basename but sit outside `test/`), so the
+# convention is right often enough to look correct and wrong often enough to
+# lie. `test/run-unit-tests.sh` already treats CMake as the authority
 # for what a suite's binary is; this is the same rule for its source.
 #
 # One line, one `add_executable(<name> <first-source> ...)`, resolved relative
@@ -452,7 +527,7 @@ my $ID_BARE_RE = qr{
 # and the first two are traced sections. Without this arm their FAIL set would
 # read empty and every row of both would publish `pass` while its assertion
 # fails — the one direction a status column must never be wrong in. Found when
-# they were first traced (GH #144); pinned by SELF-71.
+# they were first traced (GH #144); pinned by SELF-79/80.
 #
 # The `[FAIL]` arm requires the ID to be the whole rest of the line up to
 # optional trailing detail, and is anchored at the start, so a `FAIL` appearing
@@ -670,13 +745,12 @@ sub run_fails {
     # Mirror Python subprocess.run's FileNotFoundError: refuse to "run" a
     # missing binary and silently see an empty FAIL set (which would
     # pass-whitewash every row in that section).
-    die "refresh-traceability-matrix: binary not executable: $abs\n"
-        unless -x $abs;
+    fatal("binary not executable: $abs") unless -x $abs;
 
     my %fails;
     my $pid = open(my $fh, '-|');
     if (!defined $pid) {
-        die "fork failed for $binary: $!";
+        fatal("fork failed for $binary: $!");
     }
     if ($pid == 0) {
         # Child: merge stderr into stdout so pipe captures both.
@@ -708,7 +782,7 @@ sub run_fails {
     waitpid($pid, 0);
 
     if ($timed_out) {
-        die "refresh-traceability-matrix: $binary timed out after 180s\n";
+        fatal("$binary timed out after 180s");
     }
 
     return $FAILS_CACHE{$binary} = \%fails;
@@ -737,7 +811,7 @@ sub run_fails {
 # warrants, and one that trades a loud wrong answer for a silent one.
 sub source_lines {
     my ($abs) = @_;
-    open(my $fh, '<', $abs) or die "open $abs: $!";
+    open(my $fh, '<', $abs) or fatal("open $abs: $!");
     my @src = <$fh>;
     close $fh;
     for my $l (@src) { $l = '' if $l =~ m{^\s*//}; }
@@ -785,27 +859,89 @@ sub vhdl_files {
     return $VHDL_FILES;
 }
 
-# First VHDL citation in a blob of text, normalised to "file.vhd:lines".
+# EVERY VHDL citation in a blob of text, normalised to "file.vhd:lines" and
+# joined with ", " in the order they appear.
+#
+# This was a scalar-context match returning only the FIRST citation, and the
+# consequence was silent: 27 of the 126 cells the new sections published named
+# one file when the row's own `check()` named two or three. `MF-MUX-07` was the
+# worst — it published `multiface.vhd:64,103`, where :64 is a bare port
+# DECLARATION, and dropped `zxnext.vhd:2816`, the gate the row is actually
+# about. A cell that is a strict prefix of the truth reads exactly like a
+# complete one, so nothing downstream could tell them apart; the drift report
+# cannot either, because the extractor agreed with itself on every later run.
+#
+# NO REGEX LOOSENING. Each match is still anchored on a real `*.vhd` token and
+# still validated against the FPGA tree. What this does NOT recover is the
+# filename-omitting continuation once prose interrupts it — `multiface.vhd:158
+# (clear), :165 (eff)` still publishes only `:158`, because reaching across
+# `(clear)` means consuming English, whose failure mode is publishing a WRONG
+# citation. Stopping early publishes a correct-but-incomplete one, which this
+# project ranks strictly better (see $VHDL_CITE_RE above, same trade).
+#
+# Duplicates are collapsed: a row whose evidence names the same lines twice
+# (common when a comment restates the call's citation) gets one entry, not two.
+#
+# So is a strict RESTATEMENT of the same file with fewer lines. The common
+# shape is a description naming the headline line and the detail naming the
+# full set — `check("MF-M1G-01", "... multiface.vhd:169)", cond,
+# "multiface.vhd:169,176")` — which would otherwise publish
+# `multiface.vhd:169, multiface.vhd:169,176`. Suppression is by verbatim TOKEN
+# SUBSET on the same filename, so nothing is merged, renumbered or reordered:
+# an entry is dropped only when every line reference it makes already appears,
+# spelled identically, in another entry for that same file. `:169` goes;
+# `:169` vs `:176` would both stay, and so would two different files.
 sub cite_in {
     my ($text) = @_;
-    return undef unless $text =~ /$VHDL_CITE_RE/;
-    my ($file, $lines) = ($1, $2);
     my $known = vhdl_files();
-    if ($known && !$known->{$file}) {
-        warn "WARN: citation names '$file', which is not in $FPGA_SRC\n";
-        return undef;
+    my (@out, %seen);
+    while ($text =~ /$VHDL_CITE_RE/g) {
+        my ($file, $lines) = ($1, $2);
+        if ($known && !$known->{$file}) {
+            warn "WARN: citation names '$file', which is not in $FPGA_SRC\n";
+            next;
+        }
+        my $cite;
+        if (!defined $lines) {
+            $cite = $file;
+        } else {
+            $lines =~ s/\s+//g;
+            # Canonical published form is the one already in the matrix: line
+            # refs joined by `,` or `/`, no filename repeated. So fold the two
+            # spellings the regex accepts back onto it — `+` becomes `,` (it is
+            # only ever a list separator here) and the carried-forward `:` is
+            # dropped. Every `:` left in $lines is a continuation marker by
+            # construction: the citation's own `:` is matched outside this
+            # capture group. (GH #136)
+            $lines =~ s/\+/,/g;
+            $lines =~ s/://g;
+            $cite = "$file:$lines";
+        }
+        next if $seen{$cite}++;
+        push @out, { cite => $cite, file => $file,
+                     tok  => { map { $_ => 1 }
+                               split(/[,\/]/, defined $lines ? $lines : '') } };
     }
-    return $file unless defined $lines;
-    $lines =~ s/\s+//g;
-    # Canonical published form is the one already in the matrix: line refs
-    # joined by `,` or `/`, no filename repeated. So fold the two spellings
-    # the regex now accepts back onto it — `+` becomes `,` (it is only ever a
-    # list separator here) and the carried-forward `:` is dropped. Every `:`
-    # left in $lines is a continuation marker by construction: the citation's
-    # own `:` is matched outside this capture group. (GH #136)
-    $lines =~ s/\+/,/g;
-    $lines =~ s/://g;
-    return "$file:$lines";
+    my @kept;
+    for my $i (0 .. $#out) {
+        my $redundant = 0;
+        for my $j (0 .. $#out) {
+            next if $i == $j;
+            next unless $out[$j]{file} eq $out[$i]{file};
+            # Proper subset only, so two identical entries cannot delete each
+            # other (%seen has already removed those anyway).
+            next unless scalar(keys %{ $out[$j]{tok} })
+                      > scalar(keys %{ $out[$i]{tok} });
+            my $covered = 1;
+            for my $t (keys %{ $out[$i]{tok} }) {
+                $covered = 0, last unless $out[$j]{tok}{$t};
+            }
+            $redundant = 1, last if $covered;
+        }
+        push @kept, $out[$i]{cite} unless $redundant;
+    }
+    return undef unless @kept;
+    return join(', ', @kept);
 }
 
 # Repo-relative path of the plan doc backing a suite, or undef when it has
@@ -850,7 +986,7 @@ sub plan_cites {
 sub grep_citations {
     my ($source_rel, $from) = @_;
     my $abs = "$ROOT/$source_rel";
-    open(my $fh, '<', $abs) or die "open $abs: $!";
+    open(my $fh, '<', $abs) or fatal("open $abs: $!");
     my @src = <$fh>;
     close $fh;
 
@@ -910,7 +1046,7 @@ sub grep_citations {
         # through the one door left open. (GH #144)
         my $line = $src[$i];
         $line =~ s/$SET_GROUP_RE/set_group(/g;
-        while ($line =~ /$ID_LITERAL_RE/g) { $id_line{$1} //= $i; }
+        while ($line =~ /$ID_LITERAL_RE/g) { push @{ $id_line{$1} }, $i; }
         $i++;
     }
 
@@ -918,13 +1054,31 @@ sub grep_citations {
     my $plan_path = plan_doc_path($source_rel);
     my %cites;
     for my $tid (keys %id_line) {
-        my $L = $id_line{$tid};
+        my $L = $id_line{$tid}[0];
         my ($cite, $owns_call);
-        for my $c (@calls) {
-            if ($c->{s} <= $L && $L <= $c->{e}) {
-                $owns_call = 1;
-                $cite = $c->{cite};
-                last;
+        # EVERY call carrying this row's own ID is candidate evidence, not just
+        # the first. A row is routinely asserted twice — once in the real
+        # `check()` and once in a fixture-init guard that reuses the same ID
+        # (`check("MF-MUX-07", "Emulator init failed", false, ...)`) — and the
+        # guard is textually FIRST. Taking only the first occurrence let the
+        # guard, which carries no citation, shadow the assertion that does, so
+        # 21 Multiface rows fell through to their banner comment instead.
+        # `MF-MUX-07` was the worst: it published `multiface.vhd:64,103` (:64
+        # is a bare port declaration) while its own call names the gate at
+        # `zxnext.vhd:2816`.
+        #
+        # This is not a loosening: every candidate literally contains the row's
+        # own ID, which is the same row-local standard the `call` tier always
+        # applied. Order is preserved, so the first CITED call wins, and
+        # $owns_call still latches on any owning call — the `next` tier stays
+        # fenced off for a row that has a call but no citation in it.
+        OCC: for my $occ (@{ $id_line{$tid} }) {
+            for my $c (@calls) {
+                if ($c->{s} <= $occ && $occ <= $c->{e}) {
+                    $owns_call = 1;
+                    if (defined $c->{cite}) { $cite = $c->{cite}; last OCC; }
+                    last;
+                }
             }
         }
         $cite //= $named{$tid};
@@ -1114,7 +1268,7 @@ sub recorded_only_by_alias {
 # The `?` prefix marks a GUI-gated suite and is not part of the name.
 sub declared_suites {
     my $conf = "$ROOT/test/unit-tests.conf";
-    open(my $fh, '<', $conf) or die "open $conf: $!";
+    open(my $fh, '<', $conf) or fatal("open $conf: $!");
     my @out;
     while (my $line = <$fh>) {
         next if $line =~ /^\s*#/ || $line !~ /\S/;
@@ -1796,8 +1950,8 @@ sub replace_summary {
         $e = $i if defined $b && index($lines->[$i], $SUMMARY_END) == 0;
         last if defined $e;
     }
-    die "refresh-traceability-matrix: generated-summary markers not found in "
-      . "$MATRIX — expected a line '$SUMMARY_BEGIN' followed by '$SUMMARY_END'\n"
+    fatal("generated-summary markers not found in $MATRIX — expected a line "
+        . "'$SUMMARY_BEGIN' followed by '$SUMMARY_END'")
         unless defined $b && defined $e;
     splice(@$lines, $b + 1, $e - $b - 1, @$body);
 }
@@ -1828,6 +1982,42 @@ sub report_exit_code {
 # parent lists its companions, a companion lists its parent) and stops dead at
 # the `##` boundary — a different subsystem is never a companion, so a row
 # asserted nowhere in this subsystem still reads `missing`.
+# Locate each resolved @SUBSYS entry's section header in the document.
+# Returns ([[line_idx, entry], ...], [header, ...]) — the ones found, and the
+# ones that are not there.
+#
+# Split out of main() for the same reason report_exit_code() and
+# companion_map() were: the selftest loads this file with main() stripped, so
+# anything left inline in main() is contract that nothing can assert. The
+# missing-section list feeds a REFUSAL, which makes it exactly the kind of
+# thing that must be pinned rather than trusted.
+#
+# The header match is a PREFIX match, not equality: section headers may have
+# gained a " + `companion_test.cpp`" suffix after a companion suite was
+# created (ULA Video + ula_integration_test, CTC+Interrupts +
+# ctc_interrupts_test). The leading "## <Name> — `<file>`" stays the
+# discriminator, and the trailing space in the prefix test stops
+# "## Copper" from matching "## Copper Extra".
+sub resolve_sections {
+    my ($lines, $subsys) = @_;
+    my (@found, @missing);
+    for my $entry (@$subsys) {
+        my ($header) = @$entry;
+        my $idx;
+        for my $i (0 .. $#$lines) {
+            my $stripped = $lines->[$i];
+            $stripped =~ s/^\s+|\s+$//g;
+            if ($stripped eq $header || index($stripped, $header . ' ') == 0) {
+                $idx = $i;
+                last;
+            }
+        }
+        if (!defined $idx) { push @missing, $header; next; }
+        push @found, [$idx, $entry];
+    }
+    return (\@found, \@missing);
+}
+
 sub companion_map {
     my ($lines, $found) = @_;
     my (%span_of, %by_span, %entry_of);
@@ -1849,29 +2039,61 @@ sub companion_map {
     return \%comp;
 }
 
+# Thin wrapper so every fatal() becomes exit 3 rather than an errno-derived
+# status. The tail of this file stays the literal `exit(main());` the selftest
+# strips to load the subs without running them.
 sub main {
-    # ── The accounting gate, BEFORE anything is read or written ───────
-    #
-    # A refusal must leave the document untouched, so it runs first and exits
-    # 2 without opening the matrix at all.
+    my $rc = eval { parse_args(@ARGV); main_body() };
+    if ($@) { print STDERR $@; return 3; }
+    return $rc;
+}
+
+# The accounting gate on its own: no test binary is run, no source is read,
+# the matrix is not opened. Returns (exit_code, subsys) — $subsys undef when
+# it refused.
+#
+# Split out because `--check-accounting` has to be cheap enough to be a
+# prerequisite of `make unit-test`: 0.01 s and no build dependency, against
+# 2.3 s and a built test tree for the full refresh. It is the same code path
+# either way — there is no second, weaker copy of the rule.
+sub check_accounting {
     my $declared   = declared_suites();
     my $complaints = suite_accounting($declared, \@SUBSYS, \%NO_MATRIX_SECTION);
     my ($subsys, $resolve_complaints) = @$complaints ? ([], [])
                                                      : resolve_subsys(\@SUBSYS);
     push @$complaints, @$resolve_complaints;
-    if (@$complaints) {
-        print STDERR
-            "refresh-traceability-matrix: REFUSING to run — the suite list is\n"
-          . "not accounted for. `test/unit-tests.conf` is the driver: every\n"
-          . "suite it declares must be traced by \@SUBSYS or tombstoned in\n"
-          . "%NO_MATRIX_SECTION with a reason, and nothing may be both,\n"
-          . "neither, or accounted for without being declared.\n\n";
-        print STDERR "  $_\n" for @$complaints;
-        print STDERR "\nThe matrix was NOT rewritten.\n";
-        return 2;
+    return (0, $subsys, $declared) unless @$complaints;
+    print STDERR
+        "refresh-traceability-matrix: REFUSING — the suite list is not\n"
+      . "accounted for. `test/unit-tests.conf` is the driver: every suite it\n"
+      . "declares must be traced by \@SUBSYS in\n"
+      . "test/refresh-traceability-matrix.pl or tombstoned in\n"
+      . "%NO_MATRIX_SECTION there with a reason, and nothing may be both,\n"
+      . "neither, or accounted for without being declared.\n\n";
+    print STDERR "  $_\n" for @$complaints;
+    return (2, undef, undef);
+}
+
+sub main_body {
+    # ── The accounting gate, BEFORE anything is read or written ───────
+    #
+    # A refusal must leave the document untouched, so it runs first and exits
+    # 2 without opening the matrix at all.
+    my ($rc, $subsys, $declared) = check_accounting();
+    if ($rc) {
+        print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
+        return $rc;
+    }
+    if ($CHECK_ONLY) {
+        printf("accounting OK: %d suites declared in test/unit-tests.conf, "
+             . "%d traced, %d tombstoned, 0 unaccounted\n",
+               scalar @$declared,
+               scalar(grep { defined } map { @{[as_list($_->[1])]} } @SUBSYS),
+               scalar(grep { exists $NO_MATRIX_SECTION{ $_->[0] } } @$declared));
+        return 0;
     }
 
-    open(my $in, '<', $MATRIX) or die "open $MATRIX: $!";
+    open(my $in, '<', $MATRIX) or fatal("open $MATRIX: $!");
     my $text = do { local $/; <$in> };
     close $in;
 
@@ -1889,29 +2111,9 @@ sub main {
 
     # Resolve every section header first, so each section knows where the
     # next one starts (see refresh_section's $stop_idx).
-    my (@found, @missing_sections);
-    for my $entry (@$subsys) {
-        my ($header, $binary, $source_rel) = @$entry;
-        my $idx;
-        for my $i (0 .. $#lines) {
-            my $stripped = $lines[$i];
-            $stripped =~ s/^\s+|\s+$//g;
-            # Prefix match instead of exact equality: section headers may have
-            # gained " + `companion_test.cpp`" suffixes after companion suites
-            # were created (ULA Video + ula_integration_test, CTC+Interrupts +
-            # ctc_interrupts_test). The leading "## <Name> — `<file>`" stays
-            # the discriminator.
-            if ($stripped eq $header || index($stripped, $header . ' ') == 0) {
-                $idx = $i;
-                last;
-            }
-        }
-        if (!defined $idx) {
-            push @missing_sections, $header;
-            next;
-        }
-        push @found, [$idx, $entry];
-    }
+    my ($found, $missing_sections) = resolve_sections(\@lines, $subsys);
+    my @found            = @$found;
+    my @missing_sections = @$missing_sections;
 
     # The same hole one level down. A suite named in @SUBSYS is TRACED as far
     # as the accounting gate is concerned, but if its section header is not
@@ -2000,7 +2202,7 @@ sub main {
                        $tombstoned, scalar(keys %$recorded),
                        declared_totals()));
 
-    open(my $out, '>', $MATRIX) or die "write $MATRIX: $!";
+    open(my $out, '>', $MATRIX) or fatal("write $MATRIX: $!");
     print $out join("\n", @lines), "\n";
     close $out;
 

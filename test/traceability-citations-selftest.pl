@@ -687,6 +687,152 @@ check('SELF-82', 'the banner label itself is not published as a row citation',
       !exists $banner->{'fixture_d'},
       'banner label leaked as a row');
 
+# ── EVERY citation in the evidence, not just the first (GH #144) ──────
+#
+# cite_in() was a scalar-context match, so a row whose check() named two files
+# published one. 27 of 126 published cells were a strict prefix of the truth,
+# and a prefix reads exactly like a complete answer — the drift report cannot
+# see it either, because the extractor agreed with itself every run.
+write_fixture('test/fixture/multicite_test.cpp', <<'CPP');
+void m() {
+    check("MC-01", "two files", cond, "fixture_a.vhd:10; fixture_b.vhd:20-22");
+    check("MC-02", "prose interrupts the filename-omitting tail",
+          cond, "fixture_a.vhd:30 (the gate), :44 (the latch)");
+    check("MC-03", "the same lines restated twice", cond,
+          "fixture_c.vhd:5 and again fixture_c.vhd:5");
+    check("MC-04", "a real file and an imaginary one", cond,
+          "fixture_a.vhd:70, not_in_the_core.vhd:99");
+}
+CPP
+my $mc = grep_citations('test/fixture/multicite_test.cpp');
+
+check('SELF-83', 'a second FILE in the same evidence is published, not dropped',
+      ($mc->{'MC-01'} // '') eq 'fixture_a.vhd:10, fixture_b.vhd:20-22',
+      "got " . ($mc->{'MC-01'} // '(none)'));
+
+check('SELF-84', 'the refusal: a filename-omitting tail behind prose is NOT reached across',
+      ($mc->{'MC-02'} // '') eq 'fixture_a.vhd:30',
+      "got " . ($mc->{'MC-02'} // '(none)'));
+
+check('SELF-85', 'a citation restated in the same evidence is published once, not twice',
+      ($mc->{'MC-03'} // '') eq 'fixture_c.vhd:5',
+      "got " . ($mc->{'MC-03'} // '(none)'));
+
+check('SELF-86', 'an unknown filename is dropped from the list while its valid neighbour survives',
+      ($mc->{'MC-04'} // '') eq 'fixture_a.vhd:70',
+      "got " . ($mc->{'MC-04'} // '(none)'));
+
+# Collecting every citation surfaced a legibility regression the single-match
+# version could not have: a description naming the headline line and a detail
+# naming the full set published `file:169, file:169,176`. A strict restatement
+# is suppressed by verbatim TOKEN SUBSET on the same filename — nothing is
+# merged, renumbered or reordered.
+write_fixture('test/fixture/subset_test.cpp', <<'CPP');
+void s() {
+    check("SS-01", "headline in the description (fixture_a.vhd:169)",
+          cond, "fixture_a.vhd:169,176");
+    check("SS-02", "disjoint line sets for one file stay both",
+          cond, "fixture_a.vhd:10 and fixture_a.vhd:20");
+    check("SS-03", "same lines, two different files, both stay",
+          cond, "fixture_a.vhd:5 mirrored at fixture_b.vhd:5");
+    check("SS-04", "a bare filename is redundant beside a lined one",
+          cond, "see fixture_c.vhd, specifically fixture_c.vhd:42");
+}
+CPP
+my $ss = grep_citations('test/fixture/subset_test.cpp');
+
+check('SELF-93', 'a strict restatement of the same file with fewer lines is suppressed',
+      ($ss->{'SS-01'} // '') eq 'fixture_a.vhd:169,176',
+      "got " . ($ss->{'SS-01'} // '(none)'));
+
+check('SELF-94', 'the refusal: DISJOINT line sets for the same file are both kept, in source order',
+      ($ss->{'SS-02'} // '') eq 'fixture_a.vhd:10, fixture_a.vhd:20',
+      "got " . ($ss->{'SS-02'} // '(none)'));
+
+check('SELF-95', 'the refusal: identical lines in two DIFFERENT files are both kept',
+      ($ss->{'SS-03'} // '') eq 'fixture_a.vhd:5, fixture_b.vhd:5',
+      "got " . ($ss->{'SS-03'} // '(none)'));
+
+check('SELF-96', 'a bare filename is suppressed beside a lined citation of the same file',
+      ($ss->{'SS-04'} // '') eq 'fixture_c.vhd:42',
+      "got " . ($ss->{'SS-04'} // '(none)'));
+
+# ── A guard call must not shadow the assertion (GH #144) ──────────────
+#
+# A row is routinely asserted twice: the real check(), and a fixture-init
+# guard reusing the same ID, which is textually FIRST. Taking only the first
+# occurrence let the guard — which carries no citation — shadow the assertion
+# that does, and 21 Multiface rows fell through to their banner comment.
+write_fixture('test/fixture/guard_test.cpp', <<'CPP');
+// Banner naming GD-01 and GD-02 and citing fixture_d.vhd:900 for both.
+void g() {
+    if (!init()) {
+        check("GD-01", "fixture init failed", false, "init returned false");
+        return;
+    }
+    check("GD-01", "the real assertion", cond, "fixture_a.vhd:12");
+    if (!init()) {
+        check("GD-02", "fixture init failed", false, "init returned false");
+        return;
+    }
+    check("GD-02", "an assertion with no citation of its own", cond, "no vhdl here");
+}
+CPP
+my $guard = grep_citations('test/fixture/guard_test.cpp');
+
+check('SELF-87', 'the CITED call wins over an earlier guard call reusing the same ID',
+      ($guard->{'GD-01'} // '') eq 'fixture_a.vhd:12',
+      "got " . ($guard->{'GD-01'} // '(none)'));
+
+check('SELF-88', 'the refusal: when NO call carrying the ID cites anything, the `next` tier stays fenced off',
+      ($guard->{'GD-02'} // '') eq 'fixture_d.vhd:900',
+      "got " . ($guard->{'GD-02'} // '(none)'));
+
+# ── Locating a section header (GH #144) ───────────────────────────────
+#
+# A suite named in @SUBSYS passes the accounting gate as TRACED, but if its
+# header is not actually in the document then nothing scans it and its rows
+# are recorded nowhere — the very condition the gate exists to make
+# impossible. That is a REFUSAL, and it was inline in main(), which this file
+# strips: the one part of the contract nothing could assert.
+my @rs_doc = (
+    '## Copper — `test/copper/copper_test.cpp`',
+    '',
+    '## ULA Video — `test/ula/ula_test.cpp` + `test/ula/ula_integration_test.cpp`',
+    '',
+    '## Copper Extra — `test/copper/other_test.cpp`',
+);
+my ($rs_found, $rs_missing) = resolve_sections(\@rs_doc, [
+    ['## Copper — `test/copper/copper_test.cpp`',  ['bin/c'], ['test/c.cpp']],
+    ['## ULA Video — `test/ula/ula_test.cpp`',     ['bin/u'], ['test/u.cpp']],
+    ['## Nowhere — `test/nope/nope_test.cpp`',     ['bin/n'], ['test/n.cpp']],
+]);
+
+check('SELF-89', 'THE REFUSAL: a traced suite whose section header is absent is reported, not skipped silently',
+      scalar(@$rs_missing) == 1
+        && $rs_missing->[0] eq '## Nowhere — `test/nope/nope_test.cpp`',
+      "missing=[" . join(' | ', @$rs_missing) . "]");
+
+check('SELF-90', 'a header that gained a " + `companion.cpp`" suffix still resolves by prefix',
+      scalar(@$rs_found) == 2 && $rs_found->[1][0] == 2,
+      "found=[" . join(' ', map { $_->[0] } @$rs_found) . "]");
+
+check('SELF-91', 'the refusal: the prefix match does not let `## Copper` swallow `## Copper Extra`',
+      scalar(@$rs_found) >= 1 && $rs_found->[0][0] == 0,
+      "Copper resolved to line " . ($rs_found->[0][0] // '(none)'));
+
+# ── Exit 3 is internal error, and must not read as the gate's exit 2 ──
+#
+# `die` derives its status from errno, so "binary not found" exited 2 (ENOENT)
+# — indistinguishable from a REFUSAL, which is the signal `make unit-test`
+# now acts on. Every internal error goes through fatal() instead, which stays
+# catchable so this file can assert the refusals at all.
+my $fatal_died = 0;
+eval { fatal('a synthetic internal error'); 1 } or $fatal_died = 1;
+check('SELF-92', 'fatal() raises rather than exiting, so a caller can still catch it',
+      $fatal_died && $@ =~ /^refresh-traceability-matrix: a synthetic internal error$/m,
+      $fatal_died ? "message=[$@]" : 'fatal() returned without raising');
+
 # ── The exit-status contract ──────────────────────────────────────────
 #
 # main() is stripped when this file loads the script, so the glue that

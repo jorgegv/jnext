@@ -86,7 +86,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest traceability-accounting-check worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
@@ -333,8 +333,30 @@ regression: lint-makefile-help unit-test-build gui-release sdl-release docs-chec
 	@# deletes it (clean depends on sdl-release-clean), hence building it here.
 	bash test/00regression/regression.sh
 
+# Fail if a declared unit-test suite is neither traced nor tombstoned in the matrix
+traceability-accounting-check:
+	@# doc/testing/TRACEABILITY-MATRIX.md records what each test row proves and
+	@# against what VHDL authority, and WHICH suites it covers used to be a
+	@# hand-written table inside the refresh script. That table drifted: it traced
+	@# 28 suites for the whole v0.98 series while test/unit-tests.conf grew 49 ->
+	@# 80, so ~31 suites were added and traced nowhere. Each addition arrived as
+	@# one more name on a warning line that already listed fifty, inside a report
+	@# only a human running the version-bump checklist ever saw.
+	@#
+	@# So the manifest drives it now, and the check runs HERE, on every unit-test
+	@# run, exactly like docs-check and cli-check. It costs 0.01 s: no test binary
+	@# is run, no test source is read, the matrix is neither opened nor written —
+	@# which is why it needs no build prerequisite and can sit ahead of everything
+	@# expensive.
+	@#
+	@# It is NOT the full refresh. That one still exits 1 on the 821-row
+	@# `unrecorded` backlog and needs a built test tree; this is the suite-level
+	@# gate only, and its exit code (2) is distinct from both that backlog (1) and
+	@# an internal error (3).
+	@perl test/refresh-traceability-matrix.pl --check-accounting
+
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help unit-test-build docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check unit-test-build docs-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
