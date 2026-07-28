@@ -285,11 +285,18 @@ void test_emulator_copper_wiring() {
                   expected_transition, first_transition, transition_count,
                   unexpected_row, unexpected_pixel,
                   emulator.tilemap().get_map_base_raw());
-    // VHDL tilemap.vhd:264,349 - tm_map_base_q is latched whenever the fetch
-    // state machine re-enters S_IDLE, which :264 forces once per tile COLUMN.
     // TM-SPLIT-04 drives the same latch through Copper -> NextREG -> renderer
     // at jnext's per-scanline granularity.
+    //
+    // The citation lives INSIDE the call, like every other row in this file.
+    // It sat in the comment above until GH #144 review round 3: that made this
+    // a `named`-tier row, and since the fixture-init guard above reuses this
+    // ID and is textually first, the matrix published the guard's line beside
+    // a citation that named no call at all — the two columns disagreeing,
+    // which is the defect the round was about.
     check("TM-SPLIT-04",
+          // VHDL tilemap.vhd:264,349 — tm_map_base_q is latched whenever the
+          // fetch FSM re-enters S_IDLE, which :264 forces once per tile COLUMN.
           unexpected_row < 0 &&
           transition_count == 1 &&
           first_transition == expected_transition,
