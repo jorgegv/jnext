@@ -144,6 +144,15 @@ the refusals.
 Every filled citation is validated against the real FPGA source tree, so a
 typo'd or renamed VHDL filename is reported, not published.
 
+A published citation may be SHORTER than its source. The line list stops at
+the first interrupting prose, so a detail spelled `multiface.vhd:158 (clear),
+:165 (eff)` publishes `:158` alone: reaching across `(clear)` means consuming
+English, and that regex's failure mode is a confidently wrong citation, which
+this document ranks strictly worse than an incomplete one. 13 cells are short
+of their source this way today. None names a line the source does not, and each
+names the row's primary evidence; the fix is to re-spell the detail as a plain
+list (`:158,165`) in the test source and re-run.
+
 Reading the column:
 
 - `file.vhd:lines` — the row's VHDL basis.
@@ -1225,12 +1234,12 @@ project's declared accuracy model. An earlier wording of these rows claimed the
 change "affects only subsequent scanlines", which is jnext's model described as
 if it were the hardware; it is not, and the rows say so now.
 
-| Test ID     | Assertion description                                                                                      | VHDL file:line                   | Status  | Test file:line                                |
-|-------------|------------------------------------------------------------------------------------------------------------|----------------------------------|---------|-----------------------------------------------|
+| Test ID     | Assertion description                                                                                      | VHDL file:line                       | Status  | Test file:line                                |
+|-------------|------------------------------------------------------------------------------------------------------------|--------------------------------------|---------|-----------------------------------------------|
 | TM-SPLIT-01 | NR 0x6E map-base is latched at fetch time, so a change never repaints already-fetched cells                | tilemap.vhd:264,349, zxnext.vhd:4407 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:141 |
 | TM-SPLIT-02 | NR 0x6F tile-definition base is latched at fetch time, so a change never repaints already-fetched cells    | tilemap.vhd:264,350, zxnext.vhd:4408 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:170 |
 | TM-SPLIT-03 | NR 0x6C default attribute is consumed at fetch time, so a change never repaints already-fetched cells      | tilemap.vhd:264,366, zxnext.vhd:4394 | pass    | test/tilemap/tilemap_fetch_split_test.cpp:199 |
-| TM-SPLIT-04 | the same fetch-time latch holds through the full Emulator + Copper path, not just the bare Tilemap fixture | tilemap.vhd:264,349              | pass    | test/tilemap/tilemap_fetch_split_test.cpp:214 |
+| TM-SPLIT-04 | the same fetch-time latch holds through the full Emulator + Copper path, not just the bare Tilemap fixture | tilemap.vhd:264,349                  | pass    | test/tilemap/tilemap_fetch_split_test.cpp:214 |
 
 ## Copper — `test/copper/copper_test.cpp`
 
@@ -1331,7 +1340,7 @@ scheduler, the CPU-vs-Copper NextREG write arbitration, and the 50/60 Hz
 |-------------|---------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------|---------|---------------------------------------------|
 | G117-MPC-01 | 16 Copper MOVEs to NR 0x14 all fire within 3 Z80 instructions (post-G117 cycle-accurate scheduler)                                    | —                                                    | pass    | test/copper/copper_integration_test.cpp:165 |
 | G65-PRI-01  | Tied-edge CPU vs Copper NR write: CPU value wins as final                                                                             | zxnext.vhd:4769-4777                                   | pass    | test/copper/copper_integration_test.cpp:247 |
-| T58-CVC-01  | runtime 50->60 Hz switch re-pushes the Copper c_max_vc wrap: WAIT vpos=60 with NR 0x64 offset=100 fires at vc=224 in a 264-line frame | zxula_timing.vhd:204/238/457-470, zxnext.vhd:6697-6700 | pass    | test/copper/copper_integration_test.cpp:287 |
+| T58-CVC-01  | runtime 50->60 Hz switch re-pushes the Copper c_max_vc wrap: WAIT vpos=60 with NR 0x64 offset=100 fires at vc=224 in a 264-line frame | zxula_timing.vhd:204/238/457-470, zxnext.vhd:6697-6700 | pass    | test/copper/copper_integration_test.cpp:322 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
@@ -2038,8 +2047,18 @@ The Multiface peripheral (`src/peripheral/multiface.{h,cpp}`), implemented in
 the Task 8 waves of 2026-05 against `device/multiface.vhd` and the `zxnext.vhd`
 glue that wires it to the port decoder, the NMI fabric and the memory map. The
 suite has no separate plan doc: it was written row-by-row from the VHDL, and
-each `check()` carries its own citation in the detail argument, which is where
-the `VHDL file:line` column below comes from.
+each `check()` carries its own citation in the detail argument, which is what
+the `VHDL file:line` column below is read from.
+
+**Read from, not necessarily all of.** The extractor stops a citation's line
+list at the first interrupting prose, so a detail spelled
+`multiface.vhd:158 (clear), :165 (eff)` publishes `:158` alone — the `:165`
+sits behind `(clear)`, and reaching across that means consuming English, whose
+failure mode is a confidently WRONG citation. 11 of this section's cells are
+short of their source that way (and 2 more elsewhere in this document); each
+still names the row's primary evidence, and none names anything the source
+does not. Closing them means re-spelling the detail as a plain list
+(`:158,165`), which is an edit in the test source.
 
 Four groups: `MF-CORE-*` the state machine (NMI arm, invisible latch, the
 `0x0066` fetch that raises `mf_enable`, RETN teardown), `MF-PORT-*` the four
@@ -2051,7 +2070,6 @@ Several rows are asserted twice — once in the real `check()` and once in a
 fixture-init guard reusing the same ID. Both the citation and the
 `Test file:line` come from the CITED call, not from whichever is textually
 first, so the guard cannot shadow the assertion.
-
 | Test ID    | Assertion description                                                                          | VHDL file:line                         | Status  | Test file:line                         |
 |------------|------------------------------------------------------------------------------------------------|----------------------------------------|---------|----------------------------------------|
 | MF-CORE-01 | reset defaults: nmi=0 invisible=1 mf_enable=0 port_io_dly=0 mem=0 hold=0                       | multiface.vhd:126,141,156,175          | pass    | test/multiface/multiface_test.cpp:118  |
@@ -2066,34 +2084,34 @@ first, so the guard cannot shadow the assertion.
 | MF-CORE-10 | is_active() = is_mem_active() OR is_nmi_hold()                                                 | zxnext.vhd:4305                        | pass    | test/multiface/multiface_test.cpp:380  |
 | MF-CORE-11 | load_rom_bytes round-trips 8 KB buffer into rom_data()                                         | —                                    | pass    | test/multiface/multiface_test.cpp:398  |
 | MF-CORE-12 | save_state / load_state round-trips FFs + mode + RAM                                           | —                                    | pass    | test/multiface/multiface_test.cpp:437  |
-| MF-M1G-01  | quiescent M1 at 0x0066: no FF changes                                                          | multiface.vhd:169,176                  | pass    | test/multiface/multiface_test.cpp:1357 |
-| MF-M1G-02  | M1 after a port strobe clocks port_io_dly 1->0                                                 | multiface.vhd:122-131                  | pass    | test/multiface/multiface_test.cpp:1375 |
-| MF-M1G-03  | NMI armed: 0x0066 M1 latches mf_enable through the gate                                        | multiface.vhd:169,176                  | pass    | test/multiface/multiface_test.cpp:1389 |
-| MF-M1G-04  | M1 after enable-rd strobe drops combinational mf_port_en and port_io_dly, preserves mf_enable  | multiface.vhd:128,195                  | pass    | test/multiface/multiface_test.cpp:1410 |
-| MF-M1G-05  | mapped overlay survives quiescent M1s (incl. 0x0066 with nmi_active=0) — mf_enable untouched | multiface.vhd:169,171-184              | pass    | test/multiface/multiface_test.cpp:1431 |
-| MF-M1G-06  | disabled: M1 preserves forced reset state                                                      | multiface.vhd:103,126,141,156,175      | pass    | test/multiface/multiface_test.cpp:1445 |
-| MF-MUX-01  | MF+3 read 0x1xxx LSB 0x3F (FDC=0): bit 3 forced 0, bits 2:0 = port_1ffd_reg                    | zxnext.vhd:4312                        | pass    | test/multiface/multiface_test.cpp:720  |
-| MF-MUX-01b | MF+3 read 0x1xxx LSB 0x3F (FDC=1): bit 3 = cpu_do(3), bits 2:0 = port_1ffd_reg                 | zxnext.vhd:4312                        | pass    | test/multiface/multiface_test.cpp:750  |
-| MF-MUX-02  | MF+3 read 0x7xxx LSB 0x3F: returns full port_7ffd_reg                                          | zxnext.vhd:4313                        | pass    | test/multiface/multiface_test.cpp:770  |
-| MF-MUX-03  | MF+3 read 0xDxxx LSB 0x3F: returns 0 / reg_6 / 0 / port_dffd_reg(4:0)                          | zxnext.vhd:4314                        | pass    | test/multiface/multiface_test.cpp:792  |
-| MF-MUX-04  | MF+3 read 0xExxx LSB 0x3F: returns 0 / 0 / 0 / 0 / reg_3 / reg_2 / 0 / 0                       | zxnext.vhd:4315                        | pass    | test/multiface/multiface_test.cpp:816  |
-| MF-MUX-05  | MF+3 read 0x0xxx LSB 0x3F: 'others' arm → port_fe_reg(2:0) (border bits, 0x02)               | zxnext.vhd:4316                        | pass    | test/multiface/multiface_test.cpp:841  |
-| MF-MUX-06  | invisible_eff=1 closes mf_port_en gate (mux suppressed)                                        | multiface.vhd:195                      | pass    | test/multiface/multiface_test.cpp:867  |
-| MF-MUX-07  | is_enabled=0 closes mf_port_en gate (mux suppressed)                                           | multiface.vhd:103,195, zxnext.vhd:2816 | pass    | test/multiface/multiface_test.cpp:900  |
-| MF-MUX-08  | MF128 var A read LSB 0xBF: returns port_7ffd_reg(3) & 0x7F (shadow on→0xFF, off→0x7F)      | zxnext.vhd:4319                        | pass    | test/multiface/multiface_test.cpp:924  |
-| MF-MUX-09  | cpu_a(15:12) decode: 0x1xxx→port_1ffd (0x05), 0x7xxx→port_7ffd (0x42)                      | zxnext.vhd:4312-4313                   | pass    | test/multiface/multiface_test.cpp:952  |
-| MF-MUX-10  | MF128 read at 0x1FBF: case-mux bypassed (else-branch = 0x7F, NOT port_1ffd & 0x0F)             | zxnext.vhd:4318-4320                   | pass    | test/multiface/multiface_test.cpp:976  |
-| MF-OVL-01  | MF inactive (is_mem_active=0): read at 0x0000 does NOT match MF ROM                            | multiface.vhd:186                      | pass    | test/multiface/multiface_test.cpp:1071 |
-| MF-OVL-02  | MF active: reads at 0x0000 and 0x1FFF return MF ROM bytes                                      | zxnext.vhd:3028-3035                   | pass    | test/multiface/multiface_test.cpp:1095 |
-| MF-OVL-03  | MF active: reads at 0x2000 and 0x3FFF return MF RAM bytes                                      | zxnext.vhd:3028-3035                   | pass    | test/multiface/multiface_test.cpp:1118 |
-| MF-OVL-04  | write 0x42 to 0x2123 lands in MF RAM[0x0123]; read-back matches                                | zxnext.vhd:3035                        | pass    | test/multiface/multiface_test.cpp:1143 |
-| MF-OVL-05  | write 0xAA to 0x0123 (ROM half) is ignored; MF ROM unchanged                                   | zxnext.vhd:3035                        | pass    | test/multiface/multiface_test.cpp:1170 |
-| MF-OVL-06  | addr 0x4000 (outside slot 0): MF overlay does NOT fire                                         | zxnext.vhd:3029                        | pass    | test/multiface/multiface_test.cpp:1193 |
-| MF-OVL-07  | fetch_66 bypass + FF latch: overlay activates on the 0x0066 fetch                              | multiface.vhd:186                      | pass    | test/multiface/multiface_test.cpp:1222 |
-| MF-OVL-08  | on_retn_seen deactivates overlay; reads fall through                                           | multiface.vhd:144,178                  | pass    | test/multiface/multiface_test.cpp:1253 |
-| MF-OVL-09  | both MF and DivMMC active: read at 0x0000 returns MF ROM (0xAA)                                | zxnext.vhd:3030,3036,3084              | pass    | test/multiface/multiface_test.cpp:1280 |
-| MF-OVL-10  | boot ROM enabled + MF active: read at 0x0000 returns boot ROM (0xBB)                           | zxnext.vhd:1856-1857                   | pass    | test/multiface/multiface_test.cpp:1317 |
-| MF-PORT-01 | MF+3 (mf_type=00): OUT 0x3F → enable_wr strobe (port_io_dly=1)                               | zxnext.vhd:2612,2615,2730-2733         | pass    | test/multiface/multiface_test.cpp:520  |
+| MF-M1G-01  | quiescent M1 at 0x0066: no FF changes                                                          | multiface.vhd:169,176                  | pass    | test/multiface/multiface_test.cpp:1358 |
+| MF-M1G-02  | M1 after a port strobe clocks port_io_dly 1->0                                                 | multiface.vhd:122-131                  | pass    | test/multiface/multiface_test.cpp:1376 |
+| MF-M1G-03  | NMI armed: 0x0066 M1 latches mf_enable through the gate                                        | multiface.vhd:169,176                  | pass    | test/multiface/multiface_test.cpp:1390 |
+| MF-M1G-04  | M1 after enable-rd strobe drops combinational mf_port_en and port_io_dly, preserves mf_enable  | multiface.vhd:128,195                  | pass    | test/multiface/multiface_test.cpp:1411 |
+| MF-M1G-05  | mapped overlay survives quiescent M1s (incl. 0x0066 with nmi_active=0) — mf_enable untouched | multiface.vhd:169,171-184              | pass    | test/multiface/multiface_test.cpp:1432 |
+| MF-M1G-06  | disabled: M1 preserves forced reset state                                                      | multiface.vhd:103,126,141,156,175      | pass    | test/multiface/multiface_test.cpp:1446 |
+| MF-MUX-01  | MF+3 read 0x1xxx LSB 0x3F (FDC=0): bit 3 forced 0, bits 2:0 = port_1ffd_reg                    | zxnext.vhd:4312                        | pass    | test/multiface/multiface_test.cpp:729  |
+| MF-MUX-01b | MF+3 read 0x1xxx LSB 0x3F (FDC=1): bit 3 = cpu_do(3), bits 2:0 = port_1ffd_reg                 | zxnext.vhd:4312                        | pass    | test/multiface/multiface_test.cpp:757  |
+| MF-MUX-02  | MF+3 read 0x7xxx LSB 0x3F: returns full port_7ffd_reg                                          | zxnext.vhd:4313                        | pass    | test/multiface/multiface_test.cpp:777  |
+| MF-MUX-03  | MF+3 read 0xDxxx LSB 0x3F: returns 0 / reg_6 / 0 / port_dffd_reg(4:0)                          | zxnext.vhd:4314                        | pass    | test/multiface/multiface_test.cpp:802  |
+| MF-MUX-04  | MF+3 read 0xExxx LSB 0x3F: returns 0 / 0 / 0 / 0 / reg_3 / reg_2 / 0 / 0                       | zxnext.vhd:4315                        | pass    | test/multiface/multiface_test.cpp:823  |
+| MF-MUX-05  | MF+3 read 0x0xxx LSB 0x3F: 'others' arm → port_fe_reg(2:0) (border bits, 0x02)               | zxnext.vhd:4316                        | pass    | test/multiface/multiface_test.cpp:849  |
+| MF-MUX-06  | invisible_eff=1 closes mf_port_en gate (mux suppressed)                                        | multiface.vhd:195                      | pass    | test/multiface/multiface_test.cpp:887  |
+| MF-MUX-07  | is_enabled=0 closes mf_port_en gate (mux suppressed)                                           | multiface.vhd:103,195, zxnext.vhd:2816 | pass    | test/multiface/multiface_test.cpp:906  |
+| MF-MUX-08  | MF128 var A read LSB 0xBF: returns port_7ffd_reg(3) & 0x7F (shadow on→0xFF, off→0x7F)      | zxnext.vhd:4319                        | pass    | test/multiface/multiface_test.cpp:937  |
+| MF-MUX-09  | cpu_a(15:12) decode: 0x1xxx→port_1ffd (0x05), 0x7xxx→port_7ffd (0x42)                      | zxnext.vhd:4312-4313                   | pass    | test/multiface/multiface_test.cpp:959  |
+| MF-MUX-10  | MF128 read at 0x1FBF: case-mux bypassed (else-branch = 0x7F, NOT port_1ffd & 0x0F)             | zxnext.vhd:4318-4320                   | pass    | test/multiface/multiface_test.cpp:986  |
+| MF-OVL-01  | MF inactive (is_mem_active=0): read at 0x0000 does NOT match MF ROM                            | multiface.vhd:186                      | pass    | test/multiface/multiface_test.cpp:1080 |
+| MF-OVL-02  | MF active: reads at 0x0000 and 0x1FFF return MF ROM bytes                                      | zxnext.vhd:3028-3035                   | pass    | test/multiface/multiface_test.cpp:1104 |
+| MF-OVL-03  | MF active: reads at 0x2000 and 0x3FFF return MF RAM bytes                                      | zxnext.vhd:3028-3035                   | pass    | test/multiface/multiface_test.cpp:1127 |
+| MF-OVL-04  | write 0x42 to 0x2123 lands in MF RAM[0x0123]; read-back matches                                | zxnext.vhd:3035                        | pass    | test/multiface/multiface_test.cpp:1156 |
+| MF-OVL-05  | write 0xAA to 0x0123 (ROM half) is ignored; MF ROM unchanged                                   | zxnext.vhd:3035                        | pass    | test/multiface/multiface_test.cpp:1178 |
+| MF-OVL-06  | addr 0x4000 (outside slot 0): MF overlay does NOT fire                                         | zxnext.vhd:3029                        | pass    | test/multiface/multiface_test.cpp:1205 |
+| MF-OVL-07  | fetch_66 bypass + FF latch: overlay activates on the 0x0066 fetch                              | multiface.vhd:186                      | pass    | test/multiface/multiface_test.cpp:1240 |
+| MF-OVL-08  | on_retn_seen deactivates overlay; reads fall through                                           | multiface.vhd:144-145,178-179          | pass    | test/multiface/multiface_test.cpp:1265 |
+| MF-OVL-09  | both MF and DivMMC active: read at 0x0000 returns MF ROM (0xAA)                                | zxnext.vhd:3030,3036,3084              | pass    | test/multiface/multiface_test.cpp:1303 |
+| MF-OVL-10  | boot ROM enabled + MF active: read at 0x0000 returns boot ROM (0xBB)                           | zxnext.vhd:1856-1857                   | pass    | test/multiface/multiface_test.cpp:1331 |
+| MF-PORT-01 | MF+3 (mf_type=00): OUT 0x3F → enable_wr strobe (port_io_dly=1)                               | zxnext.vhd:2612,2615,2730-2733         | pass    | test/multiface/multiface_test.cpp:537  |
 | MF-PORT-02 | MF+3 (mf_type=00): IN 0x3F → enable_rd strobe (port_io_dly=1)                                | zxnext.vhd:2612,2615,2730-2733         | pass    | test/multiface/multiface_test.cpp:540  |
 | MF-PORT-03 | MF+3 (mf_type=00): OUT 0xBF → disable_wr strobe (port_io_dly=1)                              | zxnext.vhd:2613,2616,2730-2733         | pass    | test/multiface/multiface_test.cpp:543  |
 | MF-PORT-04 | MF+3 (mf_type=00): IN 0xBF → disable_rd strobe (port_io_dly=1)                               | zxnext.vhd:2613,2616,2730-2733         | pass    | test/multiface/multiface_test.cpp:546  |
@@ -3640,7 +3658,7 @@ demo-level and are recorded in the sections that own them.
 | LR-123  | Clip X is in 256-pixel display units (it indexes `phc`), so a clip edge can fall mid-LoRes-pixel | lores.vhd:115, zxnext.vhd:4250        | pass    | test/lores/lores_test.cpp:656 |
 | LR-125  | An inverted X window (`x1 > x2`) draws nothing                                                   | lores.vhd:115                         | pass    | test/lores/lores_test.cpp:671 |
 | LR-126  | An inverted Y window (`y1 > y2`) draws nothing                                                   | lores.vhd:115                         | pass    | test/lores/lores_test.cpp:679 |
-| LR-160  | NR `$26` / `$27` (ULA scroll) do not move the LoRes image                                        | lores.vhd:37-61, zxnext.vhd:4241-4271 | pass    | test/lores/lores_test.cpp:730 |
+| LR-160  | NR `$26` / `$27` (ULA scroll) do not move the LoRes image                                        | lores.vhd:82,84, zxnext.vhd:4241-4271 | pass    | test/lores/lores_test.cpp:730 |
 | LR-23   | `pixel_en` is 0 for `phc >= 256`                                                                 | lores.vhd:115                         | pass    | test/lores/lores_test.cpp:150 |
 | LR-24   | `pixel_en` is 0 for `vc >= 192` at default clip                                                  | lores.vhd:115, zxnext.vhd:4974        | pass    | test/lores/lores_test.cpp:163 |
 | LR-25   | `pixel_en` is 1 at the display corners                                                           | lores.vhd:115                         | pass    | test/lores/lores_test.cpp:177 |
@@ -3682,8 +3700,8 @@ functions of the ULA's own **port B** fetch.
 
 | Test ID | Plan row title                                        | VHDL file:line                      | Status  | Test file:line                            |
 |---------|-------------------------------------------------------|-------------------------------------|---------|-------------------------------------------|
-| LR-163  | Enabling LoRes does not change ULA memory contention  | zxula.vhd:583, zxnext.vhd:6603-6631 | pass    | test/lores/lores_integration_test.cpp:122 |
-| LR-164  | Enabling LoRes does not change the floating-bus value | zxula.vhd:573                       | pass    | test/lores/lores_integration_test.cpp:168 |
+| LR-163  | Enabling LoRes does not change ULA memory contention  | zxula.vhd:583, zxnext.vhd:6603-6631 | pass    | test/lores/lores_integration_test.cpp:152 |
+| LR-164  | Enabling LoRes does not change the floating-bus value | zxula.vhd:573                       | pass    | test/lores/lores_integration_test.cpp:200 |
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 
