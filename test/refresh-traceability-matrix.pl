@@ -245,11 +245,39 @@ my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
 
 # `\.vhd` must not be a prefix of a longer identifier, or `row.vhdl_line`
 # in a printf argument list is read as a citation of "row.vhd".
+#
+# A citation's line list may continue in two spellings, and BOTH have to be
+# consumed or the tail is silently dropped (GH #136):
+#
+#   zxnext.vhd:5080, 6188-6189     bare continuation
+#   zxnext.vhd:5080, :6188-6189    filename-omitting continuation
+#
+# The second reads correctly to a human — the filename is understood to carry
+# forward — which is why it went unnoticed: `uart_integration_test.cpp:701`
+# published `zxnext.vhd:5080` and dropped the `:6188-6189` read-mask lines its
+# assertion actually exercises.
+#
+# Measured over the blobs this regex is fed: 197 dropped tails from test
+# sources plus 17 from plan-doc rows. 183 of the 197 use a punctuation
+# separator (`,` 125, `+` 33, `/` 25) and are consumed below; the remaining
+# 14 use a word (`vs` 12, `and` 2) and are deliberately NOT.
+#
+# `+` is admitted ONLY in the colon-carrying spelling. The colon is what makes
+# the tail unambiguously a line reference; a bare `foo.vhd:100 + 200` would be
+# indistinguishable from arithmetic, and no instance of it exists in the tree
+# to justify the risk.
+#
+# The word separators stay out (`zxnext.vhd:5391-5393 vs :5462`) because they
+# are prose, not citation syntax, and a regex that consumes English words is
+# one step from consuming the sentence around it — whose failure mode is
+# publishing a WRONG citation. Stopping early publishes a
+# correct-but-incomplete one, which this project ranks strictly better.
 my $VHDL_CITE_RE = qr{
     \b ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
     (?: \s* : \s*
         ( \d+ (?: \s* [-–] \s* \d+ )?
-          (?: \s* [/,] \s* \d+ (?: \s* [-–] \s* \d+ )? )* ) )?
+          (?: \s* (?: [/,] \s* | [/,+] \s* : \s* )
+              \d+ (?: \s* [-–] \s* \d+ )? )* ) )?
 }x;
 
 # Plan row IDs as they appear unquoted inside a comment ("TM-01:", "TM-01/02").
@@ -500,6 +528,14 @@ sub cite_in {
     }
     return $file unless defined $lines;
     $lines =~ s/\s+//g;
+    # Canonical published form is the one already in the matrix: line refs
+    # joined by `,` or `/`, no filename repeated. So fold the two spellings
+    # the regex now accepts back onto it — `+` becomes `,` (it is only ever a
+    # list separator here) and the carried-forward `:` is dropped. Every `:`
+    # left in $lines is a continuation marker by construction: the citation's
+    # own `:` is matched outside this capture group. (GH #136)
+    $lines =~ s/\+/,/g;
+    $lines =~ s/://g;
     return "$file:$lines";
 }
 
