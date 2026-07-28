@@ -7,11 +7,17 @@ if(SOURCES)
     # no library at all on POSIX; Winsock needs ws2_32. Both are OS components,
     # not third-party dependencies — the same posture as the SD-card
     # provisioner's winhttp/bcrypt (src/core/CMakeLists.txt), so the project's
-    # no-new-dependency rule is untouched. Deliberately declared HERE and not in
-    # src/core: esp_socket* lives beside uart_device.h, its only future consumer,
-    # and putting it in jnext_core would force branch 3's ESP device (also in
-    # src/peripheral) to depend BACK on jnext_core — the undeclared
-    # static-library cycle src/core/CMakeLists.txt goes out of its way to avoid.
+    # no-new-dependency rule is untouched.
+    #
+    # Declared HERE rather than in src/core for two reasons, both about
+    # layering. First, the OS-library requirement belongs with the code that
+    # needs it: esp_socket* lives in this directory, so a reader of this file
+    # can see why ws2_32 is linked, and a future move of the sources moves the
+    # requirement with them. Second, jnext_peripheral is a LEAF library and
+    # jnext_core is the top-level orchestrator that links it; putting the
+    # transport in jnext_core would make branch 3's ESP device — which belongs
+    # here, next to uart_device.h — depend back on the orchestrator, inverting
+    # the dependency direction every other peripheral respects.
     # PUBLIC so both jnext_core and the unit suite inherit it.
     if(WIN32)
         target_link_libraries(jnext_peripheral PUBLIC ws2_32)

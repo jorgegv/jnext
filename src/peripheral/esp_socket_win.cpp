@@ -126,6 +126,8 @@ bool resolve(const std::string& host, bool numeric_only,
             ip.family = IpFamily::V6;
             std::memcpy(ip.bytes.data(),
                         &reinterpret_cast<sockaddr_in6*>(a->ai_addr)->sin6_addr, 16);
+            // sin6_scope_id is dropped here, exactly as in the POSIX twin —
+            // see the note there and at AddressPolicy::deny_link_local.
         } else {
             continue;
         }

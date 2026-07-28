@@ -139,7 +139,48 @@ IpAddress normalize(const IpAddress& ip) {
     if (v6_all_zero(b, 0, 12) && !v6_all_zero(b, 12, 15))
         return ipv4(b[12], b[13], b[14], b[15]);
 
+    // 6to4 is deliberately NOT unwrapped here — see tunnel_endpoint().
     return ip;
+}
+
+bool tunnel_endpoint(const IpAddress& ip, IpAddress& endpoint) {
+    // 6to4, RFC 3056: 2002:AABB:CCDD::/48, where AABB:CCDD is the IPv4 address
+    // of the site's 6to4 gateway. Packets to ANY address under that /48 are
+    // encapsulated and sent to that IPv4 address, so 2002:7f00:1::1 reaches
+    // 127.0.0.1 on this host and must be judged by the V4 rules.
+    //
+    // This is a SEPARATE concept from normalize(), and the distinction is the
+    // point rather than pedantry. The three forms normalize() handles are
+    // ALIASES: ::ffff:1.2.3.4 *is* 1.2.3.4, so collapsing them loses nothing.
+    // A 6to4 address is not an alias — 2002:7f00:1::1 and 127.0.0.1 are
+    // different hosts, one merely REACHED VIA the other. Folding it into
+    // normalize() would therefore be wrong twice over: it would claim an
+    // equality that does not hold, and it would make select_candidate() treat
+    // a 6to4 address as an IPv4 candidate and prefer it over a genuine A
+    // record, even though the socket that carries it is AF_INET6.
+    //
+    // NOT handled, deliberately, each for its own reason:
+    //
+    //   * Teredo (2001:0::/32, RFC 4380). Its embedded IPv4 fields are the
+    //     Teredo SERVER (bits 32-63) and the obfuscated CLIENT (bits 96-127,
+    //     bitwise NOT). Neither can name a host on this machine: the client
+    //     field describes a NATted peer somewhere on the internet, and the
+    //     server is a public relay that must be configured before any of it
+    //     routes at all. There is no "reach 127.0.0.1 via Teredo" — so a rule
+    //     here would buy nothing and could only produce false denials.
+    //
+    //   * ISATAP (::0:5efe:a.b.c.d / ::200:5efe:a.b.c.d). This is an INTERFACE
+    //     IDENTIFIER pattern, not a prefix, so it can appear under any prefix
+    //     at all — including a perfectly ordinary global address whose low 64
+    //     bits happen to match. A rule keyed on it would deny legitimate
+    //     addresses by coincidence, which is a worse failure than the one it
+    //     prevents. Where ISATAP actually lives — fe80::5efe:a.b.c.d — it is
+    //     already denied outright by the link-local rule.
+    if (ip.family == IpFamily::V6 && ip.bytes[0] == 0x20 && ip.bytes[1] == 0x02) {
+        endpoint = ipv4(ip.bytes[2], ip.bytes[3], ip.bytes[4], ip.bytes[5]);
+        return true;
+    }
+    return false;
 }
 
 const char* deny_reason_text(DenyReason r) {
@@ -155,8 +196,10 @@ const char* deny_reason_text(DenyReason r) {
     return "unknown";
 }
 
-DenyReason classify_address(const IpAddress& raw, const AddressPolicy& policy) {
-    const IpAddress    ip = normalize(raw);
+namespace {
+
+/// The rule table itself, applied to one already-normalized address.
+DenyReason classify_flat(const IpAddress& ip, const AddressPolicy& policy) {
     const std::uint8_t* b = ip.bytes.data();
     const bool         v4 = (ip.family == IpFamily::V4);
 
@@ -185,6 +228,24 @@ DenyReason classify_address(const IpAddress& raw, const AddressPolicy& policy) {
 
     if (policy.deny_private && (v4 ? v4_private(b) : v6_unique_local(b)))
         return DenyReason::Private;
+
+    return DenyReason::None;
+}
+
+}  // namespace
+
+DenyReason classify_address(const IpAddress& raw, const AddressPolicy& policy) {
+    const IpAddress ip = normalize(raw);
+
+    const DenyReason direct = classify_flat(ip, policy);
+    if (direct != DenyReason::None) return direct;
+
+    // The address itself is fine; now ask where a tunnelling prefix would
+    // actually deliver it. The endpoint is judged by the SAME policy, so
+    // 6to4-of-an-RFC1918-address stays allowed exactly like the bare address
+    // does — the tunnel changes the path, not the trust decision.
+    IpAddress endpoint;
+    if (tunnel_endpoint(ip, endpoint)) return classify_flat(endpoint, policy);
 
     return DenyReason::None;
 }

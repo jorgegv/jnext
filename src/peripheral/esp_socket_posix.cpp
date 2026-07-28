@@ -100,6 +100,11 @@ bool resolve(const std::string& host, bool numeric_only,
             ip.family = IpFamily::V6;
             std::memcpy(ip.bytes.data(),
                         &reinterpret_cast<sockaddr_in6*>(a->ai_addr)->sin6_addr, 16);
+            // sin6_scope_id is DROPPED here and fill_sockaddr() never restores
+            // it, so a scoped address (fe80::1%eth0) loses its zone. That is
+            // harmless while link-local is denied — which it is by default —
+            // and is documented as a known limitation at AddressPolicy::
+            // deny_link_local, the flag someone would have to clear to hit it.
         } else {
             continue;
         }

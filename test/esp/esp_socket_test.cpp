@@ -33,6 +33,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -61,6 +62,12 @@ static void check(const char* id, const std::string& desc, bool cond) {
     }
 }
 
+static void skip(const char* id, const char* why) {
+    ++g_total;
+    ++g_skip;
+    std::printf("  SKIP %s: %s\n", id, why);
+}
+
 // ── Policy helpers ────────────────────────────────────────────────────────
 
 static const char* reason_name(DenyReason r) { return deny_reason_text(r); }
@@ -84,6 +91,18 @@ static IpAddress v6(std::uint16_t a, std::uint16_t b, std::uint16_t c, std::uint
         raw[i * 2]     = static_cast<std::uint8_t>(groups[i] >> 8);
         raw[i * 2 + 1] = static_cast<std::uint8_t>(groups[i] & 0xFF);
     }
+    return ipv6(raw);
+}
+
+/// 2002:AABB:CCDD::<tail> — a 6to4 address whose tunnel endpoint is a.b.c.d.
+static IpAddress sixtofour(std::uint8_t a, std::uint8_t b, std::uint8_t c,
+                           std::uint8_t d, std::uint16_t tail = 1) {
+    std::array<std::uint8_t, 16> raw{};
+    raw[0]  = 0x20;
+    raw[1]  = 0x02;
+    raw[2]  = a; raw[3] = b; raw[4] = c; raw[5] = d;
+    raw[14] = static_cast<std::uint8_t>(tail >> 8);
+    raw[15] = static_cast<std::uint8_t>(tail & 0xFF);
     return ipv6(raw);
 }
 
@@ -332,6 +351,69 @@ int main() {
               v6(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1));
     check("NORM-09", "an IPv4 address is returned unchanged",
           normalize(ipv4(9, 9, 9, 9)) == ipv4(9, 9, 9, 9));
+
+    // ═══ POL-TUN — tunnelling prefixes: 6to4 in, Teredo/ISATAP out ═════════
+    // A 6to4 address is not an alias for its endpoint (normalize() leaves it
+    // alone) but packets for it are physically delivered there, so the policy
+    // has to judge the endpoint too or 2002:7f00:1::1 launders 127.0.0.1.
+    expect_default("POL-TUN-01", sixtofour(127, 0, 0, 1),       DenyReason::Loopback);
+    expect_default("POL-TUN-02", sixtofour(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-TUN-03", sixtofour(169, 254, 0, 1),     DenyReason::LinkLocal);
+    expect_default("POL-TUN-04", sixtofour(93, 184, 216, 34),   DenyReason::None);
+    // The endpoint is judged by the FULL policy, not a loopback-only check:
+    // an RFC1918 endpoint is allowed by default and denied when the private
+    // rule is switched on, exactly as the bare address would be.
+    expect_default("POL-TUN-05", sixtofour(10, 0, 0, 1),        DenyReason::None);
+    {
+        AddressPolicy p;
+        p.deny_private = true;
+        expect_verdict("POL-TUN-06", sixtofour(10, 0, 0, 1), DenyReason::Private, p);
+    }
+    // Teredo (2001:0::/32) is deliberately NOT unwrapped: its embedded IPv4
+    // fields are a public relay server and an obfuscated NATted client, so
+    // neither can name a host on this machine. Even a Teredo address whose
+    // SERVER field spells 127.0.0.1 stays allowed — pinning the exclusion so
+    // it cannot be "fixed" silently.
+    expect_default("POL-TUN-07",
+                   v6(0x2001, 0x0000, 0x7f00, 0x0001, 0, 0, 0x80ff, 0xfffe),
+                   DenyReason::None);
+    // ISATAP is an interface-IDENTIFIER pattern, not a prefix: a rule keyed on
+    // it would deny ordinary global addresses whose low 64 bits coincide. So
+    // ::0:5efe:7f00:1 under a global prefix stays allowed...
+    expect_default("POL-TUN-08",
+                   v6(0x2001, 0x0db8, 0, 0, 0, 0x5efe, 0x7f00, 0x0001),
+                   DenyReason::None);
+    // ...while the place ISATAP actually lives is already denied outright.
+    expect_default("POL-TUN-09",
+                   v6(0xfe80, 0, 0, 0, 0, 0x5efe, 0x7f00, 0x0001),
+                   DenyReason::LinkLocal);
+    check("POL-TUN-10", "normalize() leaves a 6to4 address as IPv6",
+          normalize(sixtofour(93, 184, 216, 34)) == sixtofour(93, 184, 216, 34));
+    {
+        // ...which is what stops select_candidate treating it as an IPv4
+        // candidate. Order matters here: the 6to4 address comes FIRST, so if
+        // it were folded into V4 it would win the IPv4 preference pass.
+        IpAddress  chosen;
+        DenyReason why;
+        const std::vector<IpAddress> cands = {sixtofour(93, 184, 216, 34),
+                                              ipv4(93, 184, 216, 34)};
+        check("POL-TUN-11", "a 6to4 address does not win the IPv4 preference pass",
+              select_candidate(cands, kDefault, chosen, why) &&
+                  chosen == ipv4(93, 184, 216, 34));
+    }
+    {
+        IpAddress ep;
+        check("POL-TUN-12", "tunnel_endpoint() extracts the 6to4 gateway address",
+              tunnel_endpoint(sixtofour(198, 51, 100, 7), ep) &&
+                  ep == ipv4(198, 51, 100, 7));
+        check("POL-TUN-13", "tunnel_endpoint() declines an ordinary IPv6 address",
+              !tunnel_endpoint(v6(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1), ep));
+        // 32.2.3.4 specifically: its first two octets are 0x20,0x02, so this
+        // is the exact address that slips through if the family guard is ever
+        // dropped and the 2002::/16 test is applied to raw bytes.
+        check("POL-TUN-14", "tunnel_endpoint() declines an IPv4 address",
+              !tunnel_endpoint(ipv4(32, 2, 3, 4), ep));
+    }
 
     // ═══ SEL — candidate selection ═════════════════════════════════════════
     {
@@ -672,6 +754,67 @@ int main() {
             check("NET-ERR-02", "the failure carries an explanatory error string",
                   !t->last_error().empty() &&
                       t->last_error().find("connect") != std::string::npos);
+        }
+    }
+
+    // ═══ SIG — a dead peer must not take the emulator down with it ═════════
+    // esp_socket_posix.cpp sets MSG_NOSIGNAL (Linux) / SO_NOSIGPIPE (BSD)
+    // because without one of them a write to a closed peer raises SIGPIPE and
+    // the DEFAULT disposition terminates the process. Every other row here
+    // sends only while the connection is provably open, or after the transport
+    // has already self-transitioned — where send() short-circuits before the
+    // OS call and the flag is moot. So none of them can see the protection
+    // disappear.
+    //
+    // The reachable path is a caller that WRITES without reading: send() never
+    // detects EOF (only recv() does), so a blind write after an orderly peer
+    // close goes out once, draws a RST, and the next one hits EPIPE. Unguarded
+    // that is a signal, not an errno.
+    //
+    // It has to run in a forked child because the failure mode is the death of
+    // the process running the assertions.
+    {
+        const pid_t pid = ::fork();
+        if (pid < 0) {
+            skip("SIG-01", "fork() unavailable on this host");
+            skip("SIG-02", "fork() unavailable on this host");
+        } else if (pid == 0) {
+            // CHILD. Deliberately no printf: stdout is buffered and inherited,
+            // so anything written here would be duplicated by the parent. The
+            // exit code carries the verdict, and _exit() skips the shared
+            // stdio flush for the same reason.
+            Listener l;
+            if (!l.start()) ::_exit(5);
+            auto t = make_socket_transport(loopback_ok());
+            if (!t->begin_connect("127.0.0.1", l.port())) ::_exit(5);
+            if (!pump_until(*t, TransportState::Connected)) ::_exit(5);
+            const int srv = l.accept_one(1000);
+            if (srv < 0) ::_exit(5);
+            ::close(srv);  // orderly close by the peer — and we never recv()
+
+            const std::uint8_t buf[4] = {'A', 'T', '\r', '\n'};
+            for (int i = 0; i < 200 && t->state() == TransportState::Connected; ++i) {
+                t->send(buf, sizeof(buf));  // blind write into a dead peer
+                sleep_ms(2);
+            }
+            if (t->state() != TransportState::Failed) ::_exit(3);
+            if (t->last_error().empty()) ::_exit(4);
+            ::_exit(0);
+        } else {
+            int status = 0;
+            ::waitpid(pid, &status, 0);
+            const bool setup_failed = WIFEXITED(status) && WEXITSTATUS(status) == 5;
+            if (setup_failed) {
+                skip("SIG-01", "the child could not set up a loopback connection");
+                skip("SIG-02", "the child could not set up a loopback connection");
+            } else {
+                check("SIG-01",
+                      "a blind send to a closed peer does not signal-kill the process",
+                      !WIFSIGNALED(status));
+                check("SIG-02",
+                      "...and surfaces as Failed with an error string instead",
+                      WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            }
         }
     }
 

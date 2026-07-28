@@ -84,15 +84,33 @@ IpAddress   ipv6(const std::array<std::uint8_t, 16>& raw);
 std::string to_string(const IpAddress& ip);
 bool        operator==(const IpAddress& a, const IpAddress& b);
 
-/// Collapse the IPv6 forms that embed an IPv4 address into the plain V4
-/// address they denote, so one set of V4 rules covers all of them. Without
-/// this, `::ffff:127.0.0.1` is a one-line bypass of the loopback deny.
-/// Handles:
+/// Collapse the IPv6 forms that ARE an IPv4 address into that address, so one
+/// set of V4 rules covers all of them. Without this, `::ffff:127.0.0.1` is a
+/// one-line bypass of the loopback deny. Handles:
 ///   * IPv4-mapped     ::ffff:0:0/96   (what a dual-stack getaddrinfo emits)
 ///   * IPv4-compatible ::/96           (deprecated by RFC 4291 but still parsed)
 ///   * NAT64 well-known 64:ff9b::/96   (RFC 6052 — a real translated-reach path)
-/// Anything else is returned unchanged.
+/// Anything else is returned unchanged. These three are ALIASES — the V6 form
+/// and the V4 form name the same host — which is what makes collapsing them
+/// lossless. Tunnelling prefixes are a different relation entirely; see
+/// `tunnel_endpoint`.
 IpAddress normalize(const IpAddress& ip);
+
+/// If `ip` sits under a tunnelling prefix, yield the IPv4 endpoint that
+/// packets for it are physically delivered to, and return true.
+///
+/// Currently that means 6to4 (`2002::/16`, RFC 3056): anything under
+/// `2002:AABB:CCDD::/48` is encapsulated to the IPv4 address `AABB:CCDD`, so
+/// `2002:7f00:1::1` reaches 127.0.0.1 on this host. That is NOT an alias
+/// relation — the two are different hosts, one reached via the other — which
+/// is why it is kept out of `normalize()`: folding it in would assert an
+/// equality that does not hold, and would make `select_candidate` treat a 6to4
+/// address as an IPv4 candidate although its socket is `AF_INET6`.
+///
+/// Teredo and ISATAP are deliberately excluded; the implementation states why
+/// for each, and `POL-TUN-07..09` pin the exclusions so they cannot be
+/// "fixed" silently.
+bool tunnel_endpoint(const IpAddress& ip, IpAddress& endpoint);
 
 // ---------------------------------------------------------------------------
 // Address policy — the security gate, enforced HERE at the transport
@@ -121,6 +139,20 @@ const char* deny_reason_text(DenyReason r);
 /// precisely why the policy is a parameter and not a hard-coded `if`.
 struct AddressPolicy {
     bool deny_loopback           = true;
+    /// KNOWN LIMITATION, stated here because this is where someone would turn
+    /// it off: clearing this flag does NOT make link-local peers reachable.
+    /// `IpAddress` carries no scope id, and both platform twins drop
+    /// `sin6_scope_id` on the way out of `resolve()` and never restore it in
+    /// their sockaddr builders — so a `fe80::/10` connect would fail with
+    /// EINVAL for want of a zone, not succeed. Nothing in production clears
+    /// this flag today (there is no CLI for it; that is branch 4), and the
+    /// unit suite only ever clears `deny_loopback`, so the gap is latent
+    /// rather than live. Making the flag honest means adding a scope id to
+    /// `IpAddress`, carrying it through `net::resolve` and
+    /// `fill_sockaddr`/`begin_connect` in BOTH twins, and — the part that
+    /// matters — finding a hermetic way to test it, which needs a link-local
+    /// peer on a real interface. Deliberately not built blind: untested
+    /// plumbing for an unreachable capability is worth less than this comment.
     bool deny_link_local         = true;
     bool deny_cloud_metadata     = true;
     bool deny_unspecified        = true;
@@ -129,8 +161,10 @@ struct AddressPolicy {
 };
 
 /// Pure. Returns `DenyReason::None` when the address may be connected to.
-/// Normalizes IPv4-in-IPv6 forms first, so a mapped address is judged by the
-/// V4 rules it actually reaches.
+/// Normalizes IPv4-in-IPv6 aliases first, then — if the address is still
+/// allowed — re-runs the same rules against any tunnelling endpoint
+/// `tunnel_endpoint` yields, so a 6to4 wrapper cannot launder a denied
+/// destination.
 DenyReason classify_address(const IpAddress& ip, const AddressPolicy& policy);
 
 /// Pure. Pick which resolved address to connect to.
