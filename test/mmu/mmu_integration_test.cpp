@@ -236,7 +236,7 @@ static void test_nr_8c_preserves_nr_mmu(Emulator& emu) {
     const uint8_t pre = nr_read(emu, 0x50);
     check("V12-MEM-01-A",
           "NR 0x50 read-back returns verbatim 0xE5 after high-page write "
-          "[zxnext.vhd:4686-4699,6075-6082]",
+          "[zxnext.vhd:4686-4699,6059-6060]",
           pre == 0xE5,
           fmt("expected 0xE5, got 0x%02X", pre));
 

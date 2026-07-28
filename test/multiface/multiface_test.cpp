@@ -380,7 +380,7 @@ static void g_mf_core()
         check("MF-CORE-10",
               "is_active() = is_mem_active() OR is_nmi_hold()",
               none && only_hold && both && drop_via_retn,
-              "zxnext.vhd:2099");
+              "zxnext.vhd:4305");
     }
 
     // MF-CORE-11 — load_rom_bytes round-trip.
@@ -1158,7 +1158,7 @@ static void g_mf_overlay()
     }
 
     // ── MF-OVL-05 — write to ROM area is ignored.
-    // VHDL zxnext.vhd:3034 — sram_pre_rdonly=NOT cpu_a(13)=1 for the ROM
+    // VHDL zxnext.vhd:3035 — sram_pre_rdonly=NOT cpu_a(13)=1 for the ROM
     // half. Writes must be silently dropped; MF ROM contents must remain
     // unchanged. Discriminative: stamp MF ROM, write a different byte at
     // the same address, verify ROM still holds the stamped value.
@@ -1176,11 +1176,11 @@ static void g_mf_overlay()
         check("MF-OVL-05",
               "write 0xAA to 0x0123 (ROM half) is ignored; MF ROM unchanged",
               before == after,
-              "VHDL zxnext.vhd:3034 (sram_pre_rdonly=1 for cpu_a(13)=0)");
+              "VHDL zxnext.vhd:3035 (sram_pre_rdonly=1 for cpu_a(13)=0)");
     }
 
     // ── MF-OVL-06 — addresses outside slot 0 fall through.
-    // VHDL zxnext.vhd:3030 — the override only fires on cpu_a(15:14)='00'
+    // VHDL zxnext.vhd:3029 — the override only fires on cpu_a(15:14)='00'
     // (i.e. addr < 0x4000). At 0x4000 and above, the MF overlay must NOT
     // intercept. Discriminative: pre-fill MF ROM with a recognisable
     // pattern; read at 0x4000 must NOT return that byte (the MMU's
@@ -1203,7 +1203,7 @@ static void g_mf_overlay()
         check("MF-OVL-06",
               "addr 0x4000 (outside slot 0): MF overlay does NOT fire",
               emu.multiface().is_mem_active() && got != mf_would_be,
-              "VHDL zxnext.vhd:3030 (cpu_a(15:14)='00' gate)");
+              "VHDL zxnext.vhd:3029 (cpu_a(15:14)='00' gate)");
     }
 
     // ── MF-OVL-07 — fetch_66 one-cycle bypass activates the overlay.
