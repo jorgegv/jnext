@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=40
+EXPECTED_TOTAL=41
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -429,6 +429,13 @@ check "HS-44" "a hanging REAL-script invocation is bounded: rc=124, fast, run co
 # update it — the pin philosophy this file already runs on (EXPECTED_TOTAL, the
 # manifest row counts, the conf `# expect:` lines): the claim is made on purpose.
 #
+# `first` is the first COMMAND, not the first printed line: `make -n` echoes recipe
+# `@#` comments (they are suppressed only in a real run), and a comment is not a gate
+# that can precede anything. Counting them made the row red the moment GH #140 moved
+# lint-assertions' rationale into its recipe — a harmless rewording turning the row red
+# for a reason unrelated to the gate, the exact failure the paragraph above rejects.
+# A real gate placed ahead is still a non-comment line, so nothing is weakened.
+#
 # MAKEFLAGS is cleared because this self-test itself runs FROM a make recipe (`make
 # harness-selftest`, and harness-selftest-func inside the regression suite): an
 # inherited jobserver flag makes the nested make warn, and inherited goals would
@@ -436,7 +443,7 @@ check "HS-44" "a hanging REAL-script invocation is bounded: rc=124, fast, run co
 LINT_CMD_RE='^[[:space:]]*bash[[:space:]]+test/lint-assertions\.sh'
 dry=$(MAKEFLAGS= timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
           make -C "$PROJECT_DIR" --no-print-directory -n unit-test 2>&1 || true)
-dry_head=$(grep -vE '^[[:space:]]*$' <<<"$dry" | head -1)
+dry_head=$(grep -vE '^[[:space:]]*(#|$)' <<<"$dry" | head -1)
 wired=n; grep -qE "$LINT_CMD_RE" <<<"$dry"      && wired=y
 first=n; grep -qE "$LINT_CMD_RE" <<<"$dry_head" && first=y
 # The offending first line rides along in the tuple: on a demotion the row must say
@@ -445,6 +452,30 @@ first=n; grep -qE "$LINT_CMD_RE" <<<"$dry_head" && first=y
 check "HS-45" "'make unit-test' reaches the lint, and reaches it FIRST (GH #129)" 0 0 \
     "wired=$wired first=$first head=[$(cut -c1-60 <<<"${dry_head//$'\n'/ }")]" \
     "wired=y" "first=y"
+
+# ------------------ the help-listing lint must stay wired to BOTH entry points (GH #140)
+# Same exposure as HS-45, one gate later: `make` (no target) is the project's index of
+# targets, and eight of them advertised a sentence fragment because a rationale comment
+# below the description silently replaced it. test/lint-makefile-help.sh self-tests its
+# own scanner on every run, so it can prove it still DETECTS the shape; nothing but this
+# row proves it still RUNS. Deleting one word from either prerequisite list restores the
+# un-gated state with every suite green — the GH #129 shape exactly.
+#
+# Both entry points, because they are wired independently: `make unit-test` is the
+# author's inner loop and `make regression` is what CI and the merge protocol run.
+# `head2` (first two COMMAND lines of the unit-test dry run) pins that it is not
+# demoted behind the build, without anchoring on any build-command text — the two
+# cheap linters may swap with each other, and nothing else may precede them.
+MKHELP_CMD_RE='^[[:space:]]*bash[[:space:]]+test/lint-makefile-help\.sh'
+dry_reg=$(MAKEFLAGS= timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+              make -C "$PROJECT_DIR" --no-print-directory -n regression 2>&1 || true)
+dry_head2=$(grep -vE '^[[:space:]]*(#|$)' <<<"$dry" | head -2)
+u_wired=n; grep -qE "$MKHELP_CMD_RE" <<<"$dry"       && u_wired=y
+r_wired=n; grep -qE "$MKHELP_CMD_RE" <<<"$dry_reg"   && r_wired=y
+early=n;   grep -qE "$MKHELP_CMD_RE" <<<"$dry_head2" && early=y
+check "HS-46" "the help-listing lint is wired to unit-test AND regression, ahead of the build (GH #140)" 0 0 \
+    "unit=$u_wired regression=$r_wired early=$early" \
+    "unit=y" "regression=y" "early=y"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).

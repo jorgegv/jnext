@@ -86,7 +86,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test lint-assertions harness-selftest traceability-selftest worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
@@ -167,7 +167,6 @@ gui-release:
 		-DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
 
-# Cross-build a Windows ZIP via Fedora MinGW (needs mingw64 toolchain + Qt6/SDL2)
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
 win-release:
 	@# mingw64-cmake ships in mingw64-filesystem and may be present without the
@@ -318,56 +317,62 @@ gui-clean: gui-debug-clean gui-release-clean
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (screenshot + functional tests)
-# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
-# `make clean` deletes it. It used to vanish from the suite with no row printed.
-# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
-# build/gui-release/jnext, so without it the suite silently tests whatever
-# binary happens to be lying there. A stale one gives false FAILs (the binary
-# lacks a fix the test expects) and, worse, false PASSes (it lacks the bug the
-# test would have caught). Building it here makes "the tests ran against this
-# source" true by construction instead of by discipline — 2026-07-19, after a
-# 14-hour-old binary produced two bogus FAILs immediately before a version bump.
-# sdl-release is the SAME contract for a SECOND binary (GH #122): SdlApp runs
-# only when ENABLE_QT_UI=OFF, so gui-release compiles the SDL frontend but never
-# executes it, and sdl-keypress-func is the one row that does. `make clean`
-# deletes it (clean depends on sdl-release-clean), hence building it here.
-regression: unit-test-build gui-release sdl-release docs-check cli-check
+regression: lint-makefile-help unit-test-build gui-release sdl-release docs-check cli-check
+	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
+	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
+	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
+	@# build/gui-release/jnext, so without it the suite silently tests whatever
+	@# binary happens to be lying there. A stale one gives false FAILs (the binary
+	@# lacks a fix the test expects) and, worse, false PASSes (it lacks the bug the
+	@# test would have caught). Building it here makes "the tests ran against this
+	@# source" true by construction instead of by discipline — 2026-07-19, after a
+	@# 14-hour-old binary produced two bogus FAILs immediately before a version bump.
+	@# sdl-release is the SAME contract for a SECOND binary (GH #122): SdlApp runs
+	@# only when ENABLE_QT_UI=OFF, so gui-release compiles the SDL frontend but never
+	@# executes it, and sdl-keypress-func is the one row that does. `make clean`
+	@# deletes it (clean depends on sdl-release-clean), hence building it here.
 	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-# lint-assertions is a prerequisite for the same reason as docs-check, and it is
-# FIRST because it is the cheapest gate here (~40 ms of ripgrep over test/ source
-# text — no compiler, no SD image, no display), so it fails before the build even
-# starts. Until GH #129 it was reachable ONLY through the regression preflight,
-# which an author iterating on `make unit-test` never runs: a check(..., true) row
-# passed its author, passed an independent reviewer, and turned CI red only after
-# landing on main, from where three more branches inherited it. A gate nobody's
-# inner loop reaches is not a gate.
-# It cannot be a row in test/unit-tests.conf: that manifest is cross-checked
-# against CMake's add_test() registry in BOTH directions, so a non-CMake entry
-# makes run-unit-tests.sh REFUSE to run ("NOT registered by CMake"). A make
-# prerequisite leaves the harness's refusal semantics untouched.
-# The regression suite keeps its OWN copy (scripts/00-preflight-lint.sh, row 1 of
-# the suite) — same as docs-check sits in both entry points. Do not "de-duplicate"
-# by deleting either one.
-# docs-check is a prerequisite, not a courtesy: the man page, USAGE.md and the
-# rendered user guide are all GENERATED and COMMITTED, so a stale committed
-# output is a silent lie that no other gate can see. Running it with every test
-# run makes "the docs match their source" true by construction, not by discipline.
-# It skips (never fails) where the tool is absent — pandoc for the man half,
-# mkdocs for the guide half — and hard-fails in CI where both are guaranteed.
-# NOTE: this proves the generated outputs match their sources. That jnext.1.md
-# also matches the CLI src/main.cpp parses is proven separately, by cli_options_test
-# (run below as a declared suite, and as `make cli-check`) — issue #43.
-# package-contract-test is a prerequisite for the same reason (issue #61): the
-# packaging scripts are hand-written, ship user-visible artifacts, and had no
-# automatic gate at all — `make package-test` was called by no workflow and by
-# no target, which is how its sync-version row stayed red for 46 tags (#60).
-# Only the HERMETIC half runs here: six bash contract suites on throwaway fake
-# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
-# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
-# own parallel job in ci.yml.
-unit-test: lint-assertions unit-test-build docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help unit-test-build docs-check package-contract-test
+	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
+	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
+	@# a structural gate that must fail before anything expensive starts. GH #140 —
+	@# eight targets, `regression` and `unit-test` among them, advertised a sentence
+	@# fragment in `make` for as long as nobody re-read the listing. Fixing the eight
+	@# does not stop the ninth; the rule does.
+	@# lint-assertions is a prerequisite for the same reason as docs-check, and it is
+	@# FIRST because it is the cheapest gate here (~40 ms of ripgrep over test/ source
+	@# text — no compiler, no SD image, no display), so it fails before the build even
+	@# starts. Until GH #129 it was reachable ONLY through the regression preflight,
+	@# which an author iterating on `make unit-test` never runs: a check(..., true) row
+	@# passed its author, passed an independent reviewer, and turned CI red only after
+	@# landing on main, from where three more branches inherited it. A gate nobody's
+	@# inner loop reaches is not a gate.
+	@# It cannot be a row in test/unit-tests.conf: that manifest is cross-checked
+	@# against CMake's add_test() registry in BOTH directions, so a non-CMake entry
+	@# makes run-unit-tests.sh REFUSE to run ("NOT registered by CMake"). A make
+	@# prerequisite leaves the harness's refusal semantics untouched.
+	@# The regression suite keeps its OWN copy (scripts/00-preflight-lint.sh, row 1 of
+	@# the suite) — same as docs-check sits in both entry points. Do not "de-duplicate"
+	@# by deleting either one.
+	@# docs-check is a prerequisite, not a courtesy: the man page, USAGE.md and the
+	@# rendered user guide are all GENERATED and COMMITTED, so a stale committed
+	@# output is a silent lie that no other gate can see. Running it with every test
+	@# run makes "the docs match their source" true by construction, not by discipline.
+	@# It skips (never fails) where the tool is absent — pandoc for the man half,
+	@# mkdocs for the guide half — and hard-fails in CI where both are guaranteed.
+	@# NOTE: this proves the generated outputs match their sources. That jnext.1.md
+	@# also matches the CLI src/main.cpp parses is proven separately, by cli_options_test
+	@# (run below as a declared suite, and as `make cli-check`) — issue #43.
+	@# package-contract-test is a prerequisite for the same reason (issue #61): the
+	@# packaging scripts are hand-written, ship user-visible artifacts, and had no
+	@# automatic gate at all — `make package-test` was called by no workflow and by
+	@# no target, which is how its sync-version row stayed red for 46 tags (#60).
+	@# Only the HERMETIC half runs here: six bash contract suites on throwaway fake
+	@# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
+	@# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
+	@# own parallel job in ci.yml.
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -393,14 +398,21 @@ unit-test: lint-assertions unit-test-build docs-check package-contract-test
 build-matrix:
 	@bash test/build-matrix.sh
 
-# A missing ripgrep is a hard FAILURE here, not a docs-check-style SKIP. pandoc and
-# mkdocs are genuinely optional (a source build ships the generated docs committed);
-# rg is already a hard requirement of `make regression`, whose preflight row FAILs
-# without it. Skipping would also defeat the point: a lint that does not run reads
-# as a pass, which is the whole shape of GH #129.
-#
+# Fail if any target's `make` help description would be discarded (GH #140)
+lint-makefile-help:
+	@# The help awk keeps only the LAST `# ` line before a target, so a rationale
+	@# block below a description silently replaces it. This enforces the project's
+	@# documented rule — one `# ` line above a target, rationale inside the recipe
+	@# as `@#` lines — structurally, on discarded content rather than on prose.
+	@bash test/lint-makefile-help.sh
+
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
+	@# A missing ripgrep is a hard FAILURE here, not a docs-check-style SKIP. pandoc and
+	@# mkdocs are genuinely optional (a source build ships the generated docs committed);
+	@# rg is already a hard requirement of `make regression`, whose preflight row FAILs
+	@# without it. Skipping would also defeat the point: a lint that does not run reads
+	@# as a pass, which is the whole shape of GH #129.
 	@bash test/lint-assertions.sh
 
 # Self-test the unit-test harness: inject each fault, assert it refuses to run
@@ -430,21 +442,20 @@ traceability-selftest:
 bench:
 	@bash test/bench/bench.sh
 
-# build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
-# CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and
-# ENABLE_QT_UI defaults OFF — so `make clean` silently downgraded ./build/jnext to an
-# SDL binary with no main window, and the next person to check the GUI found no window
-# and concluded their change had broken it. That cost a previous author two capture
-# runs. Qt6 was never optional here anyway: ENABLE_DEBUGGER already defaults ON and
-# src/debugger does find_package(Qt6 REQUIRED). The Qt-less configuration keeps its
-# coverage — `make sdl-release` / `make sdl-debug` still build exactly that.
-#
-# The else-branch: the `if` only fires on a fresh build/, so a build/ configured by
-# hand with other flags would be reused in silence — the same trap, one step removed.
-# Refuse to build on it rather than hand back a binary that isn't what it claims.
-#
 # Configure + build the canonical build/ directory (prerequisite for unit-test)
 unit-test-build:
+	@# build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
+	@# CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and
+	@# ENABLE_QT_UI defaults OFF — so `make clean` silently downgraded ./build/jnext to an
+	@# SDL binary with no main window, and the next person to check the GUI found no window
+	@# and concluded their change had broken it. That cost a previous author two capture
+	@# runs. Qt6 was never optional here anyway: ENABLE_DEBUGGER already defaults ON and
+	@# src/debugger does find_package(Qt6 REQUIRED). The Qt-less configuration keeps its
+	@# coverage — `make sdl-release` / `make sdl-debug` still build exactly that.
+	@#
+	@# The else-branch: the `if` only fires on a fresh build/, so a build/ configured by
+	@# hand with other flags would be reused in silence — the same trap, one step removed.
+	@# Refuse to build on it rather than hand back a binary that isn't what it claims.
 	@if [ ! -f build/CMakeCache.txt ]; then \
 		$(CMAKE) -B build -S . \
 			-DCMAKE_C_COMPILER=$(CC) \
@@ -482,11 +493,11 @@ unit-test-dashboard: unit-test
 	rm -f $$SUMMARY
 
 # Check a worktree has the fixtures the test suites need
-# roms/ holds only the tracked nextboot.rom now, so there is nothing to link:
-# the SD image lives machine-wide at ~/.jnext/sdcard/ and jnext provisions it
-# itself (GH #75/#77). This target verifies that master exists and says how to
-# get it if not.
 worktree-bootstrap:
+	@# roms/ holds only the tracked nextboot.rom now, so there is nothing to link:
+	@# the SD image lives machine-wide at ~/.jnext/sdcard/ and jnext provisions it
+	@# itself (GH #75/#77). This target verifies that master exists and says how to
+	@# get it if not.
 	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
@@ -808,8 +819,7 @@ package-deb:
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
 
-# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the
-# org.kde.Platform//6.8 runtime and org.kde.Sdk//6.8 SDK the manifest targets)
+# Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the KDE runtime/SDK)
 package-flatpak:
 	@if ! command -v flatpak-builder >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) flatpak-builder not found.\n"; \
@@ -844,11 +854,11 @@ package-flatpak:
 	 printf "$(BOLD)Flatpak bundle produced:$(RESET)\n"; ls -1 "$$bundle"
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
-# win-release already bundled the DLLs into $(BUILD_DIR_WIN_RELEASE); we stage a
-# cleanly-named top-level layout (exe + DLLs + plugin subdirs + qt.conf + docs,
-# no CMake build junk) and zip that. Not CPack -G ZIP: CPack would apply the
-# Unix /usr install prefix, giving a broken usr/bin/jnext.exe layout on Windows.
 package-win: win-release
+	@# win-release already bundled the DLLs into $(BUILD_DIR_WIN_RELEASE); we stage a
+	@# cleanly-named top-level layout (exe + DLLs + plugin subdirs + qt.conf + docs,
+	@# no CMake build junk) and zip that. Not CPack -G ZIP: CPack would apply the
+	@# Unix /usr install prefix, giving a broken usr/bin/jnext.exe layout on Windows.
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x64"; \
 	 stage="$(BUILD_DIR_WIN_RELEASE)/dist/$$name"; \
@@ -861,11 +871,11 @@ package-win: win-release
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_RELEASE)/*.zip
 
 # Cross-compile + ZIP the SDL-only Windows build (Windows 8+ compatible; GH #108)
-# Mirrors package-win. Extra structural checks: the SDL-only bundle must carry
-# no Qt DLL/plugin (that would silently re-raise the OS floor to Windows 10)
-# and must include the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
-# which LoadLibrary()s SDL3.dll at runtime).
 package-win-sdl: win-sdl-release
+	@# Mirrors package-win. Extra structural checks: the SDL-only bundle must carry
+	@# no Qt DLL/plugin (that would silently re-raise the OS floor to Windows 10)
+	@# and must include the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
+	@# which LoadLibrary()s SDL3.dll at runtime).
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x64-sdl"; \
 	 stage="$(BUILD_DIR_WIN_SDL_RELEASE)/dist/$$name"; \
@@ -886,12 +896,12 @@ package-win-sdl: win-sdl-release
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_SDL_RELEASE)/*.zip
 
 # Cross-compile + ZIP the Qt5 full-GUI Windows build (Win7/8 legacy leg; GH #108 Phase A)
-# Mirrors package-win. The ZIP is named -legacy (the audience) not -qt5 (the
-# toolchain) — that is the published GitHub asset name, keep it in step with
-# README.md. Structural checks: Qt5 core DLL + qwindows plugin must
-# be present; NO Qt6 DLL may leak in (a mixed bundle would re-raise the OS
-# floor to Windows 10 via Qt6Gui's d3d12 import).
 package-win-qt5: win-qt5-release
+	@# Mirrors package-win. The ZIP is named -legacy (the audience) not -qt5 (the
+	@# toolchain) — that is the published GitHub asset name, keep it in step with
+	@# README.md. Structural checks: Qt5 core DLL + qwindows plugin must
+	@# be present; NO Qt6 DLL may leak in (a mixed bundle would re-raise the OS
+	@# floor to Windows 10 via Qt6Gui's d3d12 import).
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x64-legacy"; \
 	 stage="$(BUILD_DIR_WIN_QT5_RELEASE)/dist/$$name"; \
@@ -911,14 +921,13 @@ package-win-qt5: win-qt5-release
 	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN_QT5_RELEASE)/*.zip
 
-# Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
-# DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
-# Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
-# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C. ZIP named -legacy, not -qt5
-# (same reason as the x64 leg).
-#
 # Cross-compile + ZIP the Qt5 full-GUI 32-bit (i686) Windows build (Win7 32-bit leg; GH #108 Phase C)
 package-win32-qt5: win32-qt5-release
+	@# Mirrors package-win-qt5 exactly, including its structural checks (Qt5 core
+	@# DLL + qwindows present, no Qt6 leak). PUBLISHED release artifact — the third
+	@# Windows leg of the final lineup (x64-Qt6, x64-Qt5, i686-Qt5): see
+	@# doc/design/WINDOWS-COMPAT-PLAN.md §7 Phase C. ZIP named -legacy, not -qt5
+	@# (same reason as the x64 leg).
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x86-legacy"; \
 	 stage="$(BUILD_DIR_WIN32_QT5_RELEASE)/dist/$$name"; \
@@ -938,14 +947,13 @@ package-win32-qt5: win32-qt5-release
 	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_QT5_RELEASE)/*.zip
 
-# Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
-# SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.
-# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
-# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
-# Exercised in CI by the package-win32-sdl row of `make package-test`.
-#
 # Cross-compile + ZIP the SDL-only 32-bit (i686) Windows build — repo-internal (GH #108 Phase C)
 package-win32-sdl: win32-sdl-release
+	@# Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
+	@# SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.
+	@# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
+	@# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
+	@# Exercised in CI by the package-win32-sdl row of `make package-test`.
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 name="jnext-$$ver-windows-x86-sdl"; \
 	 stage="$(BUILD_DIR_WIN32_SDL_RELEASE)/dist/$$name"; \
@@ -965,12 +973,11 @@ package-win32-sdl: win32-sdl-release
 	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ); \
 	 printf "$(BOLD)ZIP(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_WIN32_SDL_RELEASE)/*.zip
 
-# The whole recipe is one shell invocation so the non-Darwin early-exit
-# actually stops it — a bare `exit 0` on its own recipe line would only end
-# that line and make would still run the build+cpack lines that follow.
-#
 # Build a macOS .dmg via CPack DragNDrop (Darwin only)
 package-macos:
+	@# The whole recipe is one shell invocation so the non-Darwin early-exit
+	@# actually stops it — a bare `exit 0` on its own recipe line would only end
+	@# that line and make would still run the build+cpack lines that follow.
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) macOS packaging requires a Mac (or the GitHub Actions\n"; \
 		printf "  macos-latest runner — see the macos job in .github/workflows/release.yml).\n"; \
@@ -986,41 +993,39 @@ package-macos:
 	( cd $(BUILD_DIR_MAC_RELEASE) && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg
 
-# Prove the produced .dmg is self-contained: mount it, walk the .app inside it
-# with otool, and launch the bundled binary (Darwin only)
-#
-# The staging install already runs verify-bundle.sh (see the APPLE branch in
-# CMakeLists.txt), but that checks the tree cpack was ABOUT to package. This
-# checks what actually shipped, read out of the disk image the user downloads —
-# the artifact GH #46 was reported against. Cheap, and the only end-to-end
-# statement we can make without a second Mac.
-#
-# `yes |` is load-bearing: CPACK_RESOURCE_FILE_LICENSE makes CPack embed a
-# Software License Agreement in the .dmg, and hdiutil will not accept one
-# non-interactively — it answers "hdiutil: attach canceled" and mounts nothing
-# (run 29854836676). CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE is also turned OFF
-# so users are not prompted either; this keeps the check working regardless.
-#
-# There is deliberately NO launch smoke test here, and it is not an oversight.
-# One was tried and REMOVED on evidence (runs 29859539303 / 29860430214 /
-# 29863761709):
-#
-#   * It cannot prove the thing GH #46 is about. It would run on the machine
-#     that BUILT the package, where Homebrew is present, so a missed dependency
-#     would be silently satisfied. verify-bundle.sh proves self-containment
-#     structurally, and it runs twice — once on the staged bundle and once on
-#     the bundle inside the mounted .dmg.
-#   * It hangs, in macOS, not in jnext. DYLD_PRINT_LIBRARIES showed dyld getting
-#     as far as AppleParavirtGPUMetalIOGPUFamily and IOGPU — the GPU stack on a
-#     headless paravirtualised CI VM — and then stopping dead. jnext writes its
-#     version banner to stderr BEFORE parsing any argument (main.cpp), and no
-#     banner ever appeared, so the process never reached main(): the block is
-#     pre-main, in dyld/AMFI, and nothing in this repo can fix it. Launching the
-#     same binary as a bare executable takes ~60ms in the Smoke test step.
-#
-# It was deleted rather than made non-fatal. A check that is allowed to fail
-# silently is worse than no check: it reads as coverage and provides none.
+# Prove the shipped .dmg is self-contained: mount it and walk the .app with otool (Darwin only)
 verify-macos-dmg:
+	@# The staging install already runs verify-bundle.sh (see the APPLE branch in
+	@# CMakeLists.txt), but that checks the tree cpack was ABOUT to package. This
+	@# checks what actually shipped, read out of the disk image the user downloads —
+	@# the artifact GH #46 was reported against. Cheap, and the only end-to-end
+	@# statement we can make without a second Mac.
+	@#
+	@# `yes |` is load-bearing: CPACK_RESOURCE_FILE_LICENSE makes CPack embed a
+	@# Software License Agreement in the .dmg, and hdiutil will not accept one
+	@# non-interactively — it answers "hdiutil: attach canceled" and mounts nothing
+	@# (run 29854836676). CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE is also turned OFF
+	@# so users are not prompted either; this keeps the check working regardless.
+	@#
+	@# There is deliberately NO launch smoke test here, and it is not an oversight.
+	@# One was tried and REMOVED on evidence (runs 29859539303 / 29860430214 /
+	@# 29863761709):
+	@#
+	@#   * It cannot prove the thing GH #46 is about. It would run on the machine
+	@#     that BUILT the package, where Homebrew is present, so a missed dependency
+	@#     would be silently satisfied. verify-bundle.sh proves self-containment
+	@#     structurally, and it runs twice — once on the staged bundle and once on
+	@#     the bundle inside the mounted .dmg.
+	@#   * It hangs, in macOS, not in jnext. DYLD_PRINT_LIBRARIES showed dyld getting
+	@#     as far as AppleParavirtGPUMetalIOGPUFamily and IOGPU — the GPU stack on a
+	@#     headless paravirtualised CI VM — and then stopping dead. jnext writes its
+	@#     version banner to stderr BEFORE parsing any argument (main.cpp), and no
+	@#     banner ever appeared, so the process never reached main(): the block is
+	@#     pre-main, in dyld/AMFI, and nothing in this repo can fix it. Launching the
+	@#     same binary as a bare executable takes ~60ms in the Smoke test step.
+	@#
+	@# It was deleted rather than made non-fatal. A check that is allowed to fail
+	@# silently is worse than no check: it reads as coverage and provides none.
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) verifying a .dmg requires a Mac (hdiutil/otool).\n"; \
 		exit 0; \
