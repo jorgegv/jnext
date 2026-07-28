@@ -648,10 +648,10 @@ untouched.
 
 **Reuse is a verified property, not a claim.** Copying `src/esp01/` into an empty directory with a
 four-line `CMakeLists.txt` (`cmake_minimum_required` / `project` / `set(ENABLE_TESTS ON)` /
-`add_subdirectory(esp01)`) and **no jnext present at all** builds clean and both suites pass
-identically — 145/145 and 130/130 — with `ldd` on the resulting binaries showing only
-`libstdc++`, `libm`, `libgcc_s` and `libc`. Reproduced independently twice: once in review of the
-modularisation, and once while writing this document. A reuse claim that is never executed is a
+`add_subdirectory(esp01)`) and **no jnext present at all** builds clean, and both suites — roughly
+150 rows each — pass identically to their in-tree run, with `ldd` on the resulting binaries showing
+only `libstdc++`, `libm`, `libgcc_s` and `libc`. Reproduced independently twice: once in review of
+the modularisation, and once while writing this document. A reuse claim that is never executed is a
 reuse claim that has already stopped being true.
 
 ### 7.4 The seams
@@ -743,11 +743,15 @@ A consumer gets the code and its proof together. Constraints on the move:
 
 Three suites, and the split between them is itself part of the design:
 
-| Suite | Rows | Where | Why there |
-|---|---|---|---|
-| `esp_at_test` | **145** | `src/esp01/test/` | Portable: fake transport, no socket, no DNS. Drives **both** the bare `AtEngine` and `ThreadedEsp` |
-| `esp_socket_test` | **130** | `src/esp01/test/` | Address policy is pure and portable; the transport half needs a POSIX-only in-process listener |
-| `esp_uart_adapter_test` | **20** | `test/esp/` | **jnext-side**: the `Uart`-coupled rows and the spdlog-registration rows cannot live in a portable module suite now that `AtEngine` is not a `UartDevice` |
+| Suite | Where | Why there |
+|---|---|---|
+| `esp_at_test` | `src/esp01/test/` | Portable: fake transport, no socket, no DNS. Drives **both** the bare `AtEngine` and `ThreadedEsp` |
+| `esp_socket_test` | `src/esp01/test/` | Address policy is pure and portable; the transport half needs a POSIX-only in-process listener |
+| `esp_uart_adapter_test` | `test/esp/` | **jnext-side**: the `Uart`-coupled rows and the spdlog-registration rows cannot live in a portable module suite now that `AtEngine` is not a `UartDevice` |
+
+Exact row counts are pinned in `test/unit-tests.conf`; the harness refuses to run if they drift.
+They are deliberately not restated here — an unenforced prose copy of an enforced number only ever
+goes stale.
 
 That third suite is the visible cost of the core/adapter split, and it is the right cost: the rows
 that genuinely test jnext coupling now live with jnext, and the module's own suites stay runnable
