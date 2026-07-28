@@ -68,9 +68,10 @@ MAKEFILE="${1:-$PROJECT_DIR/Makefile}"
 
 # scan <makefile> -> one line per violation:  <line-no>:<verdict>
 #
-# For each bundle-dlls.sh line, walk forward to the end of the LOGICAL shell
-# command (a command may itself be split across continuations) and classify how
-# that command is terminated.
+# For each bundle-dlls.sh line, find the first shell separator following the
+# invocation and classify it. The search walks forward across continuations,
+# because the invocation itself may be split over several physical lines and the
+# separator then lives on a later one.
 scan() {
     awk -v COUNT="${2:-0}" '
         { line[NR] = $0 }
