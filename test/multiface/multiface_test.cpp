@@ -517,7 +517,7 @@ static void g_mf_port_dispatch()
     {
         Emulator emu;
         if (!prep_emulator_for_mf(emu, 0x00)) {
-            check("MF-PORT-MFP3-OUT-3F",
+            check("MF-PORT-01",
                   "Emulator init failed", false, "init returned false");
             return;
         }
@@ -906,7 +906,9 @@ static void g_mf_mux()
         check("MF-MUX-07",
               "is_enabled=0 closes mf_port_en gate (mux suppressed)",
               got != 0x55,
-              "VHDL multiface.vhd:64, :103 (enable_i gate), zxnext.vhd:2816");
+              "VHDL multiface.vhd:103,195 — enable_i forces reset, which "
+              "holds the mf_port_en_o formula low; zxnext.vhd:2816 is the "
+              "read mux it gates");
     }
 
     // ── MF-MUX-08 — mf_type=01 (MF128 var A) else-branch readback ──────
@@ -1300,7 +1302,8 @@ static void g_mf_overlay()
         check("MF-OVL-09",
               "both MF and DivMMC active: read at 0x0000 returns MF ROM (0xAA)",
               both_active && got == 0xAA,
-              "VHDL zxnext.vhd:2937 (1. multiface 2. divmmc priority)");
+              "VHDL zxnext.vhd:3030,3036,3084 — mf_mem_en forces "
+              "sram_pre_override=\"000\", whose bit 2 gates divmmc_rom_en");
     }
 
     // ── MF-OVL-10 — boot ROM priority above MF.
@@ -1327,7 +1330,8 @@ static void g_mf_overlay()
         check("MF-OVL-10",
               "boot ROM enabled + MF active: read at 0x0000 returns boot ROM (0xBB)",
               both_active && got == 0xBB,
-              "VHDL zxnext.vhd:2937 (0. bootrom > 1. multiface)");
+              "VHDL zxnext.vhd:1856-1857 (bootrom_en tested before any "
+              "SRAM/MF path in the cpu_di mux)");
     }
 }
 
@@ -1408,7 +1412,7 @@ static void g_mf_m1gate()
               "and port_io_dly, preserves mf_enable (multiface.vhd:195)",
               armed && !mf.mf_port_en() && !mf.port_io_dly() &&
                   mf.mf_enable(),
-              "multiface.vhd:126,195");
+              "multiface.vhd:128,195");
     }
 
     // MF-M1G-05 — mf_enable=1 IS a quiescent state: once the overlay is
