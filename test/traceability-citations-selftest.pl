@@ -29,6 +29,10 @@ use FindBin qw($RealBin);
 my $ROOT   = abs_path("$RealBin/..");
 my $SCRIPT = "$ROOT/test/refresh-traceability-matrix.pl";
 
+# Kept before $ROOT is shadowed inside the eval'd copy below: the end-to-end
+# rows need the REAL repository to build their fixture tree from.
+my $REAL_ROOT = $ROOT;
+
 # Load the extractor without running main(). $ROOT is rebound to the temp
 # tree so grep_citations() reads the fixture, and JNEXT_FPGA_SRC points at a
 # fake core holding exactly the .vhd names the fixture is allowed to cite —
@@ -1609,6 +1613,136 @@ check('SELF-68', 'the refusal: a genuinely different line number still drifts',
 check('SELF-69', 'the refusal: order is NOT normalised — the same lines in a different order still drift',
       ($ws_drift{'WS-ORDER-01'} // '') eq 'fixture_a.vhd:80, 70 vs fixture_a.vhd:70,80',
       'got drift ' . ($ws_drift{'WS-ORDER-01'} // '(none)'));
+
+# ── END TO END: main()'s own glue, in a subprocess (GH #144) ─────────
+#
+# Every row above loads this file's target WITHOUT main() and asserts a sub in
+# isolation. That has now missed the same structural gap three rounds running:
+# report_exit_code(), companion_map(), resolve_sections() and section_refusal()
+# were each extracted so they COULD be asserted, and each time main()'s USE of
+# them stayed untested. The proof it was not being tested: deleting main()'s
+# call to section_refusal() and restoring print-and-continue left this file
+# 101/101 green. Extracting a fifth helper would not have closed it.
+#
+# So this pair runs the REAL script as a REAL process against a throwaway
+# repository, and asserts the two things a refusal has to do: exit 2, and
+# leave the document byte-identical. Every line of main() between the argument
+# walk and the write is on that path.
+#
+# The fixture is the real repo's manifest, CMakeLists and matrix — because
+# @SUBSYS is baked into the script under test and must agree with them — plus
+# an EMPTY stub for every source and a do-nothing stub for every binary. Empty
+# sources mean every row resolves `missing`, which is irrelevant here: what is
+# under test is whether the process writes at all.
+{
+    my $E2E = "$FIXTURE_ROOT/e2e";
+    my @suites;
+    {
+        open(my $fh, '<', "$REAL_ROOT/test/unit-tests.conf")
+            or die "e2e: open unit-tests.conf: $!";
+        while (my $l = <$fh>) {
+            next if $l =~ /^\s*#/ || $l !~ /\S/;
+            my ($n) = split(' ', $l);
+            $n =~ s/^\?//;
+            push @suites, $n;
+        }
+        close $fh;
+    }
+
+    # Suite -> source, parsed here rather than through cmake_sources(): that
+    # sub is memoised and already answered for a different fixture above.
+    my %src_of;
+    for my $rel ('test/CMakeLists.txt', 'src/esp01/CMakeLists.txt') {
+        (my $dir = $rel) =~ s{/CMakeLists\.txt$}{};
+        open(my $fh, '<', "$REAL_ROOT/$rel") or next;
+        while (my $l = <$fh>) {
+            next if $l =~ /^\s*#/;
+            next unless $l =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
+            next if $2 =~ /^\$\{/;
+            $src_of{$1} = "$dir/$2";
+        }
+        close $fh;
+    }
+
+    my $build_e2e = sub {
+        my ($drop_section) = @_;
+        system('rm', '-rf', $E2E) == 0 or die "e2e: rm -rf: $?";
+        for my $d ('test', 'doc/testing', 'build/test', 'src/esp01/test') {
+            system('mkdir', '-p', "$E2E/$d") == 0 or die "e2e: mkdir $d: $?";
+        }
+        for my $f ('test/unit-tests.conf', 'test/CMakeLists.txt',
+                   'src/esp01/CMakeLists.txt',
+                   'test/refresh-traceability-matrix.pl') {
+            system('cp', "$REAL_ROOT/$f", "$E2E/$f") == 0
+                or die "e2e: cp $f: $?";
+        }
+        for my $s (values %src_of) {
+            (my $d = "$E2E/$s") =~ s{/[^/]+$}{};
+            system('mkdir', '-p', $d) == 0 or die "e2e: mkdir $d: $?";
+            open(my $h, '>', "$E2E/$s") or die "e2e: write $s: $!";
+            close $h;
+        }
+        for my $s (@suites) {
+            open(my $h, '>', "$E2E/build/test/$s") or die "e2e: stub $s: $!";
+            print $h "#!/bin/sh\n";
+            close $h;
+            chmod 0755, "$E2E/build/test/$s";
+        }
+        open(my $in, '<', "$REAL_ROOT/doc/testing/TRACEABILITY-MATRIX.md")
+            or die "e2e: open matrix: $!";
+        my @m = <$in>;
+        close $in;
+        @m = grep { !/^\Q$drop_section\E/ } @m if $drop_section;
+        open(my $out, '>', "$E2E/doc/testing/TRACEABILITY-MATRIX.md")
+            or die "e2e: write matrix: $!";
+        print $out @m;
+        close $out;
+        return "$E2E/doc/testing/TRACEABILITY-MATRIX.md";
+    };
+
+    my $digest = sub {
+        my ($p) = @_;
+        open(my $h, '<', $p) or return '(unreadable)';
+        local $/;
+        my $body = <$h>;
+        close $h;
+        return length($body) . ':' . unpack('%32C*', $body);
+    };
+
+    my $run = sub {
+        my $rc = system("perl '$E2E/test/refresh-traceability-matrix.pl' "
+                      . ">/dev/null 2>&1");
+        return $rc >> 8;
+    };
+
+    # (a) THE REFUSAL. One traced suite's `## ` header removed.
+    my $mpath  = $build_e2e->('## Multiface — ');
+    my $before = $digest->($mpath);
+    my $rc_a   = $run->();
+    my $after  = $digest->($mpath);
+
+    check('SELF-102', 'END TO END: a traced suite whose section is absent makes the real process exit 2',
+          $rc_a == 2, "got exit $rc_a");
+
+    check('SELF-103', 'END TO END: and that refusal leaves the document byte-identical',
+          $before eq $after,
+          $before eq $after ? "unchanged" : "REWRITTEN ($before -> $after)");
+
+    # (b) THE DISCRIMINATOR. Same tree, section present: the run must proceed
+    # past the refusal and rewrite. Without this, a script that refused
+    # unconditionally — or never wrote at all — would pass (a) too.
+    my $mpath_b  = $build_e2e->(undef);
+    my $before_b = $digest->($mpath_b);
+    my $rc_b     = $run->();
+    my $after_b  = $digest->($mpath_b);
+
+    check('SELF-104', 'END TO END: the discriminator — with every section present the process does NOT refuse',
+          $rc_b != 2, "got exit $rc_b");
+
+    check('SELF-105', 'END TO END: and it reaches the write, so (a) pinned a refusal and not a no-op script',
+          $before_b ne $after_b,
+          $before_b ne $after_b ? "rewritten" : "NOT rewritten ($before_b)");
+}
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
