@@ -201,6 +201,25 @@ enum class TransportState : std::uint8_t {
 };
 const char* transport_state_text(TransportState s);
 
+/// ---------------------------------------------------------------------------
+/// NO METHOD HERE MAY THROW — and what the module does if one does anyway
+/// ---------------------------------------------------------------------------
+/// Report failure through the state machine: `Failed` plus `last_error()`, or
+/// a `false`/`0` return. That is the vocabulary every method already has, and
+/// the AT engine already turns it into the `ERROR` every evidenced client
+/// handles.
+///
+/// The reason it is a CONTRACT and not a preference is where these methods are
+/// called from: `esp::ThreadedEsp` drives them on a worker thread, and an
+/// exception that escapes a `std::thread` entry point does not propagate to
+/// anybody — it calls `std::terminate` and takes the host program with it.
+///
+/// So the wrapper GUARANTEES it will not let that happen: it catches everything
+/// around a service pass, loses that pass, counts it (`pass_exceptions()`),
+/// logs the first occurrence at error, and keeps the worker alive so `stop()`
+/// still joins. A throwing transport therefore costs connections, never the
+/// process. Do not read that guarantee as permission — a lost service pass
+/// during a transfer is data the guest never sees.
 class EspTransport {
 public:
     virtual ~EspTransport() = default;

@@ -70,15 +70,32 @@ void ThreadedEsp::run() {
         // queued in `out_` before the stall began. The emulated CPU does not
         // stop while the ESP is busy, so those are real T-states of silence on
         // a wire whose receivers have no retry.
-        {
-            std::lock_guard<std::mutex> lock(core_mutex_);
-            drain_inbound();
-        }
-        core_.advance_transports();  // UNLOCKED — see above
-        {
-            std::lock_guard<std::mutex> lock(core_mutex_);
-            core_.service_transports();
-            wants_tick_.store(core_.wants_tick(), std::memory_order_release);
+        //
+        // AND THE WHOLE PASS IS GUARDED. Every step below reaches consumer
+        // code — `EspTransport::poll`, `send`, `recv`, `close`, `state` — and
+        // an exception that escapes a `std::thread` entry point does not
+        // propagate to anyone: it calls `std::terminate` and kills the host
+        // program. A wrapper whose contract is "own me as a member and I stay
+        // out of your way" cannot answer a consumer's exception with a process
+        // abort. So a throwing transport costs THIS pass and nothing else; the
+        // worker stays alive, `stop()` still joins, and the host keeps running.
+        // The same policy, and for the same reason, as the resolver thread's
+        // guard in esp_socket.cpp.
+        try {
+            {
+                std::lock_guard<std::mutex> lock(core_mutex_);
+                drain_inbound();
+            }
+            core_.advance_transports();  // UNLOCKED — see above
+            {
+                std::lock_guard<std::mutex> lock(core_mutex_);
+                core_.service_transports();
+                wants_tick_.store(core_.wants_tick(), std::memory_order_release);
+            }
+        } catch (const std::exception& e) {
+            note_pass_exception(e.what());
+        } catch (...) {
+            note_pass_exception("non-std exception");
         }
         passes_.fetch_add(1, std::memory_order_release);
 
@@ -98,6 +115,21 @@ void ThreadedEsp::run() {
     // for a SECOND resolver timeout. Shutdown is exactly when nobody wants
     // those bytes. A host that does want the queue settled has `wait_idle`,
     // which drains inline once the worker is down.
+}
+
+void ThreadedEsp::note_pass_exception(const std::string& what) {
+    // FIRST one at error, the rest at debug. A transport that throws once
+    // throws every pass, and an error line every `poll_interval_` would bury
+    // the log that has to carry the diagnosis — while dropping it entirely
+    // would hide a real defect in the consumer's transport. The counter is the
+    // honest middle, and `pass_exceptions()` exposes it so a host (or a test)
+    // can see it happened at all rather than inferring it from log text.
+    const std::uint64_t n = pass_exceptions_.fetch_add(1, std::memory_order_release);
+    if (n == 0)
+        log_error("ESP worker: the transport threw ({}) — this service pass is lost. "
+                  "EspTransport methods must not throw; see esp_socket.h.", what);
+    else
+        log_debug("ESP worker: the transport threw again ({}), occurrence {}", what, n + 1);
 }
 
 void ThreadedEsp::drain_inbound() {
