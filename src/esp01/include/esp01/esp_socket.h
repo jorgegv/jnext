@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -38,12 +39,15 @@
 ///      cannot reach around the interface and issue its own blocking call on
 ///      the socket.
 ///
-/// The single genuinely blocking call in the implementation is `getaddrinfo`
-/// — see the DNS note on `make_socket_transport` below. It is confined to
-/// `poll()` (the one method the host loop already calls in wall-clock time),
-/// preceded by an `AI_NUMERICHOST` fast path that never touches the network,
-/// and it is the reason `Resolving` is a distinct observable state: swapping
-/// in a resolver thread later is a change behind this interface, not to it.
+/// NOR DOES THE IMPLEMENTATION BLOCK. `getaddrinfo` — the one call in this
+/// layer with no portable non-blocking form — runs on a short-lived resolver
+/// thread, and `poll()` does no more than test a flag for its result. An
+/// `AI_NUMERICHOST` fast path handles IP literals first, on the calling thread,
+/// with no network traffic and no thread at all. `Resolving` was made a
+/// distinct observable state precisely so that this swap could happen behind
+/// the interface rather than to it, and it did: not one signature changed.
+/// The lifetime argument that makes the thread safe is on
+/// `make_socket_transport` below, and it is the load-bearing part.
 ///
 /// ---------------------------------------------------------------------------
 /// THE TEST SEAM
@@ -271,36 +275,64 @@ public:
     virtual void close() = 0;
 };
 
-/// Build the real POSIX/Winsock transport.
+/// How a hostname becomes addresses. Fill `out` with every address `host`
+/// resolves to and return true, or return false and set `err`.
 ///
-/// DNS: name resolution is SYNCHRONOUS, and that is a deliberate, reversible
-/// choice rather than an oversight. `getaddrinfo` has no portable
-/// non-blocking form, and the alternative — a resolver thread with a result
-/// slot — would be the FIRST thread jnext runs while the frame loop is live
-/// (today's only `std::thread`, gui/sdcard_download_dialog.cpp:118, runs
-/// before the loop exists). That is not free: `emulator_cold_boot` destroys
-/// and placement-news the `Emulator` at the SAME address on every hard reset
-/// (platform/emulator_boot.h:67-77), which is exactly the situation in which a
-/// still-running thread holding a result slot writes into a reconstructed
-/// object and corrupts it silently — the hazard uart_device.h:22-35 documents
-/// at length.
+/// It is a seam for two reasons, in this order of importance:
+///   1. IT IS CALLED ON A RESOLVER THREAD, so the suite needs a resolver it can
+///      make arbitrarily slow, or make answer with a chosen address, to test
+///      the asynchrony and the security gate deterministically. Timing a real
+///      DNS server is a flaky test, not a hermetic one, and this module's
+///      tests are hermetic by construction.
+///   2. A consumer embedding the module may already own a resolver (c-ares, a
+///      proxy, a fixed table) and should not be forced onto the platform's.
 ///
-/// What the stall actually costs is bounded and rare:
-///   * an IP-literal target never resolves at all (`AI_NUMERICHOST` is tried
-///     first and short-circuits with no network traffic) — and nextsync, the
-///     hard v1.0 acceptance target, is normally configured with a literal;
-///   * a warm cache is sub-millisecond;
-///   * a cold lookup is one-off per `AT+CIPSTART`, on a path where the guest
-///     is already committed to a multi-second connect;
-///   * no unit or regression test resolves anything, so the paced rows are
-///     untouched.
+/// THE IP-LITERAL PATH IS NOT ROUTED THROUGH IT. A numeric target is always
+/// parsed by the platform's `AI_NUMERICHOST` pass, so a supplied resolver can
+/// neither slow down nor reinterpret what an IP literal means.
+using ResolveFn = std::function<bool(const std::string& host,
+                                     std::vector<IpAddress>& out, std::string& err)>;
+
+/// Build the real POSIX/Winsock transport. `resolver` replaces the lookup of
+/// NAMES only; leave it null for the platform's `getaddrinfo`.
 ///
-/// The honest downside is the unreachable-resolver case, where the stall is a
-/// resolver timeout (seconds) and the GUI freezes for it. It is logged loudly
-/// (`esp01` at warn, with the measured elapsed time) rather than hidden, so if
-/// it ever bites a user the evidence is in the log — and the `Resolving` state
-/// exists precisely so that moving the lookup onto a thread later changes only
-/// this file.
-std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy);
+/// DNS IS ASYNCHRONOUS, and the LIFETIME of the thread that does it is the
+/// entire argument for why that is safe in a program which destroys and
+/// placement-news its `Emulator` at the same address on every hard reset
+/// (platform/emulator_boot.h:67-77).
+///
+/// `getaddrinfo` has no portable non-blocking form, so a name lookup runs on a
+/// short-lived DETACHED thread, one per lookup. What that thread can reach is
+/// the whole of the safety property:
+///
+///   * a `shared_ptr` to a heap-allocated result block, and NOTHING else — no
+///     `this`, no transport, no engine, no emulator. The host name and the
+///     resolver function are copies it owns.
+///   * it writes that block exactly once and publishes it with a release
+///     store to an atomic flag; it never touches the block again.
+///   * it does not log. The log sink is a `std::function` a consumer may
+///     replace at any moment, and this is not the only thread in the program;
+///     the owning thread logs the outcome instead, which is also where the
+///     information is (it knows the host, the port and the policy verdict).
+///
+/// So destroying a transport with a lookup in flight — a hard reset, a quit,
+/// or an ordinary `close()` — drops one `shared_ptr` and returns IMMEDIATELY.
+/// The block outlives the transport, the thread finishes writing into heap
+/// memory that is provably still alive, and whichever of the two releases the
+/// last reference frees it. No join, so no stall; no back-pointer, so no write
+/// into a reconstructed object. That is exactly why detaching the WRAPPER's
+/// worker is unacceptable while detaching this one is not: the worker owns the
+/// engine, this thread owns a `vector<IpAddress>` and two strings.
+///
+/// The `AI_NUMERICHOST` fast path stays SYNCHRONOUS and stays first. A literal
+/// involves no network at all, so a thread would be pure cost — and nextsync,
+/// the hard v1.0 acceptance target, is normally configured with a literal.
+///
+/// What this buys, concretely, beyond not freezing the emulator on Reset or
+/// quit: `AT+CIPSTART`'s deadline now bounds NAME RESOLUTION as well as the TCP
+/// handshake, because `poll()` returns while the lookup is outstanding and the
+/// engine's deadline check therefore gets to run at all.
+std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy,
+                                                    ResolveFn resolver = nullptr);
 
 }  // namespace esp
