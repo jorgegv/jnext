@@ -178,8 +178,9 @@ jnext --esp --log-level esp01=debug
 | `trace` | the raw bytes in both directions |
 
 `--log-level esp01=off` silences the connection reports as well. That is your
-call to make and JNEXT will not override it — but the status-bar cell stays,
-so the run is still not silent.
+call to make and JNEXT will not override it — in a window the status-bar cell
+stays regardless, so the run is still not silent there. Headless, with the log
+off, nothing reports the connections at all.
 
 Common cases:
 

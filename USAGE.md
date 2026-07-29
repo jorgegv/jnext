@@ -490,11 +490,18 @@ which jnext opens read-write. A program you did not write is a program
 you are trusting when you turn this on. So jnext does not turn it on for
 you, and there is no way for a loaded program to turn it on for itself.
 
-When it *is* on, the Qt build shows an **ESP cell in the status bar**
+When it *is* on, a windowed run shows an **ESP cell in the status bar**
 for as long as the run lasts. Its presence means the guest can reach the
-network; it names the host of the most recent connection, and shows a
-refusal or a fault in red. There is no way to have the ESP enabled
-without that cell being there.
+network; it names the host of the most recent connection, and shows an
+allowlist refusal or a fault in red. There is no way to have the ESP
+enabled in a window without that cell being there. **--headless** builds
+no window and so has no status bar: there the `esp01` log is the only
+report, which is why it reports every connection at the default level.
+
+An address the policy below refuses is reported as a *failure* rather
+than an allowlist refusal, so it is not red; the reason
+(`address refused by policy: …`) is in the cell’s tooltip and in the
+log. See [issue \#161](https://github.com/jorgegv/jnext/issues/161).
 
 ### What is always refused, whatever you allow
 

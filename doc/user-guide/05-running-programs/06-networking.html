@@ -3185,8 +3185,9 @@ addresses by asking. The emulated module is not a radio and never scans.</p>
 </tbody>
 </table>
 <p><code>--log-level esp01=off</code> silences the connection reports as well. That is your
-call to make and JNEXT will not override it — but the status-bar cell stays,
-so the run is still not silent.</p>
+call to make and JNEXT will not override it — in a window the status-bar cell
+stays regardless, so the run is still not silent there. Headless, with the log
+off, nothing reports the connections at all.</p>
 <p>Common cases:</p>
 <ul>
 <li><strong>The cell shows red <code>REFUSED</code>.</strong> Your allowlist does not name that host.

@@ -466,11 +466,26 @@ this on.
 So jnext does not turn it on for you, and there is no way for a loaded
 program to turn it on for itself.
 .PP
-When it \f[I]is\f[R] on, the Qt build shows an \f[B]ESP cell in the
+When it \f[I]is\f[R] on, a windowed run shows an \f[B]ESP cell in the
 status bar\f[R] for as long as the run lasts.
 Its presence means the guest can reach the network; it names the host of
-the most recent connection, and shows a refusal or a fault in red.
-There is no way to have the ESP enabled without that cell being there.
+the most recent connection, and shows an allowlist refusal or a fault in
+red.
+There is no way to have the ESP enabled in a window without that cell
+being there.
+\f[B]\-\-headless\f[R] builds no window and so has no status bar: there
+the \f[CR]esp01\f[R] log is the only report, which is why it reports
+every connection at the default level.
+.PP
+An address the policy below refuses is reported as a \f[I]failure\f[R]
+rather than an allowlist refusal, so it is not red; the reason
+(\f[CR]address refused by policy: \&...\f[R]) is in the cell\(cqs
+tooltip and in the log.
+See \c
+.UR https://github.com/jorgegv/jnext/issues/161
+issue #161
+.UE \c
+\&.
 .SS What is always refused, whatever you allow
 These are refused by address, before any connection is attempted, and
 \f[B]\-\-esp\-allow\f[R] cannot re\-enable them:
