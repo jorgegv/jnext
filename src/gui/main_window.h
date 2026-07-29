@@ -6,6 +6,8 @@
 #include <QPoint>
 #include <functional>
 #include <memory>
+#include <string>
+#include <vector>
 #include <SDL2/SDL.h>
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
@@ -106,6 +108,17 @@ public:
     void set_confirm_restart_callback(ConfirmRestartCallback cb) {
         confirm_restart_callback_ = std::move(cb);
     }
+
+    // GH #25 — the ESP-01 is built once by Emulator::setup_esp() at init time
+    // and deliberately preserved across a soft reset, so it is the one
+    // Preferences setting that can be neither created nor torn down on a
+    // running machine. MainWindow therefore hands the new values to the
+    // frontend, which owns the EmulatorConfig every LATER cold boot is built
+    // from — so a hard reset (F1 / Machine > Reset) picks the change up, not
+    // only the next launch. Same shape as RebootCallback above.
+    using EspConfigCallback =
+        std::function<void(bool /*enabled*/, const std::vector<std::string>& /*allowed_hosts*/)>;
+    void set_esp_config_callback(EspConfigCallback cb) { esp_config_callback_ = std::move(cb); }
 
     // Live-applies AND persists an edited AppConfigData from the Preferences
     // dialog. Public because it is the unit under test in
@@ -235,6 +248,7 @@ private:
     LoadFileCallback load_file_callback_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
+    EspConfigCallback esp_config_callback_;
 
     // Kempston-mouse host adapter (G43). Mirrors SdlApp's wiring pattern;
     // owned here because MainWindow is the GUI's host event source. Created

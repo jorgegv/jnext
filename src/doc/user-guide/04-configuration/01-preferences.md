@@ -1,6 +1,6 @@
 # Preferences
 
-**Settings > Preferences…** opens a dialog with four tabs.
+**Settings > Preferences…** opens a dialog with five tabs.
 
 ![The Preferences dialog, Startup tab](../img/preferences-startup.png)
 
@@ -27,6 +27,20 @@ is centred on the 0 dB default, which leaves that source unchanged. Subsystem
 gains are applied before the master. Changes apply immediately to playback and
 WAV/video recording; large positive boosts can clip.
 
+**Network** holds the emulated ESP-01 WiFi module: an **Enable** checkbox and
+an **Allowed hosts** box, one host name per line — a comma separates entries
+too, so a line copied out of the config file works. This is the permanent form of
+`--esp` and `--esp-allow`, for when you run NXtel or nextsync often enough to
+tire of typing them. An empty host list places no restriction on the name the
+program may ask for; listing hosts narrows it, matching exactly and ignoring
+case. The list is greyed out while the module is off, since on its own it
+restricts nothing. Loopback, link-local and cloud-metadata addresses are
+refused whatever you put here, and your own LAN stays reachable.
+
+Turning the ESP on here does not put a running program on the network — see
+below — and while it *is* running with the ESP on, the status bar always
+carries an ESP cell, so it can never be on invisibly.
+
 **Paths** remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
 and where screenshots go.
@@ -47,6 +61,12 @@ Two settings cannot work that way, and both say so:
   to make.
 - **Start muted** only takes effect at launch, because the audio device is
   opened once when JNEXT starts.
+- **The ESP-01 settings** on the Network tab take effect at the next machine
+  start. The module is created when a machine boots and is deliberately kept
+  across a soft reset — a reset the real hardware never even sees should not
+  drop a live connection — so there is nothing to switch on the machine already
+  running. A hard reset (**F1**, or **Machine > Reset**) is enough; you do not
+  have to quit JNEXT.
 
 > The **Machine > Machine Type** menu behaves differently on purpose: it
 > restarts straight away without asking. Picking "48K" from a menu called

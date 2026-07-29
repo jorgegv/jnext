@@ -2902,7 +2902,7 @@
 
 
 <h1 id="preferences">Preferences<a class="headerlink" href="#preferences" title="Permanent link">&para;</a></h1>
-<p><strong>Settings &gt; Preferences…</strong> opens a dialog with four tabs.</p>
+<p><strong>Settings &gt; Preferences…</strong> opens a dialog with five tabs.</p>
 <p><img alt="The Preferences dialog, Startup tab" src="../img/preferences-startup.png" /></p>
 <p><strong>Startup</strong> holds what the emulator should look like when it launches:</p>
 <table>
@@ -2960,6 +2960,18 @@ beeper, each of the three TurboSound AY chips, and the DAC family. Every slider
 is centred on the 0 dB default, which leaves that source unchanged. Subsystem
 gains are applied before the master. Changes apply immediately to playback and
 WAV/video recording; large positive boosts can clip.</p>
+<p><strong>Network</strong> holds the emulated ESP-01 WiFi module: an <strong>Enable</strong> checkbox and
+an <strong>Allowed hosts</strong> box, one host name per line — a comma separates entries
+too, so a line copied out of the config file works. This is the permanent form of
+<code>--esp</code> and <code>--esp-allow</code>, for when you run NXtel or nextsync often enough to
+tire of typing them. An empty host list places no restriction on the name the
+program may ask for; listing hosts narrows it, matching exactly and ignoring
+case. The list is greyed out while the module is off, since on its own it
+restricts nothing. Loopback, link-local and cloud-metadata addresses are
+refused whatever you put here, and your own LAN stays reachable.</p>
+<p>Turning the ESP on here does not put a running program on the network — see
+below — and while it <em>is</em> running with the ESP on, the status bar always
+carries an ESP cell, so it can never be on invisibly.</p>
 <p><strong>Paths</strong> remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
 and where screenshots go.</p>
@@ -2977,6 +2989,12 @@ scale or a joystick source and it happens immediately, with nothing lost.
   to make.</li>
 <li><strong>Start muted</strong> only takes effect at launch, because the audio device is
   opened once when JNEXT starts.</li>
+<li><strong>The ESP-01 settings</strong> on the Network tab take effect at the next machine
+  start. The module is created when a machine boots and is deliberately kept
+  across a soft reset — a reset the real hardware never even sees should not
+  drop a live connection — so there is nothing to switch on the machine already
+  running. A hard reset (<strong>F1</strong>, or <strong>Machine &gt; Reset</strong>) is enough; you do not
+  have to quit JNEXT.</li>
 </ul>
 <blockquote>
 <p>The <strong>Machine &gt; Machine Type</strong> menu behaves differently on purpose: it
