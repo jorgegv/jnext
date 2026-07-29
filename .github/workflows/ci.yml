@@ -109,7 +109,20 @@ jobs:
             qt6-qtbase-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
-            pandoc mkdocs-material
+            pandoc mkdocs-material \
+            perl-interpreter perl-FindBin perl-File-Temp perl-PathTools
+          # The four perl-* entries are the traceability tooling's own
+          # dependencies (test/refresh-traceability-matrix.pl,
+          # test/traceability-citations-selftest.pl), declared rather than
+          # inherited. They USED to arrive transitively — perl is not in the
+          # bare fedora:44 image at all, and something above dragged it in —
+          # which held until 2026-07-29, when `make unit-test` failed on
+          # `Can't locate FindBin.pm` with no change to the script or the
+          # workflow. Reproduced in the real image: after installing exactly
+          # the list above, File::Temp/Cwd/File::Spec are present and FindBin
+          # alone is not. Depending on another package's dependency graph is
+          # precisely the "discover them one CI run at a time" failure the
+          # comment above says this list exists to prevent.
           # CMake shells out to `git submodule update`, which refuses on a
           # workspace owned by another uid ("dubious ownership", exit 128).
           # actions/checkout already placed the submodule so the build works
