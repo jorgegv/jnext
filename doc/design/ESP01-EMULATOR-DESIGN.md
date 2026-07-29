@@ -1085,6 +1085,16 @@ magic port every 256 bytes. Two runs per configuration, identical frame budget (
 frames after a 100-frame inject delay), identical guest, identical peer; the only difference is an
 env-gated pacing switch, so both arms come from one binary.
 
+**The machine is `--machine 48k`**, and every frame-cycle figure below is that machine's:
+224 T-states × 312 lines × 8 = **559 104** master cycles per frame. Say it explicitly, because
+`ZXN_ISSUE2` / 128K / +3 are 1824 × 311 = **567 264** (`emulator_config.h:283-286`) and a reader
+reconciling the arithmetic against the wrong constant will not get these numbers back. 48K is a
+legitimate rig rather than a convenience: the pacer is **machine-independent** — it reads
+`UartChannel::byte_transfer_ticks()` (prescaler × frame bits) and jnext's 28 MHz master cycle
+count, neither of which is a function of the machine profile — while 48K gives a quiet machine that
+is safely injectable 100 frames in, where a mid-boot Next would land the guest on whatever
+`tbblue.fw` happened to have mapped.
+
 Two things were done to make the comparison *favour* on-demand rather than the incumbent:
 
 - On-demand was implemented in its **best** form — refill gated on FIFO space, so it never drops a
