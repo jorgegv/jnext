@@ -522,11 +522,19 @@ next launch.
 The CLI still wins for a single run in both directions \-
 \f[B]\-\-esp\f[R] over a saved \f[I]off\f[R], and \f[B]\-\-no\-esp\f[R]
 over a saved \f[I]on\f[R].
-.SS There is no server mode
+.SS There is no server mode yet
 The emulated module cannot listen for incoming connections \-
-\f[CR]AT+CIPSERVER\f[R] is not implemented.
-Nothing that runs on a Next uses it, so there is no inbound attack
-surface at all.
+\f[CR]AT+CIPSERVER\f[R] is not implemented \f[B]yet\f[R], so today there
+is no inbound attack surface at all.
+.PP
+That is a scoping decision, not a permanent one.
+The command set jnext emulates is the one \f[I]evidenced\f[R] in
+software that actually runs on a Next, and \f[CR]AT+CIPSERVER\f[R]
+appears in all of it exactly once, only to turn itself off.
+Emulating the AT firmware down to the datasheet \- server mode, UDP,
+multiplexed connections and transparent mode included \- is tracked as
+its own piece of work (issue #154).
+Expect the security notes above to grow an inbound half when it lands.
 .SS Nothing about your host leaks into the program
 The module reports a fixed synthetic identity: SSID
 \f[CR]JNextWifiHost\f[R], a \f[CR]02:00:00:...\f[R] MAC and BSSID, and a

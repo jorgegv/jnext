@@ -34,7 +34,7 @@ the two can never disagree. For building jnext from source, see
     allow](#what-is-always-refused-whatever-you-allow)
   - [Narrowing it further](#narrowing-it-further)
   - [Making it permanent](#making-it-permanent)
-  - [There is no server mode](#there-is-no-server-mode)
+  - [There is no server mode yet](#there-is-no-server-mode-yet)
   - [Nothing about your host leaks into the
     program](#nothing-about-your-host-leaks-into-the-program)
 - [LOGGING](#logging)
@@ -542,11 +542,19 @@ next hard reset (**F1**, or **Machine \> Reset**) and on the next
 launch. The CLI still wins for a single run in both directions -
 **--esp** over a saved *off*, and **--no-esp** over a saved *on*.
 
-### There is no server mode
+### There is no server mode yet
 
 The emulated module cannot listen for incoming connections -
-`AT+CIPSERVER` is not implemented. Nothing that runs on a Next uses it,
-so there is no inbound attack surface at all.
+`AT+CIPSERVER` is not implemented **yet**, so today there is no inbound
+attack surface at all.
+
+That is a scoping decision, not a permanent one. The command set jnext
+emulates is the one *evidenced* in software that actually runs on a
+Next, and `AT+CIPSERVER` appears in all of it exactly once, only to turn
+itself off. Emulating the AT firmware down to the datasheet - server
+mode, UDP, multiplexed connections and transparent mode included - is
+tracked as its own piece of work (issue \#154). Expect the security
+notes above to grow an inbound half when it lands.
 
 ### Nothing about your host leaks into the program
 
