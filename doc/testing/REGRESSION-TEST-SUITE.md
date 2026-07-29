@@ -177,6 +177,40 @@ Hz timer) or floods (128K/Next: 49.36 Hz) the device queue. See
 `src/platform/audio_pacing.h`. On the pre-fix binary this test reports 25
 underruns; the fix reports none.
 
+## Functional test: esp-loopback-func
+
+The only test that exercises the **emulated ESP-01 end to end** (GH #25): a Z80
+guest reaching port 0x133B, through `UartChannel`, `EspUartAdapter`, `AtEngine`
+and `EspGatedTransport`, out of a **real socket** to a real TCP peer, and every
+byte back again. The three ESP unit suites each replace one end of that path
+with a fake by design, so none of them can fail if the socket path is broken.
+
+The assertion is a byte stream, not a picture: the guest echoes everything the
+ESP says to the magic port in LINE mode, and the row compares the result
+against the exact ordered sequence `OK / ERROR / OK / OK / OK / "> " / SEND OK
+/ +IPD,14:JNEXT-ESP-OK`, plus the payload the peer actually received. The
+`ERROR` is load-bearing rather than incidental — `AT+CIPCLOSE` with nothing
+open MUST answer it, because nextsync loops that command *while `ERROR` is not
+seen*.
+
+**The peer binds an RFC1918 address, not 127.0.0.1.** The emulated ESP's
+address policy denies loopback by default (design doc §8.2) and a test is not a
+reason to relax a security decision; RFC1918 is allowed by that same decision,
+so the row exercises the "reach a machine on the user's own LAN" configuration
+the policy exists for. No packet leaves the host. On a machine with no private
+IPv4 the row SKIPs rather than pretending. `test/00regression/esp-loopback-peer.py`
+picks the address, listens, and writes the guest binary that dials it — it can
+only write the guest once it knows its own port, which is why the three jobs
+live in one file.
+
+It cannot flake: no wall-clock threshold, no race with the peer (the shell
+waits for a ready file, and the peer holds the connection open until killed so
+no `CLOSED` URC can appear mid-assertion), and the guest BLOCKS on each
+expected byte so it cannot run ahead of the network. The one wall-clock
+dependency — that the frame budget outlasts a same-host TCP connect (~6 ms
+measured against a ~2 s budget) — fails safe under load: a busy box runs fewer
+frames per second, so the same frame budget buys *more* wall time, not less.
+
 ## Design notes
 
 Load-bearing rationale that used to live as long comments inside

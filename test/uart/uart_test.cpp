@@ -2297,17 +2297,29 @@ static void test_group12_gating() {
 static void test_group14_esp() {
     set_group("ESP");
 
-    // WONT ESP-01..04 — full ESP/Wi-Fi UART bridge (G39). Implementing a
-    // useful ESP-mode for jnext requires (a) an AT-command parser, (b) a
-    // TCP socket bridge with a `--esp-bridge HOST:PORT` CLI flag, (c) a
-    // "+IPD,<n>:" RX framing emitter so AT-mode can carve incoming TCP
-    // frames into UART 0 RX bytes, and (d) a power-on banner producer
-    // (NextZXOS network init expects the ESP "ready" / version string on
-    // UART 0 RX). This is a self-contained networking feature, not a bug
-    // — most demos and games never exercise UART 0 ESP traffic. The four
-    // rows are deliberately not skip()'d (so the suite total stays
-    // deterministic) and stay as WONT comments.
-    // Revisit-trigger: when --esp-bridge HOST:PORT is added to jnext.
+    // ESP-01..04 were WONT here — "a self-contained networking feature"
+    // nobody had built. GH #25 built it, so the revisit-trigger fired and the
+    // four rows are LIVE, re-homed to the suite that can reach the real
+    // thing. They need a whole `Emulator` (NR 0xC6 / NR 0xCA for the IM2
+    // vector, NR 0x02 for the reset line, and `setup_esp` to construct the
+    // ThreadedEsp + EspGatedTransport a user's `--esp` builds), none of which
+    // this bare-`Uart` suite has.
+    //
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-01 — guest TX on UART 0
+    //   egresses to the real emulated ESP-01, which answers, instead of to
+    //   the channel loopback (zxnext.vhd:1611-1612, :3381).
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-02 — the ESP's reply
+    //   lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under
+    //   the NR 0xC6 request mask (zxnext.vhd:1941-1944).
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-03 — NR 0x02 bit 7
+    //   (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO
+    //   device reset (zxnext.vhd:5119, :1579; design doc §4.2 and §10 —
+    //   nextsync's recovery path is a v1.1 extension point).
+    // RE-HOME: see test/uart/uart_integration_test.cpp ESP-04 — with no backend
+    //   attached, UART 0 keeps the loopback these 116 rows observe.
+    //
+    // The socket half — a real TCP connect, AT+CIPSEND and +IPD framing
+    // against a live peer — is the `esp-loopback-func` regression row.
     (void)0;
 }
 

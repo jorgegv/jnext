@@ -42,6 +42,15 @@
 - Timestamped physical DAC write tracing (`--dac-trace` CSV)
 - Master host gain (`--audio-gain-db`) plus per-subsystem gains for beeper, AY #0/#1/#2 and DAC (`--audio-gain-beeper-db`, `--audio-gain-ay0-db`/`ay1`/`ay2`, `--audio-gain-dac-db`; also in Preferences, -24 dB to +24 dB, persisted and live-applied)
 
+## Networking (emulated ESP-01 Wi-Fi)
+- Guest programs can make **real outbound TCP connections** through an emulated ESP-01 on UART 0, driven by the same AT commands real Next software already speaks (`AT+CIPSTART`, `AT+CIPSEND`, `+IPD` receive framing). Verified against the **real NXtel BBS**: NXtel launched from the SD card through the NextZXOS Browser reaches ONLINE over the live internet
+- **Off by default.** Nothing is reachable until you pass `--esp`; `--no-esp` forces it off again even when a saved GUI preference turns it on
+- **Optional host allowlist**: repeat `--esp-allow HOST` to restrict the guest to named hosts. Without it any host is allowed, and the run says so at startup
+- **Always refused, allowlist or not**: loopback, link-local, cloud-metadata (`169.254.169.254` and friends), unspecified and multicast addresses. Your own **LAN stays reachable** — RFC1918 is deliberately allowed, so a guest can talk to a machine on your network
+- Every connection opened, refused or failed is **logged and never silent**, and a **GUI status cell** shows the current state with refusals in red
+- No server/listen mode, no UDP, no TLS — outbound TCP only, which is what the evidenced Next software uses
+- Downloads through it are paced at the UART's real baud rate, so software that reprograms the link speed behaves as it does on hardware
+
 ## File format support
 - NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header; host-backed file/block streaming for extended self-streaming NEX applications; saving (V1.2, PC/SP/border/RAM banks — see class doc-comment for honest register limitations)
 - esxDOS sibling-NEX chaining (`--esxdos-stub`): esxDOS `run NAME.nex` chain-loads another NEX in the same directory (game selectors / multi-part NEX games without booting NextZXOS); plus in-memory esxDOS file I/O for a game's config/score file
@@ -99,6 +108,7 @@
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, master `--audio-gain-db`, subsystem `--audio-gain-beeper-db`/`--audio-gain-ay0-db`/`--audio-gain-ay1-db`/`--audio-gain-ay2-db`/`--audio-gain-dac-db`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
+- `--esp` / `--no-esp` and the repeatable `--esp-allow HOST` (emulated ESP-01 Wi-Fi; off by default)
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` — compose only the named layers into the screenshot (default all), for capturing each graphics layer in isolation
 - `--log-level` per subsystem (cpu, video, audio, etc.)
 - `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the DS1307 RTC to a fixed date/time (frozen clock; deterministic boot screenshots)
