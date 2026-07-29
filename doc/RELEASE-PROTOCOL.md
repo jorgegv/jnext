@@ -1,10 +1,10 @@
 # JNEXT Release Protocol
 
-This is the authoritative process for versioning, tagging, and publishing
-JNEXT releases. **Read it whenever the user asks to "release" or "bump" a
-version.** It complements — does not replace — the "Merging a completed
-feature/fix to `main`" and "Version bumping" sections in
-[CLAUDE.md](../CLAUDE.md).
+This is the authoritative process for versioning, tagging, publishing and
+**announcing** JNEXT releases. **Read it whenever the user asks to "release"
+or "bump" a version, or asks for a release announcement (§8).** It
+complements — does not replace — the "Merging a completed feature/fix to
+`main`" and "Version bumping" sections in [CLAUDE.md](../CLAUDE.md).
 
 ---
 
@@ -295,3 +295,114 @@ so it stays a decision rather than drift.
 5. Push `main`, then push the single release tag (`git push origin vX.Y.Z`).
 6. CI sees the tag is in `releases.yaml` → builds all packages → publishes the
    GitHub Release. (Patch bumps skip all of this by design.)
+7. Write the forum announcement — **§8**.
+
+---
+
+## 8. Announcing a release
+
+The format for the public announcements posted to the retro forums. **Follow
+it whenever the user asks for an announcement** ("announce vX.Y.Z", "post the
+release", "write the forum post").
+
+### 8.1 What gets announced
+
+- **Only public releases** — tags listed in `releases.yaml`. Private
+  `make bump-patch` history tags are never announced.
+
+- **The span is: current public release → previous public release.** Everything
+  in between, nothing outside it. The ChangeLog is the source: its version
+  headers are public releases only, so the span is the current entry plus every
+  entry down to (but excluding) the previous public release's.
+
+- **Exception — a skipped announcement.** If the version last *announced on the
+  forums* is older than the previous public release, extend the span back to
+  that announced version so nothing goes unannounced. Ask the user which
+  version was last announced whenever it isn't obvious; the answer goes in the
+  announcement's own header line.
+
+### 8.2 Both formats, always
+
+Every invocation produces **two** versions of the same announcement:
+
+1. **Rich text** (Markdown) — GitHub, Mastodon, Discord, blog posts.
+2. **phpBB BBCode** — for the [spectrumcomputing.co.uk](https://spectrumcomputing.co.uk)
+   and [z88dk.org](https://z88dk.org) forums. Emit it inside a fenced block so
+   it can be copied verbatim without the renderer mangling the tags.
+
+Same content in both; only the markup differs.
+
+### 8.3 Content rules
+
+- **One line per feature. No more.** No sub-bullets, no elaboration.
+- **Two sections only: For users, For developers.** Drop a section if empty.
+- **Significant features only** — what changes what a user or a developer can
+  actually *do*.
+- **Do NOT advertise trivia**: keyboard/shortcut changes, bug fixes, internal
+  development, test-suite growth, traceability, documentation, packaging
+  plumbing, refactors. Fixes get at most **one** aggregate line pointing at the
+  ChangeLog — never an enumeration.
+- **Terse** — the whole post fits on one screen.
+- Never claim something untested or known-broken (same rule as the ChangeLog).
+
+### 8.4 Links (both mandatory)
+
+Check them against `README.md` before posting — they have moved before:
+
+- **User guide**, the published online copy: <https://www.jnext.es/user-guide/>
+- **Downloads**: <https://github.com/jorgegv/jnext/releases>
+
+### 8.5 Template — rich text
+
+```markdown
+**JNEXT vX.Y.Z released** (previous announced build: vA.B.C)
+
+JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL
+sources. With versions for Linux, Windows and MacOS.
+
+New features since last release:
+
+**For users**
+
+- <one line per feature>
+
+**For developers**
+
+- <one line per feature>
+
+Plus a long list of rendering, timing and compatibility fixes — see the ChangeLog.
+
+**User guide:** https://www.jnext.es/user-guide/
+**Downloads:** https://github.com/jorgegv/jnext/releases
+```
+
+### 8.6 Template — phpBB
+
+```bbcode
+[b]JNEXT vX.Y.Z released[/b] (previous announced build: vA.B.C)
+
+JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL sources. With versions for Linux, Windows and MacOS.
+
+New features since last release:
+
+[b]For users[/b]
+[list]
+[*]<one line per feature>
+[/list]
+
+[b]For developers[/b]
+[list]
+[*]<one line per feature>
+[/list]
+
+Plus a long list of rendering, timing and compatibility fixes — see the ChangeLog.
+
+[b]User guide:[/b] [url=https://www.jnext.es/user-guide/]https://www.jnext.es/user-guide/[/url]
+[b]Downloads:[/b] [url=https://github.com/jorgegv/jnext/releases]https://github.com/jorgegv/jnext/releases[/url]
+```
+
+Use `[i]…[/i]` for file names, flags and identifiers — phpBB's `[code]` is
+block-level and breaks a list item.
+
+Announcements are output, not repository content: they are handed to the user
+to post. Nothing is committed, nothing is posted automatically.

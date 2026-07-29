@@ -99,6 +99,13 @@ The single authoritative protocol for landing any implemented change on `main`:
 > AppStream metainfo `<releases>` only for public releases), the `releases.yaml`
 > allowlist that gates public GitHub Releases, the `make package-*` targets, the
 > CI release gate, and the push rules (incl. the GitHub ≤3-tags-per-push limit).
+>
+> **Its §8 is also the authoritative format for release announcements** — read
+> it whenever the user asks to announce a release or write a forum post: the
+> current-to-previous-public-release span, the mandatory pair of outputs (rich
+> text + phpBB for spectrumcomputing.co.uk and z88dk.org), one line per feature,
+> and the rule that trivia (keyboard changes, bug fixes, internal work) is not
+> advertised.
 
 When the user asks to bump the version, follow these steps in order:
 
