@@ -15,6 +15,13 @@ Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.
 
+The emulated ESP-01 is stored in the `[esp]` section: `enabled` (`true`/`false`)
+and `allowed_hosts` (a comma-separated list). They are the same two settings as
+the Preferences **Network** tab, and the persistent form of `--esp` and
+`--esp-allow`. Whenever `enabled` is true the status bar carries an ESP cell, so
+editing this file cannot put a program on the network without saying so, and
+`--no-esp` turns it off again for one run.
+
 Host audio gains are stored in the `[audio]` section: `gain_db` is the master,
 with `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
 `gain_dac_db` for the individual sources. Each accepts -24 through +24; an

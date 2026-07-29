@@ -278,6 +278,19 @@ bool QtApp::init(int argc, char* argv[]) {
         cold_boot();
     });
 
+    // GH #25 — the ESP-01 cannot be built or torn down on a running machine
+    // (Emulator::setup_esp()), so a Preferences change is written into config_
+    // and picked up by the next cold boot — a hard reset, a menu load, or the
+    // next launch — exactly as if it had been passed on the command line.
+    // Deliberately does NOT cold-boot by itself: the user changed a network
+    // setting, not asked to lose what they were running.
+    main_window_->set_esp_config_callback(
+        [this](bool enabled, const std::vector<std::string>& allowed_hosts) {
+            config_.esp_enabled       = enabled;
+            config_.esp_allowed_hosts = allowed_hosts;
+            config_set_               = true;
+        });
+
     main_window_->show();
 
     // Re-apply scale after the window is mapped so devicePixelRatio is correct.

@@ -17,7 +17,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   3. --no-esp wins when it comes last, so the run can always be forced off —
 #      the escape hatch that makes the saved GUI preference safe to have;
 #   4. --esp-allow without an enabled ESP is a refusal, not a silent no-op that
-#      would leave the user believing a restriction is in force.
+#      would leave the user believing a restriction is in force;
+#   5. a comma-separated HOST is a refusal for the same reason. The config
+#      file's own allowed_hosts IS comma-separated, so this is the mistake the
+#      product invites; taken literally it stores one unmatchable name, refuses
+#      every connection, and displays what looks like a correct two-host
+#      allowlist.
 if want esp-cli-func; then
     begin_func esp-cli-func
     fails=()
@@ -46,8 +51,20 @@ if want esp-cli-func; then
         fails+=("--esp-allow without --esp was accepted instead of refused")
     fi
 
+    # Also a usage error, and --esp is present so the refusal can only be about
+    # the comma. Both the exit status AND the message are asserted: exiting 1
+    # with some other complaint would satisfy the status alone.
+    comma_out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 2 \
+        --esp --esp-allow a.example,b.example 2>&1) && comma_ok=0 || comma_ok=1
+    if [[ $comma_ok -eq 0 ]]; then
+        fails+=("--esp-allow accepted a comma-separated HOST")
+    elif ! grep -q "commas are not separators" <<<"$comma_out"; then
+        fails+=("--esp-allow rejected a comma-separated HOST for the wrong reason")
+    fi
+
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (ESP default-off, --esp, --no-esp and --esp-allow gating verified)"
+        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal verified)"
     else
         fail_row " (${fails[*]})"
     fi

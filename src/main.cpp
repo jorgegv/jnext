@@ -12,6 +12,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -108,10 +109,11 @@ static void print_usage(const char* prog) {
         "                           own LAN (RFC1918) is reachable.\n"
         "  --no-esp                 Force the ESP off for this run, overriding a saved\n"
         "                           GUI preference that enables it\n"
-        "  --esp-allow HOST         Only let the guest connect to HOST. Repeatable;\n"
-        "                           matching is exact and case-insensitive, and an IP\n"
-        "                           literal must be listed as itself. Without any\n"
-        "                           --esp-allow the guest may name any host.\n"
+        "  --esp-allow HOST         Only let the guest connect to HOST. ONE host per\n"
+        "                           option, repeat it for more (a comma is rejected, not\n"
+        "                           a separator); matching is exact and case-insensitive,\n"
+        "                           and an IP literal must be listed as itself. Without\n"
+        "                           any --esp-allow the guest may name any host.\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
@@ -395,9 +397,27 @@ int main(int argc, char* argv[]) {
                 esp_enabled_set = true;
                 break;
             case cli::OptId::EspAllow:
-                // Repeatable. A blank entry is rejected rather than dropped: a
-                // silently ignored allowlist entry would leave the user
-                // believing a restriction is in force that is not.
+                // ONE host per occurrence; repeat the option for more. A comma
+                // is rejected rather than taken literally, because taking it
+                // literally is the dangerous reading: `--esp-allow a.com,b.com`
+                // would be stored as the single unmatchable host name
+                // "a.com,b.com", every connection would be refused, and the
+                // user would be looking at an allowlist that appears to list
+                // the two hosts they wanted. The mistake is invited by the
+                // config file, whose `allowed_hosts` IS comma-separated (it is
+                // a QSettings string list), so the two formats must not fail
+                // silently at each other. No legal host name contains a comma.
+                if (std::strchr(v[0], ',') != nullptr) {
+                    fprintf(stderr,
+                            "--esp-allow: HOST must be a single host name; commas are not "
+                            "separators here.\n"
+                            "  Repeat the option instead: --esp-allow a.example "
+                            "--esp-allow b.example\n");
+                    return 1;
+                }
+                // A blank entry is rejected rather than dropped: a silently
+                // ignored allowlist entry would leave the user believing a
+                // restriction is in force that is not.
                 if (!esp_allow.add(v[0])) {
                     fprintf(stderr, "--esp-allow: HOST must not be empty.\n");
                     return 1;

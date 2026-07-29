@@ -1511,6 +1511,23 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
                         : confirm_machine_restart_dialog(cfg.machine_type);
     }
 
+    // GH #25 — the ESP settings go to the frontend BEFORE anything below can
+    // reboot, and the order is load-bearing rather than incidental. The
+    // callback writes the values into the EmulatorConfig that every cold boot
+    // is built from; the machine-type branch below performs a cold boot. Doing
+    // it the other way round means an Apply that changes the machine type AND
+    // the ESP in one visit reboots on the OLD ESP config, so the change the
+    // user just made is stranded until some later reset they were never told
+    // about — while both the tab's own note and the man page promise the next
+    // hard reset. Pinned by PA-14.
+    //
+    // Unlike every other setting here, this one has no live setter at all:
+    // Emulator::setup_esp() builds the module once at init() and deliberately
+    // keeps it across a soft reset, so there is nothing to toggle on a running
+    // machine. All this can do is make the NEXT cold boot honour the change
+    // instead of stranding it until the next launch.
+    if (esp_config_callback_) esp_config_callback_(cfg.esp_enabled, cfg.esp_allowed_hosts);
+
     switch (preferences_apply_outcome(restart_required, confirmed)) {
     case PreferencesApplyOutcome::RebootThenApplyLive:
         on_machine_type(cfg.machine_type);
@@ -1537,6 +1554,20 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
         emulator_->set_joystick_source(0, cfg.joy_source[0]);
         emulator_->set_joystick_source(1, cfg.joy_source[1]);
         sync_joy_source_menu();
+    }
+
+    // GH #25 — the ESP forward itself happened above, before any reboot could.
+    // What is left is telling the user, and this is deliberately AFTER the
+    // switch so it reads the machine that is running NOW: if the branch above
+    // did cold-boot, the change is already in effect and there is nothing to
+    // report. A setting that has taken effect and one that is merely saved must
+    // not look alike — the status-bar ESP cell tracks the RUNNING module, and
+    // this line is what explains a cell that has not changed.
+    if (emulator_ && emulator_->esp_enabled() != cfg.esp_enabled) {
+        Log::platform()->info(
+            "Preferences: ESP-01 {} saved but NOT applied to the running "
+            "machine; it takes effect on the next Power Reset (F1) or launch.",
+            cfg.esp_enabled ? "enabled" : "disabled");
     }
 
     // cfg.silent has no live setter (the SDL audio device is opened once at

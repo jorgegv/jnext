@@ -1,11 +1,14 @@
 #include "gui/preferences_dialog.h"
 #include "gui/emulator_widget.h"
 
+#include "peripheral/esp_host_policy.h"
+
 #include <QComboBox>
 #include <QSpinBox>
 #include <QSlider>
 #include <QCheckBox>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QLabel>
 #include <QPushButton>
 #include <QFormLayout>
@@ -14,6 +17,7 @@
 #include <QTabWidget>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QRegularExpression>
 
 #include <cmath>
 
@@ -29,6 +33,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     tabs->addTab(build_startup_tab(), tr("Startup"));
     tabs->addTab(build_input_tab(), tr("Input"));
     tabs->addTab(build_audio_tab(), tr("Audio"));
+    tabs->addTab(build_network_tab(), tr("Network"));
     tabs->addTab(build_paths_tab(), tr("Paths"));
 
     // --- Fill from `current` ---
@@ -51,6 +56,14 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
         joy1_source_combo_->findData(static_cast<int>(current.joy_source[0])));
     joy2_source_combo_->setCurrentIndex(
         joy2_source_combo_->findData(static_cast<int>(current.joy_source[1])));
+    esp_enabled_check_->setChecked(current.esp_enabled);
+    {
+        QStringList hosts;
+        for (const std::string& host : current.esp_allowed_hosts)
+            hosts << QString::fromStdString(host);
+        esp_hosts_edit_->setPlainText(hosts.join(QLatin1Char('\n')));
+    }
+    esp_hosts_edit_->setEnabled(current.esp_enabled);
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
@@ -209,6 +222,54 @@ QWidget* PreferencesDialog::build_audio_tab() {
     return tab;
 }
 
+QWidget* PreferencesDialog::build_network_tab() {
+    // GH #25 — the persistent form of --esp and --esp-allow. The two fields
+    // were already loaded and saved by AppConfig; what was missing was any way
+    // to see or set them, which also meant collect() silently reset them (see
+    // the header comment).
+    auto* tab = new QWidget(this);
+    auto* form = new QFormLayout(tab);
+
+    esp_enabled_check_ = new QCheckBox(tr("Enable the emulated ESP-01 WiFi module"), tab);
+    esp_enabled_check_->setObjectName(QStringLiteral("espEnabledCheck"));
+    esp_enabled_check_->setToolTip(
+        tr("Lets guest software (NXtel, nextsync) open real TCP connections "
+           "from your machine. Off by default."));
+    form->addRow(QString(), esp_enabled_check_);
+
+    esp_hosts_edit_ = new QPlainTextEdit(tab);
+    esp_hosts_edit_->setObjectName(QStringLiteral("espAllowedHostsEdit"));
+    esp_hosts_edit_->setPlaceholderText(tr("nx.nxtel.org"));
+    esp_hosts_edit_->setToolTip(
+        tr("One host per line (a comma separates too). Matching is exact and "
+           "case-insensitive: no wildcards, and an IP address must be listed "
+           "as itself."));
+    // Four lines is enough for the handful of literal hosts this is for, and
+    // keeps the tab the same height as the others.
+    esp_hosts_edit_->setFixedHeight(4 * esp_hosts_edit_->fontMetrics().lineSpacing() + 12);
+    form->addRow(tr("Allowed hosts:"), esp_hosts_edit_);
+
+    // The allowlist is meaningless while the module is off, and showing it as
+    // editable would imply otherwise. Kept in sync from here on; the initial
+    // state is set with the rest of the fields in the constructor.
+    connect(esp_enabled_check_, &QCheckBox::toggled,
+            esp_hosts_edit_, &QPlainTextEdit::setEnabled);
+
+    auto* note = new QLabel(
+        tr("An EMPTY list places no restriction on the host name — the guest "
+           "may name any host. Listing hosts narrows that.\n\n"
+           "Connections to loopback, link-local and cloud-metadata addresses "
+           "are always refused; your own LAN is reachable.\n\n"
+           "This setting is not applied to the machine that is already "
+           "running: it takes effect on the next hard reset (F1, or "
+           "Machine ▸ Power Reset) and on the next launch. --no-esp overrides "
+           "it for a single run."), tab);
+    note->setWordWrap(true);
+    form->addRow(QString(), note);
+
+    return tab;
+}
+
 QWidget* PreferencesDialog::build_paths_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
@@ -267,6 +328,28 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.audio_gain_dac_db = static_cast<float>(audio_dac_gain_slider_->value());
     cfg.joy_source[0] = static_cast<JoySource>(joy1_source_combo_->currentData().toInt());
     cfg.joy_source[1] = static_cast<JoySource>(joy2_source_combo_->currentData().toInt());
+    cfg.esp_enabled = esp_enabled_check_->isChecked();
+    {
+        // Through EspHostPolicy::add, exactly as AppConfig::load() and the CLI
+        // do: blanks (every stray newline in a text box is one) dropped,
+        // duplicates collapsed. A security control must not mean three
+        // different things depending on where the value was typed.
+        //
+        // A COMMA SEPARATES TOO, not just a newline. `allowed_hosts` in
+        // ~/.jnext/jnext.conf is a comma-separated list (QSettings writes
+        // string lists that way), so a user who has read that file — or the man
+        // page's FILES section — will paste a comma-separated line in here.
+        // Taking it literally would store one unmatchable host name and refuse
+        // every connection while displaying what looks like a correct list. No
+        // legal host name contains a comma, so splitting is unambiguous. The
+        // CLI, where the option is one-host-per-occurrence, rejects a comma
+        // loudly instead — see main.cpp's EspAllow case.
+        EspHostPolicy policy;
+        const QStringList entries = esp_hosts_edit_->toPlainText().split(
+            QRegularExpression(QStringLiteral("[\n,]")));
+        for (const QString& entry : entries) policy.add(entry.trimmed().toStdString());
+        cfg.esp_allowed_hosts = policy.allowed_hosts;
+    }
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();

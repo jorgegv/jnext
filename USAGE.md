@@ -33,7 +33,8 @@ the two can never disagree. For building jnext from source, see
   - [What is always refused, whatever you
     allow](#what-is-always-refused-whatever-you-allow)
   - [Narrowing it further](#narrowing-it-further)
-  - [There is no server mode](#there-is-no-server-mode)
+  - [Making it permanent](#making-it-permanent)
+  - [There is no server mode yet](#there-is-no-server-mode-yet)
   - [Nothing about your host leaks into the
     program](#nothing-about-your-host-leaks-into-the-program)
 - [LOGGING](#logging)
@@ -188,7 +189,10 @@ enables it. Given both, whichever comes last on the command line wins.
 
 **--esp-allow** *HOST*  
 Only let the running program connect to *HOST*. Repeatable: give the
-option once per host. Matching is exact and case-insensitive, with no
+option once per host. *HOST* is a single name - a comma is **rejected**
+rather than taken as a separator or as part of the name, because a name
+that silently matched nothing would look like a restriction that is in
+force when it is not. Matching is exact and case-insensitive, with no
 wildcards, and an IP address must be listed as itself. With no
 **--esp-allow** at all the program may name any host (subject to the
 always-refused addresses in **NETWORKING**). Requires **--esp**.
@@ -523,11 +527,34 @@ Every connection to anything else is refused, the program gets the same
 `ERROR` it would get from a real module that could not connect, and the
 refusal is reported in the log and in the status bar.
 
-### There is no server mode
+### Making it permanent
+
+**Settings \> Preferences \> Network** holds the same two settings for
+people who run one of these programs regularly: an enable checkbox and
+the allowed-host list, one host per line (a comma separates too,
+matching the config file’s own format). Blank entries and repeats are
+dropped, and the list is greyed out while the module is off, because it
+restricts nothing on its own.
+
+The module is built when a machine starts, so this page cannot switch it
+on or off underneath a running program: the change takes effect on the
+next hard reset (**F1**, or **Machine \> Power Reset**) and on the next
+launch. The CLI still wins for a single run in both directions -
+**--esp** over a saved *off*, and **--no-esp** over a saved *on*.
+
+### There is no server mode yet
 
 The emulated module cannot listen for incoming connections -
-`AT+CIPSERVER` is not implemented. Nothing that runs on a Next uses it,
-so there is no inbound attack surface at all.
+`AT+CIPSERVER` is not implemented **yet**, so today there is no inbound
+attack surface at all.
+
+That is a scoping decision, not a permanent one. The command set jnext
+emulates is the one *evidenced* in software that actually runs on a
+Next, and `AT+CIPSERVER` appears in all of it exactly once, only to turn
+itself off. Emulating the AT firmware down to the datasheet - server
+mode, UDP, multiplexed connections and transparent mode included - is
+tracked as its own piece of work (issue \#154). Expect the security
+notes above to grow an inbound half when it lands.
 
 ### Nothing about your host leaks into the program
 
@@ -846,12 +873,12 @@ Preferences**. Host gains are stored under `[audio]` as `gain_db`
 and `gain_dac_db`. The emulated ESP-01 is stored under `[esp]` as
 `enabled` (`true`/`false`, the persistent form of **--esp**) and
 `allowed_hosts` (a comma-separated list, the persistent form of
-**--esp-allow**). Preferences has no page for them: they are
-hand-edited, and whenever `enabled` is set the status bar carries the
-ESP cell **NETWORKING** describes, so a config file cannot put the guest
-on the network without saying so. **--no-esp** overrides it for one run.
-CLI options always take precedence over saved values, and headless runs
-never read it.
+**--esp-allow**), both edited under **Settings \> Preferences \>
+Network**. Whenever `enabled` is set the status bar carries the ESP cell
+**NETWORKING** describes, so neither a config file nor that page can put
+the guest on the network without saying so. **--no-esp** overrides it
+for one run. CLI options always take precedence over saved values, and
+headless runs never read it.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
 The default SD-card image, used when **--sdcard** is not given.

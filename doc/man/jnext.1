@@ -130,6 +130,10 @@ Given both, whichever comes last on the command line wins.
 \f[B]\-\-esp\-allow\f[R] \f[I]HOST\f[R]
 Only let the running program connect to \f[I]HOST\f[R].
 Repeatable: give the option once per host.
+\f[I]HOST\f[R] is a single name \- a comma is \f[B]rejected\f[R] rather
+than taken as a separator or as part of the name, because a name that
+silently matched nothing would look like a restriction that is in force
+when it is not.
 Matching is exact and case\-insensitive, with no wildcards, and an IP
 address must be listed as itself.
 With no \f[B]\-\-esp\-allow\f[R] at all the program may name any host
@@ -503,11 +507,34 @@ jnext \-\-esp \-\-esp\-allow nx.nxtel.org NXtel.nex
 Every connection to anything else is refused, the program gets the same
 \f[CR]ERROR\f[R] it would get from a real module that could not connect,
 and the refusal is reported in the log and in the status bar.
-.SS There is no server mode
+.SS Making it permanent
+\f[B]Settings > Preferences > Network\f[R] holds the same two settings
+for people who run one of these programs regularly: an enable checkbox
+and the allowed\-host list, one host per line (a comma separates too,
+matching the config file\(cqs own format).
+Blank entries and repeats are dropped, and the list is greyed out while
+the module is off, because it restricts nothing on its own.
+.PP
+The module is built when a machine starts, so this page cannot switch it
+on or off underneath a running program: the change takes effect on the
+next hard reset (\f[B]F1\f[R], or \f[B]Machine > Power Reset\f[R]) and
+on the next launch.
+The CLI still wins for a single run in both directions \-
+\f[B]\-\-esp\f[R] over a saved \f[I]off\f[R], and \f[B]\-\-no\-esp\f[R]
+over a saved \f[I]on\f[R].
+.SS There is no server mode yet
 The emulated module cannot listen for incoming connections \-
-\f[CR]AT+CIPSERVER\f[R] is not implemented.
-Nothing that runs on a Next uses it, so there is no inbound attack
-surface at all.
+\f[CR]AT+CIPSERVER\f[R] is not implemented \f[B]yet\f[R], so today there
+is no inbound attack surface at all.
+.PP
+That is a scoping decision, not a permanent one.
+The command set jnext emulates is the one \f[I]evidenced\f[R] in
+software that actually runs on a Next, and \f[CR]AT+CIPSERVER\f[R]
+appears in all of it exactly once, only to turn itself off.
+Emulating the AT firmware down to the datasheet \- server mode, UDP,
+multiplexed connections and transparent mode included \- is tracked as
+its own piece of work (issue #154).
+Expect the security notes above to grow an inbound half when it lands.
 .SS Nothing about your host leaks into the program
 The module reports a fixed synthetic identity: SSID
 \f[CR]JNextWifiHost\f[R], a \f[CR]02:00:00:...\f[R] MAC and BSSID, and a
@@ -1025,11 +1052,11 @@ Host gains are stored under \f[CR][audio]\f[R] as \f[CR]gain_db\f[R]
 The emulated ESP\-01 is stored under \f[CR][esp]\f[R] as
 \f[CR]enabled\f[R] (\f[CR]true\f[R]/\f[CR]false\f[R], the persistent
 form of \f[B]\-\-esp\f[R]) and \f[CR]allowed_hosts\f[R] (a
-comma\-separated list, the persistent form of \f[B]\-\-esp\-allow\f[R]).
-Preferences has no page for them: they are hand\-edited, and whenever
-\f[CR]enabled\f[R] is set the status bar carries the ESP cell
-\f[B]NETWORKING\f[R] describes, so a config file cannot put the guest on
-the network without saying so.
+comma\-separated list, the persistent form of \f[B]\-\-esp\-allow\f[R]),
+both edited under \f[B]Settings > Preferences > Network\f[R].
+Whenever \f[CR]enabled\f[R] is set the status bar carries the ESP cell
+\f[B]NETWORKING\f[R] describes, so neither a config file nor that page
+can put the guest on the network without saying so.
 \f[B]\-\-no\-esp\f[R] overrides it for one run.
 CLI options always take precedence over saved values, and headless runs
 never read it.

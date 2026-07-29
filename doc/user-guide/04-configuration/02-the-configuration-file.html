@@ -2864,6 +2864,12 @@ keeps its own layout separately in <code>~/.jnext/Debugger.conf</code>.</p>
 <p>Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.</p>
+<p>The emulated ESP-01 is stored in the <code>[esp]</code> section: <code>enabled</code> (<code>true</code>/<code>false</code>)
+and <code>allowed_hosts</code> (a comma-separated list). They are the same two settings as
+the Preferences <strong>Network</strong> tab, and the persistent form of <code>--esp</code> and
+<code>--esp-allow</code>. Whenever <code>enabled</code> is true the status bar carries an ESP cell, so
+editing this file cannot put a program on the network without saying so, and
+<code>--no-esp</code> turns it off again for one run.</p>
 <p>Host audio gains are stored in the <code>[audio]</code> section: <code>gain_db</code> is the master,
 with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</code>, <code>gain_ay2_db</code>, and
 <code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an

@@ -48,7 +48,9 @@
 // ===========================================================================
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSlider>
 
@@ -101,6 +103,10 @@ struct Fixture {
     std::vector<MachineType> reboots;      // every reboot the window requested
     std::vector<MachineType> confirms;     // every machine type it asked about
     bool                     answer = false;
+    /// The frontend seams in the order they were driven. Only PA-14 cares, but
+    /// it has to be recorded here: the ordering it pins is between two DIFFERENT
+    /// callbacks, so neither one alone can observe it.
+    std::vector<std::string> order;
 
     explicit Fixture(MachineType type = MachineType::ZX48K)
     {
@@ -108,7 +114,10 @@ struct Fixture {
         cfg.type = type;
         emu.init(cfg);
         win.set_emulator(&emu);
-        win.set_reboot_callback([this](MachineType t) { reboots.push_back(t); });
+        win.set_reboot_callback([this](MachineType t) {
+            reboots.push_back(t);
+            order.push_back("reboot");
+        });
         win.set_confirm_restart_callback([this](MachineType t) {
             confirms.push_back(t);
             return answer;
@@ -366,6 +375,175 @@ void test_audio_gain_preference_control()
           emitted && std::abs(collected.audio_gain_db - 6.0f) < 0.001f);
 }
 
+/// PA-12 — GH #25: the ESP-01 settings have a page, and it round-trips them.
+///
+/// WHY THE ROUND-TRIP ROWS MATTER MORE THAN THE "IS THERE A WIDGET" ONES.
+/// PreferencesDialog::collect() builds a FRESH AppConfigData and fills in only
+/// the fields it has controls for, and MainWindow assigns that whole object
+/// over the saved config and writes it to disk. So a persisted field with no
+/// control is not merely uneditable — it is DESTROYED, silently, the moment
+/// the user opens Preferences and presses OK. Both ESP fields were in exactly
+/// that state: `--esp`/`--esp-allow` could be made permanent by hand-editing
+/// ~/.jnext/jnext.conf, and any later visit to Preferences threw the edit away
+/// with nothing said. PA-12e is the row that fails if that regresses; it does
+/// not touch a single control, which is the whole point.
+void test_esp_preference_controls()
+{
+    AppConfigData initial;
+    initial.esp_enabled       = true;
+    initial.esp_allowed_hosts = {"nx.nxtel.org", "192.168.1.10"};
+
+    PreferencesDialog dlg(initial);
+    auto* check_box = dlg.findChild<QCheckBox*>(QStringLiteral("espEnabledCheck"));
+    auto* hosts     = dlg.findChild<QPlainTextEdit*>(QStringLiteral("espAllowedHostsEdit"));
+
+    check("PA-12a", "Preferences exposes the ESP enable and allowlist controls",
+          check_box != nullptr && hosts != nullptr);
+    if (!check_box || !hosts) return;
+
+    check("PA-12b", "both ESP controls start from the persisted values",
+          check_box->isChecked() &&
+              hosts->toPlainText() == QStringLiteral("nx.nxtel.org\n192.168.1.10"),
+          hosts->toPlainText().toStdString());
+
+    // The allowlist only means anything while the module is on.
+    check_box->setChecked(false);
+    check("PA-12c1", "the allowlist is disabled while the ESP is off",
+          !hosts->isEnabled());
+    check_box->setChecked(true);
+    check("PA-12c2", "...and enabled again when the ESP is turned on",
+          hosts->isEnabled());
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    auto apply = [&]() {
+        emitted = false;
+        collected = AppConfigData{};
+        if (buttons && buttons->button(QDialogButtonBox::Apply))
+            buttons->button(QDialogButtonBox::Apply)->click();
+    };
+
+    // Edited, with the two shapes a text box adds that a repeated CLI flag
+    // cannot: blank lines and a duplicate. Both must be dropped, exactly as
+    // EspHostPolicy::add drops them for --esp-allow and for the config loader.
+    hosts->setPlainText(QStringLiteral("  NX.NxTel.ORG  \n\nnx.nxtel.org\nexample.test\n"));
+    apply();
+    check("PA-12d", "Apply returns the edited allowlist, blanks and duplicates dropped",
+          emitted && collected.esp_enabled &&
+              collected.esp_allowed_hosts ==
+                  std::vector<std::string>{"NX.NxTel.ORG", "example.test"},
+          std::to_string(collected.esp_allowed_hosts.size()) + " host(s)");
+
+    // A COMMA SEPARATES TOO. ~/.jnext/jnext.conf writes allowed_hosts as a
+    // comma-separated list, so a line pasted from there (or from the man
+    // page's FILES section) reaches this box. Stored literally it would be one
+    // host name no guest can ever match, refusing every connection while
+    // showing the user what looks like a correct list.
+    hosts->setPlainText(QStringLiteral("nx.nxtel.org, example.test"));
+    apply();
+    check("PA-12f", "a comma-separated line is split, not stored as one unmatchable name",
+          emitted && collected.esp_allowed_hosts ==
+                         std::vector<std::string>{"nx.nxtel.org", "example.test"},
+          std::to_string(collected.esp_allowed_hosts.size()) + " host(s)");
+
+    // THE REGRESSION ROW: a dialog constructed on a config that has ESP
+    // settings, applied without the user touching the Network tab at all,
+    // must give those settings back untouched.
+    PreferencesDialog untouched(initial);
+    AppConfigData passthrough;
+    bool passthrough_emitted = false;
+    QObject::connect(&untouched, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) {
+                         passthrough_emitted = true;
+                         passthrough = cfg;
+                     });
+    auto* untouched_buttons = untouched.findChild<QDialogButtonBox*>();
+    if (untouched_buttons && untouched_buttons->button(QDialogButtonBox::Apply))
+        untouched_buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-12e", "an untouched dialog does NOT wipe the persisted ESP settings",
+          passthrough_emitted && passthrough.esp_enabled &&
+              passthrough.esp_allowed_hosts == initial.esp_allowed_hosts,
+          "enabled=" + std::to_string(passthrough.esp_enabled) + " hosts=" +
+              std::to_string(passthrough.esp_allowed_hosts.size()));
+}
+
+/// PA-13 — GH #25: the ESP cannot be toggled on a running machine, so Apply
+/// must hand the new values to the frontend (which owns the EmulatorConfig
+/// every later cold boot is built from) rather than drop them on the floor.
+/// Without this the setting would be honoured only on the NEXT LAUNCH, and a
+/// user who enabled the ESP and pressed F1 would get a machine with no module
+/// and no explanation.
+void test_esp_settings_reach_the_frontend()
+{
+    Fixture f(MachineType::ZX48K);
+
+    bool                     seen_enabled = false;
+    std::vector<std::string> seen_hosts;
+    int                      calls = 0;
+    f.win.set_esp_config_callback(
+        [&](bool enabled, const std::vector<std::string>& hosts) {
+            ++calls;
+            seen_enabled = enabled;
+            seen_hosts   = hosts;
+        });
+
+    AppConfigData cfg = live_prefs(MachineType::ZX48K);
+    cfg.esp_enabled       = true;
+    cfg.esp_allowed_hosts = {"nx.nxtel.org"};
+    f.win.apply_preferences(cfg);
+
+    check("PA-13a", "Apply forwards the ESP settings to the frontend exactly once",
+          calls == 1, "calls=" + std::to_string(calls));
+    check("PA-13b", "...with both the enable flag and the allowlist",
+          seen_enabled && seen_hosts == std::vector<std::string>{"nx.nxtel.org"});
+    check("PA-13c", "...and does NOT reboot the running machine to do it",
+          f.reboots.empty(), "reboots=" + std::to_string(f.reboots.size()));
+    check("PA-13d", "...while every other live setting still applies",
+          live_applied(f), live_detail(f));
+}
+
+/// PA-14 — GH #25, found in review: the ESP forward must reach the frontend
+/// BEFORE the machine-type reboot, not after it.
+///
+/// Both seams write to the same object — the frontend's EmulatorConfig. The
+/// ESP callback sets `esp_enabled`/`esp_allowed_hosts` in it; the reboot
+/// callback sets `type` and then COLD-BOOTS from it. Run the reboot first and
+/// the machine is reconstructed from the old ESP values, so a user who changed
+/// the machine type and enabled the ESP in one visit gets a restart that does
+/// not have the ESP in it — while the Network tab's own note and the man page
+/// both promise the change takes effect on the next hard reset. The restart
+/// they just accepted IS that reset.
+///
+/// Asserting on the ORDER rather than on a post-boot Emulator is deliberate:
+/// the fixture's reboot seam is a recorder, so there is no second machine to
+/// inspect, and the order is the whole of the contract anyway.
+void test_esp_forward_precedes_the_reboot()
+{
+    Fixture f(MachineType::ZX48K);
+    f.answer = true;                       // accept the restart
+    f.win.set_esp_config_callback(
+        [&f](bool, const std::vector<std::string>&) { f.order.push_back("esp"); });
+
+    AppConfigData cfg = live_prefs(MachineType::ZX128K);   // a REAL type change
+    cfg.esp_enabled       = true;
+    cfg.esp_allowed_hosts = {"nx.nxtel.org"};
+    f.win.apply_preferences(cfg);
+
+    const auto joined = [&f]() {
+        std::string s;
+        for (const std::string& step : f.order) s += (s.empty() ? "" : ",") + step;
+        return s;
+    };
+    check("PA-14a", "both frontend seams are driven when type and ESP change together",
+          f.order.size() == 2, joined());
+    check("PA-14b", "the ESP config reaches the frontend BEFORE the reboot uses it",
+          f.order.size() == 2 && f.order[0] == "esp" && f.order[1] == "reboot",
+          joined());
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -383,6 +561,9 @@ int main(int argc, char** argv)
     test_machine_menu();
     test_confirm_asked_once();
     test_audio_gain_preference_control();
+    test_esp_preference_controls();
+    test_esp_settings_reach_the_frontend();
+    test_esp_forward_precedes_the_reboot();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
