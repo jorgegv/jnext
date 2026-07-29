@@ -59,7 +59,7 @@ under CI.
   Copper, and the layer compositor
 - **Audio** — 3 × AY-3-8910 (TurboSound), DAC, beeper
 - **Storage and peripherals** — DivMMC, Multiface, DMA, UART, CTC,
-  SPI / I²C / RTC, keyboard and USB gamepads
+  SPI / I²C / RTC, keyboard and USB gamepads, ESP01 Wifi subsystem
 - **Formats** — NEX, SNA, SZX, TAP, TZX, WAV, RZX
 
 **Status: Beta** — Extreme cycle-exactness is explicitly
@@ -155,7 +155,9 @@ never disagree.
 
 ## Documentation
 
-**The user guide is the place to start.** It ships rendered in this repository,
+**The user guide is the place to start.** You can [access it online](https://www.jnext.es/user-guide/)
+
+It also ships rendered in this repository,
 so there is nothing to install and nothing to build — serve it and read it:
 
 ```sh
