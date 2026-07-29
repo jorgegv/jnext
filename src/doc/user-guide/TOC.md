@@ -1,12 +1,13 @@
-# JNEXT User Guide — proposed table of contents
+# JNEXT User Guide — table of contents
 
-**Status: TOC agreed 2026-07-20. Contents not written yet.**
+**Status: agreed 2026-07-20; WRITTEN AND PUBLISHED since. This file is now a
+record of the agreed shape, not a plan of unwritten work** — the guide is built
+by `make docs-userguide` from `mkdocs.yml` and the rendered output is committed
+under `doc/user-guide/`. Keep it in step when a chapter is added: 5.6 was, and
+the header still said "contents not written yet" until 2026-07-29.
 
 This file is the agreed skeleton for the user manual ([issue
-#28](https://github.com/jorgegv/jnext/issues/28)). Nothing under
-`doc/user-guide/` is built or published yet: there is deliberately no
-`mkdocs.yml` and there are no stub pages, so `BUILD.md`'s statement that the
-manual does not exist stays true until the chapters are actually written.
+#28](https://github.com/jorgegv/jnext/issues/28)).
 
 The guide is **task-oriented** — how to do a thing — not a flag reference.
 The complete option reference is `jnext(1)` / `USAGE.md`, which are generated

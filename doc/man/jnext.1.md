@@ -451,9 +451,11 @@ resolved to what they actually reach and judged on that, so they cannot be used
 to get around the list.
 
 **Your own LAN is reachable.** RFC1918 addresses (`192.168.x.x`, `10.x.x.x`,
-`172.16-31.x.x`) are deliberately *not* refused - reaching a machine on your own
+`172.16-31.x.x`), carrier-grade NAT (`100.64.0.0/10`) and IPv6 unique-local
+(`fc00::/7`) are deliberately *not* refused - reaching a machine on your own
 network is the main thing people use this for, and nextsync in particular
-connects to a PC on the LAN.
+connects to a PC on the LAN. The two cloud-metadata addresses above sit inside
+those ranges and are carved back out.
 
 ## Narrowing it further
 
@@ -517,8 +519,9 @@ Subsystems are `cpu`, `memory`, `ula`, `video`, `audio`, `port`, `nextreg`,
 `spi`, `ctc`, `i2c`, `multiface`, `esp01` and `esxdos`.
 
 `esp01` is the emulated ESP-01 WiFi module (**\--esp**). At the default `info`
-level it reports only the connections opened, refused and closed - the events
-**NETWORKING** describes as never silent. `debug` adds every AT command
+level it reports only the connections opened, refused, failed and closed - the
+events **NETWORKING** describes as never silent. A refusal or a failure is a
+warning, so it survives **\--log-level** *warn* too. `debug` adds every AT command
 received and every response emitted, and `trace` adds the raw byte traffic in
 both directions. Turning it down to `off` silences the connection reports too,
 which is a deliberate choice on the user's part and not something jnext undoes.

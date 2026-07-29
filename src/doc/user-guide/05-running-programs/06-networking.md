@@ -34,9 +34,11 @@ do not have to quit JNEXT.
 
 ## You can always see whether it is on
 
-Whenever the module is enabled, the status bar grows an **ESP cell**. There is
-no way to have the ESP on without that cell being there — not by command line,
-not by config file, not by Preferences.
+Whenever the module is enabled, the status bar grows an **ESP cell**. However
+you turned it on — command line, config file or Preferences — the cell is
+there. (In `--headless` runs there is no window and so no status bar; the
+startup log line is the equivalent, and [7.1](../07-automation-and-ci/01-headless-mode.md)
+covers that mode.)
 
 Idle, it names the restriction in force, so you can tell at a glance whether
 your allowlist actually loaded:
@@ -46,17 +48,25 @@ ESP: on (any host)        no restriction on the host name
 ESP: on (2 allowed)       two named hosts, listed in the tooltip
 ```
 
-Once the program starts connecting, the cell follows it — `ESP: nx.nxtel.org:23280`
-while connected, `ESP: closed …` after. Two states are shown **in red** and
-stay red so you cannot miss them by looking away:
+Once the program starts connecting, the cell follows it:
 
 | Cell | Means |
 |---|---|
-| `ESP: REFUSED host:port` | your allowlist, or the always-refused list below, blocked it |
-| `ESP: FAULT` | the host side of the connection broke; the ESP has stopped making progress |
+| `ESP: host:port` | connected |
+| `ESP: closed host:port` | that connection has ended |
+| `ESP: failed host:port` | the attempt did not succeed — see below |
+| `ESP: REFUSED host:port` | **red.** Your `--esp-allow` list does not name that host |
+| `ESP: FAULT` | **red.** The host side broke; the ESP has stopped making progress |
+
+`failed` covers several different things: the name did not resolve, the remote
+end refused or timed out, **or the address was blocked by the always-refused
+list below**. Only an allowlist rejection gets the red `REFUSED` treatment.
+So when you see `failed`, hover the cell: the tooltip carries the reason, and a
+policy block says so in as many words (`address refused by policy: …`). The log
+also carries it, as a warning, at the default log level.
 
 Hover the cell for the full history of the session — the cell can only show the
-most recent event, and "it flashed something red a minute ago" needs to stay
+most recent event, and "it flashed something a minute ago" needs to stay
 answerable.
 
 ## A worked example: NXtel
@@ -103,6 +113,9 @@ jnext --esp --esp-allow nx.nxtel.org --esp-allow 192.168.1.10
 A comma is rejected rather than accepted, because `--esp-allow a.com,b.com`
 would otherwise become a single host name that nothing ever matches: every
 connection refused, while the allowlist *looks* like it names two hosts.
+`--esp-allow` without `--esp` is likewise an error rather than a silent no-op,
+so you cannot end up believing a restriction is in force when the module is not
+even on.
 
 In **Preferences > Network** the same list is one host per line (a comma
 separates there too, since that is how the config file writes it). Blank lines
@@ -137,9 +150,11 @@ to what they really reach and judged on that, so they cannot be used to slip
 past the list.
 
 **Your own LAN is reachable on purpose.** Private addresses (`192.168.x.x`,
-`10.x.x.x`, `172.16-31.x.x`) are *not* refused — reaching another machine on
+`10.x.x.x`, `172.16-31.x.x`, and likewise carrier-grade NAT `100.64.0.0/10` and
+IPv6 unique-local `fc00::/7`) are *not* refused — reaching another machine on
 your own network is the main thing people use this for, and nextsync in
-particular connects to a PC on the LAN.
+particular connects to a PC on the LAN. The two cloud-metadata addresses above
+sit inside those ranges and are carved back out.
 
 ## Nothing about your host leaks into the program
 
@@ -168,14 +183,17 @@ so the run is still not silent.
 
 Common cases:
 
-- **The program reports a connection error and the cell shows `REFUSED`.** The
-  host was blocked. Check your `--esp-allow` spelling against the name the log
-  shows the program asking for, or drop the restriction to confirm that is what
-  it is.
-- **The program behaves as if nothing is there.** Check the cell exists at all.
-  No cell means the ESP is off — a `--no-esp` on the command line beats a saved
-  preference, and an unchanged `[esp]` setting only takes effect after a Power
-  Reset.
+- **The cell shows red `REFUSED`.** Your allowlist does not name that host.
+  Check your `--esp-allow` spelling against the name the log shows the program
+  asking for, or drop the restriction to confirm that is what it is.
+- **The cell shows `failed`.** Hover it. If the reason is
+  `address refused by policy`, the program asked for something on the
+  always-refused list and no `--esp-allow` will let it through. Anything else
+  is an ordinary network failure — wrong name, nothing listening, timeout.
+- **The program behaves as if nothing is there.** In a window, check the cell
+  exists at all; headless, check the startup log for the `ESP-01 enabled` line.
+  If it is absent the ESP is off — `--no-esp` beats a saved preference, and a
+  changed `[esp]` setting only takes effect after a Power Reset.
 - **Nothing at all happens and the program hangs.** Run it once with `--no-esp`.
   If it behaves the same way, the problem is not the networking.
 

@@ -493,10 +493,14 @@ IPv6 spellings of an IPv4 address (\f[CR]::ffff:127.0.0.1\f[R], NAT64,
 they cannot be used to get around the list.
 .PP
 \f[B]Your own LAN is reachable.\f[R] RFC1918 addresses
-(\f[CR]192.168.x.x\f[R], \f[CR]10.x.x.x\f[R], \f[CR]172.16\-31.x.x\f[R])
+(\f[CR]192.168.x.x\f[R], \f[CR]10.x.x.x\f[R],
+\f[CR]172.16\-31.x.x\f[R]), carrier\-grade NAT
+(\f[CR]100.64.0.0/10\f[R]) and IPv6 unique\-local (\f[CR]fc00::/7\f[R])
 are deliberately \f[I]not\f[R] refused \- reaching a machine on your own
 network is the main thing people use this for, and nextsync in
 particular connects to a PC on the LAN.
+The two cloud\-metadata addresses above sit inside those ranges and are
+carved back out.
 .SS Narrowing it further
 \f[B]\-\-esp\-allow\f[R] restricts the program to hosts you name:
 .IP
@@ -569,8 +573,10 @@ Subsystems are \f[CR]cpu\f[R], \f[CR]memory\f[R], \f[CR]ula\f[R],
 \f[CR]esp01\f[R] is the emulated ESP\-01 WiFi module
 (\f[B]\-\-esp\f[R]).
 At the default \f[CR]info\f[R] level it reports only the connections
-opened, refused and closed \- the events \f[B]NETWORKING\f[R] describes
-as never silent.
+opened, refused, failed and closed \- the events \f[B]NETWORKING\f[R]
+describes as never silent.
+A refusal or a failure is a warning, so it survives
+\f[B]\-\-log\-level\f[R] \f[I]warn\f[R] too.
 \f[CR]debug\f[R] adds every AT command received and every response
 emitted, and \f[CR]trace\f[R] adds the raw byte traffic in both
 directions.

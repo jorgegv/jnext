@@ -3036,17 +3036,17 @@ running — the module is built when a machine starts. Change it and it takes
 effect on the next <strong>Machine &gt; Power Reset</strong> (or F1), or the next launch. You
 do not have to quit JNEXT.</p>
 <h2 id="you-can-always-see-whether-it-is-on">You can always see whether it is on<a class="headerlink" href="#you-can-always-see-whether-it-is-on" title="Permanent link">&para;</a></h2>
-<p>Whenever the module is enabled, the status bar grows an <strong>ESP cell</strong>. There is
-no way to have the ESP on without that cell being there — not by command line,
-not by config file, not by Preferences.</p>
+<p>Whenever the module is enabled, the status bar grows an <strong>ESP cell</strong>. However
+you turned it on — command line, config file or Preferences — the cell is
+there. (In <code>--headless</code> runs there is no window and so no status bar; the
+startup log line is the equivalent, and <a href="../07-automation-and-ci/01-headless-mode.html">7.1</a>
+covers that mode.)</p>
 <p>Idle, it names the restriction in force, so you can tell at a glance whether
 your allowlist actually loaded:</p>
 <pre><code>ESP: on (any host)        no restriction on the host name
 ESP: on (2 allowed)       two named hosts, listed in the tooltip
 </code></pre>
-<p>Once the program starts connecting, the cell follows it — <code>ESP: nx.nxtel.org:23280</code>
-while connected, <code>ESP: closed …</code> after. Two states are shown <strong>in red</strong> and
-stay red so you cannot miss them by looking away:</p>
+<p>Once the program starts connecting, the cell follows it:</p>
 <table>
 <thead>
 <tr>
@@ -3056,17 +3056,35 @@ stay red so you cannot miss them by looking away:</p>
 </thead>
 <tbody>
 <tr>
+<td><code>ESP: host:port</code></td>
+<td>connected</td>
+</tr>
+<tr>
+<td><code>ESP: closed host:port</code></td>
+<td>that connection has ended</td>
+</tr>
+<tr>
+<td><code>ESP: failed host:port</code></td>
+<td>the attempt did not succeed — see below</td>
+</tr>
+<tr>
 <td><code>ESP: REFUSED host:port</code></td>
-<td>your allowlist, or the always-refused list below, blocked it</td>
+<td><strong>red.</strong> Your <code>--esp-allow</code> list does not name that host</td>
 </tr>
 <tr>
 <td><code>ESP: FAULT</code></td>
-<td>the host side of the connection broke; the ESP has stopped making progress</td>
+<td><strong>red.</strong> The host side broke; the ESP has stopped making progress</td>
 </tr>
 </tbody>
 </table>
+<p><code>failed</code> covers several different things: the name did not resolve, the remote
+end refused or timed out, <strong>or the address was blocked by the always-refused
+list below</strong>. Only an allowlist rejection gets the red <code>REFUSED</code> treatment.
+So when you see <code>failed</code>, hover the cell: the tooltip carries the reason, and a
+policy block says so in as many words (<code>address refused by policy: …</code>). The log
+also carries it, as a warning, at the default log level.</p>
 <p>Hover the cell for the full history of the session — the cell can only show the
-most recent event, and "it flashed something red a minute ago" needs to stay
+most recent event, and "it flashed something a minute ago" needs to stay
 answerable.</p>
 <h2 id="a-worked-example-nxtel">A worked example: NXtel<a class="headerlink" href="#a-worked-example-nxtel" title="Permanent link">&para;</a></h2>
 <p>NXtel is a Viewdata/teletext client for the Next, and it is the program this has
@@ -3098,7 +3116,10 @@ per host</strong> — it is not a list:</p>
 </code></pre>
 <p>A comma is rejected rather than accepted, because <code>--esp-allow a.com,b.com</code>
 would otherwise become a single host name that nothing ever matches: every
-connection refused, while the allowlist <em>looks</em> like it names two hosts.</p>
+connection refused, while the allowlist <em>looks</em> like it names two hosts.
+<code>--esp-allow</code> without <code>--esp</code> is likewise an error rather than a silent no-op,
+so you cannot end up believing a restriction is in force when the module is not
+even on.</p>
 <p>In <strong>Preferences &gt; Network</strong> the same list is one host per line (a comma
 separates there too, since that is how the config file writes it). Blank lines
 and repeats are dropped. The box is greyed out while the module is off, because
@@ -3127,9 +3148,11 @@ connection is attempted, and <strong><code>--esp-allow</code> cannot re-enable t
 to what they really reach and judged on that, so they cannot be used to slip
 past the list.</p>
 <p><strong>Your own LAN is reachable on purpose.</strong> Private addresses (<code>192.168.x.x</code>,
-<code>10.x.x.x</code>, <code>172.16-31.x.x</code>) are <em>not</em> refused — reaching another machine on
+<code>10.x.x.x</code>, <code>172.16-31.x.x</code>, and likewise carrier-grade NAT <code>100.64.0.0/10</code> and
+IPv6 unique-local <code>fc00::/7</code>) are <em>not</em> refused — reaching another machine on
 your own network is the main thing people use this for, and nextsync in
-particular connects to a PC on the LAN.</p>
+particular connects to a PC on the LAN. The two cloud-metadata addresses above
+sit inside those ranges and are carved back out.</p>
 <h2 id="nothing-about-your-host-leaks-into-the-program">Nothing about your host leaks into the program<a class="headerlink" href="#nothing-about-your-host-leaks-into-the-program" title="Permanent link">&para;</a></h2>
 <p>The module reports a fixed, invented identity: SSID <code>JNextWifiHost</code>, a
 <code>02:00:00:…</code> MAC and BSSID, and a <code>192.168.1.50</code> station address. None of it is
@@ -3166,14 +3189,17 @@ call to make and JNEXT will not override it — but the status-bar cell stays,
 so the run is still not silent.</p>
 <p>Common cases:</p>
 <ul>
-<li><strong>The program reports a connection error and the cell shows <code>REFUSED</code>.</strong> The
-  host was blocked. Check your <code>--esp-allow</code> spelling against the name the log
-  shows the program asking for, or drop the restriction to confirm that is what
-  it is.</li>
-<li><strong>The program behaves as if nothing is there.</strong> Check the cell exists at all.
-  No cell means the ESP is off — a <code>--no-esp</code> on the command line beats a saved
-  preference, and an unchanged <code>[esp]</code> setting only takes effect after a Power
-  Reset.</li>
+<li><strong>The cell shows red <code>REFUSED</code>.</strong> Your allowlist does not name that host.
+  Check your <code>--esp-allow</code> spelling against the name the log shows the program
+  asking for, or drop the restriction to confirm that is what it is.</li>
+<li><strong>The cell shows <code>failed</code>.</strong> Hover it. If the reason is
+  <code>address refused by policy</code>, the program asked for something on the
+  always-refused list and no <code>--esp-allow</code> will let it through. Anything else
+  is an ordinary network failure — wrong name, nothing listening, timeout.</li>
+<li><strong>The program behaves as if nothing is there.</strong> In a window, check the cell
+  exists at all; headless, check the startup log for the <code>ESP-01 enabled</code> line.
+  If it is absent the ESP is off — <code>--no-esp</code> beats a saved preference, and a
+  changed <code>[esp]</code> setting only takes effect after a Power Reset.</li>
 <li><strong>Nothing at all happens and the program hangs.</strong> Run it once with <code>--no-esp</code>.
   If it behaves the same way, the problem is not the networking.</li>
 </ul>
