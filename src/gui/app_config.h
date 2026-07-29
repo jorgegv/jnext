@@ -43,12 +43,17 @@ struct AppConfigData {
     // --esp and seven --esp-allow entries every time, which is what makes this
     // worth persisting at all.
     //
-    // NOTHING SETS THESE FROM THE UI TODAY: there is no Preferences page for
-    // the ESP, so they are hand-edited (documented in the man page's FILES
-    // section) or left alone. That is deliberate rather than unfinished — but
-    // it is only acceptable because the enabled state is VISIBLE: the status
-    // bar grows an ESP cell whenever the module is on, so a config file that
-    // silently enables it cannot go unnoticed.
+    // Edited under Settings > Preferences > Network, and hand-editable in
+    // ~/.jnext/jnext.conf (documented in the man page's FILES section). They
+    // had NO control for a while, which was worse than merely uneditable:
+    // PreferencesDialog::collect() builds a fresh AppConfigData, so a field
+    // with no control is RESET to its default the moment the user presses OK,
+    // silently. Any field added here needs a control there — see the header
+    // comment on PreferencesDialog.
+    //
+    // Whichever way they are set, the enabled state is VISIBLE: the status bar
+    // grows an ESP cell whenever the module is on, so nothing can put the guest
+    // on the network without saying so.
     //
     // `--no-esp` is the escape hatch: the CLI can always force it off for one
     // run, in both directions, which is why that flag exists.

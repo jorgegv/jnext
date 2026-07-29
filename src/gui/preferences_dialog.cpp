@@ -262,7 +262,7 @@ QWidget* PreferencesDialog::build_network_tab() {
            "are always refused; your own LAN is reachable.\n\n"
            "This setting is not applied to the machine that is already "
            "running: it takes effect on the next hard reset (F1, or "
-           "Machine ▸ Reset) and on the next launch. --no-esp overrides "
+           "Machine ▸ Power Reset) and on the next launch. --no-esp overrides "
            "it for a single run."), tab);
     note->setWordWrap(true);
     form->addRow(QString(), note);

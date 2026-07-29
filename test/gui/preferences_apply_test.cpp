@@ -103,6 +103,10 @@ struct Fixture {
     std::vector<MachineType> reboots;      // every reboot the window requested
     std::vector<MachineType> confirms;     // every machine type it asked about
     bool                     answer = false;
+    /// The frontend seams in the order they were driven. Only PA-14 cares, but
+    /// it has to be recorded here: the ordering it pins is between two DIFFERENT
+    /// callbacks, so neither one alone can observe it.
+    std::vector<std::string> order;
 
     explicit Fixture(MachineType type = MachineType::ZX48K)
     {
@@ -110,7 +114,10 @@ struct Fixture {
         cfg.type = type;
         emu.init(cfg);
         win.set_emulator(&emu);
-        win.set_reboot_callback([this](MachineType t) { reboots.push_back(t); });
+        win.set_reboot_callback([this](MachineType t) {
+            reboots.push_back(t);
+            order.push_back("reboot");
+        });
         win.set_confirm_restart_callback([this](MachineType t) {
             confirms.push_back(t);
             return answer;
@@ -498,6 +505,45 @@ void test_esp_settings_reach_the_frontend()
           live_applied(f), live_detail(f));
 }
 
+/// PA-14 — GH #25, found in review: the ESP forward must reach the frontend
+/// BEFORE the machine-type reboot, not after it.
+///
+/// Both seams write to the same object — the frontend's EmulatorConfig. The
+/// ESP callback sets `esp_enabled`/`esp_allowed_hosts` in it; the reboot
+/// callback sets `type` and then COLD-BOOTS from it. Run the reboot first and
+/// the machine is reconstructed from the old ESP values, so a user who changed
+/// the machine type and enabled the ESP in one visit gets a restart that does
+/// not have the ESP in it — while the Network tab's own note and the man page
+/// both promise the change takes effect on the next hard reset. The restart
+/// they just accepted IS that reset.
+///
+/// Asserting on the ORDER rather than on a post-boot Emulator is deliberate:
+/// the fixture's reboot seam is a recorder, so there is no second machine to
+/// inspect, and the order is the whole of the contract anyway.
+void test_esp_forward_precedes_the_reboot()
+{
+    Fixture f(MachineType::ZX48K);
+    f.answer = true;                       // accept the restart
+    f.win.set_esp_config_callback(
+        [&f](bool, const std::vector<std::string>&) { f.order.push_back("esp"); });
+
+    AppConfigData cfg = live_prefs(MachineType::ZX128K);   // a REAL type change
+    cfg.esp_enabled       = true;
+    cfg.esp_allowed_hosts = {"nx.nxtel.org"};
+    f.win.apply_preferences(cfg);
+
+    const auto joined = [&f]() {
+        std::string s;
+        for (const std::string& step : f.order) s += (s.empty() ? "" : ",") + step;
+        return s;
+    };
+    check("PA-14a", "both frontend seams are driven when type and ESP change together",
+          f.order.size() == 2, joined());
+    check("PA-14b", "the ESP config reaches the frontend BEFORE the reboot uses it",
+          f.order.size() == 2 && f.order[0] == "esp" && f.order[1] == "reboot",
+          joined());
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -517,6 +563,7 @@ int main(int argc, char** argv)
     test_audio_gain_preference_control();
     test_esp_preference_controls();
     test_esp_settings_reach_the_frontend();
+    test_esp_forward_precedes_the_reboot();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

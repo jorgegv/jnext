@@ -114,7 +114,7 @@ public:
     // Preferences setting that can be neither created nor torn down on a
     // running machine. MainWindow therefore hands the new values to the
     // frontend, which owns the EmulatorConfig every LATER cold boot is built
-    // from — so a hard reset (F1 / Machine > Reset) picks the change up, not
+    // from — so a hard reset (F1 / Machine > Power Reset) picks the change up, not
     // only the next launch. Same shape as RebootCallback above.
     using EspConfigCallback =
         std::function<void(bool /*enabled*/, const std::vector<std::string>& /*allowed_hosts*/)>;

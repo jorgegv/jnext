@@ -65,7 +65,7 @@ Two settings cannot work that way, and both say so:
   start. The module is created when a machine boots and is deliberately kept
   across a soft reset — a reset the real hardware never even sees should not
   drop a live connection — so there is nothing to switch on the machine already
-  running. A hard reset (**F1**, or **Machine > Reset**) is enough; you do not
+  running. A hard reset (**F1**, or **Machine > Power Reset**) is enough; you do not
   have to quit JNEXT.
 
 > The **Machine > Machine Type** menu behaves differently on purpose: it

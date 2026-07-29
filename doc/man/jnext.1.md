@@ -473,7 +473,7 @@ while the module is off, because it restricts nothing on its own.
 
 The module is built when a machine starts, so this page cannot switch it on or
 off underneath a running program: the change takes effect on the next hard
-reset (**F1**, or **Machine > Reset**) and on the next launch. The CLI still
+reset (**F1**, or **Machine > Power Reset**) and on the next launch. The CLI still
 wins for a single run in both directions - **\--esp** over a saved *off*, and
 **\--no-esp** over a saved *on*.
 
