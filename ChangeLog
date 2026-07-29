@@ -1,5 +1,35 @@
 # ChangeLog
 
+## v0.99.74 (2026-07-29)
+
+### User Features
+- Emulated ESP-01 WiFi module: guest programs make real outbound TCP connections through your host
+- Verified live against the real NXtel BBS, launched from the SD card through NextZXOS
+- The ESP is off by default, with an optional host allowlist and an always-visible status-bar cell
+- New Preferences > Network tab makes the ESP settings permanent, with no command-line flags
+- Shift is Caps Shift and Ctrl is Symbol Shift again, matching the other Spectrum emulators
+- Host hotkeys moved to Alt, so Ctrl belongs entirely to the guest
+- Status bar reports the speed actually achieved, not the speed that was requested
+
+### Developer Features
+- New `esp01` log subsystem traces every AT command, every response and the raw bytes
+- Every debugger accelerator gets its own key; no more silently ambiguous shortcuts
+
+### Bug Fixes
+- Shifted symbols reach the guest again, and short keypresses are no longer lost
+- Audio noise fixed: the DC blocker AC-couples against the full resting mix
+- Quit now runs the same cleanup as closing the window
+- Save Snapshot moved off Ctrl+Shift+S, a chord the guest needs
+- Windows packaging aborts on a failed bundling step instead of shipping a broken zip
+
+### Internal JNEXT Development
+- The ESP-01 emulator is a self-contained reusable module with its own design document
+- DNS resolution runs off the emulation thread, so a slow lookup cannot stall a frame
+- Traceability matrix: row-local citations win, drift judged on canonical spelling, manifest drives suites
+- The tautological-assertion lint now gates `make unit-test`
+- New regression rows cover the SDL and Qt frontends' host-keypress paths
+- Unit suites grew to 89 suites and 6342 rows, still with zero skips
+
 ## v0.99.41 (2026-07-27)
 
 ### User Features

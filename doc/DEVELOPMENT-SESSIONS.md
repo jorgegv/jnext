@@ -151,4 +151,19 @@
 |        |      | import audit; @janko-jj confirmed both on real Windows 8.1 hardware). #117/#118/#119 traceability matrix                   |
 |        |      | precision: symmetric omission reporting + generated Summary, comment-aware scanning, section-scoped                        |
 |        |      | recording, 102 sub-letter-aliased IDs triaged (12 given rows). v0.99.38->.40; v0.99.41 release prep.                       |
+|        |      | (night) #115 Shift=Caps Shift / Ctrl=Symbol Shift, host hotkeys to Alt; #116 AC-couple against the full                    |
+|        |      | resting mix; #120 achieved-vs-requested speed + minimum-hold key latch; #122-#152 run: shifted symbols,                    |
+|        |      | Ctrl+Shift+S clash, Quit cleanup, per-key debugger accelerators, help lint, harness prereqs, citation                      |
+|        |      | continuation + drift canonicalisation, package-win abort guard, SDL/Qt keypress rows. v0.99.42->.54.                       |
+| 28/7   |      | GH #25 ESP-01, branches 1-3.5: UartDevice attach/detach seam on Uart; non-blocking TCP transport plus                      |
+|        |      | address policy (loopback/link-local/metadata denied, RFC1918 allowed); AT engine, 7 evidenced commands                     |
+|        |      | and 6 static replies; modularised into src/esp01 as a standalone target - passive core, threaded                           |
+|        |      | wrapper, thin jnext adapter, its own logging seam; ESP01-EMULATOR-DESIGN.md. Off-thread DNS after a                        |
+|        |      | review found poll() resolving inline. Traceability: unit-tests.conf drives the matrix, 12 wrong VHDL                       |
+|        |      | citations corrected. v0.99.55->.71.                                                                                       |
+| 29/7   |      | GH #25 CLOSED (with #49): --esp/--no-esp/--esp-allow, [esp] config keys, status-bar ESP cell, man                          |
+|        |      | NETWORKING section, functional row, ESP-01..04 closed. RX pacing settled by measurement - shipped baud                     |
+|        |      | pacing kept; on-demand buys 1.42x and costs 1243x of the guest's main-loop share. VERIFIED LIVE against                    |
+|        |      | the real nx.nxtel.org BBS through the NextZXOS Browser. Preferences > Network page for the ESP (review                     |
+|        |      | caught a reboot-before-forward ordering bug); --esp-allow comma refusal. v0.99.72->.74 public release.                     |
 | TOTAL: | 383h |                                                                                                      |
