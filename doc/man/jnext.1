@@ -480,13 +480,13 @@ your own machine;
 .IP \(bu 2
 link\-local \- \f[CR]169.254.0.0/16\f[R] and \f[CR]fe80::/10\f[R];
 .IP \(bu 2
-cloud metadata endpoints \- \f[CR]169.254.169.254\f[R] and
-\f[CR]100.100.100.200\f[R];
+cloud metadata endpoints \- \f[CR]169.254.169.254\f[R],
+\f[CR]100.100.100.200\f[R] and \f[CR]fd00:ec2::254\f[R];
 .IP \(bu 2
 the unspecified addresses \f[CR]0.0.0.0/8\f[R] and \f[CR]::\f[R];
 .IP \(bu 2
 multicast and reserved space \- \f[CR]224.0.0.0/4\f[R],
-\f[CR]240.0.0.0/4\f[R], \f[CR]ff00::/8\f[R].
+\f[CR]240.0.0.0/4\f[R], \f[CR]255.255.255.255\f[R], \f[CR]ff00::/8\f[R].
 .PP
 IPv6 spellings of an IPv4 address (\f[CR]::ffff:127.0.0.1\f[R], NAT64,
 6to4) are resolved to what they actually reach and judged on that, so

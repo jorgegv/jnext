@@ -440,9 +440,11 @@ These are refused by address, before any connection is attempted, and
 
 * loopback - `127.0.0.0/8` and `::1`, i.e. daemons on your own machine;
 * link-local - `169.254.0.0/16` and `fe80::/10`;
-* cloud metadata endpoints - `169.254.169.254` and `100.100.100.200`;
+* cloud metadata endpoints - `169.254.169.254`, `100.100.100.200` and
+  `fd00:ec2::254`;
 * the unspecified addresses `0.0.0.0/8` and `::`;
-* multicast and reserved space - `224.0.0.0/4`, `240.0.0.0/4`, `ff00::/8`.
+* multicast and reserved space - `224.0.0.0/4`, `240.0.0.0/4`,
+  `255.255.255.255`, `ff00::/8`.
 
 IPv6 spellings of an IPv4 address (`::ffff:127.0.0.1`, NAT64, 6to4) are
 resolved to what they actually reach and judged on that, so they cannot be used

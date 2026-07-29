@@ -67,6 +67,9 @@ session as subsections.
   what to do about audio glitches.
 - **5.5 Recording and playback** — video recording, RZX record/replay, and
   tape (TAP/TZX/WAV) real-time versus fast loading.
+- **5.6 Networking** — the emulated ESP-01 WiFi module: turning it on, the
+  host allowlist, the status-bar cell, and a worked NXtel session. Added
+  2026-07-29, after the TOC was agreed; the ESP did not exist then.
 
 ## 6. The debugger
 
