@@ -40,10 +40,40 @@
 // These rows drive the REAL NexLoader::load() + apply() against a real
 // Emulator, so they pin the actual call sites in nex_loader.cpp rather
 // than a helper in isolation.
+//
+// ─────────────────────────────────────────────────────────────────────
+// The NEXPC0-* group (GH #164) uses the same oracle for a different
+// question: the LAUNCH decision. A header PC of 0 means "load only, do
+// not execute" —
+//
+//   nexload.asm:580-581   ld hl,(PCReg):ld sp,(SPReg)
+//                         ld a,h:or l:jr z,.returnToBasic
+//   nexload2.asm:408-412  ld hl,(nexHeader.PC)
+//                         ld a,h : or l : jr z,returnToBasic
+//                         ld sp,(nexHeader.SP)
+//
+// — and neither loader ever jumps to address 0. Two consequences the
+// rows below pin, both read straight off the oracle:
+//
+//   * the header SP has no effect on that path (nexload.asm loads it one
+//     instruction before the branch and `.returnToBasic` immediately
+//     replaces it with `ld sp,(oldStack)`, :597-600; nexload2.asm does
+//     not load it at all before its own `ld sp,(oldStack)`, :436-438);
+//   * the entry-bank mapping is REVERSED, not kept — `.returnToBasicTidy`
+//     (nexload.asm:602-604) remaps MMU6/7 from BANKM, and nexload2.asm's
+//     `cleanupBeforeBasic` (:529-535) does the same, commented "map
+//     C000..FFFF region back to BASIC bank".
+//
+// jnext's `--load` has no OS to return to (it resets and applies the NEX
+// before one instruction runs), so it honours "keep the state the load
+// produced" by running nothing at all — Emulator::set_cpu_parked().
+// Every PC=0 row is paired with a PC≠0 control so the guard is proven to
+// key on PC==0 and not to have simply disabled the code path.
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/nex_loader.h"
+#include "core/saveable.h"
 #include "memory/mmu.h"
 #include "video/layer2.h"
 #include "video/palette.h"
@@ -241,6 +271,102 @@ struct LoadedFixture {
             payload_offset = loader.payload_offset();
             ok = loader.apply(emu);
         }
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+};
+
+// ── GH #164 launch-decision fixtures ─────────────────────────────────
+
+// Build a minimal, well-formed NEX carrying exactly one 16 KB bank plus
+// the header fields the launch decision reads. The bank is filled with
+// payload_byte() (never 0x00, 251-byte period) and `lead` overwrites its
+// first bytes, which lets a control fixture plant executable code at the
+// bank's start.
+bool write_nex_bank_fixture(const std::string& path, uint16_t pc, uint16_t sp,
+                            uint8_t preserve_regs, uint8_t entry_bank,
+                            uint8_t bank_no, const std::vector<uint8_t>& lead) {
+    constexpr size_t BANK = 16384;
+    std::vector<uint8_t> file(512 + BANK, 0x00);
+
+    std::memcpy(file.data() + 0, "Next", 4);
+    std::memcpy(file.data() + 4, "V1.2", 4);
+    file[8]  = 0;  // ram_required: 768 KB
+    file[9]  = 1;  // num_banks — matches the single bitmap entry below
+    file[10] = 0;  // screen_flags: no screen block
+    file[11] = 7;  // border colour
+    file[12] = static_cast<uint8_t>(sp & 0xFF);
+    file[13] = static_cast<uint8_t>(sp >> 8);
+    file[14] = static_cast<uint8_t>(pc & 0xFF);
+    file[15] = static_cast<uint8_t>(pc >> 8);
+    file[18 + bank_no] = 1;   // bank presence bitmap
+    file[130] = 0;            // loading_bar off
+    file[132] = 0;            // loading_delay
+    file[133] = 0;            // start_delay
+    file[134] = preserve_regs;
+    file[139] = entry_bank;
+
+    for (size_t i = 0; i < BANK; ++i) file[512 + i] = payload_byte(i);
+    for (size_t i = 0; i < lead.size() && i < BANK; ++i) file[512 + i] = lead[i];
+
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
+    return static_cast<bool>(f);
+}
+
+std::string fixture_path(const char* tag) {
+    return (std::filesystem::temp_directory_path() /
+            (std::string("jnext_nexpc0_") + tag + ".nex")).string();
+}
+
+// Read one byte of an arbitrary physical 8K page through the same
+// temp-slot-7 mapping the loader writes through.
+uint8_t read_page(Mmu& mmu, uint8_t page, size_t off) {
+    const uint8_t saved = mmu.get_page(7);
+    mmu.set_page(7, page);
+    const uint8_t v = mmu.read(static_cast<uint16_t>(0xE000 + off));
+    mmu.set_page(7, saved);
+    return v;
+}
+
+// Registers seeded before apply() so "the launch decision left them
+// alone" is distinguishable from "the launch decision wrote them". Every
+// value differs from both the header's and the reset branch's.
+constexpr uint16_t kSeedPC = 0x1234;
+constexpr uint16_t kSeedSP = 0x4321;
+constexpr uint16_t kSeedBC = 0xBEEF;
+constexpr uint16_t kHdrSP  = 0x58FF;   // same value the ped7g fixtures carry
+constexpr uint16_t kHdrPC  = 0x8000;   // control entry point (bank 2 @ $8000)
+constexpr uint8_t  kSeedP6 = 0x2A;     // pre-apply MMU slot 6/7 pages
+constexpr uint8_t  kSeedP7 = 0x2B;
+
+// A loaded emulator on which apply() was called DIRECTLY (no reset), with
+// the registers and MMU slots 6/7 seeded first.
+struct AppliedFixture {
+    Emulator emu;
+    bool     ok = false;
+
+    AppliedFixture(uint16_t pc, uint8_t preserve_regs, uint8_t entry_bank, const char* tag) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        Z80Registers regs = emu.cpu().get_registers();
+        regs.PC = kSeedPC;
+        regs.SP = kSeedSP;
+        regs.BC = kSeedBC;
+        emu.cpu().set_registers(regs);
+        emu.mmu().set_page(6, kSeedP6);
+        emu.mmu().set_page(7, kSeedP7);
+
+        const std::string path = fixture_path(tag);
+        if (!write_nex_bank_fixture(path, pc, kHdrSP, preserve_regs, entry_bank, 2, {}))
+            return;
+
+        NexLoader loader;
+        if (loader.load(path)) ok = loader.apply(emu);
         std::error_code ec;
         std::filesystem::remove(path, ec);
     }
@@ -1116,6 +1242,211 @@ int main() {
 
     set_group("NEXPR");
     test_preserve_nextregs();
+
+    // ── GH #164 — header PC = 0 is "load only, do not execute" ────────
+
+    set_group("NEXPC0");
+
+    // NEXPC0-01/02 — reset branch (preserve_regs = 0).
+    {
+        AppliedFixture f(0x0000, /*preserve_regs=*/0, /*entry_bank=*/3, "reset_pc0");
+        const Z80Registers r = f.emu.cpu().get_registers();
+        check("NEXPC0-01",
+              "PC=0, preserve_regs=0: the entry-state block is skipped — PC and SP "
+              "keep their pre-load values and the header SP is NOT applied "
+              "(nexload.asm:581 .returnToBasic, :597-600 ld sp,(oldStack))",
+              f.ok && r.PC == kSeedPC && r.SP == kSeedSP,
+              fmt("apply=%d PC=0x%04X want 0x%04X, SP=0x%04X want 0x%04X",
+                  f.ok ? 1 : 0, r.PC, kSeedPC, r.SP, kSeedSP));
+    }
+    {
+        AppliedFixture f(kHdrPC, /*preserve_regs=*/0, /*entry_bank=*/3, "reset_pcnz");
+        const Z80Registers r = f.emu.cpu().get_registers();
+        check("NEXPC0-02",
+              "control: PC!=0, preserve_regs=0 still resets the entry state and takes "
+              "PC/SP from the header (nexload.asm:580 — the non-zero branch)",
+              f.ok && r.PC == kHdrPC && r.SP == kHdrSP && r.AF == 0xFFFF && r.IM == 1,
+              fmt("apply=%d PC=0x%04X want 0x%04X, SP=0x%04X want 0x%04X, AF=0x%04X IM=%u",
+                  f.ok ? 1 : 0, r.PC, kHdrPC, r.SP, kHdrSP, r.AF, r.IM));
+    }
+
+    // NEXPC0-03/04 — preserve branch (preserve_regs != 0).
+    {
+        AppliedFixture f(0x0000, /*preserve_regs=*/1, /*entry_bank=*/3, "pres_pc0");
+        const Z80Registers r = f.emu.cpu().get_registers();
+        check("NEXPC0-03",
+              "PC=0, preserve_regs=1: PC and SP keep their pre-load values — the "
+              "load-only path is taken in the register-preserving branch too "
+              "(the oracle's launch decision is not version- or flag-specific)",
+              f.ok && r.PC == kSeedPC && r.SP == kSeedSP,
+              fmt("apply=%d PC=0x%04X want 0x%04X, SP=0x%04X want 0x%04X",
+                  f.ok ? 1 : 0, r.PC, kSeedPC, r.SP, kSeedSP));
+    }
+    {
+        AppliedFixture f(kHdrPC, /*preserve_regs=*/1, /*entry_bank=*/3, "pres_pcnz");
+        const Z80Registers r = f.emu.cpu().get_registers();
+        check("NEXPC0-04",
+              "control: PC!=0, preserve_regs=1 takes PC/SP from the header while "
+              "leaving the other registers alone",
+              f.ok && r.PC == kHdrPC && r.SP == kHdrSP && r.BC == kSeedBC,
+              fmt("apply=%d PC=0x%04X want 0x%04X, SP=0x%04X want 0x%04X, BC=0x%04X want 0x%04X",
+                  f.ok ? 1 : 0, r.PC, kHdrPC, r.SP, kHdrSP, r.BC, kSeedBC));
+    }
+
+    // NEXPC0-05/06 — entry_bank mapping, reversed by .returnToBasicTidy.
+    {
+        AppliedFixture f(0x0000, /*preserve_regs=*/0, /*entry_bank=*/3, "eb_pc0");
+        const uint8_t p6 = f.emu.mmu().get_page(6);
+        const uint8_t p7 = f.emu.mmu().get_page(7);
+        check("NEXPC0-05",
+              "PC=0: entry_bank is NOT mapped to MMU slots 6/7 — $C000 keeps the "
+              "mapping the load found, because .returnToBasicTidy remaps it from "
+              "BANKM (nexload.asm:602-604; nexload2.asm:529-535)",
+              f.ok && p6 == kSeedP6 && p7 == kSeedP7,
+              fmt("apply=%d slot6=%u want %u, slot7=%u want %u",
+                  f.ok ? 1 : 0, p6, kSeedP6, p7, kSeedP7));
+    }
+    {
+        AppliedFixture f(kHdrPC, /*preserve_regs=*/0, /*entry_bank=*/3, "eb_pcnz");
+        const uint8_t p6 = f.emu.mmu().get_page(6);
+        const uint8_t p7 = f.emu.mmu().get_page(7);
+        check("NEXPC0-06",
+              "control: PC!=0 maps entry_bank 3 to MMU slots 6/7 (pages 6,7) — "
+              "nexload.asm:557-560 .entryBankSMC",
+              f.ok && p6 == 6 && p7 == 7,
+              fmt("apply=%d slot6=%u want 6, slot7=%u want 7", f.ok ? 1 : 0, p6, p7));
+    }
+
+    // NEXPC0-07/08/09 — end-to-end through Emulator::load_nex(), which is
+    // the real `--load` path (reset, then apply). These are the rows that
+    // matter: the ped7g fixture tmNoStart.nex is byte-identical to
+    // tmNoPic.nex except for this header field, and it loads bank 2
+    // expecting it to survive. Before the fix, entering at $0000 ran the
+    // ROM reset sequence and 16330 of those 16384 bytes were gone within
+    // five frames (measured on the real binary via --delayed-snapshot).
+    {
+        constexpr int    FRAMES = 10;
+        constexpr size_t BANK   = 16384;
+        const std::string path = fixture_path("e2e_pc0");
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        const bool built = write_nex_bank_fixture(path, 0x0000, kHdrSP, 0, 0, 2, {});
+        const bool ok    = built && emu.init(cfg) && emu.load_nex(path);
+
+        const Z80Registers before = emu.cpu().get_registers();
+        for (int i = 0; i < FRAMES; ++i) emu.run_frame();
+        const Z80Registers after = emu.cpu().get_registers();
+
+        size_t bad = BANK; uint8_t got = 0, want = 0;
+        bool survived = ok;
+        for (size_t i = 0; i < BANK && survived; ++i) {
+            const uint8_t g = read_page(emu.mmu(), static_cast<uint8_t>(4 + i / 0x2000),
+                                        i % 0x2000);
+            const uint8_t w = payload_byte(i);
+            if (g != w) { survived = false; bad = i; got = g; want = w; }
+        }
+        check("NEXPC0-07",
+              "end-to-end: a PC=0 NEX's bank 2 is byte-identical after 10 frames — "
+              "nothing the file did not ask for ran over it (GH #164, tmNoStart.nex)",
+              survived,
+              fmt("load=%d bank2[0x%04zX]=0x%02X want 0x%02X", ok ? 1 : 0, bad, got, want));
+
+        check("NEXPC0-08",
+              "end-to-end: no instruction is fetched over those 10 frames — R and PC "
+              "are unchanged, so the CPU is parked and not merely pointed elsewhere",
+              ok && after.R == before.R && after.PC == before.PC,
+              fmt("load=%d R %02X->%02X, PC %04X->%04X",
+                  ok ? 1 : 0, before.R, after.R, before.PC, after.PC));
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+    {
+        // Control for NEXPC0-08: the identical harness with a non-zero PC
+        // MUST see the CPU run, otherwise "R unchanged" would prove
+        // nothing. Bank 2 sits at $8000-$BFFF in the reset mapping, so a
+        // `JR $` planted at its start executes forever at PC=$8000: R
+        // advances, PC does not, and nothing is written.
+        constexpr int FRAMES = 10;
+        const std::string path = fixture_path("e2e_pcnz");
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        const bool built = write_nex_bank_fixture(path, kHdrPC, kHdrSP, 0, 0, 2,
+                                                  {0x18, 0xFE});  // JR $
+        const bool ok    = built && emu.init(cfg) && emu.load_nex(path);
+
+        const Z80Registers before = emu.cpu().get_registers();
+        for (int i = 0; i < FRAMES; ++i) emu.run_frame();
+        const Z80Registers after = emu.cpu().get_registers();
+
+        check("NEXPC0-09",
+              "control: the same harness with PC=$8000 DOES execute — R advances "
+              "while PC stays on the planted JR $, proving NEXPC0-08's probe is live",
+              ok && after.R != before.R && before.PC == kHdrPC && after.PC == kHdrPC,
+              fmt("load=%d R %02X->%02X, PC %04X->%04X (want PC pinned at %04X)",
+                  ok ? 1 : 0, before.R, after.R, before.PC, after.PC, kHdrPC));
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // NEXPC0-10 — the parked state is machine state, so it must travel with
+    // a snapshot. Without it a rewind silently un-parks a load-only NEX and
+    // the CPU starts running at the reset vector mid-session — the very
+    // thing GH #164 is about, reintroduced through the back door.
+    {
+        constexpr int    FRAMES = 10;
+        constexpr size_t BANK   = 16384;
+        const std::string path = fixture_path("state_pc0");
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        const bool built = write_nex_bank_fixture(path, 0x0000, kHdrSP, 0, 0, 2, {});
+        const bool ok    = built && emu.init(cfg) && emu.load_nex(path);
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        // Un-park by hand, then restore: only a serialised flag can put it back.
+        emu.set_cpu_parked(false);
+        StateReader r(buf.data(), buf.size());
+        const bool restored = emu.load_state(r);
+
+        const Z80Registers before = emu.cpu().get_registers();
+        for (int i = 0; i < FRAMES; ++i) emu.run_frame();
+        const Z80Registers after = emu.cpu().get_registers();
+
+        size_t bad = BANK; uint8_t got = 0, want = 0;
+        bool survived = ok && restored;
+        for (size_t i = 0; i < BANK && survived; ++i) {
+            const uint8_t g = read_page(emu.mmu(), static_cast<uint8_t>(4 + i / 0x2000),
+                                        i % 0x2000);
+            const uint8_t w2 = payload_byte(i);
+            if (g != w2) { survived = false; bad = i; got = g; want = w2; }
+        }
+        check("NEXPC0-10",
+              "the parked state survives a save_state/load_state round trip — after "
+              "restore the CPU still executes nothing and bank 2 is still intact, so "
+              "a rewind cannot un-park a load-only NEX",
+              survived && after.R == before.R && after.PC == before.PC,
+              fmt("load=%d restore=%d R %02X->%02X PC %04X->%04X bank2[0x%04zX]=0x%02X want 0x%02X",
+                  ok ? 1 : 0, restored ? 1 : 0, before.R, after.R, before.PC, after.PC,
+                  bad, got, want));
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
