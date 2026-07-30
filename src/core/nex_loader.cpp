@@ -890,8 +890,26 @@ bool NexLoader::apply(Emulator& emu) const
         for (int rep = 0; rep < 16; ++rep) {
             for (uint8_t v : kUlaClassicPalette) nr.write(0x41, v);
         }
+        // Put NR 0x43 back where setupBeforeBlockLoading leaves it. The $30
+        // above is a WORKING value, not the end state: the routine goes on to
+        // repaint the Layer 2 and Sprite palettes (:839-:842) and closes with
+        //
+        //   .resetSequentialPalLoop:
+        //           nextreg PALETTE_VALUE_NR41,a
+        //           inc     a
+        //           jr      nz,.resetSequentialPalLoop
+        //           nextreg PALETTE_CONTROL_NR43,a   ; NR43=ULA first palette
+        //
+        // (:843-:847) — the loop exits with A wrapped back to 0, so the final
+        // write settles NR 0x43 at 0. nextRegResetData says the same thing a
+        // second time at :907-:908 ($42/$43 <- $0F, 0). Those two sequential
+        // 256-entry repaints are not modelled here (jnext's own reset already
+        // seeds the Layer 2 and Sprite palettes), but their side effect on
+        // NR 0x43 is observable and was being left at $30 (issue #173).
+        nr.write(0x43, 0x00);
         Log::emulator()->debug("NEX: V1.3 — seeded tilemap palette with the ULA classic "
-                               "palette (nexload2.asm:830-836)");
+                               "palette (nexload2.asm:830-836), NR 0x43 back to 0 "
+                               "(nexload2.asm:847)");
     }
 
     // Loading-screen palette (512 bytes) — carried by Layer 2 AND LoRes

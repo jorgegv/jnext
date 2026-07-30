@@ -980,6 +980,35 @@ void test_palette() {
               f.apply_ok && tm1 == 0x00,
               fmt("apply=%d tilemap_pal[1]=%02x want 00 (unseeded)", f.apply_ok, tm1));
     }
+
+    // GH #173's other sub-case. The seed re-points NR 0x43 at the tilemap
+    // palette and must put it back (nexload2.asm:847), but a file that
+    // carries its own palette block has LoadFilePalette run AFTER the seed
+    // and pick the destination itself — for tilemode, $30
+    // (nexload2.asm:731-:734):
+    //
+    //   nextreg PALETTE_CONTROL_NR43,%0'011'000'0   ; NR43=Tilemap first palette
+    //   ld      a,(nexHeader.LOADSCR2)
+    //   cp      NEXLOAD_LOADSCR2_TILEMODE
+    //   jr      z,.setPalette               ; Tilemap screen
+    //
+    // and nothing after it resets NR 0x43. So the end state on THIS branch
+    // is $30, not 0 — which is the row that catches a restore written after
+    // the palette ingest instead of inside the seed. NR 0x43 is read first,
+    // before read_pal_8() (which writes it) is called anywhere here.
+    {
+        V13Opts o;
+        o.screen_flags = 0x40; o.screen_flags2 = 3;   // tilemode WITH a palette block
+        o.banks = {5};
+        Fixture f(o, "pal6");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-06",
+              "a V1.3 tilemode NEX that carries a palette block ends with NR 0x43 = 0x30: "
+              "LoadFilePalette runs after the seed and selects the tilemap palette itself "
+              "(nexload2.asm:731-734), with nothing after it to reset the register",
+              f.apply_ok && nr43 == 0x30,
+              fmt("apply=%d NR 0x43 = %#04x want 0x30", f.apply_ok, nr43));
+    }
 }
 
 // ── Copper block ─────────────────────────────────────────────────────
