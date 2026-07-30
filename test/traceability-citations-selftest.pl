@@ -2102,4 +2102,34 @@ check('SELF-110', 'the control: the identical pipeline on a pipe-free row, so SE
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
+
+# ── The pinned row count (GH #146) ────────────────────────────────────
+#
+# Everywhere else this project treats a suite's row count as the PROJECT'S OWN
+# CLAIM about how much it tests, pinned deliberately so that deleting a row is
+# a loud edit rather than a silently smaller denominator: `test/unit-tests.conf`
+# pins every unit suite and `test/run-unit-tests.sh` REFUSES to run on a
+# mismatch, because three suites once vanished from the counts and were all
+# found by accident.
+#
+# This suite had none of that. It reported its total on its own say-so, and
+# truncating it would have reported a smaller number as a clean pass.
+#
+# It cannot go in `test/unit-tests.conf`: that manifest is cross-checked
+# against the suites CMake registered with add_test(), and this is a perl
+# script with no CMake target — declaring it there would trip the harness's
+# own refusal. So the pin lives HERE, next to the rows it counts, and the
+# script refuses in the same shape and for the same reason.
+#
+# ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
+my $EXPECTED_ROWS = 132;
+if ($total != $EXPECTED_ROWS) {
+    printf STDERR
+        "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
+      . "file pins \$EXPECTED_ROWS = %d. A row was added or removed without the\n"
+      . "count being updated, which is how a suite silently shrinks. Update\n"
+      . "\$EXPECTED_ROWS deliberately, in the same commit as the row.\n",
+        $total, $EXPECTED_ROWS;
+    exit 2;
+}
 exit($failed ? 1 : 0);

@@ -376,7 +376,7 @@ traceability-accounting-check:
 	@perl test/refresh-traceability-matrix.pl --check-accounting
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check unit-test-build docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest unit-test-build docs-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -478,6 +478,23 @@ harness-selftest: unit-test-build gui-release sdl-release
 
 # Self-test the traceability-matrix VHDL-citation extractor against fixtures
 traceability-selftest:
+	@# WIRED IN as a prerequisite of `unit-test` below (GH #146). Until then no
+	@# gate ran it at all: not `unit-test`, not `regression`, not CI — verified by
+	@# grep of the Makefile and both manifests. It is the self-test of the tool
+	@# that decides which VHDL lines justify each traceability row, and its own
+	@# refusal rows are the only thing standing between this project and a
+	@# plausible-but-wrong citation, so leaving it to be run by hand was the same
+	@# shape as check-doc-consistency.sh (GH #159): a guard nothing invokes.
+	@#
+	@# It also PINS its row count, in the script, next to the rows — the count
+	@# cannot live in test/unit-tests.conf because that manifest is cross-checked
+	@# against CMake's add_test() registrations and this is a perl script with no
+	@# CMake target. The script exits 2 on a mismatch, in the manner of
+	@# test/run-unit-tests.sh refusing when its manifest and CMake disagree.
+	@#
+	@# ~5 s, no build prerequisite: the end-to-end rows run the real refresh
+	@# script twice against a throwaway repository built from the real manifest,
+	@# CMakeLists and matrix, with stub sources and binaries.
 	@perl test/traceability-citations-selftest.pl
 
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
