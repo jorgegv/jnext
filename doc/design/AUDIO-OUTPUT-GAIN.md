@@ -61,8 +61,8 @@ Gains belong to host configuration, not machine state. They are not serialized
 or reset by the emulated machine. The shared frontend cold-boot driver
 (`emulator_frontend_cold_boot`) carries all six live mixer values into the
 rebuilt machine's config, and `Emulator::init()` reapplies them after mixer
-reset. Live changes therefore survive cold boots, Machine > Reset, File > Load
-and sibling-NEX chaining. Video and WAV recording consume the same gained PCM
+reset. Live changes therefore survive cold boots, Machine > Power Reset,
+File > Load and sibling-NEX chaining. Video and WAV recording consume the same gained PCM
 sent to host playback. Applying Preferences updates the running mix immediately.
 
 ## Tests

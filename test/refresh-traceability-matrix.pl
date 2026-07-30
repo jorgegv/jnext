@@ -1195,6 +1195,25 @@ sub grep_row_ids {
 # nowhere in the SD Card section — the Audio section's identically-named
 # rows were vouching for them. 29 such rows were hidden this way, across
 # five subsystems.
+
+# Split a matrix row into its Markdown cells.
+#
+# A literal pipe inside a cell is written `\|` — that is how Markdown renders
+# one, and several Descriptions need it (`RESET_HARD\|RESET_SOFT`). Splitting
+# on a bare `|` breaks the row AT the escape, so every later cell shifts one
+# column right and the rewrite lands VHDL/Status/Test-file in the wrong
+# places. That is not hypothetical: it is how `RW-01` and `SR-05` came to
+# carry `pass` in their VHDL column and grow a sixth column (GH #157).
+#
+# So split on UNESCAPED pipes only. The escape stays inside the cell, the
+# column count is the one the table header declares, and `join('|', @cells)`
+# puts the row back byte-identical — which is what makes the read side
+# round-trip rather than merely stop corrupting.
+sub split_row_cells {
+    my ($line) = @_;
+    return split(/(?<!\\)\|/, $line, -1);
+}
+
 sub matrix_row_ids {
     my ($lines, $from, $to) = @_;
     $from //= 0;
@@ -1206,7 +1225,7 @@ sub matrix_row_ids {
         if (!$skipping && index($line, $SUMMARY_BEGIN) == 0) { $skipping = 1; next; }
         if ($skipping) { $skipping = 0 if index($line, $SUMMARY_END) == 0; next; }
         next unless $line =~ /^\|/;
-        my @cells = split(/\|/, $line, -1);
+        my @cells = split_row_cells($line);
         next unless scalar @cells >= 5;
         my $tid = $cells[1];
         $tid =~ s/^\s+|\s+$//g;
@@ -1759,8 +1778,9 @@ sub refresh_section {
         last if $line =~ /^## / && $i > $start_idx + 1;
 
         if ($line =~ /^\| / && index(substr($line, 2), '|') != -1) {
-            # split preserving trailing empty fields
-            my @cells = split(/\|/, $line, -1);
+            # split preserving trailing empty fields; `\|` is an escaped
+            # literal, not a column break (GH #157)
+            my @cells = split_row_cells($line);
             # cells: ('', ' ID ', ' title ', ' vhdl ', ' status ', ' file:line ', '')
             if (scalar @cells >= 7) {
                 my $tid_raw = $cells[1];
@@ -1768,6 +1788,15 @@ sub refresh_section {
 
                 # Skip header row and separator row (only dashes/colons/spaces).
                 if ($tid_raw ne '' && $tid_raw ne 'Test ID' && $tid_raw !~ /^[-:\s]+$/) {
+                    # Belt and braces for the residual GH #157 case the escape
+                    # cannot cover: a RAW pipe in a Description is a genuine
+                    # column break and nothing can tell it from an intended
+                    # one. Say so instead of rewriting the wrong three cells.
+                    warn "WARN: row $tid_raw has " . scalar(@cells)
+                       . " cells, expected 7 — an unescaped `|` in a cell "
+                       . "shifts VHDL/Status/Test-file right; write it `\\|`\n"
+                        if scalar @cells > 7;
+
                     # Protected row (strategy point 6): leave it byte-identical.
                     # The existing Status cell is trusted for the counts, so
                     # the section tally stays truthful.

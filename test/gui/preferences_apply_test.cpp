@@ -290,8 +290,8 @@ void test_only_accepted_restart_reboots()
 ///
 /// This is the documented UX change beyond the issue's literal ask: selecting
 /// the machine you are already running is now a no-op (it used to reboot).
-/// Machine > Reset / F1 remains the way to restart. Pinned in both directions
-/// so neither half can regress unnoticed.
+/// Machine > Power Reset / F1 remains the way to restart. Pinned in both
+/// directions so neither half can regress unnoticed.
 void test_machine_menu()
 {
     auto trigger = [](MainWindow& w, MachineType t) {

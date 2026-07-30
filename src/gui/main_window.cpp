@@ -1083,8 +1083,8 @@ void MainWindow::on_machine_type(MachineType type) {
     // makes the Machine menu a no-op when you pick the machine you are already
     // running (it used to reboot). Chosen over special-casing the menu because
     // "select 48K while running 48K" is not a request to restart — Machine >
-    // Reset (and F1) is, and it remains the way to do it. Keeping the reboot
-    // here would also mean the menu and Preferences disagree about what
+    // Power Reset (and F1) is, and it remains the way to do it. Keeping the
+    // reboot here would also mean the menu and Preferences disagree about what
     // selecting an unchanged machine type means. Pinned by PA-05/PA-06.
     if (!preferences_restart_required(emulator_->config().type, type)) {
         machine_label_->setText(tr(machine_type_str(type)));

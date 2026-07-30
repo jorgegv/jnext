@@ -1614,6 +1614,94 @@ check('SELF-69', 'the refusal: order is NOT normalised — the same lines in a d
       ($ws_drift{'WS-ORDER-01'} // '') eq 'fixture_a.vhd:80, 70 vs fixture_a.vhd:70,80',
       'got drift ' . ($ws_drift{'WS-ORDER-01'} // '(none)'));
 
+# ── An escaped `\|` in a Description is a literal, not a column (GH #157) ──
+#
+# Markdown spells a literal pipe inside a cell `\|`, and Descriptions need it
+# (`RESET_HARD\|RESET_SOFT`). Splitting the row on a bare `|` breaks it AT the
+# escape, so every later cell is one column right of where the writer thinks
+# it is: the Status goes into the VHDL column, the test location into the
+# Status column, and the real Test file:line is never updated again. That is
+# how `RW-01` and `SR-05` shipped reading `pass` as their VHDL citation.
+#
+# The row still has the right number of columns, the counts still add up, and
+# every later run reproduces it identically — so nothing downstream can see
+# it. The rows below pin the whole shape, not just the citation: SELF-106
+# that the three rewritten cells land in their OWN columns, SELF-107 that the
+# pipe SURVIVES rather than being stripped (dropping it would align the
+# columns and lose the text), SELF-108 the residual an escape cannot cover —
+# a RAW pipe is a real column break and must be reported, not rewritten
+# around — and SELF-109 the read side: the Description tail must not be read
+# back as a citation and reported as drift. SELF-110 is the control — the
+# same pipeline on a pipe-free row — so a broken fixture fails loudly instead
+# of making SELF-106 vacuous.
+
+write_fixture('test/fixture/pipe_test.cpp', <<'CPP');
+void escaped() {
+    check("PIPE-ESC-01",  "escaped — VHDL fixture_a.vhd:900", cond, detail);
+    check("PIPE-CTRL-01", "control — VHDL fixture_b.vhd:910", cond, detail);
+}
+CPP
+
+my $pipe_bin = "$FIXTURE_ROOT/bin/pipe_suite";
+open(my $pfh, '>', $pipe_bin) or die "write $pipe_bin: $!";
+print $pfh "#!/bin/sh\n";
+close $pfh;
+chmod 0755, $pipe_bin;
+
+my $pipe_desc = ' reads `(a<<4) \| b`, pads bits[7:6]  ';
+my @pplines = (
+    '## Pipe — `test/fixture/pipe_test.cpp`',
+    '',
+    '| Test ID      | Description                          | VHDL file:line       | Status  | Test file:line                       |',
+    '|--------------|--------------------------------------|----------------------|---------|--------------------------------------|',
+    "| PIPE-ESC-01  |$pipe_desc| —                    | missing | missing                              |",
+    '| PIPE-CTRL-01 | no pipe in this one                  | —                    | missing | missing                              |',
+);
+
+my (@ppd, @ppk);
+refresh_section(\@pplines, 0, 'bin/pipe_suite', 'test/fixture/pipe_test.cpp',
+                \@ppd, \@ppk);
+
+check('SELF-106', 'a Description carrying `\|` still gets VHDL, Status and Test file:line in their OWN columns',
+      scalar($pplines[4] =~ m{\|\s*fixture_a\.vhd:900\s*\|\s*pass\s*\|\s*test/fixture/pipe_test\.cpp:\d+\s*\|$}),
+      "got [$pplines[4]]");
+
+check('SELF-107', 'the escaped pipe SURVIVES in the Description — escaped, never stripped to make the columns line up',
+      index($pplines[4], "|$pipe_desc|") >= 0,
+      "got [$pplines[4]]");
+
+# A RAW `|` is a genuine column break and nothing can tell it from an intended
+# one, so the escape fixes nothing here — the only honest answer is to say so.
+my @rawlines = (
+    '## Pipe — `test/fixture/pipe_test.cpp`',
+    '',
+    '| Test ID      | Description                          | VHDL file:line       | Status  | Test file:line                       |',
+    '|--------------|--------------------------------------|----------------------|---------|--------------------------------------|',
+    '| PIPE-RAW-01  | reads (a<<4) | b, pads bits[7:6]     | —                    | missing | missing                              |',
+);
+my (@rwd, @rwk, @rawwarn);
+{
+    local $SIG{__WARN__} = sub { push @rawwarn, $_[0] };
+    refresh_section(\@rawlines, 0, 'bin/pipe_suite',
+                    'test/fixture/pipe_test.cpp', \@rwd, \@rwk);
+}
+my @raw_hits = grep { /PIPE-RAW-01.*unescaped/s } @rawwarn;
+
+check('SELF-108', 'the residual an escape cannot cover: a RAW `|` in a Description is REPORTED, not silently rewritten around',
+      scalar(@raw_hits) == 1,
+      'warnings: ' . (join('; ', map { my $w = $_; chomp $w; $w } @rawwarn) || '(none)'));
+
+# grep's LIST is greedy — without the parens it swallows the detail argument
+# too, and the arity guard at the top of this file catches it.
+my @pp_esc_drift = grep { /PIPE-ESC-01/ } @ppd;
+check('SELF-109', 'the read side: the Description tail is not read back as a citation and reported as drift',
+      scalar(@pp_esc_drift) == 0,
+      'got drift ' . (join('; ', @pp_esc_drift) || '(none)'));
+
+check('SELF-110', 'the control: the identical pipeline on a pipe-free row, so SELF-106 is not vacuous',
+      scalar($pplines[5] =~ m{\|\s*fixture_b\.vhd:910\s*\|\s*pass\s*\|\s*test/fixture/pipe_test\.cpp:\d+\s*\|$}),
+      "got [$pplines[5]]");
+
 # ── END TO END: main()'s own glue, in a subprocess (GH #144) ─────────
 #
 # Every row above loads this file's target WITHOUT main() and asserts a sub in
