@@ -106,64 +106,28 @@
 |        |      | 14 reviewed branches, profile-guided. Issue #8 crash; 60a/60b; 13a→0 skips; v0.98.3 ChangeLog.       |
 | 15/7   | 8h   | Task 27 Wave 2 (Fable→Opus): LTO the single biggest win (+34.5%); 161M T/s, 284fps@400%; +180% e2e.  |
 |        |      | 13 reviewed merges, 6 REJECT→rework (all real bugs). 60c/d/e/f, 61 deterministic dashboard, 62 report. |
-| 16/7   |      | Phase 9 packaging: CPack RPM/DEB/Flatpak + MinGW Windows cross-build; Task 66 Preferences + config→~/.jnext; Task 69 CI + integration plan + badges. |
-|        |      | Windows self-contained zip works under wine (DLL closure, SDL3, 16 MB stack, native CA); gated releases (releases.yaml + RELEASE-PROTOCOL). v0.98.4→.19 |
-| 16/7   |      | Packaging correctness, 6 reviewed merges (5 REJECT→fix, all real): RPM built on Fedora, DEB matrix Ubuntu 24.04+26.04, Windows GUI-subsystem (no console), |
-|        |      | Flatpak CI + build-from-local, src.zip, drop -Linux.tar.gz, README Windows install. v0.98.20→.24 |
-| 19/7   |      | Input registers wired end to end: #32 NR 0xB2 (sourced from Joystick, not the unfed cable model), #33 extended keys (raw readback vs cancellable fold |
-|        |      | separated per membrane.vhd:253, CS/SYM shift synthesis added, NR 0x68 b4 wired; KBDHYS-03 was asserting the inverse of the VHDL).                     |
-|        |      | #37 Kempston mouse pointer capture in both frontends (Qt warp-to-centre, SDL relative mode) — motion was derived from ABSOLUTE window position.        |
-|        |      | Task 93 link rot: jnext_core/-platform under-declared deps, 2 of 4 build combos broken; `make build-matrix` guard + CI. Task 95 NEX audit tooling +#36. |
-|        |      | TODO.md -> GitHub issues; prompt file tracks by issue number. 8 reviewed merges, 5 REJECT->rework (all real bugs). v0.98.52->.56                       |
-| 20/7   |      | GH #28 CLOSED: nine-chapter USER GUIDE (src/doc/user-guide -> committed doc/user-guide) + pandoc-single-sourced man page;    |
-|        |      | docs-check gates both on EVERY test run. Phase 9 closed. CI moved to container fedora:44, bespoke steps stripped after      |
-|        |      | `make X | tail` was found reporting GREEN on a failing suite. #38 closed not-a-bug (demo drove 0xDF = Specdrum MONO port).  |
-|        |      | #43 table-driven CLI + cli-check; #42 rewind recorded NOTHING (3 variable-length fields vs fixed slot); #39 debugger window |
-|        |      | attach (X11; Wayland impossible). 4 merges, 3 REJECT rounds -> rework, every one a real defect. v0.98.57->.71 PUBLIC.      |
-| 22-23/7|      | LoRes 128x96 layer shipped (91 VHDL-cited rows written BEFORE code) + first screenshot. #64 $FF3B read + ULA+/ULA palette  |
-|        |      | storage unified (one palette_utm dpram; b6 poke/read vs b1 render). #75 per-run private SD clone for unit-test/bench;      |
-|        |      | roms/ emptied of SD images. #77 --sdcard-readonly. #56/#71 doc/comment corrections; #66/#59 Windows docs unhedged.         |
-|        |      | #75 took SIX review rounds — rounds 3-5 found defects WORSE than the original (trap resume deleted the clone mid-run,       |
-|        |      | 58 FAIL/4 PASS), none visible to a green triplet. CI package job RED since v0.98.92 (fedora44 lacked python3-pyyaml), fixed |
-|        |      | + all 17 failure sites made diagnosable. Closed #56 #59 #64 #66 #71 #75 #77; filed #79 #80. v0.98.73->.101, v0.99.0 PUBLIC. |
-| 23/7   |      | Post-v0.99.0 wave, six issues closed: #62 Windows UTF-8 manifest (non-ASCII paths failed on the narrow CRT),               |
-|        |      | #73 NR $15 per-line replay wired (the change-log had shipped with zero callers), #74 sprite_tie completion                 |
-|        |      | (pattern_slot_msb_ gate + reverse sync), #79/#80/#81 harness self-test gaps: stubbed cleanup bodies, no log-dump           |
-|        |      | pin, no per-row timeout. v0.99.1->.8                                                                                       |
-| 24/7   |      | ATIC ATAC SAGA CLOSED: #84 root cause = missing SD Nac gap byte between R1 and the 0xFE data token; #99 post-fix           |
-|        |      | stall; #29 extended/self-streaming NEX (PR #100, jon263). PR #41 host audio gain; PR #82 (#76 png_diff literal             |
-|        |      | pixel counts), PR #83 (#78 --record exit contract). Compositor LR skips retired -> tree-wide ZERO unit skips               |
-|        |      | (5527/5527/0/0). #87 frozen-doc audit closed. Issues #85-#97 filed. v0.99.9->.14                                           |
-| 25/7   |      | Ten issues + PR #101 (#53 TX-1696 tilemap raster fetch splits, jon263): #45 Power/Soft Reset split, #98 CMD9/CMD10         |
-|        |      | Nac gap, #95 debugger NR $4A fallback, #85 png_diff dimension sentinels, #90 joystick bit-5 pin-7 feed, #96/#97            |
-|        |      | ULAnext border strips + select_bgnd replicas, #86 --record failure gaps, #92 28 MHz SRAM read wait (~7% fast; 8            |
-|        |      | owner-approved reference regens), #103/#104 ULAnext full border rows + ULA+ border encoder, #105 traceability              |
-|        |      | matrix protected-row marker, #106 DMA SRAM wait, PR #107 per-subsystem audio gains (#88). #91 not-planned. v0.99.15->.28   |
-| 26/7   |      | #102 TX-1696 CLOSED after 4 sessions: freeze = DMA stall gated on is_active() instead of dma_holds_bus; that fix           |
-|        |      | then exposed a reboot = im2_dma_delay sampled per frame, not per instruction. #110 palette change-log growable             |
-|        |      | (TX-1696 peaks 14k writes/frame vs the 4096 cap), #109 undecoded ports return 0xFF (floating_bus_read was the              |
-|        |      | default handler for ALL unmatched ports), #111/#112 +3 float-port blocked decode and border arm, #113 CP/M tilemap         |
-|        |      | paper opaque, #114 debugger window scroll-panning. #108 Win7/8 + 32-bit builds feature-complete on their own               |
-|        |      | branch (not merged, per owner policy). v0.99.29->.36; v0.99.37 release prep.                                               |
-| 27/7   |      | #108 CLOSED and MERGED: Windows 7/8 support. Qt5 compat layer behind JNEXT_FORCE_QT5 (~25 guarded lines) +                 |
-|        |      | qt5-guard CI job; WinHTTP+BCrypt replace the curl/OpenSSL chain for SD provisioning (the PathCch blocker);                 |
-|        |      | i686 leg added. Published lineup: x64-Qt6 (Win10 1703+), x64-Qt5 + x86-Qt5 (Win7 SP1+ by whole-bundle                      |
-|        |      | import audit; @janko-jj confirmed both on real Windows 8.1 hardware). #117/#118/#119 traceability matrix                   |
-|        |      | precision: symmetric omission reporting + generated Summary, comment-aware scanning, section-scoped                        |
-|        |      | recording, 102 sub-letter-aliased IDs triaged (12 given rows). v0.99.38->.40; v0.99.41 release prep.                       |
-|        |      | (night) #115 Shift=Caps Shift / Ctrl=Symbol Shift, host hotkeys to Alt; #116 AC-couple against the full                    |
-|        |      | resting mix; #120 achieved-vs-requested speed + minimum-hold key latch; #122-#152 run: shifted symbols,                    |
-|        |      | Ctrl+Shift+S clash, Quit cleanup, per-key debugger accelerators, help lint, harness prereqs, citation                      |
-|        |      | continuation + drift canonicalisation, package-win abort guard, SDL/Qt keypress rows. v0.99.42->.54.                       |
-| 28/7   |      | GH #25 ESP-01, branches 1-3.5: UartDevice attach/detach seam on Uart; non-blocking TCP transport plus                      |
-|        |      | address policy (loopback/link-local/metadata denied, RFC1918 allowed); AT engine, 7 evidenced commands                     |
-|        |      | and 6 static replies; modularised into src/esp01 as a standalone target - passive core, threaded                           |
-|        |      | wrapper, thin jnext adapter, its own logging seam; ESP01-EMULATOR-DESIGN.md. Off-thread DNS after a                        |
-|        |      | review found poll() resolving inline. Traceability: unit-tests.conf drives the matrix, 12 wrong VHDL                       |
-|        |      | citations corrected. v0.99.55->.71.                                                                                       |
-| 29/7   |      | GH #25 CLOSED (with #49): --esp/--no-esp/--esp-allow, [esp] config keys, status-bar ESP cell, man                          |
-|        |      | NETWORKING section, functional row, ESP-01..04 closed. RX pacing settled by measurement - shipped baud                     |
-|        |      | pacing kept; on-demand buys 1.42x and costs 1243x of the guest's main-loop share. VERIFIED LIVE against                    |
-|        |      | the real nx.nxtel.org BBS through the NextZXOS Browser. Preferences > Network page for the ESP (review                     |
-|        |      | caught a reboot-before-forward ordering bug); --esp-allow comma refusal. v0.99.72->.74 public release.                     |
-| TOTAL: | 383h |                                                                                                      |
+| 16/7   | 7h   | Phase 9 packaging: CPack RPM/DEB/Flatpak + MinGW Windows cross-build (zip verified under wine)       |
+|        |      | Task 66 Preferences + config to ~/.jnext; Task 69 CI + badges; gated releases. v0.98.4->.19          |
+| 16/7   | 5h   | Packaging correctness, 6 reviewed merges (5 REJECT->fix): RPM Fedora, DEB Ubuntu 24.04+26.04         |
+|        |      | Windows GUI-subsystem (no console), Flatpak CI build-from-local, src.zip. v0.98.20->.24              |
+| 19/7   | 10h  | #32 NR 0xB2 from Joystick, #33 extended keys (membrane.vhd:253), #37 mouse capture was ABSOLUTE      |
+|        |      | Task 93 build-matrix guard + CI; TODO.md -> GitHub issues. 8 merges, 5 REJECT. v0.98.52->.56         |
+| 20/7   | 12h  | #28 CLOSED: 9-chapter user guide + pandoc man page; docs-check gates every test run; Phase 9 done    |
+|        |      | CI -> fedora:44 after a piped `make` target reported GREEN on a failing suite. #43 #42 #39. v0.98.71 |
+| 22-23/7| 13h  | LoRes 128x96 shipped (91 VHDL-cited rows written BEFORE code); #64 unified ULA+/ULA palette store    |
+|        |      | #75 per-run private SD clone - SIX review rounds, 3-5 worse than the original. v0.99.0 PUBLIC        |
+| 23/7   | 3h   | #62 Windows UTF-8 manifest; #73 NR $15 per-line replay wired (had shipped with zero callers)         |
+|        |      | #74 sprite_tie completion; #79/#80/#81 harness self-test gaps (stubs, no timeout). v0.99.1->.8       |
+| 24/7   | 7h   | ATIC ATAC CLOSED: #84 = missing SD Nac gap byte before the 0xFE data token; #99 stall; #29 NEX       |
+|        |      | PRs #41/#82/#83/#100. Tree-wide ZERO unit skips (5527/5527). #85-#97 filed. v0.99.9->.14             |
+| 25/7   | 10h  | Ten issues + PR #101 (#53 TX-1696 tilemap fetch splits); #45 power/soft reset split; #98 CMD9/10 gap |
+|        |      | #92 28 MHz SRAM wait (~7% fast); #96/#97/#103/#104 ULAnext border; +6 more. v0.99.15->.28            |
+| 26/7   | 9h   | #102 TX-1696 CLOSED: freeze = DMA stall gated on is_active(), not dma_holds_bus; the fix then        |
+|        |      | exposed a per-frame im2_dma_delay reboot. #109-#114; #108 held on its branch. v0.99.29->.37          |
+| 27/7   | 11h  | #108 CLOSED, Windows 7/8: Qt5 compat behind JNEXT_FORCE_QT5 + CI guard, WinHTTP/BCrypt, i686 leg     |
+|        |      | #117-#119 matrix precision; night run #115/#116/#120 + #122-#152. v0.99.38->.54                      |
+| 28/7   | 13h  | GH #25 ESP-01 branches 1-3.5: UartDevice attach seam, non-blocking TCP + address policy, AT engine   |
+|        |      | Modularised into src/esp01 (off-thread DNS + design doc); matrix from unit-tests.conf. v0.99.55->.71 |
+| 29/7   | 6h   | GH #25 CLOSED with #49: --esp/--no-esp/--esp-allow, config keys, status-bar cell, man NETWORKING     |
+|        |      | RX pacing settled by measurement; VERIFIED LIVE against the real nx.nxtel.org BBS. v0.99.72->.74     |
+| TOTAL: | 481h |                                                                                                      |
