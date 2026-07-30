@@ -250,7 +250,12 @@ fragments and `tr''ap` runs the builtin without containing the word.
 try to stop deliberate obfuscation, which no static grep can.** `t=trap; $t 'c' EXIT` defeats
 it in eight characters, and that is accepted, not a backlog item. The lint's header gives
 EXAMPLES of what it cannot catch, explicitly not an exhaustive list (two "exhaustive" lists
-have already been proved incomplete). Its self-test pins 50 cases both ways.
+have already been proved incomplete), and a MAY WRONGLY FLAG list for the other direction —
+a subshell `( trap … )`, or a live `eval`/heredoc head that merely mentions the word. Matching
+is done on a SYNTAX SKELETON in which every quoted string collapses to one inert token, so a
+live string whose contents look like syntax (`fail_row "… eval … trap …"`) stays clean; an
+earlier whole-line dequote flagged exactly those, which blocks correct rows. Its self-test
+pins 55 cases both ways.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It

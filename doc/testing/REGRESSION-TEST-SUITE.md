@@ -363,8 +363,20 @@ Load-bearing rationale that used to live as long comments inside
   two such lists were already proved incomplete by review, and an enumeration
   asserting a completeness it lacks is precisely the defect this whole exercise
   kept finding.
+  **The scope statement runs in both directions.** A fourth review round found
+  the cost is not only missed traps: dequoting the whole line before matching
+  also stripped the delimiters *around* an argument, so a live string whose
+  contents look like syntax was flagged — `fail_row "please eval trap manually
+  if this ever happens"`, `msg="warning: don't;trap yourself here"`, a backtick
+  doc mention of both words. In a suite *about* catching eval/trap those are
+  foreseeable, and rejecting a correct row costs more than failing to help.
+  Matching now runs on a **syntax skeleton** in which every quoted string,
+  whatever it holds, collapses to one inert token; the word-spelling trick still
+  resolves because it lives *inside* the token. The residual false positives are
+  measured and listed in the header (`MAY WRONGLY FLAG`): a subshell
+  `( trap … )`, and a live `eval` or heredoc head that merely mentions the word.
   Like `lint-assertions.sh` the lint self-tests on every invocation, here with a
-  pinned 50-case table (34 must flag, 16 must not), **one fixture file per case**
+  pinned 55-case table (34 must flag, 21 must not), **one fixture file per case**
   — a single combined fixture asserting only a total let a mutation lose one case,
   gain another, and report green. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
