@@ -54,6 +54,7 @@
 
 ## File format support
 - NEX (v1.0/1.1/1.2): direct page loading, Layer 2 screen/palette from header; host-backed file/block streaming for extended self-streaming NEX applications; saving (V1.2, PC/SP/border/RAM banks — see class doc-comment for honest register limitations)
+- NEX V1.3 loading (Ped7g's extended format, as written by sjasmplus): the three new loading screens (Layer 2 320x256x8bpp, Layer 2 640x256x4bpp, tilemode), copper code block started at load, optional CRC-32C integrity check, expansion-bus and CLI-buffer header fields, and the first-bank file offset used to skip block types jnext does not know. A screen kind the loader cannot size is now refused loudly instead of silently loading every bank from the wrong offset
 - esxDOS sibling-NEX chaining (`--esxdos-stub`): esxDOS `run NAME.nex` chain-loads another NEX in the same directory (game selectors / multi-part NEX games without booting NextZXOS); plus in-memory esxDOS file I/O for a game's config/score file
 - SNA: 48K and 128K snapshots with full register and paging restore; saving (48K)
 - SZX: chunked format with zlib-compressed RAM pages; saving scoped to 48K/128K/+2A/+3 (full RAM, full CPU register set, classic paging, border) — refuses outright for Next/unsupported machines rather than truncating

@@ -24,7 +24,9 @@ code comments, so there is one place to check when a link rots or a spec moves.
 | Reference                                                                    | URL                                                      |
 |------------------------------------------------------------------------------|----------------------------------------------------------|
 | NEX file format — header layout, bank bitmap, file-handle field              | <https://wiki.specnext.dev/NEX_file_format>              |
-| Alternative NEX file formats — appended-payload / self-streaming conventions | <https://wiki.specnext.dev/Alternative_NEX_file_formats> |
+| Alternative NEX file formats — the V1.3 header spec; also appended-payload / self-streaming conventions | <https://wiki.specnext.dev/Alternative_NEX_file_formats> |
+| nexload2.asm — Ped7g's reference V1.3 loader, the behavioural oracle for V1.3 (the distro's nexload.asm cannot parse V1.3) | <https://github.com/ped7g/ZXSpectrumNextMisc/tree/master/nexload2> |
+| sjasmplus `SAVENEX` — the V1.3 writer; `crc32c/crc32c.cpp` is the CRC-32C the spec's checksum field means | <https://github.com/z00m128/sjasmplus>                    |
 | Atic Atac Next — freeware extended-NEX compatibility oracle                  | <https://9bitcolor.itch.io/atic-atac-next>                |
 
 **NEX header, offset 140 (`file_handle`)** — worth recording inline because it
