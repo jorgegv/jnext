@@ -41,6 +41,8 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>   // getpid() — per-process fixture paths, see Fixture
+
 // ── Test infrastructure ───────────────────────────────────────────────
 
 namespace {
@@ -242,6 +244,10 @@ uint8_t read_page(Mmu& mmu, uint16_t page, uint16_t off) {
 }
 
 // One loaded fixture: a real Emulator with a real NexLoader::load()+apply().
+//
+// `cli_args` is the --nex-args value (EmulatorConfig::nex_cli_args, GH #172).
+// It belongs here rather than in V13Opts because it is not a property of the
+// file: the same NEX runs with any argument line, or none.
 struct Fixture {
     Emulator   emu;
     NexLoader  loader;
@@ -249,16 +255,24 @@ struct Fixture {
     bool       load_ok  = false;
     bool       apply_ok = false;
 
-    Fixture(const V13Opts& o, const char* tag, uint8_t nr80_seed = 0x00) {
+    Fixture(const V13Opts& o, const char* tag, uint8_t nr80_seed = 0x00,
+            const std::string& cli_args = {}) {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
+        cfg.nex_cli_args = cli_args;
         emu.init(cfg);
         if (nr80_seed) emu.nextreg().write(0x80, nr80_seed);
 
+        // The PID is load-bearing, not cosmetic: two copies of this suite
+        // running at once (parallel agent worktrees, concurrent reviewer
+        // mutation cycles) otherwise pick the SAME /tmp name and one deletes
+        // the other's fixture between write and load. Same reasoning as
+        // nex_loader_test.cpp's fixture_path().
         const std::string path =
             (std::filesystem::temp_directory_path() /
-             (std::string("jnext_nexv13_") + tag + ".nex")).string();
+             (std::string("jnext_nexv13_") + tag + "_" +
+              std::to_string(::getpid()) + ".nex")).string();
         if (!write_v13_nex(path, o, image)) return;
 
         load_ok = loader.load(path);
@@ -1039,6 +1053,132 @@ void test_cli_buffer() {
     }
 }
 
+// ── CLI argument line (--nex-args, GH #172) ──────────────────────────
+//
+// Every row reads the buffer back through the guest's own MMU view, with the
+// entry bank (bank 5) mapped at 0xC000. bank_byte(5, i) is never 0x00 and
+// never an ASCII letter used below, so "the loader wrote nothing here" and
+// "the loader wrote a terminator here" and "the loader wrote a line byte
+// here" are three distinguishable readings of the same address.
+
+void test_cli_args() {
+    // A V1.3 file declaring a 256-byte buffer at 0xC000, entry bank 5.
+    auto opts_with_buffer = [](uint16_t size) {
+        V13Opts o;
+        o.screen_flags = 0x40; o.screen_flags2 = 3;
+        o.cli_addr = 0xC000; o.cli_size = size;
+        o.entry_bank = 5;
+        o.banks = {5};
+        return o;
+    };
+
+    {
+        Fixture f(opts_with_buffer(256), "cliarg_basic", 0x00, "hello");
+        const auto regs = f.emu.cpu().get_registers();
+        Mmu& mmu = f.emu.mmu();
+        const bool text_ok = f.apply_ok &&
+            mmu.read(0xC000) == 'h' && mmu.read(0xC001) == 'e' &&
+            mmu.read(0xC002) == 'l' && mmu.read(0xC003) == 'l' &&
+            mmu.read(0xC004) == 'o' && mmu.read(0xC005) == 0x00;
+        check("NEXV13-CLI-04",
+              "--nex-args lands verbatim and zero-terminated at the header's declared "
+              "buffer address, with DE pointing at it (nexload2.asm:379-388)",
+              text_ok && regs.DE == 0xC000,
+              fmt("[C000..C005]=%02x %02x %02x %02x %02x %02x DE=%#06x",
+                  mmu.read(0xC000), mmu.read(0xC001), mmu.read(0xC002),
+                  mmu.read(0xC003), mmu.read(0xC004), mmu.read(0xC005), regs.DE));
+
+        // Byte 6 is the first one past the terminator. jnext writes the line
+        // and its terminator only; the oracle's fixed-length ldir would carry
+        // 2 KB of indeterminate bank-5 command-line residue after it, which is
+        // content no program can rely on and jnext cannot reproduce.
+        const uint8_t tail = f.apply_ok ? mmu.read(0xC006) : 0x00;
+        check("NEXV13-CLI-05",
+              "only the line and its terminator are written: the buffer bytes past the "
+              "terminator keep the content the bank load left there",
+              f.apply_ok && tail == bank_byte(5, 6),
+              fmt("[0xC006]=%02x want %02x (bank 5 payload)", tail, bank_byte(5, 6)));
+    }
+
+    // Truncation is bounded by the HEADER's declared size, not by any jnext
+    // constant: a 4-byte buffer takes 4 bytes of an 8-character line.
+    {
+        Fixture f(opts_with_buffer(4), "cliarg_trunc", 0x00, "abcdefgh");
+        Mmu& mmu = f.emu.mmu();
+        const bool first4 = f.apply_ok &&
+            mmu.read(0xC000) == 'a' && mmu.read(0xC001) == 'b' &&
+            mmu.read(0xC002) == 'c' && mmu.read(0xC003) == 'd';
+        const uint8_t fifth = f.apply_ok ? mmu.read(0xC004) : 0x00;
+        check("NEXV13-CLI-06",
+              "a line longer than the buffer is truncated to the header's declared size, "
+              "not refused: the 5th character never reaches memory",
+              first4 && fifth != 'e',
+              fmt("[C000..C004]=%02x %02x %02x %02x %02x, 5th must not be 'e'",
+                  mmu.read(0xC000), mmu.read(0xC001), mmu.read(0xC002),
+                  mmu.read(0xC003), fifth));
+
+        check("NEXV13-CLI-07",
+              "a truncated line carries NO terminator — nexload2.asm:125 'the string is "
+              "zero/enter/colon terminated if smaller, else truncated (no terminator)' — so "
+              "the byte after the buffer is untouched and no data byte is sacrificed",
+              f.apply_ok && fifth == bank_byte(5, 4),
+              fmt("[0xC004]=%02x want %02x (bank 5 payload, not 0x00)",
+                  fifth, bank_byte(5, 4)));
+    }
+
+    // Exact fit pins the boundary: a 5-byte line in a 5-byte buffer is the
+    // "not smaller" case, so it too is unterminated. A `>` instead of `>=`
+    // would append a terminator one byte PAST the declared buffer.
+    {
+        Fixture f(opts_with_buffer(5), "cliarg_exact", 0x00, "abcde");
+        Mmu& mmu = f.emu.mmu();
+        const bool all5 = f.apply_ok &&
+            mmu.read(0xC000) == 'a' && mmu.read(0xC001) == 'b' &&
+            mmu.read(0xC002) == 'c' && mmu.read(0xC003) == 'd' &&
+            mmu.read(0xC004) == 'e';
+        const uint8_t past = f.apply_ok ? mmu.read(0xC005) : 0x00;
+        check("NEXV13-CLI-08",
+              "a line exactly as long as the buffer fills it completely and writes no "
+              "terminator past its end (the 'not smaller' half of nexload2.asm:125)",
+              all5 && past == bank_byte(5, 5),
+              fmt("[C000..C004]=%02x %02x %02x %02x %02x [C005]=%02x want %02x",
+                  mmu.read(0xC000), mmu.read(0xC001), mmu.read(0xC002),
+                  mmu.read(0xC003), mmu.read(0xC004), past, bank_byte(5, 5)));
+    }
+
+    // The 2048-byte spec cap bounds the COPY, not just the log line: a header
+    // claiming 3000 bytes may not have 3000 bytes written into it.
+    {
+        Fixture f(opts_with_buffer(3000), "cliarg_clamp", 0x00, std::string(3000, 'X'));
+        Mmu& mmu = f.emu.mmu();
+        const uint8_t last_in  = f.apply_ok ? mmu.read(0xC7FF) : 0x00;  // offset 2047
+        const uint8_t first_out = f.apply_ok ? mmu.read(0xC800) : 0x00; // offset 2048
+        check("NEXV13-CLI-09",
+              "an over-large declared size is clamped to the spec's 2048-byte maximum "
+              "before the copy, so byte 2047 is written and byte 2048 is not",
+              f.apply_ok && last_in == 'X' && first_out == bank_byte(5, 2048),
+              fmt("[0xC7FF]=%02x want 'X'; [0xC800]=%02x want %02x (bank 5 payload)",
+                  last_in, first_out, bank_byte(5, 2048)));
+    }
+
+    // Version gate. In a V1.0-V1.2 file offsets 148/150 are reserved space, so
+    // a value found there is not a CLI buffer and must not be written to —
+    // same trap as NEXV13-EXP-03's expansion-bus byte.
+    {
+        V13Opts o = opts_with_buffer(256);
+        o.version = "V1.2";
+        o.screen_flags = 0x02;          // ULA screen: a valid V1.2 fixture
+        o.screen_flags2 = 0;
+        Fixture f(o, "cliarg_v12", 0x00, "hello");
+        const uint8_t at = f.apply_ok ? f.emu.mmu().read(0xC000) : 0x00;
+        check("NEXV13-CLI-10",
+              "--nex-args is ignored for a V1.0-V1.2 file, whose offsets 148/150 are "
+              "reserved space rather than a CLI buffer: nothing is written there",
+              f.apply_ok && at == bank_byte(5, 0),
+              fmt("[0xC000]=%02x want %02x (bank 5 payload)", at, bank_byte(5, 0)));
+    }
+}
+
 // ── Loading bar and delay model ──────────────────────────────────────
 
 void test_bar_and_delay() {
@@ -1142,6 +1282,7 @@ int main() {
     test_copper();
     test_expansion_bus();
     test_cli_buffer();
+    test_cli_args();
     test_bar_and_delay();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
