@@ -676,13 +676,13 @@ int main() {
          "i.e. only when the loader is BEHIND the file"},
         {"NEXVER-04", "ver_v12", "V1.2", true,
          "V1.2 (exactly the supported version) loads — `cp` leaves NC on equality"},
-        {"NEXVER-05", "ver_v13", "V1.3", false,
-         "V1.3 is REFUSED while kNexLoaderVersionBcd is 0x12: its screen kinds are not "
-         "decoded, so loading it would mis-size the screen block (issue #162 raises the "
-         "constant when it implements them). This row is also the record that ped7g's "
-         "nexload2/`s p a c e.nex` — a V1.3 file with screen_flags=0x00 and no banks — "
-         "stops loading here: expected, since nexload.asm:290-291 is a content-blind "
-         "version compare that a real Next refuses too"},
+        {"NEXVER-05", "ver_v13", "V1.3", true,
+         "V1.3 LOADS: issue #162 decodes its three screen kinds and raised "
+         "kNexLoaderVersionBcd to 0x13, so the gate no longer refuses it. ped7g's "
+         "nexload2/`s p a c e.nex` — a V1.3 file with screen_flags=0x00 and no banks, "
+         "briefly refused while the ceiling was 0x12 — loads again. The gate itself is "
+         "still pinned by NEXVER-06/07 below; the V1.3 screen kinds have their own "
+         "suite in nex_v13_test"},
         {"NEXVER-06", "ver_v99", "V9.9", false,
          "V9.9 is REFUSED — nexload2/loaderVersion.nex, the conformance file for this gate"},
         {"NEXVER-07", "ver_junk", "XXXX", false,

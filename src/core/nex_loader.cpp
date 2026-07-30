@@ -3,13 +3,33 @@
 #include "core/log.h"
 #include "video/palette.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <string>
 
 /// Read a little-endian uint16_t from a byte buffer.
 static uint16_t read_u16(const uint8_t* p) {
     return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
 }
+
+/// Read a little-endian uint32_t from a byte buffer.
+static uint32_t read_u32(const uint8_t* p) {
+    return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
+           (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
+}
+
+/// Two-digit uppercase hex, for diagnostics built as std::string.
+static std::string hex2(uint8_t v) {
+    static const char* kDigits = "0123456789ABCDEF";
+    return std::string{kDigits[v >> 4], kDigits[v & 0x0F]};
+}
+
+/// V1.3 big Layer 2 screen block: 81920 bytes = 5 banks (nexload2.asm:623-624
+/// loads 10 MMU pages of $2000 each, starting at LAYER2_BANK*2 = page 18).
+static constexpr size_t L2_BIG_SIZE = 81920;
+/// V1.3 copper code block (nexload2.asm:757 `ld bc,$800`).
+static constexpr size_t COPPER_BLOCK_SIZE = 2048;
 
 /// True when the NEX file carries a 512-byte palette block ahead of the
 /// screen data. tbblue/src/asm/nexload/nexload.asm:426-427:
@@ -29,29 +49,82 @@ static uint16_t read_u16(const uint8_t* p) {
 /// Without the LoRes palette counted, the 512 bytes were reported as
 /// "trailing padding" and every following block was read 512 bytes early.
 ///
-/// V1.3's LOADSCR bit 6 (EXT2) is also paletted (nexload2.asm:70 HASPAL =
-/// LAYER2|LORES|EXT2), but the V1.3 screen kinds are not decoded here at all
-/// yet — that is issue #162's scope, so bit 6 is deliberately left out.
+/// V1.3's LOADSCR bit 6 (EXT2) is paletted too — nexload2.asm:72 HASPAL =
+/// LAYER2|LORES|EXT2 — and issue #162 now decodes those screen kinds, so bit 6
+/// is included below. All three V1.3 screens (Layer 2 320x256, Layer 2
+/// 640x256, tilemode) carry the same optional 512-byte block under the same
+/// +128 rule (nexload2.asm:130-132).
+///
+/// One deliberate divergence: nexload2's own test is simply
+/// `(sf & HASPAL) != 0 && !(sf & NOPAL)` (:296-300) with NO ULA/HiRes/HiCol
+/// exclusion, so for a file mixing bit 6 with those older bits the two loaders
+/// would disagree. jnext keeps nexload.asm's exclusion above. The case is
+/// unreachable for conforming files: the spec says the old screen bits
+/// "should be NOT mixed with new modes" (wiki Alternative_NEX_file_formats,
+/// offset 152).
 static bool nex_has_palette_block(uint8_t sf) {
     if (sf & NexHeader::SCREEN_NO_PAL) return false;
     if (sf & (NexHeader::SCREEN_ULA | NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR))
         return false;
-    return (sf & (NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_LORES)) != 0;
+    return (sf & (NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_LORES |
+                  NexHeader::SCREEN_EXT2)) != 0;
 }
 
-/// Bytes of optional screen data a NEX header's screen_flags declares, in the
-/// exact order and sizes NexLoader::apply() consumes them. Lets load() compute
-/// the header-described region (header + screens + banks). Bytes after that
-/// boundary remain host-backed for self-streaming NEX files (issues #29/#84).
-static size_t nex_screen_bytes(uint8_t sf) {
-    size_t n = 0;
-    if (nex_has_palette_block(sf))       n += 512;
-    if (sf & NexHeader::SCREEN_LAYER2)   n += 49152;
-    if (sf & NexHeader::SCREEN_ULA)      n += 6912;
-    if (sf & NexHeader::SCREEN_LORES)    n += 12288;
-    if (sf & NexHeader::SCREEN_HIRES)    n += 12288;
-    if (sf & NexHeader::SCREEN_HICOLOUR) n += 12288;
-    return n;
+/// Bytes of optional screen data (palette + screen blocks) a NEX header
+/// declares, in the exact order and sizes NexLoader::apply() consumes them.
+/// Lets load() compute the header-described region (header + screens +
+/// [copper] + banks). Bytes after that boundary remain host-backed for
+/// self-streaming NEX files (issues #29/#84).
+///
+/// Returns false — with `why` filled in — when the header declares a screen
+/// this loader cannot size. That refusal is the point: the previous code
+/// silently returned 0 for an unrecognised flag, so the header-described
+/// region came out short and EVERY subsequent bank was then read from the
+/// wrong file offset, loading garbage without a single diagnostic
+/// (issue #156 Scope, issue #162).
+static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) {
+    const uint8_t sf = h.screen_flags;
+    out = 0;
+
+    if (sf & ~NexHeader::SCREEN_KNOWN_MASK) {
+        why = "screen_flags has unassigned bit(s) set (0x" +
+              hex2(static_cast<uint8_t>(sf & ~NexHeader::SCREEN_KNOWN_MASK)) +
+              "); the size of the screen block they declare is unknown";
+        return false;
+    }
+
+    // Palette block — shared rule, see nex_has_palette_block() above.
+    if (nex_has_palette_block(sf)) out += 512;
+
+    // Screen data blocks, in file order (nexload2.asm:614-625 — "order of
+    // block definitions must be same as block order in file").
+    if (sf & NexHeader::SCREEN_LAYER2)   out += 49152;
+    if (sf & NexHeader::SCREEN_ULA)      out += 6912;
+    if (sf & NexHeader::SCREEN_LORES)    out += 12288;
+    if (sf & NexHeader::SCREEN_HIRES)    out += 12288;
+    if (sf & NexHeader::SCREEN_HICOLOUR) out += 12288;
+
+    if (sf & NexHeader::SCREEN_EXT2) {
+        switch (h.screen_flags2) {
+            case NexHeader::SCREEN2_L2_320x256:
+            case NexHeader::SCREEN2_L2_640x256:
+                out += L2_BIG_SIZE;
+                break;
+            case NexHeader::SCREEN2_TILEMODE:
+                // No data block at all: "Tilemap data are stored in regular
+                // (!) bank 5 - no specialized data block is used"
+                // (nexload2.asm:133; block def :625 loads 0 pages).
+                break;
+            default:
+                why = "screen_flags bit 6 selects a V1.3 screen but screen_flags2 "
+                      "(offset 152) is " + std::to_string(h.screen_flags2) +
+                      ", which is not one of 1 (L2 320x256x8bpp), "
+                      "2 (L2 640x256x4bpp) or 3 (tilemode)";
+                return false;
+        }
+    }
+
+    return true;
 }
 
 // ram_required_kb / ram_required_fits — defined inline in nex_loader.h
@@ -153,6 +226,68 @@ static void set_loading_screen_display(Emulator& emu, NexScreenKind kind, uint8_
                            d.port_123b, d.nr_15, d.port_ff);
 }
 
+/// CRC-32C (Castagnoli), reflected, polynomial 0x82F63B78.
+///
+/// This mirrors sjasmplus's `crc32c_append_sw` (crc32c/crc32c.cpp), which is
+/// the code that actually writes the field: it XORs the incoming value with
+/// 0xFFFFFFFF on entry and the result with 0xFFFFFFFF on exit, so successive
+/// calls chain to the same value a single call over the concatenated buffers
+/// would give. Seeding a whole-file checksum with 0 therefore runs the
+/// STANDARD CRC-32C (init 0xFFFFFFFF, final XOR 0xFFFFFFFF) — the wiki's
+/// "initial value is zero" describes this chaining seed, not the CRC register.
+uint32_t NexLoader::crc32c_append(uint32_t crc, const uint8_t* data, size_t len)
+{
+    static uint32_t table[256];
+    static bool table_ready = false;
+    if (!table_ready) {
+        constexpr uint32_t POLY = 0x82F63B78u;
+        for (uint32_t i = 0; i < 256; ++i) {
+            uint32_t res = i;
+            for (int k = 0; k < 8; ++k) {
+                res = (res & 1u) ? (POLY ^ (res >> 1)) : (res >> 1);
+            }
+            table[i] = res;
+        }
+        table_ready = true;
+    }
+
+    crc ^= 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; ++i) {
+        crc = table[(crc ^ data[i]) & 0xFFu] ^ (crc >> 8);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+/// Compute the V1.3 CRC-32C of an already-open NEX file: file content from
+/// offset 512 to EOF (including any appended custom binary), then the first
+/// 508 bytes of the header, stopping ahead of the checksum field itself
+/// (wiki "Alternative NEX file formats" offset 508; sjasmplus io_nex.cpp
+/// SNexFile::calculateCrc32C).
+static bool compute_nex_crc32c(std::ifstream& f, uint64_t file_size, uint32_t& out)
+{
+    constexpr size_t CHUNK = 64 * 1024;
+    std::vector<uint8_t> buf(CHUNK);
+    uint32_t crc = 0;
+
+    f.clear();
+    f.seekg(512);
+    uint64_t remaining = file_size - 512;
+    while (remaining > 0) {
+        const size_t want = static_cast<size_t>(std::min<uint64_t>(remaining, CHUNK));
+        f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(want));
+        if (f.gcount() != static_cast<std::streamsize>(want)) return false;
+        crc = NexLoader::crc32c_append(crc, buf.data(), want);
+        remaining -= want;
+    }
+
+    f.clear();
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(buf.data()), 508);
+    if (f.gcount() != 508) return false;
+    out = NexLoader::crc32c_append(crc, buf.data(), 508);
+    return true;
+}
+
 bool NexLoader::load(const std::string& path)
 {
     loaded_ = false;
@@ -212,6 +347,20 @@ bool NexLoader::load(const std::string& path)
     header_.entry_bank        = raw[139];
     header_.file_handle       = read_u16(raw + 140);
 
+    // V1.3 fields (offsets 142-158 + 508). In a V1.0-V1.2 file these bytes
+    // are the zeroed reserved area, so parsing them unconditionally is safe;
+    // every *use* below is gated on the version being V1.3.
+    header_.expansion_bus     = raw[142];
+    header_.checksum_flag     = raw[143];
+    header_.banks_offset      = read_u32(raw + 144);
+    header_.cli_buffer_addr   = read_u16(raw + 148);
+    header_.cli_buffer_size   = read_u16(raw + 150);
+    header_.screen_flags2     = raw[152];
+    header_.copper_flag       = raw[153];
+    std::memcpy(header_.tilemode_cfg, raw + 154, 4);
+    header_.loading_bar_y     = raw[158];
+    header_.crc32c            = read_u32(raw + 508);
+
     // Loader-version gate (nexload.asm:290-291):
     //
     //   ld a,(V_MAJOR):sub '0':and %1111:SWAPNIB:ld b,a
@@ -220,18 +369,21 @@ bool NexLoader::load(const std::string& path)
     //
     // `jp c` fires when the LOADER's version is below the FILE's, i.e. only a
     // file from the future is refused; an older file always loads. jnext used
-    // to warn and load anyway, which silently mis-parses a newer layout (the
-    // exact failure issue #156 records for V1.3: unknown screen bits make
-    // nex_screen_bytes() undercount and every bank is then read from the
-    // wrong offset). Refusing loudly beats loading garbage.
+    // to warn and load anyway, which silently mis-parses a newer layout — the
+    // exact failure issue #156 records for V1.3, where undecoded screen bits
+    // made nex_screen_bytes() undercount and every bank was then read from the
+    // wrong offset. Refusing loudly beats loading garbage.
     //
-    // EXPECTED CASUALTY, not a regression: ped7g's `nexload2/s p a c e.nex`
-    // is a V1.3 file and is refused here, even though it loaded before this
-    // gate existed. It carries screen_flags=0x00 and zero banks, so nothing
-    // could mis-parse — but nexload.asm:290-291 is a raw, content-blind
-    // version compare, so a real Next running NEXLOAD refuses it too. It
-    // starts loading again the moment kNexLoaderVersionBcd reaches 0x13
-    // (issue #162). Row NEXVER-05 pins the refusal.
+    // The ceiling is 0x13 as of issue #162: the V1.3 screen kinds ARE decoded
+    // now (nex_screen_bytes handles all three and refuses anything it cannot
+    // size), so V1.3 files load. ped7g's `nexload2/s p a c e.nex` — a V1.3
+    // file with screen_flags=0x00 and zero banks, briefly an expected casualty
+    // while the ceiling was 0x12 — loads again. Rows NEXVER-05 (V1.3 loads)
+    // and NEXVER-06 (V9.9 still refused) pin both sides of the gate.
+    //
+    // Raising this constant is not a formality: it must move in the SAME
+    // change that teaches nex_screen_bytes() the new version's screen kinds,
+    // or the loader accepts a layout it cannot size.
     header_.version_bcd = nex_version_bcd(header_.version);
     if (kNexLoaderVersionBcd < header_.version_bcd) {
         Log::emulator()->error(
@@ -280,14 +432,85 @@ bool NexLoader::load(const std::string& path)
             "num_banks is decorative — loading the banks the bitmap declares and hoping for the best.",
             path, header_.num_banks, declared_banks);
     }
-    const uint64_t expected_size =
-        512 + nex_screen_bytes(header_.screen_flags) + declared_banks * 16384;
+    size_t screen_bytes = 0;
+    std::string why;
+    if (!nex_screen_bytes(header_, screen_bytes, why)) {
+        // Refuse rather than mis-size. A wrong screen-region size shifts the
+        // start of EVERY bank, so the file would "load" into garbage with no
+        // diagnostic at all (issue #156 Scope, issue #162).
+        Log::emulator()->error("NEX: '{}' declares a screen this loader cannot size: {}",
+                               path, why);
+        return false;
+    }
+
+    const bool v13 = is_v13();
+
+    // V1.3 copper code block: 2048 bytes after the last screen data block
+    // (wiki offset 153; nexload2.asm:315-317, :755-758).
+    const size_t copper_bytes =
+        (v13 && header_.copper_flag) ? COPPER_BLOCK_SIZE : 0;
+
+    // Where the first bank's data starts. V1.3 states it outright at offset
+    // 144; V1.0-V1.2 files leave it 0 and it must be derived.
+    const uint64_t derived_bank_offset = 512 + screen_bytes + copper_bytes;
+    uint64_t bank_offset = derived_bank_offset;
+
+    if (v13 && header_.banks_offset != 0 &&
+        header_.banks_offset != derived_bank_offset) {
+        // The spec's stated purpose for this field is to let a loader skip
+        // blocks it does not understand, so the header — not our derivation
+        // — is the authority on where banks begin. Going BACKWARDS is the
+        // one case that cannot be a future block: it would overlap data we
+        // already parsed, so the header is self-inconsistent and we refuse.
+        if (header_.banks_offset < derived_bank_offset) {
+            Log::emulator()->error(
+                "NEX: '{}' header banks_offset={} is before the end of the blocks its own "
+                "header describes ({}); the header is inconsistent",
+                path, header_.banks_offset, derived_bank_offset);
+            return false;
+        }
+        Log::emulator()->warn(
+            "NEX: '{}' header banks_offset={} disagrees with the {} bytes of blocks its header "
+            "describes; trusting the header and skipping the {} intervening byte(s) — they are "
+            "presumably a block type this loader does not know",
+            path, header_.banks_offset, derived_bank_offset,
+            header_.banks_offset - derived_bank_offset);
+        bank_offset = header_.banks_offset;
+    }
+    bank_data_offset_ = bank_offset;
+
+    const uint64_t expected_size = bank_offset + declared_banks * 16384;
     payload_offset_ = expected_size;
     if (file_size < expected_size) {
         Log::emulator()->error(
             "NEX: '{}' is truncated — file is {} bytes, header describes {} bytes",
             path, file_size, expected_size);
         return false;
+    }
+
+    // Optional V1.3 checksum. Verified and reported, but NOT load-blocking:
+    // the reference loader does not check it at all ("intended for PC tools
+    // ... not for regular loading of NEX files", wiki offset 508), so
+    // refusing here would reject files real hardware runs.
+    if (v13 && header_.checksum_flag) {
+        uint32_t computed = 0;
+        if (!compute_nex_crc32c(f, file_size, computed)) {
+            Log::emulator()->error("NEX: '{}' declares a CRC-32C but could not be re-read to "
+                                   "verify it", path);
+        } else {
+            computed_crc32c_ = computed;
+            if (computed == header_.crc32c) {
+                checksum_status_ = NexChecksum::Valid;
+                Log::emulator()->debug("NEX: '{}' CRC-32C {:#010x} verified", path, computed);
+            } else {
+                checksum_status_ = NexChecksum::Invalid;
+                Log::emulator()->error(
+                    "NEX: '{}' CRC-32C MISMATCH — header says {:#010x}, file computes {:#010x}; "
+                    "the file is corrupt or was modified. Loading anyway (the reference loader "
+                    "does not check this field).",
+                    path, header_.crc32c, computed);
+            }
+        }
     }
 
     // Large trailing regions are self-streamed payloads. They are useful only
@@ -458,6 +681,12 @@ bool NexLoader::apply(Emulator& emu) const
     // ---------------------------------------------------------------
 
     const uint8_t sf = header_.screen_flags;
+    const bool    v13 = is_v13();
+    // The V1.3 screen kind, or SCREEN2_NONE when bit 6 is clear. load() has
+    // already rejected any other value, so this is one of the three known
+    // kinds whenever it is non-zero.
+    const uint8_t sf2 = (sf & NexHeader::SCREEN_EXT2) ? header_.screen_flags2
+                                                      : NexHeader::SCREEN2_NONE;
 
     // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
     // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
@@ -469,6 +698,51 @@ bool NexLoader::apply(Emulator& emu) const
     // in that range and Layer 2 remains untouched. See header doc-comment
     // for full rationale (BEAST-NEX-INVESTIGATION.md § Verdict).
     zero_bank5_screen_pages(mmu);
+
+    // Seed the tilemap palette with the ULA classic palette.
+    //
+    // nexload2.asm calls setupBeforeBlockLoading ONCE, unconditionally, at
+    // :293-296 — before it has even looked at which screen kind the file
+    // declares. That routine resets the ULA classic palette and then
+    // re-points NR 0x43 at the tilemap palette ($30) and writes the SAME
+    // classic 16-colour table again (:830-836, "set ULA classic palette also
+    // to tiles palette"), 16 times over to fill all 256 entries (:65-73,
+    // `ld b,16` around a 16-entry table). So EVERY V1.3 load gets this, not
+    // just the tilemode screens — a program that later switches to the
+    // tilemap layer without loading its own palette finds the classic one,
+    // whatever screen the file used.
+    //
+    // The one gate is PRESERVENEXTREG: setupBeforeBlockLoading returns early
+    // at :781-783 (`ld a,(nexHeader.PRESERVENEXTREG): or a: ret nz`) before
+    // reaching any of the palette resets, so a register-preserving load must
+    // leave the tilemap palette alone.
+    //
+    // Without this a +128 (no-palette) tilemode NEX renders solid black: the
+    // tilemap palette's power-on state really is all-zero (the FPGA's palette
+    // dpram2 takes the default init_file_g, dpram2.vhd:44,:63-78, and has no
+    // reset port), and unlike the ULA/Layer 2/Sprite palettes jnext does not
+    // seed the tilemap one at reset. Routed through the real NextREG path so
+    // it goes through the same write/auto-increment machinery the loader's
+    // own `nextreg` writes would.
+    //
+    // Done BEFORE the palette-block ingest below, so a file that DOES carry a
+    // palette overwrites all 256 entries and is unaffected — matching
+    // nexload2, which likewise seeds first and loads the file palette after.
+    if (v13 && header_.preserve_regs == 0) {
+        // nexload2.asm:929-933 ulaClassicPalette, as NR 0x41 (8-bit
+        // RRRGGGBB) values: the 8 normal then 8 bright Spectrum colours.
+        static constexpr uint8_t kUlaClassicPalette[16] = {
+            0x00, 0x02, 0xA0, 0xA2, 0x14, 0x16, 0xB4, 0xB6,
+            0x00, 0x03, 0xE0, 0xE7, 0x1C, 0x1F, 0xFC, 0xFF,
+        };
+        nr.write(0x43, 0x30);   // tilemap first palette, auto-increment on
+        nr.write(0x40, 0x00);   // index 0
+        for (int rep = 0; rep < 16; ++rep) {
+            for (uint8_t v : kUlaClassicPalette) nr.write(0x41, v);
+        }
+        Log::emulator()->debug("NEX: V1.3 — seeded tilemap palette with the ULA classic "
+                               "palette (nexload2.asm:830-836)");
+    }
 
     // Loading-screen palette (512 bytes) — carried by Layer 2 AND LoRes
     // screens unless NO_PAL is set (nexload.asm:426-427; see
@@ -492,12 +766,21 @@ bool NexLoader::apply(Emulator& emu) const
             return false;
         }
         const bool lores_pal = (sf & NexHeader::SCREEN_LORES) != 0;
+        // V1.3 adds a third destination: a tilemode screen's palette is a
+        // TILEMAP palette (nexload2.asm:731-734 selects NR 0x43 =
+        // %0'011'000'0), while the two big Layer 2 screens use the
+        // Layer2-first palette like the classic Layer 2 one (:735).
+        const bool tile_pal = (sf2 == NexHeader::SCREEN2_TILEMODE);
+        const uint8_t pal_ctrl =
+            tile_pal  ? 0x30
+                      : (lores_pal
+                             ? 0x01
+                             : static_cast<uint8_t>(
+                                   static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4));
         Log::emulator()->debug("NEX: loading {} palette (512 bytes)",
-                               lores_pal ? "LoRes/ULA" : "Layer2");
+                               tile_pal ? "Tilemap" : (lores_pal ? "LoRes/ULA" : "Layer2"));
         // nexload.asm:430 / :432 — NR 0x43 selects the write target.
-        nr.write(0x43, lores_pal
-                           ? 0x01
-                           : static_cast<uint8_t>(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4));
+        nr.write(0x43, pal_ctrl);
         auto& pal = emu.palette();
         pal.set_index(0);                        // nexload.asm:434 NR 0x40 = 0
         for (int i = 0; i < 256; ++i) {
@@ -591,6 +874,87 @@ bool NexLoader::apply(Emulator& emu) const
         set_loading_screen_display(emu, NexScreenKind::HICOLOUR, header_.hires_colour);
     }
 
+    // V1.3 big Layer 2 screens (320x256x8bpp / 640x256x4bpp), 81920 bytes.
+    // nexload2.asm:623-624 loads 10 consecutive $2000 MMU pages starting at
+    // LAYER2_BANK*2 = page 18, i.e. banks 9,10,11,12,13 — NOT banks 8,9,10
+    // where the classic 256x192 Layer 2 screen goes.
+    if (sf2 == NexHeader::SCREEN2_L2_320x256 || sf2 == NexHeader::SCREEN2_L2_640x256) {
+        const bool is320 = (sf2 == NexHeader::SCREEN2_L2_320x256);
+        if (offset + L2_BIG_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated Layer2 {} screen data",
+                                   is320 ? "320x256" : "640x256");
+            return false;
+        }
+        Log::emulator()->debug("NEX: loading Layer2 {} screen ({} bytes into banks 9-13)",
+                               is320 ? "320x256" : "640x256", L2_BIG_SIZE);
+        write_to_ram(mmu, 18, 0, file_data_.data() + offset, L2_BIG_SIZE);
+        offset += L2_BIG_SIZE;
+
+        // Make it visible (nexload2.asm:699-718). The Layer 2 clip window is
+        // 0,159,0,255 — the X pair is in the 320-mode's own half-resolution
+        // units, so 159 IS full width, not a narrower window (:708-715).
+        nr.write(0x1C, 0x01);   // reset the Layer 2 clip-window index
+        nr.write(0x18, 0x00);
+        nr.write(0x18, 0x9F);   // 159
+        nr.write(0x18, 0x00);
+        nr.write(0x18, 0xFF);
+        // NR 0x70 = resolution | palette offset, the offset being the
+        // HiRes-colour byte's low nibble ("HiRes color value 0..15 is used as
+        // L2 palette offset", :716-718).
+        const uint8_t nr70 =
+            static_cast<uint8_t>((header_.hires_colour & 0x0F) | (is320 ? 0x10 : 0x20));
+        nr.write(0x70, nr70);
+        nr.write(0x12, 9);      // LAYER2_BANK (:679)
+        nr.write(0x69, 0x80);   // Layer 2 visible; NR69 is SET, not OR'd (:680-686)
+        Log::emulator()->debug("NEX: V1.3 Layer2 {} screen shown (NR70={:#04x})",
+                               is320 ? "320x256" : "640x256", nr70);
+    } else if (sf2 == NexHeader::SCREEN2_TILEMODE) {
+        // No data block of its own — the tilemap and tile definitions arrive
+        // as ordinary bank 5 content (nexload2.asm:133). Only the four
+        // configuration bytes are applied, in header order = NR 0x6B, 0x6C,
+        // 0x6E, 0x6F (:688-697).
+        nr.write(0x6B, header_.tilemode_cfg[0]);
+        nr.write(0x6C, header_.tilemode_cfg[1]);
+        nr.write(0x6E, header_.tilemode_cfg[2]);
+        nr.write(0x6F, header_.tilemode_cfg[3]);
+        nr.write(0x69, 0x00);
+        Log::emulator()->debug("NEX: V1.3 tilemode screen shown (NR 6B={:#04x} 6C={:#04x} "
+                               "6E={:#04x} 6F={:#04x})",
+                               header_.tilemode_cfg[0], header_.tilemode_cfg[1],
+                               header_.tilemode_cfg[2], header_.tilemode_cfg[3]);
+    }
+
+    // V1.3 copper code block: 2048 bytes immediately after the last screen
+    // data block. nexload2.asm:755-768 streams every byte through NR 0x63
+    // (which auto-increments the copper write address, left at 0 by the
+    // NR 0x62/0x61 zero writes in the NextREG reset above) and then starts
+    // the copper with control code %01 = reset CPC to 0 and run.
+    if (v13 && header_.copper_flag) {
+        if (offset + COPPER_BLOCK_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated copper code block");
+            return false;
+        }
+        const uint8_t* copper_block = file_data_.data() + offset;
+        for (size_t i = 0; i < COPPER_BLOCK_SIZE; ++i) {
+            nr.write(0x63, copper_block[i]);
+        }
+        nr.write(0x62, 0x40);
+        offset += COPPER_BLOCK_SIZE;
+        Log::emulator()->debug("NEX: V1.3 copper block loaded ({} bytes) and started",
+                               COPPER_BLOCK_SIZE);
+    }
+
+    // V1.3 expansion bus (header offset 142): 0 = disable it by clearing the
+    // top four bits of NR 0x80, 1 = leave it alone (nexload2.asm:778-780).
+    // Gated on V1.3 because in a V1.0-V1.2 file offset 142 is reserved space
+    // that is zero — which would read as "disable" for every older file.
+    if (v13 && header_.expansion_bus == 0) {
+        const uint8_t nr80 = nr.read(0x80);
+        nr.write(0x80, static_cast<uint8_t>(nr80 & 0x0F));
+        Log::emulator()->debug("NEX: V1.3 expansion bus disabled (NR80 {:#04x} -> {:#04x})",
+                               nr80, nr80 & 0x0F);
+    }
+
     // ---------------------------------------------------------------
     // 3. Bank data (16K each, in kBankOrder) + loading bar (G156)
     //
@@ -599,6 +963,27 @@ bool NexLoader::apply(Emulator& emu) const
     // mark is drawn on EVERY slot when loading_bar != 0, matching the
     // reference loader exactly (see nex_loader.h citations).
     // ---------------------------------------------------------------
+
+    // load() resolved where bank data actually begins — normally right after
+    // the blocks walked above, but a V1.3 header may state an offset past
+    // block types this loader does not know (header field 144). Re-seat the
+    // read cursor on it so any such gap is skipped rather than mis-read.
+    if (bank_data_offset_ < 512 || bank_data_offset_ - 512 > file_data_.size()) {
+        Log::emulator()->error("NEX: bank data offset {} is outside the loaded region",
+                               bank_data_offset_);
+        return false;
+    }
+    offset = static_cast<size_t>(bank_data_offset_ - 512);
+
+    // The loading bar is drawn by the LOADER, and V1.3 files are not loaded
+    // by the firmware nexload.asm that render_progress_mark() models — that
+    // loader cannot parse V1.3 at all. ped7g's nexload2.asm draws a different
+    // bar in a different place (nexload2.asm:489-509, BIGL2BARPOSY), which
+    // jnext does not model. Drawing the tbblue one anyway would be actively
+    // wrong: it scribbles into physical bank 11, which for the two big
+    // Layer 2 screens is the MIDDLE OF THE VISIBLE PICTURE. So V1.3 gets no
+    // bar rather than the wrong bar.
+    const bool draw_loading_bar = header_.loading_bar && !v13;
 
     int banks_loaded = 0;
     for (size_t d = 0; d < static_cast<size_t>(kTotalBankSlots); ++d) {
@@ -627,7 +1012,7 @@ bool NexLoader::apply(Emulator& emu) const
         // get overwritten by its own mark. That is real firmware
         // behaviour, not a jnext bug; faithfully reproduced by ordering
         // this call after the bank-data write above.
-        if (header_.loading_bar) {
+        if (draw_loading_bar) {
             render_progress_mark(mmu, static_cast<uint8_t>(d), header_.loading_bar_colour);
         }
     }
@@ -639,14 +1024,21 @@ bool NexLoader::apply(Emulator& emu) const
     // plus the unconditional start_delay). See nex_loader.h citations.
     {
         const bool screen_present = (sf != 0);
+        // V1.3 is loaded by nexload2.asm, not nexload.asm, and that loader
+        // charges the per-bank delay once per bank ACTUALLY LOADED and
+        // without the screen-present gate. See boot_hold_frames_v13().
         const uint32_t hold_frames =
-            boot_hold_frames(header_.start_delay, screen_present, header_.loading_delay);
+            v13 ? boot_hold_frames_v13(header_.start_delay,
+                                       static_cast<size_t>(banks_loaded),
+                                       header_.loading_delay)
+                : boot_hold_frames(header_.start_delay, screen_present, header_.loading_delay);
         if (hold_frames > 0) {
             emu.set_boot_hold_frames(hold_frames);
             Log::emulator()->info(
                 "NEX: holding CPU for {} frames before entry (loading_delay={} "
-                "screen_present={} start_delay={})",
-                hold_frames, header_.loading_delay, screen_present, header_.start_delay);
+                "screen_present={} start_delay={} banks_loaded={} v13={})",
+                hold_frames, header_.loading_delay, screen_present, header_.start_delay,
+                banks_loaded, v13);
         }
     }
 
@@ -690,6 +1082,43 @@ bool NexLoader::apply(Emulator& emu) const
     mmu.set_page(7, page_slot7);
     Log::emulator()->debug("NEX: entry_bank {} mapped to slots 6,7 (pages {}, {})",
                           header_.entry_bank, page_slot6, page_slot7);
+
+    // ---------------------------------------------------------------
+    // 7. V1.3 CLI buffer (header offsets 148/150)
+    //
+    // "when address and size are provided, the original argument line passed
+    // to NEX loader will be copied to defined buffer ... and register DE is
+    // set to the buffer address". nexload2.asm:376-389 does this AFTER the
+    // entry bank is paged in, which is why it lives here at the end.
+    //
+    // jnext has no way to pass an argument line to a NEX yet (no CLI surface
+    // for it), so the line it delivers is the empty one: a single zero
+    // terminator, which is a valid terminated BASIC line per the spec
+    // ("shorter string may be zero/colon/enter terminated as any other BASIC
+    // line"). DE is still set, so a program that reads its arguments finds a
+    // well-formed empty line rather than whatever RAM happened to hold.
+    // ---------------------------------------------------------------
+
+    if (v13 && header_.cli_buffer_addr != 0 && header_.cli_buffer_size != 0) {
+        // The spec caps the buffer at 2048 bytes; honour that cap rather
+        // than trusting an over-large header value.
+        constexpr uint16_t CLI_BUFFER_MAX = 2048;
+        uint16_t size = header_.cli_buffer_size;
+        if (size > CLI_BUFFER_MAX) {
+            Log::emulator()->warn("NEX: V1.3 cli_buffer_size={} exceeds the 2048-byte maximum; "
+                                  "clamping", size);
+            size = CLI_BUFFER_MAX;
+        }
+        mmu.write(header_.cli_buffer_addr, 0x00);
+
+        auto regs = cpu.get_registers();
+        regs.DE = header_.cli_buffer_addr;
+        cpu.set_registers(regs);
+
+        Log::emulator()->info("NEX: V1.3 CLI buffer at {:#06x} ({} bytes), DE set; jnext passes "
+                              "no argument line, so an empty one was written",
+                              header_.cli_buffer_addr, size);
+    }
 
     return true;
 }
