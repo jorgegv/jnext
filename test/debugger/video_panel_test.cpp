@@ -1847,7 +1847,8 @@ static void test_background_view(Emulator& emu) {
 // verbatim from UDIS-02 in test/compositor/compositor_integration_test.cpp,
 // which is the established proof of the Copper → NextReg dispatch.
 //
-// VHDL: zxnext.vhd:6809 (Copper scheduling from cvc/hcount), :7214 (the
+// VHDL: zxnext.vhd:3949-3950 (Copper scheduling from cvc/hcount — the
+// `hcount_i => hc, vcount_i => cvc` port map into copper_mod), :7214 (the
 // compositor's per-line fallback_rgb_2), copper.vhd:85-106 (WAIT/MOVE).
 //
 // Row choice mirrors UDIS-02: the exact framebuffer row the MOVE lands on may
