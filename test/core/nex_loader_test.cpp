@@ -285,7 +285,8 @@ struct LoadedFixture {
 // bank's start.
 bool write_nex_bank_fixture(const std::string& path, uint16_t pc, uint16_t sp,
                             uint8_t preserve_regs, uint8_t entry_bank,
-                            uint8_t bank_no, const std::vector<uint8_t>& lead) {
+                            uint8_t bank_no, const std::vector<uint8_t>& lead,
+                            uint8_t start_delay = 0) {
     constexpr size_t BANK = 16384;
     std::vector<uint8_t> file(512 + BANK, 0x00);
 
@@ -302,7 +303,7 @@ bool write_nex_bank_fixture(const std::string& path, uint16_t pc, uint16_t sp,
     file[18 + bank_no] = 1;   // bank presence bitmap
     file[130] = 0;            // loading_bar off
     file[132] = 0;            // loading_delay
-    file[133] = 0;            // start_delay
+    file[133] = start_delay;
     file[134] = preserve_regs;
     file[139] = entry_bank;
 
@@ -315,9 +316,80 @@ bool write_nex_bank_fixture(const std::string& path, uint16_t pc, uint16_t sp,
     return static_cast<bool>(f);
 }
 
-std::string fixture_path(const char* tag) {
+// NOTE: fixture_path() above is shared — it carries the PID, which the
+// NEXPC0 rows need for exactly the reason its comment gives (concurrent
+// mutation runs would otherwise fight over one /tmp name).
+
+std::string tape_fixture_path(const char* tag, const char* ext) {
     return (std::filesystem::temp_directory_path() /
-            (std::string("jnext_nexpc0_") + tag + ".nex")).string();
+            ("jnext_nexpc0_" + std::string(tag) + "_" +
+             std::to_string(::getpid()) + "." + ext)).string();
+}
+
+// One 19-byte header block + one data block — enough for TapLoader::load()
+// to accept the file; the rows only care that attaching it un-parks.
+bool write_tap_fixture(const std::string& path) {
+    std::vector<uint8_t> t;
+    auto push_block = [&](const std::vector<uint8_t>& body) {
+        const uint16_t len = static_cast<uint16_t>(body.size());
+        t.push_back(len & 0xFF);
+        t.push_back(static_cast<uint8_t>(len >> 8));
+        t.insert(t.end(), body.begin(), body.end());
+    };
+    std::vector<uint8_t> hdr(19, 0);
+    hdr[0] = 0x00;                       // flag: header
+    hdr[1] = 3;                          // type: CODE
+    std::memcpy(&hdr[2], "probe     ", 10);
+    hdr[12] = 0x10;                      // length 16
+    hdr[14] = 0x00; hdr[15] = 0x90;      // start 0x9000
+    uint8_t p = 0; for (int i = 0; i < 18; ++i) p ^= hdr[i]; hdr[18] = p;
+    push_block(hdr);
+    std::vector<uint8_t> dat(18, 0);
+    dat[0] = 0xFF;                       // flag: data
+    for (int i = 1; i <= 16; ++i) dat[i] = static_cast<uint8_t>(0xA0 + i);
+    p = 0; for (int i = 0; i < 17; ++i) p ^= dat[i]; dat[17] = p;
+    push_block(dat);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(t.data()), static_cast<std::streamsize>(t.size()));
+    return static_cast<bool>(f);
+}
+
+// "ZXTape!" 0x1A + v1.20 + one 0x10 standard-speed data block.
+bool write_tzx_fixture(const std::string& path) {
+    std::vector<uint8_t> t = {'Z','X','T','a','p','e','!',0x1A, 1, 20};
+    t.push_back(0x10);                       // standard speed data block
+    t.push_back(0xE8); t.push_back(0x03);    // pause 1000 ms
+    std::vector<uint8_t> dat(18, 0);
+    dat[0] = 0xFF;
+    for (int i = 1; i <= 16; ++i) dat[i] = static_cast<uint8_t>(0xA0 + i);
+    uint8_t p = 0; for (int i = 0; i < 17; ++i) p ^= dat[i]; dat[17] = p;
+    t.push_back(static_cast<uint8_t>(dat.size() & 0xFF));
+    t.push_back(static_cast<uint8_t>(dat.size() >> 8));
+    t.insert(t.end(), dat.begin(), dat.end());
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(t.data()), static_cast<std::streamsize>(t.size()));
+    return static_cast<bool>(f);
+}
+
+// RIFF/WAVE, 8-bit unsigned mono, 8000 Hz, 800 samples of square wave.
+bool write_wav_fixture(const std::string& path) {
+    constexpr uint32_t RATE = 8000, NSAMP = 800;
+    std::vector<uint8_t> w;
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) w.push_back((v >> (8 * i)) & 0xFF); };
+    auto u16 = [&](uint16_t v) { for (int i = 0; i < 2; ++i) w.push_back((v >> (8 * i)) & 0xFF); };
+    for (char c : std::string("RIFF")) w.push_back(static_cast<uint8_t>(c));
+    u32(36 + NSAMP);
+    for (char c : std::string("WAVEfmt ")) w.push_back(static_cast<uint8_t>(c));
+    u32(16); u16(1); u16(1); u32(RATE); u32(RATE); u16(1); u16(8);
+    for (char c : std::string("data")) w.push_back(static_cast<uint8_t>(c));
+    u32(NSAMP);
+    for (uint32_t i = 0; i < NSAMP; ++i) w.push_back((i / 20) % 2 ? 0xC0 : 0x40);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(w.data()), static_cast<std::streamsize>(w.size()));
+    return static_cast<bool>(f);
 }
 
 // Read one byte of an arbitrary physical 8K page through the same
@@ -1480,6 +1552,182 @@ int main() {
 
         std::error_code ec;
         std::filesystem::remove(path, ec);
+    }
+
+    // ── NEXPC0-12..16 — a park must never become a silent hang ───────
+    //
+    // The park stops instruction fetch indefinitely, so every entry point
+    // that hands the machine content it is expected to EXECUTE has to
+    // resume it (Emulator::resume_from_park), or it would succeed, report
+    // success, and then do nothing forever with no error and no
+    // indication. That is strictly worse than the wrong-but-visible cold
+    // boot this whole change replaces, so it is a hard requirement, not a
+    // nicety. It was a REGRESSION: before GH #164 a PC=0 NEX fell through
+    // to a running (if corrupting) ROM boot, so a tape did eventually
+    // load.
+    //
+    // Each row is its own call site and each can be deleted
+    // independently, so each gets its own row. Every one parks via a REAL
+    // PC=0 NEX through the real `--load` path, then asserts the CPU
+    // actually advanced afterwards — R (incremented on every M1) is the
+    // probe, and NEXPC0-09 above already proved that probe is live.
+    {
+        struct ResumeCase {
+            const char* id;
+            const char* what;
+            const char* desc;
+        };
+
+        // Park a real machine on a load-only NEX; returns false if setup failed.
+        auto park = [&](Emulator& emu, const std::string& nex_path) -> bool {
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZXN_ISSUE2;
+            cfg.rewind_buffer_frames = 0;
+            return write_nex_bank_fixture(nex_path, 0x0000, kHdrSP, 0, 0, 2, {}) &&
+                   emu.init(cfg) && emu.load_nex(nex_path) && emu.cpu_parked();
+        };
+
+        auto run_and_check = [&](const ResumeCase& c, bool setup_ok, Emulator& emu,
+                                 const Z80Registers& before, int frames) {
+            for (int i = 0; i < frames; ++i) emu.run_frame();
+            const Z80Registers after = emu.cpu().get_registers();
+            check(c.id, c.desc,
+                  setup_ok && !emu.cpu_parked() && after.R != before.R,
+                  fmt("setup=%d still_parked=%d R %02X->%02X PC %04X->%04X",
+                      setup_ok ? 1 : 0, emu.cpu_parked() ? 1 : 0,
+                      before.R, after.R, before.PC, after.PC));
+        };
+
+        {   // NEXPC0-12 — TAP. The one the reviewer proved: reachable from
+            // Tape > Open with nothing in between (gui/main_window.cpp).
+            const std::string nex = fixture_path("resume_tap");
+            const std::string tap = tape_fixture_path("resume", "tap");
+            Emulator emu;
+            bool ok = park(emu, nex) && write_tap_fixture(tap) && emu.load_tap(tap, true);
+            const Z80Registers before = emu.cpu().get_registers();
+            run_and_check({"NEXPC0-12", "TAP",
+                           "attaching a TAP to a parked machine resumes it — neither the ROM "
+                           "LD-BYTES trap nor the phantom typist can fire while the CPU is "
+                           "parked, so the tape would otherwise never load (GH #164)"},
+                          ok, emu, before, 500);
+            std::error_code ec;
+            std::filesystem::remove(nex, ec);
+            std::filesystem::remove(tap, ec);
+        }
+        {   // NEXPC0-13 — TZX, same GUI menu, same mechanisms.
+            const std::string nex = fixture_path("resume_tzx");
+            const std::string tzx = tape_fixture_path("resume", "tzx");
+            Emulator emu;
+            bool ok = park(emu, nex) && write_tzx_fixture(tzx) && emu.load_tzx(tzx, true);
+            const Z80Registers before = emu.cpu().get_registers();
+            run_and_check({"NEXPC0-13", "TZX",
+                           "attaching a TZX to a parked machine resumes it (GH #164)"},
+                          ok, emu, before, 300);
+            std::error_code ec;
+            std::filesystem::remove(nex, ec);
+            std::filesystem::remove(tzx, ec);
+        }
+        {   // NEXPC0-14 — WAV: always real-time, so it depends on the guest
+            // running even more directly than the fast-load formats.
+            const std::string nex = fixture_path("resume_wav");
+            const std::string wav = tape_fixture_path("resume", "wav");
+            Emulator emu;
+            bool ok = park(emu, nex) && write_wav_fixture(wav) && emu.load_wav(wav);
+            const Z80Registers before = emu.cpu().get_registers();
+            run_and_check({"NEXPC0-14", "WAV",
+                           "attaching a WAV to a parked machine resumes it (GH #164)"},
+                          ok, emu, before, 300);
+            std::error_code ec;
+            std::filesystem::remove(nex, ec);
+            std::filesystem::remove(wav, ec);
+        }
+        {   // NEXPC0-15 — inject_binary. NOT reported by review; found by
+            // asking the same "what assumes the CPU advances" question of
+            // every entry point. `--inject` names an entry address and sets
+            // PC to it, so a parked CPU would sit at that address forever.
+            const std::string nex = fixture_path("resume_inject");
+            const std::string bin =
+                (std::filesystem::temp_directory_path() /
+                 ("jnext_nexpc0_resume_" + std::to_string(::getpid()) + ".bin")).string();
+            Emulator emu;
+            bool ok = park(emu, nex);
+            if (ok) {
+                std::ofstream o(bin, std::ios::binary | std::ios::trunc);
+                const char code[2] = {0x18, static_cast<char>(0xFE)};   // JR $
+                o.write(code, 2);
+                ok = static_cast<bool>(o);
+            }
+            if (ok) ok = emu.inject_binary(bin, 0x9000, 0x9000);
+            const Z80Registers before = emu.cpu().get_registers();
+            run_and_check({"NEXPC0-15", "inject",
+                           "--inject on a parked machine resumes it — it names an entry point "
+                           "and sets PC to it, which a parked CPU would never reach (GH #164)"},
+                          ok, emu, before, 100);
+            std::error_code ec;
+            std::filesystem::remove(nex, ec);
+            std::filesystem::remove(bin, ec);
+        }
+        {   // NEXPC0-16 — the debugger's Step. Also not reported by review.
+            // execute_single_instruction() delegates to the SAME shared body
+            // run_frame() uses, which honours the park, so every Step was a
+            // silent no-op and the debugger looked broken rather than the
+            // machine looking parked. No "Parked" affordance exists yet.
+            const std::string nex = fixture_path("resume_step");
+            Emulator emu;
+            const bool ok = park(emu, nex);
+            const Z80Registers before = emu.cpu().get_registers();
+            for (int i = 0; i < 5; ++i) emu.execute_single_instruction();
+            const Z80Registers after = emu.cpu().get_registers();
+            check("NEXPC0-16",
+                  "a debugger single-step on a parked machine resumes it and actually "
+                  "executes — the most explicit possible request to advance the CPU must "
+                  "not be a silent no-op (GH #164)",
+                  ok && !emu.cpu_parked() && after.R != before.R,
+                  fmt("setup=%d still_parked=%d R %02X->%02X PC %04X->%04X",
+                      ok ? 1 : 0, emu.cpu_parked() ? 1 : 0,
+                      before.R, after.R, before.PC, after.PC));
+            std::error_code ec;
+            std::filesystem::remove(nex, ec);
+        }
+    }
+
+    // NEXPC0-17 — the G156 boot hold is not armed for a load-only file.
+    // The park pre-empts it permanently, so arming it would leave a
+    // countdown ticking towards an entry that never happens.
+    {
+        const std::string parked_path  = fixture_path("hold_pc0");
+        const std::string running_path = fixture_path("hold_pcnz");
+        constexpr uint8_t START_DELAY = 40;
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+
+        Emulator parked;
+        const bool p_ok =
+            write_nex_bank_fixture(parked_path, 0x0000, kHdrSP, 0, 0, 2, {}, START_DELAY) &&
+            parked.init(cfg) && parked.load_nex(parked_path);
+        const uint32_t parked_hold = parked.boot_hold_frames_remaining();
+
+        Emulator running;
+        const bool r_ok =
+            write_nex_bank_fixture(running_path, kHdrPC, kHdrSP, 0, 0, 2,
+                                   {0x18, 0xFE}, START_DELAY) &&
+            running.init(cfg) && running.load_nex(running_path);
+        const uint32_t running_hold = running.boot_hold_frames_remaining();
+
+        check("NEXPC0-17",
+              "start_delay does NOT arm the G156 boot hold for a load-only file (the park "
+              "pre-empts it permanently), while the identical file with a non-zero PC "
+              "still arms it — the control proves the fixture really carries a delay",
+              p_ok && r_ok && parked_hold == 0 && running_hold == START_DELAY,
+              fmt("load pc0=%d pcnz=%d; hold parked=%u want 0, running=%u want %u",
+                  p_ok ? 1 : 0, r_ok ? 1 : 0, parked_hold, running_hold,
+                  static_cast<unsigned>(START_DELAY)));
+
+        std::error_code ec;
+        std::filesystem::remove(parked_path, ec);
+        std::filesystem::remove(running_path, ec);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
