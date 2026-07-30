@@ -56,33 +56,32 @@ static constexpr size_t COPPER_BLOCK_SIZE = 2048;
 /// +128 rule (nexload2.asm:130-132).
 ///
 /// The ULA / HiRes / HiColour exclusion belongs to nexload.asm, so it applies
-/// only to headers nexload.asm can parse. Bit 6 (EXT2) says the screen is
-/// described by screen_flags2 — a V1.3 field the distro loader knows nothing
-/// about — so such a file is nexload2's, and nexload2's test has no exclusion
-/// at all (nexload2.asm:296-:300):
+/// only to headers nexload.asm can parse — i.e. V1.0-V1.2. A V1.3 header can
+/// ONLY be parsed by nexload2.asm (the distro loader refuses the version
+/// outright, `LoaderVersion db $12` at nexload.asm:749), and nexload2's test
+/// has no exclusion at all (nexload2.asm:296-:300):
 ///
 ///   ld a,(nexHeader.LOADSCR)
 ///   and NEXLOAD_LOADSCR_HASPAL|NEXLOAD_LOADSCR_NOPAL
 ///   jr z,.NoPalLoad                ; neither layer2 or lores screen
 ///   call p,LoadFilePalette         ; do this only when "no pal" bit is zero
 ///
-/// With HASPAL = LAYER2|LORES|EXT2 (:72), a header of ULA|EXT2 and NO_PAL
-/// clear leaves 0x40 in A — non-zero, sign clear — so nexload2 DOES read the
-/// 512-byte block. jnext used to apply the exclusion regardless of bit 6 and
-/// sized such a file 512 bytes short, which shifts the start of every
-/// following block: the "wrong sizing loads garbage" failure mode again
-/// (issue #169). The exclusion is therefore gated on bit 6 being clear.
+/// With HASPAL = LAYER2|LORES|EXT2 (:72), that routine looks at bit 6 only as
+/// one of three "has a palette" bits — never as the thing that decides whether
+/// the exclusion applies, because it has no exclusion to apply. So the gate is
+/// the header's VERSION, not bit 6 (issue #178). Keying it on bit 6 — as this
+/// predicate did after issue #169 — got the reported ULA|EXT2 case right but
+/// left the narrower one wrong: a V1.3 file mixing an old screen bit with
+/// LAYER2 or LORES and NO bit 6 (say LAYER2|ULA) carries its palette on real
+/// hardware, while jnext followed nexload.asm:426-:427 and omitted it, sizing
+/// the file 512 bytes short and shifting the start of every following block —
+/// the "wrong sizing loads garbage" failure mode of issue #156.
 ///
-/// Still divergent, and deliberately left so: a V1.3 file mixing an old bit
-/// with LAYER2/LORES but WITHOUT bit 6 (say LAYER2|ULA). nexload2 would read
-/// its palette; jnext, seeing no bit 6, follows nexload.asm and does not.
-/// Closing that would mean keying this predicate on the header's VERSION
-/// rather than on bit 6 — but every other V1.3 decision in nex_screen_bytes()
-/// below keys on bit 6, and no such file is known. Left as a documented
-/// divergence rather than resolved unilaterally.
-static bool nex_has_palette_block(uint8_t sf) {
+/// `v13` is the caller's `is_v13()` / "version is V1.3" answer. Note this is
+/// the one V1.3 decision in this file NOT keyed on bit 6; that is the point.
+static bool nex_has_palette_block(uint8_t sf, bool v13) {
     if (sf & NexHeader::SCREEN_NO_PAL) return false;
-    if (!(sf & NexHeader::SCREEN_EXT2) &&
+    if (!v13 &&
         (sf & (NexHeader::SCREEN_ULA | NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR)))
         return false;
     return (sf & (NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_LORES |
@@ -103,6 +102,9 @@ static bool nex_has_palette_block(uint8_t sf) {
 /// (issue #156 Scope, issue #162).
 static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) {
     const uint8_t sf = h.screen_flags;
+    // Same test as NexLoader::is_v13(); this helper is a free function and
+    // sees only the header. load() calls it after parsing the version string.
+    const bool v13 = std::memcmp(h.version, "V1.3", 4) == 0;
     out = 0;
 
     if (sf & ~NexHeader::SCREEN_KNOWN_MASK) {
@@ -113,7 +115,7 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
     }
 
     // Palette block — shared rule, see nex_has_palette_block() above.
-    if (nex_has_palette_block(sf)) out += 512;
+    if (nex_has_palette_block(sf, v13)) out += 512;
 
     // Screen data blocks, in file order (nexload2.asm:614-625 — "order of
     // block definitions must be same as block order in file").
@@ -763,7 +765,10 @@ bool NexLoader::apply(Emulator& emu) const
         nr.write(0x17, 0x00);
     }
 
-    // Palette control: select ULA first palette, no auto-increment.
+    // Palette control: select the ULA first palette (bits 6:4 = 000). Bit 7
+    // is DISABLE auto-increment-on-write (src/video/palette.h:69), so a zero
+    // here leaves auto-increment ENABLED — which is what both loaders want,
+    // since each then walks a palette with repeated NR 0x41/0x44 writes.
     // nexload.asm:267-268 — ABOVE the gate (repeated inside it at :394);
     // on the V1.3 path the only oracle is nexload2.asm:847, which leaves
     // NR 0x43 at 0 at the END of the palette resets, INSIDE its gate.
@@ -916,38 +921,73 @@ bool NexLoader::apply(Emulator& emu) const
     // screens unless NO_PAL is set (nexload.asm:426-427; see
     // nex_has_palette_block above for the file-size evidence, issue #156).
     //
-    // The palette goes to a DIFFERENT bank depending on the screen kind
-    // (nexload.asm:429-433):
+    // The palette goes to a DIFFERENT destination depending on the screen
+    // kind, and THE TWO LOADERS DISAGREE ON THE DESTINATION SELECTOR, so it
+    // follows the loader that would really parse the file — the same
+    // per-loader reasoning GH #166/#171 applied to the prologue registers,
+    // here reaching an observable register (GH #179).
+    //
+    // nexload.asm:429-432 — the V1.0-V1.2 loader, two destinations:
     //
     //   ld a,(IsLoadingScr):and 4:jr z,.nlores
     //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00000001 : jr .nl2  ; LoRes
     // .nlores
     //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00010000            ; Layer 2
     //
-    // i.e. a LoRes screen's palette is the ULA-first palette (NR 0x43 bits
-    // 6:4 = 000, plus bit 0 = ULANext enable), because LoRes reads the ULA
-    // palette; only a Layer 2 screen uses the Layer2-first palette
-    // (bits 6:4 = 001).
-    if (nex_has_palette_block(sf)) {
+    // i.e. a LoRes screen's palette is the ULA-first palette (bits 6:4 = 000)
+    // because LoRes reads the ULA palette — but with bit 0 ALSO set, which is
+    // "enable ULANext mode" (src/video/palette.h:69). Only a Layer 2 screen
+    // gets the Layer2-first palette (bits 6:4 = 001).
+    //
+    // nexload2.asm:731-:741 — the V1.3 loader, three destinations, and NO
+    // ULANext bit anywhere:
+    //
+    //   nextreg NR43,%0'011'000'0        ; tilemap first palette
+    //   ld a,(nexHeader.LOADSCR2) : cp TILEMODE : jr z,.setPalette
+    //   nextreg NR43,%0'001'000'0        ; Layer2 first palette
+    //   or a : jr nz,.setPalette         ; L2 320x256 / 640x256
+    //   ld a,(nexHeader.LOADSCR) : test LAYER2 : jr nz,.setPalette
+    //   nextreg NR43,0                   ; ULA first palette (LoRes mode)
+    //
+    // Two differences from nexload.asm, both taken here:
+    //   - the LoRes selector is plain 0, NOT 0x01: a V1.3 LoRes load does not
+    //     enable ULANext (:741, the reported bug);
+    //   - LAYER2 WINS over LORES (:738-:740, "L2+LoRes=fail"), where
+    //     nexload.asm's `and 4` lets LORES win.
+    if (nex_has_palette_block(sf, v13)) {
         if (offset + 512 > file_data_.size()) {
             Log::emulator()->error("NEX: truncated loading-screen palette data");
             return false;
         }
-        const bool lores_pal = (sf & NexHeader::SCREEN_LORES) != 0;
-        // V1.3 adds a third destination: a tilemode screen's palette is a
-        // TILEMAP palette (nexload2.asm:731-734 selects NR 0x43 =
-        // %0'011'000'0), while the two big Layer 2 screens use the
-        // Layer2-first palette like the classic Layer 2 one (:735).
+        constexpr uint8_t kLayer2First =
+            static_cast<uint8_t>(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4);
+        constexpr uint8_t kTilemapFirst = 0x30;
         const bool tile_pal = (sf2 == NexHeader::SCREEN2_TILEMODE);
-        const uint8_t pal_ctrl =
-            tile_pal  ? 0x30
-                      : (lores_pal
-                             ? 0x01
-                             : static_cast<uint8_t>(
-                                   static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4));
-        Log::emulator()->debug("NEX: loading {} palette (512 bytes)",
-                               tile_pal ? "Tilemap" : (lores_pal ? "LoRes/ULA" : "Layer2"));
-        // nexload.asm:430 / :432 — NR 0x43 selects the write target.
+
+        uint8_t pal_ctrl;
+        const char* pal_name;
+        if (v13) {
+            if (tile_pal) {                                  // :731-:734
+                pal_ctrl = kTilemapFirst; pal_name = "Tilemap";
+            } else if (sf2 != NexHeader::SCREEN2_NONE ||      // :735-:737
+                       (sf & NexHeader::SCREEN_LAYER2)) {     // :738-:740
+                pal_ctrl = kLayer2First;  pal_name = "Layer2";
+            } else {                                          // :741
+                pal_ctrl = 0x00;          pal_name = "LoRes/ULA";
+            }
+        } else {
+            // nexload.asm:429-:432. sf2 is always SCREEN2_NONE here (bit 6 is
+            // a V1.3 field), so there is no tilemap branch on this path.
+            if (sf & NexHeader::SCREEN_LORES) {
+                pal_ctrl = 0x01;          pal_name = "LoRes/ULA+ULANext";
+            } else {
+                pal_ctrl = kLayer2First;  pal_name = "Layer2";
+            }
+        }
+        Log::emulator()->debug("NEX: loading {} palette (512 bytes), NR 0x43 = {:#04x}",
+                               pal_name, pal_ctrl);
+        // nexload.asm:430 / :432, nexload2.asm:731 / :735 / :741 — NR 0x43
+        // selects the write target.
         nr.write(0x43, pal_ctrl);
         auto& pal = emu.palette();
         pal.set_index(0);                        // nexload.asm:434 NR 0x40 = 0

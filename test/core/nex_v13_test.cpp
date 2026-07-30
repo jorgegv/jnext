@@ -116,15 +116,32 @@ struct V13Opts {
     // palette for a header expected_palette_bytes() cannot express. Default
     // false, so every other row is unaffected.
     bool        omit_palette_block = false;
+    // Bytes appended AFTER the last bank. Used by the control rows whose
+    // failure mode is an OVER-size: without slack the last bank would run
+    // past EOF and load() would fail on the truncation guard instead of on
+    // the bank offset, so the row could no longer distinguish "the offset is
+    // wrong" from "the file is short" (the trap disclosed in GH #169).
+    // Must stay <= 16384 or load() rejects the file as an extended NEX.
+    uint32_t    trailing_bytes = 0;
 };
 
 // Screen block sizes computed INDEPENDENTLY of the loader — this is the
 // oracle side of the sizing rows, derived from the spec table, not from
 // nex_screen_bytes().
+// HASPAL = LAYER2|LORES|EXT2 (nexload2.asm:72), NOPAL = 128 (:71). LORES is
+// part of it in BOTH loaders — nexload.asm:427's exclusion list is
+// ULA|HIRES|HICOL (%11010), which does not contain bit 2.
+//
+// The exclusion itself is nexload.asm's alone, so it is gated on the header
+// VERSION: a V1.3 header can only be parsed by nexload2.asm, whose test
+// (nexload2.asm:296-300) has no exclusion at all (GH #178).
 size_t expected_palette_bytes(const V13Opts& o) {
     if (o.omit_palette_block) return 0;
-    const bool has_pal_screen = (o.screen_flags & 0x01) || (o.screen_flags & 0x40);
-    return (has_pal_screen && !(o.screen_flags & 0x80)) ? 512 : 0;
+    const uint8_t sf = o.screen_flags;
+    if (sf & 0x80) return 0;                                   // NOPAL, both loaders
+    const bool v13 = std::strncmp(o.version, "V1.3", 4) == 0;
+    if (!v13 && (sf & 0x1A)) return 0;                         // nexload.asm:427
+    return (sf & (0x01 | 0x04 | 0x40)) ? 512 : 0;              // nexload2.asm:72
 }
 
 size_t expected_screen_data_bytes(const V13Opts& o) {
@@ -170,7 +187,7 @@ bool write_v13_nex(const std::string& path, const V13Opts& o, std::vector<uint8_
     const size_t scr_len  = expected_screen_data_bytes(o);
     const size_t cop_len  = expected_copper_bytes(o);
     const size_t bank_off = expected_bank_offset(o);
-    const size_t total    = bank_off + o.banks.size() * 16384;
+    const size_t total    = bank_off + o.banks.size() * 16384 + o.trailing_bytes;
 
     std::vector<uint8_t> f(total, 0x00);
 
@@ -220,6 +237,7 @@ bool write_v13_nex(const std::string& path, const V13Opts& o, std::vector<uint8_
         for (size_t i = 0; i < 16384; ++i) f[p + i] = bank_byte(b, i);
         p += 16384;
     }
+    for (size_t i = 0; i < o.trailing_bytes; ++i) f[p + i] = gap_byte(i);
 
     // Checksum last: it covers [512,EOF) then header [0,508).
     if (o.checksum_flag) {
@@ -471,6 +489,46 @@ void test_mixed_screen_flags() {
              "a V1.2 header mixing the old ULA bit with LAYER2 carries NO palette block — "
              "nexload.asm:427's `and %11010` exclusion still owns every header without "
              "bit 6 (GH #169 control row)", b, "mix2");
+
+    // GH #178 — the narrower case #169 left open. Same LAYER2|ULA mix, but
+    // the header is V1.3, so nexload2.asm owns it and there is no exclusion
+    // to apply: `and HASPAL|NOPAL` leaves $01, non-zero and sign clear, so
+    // LoadFilePalette runs. Gating the exclusion on bit 6 (as #169 did) gets
+    // this wrong, because bit 6 is clear here; gating it on the VERSION gets
+    // it right. This row and MIX-02 differ ONLY in the version string.
+    V13Opts c;
+    c.screen_flags = 0x01 | 0x02;      // LAYER2 | ULA at V1.3
+    size_row("NEXV13-MIX-03",
+             "a V1.3 header mixing the old ULA bit with LAYER2 DOES carry its 512-byte "
+             "palette block — nexload.asm:427's exclusion belongs to a loader that cannot "
+             "parse V1.3 at all (nexload.asm:749 `LoaderVersion db $12`), so the gate is "
+             "the VERSION, not bit 6 (GH #178)", c, "mix3");
+
+    // The LoRes half of the same case: LORES is the other HASPAL bit
+    // (nexload2.asm:72), and it too is excluded by nexload.asm:427 only when
+    // mixed with ULA/HiRes/HiColour.
+    V13Opts d;
+    d.screen_flags = 0x04 | 0x10;      // LORES | HICOLOUR at V1.3
+    size_row("NEXV13-MIX-04",
+             "a V1.3 header mixing the old HiColour bit with LORES also carries its "
+             "palette block — HASPAL is LAYER2|LORES|EXT2 (nexload2.asm:72) and the "
+             "V1.3 loader excludes nothing (GH #178)", d, "mix4");
+
+    // Control for MIX-04: the same flags at V1.2 are nexload.asm's, and
+    // %11010 contains HiColour, so the palette is excluded. Fails if the
+    // exclusion is dropped outright rather than version-gated.
+    V13Opts e;
+    e.version = "V1.2";
+    e.screen_flags = 0x04 | 0x10;      // LORES | HICOLOUR at V1.2
+    e.omit_palette_block = true;       // nexload.asm:427 excludes it
+    // 512 bytes of slack so an over-size (the exclusion dropped rather than
+    // version-gated) still fits in the file: the row then fails on the bank
+    // OFFSET, not on load()'s truncation guard.
+    e.trailing_bytes = 512;
+    size_row("NEXV13-MIX-05",
+             "a V1.2 header mixing the old HiColour bit with LORES carries NO palette "
+             "block — nexload.asm:427's `and %11010` still owns every V1.0-V1.2 header "
+             "(GH #178 control row)", e, "mix5");
 }
 
 // ── Loud refusal of screens this loader cannot size ──────────────────
@@ -1008,6 +1066,124 @@ void test_palette() {
               "(nexload2.asm:731-734), with nothing after it to reset the register",
               f.apply_ok && nr43 == 0x30,
               fmt("apply=%d NR 0x43 = %#04x want 0x30", f.apply_ok, nr43));
+    }
+
+    // ── LoRes palette destination: the two loaders disagree (GH #179) ──
+    //
+    // nexload.asm:429-:432, which owns every V1.0-V1.2 header:
+    //
+    //   ld a,(IsLoadingScr):and 4:jr z,.nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00000001 : jr .nl2
+    // .nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00010000
+    //
+    // nexload2.asm:735-:741, which owns every V1.3 header:
+    //
+    //   nextreg NR43,%0'001'000'0        ; Layer2 first palette
+    //   or a : jr nz,.setPalette         ; LOADSCR2 selects a big L2 screen
+    //   ld a,(nexHeader.LOADSCR) : test LAYER2 : jr nz,.setPalette
+    //   nextreg NR43,0                   ; ULA first palette (LoRes mode)
+    //
+    // Both point at the ULA-first palette (bits 6:4 = 000) for LoRes, but
+    // nexload.asm ALSO sets bit 0 — "enable ULANext mode"
+    // (src/video/palette.h:69) — and nexload2 does not. jnext wrote 0x01 on
+    // both paths. NR 0x43 is read before read_pal_8(), which writes it.
+    {
+        V13Opts o;
+        o.screen_flags = 0x04;           // LoRes screen, palette block present
+        o.banks = {5};
+        Fixture f(o, "pal7");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-07",
+              "a V1.3 LoRes loading screen's palette selects NR 0x43 = 0x00 — plain "
+              "ULA-first palette, ULANext NOT enabled (nexload2.asm:741)",
+              f.apply_ok && nr43 == 0x00,
+              fmt("apply=%d NR 0x43 = %#04x want 0x00", f.apply_ok, nr43));
+    }
+
+    // Control row: the same header at V1.2 is nexload.asm's, and there the
+    // ULANext bit really is set. Fails if the fix is applied unconditionally
+    // instead of being version-gated.
+    {
+        V13Opts o;
+        o.version = "V1.2";
+        o.screen_flags = 0x04;
+        o.banks = {5};
+        Fixture f(o, "pal8");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-08",
+              "a V1.2 LoRes loading screen's palette still selects NR 0x43 = 0x01 — "
+              "ULA-first palette WITH ULANext enabled (nexload.asm:429-430); the V1.3 "
+              "change must not leak onto the loader that owns this header",
+              f.apply_ok && nr43 == 0x01,
+              fmt("apply=%d NR 0x43 = %#04x want 0x01", f.apply_ok, nr43));
+    }
+
+    // The loaders also disagree on precedence when BOTH bits are set:
+    // nexload2.asm:738-:740 tests LAYER2 first and takes the Layer2-first
+    // palette ("L2+LoRes=fail" at :742), where nexload.asm:429's `and 4`
+    // lets LoRes win. This row pins the V1.3 side.
+    {
+        V13Opts o;
+        o.screen_flags = 0x01 | 0x04;    // LAYER2 | LORES
+        o.banks = {5};
+        Fixture f(o, "pal9");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-09",
+              "a V1.3 header with LAYER2 and LORES both set sends the palette to the "
+              "LAYER 2 palette (NR 0x43 = 0x10) — nexload2.asm:738-740 tests LAYER2 "
+              "before falling through to the LoRes selector",
+              f.apply_ok && nr43 == 0x10,
+              fmt("apply=%d NR 0x43 = %#04x want 0x10", f.apply_ok, nr43));
+    }
+
+    // The FOURTH input to the destination selector is screen_flags2, and
+    // nexload2.asm:735-:737 folds two of its values into one branch:
+    //
+    //   nextreg PALETTE_CONTROL_NR43,%0'001'000'0   ; NR43=Layer2 first palette
+    //   ld      a,(nexHeader.LOADSCR2)   [loaded at :732]
+    //   or      a
+    //   jr      nz,.setPalette              ; Layer2 320x256 or 640x256
+    //
+    // `or a : jr nz` takes ANY non-zero LOADSCR2 that is not TILEMODE — so
+    // 640x256 (2) reaches the Layer2-first palette by exactly the same route
+    // as 320x256 (1). Nothing in the tree ran the selector with LOADSCR2 = 2:
+    // NEXV13-SIZE-03 checks only sizing, and NEXV13-PAL-04 sets +128, so no
+    // palette block is read and the selector never executes. The transcription
+    // bug that survives without this row is the classic one — writing
+    // `sf2 == SCREEN2_L2_320x256` for `sf2 != SCREEN2_NONE`.
+    //
+    // EXT2 must be set: without it apply() pins sf2 to SCREEN2_NONE (bit 6 is
+    // what makes field 152 meaningful) and no palette block is read at all.
+    // NR 0x43 is read first, before read_pal_8() writes it.
+    {
+        V13Opts o;
+        o.screen_flags = 0x40;           // EXT2, and NOT +128: palette present
+        o.screen_flags2 = 2;             // Layer 2 640x256x4bpp
+        o.banks = {5};
+        Fixture f(o, "pal10");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        bool l2_ok = f.apply_ok;
+        size_t bad = 0; uint8_t got = 0, want = 0;
+        if (l2_ok) {
+            for (int i = 0; i < 256 && l2_ok; ++i) {
+                got = read_pal_8(f.emu, 0x10, static_cast<uint8_t>(i));
+                want = pal_byte(static_cast<size_t>(i) * 2);
+                if (got != want) { l2_ok = false; bad = static_cast<size_t>(i); }
+            }
+        }
+        // Entry 1 of the tilemap palette is still the classic seed's 0x02, so
+        // the block did not land there either — index 1 because index 0 reads
+        // 0x00 both seeded and unwritten.
+        const uint8_t tm1 = f.apply_ok ? read_pal_8(f.emu, 0x30, 1) : 0xFF;
+        check("NEXV13-PAL-10",
+              "a Layer 2 640x256 screen's palette block selects NR 0x43 = 0x10 and lands "
+              "in the LAYER 2 palette — nexload2.asm:736-737's `or a : jr nz` takes every "
+              "non-zero non-tilemode LOADSCR2, not just 320x256",
+              f.apply_ok && nr43 == 0x10 && l2_ok && tm1 == 0x02,
+              fmt("apply=%d NR 0x43 = %#04x want 0x10; l2_pal[%zu]=%02x want %02x; "
+                  "tilemap_pal[1]=%02x want 02",
+                  f.apply_ok, nr43, bad, got, want, tm1));
     }
 }
 
