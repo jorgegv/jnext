@@ -43,7 +43,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Contention            |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Contention            |      121 |      121 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -96,6 +96,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6463** | **6463** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6466** | **6466** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
