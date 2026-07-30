@@ -269,7 +269,7 @@ scan_dir() {
                 return l ~ ("(^|[^A-Za-z0-9_])" w "([^A-Za-z0-9_]|$)")
             }
 
-            function reason(   v) {
+            function reason(   v, e) {
                 # `trap`, optionally behind the `builtin`/`command` builtins, in
                 # command position. Matched on the SKELETON, so string contents
                 # can never supply the separator or the word.
@@ -278,13 +278,21 @@ scan_dir() {
                     || NLINE ~ ("[;&|(){}][[:space:]]*" v) \
                     || NLINE ~ ("[[:space:]](then|do|else)[[:space:]]+" v))
                     return "trap command"
-                # `eval` must be a real command token (skeleton), and only then
-                # is its argument DATA searched for the word. Gating on the
-                # skeleton is what keeps `fail_row "... eval ... trap ..."`
-                # clean. Residual, accepted: a line that genuinely runs eval AND
-                # mentions trap in an unrelated string is flagged. Flagging next
-                # to a live eval is the safe direction, and no row does it.
-                if (has_word(NLINE, "eval") && has_word(dequote_all(DLINE), "trap"))
+                # `eval` must be INVOKED, and only then is its argument DATA
+                # searched for the word.
+                #
+                # Anchored exactly like the trap rule above, not a presence
+                # test. has_word(NLINE, "eval") asks only whether the word
+                # appears somewhere, which two unrelated assignments satisfy —
+                # `mode=eval; msg="see the trap docs"` was flagged, as was
+                # `run_mode eval "read the trap docs"` where eval is another
+                # command_s argument (N22, N23). Found in review; the comment
+                # here promised invocation while the code checked presence.
+                e = "((builtin|command)[[:space:]]+)*eval([[:space:]]|$)"
+                if ((NLINE ~ ("^[[:space:]]*" e) \
+                     || NLINE ~ ("[;&|(){}][[:space:]]*" e) \
+                     || NLINE ~ ("[[:space:]](then|do|else)[[:space:]]+" e)) \
+                    && has_word(dequote_all(DLINE), "trap"))
                     return "eval with trap in its argument"
                 return ""
             }
@@ -349,7 +357,9 @@ scan_dir() {
 # is not hypothetical — reverting the DOUBLE-state backslash rule did precisely
 # that and the combined-fixture self-test passed. Per case, a lost case is named.
 #
-# CASES — 34 must flag, 21 must not (55 total).
+# CASES — 34 must flag, 23 must not (57 total).
+# CASES-TABLE-BEGIN — every ID below is cross-checked against the fixture
+# files at the end of self_test(); the two cannot drift apart.
 #
 #   P01 bare `trap`                      P15 `eval "trap ..."`
 #   P02 indented                         P16 `eval 'trap - EXIT'`
@@ -389,12 +399,19 @@ scan_dir() {
 #   N18 `msg="... don't;trap ..."`           N21 `"step 3: eval; trap; done"`
 #   N19 backtick doc mention of both words
 #
+#   the eval gate must test INVOCATION, not the presence of the word
+#   (round-5 review):
+#   N22 `mode=eval; msg="see the trap docs"`
+#   N23 `run_mode eval "read the trap docs for details"`
+#
+# CASES-TABLE-END
+#
 # P21-P25 are the quoting cases: an earlier decomment() counted quote
 # characters, and a counter cannot express bash escaping. P29-P34 are the
 # spelling cases, closed by dequote(). Both classes were found by review, not
 # by this table — which is the argument for keeping the table growing.
 self_test() {
-    local dir bad good out id failed=0
+    local dir bad good out id f failed=0
     local -a missing=() spurious=()
     dir=$(mktemp -d)
     bad="$dir/bad"; good="$dir/good"
@@ -463,12 +480,14 @@ self_test() {
     printf '%s\n' 'echo "run `eval` never `trap` directly"'                 >"$good/N19.sh"
     printf '%s\n' "msg=\"one \\" "two; trap three\""                         >"$good/N20.sh"
     printf '%s\n' "printf '%s\\n' \"step 3: eval; trap; done\""             >"$good/N21.sh"
+    # `eval` present as a plain word, never invoked
+    printf '%s\n' "mode=eval; msg=\"see the trap docs\""                   >"$good/N22.sh"
+    printf '%s\n' "run_mode eval \"read the trap docs for details\""       >"$good/N23.sh"
 
     # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_dir "$bad")
-    for id in P01 P02 P03 P04 P05 P06 P07 P08 P09 P10 P11 P12 P13 P14 \
-              P15 P16 P17 P18 P19 P20 P21 P22 P23 P24 P25 P26 P27 P28 \
-              P29 P30 P31 P32 P33 P34; do
+    for f in "$bad"/*.sh; do
+        id=$(basename "$f" .sh)
         grep -q "/$id\.sh:" <<<"$out" || missing+=("$id")
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -484,6 +503,29 @@ self_test() {
         done
         echo "ERROR: self-test: legitimate code was flagged (false positive) in: ${spurious[*]}" >&2
         printf '%s\n' "$out" >&2
+        failed=1
+    fi
+
+    # --- the prose CASES table must list exactly the fixtures that exist ------
+    # Same drift class as every pinned count in this project: a table nothing
+    # checks is a claim nothing checks. Adding a fixture without documenting it,
+    # or documenting a case without a fixture, is now a hard failure rather than
+    # something a reader has to notice. (This check was added after the previous
+    # round's report CLAIMED the table was generated from the fixtures when
+    # nothing connected them at all.)
+    local -a doc_only=() fix_only=()
+    local documented actual
+    documented=$(sed -n '/# CASES-TABLE-BEGIN/,/# CASES-TABLE-END/p' "${BASH_SOURCE[0]}" \
+                 | grep -oE '\b[PN][0-9]{2}\b' | sort -u)
+    actual=$( { ls -1 "$bad" "$good"; } | sed -n 's/\.sh$//p' | sort -u)
+    mapfile -t doc_only < <(comm -23 <(printf '%s\n' "$documented") <(printf '%s\n' "$actual"))
+    mapfile -t fix_only < <(comm -13 <(printf '%s\n' "$documented") <(printf '%s\n' "$actual"))
+    if [[ ${#doc_only[@]} -gt 0 ]]; then
+        echo "ERROR: self-test: CASES table documents cases with no fixture: ${doc_only[*]}" >&2
+        failed=1
+    fi
+    if [[ ${#fix_only[@]} -gt 0 ]]; then
+        echo "ERROR: self-test: fixtures missing from the CASES table: ${fix_only[*]}" >&2
         failed=1
     fi
 
