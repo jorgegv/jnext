@@ -59,6 +59,8 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>   // getpid() — per-process fixture paths, see fixture_path()
+
 // ── Test infrastructure ───────────────────────────────────────────────
 
 namespace {
@@ -155,6 +157,21 @@ bool write_nex_fixture(const std::string& path, uint8_t screen_flag, size_t scre
     return static_cast<bool>(f);
 }
 
+// Per-process temp path for a fixture. The PID is load-bearing, not
+// cosmetic: two copies of this suite running at once — which is the
+// normal state of this project (parallel agent worktrees, and the
+// reviewer guidance to run mutation cycles concurrently) — otherwise
+// pick the SAME /tmp name, and one deletes or truncates the other's
+// fixture between write and load. Measured before the PID went in:
+// 8 spurious `NEX fixture failed to load/apply` failures in 72 runs of
+// six concurrent copies, sometimes a single row, which is exactly the
+// shape of an unreproducible one-row triplet failure.
+std::string fixture_path(const char* tag) {
+    return (std::filesystem::temp_directory_path() /
+            ("jnext_nexload_test_" + std::string(tag) + "_" +
+             std::to_string(::getpid()) + ".nex")).string();
+}
+
 // Read one byte of bank 5 (16 KB, offsets 0x0000-0x3FFF) back through the
 // same temp-slot-7 MMU mapping the loader writes through, so the readback
 // traverses identical rebuild_ptr() / bank-5 dual-port VRAM machinery
@@ -215,9 +232,7 @@ struct LoadedFixture {
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
 
-        const std::string path =
-            (std::filesystem::temp_directory_path() /
-             (std::string("jnext_nexload_test_") + tag + ".nex")).string();
+        const std::string path = fixture_path(tag);
 
         if (!write_nex_fixture(path, screen_flag, screen_bytes, with_palette)) return;
 
