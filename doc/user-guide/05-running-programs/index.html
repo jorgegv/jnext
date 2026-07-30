@@ -2882,6 +2882,14 @@ jnext game.sna
 <p>The format is recognised from the extension — <code>.nex</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>,
 <code>.tap</code>, <code>.tzx</code>, <code>.wav</code> and <code>.rzx</code> are all understood. A bare filename is
 exactly the same as <code>--load FILE</code>; you cannot use both at once.</p>
+<p>A NEX <strong>V1.3</strong> file can declare a buffer for an argument line, and <code>--nex-args</code>
+fills it:</p>
+<pre><code>jnext --load game.nex --nex-args &quot;level 3&quot;
+</code></pre>
+<p>The program finds that text with <code>DE</code> pointing at it, zero-terminated, exactly
+as it would when launched with arguments from NextZXOS. A line longer than the
+buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
+so with anything else the option warns and is ignored.</p>
 <p>In the window, <strong>File &gt; Load NEX File…</strong> (Alt+O) opens the same loader and
 accepts every one of those formats despite its name. Tapes have their own
 entry, <strong>Tape &gt; Open Tape File…</strong> (Alt+T), covered in

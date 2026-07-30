@@ -43,6 +43,20 @@ The format is detected from the extension: \f[CR].nex\f[R],
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
 .TP
+\f[B]\-\-nex\-args\f[R] \f[I]LINE\f[R]
+Argument line for a NEX \f[B]V1.3\f[R] program.
+\f[I]LINE\f[R] is placed, verbatim and zero\-terminated, in the CLI
+buffer the file\(cqs header declares (its address and size), and
+\f[CR]DE\f[R] points at it when the program starts.
+A line as long as or longer than that buffer is truncated to the
+buffer\(cqs size with no terminator \- which is what the reference V1.3
+loader does.
+Quote \f[I]LINE\f[R] to pass more than one word:
+\f[CR]jnext \-\-load game.nex \-\-nex\-args \(dqlevel 3\(dq\f[R].
+Only V1.3 declares a CLI buffer, so the option is inert \- with a
+warning \- for a \f[CR]V1.0\f[R]\-\f[CR]V1.2\f[R] file, or a V1.3 file
+whose header declares no buffer.
+.TP
 \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R]
 Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]).
 Optional; see \f[B]SD CARD AND ROMS\f[R].

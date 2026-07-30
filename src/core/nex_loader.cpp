@@ -1204,13 +1204,45 @@ bool NexLoader::apply(Emulator& emu) const
     // set to the buffer address". nexload2.asm:376-389 does this AFTER the
     // entry bank is paged in, which is why it lives here at the end.
     //
-    // jnext has no way to pass an argument line to a NEX yet (no CLI surface
-    // for it), so the line it delivers is the empty one: a single zero
-    // terminator, which is a valid terminated BASIC line per the spec
-    // ("shorter string may be zero/colon/enter terminated as any other BASIC
-    // line"). DE is still set, so a program that reads its arguments finds a
-    // well-formed empty line rather than whatever RAM happened to hold.
+    // The line jnext delivers comes from --nex-args (GH #172); with no such
+    // option it is the empty line, which is what every V1.3 file got before.
+    //
+    // WHAT the line contains is the one place jnext cannot be literal. The
+    // oracle's line is the dot command's own tail (nexload2.asm:246 `ld
+    // (start.HL),hl ; remember pointer to original argument data`, copied at
+    // :319-323 before any parsing), so it still begins with the NEX filename
+    // the user typed. jnext has no command tail at all — no NextZXOS, no
+    // `.nexload2`, and `--load` is not a BASIC line — so there is nothing to
+    // quote from. `--nex-args` is therefore the WHOLE line, verbatim: what the
+    // user writes is what the guest reads at DE. A program that wants a
+    // filename first can be given one (`--nex-args "game.nex 2"`); inventing
+    // one here would put bytes in the buffer the user never asked for.
+    //
+    // TERMINATION is the oracle's, and it is asymmetric. nexload2.asm:379-388
+    // does `ld bc,(nexHeader.CLIBUFFERSIZE)` + `ldir` — a fixed-length copy of
+    // the whole declared size — and the header field's own comment spells out
+    // what that means for the string inside it (nexload2.asm:125):
+    //
+    //   CLIBUFFERSIZE   DW      0       ; buffer size - the string is
+    //                                     zero/enter/colon terminated if
+    //                                     smaller, else truncated (no terminator)
+    //
+    // So: a line SHORTER than the buffer arrives terminated (jnext writes the
+    // zero form of the three the spec allows); a line that fills or overflows
+    // it arrives truncated to exactly `size` bytes with NO terminator. A
+    // caller that reads the full declared size therefore sees the same bytes
+    // the real loader would give it, and truncation never costs a data byte to
+    // make room for a terminator the oracle does not write.
+    //
+    // Only the bytes of the line (plus its terminator) are written. The oracle
+    // copies the full `size` bytes from its own 2 KB innerBuffer, so what
+    // follows a short line there is whatever trailed the command line in
+    // bank 5 — indeterminate content jnext cannot reproduce and no program can
+    // rely on. Leaving the tail alone keeps the load-only path's "leave RAM as
+    // the file left it" property intact past the terminator.
     // ---------------------------------------------------------------
+
+    const std::string& cli_args = emu.config().nex_cli_args;
 
     if (v13 && header_.cli_buffer_addr != 0 && header_.cli_buffer_size != 0) {
         // The spec caps the buffer at 2048 bytes; honour that cap rather
@@ -1222,15 +1254,46 @@ bool NexLoader::apply(Emulator& emu) const
                                   "clamping", size);
             size = CLI_BUFFER_MAX;
         }
-        mmu.write(header_.cli_buffer_addr, 0x00);
+
+        const bool truncated = cli_args.size() >= size;
+        const size_t copied  = truncated ? size : cli_args.size();
+        for (size_t i = 0; i < copied; ++i) {
+            mmu.write(static_cast<uint16_t>(header_.cli_buffer_addr + i),
+                      static_cast<uint8_t>(cli_args[i]));
+        }
+        if (!truncated) {
+            mmu.write(static_cast<uint16_t>(header_.cli_buffer_addr + copied), 0x00);
+        }
 
         auto regs = cpu.get_registers();
         regs.DE = header_.cli_buffer_addr;
         cpu.set_registers(regs);
 
-        Log::emulator()->info("NEX: V1.3 CLI buffer at {:#06x} ({} bytes), DE set; jnext passes "
-                              "no argument line, so an empty one was written",
-                              header_.cli_buffer_addr, size);
+        if (truncated) {
+            Log::emulator()->warn("NEX: --nex-args is {} bytes but the V1.3 CLI buffer at {:#06x} "
+                                  "holds {}; truncated to {} bytes with no terminator, as the "
+                                  "reference loader does",
+                                  cli_args.size(), header_.cli_buffer_addr, size, copied);
+        }
+        Log::emulator()->info("NEX: V1.3 CLI buffer at {:#06x} ({} bytes), DE set; {} bytes of "
+                              "argument line written{}",
+                              header_.cli_buffer_addr, size, copied,
+                              truncated ? "" : " + zero terminator");
+    } else if (!cli_args.empty()) {
+        // An argument line was supplied that cannot be delivered. Warn rather
+        // than refuse the load: the file is otherwise perfectly runnable, and
+        // failing it would turn a mistyped option into "the program is
+        // broken". Warn rather than stay silent for the converse reason — a
+        // program silently reading an empty line looks like a program bug.
+        if (!v13) {
+            Log::emulator()->warn("NEX: --nex-args ignored — only V1.3 declares a CLI buffer, and "
+                                  "this file is '{}' (offsets 148/150 are reserved space there)",
+                                  std::string(header_.version, 4));
+        } else {
+            Log::emulator()->warn("NEX: --nex-args ignored — this V1.3 file declares no CLI buffer "
+                                  "(header address {:#06x}, size {})",
+                                  header_.cli_buffer_addr, header_.cli_buffer_size);
+        }
     }
 
     // ---------------------------------------------------------------

@@ -57,6 +57,9 @@ static void print_usage(const char* prog) {
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
         "                       Supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
         "                       (.rzx is accepted here and plays back, as --rzx-play)\n"
+        "  --nex-args LINE      Argument line for a NEX V1.3 program: placed in the CLI\n"
+        "                       buffer its header declares, with DE pointing at it.\n"
+        "                       Truncated to that buffer's size. V1.3 files only.\n"
         "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
         "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
         "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
@@ -191,6 +194,7 @@ int main(int argc, char* argv[]) {
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
     std::string load_file;
+    std::string nex_cli_args;      // --nex-args: argument line for a V1.3 CLI buffer
     std::string positional_file;   // bare filename arg; shorthand for --load
     std::string sd_card_image;
     bool        sdcard_download_confirm = false;
@@ -296,6 +300,14 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::Load:
                 load_file = v[0];
+                break;
+            case cli::OptId::NexArgs:
+                // Taken verbatim, including spaces and an empty string: the
+                // value IS the argument line the guest reads. Whether it can
+                // be delivered depends on the NEX header, so the diagnostics
+                // live in NexLoader::apply(), which knows the version and the
+                // declared buffer (GH #172).
+                nex_cli_args = v[0];
                 break;
             case cli::OptId::Sdcard:
                 // --sdcard is canonical; --sd-card is a silent (undocumented)
@@ -714,6 +726,7 @@ int main(int argc, char* argv[]) {
         // 2026-05-04). Pure --sdcard boots leave load_file empty and
         // get the firmware overlay.
         cfg.load_file = load_file;
+        cfg.nex_cli_args = nex_cli_args;
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.esxdos_stub = esxdos_stub;
         cfg.tape_save_file = tape_save_file;

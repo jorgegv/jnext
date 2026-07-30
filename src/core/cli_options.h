@@ -41,6 +41,7 @@ enum class OptId {
     InjectPc,
     InjectDelay,
     Load,
+    NexArgs,
     Sdcard,
     SdcardDownloadConfirm,
     SdcardDownloadForce,
@@ -161,6 +162,7 @@ inline constexpr Option OPTIONS[] = {
     // Machine and program
     { "--machine",                   1, Doc::Documented, OptId::Machine },
     { "--load",                      1, Doc::Documented, OptId::Load },
+    { "--nex-args",                  1, Doc::Documented, OptId::NexArgs },
     { "--sdcard",                    1, Doc::Documented, OptId::Sdcard },
     // Backward-compatibility alias for --sdcard, deliberately never documented:
     // it exists so older scripts keep working, and promoting it to the man page
