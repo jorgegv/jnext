@@ -48,7 +48,8 @@ struct NexHeader {
 
 /// Highest NEX file-format version this loader understands, BCD-packed the
 /// way nexload.asm packs it: "V1.2" -> 0x12. A file whose version exceeds
-/// this is REFUSED by NexLoader::load() (nexload.asm:296-297).
+/// this is REFUSED by NexLoader::load() (nexload.asm:290-291; the reference
+/// loader's own value is `LoaderVersion db $12` at nexload.asm:749).
 ///
 /// **Raise this to 0x13 in the change that implements V1.3** (issue #162) —
 /// the V1.3 screen kinds (LOADSCR bit 6 + the LOADSCR2 selector) are not
@@ -66,7 +67,7 @@ static constexpr uint8_t kJnextCoreMajor    = 3;
 static constexpr uint8_t kJnextCoreMinor    = 2;
 static constexpr uint8_t kJnextCoreSubminor = 3;
 
-/// BCD-pack a NEX header version string the way nexload.asm:296 does:
+/// BCD-pack a NEX header version string the way nexload.asm:290 does:
 ///   major = (version[1] - '0') & 0x0F, placed in the high nibble
 ///   minor = version[3] & 0x0F,         placed in the low nibble
 /// so "V1.2" -> 0x12 and "V9.9" -> 0x99. A malformed string packs to some
@@ -78,7 +79,7 @@ inline uint8_t nex_version_bcd(const char version[4]) {
 }
 
 /// True when the core version a NEX header requires is met by the version
-/// jnext advertises. nexload.asm:312-316 compares major, then minor, then
+/// jnext advertises. nexload.asm:314-316 compares major, then minor, then
 /// subminor, and only demands an update when a field is strictly greater:
 ///   ld a,(CORE_MAJOR)   :cp l:jr z,.o1:jp nc,coreUpdate:jr .ok
 ///   ld a,(CORE_MINOR)   :cp h:jr z,.o2:jp nc,coreUpdate:jr .ok

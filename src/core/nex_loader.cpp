@@ -212,7 +212,7 @@ bool NexLoader::load(const std::string& path)
     header_.entry_bank        = raw[139];
     header_.file_handle       = read_u16(raw + 140);
 
-    // Loader-version gate (nexload.asm:296-297):
+    // Loader-version gate (nexload.asm:290-291):
     //
     //   ld a,(V_MAJOR):sub '0':and %1111:SWAPNIB:ld b,a
     //   ld a,(V_MINOR):and %1111:or b:ld b,a       ; B = BCD, "V1.2" -> $12
@@ -224,6 +224,14 @@ bool NexLoader::load(const std::string& path)
     // exact failure issue #156 records for V1.3: unknown screen bits make
     // nex_screen_bytes() undercount and every bank is then read from the
     // wrong offset). Refusing loudly beats loading garbage.
+    //
+    // EXPECTED CASUALTY, not a regression: ped7g's `nexload2/s p a c e.nex`
+    // is a V1.3 file and is refused here, even though it loaded before this
+    // gate existed. It carries screen_flags=0x00 and zero banks, so nothing
+    // could mis-parse — but nexload.asm:290-291 is a raw, content-blind
+    // version compare, so a real Next running NEXLOAD refuses it too. It
+    // starts loading again the moment kNexLoaderVersionBcd reaches 0x13
+    // (issue #162). Row NEXVER-05 pins the refusal.
     header_.version_bcd = nex_version_bcd(header_.version);
     if (kNexLoaderVersionBcd < header_.version_bcd) {
         Log::emulator()->error(
@@ -234,9 +242,9 @@ bool NexLoader::load(const std::string& path)
         return false;
     }
 
-    // Core-version requirement (nexload.asm:307-317). Reported, NOT enforced:
+    // Core-version requirement (nexload.asm:308-316). Reported, NOT enforced:
     // the reference loader reads NR 0x00 first and SKIPS the whole check when
-    // it reads 8 ("emulator") — `cp 8:jp z,.ok` at nexload.asm:310. jnext
+    // it reads 8 ("emulator") — `cp 8:jp z,.ok` at nexload.asm:311. jnext
     // reports 0x0A (real hardware) because NextZXOS's ROM1 machine-ID branch
     // needs it (src/port/nextreg.cpp:220-225, test MID-01), so the faithful
     // reading is not "enforce the check" but "the check does not apply to us".
@@ -248,7 +256,7 @@ bool NexLoader::load(const std::string& path)
                              header_.core_version[2])) {
         Log::emulator()->warn(
             "NEX: '{}' asks for core {}.{:02}.{:02}, above the {}.{:02}.{:02} jnext reports; "
-            "loading anyway (nexload.asm:310 skips this check on emulators)",
+            "loading anyway (nexload.asm:311 skips this check on emulators)",
             path, header_.core_version[0], header_.core_version[1], header_.core_version[2],
             kJnextCoreMajor, kJnextCoreMinor, kJnextCoreSubminor);
     }
@@ -361,7 +369,8 @@ bool NexLoader::apply(Emulator& emu) const
     // register writes here. Source: nexload.asm from tbblue gitlab.
     //
     // ORDER MATTERS, and it is nexload.asm's: this whole reset block
-    // runs FIRST (nexload.asm:321-410, the `.dontresetregs` fallthrough),
+    // runs FIRST (nexload.asm:323-409, gated by DONTRESETNEXTREGS at :323
+    // and falling through to the `.dontresetregs` label at :422),
     // and only then does the loading-screen block run (:424-511). The
     // screen block therefore has the LAST word on NR 0x15, NR 0x43 and
     // the ULA palette. jnext used to run them the other way round, which

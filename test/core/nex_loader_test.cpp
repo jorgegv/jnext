@@ -594,7 +594,8 @@ int main() {
     // NEXORD-06 — the palette-clobber half of the same ordering bug. The
     // NextREG-init block writes ULA palette entry 0x18 = 0xE3; if it runs
     // AFTER the screen block it destroys entry 24 of a LoRes screen's
-    // palette. nexload.asm resets first (:395-408) and loads the screen
+    // palette. nexload.asm writes that pair unconditionally at :269-270,
+    // long before the screen block, and loads the screen
     // palette second (:428-438), so the FILE wins.
     {
         LoadedFixture f(NexHeader::SCREEN_LORES, 12288, "ord_palclobber", /*with_palette=*/true);
@@ -608,7 +609,7 @@ int main() {
             check("NEXORD-06",
                   "ULA palette entry 0x18 holds the LoRes screen's own colour, not the 0xE3 "
                   "the NextREG-init block writes — init runs BEFORE the screen block "
-                  "(nexload.asm:395-408 then :428-438)",
+                  "(nexload.asm:269-270 then :428-438)",
                   got == want,
                   fmt("ULA pal[0x18]=0x%03X want 0x%03X%s", got, want,
                       got == clobber ? " (== the NR-init 0xE3 write: ordering regressed)" : ""));
@@ -636,7 +637,7 @@ int main() {
     // =================================================================
     // NEXVER — the loader-version gate (issue #156).
     //
-    // nexload.asm:296-297 packs the header's version string to BCD and
+    // nexload.asm:290-291 packs the header's version string to BCD and
     // refuses only a file from the FUTURE:
     //
     //   ld a,(V_MAJOR):sub '0':and %1111:SWAPNIB:ld b,a
@@ -652,7 +653,7 @@ int main() {
     set_group("NEXVER");
 
     check("NEXVER-01",
-          "\"V1.2\" packs to BCD 0x12 (nexload.asm:296 major<<4 | minor)",
+          "\"V1.2\" packs to BCD 0x12 (nexload.asm:290 major<<4 | minor)",
           nex_version_bcd("V1.2") == 0x12,
           fmt("got 0x%02X want 0x12", nex_version_bcd("V1.2")));
 
@@ -678,7 +679,10 @@ int main() {
         {"NEXVER-05", "ver_v13", "V1.3", false,
          "V1.3 is REFUSED while kNexLoaderVersionBcd is 0x12: its screen kinds are not "
          "decoded, so loading it would mis-size the screen block (issue #162 raises the "
-         "constant when it implements them)"},
+         "constant when it implements them). This row is also the record that ped7g's "
+         "nexload2/`s p a c e.nex` — a V1.3 file with screen_flags=0x00 and no banks — "
+         "stops loading here: expected, since nexload.asm:290-291 is a content-blind "
+         "version compare that a real Next refuses too"},
         {"NEXVER-06", "ver_v99", "V9.9", false,
          "V9.9 is REFUSED — nexload2/loaderVersion.nex, the conformance file for this gate"},
         {"NEXVER-07", "ver_junk", "XXXX", false,
@@ -711,11 +715,11 @@ int main() {
     }
 
     // =================================================================
-    // NEXCORE — the core-version requirement (nexload.asm:307-317).
+    // NEXCORE — the core-version requirement (nexload.asm:308-316).
     //
     // Field-ordered compare: major, then minor, then subminor, refusing
     // only when a field is strictly greater. NexLoader WARNS rather than
-    // refuses (nexload.asm:310 `cp 8:jp z,.ok` skips the whole check on
+    // refuses (nexload.asm:311 `cp 8:jp z,.ok` skips the whole check on
     // an emulator, and jnext's advertised core version is nominal), so
     // these rows pin the comparison itself.
     // =================================================================
@@ -735,12 +739,12 @@ int main() {
         {"NEXCORE-02", 15, 15, 255, false,
          "15.15.255 is NOT met — the requirement nexload2/coreVersion.nex carries"},
         {"NEXCORE-03", 3, 3, 0, false,
-         "equal major, greater minor is not met (nexload.asm:314)"},
+         "equal major, greater minor is not met (nexload.asm:315, the `.o1` field)"},
         {"NEXCORE-04", 3, 2, 4, false,
          "equal major and minor, greater subminor is not met (nexload.asm:316)"},
         {"NEXCORE-05", 1, 15, 255, true,
          "a LOWER major wins outright even with higher minor/subminor — the compare is "
-         "field-ordered, not a tuple sum (nexload.asm:312 `jr .ok`). This is the value "
+         "field-ordered, not a tuple sum (nexload.asm:314 `jr .ok`). This is the value "
          "nexload2/empty.nex and preserveNextRegs.nex actually carry"},
         {"NEXCORE-06", 3, 1, 5, true,
          "3.01.05 is met — the value ped7g's bigpic/A_drvHID/test8xN NEX files carry, so "
