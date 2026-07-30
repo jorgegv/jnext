@@ -480,6 +480,20 @@ my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
 # `\.vhd` must not be a prefix of a longer identifier, or `row.vhdl_line`
 # in a printf argument list is read as a citation of "row.vhd".
 #
+# A citation MAY carry a directory prefix, and until GH #145 the class could
+# not express one: `[A-Za-z0-9_]+\.vhd` never captured a directory, so a cell
+# written the way the design docs write it — `device/copper.vhd:54-119`, the
+# qualified relative path — could never equal the bare filename the extractor
+# computed, and drifted on every run for ever. A permanent false entry in the
+# drift report is noise hiding a real one (the same argument as GH #142).
+#
+# The prefix is CAPTURED rather than discarded, and then validated: see
+# resolve_vhd() for how `device/copper.vhd` (a real path), `src/zxnext.vhd` (a
+# real path spelled from one level up) and `bogus/copper.vhd` (not a path at
+# all) are told apart. Folding a prefix away unconditionally was the other
+# option and is refused — it would need basenames to be unique across the FPGA
+# tree, and `hdmi_plle2.vhd` exists twice (`pll/A7/`, `pll/A7-Issue-5/`).
+#
 # A citation's line list may continue in two spellings, and BOTH have to be
 # consumed or the tail is silently dropped (GH #136):
 #
@@ -528,7 +542,7 @@ my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
 # citations to guard against a shape that occurs zero times — destroying good
 # evidence, which is a different act from refusing a bad one.
 my $VHDL_CITE_RE = qr{
-    \b ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
+    \b ( (?: [A-Za-z0-9_.\-]+ / )* [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
     (?: \s* : \s*
         ( \d+ (?: \s* [-–] \s* \d+ )?
           (?: (?: \s* [/,+] \s* : \s*
@@ -874,23 +888,71 @@ sub grep_source {
     return (\%checks, \%skips);
 }
 
-# Set of VHDL basenames that actually exist in the FPGA core, or undef when
-# the core is not checked out next to jnext (CI, a fresh clone) — in which
-# case validation is skipped rather than failing every citation.
+# What the FPGA core actually contains, or 0 when it is not checked out next
+# to jnext (CI, a fresh clone) — in which case validation is skipped rather
+# than failing every citation.
+#
+#   base   basename -> number of files carrying it. The COUNT, not a flag:
+#          `hdmi_plle2.vhd` exists twice (`pll/A7/`, `pll/A7-Issue-5/`), and
+#          that is exactly the case where a directory prefix carries real
+#          information and must not be folded away (GH #145).
+#   spell  every ACCEPTED spelling of a file -> its basename. A spelling is
+#          any path SUFFIX of the file's absolute path, cut at a `/`. So
+#          `zxula.vhd`, `video/zxula.vhd`, `src/video/zxula.vhd` and
+#          `cores/zxnext/src/video/zxula.vhd` are all accepted for the same
+#          file, which is what lets `device/copper.vhd` (the design docs'
+#          convention) and `src/zxnext.vhd` (24 sites, written from one level
+#          up) both validate without a special case for either.
 my $VHDL_FILES;
 sub vhdl_files {
     return $VHDL_FILES if defined $VHDL_FILES;
-    my %seen;
+    my (%base, %spell);
     if (-d $FPGA_SRC && open(my $fh, '-|', 'find', $FPGA_SRC, '-name', '*.vhd')) {
         while (my $p = <$fh>) {
             chomp $p;
-            $p =~ s{.*/}{};
-            $seen{$p} = 1;
+            my @seg = split m{/}, $p;
+            my $bn  = $seg[-1];
+            $base{$bn}++;
+            for my $i (0 .. $#seg) {
+                $spell{ join('/', @seg[$i .. $#seg]) } = $bn;
+            }
         }
         close $fh;
     }
-    $VHDL_FILES = %seen ? \%seen : 0;
+    $VHDL_FILES = %base ? { base => \%base, spell => \%spell } : 0;
     return $VHDL_FILES;
+}
+
+# What the FPGA core says about a cited filename, which may be qualified.
+# Returns (verdict, published_name):
+#
+#   'ok'       the spelling names a real file — published verbatim, prefix and
+#              all, because the prefix is information the reader asked for
+#   'rehomed'  the DIRECTORY is wrong but the basename is real: published as
+#              the bare basename (never worse than the pre-GH #145 behaviour,
+#              which discarded every prefix) and REPORTED, because a wrong
+#              directory is a wrong citation even when the file exists
+#   'unknown'  nothing in the core carries that basename — dropped, as before
+#   'unchecked' the core is not on this machine; nothing is validated
+sub resolve_vhd {
+    my ($cited) = @_;
+    my $known = vhdl_files();
+    return ('unchecked', $cited) unless $known;
+    return ('ok', $cited) if exists $known->{spell}{$cited};
+    (my $bn = $cited) =~ s{.*/}{};
+    return ('rehomed', $bn) if exists $known->{base}{$bn};
+    return ('unknown', $cited);
+}
+
+# True when a bare basename identifies exactly one file in the core, i.e. when
+# a directory prefix adds nothing and may be folded away for COMPARISON.
+# False for `hdmi_plle2.vhd`, and false when the core is not checked out —
+# refusing to fold is the answer that cannot be wrong.
+sub vhd_basename_unique {
+    my ($bn) = @_;
+    my $known = vhdl_files();
+    return 0 unless $known;
+    return (($known->{base}{$bn} // 0) == 1) ? 1 : 0;
 }
 
 # EVERY VHDL citation in a blob of text, normalised to "file.vhd:lines" and
@@ -925,15 +987,25 @@ sub vhdl_files {
 # an entry is dropped only when every line reference it makes already appears,
 # spelled identically, in another entry for that same file. `:169` goes;
 # `:169` vs `:176` would both stay, and so would two different files.
+my %REHOMED_WARNED;
 sub cite_in {
     my ($text) = @_;
-    my $known = vhdl_files();
     my (@out, %seen);
     while ($text =~ /$VHDL_CITE_RE/g) {
-        my ($file, $lines) = ($1, $2);
-        if ($known && !$known->{$file}) {
-            warn "WARN: citation names '$file', which is not in $FPGA_SRC\n";
+        my ($cited, $lines) = ($1, $2);
+        my ($verdict, $file) = resolve_vhd($cited);
+        if ($verdict eq 'unknown') {
+            warn "WARN: citation names '$cited', which is not in $FPGA_SRC\n";
             next;
+        }
+        # A wrong DIRECTORY beside a real basename: publish the basename (the
+        # pre-GH #145 answer, so nothing is lost) and say so once per distinct
+        # spelling. Once, because a single wrong path is written at dozens of
+        # sites and a warning repeated forty times is the saturated-warning
+        # failure this tool has already been bitten by twice.
+        if ($verdict eq 'rehomed' && !$REHOMED_WARNED{$cited}++) {
+            warn "WARN: citation names '$cited'; $FPGA_SRC has no such path, "
+               . "but does carry '$file' — publishing the bare filename\n";
         }
         my $cite;
         if (!defined $lines) {
@@ -951,8 +1023,16 @@ sub cite_in {
             $lines =~ s/://g;
             $cite = "$file:$lines";
         }
-        next if $seen{$cite}++;
-        push @out, { cite => $cite, file => $file,
+        # Both the duplicate check and the subset suppression below are asked
+        # about the FILE, and after GH #145 a file has more than one accepted
+        # spelling — so both are keyed on the canonical form, or
+        # `copper.vhd:87-89` sits beside `device/copper.vhd:87-89,92-97`
+        # instead of being suppressed by it (measured: TIM-CYC-02 and FNK-01
+        # both regressed exactly that way while this was keyed on the literal
+        # spelling). canon_citation() folds a prefix only when the basename is
+        # unambiguous, so the two `hdmi_plle2.vhd` files still never merge.
+        next if $seen{ canon_citation($cite) }++;
+        push @out, { cite => $cite, file => canon_citation($file),
                      tok  => { map { $_ => 1 }
                                split(/[,\/]/, defined $lines ? $lines : '') } };
     }
@@ -1638,10 +1718,28 @@ sub cite_upgrades {
 # disagreement between the human and the extractor about exactly that.
 # Measured over the same 361: zero entries are pure reorderings, so the
 # strictness costs nothing today and keeps the report honest when one appears.
+#
+# A DIRECTORY PREFIX is the third rule, and it is not cosmetic — it is the one
+# spelling difference that could never be reconciled at all (GH #145). The
+# design docs write the qualified relative path (`device/copper.vhd:54-119`)
+# and the extractor computed a bare filename, so those cells drifted on every
+# run for ever, and a permanent false entry is noise hiding a real one.
+#
+# It is folded ONLY when the basename identifies exactly one file in the core.
+# `hdmi_plle2.vhd` exists under both `pll/A7/` and `pll/A7-Issue-5/`, and there
+# the prefix is the whole content of the citation; folding it would equate two
+# citations that name different files. When the core is not checked out,
+# nothing is folded — refusing is the answer that cannot be wrong.
+#
+# The prefix is folded for the COMPARISON only. The stored cell keeps whatever
+# was written, here as everywhere else in this sub.
 sub canon_citation {
     my ($c) = @_;
     $c =~ s{\s*([,/])\s*}{$1}g;   # "5633, 6260" -> "5633,6260"
     $c =~ s{([,/]):}{$1}g;        # "5179,:6436" -> "5179,6436"
+    # "device/copper.vhd:54" -> "copper.vhd:54", when unambiguous.
+    $c =~ s{ \b (?: [A-Za-z0-9_.\-]+ / )+ ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] ) }
+           { vhd_basename_unique($1) ? $1 : $& }gex;
     return $c;
 }
 

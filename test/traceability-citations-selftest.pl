@@ -37,10 +37,25 @@ my $REAL_ROOT = $ROOT;
 # tree so grep_citations() reads the fixture, and JNEXT_FPGA_SRC points at a
 # fake core holding exactly the .vhd names the fixture is allowed to cite —
 # so the filename whitelist is exercised for real, not bypassed.
+#
+# The fake core is NOT flat. A citation may carry a directory prefix
+# (GH #145), and the three answers that prefix can get — a real path, a wrong
+# path beside a real basename, and a basename that names TWO files — are only
+# distinguishable against a tree that has subdirectories and a duplicated
+# basename in it, exactly as the real core does (`hdmi_plle2.vhd` lives under
+# both `pll/A7/` and `pll/A7-Issue-5/`).
 my $FIXTURE_ROOT = tempdir(CLEANUP => 1);
-mkdir "$FIXTURE_ROOT/fpga";
-for my $vhd (qw(fixture_a.vhd fixture_b.vhd fixture_c.vhd fixture_d.vhd)) {
-    open(my $fh, '>', "$FIXTURE_ROOT/fpga/$vhd") or die "write $vhd: $!";
+for my $vhd (qw(fixture_a.vhd fixture_b.vhd fixture_c.vhd fixture_d.vhd
+                device/fixture_e.vhd
+                pll/A7/fixture_dup.vhd pll/A7-Issue-5/fixture_dup.vhd)) {
+    my $abs = "$FIXTURE_ROOT/fpga/$vhd";
+    (my $dir = $abs) =~ s{/[^/]+$}{};
+    my $sofar = '';
+    for my $part (grep { length } split m{/}, $dir) {
+        $sofar .= "/$part";
+        mkdir $sofar unless -d $sofar;
+    }
+    open(my $fh, '>', $abs) or die "write $vhd: $!";
     print $fh "-- fixture\n";
     close $fh;
 }
@@ -277,6 +292,80 @@ check('SELF-111', 'a bit slice behind a bare comma is NOT absorbed as a second l
 check('SELF-112', 'the control: an ordinary bare `, <digits>` list is still carried',
       ($cites->{'CONT-05'} // '') eq 'fixture_d.vhd:5633,6260',
       "got " . ($cites->{'CONT-05'} // '(none)'));
+
+# ── Directory-qualified citations (GH #145) ───────────────────────────
+#
+# The class could not express a directory at all, so a cell written the way
+# the design docs write it — `device/copper.vhd:54-119`, the qualified
+# relative path — could never equal the bare filename the extractor computed,
+# and drifted on every run for ever. A permanent false entry in the drift
+# report is noise hiding a real one.
+#
+# The prefix is now captured and VALIDATED against the real tree, and folded
+# for the drift comparison only when the basename is unambiguous. SELF-116 is
+# the refusal that keeps that fold honest.
+
+write_fixture('test/fixture/path_test.cpp', <<'CPP');
+void paths() {
+    check("PATH-OK-01", "a real qualified path — VHDL device/fixture_e.vhd:54-119",
+          cond, detail);
+    check("PATH-UP-01", "spelled from one level up — VHDL fpga/fixture_a.vhd:7",
+          cond, detail);
+    check("PATH-BAD-01", "a wrong directory beside a real basename — VHDL nowhere/fixture_b.vhd:9",
+          cond, detail);
+    check("PATH-GONE-01", "neither path nor basename exists — VHDL nowhere/not_a_real.vhd:1",
+          cond, detail);
+    check("PATH-SUB-01", "bare restated beside qualified", cond,
+          "fixture_e.vhd:54-119 and device/fixture_e.vhd:54-119,200");
+    check("PATH-DUP-01", "an AMBIGUOUS basename keeps its directory — VHDL pll/A7/fixture_dup.vhd:3",
+          cond, detail);
+}
+CPP
+my @path_warnings;
+my $pc = do {
+    local $SIG{__WARN__} = sub { push @path_warnings, $_[0] };
+    grep_citations('test/fixture/path_test.cpp');
+};
+
+check('SELF-113', 'a directory-qualified citation naming a real path is published verbatim, prefix kept',
+      ($pc->{'PATH-OK-01'} // '') eq 'device/fixture_e.vhd:54-119',
+      "got " . ($pc->{'PATH-OK-01'} // '(none)'));
+
+check('SELF-114', 'a path spelled from one level up still validates — any suffix of the real path is accepted',
+      ($pc->{'PATH-UP-01'} // '') eq 'fpga/fixture_a.vhd:7',
+      "got " . ($pc->{'PATH-UP-01'} // '(none)'));
+
+check('SELF-115', 'a WRONG directory beside a real basename falls back to the basename and is reported',
+      scalar(($pc->{'PATH-BAD-01'} // '') eq 'fixture_b.vhd:9'
+             && grep { /nowhere\/fixture_b\.vhd/ } @path_warnings),
+      "got " . ($pc->{'PATH-BAD-01'} // '(none)')
+        . "; warnings: @path_warnings");
+
+check('SELF-117', 'the whitelist still refuses a name the core does not carry at all, prefix or no prefix',
+      !defined $pc->{'PATH-GONE-01'},
+      "got " . ($pc->{'PATH-GONE-01'} // '(none)'));
+
+check('SELF-118', 'subset suppression sees through the spelling: a bare restatement is dropped beside the qualified one',
+      ($pc->{'PATH-SUB-01'} // '') eq 'device/fixture_e.vhd:54-119,200',
+      "got " . ($pc->{'PATH-SUB-01'} // '(none)'));
+
+# canon_citation() is what the drift comparison judges by. It must fold an
+# unambiguous prefix (SELF-116a) and must NOT fold an ambiguous one (SELF-116),
+# because there the prefix is the whole content of the citation.
+check('SELF-116a', 'an unambiguous directory prefix folds for the drift comparison',
+      canon_citation('device/fixture_e.vhd:54-119') eq 'fixture_e.vhd:54-119',
+      'got ' . canon_citation('device/fixture_e.vhd:54-119'));
+
+check('SELF-116', 'THE REFUSAL: an AMBIGUOUS basename is never folded — two files, two citations',
+      scalar(canon_citation('pll/A7/fixture_dup.vhd:3') eq 'pll/A7/fixture_dup.vhd:3'
+             && canon_citation('pll/A7-Issue-5/fixture_dup.vhd:3')
+                ne canon_citation('pll/A7/fixture_dup.vhd:3')),
+      'A7=' . canon_citation('pll/A7/fixture_dup.vhd:3')
+        . ' A7-Issue-5=' . canon_citation('pll/A7-Issue-5/fixture_dup.vhd:3'));
+
+check('SELF-119', 'an ambiguous basename keeps its directory when published, too',
+      ($pc->{'PATH-DUP-01'} // '') eq 'pll/A7/fixture_dup.vhd:3',
+      "got " . ($pc->{'PATH-DUP-01'} // '(none)'));
 
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');
