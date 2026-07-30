@@ -54,6 +54,16 @@ debugger ones.
     `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx` is accepted here
     and plays back, as **\--rzx-play**.)
 
+**\--nex-args** *LINE*
+:   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and
+    zero-terminated, in the CLI buffer the file's header declares (its address
+    and size), and `DE` points at it when the program starts. A line as long as
+    or longer than that buffer is truncated to the buffer's size with no
+    terminator - which is what the reference V1.3 loader does. Quote *LINE* to
+    pass more than one word: `jnext --load game.nex --nex-args "level 3"`.
+    Only V1.3 declares a CLI buffer, so the option is inert - with a warning -
+    for a `V1.0`-`V1.2` file, or a V1.3 file whose header declares no buffer.
+
 **\--sdcard** *FILE*
 :   Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
 

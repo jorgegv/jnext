@@ -107,6 +107,7 @@
 - `--sdcard` (canonical source for all ROMs — DivMMC, NextZXOS, 48K/128K/+3, Multiface — at TBBlue paths under /MACHINES/NEXT/; optional, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` — the patched image — offering to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy, with a GUI download progress bar)
 - `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
 - `--sdcard-readonly` (open the SD image read-only; the emulated machine sees a write-protected card and the host file is never modified, so a run cannot disturb an image other runs share)
+- `--nex-args "LINE"` — argument line for a NEX V1.3 program, delivered in the CLI buffer its header declares with DE pointing at it; truncated to the header's own declared size, and warns rather than failing when the file cannot carry one
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, master `--audio-gain-db`, subsystem `--audio-gain-beeper-db`/`--audio-gain-ay0-db`/`--audio-gain-ay1-db`/`--audio-gain-ay2-db`/`--audio-gain-dac-db`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
