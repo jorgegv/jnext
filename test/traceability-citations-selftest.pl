@@ -174,6 +174,21 @@ void group_continuation() {
               "prose interrupts — VHDL fixture_c.vhd:900 (the latch), :950",
               cond, detail);
     }
+    // GH #144: a bare `, <digits>` continuation whose digits are followed by
+    // a `:` is a VHDL BIT SLICE, not a second line reference. Absorbing it
+    // publishes a citation the source does not support.
+    {
+        check("CONT-04",
+              "bit slice after a bare comma — VHDL fixture_d.vhd:100, 15:0 field",
+              cond, detail);
+    }
+    // The control that keeps CONT-04 from being satisfied by "never carry a
+    // bare continuation": an ordinary bare `, <digits>` list is still carried.
+    {
+        check("CONT-05",
+              "ordinary bare list — VHDL fixture_d.vhd:5633, 6260",
+              cond, detail);
+    }
 }
 CPP
 
@@ -243,6 +258,25 @@ check('SELF-62', 'a `+` continuation chain is carried and normalised to the publ
 check('SELF-63', 'a continuation separated by prose is NOT reached across',
       ($cites->{'CONT-03'} // '') eq 'fixture_c.vhd:900',
       "got " . ($cites->{'CONT-03'} // '(none)'));
+
+# ── A bare continuation must not swallow a bit slice (GH #144) ────────
+#
+# `fixture_d.vhd:100, 15:0 field` names ONE line; the `15` is the high index
+# of a VHDL slice. The bare `, <digits>` arm read it as a second line and
+# published `fixture_d.vhd:100,15` — a citation the source does not support,
+# which this project ranks strictly below an honest em dash.
+#
+# SELF-112 is the discriminator. Without it, "never carry a bare
+# continuation" — which would delete 852 correct citations across the tree —
+# satisfies SELF-111 just as well.
+
+check('SELF-111', 'a bit slice behind a bare comma is NOT absorbed as a second line reference',
+      ($cites->{'CONT-04'} // '') eq 'fixture_d.vhd:100',
+      "got " . ($cites->{'CONT-04'} // '(none)'));
+
+check('SELF-112', 'the control: an ordinary bare `, <digits>` list is still carried',
+      ($cites->{'CONT-05'} // '') eq 'fixture_d.vhd:5633,6260',
+      "got " . ($cites->{'CONT-05'} // '(none)'));
 
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');

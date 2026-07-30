@@ -506,11 +506,33 @@ my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
 # one step from consuming the sentence around it — whose failure mode is
 # publishing a WRONG citation. Stopping early publishes a
 # correct-but-incomplete one, which this project ranks strictly better.
+#
+# THE BARE CONTINUATION MUST NOT SWALLOW A BIT RANGE (GH #144). `zxnext.vhd:100,
+# 15:0 field` names ONE line and a VHDL slice; the bare `, <digits>` arm read
+# the `15` as a second line reference and published `zxnext.vhd:100,15` — a
+# citation the source does not support, which is the failure this project ranks
+# below an honest em dash and the exact reasoning that got the banner-comment
+# and nearest-comment tiers rejected.
+#
+# The guard is a negative lookahead on the BARE arm only: a continuation whose
+# digits are themselves followed by `:` is a slice, not a line, so the citation
+# stops before it. It cannot mis-fire on a real list — `, 200` is followed by
+# prose or nothing, never by a colon — and it is measured: zero `, N:M` shapes
+# exist anywhere in the tree today, so the guard costs nothing and closes the
+# hole before the first one arrives.
+#
+# What is deliberately NOT done is the issue's first suggestion, "require the
+# colon on continuations". Measured over the test sources and plan docs the
+# extractor reads: 852 continuations use the bare spelling against 210 using
+# the colon-carrying one. Requiring the colon would delete 852 CORRECT
+# citations to guard against a shape that occurs zero times — destroying good
+# evidence, which is a different act from refusing a bad one.
 my $VHDL_CITE_RE = qr{
     \b ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
     (?: \s* : \s*
         ( \d+ (?: \s* [-–] \s* \d+ )?
-          (?: \s* (?: [/,] \s* | [/,+] \s* : \s* )
+          (?: (?: \s* [/,+] \s* : \s*
+                | \s* [/,] \s* (?! \d+ \s* : ) )
               \d+ (?: \s* [-–] \s* \d+ )? )* ) )?
 }x;
 
