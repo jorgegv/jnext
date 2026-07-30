@@ -110,12 +110,19 @@ struct V13Opts {
     uint32_t    gap_before_banks = 0;  // unknown-block bytes between screens and banks
     bool        write_crc      = false;  // compute and store the real CRC-32C
     uint32_t    forced_crc     = 0;      // stored when write_crc is false
+    // Build the file with NO 512-byte palette block even though the flags
+    // below would otherwise imply one. Needed only by the mixed-flag rows
+    // (GH #169), where the V1.0-V1.2 oracle nexload.asm:426-427 excludes the
+    // palette for a header expected_palette_bytes() cannot express. Default
+    // false, so every other row is unaffected.
+    bool        omit_palette_block = false;
 };
 
 // Screen block sizes computed INDEPENDENTLY of the loader — this is the
 // oracle side of the sizing rows, derived from the spec table, not from
 // nex_screen_bytes().
 size_t expected_palette_bytes(const V13Opts& o) {
+    if (o.omit_palette_block) return 0;
     const bool has_pal_screen = (o.screen_flags & 0x01) || (o.screen_flags & 0x40);
     return (has_pal_screen && !(o.screen_flags & 0x80)) ? 512 : 0;
 }
@@ -414,6 +421,56 @@ void test_sizing() {
     V13Opts g; g.screen_flags = 0x40; g.screen_flags2 = 1; g.copper_flag = 1;
     size_row("NEXV13-SIZE-06",
              "the copper block adds 2048 bytes after the last screen data block", g, "sz6");
+}
+
+// ── Old screen bits mixed with the new ones (GH #169) ────────────────
+//
+// The wiki says the V1.0-V1.2 screen bits "should be NOT mixed with new
+// modes", but that is producer guidance: neither reference loader refuses
+// the combination, so the two must be sized the way whichever loader owns
+// the header would size it. They disagree, and bit 6 is what decides.
+//
+// nexload2.asm:296-:300 — the V1.3 loader, no exclusion at all:
+//
+//   ld      a,(nexHeader.LOADSCR)
+//   and     NEXLOAD_LOADSCR_HASPAL|NEXLOAD_LOADSCR_NOPAL
+//   jr      z,.NoPalLoad                ; neither layer2 or lores screen
+//   call    p,LoadFilePalette           ; do this only when "no pal" bit is zero
+//
+// with HASPAL = LAYER2|LORES|EXT2 (:72) and NOPAL = 128 (:71). For
+// ULA|EXT2 that leaves $40 in A: non-zero, sign clear, palette read.
+//
+// nexload.asm:426-:427 — the distro loader, which excludes three kinds:
+//
+//   ld	a,(IsLoadingScr):and 128:jr nz,.skppal
+//   ld	a,(IsLoadingScr):and %11010:jr nz,.skppal
+//
+// %11010 = ULA|HIRES|HICOL, so LAYER2|ULA gets NO palette there.
+//
+// Both rows below omit field 144, so the DERIVED offset — and therefore
+// nex_has_palette_block() itself — is the only thing under test, and both
+// assert bank content, because a 512-byte error just shifts every bank.
+void test_mixed_screen_flags() {
+    // The reported case. Bit 6 is set, so the header is nexload2's and
+    // carries the palette despite the ULA bit. jnext used to drop it and
+    // size the file 512 bytes short.
+    V13Opts a; a.screen_flags = 0x02 | 0x40; a.screen_flags2 = 3;
+    size_row("NEXV13-MIX-01",
+             "a V1.3 header mixing the old ULA bit with EXT2 still carries its 512-byte "
+             "palette block — nexload2.asm:296-300 has no ULA/HiRes/HiColour exclusion "
+             "(GH #169)", a, "mix1");
+
+    // The other side: without bit 6 the header is nexload.asm's, whose
+    // exclusion stands. This row fails if the exclusion is dropped outright
+    // instead of being gated on bit 6.
+    V13Opts b;
+    b.version = "V1.2";
+    b.screen_flags = 0x01 | 0x02;      // LAYER2 | ULA — mixed, but no EXT2
+    b.omit_palette_block = true;       // nexload.asm:427 excludes it
+    size_row("NEXV13-MIX-02",
+             "a V1.2 header mixing the old ULA bit with LAYER2 carries NO palette block — "
+             "nexload.asm:427's `and %11010` exclusion still owns every header without "
+             "bit 6 (GH #169 control row)", b, "mix2");
 }
 
 // ── Loud refusal of screens this loader cannot size ──────────────────
@@ -1273,6 +1330,7 @@ int main() {
 
     test_header_fields();
     test_sizing();
+    test_mixed_screen_flags();
     test_refusal();
     test_banks_offset();
     test_crc();
