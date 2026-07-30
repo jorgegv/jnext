@@ -1290,8 +1290,9 @@ void test_palette() {
     // bug that survives without this row is the classic one — writing
     // `sf2 == SCREEN2_L2_320x256` for `sf2 != SCREEN2_NONE`.
     //
-    // EXT2 must be set: without it apply() pins sf2 to SCREEN2_NONE (bit 6 is
-    // what makes field 152 meaningful) and no palette block is read at all.
+    // EXT2 must be set here: it is the only screen bit this fixture has, so
+    // clearing it leaves screen_flags at 0 and no palette block is read at
+    // all. (Bit 6 does NOT gate the destination selector — see PAL-11..14.)
     // NR 0x43 is read first, before read_pal_8() writes it.
     {
         V13Opts o;
@@ -1321,6 +1322,102 @@ void test_palette() {
               fmt("apply=%d NR 0x43 = %#04x want 0x10; l2_pal[%zu]=%02x want %02x; "
                   "tilemap_pal[1]=%02x want 02",
                   f.apply_ok, nr43, bad, got, want, tm1));
+    }
+
+    // ── The destination selector is NOT gated on EXT2 (GH #185) ──────
+    //
+    // Field 152 has two consumers and they are gated differently. The screen
+    // BLOCK selector is gated — the dispatch loop tests TRIGGER_BIT = EXT2
+    // (nexload2.asm:304-311, :623-625), so LoadScreenBlock never runs with
+    // bit 6 clear; NEXV13-EXT2-01/02/03 pin that half.
+    //
+    // The PALETTE selector is not. nexload2.asm:732-741:
+    //
+    //   :731  nextreg PALETTE_CONTROL_NR43,%0'011'000'0   ; tilemap palette
+    //   :732  ld      a,(nexHeader.LOADSCR2)   <- NO bit-6 test
+    //   :733  cp      NEXLOAD_LOADSCR2_TILEMODE
+    //   :734  jr      z,.setPalette
+    //   :735  nextreg PALETTE_CONTROL_NR43,%0'001'000'0   ; Layer2 palette
+    //   :736  or      a
+    //   :737  jr      nz,.setPalette
+    //   :738  ld      a,(nexHeader.LOADSCR)
+    //   :739  test    NEXLOAD_LOADSCR_LAYER2
+    //   :740  jr      nz,.setPalette
+    //   :741  nextreg PALETTE_CONTROL_NR43,0              ; ULA palette
+    //
+    // reached from :296-300 whenever LOADSCR & (LAYER2|LORES|EXT2) is
+    // non-zero with NOPAL clear — which includes every header with bit 6
+    // CLEAR but LAYER2 or LORES set. checkHeader (:544-570) never zeroes the
+    // byte, so it is the raw file byte that steers NR 0x43.
+    //
+    // jnext fed this selector the EXT2-GATED value, so these four headers
+    // went to the wrong palette. Each row below differs from an existing row
+    // ONLY in field 152: PAL-11/12/13 vs PAL-07 (V1.3 LoRes, 152 = 0 -> 0x00)
+    // and PAL-14 vs PAL-09/the plain LAYER2 case (152 = 0 -> 0x10).
+    struct PalDestCase {
+        const char* id;
+        uint8_t     sf;          // screen_flags, EXT2 (0x40) deliberately CLEAR
+        uint8_t     sf2;         // raw field 152
+        uint8_t     want_nr43;   // destination per nexload2.asm:732-741
+        uint8_t     old_nr43;    // what the EXT2-gated selector produced
+        const char* tag;
+        const char* desc;
+    };
+    static const PalDestCase kPalDest[] = {
+        {"NEXV13-PAL-11", 0x04, 1, 0x10, 0x00, "pd1",
+         "a V1.3 LoRes header with bit 6 CLEAR and field 152 = 1 still sends its palette "
+         "to the LAYER 2 palette (NR 0x43 = 0x10): nexload2.asm:732 reads field 152 with "
+         "no EXT2 test and :736-737's `or a : jr nz` takes it (GH #185)"},
+        {"NEXV13-PAL-12", 0x04, 2, 0x10, 0x00, "pd2",
+         "the same with field 152 = 2 — :736's `or a` is a test for non-zero, so both "
+         "big-Layer-2 values reach the Layer 2 palette with bit 6 clear (GH #185)"},
+        {"NEXV13-PAL-13", 0x04, 3, 0x30, 0x00, "pd3",
+         "a V1.3 LoRes header with bit 6 clear and field 152 = 3 sends its palette to the "
+         "TILEMAP palette (NR 0x43 = 0x30) — :733-734's `cp TILEMODE : jr z` fires before "
+         "screen_flags is consulted at all (GH #185)"},
+        {"NEXV13-PAL-14", 0x01, 3, 0x30, 0x10, "pd4",
+         "a V1.3 LAYER2 header with bit 6 clear and field 152 = 3 also goes to the TILEMAP "
+         "palette: :733-734 is reached before the LAYER2 test at :739, so field 152 wins "
+         "over screen_flags (GH #185)"},
+    };
+    for (const PalDestCase& c : kPalDest) {
+        V13Opts o;
+        o.screen_flags  = c.sf;    // EXT2 clear throughout
+        o.screen_flags2 = c.sf2;
+        o.banks = {5};
+        Fixture f(o, c.tag);
+        // NR 0x43 first — read_pal_8() writes it.
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        // The whole 512-byte block must land in that destination, not just
+        // the register be right: a selector that picks the register from one
+        // input and the destination from another would pass on nr43 alone.
+        bool dest_ok = f.apply_ok;
+        size_t bad = 0; uint8_t got = 0, want = 0;
+        if (dest_ok) {
+            for (int i = 0; i < 256 && dest_ok; ++i) {
+                got  = read_pal_8(f.emu, c.want_nr43, static_cast<uint8_t>(i));
+                want = pal_byte(static_cast<size_t>(i) * 2);
+                if (got != want) { dest_ok = false; bad = static_cast<size_t>(i); }
+            }
+        }
+        // And it must NOT have landed in the destination the gated selector
+        // chose. Asserted as "that palette does not hold the BLOCK", over a
+        // run of entries rather than one: single entries collide by accident
+        // — the ULA palette's default entry 1 is 0x03 (blue in RRRGGGBB),
+        // which is exactly pal_byte(2). Entries start at 1 because entry 0
+        // reads 0x00 whether seeded or unwritten.
+        bool old_holds_block = f.apply_ok;
+        for (int i = 1; i <= 8 && old_holds_block; ++i) {
+            if (read_pal_8(f.emu, c.old_nr43, static_cast<uint8_t>(i)) !=
+                pal_byte(static_cast<size_t>(i) * 2))
+                old_holds_block = false;
+        }
+        check(c.id, c.desc,
+              f.apply_ok && nr43 == c.want_nr43 && dest_ok && !old_holds_block,
+              fmt("apply=%d NR 0x43 = %#04x want %#04x; dest_pal[%zu]=%02x want %02x; "
+                  "old_dest(%#04x) holds the block=%d (must be 0)",
+                  f.apply_ok, nr43, c.want_nr43, bad, got, want,
+                  c.old_nr43, old_holds_block));
     }
 }
 

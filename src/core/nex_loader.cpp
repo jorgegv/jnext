@@ -837,11 +837,39 @@ bool NexLoader::apply(Emulator& emu) const
 
     const uint8_t sf = header_.screen_flags;
     const bool    v13 = is_v13();
-    // The V1.3 screen kind, or SCREEN2_NONE when bit 6 is clear. load() has
-    // already rejected any other value, so this is one of the three known
-    // kinds whenever it is non-zero.
+    // Header field 152 has TWO consumers in nexload2.asm, and they are gated
+    // DIFFERENTLY. jnext applied one gate to both, which was wrong for the
+    // second (GH #185).
+    //
+    // sf2 — the SCREEN BLOCK selector, gated on bit 6. The block dispatch
+    // loop tests each definition's TRIGGER_BIT, not the flags-2 byte
+    // (nexload2.asm:304-:311):
+    //
+    //   .screenBlocksLoop:
+    //           add     hl,SCREEN_BLOCK_DEF
+    //           ld      a,(nexHeader.LOADSCR)
+    //           push    hl
+    //           and     (hl)                    ; (hl) = TRIGGER_BIT
+    //           call    nz,LoadScreenBlock
+    //
+    // and all three V1.3 definitions carry TRIGGER_BIT = EXT2 (:623-:625). So
+    // with bit 6 clear the call never happens and LoadScreenBlock — the only
+    // place field 152 picks a block (:628-:633) — is never reached. No data
+    // block is sized or read, and none of the mode's NextREG writes fire.
+    // load() has already rejected any value other than the three known kinds
+    // whenever bit 6 IS set, so this is one of them when it is non-zero.
     const uint8_t sf2 = (sf & NexHeader::SCREEN_EXT2) ? header_.screen_flags2
                                                       : NexHeader::SCREEN2_NONE;
+    // sf2_raw — the PALETTE DESTINATION selector, NOT gated. LoadFilePalette
+    // reads the byte with no bit-6 test at all (nexload2.asm:732), and
+    // checkHeader (:544-:570) never sanitises it, so the raw file byte is
+    // what selects NR 0x43 — reached from :296-:300 whenever
+    // LOADSCR & (LAYER2|LORES|EXT2) is non-zero with NOPAL clear, i.e.
+    // including headers with bit 6 clear. Used ONLY on the V1.3 branch of the
+    // destination selector below; nexload.asm has no equivalent field (zero
+    // references in all 778 of its lines), so the V1.0-V1.2 branch never
+    // looks at it.
+    const uint8_t sf2_raw = header_.screen_flags2;
 
     // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
     // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
@@ -962,22 +990,29 @@ bool NexLoader::apply(Emulator& emu) const
         constexpr uint8_t kLayer2First =
             static_cast<uint8_t>(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4);
         constexpr uint8_t kTilemapFirst = 0x30;
-        const bool tile_pal = (sf2 == NexHeader::SCREEN2_TILEMODE);
+        // sf2_raw, NOT sf2: :732 reads field 152 with no bit-6 test, so a
+        // header with bit 6 CLEAR and a non-zero byte at 152 still steers the
+        // palette here — the one place the EXT2 gate must not apply (GH #185).
+        // Reading it raw is also faithful for bytes outside 1..3, which load()
+        // only validates when bit 6 is set: `cp 3` then `or a` sends any other
+        // non-zero value to the Layer2-first palette, exactly as :733-:737 do.
+        const bool tile_pal = (sf2_raw == NexHeader::SCREEN2_TILEMODE);
 
         uint8_t pal_ctrl;
         const char* pal_name;
         if (v13) {
             if (tile_pal) {                                  // :731-:734
                 pal_ctrl = kTilemapFirst; pal_name = "Tilemap";
-            } else if (sf2 != NexHeader::SCREEN2_NONE ||      // :735-:737
+            } else if (sf2_raw != NexHeader::SCREEN2_NONE || // :735-:737
                        (sf & NexHeader::SCREEN_LAYER2)) {     // :738-:740
                 pal_ctrl = kLayer2First;  pal_name = "Layer2";
             } else {                                          // :741
                 pal_ctrl = 0x00;          pal_name = "LoRes/ULA";
             }
         } else {
-            // nexload.asm:429-:432. sf2 is always SCREEN2_NONE here (bit 6 is
-            // a V1.3 field), so there is no tilemap branch on this path.
+            // nexload.asm:429-:432. Field 152 does not exist for this loader
+            // at all (zero references in its 778 lines), so neither sf2 nor
+            // sf2_raw is consulted and there is no tilemap branch here.
             if (sf & NexHeader::SCREEN_LORES) {
                 pal_ctrl = 0x01;          pal_name = "LoRes/ULA+ULANext";
             } else {
