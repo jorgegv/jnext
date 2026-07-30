@@ -457,6 +457,18 @@ target_link_libraries(nex_loader_test PRIVATE
 target_include_directories(nex_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nex_loader_tests COMMAND nex_loader_test)
 
+# NEX V1.3 format support (issue #162). Runtime-generated fixtures drive the
+# real NexLoader::load() + apply() against a real Emulator, covering the new
+# header fields, the three V1.3 screen kinds, the copper block, the CRC-32C
+# and the loud refusal of screens the loader cannot size.
+add_executable(nex_v13_test core/nex_v13_test.cpp)
+target_link_libraries(nex_v13_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(nex_v13_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME nex_v13_tests COMMAND nex_v13_test)
+
 # Extended/self-streaming NEX support (GH #29 / #84). Runtime-generated
 # fixtures exercise the real loader, esxDOS hook, port-$EB stream diversion,
 # companion-file sandbox and direct-load SD-card state.

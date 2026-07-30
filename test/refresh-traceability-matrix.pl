@@ -629,6 +629,7 @@ my %NO_MATRIX_SECTION = (
     # policy. The FPGA core never parses a file — it sees SPI blocks, which
     # `## SD Card` traces against the SD SPI spec.
     'nex_loader_test'         => 'NEX file-format spec (host loader), no core counterpart',
+    'nex_v13_test'            => 'NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',

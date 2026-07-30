@@ -4,15 +4,21 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
 class Emulator;
 
-/// Parsed NEX file header (V1.0 / V1.1 / V1.2).
+/// Parsed NEX file header (V1.0 / V1.1 / V1.2 / V1.3).
+///
+/// V1.3 is Ped7g's extension of the V1.2 layout, filling the reserved tail.
+/// Spec: https://wiki.specnext.dev/Alternative_NEX_file_formats
+/// Reference loader: ped7g/ZXSpectrumNextMisc `nexload2/nexload2.asm`
+/// (the distro's own nexload.asm cannot load V1.3 at all).
 struct NexHeader {
     char     magic[4];           // "Next"
-    char     version[4];         // "V1.0", "V1.1", or "V1.2"
+    char     version[4];         // "V1.0", "V1.1", "V1.2", or "V1.3"
     // ram_required: NEX V1.1+ minimum-RAM hint at header offset 8.
     // Canonical spec (https://wiki.specnext.dev/NEX_file_format) defines
     // only values 0 = 768 KB and 1 = 1792 KB; value 2 = 2048 KB is in
@@ -37,13 +43,47 @@ struct NexHeader {
     uint16_t file_handle;        // 0=close, 1=handle in BC, >=0x4000=store handle there
     uint8_t  version_bcd;        // `version` packed as nexload.asm does: "V1.2" -> 0x12
 
-    // Screen flag bit masks
+    // ---- V1.3 additions (all zero / absent in V1.0-V1.2 files) ----------
+    uint8_t  expansion_bus;      // 142: 0 = disable exp. bus (NR 0x80 top nibble := 0), 1 = leave alone
+    uint8_t  checksum_flag;      // 143: 1 = CRC-32C present at offset 508
+    uint32_t banks_offset;       // 144: file offset where the first bank's data starts
+    uint16_t cli_buffer_addr;    // 148: buffer for the loader's argument line (0 = none)
+    uint16_t cli_buffer_size;    // 150: buffer size, max 2048
+    uint8_t  screen_flags2;      // 152: SCREEN2_* — valid only when SCREEN_EXT2 is set
+    uint8_t  copper_flag;        // 153: 1 = 2048-byte copper block follows the screen data
+    uint8_t  tilemode_cfg[4];    // 154: NR 0x6B, 0x6C, 0x6E, 0x6F for the tilemode screen
+    uint8_t  loading_bar_y;      // 158: loading-bar Y for the two big Layer 2 screens
+    uint32_t crc32c;             // 508: optional CRC-32C, little-endian
+
+    // Screen flag bit masks (header offset 10)
     static constexpr uint8_t SCREEN_LAYER2    = 0x01;
     static constexpr uint8_t SCREEN_ULA       = 0x02;
     static constexpr uint8_t SCREEN_LORES     = 0x04;
     static constexpr uint8_t SCREEN_HIRES     = 0x08;
     static constexpr uint8_t SCREEN_HICOLOUR  = 0x10;
+    static constexpr uint8_t SCREEN_EXT2      = 0x40;  // V1.3: screen is described by screen_flags2
     static constexpr uint8_t SCREEN_NO_PAL    = 0x80;
+
+    /// Every bit the format assigns a meaning to. Bit 5 (0x20) is the only
+    /// unassigned one; a header that sets it declares a screen block whose
+    /// size this loader cannot know, so load() refuses rather than guess.
+    static constexpr uint8_t SCREEN_KNOWN_MASK =
+        SCREEN_LAYER2 | SCREEN_ULA | SCREEN_LORES | SCREEN_HIRES |
+        SCREEN_HICOLOUR | SCREEN_EXT2 | SCREEN_NO_PAL;
+
+    // screen_flags2 (header offset 152) is an ENUMERATED value, not a bit
+    // field, despite the spec's "flags 2" name (nexload2.asm:74-76).
+    static constexpr uint8_t SCREEN2_NONE       = 0;
+    static constexpr uint8_t SCREEN2_L2_320x256 = 1;  // 8bpp, [512B pal +] 81920B
+    static constexpr uint8_t SCREEN2_L2_640x256 = 2;  // 4bpp, [512B pal +] 81920B
+    static constexpr uint8_t SCREEN2_TILEMODE   = 3;  // [512B pal], tiles ride in bank 5
+};
+
+/// Outcome of the optional V1.3 CRC-32C check (header offset 143 / 508).
+enum class NexChecksum {
+    Absent,   ///< header declares no checksum
+    Valid,    ///< declared and matched
+    Invalid,  ///< declared and did NOT match
 };
 
 /// Highest NEX file-format version this loader understands, BCD-packed the
@@ -51,11 +91,18 @@ struct NexHeader {
 /// this is REFUSED by NexLoader::load() (nexload.asm:290-291; the reference
 /// loader's own value is `LoaderVersion db $12` at nexload.asm:749).
 ///
-/// **Raise this to 0x13 in the change that implements V1.3** (issue #162) —
-/// the V1.3 screen kinds (LOADSCR bit 6 + the LOADSCR2 selector) are not
-/// decoded here yet, so accepting a V1.3 file would mis-size its screen
-/// block and read every bank from the wrong offset.
-static constexpr uint8_t kNexLoaderVersionBcd = 0x12;
+/// Raised to 0x13 by issue #162, which decodes the V1.3 screen kinds
+/// (LOADSCR bit 6 + the LOADSCR2 selector at offset 152). This constant must
+/// only ever move in the SAME change that teaches nex_screen_bytes() the new
+/// version's screen kinds — accepting a version whose layout the loader
+/// cannot size mis-sizes the screen block and reads every bank from the
+/// wrong offset, which is the failure issue #156 records.
+///
+/// Note jnext is deliberately AHEAD of the reference nexload.asm here, whose
+/// own `LoaderVersion db $12` (nexload.asm:749) still refuses V1.3. That is
+/// correct: V1.3 files are loaded on real hardware by ped7g's nexload2.asm,
+/// a different loader, and jnext implements that format.
+static constexpr uint8_t kNexLoaderVersionBcd = 0x13;
 
 /// The core version jnext advertises through NR 0x01 (major.minor, BCD
 /// 0x32 = 3.02) and NR 0x0E (subminor). Single source of truth lives in
@@ -184,6 +231,30 @@ public:
         return header_.file_handle == 1 || header_.file_handle >= 0x4000;
     }
 
+    /// True when the header's version string is exactly "V1.3".
+    bool is_v13() const { return std::memcmp(header_.version, "V1.3", 4) == 0; }
+
+    /// File offset at which the first 16K bank's data begins. Derived from
+    /// the header-described blocks, or taken from the V1.3 `banks_offset`
+    /// field when that is present and consistent (see load()).
+    uint64_t bank_data_offset() const { return bank_data_offset_; }
+
+    /// Result of the optional V1.3 CRC-32C verification.
+    NexChecksum checksum_status() const { return checksum_status_; }
+
+    /// CRC-32C actually computed over the file (0 when no checksum was
+    /// declared, so nothing was computed).
+    uint32_t computed_crc32c() const { return computed_crc32c_; }
+
+    /// CRC-32C (Castagnoli, poly 0x82F63B78, reflected) in sjasmplus's
+    /// *append* formulation: `crc` chains across calls, so a whole-buffer
+    /// checksum starts from 0 and the result of one call feeds the next.
+    /// Internally that is the standard init/final XOR of 0xFFFFFFFF — the
+    /// spec's phrase "initial value is zero" describes this chaining seed,
+    /// NOT a raw zero CRC register (sjasmplus `crc32c/crc32c.cpp`
+    /// `crc32c_append_sw`, which is what actually writes the field).
+    static uint32_t crc32c_append(uint32_t crc, const uint8_t* data, size_t len);
+
     /// Apply the loaded NEX data to the emulator: load banks into RAM,
     /// set up screen data, configure CPU registers, border, and MMU.
     bool apply(Emulator& emu) const;
@@ -262,6 +333,25 @@ public:
     /// program starts — see Emulator::set_boot_hold_frames() (BOOT-NEX-05).
     static inline uint32_t boot_hold_frames(uint8_t start_delay, bool screen_present, uint8_t loading_delay) {
         return inter_bank_delay_frames(screen_present, loading_delay) +
+               static_cast<uint32_t>(start_delay);
+    }
+
+    /// V1.3 uses a DIFFERENT delay model, because a different loader runs:
+    /// the distro's nexload.asm cannot parse V1.3 at all, so V1.3 files are
+    /// loaded by ped7g's nexload2.asm, which
+    ///   - calls `bankLoadDelay` once per bank ACTUALLY LOADED
+    ///     (nexload2.asm:1005, inside loadBankA — not once per bank *slot*),
+    ///   - does NOT gate that delay on a loading screen being present
+    ///     (nexload2.asm:1038-1053, `ld a,(LOADDELAY)` with no screen test),
+    ///   - and then waits `start_delay` frames unconditionally
+    ///     (nexload2.asm:372 `call startDelay`, :1057-1059).
+    /// The difference is not cosmetic: the tbblue model charges 109 slots
+    /// regardless of presence, so a 4-bank V1.3 file with loading_delay=100
+    /// would idle 11100 frames (222 s) instead of 600 (12 s) — the file
+    /// would look hung rather than slow.
+    static inline uint32_t boot_hold_frames_v13(uint8_t start_delay, size_t banks_loaded,
+                                                uint8_t loading_delay) {
+        return static_cast<uint32_t>(banks_loaded) * loading_delay +
                static_cast<uint32_t>(start_delay);
     }
 
@@ -354,6 +444,9 @@ private:
     std::vector<uint8_t> file_data_;  // header-described data after the 512-byte header
     uint64_t file_size_ = 0;
     uint64_t payload_offset_ = 0;
+    uint64_t bank_data_offset_ = 0;   // file offset of the first bank's data
+    NexChecksum checksum_status_ = NexChecksum::Absent;
+    uint32_t computed_crc32c_ = 0;
     bool loaded_ = false;
 
     // Bank loading order as specified by the NEX format

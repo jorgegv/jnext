@@ -811,7 +811,7 @@ endif()
 
 - [x] `--inject FILE` CLI flag with `--inject-org ADDR` (default `0x8000`) and `--inject-pc ADDR` (default = org): loads a raw binary into RAM and jumps to it; useful for quick testing of z88dk-compiled programs without tape/snapshot support
 - [x] Create a demo with sprite and Layer2 rendering that allows testing the emulator and Phase 3 functionality
-- [x] NEX file loader: parse the NEX V1.0/V1.1/V1.2 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure Layer 2 screen/palette / border / entry bank from header fields — `NexLoader` class in `src/core/nex_loader.h/.cpp`
+- [x] NEX file loader: parse the NEX V1.0/V1.1/V1.2/V1.3 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure Layer 2 screen/palette / border / entry bank from header fields — `NexLoader` class in `src/core/nex_loader.h/.cpp`. V1.3 (issue #162) adds the three new loading screens (L2 320x256x8bpp, L2 640x256x4bpp, tilemode), the copper code block, the CRC-32C check, the expansion-bus / CLI-buffer / loading-bar-Y fields, and the first-bank file offset. Its oracle is `nexload2.asm`, NOT the distro's `nexload.asm` — which is why the V1.3 delay model and loading bar deliberately differ (see the `boot_hold_frames_v13` doc-comment)
 - [x] `--load FILE` CLI flag: auto-detects file format by extension (`.nex`) and loads accordingly; extensible for future `.sna`/`.z80`/`.tap` support
 - [x] Wire file loading into the emulator UI (File menu in Phase 6) — Load NEX via menu or Alt+O (Ctrl+O until issue #115)
 - [x] **Milestone**: Can load and run `.nex` files from CLI and GUI
