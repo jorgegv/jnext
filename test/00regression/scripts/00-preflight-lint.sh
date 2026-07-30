@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group row: the tautological-assertion lint, always row 1 of the suite.
+# Group rows: the two static preflight lints, always rows 1-2 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -11,6 +11,21 @@ if bash "$PROJECT_DIR/test/lint-assertions.sh"; then
     printf "  "; pass_row ": no new tautological assertions"
 else
     printf "  "; fail_row ": new tautological assertions detected (see above)"
+fi
+echo ""
+
+# --- EXIT-trap lint (GH #153) ---
+# regression.sh SOURCES every row script into THIS shell, which already holds
+# the harness's one `trap regression_cleanup EXIT`. A second EXIT trap in any
+# row silently replaces it and every SUCCESSFUL run then leaks its 1-2 GB
+# $RUN_DIR while the count stays green. The GH #65 isolation rows cannot see
+# it — they test a child shell, and this is a sibling clobbering the parent.
+# A static grep prevents the whole class for well under a second.
+echo -e "${BOLD}[lint-traps] Scanning regression row scripts for stray EXIT traps...${RESET}"
+if bash "$SCRIPT_DIR/lint-traps.sh"; then
+    printf "  "; pass_row ": no row script installs its own trap"
+else
+    printf "  "; fail_row ": a row script installs its own trap (see above)"
 fi
 echo ""
 

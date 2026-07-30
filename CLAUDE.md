@@ -230,9 +230,17 @@ crashes, or times out. `make unit-test` **exits non-zero** when a suite fails.
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`1 lint + screenshots + functional`. Screenshots additionally get an *independent*
-witness: every checked-in `img/<name>-reference.png` must have a conf entry, so truncating
-the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
+`2 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+*independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
+truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
+
+**No row script may install a `trap`** (GH #153). `regression.sh` SOURCES every row into the
+harness shell, which already holds the one `trap regression_cleanup EXIT` that deletes the
+per-run 1-2 GB SD clone; a second EXIT trap silently replaces it, and only the *successful*
+run leaks (INT/TERM are untouched). `test/00regression/lint-traps.sh` — row 2 of the suite,
+inside `scripts/00-preflight-lint.sh` — bans `trap` outright in `scripts/*.sh`. Put scratch
+files under `$TMP_DIR`, which the harness trap already removes; a shell that truly needs its
+own trap goes in a file run with `bash` (heredoc bodies are exempt from the lint).
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It

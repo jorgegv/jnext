@@ -320,6 +320,26 @@ Load-bearing rationale that used to live as long comments inside
   harness DID (which file jnext opened, which device the clone is on, whether
   the master's inode/mtime moved, whether the run directory survives a kill) —
   never what the image looks like afterwards, which is identical either way.
+- **Why no row script may install a trap** (GH #153, `test/00regression/lint-traps.sh`,
+  row 2 of the suite). `regression.sh` SOURCES every row into the harness shell,
+  which already holds the one `trap regression_cleanup EXIT` above. Bash keeps a
+  single handler per signal, so a second `trap ... EXIT` anywhere in a sourced
+  row silently REPLACES it — and because INT/TERM are untouched, an interrupted
+  run still cleans up while the SUCCESSFUL run leaks its whole 1-2 GB run
+  directory. A host reached 18 GB / 93% full at 112/112 passing before anyone
+  noticed. The GH #65 isolation rows cannot catch this: they drive a child
+  shell, and the failure is a later-sourced SIBLING clobbering the PARENT. The
+  guard is a static lint rather than a fault-injection row because a grep
+  prevents the entire class in under a second. It bans `trap` outright — not
+  just `trap ... EXIT`, and not just at top level — because telling a clobbering
+  trap from a harmless subshell one needs a bash parser, and no row script
+  contains a `trap` at any depth. Heredoc bodies are exempt, which is the escape
+  hatch: a shell that genuinely needs its own trap gets written to a file and run
+  with `bash`, the shape `sdcard-isolation-func.sh` already uses. Like
+  `lint-assertions.sh`, the lint self-tests both directions on every invocation
+  (it must still flag a stray trap, and must still ignore comments, strings and
+  heredocs) — and the suite's own `2 lint + 1 sdcard-provision + …` row-count
+  witness is what proves it stays wired.
 - **Why membership/count checks are pure-bash hashes.**
   `printf ... | grep -q` over a list is unsound under `set -o pipefail`: grep
   exits on match, printf can die of SIGPIPE (141), and pipefail promotes 141 —
