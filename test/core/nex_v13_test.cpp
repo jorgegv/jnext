@@ -121,9 +121,12 @@ struct V13Opts {
 // Screen block sizes computed INDEPENDENTLY of the loader — this is the
 // oracle side of the sizing rows, derived from the spec table, not from
 // nex_screen_bytes().
+// HASPAL = LAYER2|LORES|EXT2 (nexload2.asm:72), NOPAL = 128 (:71). LORES is
+// part of it in BOTH loaders — nexload.asm:427's exclusion list is
+// ULA|HIRES|HICOL (%11010), which does not contain bit 2.
 size_t expected_palette_bytes(const V13Opts& o) {
     if (o.omit_palette_block) return 0;
-    const bool has_pal_screen = (o.screen_flags & 0x01) || (o.screen_flags & 0x40);
+    const bool has_pal_screen = (o.screen_flags & (0x01 | 0x04 | 0x40)) != 0;
     return (has_pal_screen && !(o.screen_flags & 0x80)) ? 512 : 0;
 }
 
@@ -1008,6 +1011,75 @@ void test_palette() {
               "(nexload2.asm:731-734), with nothing after it to reset the register",
               f.apply_ok && nr43 == 0x30,
               fmt("apply=%d NR 0x43 = %#04x want 0x30", f.apply_ok, nr43));
+    }
+
+    // ── LoRes palette destination: the two loaders disagree (GH #179) ──
+    //
+    // nexload.asm:429-:432, which owns every V1.0-V1.2 header:
+    //
+    //   ld a,(IsLoadingScr):and 4:jr z,.nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00000001 : jr .nl2
+    // .nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00010000
+    //
+    // nexload2.asm:735-:741, which owns every V1.3 header:
+    //
+    //   nextreg NR43,%0'001'000'0        ; Layer2 first palette
+    //   or a : jr nz,.setPalette         ; LOADSCR2 selects a big L2 screen
+    //   ld a,(nexHeader.LOADSCR) : test LAYER2 : jr nz,.setPalette
+    //   nextreg NR43,0                   ; ULA first palette (LoRes mode)
+    //
+    // Both point at the ULA-first palette (bits 6:4 = 000) for LoRes, but
+    // nexload.asm ALSO sets bit 0 — "enable ULANext mode"
+    // (src/video/palette.h:69) — and nexload2 does not. jnext wrote 0x01 on
+    // both paths. NR 0x43 is read before read_pal_8(), which writes it.
+    {
+        V13Opts o;
+        o.screen_flags = 0x04;           // LoRes screen, palette block present
+        o.banks = {5};
+        Fixture f(o, "pal7");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-07",
+              "a V1.3 LoRes loading screen's palette selects NR 0x43 = 0x00 — plain "
+              "ULA-first palette, ULANext NOT enabled (nexload2.asm:741)",
+              f.apply_ok && nr43 == 0x00,
+              fmt("apply=%d NR 0x43 = %#04x want 0x00", f.apply_ok, nr43));
+    }
+
+    // Control row: the same header at V1.2 is nexload.asm's, and there the
+    // ULANext bit really is set. Fails if the fix is applied unconditionally
+    // instead of being version-gated.
+    {
+        V13Opts o;
+        o.version = "V1.2";
+        o.screen_flags = 0x04;
+        o.banks = {5};
+        Fixture f(o, "pal8");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-08",
+              "a V1.2 LoRes loading screen's palette still selects NR 0x43 = 0x01 — "
+              "ULA-first palette WITH ULANext enabled (nexload.asm:429-430); the V1.3 "
+              "change must not leak onto the loader that owns this header",
+              f.apply_ok && nr43 == 0x01,
+              fmt("apply=%d NR 0x43 = %#04x want 0x01", f.apply_ok, nr43));
+    }
+
+    // The loaders also disagree on precedence when BOTH bits are set:
+    // nexload2.asm:738-:740 tests LAYER2 first and takes the Layer2-first
+    // palette ("L2+LoRes=fail" at :742), where nexload.asm:429's `and 4`
+    // lets LoRes win. This row pins the V1.3 side.
+    {
+        V13Opts o;
+        o.screen_flags = 0x01 | 0x04;    // LAYER2 | LORES
+        o.banks = {5};
+        Fixture f(o, "pal9");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        check("NEXV13-PAL-09",
+              "a V1.3 header with LAYER2 and LORES both set sends the palette to the "
+              "LAYER 2 palette (NR 0x43 = 0x10) — nexload2.asm:738-740 tests LAYER2 "
+              "before falling through to the LoRes selector",
+              f.apply_ok && nr43 == 0x10,
+              fmt("apply=%d NR 0x43 = %#04x want 0x10", f.apply_ok, nr43));
     }
 }
 

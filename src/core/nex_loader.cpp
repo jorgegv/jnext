@@ -919,38 +919,73 @@ bool NexLoader::apply(Emulator& emu) const
     // screens unless NO_PAL is set (nexload.asm:426-427; see
     // nex_has_palette_block above for the file-size evidence, issue #156).
     //
-    // The palette goes to a DIFFERENT bank depending on the screen kind
-    // (nexload.asm:429-433):
+    // The palette goes to a DIFFERENT destination depending on the screen
+    // kind, and THE TWO LOADERS DISAGREE ON THE DESTINATION SELECTOR, so it
+    // follows the loader that would really parse the file — the same
+    // per-loader reasoning GH #166/#171 applied to the prologue registers,
+    // here reaching an observable register (GH #179).
+    //
+    // nexload.asm:429-432 — the V1.0-V1.2 loader, two destinations:
     //
     //   ld a,(IsLoadingScr):and 4:jr z,.nlores
     //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00000001 : jr .nl2  ; LoRes
     // .nlores
     //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00010000            ; Layer 2
     //
-    // i.e. a LoRes screen's palette is the ULA-first palette (NR 0x43 bits
-    // 6:4 = 000, plus bit 0 = ULANext enable), because LoRes reads the ULA
-    // palette; only a Layer 2 screen uses the Layer2-first palette
-    // (bits 6:4 = 001).
+    // i.e. a LoRes screen's palette is the ULA-first palette (bits 6:4 = 000)
+    // because LoRes reads the ULA palette — but with bit 0 ALSO set, which is
+    // "enable ULANext mode" (src/video/palette.h:69). Only a Layer 2 screen
+    // gets the Layer2-first palette (bits 6:4 = 001).
+    //
+    // nexload2.asm:731-:741 — the V1.3 loader, three destinations, and NO
+    // ULANext bit anywhere:
+    //
+    //   nextreg NR43,%0'011'000'0        ; tilemap first palette
+    //   ld a,(nexHeader.LOADSCR2) : cp TILEMODE : jr z,.setPalette
+    //   nextreg NR43,%0'001'000'0        ; Layer2 first palette
+    //   or a : jr nz,.setPalette         ; L2 320x256 / 640x256
+    //   ld a,(nexHeader.LOADSCR) : test LAYER2 : jr nz,.setPalette
+    //   nextreg NR43,0                   ; ULA first palette (LoRes mode)
+    //
+    // Two differences from nexload.asm, both taken here:
+    //   - the LoRes selector is plain 0, NOT 0x01: a V1.3 LoRes load does not
+    //     enable ULANext (:741, the reported bug);
+    //   - LAYER2 WINS over LORES (:738-:740, "L2+LoRes=fail"), where
+    //     nexload.asm's `and 4` lets LORES win.
     if (nex_has_palette_block(sf)) {
         if (offset + 512 > file_data_.size()) {
             Log::emulator()->error("NEX: truncated loading-screen palette data");
             return false;
         }
-        const bool lores_pal = (sf & NexHeader::SCREEN_LORES) != 0;
-        // V1.3 adds a third destination: a tilemode screen's palette is a
-        // TILEMAP palette (nexload2.asm:731-734 selects NR 0x43 =
-        // %0'011'000'0), while the two big Layer 2 screens use the
-        // Layer2-first palette like the classic Layer 2 one (:735).
+        constexpr uint8_t kLayer2First =
+            static_cast<uint8_t>(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4);
+        constexpr uint8_t kTilemapFirst = 0x30;
         const bool tile_pal = (sf2 == NexHeader::SCREEN2_TILEMODE);
-        const uint8_t pal_ctrl =
-            tile_pal  ? 0x30
-                      : (lores_pal
-                             ? 0x01
-                             : static_cast<uint8_t>(
-                                   static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4));
-        Log::emulator()->debug("NEX: loading {} palette (512 bytes)",
-                               tile_pal ? "Tilemap" : (lores_pal ? "LoRes/ULA" : "Layer2"));
-        // nexload.asm:430 / :432 — NR 0x43 selects the write target.
+
+        uint8_t pal_ctrl;
+        const char* pal_name;
+        if (v13) {
+            if (tile_pal) {                                  // :731-:734
+                pal_ctrl = kTilemapFirst; pal_name = "Tilemap";
+            } else if (sf2 != NexHeader::SCREEN2_NONE ||      // :735-:737
+                       (sf & NexHeader::SCREEN_LAYER2)) {     // :738-:740
+                pal_ctrl = kLayer2First;  pal_name = "Layer2";
+            } else {                                          // :741
+                pal_ctrl = 0x00;          pal_name = "LoRes/ULA";
+            }
+        } else {
+            // nexload.asm:429-:432. sf2 is always SCREEN2_NONE here (bit 6 is
+            // a V1.3 field), so there is no tilemap branch on this path.
+            if (sf & NexHeader::SCREEN_LORES) {
+                pal_ctrl = 0x01;          pal_name = "LoRes/ULA+ULANext";
+            } else {
+                pal_ctrl = kLayer2First;  pal_name = "Layer2";
+            }
+        }
+        Log::emulator()->debug("NEX: loading {} palette (512 bytes), NR 0x43 = {:#04x}",
+                               pal_name, pal_ctrl);
+        // nexload.asm:430 / :432, nexload2.asm:731 / :735 / :741 — NR 0x43
+        // selects the write target.
         nr.write(0x43, pal_ctrl);
         auto& pal = emu.palette();
         pal.set_index(0);                        // nexload.asm:434 NR 0x40 = 0
