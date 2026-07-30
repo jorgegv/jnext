@@ -29,6 +29,8 @@
       "Bash(git -C *:*)",
       "Bash(GIT_EDITOR=true git:*)",
       "Bash(GIT_EDITOR=true git -C *:*)",
+      "Bash(JNEXT_ALLOW_MAIN_WRITE=1 git:*)",
+      "Bash(JNEXT_ALLOW_MAIN_WRITE=1 git -C *:*)",
 
       "Bash(cmake:*)",
       "Bash(make:*)",
