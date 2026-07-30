@@ -24,6 +24,31 @@ local to one writer), small per-frame change volume (so the log cap
 isn't hit by normal demos), and a baseline that can be memcpy'd in
 constant time per frame.
 
+### The pattern's resolution floor is one row (GH #170 — accepted)
+
+Step 1 tags a write with the row it landed in, and step 3 replays it
+**before** that row is rendered — so a write that physically lands
+part-way through a line still colours the whole of that line. Hardware
+does not: the video pipeline re-reads the NR latches every pixel cycle
+(`zxnext.vhd:6825-6828` → `:6981` for the four palette selects), so only
+the pixels after the write change. The residual error is **at most one
+row and always early, never late**, for **every** consumer of the
+pattern — this is a property of the pattern itself, not of any one lane.
+
+Decision (2026-07-30): **documented, not fixed.** A per-scanline
+renderer has no representation for "from column X of row N"; closing it
+means sub-row log granularity or the cycle-accurate refactor declined
+twice in EMULATOR-DESIGN-PLAN.md. A "round up when the write lands past
+the visible span" heuristic is not VHDL behaviour either, needs the
+horizontal position at each of the ~12 log sites (the tag is computed
+once per scanline, in `Emulator::on_scanline`, not per write), and would
+shift the row of every existing consumer across the whole demo corpus.
+Full reasoning, and why `show512.nex` turned out **not** to be an
+instance of this (its one-row artefact is a Copper WAIT `hc` domain
+mismatch — jnext feeds raw master-cycles-into-line where VHDL feeds the
+7 MHz `hc_ula` whose origin is `c_min_hactive - 12`), is in
+EMULATOR-DESIGN-PLAN.md §6.
+
 ## Relationship to VideoTiming work
 
 Different axis — see TASK-VIDEOTIMING-EXPANSION-PLAN.md /

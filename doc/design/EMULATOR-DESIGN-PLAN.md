@@ -666,6 +666,51 @@ for vc = 0 to frame_height - 1:
 
 Copper is the only subsystem run with sub-scanline granularity. Within `execute_cpu_instructions_for_line()`, after each instruction, the Copper PC advances through any `WAIT` instructions satisfied by the current `(hc, vc)` position and fires `MOVE` writes immediately. This gives palette-change precision within a scanline.
 
+### Where a mid-line register write lands — a bounded modelling limitation (GH #170)
+
+**Accepted limitation, deliberately not fixed.** Every per-scanline
+change-log (`Emulator::on_scanline` tags a write with
+`fb_row = raw_line - vblank_top`; `Renderer::render_frame` replays entries
+tagged `N` immediately before rendering row `N`) applies a write from the
+**start** of the row it landed in. Hardware does not: the NR latches are
+read by the video pipeline **per pixel cycle** — e.g. the four active-palette
+selects at `zxnext.vhd:6825-6828`, sampled into `*_palette_select_0` and used
+as palette-RAM address bits at `:6981` — so a write that physically lands
+part-way through a line changes only the pixels **after** it, and the rest of
+that line keeps the old value.
+
+The residual error is therefore **bounded to at most one row, and is
+one-directional**: an effect can appear early, never late. There is no
+"apply from the middle of a row" in a renderer whose unit of work is a
+scanline, so closing it properly means sub-row change-log granularity or the
+cycle-accurate rendering refactor already assessed and declined twice (the
+internal Z80N core and the CPU/Copper NR-write-priority items, both WONT
+above). A row-granular *heuristic* — "round up to the next row when the write
+lands past the visible span" — was considered and rejected: it is not what the
+VHDL does either, it would need the write's horizontal position at every one
+of the ~12 log sites (the tag is currently computed once per scanline, not per
+write), and it would move the row of every existing per-scanline consumer
+across the whole demo corpus for a ≤1-row gain.
+
+**`ShowAll512Colors/show512.nex` is NOT an instance of this** — the issue
+filed it as one, and measurement says otherwise. Its Copper does
+`WAIT(line=95, h=52)` then `MOVE NR $43`. In VHDL the Copper's `hcount_i` is
+`hc_ula` (`zxnext.vhd:3949`, fed from `o_hc_ula`, `zxula_timing.vhd:438`), a
+**7 MHz** counter whose origin is `c_min_hactive - 12`
+(`zxula_timing.vhd:423-424`), so the WAIT threshold `(52<<3)+12 = 428`
+(`copper.vhd:89`) is satisfied at raw pixel 96 of the *following* raw line —
+in the blanking between the display of line 95 and line 96 — and the change is
+correctly visible from row 128. jnext instead passes the raw
+**master-cycles-into-line** counter (`Emulator::tick_copper_for_master_cycles`,
+`Copper::execute`'s `hc` is documented as "28 MHz domain"), 4× the VHDL scale
+and with origin 0, so the same WAIT is satisfied at raw pixel 107 of the
+*current* line — before that line's display — and the flip lands on row 127.
+Feeding the Copper the VHDL `hc_ula`/`vc_ula` pair makes row 127 heal exactly
+(measured 2026-07-30: the one-row anomaly at fb row 127 disappears and the
+field boundary sits at row 128). That is a **separate, unfixed Copper WAIT
+timing defect**, not a change-log rounding artefact; it is not tracked here
+because pending bugs live in GitHub issues.
+
 ---
 
 ## 7. Build System
