@@ -60,7 +60,8 @@
       "Write"
     ],
     "additionalDirectories": [
-      "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests"
+      "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests",
+      "/home/jorgegv/src/spectrum/jnext-worktrees"
     ]
   },
   "hooks": {
