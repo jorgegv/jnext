@@ -376,9 +376,13 @@ Load-bearing rationale that used to live as long comments inside
   measured and listed in the header (`MAY WRONGLY FLAG`): a subshell
   `( trap … )`, and a live `eval` or heredoc head that merely mentions the word.
   Like `lint-assertions.sh` the lint self-tests on every invocation, here with a
-  pinned 55-case table (34 must flag, 21 must not), **one fixture file per case**
+  pinned 57-case table (34 must flag, 23 must not), **one fixture file per case**
   — a single combined fixture asserting only a total let a mutation lose one case,
-  gain another, and report green. `harness-selftest`
+  gain another, and report green. The table's own IDs are cross-checked against the
+  fixture files on every run, in both directions: a documented case with no fixture
+  and a fixture missing from the table are each a hard failure. That check exists
+  because a review report claimed the table was generated from the fixtures when
+  nothing connected them — the same drift class as every pinned count here. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
   its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.

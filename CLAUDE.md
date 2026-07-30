@@ -255,7 +255,8 @@ a subshell `( trap … )`, or a live `eval`/heredoc head that merely mentions th
 is done on a SYNTAX SKELETON in which every quoted string collapses to one inert token, so a
 live string whose contents look like syntax (`fail_row "… eval … trap …"`) stays clean; an
 earlier whole-line dequote flagged exactly those, which blocks correct rows. Its self-test
-pins 55 cases both ways.
+pins 57 cases both ways, and cross-checks its own documented case table against the fixture
+files so the two cannot drift.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It
