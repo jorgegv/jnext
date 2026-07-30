@@ -11,13 +11,41 @@ static uint16_t read_u16(const uint8_t* p) {
     return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
 }
 
+/// True when the NEX file carries a 512-byte palette block ahead of the
+/// screen data. tbblue/src/asm/nexload/nexload.asm:426-427:
+///
+///   ld a,(IsLoadingScr):and 128:jr nz,.skppal      ; bit 7 NO_PAL  → no palette
+///   ld a,(IsLoadingScr):and %11010:jr nz,.skppal   ; ULA|HIRES|HICOL → no palette
+///   ld ix,$c200:ld bc,$200:call fread              ; else: read 512 bytes
+///
+/// So the palette belongs to the two paletted screen kinds — Layer 2 (bit 0)
+/// AND **LoRes** (bit 2) — not to Layer 2 alone, which is what jnext used to
+/// assume. The file sizes of ped7g's nexload2 conformance pair are the
+/// discriminating evidence (issue #156):
+///
+///   tmLoRes.nex      29696 = 512 hdr + **512 pal** + 12288 LoRes + 16384 bank
+///   tmLoResNoPal.nex 29184 = 512 hdr +       0     + 12288 LoRes + 16384 bank
+///
+/// Without the LoRes palette counted, the 512 bytes were reported as
+/// "trailing padding" and every following block was read 512 bytes early.
+///
+/// V1.3's LOADSCR bit 6 (EXT2) is also paletted (nexload2.asm:70 HASPAL =
+/// LAYER2|LORES|EXT2), but the V1.3 screen kinds are not decoded here at all
+/// yet — that is issue #162's scope, so bit 6 is deliberately left out.
+static bool nex_has_palette_block(uint8_t sf) {
+    if (sf & NexHeader::SCREEN_NO_PAL) return false;
+    if (sf & (NexHeader::SCREEN_ULA | NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR))
+        return false;
+    return (sf & (NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_LORES)) != 0;
+}
+
 /// Bytes of optional screen data a NEX header's screen_flags declares, in the
 /// exact order and sizes NexLoader::apply() consumes them. Lets load() compute
 /// the header-described region (header + screens + banks). Bytes after that
 /// boundary remain host-backed for self-streaming NEX files (issues #29/#84).
 static size_t nex_screen_bytes(uint8_t sf) {
     size_t n = 0;
-    if ((sf & NexHeader::SCREEN_LAYER2) && !(sf & NexHeader::SCREEN_NO_PAL)) n += 512;
+    if (nex_has_palette_block(sf))       n += 512;
     if (sf & NexHeader::SCREEN_LAYER2)   n += 49152;
     if (sf & NexHeader::SCREEN_ULA)      n += 6912;
     if (sf & NexHeader::SCREEN_LORES)    n += 12288;
@@ -104,6 +132,26 @@ static void write_split_screen_block(Mmu& mmu, const uint8_t* src)
 // render_progress_mark — defined inline in nex_loader.h (G156). Inline
 // keeps unit tests linkable without jnext_core, same rationale as
 // ram_required_kb / zero_bank5_screen_pages above.
+
+/// Apply the three writes that end a loading-screen block in nexload.asm,
+/// making the just-ingested screen actually visible. The values come from
+/// nex_loading_screen_display() (nex_loader.h) — see its citation block.
+///
+/// Port addressing matches what the Z80 puts on the bus in the reference
+/// loader: `ld bc,4667 : out (c),a` drives the full 16-bit 0x123B, while
+/// `out (255),a` drives 0xFF in the low byte and a copy of A in the high
+/// byte (jnext's port 0xFF handler matches on the low byte only, but the
+/// full address is passed so the call is bus-accurate).
+static void set_loading_screen_display(Emulator& emu, NexScreenKind kind, uint8_t hires_colour)
+{
+    const NexScreenDisplay d = nex_loading_screen_display(kind, hires_colour);
+    emu.port().out(0x123B, d.port_123b);
+    emu.nextreg().write(0x15, d.nr_15);
+    emu.port().out(static_cast<uint16_t>((static_cast<uint16_t>(d.port_ff) << 8) | 0x00FF),
+                   d.port_ff);
+    Log::emulator()->debug("NEX: loading screen displayed — $123B={:#04x} NR$15={:#04x} $FF={:#04x}",
+                           d.port_123b, d.nr_15, d.port_ff);
+}
 
 bool NexLoader::load(const std::string& path)
 {
@@ -273,197 +321,19 @@ bool NexLoader::apply(Emulator& emu) const
     size_t offset = 0;  // current read position in file_data_
 
     // ---------------------------------------------------------------
-    // 1. Screen data
-    // ---------------------------------------------------------------
-
-    const uint8_t sf = header_.screen_flags;
-
-    // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
-    // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
-    // each write to page 10 offset 0 with 6912 / 12288 / 12288 / 12288
-    // bytes respectively, leaving the residual upper portion of bank 5 with
-    // stale RAM contents from before the load — observable as attribute /
-    // pixel leak in shadow-screen and certain ULA modes. The Layer 2
-    // screen ingest writes pages 16-21 (banks 8/9/10), so bank 5 is not
-    // in that range and Layer 2 remains untouched. See header doc-comment
-    // for full rationale (BEAST-NEX-INVESTIGATION.md § Verdict).
-    zero_bank5_screen_pages(mmu);
-
-    // Layer 2 palette (512 bytes, only if Layer2 screen AND palette present)
-    if ((sf & NexHeader::SCREEN_LAYER2) && !(sf & NexHeader::SCREEN_NO_PAL)) {
-        if (offset + 512 > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated Layer2 palette data");
-            return false;
-        }
-        // Load 256 palette entries into Layer2 first palette via NextREG API.
-        // Each entry is 2 bytes: byte 0 = RRRGGGBB, byte 1 = 0000000B (9th bit).
-        Log::emulator()->debug("NEX: loading Layer2 palette (512 bytes)");
-        auto& pal = emu.palette();
-        // Select Layer2 first palette for writing, auto-increment enabled
-        pal.write_control(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4);
-        pal.set_index(0);
-        for (int i = 0; i < 256; ++i) {
-            uint8_t lo = file_data_[offset + i * 2];
-            uint8_t hi = file_data_[offset + i * 2 + 1];
-            // Write as two consecutive 9-bit writes (first = RRRGGGBB, second = LSB)
-            pal.write_9bit(lo);
-            pal.write_9bit(hi & 0x01);
-        }
-        offset += 512;
-    }
-
-    // Layer 2 screen (48K = 256x192x8bpp, loaded into banks 8,9,10)
-    if (sf & NexHeader::SCREEN_LAYER2) {
-        constexpr size_t L2_SIZE = 49152;
-        if (offset + L2_SIZE > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated Layer2 screen data");
-            return false;
-        }
-        Log::emulator()->debug("NEX: loading Layer2 screen ({} bytes into banks 8,9,10)", L2_SIZE);
-        // Banks 8,9,10 → pages 16,17,18,19,20,21
-        write_to_ram(mmu, 16, 0, file_data_.data() + offset, L2_SIZE);
-        offset += L2_SIZE;
-    }
-
-    // ULA screen (6912 bytes → bank 5 offset 0 = page 10, offset 0)
-    if (sf & NexHeader::SCREEN_ULA) {
-        constexpr size_t ULA_SIZE = 6912;
-        if (offset + ULA_SIZE > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated ULA screen data");
-            return false;
-        }
-        Log::emulator()->debug("NEX: loading ULA screen ({} bytes into bank 5)", ULA_SIZE);
-        write_to_ram(mmu, 10, 0, file_data_.data() + offset, ULA_SIZE);
-        offset += ULA_SIZE;
-    }
-
-    // LoRes screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_LORES) {
-        constexpr size_t LORES_SIZE = 12288;
-        if (offset + LORES_SIZE > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated LoRes screen data");
-            return false;
-        }
-        Log::emulator()->debug("NEX: loading LoRes screen ({} bytes into bank 5)", LORES_SIZE);
-        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:472,:474).
-        write_split_screen_block(mmu, file_data_.data() + offset);
-        offset += LORES_SIZE;
-    }
-
-    // HiRes screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_HIRES) {
-        constexpr size_t HIRES_SIZE = 12288;
-        if (offset + HIRES_SIZE > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated HiRes screen data");
-            return false;
-        }
-        Log::emulator()->debug("NEX: loading HiRes screen ({} bytes into bank 5)", HIRES_SIZE);
-        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:488,:490).
-        write_split_screen_block(mmu, file_data_.data() + offset);
-        offset += HIRES_SIZE;
-    }
-
-    // HiColour screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_HICOLOUR) {
-        constexpr size_t HICOL_SIZE = 12288;
-        if (offset + HICOL_SIZE > file_data_.size()) {
-            Log::emulator()->error("NEX: truncated HiColour screen data");
-            return false;
-        }
-        Log::emulator()->debug("NEX: loading HiColour screen ({} bytes into bank 5)", HICOL_SIZE);
-        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:505,:507).
-        write_split_screen_block(mmu, file_data_.data() + offset);
-        offset += HICOL_SIZE;
-    }
-
-    // ---------------------------------------------------------------
-    // 2. Bank data (16K each, in kBankOrder) + loading bar (G156)
-    //
-    // `d` is the bank-slot index nexload.asm calls `progress` with
-    // (nexload.asm:534-545) — kBankOrder[d] is present-or-not, but the
-    // mark is drawn on EVERY slot when loading_bar != 0, matching the
-    // reference loader exactly (see nex_loader.h citations).
-    // ---------------------------------------------------------------
-
-    int banks_loaded = 0;
-    for (size_t d = 0; d < static_cast<size_t>(kTotalBankSlots); ++d) {
-        const int bank = kBankOrder[d];
-
-        if (bank < 112 && header_.banks[bank]) {
-            constexpr size_t BANK_SIZE = 16384;
-            if (offset + BANK_SIZE > file_data_.size()) {
-                Log::emulator()->error("NEX: truncated bank {} data (offset {} + {} > {})",
-                                       bank, offset, BANK_SIZE, file_data_.size());
-                return false;
-            }
-
-            // Bank N → 8K pages N*2 and N*2+1
-            uint16_t page_lo = static_cast<uint16_t>(bank * 2);
-            write_to_ram(mmu, page_lo, 0, file_data_.data() + offset, BANK_SIZE);
-
-            Log::emulator()->debug("NEX: loaded bank {} (pages {}, {})", bank, page_lo, page_lo + 1);
-            offset += BANK_SIZE;
-            ++banks_loaded;
-        }
-
-        // nexload.asm draws the progress mark AFTER (any) bank data for
-        // this slot has been loaded — including the case where `bank`
-        // IS 11 itself (LAYER_2_PAGE_2), whose freshly-loaded tail bytes
-        // get overwritten by its own mark. That is real firmware
-        // behaviour, not a jnext bug; faithfully reproduced by ordering
-        // this call after the bank-data write above.
-        if (header_.loading_bar) {
-            render_progress_mark(mmu, static_cast<uint8_t>(d), header_.loading_bar_colour);
-        }
-    }
-
-    Log::emulator()->debug("NEX: loaded {} banks ({} KB)", banks_loaded, banks_loaded * 16);
-
-    // G156 — total frames to hold the CPU idle before the loaded program
-    // starts (inter-bank loading_delay total, gated on screen presence,
-    // plus the unconditional start_delay). See nex_loader.h citations.
-    {
-        const bool screen_present = (sf != 0);
-        const uint32_t hold_frames =
-            boot_hold_frames(header_.start_delay, screen_present, header_.loading_delay);
-        if (hold_frames > 0) {
-            emu.set_boot_hold_frames(hold_frames);
-            Log::emulator()->info(
-                "NEX: holding CPU for {} frames before entry (loading_delay={} "
-                "screen_present={} start_delay={})",
-                hold_frames, header_.loading_delay, screen_present, header_.start_delay);
-        }
-    }
-
-    // ---------------------------------------------------------------
-    // 3. CPU setup
-    // ---------------------------------------------------------------
-
-    if (header_.preserve_regs == 0) {
-        // Reset all registers before setting PC/SP
-        Z80Registers regs{};
-        regs.AF  = 0xFFFF;
-        regs.SP  = header_.sp;
-        regs.PC  = header_.pc;
-        regs.IM  = 1;
-        regs.IFF1 = 0;
-        regs.IFF2 = 0;
-        cpu.set_registers(regs);
-        Log::emulator()->debug("NEX: registers reset, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
-    } else {
-        auto regs = cpu.get_registers();
-        regs.PC = header_.pc;
-        regs.SP = header_.sp;
-        cpu.set_registers(regs);
-        Log::emulator()->debug("NEX: registers preserved, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
-    }
-
-    // ---------------------------------------------------------------
-    // 4. NextREG initialization (replicates official nexload.asm)
+    // 1. NextREG initialization (replicates official nexload.asm)
     //
     // The official NextZXOS NEX loader sets up a standard machine
     // state before launching the program. We replicate the key
     // register writes here. Source: nexload.asm from tbblue gitlab.
+    //
+    // ORDER MATTERS, and it is nexload.asm's: this whole reset block
+    // runs FIRST (nexload.asm:321-410, the `.dontresetregs` fallthrough),
+    // and only then does the loading-screen block run (:424-511). The
+    // screen block therefore has the LAST word on NR 0x15, NR 0x43 and
+    // the ULA palette. jnext used to run them the other way round, which
+    // silently clobbered a LoRes screen's NR 0x15 bit 7 (LoRes enable)
+    // and one entry of its ULA palette (issue #156).
     // ---------------------------------------------------------------
 
     auto& nr = emu.nextreg();
@@ -540,6 +410,226 @@ bool NexLoader::apply(Emulator& emu) const
     nr.write(0x40, 0x00);
 
     Log::emulator()->debug("NEX: machine state initialized (nexload.asm compatible)");
+
+    // ---------------------------------------------------------------
+    // 2. Screen data
+    // ---------------------------------------------------------------
+
+    const uint8_t sf = header_.screen_flags;
+
+    // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
+    // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
+    // each write to page 10 offset 0 with 6912 / 12288 / 12288 / 12288
+    // bytes respectively, leaving the residual upper portion of bank 5 with
+    // stale RAM contents from before the load — observable as attribute /
+    // pixel leak in shadow-screen and certain ULA modes. The Layer 2
+    // screen ingest writes pages 16-21 (banks 8/9/10), so bank 5 is not
+    // in that range and Layer 2 remains untouched. See header doc-comment
+    // for full rationale (BEAST-NEX-INVESTIGATION.md § Verdict).
+    zero_bank5_screen_pages(mmu);
+
+    // Loading-screen palette (512 bytes) — carried by Layer 2 AND LoRes
+    // screens unless NO_PAL is set (nexload.asm:426-427; see
+    // nex_has_palette_block above for the file-size evidence, issue #156).
+    //
+    // The palette goes to a DIFFERENT bank depending on the screen kind
+    // (nexload.asm:429-433):
+    //
+    //   ld a,(IsLoadingScr):and 4:jr z,.nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00000001 : jr .nl2  ; LoRes
+    // .nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00010000            ; Layer 2
+    //
+    // i.e. a LoRes screen's palette is the ULA-first palette (NR 0x43 bits
+    // 6:4 = 000, plus bit 0 = ULANext enable), because LoRes reads the ULA
+    // palette; only a Layer 2 screen uses the Layer2-first palette
+    // (bits 6:4 = 001).
+    if (nex_has_palette_block(sf)) {
+        if (offset + 512 > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated loading-screen palette data");
+            return false;
+        }
+        const bool lores_pal = (sf & NexHeader::SCREEN_LORES) != 0;
+        Log::emulator()->debug("NEX: loading {} palette (512 bytes)",
+                               lores_pal ? "LoRes/ULA" : "Layer2");
+        // nexload.asm:430 / :432 — NR 0x43 selects the write target.
+        nr.write(0x43, lores_pal
+                           ? 0x01
+                           : static_cast<uint8_t>(static_cast<uint8_t>(PaletteId::LAYER2_FIRST) << 4));
+        auto& pal = emu.palette();
+        pal.set_index(0);                        // nexload.asm:434 NR 0x40 = 0
+        for (int i = 0; i < 256; ++i) {
+            uint8_t lo = file_data_[offset + i * 2];
+            uint8_t hi = file_data_[offset + i * 2 + 1];
+            // nexload.asm:436-437 — two consecutive NR 0x44 writes per entry
+            // (first = RRRGGGBB, second = 9th colour bit in bit 0).
+            pal.write_9bit(lo);
+            pal.write_9bit(hi & 0x01);
+        }
+        offset += 512;
+    }
+
+    // Layer 2 screen (48K = 256x192x8bpp, loaded into banks 8,9,10)
+    if (sf & NexHeader::SCREEN_LAYER2) {
+        constexpr size_t L2_SIZE = 49152;
+        if (offset + L2_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated Layer2 screen data");
+            return false;
+        }
+        Log::emulator()->debug("NEX: loading Layer2 screen ({} bytes into banks 8,9,10)", L2_SIZE);
+        // Banks 8,9,10 → pages 16,17,18,19,20,21
+        write_to_ram(mmu, 16, 0, file_data_.data() + offset, L2_SIZE);
+        offset += L2_SIZE;
+        // nexload.asm:444-446 — make the freshly-loaded screen VISIBLE.
+        //   ld bc,4667:ld a,2:out (c),a   ; port $123B bit 1 = Layer 2 on
+        //   NEXTREG_nn 21,SLU+SPRITES_VISIBLE
+        //   xor a:out (255),a             ; Timex mode 0
+        set_loading_screen_display(emu, NexScreenKind::LAYER2, header_.hires_colour);
+    }
+
+    // ULA screen (6912 bytes → bank 5 offset 0 = page 10, offset 0)
+    if (sf & NexHeader::SCREEN_ULA) {
+        constexpr size_t ULA_SIZE = 6912;
+        if (offset + ULA_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated ULA screen data");
+            return false;
+        }
+        Log::emulator()->debug("NEX: loading ULA screen ({} bytes into bank 5)", ULA_SIZE);
+        write_to_ram(mmu, 10, 0, file_data_.data() + offset, ULA_SIZE);
+        offset += ULA_SIZE;
+        // nexload.asm:459-461 — Layer 2 off, SLU priority, Timex mode 0.
+        set_loading_screen_display(emu, NexScreenKind::ULA, header_.hires_colour);
+    }
+
+    // LoRes screen (12288 bytes)
+    if (sf & NexHeader::SCREEN_LORES) {
+        constexpr size_t LORES_SIZE = 12288;
+        if (offset + LORES_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated LoRes screen data");
+            return false;
+        }
+        Log::emulator()->debug("NEX: loading LoRes screen ({} bytes into bank 5)", LORES_SIZE);
+        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:472,:474).
+        write_split_screen_block(mmu, file_data_.data() + offset);
+        offset += LORES_SIZE;
+        // nexload.asm:475-477 — NR 0x15 bit 7 (LoRes enable) + Timex mode 3.
+        //   NEXTREG_nn 21,SLU+SPRITES_VISIBLE+LORES_ENABLE
+        //   ld a,3:out (255),a
+        set_loading_screen_display(emu, NexScreenKind::LORES, header_.hires_colour);
+    }
+
+    // HiRes screen (12288 bytes)
+    if (sf & NexHeader::SCREEN_HIRES) {
+        constexpr size_t HIRES_SIZE = 12288;
+        if (offset + HIRES_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated HiRes screen data");
+            return false;
+        }
+        Log::emulator()->debug("NEX: loading HiRes screen ({} bytes into bank 5)", HIRES_SIZE);
+        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:488,:490).
+        write_split_screen_block(mmu, file_data_.data() + offset);
+        offset += HIRES_SIZE;
+        // nexload.asm:491-493 — Timex hi-res mode 6, ink colour from the
+        // header's HIRESCOL field: `ld a,(HIRESCOL):and %111000:or 6`.
+        set_loading_screen_display(emu, NexScreenKind::HIRES, header_.hires_colour);
+    }
+
+    // HiColour screen (12288 bytes)
+    if (sf & NexHeader::SCREEN_HICOLOUR) {
+        constexpr size_t HICOL_SIZE = 12288;
+        if (offset + HICOL_SIZE > file_data_.size()) {
+            Log::emulator()->error("NEX: truncated HiColour screen data");
+            return false;
+        }
+        Log::emulator()->debug("NEX: loading HiColour screen ({} bytes into bank 5)", HICOL_SIZE);
+        // Two 6144-byte halves at bank-5 0x0000 / 0x2000 (nexload.asm:505,:507).
+        write_split_screen_block(mmu, file_data_.data() + offset);
+        offset += HICOL_SIZE;
+        // nexload.asm:508-510 — Timex hi-colour mode 2.
+        set_loading_screen_display(emu, NexScreenKind::HICOLOUR, header_.hires_colour);
+    }
+
+    // ---------------------------------------------------------------
+    // 3. Bank data (16K each, in kBankOrder) + loading bar (G156)
+    //
+    // `d` is the bank-slot index nexload.asm calls `progress` with
+    // (nexload.asm:534-545) — kBankOrder[d] is present-or-not, but the
+    // mark is drawn on EVERY slot when loading_bar != 0, matching the
+    // reference loader exactly (see nex_loader.h citations).
+    // ---------------------------------------------------------------
+
+    int banks_loaded = 0;
+    for (size_t d = 0; d < static_cast<size_t>(kTotalBankSlots); ++d) {
+        const int bank = kBankOrder[d];
+
+        if (bank < 112 && header_.banks[bank]) {
+            constexpr size_t BANK_SIZE = 16384;
+            if (offset + BANK_SIZE > file_data_.size()) {
+                Log::emulator()->error("NEX: truncated bank {} data (offset {} + {} > {})",
+                                       bank, offset, BANK_SIZE, file_data_.size());
+                return false;
+            }
+
+            // Bank N → 8K pages N*2 and N*2+1
+            uint16_t page_lo = static_cast<uint16_t>(bank * 2);
+            write_to_ram(mmu, page_lo, 0, file_data_.data() + offset, BANK_SIZE);
+
+            Log::emulator()->debug("NEX: loaded bank {} (pages {}, {})", bank, page_lo, page_lo + 1);
+            offset += BANK_SIZE;
+            ++banks_loaded;
+        }
+
+        // nexload.asm draws the progress mark AFTER (any) bank data for
+        // this slot has been loaded — including the case where `bank`
+        // IS 11 itself (LAYER_2_PAGE_2), whose freshly-loaded tail bytes
+        // get overwritten by its own mark. That is real firmware
+        // behaviour, not a jnext bug; faithfully reproduced by ordering
+        // this call after the bank-data write above.
+        if (header_.loading_bar) {
+            render_progress_mark(mmu, static_cast<uint8_t>(d), header_.loading_bar_colour);
+        }
+    }
+
+    Log::emulator()->debug("NEX: loaded {} banks ({} KB)", banks_loaded, banks_loaded * 16);
+
+    // G156 — total frames to hold the CPU idle before the loaded program
+    // starts (inter-bank loading_delay total, gated on screen presence,
+    // plus the unconditional start_delay). See nex_loader.h citations.
+    {
+        const bool screen_present = (sf != 0);
+        const uint32_t hold_frames =
+            boot_hold_frames(header_.start_delay, screen_present, header_.loading_delay);
+        if (hold_frames > 0) {
+            emu.set_boot_hold_frames(hold_frames);
+            Log::emulator()->info(
+                "NEX: holding CPU for {} frames before entry (loading_delay={} "
+                "screen_present={} start_delay={})",
+                hold_frames, header_.loading_delay, screen_present, header_.start_delay);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 4. CPU setup
+    // ---------------------------------------------------------------
+
+    if (header_.preserve_regs == 0) {
+        // Reset all registers before setting PC/SP
+        Z80Registers regs{};
+        regs.AF  = 0xFFFF;
+        regs.SP  = header_.sp;
+        regs.PC  = header_.pc;
+        regs.IM  = 1;
+        regs.IFF1 = 0;
+        regs.IFF2 = 0;
+        cpu.set_registers(regs);
+        Log::emulator()->debug("NEX: registers reset, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
+    } else {
+        auto regs = cpu.get_registers();
+        regs.PC = header_.pc;
+        regs.SP = header_.sp;
+        cpu.set_registers(regs);
+        Log::emulator()->debug("NEX: registers preserved, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
+    }
 
     // ---------------------------------------------------------------
     // 5. Border colour (via ULA port 0xFE)
