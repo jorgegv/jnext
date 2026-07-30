@@ -178,13 +178,25 @@ void SdCardDevice::deselect() {
     // queued but before the data phase started) must not leave the card
     // primed to flip to RECEIVING_DATA on the next host activation.
     pending_write_after_r1_ = false;
-    // The post-write BUSY window SURVIVES CS deassert, exactly as the CMD18
-    // multi-block stream above does and for the same reason: in SPI mode CS
-    // deassert pauses the host/card dialogue, it does not abort the card's
-    // internal programming. esxdos writes the block, reads the data-response
-    // token, drops CS, then reselects and polls $EB for the busy signal — so
-    // clearing it here would make that poll see endless $FF, which is the
-    // GH #177 stall this whole change exists to remove.
+    // The post-write BUSY window does NOT survive CS deassert: the generic
+    // reset above already put the card in IDLE, and unlike the CMD18 stream
+    // there is deliberately no special case for WRITE_RESP / WRITE_BUSY. A
+    // reselect therefore reads $FF (not busy), and SD-BUSY-05 locks that in.
+    //
+    // That is the CORRECT behaviour for this model, not a shortcut. A real
+    // card keeps programming across a CS deassert and resumes signalling busy
+    // on reselect only BECAUSE programming takes real time; jnext models it as
+    // instantaneous (see kWriteBusyBytes — the whole SD path here completes
+    // within the byte that requests it). Under an instantaneous model the
+    // programming is finished by the time the host reselects, so "not busy" is
+    // the honest answer. Carrying the window across CS would report busy after
+    // the write had notionally completed.
+    //
+    // It is also unreachable from the firmware this matters to: in
+    // enNxtmmc.rom's only write routine ($1F92, single caller $1EC0) the sole
+    // `out ($e7),a` CS-deassert sits at the shared exit label $1F79, reached
+    // only after the busy poll has already resolved. CS stays asserted for the
+    // whole write -> token -> busy-poll sequence.
     // ZEsarUX-style: clear persistent-response byte on CS deassert. ZEsarUX
     // mmc_cs() at storage/mmc.c:711-714 sets mmc_last_command=0 +
     // mmc_index_command=0 (so case 0x00 fires next, returning $FF on TBBlue).

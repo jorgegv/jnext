@@ -137,15 +137,27 @@ private:
     // programming time would be inconsistent with that posture and would slow
     // every single sector write. The spec requires the busy phase to EXIST and
     // to END; its duration is a card property, not a protocol constant.
-    static constexpr int kWriteBusyBytes = 1;
+    static constexpr std::uint8_t kWriteBusyBytes = 1;
 
-    // The byte sampled as the card releases DataOut part-way through it: low
-    // bits first, high bits after. 0x01 is the last-bit release — the smallest
-    // legal partial value. Any of 0x01/0x03/0x07/.../0x7F is equally physical;
-    // what matters is that it is neither 0x00 (still busy) nor 0xFF (idle).
+    // The byte the host samples as the card stops signalling busy.
+    //
+    // WHAT THE SPEC REQUIRES (§ 7.3.3.1): that a busy phase exists after an
+    // accepted block and that it ends. The spec describes this at DAT0/bit
+    // level, NOT in terms of SPI byte framing, so it does not name a byte
+    // value here.
+    //
+    // WHAT IS AN INFERENCE (mine, not the spec's): the release is asynchronous
+    // to the host's byte boundary, so the byte spanning it carries leading low
+    // bits and trailing high bits — 0x01/0x03/.../0x7F. That pattern is a
+    // physical argument, not a quotation.
+    //
+    // WHAT ACTUALLY BINDS, and is confirmed by the firmware: the byte must be
+    // neither 0x00 (esxdos reads that as "still busy", $1FBD) nor 0xFF (its
+    // $1F3D skip-filler primitive reads that as "nothing yet"). 0x01 is the
+    // smallest value satisfying that.
     static constexpr std::uint8_t kBusyReleaseByte = 0x01;
     bool write_busy_pending_ = false;   // set when CMD24 ACCEPTED the block
-    int  busy_remaining_     = 0;
+    std::uint8_t busy_remaining_ = 0;
 
     State state_ = State::IDLE;
 

@@ -683,6 +683,54 @@ static void test_write_busy_window(SdCardDevice& sd) {
           (reads < 0 ? " (FIRMWARE TIMEOUT)" : ""));
 }
 
+static void test_write_busy_cs_deassert(SdCardDevice& sd) {
+    // SD-BUSY-05 (GH #177 review). The busy window does NOT survive a CS
+    // deassert, and that is deliberate — this row exists so a future change
+    // cannot quietly assume it does.
+    //
+    // A real card keeps programming across CS and resumes signalling busy on
+    // reselect ONLY because programming takes real time. jnext models it as
+    // instantaneous (kWriteBusyBytes), so by the time the host reselects the
+    // write has notionally completed and "not busy" ($FF) is the honest
+    // answer; carrying the window across CS would report busy after the fact.
+    //
+    // Nothing regresses either way: in enNxtmmc.rom's only write routine
+    // ($1F92) the sole CS-deassert is at the shared exit $1F79, AFTER the busy
+    // poll resolves — so the firmware never takes this path. The row pins the
+    // property, it does not bless a firmware behaviour.
+    sd.reset();
+    init_card(sd);
+
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; ++i) pattern[i] = static_cast<uint8_t>(i ^ 0x5C);
+
+    (void)send_cmd_r1(sd, 24, 14);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    for (int i = 0; i < 32; ++i) if (spi_read(sd) == 0x05) break;   // eat the token
+
+    // Drop CS between the data-response token and the busy poll, then reselect
+    // and read. The window is gone: the card reports idle, not busy.
+    sd.deselect();
+    uint8_t after_cs[4];
+    for (auto& b : after_cs) b = spi_read(sd);
+    sd.deselect();
+
+    bool all_idle = true;
+    for (uint8_t b : after_cs) if (b != 0xFF) all_idle = false;
+
+    check("SD-BUSY-05",
+          "a CS deassert ENDS the post-write busy window — on reselect the "
+          "card reads $FF (programming is modelled as instantaneous, so it has "
+          "already completed); the firmware never takes this path",
+          all_idle,
+          "after_cs=" + std::to_string(after_cs[0]) + "," +
+          std::to_string(after_cs[1]) + "," + std::to_string(after_cs[2]) +
+          "," + std::to_string(after_cs[3]));
+}
+
 static void test_write_busy_not_after_reject() {
     // SD-BUSY-04 (GH #177). The mirror image of SD-BUSY-01: a block the card
     // REJECTED is never programmed, so no busy phase may follow it. SD Phys
@@ -2364,6 +2412,7 @@ int main() {
     test_cmd24_write(sd);
     test_write_busy_window(sd);       // SD-BUSY-01..03 (GH #177)
     test_write_busy_not_after_reject();  // SD-BUSY-04 (GH #177)
+    test_write_busy_cs_deassert(sd);      // SD-BUSY-05 (GH #177 review)
     test_readonly_mount();
     test_mmc_cmd1_init(sd);
 
