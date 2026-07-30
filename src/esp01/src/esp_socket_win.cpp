@@ -243,9 +243,10 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
 }
 
 std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
-                 bool& failed, std::string& err) {
+                 bool& failed, bool& reset, std::string& err) {
     eof    = false;
     failed = false;
+    reset  = false;
     const int n =
         ::recv(static_cast<SOCKET>(s), reinterpret_cast<char*>(buf), clamp_len(cap), 0);
     if (n > 0) return static_cast<std::size_t>(n);
@@ -256,6 +257,12 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
     const int e = ::WSAGetLastError();
     if (would_block(e)) return 0;
     failed = true;
+    // WSAECONNRESET is the peer's RST, and it is the only code that means
+    // that. WSAECONNABORTED (a LOCAL abort — timeout, protocol error) and
+    // WSAENETRESET (keep-alive detected the link went down) are deliberately
+    // NOT folded in: both are genuine faults, and the whole point of the flag
+    // is to be narrow enough to trust.
+    reset  = (e == WSAECONNRESET);
     err    = wsa_text(e);
     return 0;
 }

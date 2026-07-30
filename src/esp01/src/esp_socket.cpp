@@ -8,6 +8,7 @@
 // Tracing (owner made it a first-class requirement on GH #25, decision 3):
 //   info   connection opened / closed              — user-visible, security-
 //   warn   connection refused by the address policy   relevant, ON by default
+//   warn   a peer that had served data closed with an RST instead of a FIN
 //   error  resolve / connect / send / recv failure with the OS error text
 //   debug  request accepted, resolve timing + result count, byte counts
 //   trace  per-poll state, resolve still outstanding, would-block events
@@ -82,10 +83,12 @@ public:
         port_       = port;
         peer_       = IpAddress{};
         last_error_.clear();
-        // Cleared with `last_error_` and for the same reason: both describe the
-        // PREVIOUS attempt, and a fresh request must not inherit its verdict.
-        denial_ = DenyReason::None;
-        state_  = TransportState::Resolving;
+        // Cleared with `last_error_` and for the same reason: all three
+        // describe the PREVIOUS attempt, and a fresh request must not inherit
+        // its verdict or its byte count.
+        denial_   = DenyReason::None;
+        received_ = 0;
+        state_    = TransportState::Resolving;
         log_debug("connect requested: {}:{} (resolution deferred to poll)",
                             host_, port_);
         return true;
@@ -127,11 +130,14 @@ public:
     std::size_t recv(std::uint8_t* buf, std::size_t cap) override {
         if (state_ != TransportState::Connected || buf == nullptr || cap == 0)
             return 0;
-        bool        eof = false, failed = false;
+        bool        eof = false, failed = false, reset = false;
         std::string err;
-        const std::size_t n = net::recv(sock_, buf, cap, eof, failed, err);
+        const std::size_t n = net::recv(sock_, buf, cap, eof, failed, reset, err);
         if (failed) {
-            fail("recv failed: " + err);
+            if (reset && received_ != 0)
+                note_peer_reset();
+            else
+                fail("recv failed: " + err);
             return 0;
         }
         if (eof) {
@@ -144,6 +150,7 @@ public:
             log_trace("recv: no data available");
         else
             log_debug("received {} bytes from {}", n, to_string(peer_));
+        received_ += n;
         return n;
     }
 
@@ -178,6 +185,55 @@ private:
         last_error_ = std::move(why);
         state_      = TransportState::Failed;
         log_error("{}:{} — {}", host_, port_, last_error_);
+    }
+
+    /// A peer that had already SERVED US BYTES terminated the connection with
+    /// a TCP RST instead of a FIN. Same outcome as `fail()` in every respect
+    /// that any caller can observe — `Failed`, `last_error()` set, the socket
+    /// dropped — but reported at WARN, and this is the one place in the module
+    /// where the severity is an argument rather than a fact (GH #176).
+    ///
+    /// WHY IT IS NOT AN ERROR. `error` in this file means "an OS call failed
+    /// and the connection could not do its job". A peer closing with
+    /// `SO_LINGER(1,0)` — which is what the NextSync server does — makes its
+    /// `close()` emit an RST, and the whole transfer has already succeeded by
+    /// then: every byte reached the guest, `CLOSED` is still emitted, and the
+    /// guest prints "All done". Calling that an error means the only red line
+    /// in a perfect run says the run failed.
+    ///
+    /// WHAT THIS DOES **NOT** CLAIM, stated plainly because the honest answer
+    /// is a narrow one. This layer CANNOT tell a deliberate linger-close from
+    /// a mid-stream reset caused by a crashed server or a middlebox: the wire
+    /// event is one RST either way, carrying no reason, and TCP has no
+    /// "I meant it" bit. So the discrimination made here is the one that IS
+    /// observable — whether the peer served anything at all before it reset:
+    ///
+    ///   * reset with NOTHING served (`received_ == 0`) is a failed exchange
+    ///     however you read it — a rejecting server, a crash on accept, a
+    ///     firewall — and stays `error`, loud, via `fail()`.
+    ///   * reset AFTER data is the linger-close SHAPE, and is reported here.
+    ///
+    /// A genuine mid-stream reset therefore lands in the second bucket, and
+    /// the line below is written so that it is still useful when it does: it
+    /// names the reset, counts what was received, and says outright that
+    /// anything the peer had not yet sent is gone. `warn` is above the
+    /// module's default threshold and above jnext's, so it is emitted on every
+    /// default run — the event is not hidden, it is merely no longer
+    /// attributed to a failure this transport did not have.
+    ///
+    /// The count is meaningful because of an ordering guarantee, not by luck:
+    /// the OS hands back everything already queued and reports the reset only
+    /// once that queue is empty (see the note in `esp_socket_posix.cpp`), so
+    /// `received_` is the whole of what the peer's TCP managed to deliver.
+    void note_peer_reset() {
+        log_warn("connection to {}:{} was RESET by the peer after {} byte(s) received "
+                 "(TCP RST, not an orderly close) — everything it delivered has been "
+                 "handed on; anything it had not yet sent is lost",
+                 host_, port_, received_);
+        release();
+        last_error_ = "connection reset by the peer after " + std::to_string(received_) +
+                      " byte(s) received";
+        state_      = TransportState::Failed;
     }
 
     /// Advance name resolution WITHOUT EVER WAITING FOR IT. At most three
@@ -378,6 +434,10 @@ private:
     /// Non-`None` only while `state_ == Failed` because the address policy
     /// refused the target. See `EspTransport::denial_reason()`.
     DenyReason        denial_ = DenyReason::None;
+    /// Bytes handed to the consumer on the CURRENT connection. Its only job is
+    /// to tell a peer that reset after serving from one that reset instead of
+    /// serving — see `note_peer_reset()`.
+    std::uint64_t     received_ = 0;
     /// Non-null only between starting a lookup and consuming its result. The
     /// resolver thread holds the other reference.
     std::shared_ptr<ResolveJob> job_;
