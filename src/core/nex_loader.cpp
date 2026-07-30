@@ -212,12 +212,45 @@ bool NexLoader::load(const std::string& path)
     header_.entry_bank        = raw[139];
     header_.file_handle       = read_u16(raw + 140);
 
-    // Validate version string
-    if (std::memcmp(header_.version, "V1.0", 4) != 0 &&
-        std::memcmp(header_.version, "V1.1", 4) != 0 &&
-        std::memcmp(header_.version, "V1.2", 4) != 0) {
-        Log::emulator()->warn("NEX: unrecognised version '{:.4s}' in '{}', attempting load anyway",
-                              header_.version, path);
+    // Loader-version gate (nexload.asm:296-297):
+    //
+    //   ld a,(V_MAJOR):sub '0':and %1111:SWAPNIB:ld b,a
+    //   ld a,(V_MINOR):and %1111:or b:ld b,a       ; B = BCD, "V1.2" -> $12
+    //   ld a,(LoaderVersion):cp b:jp c,loaderUpdate
+    //
+    // `jp c` fires when the LOADER's version is below the FILE's, i.e. only a
+    // file from the future is refused; an older file always loads. jnext used
+    // to warn and load anyway, which silently mis-parses a newer layout (the
+    // exact failure issue #156 records for V1.3: unknown screen bits make
+    // nex_screen_bytes() undercount and every bank is then read from the
+    // wrong offset). Refusing loudly beats loading garbage.
+    header_.version_bcd = nex_version_bcd(header_.version);
+    if (kNexLoaderVersionBcd < header_.version_bcd) {
+        Log::emulator()->error(
+            "NEX: '{}' is version '{:.4s}' but this loader supports up to V{:x}.{:x}; "
+            "refusing to load (a newer layout would be mis-parsed)",
+            path, header_.version,
+            (kNexLoaderVersionBcd >> 4) & 0x0F, kNexLoaderVersionBcd & 0x0F);
+        return false;
+    }
+
+    // Core-version requirement (nexload.asm:307-317). Reported, NOT enforced:
+    // the reference loader reads NR 0x00 first and SKIPS the whole check when
+    // it reads 8 ("emulator") — `cp 8:jp z,.ok` at nexload.asm:310. jnext
+    // reports 0x0A (real hardware) because NextZXOS's ROM1 machine-ID branch
+    // needs it (src/port/nextreg.cpp:220-225, test MID-01), so the faithful
+    // reading is not "enforce the check" but "the check does not apply to us".
+    // jnext's own NR 0x01/NR 0x0E core version is a nominal 3.02.03 that does
+    // not track feature-for-feature with any real core, so enforcing it would
+    // refuse working files for a number that means little here. Warn instead,
+    // naming both versions, so an unsupported-core failure is diagnosable.
+    if (!nex_core_version_ok(header_.core_version[0], header_.core_version[1],
+                             header_.core_version[2])) {
+        Log::emulator()->warn(
+            "NEX: '{}' asks for core {}.{:02}.{:02}, above the {}.{:02}.{:02} jnext reports; "
+            "loading anyway (nexload.asm:310 skips this check on emulators)",
+            path, header_.core_version[0], header_.core_version[1], header_.core_version[2],
+            kJnextCoreMajor, kJnextCoreMinor, kJnextCoreSubminor);
     }
 
     // Locate the end of the fixed machine-state image. Count the banks the

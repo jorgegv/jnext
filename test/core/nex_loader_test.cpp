@@ -633,6 +633,151 @@ int main() {
         }
     }
 
+    // =================================================================
+    // NEXVER — the loader-version gate (issue #156).
+    //
+    // nexload.asm:296-297 packs the header's version string to BCD and
+    // refuses only a file from the FUTURE:
+    //
+    //   ld a,(V_MAJOR):sub '0':and %1111:SWAPNIB:ld b,a
+    //   ld a,(V_MINOR):and %1111:or b:ld b,a
+    //   ld a,(LoaderVersion):cp b:jp c,loaderUpdate
+    //
+    // `jp c` fires when LoaderVersion < file version. jnext used to warn
+    // and load anyway, which silently mis-parses a newer layout — the
+    // exact V1.3 failure mode #156 documents. ped7g ships
+    // nexload2/loaderVersion.nex ("V9.9") to test precisely this gate.
+    // =================================================================
+
+    set_group("NEXVER");
+
+    check("NEXVER-01",
+          "\"V1.2\" packs to BCD 0x12 (nexload.asm:296 major<<4 | minor)",
+          nex_version_bcd("V1.2") == 0x12,
+          fmt("got 0x%02X want 0x12", nex_version_bcd("V1.2")));
+
+    check("NEXVER-02",
+          "\"V9.9\" packs to BCD 0x99 — the value nexload2/loaderVersion.nex carries",
+          nex_version_bcd("V9.9") == 0x99,
+          fmt("got 0x%02X want 0x99", nex_version_bcd("V9.9")));
+
+    struct VersionCase {
+        const char* id;
+        const char* tag;
+        const char  version[5];
+        bool        want_load;
+        const char* desc;
+    };
+
+    static const VersionCase kVersionCases[] = {
+        {"NEXVER-03", "ver_v10", "V1.0", true,
+         "V1.0 (older than the loader) loads — nexload.asm refuses only on carry, "
+         "i.e. only when the loader is BEHIND the file"},
+        {"NEXVER-04", "ver_v12", "V1.2", true,
+         "V1.2 (exactly the supported version) loads — `cp` leaves NC on equality"},
+        {"NEXVER-05", "ver_v13", "V1.3", false,
+         "V1.3 is REFUSED while kNexLoaderVersionBcd is 0x12: its screen kinds are not "
+         "decoded, so loading it would mis-size the screen block (issue #162 raises the "
+         "constant when it implements them)"},
+        {"NEXVER-06", "ver_v99", "V9.9", false,
+         "V9.9 is REFUSED — nexload2/loaderVersion.nex, the conformance file for this gate"},
+        {"NEXVER-07", "ver_junk", "XXXX", false,
+         "a malformed version string packs to a large BCD and is refused, which is the "
+         "safe direction (it used to warn and load anyway)"},
+    };
+
+    for (const VersionCase& c : kVersionCases) {
+        const std::string path =
+            (std::filesystem::temp_directory_path() /
+             (std::string("jnext_nexver_") + c.tag + ".nex")).string();
+        // Header-only NEX: no screen, no banks, so a well-formed file is
+        // exactly 512 bytes and nothing but the version gate can reject it.
+        if (!write_nex_fixture(path, 0x00, 0)) {
+            check(c.id, c.desc, false, "fixture write failed");
+            continue;
+        }
+        {
+            std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
+            f.seekp(4);
+            f.write(c.version, 4);
+        }
+        NexLoader loader;
+        const bool loaded = loader.load(path);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        check(c.id, c.desc, loaded == c.want_load,
+              fmt("version \"%s\" (BCD 0x%02X): load()=%d want %d",
+                  c.version, nex_version_bcd(c.version), loaded ? 1 : 0, c.want_load ? 1 : 0));
+    }
+
+    // =================================================================
+    // NEXCORE — the core-version requirement (nexload.asm:307-317).
+    //
+    // Field-ordered compare: major, then minor, then subminor, refusing
+    // only when a field is strictly greater. NexLoader WARNS rather than
+    // refuses (nexload.asm:310 `cp 8:jp z,.ok` skips the whole check on
+    // an emulator, and jnext's advertised core version is nominal), so
+    // these rows pin the comparison itself.
+    // =================================================================
+
+    set_group("NEXCORE");
+
+    struct CoreCase {
+        const char* id;
+        uint8_t     maj, min, sub;
+        bool        want_ok;
+        const char* desc;
+    };
+
+    static const CoreCase kCoreCases[] = {
+        {"NEXCORE-01", 3, 2, 3, true,
+         "a requirement equal to the advertised core is met (nexload.asm:316 `jr z,.ok`)"},
+        {"NEXCORE-02", 15, 15, 255, false,
+         "15.15.255 is NOT met — the requirement nexload2/coreVersion.nex carries"},
+        {"NEXCORE-03", 3, 3, 0, false,
+         "equal major, greater minor is not met (nexload.asm:314)"},
+        {"NEXCORE-04", 3, 2, 4, false,
+         "equal major and minor, greater subminor is not met (nexload.asm:316)"},
+        {"NEXCORE-05", 1, 15, 255, true,
+         "a LOWER major wins outright even with higher minor/subminor — the compare is "
+         "field-ordered, not a tuple sum (nexload.asm:312 `jr .ok`). This is the value "
+         "nexload2/empty.nex and preserveNextRegs.nex actually carry"},
+        {"NEXCORE-06", 3, 1, 5, true,
+         "3.01.05 is met — the value ped7g's bigpic/A_drvHID/test8xN NEX files carry, so "
+         "a stricter compare would refuse working corpus files"},
+    };
+
+    for (const CoreCase& c : kCoreCases) {
+        const bool got = nex_core_version_ok(c.maj, c.min, c.sub);
+        check(c.id, c.desc, got == c.want_ok,
+              fmt("core %u.%02u.%02u vs advertised %u.%02u.%02u: ok=%d want %d",
+                  c.maj, c.min, c.sub, kJnextCoreMajor, kJnextCoreMinor, kJnextCoreSubminor,
+                  got ? 1 : 0, c.want_ok ? 1 : 0));
+    }
+
+    // NEXCORE-07 — the mirror must not drift. kJnextCore{Major,Minor,
+    // Subminor} in nex_loader.h duplicate NR 0x01 / NR 0x0E, whose real
+    // home is NextReg::reset() (src/port/nextreg.cpp:226,:293). Read them
+    // off a live Emulator so a change in one place fails here rather than
+    // silently making the warning lie.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const uint8_t nr01 = emu.nextreg().read(0x01);
+        const uint8_t nr0e = emu.nextreg().read(0x0E);
+        const uint8_t want01 =
+            static_cast<uint8_t>((kJnextCoreMajor << 4) | (kJnextCoreMinor & 0x0F));
+        check("NEXCORE-07",
+              "kJnextCore{Major,Minor,Subminor} still match the live NR 0x01 / NR 0x0E "
+              "(nex_loader.h mirrors NextReg::reset(); this row is the anti-drift pin)",
+              nr01 == want01 && nr0e == kJnextCoreSubminor,
+              fmt("NR$01=0x%02X (want 0x%02X) NR$0E=0x%02X (want 0x%02X)",
+                  nr01, want01, nr0e, kJnextCoreSubminor));
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

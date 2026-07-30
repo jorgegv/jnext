@@ -35,6 +35,7 @@ struct NexHeader {
     uint8_t  hires_colour;       // HiRes colour or L2 palette offset
     uint8_t  entry_bank;         // 16K bank mapped to 0xC000 at entry
     uint16_t file_handle;        // 0=close, 1=handle in BC, >=0x4000=store handle there
+    uint8_t  version_bcd;        // `version` packed as nexload.asm does: "V1.2" -> 0x12
 
     // Screen flag bit masks
     static constexpr uint8_t SCREEN_LAYER2    = 0x01;
@@ -44,6 +45,52 @@ struct NexHeader {
     static constexpr uint8_t SCREEN_HICOLOUR  = 0x10;
     static constexpr uint8_t SCREEN_NO_PAL    = 0x80;
 };
+
+/// Highest NEX file-format version this loader understands, BCD-packed the
+/// way nexload.asm packs it: "V1.2" -> 0x12. A file whose version exceeds
+/// this is REFUSED by NexLoader::load() (nexload.asm:296-297).
+///
+/// **Raise this to 0x13 in the change that implements V1.3** (issue #162) —
+/// the V1.3 screen kinds (LOADSCR bit 6 + the LOADSCR2 selector) are not
+/// decoded here yet, so accepting a V1.3 file would mis-size its screen
+/// block and read every bank from the wrong offset.
+static constexpr uint8_t kNexLoaderVersionBcd = 0x12;
+
+/// The core version jnext advertises through NR 0x01 (major.minor, BCD
+/// 0x32 = 3.02) and NR 0x0E (subminor). Single source of truth lives in
+/// `NextReg::reset()` — src/port/nextreg.cpp:226 sets regs_[0x01] = 0x32
+/// and :293 sets regs_[0x0E] = 0x03. Mirrored here (not included) to keep
+/// nex_loader.h free of the NextReg header; nex_loader_test pins the pair
+/// against the live registers so the mirror cannot drift.
+static constexpr uint8_t kJnextCoreMajor    = 3;
+static constexpr uint8_t kJnextCoreMinor    = 2;
+static constexpr uint8_t kJnextCoreSubminor = 3;
+
+/// BCD-pack a NEX header version string the way nexload.asm:296 does:
+///   major = (version[1] - '0') & 0x0F, placed in the high nibble
+///   minor = version[3] & 0x0F,         placed in the low nibble
+/// so "V1.2" -> 0x12 and "V9.9" -> 0x99. A malformed string packs to some
+/// large value and is therefore refused, which is the safe direction.
+inline uint8_t nex_version_bcd(const char version[4]) {
+    const uint8_t major = static_cast<uint8_t>((version[1] - '0') & 0x0F);
+    const uint8_t minor = static_cast<uint8_t>(version[3] & 0x0F);
+    return static_cast<uint8_t>((major << 4) | minor);
+}
+
+/// True when the core version a NEX header requires is met by the version
+/// jnext advertises. nexload.asm:312-316 compares major, then minor, then
+/// subminor, and only demands an update when a field is strictly greater:
+///   ld a,(CORE_MAJOR)   :cp l:jr z,.o1:jp nc,coreUpdate:jr .ok
+///   ld a,(CORE_MINOR)   :cp h:jr z,.o2:jp nc,coreUpdate:jr .ok
+///   ld a,(CORE_SUBMINOR):cp e:jr z,.ok :jp nc,coreUpdate
+/// (`cp` sets NC when the header value >= the core value, so equal falls
+/// through to the next field and greater fails.) NexLoader only WARNS on a
+/// false result — see the call site for why.
+inline bool nex_core_version_ok(uint8_t req_major, uint8_t req_minor, uint8_t req_subminor) {
+    if (req_major != kJnextCoreMajor)       return req_major < kJnextCoreMajor;
+    if (req_minor != kJnextCoreMinor)       return req_minor < kJnextCoreMinor;
+    return req_subminor <= kJnextCoreSubminor;
+}
 
 /// The NEX loading-screen kinds that nexload.asm makes visible after
 /// ingesting their data (one `if` block each, nexload.asm:439-511).
