@@ -225,18 +225,31 @@ public:
     /// a user who just opened a tape or injected a binary has already said
     /// what they want, and being told "no" would be a puzzle.
     ///
-    /// The callers, and why each one qualifies:
-    ///   * load_tap / load_tzx / load_wav — a tape can only load if the
-    ///     guest runs. BOTH start mechanisms (the ROM LD-BYTES trap and the
-    ///     phantom typist's keyboard-scan trigger) are only tested while the
-    ///     CPU is fetching, so neither can ever fire on a parked machine.
-    ///   * inject_binary — names an entry point and sets PC to it.
-    ///   * load_rzx with no embedded snapshot — playback drives the CURRENT
-    ///     machine (the snapshot path resets, which un-parks by itself).
-    ///   * execute_single_instruction — the debugger's Step is the most
-    ///     explicit possible request to advance the CPU, and leaving it dead
-    ///     makes the debugger look broken rather than the machine look
-    ///     parked (there is no "Parked" affordance in the UI yet).
+    /// There are SIX call sites, listed one per line and numbered on
+    /// purpose: the first version of this comment grouped the three tape
+    /// loaders onto one bullet, and both the author and the reviewer then
+    /// read the list as five. The suite shipped with five rows for six
+    /// sites, and nothing failed — `load_rzx` had no coverage anywhere.
+    /// Each site is pinned by exactly one row, NEXPC0-12..18. If you add a
+    /// seventh, add its row and fix this count.
+    ///
+    ///   1. load_tap  — a tape can only load if the guest runs. BOTH start
+    ///      mechanisms (the ROM LD-BYTES trap and the phantom typist's
+    ///      keyboard-scan trigger) are only tested while the CPU is
+    ///      fetching, so neither can ever fire on a parked machine.
+    ///   2. load_tzx  — same two mechanisms.
+    ///   3. load_wav  — always real-time, so it depends on the guest
+    ///      running even more directly than the fast-load formats.
+    ///   4. inject_binary — names an entry point and sets PC to it.
+    ///   5. load_rzx with no embedded snapshot — playback drives the
+    ///      CURRENT machine (the snapshot path resets, which un-parks by
+    ///      itself, and needs no call).
+    ///   6. execute_single_instruction — the debugger's Step is the most
+    ///      explicit possible request to advance the CPU, and leaving it
+    ///      dead makes the debugger look broken rather than the machine
+    ///      look parked (there is no "Parked" affordance in the UI yet).
+    ///      Debugger RUN deliberately does NOT resume: unlike Step it
+    ///      promises nothing about advancing, so staying parked is correct.
     ///
     /// Loads that reset first (load_nex/sna/szx/z80, RZX-with-snapshot) need
     /// no call: reset() re-runs init(), which clears the flag.
