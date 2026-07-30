@@ -124,6 +124,13 @@ struct EmulatorConfig {
     // --load: load a file (e.g. .nex) into the emulator.
     std::string load_file;                // path to .nex file (empty = disabled)
 
+    // --nex-args: the argument line handed to a NEX V1.3 program through the
+    // CLI buffer its header declares (offsets 148/150). Empty = the empty
+    // line, which is what a V1.3 file with a buffer got before GH #172.
+    // Only V1.3 declares a buffer at all; NexLoader::apply() warns when the
+    // value cannot be delivered rather than dropping it silently.
+    std::string nex_cli_args;
+
     // Task 79 — host input source for each Next joystick connector
     // (index 0 = Joy 1 / port 0x1F, index 1 = Joy 2 / port 0x37). Resolved
     // from --joy1-source/--joy2-source and (Qt build) ~/.jnext config with
