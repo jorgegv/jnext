@@ -630,6 +630,14 @@ bool NexLoader::apply(Emulator& emu) const
     // NOT modelled either way (pre-existing, unrelated to the gate):
     // nexload.asm's :397-:403 DefaultPalette / 256-entry palette sweeps
     // and its :406-:407 NR 0x50/0x51 writes.
+    //
+    // Also pre-existing, and V1.3-specific: the four "always" writes
+    // below (NR 0x42, 0x43, 0x40+0x41, 0x15) come from nexload.asm's
+    // unconditional prologue :266-:274. nexload2.asm has no prologue at
+    // all — those registers sit in its `nextRegResetData` table at
+    // :885-:909, behind the same `ret nz` that :777 exempts NR 0x07
+    // from. So a V1.3 file asking for PRESERVENEXTREG still gets them
+    // overwritten. Unchanged by the gate; tracked separately.
     // ---------------------------------------------------------------
 
     auto& nr = emu.nextreg();
