@@ -230,8 +230,9 @@ public:
     /// loaders onto one bullet, and both the author and the reviewer then
     /// read the list as five. The suite shipped with five rows for six
     /// sites, and nothing failed — `load_rzx` had no coverage anywhere.
-    /// Each site is pinned by exactly one row, NEXPC0-12..18. If you add a
-    /// seventh, add its row and fix this count.
+    /// Each site is pinned by exactly one row: NEXPC0-12, -13, -14, -15,
+    /// -16 and -18 (NEXPC0-17 is the unrelated G156 boot-hold row). If you
+    /// add a seventh site, add its row and fix this list.
     ///
     ///   1. load_tap  — a tape can only load if the guest runs. BOTH start
     ///      mechanisms (the ROM LD-BYTES trap and the phantom typist's
