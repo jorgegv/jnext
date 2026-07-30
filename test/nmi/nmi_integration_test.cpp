@@ -475,7 +475,11 @@ static void g_host_hotkey()
         check("HK-09-INT",
               "F1 dispatcher requests a host cold boot (deferred); its reinit "
               "path → CPU PC=0x0000, NmiSource mf_enable cleared, FSM idle "
-              "(no config_mode gate) [Task 70; VHDL zxnext.vhd:6371, :1109-1110, :2120]",
+              // :2154-2155 is `if reset = '1' then nmi_state <= S_NMI_IDLE`,
+              // the FSM-idle-on-reset evidence this row asserts. It used to
+              // cite :2120, which is only the next-state process's sensitivity
+              // list — real, adjacent, and proving nothing (GH #151).
+              "(no config_mode gate) [Task 70; VHDL zxnext.vhd:6371, :1109-1110, :2154-2155]",
               requested && mf_pre && !mf_post && pc_pre == 0xC000 && pc_post == 0x0000
                      && fsm == NmiSource::State::Idle,
               fmt("requested=%d mf_pre=%d mf_post=%d pc_pre=0x%04x pc_post=0x%04x "

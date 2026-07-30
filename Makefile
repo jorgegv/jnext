@@ -86,7 +86,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest traceability-accounting-check worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
@@ -317,7 +317,7 @@ gui-clean: gui-debug-clean gui-release-clean
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help unit-test-build gui-release sdl-release docs-check cli-check
+regression: lint-makefile-help regression-doc-check unit-test-build gui-release sdl-release docs-check cli-check
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -332,6 +332,26 @@ regression: lint-makefile-help unit-test-build gui-release sdl-release docs-chec
 	@# executes it, and sdl-keypress-func is the one row that does. `make clean`
 	@# deletes it (clean depends on sdl-release-clean), hence building it here.
 	bash test/00regression/regression.sh
+
+# Fail if doc/CURRENT-REGRESSION-STATE.md and regression_tests.conf disagree
+regression-doc-check:
+	@# doc/CURRENT-REGRESSION-STATE.md is the visual index of the screenshot suite
+	@# — README.md and BUILD.md both point users at it — and test/00regression/
+	@# check-doc-consistency.sh has verified it against the conf since Task 29.
+	@# Nothing ever invoked that script: no make target, no regression.sh step, no
+	@# CI job. So it rotted silently, and by GH #159 it was failing on 18 conf rows
+	@# with no entry and a headline count of 46 against a conf of 64.
+	@#
+	@# That is the same shape as the traceability @SUBSYS drift closed under GH #25
+	@# and by traceability-accounting-check above: a guard that exists, is correct,
+	@# and that nothing runs. A checker nobody invokes is worse than no checker — it
+	@# looks like coverage and is not. So it is wired HERE, as a prerequisite of
+	@# `regression`, exactly as docs-check is.
+	@#
+	@# It sits beside lint-makefile-help at the FRONT of that list on purpose: it
+	@# is ~20 ms of grep over two text files with no build dependency at all, so it
+	@# fails before the four binary prerequisites start compiling.
+	@bash test/00regression/check-doc-consistency.sh
 
 # Fail if a declared unit-test suite is neither traced nor tombstoned in the matrix
 traceability-accounting-check:
@@ -356,7 +376,7 @@ traceability-accounting-check:
 	@perl test/refresh-traceability-matrix.pl --check-accounting
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check unit-test-build docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest unit-test-build docs-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -458,6 +478,23 @@ harness-selftest: unit-test-build gui-release sdl-release
 
 # Self-test the traceability-matrix VHDL-citation extractor against fixtures
 traceability-selftest:
+	@# WIRED IN as a prerequisite of `unit-test` below (GH #146). Until then no
+	@# gate ran it at all: not `unit-test`, not `regression`, not CI — verified by
+	@# grep of the Makefile and both manifests. It is the self-test of the tool
+	@# that decides which VHDL lines justify each traceability row, and its own
+	@# refusal rows are the only thing standing between this project and a
+	@# plausible-but-wrong citation, so leaving it to be run by hand was the same
+	@# shape as check-doc-consistency.sh (GH #159): a guard nothing invokes.
+	@#
+	@# It also PINS its row count, in the script, next to the rows — the count
+	@# cannot live in test/unit-tests.conf because that manifest is cross-checked
+	@# against CMake's add_test() registrations and this is a perl script with no
+	@# CMake target. The script exits 2 on a mismatch, in the manner of
+	@# test/run-unit-tests.sh refusing when its manifest and CMake disagree.
+	@#
+	@# ~5 s, no build prerequisite: the end-to-end rows run the real refresh
+	@# script twice against a throwaway repository built from the real manifest,
+	@# CMakeLists and matrix, with stub sources and binaries.
 	@perl test/traceability-citations-selftest.pl
 
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)

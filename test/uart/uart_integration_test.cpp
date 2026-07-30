@@ -201,8 +201,11 @@ static void test_uart_im2_interrupts(Emulator& emu) {
         settle(emu);
         const uint8_t ca = nr_read(emu, 0xCA);
         check("INT-02",
+              // :1943 is the UART0 term of im2_int_req; :1942 immediately
+              // above is UART1's, which this row does not exercise
+              // (zxnext.vhd:1941-1944 is the whole concatenation). GH #151.
               "UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only "
-              "(near-full override) [zxnext.vhd:1942, :1950; plan-drift note]",
+              "(near-full override) [zxnext.vhd:1943, :1950; plan-drift note]",
               (ca & 0x03) != 0,
               "NR 0xCA=" + hex2(ca) + " (expected bits 1:0 set)");
     }

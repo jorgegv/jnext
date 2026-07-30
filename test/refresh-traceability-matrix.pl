@@ -480,6 +480,20 @@ my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
 # `\.vhd` must not be a prefix of a longer identifier, or `row.vhdl_line`
 # in a printf argument list is read as a citation of "row.vhd".
 #
+# A citation MAY carry a directory prefix, and until GH #145 the class could
+# not express one: `[A-Za-z0-9_]+\.vhd` never captured a directory, so a cell
+# written the way the design docs write it — `device/copper.vhd:54-119`, the
+# qualified relative path — could never equal the bare filename the extractor
+# computed, and drifted on every run for ever. A permanent false entry in the
+# drift report is noise hiding a real one (the same argument as GH #142).
+#
+# The prefix is CAPTURED rather than discarded, and then validated: see
+# resolve_vhd() for how `device/copper.vhd` (a real path), `src/zxnext.vhd` (a
+# real path spelled from one level up) and `bogus/copper.vhd` (not a path at
+# all) are told apart. Folding a prefix away unconditionally was the other
+# option and is refused — it would need basenames to be unique across the FPGA
+# tree, and `hdmi_plle2.vhd` exists twice (`pll/A7/`, `pll/A7-Issue-5/`).
+#
 # A citation's line list may continue in two spellings, and BOTH have to be
 # consumed or the tail is silently dropped (GH #136):
 #
@@ -506,11 +520,33 @@ my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
 # one step from consuming the sentence around it — whose failure mode is
 # publishing a WRONG citation. Stopping early publishes a
 # correct-but-incomplete one, which this project ranks strictly better.
+#
+# THE BARE CONTINUATION MUST NOT SWALLOW A BIT RANGE (GH #144). `zxnext.vhd:100,
+# 15:0 field` names ONE line and a VHDL slice; the bare `, <digits>` arm read
+# the `15` as a second line reference and published `zxnext.vhd:100,15` — a
+# citation the source does not support, which is the failure this project ranks
+# below an honest em dash and the exact reasoning that got the banner-comment
+# and nearest-comment tiers rejected.
+#
+# The guard is a negative lookahead on the BARE arm only: a continuation whose
+# digits are themselves followed by `:` is a slice, not a line, so the citation
+# stops before it. It cannot mis-fire on a real list — `, 200` is followed by
+# prose or nothing, never by a colon — and it is measured: zero `, N:M` shapes
+# exist anywhere in the tree today, so the guard costs nothing and closes the
+# hole before the first one arrives.
+#
+# What is deliberately NOT done is the issue's first suggestion, "require the
+# colon on continuations". Measured over the test sources and plan docs the
+# extractor reads: 852 continuations use the bare spelling against 210 using
+# the colon-carrying one. Requiring the colon would delete 852 CORRECT
+# citations to guard against a shape that occurs zero times — destroying good
+# evidence, which is a different act from refusing a bad one.
 my $VHDL_CITE_RE = qr{
-    \b ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
+    \b ( (?: [A-Za-z0-9_.\-]+ / )* [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] )
     (?: \s* : \s*
         ( \d+ (?: \s* [-–] \s* \d+ )?
-          (?: \s* (?: [/,] \s* | [/,+] \s* : \s* )
+          (?: (?: \s* [/,+] \s* : \s*
+                | \s* [/,] \s* (?! \d+ \s* : ) )
               \d+ (?: \s* [-–] \s* \d+ )? )* ) )?
 }x;
 
@@ -852,23 +888,71 @@ sub grep_source {
     return (\%checks, \%skips);
 }
 
-# Set of VHDL basenames that actually exist in the FPGA core, or undef when
-# the core is not checked out next to jnext (CI, a fresh clone) — in which
-# case validation is skipped rather than failing every citation.
+# What the FPGA core actually contains, or 0 when it is not checked out next
+# to jnext (CI, a fresh clone) — in which case validation is skipped rather
+# than failing every citation.
+#
+#   base   basename -> number of files carrying it. The COUNT, not a flag:
+#          `hdmi_plle2.vhd` exists twice (`pll/A7/`, `pll/A7-Issue-5/`), and
+#          that is exactly the case where a directory prefix carries real
+#          information and must not be folded away (GH #145).
+#   spell  every ACCEPTED spelling of a file -> its basename. A spelling is
+#          any path SUFFIX of the file's absolute path, cut at a `/`. So
+#          `zxula.vhd`, `video/zxula.vhd`, `src/video/zxula.vhd` and
+#          `cores/zxnext/src/video/zxula.vhd` are all accepted for the same
+#          file, which is what lets `device/copper.vhd` (the design docs'
+#          convention) and `src/zxnext.vhd` (24 sites, written from one level
+#          up) both validate without a special case for either.
 my $VHDL_FILES;
 sub vhdl_files {
     return $VHDL_FILES if defined $VHDL_FILES;
-    my %seen;
+    my (%base, %spell);
     if (-d $FPGA_SRC && open(my $fh, '-|', 'find', $FPGA_SRC, '-name', '*.vhd')) {
         while (my $p = <$fh>) {
             chomp $p;
-            $p =~ s{.*/}{};
-            $seen{$p} = 1;
+            my @seg = split m{/}, $p;
+            my $bn  = $seg[-1];
+            $base{$bn}++;
+            for my $i (0 .. $#seg) {
+                $spell{ join('/', @seg[$i .. $#seg]) } = $bn;
+            }
         }
         close $fh;
     }
-    $VHDL_FILES = %seen ? \%seen : 0;
+    $VHDL_FILES = %base ? { base => \%base, spell => \%spell } : 0;
     return $VHDL_FILES;
+}
+
+# What the FPGA core says about a cited filename, which may be qualified.
+# Returns (verdict, published_name):
+#
+#   'ok'       the spelling names a real file — published verbatim, prefix and
+#              all, because the prefix is information the reader asked for
+#   'rehomed'  the DIRECTORY is wrong but the basename is real: published as
+#              the bare basename (never worse than the pre-GH #145 behaviour,
+#              which discarded every prefix) and REPORTED, because a wrong
+#              directory is a wrong citation even when the file exists
+#   'unknown'  nothing in the core carries that basename — dropped, as before
+#   'unchecked' the core is not on this machine; nothing is validated
+sub resolve_vhd {
+    my ($cited) = @_;
+    my $known = vhdl_files();
+    return ('unchecked', $cited) unless $known;
+    return ('ok', $cited) if exists $known->{spell}{$cited};
+    (my $bn = $cited) =~ s{.*/}{};
+    return ('rehomed', $bn) if exists $known->{base}{$bn};
+    return ('unknown', $cited);
+}
+
+# True when a bare basename identifies exactly one file in the core, i.e. when
+# a directory prefix adds nothing and may be folded away for COMPARISON.
+# False for `hdmi_plle2.vhd`, and false when the core is not checked out —
+# refusing to fold is the answer that cannot be wrong.
+sub vhd_basename_unique {
+    my ($bn) = @_;
+    my $known = vhdl_files();
+    return 0 unless $known;
+    return (($known->{base}{$bn} // 0) == 1) ? 1 : 0;
 }
 
 # EVERY VHDL citation in a blob of text, normalised to "file.vhd:lines" and
@@ -903,15 +987,35 @@ sub vhdl_files {
 # an entry is dropped only when every line reference it makes already appears,
 # spelled identically, in another entry for that same file. `:169` goes;
 # `:169` vs `:176` would both stay, and so would two different files.
+#
+# cite_list() is the same computation returning the entries as a LIST, because
+# HOW MANY citations a blob offers is itself evidence: the `named` tier refuses
+# a comment block that names several rows AND offers several citations, since
+# there is then no row-local basis for saying which belongs to which (GH #147).
+# cite_in() is the joined form every existing caller wants.
+my %REHOMED_WARNED;
 sub cite_in {
+    my $l = cite_list(@_);
+    return @$l ? join(', ', @$l) : undef;
+}
+sub cite_list {
     my ($text) = @_;
-    my $known = vhdl_files();
     my (@out, %seen);
     while ($text =~ /$VHDL_CITE_RE/g) {
-        my ($file, $lines) = ($1, $2);
-        if ($known && !$known->{$file}) {
-            warn "WARN: citation names '$file', which is not in $FPGA_SRC\n";
+        my ($cited, $lines) = ($1, $2);
+        my ($verdict, $file) = resolve_vhd($cited);
+        if ($verdict eq 'unknown') {
+            warn "WARN: citation names '$cited', which is not in $FPGA_SRC\n";
             next;
+        }
+        # A wrong DIRECTORY beside a real basename: publish the basename (the
+        # pre-GH #145 answer, so nothing is lost) and say so once per distinct
+        # spelling. Once, because a single wrong path is written at dozens of
+        # sites and a warning repeated forty times is the saturated-warning
+        # failure this tool has already been bitten by twice.
+        if ($verdict eq 'rehomed' && !$REHOMED_WARNED{$cited}++) {
+            warn "WARN: citation names '$cited'; $FPGA_SRC has no such path, "
+               . "but does carry '$file' — publishing the bare filename\n";
         }
         my $cite;
         if (!defined $lines) {
@@ -929,8 +1033,16 @@ sub cite_in {
             $lines =~ s/://g;
             $cite = "$file:$lines";
         }
-        next if $seen{$cite}++;
-        push @out, { cite => $cite, file => $file,
+        # Both the duplicate check and the subset suppression below are asked
+        # about the FILE, and after GH #145 a file has more than one accepted
+        # spelling — so both are keyed on the canonical form, or
+        # `copper.vhd:87-89` sits beside `device/copper.vhd:87-89,92-97`
+        # instead of being suppressed by it (measured: TIM-CYC-02 and FNK-01
+        # both regressed exactly that way while this was keyed on the literal
+        # spelling). canon_citation() folds a prefix only when the basename is
+        # unambiguous, so the two `hdmi_plle2.vhd` files still never merge.
+        next if $seen{ canon_citation($cite) }++;
+        push @out, { cite => $cite, file => canon_citation($file),
                      tok  => { map { $_ => 1 }
                                split(/[,\/]/, defined $lines ? $lines : '') } };
     }
@@ -952,8 +1064,7 @@ sub cite_in {
         }
         push @kept, $out[$i]{cite} unless $redundant;
     }
-    return undef unless @kept;
-    return join(', ', @kept);
+    return \@kept;
 }
 
 # Repo-relative path of the plan doc backing a suite, or undef when it has
@@ -1028,22 +1139,13 @@ sub grep_citations {
         push @calls, { s => $i, e => $j, cite => cite_in($text) };
     }
 
-    # Comment blocks that name a row ID, and the first line each ID appears on.
-    my (%named, %id_line);
-    my $i = 0;
-    while ($i <= $#src) {
-        if ($src[$i] =~ m{^\s*//}) {
-            my ($j, $text) = ($i, '');
-            while ($j <= $#src && $src[$j] =~ m{^\s*//}) { $text .= $src[$j]; $j++; }
-            if (my $c = cite_in($text)) {
-                for my $id ($text =~ /$ID_BARE_RE/g) {
-                    next if $id =~ /\.vhd/;
-                    $named{$id} //= $c;
-                }
-            }
-            $i = $j;
-            next;
-        }
+    # The first line each ID appears on, OUTSIDE a comment. Collected in a pass
+    # of its own because the `named` tier below needs the complete set to tell a
+    # row ID from a prose hyphenation (GH #147): `VHDL-correct` and `SYM-hyst`
+    # match the bare-ID shape, and counting them as rows would make the block
+    # rule fire on blocks that name exactly one.
+    my %id_line;
+    for (my $i = 0; $i <= $#src; $i++) {
         # `set_group("ID")` is a group BANNER, not the row's assertion, and it
         # is dropped here for the same reason grep_row_ids() drops it — one
         # reader, one rule. Without the mask the banner is the ID's FIRST
@@ -1056,10 +1158,61 @@ sub grep_citations {
         # rows) was answering `zxnext.vhd:6603-6631` for it. That is the
         # borrowed-citation failure this extractor is built to refuse, arriving
         # through the one door left open. (GH #144)
+        next if $src[$i] =~ m{^\s*//};
         my $line = $src[$i];
         $line =~ s/$SET_GROUP_RE/set_group(/g;
         while ($line =~ /$ID_LITERAL_RE/g) { push @{ $id_line{$1} }, $i; }
-        $i++;
+    }
+
+    # ── The `named` tier, and where it REFUSES (GH #147) ──────────────
+    #
+    # A comment block that names a row ID explicitly is row-local evidence, and
+    # that explicit mention is the whole reason this tier survived when the
+    # banner-comment and nearest-comment tiers were rejected. But the block was
+    # taken as ONE scope: the first citation anywhere in it was handed to every
+    # ID named anywhere in it, and `//=` locked that in. Whenever a block spans
+    # several VHDL topics that is the rejected banner tier, arriving through the
+    # surviving door.
+    #
+    # `BP-06` is the measured instance. Its file's top banner lists sixteen row
+    # IDs and mentions `zxnext.vhd:5179` (an NR 0x08 DAC-enable fact) first, so
+    # BP-06 published :5179 instead of the port 0xFE dispatch its assertion is
+    # about — while BP-01, whose own check() carries a citation, was shielded by
+    # the higher-precedence call tier.
+    #
+    # BLAST RADIUS, measured across every traced source before choosing a rule:
+    # 283 rows take their citation from this tier; 39 of those come from a block
+    # naming more than one REAL row ID; 10 of those come from a block that also
+    # offers more than one citation.
+    #
+    # THE RULE: refuse the block when it names more than one real row ID AND
+    # offers more than one citation. Then there is no row-local basis for
+    # deciding which citation belongs to which row, and taking the first is
+    # exactly the misattribution above. One ID with several citations is kept —
+    # they all belong to that row. Several IDs with ONE citation are kept — the
+    # block has only one answer to give. Ten rows lose a citation and read `—`,
+    # which is honest and recoverable by citing the VHDL in the row's own
+    # check() call, the tier that outranks this one.
+    my %named;
+    {
+        my $i = 0;
+        while ($i <= $#src) {
+            if ($src[$i] !~ m{^\s*//}) { $i++; next; }
+            my ($j, $text) = ($i, '');
+            while ($j <= $#src && $src[$j] =~ m{^\s*//}) { $text .= $src[$j]; $j++; }
+            $i = $j;
+            my $list = cite_list($text);
+            next unless @$list;
+            my (%seen_id, @ids);
+            for my $id ($text =~ /$ID_BARE_RE/g) {
+                next if $id =~ /\.vhd/;
+                push @ids, $id unless $seen_id{$id}++;
+            }
+            my @real = grep { exists $id_line{$_} } @ids;
+            next if @real > 1 && @$list > 1;
+            my $c = join(', ', @$list);
+            $named{$_} //= $c for @ids;
+        }
     }
 
     my $plan      = plan_cites($source_rel);
@@ -1574,6 +1727,53 @@ sub cite_upgrades {
     return (defined $new_from && $new_from eq $owner) ? 1 : 0;
 }
 
+# ── Hand-written cells are validated too (GH #150) ────────────────────
+#
+# The extractor validated every citation it COMPUTED against the real FPGA
+# tree and refused a filename it did not recognise, and never once looked at
+# the hand-written cells it preserves. Since a hand-written cell is never
+# overwritten — correctly — a wrong one was permanent AND invisible: it agreed
+# with itself on every later run, and the drift report only fires when the
+# computed side disagrees, which needs a computed side to exist.
+#
+# Measured over the live matrix: 3 cells name `kempston_mouse.vhd`, which does
+# not exist (the Kempston mouse is inline in `zxnext.vhd`), and ~25 name
+# jnext's own C++ in a column headed VHDL. Our implementation is not evidence;
+# the VHDL is the oracle.
+#
+# Returns a list of complaints, one per problem, or the empty list when the
+# cell is fine. It REPORTS — nothing here rewrites a cell, ever.
+#
+# A `(...)` cell is a declared tombstone (`(jnext-internal)`, `(SD SPI spec)`,
+# `(host sockets)`, `(ESP-AT firmware)`) and says "there is nothing to cite",
+# which is a claim, not an omission. 314 cells carry one. It is accepted as
+# written: whether a suite deserves a tombstone is decided in %TOMBSTONE, and
+# re-litigating it per row would just duplicate that judgement badly.
+sub bad_hand_citation {
+    my ($cell) = @_;
+    return () if !defined $cell || $cell eq '' || $cell eq '—';
+    return () if $cell =~ /^\(.*\)$/;          # a declared tombstone
+    my @out;
+    my $saw_vhd = 0;
+    while ($cell =~ /$VHDL_CITE_RE/g) {
+        $saw_vhd = 1;
+        my ($verdict, $resolved) = resolve_vhd($1);
+        if ($verdict eq 'unknown') {
+            push @out, "names '$1', which is not in the FPGA core";
+        } elsif ($verdict eq 'rehomed') {
+            push @out, "names '$1'; the core carries it as '$resolved'";
+        }
+    }
+    # A cell naming a jnext source file is the second measured class, and it
+    # is worth its own wording: it is not a typo, it is the wrong ORACLE.
+    push @out, "cites jnext's own source, not the VHDL: "
+             . join(' ', $cell =~ /(\b[\w\/.\-]+\.(?:cpp|hpp|hh|cc|[ch])\b)/g)
+        if $cell =~ /\.(?:cpp|hpp|hh|cc|[ch])\b/;
+    push @out, "carries no VHDL citation at all"
+        if !$saw_vhd && $cell !~ /\.(?:cpp|hpp|hh|cc|[ch])\b/;
+    return @out;
+}
+
 # A citation string reduced to the form the drift comparison judges it by.
 #
 # ONLY the comparison is normalised. The stored cell is not touched — a
@@ -1616,10 +1816,28 @@ sub cite_upgrades {
 # disagreement between the human and the extractor about exactly that.
 # Measured over the same 361: zero entries are pure reorderings, so the
 # strictness costs nothing today and keeps the report honest when one appears.
+#
+# A DIRECTORY PREFIX is the third rule, and it is not cosmetic — it is the one
+# spelling difference that could never be reconciled at all (GH #145). The
+# design docs write the qualified relative path (`device/copper.vhd:54-119`)
+# and the extractor computed a bare filename, so those cells drifted on every
+# run for ever, and a permanent false entry is noise hiding a real one.
+#
+# It is folded ONLY when the basename identifies exactly one file in the core.
+# `hdmi_plle2.vhd` exists under both `pll/A7/` and `pll/A7-Issue-5/`, and there
+# the prefix is the whole content of the citation; folding it would equate two
+# citations that name different files. When the core is not checked out,
+# nothing is folded — refusing is the answer that cannot be wrong.
+#
+# The prefix is folded for the COMPARISON only. The stored cell keeps whatever
+# was written, here as everywhere else in this sub.
 sub canon_citation {
     my ($c) = @_;
     $c =~ s{\s*([,/])\s*}{$1}g;   # "5633, 6260" -> "5633,6260"
     $c =~ s{([,/]):}{$1}g;        # "5179,:6436" -> "5179,6436"
+    # "device/copper.vhd:54" -> "copper.vhd:54", when unambiguous.
+    $c =~ s{ \b (?: [A-Za-z0-9_.\-]+ / )+ ( [A-Za-z0-9_]+ \.vhd ) (?! [A-Za-z0-9_] ) }
+           { vhd_basename_unique($1) ? $1 : $& }gex;
     return $c;
 }
 
@@ -1634,9 +1852,13 @@ sub canon_citation {
 # $companions, when given, is an arrayref of [binary, source_rel] pairs for
 # the OTHER @SUBSYS entries that share this section's `##` subsystem — see
 # the fallback block below (GH #121).
+#
+# $invalid, when given, collects hand-written cells that do not validate
+# against the FPGA core (GH #150). Optional and last, so every existing caller
+# keeps working unchanged.
 sub refresh_section {
     my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx,
-        $companions) = @_;
+        $companions, $invalid) = @_;
     $kept //= [];
 
     # A section may be backed by several suites (see the Audio entry). The
@@ -1849,6 +2071,12 @@ sub refresh_section {
                     # normalised and written back untouched. (GH #142)
                     my $cur_cite = $cells[3];
                     $cur_cite =~ s/^\s+|\s+$//g;
+                    # A hand-written cell is preserved, and now also CHECKED —
+                    # it is the one citation nothing validated (GH #150).
+                    if ($invalid) {
+                        push @$invalid, "$tid_raw: $_ — [$cur_cite]"
+                            for bad_hand_citation($cur_cite);
+                    }
                     my $new_cite = cite_for($tid_raw, $cites, $checks, $skips)
                                    // $tombstone;
                     if ($cur_cite eq '' || $cur_cite eq '—') {
@@ -2249,6 +2477,7 @@ sub main_body {
     my @kept;
     my @unrec;
     my @aliased;
+    my @invalid;
     for my $f (@found) {
         my ($idx, $entry) = @$f;
         my ($header, $binary, $source_rel) = @$entry;
@@ -2257,11 +2486,16 @@ sub main_body {
 
         my @section_drift;
         my @section_kept;
+        my @section_invalid;
         my ($touched, $p, $f_ct, $s, $m, $c, $u, $d) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
                             \@section_drift, \@section_kept, $stop,
-                            $companion->{$idx});
+                            $companion->{$idx}, \@section_invalid);
         my @sources = as_list($source_rel);
+        # Labelled by SECTION, not by source file: a hand-written cell has no
+        # source file behind it — that is what makes it hand-written.
+        push @invalid, map { section_label($header, $sources[0]) . "  $_" }
+                       @section_invalid;
         # Drift lines arrive already charged to the file that supplied the
         # citation (GH #126) — which may be a companion suite or a plan doc,
         # neither of which is $sources[0]. Protected rows have no such file
@@ -2330,6 +2564,18 @@ sub main_body {
         print "\nProtected rows kept byte-identical ",
               "(<!-- protected --> marker):\n";
         print "  $_\n" for @kept;
+    }
+
+    # ── The GH #150 report ────────────────────────────────────────────
+    #
+    # Hand-written cells validated the same way computed ones are. Reported,
+    # never rewritten — a hand-written citation is somebody's judgement and the
+    # tool has no standing to overrule it, only to say it does not check out.
+    if (@invalid) {
+        printf("\nHAND-WRITTEN CITATIONS THAT DO NOT VALIDATE (%d). The cell is "
+             . "KEPT; fix it by\nhand. A citation to jnext's own source is not "
+             . "evidence — the VHDL is the oracle:\n", scalar @invalid);
+        print "  $_\n" for @invalid;
     }
 
     # ── The GH #117 report ────────────────────────────────────────────

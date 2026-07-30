@@ -537,8 +537,12 @@ void test_cat3_port_7ffd() {
 
     // P7F-16: shadow-screen signal tracks port_7ffd bit 3 across a
     // sequence of writes (baseline 0 → asserted 1 → cleared 0). VHDL
-    // zxnext.vhd:3640 (port_7ffd_reg latches cpu_do); :4453 names the
-    // shadow signal produced from reg(3).
+    // zxnext.vhd:3652 (port_7ffd_reg <= cpu_do) and :3768
+    // (port_7ffd_shadow <= port_7ffd_dat(3)).
+    //
+    // GH #151: this used to cite :3640 — a `-- 128K MEMORY PAGING` banner
+    // comment, not an assignment — and zxula.vhd:191, which went stale when
+    // the row was re-homed from ULA to MMU in 2026-04.
     {
         Fixture f;
         f.fresh();
@@ -549,8 +553,8 @@ void test_cat3_port_7ffd() {
         const bool off_after_clear = !f.mmu.shadow_screen_en();
         check("P7F-16",
               "port_7ffd bit 3 sequence toggles Mmu::shadow_screen_en — "
-              "VHDL zxnext.vhd:3640,:4453 (Ula screen_mode=000 gate at "
-              "zxula.vhd:191 covered by ula_integration_test INT-SHADOW-01)",
+              "VHDL zxnext.vhd:3652,3768 (the Ula screen_mode=000 gate is "
+              "covered by ula_integration_test INT-SHADOW-01)",
               boot_clear && on_after_set && off_after_clear,
               fmt("boot_clear=%d on_after_set=%d off_after_clear=%d",
                   boot_clear, on_after_set, off_after_clear));

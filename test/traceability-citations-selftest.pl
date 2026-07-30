@@ -37,10 +37,25 @@ my $REAL_ROOT = $ROOT;
 # tree so grep_citations() reads the fixture, and JNEXT_FPGA_SRC points at a
 # fake core holding exactly the .vhd names the fixture is allowed to cite —
 # so the filename whitelist is exercised for real, not bypassed.
+#
+# The fake core is NOT flat. A citation may carry a directory prefix
+# (GH #145), and the three answers that prefix can get — a real path, a wrong
+# path beside a real basename, and a basename that names TWO files — are only
+# distinguishable against a tree that has subdirectories and a duplicated
+# basename in it, exactly as the real core does (`hdmi_plle2.vhd` lives under
+# both `pll/A7/` and `pll/A7-Issue-5/`).
 my $FIXTURE_ROOT = tempdir(CLEANUP => 1);
-mkdir "$FIXTURE_ROOT/fpga";
-for my $vhd (qw(fixture_a.vhd fixture_b.vhd fixture_c.vhd fixture_d.vhd)) {
-    open(my $fh, '>', "$FIXTURE_ROOT/fpga/$vhd") or die "write $vhd: $!";
+for my $vhd (qw(fixture_a.vhd fixture_b.vhd fixture_c.vhd fixture_d.vhd
+                device/fixture_e.vhd
+                pll/A7/fixture_dup.vhd pll/A7-Issue-5/fixture_dup.vhd)) {
+    my $abs = "$FIXTURE_ROOT/fpga/$vhd";
+    (my $dir = $abs) =~ s{/[^/]+$}{};
+    my $sofar = '';
+    for my $part (grep { length } split m{/}, $dir) {
+        $sofar .= "/$part";
+        mkdir $sofar unless -d $sofar;
+    }
+    open(my $fh, '>', $abs) or die "write $vhd: $!";
     print $fh "-- fixture\n";
     close $fh;
 }
@@ -174,6 +189,21 @@ void group_continuation() {
               "prose interrupts — VHDL fixture_c.vhd:900 (the latch), :950",
               cond, detail);
     }
+    // GH #144: a bare `, <digits>` continuation whose digits are followed by
+    // a `:` is a VHDL BIT SLICE, not a second line reference. Absorbing it
+    // publishes a citation the source does not support.
+    {
+        check("CONT-04",
+              "bit slice after a bare comma — VHDL fixture_d.vhd:100, 15:0 field",
+              cond, detail);
+    }
+    // The control that keeps CONT-04 from being satisfied by "never carry a
+    // bare continuation": an ordinary bare `, <digits>` list is still carried.
+    {
+        check("CONT-05",
+              "ordinary bare list — VHDL fixture_d.vhd:5633, 6260",
+              cond, detail);
+    }
 }
 CPP
 
@@ -243,6 +273,244 @@ check('SELF-62', 'a `+` continuation chain is carried and normalised to the publ
 check('SELF-63', 'a continuation separated by prose is NOT reached across',
       ($cites->{'CONT-03'} // '') eq 'fixture_c.vhd:900',
       "got " . ($cites->{'CONT-03'} // '(none)'));
+
+# ── A bare continuation must not swallow a bit slice (GH #144) ────────
+#
+# `fixture_d.vhd:100, 15:0 field` names ONE line; the `15` is the high index
+# of a VHDL slice. The bare `, <digits>` arm read it as a second line and
+# published `fixture_d.vhd:100,15` — a citation the source does not support,
+# which this project ranks strictly below an honest em dash.
+#
+# SELF-112 is the discriminator. Without it, "never carry a bare
+# continuation" — which would delete 852 correct citations across the tree —
+# satisfies SELF-111 just as well.
+
+check('SELF-111', 'a bit slice behind a bare comma is NOT absorbed as a second line reference',
+      ($cites->{'CONT-04'} // '') eq 'fixture_d.vhd:100',
+      "got " . ($cites->{'CONT-04'} // '(none)'));
+
+check('SELF-112', 'the control: an ordinary bare `, <digits>` list is still carried',
+      ($cites->{'CONT-05'} // '') eq 'fixture_d.vhd:5633,6260',
+      "got " . ($cites->{'CONT-05'} // '(none)'));
+
+# ── Directory-qualified citations (GH #145) ───────────────────────────
+#
+# The class could not express a directory at all, so a cell written the way
+# the design docs write it — `device/copper.vhd:54-119`, the qualified
+# relative path — could never equal the bare filename the extractor computed,
+# and drifted on every run for ever. A permanent false entry in the drift
+# report is noise hiding a real one.
+#
+# The prefix is now captured and VALIDATED against the real tree, and folded
+# for the drift comparison only when the basename is unambiguous. SELF-116 is
+# the refusal that keeps that fold honest.
+
+write_fixture('test/fixture/path_test.cpp', <<'CPP');
+void paths() {
+    check("PATH-OK-01", "a real qualified path — VHDL device/fixture_e.vhd:54-119",
+          cond, detail);
+    check("PATH-UP-01", "spelled from one level up — VHDL fpga/fixture_a.vhd:7",
+          cond, detail);
+    check("PATH-BAD-01", "a wrong directory beside a real basename — VHDL nowhere/fixture_b.vhd:9",
+          cond, detail);
+    check("PATH-GONE-01", "neither path nor basename exists — VHDL nowhere/not_a_real.vhd:1",
+          cond, detail);
+    check("PATH-SUB-01", "bare restated beside qualified", cond,
+          "fixture_e.vhd:54-119 and device/fixture_e.vhd:54-119,200");
+    check("PATH-DUP-01", "an AMBIGUOUS basename keeps its directory — VHDL pll/A7/fixture_dup.vhd:3",
+          cond, detail);
+}
+CPP
+my @path_warnings;
+my $pc = do {
+    local $SIG{__WARN__} = sub { push @path_warnings, $_[0] };
+    grep_citations('test/fixture/path_test.cpp');
+};
+
+check('SELF-113', 'a directory-qualified citation naming a real path is published verbatim, prefix kept',
+      ($pc->{'PATH-OK-01'} // '') eq 'device/fixture_e.vhd:54-119',
+      "got " . ($pc->{'PATH-OK-01'} // '(none)'));
+
+check('SELF-114', 'a path spelled from one level up still validates — any suffix of the real path is accepted',
+      ($pc->{'PATH-UP-01'} // '') eq 'fpga/fixture_a.vhd:7',
+      "got " . ($pc->{'PATH-UP-01'} // '(none)'));
+
+check('SELF-115', 'a WRONG directory beside a real basename falls back to the basename and is reported',
+      scalar(($pc->{'PATH-BAD-01'} // '') eq 'fixture_b.vhd:9'
+             && grep { /nowhere\/fixture_b\.vhd/ } @path_warnings),
+      "got " . ($pc->{'PATH-BAD-01'} // '(none)')
+        . "; warnings: @path_warnings");
+
+check('SELF-117', 'the whitelist still refuses a name the core does not carry at all, prefix or no prefix',
+      !defined $pc->{'PATH-GONE-01'},
+      "got " . ($pc->{'PATH-GONE-01'} // '(none)'));
+
+check('SELF-118', 'subset suppression sees through the spelling: a bare restatement is dropped beside the qualified one',
+      ($pc->{'PATH-SUB-01'} // '') eq 'device/fixture_e.vhd:54-119,200',
+      "got " . ($pc->{'PATH-SUB-01'} // '(none)'));
+
+# canon_citation() is what the drift comparison judges by. It must fold an
+# unambiguous prefix (SELF-116a) and must NOT fold an ambiguous one (SELF-116),
+# because there the prefix is the whole content of the citation.
+check('SELF-116a', 'an unambiguous directory prefix folds for the drift comparison',
+      canon_citation('device/fixture_e.vhd:54-119') eq 'fixture_e.vhd:54-119',
+      'got ' . canon_citation('device/fixture_e.vhd:54-119'));
+
+check('SELF-116', 'THE REFUSAL: an AMBIGUOUS basename is never folded — two files, two citations',
+      scalar(canon_citation('pll/A7/fixture_dup.vhd:3') eq 'pll/A7/fixture_dup.vhd:3'
+             && canon_citation('pll/A7-Issue-5/fixture_dup.vhd:3')
+                ne canon_citation('pll/A7/fixture_dup.vhd:3')),
+      'A7=' . canon_citation('pll/A7/fixture_dup.vhd:3')
+        . ' A7-Issue-5=' . canon_citation('pll/A7-Issue-5/fixture_dup.vhd:3'));
+
+check('SELF-119', 'an ambiguous basename keeps its directory when published, too',
+      ($pc->{'PATH-DUP-01'} // '') eq 'pll/A7/fixture_dup.vhd:3',
+      "got " . ($pc->{'PATH-DUP-01'} // '(none)'));
+
+# ── The `named` tier refuses an ambiguous block (GH #147) ─────────────
+#
+# The tier survived the banner-comment cull because it keys on an EXPLICIT
+# mention of the row ID. Block scope reintroduced the misattribution anyway:
+# the first citation anywhere in a block was handed to every ID named anywhere
+# in it. `BP-06`'s file banner lists sixteen IDs and mentions an unrelated
+# NR 0x08 line first, so BP-06 published that instead of the port 0xFE
+# dispatch it tests.
+#
+# The rule refuses only where attribution is genuinely impossible — several
+# rows AND several citations. SELF-121/122/123 are the accept cases that stop
+# it collapsing into "the named tier never answers", and SELF-123 in
+# particular pins that a prose hyphenation (`VHDL-correct`) is not counted as
+# a second row.
+
+write_fixture('test/fixture/named_test.cpp', <<'CPP');
+void rows() {
+    // AMB-01 and AMB-02 both live here. AMB-01 is about fixture_a.vhd:10 and
+    // AMB-02 about fixture_b.vhd:20 — but nothing in this block says which is
+    // which, so neither may be published.
+    check("AMB-01", "no citation of its own", cond, detail);
+    check("AMB-02", "no citation of its own", cond, detail);
+
+    // ONE-01 and ONE-02 share a single fact: fixture_c.vhd:30.
+    check("ONE-01", "no citation of its own", cond, detail);
+    check("ONE-02", "no citation of its own", cond, detail);
+
+    // SOLO-01, alone, and BOTH its citations belong to it:
+    // fixture_a.vhd:40 and fixture_b.vhd:50.
+    check("SOLO-01", "no citation of its own", cond, detail);
+
+    // PROSE-CHK-01 alone, asserting the VHDL-correct behaviour, over
+    // fixture_a.vhd:60 and fixture_b.vhd:70.
+    check("PROSE-CHK-01", "no citation of its own", cond, detail);
+}
+CPP
+my $nm = grep_citations('test/fixture/named_test.cpp');
+
+check('SELF-120', 'THE REFUSAL: a block naming SEVERAL rows and offering SEVERAL citations publishes none of them',
+      scalar(!defined $nm->{'AMB-01'} && !defined $nm->{'AMB-02'}),
+      sprintf('AMB-01=%s AMB-02=%s', $nm->{'AMB-01'} // '(none)',
+              $nm->{'AMB-02'} // '(none)'));
+
+check('SELF-121', 'several rows with ONE citation are still answered — the block has only one answer to give',
+      scalar(($nm->{'ONE-01'} // '') eq 'fixture_c.vhd:30'
+             && ($nm->{'ONE-02'} // '') eq 'fixture_c.vhd:30'),
+      sprintf('ONE-01=%s ONE-02=%s', $nm->{'ONE-01'} // '(none)',
+              $nm->{'ONE-02'} // '(none)'));
+
+check('SELF-122', 'ONE row with several citations keeps them all — they all belong to it',
+      ($nm->{'SOLO-01'} // '') eq 'fixture_a.vhd:40, fixture_b.vhd:50',
+      'got ' . ($nm->{'SOLO-01'} // '(none)'));
+
+check('SELF-123', 'a prose hyphenation is not counted as a second row, so a single-row block is not refused by accident',
+      ($nm->{'PROSE-CHK-01'} // '') eq 'fixture_a.vhd:60, fixture_b.vhd:70',
+      'got ' . ($nm->{'PROSE-CHK-01'} // '(none)'));
+
+# ── Hand-written cells are validated too (GH #150) ────────────────────
+#
+# Computed citations were validated against the FPGA tree from the start;
+# hand-written ones never were. Because a hand-written cell is never
+# overwritten — correctly — a wrong one was permanent AND invisible: it agrees
+# with itself on every run, and drift needs a computed side to disagree with.
+# Measured on the live matrix: 3 cells name a `.vhd` that does not exist and
+# ~25 name jnext's own C++ in a column headed VHDL.
+#
+# SELF-127..129 are the refusals. Without them "complain about every cell"
+# passes SELF-124..126 just as well, and a report that fires on all 3066 rows
+# is the saturated warning this tool has already been bitten by twice.
+
+check('SELF-124', 'a hand-written cell naming a .vhd the core does not have is reported',
+      scalar(grep { /not in the FPGA core/ }
+             bad_hand_citation('kempston_mouse.vhd')) == 1,
+      'got [' . join(' | ', bad_hand_citation('kempston_mouse.vhd')) . ']');
+
+check('SELF-125', 'a hand-written cell citing jnext\'s own source is reported — the VHDL is the oracle',
+      scalar(grep { /jnext's own source/ }
+             bad_hand_citation('fixture_a.vhd:10; emulator.cpp:1163')) == 1,
+      'got [' . join(' | ', bad_hand_citation('fixture_a.vhd:10; emulator.cpp:1163')) . ']');
+
+check('SELF-126', 'a hand-written cell carrying no citation at all is reported',
+      scalar(grep { /no VHDL citation at all/ }
+             bad_hand_citation('n/a (rendering)')) == 1,
+      'got [' . join(' | ', bad_hand_citation('n/a (rendering)')) . ']');
+
+# `scalar(bad_hand_citation(...))` would evaluate the sub in SCALAR context,
+# where a `return ()` yields undef and a returned list yields its LAST element
+# — so `== 0` is true for both an empty complaint list and a non-empty one
+# (a string numifies to 0). Every refusal row below would have passed no
+# matter what the sub did. Count through an array, once.
+sub nbad { my @c = bad_hand_citation(@_); return scalar @c; }
+
+check('SELF-127', 'THE REFUSAL: a valid citation, qualified or bare, is not reported',
+      nbad('fixture_a.vhd:10, device/fixture_e.vhd:20') == 0,
+      'got [' . join(' | ', bad_hand_citation('fixture_a.vhd:10, device/fixture_e.vhd:20')) . ']');
+
+check('SELF-128', 'THE REFUSAL: a declared `(...)` tombstone is a claim, not an omission',
+      scalar(nbad('(jnext-internal)') == 0 && nbad('(ESP-AT firmware)') == 0),
+      'got [' . join(' | ', bad_hand_citation('(jnext-internal)'),
+                            bad_hand_citation('(ESP-AT firmware)')) . ']');
+
+check('SELF-129', 'THE REFUSAL: an empty or em-dash cell is the honest missing-citation state, not a defect',
+      scalar(nbad('') == 0 && nbad('—') == 0 && nbad(undef) == 0),
+      'got [' . join(' | ', bad_hand_citation(''), bad_hand_citation('—')) . ']');
+
+# End to end: the complaint reaches the caller AND the cell survives untouched.
+# Reporting without rewriting is the whole contract — a checker that "fixed"
+# the cell would satisfy SELF-124 and destroy the record.
+write_fixture('test/fixture/handcite_test.cpp', <<'CPP');
+void h() {
+    check("HC-BAD-01", "cell cites a nonexistent file — VHDL fixture_b.vhd:99",
+          cond, detail);
+    check("HC-OK-01", "cell is fine — VHDL fixture_a.vhd:10", cond, detail);
+}
+CPP
+{
+    my $p = "$FIXTURE_ROOT/bin/handcite_suite";
+    mkdir "$FIXTURE_ROOT/bin" unless -d "$FIXTURE_ROOT/bin";
+    open(my $h, '>', $p) or die "write $p: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $p;
+}
+my $hc_bad_cell = ' kempston_mouse.vhd ';
+my @hclines = (
+    '## Hand — `test/fixture/handcite_test.cpp`',
+    '',
+    '| Test ID   | Description | VHDL file:line     | Status  | Test file:line                        |',
+    '|-----------|-------------|--------------------|---------|---------------------------------------|',
+    "| HC-BAD-01 | bad cell    |$hc_bad_cell| missing | missing                               |",
+    '| HC-OK-01  | good cell   | fixture_a.vhd:10   | missing | missing                               |',
+);
+my (@hcd, @hck, @hcinv);
+refresh_section(\@hclines, 0, 'bin/handcite_suite',
+                'test/fixture/handcite_test.cpp', \@hcd, \@hck, undef, undef,
+                \@hcinv);
+
+check('SELF-130', 'refresh_section collects the complaint for the bad cell and none for the good one',
+      scalar(@hcinv) == 1 && $hcinv[0] =~ /^HC-BAD-01: names 'kempston_mouse\.vhd'/,
+      'got [' . join(' | ', @hcinv) . ']');
+
+check('SELF-131', 'and the reported cell is KEPT byte-identical — this reports, it never rewrites',
+      (split_row_cells($hclines[4]))[3] eq $hc_bad_cell,
+      'got [' . (split_row_cells($hclines[4]))[3] . "] want [$hc_bad_cell]");
 
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');
@@ -1834,4 +2102,34 @@ check('SELF-110', 'the control: the identical pipeline on a pipe-free row, so SE
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
+
+# ── The pinned row count (GH #146) ────────────────────────────────────
+#
+# Everywhere else this project treats a suite's row count as the PROJECT'S OWN
+# CLAIM about how much it tests, pinned deliberately so that deleting a row is
+# a loud edit rather than a silently smaller denominator: `test/unit-tests.conf`
+# pins every unit suite and `test/run-unit-tests.sh` REFUSES to run on a
+# mismatch, because three suites once vanished from the counts and were all
+# found by accident.
+#
+# This suite had none of that. It reported its total on its own say-so, and
+# truncating it would have reported a smaller number as a clean pass.
+#
+# It cannot go in `test/unit-tests.conf`: that manifest is cross-checked
+# against the suites CMake registered with add_test(), and this is a perl
+# script with no CMake target — declaring it there would trip the harness's
+# own refusal. So the pin lives HERE, next to the rows it counts, and the
+# script refuses in the same shape and for the same reason.
+#
+# ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
+my $EXPECTED_ROWS = 132;
+if ($total != $EXPECTED_ROWS) {
+    printf STDERR
+        "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
+      . "file pins \$EXPECTED_ROWS = %d. A row was added or removed without the\n"
+      . "count being updated, which is how a suite silently shrinks. Update\n"
+      . "\$EXPECTED_ROWS deliberately, in the same commit as the row.\n",
+        $total, $EXPECTED_ROWS;
+    exit 2;
+}
 exit($failed ? 1 : 0);
