@@ -45,6 +45,10 @@
 #include "core/emulator_config.h"
 #include "core/nex_loader.h"
 #include "memory/mmu.h"
+#include "video/layer2.h"
+#include "video/palette.h"
+#include "video/renderer.h"
+#include "video/ula.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -98,10 +102,28 @@ uint8_t payload_byte(size_t i) {
     return static_cast<uint8_t>(1 + (i % 251));
 }
 
+// Palette bytes. Entry i is two bytes: lo = RRRGGGBB, hi bit 0 = blue LSB.
+// Deliberately drawn from a different sequence than payload_byte() so a
+// screen block read 512 bytes early (the pre-#156 LoRes bug) is caught by
+// content, not just by size.
+uint8_t pal_lo(int i) { return static_cast<uint8_t>((i * 7 + 3) ^ 0xA5); }
+uint8_t pal_hi(int i) { return static_cast<uint8_t>(i & 1); }
+
+// The 9-bit RGB333 value NR 0x44's two-write sequence composes from one
+// palette entry: first write supplies bits 8:1 (RRRGGGBB), second write
+// supplies bit 0 (the blue LSB). nexload.asm:436-437.
+uint16_t pal_expected_rgb333(int i) {
+    return static_cast<uint16_t>((static_cast<uint16_t>(pal_lo(i)) << 1) | (pal_hi(i) & 1));
+}
+
 // Build a minimal, well-formed NEX carrying exactly one screen block of
 // `screen_bytes` bytes selected by `screen_flag`, and write it to `path`.
-bool write_nex_fixture(const std::string& path, uint8_t screen_flag, size_t screen_bytes) {
-    std::vector<uint8_t> file(512 + screen_bytes, 0x00);
+// When `with_palette` is set a 512-byte palette block precedes the screen
+// data, exactly as nexload.asm:428 reads it.
+bool write_nex_fixture(const std::string& path, uint8_t screen_flag, size_t screen_bytes,
+                       bool with_palette = false) {
+    const size_t pal_bytes = with_palette ? 512u : 0u;
+    std::vector<uint8_t> file(512 + pal_bytes + screen_bytes, 0x00);
 
     std::memcpy(file.data() + 0, "Next", 4);
     std::memcpy(file.data() + 4, "V1.2", 4);
@@ -117,8 +139,14 @@ bool write_nex_fixture(const std::string& path, uint8_t screen_flag, size_t scre
     file[133] = 0;  // start_delay
     file[134] = 0;  // preserve_regs = 0
 
+    if (with_palette) {
+        for (int i = 0; i < 256; ++i) {
+            file[512 + i * 2]     = pal_lo(i);
+            file[512 + i * 2 + 1] = pal_hi(i);
+        }
+    }
     for (size_t i = 0; i < screen_bytes; ++i) {
-        file[512 + i] = payload_byte(i);
+        file[512 + pal_bytes + i] = payload_byte(i);
     }
 
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
@@ -178,8 +206,10 @@ bool bank5_hole_untouched(Mmu& mmu, size_t& bad_at, uint8_t& got) {
 struct LoadedFixture {
     Emulator emu;
     bool     ok = false;
+    uint64_t payload_offset = 0;   ///< NexLoader::payload_offset() after load()
 
-    LoadedFixture(uint8_t screen_flag, size_t screen_bytes, const char* tag) {
+    LoadedFixture(uint8_t screen_flag, size_t screen_bytes, const char* tag,
+                  bool with_palette = false) {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
@@ -189,10 +219,11 @@ struct LoadedFixture {
             (std::filesystem::temp_directory_path() /
              (std::string("jnext_nexload_test_") + tag + ".nex")).string();
 
-        if (!write_nex_fixture(path, screen_flag, screen_bytes)) return;
+        if (!write_nex_fixture(path, screen_flag, screen_bytes, with_palette)) return;
 
         NexLoader loader;
         if (loader.load(path)) {
+            payload_offset = loader.payload_offset();
             ok = loader.apply(emu);
         }
         std::error_code ec;
@@ -201,11 +232,18 @@ struct LoadedFixture {
 };
 
 // Three rows per 12288-byte split screen format.
+//
+// `with_palette` must be set for SCREEN_LORES: with NO_PAL clear, a LoRes
+// NEX is REQUIRED to carry a 512-byte palette block ahead of the screen
+// (nexload.asm:426-427), so a fixture without one is not a well-formed
+// file and the loader now rejects it as truncated. The screen assertions
+// below are unaffected — they index the screen payload, not the file.
 void test_split_screen(const char* tag, uint8_t screen_flag,
                        const char* id_first, const char* id_second, const char* id_hole,
-                       const char* asm_first, const char* asm_second) {
+                       const char* asm_first, const char* asm_second,
+                       bool with_palette = false) {
     constexpr size_t HALF = 6144;
-    LoadedFixture f(screen_flag, 2 * HALF, tag);
+    LoadedFixture f(screen_flag, 2 * HALF, tag, with_palette);
     if (!f.ok) {
         check(id_first,  "NEX fixture failed to load/apply", false, "load+apply returned false");
         check(id_second, "NEX fixture failed to load/apply", false, "load+apply returned false");
@@ -248,7 +286,8 @@ int main() {
     // NEXSCR-LORES-01/02/03 — nexload.asm:472,:474
     test_split_screen("lores", NexHeader::SCREEN_LORES,
                       "NEXSCR-LORES-01", "NEXSCR-LORES-02", "NEXSCR-LORES-03",
-                      "nexload.asm:472", "nexload.asm:474");
+                      "nexload.asm:472", "nexload.asm:474",
+                      /*with_palette=*/true);   // LoRes without NO_PAL: palette is mandatory
 
     // NEXSCR-HIRES-01/02/03 — nexload.asm:488,:490
     test_split_screen("hires", NexHeader::SCREEN_HIRES,
@@ -280,6 +319,467 @@ int main() {
                   ok,
                   fmt("nexload.asm:457: bank5[0x%04zX]=0x%02X want 0x%02X", bad, got, want));
         }
+    }
+
+    // =================================================================
+    // NEXPAL — the 512-byte loading-screen palette block (issue #156)
+    //
+    // nexload.asm:426-427 gates the palette read on the screen KIND, not
+    // on Layer 2 alone:
+    //
+    //   ld a,(IsLoadingScr):and 128:jr nz,.skppal      ; NO_PAL   → skip
+    //   ld a,(IsLoadingScr):and %11010:jr nz,.skppal   ; ULA|HIRES|HICOL → skip
+    //   ld ix,$c200:ld bc,$200:call fread              ; else 512 bytes
+    //
+    // so a LoRes screen carries one too. jnext counted it for Layer 2
+    // only, so every LoRes-with-palette NEX had its screen AND its banks
+    // read 512 bytes early. The discriminating real-world evidence is the
+    // size of ped7g's own conformance pair (github.com/ped7g/
+    // ZXSpectrumNextMisc, nexload2/):
+    //
+    //   tmLoRes.nex      29696 = 512 hdr + 512 pal + 12288 LoRes + 16384 bank
+    //   tmLoResNoPal.nex 29184 = 512 hdr +   0     + 12288 LoRes + 16384 bank
+    //
+    // The 512-byte delta between two otherwise identical files IS the
+    // palette block, and it is present exactly when NO_PAL is clear.
+    // =================================================================
+
+    set_group("NEXPAL");
+
+    struct RegionCase {
+        const char* id;
+        const char* tag;
+        uint8_t     flags;
+        size_t      screen_bytes;
+        bool        with_palette;
+        uint64_t    expect_offset;
+        const char* desc;
+    };
+
+    // payload_offset() is the first byte after the header-described
+    // region, i.e. 512 + palette + screen (these fixtures declare no
+    // banks), so it reads out the loader's palette accounting directly.
+    static const RegionCase kRegionCases[] = {
+        {"NEXPAL-01", "palregion_lores", NexHeader::SCREEN_LORES, 12288, true, 512 + 512 + 12288,
+         "LoRes screen WITHOUT NO_PAL carries a 512-byte palette block "
+         "(nexload.asm:426-427; tmLoRes.nex 29696 vs tmLoResNoPal.nex 29184)"},
+        {"NEXPAL-02", "palregion_loresnp",
+         static_cast<uint8_t>(NexHeader::SCREEN_LORES | NexHeader::SCREEN_NO_PAL), 12288, false,
+         512 + 12288,
+         "LoRes screen WITH NO_PAL (bit 7) carries no palette block "
+         "(nexload.asm:426 `and 128:jr nz,.skppal`)"},
+        {"NEXPAL-03", "palregion_l2", NexHeader::SCREEN_LAYER2, 49152, true, 512 + 512 + 49152,
+         "Layer 2 screen without NO_PAL still carries its palette block "
+         "(control row — behaviour predates issue #156)"},
+        {"NEXPAL-04", "palregion_ula", NexHeader::SCREEN_ULA, 6912, false, 512 + 6912,
+         "a ULA screen NEVER carries a palette, NO_PAL clear or not "
+         "(nexload.asm:427 `and %11010` — bit 1 is in the mask)"},
+        {"NEXPAL-05", "palregion_hires", NexHeader::SCREEN_HIRES, 12288, false, 512 + 12288,
+         "a Timex HiRes screen NEVER carries a palette (nexload.asm:427, bit 3 in %11010)"},
+        {"NEXPAL-06", "palregion_hicol", NexHeader::SCREEN_HICOLOUR, 12288, false, 512 + 12288,
+         "a Timex HiColour screen NEVER carries a palette (nexload.asm:427, bit 4 in %11010)"},
+    };
+
+    for (const RegionCase& c : kRegionCases) {
+        LoadedFixture f(c.flags, c.screen_bytes, c.tag, c.with_palette);
+        if (!f.ok) {
+            check(c.id, c.desc, false, "load+apply returned false");
+            continue;
+        }
+        check(c.id, c.desc, f.payload_offset == c.expect_offset,
+              fmt("payload_offset=%llu want %llu",
+                  static_cast<unsigned long long>(f.payload_offset),
+                  static_cast<unsigned long long>(c.expect_offset)));
+    }
+
+    // NEXPAL-07 — the content check that a size-only test cannot make: with
+    // the palette counted, the LoRes screen data starts AFTER it, so bank-5
+    // 0x0000 holds payload_byte(0), not pal_lo(0). Pre-fix this row read the
+    // palette bytes as screen pixels.
+    {
+        LoadedFixture f(NexHeader::SCREEN_LORES, 12288, "palskip_lores", /*with_palette=*/true);
+        if (!f.ok) {
+            check("NEXPAL-07", "NEX fixture failed to load/apply", false,
+                  "load+apply returned false");
+        } else {
+            size_t bad = 0; uint8_t got = 0, want = 0;
+            const bool ok = bank5_matches_payload(f.emu.mmu(), 0x0000, 0, 6144, bad, got, want);
+            check("NEXPAL-07",
+                  "LoRes screen data is read AFTER the 512-byte palette block, so bank-5 "
+                  "0x0000 holds screen byte 0 and not palette byte 0 (nexload.asm:428,:472)",
+                  ok,
+                  fmt("bank5[0x%04zX]=0x%02X want 0x%02X (pal_lo(0)=0x%02X — a match here means "
+                      "the palette was ingested as pixels)", bad, got, want, pal_lo(0)));
+        }
+    }
+
+    // NEXPAL-08/09 — WHICH palette bank the block lands in. nexload.asm:429-433:
+    //   ld a,(IsLoadingScr):and 4:jr z,.nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00000001 : jr .nl2   ; LoRes → ULA palette
+    // .nlores
+    //   NEXTREG_nn PALETTE_CONTROL_REGISTER,%00010000             ; else  → Layer 2 palette
+    // LoRes reads the ULA palette, so its loading-screen palette must go there.
+    {
+        LoadedFixture f(NexHeader::SCREEN_LORES, 12288, "paltarget_lores", /*with_palette=*/true);
+        if (!f.ok) {
+            check("NEXPAL-08", "NEX fixture failed to load/apply", false, "load+apply returned false");
+            check("NEXPAL-09", "NEX fixture failed to load/apply", false, "load+apply returned false");
+        } else {
+            auto& pal = f.emu.palette();
+            int bad_idx = -1;
+            for (int i = 0; i < 256; ++i) {
+                if (pal.ula_rgb333(false, static_cast<uint8_t>(i)) != pal_expected_rgb333(i)) {
+                    bad_idx = i;
+                    break;
+                }
+            }
+            check("NEXPAL-08",
+                  "a LoRes loading-screen palette lands in the ULA-first palette, all 256 "
+                  "entries (nexload.asm:430 NR 0x43 = %00000001)",
+                  bad_idx < 0,
+                  bad_idx < 0 ? std::string{}
+                              : fmt("ULA pal[%d]=0x%03X want 0x%03X", bad_idx,
+                                    pal.ula_rgb333(false, static_cast<uint8_t>(bad_idx)),
+                                    pal_expected_rgb333(bad_idx)));
+
+            // Discriminator: if the target selection is wrong the same bytes
+            // land in the Layer 2 palette instead. Entry 1 is chosen because
+            // pal_lo(1)=0xAF is not a Layer 2 default value.
+            const uint8_t l2_entry1 = pal.layer2_rgb8(1);
+            const uint8_t leaked    = pal_lo(1);
+            check("NEXPAL-09",
+                  "a LoRes loading-screen palette does NOT touch the Layer 2 palette "
+                  "(nexload.asm:430 selects NR 0x43 = %00000001, not %00010000)",
+                  l2_entry1 != leaked,
+                  fmt("Layer2 pal[1]=0x%02X == pal_lo(1)=0x%02X — the LoRes palette leaked "
+                      "into the Layer 2 bank", l2_entry1, leaked));
+        }
+    }
+
+    // NEXPAL-10 — the Layer 2 side of the same selector (control row).
+    {
+        LoadedFixture f(NexHeader::SCREEN_LAYER2, 49152, "paltarget_l2", /*with_palette=*/true);
+        if (!f.ok) {
+            check("NEXPAL-10", "NEX fixture failed to load/apply", false, "load+apply returned false");
+        } else {
+            auto& pal = f.emu.palette();
+            int bad_idx = -1;
+            for (int i = 0; i < 256; ++i) {
+                // layer2_rgb8() returns the 8-bit RRRGGGBB form of the stored
+                // 9-bit entry, which is exactly the first of the two NR 0x44
+                // bytes the file supplies.
+                if (pal.layer2_rgb8(static_cast<uint8_t>(i)) != pal_lo(i)) {
+                    bad_idx = i;
+                    break;
+                }
+            }
+            check("NEXPAL-10",
+                  "a Layer 2 loading-screen palette lands in the Layer2-first palette "
+                  "(nexload.asm:432 NR 0x43 = %00010000)",
+                  bad_idx < 0,
+                  bad_idx < 0 ? std::string{}
+                              : fmt("Layer2 pal[%d]=0x%02X want 0x%02X", bad_idx,
+                                    pal.layer2_rgb8(static_cast<uint8_t>(bad_idx)),
+                                    pal_lo(bad_idx)));
+        }
+    }
+
+    // =================================================================
+    // NEXDISP — the display-mode writes that end every loading-screen
+    // block. Loading the pixels is only half of what nexload.asm does;
+    // without these three writes the screen sits in RAM invisible, which
+    // is what jnext did for every non-ULA kind (issue #156: tmHiCol,
+    // tmHiRes, tmLoRes and tmLoResNoPal all rendered a black screen).
+    // =================================================================
+
+    set_group("NEXDISP");
+
+    struct DisplayCase {
+        const char*   id;
+        NexScreenKind kind;
+        uint8_t       hires_colour;
+        uint8_t       want_123b;
+        uint8_t       want_nr15;
+        uint8_t       want_ff;
+        const char*   desc;
+    };
+
+    static const DisplayCase kDisplayCases[] = {
+        {"NEXDISP-L2-01", NexScreenKind::LAYER2, 0x00, 0x02, 0x01, 0x00,
+         "Layer 2 screen: port $123B=2 (L2 visible), NR $15=SLU|SPRITES, Timex mode 0 "
+         "(nexload.asm:444-446)"},
+        {"NEXDISP-ULA-01", NexScreenKind::ULA, 0x00, 0x00, 0x01, 0x00,
+         "ULA screen: port $123B=0 (L2 off), NR $15=SLU|SPRITES, Timex mode 0 "
+         "(nexload.asm:459-461)"},
+        {"NEXDISP-LORES-01", NexScreenKind::LORES, 0x00, 0x00, 0x81, 0x03,
+         "LoRes screen: NR $15 bit 7 LORES_ENABLE set (nexload.asm:145,:476) and "
+         "Timex mode 3 (nexload.asm:477)"},
+        {"NEXDISP-HIRES-01", NexScreenKind::HIRES, 0x00, 0x00, 0x01, 0x06,
+         "Timex HiRes screen: port $FF = 6 when HIRESCOL is 0 (nexload.asm:493)"},
+        {"NEXDISP-HIRES-02", NexScreenKind::HIRES, 0xFF, 0x00, 0x01, 0x3E,
+         "Timex HiRes ink colour comes from HIRESCOL bits 5:3 only: "
+         "0xFF -> (0xFF & %111000) | 6 = 0x3E (nexload.asm:493 `and %111000:or 6`)"},
+        {"NEXDISP-HICOL-01", NexScreenKind::HICOLOUR, 0x00, 0x00, 0x01, 0x02,
+         "Timex HiColour screen: port $FF = 2 (nexload.asm:510)"},
+    };
+
+    for (const DisplayCase& c : kDisplayCases) {
+        const NexScreenDisplay d = nex_loading_screen_display(c.kind, c.hires_colour);
+        check(c.id, c.desc,
+              d.port_123b == c.want_123b && d.nr_15 == c.want_nr15 && d.port_ff == c.want_ff,
+              fmt("got {$123B=0x%02X NR$15=0x%02X $FF=0x%02X} want {0x%02X 0x%02X 0x%02X}",
+                  d.port_123b, d.nr_15, d.port_ff, c.want_123b, c.want_nr15, c.want_ff));
+    }
+
+    // =================================================================
+    // NEXORD — end-to-end: the writes above must actually reach the
+    // machine, and must SURVIVE the NextREG-init block.
+    //
+    // nexload.asm resets the registers FIRST (:321-410, the
+    // `.dontresetregs` fallthrough, which includes `NEXTREG_nn 21,1`) and
+    // runs the loading-screen block AFTER (:424-511), so the screen block
+    // has the last word. jnext used to run them the other way round: the
+    // init block's NR $15 = 0x01 wiped the LoRes enable bit, and its
+    // NR $40/$41 pair (ULA palette entry 0x18 = 0xE3) overwrote one entry
+    // of a LoRes screen's palette.
+    // =================================================================
+
+    set_group("NEXORD");
+
+    // Port 0xFF readback: Ula::get_screen_mode_reg() is the raw byte last
+    // written to port 0xFF (zxula.vhd:191 `screen_mode_s <= i_port_ff_reg(2:0)`).
+    struct EndToEndCase {
+        const char* id;
+        const char* tag;
+        uint8_t     flags;
+        size_t      screen_bytes;
+        bool        with_palette;
+        uint8_t     want_nr15;
+        uint8_t     want_ff;
+        bool        want_l2_enabled;
+        const char* desc;
+    };
+
+    static const EndToEndCase kEndToEnd[] = {
+        {"NEXORD-01", "e2e_ula", NexHeader::SCREEN_ULA, 6912, false, 0x01, 0x00, false,
+         "after a ULA loading screen the machine is in Timex mode 0 with NR $15 = 0x01 "
+         "(nexload.asm:459-461)"},
+        {"NEXORD-02", "e2e_lores", NexHeader::SCREEN_LORES, 12288, true, 0x81, 0x03, false,
+         "after a LoRes loading screen NR $15 KEEPS bit 7 and Timex mode is 3 — the "
+         "NextREG-init block must not run after the screen block (nexload.asm:476-477)"},
+        {"NEXORD-03", "e2e_hires", NexHeader::SCREEN_HIRES, 12288, false, 0x01, 0x06, false,
+         "after a HiRes loading screen the machine is in Timex mode 6 (nexload.asm:493)"},
+        {"NEXORD-04", "e2e_hicol", NexHeader::SCREEN_HICOLOUR, 12288, false, 0x01, 0x02, false,
+         "after a HiColour loading screen the machine is in Timex mode 2 (nexload.asm:510)"},
+        {"NEXORD-05", "e2e_l2", NexHeader::SCREEN_LAYER2, 49152, true, 0x01, 0x00, true,
+         "after a Layer 2 loading screen Layer 2 is VISIBLE — port $123B bit 1 "
+         "(nexload.asm:444)"},
+    };
+
+    for (const EndToEndCase& c : kEndToEnd) {
+        LoadedFixture f(c.flags, c.screen_bytes, c.tag, c.with_palette);
+        if (!f.ok) {
+            check(c.id, c.desc, false, "load+apply returned false");
+            continue;
+        }
+        const uint8_t nr15 = f.emu.nextreg().read(0x15);
+        const uint8_t ff   = f.emu.renderer().ula().get_screen_mode_reg();
+        const bool    l2   = f.emu.layer2().enabled();
+        check(c.id, c.desc,
+              nr15 == c.want_nr15 && ff == c.want_ff && l2 == c.want_l2_enabled,
+              fmt("got {NR$15=0x%02X $FF=0x%02X L2en=%d} want {0x%02X 0x%02X %d}",
+                  nr15, ff, l2 ? 1 : 0, c.want_nr15, c.want_ff, c.want_l2_enabled ? 1 : 0));
+    }
+
+    // NEXORD-06 — the palette-clobber half of the same ordering bug. The
+    // NextREG-init block writes ULA palette entry 0x18 = 0xE3; if it runs
+    // AFTER the screen block it destroys entry 24 of a LoRes screen's
+    // palette. nexload.asm writes that pair unconditionally at :269-270,
+    // long before the screen block, and loads the screen
+    // palette second (:428-438), so the FILE wins.
+    {
+        LoadedFixture f(NexHeader::SCREEN_LORES, 12288, "ord_palclobber", /*with_palette=*/true);
+        if (!f.ok) {
+            check("NEXORD-06", "NEX fixture failed to load/apply", false, "load+apply returned false");
+        } else {
+            const uint16_t got  = f.emu.palette().ula_rgb333(false, 0x18);
+            const uint16_t want = pal_expected_rgb333(0x18);
+            // 0xE3 is what the NextREG-init block writes to this entry.
+            const uint16_t clobber = static_cast<uint16_t>(static_cast<uint16_t>(0xE3) << 1);
+            check("NEXORD-06",
+                  "ULA palette entry 0x18 holds the LoRes screen's own colour, not the 0xE3 "
+                  "the NextREG-init block writes — init runs BEFORE the screen block "
+                  "(nexload.asm:269-270 then :428-438)",
+                  got == want,
+                  fmt("ULA pal[0x18]=0x%03X want 0x%03X%s", got, want,
+                      got == clobber ? " (== the NR-init 0xE3 write: ordering regressed)" : ""));
+        }
+    }
+
+    // NEXORD-07 — control row: a NEX with NO loading screen must not touch
+    // the display at all. nexload.asm:424 `ld a,(...LOADSCR):or a:jp z,.skpbmp`
+    // jumps clean over the whole block, border write included. This row
+    // fails if the display setup is hoisted out of the per-kind blocks.
+    {
+        LoadedFixture f(0x00, 0, "e2e_noscreen", /*with_palette=*/false);
+        if (!f.ok) {
+            check("NEXORD-07", "NEX fixture failed to load/apply", false, "load+apply returned false");
+        } else {
+            const uint8_t ff = f.emu.renderer().ula().get_screen_mode_reg();
+            check("NEXORD-07",
+                  "a NEX with screen_flags == 0 leaves Timex mode untouched — the whole "
+                  "loading-screen block is skipped (nexload.asm:424)",
+                  ff == 0x00 && !f.emu.layer2().enabled(),
+                  fmt("$FF=0x%02X L2en=%d want 0x00 / 0", ff, f.emu.layer2().enabled() ? 1 : 0));
+        }
+    }
+
+    // =================================================================
+    // NEXVER — the loader-version gate (issue #156).
+    //
+    // nexload.asm:290-291 packs the header's version string to BCD and
+    // refuses only a file from the FUTURE:
+    //
+    //   ld a,(V_MAJOR):sub '0':and %1111:SWAPNIB:ld b,a
+    //   ld a,(V_MINOR):and %1111:or b:ld b,a
+    //   ld a,(LoaderVersion):cp b:jp c,loaderUpdate
+    //
+    // `jp c` fires when LoaderVersion < file version. jnext used to warn
+    // and load anyway, which silently mis-parses a newer layout — the
+    // exact V1.3 failure mode #156 documents. ped7g ships
+    // nexload2/loaderVersion.nex ("V9.9") to test precisely this gate.
+    // =================================================================
+
+    set_group("NEXVER");
+
+    check("NEXVER-01",
+          "\"V1.2\" packs to BCD 0x12 (nexload.asm:290 major<<4 | minor)",
+          nex_version_bcd("V1.2") == 0x12,
+          fmt("got 0x%02X want 0x12", nex_version_bcd("V1.2")));
+
+    check("NEXVER-02",
+          "\"V9.9\" packs to BCD 0x99 — the value nexload2/loaderVersion.nex carries",
+          nex_version_bcd("V9.9") == 0x99,
+          fmt("got 0x%02X want 0x99", nex_version_bcd("V9.9")));
+
+    struct VersionCase {
+        const char* id;
+        const char* tag;
+        const char  version[5];
+        bool        want_load;
+        const char* desc;
+    };
+
+    static const VersionCase kVersionCases[] = {
+        {"NEXVER-03", "ver_v10", "V1.0", true,
+         "V1.0 (older than the loader) loads — nexload.asm refuses only on carry, "
+         "i.e. only when the loader is BEHIND the file"},
+        {"NEXVER-04", "ver_v12", "V1.2", true,
+         "V1.2 (exactly the supported version) loads — `cp` leaves NC on equality"},
+        {"NEXVER-05", "ver_v13", "V1.3", false,
+         "V1.3 is REFUSED while kNexLoaderVersionBcd is 0x12: its screen kinds are not "
+         "decoded, so loading it would mis-size the screen block (issue #162 raises the "
+         "constant when it implements them). This row is also the record that ped7g's "
+         "nexload2/`s p a c e.nex` — a V1.3 file with screen_flags=0x00 and no banks — "
+         "stops loading here: expected, since nexload.asm:290-291 is a content-blind "
+         "version compare that a real Next refuses too"},
+        {"NEXVER-06", "ver_v99", "V9.9", false,
+         "V9.9 is REFUSED — nexload2/loaderVersion.nex, the conformance file for this gate"},
+        {"NEXVER-07", "ver_junk", "XXXX", false,
+         "a malformed version string packs to a large BCD and is refused, which is the "
+         "safe direction (it used to warn and load anyway)"},
+    };
+
+    for (const VersionCase& c : kVersionCases) {
+        const std::string path =
+            (std::filesystem::temp_directory_path() /
+             (std::string("jnext_nexver_") + c.tag + ".nex")).string();
+        // Header-only NEX: no screen, no banks, so a well-formed file is
+        // exactly 512 bytes and nothing but the version gate can reject it.
+        if (!write_nex_fixture(path, 0x00, 0)) {
+            check(c.id, c.desc, false, "fixture write failed");
+            continue;
+        }
+        {
+            std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
+            f.seekp(4);
+            f.write(c.version, 4);
+        }
+        NexLoader loader;
+        const bool loaded = loader.load(path);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        check(c.id, c.desc, loaded == c.want_load,
+              fmt("version \"%s\" (BCD 0x%02X): load()=%d want %d",
+                  c.version, nex_version_bcd(c.version), loaded ? 1 : 0, c.want_load ? 1 : 0));
+    }
+
+    // =================================================================
+    // NEXCORE — the core-version requirement (nexload.asm:308-316).
+    //
+    // Field-ordered compare: major, then minor, then subminor, refusing
+    // only when a field is strictly greater. NexLoader WARNS rather than
+    // refuses (nexload.asm:311 `cp 8:jp z,.ok` skips the whole check on
+    // an emulator, and jnext's advertised core version is nominal), so
+    // these rows pin the comparison itself.
+    // =================================================================
+
+    set_group("NEXCORE");
+
+    struct CoreCase {
+        const char* id;
+        uint8_t     maj, min, sub;
+        bool        want_ok;
+        const char* desc;
+    };
+
+    static const CoreCase kCoreCases[] = {
+        {"NEXCORE-01", 3, 2, 3, true,
+         "a requirement equal to the advertised core is met (nexload.asm:316 `jr z,.ok`)"},
+        {"NEXCORE-02", 15, 15, 255, false,
+         "15.15.255 is NOT met — the requirement nexload2/coreVersion.nex carries"},
+        {"NEXCORE-03", 3, 3, 0, false,
+         "equal major, greater minor is not met (nexload.asm:315, the `.o1` field)"},
+        {"NEXCORE-04", 3, 2, 4, false,
+         "equal major and minor, greater subminor is not met (nexload.asm:316)"},
+        {"NEXCORE-05", 1, 15, 255, true,
+         "a LOWER major wins outright even with higher minor/subminor — the compare is "
+         "field-ordered, not a tuple sum (nexload.asm:314 `jr .ok`). This is the value "
+         "nexload2/empty.nex and preserveNextRegs.nex actually carry"},
+        {"NEXCORE-06", 3, 1, 5, true,
+         "3.01.05 is met — the value ped7g's bigpic/A_drvHID/test8xN NEX files carry, so "
+         "a stricter compare would refuse working corpus files"},
+    };
+
+    for (const CoreCase& c : kCoreCases) {
+        const bool got = nex_core_version_ok(c.maj, c.min, c.sub);
+        check(c.id, c.desc, got == c.want_ok,
+              fmt("core %u.%02u.%02u vs advertised %u.%02u.%02u: ok=%d want %d",
+                  c.maj, c.min, c.sub, kJnextCoreMajor, kJnextCoreMinor, kJnextCoreSubminor,
+                  got ? 1 : 0, c.want_ok ? 1 : 0));
+    }
+
+    // NEXCORE-07 — the mirror must not drift. kJnextCore{Major,Minor,
+    // Subminor} in nex_loader.h duplicate NR 0x01 / NR 0x0E, whose real
+    // home is NextReg::reset() (src/port/nextreg.cpp:226,:293). Read them
+    // off a live Emulator so a change in one place fails here rather than
+    // silently making the warning lie.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const uint8_t nr01 = emu.nextreg().read(0x01);
+        const uint8_t nr0e = emu.nextreg().read(0x0E);
+        const uint8_t want01 =
+            static_cast<uint8_t>((kJnextCoreMajor << 4) | (kJnextCoreMinor & 0x0F));
+        check("NEXCORE-07",
+              "kJnextCore{Major,Minor,Subminor} still match the live NR 0x01 / NR 0x0E "
+              "(nex_loader.h mirrors NextReg::reset(); this row is the anti-drift pin)",
+              nr01 == want01 && nr0e == kJnextCoreSubminor,
+              fmt("NR$01=0x%02X (want 0x%02X) NR$0E=0x%02X (want 0x%02X)",
+                  nr01, want01, nr0e, kJnextCoreSubminor));
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
