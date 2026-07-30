@@ -373,6 +373,47 @@ bool write_tzx_fixture(const std::string& path) {
     return static_cast<bool>(f);
 }
 
+// A minimal valid RZX carrying NO embedded snapshot: "RZX!" header, a
+// creator block, and an uncompressed input-recording block. The absent
+// snapshot is the point — with one, load_rzx() routes through
+// load_sna/load_szx, which reset and therefore un-park by themselves, so
+// only this shape reaches the resume call in load_rzx().
+bool write_rzx_fixture(const std::string& path, uint32_t frames) {
+    std::vector<uint8_t> r;
+    auto u16 = [&](uint16_t v) { r.push_back(v & 0xFF); r.push_back(static_cast<uint8_t>(v >> 8)); };
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) r.push_back((v >> (8 * i)) & 0xFF); };
+
+    // Header: "RZX!" + major + minor + flags   (rzx.h:125-132)
+    for (char c : std::string("RZX!")) r.push_back(static_cast<uint8_t>(c));
+    r.push_back(0); r.push_back(13);
+    u32(0);
+
+    // Creator block: id + len(29) + 20-byte name + major + minor (rzx.h:139-147)
+    r.push_back(0x10);
+    u32(29);
+    { const std::string name = "jnext-test";
+      for (size_t i = 0; i < 20; ++i)
+          r.push_back(i < name.size() ? static_cast<uint8_t>(name[i]) : 0); }
+    u16(0); u16(1);
+
+    // Input recording: id + len + num_frames + reserved + initial_tstates
+    // + flags(uncompressed), then one 4-byte frame each with no IN values
+    // (rzx.h:177-186, :205-212).
+    const uint32_t frame_bytes = frames * 4;
+    r.push_back(0x80);
+    u32(18 + frame_bytes);
+    u32(frames);
+    r.push_back(0);
+    u32(0);
+    u32(0);                       // flags: not compressed
+    for (uint32_t i = 0; i < frames; ++i) { u16(1000); u16(0); }
+
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(r.data()), static_cast<std::streamsize>(r.size()));
+    return static_cast<bool>(f);
+}
+
 // RIFF/WAVE, 8-bit unsigned mono, 8000 Hz, 800 samples of square wave.
 bool write_wav_fixture(const std::string& path) {
     constexpr uint32_t RATE = 8000, NSAMP = 800;
@@ -1688,6 +1729,32 @@ int main() {
                       before.R, after.R, before.PC, after.PC));
             std::error_code ec;
             std::filesystem::remove(nex, ec);
+        }
+        {   // NEXPC0-18 — RZX playback with NO embedded snapshot. The sixth
+            // and last resume call site, and the one this suite missed on
+            // the first pass: five rows for six sites, caught by counting
+            // rather than by any test failing. Nothing else covers it —
+            // none of rzx-playback-func / rzx-record-func /
+            // cold-boot-load-rzx-func combines RZX with a parked machine,
+            // so disabling this call site alone left the suite fully green.
+            //
+            // The snapshot-bearing path needs no resume: it routes through
+            // load_sna/load_szx, which reset and un-park by themselves.
+            // Only a snapshot-less recording drives the CURRENT machine,
+            // which is exactly what a parked one would refuse to be.
+            const std::string nex = fixture_path("resume_rzx");
+            const std::string rzx = tape_fixture_path("resume", "rzx");
+            Emulator emu;
+            bool ok = park(emu, nex) && write_rzx_fixture(rzx, 400) && emu.load_rzx(rzx);
+            const Z80Registers before = emu.cpu().get_registers();
+            run_and_check({"NEXPC0-18", "RZX",
+                           "starting RZX playback with no embedded snapshot on a parked "
+                           "machine resumes it — playback drives the CURRENT machine, so a "
+                           "parked one would replay nothing forever (GH #164)"},
+                          ok, emu, before, 50);
+            std::error_code ec;
+            std::filesystem::remove(nex, ec);
+            std::filesystem::remove(rzx, ec);
         }
     }
 
