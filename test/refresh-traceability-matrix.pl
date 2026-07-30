@@ -1297,37 +1297,70 @@ sub grep_citations {
     # ("sibling of", "see", "cf.", "unlike"), which is a regex consuming
     # English and refuses zero of the corpus's rows, i.e. cannot be tested.
     #
-    # BLAST RADIUS, measured over the 41 traced sources before choosing:
-    # 277 rows take this tier; 254 of them already name the row at the head of
-    # a line, 23 do not, and 12 of those 23 lose their citation for good (the
-    # other 11 are re-answered by a later block that does head with them, or
-    # by the plan tier). Of the 12, most were plainly borrowed — `G9.RO-02`
-    # and `G9.MI-04` were taking `sprites.vhd:817-819` out of a "G9.RO-03 /
-    # G9.RO-04 — COVERED ELSEWHERE" note about two OTHER rows, and three
-    # Layer 2 rows were taking a bare `layer2.vhd` with no line numbers at all
-    # out of a DEFERRED note. The rest (`RST-01/02`, `ARB-02`) had a citation
-    # that happens to be right but is not theirs to take; they read `—` until
-    # someone puts it in their own check(), which is the recoverable direction.
+    # BLAST RADIUS, measured over the 41 traced sources before choosing, by
+    # diffing the whole computed citation set before against after:
+    # 277 rows take this tier; 254 already name the row at the head of a line.
+    # The diff is 6 rows LOST, 0 gained, 15 CHANGED.
     #
-    # DECLARED RESIDUAL — the shape this rule still misattributes on. A
-    # cross-reference written at the START of a line, not inside a sentence:
+    # The 6 losses are all borrowings. `G9.RO-02`/`G9.MI-04` were taking
+    # `sprites.vhd:817-819` out of a "G9.RO-03 / G9.RO-04 — COVERED ELSEWHERE"
+    # note about two OTHER rows (their own descriptions say 813 and 811,813,
+    # which is where `spr_x_mirr_eff` actually lives); `STEN-20`, `UTB-40/41`
+    # and `G56-CR-NR06-04` likewise came out of notes whose subject is a
+    # different row.
+    #
+    # The 15 changes are the point of the rule, and every one lands on the
+    # block that heads with the row: `REG-08` moves off the REG-05 block's
+    # `zxnext.vhd:2625` onto its own `:2593`; `ARB-02` off ARB-01's
+    # `:4769,4775-4777` onto its own `:4769` (the `elsif cpu_req='1' and
+    # copper_req='0'` hold clause it asserts); `RST-01/02` off `:4610-4618`
+    # onto `:4611-4618`, the eight MMU reset assignments without the `if
+    # reset='1'` guard line; `G4-02..04` off a bare `layer2.vhd` with no line
+    # numbers at all onto `zxnext.vhd:5249`/`:5278-5281`; `JCAL-03` off a bare
+    # `membrane_stick.vhd` onto `:172-183`.
+    #
+    # NOTHING here reads `—` that did not read `—` before, beyond those 6.
+    # Coverage was re-routed, not lost.
+    #
+    # DECLARED RESIDUAL — the shape this rule still misattributes on: a
+    # cross-reference that is not inside a sentence but at the head of a line,
+    # in either of the two shapes the corpus writes headings in. On its own
+    # line:
     #
     #     // ── PALSEL-01: the palette SELECTOR path.
     #     // CONTENT-01 is the sibling row for palette CONTENT, tested elsewhere.
     #     // VHDL fixture_a.vhd:10 (the selector latches).
     #
-    # `CONTENT-01` heads a line, so it is answered `fixture_a.vhd:10`, which
-    # belongs to PALSEL-01. Built and confirmed live against this code, not
-    # assumed. TIGHTENING WAS TRIED AND REJECTED: requiring a delimiter
-    # (`:`, `—`, `(`, `,`, end-of-line) after the head ID group closes it, but
-    # measured over the traced corpus it costs 49 MORE rows their citation,
-    # makes at least one actively worse (`RAM-BK-03` moves off `zxnext.vhd:4886`
-    # onto a later block's answer), and refuses GH #147's own accept case
-    # (`ONE-01 and ONE-02 share a single fact:` — the ID group is followed by a
-    # bare verb). 49 correct citations destroyed to refuse one constructed shape
-    # is the trade this file declines everywhere else, so it is declined here and
-    # written down instead. The residual is strictly narrower than what #184
-    # closed: the block must ALSO satisfy the #147 rule to reach this point.
+    # or joined into a heading by the `and` / `/` convention used throughout:
+    #
+    #     // PALSEL-01 and CONTENT-01: the SELECTOR path — CONTENT-01 is the
+    #     // sibling row and is tested elsewhere.  VHDL fixture_a.vhd:10.
+    #
+    # Both hand `CONTENT-01` a citation that belongs to PALSEL-01. Both built
+    # and confirmed live against this code, not assumed. The second reaches
+    # further than the first: heading joins are ordinary style here, so this is
+    # not an exotic shape.
+    #
+    # TIGHTENING WAS TRIED AND REJECTED, but NOT on a coverage argument — that
+    # argument was measured and does not hold. Requiring a delimiter
+    # (`:`, `—`, `(`, `,`, end-of-line) after the heading ID group costs only
+    # 2 rows (`V11-NMP-02/03`) and changes 3, and it does NOT disturb
+    # `RAM-BK-03`, which computes `zxnext.vhd:4886` identically either way.
+    # (An earlier draft of this comment claimed 49 lost and `RAM-BK-03` moving.
+    # Both were artefacts of the measuring patch, not of the rule: it deleted
+    # the whole block's heading set rather than the one line's, and spelled the
+    # em dash `\x{2014}` against byte strings, so every em-dash-delimited
+    # heading — the corpus's most common — was refused. Re-measured after an
+    # independent reviewer failed to reproduce it.)
+    #
+    # It is rejected because it refuses GH #147's own accept case: SELF-121
+    # (`ONE-01 and ONE-02 share a single fact:` — the joined group is followed
+    # by a bare verb), SELF-123 and SELF-135 all fail under it, verified by
+    # running the selftest with the rule applied. Breaking a deliberate,
+    # documented accept case to refuse one constructed shape is the wrong
+    # trade, so the shape is declined and written down instead. The residual is
+    # strictly narrower than what #184 closed: the block must ALSO satisfy the
+    # #147 rule to reach this point.
     my %named;
     {
         my $i = 0;

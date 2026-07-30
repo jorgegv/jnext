@@ -670,7 +670,8 @@ static void test_per_line_palette_replay(Emulator& emu) {
     const uint32_t below = px(img, cell, SPLIT_ROW + 20);
 
     check("DVP-05",
-          "rows above a mid-frame palette write keep the frame-baseline colour",
+          "rows above a mid-frame palette write keep the frame-baseline colour "
+          "(VHDL zxnext.vhd:7013-7031)",
           above == argb_a,
           fmt("row %d: got=0x%08X want=0x%08X", SPLIT_ROW - 1, above, argb_a));
     check("DVP-05b",
