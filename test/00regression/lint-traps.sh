@@ -101,6 +101,23 @@
 # already know you are defeating a guard — so don't, and no amount of lint will
 # stop you if you do.
 #
+# MAY WRONGLY FLAG — the other direction, and it is the one that COSTS, because
+# a false positive blocks a correct row where a false negative merely fails to
+# help. Measured, not guessed; each is accepted as the safe direction:
+#   * `( trap ... )` and `$( trap ... )` — a subshell trap cannot reach the
+#     harness shell, so these are harmless, but they are flagged (P11, P12).
+#     Deliberate: telling them apart needs a parser, and no row wants one.
+#   * a line that genuinely runs `eval` AND mentions `trap` in an unrelated
+#     string: `eval "$cmd"; echo "see the trap docs"`. Narrow — it needs a live
+#     `eval` as a real command token — and flagging beside a live eval is
+#     defensible. No row in the tree does it.
+#   * a heredoc whose head text inertly mentions source/eval before the `<<`:
+#     `python3 - "notes about eval" <<'PY'`. Same shape, same reasoning.
+# What is NOT in this list, because the skeleton fixed it: any live string whose
+# CONTENTS look like syntax. `fail_row "... eval ... trap ..."`,
+# `msg="warning: dont;trap yourself"`, backtick doc mentions, and an inert
+# string spanning a backslash-newline are all clean and pinned as N17-N21.
+#
 # ALSO NOT SEEN (deliberate, these are the legitimate shapes):
 #   * comments, whole-line and trailing.
 #   * heredoc bodies whose consumer is NOT source/./eval — that is the
@@ -136,72 +153,111 @@ scan_dir() {
     for f in "$dir"/*.sh; do
         [[ -e "$f" ]] || continue
         awk -v FNAME="$f" '
-            # decomment(l) — drop a trailing (or whole-line) comment, using
-            # bash quoting rules exactly rather than a parity heuristic.
+            # analyse(l) — one bash-faithful pass producing THREE views.
             #
-            # A quote COUNTER cannot express those rules, and the difference is
-            # a live bypass, not a nicety: in `echo "\" #" ; trap ... EXIT` the
-            # \" is a literal quote INSIDE the string, so bash keeps the string
-            # open and the `;` is a real command separator — but a counter sees
-            # an even number of `"` one character early, treats ` #` as a
-            # comment, truncates, and never sees the trap. Found in review.
+            # Sets:
+            #   CODE   the line with any trailing/whole-line comment removed.
+            #   NLINE  the SYNTAX SKELETON: every quoted string, whatever it
+            #          contains, collapses to the single inert word character X;
+            #          an empty quote pair collapses to nothing; a backslash
+            #          escape becomes its character (word chars) or X (anything
+            #          else). Only characters that were REALLY syntax survive.
+            #   DLINE  the concatenated string CONTENTS, unwrapped. Data, never
+            #          matched as syntax.
             #
-            # Left-to-right, three states (this comment cannot contain an
-            # apostrophe: the whole awk program is a single-quoted shell word):
+            # WHY THE SKELETON. The previous version dequoted the whole line and
+            # matched on that, which also stripped the delimiters AROUND an
+            # argument — and those are not zero-content: they were the only
+            # thing keeping the contents from being read as syntax. Verified
+            # false positives that cost, on a lint whose stated target user is a
+            # tired author:
+            #     fail_row "please eval trap manually if this ever happens"
+            #     msg="warning: dont;trap yourself here"     (inert ; became a
+            #                                                separator)
+            # A test suite ABOUT catching eval/trap will contain messages naming
+            # both words; rejecting such a row is a real cost, not a safe
+            # direction. Cases N17-N21.
+            #
+            # The word-spelling trick still resolves, because in every one of
+            # its forms the trick is INSIDE the token, not around it:
+            #   tr[EMPTY-PAIR]ap -> trap    tr\ap -> trap    t\r\a\p -> trap
+            #
+            # Three states (no apostrophe may appear in this comment: the whole
+            # awk program is a single-quoted shell word):
             #   OUTSIDE  backslash escapes anything; either quote opens a
             #            string; a # that starts a word begins the comment.
             #   SINGLE   nothing escapes; only the apostrophe closes. The
             #            standard escaped-apostrophe idiom is really close +
             #            escaped-quote-OUTSIDE + reopen, which a state machine
-            #            gets right for free and a backslash-stripping pre-pass
-            #            does not. Case P22.
+            #            gets right for free. Case P22.
             #   DOUBLE   backslash escapes only " \ $ and the backtick; the
             #            double quote closes. Cases P21, P23.
             #
-            # qst carries across lines, so a string opened on one line and
-            # closed on the next cannot hide a # (case P25). A desync — an
-            # apostrophe in code that is not a string — errs toward NOT
-            # stripping, i.e. toward flagging: the safe direction.
-            function decomment(l,   i, n, c) {
+            # qst and qcontent carry across lines, so a string opened on one
+            # line and closed on the next is still one inert token (P25, N20).
+            function analyse(l,   i, n, c, nxt) {
+                NLINE = ""; DLINE = ""; CODE = l
                 n = length(l)
                 for (i = 1; i <= n; i++) {
                     c = substr(l, i, 1)
                     if (qst == 0) {
-                        if (c == "\\") { i++; continue }
-                        if (c == "\047") { qst = 1; continue }
-                        if (c == "\"")   { qst = 2; continue }
-                        if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/))
-                            return substr(l, 1, i-1)
-                    } else if (qst == 1) {
-                        if (c == "\047") qst = 0
-                    } else {
                         if (c == "\\") {
-                            if (substr(l, i+1, 1) ~ /["\\$`]/) i++
+                            nxt = substr(l, i + 1, 1)
+                            if (nxt != "") {
+                                DLINE = DLINE nxt
+                                NLINE = NLINE (nxt ~ /[A-Za-z0-9_]/ ? nxt : "X")
+                            }
+                            i++
                             continue
                         }
-                        if (c == "\"") qst = 0
+                        if (c == "\047") { qst = 1; qcontent = ""; continue }
+                        if (c == "\"")   { qst = 2; qcontent = ""; continue }
+                        if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/)) {
+                            CODE = substr(l, 1, i - 1)
+                            return
+                        }
+                        NLINE = NLINE c; DLINE = DLINE c
+                        continue
                     }
+                    if (qst == 1) {
+                        if (c == "\047") {
+                            qst = 0
+                            if (length(qcontent) > 0) NLINE = NLINE "X"
+                            DLINE = DLINE qcontent; qcontent = ""
+                            continue
+                        }
+                        qcontent = qcontent c
+                        continue
+                    }
+                    if (c == "\\") {
+                        nxt = substr(l, i + 1, 1)
+                        if (nxt ~ /["\\$`]/) { qcontent = qcontent nxt; i++ }
+                        else qcontent = qcontent c
+                        continue
+                    }
+                    if (c == "\"") {
+                        qst = 0
+                        if (length(qcontent) > 0) NLINE = NLINE "X"
+                        DLINE = DLINE qcontent; qcontent = ""
+                        continue
+                    }
+                    qcontent = qcontent c
                 }
-                return l
+                if (qst != 0 && length(qcontent) > 0) {
+                    NLINE = NLINE "X"; DLINE = DLINE qcontent; qcontent = ""
+                }
             }
 
-            # dequote(l) — normalise word spelling for detection.
+            # dequote_all(s) — drop every backslash and quote character.
             #
-            # Bash concatenates adjacent word fragments, so the four-character
-            # word `trap` can be spelled without ever containing it:
-            #   tr[EMPTY-SINGLE-PAIR]ap   tr[EMPTY-DOUBLE-PAIR]ap
-            #   tr\ap                     t\r\a\p
-            # All run the builtin; none matches a literal word search. Found in
-            # review, third round. Rather than a special case per spelling, drop
-            # every backslash and every quote character before matching: both
-            # are zero-content in word position, and neither removal can MERGE
-            # two words (no whitespace is touched), so a clean line stays clean.
-            # Only then are the three rules applied.
-            #
-            # Line structure is preserved, so `echo "trap"` stays out of command
-            # position and `mytr[EMPTY-PAIR]ap` stays a different word.
-            function dequote(l,   t) {
-                t = l
+            # Deliberately NOT used on a whole line any more (see analyse). Only
+            # on text already known to be a single token or an argument list
+            # belonging to a confirmed command:
+            #   * the head of a heredoc redirection, to resolve sou[EMPTY]rce.
+            #   * the argument text of a confirmed `eval`, to resolve
+            #     tr[EMPTY-PAIR]ap after eval re-parses it.
+            function dequote_all(s,   t) {
+                t = s
                 gsub(/\\/, "", t)
                 gsub("\047", "", t)
                 gsub("\"", "", t)
@@ -213,15 +269,22 @@ scan_dir() {
                 return l ~ ("(^|[^A-Za-z0-9_])" w "([^A-Za-z0-9_]|$)")
             }
 
-            function reason(l,   v) {
-                # `trap`, optionally behind the `builtin`/`command` builtins,
-                # in command position.
+            function reason(   v) {
+                # `trap`, optionally behind the `builtin`/`command` builtins, in
+                # command position. Matched on the SKELETON, so string contents
+                # can never supply the separator or the word.
                 v = "((builtin|command)[[:space:]]+)*trap([[:space:]]|$)"
-                if (l ~ ("^[[:space:]]*" v) \
-                    || l ~ ("[;&|(){}][[:space:]]*" v) \
-                    || l ~ ("[[:space:]](then|do|else)[[:space:]]+" v))
+                if (NLINE ~ ("^[[:space:]]*" v) \
+                    || NLINE ~ ("[;&|(){}][[:space:]]*" v) \
+                    || NLINE ~ ("[[:space:]](then|do|else)[[:space:]]+" v))
                     return "trap command"
-                if (has_word(l, "eval") && has_word(l, "trap"))
+                # `eval` must be a real command token (skeleton), and only then
+                # is its argument DATA searched for the word. Gating on the
+                # skeleton is what keeps `fail_row "... eval ... trap ..."`
+                # clean. Residual, accepted: a line that genuinely runs eval AND
+                # mentions trap in an unrelated string is flagged. Flagging next
+                # to a live eval is the safe direction, and no row does it.
+                if (has_word(NLINE, "eval") && has_word(dequote_all(DLINE), "trap"))
                     return "eval with trap in its argument"
                 return ""
             }
@@ -231,20 +294,26 @@ scan_dir() {
                 next
             }
             {
-                line = decomment($0)
-                if (line ~ /^[[:space:]]*$/) next
-                # Every rule below reads the DEQUOTED form; the offender report
-                # still prints what the author actually wrote.
-                nline = dequote(line)
+                analyse($0)
+                if (CODE ~ /^[[:space:]]*$/) next
 
                 # Arm the heredoc skip BEFORE matching, so a `trap` inside a
                 # child-script body is not read as ours. "<<<" is a herestring
                 # and must not arm it.
+                #
+                # Detected on CODE, not on the skeleton: the delimiter word is
+                # DATA that must survive (it is the terminator to look for), and
+                # a heredoc can sit inside a "$( ... )" that the skeleton
+                # collapses to X — `bash -c "$(cat <<X)"` is exactly that shape,
+                # and missing it would leave the body scanned as our code (N13).
+                # Only the HEAD is dequoted, which is a single-token question:
+                # is the command consuming this heredoc source/./eval?
                 hd_bad = 0
-                if (nline !~ /<<</ && match(nline, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
-                    head = substr(nline, 1, RSTART - 1)
-                    w = substr(nline, RSTART, RLENGTH)
+                if (CODE !~ /<<</ && match(CODE, /<<-?[[:space:]]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
+                    head = dequote_all(substr(CODE, 1, RSTART - 1))
+                    w = substr(CODE, RSTART, RLENGTH)
                     sub(/^<<-?[[:space:]]*/, "", w)
+                    gsub(/['"'"'"]/, "", w)
                     hd_term = "^[[:space:]]*" w "[[:space:]]*$"
                     in_hd = 1
                     # A heredoc fed to source/./eval executes IN THIS SHELL.
@@ -253,8 +322,9 @@ scan_dir() {
                         hd_bad = 1
                 }
 
-                why = hd_bad ? "heredoc sourced into this shell" : reason(nline)
+                why = hd_bad ? "heredoc sourced into this shell" : reason()
                 if (why != "") {
+                    line = CODE
                     sub(/^[[:space:]]+/, "", line)
                     printf "%s:%d: [%s] %s\n", FNAME, FNR, why, line
                 }
@@ -279,7 +349,7 @@ scan_dir() {
 # is not hypothetical — reverting the DOUBLE-state backslash rule did precisely
 # that and the combined-fixture self-test passed. Per case, a lost case is named.
 #
-# CASES — 34 must flag, 16 must not (50 total).
+# CASES — 34 must flag, 21 must not (55 total).
 #
 #   P01 bare `trap`                      P15 `eval "trap ..."`
 #   P02 indented                         P16 `eval 'trap - EXIT'`
@@ -312,6 +382,12 @@ scan_dir() {
 #   the spelling normalisation must not invent false positives:
 #   N14 `echo "tr''ap"`   (in a string)  N16 `mytr''ap 'c' EXIT`
 #   N15 `# tr''ap 'c' EXIT`  (a comment)
+#
+#   live strings whose CONTENTS look like syntax — the class that a whole-line
+#   dequote wrongly flagged (round-4 review), zero coverage before it:
+#   N17 `fail_row "... eval ... trap ..."`   N20 inert string over a \-newline
+#   N18 `msg="... don't;trap ..."`           N21 `"step 3: eval; trap; done"`
+#   N19 backtick doc mention of both words
 #
 # P21-P25 are the quoting cases: an earlier decomment() counted quote
 # characters, and a counter cannot express bash escaping. P29-P34 are the
@@ -380,6 +456,13 @@ self_test() {
     printf '%s\n' "echo \"tr''ap\""                                     >"$good/N14.sh"
     printf '%s\n' "# tr''ap 'rm -rf' EXIT -- describing the bypass"      >"$good/N15.sh"
     printf '%s\n' "mytr''ap 'rm -rf' EXIT"                              >"$good/N16.sh"
+    # live, non-comment strings whose CONTENTS look like syntax. Before the
+    # skeleton, dequoting the whole line let these read as real code (N17-N21).
+    printf '%s\n' "fail_row \"please eval trap manually if this ever happens\"" >"$good/N17.sh"
+    printf '%s\n' "msg=\"warning: don't;trap yourself here\""                >"$good/N18.sh"
+    printf '%s\n' 'echo "run `eval` never `trap` directly"'                 >"$good/N19.sh"
+    printf '%s\n' "msg=\"one \\" "two; trap three\""                         >"$good/N20.sh"
+    printf '%s\n' "printf '%s\\n' \"step 3: eval; trap; done\""             >"$good/N21.sh"
 
     # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_dir "$bad")
@@ -447,8 +530,10 @@ echo "[lint-traps] scanned: $N_FILES row scripts  offenders: $(printf '%s\n' "$O
     echo "    and is reported for exactly that reason."
     echo ""
     echo "This lint is for the ACCIDENTAL trap, which is the failure that actually"
-    echo "happened. It does not try to stop deliberate obfuscation and cannot -- see"
-    echo "the WHAT THIS LINT IS FOR block in test/00regression/lint-traps.sh."
+    echo "happened. It does not try to stop deliberate obfuscation and cannot. It also"
+    echo "has a few known FALSE positives -- a subshell trap, and a live eval or heredoc"
+    echo "head that merely mentions the word. If you have hit one of those, say so in"
+    echo "the row and see the MAY WRONGLY FLAG block in test/00regression/lint-traps.sh."
     echo "Re-check with: bash test/00regression/lint-traps.sh"
 } >&2
 exit 1
