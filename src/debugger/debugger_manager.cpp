@@ -277,8 +277,8 @@ void DebuggerManager::warn_state_corrupt(const QString& op) {
         QObject::tr("%1 could not restore the machine snapshot (subsystem '%2' "
                     "desynced).\n\nThe machine is now in a corrupt, partially-"
                     "restored state and has been paused. Resuming may crash or "
-                    "behave unpredictably — reset the machine (Machine ▸ Reset) "
-                    "to recover cleanly.").arg(op, sub));
+                    "behave unpredictably — reset the machine (Machine ▸ Power "
+                    "Reset) to recover cleanly.").arg(op, sub));
 }
 
 bool DebuggerManager::confirm_resume_if_corrupt() {
@@ -294,7 +294,8 @@ bool DebuggerManager::confirm_resume_if_corrupt() {
         QObject::tr("The machine state is corrupt after a failed rewind/step-"
                     "back (subsystem '%1' did not restore cleanly).\n\n"
                     "Resuming or stepping may crash or behave unpredictably. "
-                    "Reset the machine (Machine ▸ Reset) to recover cleanly.\n\n"
+                    "Reset the machine (Machine ▸ Power Reset) to recover "
+                    "cleanly.\n\n"
                     "Proceed anyway?").arg(sub),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);

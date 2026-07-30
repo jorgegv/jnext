@@ -401,7 +401,7 @@ int main()
     // Same reason as EB-10: gain is a host-side setting, not machine state. A
     // Preferences change goes straight to the live Mixer, so carrying the
     // STARTUP config's value would silently revert it on every cold boot,
-    // Machine > Reset and File > Load.
+    // Machine > Power Reset and File > Load.
     {
         Emulator emu;
         emu.init(base_config());
