@@ -129,6 +129,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     frame_in_progress_ = false;   // no frame is in flight after a reset
     replay_mode_ = false;
     boot_hold_frames_remaining_ = 0;  // G156
+    cpu_parked_ = false;              // GH #164
 
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
     // soft reset so tbblue-loaded content in SRAM (including the ROM-in-SRAM
@@ -6511,6 +6512,10 @@ bool Emulator::inject_binary(const std::string& path, uint16_t org, uint16_t pc)
         mmu_.write(static_cast<uint16_t>(org + i), buf[i]);
     }
 
+    // GH #164 — see resume_from_park(). This call names an entry point and
+    // sets PC to it; a parked CPU would never reach it.
+    resume_from_park("a binary was injected");
+
     // Set PC to the requested entry point.
     auto regs = cpu_.get_registers();
     regs.PC = pc;
@@ -6622,10 +6627,23 @@ bool Emulator::load_sna(const std::string& path)
     return loader.apply(*this);
 }
 
+void Emulator::resume_from_park(const char* reason)
+{
+    if (!cpu_parked_) return;   // silent no-op: callers call unconditionally
+    cpu_parked_ = false;
+    Log::emulator()->info(
+        "CPU un-parked: {} — the machine was holding a load-only NEX's state "
+        "(header PC=0) and would otherwise never have run it", reason);
+}
+
 bool Emulator::load_tap(const std::string& path, bool fast_load)
 {
     TapLoader loader;
     if (!loader.load(path)) return false;
+
+    // GH #164 — see resume_from_park(). Neither the ROM LD-BYTES trap nor
+    // the phantom typist can fire while the CPU is parked.
+    resume_from_park("a TAP tape was attached");
 
     loader.set_fast_load(fast_load);
     tape_ = std::move(loader);
@@ -6675,6 +6693,9 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     TzxLoader loader;
     if (!loader.load(path)) return false;
 
+    // GH #164 — see resume_from_park().
+    resume_from_park("a TZX tape was attached");
+
     loader.set_fast_load(fast_load);
     tzx_tape_ = std::move(loader);
     Log::emulator()->info("TZX: tape attached, mode: {}",
@@ -6722,6 +6743,9 @@ bool Emulator::load_wav(const std::string& path)
 {
     WavLoader loader;
     if (!loader.load(path)) return false;
+
+    // GH #164 — see resume_from_park().
+    resume_from_park("a WAV tape was attached");
 
     wav_tape_ = std::move(loader);
     Log::emulator()->info("WAV: tape attached (always real-time)");
@@ -6774,6 +6798,11 @@ bool Emulator::load_rzx(const std::string& path)
             Log::emulator()->warn("RZX: unsupported snapshot type '{}', skipping", rec.snapshot_ext);
         }
     }
+
+    // GH #164 — see resume_from_park(). With an embedded snapshot the
+    // load_sna/load_szx above already reset (which un-parks); without one,
+    // playback drives whatever machine is currently loaded.
+    resume_from_park("RZX playback started");
 
     // Wire up port override for playback.
     rzx_player_.start(std::move(rec));
@@ -7651,6 +7680,14 @@ uint64_t Emulator::step_one_instruction()
 
     if (dma_stalled_cpu_this_step) {
         // master_cycles already computed above.
+    } else if (cpu_parked_) {
+        // GH #164 — CPU parked indefinitely by a load-only NEX (header
+        // PC = 0). Same treatment as the G156 hold below — no instruction
+        // fetch/execute, clock advanced in NOP-sized steps so rendering,
+        // audio and the scheduler keep running and the loaded screen is
+        // composited every frame — but with no countdown: nothing the NEX
+        // did not ask for may ever run. See Emulator::set_cpu_parked().
+        master_cycles = 4ULL * clock_.cpu_divisor();
     } else if (boot_hold_frames_remaining_ > 0) {
         // G156 — NEX loading_delay/start_delay hold: no CPU instruction
         // is fetched or executed. Advance the clock in small NOP-sized
@@ -8190,6 +8227,14 @@ int Emulator::execute_single_instruction()
     // ROM traps, frame-end bookkeeping, the data-breakpoint early
     // return) intentionally stay in run_frame() — the debugger caller
     // owns pause semantics around a single step.
+    //
+    // GH #164 — see resume_from_park(). The shared body below honours
+    // cpu_parked_, so on a parked machine every Step would be a silent
+    // no-op and the debugger would look broken. A Step is the most
+    // explicit request to advance the CPU there is, so it resumes. No
+    // effect on any caller that is not parked, which is every test.
+    resume_from_park("the debugger stepped a single instruction");
+
     const uint64_t master_cycles = step_one_instruction();
     tick_devices_after_instruction(master_cycles);
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
@@ -9172,6 +9217,7 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u64(monotonic_tstates());
     w.write_u32(frame_num_);
     w.write_u32(boot_hold_frames_remaining_);  // G156
+    w.write_bool(cpu_parked_);                 // GH #164
     w.write_u64(psg_accum_);
     // Note: this is the Bresenham phase only. The Mixer's in-progress
     // integration accumulator is deliberately NOT snapshotted — after a restore
@@ -9586,6 +9632,7 @@ bool Emulator::load_state(StateReader& r)
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156
+    cpu_parked_                 = r.read_bool(); // GH #164
     psg_accum_        = r.read_u64();
     sample_accum_     = r.read_u64();
     dac_enabled_      = r.read_bool();

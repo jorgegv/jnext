@@ -189,6 +189,72 @@ public:
     void set_boot_hold_frames(uint32_t frames) { boot_hold_frames_remaining_ = frames; }
     uint32_t boot_hold_frames_remaining() const { return boot_hold_frames_remaining_; }
 
+    /// GH #164 — park the CPU: run_frame() keeps rendering, audio and the
+    /// scheduler ticking but fetches and executes no instruction, so the
+    /// machine holds whatever state it was left in, indefinitely.
+    ///
+    /// Set by NexLoader::apply() for a NEX whose header PC is 0 — the
+    /// format's "load only, do not execute" encoding (nexload.asm:581
+    /// `ld a,h:or l:jr z,.returnToBasic`, nexload2.asm:410-412). On real
+    /// hardware that path RETURNS to the OS that invoked the loader, with
+    /// the load's banks/paging/NextREGs/palette/border intact. jnext's
+    /// `--load` has no OS to return to — it resets and applies the NEX
+    /// before a single instruction runs — so the faithful equivalent of
+    /// "run nothing the NEX did not ask for, keep the state the load
+    /// produced" is to run nothing at all. Parking is jnext's stand-in for
+    /// the oracle's `ret`, NOT a claim that real hardware halts: there the
+    /// OS keeps running its idle loop (interrupts, FLASH, keyboard scan),
+    /// which a parked jnext does not.
+    ///
+    /// Cleared by init(), hence by both reset() and soft_reset(), and by
+    /// resume_from_park() below.
+    void set_cpu_parked(bool parked) { cpu_parked_ = parked; }
+    bool cpu_parked() const { return cpu_parked_; }
+
+    /// GH #164 — clear a park because the caller is an action that
+    /// unambiguously asks the machine to RUN. Logs when it actually
+    /// un-parks; a no-op (and silent) otherwise, so callers may call it
+    /// unconditionally.
+    ///
+    /// A park stops instruction fetch indefinitely, so any entry point that
+    /// hands the machine content it is expected to execute would otherwise
+    /// succeed, report success, and then never do anything — a silent,
+    /// permanent hang with no error and no indication. That is strictly
+    /// worse than the wrong-but-visible cold boot this whole change
+    /// replaces, so those entry points resume instead of refusing:
+    /// a user who just opened a tape or injected a binary has already said
+    /// what they want, and being told "no" would be a puzzle.
+    ///
+    /// There are SIX call sites, listed one per line and numbered on
+    /// purpose: the first version of this comment grouped the three tape
+    /// loaders onto one bullet, and both the author and the reviewer then
+    /// read the list as five. The suite shipped with five rows for six
+    /// sites, and nothing failed — `load_rzx` had no coverage anywhere.
+    /// Each site is pinned by exactly one row, NEXPC0-12..18. If you add a
+    /// seventh, add its row and fix this count.
+    ///
+    ///   1. load_tap  — a tape can only load if the guest runs. BOTH start
+    ///      mechanisms (the ROM LD-BYTES trap and the phantom typist's
+    ///      keyboard-scan trigger) are only tested while the CPU is
+    ///      fetching, so neither can ever fire on a parked machine.
+    ///   2. load_tzx  — same two mechanisms.
+    ///   3. load_wav  — always real-time, so it depends on the guest
+    ///      running even more directly than the fast-load formats.
+    ///   4. inject_binary — names an entry point and sets PC to it.
+    ///   5. load_rzx with no embedded snapshot — playback drives the
+    ///      CURRENT machine (the snapshot path resets, which un-parks by
+    ///      itself, and needs no call).
+    ///   6. execute_single_instruction — the debugger's Step is the most
+    ///      explicit possible request to advance the CPU, and leaving it
+    ///      dead makes the debugger look broken rather than the machine
+    ///      look parked (there is no "Parked" affordance in the UI yet).
+    ///      Debugger RUN deliberately does NOT resume: unlike Step it
+    ///      promises nothing about advancing, so staying parked is correct.
+    ///
+    /// Loads that reset first (load_nex/sna/szx/z80, RZX-with-snapshot) need
+    /// no call: reset() re-runs init(), which clears the flag.
+    void resume_from_park(const char* reason);
+
     /// Load a TAP file and attach it as the virtual tape.
     /// When fast_load is true (default), uses ROM trap interception.
     /// When false, uses real-time EAR bit simulation.
@@ -1044,6 +1110,11 @@ private:
     /// G156 — remaining frames the CPU is held idle after a NEX load with
     /// non-zero loading_delay/start_delay. See set_boot_hold_frames().
     uint32_t boot_hold_frames_remaining_ = 0;
+
+    /// GH #164 — CPU parked indefinitely (no instruction fetch/execute).
+    /// See set_cpu_parked(). Serialised with the rest of the machine state
+    /// so a rewind cannot silently un-park a load-only NEX.
+    bool cpu_parked_ = false;
 
     /// Everything that must happen exactly once per frame, at its start (Copper vsync,
     /// per-scanline change-log baselines, interrupt scheduling, rewind snapshot). Called
