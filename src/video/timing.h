@@ -136,6 +136,32 @@ public:
         return static_cast<int>(min_hactive_) - 12;
     }
 
+    /// Raw `hc` at which the ULA pixel counter `hc_ula` reads ZERO
+    /// (GH #181).
+    ///
+    /// `hc_ula` is a REGISTERED counter reset one 7 MHz tick after the
+    /// raw frame counter `hc` matches `ula_min_hactive`
+    /// (zxula_timing.vhd:423-436):
+    ///
+    ///     ula_min_hactive <= c_min_hactive - 12;               -- :423
+    ///     ula_max_hc      <= '1' when hc = ula_min_hactive;    -- :424
+    ///     process (i_CLK_7): if ula_max_hc = '1' then hc_ula <= 0
+    ///                        else hc_ula <= hc_ula + 1;        -- :427-436
+    ///
+    /// The reset takes effect on the edge AFTER `hc = ula_min_hactive`,
+    /// by which time `hc` has itself advanced to `ula_min_hactive + 1`
+    /// — the "EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME COUNTER"
+    /// note at zxula_timing.vhd:343. So
+    ///
+    ///     hc_ula == 0  <=>  hc == c_min_hactive - 11
+    ///
+    /// which is exactly the origin `AttributeMux` already derives (see
+    /// attribute_mux.h:281, empirically FUSE-verified in Task 54).
+    /// For the 128K/Next 50 Hz slot (`c_min_hactive = 136`) that is 125.
+    int hc_ula_zero_raw_hc() const {
+        return ula_prefetch_origin_hc() + 1;
+    }
+
     // ---------------------------------------------------------------
     // Section 4 / Section 5 — per-machine interrupt position
     // (zxula_timing.vhd:155,163 / :187,199 / :189,199 / :257,265

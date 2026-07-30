@@ -332,6 +332,179 @@ static void test_t58_cmaxvc_repush() {
     }
 }
 
+// ── GH #181 — WAIT hpos is compared against hc_ula, not master cycles ──
+
+// Run NOPs from `code_addr` until NR 0x14 reaches each of `want[]` in turn,
+// recording the frame-relative RAW pixel position (raw_vc * pixels_per_line
+// + raw_hc) at the end of the instruction that produced each transition.
+// Returns false if any expected value never appeared within `max_steps`.
+static bool run_until_nr14_sequence(Emulator& emu, const uint8_t* want, int n,
+                                    long* out_pixel, int max_steps)
+{
+    const int ppl = emu.video_timing().hc_max() + 1;
+    int idx = 0;
+    for (int s = 0; s < max_steps && idx < n; ++s) {
+        emu.execute_single_instruction();
+        if (nr_read(emu, 0x14) == want[idx]) {
+            out_pixel[idx] = static_cast<long>(emu.current_scanline()) * ppl
+                           + emu.current_hc();
+            ++idx;
+        }
+    }
+    return idx == n;
+}
+
+static void test_gh181_wait_hpos_domain()
+{
+    set_group("GH181-HcUla");
+
+    // The Copper's `hcount_i` is the ULA 7 MHz PIXEL counter `hc_ula`,
+    // NOT the 28 MHz master-cycle offset into the raw scanline:
+    //
+    //   zxnext.vhd:3949-3950  hcount_i => hc,  vcount_i => cvc
+    //   zxnext.vhd:6737-6739  o_hc_ula => hc,  o_vc_cu  => cvc
+    //   zxula_timing.vhd:427-438  hc_ula is clocked on i_CLK_7 (one tick
+    //                             per PIXEL) and reset when the raw frame
+    //                             counter hc = ula_min_hactive (:423-424,
+    //                             = c_min_hactive - 12). Being a REGISTERED
+    //                             reset it takes effect one tick later, so
+    //                             hc_ula == 0 at raw hc == c_min_hactive-11
+    //                             (:343 "delayed one pixel"; same origin
+    //                             AttributeMux uses, attribute_mux.h:281).
+    //   zxula_timing.vhd:457-470  cvc steps on the SAME ula_max_hc pulse,
+    //                             so its line boundary is the shifted one.
+    //   copper.vhd:94         hcount_i >= (hpos & "000") + 12
+    //
+    // For the 128K/Next 50 Hz slot (zxula_timing.vhd:195-196, :203):
+    //   c_max_hc = 455 (456 pixels/line), c_min_hactive = 136,
+    //   c_min_vactive = 64  =>  hc_ula == 0 at raw hc == 125.
+    //
+    // The observable is a Copper MOVE landing at a RAW raster position:
+    // the CPU runs a NOP sled (8 raw pixels per instruction) so we can
+    // bracket where each MOVE fired to within one instruction.
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH181-HCULA-01", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+
+    // Geometry guard — every expected position below is a VHDL-derived
+    // literal for this timing slot. If the slot ever changes, say so
+    // loudly instead of silently comparing against the wrong constants.
+    const int ppl  = emu.video_timing().hc_max() + 1;
+    const int minh = emu.video_timing().display_origin().hc;
+    const int minv = emu.video_timing().display_origin().vc;
+    const bool geom_ok = (ppl == 456 && minh == 136 && minv == 64 &&
+                          emu.video_timing().vc_max() == 310);
+    const std::string geom = "ppl=" + std::to_string(ppl) +
+                             " min_hactive=" + std::to_string(minh) +
+                             " min_vactive=" + std::to_string(minv);
+
+    // Land on a frame boundary, then take the CPU over with a NOP sled
+    // and interrupts off so the raster advances at a fixed 8 pixels per
+    // execute_single_instruction().
+    emu.run_frame();
+
+    const uint16_t code_addr = 0xC000;
+    for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    // One Copper list, three observable MOVEs to NR 0x14 (pure storage):
+    //   0: WAIT(hpos=52, vpos=95)   1: MOVE NR 0x14 = 0x33   <- show512
+    //   2: WAIT(hpos=0,  vpos=100)  3: MOVE NR 0x14 = 0x5A   <- origin
+    //   4: WAIT(hpos=50, vpos=100)  5: MOVE NR 0x14 = 0xA7   <- scale
+    //   6: HALT
+    emu.copper().reset();
+    for (int i = 0; i < 16; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(52, 95));
+    program_word(emu, 1, enc_move(0x14, 0x33));
+    program_word(emu, 2, enc_wait(0, 100));
+    program_word(emu, 3, enc_move(0x14, 0x5A));
+    program_word(emu, 4, enc_wait(50, 100));
+    program_word(emu, 5, enc_move(0x14, 0xA7));
+    program_word(emu, 6, enc_wait(0, 511));   // HALT
+    nr_write(emu, 0x64, 0);                   // no Copper vertical offset
+    nr_write(emu, 0x14, 0x00);                // observable baseline
+    set_copper_mode(emu, 1);
+
+    const uint8_t want[3] = {0x33, 0x5A, 0xA7};
+    long got[3] = {-1, -1, -1};
+    const bool all_fired = run_until_nr14_sequence(emu, want, 3, got, 40000);
+
+    // Detection granularity: the NOP that CONTAINS the firing master cycle
+    // is observed at its END, so an observation may lag the true position
+    // by up to one instruction (8 raw pixels). Allow 16.
+    constexpr long kSlack = 16;
+    auto near = [](long obs, long exp) {
+        return obs >= exp && obs <= exp + kSlack;
+    };
+
+    // GH181-HCULA-01 — ORIGIN. WAIT(hpos=0, vpos=100) has threshold
+    // (0<<3)+12 = 12, satisfied at hc_ula == 12, i.e. raw hc = 125+12 = 137
+    // (raw hc >= 125, so this is still raw line 100+64 = 164).
+    // Pre-fix jnext compared 12 against MASTER cycles from the raw line
+    // start, firing at raw pixel 3 of the same line — 134 pixels early.
+    {
+        const long exp = 164L * 456 + 137;   // 74921
+        check("GH181-HCULA-01",
+              "WAIT hpos=0 fires at hc_ula==12, i.e. raw hc = "
+              "(c_min_hactive-11)+12 = 137 — not at raw hc 3 "
+              "[copper.vhd:94; zxula_timing.vhd:423-436]",
+              geom_ok && all_fired && near(got[1], exp),
+              geom + " got=" + std::to_string(got[1]) +
+              " expected=" + std::to_string(exp) +
+              " (pre-fix would be " + std::to_string(164L * 456 + 3) + ")");
+    }
+
+    // GH181-HCULA-02 — SCALE. Two WAITs on the SAME cvc line differing by
+    // hpos 0 -> 50 must be exactly 50*8 = 400 PIXELS apart (copper.vhd:94
+    // shifts hpos left by 3 into a 7 MHz pixel counter). Pre-fix those 400
+    // units were MASTER cycles, i.e. 100 pixels — a 4x scale error.
+    // The second WAIT's threshold 412 lands at raw hc (125+412) mod 456 =
+    // 81, which is on the NEXT raw line (165) but still cvc line 100.
+    {
+        const long delta = got[2] - got[1];
+        check("GH181-HCULA-02",
+              "hpos step of 50 == 400 raw PIXELS between two WAITs on one "
+              "cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels "
+              "[copper.vhd:94; zxnext.vhd:3949 + :6737]",
+              geom_ok && all_fired && delta >= 400 - kSlack &&
+              delta <= 400 + kSlack,
+              geom + " delta=" + std::to_string(delta) +
+              " expected=400 (pre-fix 100); p0=" + std::to_string(got[1]) +
+              " p1=" + std::to_string(got[2]));
+    }
+
+    // GH181-HCULA-03 — the show512.nex worked example from GH #181.
+    // ShowAll512Colors does WAIT(vpos=95, hpos=52) then MOVE NR $43.
+    // Threshold (52<<3)+12 = 428. hc_ula=428 => raw hc = (125+428) mod 456
+    // = 97, which is BEFORE the cvc line boundary at raw hc 125, so it is
+    // raw line 95+64+1 = 160 — in the blanking ahead of that line's
+    // display. framebuffer_row = 160 - vblank_top(32) = 128, the field
+    // boundary the demo actually shows on hardware.
+    // Pre-fix: 428 master cycles = raw pixel 107 of raw line 159 => fb row
+    // 127, the one-row anomaly filed in GH #181.
+    {
+        const long exp = 160L * 456 + 97;    // 73057
+        const long line = (got[0] >= 0) ? got[0] / 456 : -1;
+        check("GH181-HCULA-03",
+              "show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 "
+              "(fb row 128) at raw hc 97, not raw line 159 (fb row 127) "
+              "[copper.vhd:94; zxula_timing.vhd:423-436, :457-470]",
+              geom_ok && all_fired && near(got[0], exp),
+              geom + " got=" + std::to_string(got[0]) +
+              " (raw line " + std::to_string(line) + ")" +
+              " expected=" + std::to_string(exp) + " (raw line 160);" +
+              " pre-fix " + std::to_string(159L * 456 + 107) + " (line 159)");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -353,6 +526,9 @@ int main() {
 
     test_t58_cmaxvc_repush();
     std::printf("  Group: T58-CMaxVc — done\n");
+
+    test_gh181_wait_hpos_domain();
+    std::printf("  Group: GH181-HcUla — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

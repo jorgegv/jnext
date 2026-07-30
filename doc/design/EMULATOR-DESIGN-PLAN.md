@@ -696,20 +696,20 @@ across the whole demo corpus for a ≤1-row gain.
 filed it as one, and measurement says otherwise. Its Copper does
 `WAIT(line=95, h=52)` then `MOVE NR $43`. In VHDL the Copper's `hcount_i` is
 `hc_ula` (`zxnext.vhd:3949`, fed from `o_hc_ula`, `zxula_timing.vhd:438`), a
-**7 MHz** counter whose origin is `c_min_hactive - 12`
-(`zxula_timing.vhd:423-424`), so the WAIT threshold `(52<<3)+12 = 428`
-(`copper.vhd:94`) is satisfied at raw pixel 96 of the *following* raw line —
+**7 MHz** counter whose reset is armed at `c_min_hactive - 12`
+(`zxula_timing.vhd:423-424`) and, being registered, lands one pixel later at
+`c_min_hactive - 11`, so the WAIT threshold `(52<<3)+12 = 428`
+(`copper.vhd:94`) is satisfied at raw pixel 97 of the *following* raw line —
 in the blanking between the display of line 95 and line 96 — and the change is
-correctly visible from row 128. jnext instead passes the raw
-**master-cycles-into-line** counter (`Emulator::tick_copper_for_master_cycles`,
-`Copper::execute`'s `hc` is documented as "28 MHz domain"), 4× the VHDL scale
-and with origin 0, so the same WAIT is satisfied at raw pixel 107 of the
-*current* line — before that line's display — and the flip lands on row 127.
-Feeding the Copper the VHDL `hc_ula`/`vc_ula` pair makes row 127 heal exactly
-(measured 2026-07-30: the one-row anomaly at fb row 127 disappears and the
-field boundary sits at row 128). That is a **separate, unfixed Copper WAIT
-timing defect**, not a change-log rounding artefact; it is not tracked here
-because pending bugs live in GitHub issues.
+correctly visible from row 128. jnext used to pass the raw
+**master-cycles-into-line** counter (`Emulator::tick_copper_for_master_cycles`),
+4× the VHDL scale and with origin 0, so the same WAIT was satisfied at raw
+pixel 107 of the *current* line — before that line's display — and the flip
+landed on row 127. That was a **separate Copper WAIT timing defect**, not a
+change-log rounding artefact; it is **fixed** (GH #181, 2026-07-30): the
+Copper is now fed the VHDL `hc_ula`/`cvc` pair and the one-row anomaly at fb
+row 127 is gone, with the field boundary at row 128. See the GH #181 append in
+[COPPER-TEST-PLAN-DESIGN.md](../testing/COPPER-TEST-PLAN-DESIGN.md).
 
 ---
 

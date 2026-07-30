@@ -38,8 +38,15 @@ public:
     /// In the emulator's line-accurate model this is called once per
     /// scanline with the line's vc and a sweep of hc values.
     ///
-    /// @param hc  horizontal counter (9-bit, 0-based, in 28 MHz domain)
-    /// @param vc  vertical counter (9-bit, 0-based)
+    /// @param hc  VHDL `hcount_i` — the ULA 7 MHz PIXEL counter `hc_ula`
+    ///            (zxnext.vhd:3949 + :6737; zxula_timing.vhd:427-438),
+    ///            9-bit, zero at raw hc == c_min_hactive - 11. NOT the
+    ///            28 MHz master-cycle offset into the line, and NOT
+    ///            anchored at the raw line start (GH #181).
+    /// @param vc  vertical counter (9-bit, 0-based) in the SAME counter
+    ///            frame — VHDL `cvc` (zxnext.vhd:3950 `vcount_i => cvc`,
+    ///            zxula_timing.vhd:457-472), less the NR 0x64 offset,
+    ///            which execute() re-applies.
     /// @param nextreg  reference to NextReg for MOVE writes
     void execute(int hc, int vc, NextReg& nextreg);
 
