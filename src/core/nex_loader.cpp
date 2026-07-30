@@ -608,7 +608,7 @@ bool NexLoader::apply(Emulator& emu) const
     //
     // Four NR writes below have their oracle ABOVE that gate, in
     // nexload.asm's unconditional prologue at :266-:274, and therefore
-    // happen for EVERY NEX regardless of the flag:
+    // happen regardless of the flag — for every NEX THAT LOADER LOADS:
     //
     //   :266  NEXTREG_nn 66,15                   → NR 0x42 = 0x0F
     //   :267  NEXTREG_nn PALETTE_CONTROL,0       → NR 0x43 = 0x00
@@ -618,9 +618,23 @@ bool NexLoader::apply(Emulator& emu) const
     //
     // (NR 0x42, 0x43 and 0x15 are written a second time INSIDE the
     // gated block, at :395, :394 and :370 — but the prologue copy is
-    // unconditional, so the net effect of both is unconditional. The
-    // ULA palette 0x18 pair at :269-:270 appears NOWHERE else, so
-    // gating it would be a straight behaviour loss.)
+    // unconditional, so the net effect of both is unconditional.)
+    //
+    // WHICH LOADER LOADS THE FILE DECIDES (GH #171, extending the same
+    // reasoning GH #166 applied to NR 0x07): a V1.3 file can only be
+    // parsed by nexload2.asm, and nexload2 has NO unconditional prologue
+    // at all. Everything it sets up lives in `setupBeforeBlockLoading`,
+    // BELOW the `ret nz` at :781-783 that :777 exempts NR 0x07 — and
+    // only NR 0x07 — from. So on the V1.3 path these four registers are
+    // preserve-gated too, with their own oracle:
+    //
+    //   NR 0x15  nexload2.asm:886-:888  nextRegResetData, $12 +3 → 0x01
+    //   NR 0x42  nexload2.asm:907-:908  nextRegResetData, $42    → 0x0F
+    //   NR 0x43  nexload2.asm:847       ends at 0 (ULA first palette)
+    //
+    // The ULA palette 0x18 pair at :269-:270 is different in kind: it has
+    // NO nexload2 oracle on EITHER branch, so it is nexload.asm-only.
+    // See the pal[0x18] note at the write itself.
     //
     // The gate is applied WITHOUT reordering any write: the always-run
     // ones keep their position and the rest are wrapped in place, so
@@ -630,20 +644,17 @@ bool NexLoader::apply(Emulator& emu) const
     // NOT modelled either way (pre-existing, unrelated to the gate):
     // nexload.asm's :397-:403 DefaultPalette / 256-entry palette sweeps
     // and its :406-:407 NR 0x50/0x51 writes.
-    //
-    // Also pre-existing, and V1.3-specific: the four "always" writes
-    // below (NR 0x42, 0x43, 0x40+0x41, 0x15) come from nexload.asm's
-    // unconditional prologue :266-:274. nexload2.asm has no prologue at
-    // all — those registers sit in its `nextRegResetData` table at
-    // :885-:909, behind the same `ret nz` that :777 exempts NR 0x07
-    // from. So a V1.3 file asking for PRESERVENEXTREG still gets them
-    // overwritten. Unchanged by the gate; tracked separately.
     // ---------------------------------------------------------------
 
     auto& nr = emu.nextreg();
 
     // nexload.asm:323 — `or a : jp nz,.dontresetregs`.
     const bool reset_nextregs = (header_.preserve_regs == 0);
+
+    // True when nexload.asm's unconditional :266-:274 prologue applies at
+    // all, i.e. when the file is one nexload.asm can parse (<= V1.2).
+    // A V1.3 file is nexload2's, and nexload2 has no prologue (GH #171).
+    const bool nexload_prologue = !is_v13();
 
     if (reset_nextregs) {
         // tbblue nexload.asm bundle (Task 3) — six NR writes the official
@@ -685,13 +696,20 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // ULANext format: 0x0F (allow flashing). Overrides Emulator init's
-    // 0x07 — nexload.asm:266 writes this every NEX load, ABOVE the
-    // DONTRESETNEXTREGS gate (it is repeated inside it at :395).
-    nr.write(0x42, 0x0F);
+    // 0x07 — nexload.asm:266 writes this ABOVE the DONTRESETNEXTREGS gate
+    // (repeated inside it at :395), so every <= V1.2 load gets it; on the
+    // V1.3 path the only oracle is nexload2.asm:907-:908, INSIDE its gate.
+    if (reset_nextregs || nexload_prologue) {
+        nr.write(0x42, 0x0F);
+    }
 
     // Sprite/layer system: sprites visible, SLU priority.
-    // nexload.asm:274 — ABOVE the gate (repeated inside it at :370).
-    nr.write(0x15, 0x01);
+    // nexload.asm:274 — ABOVE the gate (repeated inside it at :370); on the
+    // V1.3 path the only oracle is nexload2.asm:886-:888 (nextRegResetData
+    // sets ten registers from $12, the fourth being $15), INSIDE its gate.
+    if (reset_nextregs || nexload_prologue) {
+        nr.write(0x15, 0x01);
+    }
 
     if (reset_nextregs) {
         // Transparency: global colour = 0xE3, fallback = 0x00
@@ -727,22 +745,61 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // Palette control: select ULA first palette, no auto-increment.
-    // nexload.asm:267-268 — ABOVE the gate (repeated inside it at :394).
-    nr.write(0x43, 0x00);
+    // nexload.asm:267-268 — ABOVE the gate (repeated inside it at :394);
+    // on the V1.3 path the only oracle is nexload2.asm:847, which leaves
+    // NR 0x43 at 0 at the END of the palette resets, INSIDE its gate.
+    if (reset_nextregs || nexload_prologue) {
+        nr.write(0x43, 0x00);
+    }
 
     // ULA palette entry 24 (border ink 0) = 0xE3 (standard transparent).
-    // nexload.asm:269-270 — ABOVE the gate, and written NOWHERE else, so
-    // this pair is unconditional. (With the flag clear the gated block's
-    // :397 DefaultPalette sweep would overwrite this entry on real
-    // hardware; jnext does not model that sweep — see the note above.)
-    nr.write(0x40, 0x18);
-    nr.write(0x41, 0xE3);
+    // nexload.asm:269-270 — ABOVE the gate, and written nowhere else in
+    // THAT loader. It is nexload.asm-only, so it follows the loader, not
+    // the flag: nexload2 never writes 0xE3 at ULA index 0x18 on either of
+    // its branches, so a V1.3 file must not get it at all (GH #171).
+    //
+    // The DefaultPalette-sweep interaction GH #171 asks about, branch by
+    // branch, because it decides the shape of this gate. Every branch
+    // names the row that backs it, and the one row that records jnext's
+    // value rather than hardware's says so:
+    //
+    //  - <= V1.2, flag SET: the write stands on real hardware (the sweep
+    //    is inside the block the flag skips). jnext matches exactly.
+    //    Row NEXPR-ALWAYS-04.
+    //  - <= V1.2, flag CLEAR: nexload.asm:396-:399 repaints all 256 ULA
+    //    entries with the 16-entry DefaultPalette, so entry 0x18 ends at
+    //    DefaultPalette[0x18 % 16] = DefaultPalette[8] = 0x00
+    //    (nexload.asm:730), NOT 0xE3. jnext models no sweep and so leaves
+    //    0xE3 — a pre-existing divergence of the UNMODELLED SWEEP, not of
+    //    this gate. UNCHANGED here, and NEXPR-ALWAYS-08 pins the diverging
+    //    value: that row records what jnext does, not what hardware does.
+    //  - V1.3, PRESERVENEXTREG set: nexload2 returns at :783 before
+    //    touching any palette, so the entry must survive untouched.
+    //    Row NEXPR-V13-07.
+    //  - V1.3, PRESERVENEXTREG clear: nexload2 repaints all 256 ULA
+    //    entries with ulaClassicPalette (nexload2.asm:832-:836, data
+    //    :930-:933), whose entry 8 is $00 — it never writes 0xE3 there.
+    //    jnext models no sweep here either, and does not need to at this
+    //    entry: $00 is already what PaletteManager::reset() seeds ULA
+    //    0x18 with (palette.cpp kDefaultUlaRgb333[8], bright black), and
+    //    Emulator::load_nex() calls reset() before apply(). So leaving
+    //    the entry alone lands on the oracle's value for a machine whose
+    //    guest has not repainted it. Row NEXPR-V13R-03.
+    //
+    // Hence the loader term alone: 0xE3 at ULA index 0x18 has no nexload2
+    // oracle on EITHER V1.3 branch, and both of those branches are pinned.
+    if (nexload_prologue) {
+        nr.write(0x40, 0x18);
+        nr.write(0x41, 0xE3);
+    }
 
     if (reset_nextregs) {
         // Reset palette index to 0 (programs assume this after NEX load).
-        // Its oracle is inside the gated block: the index is left at 0 by
-        // :396 + the :411 `.pa` sweeps. Skipping the block leaves the
-        // index where :269-:270 put it, exactly as on hardware.
+        // Its oracle is inside the gated block in BOTH loaders: the index
+        // is left at 0 by nexload.asm:396 + the :411 `.pa` sweeps, and by
+        // nexload2.asm:832 + its wrapping palette loops. Skipping the
+        // block leaves the index where :269-:270 put it on the <= V1.2
+        // path, and untouched on the V1.3 one — as on hardware for each.
         nr.write(0x40, 0x00);
     }
 
