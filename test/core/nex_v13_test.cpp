@@ -531,6 +531,143 @@ void test_mixed_screen_flags() {
              "(GH #178 control row)", e, "mix5");
 }
 
+// ── The EXT2 gate: field 152 without screen_flags bit 6 (GH #185) ────
+//
+// Field 152 is DEFINED only when bit 6 is set — "LOADSCR2 db 0 ; when
+// LOADSCR |= 64" (nexload2.asm:129). A file that leaves bit 6 clear may carry
+// anything at all in that byte, so the SCREEN it declares must be sized and
+// ingested exactly as if the byte were zero.
+//
+// That is what the reference loader does, and it does it with the block
+// dispatch loop rather than with a test on the byte (nexload2.asm:304-:311):
+//
+//   .screenBlocksLoop:
+//           add     hl,SCREEN_BLOCK_DEF
+//           ld      a,(nexHeader.LOADSCR)
+//           push    hl
+//           and     (hl)                    ; (hl) = TRIGGER_BIT
+//           call    nz,LoadScreenBlock
+//
+// All three V1.3 block definitions carry TRIGGER_BIT = NEXLOAD_LOADSCR_EXT2
+// (nexload2.asm:623-:625), so with bit 6 clear `and (hl)` is zero, the call
+// never happens, and LoadScreenBlock — the only place LOADSCR2 selects a
+// block — is never reached (:628-:631). No screen data block is read, and
+// none of the mode's NextREG writes (:679-:697) happen.
+//
+// jnext implements that as one gate, `nex_loader.cpp:843`:
+//
+//   const uint8_t sf2 = (sf & SCREEN_EXT2) ? header_.screen_flags2
+//                                          : SCREEN2_NONE;
+//
+// with the sizing half in nex_screen_bytes() (:128). Deleting EITHER passed
+// all 196 NEX rows before these three existed (GH #185): no fixture anywhere
+// put a non-zero byte at 152 while bit 6 was clear.
+//
+// WHAT THESE ROWS DELIBERATELY DO NOT ASSERT: the palette destination.
+// nexload2's OTHER consumer of field 152 is LoadFilePalette, and that one
+// reads the byte with NO bit-6 test at all (nexload2.asm:732 `ld
+// a,(nexHeader.LOADSCR2)`, reached from :296-:300), while checkHeader
+// (:544-:570) never sanitises it. So on the palette selector the reference
+// loader and jnext's gate genuinely disagree for these headers. Asserting
+// jnext's answer here would cement that disagreement, and asserting the
+// oracle's would be a failing row; both are wrong for a coverage-gap fix.
+// Reported separately — see GH #185. Every assertion below is one the two
+// agree on, so these rows survive whichever way that is settled.
+//
+// Each row is a differential against a CONTROL fixture identical but for
+// field 152 = 0 — the literal statement of "behaves as if screen_flags2 were
+// 0" — and asserts the derived bank offset, not a truncation guard. The
+// fixture carries six banks precisely so the guard CANNOT be what fails: an
+// ungated loader ingests 81920 bytes for values 1 and 2, and the file is long
+// enough for that read to succeed, so the row fails on the OFFSET and on the
+// registers/pages the ingest touched (the trap disclosed in GH #169).
+void ext2_gate_row(const char* id, const char* desc, uint8_t sf2, const char* tag) {
+    V13Opts o;
+    o.screen_flags  = 0x01;      // LAYER2 — a real screen, and bit 6 CLEAR
+    o.screen_flags2 = sf2;       // junk as far as this header is concerned
+    // Distinctive tilemode config: value 3 would push these to NR 0x6B/0x6C/
+    // 0x6E/0x6F (nexload2.asm:688-:697) if the gate were gone.
+    o.tile_cfg[0] = 0x83; o.tile_cfg[1] = 0x11; o.tile_cfg[2] = 0xC0; o.tile_cfg[3] = 0xCA;
+    // 6 banks = 98304 bytes after the 50176-byte header+palette+screen region.
+    // An ungated ingest of 81920 bytes at 49664 (file 50176) therefore fits,
+    // and none of these banks map to pages 18-27 where it would land.
+    o.banks = {5, 2, 0, 1, 3, 4};
+    // Field 144 omitted so the DERIVED offset — nex_screen_bytes() itself —
+    // is what is under test, for the same reason size_row() omits it.
+    o.omit_banks_offset = true;
+
+    V13Opts ctl = o;
+    ctl.screen_flags2 = 0;
+
+    Fixture f(o, tag);
+    Fixture c(ctl, (std::string(tag) + "c").c_str());
+
+    const size_t want = expected_bank_offset(o);   // ignores 152; bit 6 is clear
+    auto& nr  = f.emu.nextreg();
+    auto& cnr = c.emu.nextreg();
+
+    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    const bool offset_ok = loaded && f.loader.bank_data_offset() == want &&
+                           c.loader.bank_data_offset() == want;
+    // Banks landed where the derived offset says they do.
+    const bool content_ok = loaded &&
+                            read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0) &&
+                            read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
+                            read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
+    // Pages 18/19 = the first two of the big-Layer-2 target banks 9-13
+    // (nexload2.asm:623-624 loads 10 pages from LAYER2_BANK*2 = 18).
+    const bool pages_ok = loaded &&
+                          read_page(f.emu.mmu(), 18, 0) == read_page(c.emu.mmu(), 18, 0) &&
+                          read_page(f.emu.mmu(), 19, 0) == read_page(c.emu.mmu(), 19, 0);
+    // Every NextREG either of the three V1.3 screen kinds would write.
+    const bool regs_ok = loaded &&
+                         nr.read(0x70) == cnr.read(0x70) && nr.read(0x12) == cnr.read(0x12) &&
+                         nr.read(0x69) == cnr.read(0x69) && nr.read(0x6B) == cnr.read(0x6B) &&
+                         nr.read(0x6C) == cnr.read(0x6C) && nr.read(0x6E) == cnr.read(0x6E) &&
+                         nr.read(0x6F) == cnr.read(0x6F);
+
+    check(id, desc, offset_ok && content_ok && pages_ok && regs_ok,
+          fmt("load=%d apply=%d bank_data_offset=%llu want %zu (control %llu); "
+              "bank5[0]=%02x want %02x bank2[0]=%02x want %02x; "
+              "page18[0]=%02x/%02x page19[0]=%02x/%02x (test/control); "
+              "NR 70=%02x/%02x 12=%02x/%02x 69=%02x/%02x 6B=%02x/%02x 6C=%02x/%02x "
+              "6E=%02x/%02x 6F=%02x/%02x",
+              f.load_ok, f.apply_ok,
+              static_cast<unsigned long long>(f.loader.bank_data_offset()), want,
+              static_cast<unsigned long long>(c.loader.bank_data_offset()),
+              loaded ? read_page(f.emu.mmu(), 10, 0) : 0, bank_byte(5, 0),
+              loaded ? read_page(f.emu.mmu(), 4, 0) : 0, bank_byte(2, 0),
+              loaded ? read_page(f.emu.mmu(), 18, 0) : 0,
+              loaded ? read_page(c.emu.mmu(), 18, 0) : 0,
+              loaded ? read_page(f.emu.mmu(), 19, 0) : 0,
+              loaded ? read_page(c.emu.mmu(), 19, 0) : 0,
+              nr.read(0x70), cnr.read(0x70), nr.read(0x12), cnr.read(0x12),
+              nr.read(0x69), cnr.read(0x69), nr.read(0x6B), cnr.read(0x6B),
+              nr.read(0x6C), cnr.read(0x6C), nr.read(0x6E), cnr.read(0x6E),
+              nr.read(0x6F), cnr.read(0x6F)));
+}
+
+void test_ext2_gate() {
+    ext2_gate_row("NEXV13-EXT2-01",
+                  "screen_flags2 = 1 (L2 320x256) with screen_flags bit 6 CLEAR declares "
+                  "nothing: no 81920-byte block is sized or ingested, banks 9-13 stay "
+                  "untouched and no screen NextREG is written — the block's trigger bit is "
+                  "EXT2 (nexload2.asm:623,:307-311), so LoadScreenBlock never runs (GH #185)",
+                  1, "e2g1");
+
+    ext2_gate_row("NEXV13-EXT2-02",
+                  "screen_flags2 = 2 (L2 640x256) with bit 6 clear is likewise inert — the "
+                  "second of the two values that would otherwise add 81920 bytes and shift "
+                  "the start of every bank (nexload2.asm:624) (GH #185)",
+                  2, "e2g2");
+
+    ext2_gate_row("NEXV13-EXT2-03",
+                  "screen_flags2 = 3 (tilemode) with bit 6 clear is inert too: it adds no "
+                  "data block, so only its four config writes to NR 0x6B/0x6C/0x6E/0x6F "
+                  "would betray it (nexload2.asm:625,:688-697) (GH #185)",
+                  3, "e2g3");
+}
+
 // ── Loud refusal of screens this loader cannot size ──────────────────
 
 void refuse_row(const char* id, const char* desc, V13Opts o, const char* tag) {
@@ -1536,6 +1673,7 @@ int main() {
     test_header_fields();
     test_sizing();
     test_mixed_screen_flags();
+    test_ext2_gate();
     test_refusal();
     test_banks_offset();
     test_crc();
