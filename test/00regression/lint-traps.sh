@@ -47,17 +47,28 @@
 #     cannot reach the harness's shell.
 #
 # ------------------------------------------------------------------------
-# WHAT IT CATCHES, AND — READ THIS — WHAT IT DOES NOT
+# WHAT THIS LINT IS FOR — READ THIS BEFORE EXTENDING IT
 #
-# It catches the naive and accidental case, plus the five evasions demonstrated
-# against earlier versions of this lint in review. It is NOT a security boundary
-# and does NOT prevent the whole class: a determined author can still reach
-# `trap` through indirection this script cannot decide.
+# It exists to catch an ACCIDENTAL or CARELESS `trap` in a row script. That is
+# the failure that actually happened: a row written in one night installed an
+# EXIT trap without its author realising the harness already had one, and it was
+# found only when a host filled to 18 GB with a green 112/112 on screen.
 #
-# Every claim below is a pinned self-test case, both directions — the CAUGHT
-# list is asserted to flag and the NOT CAUGHT list has been verified to be
-# accurate rather than merely modest (a `trap` inside a function body IS caught,
-# for instance, so it is deliberately absent from the second list).
+# It does NOT attempt to stop DELIBERATE OBFUSCATION, and it cannot. A row
+# author who wants to evade it can, trivially — `t=trap; $t 'c' EXIT` is eight
+# characters and no static grep will ever see it. Three rounds of review found
+# six evasions (all now closed, cases P13-P34); the last of them, `tr''ap`, was
+# not something anyone writes by accident. That is the line: accidents are in
+# scope, obfuscation is not, and pretending otherwise would make this header the
+# kind of overclaim the lint's own history is a record of.
+#
+# So: a newly-discovered way to write `trap` on purpose is NOT a defect in this
+# lint. A newly-discovered way to write one BY ACCIDENT is.
+#
+# Every entry in CAUGHT is a pinned self-test case asserted in both directions.
+# NOT CAUGHT is a list of EXAMPLES, deliberately not claimed to be exhaustive —
+# it has twice been proved incomplete by review, and an enumeration that claims
+# a completeness it does not have is exactly the defect we keep finding.
 #
 # CAUGHT (see CASES below for the case IDs):
 #   * `trap`, `builtin trap`, `command trap` in command position — line start,
@@ -73,18 +84,22 @@
 #     exactly right — `echo "\" #" ; trap ... EXIT`, the `'it'\''s'` idiom, a
 #     `\\` before a closing quote, an escaped `\#`, or a string opened on the
 #     previous line. See decomment() and cases P21-P25.
+#   * `trap` spelled so the literal word never appears — bash concatenates
+#     adjacent word fragments, so `tr''ap`, `tr""ap`, `tr\ap` and `t\r\a\p` all
+#     run the builtin. See dequote() and cases P29-P34.
 #
-# NOT CAUGHT (known, accepted, each verified to be genuinely uncaught; all are
-# undecidable without executing the script):
+# NOT CAUGHT — EXAMPLES, NOT AN EXHAUSTIVE LIST. Each of these was verified to
+# be genuinely uncaught, and all are undecidable without executing the script:
 #   * the command name held in a variable — `t=trap; $t 'c' EXIT`.
 #   * an `eval` whose argument is built across several lines, or assembled from
 #     variables so the word `trap` never appears literally.
 #   * a script written to a file by other means and then `source`d by path.
 #     (`source` of a path cannot simply be banned: every row script legitimately
 #     sources test-functions.inc. Only the heredoc form is decidable here.)
-# Closing those needs a bash parser or an interpreter, and this guard exists to
-# stop a tired author at 2 a.m., not an adversary. If you are reaching for one
-# of them, you already know you are defeating a guard — don't.
+# Closing those needs a bash parser or an interpreter. Per the scope statement
+# above they are out of scope, not a backlog: if you are reaching for one, you
+# already know you are defeating a guard — so don't, and no amount of lint will
+# stop you if you do.
 #
 # ALSO NOT SEEN (deliberate, these are the legitimate shapes):
 #   * comments, whole-line and trailing.
@@ -170,6 +185,29 @@ scan_dir() {
                 return l
             }
 
+            # dequote(l) — normalise word spelling for detection.
+            #
+            # Bash concatenates adjacent word fragments, so the four-character
+            # word `trap` can be spelled without ever containing it:
+            #   tr[EMPTY-SINGLE-PAIR]ap   tr[EMPTY-DOUBLE-PAIR]ap
+            #   tr\ap                     t\r\a\p
+            # All run the builtin; none matches a literal word search. Found in
+            # review, third round. Rather than a special case per spelling, drop
+            # every backslash and every quote character before matching: both
+            # are zero-content in word position, and neither removal can MERGE
+            # two words (no whitespace is touched), so a clean line stays clean.
+            # Only then are the three rules applied.
+            #
+            # Line structure is preserved, so `echo "trap"` stays out of command
+            # position and `mytr[EMPTY-PAIR]ap` stays a different word.
+            function dequote(l,   t) {
+                t = l
+                gsub(/\\/, "", t)
+                gsub("\047", "", t)
+                gsub("\"", "", t)
+                return t
+            }
+
             # is a word present as a standalone token?
             function has_word(l, w) {
                 return l ~ ("(^|[^A-Za-z0-9_])" w "([^A-Za-z0-9_]|$)")
@@ -195,16 +233,18 @@ scan_dir() {
             {
                 line = decomment($0)
                 if (line ~ /^[[:space:]]*$/) next
+                # Every rule below reads the DEQUOTED form; the offender report
+                # still prints what the author actually wrote.
+                nline = dequote(line)
 
                 # Arm the heredoc skip BEFORE matching, so a `trap` inside a
                 # child-script body is not read as ours. "<<<" is a herestring
                 # and must not arm it.
                 hd_bad = 0
-                if (line !~ /<<</ && match(line, /<<-?[[:space:]]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
-                    head = substr(line, 1, RSTART - 1)
-                    w = substr(line, RSTART, RLENGTH)
+                if (nline !~ /<<</ && match(nline, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
+                    head = substr(nline, 1, RSTART - 1)
+                    w = substr(nline, RSTART, RLENGTH)
                     sub(/^<<-?[[:space:]]*/, "", w)
-                    gsub(/['"'"'"]/, "", w)
                     hd_term = "^[[:space:]]*" w "[[:space:]]*$"
                     in_hd = 1
                     # A heredoc fed to source/./eval executes IN THIS SHELL.
@@ -213,7 +253,7 @@ scan_dir() {
                         hd_bad = 1
                 }
 
-                why = hd_bad ? "heredoc sourced into this shell" : reason(line)
+                why = hd_bad ? "heredoc sourced into this shell" : reason(nline)
                 if (why != "") {
                     sub(/^[[:space:]]+/, "", line)
                     printf "%s:%d: [%s] %s\n", FNAME, FNR, why, line
@@ -239,7 +279,7 @@ scan_dir() {
 # is not hypothetical — reverting the DOUBLE-state backslash rule did precisely
 # that and the combined-fixture self-test passed. Per case, a lost case is named.
 #
-# CASES — 28 must flag, 13 must not.
+# CASES — 34 must flag, 16 must not (50 total).
 #
 #   P01 bare `trap`                      P15 `eval "trap ..."`
 #   P02 indented                         P16 `eval 'trap - EXIT'`
@@ -256,6 +296,12 @@ scan_dir() {
 #   P13 `builtin trap`                   P27 `builtin eval "trap ..."`
 #   P14 `command trap`                   P28 indented `source ... <<-'X'`
 #
+#   the SPELLING class — bash concatenates adjacent word fragments, so the
+#   literal word `trap` need never appear (round-3 review):
+#   P29 tr''ap                           P32 t\r\a\p
+#   P30 tr""ap                           P33 eval "tr''ap ..."
+#   P31 tr\ap                            P34 sou''rce /dev/stdin <<X
+#
 #   N01 whole-line comment               N08 `echo "trap"`
 #   N02 trailing comment (eval + trap)   N09 `grep -n trap "$f"`
 #   N03 word inside a string             N10 escaped-apostrophe + REAL comment
@@ -263,9 +309,14 @@ scan_dir() {
 #   N05 `bash /dev/stdin <<X` body       N12 `$#` and `${#v}` then a comment
 #   N06 `trapped=` / `entrapment=`       N13 `bash -c "$(cat <<X)"` body
 #   N07 `mytrap 'c' EXIT`                    (a real child process)
+#   the spelling normalisation must not invent false positives:
+#   N14 `echo "tr''ap"`   (in a string)  N16 `mytr''ap 'c' EXIT`
+#   N15 `# tr''ap 'c' EXIT`  (a comment)
 #
-# P21-P25 are the quoting cases. They exist because an earlier decomment() here
-# counted quote characters, and a counter cannot express bash escaping.
+# P21-P25 are the quoting cases: an earlier decomment() counted quote
+# characters, and a counter cannot express bash escaping. P29-P34 are the
+# spelling cases, closed by dequote(). Both classes were found by review, not
+# by this table — which is the argument for keeping the table growing.
 self_test() {
     local dir bad good out id failed=0
     local -a missing=() spurious=()
@@ -302,6 +353,13 @@ self_test() {
     printf '%s\n' "command source /dev/stdin <<'PAY'" "trap 'x' EXIT" "PAY" >"$bad/P26.sh"
     printf '%s\n' "builtin eval \"trap 'rm -rf' EXIT\""                >"$bad/P27.sh"
     printf '%s\n' "    source /dev/stdin <<-'PAY'" "	PAY"             >"$bad/P28.sh"
+    # the spelling class: none of these contains the literal word `trap`
+    printf '%s\n' "tr''ap 'rm -rf' EXIT"                                >"$bad/P29.sh"
+    printf '%s\n' 'tr""ap '"'"'rm -rf'"'"' EXIT'                        >"$bad/P30.sh"
+    printf '%s\n' "tr\\ap 'rm -rf' EXIT"                                >"$bad/P31.sh"
+    printf '%s\n' "t\\r\\a\\p 'rm -rf' EXIT"                            >"$bad/P32.sh"
+    printf '%s\n' "eval \"tr''ap 'rm -rf' EXIT\""                       >"$bad/P33.sh"
+    printf '%s\n' "sou''rce /dev/stdin <<'PAY'" "trap 'x' EXIT" "PAY"   >"$bad/P34.sh"
 
     # --- 13 legitimate shapes that MUST NOT be flagged ----------------------
     # A hit here is a false positive that would block a row an author may write.
@@ -318,11 +376,16 @@ self_test() {
     printf '%s\n' "echo \"value # trap\""                                 >"$good/N11.sh"
     printf '%s\n' "echo \"\${#v} \$#\"   # a note mentioning eval and trap" >"$good/N12.sh"
     printf '%s\n' "bash -c \"\$(cat <<'CHILD'" "trap 'x' EXIT" "CHILD" ")\"" >"$good/N13.sh"
+    # dequote() must not turn these into command-position traps
+    printf '%s\n' "echo \"tr''ap\""                                     >"$good/N14.sh"
+    printf '%s\n' "# tr''ap 'rm -rf' EXIT -- describing the bypass"      >"$good/N15.sh"
+    printf '%s\n' "mytr''ap 'rm -rf' EXIT"                              >"$good/N16.sh"
 
     # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_dir "$bad")
     for id in P01 P02 P03 P04 P05 P06 P07 P08 P09 P10 P11 P12 P13 P14 \
-              P15 P16 P17 P18 P19 P20 P21 P22 P23 P24 P25 P26 P27 P28; do
+              P15 P16 P17 P18 P19 P20 P21 P22 P23 P24 P25 P26 P27 P28 \
+              P29 P30 P31 P32 P33 P34; do
         grep -q "/$id\.sh:" <<<"$out" || missing+=("$id")
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -383,8 +446,9 @@ echo "[lint-traps] scanned: $N_FILES row scripts  offenders: $(printf '%s\n' "$O
     echo "    are invisible to this lint — but a heredoc fed to source/./eval runs HERE"
     echo "    and is reported for exactly that reason."
     echo ""
-    echo "This lint catches the naive and accidental case, not every possible evasion"
-    echo "(see the WHAT IT DOES NOT CATCH block in test/00regression/lint-traps.sh)."
+    echo "This lint is for the ACCIDENTAL trap, which is the failure that actually"
+    echo "happened. It does not try to stop deliberate obfuscation and cannot -- see"
+    echo "the WHAT THIS LINT IS FOR block in test/00regression/lint-traps.sh."
     echo "Re-check with: bash test/00regression/lint-traps.sh"
 } >&2
 exit 1
