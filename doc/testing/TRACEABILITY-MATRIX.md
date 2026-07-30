@@ -31,7 +31,7 @@
 | VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         51 |
 | LoRes                                      |    48 |   48 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    21 |   16 |    0 |    0 |       5 |         29 |
+| SD Card                                    |    21 |   16 |    0 |    0 |       5 |         34 |
 | NMI Source Pipeline                        |    56 |   50 |    0 |    0 |       6 |          7 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    24 |   24 |    0 |    0 |       0 |          0 |
@@ -49,9 +49,9 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        856 |
+| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        861 |
 
-Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6521**.
+Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6526**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -3762,13 +3762,13 @@ Dashboard (Task 7 r2): 21 total / 8 pass / 0 fail / 13 skip.
 | SD-11      | CMD10 SEND_CID response not synthesised (see G40)                           | (SD SPI spec)                         | missing | missing                         |
 | SD-12      | CMD16 SET_BLOCKLEN ack absent (see G40)                                     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:535 |
 | SD-13      | CMD23 SET_BLOCK_COUNT not handled (see G40)                                 | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:558 |
-| SD-14      | CMD24 WRITE_BLOCK absent — read-only fixture (see G40)                      | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:684 |
-| SD-15      | CMD25 multi-block write not modelled (see G40)                              | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:906 |
-| MMC-01     | MMC CMD1 init path absent — SDHC only (see G41)                             | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:734 |
+| SD-14      | CMD24 WRITE_BLOCK absent — read-only fixture (see G40)                      | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:891 |
+| SD-15      | CMD25 multi-block write not modelled (see G40)                              | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:1113 |
+| MMC-01     | MMC CMD1 init path absent — SDHC only (see G41)                             | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:941 |
 | MMC-02     | CMD8 illegal-cmd response on MMC not modelled (see G41)                     | (SD SPI spec)                         | missing | missing                         |
 | MMC-03     | MMC byte-vs-block addressing duality unsupported (see G41)                  | (SD SPI spec)                         | missing | missing                         |
-| BOOT-SD-01 | SD hot-plug round-trip not exposed at runtime (see G158)                    | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:799 |
-| BOOT-SD-02 | SD unmount mid-transfer untested — no GUI/CLI eject affordance (see G158)   | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:1984 |
+| BOOT-SD-01 | SD hot-plug round-trip not exposed at runtime (see G158)                    | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:1006 |
+| BOOT-SD-02 | SD unmount mid-transfer untested — no GUI/CLI eject affordance (see G158)   | zxnext.vhd:sd pin routing           | pass   | test/sdcard/sdcard_test.cpp:2191 |
 
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp` + `test/nmi/nmi_integration_test.cpp`
