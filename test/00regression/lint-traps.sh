@@ -72,10 +72,12 @@
 #
 # CAUGHT (see CASES below for the case IDs):
 #   * `trap`, `builtin trap`, `command trap` in command position — line start,
-#     after `; & | ( ) { }`, or after then/do/else, including the `( ... )` and
-#     `$( ... )` subshell forms, which are actually harmless but are flagged in
-#     the safe direction.
-#   * any `eval` whose argument text contains the word `trap`, on that line.
+#     after `; & | ( ) { }`, or after any bash reserved word a command may
+#     follow (`! coproc do elif else if then time until while` — the CLOSED
+#     set, see invoked()). Includes `( ... )`, `$( ... )` and `coproc`, which
+#     are actually harmless subshells but are flagged in the safe direction.
+#   * an `eval` INVOCATION (same anchoring) whose argument text contains the
+#     word `trap`. Anchored, not a presence test: `mode=eval` is not a call.
 #   * a heredoc consumed by `source`, `.` or `eval` — `source /dev/stdin <<P`
 #     runs the body IN THIS SHELL, so the heredoc exemption below would
 #     otherwise be a hole big enough to drive the whole bug through. Flagged
@@ -153,6 +155,7 @@ scan_dir() {
     for f in "$dir"/*.sh; do
         [[ -e "$f" ]] || continue
         awk -v FNAME="$f" '
+            BEGIN { RW = "(!|coproc|do|elif|else|if|then|time|until|while)" }
             # analyse(l) — one bash-faithful pass producing THREE views.
             #
             # Sets:
@@ -269,30 +272,57 @@ scan_dir() {
                 return l ~ ("(^|[^A-Za-z0-9_])" w "([^A-Za-z0-9_]|$)")
             }
 
-            function reason(   v, e) {
-                # `trap`, optionally behind the `builtin`/`command` builtins, in
-                # command position. Matched on the SKELETON, so string contents
-                # can never supply the separator or the word.
-                v = "((builtin|command)[[:space:]]+)*trap([[:space:]]|$)"
-                if (NLINE ~ ("^[[:space:]]*" v) \
-                    || NLINE ~ ("[;&|(){}][[:space:]]*" v) \
-                    || NLINE ~ ("[[:space:]](then|do|else)[[:space:]]+" v))
+            # invoked(s, w) — is word `w` in COMMAND position in skeleton s?
+            #
+            # Three ways a command can start, and the third is the closed set.
+            # Bash reserved words are finite and documented:
+            #     !  case  coproc  do  done  elif  else  esac  fi  for
+            #     function  if  in  select  then  time  until  while  {  }
+            #     [[  ]]
+            # Of those, a COMMAND may follow exactly these:
+            #     !  coproc  do  elif  else  if  then  time  until  while
+            # ({ is already covered as a separator character below.) The rest
+            # cannot introduce one and are excluded by construction, not by
+            # oversight: case/for/select/function are followed by a word or a
+            # name; `in` is for/case syntax; done/esac/fi/}/]] are terminators;
+            # [[ opens a conditional expression, which is not a command.
+            #
+            # Verified live, each clobbering a pre-installed EXIT trap:
+            #   if / elif / else / then / while / until / do / ! / time.
+            # coproc is in the set but runs its command in a SUBSHELL, so it
+            # cannot actually reach this shell — flagged anyway, exactly like
+            # the ( ... ) and $( ... ) forms, in the safe direction.
+            # NOT in the set: exec. `exec trap` and `exec eval` both fail with
+            # "exec: trap: not found" — exec replaces the shell with a PROGRAM
+            # and cannot run a builtin, so neither is reachable.
+            #
+            # This gap existed on the bare-trap rule from the day it was written
+            # and survived six review rounds and 57 pinned cases, because no
+            # case tested either rule as an if/while condition, after ! or after
+            # time. `if trap ... ; then` is something an author might genuinely
+            # write to check whether installing the trap succeeded, so it is
+            # squarely the accident class. Deriving the anchor from the closed
+            # set — rather than adding the four words review demonstrated — is
+            # what makes it exhaustive by construction instead of by luck.
+            function invoked(s, w,   v) {
+                v = "((builtin|command)[[:space:]]+)*" w "([[:space:]]|$)"
+                return (s ~ ("^[[:space:]]*" v) \
+                     || s ~ ("[;&|(){}][[:space:]]*" v) \
+                     || s ~ ("(^|[[:space:];&|(){}])" RW "[[:space:]]+" v))
+            }
+
+            function reason() {
+                # `trap`, optionally behind the builtin/command prefixes.
+                # Matched on the SKELETON, so string contents can never supply
+                # the separator or the word.
+                if (invoked(NLINE, "trap"))
                     return "trap command"
                 # `eval` must be INVOKED, and only then is its argument DATA
-                # searched for the word.
-                #
-                # Anchored exactly like the trap rule above, not a presence
-                # test. has_word(NLINE, "eval") asks only whether the word
-                # appears somewhere, which two unrelated assignments satisfy —
-                # `mode=eval; msg="see the trap docs"` was flagged, as was
-                # `run_mode eval "read the trap docs"` where eval is another
-                # command_s argument (N22, N23). Found in review; the comment
-                # here promised invocation while the code checked presence.
-                e = "((builtin|command)[[:space:]]+)*eval([[:space:]]|$)"
-                if ((NLINE ~ ("^[[:space:]]*" e) \
-                     || NLINE ~ ("[;&|(){}][[:space:]]*" e) \
-                     || NLINE ~ ("[[:space:]](then|do|else)[[:space:]]+" e)) \
-                    && has_word(dequote_all(DLINE), "trap"))
+                # searched for the word. A presence test is not enough:
+                # `mode=eval; msg="see the trap docs"` and
+                # `run_mode eval "read the trap docs"` both contain the word
+                # without running it (N22, N23).
+                if (invoked(NLINE, "eval") && has_word(dequote_all(DLINE), "trap"))
                     return "eval with trap in its argument"
                 return ""
             }
@@ -357,7 +387,7 @@ scan_dir() {
 # is not hypothetical — reverting the DOUBLE-state backslash rule did precisely
 # that and the combined-fixture self-test passed. Per case, a lost case is named.
 #
-# CASES — 34 must flag, 23 must not (57 total).
+# CASES — 52 must flag, 27 must not (79 total).
 # CASES-TABLE-BEGIN — every ID below is cross-checked against the fixture
 # files at the end of self_test(); the two cannot drift apart.
 #
@@ -403,6 +433,21 @@ scan_dir() {
 #   (round-5 review):
 #   N22 `mode=eval; msg="see the trap docs"`
 #   N23 `run_mode eval "read the trap docs for details"`
+#
+#   the RESERVED-WORD class — a command may follow any of bash's `! coproc do
+#   elif else if then time until while`, and neither rule saw any but
+#   then/do/else. Present on the bare-trap rule since it was written; survived
+#   six rounds and 57 cases (round-6 review). One case per word per rule, from
+#   the CLOSED set, so this is exhaustive by construction:
+#   P35 `if trap`        P39 `until trap`    P43 `if eval`      P47 `do eval`
+#   P36 `elif trap`      P40 `! trap`        P44 `elif eval`    P48 `while eval`
+#   P37 `else trap`      P41 `time trap`     P45 `else eval`    P49 `until eval`
+#   P38 `while trap`     P42 `coproc trap`   P46 `then eval`    P50 `! eval`
+#                        (subshell; safe                        P51 `time eval`
+#                         direction, like P11)                  P52 `coproc eval`
+#   and the words must stay inert as ordinary data:
+#   N24 `msg="if trap then"`     N26 `time=5`   (assignment, no space)
+#   N25 `# while trap ...`       N27 `erstwhile trap ...` (word boundary)
 #
 # CASES-TABLE-END
 #
@@ -453,6 +498,27 @@ self_test() {
     printf '%s\n' "t\\r\\a\\p 'rm -rf' EXIT"                            >"$bad/P32.sh"
     printf '%s\n' "eval \"tr''ap 'rm -rf' EXIT\""                       >"$bad/P33.sh"
     printf '%s\n' "sou''rce /dev/stdin <<'PAY'" "trap 'x' EXIT" "PAY"   >"$bad/P34.sh"
+    # the RESERVED-WORD class: every bash reserved word after which a command
+    # may follow, for the trap rule (then/do are already P08/P09) ...
+    printf '%s\n' "if trap 'rm -rf' EXIT; then :; fi"                                      >"$bad/P35.sh"
+    printf '%s\n' "if false; then :; elif trap 'rm -rf' EXIT; then :; fi"                  >"$bad/P36.sh"
+    printf '%s\n' "if false; then :; else trap 'rm -rf' EXIT; fi"                          >"$bad/P37.sh"
+    printf '%s\n' "while trap 'rm -rf' EXIT; do break; done"                               >"$bad/P38.sh"
+    printf '%s\n' "until trap 'rm -rf' EXIT; do break; done"                               >"$bad/P39.sh"
+    printf '%s\n' "! trap 'rm -rf' EXIT"                                                   >"$bad/P40.sh"
+    printf '%s\n' "time trap 'rm -rf' EXIT"                                                >"$bad/P41.sh"
+    printf '%s\n' "coproc trap 'rm -rf' EXIT"                                              >"$bad/P42.sh"
+    # ... and the same closed set for the eval rule
+    printf '%s\n' "if eval \"trap 'rm -rf' EXIT\"; then :; fi"                             >"$bad/P43.sh"
+    printf '%s\n' "if false; then :; elif eval \"trap 'rm -rf' EXIT\"; then :; fi"         >"$bad/P44.sh"
+    printf '%s\n' "if false; then :; else eval \"trap 'rm -rf' EXIT\"; fi"                 >"$bad/P45.sh"
+    printf '%s\n' "if true; then eval \"trap 'rm -rf' EXIT\"; fi"                          >"$bad/P46.sh"
+    printf '%s\n' "for f in a b; do eval \"trap 'rm -rf' EXIT\"; done"                     >"$bad/P47.sh"
+    printf '%s\n' "while eval \"trap 'rm -rf' EXIT\"; do break; done"                      >"$bad/P48.sh"
+    printf '%s\n' "until eval \"trap 'rm -rf' EXIT\"; do break; done"                      >"$bad/P49.sh"
+    printf '%s\n' "! eval \"trap 'rm -rf' EXIT\""                                          >"$bad/P50.sh"
+    printf '%s\n' "time eval \"trap 'rm -rf' EXIT\""                                       >"$bad/P51.sh"
+    printf '%s\n' "coproc eval \"trap 'rm -rf' EXIT\""                                     >"$bad/P52.sh"
 
     # --- 13 legitimate shapes that MUST NOT be flagged ----------------------
     # A hit here is a false positive that would block a row an author may write.
@@ -479,10 +545,15 @@ self_test() {
     printf '%s\n' "msg=\"warning: don't;trap yourself here\""                >"$good/N18.sh"
     printf '%s\n' 'echo "run `eval` never `trap` directly"'                 >"$good/N19.sh"
     printf '%s\n' "msg=\"one \\" "two; trap three\""                         >"$good/N20.sh"
-    printf '%s\n' "printf '%s\\n' \"step 3: eval; trap; done\""             >"$good/N21.sh"
+    printf '%s\n' "printf '%s\n' \"step 3: eval; trap; done\""             >"$good/N21.sh"
     # `eval` present as a plain word, never invoked
     printf '%s\n' "mode=eval; msg=\"see the trap docs\""                   >"$good/N22.sh"
     printf '%s\n' "run_mode eval \"read the trap docs for details\""       >"$good/N23.sh"
+    # reserved words as ordinary DATA must stay inert
+    printf '%s\n' "msg=\"if trap then\""                                                   >"$good/N24.sh"
+    printf '%s\n' "# while trap 'rm -rf' EXIT -- describing the round-6 gap"               >"$good/N25.sh"
+    printf '%s\n' "time=5"                                                                 >"$good/N26.sh"
+    printf '%s\n' "erstwhile trap 'rm -rf' EXIT"                                           >"$good/N27.sh"
 
     # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_dir "$bad")

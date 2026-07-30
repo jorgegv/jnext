@@ -376,13 +376,26 @@ Load-bearing rationale that used to live as long comments inside
   measured and listed in the header (`MAY WRONGLY FLAG`): a subshell
   `( trap … )`, and a live `eval` or heredoc head that merely mentions the word.
   Like `lint-assertions.sh` the lint self-tests on every invocation, here with a
-  pinned 57-case table (34 must flag, 23 must not), **one fixture file per case**
+  pinned 79-case table (52 must flag, 27 must not), **one fixture file per case**
   — a single combined fixture asserting only a total let a mutation lose one case,
   gain another, and report green. The table's own IDs are cross-checked against the
   fixture files on every run, in both directions: a documented case with no fixture
   and a fixture missing from the table are each a hard failure. That check exists
   because a review report claimed the table was generated from the fixtures when
-  nothing connected them — the same drift class as every pinned count here. `harness-selftest`
+  nothing connected them — the same drift class as every pinned count here.
+  **Command position comes from bash's closed reserved-word set.** A sixth round
+  found that neither rule recognised `if trap …; then`, `while trap …; do`,
+  `! trap …` or `time trap …` — all live, all clobbering. The gap was on the
+  bare-`trap` rule from the day it was written and survived six rounds and 57
+  pinned cases, because nothing tested either rule as a loop or `if` condition;
+  `if trap …; then`, checking whether the trap installed, is something an author
+  might genuinely write. The fix enumerates the reserved words a command may
+  follow (`! coproc do elif else if then time until while`) rather than the four
+  review demonstrated, so the anchor is exhaustive by construction; the words
+  that cannot introduce a command (`case`/`for`/`select`/`function` take a name,
+  `in` is syntax, `done`/`esac`/`fi`/`}`/`]]` terminate, `[[` opens an
+  expression) are excluded deliberately, and `exec` is excluded because it
+  cannot run a builtin at all. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
   its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
