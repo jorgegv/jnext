@@ -323,9 +323,29 @@ public:
         return sprite_colour(active_spr_second_, idx);
     }
 
-    /// Look up tilemap colour by 4-bit pixel value. Uses the active tilemap palette.
+    /// Look up tilemap colour as ARGB8888 by (bank, palette index).
+    ///
+    /// GH #168 — the third lane of GH #163, and the same contract: the bank
+    /// MUST come from the caller when the caller is a rasterizer. NR 0x6B
+    /// bit 4 is its own storage cell, latched with the rest of NR 0x6B's
+    /// low 7 bits (zxnext.vhd:5462 `nr_6b_tm_control <= nr_wr_dat(6 downto 0)`)
+    /// and read by the active-palette mux per pixel cycle
+    /// (zxnext.vhd:6826 `tm_palette_select_0 <= nr_6b_tm_control(4)`, pipelined
+    /// at :6921-6922 and used as the palette-RAM address bit at :6981), so a
+    /// Copper MOVE that flips it mid-frame applies from the next scanline on.
+    /// `active_tm_second_` holds the END-of-frame value at render time
+    /// (Renderer::render_frame runs after the CPU and Copper have finished the
+    /// frame), which collapses every row onto last-write-wins.
+    /// Renderer::render_row therefore passes the per-scanline-replayed
+    /// `Ula::get_active_tilemap_palette()`. Mirrors `layer2_colour(bank, idx)`.
+    uint32_t tilemap_colour(bool bank_second, uint8_t idx) const {
+        return tilemap_argb_[bank_second ? 1 : 0][idx];
+    }
+
+    /// Same lookup on the LIVE NR 0x6B b4 bank. For non-render callers
+    /// (tests, save-state diagnostics) only — see the bank-taking overload.
     uint32_t tilemap_colour(uint8_t idx) const {
-        return tilemap_argb_[active_tm_second_][idx];
+        return tilemap_colour(active_tm_second_, idx);
     }
 
     // -----------------------------------------------------------------

@@ -392,10 +392,21 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
     // Tilemap — covers the full 640-wide framebuffer (VHDL: vcounter(8)='0').
     // G104 phase 4: native 640 emit (80-col 1:1, 40-col internal double).
     if (tilemap && tilemap->enabled()) {
+        // GH #168: the tilemap palette bank (NR 0x6B b4) is read from the
+        // per-scanline-replayed Ula selector, NOT the live PaletteManager
+        // member — the third lane of the GH #163 defect, same reason and
+        // same source as the Layer 2 / sprite calls above.
+        // zxnext.vhd:5462 latches the bit, :6826 samples it into
+        // tm_palette_select_0 every pixel cycle and :6981 uses it as the
+        // palette-RAM address MSB, so a Copper MOVE that flips it mid-frame
+        // must apply from the next scanline on. The live member holds the
+        // frame's LAST value here (this loop runs after the CPU and Copper
+        // have finished the frame), collapsing the frame onto one bank.
         tilemap->render_scanline(tilemap_line_.data(),
                                  tm_pixel_below_.data(),
                                  row, ram, palette,
-                                 tm_pixel_textmode_.data());
+                                 tm_pixel_textmode_.data(),
+                                 ula_.get_active_tilemap_palette());
     }
 
     // Sprites — Y coordinates are in absolute framebuffer space (0-255).

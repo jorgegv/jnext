@@ -215,17 +215,37 @@ public:
     ///                       pixel_textmode_o); false otherwise. Required by
     ///                       the compositor for VHDL zxnext.vhd:7109
     ///                       text-mode RGB transparency check (G98/G101).
+    /// @param palette_bank_second  NR 0x6B bit 4 (active tilemap palette) for
+    ///                       THIS row — the caller's per-scanline-replayed
+    ///                       value, NOT the live `PaletteManager` member. VHDL
+    ///                       zxnext.vhd:5462 latches the bit as part of
+    ///                       `nr_6b_tm_control` and :6826 reads it into
+    ///                       `tm_palette_select_0`, which becomes the palette
+    ///                       RAM address MSB at :6981 — a per-pixel-cycle read,
+    ///                       so a Copper MOVE that flips it mid-frame applies
+    ///                       from the next scanline on. Reading the live member
+    ///                       here collapsed every row onto the frame's LAST
+    ///                       value (Renderer::render_frame runs after the CPU
+    ///                       and Copper have finished the frame) — GH #168, the
+    ///                       third lane of GH #163. `Renderer::render_row`
+    ///                       passes `Ula::get_active_tilemap_palette()`, the
+    ///                       same source the Layer 2 and sprite lanes use.
     void render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                          const Ram& ram,
                          const PaletteManager& palette,
-                         bool* textmode_flags = nullptr) const;
+                         bool* textmode_flags = nullptr,
+                         bool palette_bank_second = false) const;
 
     /// Render one scanline regardless of enabled_ state. Used by the debugger.
     /// Always emits 640 pixels — same emit semantics as render_scanline.
+    /// `palette_bank_second` has the same contract as on `render_scanline`;
+    /// the video panel's replay loop walks `Ula::palsel_apply_changes_for_line`
+    /// per row, so it passes `Ula::get_active_tilemap_palette()` (GH #168).
     void render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                const Ram& ram,
                                const PaletteManager& palette,
-                               bool* textmode_flags = nullptr);
+                               bool* textmode_flags = nullptr,
+                               bool palette_bank_second = false);
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
