@@ -124,6 +124,8 @@ esp::TransportState EspGatedTransport::state() const { return inner_->state(); }
 
 const std::string& EspGatedTransport::last_error() const { return inner_->last_error(); }
 
+esp::DenyReason EspGatedTransport::denial_reason() const { return inner_->denial_reason(); }
+
 const esp::IpAddress& EspGatedTransport::peer_address() const {
     return inner_->peer_address();
 }
@@ -168,9 +170,20 @@ void EspGatedTransport::note_state() {
             log_.push({EspEvent::Kind::Opened, host_, port_,
                        esp::to_string(inner_->peer_address())});
             break;
-        case esp::TransportState::Failed:
-            log_.push({EspEvent::Kind::Failed, host_, port_, inner_->last_error()});
+        case esp::TransportState::Failed: {
+            // BOTH HALVES OF THE SECURITY GATE SIGNAL THE SAME WAY. The
+            // allowlist refusal never gets here (it is caught in
+            // `begin_connect`, above), but the address policy is enforced
+            // inside the transport and can only reach jnext as a `Failed`
+            // state. Asking the transport WHY — rather than matching on
+            // `last_error()`, which is a log string nobody promised to keep
+            // stable — is what lets a deliberate block render as a deliberate
+            // block instead of as a DNS miss (GH #161).
+            const bool refused_by_policy = inner_->denial_reason() != esp::DenyReason::None;
+            log_.push({refused_by_policy ? EspEvent::Kind::Refused : EspEvent::Kind::Failed,
+                       host_, port_, inner_->last_error()});
             break;
+        }
         case esp::TransportState::Closed:
             // Only report a close of something that was actually up. An attempt
             // that never connected would otherwise report a connection the user

@@ -217,6 +217,20 @@ private:
     std::uint16_t port_ = 0;
 };
 
+/// Close `fd` so that the OS emits a TCP **RST** instead of a FIN.
+///
+/// `SO_LINGER` with `l_onoff=1` and `l_linger=0` is the documented way to ask
+/// for an abortive close, and it is not a contrivance invented for these rows:
+/// it is exactly what the NextSync Python server does to its accepted sockets,
+/// which is how GH #176 was found in the first place.
+void close_with_reset(int fd) {
+    linger lg{};
+    lg.l_onoff  = 1;
+    lg.l_linger = 0;
+    ::setsockopt(fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
+    ::close(fd);
+}
+
 /// Read up to `want` bytes from `fd`, waiting up to `timeout_ms` in total.
 std::string read_some(int fd, std::size_t want, int timeout_ms) {
     std::string out;
@@ -832,6 +846,61 @@ int main() {
         }
     }
 
+    // ═══ SEC-DENY — a policy refusal is a VALUE, not a message (GH #161) ═══
+    // Both outcomes below are `Failed` with a non-empty `last_error()`, so a
+    // host that has to render a deliberate block differently from a network
+    // fault can only do it by asking the transport. These rows pin that the
+    // answer is right in BOTH directions: a refusal names its rule, and an
+    // ordinary failure does not claim to be a refusal.
+    //
+    // No listener is needed: a denied address never reaches a socket, which is
+    // exactly what SEC-03 above proves.
+    {
+        auto t = make_socket_transport(kDefault);  // DEFAULT policy: loopback denied
+        t->begin_connect("127.0.0.1", 9);
+        t->poll();
+        check("SEC-04",
+              "an address-policy refusal reports the rule that refused it, "
+              "without anyone parsing last_error()",
+              t->state() == TransportState::Failed &&
+                  t->denial_reason() == DenyReason::Loopback);
+
+        // Same transport, allowed target this time: the previous verdict must
+        // not survive into the new attempt, or the next failure would render as
+        // a security block that never happened. RFC 5737 TEST-NET-3, and never
+        // polled, so nothing is resolved and no packet leaves the host.
+        t->begin_connect("203.0.113.1", 9);
+        check("SEC-05", "a fresh request clears the previous refusal verdict",
+              t->denial_reason() == DenyReason::None);
+    }
+    {
+        // An ordinary connect failure — nothing listening on a port the kernel
+        // just handed back — must report NO deny reason.
+        Listener l;
+        std::uint16_t dead_port = 0;
+        if (l.start()) {
+            dead_port = l.port();
+            l.stop();
+        }
+        if (dead_port == 0) {
+            ++g_total; ++g_skip;
+            std::printf("  SKIP SEC-06: could not obtain a closed loopback port\n");
+        } else {
+            auto t = make_socket_transport(loopback_ok());
+            t->begin_connect("127.0.0.1", dead_port);
+            for (int waited = 0; waited < 2000; waited += 2) {
+                t->poll();
+                if (t->state() == TransportState::Failed) break;
+                sleep_ms(2);
+            }
+            check("SEC-06",
+                  "a network failure reports no deny reason, so it cannot be "
+                  "mistaken for a deliberate block",
+                  t->state() == TransportState::Failed &&
+                      t->denial_reason() == DenyReason::None);
+        }
+    }
+
     // ═══ NET — real loopback I/O against an in-process listener ════════════
     {
         Listener l;
@@ -929,6 +998,94 @@ int main() {
             check("NET-ERR-02", "the failure carries an explanatory error string",
                   !t->last_error().empty() &&
                       t->last_error().find("connect") != std::string::npos);
+        }
+    }
+
+    // ═══ RST — a peer that closes with SO_LINGER(1,0) sends an RST, not a ══
+    //           FIN, and the SEVERITY that gets reported for it (GH #176)
+    //
+    // These rows pin a CLASSIFICATION, not a behaviour, and that is deliberate:
+    // the functional path was always right (the bytes arrive, the state settles
+    // in Failed, the engine still emits CLOSED), so a row asserting any of that
+    // would have passed before the fix and proved nothing. What was wrong was
+    // the claim attached to it — a red `error` on the one line a user sees at
+    // the end of an otherwise perfect NextSync transfer.
+    //
+    // The pair is the point. RST-01 proves the linger-close shape is no longer
+    // called an error; RST-02 proves that is not a blanket downgrade of resets,
+    // because a peer that resets WITHOUT having served anything is still one.
+    {
+        Listener l;
+        if (!l.start()) {
+            for (const char* id : {"RST-01", "RST-02"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
+            }
+        } else {
+            auto has_level = [](const std::vector<LogLine>& lines, LogLevel want) {
+                for (const auto& e : lines)
+                    if (e.first == want) return true;
+                return false;
+            };
+            auto level_of = [](const std::vector<LogLine>& lines, const char* needle) {
+                for (const auto& e : lines)
+                    if (e.second.find(needle) != std::string::npos) return e.first;
+                return LogLevel::Trace;  // "not found" — no row accepts it
+            };
+
+            // (a) THE NEXTSYNC TEARDOWN, reproduced exactly: the peer serves a
+            //     payload, the guest drains it, and only then does the peer
+            //     close with SO_LINGER(1,0) so its close() emits an RST.
+            const char* body   = "PAYLOAD";
+            const std::size_t blen = std::strlen(body);
+            bool drained = false, ended = false;
+            const auto served = capture_log(LogLevel::Info, [&] {
+                auto t = make_socket_transport(loopback_ok());
+                t->begin_connect("127.0.0.1", l.port());
+                if (!pump_until(*t, TransportState::Connected)) return;
+                const int srv = l.accept_one(1000);
+                if (srv < 0) return;
+                const ssize_t w = ::send(srv, body, blen, 0);
+                (void)w;
+
+                std::uint8_t rx[64];
+                std::string  got;
+                for (int waited = 0; waited < 2000 && got.size() < blen; waited += 2) {
+                    const std::size_t n = t->recv(rx, sizeof(rx));
+                    got.append(reinterpret_cast<char*>(rx), n);
+                    if (n == 0) sleep_ms(2);
+                }
+                drained = (got == std::string(body));
+
+                close_with_reset(srv);
+                ended = pump_recv_until_not_connected(*t) &&
+                        t->state() == TransportState::Failed;
+            });
+            check("RST-01",
+                  "a peer that RSTs after serving its data is reported at warn, and "
+                  "the run carries no error line at all",
+                  drained && ended &&
+                      level_of(served, "RESET by the peer") == LogLevel::Warn &&
+                      !has_level(served, LogLevel::Error));
+
+            // (b) THE GUARD. A peer that resets having served NOTHING is a
+            //     failed exchange on any reading — a rejecting server, a crash
+            //     on accept, a firewall — and must still be loud. This is what
+            //     stops (a) from being implemented as "resets are fine now".
+            bool aborted = false;
+            const auto unserved = capture_log(LogLevel::Info, [&] {
+                auto t = make_socket_transport(loopback_ok());
+                t->begin_connect("127.0.0.1", l.port());
+                if (!pump_until(*t, TransportState::Connected)) return;
+                const int srv = l.accept_one(1000);
+                if (srv < 0) return;
+                close_with_reset(srv);
+                aborted = pump_recv_until_not_connected(*t) &&
+                          t->state() == TransportState::Failed;
+            });
+            check("RST-02",
+                  "a peer that RSTs having served nothing is still an error",
+                  aborted && has_level(unserved, LogLevel::Error));
         }
     }
 

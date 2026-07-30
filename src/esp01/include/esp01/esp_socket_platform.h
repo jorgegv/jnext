@@ -64,8 +64,15 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
 
 /// Non-blocking receive. Returns bytes read (0 when nothing is available).
 /// `eof` marks an orderly peer close; `failed` a real error.
+///
+/// `reset` narrows `failed` to the ONE cause the caller has to treat
+/// differently: the peer terminated the connection with a TCP RST
+/// (`ECONNRESET` / `WSAECONNRESET`) instead of a FIN. Set only when `failed`
+/// is, and never for any other error code — the classification is the whole
+/// value of the flag, so widening it to "connection-ish errors" would destroy
+/// it. See `SocketTransport::recv` for what the distinction buys (GH #176).
 std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
-                 bool& failed, std::string& err);
+                 bool& failed, bool& reset, std::string& err);
 
 void close(NativeSocket s);
 

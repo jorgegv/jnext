@@ -216,9 +216,10 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
 }
 
 std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
-                 bool& failed, std::string& err) {
+                 bool& failed, bool& reset, std::string& err) {
     eof    = false;
     failed = false;
+    reset  = false;
     const ssize_t n = ::recv(s, buf, cap, 0);
     if (n > 0) return static_cast<std::size_t>(n);
     if (n == 0) {
@@ -227,6 +228,14 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
     }
     if (would_block(errno)) return 0;
     failed = true;
+    // ECONNRESET and nothing else: the peer sent a TCP RST. Note what Linux
+    // guarantees about the ORDER, because the portable half relies on it —
+    // `tcp_recvmsg` hands back everything already queued and only reports the
+    // error once the queue is empty, so a reset never arrives here in place of
+    // bytes we would otherwise have read (measured on this host: a payload
+    // sent immediately before a SO_LINGER(1,0) close is delivered in full,
+    // with ECONNRESET on the NEXT call).
+    reset  = (errno == ECONNRESET);
     err    = errno_text(errno);
     return 0;
 }
