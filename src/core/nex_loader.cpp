@@ -1106,7 +1106,11 @@ bool NexLoader::apply(Emulator& emu) const
                                        static_cast<size_t>(banks_loaded),
                                        header_.loading_delay)
                 : boot_hold_frames(header_.start_delay, screen_present, header_.loading_delay);
-        if (hold_frames > 0) {
+        // GH #164 — a load-only file (header PC = 0) parks the CPU in step 8,
+        // which pre-empts this hold permanently. Setting it would leave a
+        // countdown ticking towards an entry that never happens; skip it so
+        // the state says what is actually true.
+        if (hold_frames > 0 && header_.pc != 0) {
             emu.set_boot_hold_frames(hold_frames);
             Log::emulator()->info(
                 "NEX: holding CPU for {} frames before entry (loading_delay={} "
@@ -1118,9 +1122,39 @@ bool NexLoader::apply(Emulator& emu) const
 
     // ---------------------------------------------------------------
     // 4. CPU setup
+    //
+    // GH #164 — a header PC of 0 is the NEX format's "load only, do not
+    // execute" encoding, NOT an entry point of $0000. It is the launch
+    // decision in both reference loaders, and is not version-specific:
+    //
+    //   nexload.asm:580-581
+    //       ld hl,(PCReg):ld sp,(SPReg)
+    //       ld a,h:or l:jr z,.returnToBasic
+    //   nexload2.asm:408-413
+    //       ld hl,(nexHeader.PC)
+    //       ld a,h : or l : jr z,returnToBasic
+    //       ld sp,(nexHeader.SP)
+    //
+    // Neither ever jumps to address 0. Note also that the header SP has NO
+    // effect on this path: nexload.asm loads it one instruction before the
+    // branch and `.returnToBasic` immediately replaces it with
+    // `ld sp,(oldStack)` (nexload.asm:597-600), and nexload2.asm does not
+    // load it at all (the `ld sp` is AFTER the branch) before its own
+    // `ld sp,(oldStack)` (nexload2.asm:436-438). So this block — which
+    // exists to establish the register state the loaded program starts
+    // with — has nothing to establish and is skipped wholesale, leaving
+    // the registers the load found.
+    //
+    // The REST of the load-only path (the $C000 remap and parking the CPU)
+    // is in step 8, because that is where the oracle does it: both loaders
+    // reach the launch decision only AFTER the entry bank is paged in and
+    // the CLI buffer copied. Only the register write belongs here.
     // ---------------------------------------------------------------
 
-    if (header_.preserve_regs == 0) {
+    if (header_.pc == 0) {
+        Log::emulator()->debug(
+            "NEX: PC=0 (load-only) — entry register state not established");
+    } else if (header_.preserve_regs == 0) {
         // Reset all registers before setting PC/SP
         Z80Registers regs{};
         regs.AF  = 0xFFFF;
@@ -1149,6 +1183,11 @@ bool NexLoader::apply(Emulator& emu) const
     // ---------------------------------------------------------------
     // 6. Map entry_bank to MMU slots 6+7 (0xC000-0xFFFF)
     // ---------------------------------------------------------------
+
+    // GH #164 — what $C000 held before the entry bank displaced it. The
+    // load-only path in step 8 puts it back, exactly as the oracle does.
+    const uint8_t pre_entry_slot6 = mmu.get_page(6);
+    const uint8_t pre_entry_slot7 = mmu.get_page(7);
 
     uint8_t page_slot6 = static_cast<uint8_t>(header_.entry_bank * 2);
     uint8_t page_slot7 = static_cast<uint8_t>(header_.entry_bank * 2 + 1);
@@ -1192,6 +1231,54 @@ bool NexLoader::apply(Emulator& emu) const
         Log::emulator()->info("NEX: V1.3 CLI buffer at {:#06x} ({} bytes), DE set; jnext passes "
                               "no argument line, so an empty one was written",
                               header_.cli_buffer_addr, size);
+    }
+
+    // ---------------------------------------------------------------
+    // 8. GH #164 — load-only tidy-up (header PC = 0)
+    //
+    // This is where the oracle's `.returnToBasic` runs, and the position
+    // is deliberate: BOTH loaders reach the launch decision only after the
+    // entry bank is paged in and the CLI buffer copied (nexload.asm:555-558
+    // then :580; nexload2.asm:376-377, :378-388 then :412). So steps 6 and
+    // 7 above run for a load-only file exactly as for any other — the CLI
+    // bytes in particular must land in the entry bank, which is only true
+    // while it is still mapped. What the load-only path then does is undo
+    // the $C000 mapping:
+    //
+    //   nexload.asm:602-604   .returnToBasicTidy — ld a,($5b5c):and 7 ...
+    //                         NEXTREG_A MMU_REGISTER_6 / _7
+    //   nexload2.asm:529-535  cleanupBeforeBasic — "map C000..FFFF region
+    //                         back to BASIC bank", same BANKM read
+    //
+    // BANKM is the caller's own $C000 bank, so the net effect is "leave
+    // $C000 as the loader found it". Under `--load` no OS ever ran to own
+    // a BANKM, so what the loader found is what the reset left, captured
+    // above as pre_entry_slot6/7.
+    //
+    // (One deviation, deliberate and unobservable: step 7 leaves DE at the
+    // CLI buffer address. The oracle writes DE before the branch too, then
+    // clobbers it incidentally in `fclose` inside the tidy routine — an
+    // indeterminate value jnext cannot meaningfully reproduce, and no
+    // program runs to read it.)
+    //
+    // Finally park the CPU. jnext's `--load` has no OS to return to: it
+    // resets and applies the NEX before a single instruction runs, so the
+    // only way to honour "keep the state the load produced" is to run
+    // nothing at all. See Emulator::set_cpu_parked() for what that does
+    // and does not claim. Without it, PC=0 entered the ROM reset vector
+    // and cold-booted, destroying the load (measured: 16330 of
+    // tmNoStart.nex's 16384 bank-2 bytes gone within 5 frames).
+    // ---------------------------------------------------------------
+
+    if (header_.pc == 0) {
+        mmu.set_page(6, pre_entry_slot6);
+        mmu.set_page(7, pre_entry_slot7);
+        emu.set_cpu_parked(true);
+        Log::emulator()->info(
+            "NEX: header PC=0 — load-only file, not executing "
+            "(nexload.asm:581 .returnToBasic); $C000 restored to pages {},{} and "
+            "the CPU parked with the loaded state",
+            pre_entry_slot6, pre_entry_slot7);
     }
 
     return true;
