@@ -58,7 +58,17 @@ while IFS= read -r seg; do
   is_write_op "$seg" || continue
 
   target="$(segment_target "$seg" || true)"
-  [ -n "$target" ] || target="$dir"
+  if [ -z "$target" ]; then
+    target="$dir"
+  else
+    # A relative `-C` (notably `git -C .`) resolves against the tracked directory,
+    # not the session cwd — otherwise `cd <worktree> && git -C . commit` is judged
+    # against main and wrongly blocked.
+    case "$target" in
+      /*) ;;
+      *)  target="$dir/$target" ;;
+    esac
+  fi
 
   # Fail open when the branch cannot be resolved (not a checkout, bad path).
   branch="$(git -C "$target" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"

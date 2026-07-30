@@ -45,6 +45,10 @@ check 0 "mixed: read main, write worktree"    "git -C $REPO log && git -C $WT co
 check 2 "mixed: read worktree, write main"    "git -C $WT log && git -C $REPO commit -m x"
 check 0 "unresolvable target fails open"      "git -C /nonexistent-path commit -m x"
 check 2 "commit piped to tail"                "git -C $REPO commit -m x | tail -3"
+# `-C .` is relative: it must resolve against the tracked dir, not the session cwd.
+check 0 "cd <worktree> && git -C . commit"    "cd $WT && git -C . commit -m x"
+check 2 "cd <repo> && git -C . commit"        "cd $REPO && git -C . commit -m x"
+check 2 "bare git -C . commit from repo cwd"  "git -C . commit -m x"
 
 printf '\nTotal: %d pass, %d fail\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
