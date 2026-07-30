@@ -329,17 +329,29 @@ Load-bearing rationale that used to live as long comments inside
   directory. A host reached 18 GB / 93% full at 112/112 passing before anyone
   noticed. The GH #65 isolation rows cannot catch this: they drive a child
   shell, and the failure is a later-sourced SIBLING clobbering the PARENT. The
-  guard is a static lint rather than a fault-injection row because a grep
-  prevents the entire class in under a second. It bans `trap` outright — not
-  just `trap ... EXIT`, and not just at top level — because telling a clobbering
-  trap from a harmless subshell one needs a bash parser, and no row script
-  contains a `trap` at any depth. Heredoc bodies are exempt, which is the escape
-  hatch: a shell that genuinely needs its own trap gets written to a file and run
-  with `bash`, the shape `sdcard-isolation-func.sh` already uses. Like
-  `lint-assertions.sh`, the lint self-tests both directions on every invocation
-  (it must still flag a stray trap, and must still ignore comments, strings and
-  heredocs) — and the suite's own `2 lint + 1 sdcard-provision + …` row-count
-  witness is what proves it stays wired.
+  guard is a static lint rather than a runtime fault-injection row because a
+  grep costs under a second. It bans `trap` outright — every signal, not just
+  `EXIT` (a row-installed `INT` handler would clobber the harness's Ctrl-C path
+  too), and at any depth, because telling a clobbering trap from a harmless
+  subshell one needs a bash parser and no row script contains a `trap` at any
+  depth. Heredoc bodies are exempt, which is the escape hatch: a shell that
+  genuinely needs its own trap gets written to a file and run with `bash`, the
+  shape `sdcard-isolation-func.sh:116` already uses. **The exemption has one
+  carve-out, added after the GH #153 review demonstrated four working
+  bypasses**: a heredoc consumed by `source`, `.` or `eval` executes in *this*
+  shell, so `source /dev/stdin <<P` is reported unconditionally — as are
+  `builtin trap`, `command trap`, and any `eval` whose argument text contains
+  the word `trap`. **What it still cannot catch is stated honestly in the
+  script header** and is not pretended away here: a command name held in a
+  variable (`t=trap; $t …`), an `eval` argument assembled so `trap` never
+  appears literally, or a script written to a temp file and sourced. Those need
+  an interpreter, and this guard exists to stop a tired author, not an
+  adversary. Like `lint-assertions.sh` the lint self-tests on every invocation,
+  here with a pinned 29-case table (20 must flag, 9 must not) so the next author
+  extends the specification rather than re-deriving it. `harness-selftest`
+  HS-47 proves the call is still reached from `00-preflight-lint.sh` and that
+  its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
+  row-count witness is the second, independent check that the row exists at all.
 - **Why membership/count checks are pure-bash hashes.**
   `printf ... | grep -q` over a list is unsound under `set -o pipefail`: grep
   exits on match, printf can die of SIGPIPE (141), and pipefail promotes 141 —

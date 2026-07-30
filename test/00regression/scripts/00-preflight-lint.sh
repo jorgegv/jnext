@@ -14,14 +14,15 @@ else
 fi
 echo ""
 
-# --- EXIT-trap lint (GH #153) ---
+# --- trap lint (GH #153) ---
 # regression.sh SOURCES every row script into THIS shell, which already holds
-# the harness's one `trap regression_cleanup EXIT`. A second EXIT trap in any
-# row silently replaces it and every SUCCESSFUL run then leaks its 1-2 GB
+# the harness's one `trap regression_cleanup EXIT/INT/TERM`. A second trap in
+# any row silently replaces it and every SUCCESSFUL run then leaks its 1-2 GB
 # $RUN_DIR while the count stays green. The GH #65 isolation rows cannot see
 # it — they test a child shell, and this is a sibling clobbering the parent.
-# A static grep prevents the whole class for well under a second.
-echo -e "${BOLD}[lint-traps] Scanning regression row scripts for stray EXIT traps...${RESET}"
+# A static grep costs well under a second and stops the naive and accidental
+# case; it is NOT airtight (the lint header enumerates what it cannot decide).
+echo -e "${BOLD}[lint-traps] Scanning regression row scripts for stray traps...${RESET}"
 if bash "$SCRIPT_DIR/lint-traps.sh"; then
     printf "  "; pass_row ": no row script installs its own trap"
 else

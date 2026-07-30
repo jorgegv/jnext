@@ -235,12 +235,18 @@ test reported exactly one row, no undeclared row appeared, and the total equals
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 
 **No row script may install a `trap`** (GH #153). `regression.sh` SOURCES every row into the
-harness shell, which already holds the one `trap regression_cleanup EXIT` that deletes the
-per-run 1-2 GB SD clone; a second EXIT trap silently replaces it, and only the *successful*
-run leaks (INT/TERM are untouched). `test/00regression/lint-traps.sh` — row 2 of the suite,
-inside `scripts/00-preflight-lint.sh` — bans `trap` outright in `scripts/*.sh`. Put scratch
-files under `$TMP_DIR`, which the harness trap already removes; a shell that truly needs its
-own trap goes in a file run with `bash` (heredoc bodies are exempt from the lint).
+harness shell, which already holds the one `trap regression_cleanup EXIT/INT/TERM` that deletes
+the per-run 1-2 GB SD clone; a second trap silently replaces it, and only the *successful*
+run leaks (INT/TERM survive, so an interrupted run still cleans up). `test/00regression/lint-traps.sh`
+— row 2 of the suite, inside `scripts/00-preflight-lint.sh` — bans `trap` in `scripts/*.sh` for
+every signal and at any depth, including behind `builtin`/`command`, inside `eval`, and via a
+heredoc fed to `source`/`.`/`eval` (which runs in *this* shell). Put scratch files under
+`$TMP_DIR`, which the harness trap already removes; a shell that truly needs its own trap goes
+in a file run with `bash` — heredoc bodies with a non-sourcing consumer are exempt.
+**It stops the naive and accidental case, not every evasion**: a command name held in a
+variable, or an `eval` argument assembled so `trap` never appears literally, is undecidable
+without executing the script. The lint's header enumerates exactly what it cannot catch, and
+its self-test pins all 29 cases both ways.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It
