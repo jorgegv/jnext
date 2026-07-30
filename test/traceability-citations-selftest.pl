@@ -424,6 +424,67 @@ check('SELF-123', 'a prose hyphenation is not counted as a second row, so a sing
       ($nm->{'PROSE-CHK-01'} // '') eq 'fixture_a.vhd:60, fixture_b.vhd:70',
       'got ' . ($nm->{'PROSE-CHK-01'} // '(none)'));
 
+# ── ...and mentioning a row is still not being ABOUT it (GH #184) ─────
+#
+# GH #147's rule guards against cross-topic SHARING; it does not guard against
+# a block that merely MENTIONS a row and lends it a citation about something
+# else. Its own reviewer built the counter-example: `video_panel_test.cpp`'s
+# NR 0x43 palette-SELECTOR block says "Sibling of DVP-05 (palette CONTENT
+# replay) for the palette SELECTOR" and cites the NR 0x43 selector latches —
+# which DVP-05, a palette-CONTENT row, has no business with. It was the block's
+# only real ID (the block's actual subject is a `set_group()` banner and
+# therefore masked), so nothing tripped.
+#
+# Two rules are pinned here. The block answers only for an ID that HEADS one of
+# its lines (SELF-132 refuses, SELF-133 is the accept control that stops it
+# collapsing into "the named tier never answers"), and the prefix-carrying
+# shorthand `X-18b/18c` counts as TWO rows (SELF-134), which is what makes the
+# ambiguity refusal above fire on the real block. SELF-135 is the counterpart
+# that keeps that expansion honest: a synthesised ID may COUNT, never RECEIVE.
+# Assigning through it measured strictly WORSE on the real corpus —
+# `port_test.cpp:120` is a helper comment reading "V18-NMP-02/03/04 helper …
+# NR 0x08 bit 3 … zxnext.vhd:5179", and assigning through the expansion turned
+# one row holding that unrelated DAC-enable line into three.
+
+write_fixture('test/fixture/heading_test.cpp', <<'CPP');
+void rows() {
+    // GH #184.  Sibling of MENTION-01, which is a different topic entirely.
+    // ── HEAD-01: the block's own subject, named after the box drawing.
+    // VHDL fixture_a.vhd:11.
+    check("HEAD-01", "no citation of its own", cond, detail);
+    check("MENTION-01", "no citation of its own", cond, detail);
+
+    // SHORT-18b/18c: two rows written in the prefix-carrying shorthand,
+    // over two unrelated facts — fixture_b.vhd:21 and fixture_c.vhd:22.
+    check("SHORT-18b", "no citation of its own", cond, detail);
+    check("SHORT-18c", "no citation of its own", cond, detail);
+
+    // SHOWN-01/02 helper.  One fact only: fixture_d.vhd:23.
+    check("SHOWN-01", "no citation of its own", cond, detail);
+    check("SHOWN-02", "no citation of its own", cond, detail);
+}
+CPP
+my $hd = grep_citations('test/fixture/heading_test.cpp');
+
+check('SELF-132', 'THE REFUSAL: an ID mentioned only inside a sentence gets nothing, even as the block\'s ONLY real row',
+      !defined $hd->{'MENTION-01'},
+      'got ' . ($hd->{'MENTION-01'} // '(none)'));
+
+check('SELF-133', 'the control: an ID that HEADS a line — after box drawing, and not the block\'s first line — is still answered',
+      ($hd->{'HEAD-01'} // '') eq 'fixture_a.vhd:11',
+      'got ' . ($hd->{'HEAD-01'} // '(none)'));
+
+check('SELF-134', 'the `X-18b/18c` shorthand counts as TWO rows, so an ambiguous block naming it is refused',
+      scalar(!defined $hd->{'SHORT-18b'} && !defined $hd->{'SHORT-18c'}),
+      sprintf('SHORT-18b=%s SHORT-18c=%s', $hd->{'SHORT-18b'} // '(none)',
+              $hd->{'SHORT-18c'} // '(none)'));
+
+check('SELF-135', 'THE REFUSAL: a synthesised shorthand tail COUNTS toward the ambiguity rule but never RECEIVES a citation',
+      scalar(($hd->{'SHOWN-01'} // '') eq 'fixture_d.vhd:23'
+             && !defined $hd->{'SHOWN-02'}),
+      sprintf('SHOWN-01=%s SHOWN-02=%s', $hd->{'SHOWN-01'} // '(none)',
+              $hd->{'SHOWN-02'} // '(none)'));
+
 # ── Hand-written cells are validated too (GH #150) ────────────────────
 #
 # Computed citations were validated against the FPGA tree from the start;
@@ -1035,8 +1096,15 @@ check('SELF-96', 'a bare filename is suppressed beside a lined citation of the s
 # guard reusing the same ID, which is textually FIRST. Taking only the first
 # occurrence let the guard — which carries no citation — shadow the assertion
 # that does, and 21 Multiface rows fell through to their banner comment.
+#
+# The banner OPENS with both IDs on purpose (GH #184): the `named` tier now
+# answers only for an ID that heads a line, and SELF-88 is here to pin the
+# `next`-tier fence, not the heading rule. Written as prose ("Banner naming
+# GD-01 and GD-02 …") the tier refuses, GD-02 reads `—`, and the row stops
+# discriminating anything — the fence and the refusal produce the same answer.
+# The heading rule's own accept/refuse pair is SELF-132/133.
 write_fixture('test/fixture/guard_test.cpp', <<'CPP');
-// Banner naming GD-01 and GD-02 and citing fixture_d.vhd:900 for both.
+// GD-01 and GD-02: banner citing fixture_d.vhd:900 for both.
 void g() {
     if (!init()) {
         check("GD-01", "fixture init failed", false, "init returned false");
@@ -2122,7 +2190,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 132;
+my $EXPECTED_ROWS = 136;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

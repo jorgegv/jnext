@@ -555,6 +555,89 @@ my $ID_BARE_RE = qr{
     \b ( [A-Z][A-Z0-9]* (?: \.[A-Z][A-Z0-9]* )* - [A-Za-z0-9._\-+]*[A-Za-z0-9] )
 }x;
 
+# The prefix-carrying shorthand — `TM-01/02`, `DVP-18b/18c`, `UTB-50/51` — is
+# ONE token to $ID_BARE_RE, which stops at the `/` (its class has no slash) and
+# never resumes, because `02` does not start with `[A-Z]`. So a block naming two
+# rows in the shorthand was counted as naming ONE, and the header comment above
+# has claimed `TM-01/02` works since the class was written. That under-count is
+# load-bearing in the `named` tier: `DVP-18b/18c` read as a single row is what
+# kept the ambiguity refusal below from firing on the block GH #184 was filed
+# about (three citations, two rows). (GH #184)
+#
+# Expansion carries the prefix up to the LAST `-` forward onto each `/`-joined
+# tail: `G56-CR-NR06-04/05` -> `G56-CR-NR06-05`. A tail that is itself a full ID
+# (`UDIS-02/UDIS-03`) is NOT synthesised — the /g scan matches it on its own —
+# and neither is one carrying `.vhd`, so a `FOO-01/device/copper.vhd` shape
+# cannot manufacture a row named after a path component.
+#
+# Returns (\@literal, \@expanded). The split is the whole point and was
+# measured: a synthesised ID may only COUNT toward the ambiguity refusal, never
+# RECEIVE a citation. Letting it receive one made things worse, not better —
+# `port_test.cpp:120` is a helper-function comment reading "V18-NMP-02/03/04
+# helper. Enable the DAC via NR 0x08 bit 3 ... zxnext.vhd:5179", and assigning
+# through the expansion turned one row holding that unrelated DAC-enable line
+# into three. Expansion widens what the extractor can SEE, and seeing more rows
+# in a block can only ever make it refuse more; it must not widen what the
+# extractor is willing to CLAIM.
+sub bare_ids_in {
+    my ($text) = @_;
+    my (@lit, @all, %seen);
+    while ($text =~ /$ID_BARE_RE/g) {
+        my $id = $1;
+        next if $id =~ /\.vhd/;
+        unless ($seen{$id}++) { push @lit, $id; push @all, $id; }
+        my ($prefix) = $id =~ /^(.*-)/;
+        while ($text =~ m{\G/ ( [A-Za-z0-9][A-Za-z0-9._+\-]* )}gcx) {
+            my $tail = $1;
+            last if $tail =~ /\.vhd/;
+            last if $tail =~ /^[A-Z][A-Z0-9]*(?:\.[A-Z][A-Z0-9]*)*-/;
+            my $syn = "$prefix$tail";
+            push @all, $syn unless $seen{$syn}++;
+        }
+    }
+    return (\@lit, \@all);
+}
+
+# The IDs a comment line is ABOUT, as opposed to the ones it merely mentions:
+# the run of row IDs the line OPENS with, once the `//` marker and any leading
+# box-drawing/bullet punctuation is stripped. IDs may be joined by `/`, `+`,
+# `,`, `&`, `..` or the word `and`; the run stops at the first token that is
+# neither an ID nor one of those joiners.
+#
+# This is deliberately structural, not linguistic. The alternative considered
+# and REJECTED was a cross-reference PHRASE list ("sibling of", "see", "cf.",
+# "unlike", "as in", "compare") — that is a regex consuming English, the exact
+# move this file refuses for citation continuations two screens up, and English
+# has unbounded ways to say it ("... below asserts", "... is X's job", "not
+# duplicated here", "mirrors ..."). A phrase list also measured as refusing
+# ZERO of the 277 named-tier rows in the traced corpus, i.e. it is untestable
+# against real data. Where an ID sits in the line is a fact; what the sentence
+# around it means is not. (GH #184)
+sub heading_ids_in {
+    my ($text) = @_;
+    my %head;
+    for my $line (split /\n/, $text) {
+        (my $c = $line) =~ s{^\s*//+}{};
+        $c =~ s/^[^A-Za-z0-9]+//;
+        while ($c =~ /^$ID_BARE_RE/) {
+            my $id = $1;
+            last if $id =~ /\.vhd/;
+            $head{$id} = 1;
+            $c = substr($c, length $id);
+            my ($prefix) = $id =~ /^(.*-)/;
+            while ($c =~ m{^/ ( [A-Za-z0-9][A-Za-z0-9._+\-]* )}x) {
+                my $tail = $1;
+                last if $tail =~ /\.vhd/;
+                last if $tail =~ /^[A-Z][A-Z0-9]*(?:\.[A-Z][A-Z0-9]*)*-/;
+                $head{"$prefix$tail"} = 1;
+                $c = substr($c, 1 + length $tail);
+            }
+            last unless $c =~ s{^ \s* (?: [/+,&] | \.\. | \band\b ) \s* }{}x;
+        }
+    }
+    return \%head;
+}
+
 # "  FAIL ID: ...", "  FAIL ID [...", or "[FAIL] ID" — the three spellings the
 # suites actually print.
 #
@@ -1185,14 +1268,99 @@ sub grep_citations {
     # naming more than one REAL row ID; 10 of those come from a block that also
     # offers more than one citation.
     #
-    # THE RULE: refuse the block when it names more than one real row ID AND
-    # offers more than one citation. Then there is no row-local basis for
+    # THE RULE (GH #147): refuse the block when it names more than one real row
+    # ID AND offers more than one citation. Then there is no row-local basis for
     # deciding which citation belongs to which row, and taking the first is
     # exactly the misattribution above. One ID with several citations is kept —
     # they all belong to that row. Several IDs with ONE citation are kept — the
     # block has only one answer to give. Ten rows lose a citation and read `—`,
     # which is honest and recoverable by citing the VHDL in the row's own
     # check() call, the tier that outranks this one.
+    #
+    # ── ...AND THAT IS STILL NOT ROW-LOCALITY (GH #184) ───────────────
+    #
+    # The rule above guards against cross-topic SHARING. It does not guard
+    # against a block that merely MENTIONS a row in passing and lends it a
+    # citation about something else — the one-ID-many-citations shape it
+    # deliberately kept. The counter-example, built by #147's own reviewer:
+    # `video_panel_test.cpp`'s NR 0x43 palette-SELECTOR block says "Sibling of
+    # DVP-05 (palette CONTENT replay) for the palette SELECTOR" and cites
+    # `zxnext.vhd:5391-5392`, the NR 0x43 selector latches. DVP-05 tests
+    # palette CONTENT and has no business with those lines; it was the only
+    # real ID in the block (the block's own subject, `DVP-PALSEL`, is a
+    # `set_group()` banner and therefore masked out), so nothing tripped.
+    #
+    # SECOND RULE: the block answers for an ID only when the ID HEADS a line of
+    # it — see heading_ids_in(). Mentioning a row inside a sentence is a
+    # cross-reference; opening a line with it is a claim that the line is about
+    # it. Structural, not linguistic: the rejected alternative was a phrase list
+    # ("sibling of", "see", "cf.", "unlike"), which is a regex consuming
+    # English and refuses zero of the corpus's rows, i.e. cannot be tested.
+    #
+    # BLAST RADIUS, measured over the 41 traced sources before choosing, by
+    # diffing the whole computed citation set before against after:
+    # 277 rows take this tier; 254 already name the row at the head of a line.
+    # The diff is 6 rows LOST, 0 gained, 15 CHANGED.
+    #
+    # The 6 losses are all borrowings. `G9.RO-02`/`G9.MI-04` were taking
+    # `sprites.vhd:817-819` out of a "G9.RO-03 / G9.RO-04 — COVERED ELSEWHERE"
+    # note about two OTHER rows (their own descriptions say 813 and 811,813,
+    # which is where `spr_x_mirr_eff` actually lives); `STEN-20`, `UTB-40/41`
+    # and `G56-CR-NR06-04` likewise came out of notes whose subject is a
+    # different row.
+    #
+    # The 15 changes are the point of the rule, and every one lands on the
+    # block that heads with the row: `REG-08` moves off the REG-05 block's
+    # `zxnext.vhd:2625` onto its own `:2593`; `ARB-02` off ARB-01's
+    # `:4769,4775-4777` onto its own `:4769` (the `elsif cpu_req='1' and
+    # copper_req='0'` hold clause it asserts); `RST-01/02` off `:4610-4618`
+    # onto `:4611-4618`, the eight MMU reset assignments without the `if
+    # reset='1'` guard line; `G4-02..04` off a bare `layer2.vhd` with no line
+    # numbers at all onto `zxnext.vhd:5249`/`:5278-5281`; `JCAL-03` off a bare
+    # `membrane_stick.vhd` onto `:172-183`.
+    #
+    # NOTHING here reads `—` that did not read `—` before, beyond those 6.
+    # Coverage was re-routed, not lost.
+    #
+    # DECLARED RESIDUAL — the shape this rule still misattributes on: a
+    # cross-reference that is not inside a sentence but at the head of a line,
+    # in either of the two shapes the corpus writes headings in. On its own
+    # line:
+    #
+    #     // ── PALSEL-01: the palette SELECTOR path.
+    #     // CONTENT-01 is the sibling row for palette CONTENT, tested elsewhere.
+    #     // VHDL fixture_a.vhd:10 (the selector latches).
+    #
+    # or joined into a heading by the `and` / `/` convention used throughout:
+    #
+    #     // PALSEL-01 and CONTENT-01: the SELECTOR path — CONTENT-01 is the
+    #     // sibling row and is tested elsewhere.  VHDL fixture_a.vhd:10.
+    #
+    # Both hand `CONTENT-01` a citation that belongs to PALSEL-01. Both built
+    # and confirmed live against this code, not assumed. The second reaches
+    # further than the first: heading joins are ordinary style here, so this is
+    # not an exotic shape.
+    #
+    # TIGHTENING WAS TRIED AND REJECTED, but NOT on a coverage argument — that
+    # argument was measured and does not hold. Requiring a delimiter
+    # (`:`, `—`, `(`, `,`, end-of-line) after the heading ID group costs only
+    # 2 rows (`V11-NMP-02/03`) and changes 3, and it does NOT disturb
+    # `RAM-BK-03`, which computes `zxnext.vhd:4886` identically either way.
+    # (An earlier draft of this comment claimed 49 lost and `RAM-BK-03` moving.
+    # Both were artefacts of the measuring patch, not of the rule: it deleted
+    # the whole block's heading set rather than the one line's, and spelled the
+    # em dash `\x{2014}` against byte strings, so every em-dash-delimited
+    # heading — the corpus's most common — was refused. Re-measured after an
+    # independent reviewer failed to reproduce it.)
+    #
+    # It is rejected because it refuses GH #147's own accept case: SELF-121
+    # (`ONE-01 and ONE-02 share a single fact:` — the joined group is followed
+    # by a bare verb), SELF-123 and SELF-135 all fail under it, verified by
+    # running the selftest with the rule applied. Breaking a deliberate,
+    # documented accept case to refuse one constructed shape is the wrong
+    # trade, so the shape is declined and written down instead. The residual is
+    # strictly narrower than what #184 closed: the block must ALSO satisfy the
+    # #147 rule to reach this point.
     my %named;
     {
         my $i = 0;
@@ -1203,13 +1371,12 @@ sub grep_citations {
             $i = $j;
             my $list = cite_list($text);
             next unless @$list;
-            my (%seen_id, @ids);
-            for my $id ($text =~ /$ID_BARE_RE/g) {
-                next if $id =~ /\.vhd/;
-                push @ids, $id unless $seen_id{$id}++;
-            }
-            my @real = grep { exists $id_line{$_} } @ids;
+            my ($lit, $all) = bare_ids_in($text);
+            my $head = heading_ids_in($text);
+            my @real = grep { exists $id_line{$_} } @$all;
             next if @real > 1 && @$list > 1;
+            my @ids = grep { $head->{$_} } @$lit;
+            next unless @ids;
             my $c = join(', ', @$list);
             $named{$_} //= $c for @ids;
         }
