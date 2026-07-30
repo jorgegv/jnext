@@ -542,6 +542,29 @@ emulator-level (CT-PENT-04), Pentagon full-frame integration
 | CT-TURBO-05 | B | 48K, full `Emulator`, NR 0x08 write to bit-6=1, then bank 5 memory read | Zero added T-states (NR 0x08 bit 6 path must flow to `eff_nr_08_contention_disable`) | `zxnext.vhd:4481,5823` |
 | CT-TURBO-06 | B | 48K, full `Emulator`, write NR 0x08 with bit 6 set **mid-scanline** (just after an `hc(8)=0→1` edge); issue a bank-5 memory read BEFORE the next `hc(8)` rising edge, then another AFTER it | Pre-commit read still contended (old `eff_nr_08_contention_disable` value); post-commit read uncontended. Pins the `if hc(8)='1'` commit gate at `zxnext.vhd:5822-5823` — mid-line NR 0x08 writes latch only on the next `hc(8)` rising edge, not combinatorially | `zxnext.vhd:5822-5823` |
 | CT-TURBO-07 | B | 48K, full `Emulator`. Mid-instruction NR 0x07 ← 0x01 (turbo) during a contended bank-5 read. VHDL `zxnext.vhd:5796-5828` defers `cpu_speed <= nr_07_cpu_speed` until bus-idle (`mreq_n & iorq_n & m1_n & not dma_holds_bus`). Distinct from CT-TURBO-06 which is the NR 0x08 / `hc(8)` commit edge | In-flight contended access sees 3.5-MHz contention; the next post-bus-idle access sees the turbo gate disable. skip — `emulator.cpp:322-326` commits NR 0x07 synchronously (see G142) | `zxnext.vhd:5796-5828` |
+| CT-TURBO-09 | — | 48K, full `Emulator`, one `run_frame()` per NR 0x07 value 0/1/2/3 | `Clock::cpu_divisor()` is 8/4/2/1 **and** the CPU retires exactly `master_cycles_per_frame / divisor` T-states that frame (overshoot ≤ one instruction). Expected divisor is a literal, never read back from `Clock` — deriving it made the identity self-consistent under a wrong divisor (proven by mutation) | `zxnext.vhd:5787-5790,5809,5817` |
+| CT-TURBO-10 | — | 48K, full `Emulator`, self-looping `LDIR` in **uncontended** RAM (src 0x9000 → dst 0xC000, IFF1=0), one `run_frame()` per NR 0x07 value 0/1/2 | Iterations retired == `(master_cycles_per_frame/divisor − 30)/21` ±1 %, and 14 MHz retires exactly 4× the 3.5 MHz count. Catches per-instruction T-state inflation, which CT-TURBO-09's budget identity cannot see (the budget holds however much each instruction is charged — the CPU just retires fewer). 28 MHz is excluded from the ratio: `sram_wait28` adds a T-state per real memory read by design | `zxnext.vhd:4481,5787-5790,5809,5817` |
+| CT-TURBO-11 | — | 48K, full `Emulator`, the CT-FUSE-02 bank-5 `LDIR` fixture run at NR 0x07=0 then at NR 0x07=0x02 (one `run_frame()` in between to supply the bus-idle commit edge — the only public route to `ContentionModel`'s own commit) | 3.5 MHz run exceeds the 365 T uncontended baseline; the 14 MHz run lands on it **exactly**. Pins the `cpu_speed` leg of `i_contention_en` through the RUNTIME FUSE-callback path (CT-GATE-04 / CT-TURBO-01 pin the bare-class gate; CT-FUSE-05 pins only the NR 0x08 leg) | `zxnext.vhd:4481,5809,5817` |
+
+**CT-TURBO-09/10/11 (GH #165, 2026-07-30).** Added after issue #165
+reported "an LDIR into a Layer 2 bank at 14 MHz runs ~590× too slow …
+the guest gets roughly 0.2 % of its cycles". It does not — the report
+mis-attributed a runaway guest program to the emulator's timing — but
+the claim was expensive to refute because *no test spoke to the
+composition*: every prior CT-TURBO row observes one link in isolation
+(the enable gate, the commit edges, the divisor value), and none
+asserted that a divisor of 2 actually buys the guest 4× the
+instructions per video frame. Mutation-verified: divisor 2→4 fails
+CT-TURBO-09 + CT-TURBO-10; +100 T per memory write fails
+CT-TURBO-09 + CT-TURBO-10 (the *ratio* alone stays at 3.998 — the
+absolute check is what discriminates); removing the `cpu_speed != 0`
+early-out from `contention_tick()` + `contention_possible()` fails
+**only** CT-TURBO-11, i.e. it covers a direction nothing else did.
+
+NOTE: the per-section counts in the table further down were pinned when
+this plan CLOSED at 68 rows and have not tracked post-closure additions
+(CT-TURBO-08 onwards). The authoritative row count is the pinned figure
+in `test/unit-tests.conf`.
 
 Rows removed vs. the pre-critic draft:
 
