@@ -712,7 +712,13 @@ static void test_section5_timex() {
 
         const uint32_t exp_argb = rgb333_to_argb8888(0, 0, 7);  // bright blue
         check("S5.06",
-              "zxula.vhd:419 + :443-448 + :543-553 — HI_RES border uses "
+              // :426-427 is the UNCONDITIONAL sload branch this row runs under
+              // (`if shift_screen_mode(2) = '1' then attr_reg <=
+              // border_clr_tmx & border_clr_tmx`). It used to cite :443-448,
+              // which is the same proposition gated on
+              // `i_timing_pentagon = '1'` — right idea, branch the test never
+              // enters (GH #151).
+              "zxula.vhd:419 + :426-427 + :543-553 — HI_RES border uses "
               "border_clr_tmx through std-ULA encoder; paper=6 → ula_pixel=0x19 "
               "(boot default = bright blue paper-cycle mirror)",
               line[0] == exp_argb,

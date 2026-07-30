@@ -282,8 +282,11 @@ static void test_nr_08(Emulator& emu) {
         nr_write(emu, 0x08, 0x10);       // bit 4 = 1
         const uint8_t set = emu.nr_08_stored_low() & 0x10;
         check("NR-11",
+              // :1116 is the nr_08_internal_speaker_en declaration, default
+              // '1' — the reset value this row asserts. It used to read :1117,
+              // which is nr_08_dac_en, i.e. NR-12's signal (GH #151).
               "NR 0x08 bit 4 latches nr_08_internal_speaker_en (default '1') "
-              "[zxnext.vhd:5178, :1117, :5906]",
+              "[zxnext.vhd:5178, :1116, :5906]",
               reset_default == 0x10 && cleared == 0x00 && set == 0x10,
               fmt("default=0x%02X cleared=0x%02X set=0x%02X "
                   "(want 0x10/0x00/0x10)", reset_default, cleared, set));

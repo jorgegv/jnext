@@ -2096,8 +2096,12 @@ static void test_iomode() {
         m.set_joy_left_bit5(true);                   // LEFT ignored in mode "11"
         const bool rx_left_ignored = m.joy_uart_rx();   // → rx=1
         check("IOMODE-08",
+              // :90-91 are the i_JOY_LEFT / i_JOY_RIGHT port declarations. The
+              // row is about the RIGHT connector and about LEFT being ignored,
+              // so it needs both; it used to cite :90 alone, which is LEFT
+              // (GH #151).
               "mode \"11\" (0xB0/0xB1) → joy_uart_rx = NOT JOY_RIGHT(5); "
-              "LEFT ignored  (zxnext.vhd:3538, :90)",
+              "LEFT ignored  (zxnext.vhd:3538, :90-91)",
               rx_idle == true && rx_pressed == false &&
               rx_pressed_b1 == false && rx_left_ignored == true,
               DETAIL("idle=%d press=%d press_b1=%d left_ignored=%d "

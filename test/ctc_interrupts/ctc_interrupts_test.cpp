@@ -220,8 +220,13 @@ static void test_ula_int_integration(Emulator& emu) {
                       "(bit1 pattern should be 0,1,0)",
                       before, on, off);
         check("ULA-INT-05",
+              // :5297 is the NR 0x22 write case (`when X"22" =>
+              // nr_22_line_interrupt_en <= nr_wr_dat(1)`), which is what this
+              // row writes. It used to cite :5607-5610, the NR 0xC4 write case
+              // — a different register that happens to set the same signal
+              // (GH #151). :6239 stays: it is the NR 0xC4 READ this row checks.
               "NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 "
-              "[zxnext.vhd:5607-5610, :6239; emulator.cpp:542-546, :801]",
+              "[zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801]",
               (before & 0x02) == 0 && (on & 0x02) != 0 && (off & 0x02) == 0,
               detail);
     }
