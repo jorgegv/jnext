@@ -566,11 +566,31 @@ void test_split_screen(const char* tag, uint8_t screen_flag,
 //     or a
 //     ret nz    ; "next regs should be preserved, only 28MHz is set, keep others"
 //
-// The two loaders disagree on exactly one register jnext writes:
-// NR 0x07 (28 MHz turbo) is INSIDE nexload.asm's gate (:365) but ABOVE
-// nexload2's (:777). A V1.3 file can only be loaded by nexload2 — the
-// distro loader cannot parse it — so jnext follows whichever loader
-// would really handle the file. NEXPR-V13-01/02 pin that.
+// The two loaders disagree on exactly one register jnext writes ABOVE
+// its gate: NR 0x07 (28 MHz turbo) is INSIDE nexload.asm's gate (:365)
+// but ABOVE nexload2's (:777). A V1.3 file can only be loaded by
+// nexload2 — the distro loader cannot parse it — so jnext follows
+// whichever loader would really handle the file. NEXPR-V13-01/02 pin
+// that.
+//
+// They disagree about the PROLOGUE too, and that is GH #171: nexload2
+// has no unconditional prologue at all, so on the V1.3 path the four
+// registers above are preserve-gated as well, each with its own oracle
+// BELOW the :781-783 `ret nz`:
+//
+//     nexload2.asm:886-:888  nextRegResetData sets ten regs from $12,
+//                            the fourth being $15 → 0x01
+//     nexload2.asm:907-:908  nextRegResetData sets $42/$43 → 0x0F / 0
+//     nexload2.asm:847       NR 0x43 ends at 0 after the palette resets
+//
+// The ULA palette 0x18 pair is the odd one out: nexload2 writes 0xE3 at
+// ULA index 0x18 on NEITHER branch, so it is nexload.asm-only and
+// follows the loader rather than the flag. NEXPR-V13-03..07 pin the
+// V1.3 preserve branch; NEXPR-V13R-01/02 pin that NR 0x42 / 0x15 ARE
+// still written on the V1.3 reset branch (or an over-eager `!is_v13()`
+// gate would pass), and NEXPR-V13R-03 pins that pal[0x18] is NOT — the
+// one write whose gate carries no flag term, so BOTH of its V1.3
+// branches need their own row.
 //
 // Each register is set to a SENTINEL that differs both from jnext's
 // power-on value and from the value the reset block writes, so the two
@@ -823,7 +843,8 @@ void test_preserve_nextregs() {
     {
         PreserveFixture f(1, "keep_v13", "V1.3");
         if (!f.ok) {
-            fail_all({"NEXPR-V13-01", "NEXPR-V13-02"});
+            fail_all({"NEXPR-V13-01", "NEXPR-V13-02", "NEXPR-V13-03", "NEXPR-V13-04",
+                      "NEXPR-V13-05", "NEXPR-V13-06", "NEXPR-V13-07"});
         } else {
             check_nr("NEXPR-V13-01", f, 0x07, kReset07,
                      "PRESERVENEXTREG=1 on a V1.3 file STILL gets 28 MHz — nexload2 sets "
@@ -834,6 +855,78 @@ void test_preserve_nextregs() {
                      "PRESERVENEXTREG=1 on a V1.3 file still preserves everything else — "
                      "only NR 0x07 is exempt, not the whole block",
                      "nexload2.asm:781-783");
+
+            // GH #171 — the four prologue registers. nexload.asm's :266-:274
+            // prologue does not exist in nexload2, so on the V1.3 path these
+            // are behind the SAME `ret nz` as the rest and must survive.
+            check_nr("NEXPR-V13-03", f, 0x42, kSentinel42,
+                     "PRESERVENEXTREG=1 on a V1.3 file preserves NR 0x42 — nexload2's only "
+                     "write is in nextRegResetData, BELOW its gate (GH #171)",
+                     "nexload2.asm:907-908");
+            check_nr("NEXPR-V13-04", f, 0x43, kSentinel43,
+                     "PRESERVENEXTREG=1 on a V1.3 file preserves NR 0x43 — nexload2 only "
+                     "settles it at the END of the palette resets, BELOW its gate (GH #171)",
+                     "nexload2.asm:847");
+            check_nr("NEXPR-V13-05", f, 0x15, kSentinel15,
+                     "PRESERVENEXTREG=1 on a V1.3 file preserves NR 0x15 — nexload2's only "
+                     "write is nextRegResetData's fourth byte from $12, BELOW its gate "
+                     "(GH #171)",
+                     "nexload2.asm:886-888");
+            check_nr("NEXPR-V13-06", f, 0x40, kSentinel40,
+                     "PRESERVENEXTREG=1 on a V1.3 file leaves the palette INDEX at the "
+                     "fixture's 0x7E: with the :269-:270 pair gone from this path there is "
+                     "no auto-increment to bump it, and nothing resets it (GH #171)",
+                     "nexload2.asm:781-783");
+            const uint8_t pal = f.ula_palette_18();   // last: mutates NR 0x43 / 0x40
+            check("NEXPR-V13-07",
+                  "PRESERVENEXTREG=1 on a V1.3 file leaves ULA palette entry 0x18 alone — "
+                  "nexload2 writes 0xE3 there on NEITHER branch, and this branch returns "
+                  "before any palette reset (GH #171)",
+                  pal == kSentinelPal18,
+                  fmt("nexload2.asm:781-783: ULA pal[0x18] = 0x%02X, want the untouched "
+                      "0x%02X (0xE3 = nexload.asm's prologue leaked onto the V1.3 path)",
+                      pal, kSentinelPal18));
+        }
+    }
+
+    // ── V1.3 + PRESERVENEXTREG=0: the same four registers ARE written,
+    //    from nexload2's own reset data — so the V1.3 gate above must be
+    //    a preserve gate, not a blanket "never on V1.3" (GH #171).
+    //
+    //    NR 0x43 is deliberately NOT probed here: on this path jnext's
+    //    tilemap-palette seed (nex_loader.cpp, nexload2.asm:830-836) runs
+    //    afterwards and leaves NR 0x43 at 0x30, whereas nexload2:847 ends
+    //    at 0. That divergence is pre-existing and independent of this
+    //    gate, and pinning either value here would be dishonest.
+    {
+        PreserveFixture f(0, "reset_v13", "V1.3");
+        if (!f.ok) {
+            fail_all({"NEXPR-V13R-01", "NEXPR-V13R-02", "NEXPR-V13R-03"});
+        } else {
+            check_nr("NEXPR-V13R-01", f, 0x42, kAlways42,
+                     "PRESERVENEXTREG=0 on a V1.3 file DOES set NR 0x42 = 0x0F — nexload2's "
+                     "nextRegResetData runs when the flag is clear (GH #171)",
+                     "nexload2.asm:907-908");
+            check_nr("NEXPR-V13R-02", f, 0x15, kAlways15,
+                     "PRESERVENEXTREG=0 on a V1.3 file DOES set NR 0x15 = SLU + sprites "
+                     "visible — nexload2's nextRegResetData runs when the flag is clear "
+                     "(GH #171)",
+                     "nexload2.asm:886-888");
+            // The pal[0x18] pair is the ONE write that is loader-gated with no
+            // flag term, so this branch needs its own row: nexload2's reset
+            // path repaints all 256 ULA entries with ulaClassicPalette, whose
+            // entry 8 is $00 — it never writes 0xE3 there — so apply() must
+            // leave the entry alone here too, not just on the preserve branch.
+            const uint8_t pal = f.ula_palette_18();   // last: mutates NR 0x43 / 0x40
+            check("NEXPR-V13R-03",
+                  "PRESERVENEXTREG=0 on a V1.3 file ALSO leaves ULA palette entry 0x18 "
+                  "alone — nexload2's own palette reset writes ulaClassicPalette[8] = "
+                  "$00 there, never nexload.asm's 0xE3 (GH #171)",
+                  pal == kSentinelPal18,
+                  fmt("nexload2.asm:832-836 (data :930-933): ULA pal[0x18] = 0x%02X, want "
+                      "the untouched 0x%02X (0xE3 = nexload.asm's prologue leaked onto the "
+                      "V1.3 reset path)",
+                      pal, kSentinelPal18));
         }
     }
 }
@@ -1350,7 +1443,7 @@ int main() {
     // nexload.asm:323 -> :422 for <= V1.2; nexload2.asm:781-783 for
     // V1.3. See the block comment above test_preserve_nextregs() for
     // the boundary derivation and why the two loaders disagree about
-    // NR 0x07.
+    // NR 0x07 (GH #166) and about the whole :266-:274 prologue (GH #171).
     // =================================================================
 
     set_group("NEXPR");
