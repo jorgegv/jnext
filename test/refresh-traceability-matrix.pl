@@ -987,8 +987,18 @@ sub vhd_basename_unique {
 # an entry is dropped only when every line reference it makes already appears,
 # spelled identically, in another entry for that same file. `:169` goes;
 # `:169` vs `:176` would both stay, and so would two different files.
+#
+# cite_list() is the same computation returning the entries as a LIST, because
+# HOW MANY citations a blob offers is itself evidence: the `named` tier refuses
+# a comment block that names several rows AND offers several citations, since
+# there is then no row-local basis for saying which belongs to which (GH #147).
+# cite_in() is the joined form every existing caller wants.
 my %REHOMED_WARNED;
 sub cite_in {
+    my $l = cite_list(@_);
+    return @$l ? join(', ', @$l) : undef;
+}
+sub cite_list {
     my ($text) = @_;
     my (@out, %seen);
     while ($text =~ /$VHDL_CITE_RE/g) {
@@ -1054,8 +1064,7 @@ sub cite_in {
         }
         push @kept, $out[$i]{cite} unless $redundant;
     }
-    return undef unless @kept;
-    return join(', ', @kept);
+    return \@kept;
 }
 
 # Repo-relative path of the plan doc backing a suite, or undef when it has
@@ -1130,22 +1139,13 @@ sub grep_citations {
         push @calls, { s => $i, e => $j, cite => cite_in($text) };
     }
 
-    # Comment blocks that name a row ID, and the first line each ID appears on.
-    my (%named, %id_line);
-    my $i = 0;
-    while ($i <= $#src) {
-        if ($src[$i] =~ m{^\s*//}) {
-            my ($j, $text) = ($i, '');
-            while ($j <= $#src && $src[$j] =~ m{^\s*//}) { $text .= $src[$j]; $j++; }
-            if (my $c = cite_in($text)) {
-                for my $id ($text =~ /$ID_BARE_RE/g) {
-                    next if $id =~ /\.vhd/;
-                    $named{$id} //= $c;
-                }
-            }
-            $i = $j;
-            next;
-        }
+    # The first line each ID appears on, OUTSIDE a comment. Collected in a pass
+    # of its own because the `named` tier below needs the complete set to tell a
+    # row ID from a prose hyphenation (GH #147): `VHDL-correct` and `SYM-hyst`
+    # match the bare-ID shape, and counting them as rows would make the block
+    # rule fire on blocks that name exactly one.
+    my %id_line;
+    for (my $i = 0; $i <= $#src; $i++) {
         # `set_group("ID")` is a group BANNER, not the row's assertion, and it
         # is dropped here for the same reason grep_row_ids() drops it — one
         # reader, one rule. Without the mask the banner is the ID's FIRST
@@ -1158,10 +1158,61 @@ sub grep_citations {
         # rows) was answering `zxnext.vhd:6603-6631` for it. That is the
         # borrowed-citation failure this extractor is built to refuse, arriving
         # through the one door left open. (GH #144)
+        next if $src[$i] =~ m{^\s*//};
         my $line = $src[$i];
         $line =~ s/$SET_GROUP_RE/set_group(/g;
         while ($line =~ /$ID_LITERAL_RE/g) { push @{ $id_line{$1} }, $i; }
-        $i++;
+    }
+
+    # ── The `named` tier, and where it REFUSES (GH #147) ──────────────
+    #
+    # A comment block that names a row ID explicitly is row-local evidence, and
+    # that explicit mention is the whole reason this tier survived when the
+    # banner-comment and nearest-comment tiers were rejected. But the block was
+    # taken as ONE scope: the first citation anywhere in it was handed to every
+    # ID named anywhere in it, and `//=` locked that in. Whenever a block spans
+    # several VHDL topics that is the rejected banner tier, arriving through the
+    # surviving door.
+    #
+    # `BP-06` is the measured instance. Its file's top banner lists sixteen row
+    # IDs and mentions `zxnext.vhd:5179` (an NR 0x08 DAC-enable fact) first, so
+    # BP-06 published :5179 instead of the port 0xFE dispatch its assertion is
+    # about — while BP-01, whose own check() carries a citation, was shielded by
+    # the higher-precedence call tier.
+    #
+    # BLAST RADIUS, measured across every traced source before choosing a rule:
+    # 283 rows take their citation from this tier; 39 of those come from a block
+    # naming more than one REAL row ID; 10 of those come from a block that also
+    # offers more than one citation.
+    #
+    # THE RULE: refuse the block when it names more than one real row ID AND
+    # offers more than one citation. Then there is no row-local basis for
+    # deciding which citation belongs to which row, and taking the first is
+    # exactly the misattribution above. One ID with several citations is kept —
+    # they all belong to that row. Several IDs with ONE citation are kept — the
+    # block has only one answer to give. Ten rows lose a citation and read `—`,
+    # which is honest and recoverable by citing the VHDL in the row's own
+    # check() call, the tier that outranks this one.
+    my %named;
+    {
+        my $i = 0;
+        while ($i <= $#src) {
+            if ($src[$i] !~ m{^\s*//}) { $i++; next; }
+            my ($j, $text) = ($i, '');
+            while ($j <= $#src && $src[$j] =~ m{^\s*//}) { $text .= $src[$j]; $j++; }
+            $i = $j;
+            my $list = cite_list($text);
+            next unless @$list;
+            my (%seen_id, @ids);
+            for my $id ($text =~ /$ID_BARE_RE/g) {
+                next if $id =~ /\.vhd/;
+                push @ids, $id unless $seen_id{$id}++;
+            }
+            my @real = grep { exists $id_line{$_} } @ids;
+            next if @real > 1 && @$list > 1;
+            my $c = join(', ', @$list);
+            $named{$_} //= $c for @ids;
+        }
     }
 
     my $plan      = plan_cites($source_rel);

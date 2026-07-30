@@ -367,6 +367,63 @@ check('SELF-119', 'an ambiguous basename keeps its directory when published, too
       ($pc->{'PATH-DUP-01'} // '') eq 'pll/A7/fixture_dup.vhd:3',
       "got " . ($pc->{'PATH-DUP-01'} // '(none)'));
 
+# ── The `named` tier refuses an ambiguous block (GH #147) ─────────────
+#
+# The tier survived the banner-comment cull because it keys on an EXPLICIT
+# mention of the row ID. Block scope reintroduced the misattribution anyway:
+# the first citation anywhere in a block was handed to every ID named anywhere
+# in it. `BP-06`'s file banner lists sixteen IDs and mentions an unrelated
+# NR 0x08 line first, so BP-06 published that instead of the port 0xFE
+# dispatch it tests.
+#
+# The rule refuses only where attribution is genuinely impossible — several
+# rows AND several citations. SELF-121/122/123 are the accept cases that stop
+# it collapsing into "the named tier never answers", and SELF-123 in
+# particular pins that a prose hyphenation (`VHDL-correct`) is not counted as
+# a second row.
+
+write_fixture('test/fixture/named_test.cpp', <<'CPP');
+void rows() {
+    // AMB-01 and AMB-02 both live here. AMB-01 is about fixture_a.vhd:10 and
+    // AMB-02 about fixture_b.vhd:20 — but nothing in this block says which is
+    // which, so neither may be published.
+    check("AMB-01", "no citation of its own", cond, detail);
+    check("AMB-02", "no citation of its own", cond, detail);
+
+    // ONE-01 and ONE-02 share a single fact: fixture_c.vhd:30.
+    check("ONE-01", "no citation of its own", cond, detail);
+    check("ONE-02", "no citation of its own", cond, detail);
+
+    // SOLO-01, alone, and BOTH its citations belong to it:
+    // fixture_a.vhd:40 and fixture_b.vhd:50.
+    check("SOLO-01", "no citation of its own", cond, detail);
+
+    // PROSE-CHK-01 alone, asserting the VHDL-correct behaviour, over
+    // fixture_a.vhd:60 and fixture_b.vhd:70.
+    check("PROSE-CHK-01", "no citation of its own", cond, detail);
+}
+CPP
+my $nm = grep_citations('test/fixture/named_test.cpp');
+
+check('SELF-120', 'THE REFUSAL: a block naming SEVERAL rows and offering SEVERAL citations publishes none of them',
+      scalar(!defined $nm->{'AMB-01'} && !defined $nm->{'AMB-02'}),
+      sprintf('AMB-01=%s AMB-02=%s', $nm->{'AMB-01'} // '(none)',
+              $nm->{'AMB-02'} // '(none)'));
+
+check('SELF-121', 'several rows with ONE citation are still answered — the block has only one answer to give',
+      scalar(($nm->{'ONE-01'} // '') eq 'fixture_c.vhd:30'
+             && ($nm->{'ONE-02'} // '') eq 'fixture_c.vhd:30'),
+      sprintf('ONE-01=%s ONE-02=%s', $nm->{'ONE-01'} // '(none)',
+              $nm->{'ONE-02'} // '(none)'));
+
+check('SELF-122', 'ONE row with several citations keeps them all — they all belong to it',
+      ($nm->{'SOLO-01'} // '') eq 'fixture_a.vhd:40, fixture_b.vhd:50',
+      'got ' . ($nm->{'SOLO-01'} // '(none)'));
+
+check('SELF-123', 'a prose hyphenation is not counted as a second row, so a single-row block is not refused by accident',
+      ($nm->{'PROSE-CHK-01'} // '') eq 'fixture_a.vhd:60, fixture_b.vhd:70',
+      'got ' . ($nm->{'PROSE-CHK-01'} // '(none)'));
+
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');
 void group() {
