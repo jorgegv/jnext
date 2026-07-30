@@ -529,7 +529,7 @@ check "HS-48" "worktree-bootstrap: a POPULATED submodule reports ok and reaches 
 
 # ---------------- the trap lint must stay wired to the regression preflight (GH #153)
 # Third instance of the HS-45/HS-46 shape, one entry point over. lint-traps.sh
-# self-tests its own 29-case table on every invocation, so it can prove it still
+# self-tests its own 50-case table on every invocation, so it can prove it still
 # DETECTS a stray trap; nothing but this row proves it is still REACHED, and that its
 # verdict still turns the preflight row red. Deleting the four-line `if bash
 # .../lint-traps.sh` block from scripts/00-preflight-lint.sh restores the un-gated state

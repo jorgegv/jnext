@@ -243,13 +243,14 @@ every signal and at any depth, including behind `builtin`/`command`, inside `eva
 heredoc fed to `source`/`.`/`eval` (which runs in *this* shell). Put scratch files under
 `$TMP_DIR`, which the harness trap already removes; a shell that truly needs its own trap goes
 in a file run with `bash` — heredoc bodies with a non-sourcing consumer are exempt.
-Its comment stripper is a bash-exact three-state quote scanner, not a quote counter — a
-counter cannot express escaping, and `echo "\" #" ; trap … EXIT` slipped straight through one.
-**It stops the naive and accidental case, not every evasion**: a command name held in a
-variable, an `eval` argument assembled so `trap` never appears literally, or a script written
-to a file and sourced by path, are all undecidable without executing the script. The lint's
-header enumerates exactly what it cannot catch — verified accurate, not merely modest — and
-its self-test pins all 41 cases both ways.
+Its comment stripper is a bash-exact three-state quote scanner, not a quote counter (a counter
+cannot express escaping), and it dequotes before matching, since bash concatenates word
+fragments and `tr''ap` runs the builtin without containing the word.
+**Scope: it catches the ACCIDENTAL trap — the failure that actually happened — and does not
+try to stop deliberate obfuscation, which no static grep can.** `t=trap; $t 'c' EXIT` defeats
+it in eight characters, and that is accepted, not a backlog item. The lint's header gives
+EXAMPLES of what it cannot catch, explicitly not an exhaustive list (two "exhaustive" lists
+have already been proved incomplete). Its self-test pins 50 cases both ways.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It

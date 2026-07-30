@@ -336,8 +336,8 @@ Load-bearing rationale that used to live as long comments inside
   subshell one needs a bash parser and no row script contains a `trap` at any
   depth. Heredoc bodies are exempt, which is the escape hatch: a shell that
   genuinely needs its own trap gets written to a file and run with `bash`, the
-  shape `sdcard-isolation-func.sh:116` already uses. **Two rounds of review
-  demonstrated five working bypasses, all now closed.** The exemption gained a
+  shape `sdcard-isolation-func.sh:116` already uses. **Three rounds of review
+  demonstrated six working bypasses, all now closed.** The exemption gained a
   carve-out: a heredoc consumed by `source`, `.` or `eval` executes in *this*
   shell, so `source /dev/stdin <<P` is reported unconditionally — as are
   `builtin trap`, `command trap`, and any `eval` whose argument text contains
@@ -348,17 +348,25 @@ Load-bearing rationale that used to live as long comments inside
   a real separator — looked like a comment and was truncated away. It is now a
   three-state scanner (OUTSIDE/SINGLE/DOUBLE, carrying across lines), which is
   exact rather than heuristic and kills that class rather than the instance.
-  **What it still cannot catch is stated honestly in the script header** and is
-  not pretended away here: a command name held in a variable (`t=trap; $t …`),
-  an `eval` argument assembled so `trap` never appears literally, or a script
-  written to a file and sourced by path — the last of which cannot be banned
-  outright because every row script legitimately sources `test-functions.inc`.
-  Those need an interpreter, and this guard exists to stop a tired author, not
-  an adversary. The NOT-CAUGHT list is verified to be *accurate* rather than
-  merely modest: a `trap` inside a function body, for instance, IS caught, so it
-  is deliberately not listed there. Like `lint-assertions.sh` the lint self-tests on every invocation,
-  here with a pinned 41-case table (28 must flag, 13 must not) so the next author
-  extends the specification rather than re-deriving it. `harness-selftest`
+  The sixth is of a different kind: bash concatenates adjacent word fragments,
+  so `tr''ap` — also `tr""ap`, `tr\ap`, `t\r\a\p` — runs the builtin without the
+  literal word ever appearing. Closed generally, by dequoting before matching
+  rather than one pattern per spelling.
+  **Scope, stated plainly, because three review rounds are what settled it.**
+  This lint exists to catch the ACCIDENTAL or careless `trap` — the failure that
+  actually happened: a row written in one night, found only when a host filled to
+  18 GB with a green 112/112 on screen. It does **not** attempt to stop
+  deliberate obfuscation, and cannot — `t=trap; $t 'c' EXIT` defeats it in eight
+  characters. So a newly-found way to write `trap` *on purpose* is not a defect
+  in this lint; a newly-found way to write one *by accident* is. The header lists
+  EXAMPLES of what is uncatchable, deliberately **not** claimed exhaustive:
+  two such lists were already proved incomplete by review, and an enumeration
+  asserting a completeness it lacks is precisely the defect this whole exercise
+  kept finding.
+  Like `lint-assertions.sh` the lint self-tests on every invocation, here with a
+  pinned 50-case table (34 must flag, 16 must not), **one fixture file per case**
+  — a single combined fixture asserting only a total let a mutation lose one case,
+  gain another, and report green. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
   its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
