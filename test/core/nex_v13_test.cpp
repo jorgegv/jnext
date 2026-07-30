@@ -103,6 +103,7 @@ struct V13Opts {
     uint8_t     start_delay    = 0;
     uint8_t     hires_colour   = 0;
     uint8_t     entry_bank     = 0;
+    uint8_t     preserve_regs  = 0;
     std::vector<int> banks;            // bank numbers present, in kBankOrder order
     uint32_t    gap_before_banks = 0;  // unknown-block bytes between screens and banks
     bool        write_crc      = false;  // compute and store the real CRC-32C
@@ -177,7 +178,7 @@ bool write_v13_nex(const std::string& path, const V13Opts& o, std::vector<uint8_
     f[131] = o.loading_bar_colour;
     f[132] = o.loading_delay;
     f[133] = o.start_delay;
-    f[134] = 0;                                       // preserve_regs = 0
+    f[134] = o.preserve_regs;
     f[138] = o.hires_colour;
     f[139] = o.entry_bank;
 
@@ -344,14 +345,34 @@ void test_header_fields() {
 
 // ── Screen-region sizing ─────────────────────────────────────────────
 
+// A sizing row must be able to FAIL when nex_screen_bytes() gets the size
+// wrong. With field 144 present that is impossible: the loader (correctly)
+// trusts the header's stated bank offset, which silently repairs any sizing
+// error and reduces the row to a tautology. So every sizing row omits field
+// 144 — `omit_banks_offset` — leaving the DERIVED offset, and therefore
+// nex_screen_bytes() itself, as the only thing under test.
+//
+// Bank content is asserted too, because that is the damage a mis-size does:
+// a 512-byte palette error shifts every bank read by 512 bytes, which is
+// small enough that neither the truncation check nor the extended-NEX
+// heuristic notices — the file just loads garbage.
 void size_row(const char* id, const char* desc, V13Opts o, const char* tag) {
     o.banks = {5, 2};
+    o.omit_banks_offset = true;
     Fixture f(o, tag);
     const size_t want = expected_bank_offset(o);
-    check(id, desc,
-          f.load_ok && f.loader.bank_data_offset() == want,
-          fmt("load=%d bank_data_offset=%llu want %zu", f.load_ok,
-              static_cast<unsigned long long>(f.loader.bank_data_offset()), want));
+    const bool offset_ok = f.load_ok && f.loader.bank_data_offset() == want;
+    const bool content_ok = offset_ok && f.apply_ok &&
+                            read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0) &&
+                            read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
+                            read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
+    check(id, desc, offset_ok && content_ok,
+          fmt("load=%d apply=%d bank_data_offset=%llu want %zu; bank5[0]=%02x want %02x, "
+              "bank2[0]=%02x want %02x",
+              f.load_ok, f.apply_ok,
+              static_cast<unsigned long long>(f.loader.bank_data_offset()), want,
+              offset_ok && f.apply_ok ? read_page(f.emu.mmu(), 10, 0) : 0, bank_byte(5, 0),
+              offset_ok && f.apply_ok ? read_page(f.emu.mmu(), 4, 0) : 0, bank_byte(2, 0)));
 }
 
 void test_sizing() {
@@ -456,17 +477,38 @@ void test_banks_offset() {
 
     // Backwards is the one case that cannot be a future block: it would
     // overlap blocks already parsed, so the header is self-inconsistent.
+    //
+    // The geometry is chosen so that NO OTHER GUARD can refuse this file,
+    // which is what makes the row specific to the inconsistency check. A
+    // tilemode screen with a palette derives a bank offset of 1024; stating
+    // 1000 puts the declared start only 24 bytes early. That is too small a
+    // discrepancy for the truncation check (the file is still longer than
+    // the header describes) and far too small for the extended-NEX
+    // self-streaming heuristic, which needs a trailing region of more than
+    // 16384 bytes. Remove the inconsistency check and this file LOADS —
+    // 24 bytes out of step — rather than being caught by something else.
+    //
+    // The consistent twin is asserted in the same row so the refusal cannot
+    // be attributed to the geometry: identical file, field 144 = 1024, loads.
     {
-        V13Opts o;
-        o.screen_flags = 0x40; o.screen_flags2 = 1;
-        o.forced_banks_offset = 600;   // inside the 81920-byte screen block
-        o.banks = {5};
-        Fixture f(o, "boff3");
+        V13Opts bad;
+        bad.screen_flags = 0x40; bad.screen_flags2 = 3;
+        bad.forced_banks_offset = 1000;         // derived is 1024
+        bad.banks = {5, 2};
+        Fixture fb(bad, "boff3bad");
+
+        V13Opts good = bad;
+        good.forced_banks_offset = 1024;        // == derived
+        Fixture fg(good, "boff3good");
+
         check("NEXV13-BOFF-03",
               "a banks_offset BEFORE the end of the header's own blocks is "
-              "self-inconsistent and must be refused, not trusted",
-              !f.load_ok,
-              "load() accepted a banks_offset that overlaps the screen block");
+              "self-inconsistent and must be refused, while the otherwise-identical "
+              "file with a consistent offset loads — so the refusal is the "
+              "inconsistency check and not some other guard reacting to the geometry",
+              !fb.load_ok && fg.load_ok && fg.apply_ok,
+              fmt("backwards load=%d (want 0), consistent load=%d apply=%d (want 1,1)",
+                  fb.load_ok, fg.load_ok, fg.apply_ok));
     }
 
     // Field 144 does not exist before V1.3, so a stale value there must be
@@ -676,22 +718,24 @@ void test_screen_activation() {
     {
         V13Opts o;
         o.screen_flags = 0x40; o.screen_flags2 = 3;
-        o.tile_cfg[0] = 0x83; o.tile_cfg[1] = 0x11; o.tile_cfg[2] = 0x40; o.tile_cfg[3] = 0x4A;
+        // NR 0x6E / 0x6F read back masked with 0xBF: VHDL zxnext.vhd:6108,:6111
+        // force bit 6 (reserved) to '0' but PRESERVE bit 7, which is the
+        // bank-select bit (nextreg.txt:711-731; src/video/tilemap.h:72,:80).
+        // Bit 7 is set in both bytes here on purpose — ped7g's tilescreen.nex
+        // uses 0x40/0x4A, which have bit 7 clear and so read back identically
+        // under 0xBF and under a wrong 0x3F mask. These values tell them
+        // apart: 0xC0 & 0xBF = 0x80, but 0xC0 & 0x3F would be 0x00.
+        o.tile_cfg[0] = 0x83; o.tile_cfg[1] = 0x11; o.tile_cfg[2] = 0xC0; o.tile_cfg[3] = 0xCA;
         o.banks = {5};
         Fixture f(o, "nrtile");
         auto& nr = f.emu.nextreg();
-        // These are the exact four bytes ped7g's tilescreen.nex carries. NR
-        // 0x6E and 0x6F are 6-bit registers (base-address MSBs), so their
-        // readback is the header byte masked to 0x3F — 0x40 reads back 0x00
-        // and 0x4A reads back 0x0A. That masking is the hardware's, and
-        // asserting the masked value is what proves the byte reached the
-        // register rather than being dropped.
         const bool ok = f.apply_ok && nr.read(0x6B) == 0x83 && nr.read(0x6C) == 0x11 &&
-                        nr.read(0x6E) == (0x40 & 0x3F) && nr.read(0x6F) == (0x4A & 0x3F) &&
+                        nr.read(0x6E) == (0xC0 & 0xBF) && nr.read(0x6F) == (0xCA & 0xBF) &&
                         nr.read(0x69) == 0x00;
         check("NEXV13-NR-04",
               "tilemode writes the four header config bytes to NR 0x6B, 0x6C, 0x6E, 0x6F "
-              "(the latter two 6-bit) and leaves Layer 2 off (NR 0x69 = 0)",
+              "(the latter two read back masked 0xBF — reserved bit 6 cleared, bank-select "
+              "bit 7 preserved) and leaves Layer 2 off (NR 0x69 = 0)",
               ok, fmt("6B=%02x 6C=%02x 6E=%02x 6F=%02x 69=%02x",
                       f.apply_ok ? nr.read(0x6B) : 0, f.apply_ok ? nr.read(0x6C) : 0,
                       f.apply_ok ? nr.read(0x6E) : 0, f.apply_ok ? nr.read(0x6F) : 0,
@@ -795,8 +839,12 @@ void test_palette() {
     }
 
     // The two big Layer 2 screens send their palette to the LAYER 2 palette
-    // (nexload2.asm:735). The tilemap palette must be left alone, which is
-    // what distinguishes a real destination select from a hardcoded one.
+    // (nexload2.asm:735), while the tilemap palette still receives the
+    // classic seed (nexload2 seeds it on every load, not only for tilemode).
+    //
+    // Index 1 is deliberate: the classic palette's entry 0 is 0x00, which is
+    // also what an unwritten palette reads, so index 0 cannot tell "seeded"
+    // from "never touched". Entry 1 is 0x02.
     {
         V13Opts o;
         o.screen_flags = 0x40; o.screen_flags2 = 1;
@@ -811,13 +859,55 @@ void test_palette() {
                 if (got != want) { l2_ok = false; bad = static_cast<size_t>(i); }
             }
         }
-        const uint8_t tm0 = f.apply_ok ? read_pal_8(f.emu, 0x30, 0) : 0xFF;
+        const uint8_t tm1 = f.apply_ok ? read_pal_8(f.emu, 0x30, 1) : 0xFF;
         check("NEXV13-PAL-03",
-              "a big Layer 2 screen's palette block loads into the LAYER 2 palette, and "
-              "the tilemap palette is left untouched (no classic seed, no file palette)",
-              l2_ok && tm0 == 0x00,
-              fmt("apply=%d l2_pal[%zu]=%02x want %02x, tilemap_pal[0]=%02x want 00",
-                  f.apply_ok, bad, got, want, tm0));
+              "a big Layer 2 screen's palette block loads into the LAYER 2 palette while "
+              "the tilemap palette holds the classic seed — index 1 (0x02) distinguishes "
+              "seeded from never-written, which index 0 (0x00 either way) cannot",
+              l2_ok && tm1 == 0x02,
+              fmt("apply=%d l2_pal[%zu]=%02x want %02x, tilemap_pal[1]=%02x want 02",
+                  f.apply_ok, bad, got, want, tm1));
+    }
+
+    // The seed is unconditional per nexload2.asm:293-296 -> :830-836, so a
+    // file with a NON-tilemode screen and no tilemap palette of its own
+    // still gets it. This row is what pins "unconditional": it uses a
+    // +128 big Layer 2 screen, which carries no palette block at all.
+    {
+        V13Opts o;
+        o.screen_flags = 0x40 | 0x80; o.screen_flags2 = 2;
+        o.banks = {5};
+        Fixture f(o, "pal4");
+        bool ok = f.apply_ok;
+        size_t bad = 0; uint8_t got = 0, want = 0;
+        if (ok) {
+            for (uint8_t i = 0; i < 16 && ok; ++i) {
+                got = read_pal_8(f.emu, 0x30, i);
+                want = kUlaClassic[i];
+                if (got != want) { ok = false; bad = i; }
+            }
+        }
+        check("NEXV13-PAL-04",
+              "the tilemap palette seed is unconditional, not tilemode-only: a Layer 2 "
+              "640x256 file with no palette block still gets it, so a program that later "
+              "switches to the tilemap layer finds a usable palette",
+              ok, fmt("apply=%d tilemap_pal[%zu]=%02x want %02x", f.apply_ok, bad, got, want));
+    }
+
+    // ...but PRESERVENEXTREG suppresses it: nexload2.asm:781-783 returns from
+    // setupBeforeBlockLoading before any palette reset is reached.
+    {
+        V13Opts o;
+        o.screen_flags = 0x40 | 0x80; o.screen_flags2 = 3;
+        o.preserve_regs = 1;
+        o.banks = {5};
+        Fixture f(o, "pal5");
+        const uint8_t tm1 = f.apply_ok ? read_pal_8(f.emu, 0x30, 1) : 0xFF;
+        check("NEXV13-PAL-05",
+              "preserve_regs suppresses the tilemap palette seed — nexload2.asm:781-783 "
+              "returns from setupBeforeBlockLoading before reaching any palette reset",
+              f.apply_ok && tm1 == 0x00,
+              fmt("apply=%d tilemap_pal[1]=%02x want 00 (unseeded)", f.apply_ok, tm1));
     }
 }
 
