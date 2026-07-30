@@ -110,10 +110,16 @@
 |        |      | Task 66 Preferences + config to ~/.jnext; Task 69 CI + badges; gated releases. v0.98.4->.19          |
 | 16/7   | 5h   | Packaging correctness, 6 reviewed merges (5 REJECT->fix): RPM Fedora, DEB Ubuntu 24.04+26.04         |
 |        |      | Windows GUI-subsystem (no console), Flatpak CI build-from-local, src.zip. v0.98.20->.24              |
+| 17/7   | 12h  | macOS build fixed (SDL2 include, C-array ROM embed); publish-release + ChangeLog gate. v0.98.29->.37 |
+|        |      | #16 videoint: NR 0x1E/0x1F = cvc + tilemap scroll latch; PR #15 esxDOS chaining; Task 65 WONTs       |
+| 18/7   | 10h  | Task 77 input remaps (Tab=EXTEND, Esc=BREAK, Alt+E/G/C); Task 83 raw SDL_Joystick USB pads           |
+|        |      | esxDOS syscall trace (#30); #29 NEXTEST DISK_FILEMAP streaming; #9 cadence; SIGPIPE. v0.98.38->.45   |
 | 19/7   | 10h  | #32 NR 0xB2 from Joystick, #33 extended keys (membrane.vhd:253), #37 mouse capture was ABSOLUTE      |
 |        |      | Task 93 build-matrix guard + CI; TODO.md -> GitHub issues. 8 merges, 5 REJECT. v0.98.52->.56         |
 | 20/7   | 12h  | #28 CLOSED: 9-chapter user guide + pandoc man page; docs-check gates every test run; Phase 9 done    |
 |        |      | CI -> fedora:44 after a piped `make` target reported GREEN on a failing suite. #43 #42 #39. v0.98.71 |
+| 21/7   | 4h   | GH #46 self-contained macOS jnext.app: @rpath load-chain closure, codesign, otool-verified gate      |
+|        |      | Task 21-01 unified build/<variant>-<config> dirs; every CI step via a make target. v0.98.72->.74     |
 | 22-23/7| 13h  | LoRes 128x96 shipped (91 VHDL-cited rows written BEFORE code); #64 unified ULA+/ULA palette store    |
 |        |      | #75 per-run private SD clone - SIX review rounds, 3-5 worse than the original. v0.99.0 PUBLIC        |
 | 23/7   | 3h   | #62 Windows UTF-8 manifest; #73 NR $15 per-line replay wired (had shipped with zero callers)         |
@@ -130,4 +136,4 @@
 |        |      | Modularised into src/esp01 (off-thread DNS + design doc); matrix from unit-tests.conf. v0.99.55->.71 |
 | 29/7   | 6h   | GH #25 CLOSED with #49: --esp/--no-esp/--esp-allow, config keys, status-bar cell, man NETWORKING     |
 |        |      | RX pacing settled by measurement; VERIFIED LIVE against the real nx.nxtel.org BBS. v0.99.72->.74     |
-| TOTAL: | 481h |                                                                                                      |
+| TOTAL: | 507h |                                                                                                      |
