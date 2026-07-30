@@ -564,6 +564,213 @@ static void test_cmd23_block_count(SdCardDevice& sd) {
           " b0=" + std::to_string(b[0]));
 }
 
+// ─── Post-write BUSY window (GH #177) ───────────────────────────────────
+
+// Replays the EXACT poll esxdos runs after a CMD24 data phase
+// (enNxtmmc.rom $1FB9):
+//
+//     $1FB9  CALL $1F3D    ; read until a non-$FF byte, giving up after 12800
+//     $1FBC  AND A
+//     $1FBD  JR Z,$1FB9    ; 0x00 => still busy, go round again
+//
+// so $FF means "keep polling", 0x00 means "still busy", and ONLY a byte that
+// is neither ends the wait. Returns the number of SPI reads it took, or -1 if
+// it hit the firmware's own 12800-read timeout.
+static int esxdos_wait_busy(SdCardDevice& sd) {
+    int reads = 0;
+    for (int outer = 0; outer < 64; ++outer) {         // $1FBD retry envelope
+        uint8_t a = 0xFF;
+        int i = 0;
+        for (; i < 12800; ++i) {                        // $1F3D: LD BC,$0032
+            a = spi_read(sd);
+            ++reads;
+            if (a != 0xFF) break;
+        }
+        if (i == 12800) return -1;                      // firmware timed out
+        if (a != 0x00) return reads;                    // busy ended
+    }
+    return -1;
+}
+
+static void test_write_busy_window(SdCardDevice& sd) {
+    // SD-BUSY-01..03 (GH #177). SD Physical Layer Simplified Spec § 7.3.3.1:
+    // after the data-response token, a card that ACCEPTED the block holds
+    // DataOut low while it programs, and releases it when programming ends.
+    //
+    // jnext used to skip the busy phase entirely and go straight back to the
+    // 0xFF idle level. That is not "an infinitely fast card" — it is a card
+    // that never emits a signal the host is waiting for, and it cost ~44% of
+    // all emulated CPU time during a NextSync transfer, because esxdos spun
+    // its full 12800-read timeout on EVERY sector write before falling back
+    // to CMD13.
+    //
+    // Three properties, and the third is the one that actually binds:
+    //   SD-BUSY-01  busy is ASSERTED (0x00) right after the 0x05 token;
+    //   SD-BUSY-02  busy ENDS with a partial byte — neither 0x00 nor 0xFF —
+    //               because the card releases DataOut part-way through a byte,
+    //               after which the line idles at 0xFF;
+    //   SD-BUSY-03  the firmware's own poll loop therefore terminates in a
+    //               handful of reads instead of timing out.
+    //
+    // A card emitting 0x00 -> 0xFF with no partial byte would satisfy
+    // SD-BUSY-01 and still hang the firmware, which is why SD-BUSY-02 tests
+    // the release byte's VALUE and not merely that the run of 0x00 ended.
+    sd.reset();
+    init_card(sd);
+
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; ++i) pattern[i] = static_cast<uint8_t>(i ^ 0x3C);
+
+    const uint8_t r1 = send_cmd_r1(sd, 24, 12);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+
+    // Consume up to the data-response token.
+    uint8_t token = 0xFF;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF) { token = b; break; }
+    }
+
+    // The very next byte must be the asserted busy level.
+    const uint8_t first_busy = spi_read(sd);
+
+    // Walk to the end of the busy run and capture the byte that ends it.
+    uint8_t release = 0x00;
+    int busy_len = 1;
+    for (int i = 0; i < 4096 && release == 0x00; ++i) {
+        release = spi_read(sd);
+        if (release == 0x00) ++busy_len;
+    }
+    const uint8_t after_release = spi_read(sd);
+    sd.deselect();
+
+    check("SD-BUSY-01",
+          "CMD24 accepted: the byte after the 0x05 data-response token is 0x00 "
+          "(card drives DataOut low while programming, SD spec 7.3.3.1)",
+          r1 == 0x00 && token == 0x05 && first_busy == 0x00,
+          "r1=" + std::to_string(r1) + " token=" + std::to_string(token) +
+          " first_busy=" + std::to_string(first_busy));
+
+    check("SD-BUSY-02",
+          "the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — "
+          "DataOut is released part-way through a byte — and the line idles at "
+          "0xFF afterwards",
+          release != 0x00 && release != 0xFF && after_release == 0xFF,
+          "release=" + std::to_string(release) + " busy_len=" +
+          std::to_string(busy_len) + " after=" + std::to_string(after_release));
+
+    // Now the property that motivated the whole thing: run the firmware's own
+    // loop against a fresh write and require it to finish, quickly.
+    sd.reset();
+    init_card(sd);
+    (void)send_cmd_r1(sd, 24, 13);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    for (int i = 0; i < 32; ++i) if (spi_read(sd) == 0x05) break;   // eat the token
+    const int reads = esxdos_wait_busy(sd);
+    sd.deselect();
+
+    check("SD-BUSY-03",
+          "esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a "
+          "handful of SPI reads instead of hitting its 12800-read timeout",
+          reads > 0 && reads <= 16,
+          "reads=" + std::to_string(reads) +
+          (reads < 0 ? " (FIRMWARE TIMEOUT)" : ""));
+}
+
+static void test_write_busy_cs_deassert(SdCardDevice& sd) {
+    // SD-BUSY-05 (GH #177 review). The busy window does NOT survive a CS
+    // deassert, and that is deliberate — this row exists so a future change
+    // cannot quietly assume it does.
+    //
+    // A real card keeps programming across CS and resumes signalling busy on
+    // reselect ONLY because programming takes real time. jnext models it as
+    // instantaneous (kWriteBusyBytes), so by the time the host reselects the
+    // write has notionally completed and "not busy" ($FF) is the honest
+    // answer; carrying the window across CS would report busy after the fact.
+    //
+    // Nothing regresses either way: in enNxtmmc.rom's only write routine
+    // ($1F92) the sole CS-deassert is at the shared exit $1F79, AFTER the busy
+    // poll resolves — so the firmware never takes this path. The row pins the
+    // property, it does not bless a firmware behaviour.
+    sd.reset();
+    init_card(sd);
+
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; ++i) pattern[i] = static_cast<uint8_t>(i ^ 0x5C);
+
+    (void)send_cmd_r1(sd, 24, 14);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    for (int i = 0; i < 32; ++i) if (spi_read(sd) == 0x05) break;   // eat the token
+
+    // Drop CS between the data-response token and the busy poll, then reselect
+    // and read. The window is gone: the card reports idle, not busy.
+    sd.deselect();
+    uint8_t after_cs[4];
+    for (auto& b : after_cs) b = spi_read(sd);
+    sd.deselect();
+
+    bool all_idle = true;
+    for (uint8_t b : after_cs) if (b != 0xFF) all_idle = false;
+
+    check("SD-BUSY-05",
+          "a CS deassert ENDS the post-write busy window — on reselect the "
+          "card reads $FF (programming is modelled as instantaneous, so it has "
+          "already completed); the firmware never takes this path",
+          all_idle,
+          "after_cs=" + std::to_string(after_cs[0]) + "," +
+          std::to_string(after_cs[1]) + "," + std::to_string(after_cs[2]) +
+          "," + std::to_string(after_cs[3]));
+}
+
+static void test_write_busy_not_after_reject() {
+    // SD-BUSY-04 (GH #177). The mirror image of SD-BUSY-01: a block the card
+    // REJECTED is never programmed, so no busy phase may follow it. SD Phys
+    // Layer Simplified Spec § 7.3.3.1 ties the busy window to the card
+    // "receiving and writing" the data; § 7.3.3.3's error tokens (0x0D here,
+    // via a read-only mount) mean nothing was written.
+    //
+    // Without this row, "always assert busy" would pass SD-BUSY-01..03 and be
+    // wrong — it would invent a programming delay for a write that never
+    // happened.
+    std::string img = make_image(16);
+    SdCardDevice ro;
+    const bool mounted = ro.mount(img, /*read_only=*/true);
+    init_card(ro);
+
+    (void)send_cmd_r1(ro, 24, 4);
+    spi_write(ro, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(ro, 0x5A);
+    spi_write(ro, 0xFF);
+    spi_write(ro, 0xFF);
+
+    uint8_t token = 0xFF;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(ro);
+        if (b != 0xFF) { token = b; break; }
+    }
+    const uint8_t next1 = spi_read(ro);
+    const uint8_t next2 = spi_read(ro);
+    ro.deselect();
+    ro.unmount();
+    std::remove(img.c_str());
+
+    check("SD-BUSY-04",
+          "a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy "
+          "window — nothing was programmed, so the line stays idle at 0xFF",
+          mounted && token == 0x0D && next1 == 0xFF && next2 == 0xFF,
+          "token=" + std::to_string(token) + " next1=" + std::to_string(next1) +
+          " next2=" + std::to_string(next2));
+}
+
 // ─── Read-only mount (GH #77, --sdcard-readonly) ────────────────────────
 
 static void test_readonly_mount() {
@@ -2203,6 +2410,9 @@ int main() {
     test_cmd16_set_blocklen(sd);
     test_cmd23_block_count(sd);
     test_cmd24_write(sd);
+    test_write_busy_window(sd);       // SD-BUSY-01..03 (GH #177)
+    test_write_busy_not_after_reject();  // SD-BUSY-04 (GH #177)
+    test_write_busy_cs_deassert(sd);      // SD-BUSY-05 (GH #177 review)
     test_readonly_mount();
     test_mmc_cmd1_init(sd);
 

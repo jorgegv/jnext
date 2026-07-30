@@ -65,6 +65,8 @@ public:
         multi_block_ = false;
         multi_block_sector_ = 0;
         pending_write_after_r1_ = false;
+        write_busy_pending_ = false;
+        busy_remaining_ = 0;
         persistent_response_byte_ = 0xFF;
         host_supports_sdhc_ = false;  // V17-DIVMMC-01
     }
@@ -123,7 +125,39 @@ private:
         SENDING_DATA,   // Sending data block (CMD17)
         RECEIVING_DATA, // Receiving data block from host (CMD24)
         WRITE_RESP,     // Sending write response token
+        WRITE_BUSY,     // Card busy programming an accepted block (SD spec 7.3.3.1)
     };
+
+    // SD Phys Layer Simplified Spec § 7.3.3.1 post-write busy window. See the
+    // State::WRITE_BUSY case in send_impl() for why this is the SHORTEST legal
+    // busy phase rather than a modelled programming time.
+    // Full 0x00 busy bytes emitted before the partial release byte. ONE is
+    // enough for the firmware to observe the busy phase; jnext models the rest
+    // of the SD path with zero access latency, so a realistic multi-millisecond
+    // programming time would be inconsistent with that posture and would slow
+    // every single sector write. The spec requires the busy phase to EXIST and
+    // to END; its duration is a card property, not a protocol constant.
+    static constexpr std::uint8_t kWriteBusyBytes = 1;
+
+    // The byte the host samples as the card stops signalling busy.
+    //
+    // WHAT THE SPEC REQUIRES (§ 7.3.3.1): that a busy phase exists after an
+    // accepted block and that it ends. The spec describes this at DAT0/bit
+    // level, NOT in terms of SPI byte framing, so it does not name a byte
+    // value here.
+    //
+    // WHAT IS AN INFERENCE (mine, not the spec's): the release is asynchronous
+    // to the host's byte boundary, so the byte spanning it carries leading low
+    // bits and trailing high bits — 0x01/0x03/.../0x7F. That pattern is a
+    // physical argument, not a quotation.
+    //
+    // WHAT ACTUALLY BINDS, and is confirmed by the firmware: the byte must be
+    // neither 0x00 (esxdos reads that as "still busy", $1FBD) nor 0xFF (its
+    // $1F3D skip-filler primitive reads that as "nothing yet"). 0x01 is the
+    // smallest value satisfying that.
+    static constexpr std::uint8_t kBusyReleaseByte = 0x01;
+    bool write_busy_pending_ = false;   // set when CMD24 ACCEPTED the block
+    std::uint8_t busy_remaining_ = 0;
 
     State state_ = State::IDLE;
 

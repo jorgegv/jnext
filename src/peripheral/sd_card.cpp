@@ -178,6 +178,25 @@ void SdCardDevice::deselect() {
     // queued but before the data phase started) must not leave the card
     // primed to flip to RECEIVING_DATA on the next host activation.
     pending_write_after_r1_ = false;
+    // The post-write BUSY window does NOT survive CS deassert: the generic
+    // reset above already put the card in IDLE, and unlike the CMD18 stream
+    // there is deliberately no special case for WRITE_RESP / WRITE_BUSY. A
+    // reselect therefore reads $FF (not busy), and SD-BUSY-05 locks that in.
+    //
+    // That is the CORRECT behaviour for this model, not a shortcut. A real
+    // card keeps programming across a CS deassert and resumes signalling busy
+    // on reselect only BECAUSE programming takes real time; jnext models it as
+    // instantaneous (see kWriteBusyBytes — the whole SD path here completes
+    // within the byte that requests it). Under an instantaneous model the
+    // programming is finished by the time the host reselects, so "not busy" is
+    // the honest answer. Carrying the window across CS would report busy after
+    // the write had notionally completed.
+    //
+    // It is also unreachable from the firmware this matters to: in
+    // enNxtmmc.rom's only write routine ($1F92, single caller $1EC0) the sole
+    // `out ($e7),a` CS-deassert sits at the shared exit label $1F79, reached
+    // only after the busy poll has already resolved. CS stays asserted for the
+    // whole write -> token -> busy-poll sequence.
     // ZEsarUX-style: clear persistent-response byte on CS deassert. ZEsarUX
     // mmc_cs() at storage/mmc.c:711-714 sets mmc_last_command=0 +
     // mmc_index_command=0 (so case 0x00 fires next, returning $FF on TBBlue).
@@ -329,6 +348,13 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // 0x05 = data accepted; 0x0D = write error.
                 resp_buf_ = { static_cast<uint8_t>(write_ok ? 0x05 : 0x0D) };
                 resp_idx_ = 0;
+                // SD Physical Layer Simplified Spec § 7.3.3.1: a card that
+                // ACCEPTED the block holds DataOut LOW (busy) after the data
+                // response token while it programs, and the host polls until
+                // the line returns high. A REJECTED block (0x0D write error /
+                // CRC error) is never programmed, so no busy phase follows —
+                // hence the flag rather than an unconditional transition.
+                write_busy_pending_ = write_ok;
             }
             break;
 
@@ -540,8 +566,48 @@ uint8_t SdCardDevice::send() {
             if (resp_idx_ < resp_buf_.size()) {
                 return resp_buf_[resp_idx_++];
             }
+            // SD Phys Layer Simplified Spec § 7.3.3.1 — after the data
+            // response token an ACCEPTED block is followed by a BUSY window
+            // (card drives DataOut low, i.e. reads return 0x00) which ends
+            // when programming completes. Skipping it entirely, as this did,
+            // is not "an infinitely fast card": esxdos polls for the busy
+            // signal to APPEAR (enNxtmmc.rom $1F3D reads until a non-$FF
+            // byte), so a card that never asserts it makes the firmware spin
+            // its full 12800-read timeout on EVERY sector write — measured at
+            // ~44% of all emulated CPU time during a NextSync transfer, and
+            // the whole of GH #177's throughput gap.
+            if (write_busy_pending_) {
+                write_busy_pending_ = false;
+                busy_remaining_     = kWriteBusyBytes;
+                state_              = State::WRITE_BUSY;
+                return 0x00;
+            }
             state_ = State::IDLE;
             return 0xFF;
+
+        case State::WRITE_BUSY:
+            // The busy window is `busy_remaining_` bytes of 0x00 (card holding
+            // DataOut low) followed by ONE PARTIAL byte, and the partial byte
+            // is the whole point.
+            //
+            // The card releases DataOut asynchronously to the host's SPI byte
+            // boundary, so the byte in which programming finishes has its
+            // leading bits low and its trailing bits high — 0x01/0x03/.../0x7F,
+            // never 0x00 and never 0xFF. esxdos depends on exactly that:
+            //
+            //   $1FB9  CALL $1F3D    ; read until a non-$FF byte (12800 tries)
+            //   $1FBC  AND A
+            //   $1FBD  JR Z,$1FB9    ; 0x00 => still busy, keep waiting
+            //
+            // so $FF means "keep polling" and 0x00 means "still busy". ONLY a
+            // partial byte ends the wait. A card that steps 0x00 -> 0xFF with
+            // no partial byte makes the firmware spin its full 12800-read
+            // timeout and then fall back to CMD13 — which is precisely what
+            // jnext did (it emitted no busy phase at all), and it cost ~44% of
+            // all emulated CPU time during a NextSync transfer (GH #177).
+            if (busy_remaining_ > 0) { --busy_remaining_; return 0x00; }
+            state_ = State::IDLE;
+            return kBusyReleaseByte;
     }
 
     return 0xFF;
