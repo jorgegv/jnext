@@ -401,8 +401,13 @@ static void test_port_fe_dispatch(Emulator& emu) {
         const uint8_t border2 = emu.ula().get_border();
 
         check("BP-06",
+              // GH #150: this used to cite emulator.cpp — jnext's own
+              // dispatcher — in a column headed VHDL. The oracle is
+              // zxnext.vhd:2582-2583: `port_fe <= '1' when cpu_a(0) = '0'`
+              // beside port_ff's own decode, which is why 0xFF is not an
+              // alias. Strobed at :2711 / :2714.
               "port 0xFE dispatch lands on the beeper/border handler; "
-              "0xFF does not alias it [emulator.cpp:1163, :1192]",
+              "0xFF does not alias it [zxnext.vhd:2582-2583, :2711, :2714]",
               border0 == 0 && border1 == 6 && border2 == 6,
               fmt("border after 0x00=%u(want 0) after 0x06=%u(want 6) "
                   "after OUT(0xFF)=%u(want 6)",
