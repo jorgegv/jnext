@@ -48,7 +48,7 @@
 //
 //   nexload.asm:580-581   ld hl,(PCReg):ld sp,(SPReg)
 //                         ld a,h:or l:jr z,.returnToBasic
-//   nexload2.asm:408-412  ld hl,(nexHeader.PC)
+//   nexload2.asm:408-413  ld hl,(nexHeader.PC)
 //                         ld a,h : or l : jr z,returnToBasic
 //                         ld sp,(nexHeader.SP)
 //
@@ -1312,7 +1312,7 @@ int main() {
         const uint8_t p7 = f.emu.mmu().get_page(7);
         check("NEXPC0-06",
               "control: PC!=0 maps entry_bank 3 to MMU slots 6/7 (pages 6,7) — "
-              "nexload.asm:557-560 .entryBankSMC",
+              "nexload.asm:555-558 .entryBankSMC",
               f.ok && p6 == 6 && p7 == 7,
               fmt("apply=%d slot6=%u want 6, slot7=%u want 7", f.ok ? 1 : 0, p6, p7));
     }
