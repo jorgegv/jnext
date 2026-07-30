@@ -1746,6 +1746,82 @@ inline void install_fuse_ldir_program(Emulator& emu) {
     emu.cpu().set_registers(regs);
 }
 
+// ── GH #165 fixture: CPU-speed throughput probe ───────────────────────
+// A self-looping LDIR installed entirely in UNCONTENDED 48K memory:
+//
+//   0x8000  21 00 90   LD HL, 0x9000    ; source  — slot 4, uncontended
+//   0x8003  11 00 C0   LD DE, 0xC000    ; dest    — slot 6, uncontended
+//   0x8006  01 00 00   LD BC, 0x0000    ; = 65536 iterations
+//   0x8009  ED B0      LDIR             ; M1 in slot 4 — uncontended
+//   0x800B  76         HALT             ; unreachable within one frame
+//
+// 48K contends bank 5 ONLY (mem_active_page(3:1)="101", zxnext.vhd:4490
+// — i.e. 0x4000-0x7FFF). Every M1 fetch, every (HL) read and every (DE)
+// write above is therefore uncontended, so each LDIR iteration costs its
+// nominal 21 T-states at every NR 0x07 speed. IFF1/IFF2 are forced to 0
+// so the ULA frame interrupt is never accepted and cannot perturb the
+// count.
+//
+// Bound check: at 14 MHz one 48K frame is 69888×4 = 279552 T ÷ 21 =
+// 13312 iterations, so DE stays inside 0xC000-0xFFFF for the whole
+// measured frame — the fill never wraps into ROM or into contended
+// bank 5.
+struct Gh165SpeedProbe {
+    bool     init_ok          = false;
+    int      divisor          = 0;
+    uint64_t master_per_frame = 0;
+    uint64_t tstates          = 0;   // CPU T-states retired in one frame
+    uint32_t iterations       = 0;   // LDIR iterations completed
+};
+
+inline void install_gh165_ldir_program(Emulator& emu) {
+    constexpr uint16_t E = 0x8000;
+    const uint8_t code[] = {
+        0x21, 0x00, 0x90,   // LD HL,0x9000
+        0x11, 0x00, 0xC0,   // LD DE,0xC000
+        0x01, 0x00, 0x00,   // LD BC,0x0000
+        0xED, 0xB0,         // LDIR
+        0x76                // HALT
+    };
+    for (std::size_t i = 0; i < sizeof(code); ++i)
+        emu.mmu().write(static_cast<uint16_t>(E + i), code[i]);
+
+    auto regs   = emu.cpu().get_registers();
+    regs.PC     = E;
+    regs.SP     = 0xBF00;
+    regs.IFF1   = 0;
+    regs.IFF2   = 0;
+    regs.halted = false;
+    emu.cpu().set_registers(regs);
+}
+
+inline Gh165SpeedProbe probe_gh165_speed(uint8_t nr07) {
+    Gh165SpeedProbe p;
+    Emulator emu;
+    if (!make_emu(emu, MachineType::ZX48K)) return p;
+
+    // Production NR 0x07 path writes the SHADOW only (zxnext.vhd:5788-
+    // 5789); fire the bus-idle commit explicitly (zxnext.vhd:5809,5817)
+    // so the WHOLE measured frame runs at the requested speed.
+    emu.nextreg().write(0x07, nr07);
+    emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+
+    install_gh165_ldir_program(emu);
+
+    p.init_ok          = true;
+    p.divisor          = emu.clock().cpu_divisor();
+    p.master_per_frame = emu.timing().master_cycles_per_frame;
+
+    const uint64_t t0 = emu.monotonic_tstates();
+    emu.run_frame();
+    p.tstates = emu.monotonic_tstates() - t0;
+
+    // BC counts down from 0x0000, so BC == 0x10000 - iterations.
+    const uint16_t bc = emu.cpu().get_registers().BC;
+    p.iterations = static_cast<uint32_t>((0x10000u - bc) & 0xFFFFu);
+    return p;
+}
+
 inline uint32_t run_fuse_ldir_program(Emulator& emu, std::size_t max_steps = 100000) {
     seek_to_display_window(emu);   // Task 50 — contention only exists in the display
     const uint32_t t_start = *fuse_z80_tstates_ptr();
@@ -2121,6 +2197,187 @@ static void test_fuse_inopcode_contention() {
               + " step3=(speed=" + std::to_string(eff_speed_step3)
               + ",cd=" + std::to_string(eff_cd_step3)
               + ",gate_off=" + std::to_string(gate_off_step3) + ")");
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CT-TURBO-09 / CT-TURBO-10 — GH #165: the NR 0x07 CPU-speed divider
+    // composes correctly END-TO-END (frame budget × per-instruction cost).
+    // ────────────────────────────────────────────────────────────────────
+    // Every other CT-TURBO row observes ONE link of the chain in
+    // isolation: CT-TURBO-01/04..08 pin the ContentionModel enable gate
+    // and the NR 0x07 / NR 0x08 commit edges, and CT-TURBO-04 pins the
+    // resulting `Clock::cpu_divisor()` VALUE. Nothing pinned the
+    // COMPOSITION — that a divisor of 2 actually buys the guest 4× the
+    // instructions per video frame.
+    //
+    // GH #165 alleged exactly that composition was broken: "an LDIR at
+    // 14 MHz runs ~590× too slow … the guest gets roughly 0.2% of its
+    // cycles". It is not (the report mis-attributed a runaway guest to
+    // the emulator's timing), but the claim was expensive to refute
+    // because no test spoke to it. These two rows do.
+    //
+    // VHDL: the CPU clock is the 28 MHz master divided by the NR 0x07
+    // 2-bit speed field (zxnext.vhd:5787-5790,5809,5817 → CLK_CPU of
+    // 3.5 / 7 / 14 / 28 MHz, i.e. divisor 8 / 4 / 2 / 1). A video frame
+    // is a fixed number of 28 MHz master cycles, so the CPU T-states
+    // available per frame are exactly `master_cycles_per_frame ÷
+    // divisor`, and the instructions retired per frame are that figure
+    // divided by their nominal T-state cost.
+    {
+        // Probe all four NR 0x07 speeds on a fresh Emulator each.
+        Gh165SpeedProbe p[4];
+        bool all_ok = true;
+        for (int s = 0; s < 4; ++s) {
+            p[s] = probe_gh165_speed(static_cast<uint8_t>(s));
+            all_ok = all_ok && p[s].init_ok;
+        }
+
+        // ── CT-TURBO-09: T-states granted to the CPU per frame ────────
+        // Identity: tstates_executed == master_cycles_per_frame / divisor,
+        // to within one instruction of overshoot (run_frame()'s loop
+        // condition is `clock < frame_end`, so it may overrun by at most
+        // the last instruction's cost — 21 T for the LDIR here).
+        //
+        // The expected divisor is HARD-CODED per NR 0x07 value rather
+        // than read back from Clock: deriving it from
+        // `emu.clock().cpu_divisor()` would make the identity
+        // self-consistent under a wrong divisor and the row blind to the
+        // one input that matters (proven by mutation — divisor 2 → 4
+        // left this row green until the literal went in).
+        {
+            static const int kExpectDivisor[4] = {8, 4, 2, 1};
+            bool ok = all_ok;
+            std::string detail;
+            for (int s = 0; s < 4 && ok; ++s) {
+                const uint64_t expect = p[s].master_per_frame /
+                                        static_cast<uint64_t>(kExpectDivisor[s]);
+                const int64_t  err = static_cast<int64_t>(p[s].tstates) -
+                                     static_cast<int64_t>(expect);
+                detail += " nr07=" + std::to_string(s)
+                        + " div=" + std::to_string(p[s].divisor)
+                        + " T=" + std::to_string(p[s].tstates)
+                        + " expect=" + std::to_string(expect)
+                        + " err=" + std::to_string(err) + ";";
+                if (p[s].divisor != kExpectDivisor[s]) ok = false;
+                if (err < 0 || err > 32) ok = false;
+            }
+            check("CT-TURBO-09",
+                  "NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is "
+                  "granted exactly master_cycles_per_frame/divisor T-states "
+                  "in one run_frame() (overshoot <= one instruction). Pins "
+                  "the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not "
+                  "just the divisor value "
+                  "[zxnext.vhd:5787-5790,5809,5817; GH #165]",
+                  ok, detail);
+        }
+
+        // ── CT-TURBO-10: instructions actually retired per frame ──────
+        // CT-TURBO-09 alone cannot catch a per-instruction T-state
+        // inflation (the frame budget identity holds however much each
+        // instruction is charged — the CPU just retires fewer of them).
+        // This row closes that: the LDIR fixture runs entirely in
+        // UNCONTENDED 48K memory, so every iteration costs its nominal
+        // 21 T-states at every speed, and the iteration count per frame
+        // is a direct readout of the T-states the guest really got.
+        //
+        // 28 MHz (nr07=3) is deliberately excluded from the ratio: at
+        // cpu_speed="11" every real memory-read machine cycle takes an
+        // extra SRAM wait T-state (zxnext.vhd:3171-3181, wired in
+        // src/cpu/z80_cpu.cpp sram_wait28_read_tick), so an iteration
+        // there costs more than 21 T by design.
+        {
+            bool ok = all_ok;
+            std::string detail;
+            for (int s = 0; s < 3 && ok; ++s) {
+                // Nominal: 21 T per LDIR iteration, minus the 30 T of
+                // LD HL/DE/BC setup executed once at frame start.
+                const double expect =
+                    (static_cast<double>(p[s].master_per_frame) /
+                     p[s].divisor - 30.0) / 21.0;
+                const double err = (p[s].iterations - expect) / expect;
+                detail += " nr07=" + std::to_string(s)
+                        + " iters=" + std::to_string(p[s].iterations)
+                        + " expect=" + std::to_string(static_cast<long>(expect))
+                        + ";";
+                if (err < -0.01 || err > 0.01) ok = false;
+            }
+            // 3.5 → 14 MHz must buy exactly 4× the iterations.
+            double ratio = 0.0;
+            if (all_ok && p[0].iterations > 0) {
+                ratio = static_cast<double>(p[2].iterations) / p[0].iterations;
+                if (ratio < 3.98 || ratio > 4.02) ok = false;
+            } else {
+                ok = false;
+            }
+            detail += " ratio_14MHz_over_3.5MHz=" + std::to_string(ratio);
+            check("CT-TURBO-10",
+                  "Uncontended self-looping LDIR: iterations retired in one "
+                  "frame == (master_cycles_per_frame/divisor - setup)/21 at "
+                  "NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz "
+                  "count. Pins per-instruction T-state charging against the "
+                  "frame budget — the composition GH #165 claimed was 590x "
+                  "wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165]",
+                  ok, detail);
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CT-TURBO-11 — GH #165: the RUNTIME contention path is disabled by
+    // NR 0x07 != 0, and costs the turbo guest nothing at all.
+    // ────────────────────────────────────────────────────────────────────
+    // GH #165's stated (unconfirmed) suspicion was "a contention or
+    // wait-state penalty mis-scaled by the 14 MHz multiplier". The
+    // ContentionModel gate itself is pinned by CT-GATE-04 / CT-TURBO-01,
+    // and CT-FUSE-05 pins that NR 0x08 bit 6 is the sole switch on the
+    // FUSE-callback path — but nothing pinned the cpu_speed leg
+    // END-TO-END through that same runtime path.
+    //
+    // Stimulus: the CT-FUSE-02 LDIR fixture (source AND destination in
+    // contended bank 5, so contend_write_no_mreq fires 6× per byte), run
+    // twice on one Emulator — once at 3.5 MHz, once at 14 MHz. VHDL
+    // zxnext.vhd:4481 forces `i_contention_en` low when cpu_speed != 0,
+    // so the turbo run must land EXACTLY on the uncontended baseline
+    // (365 T) while the 3.5 MHz run exceeds it.
+    //
+    // The NR 0x07 write only drops the shadow (zxnext.vhd:5788-5789);
+    // one run_frame() supplies the bus-idle commit edge
+    // (zxnext.vhd:5809,5817) for both Clock and ContentionModel, which
+    // is the only public route to ContentionModel's own commit.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZX48K)) {
+            check("CT-TURBO-11",
+                  "Emulator::init failed (likely missing 48K ROM) — row "
+                  "would otherwise verify NR 0x07=0x02 disables the runtime "
+                  "contention path [zxnext.vhd:4481]",
+                  false, "Emulator::init returned false");
+        } else {
+            install_fuse_ldir_program(emu);
+            const uint32_t t_35 = run_fuse_ldir_program(emu);
+
+            emu.nextreg().write(0x07, 0x02);
+            emu.run_frame();          // supplies the bus-idle commit edge
+            const int divisor = emu.clock().cpu_divisor();
+
+            install_fuse_ldir_program(emu);
+            const uint32_t t_14 = run_fuse_ldir_program(emu);
+
+            const bool ok = (divisor == 2)
+                         && (t_35 > FuseLdirProgram::kBaselineT)
+                         && (t_14 == FuseLdirProgram::kBaselineT);
+            check("CT-TURBO-11",
+                  "Bank-5 LDIR in the display window: at NR 0x07=0 the "
+                  "runtime contention path stretches it above the 365 T "
+                  "uncontended baseline; at NR 0x07=0x02 (14 MHz) it costs "
+                  "EXACTLY the baseline — cpu_speed != 0 forces "
+                  "i_contention_en low, and adds no wait of its own "
+                  "[zxnext.vhd:4481,5809,5817; GH #165]",
+                  ok,
+                  std::string("divisor=") + std::to_string(divisor)
+                  + " t_3.5MHz=" + std::to_string(t_35)
+                  + " t_14MHz=" + std::to_string(t_14)
+                  + " baseline=" + std::to_string(FuseLdirProgram::kBaselineT));
+        }
     }
 
     // CT-FUSE-05 — see new check() above (G53 single-contention-path
