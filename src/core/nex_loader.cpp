@@ -702,11 +702,11 @@ bool NexLoader::apply(Emulator& emu) const
     // Seed the tilemap palette with the ULA classic palette.
     //
     // nexload2.asm calls setupBeforeBlockLoading ONCE, unconditionally, at
-    // :293-296 — before it has even looked at which screen kind the file
+    // :293-294 — before it has even looked at which screen kind the file
     // declares. That routine resets the ULA classic palette and then
     // re-points NR 0x43 at the tilemap palette ($30) and writes the SAME
     // classic 16-colour table again (:830-836, "set ULA classic palette also
-    // to tiles palette"), 16 times over to fill all 256 entries (:65-73,
+    // to tiles palette"), 16 times over to fill all 256 entries (:849-857,
     // `ld b,16` around a 16-entry table). So EVERY V1.3 load gets this, not
     // just the tilemode screens — a program that later switches to the
     // tilemap layer without loading its own palette finds the classic one,

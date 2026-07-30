@@ -869,7 +869,7 @@ void test_palette() {
                   f.apply_ok, bad, got, want, tm1));
     }
 
-    // The seed is unconditional per nexload2.asm:293-296 -> :830-836, so a
+    // The seed is unconditional per nexload2.asm:293-294 -> :830-836, so a
     // file with a NON-tilemode screen and no tilemap palette of its own
     // still gets it. This row is what pins "unconditional": it uses a
     // +128 big Layer 2 screen, which carries no palette block at all.
