@@ -1136,6 +1136,55 @@ void test_palette() {
               f.apply_ok && nr43 == 0x10,
               fmt("apply=%d NR 0x43 = %#04x want 0x10", f.apply_ok, nr43));
     }
+
+    // The FOURTH input to the destination selector is screen_flags2, and
+    // nexload2.asm:735-:737 folds two of its values into one branch:
+    //
+    //   nextreg PALETTE_CONTROL_NR43,%0'001'000'0   ; NR43=Layer2 first palette
+    //   ld      a,(nexHeader.LOADSCR2)   [loaded at :732]
+    //   or      a
+    //   jr      nz,.setPalette              ; Layer2 320x256 or 640x256
+    //
+    // `or a : jr nz` takes ANY non-zero LOADSCR2 that is not TILEMODE — so
+    // 640x256 (2) reaches the Layer2-first palette by exactly the same route
+    // as 320x256 (1). Nothing in the tree ran the selector with LOADSCR2 = 2:
+    // NEXV13-SIZE-03 checks only sizing, and NEXV13-PAL-04 sets +128, so no
+    // palette block is read and the selector never executes. The transcription
+    // bug that survives without this row is the classic one — writing
+    // `sf2 == SCREEN2_L2_320x256` for `sf2 != SCREEN2_NONE`.
+    //
+    // EXT2 must be set: without it apply() pins sf2 to SCREEN2_NONE (bit 6 is
+    // what makes field 152 meaningful) and no palette block is read at all.
+    // NR 0x43 is read first, before read_pal_8() writes it.
+    {
+        V13Opts o;
+        o.screen_flags = 0x40;           // EXT2, and NOT +128: palette present
+        o.screen_flags2 = 2;             // Layer 2 640x256x4bpp
+        o.banks = {5};
+        Fixture f(o, "pal10");
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        bool l2_ok = f.apply_ok;
+        size_t bad = 0; uint8_t got = 0, want = 0;
+        if (l2_ok) {
+            for (int i = 0; i < 256 && l2_ok; ++i) {
+                got = read_pal_8(f.emu, 0x10, static_cast<uint8_t>(i));
+                want = pal_byte(static_cast<size_t>(i) * 2);
+                if (got != want) { l2_ok = false; bad = static_cast<size_t>(i); }
+            }
+        }
+        // Entry 1 of the tilemap palette is still the classic seed's 0x02, so
+        // the block did not land there either — index 1 because index 0 reads
+        // 0x00 both seeded and unwritten.
+        const uint8_t tm1 = f.apply_ok ? read_pal_8(f.emu, 0x30, 1) : 0xFF;
+        check("NEXV13-PAL-10",
+              "a Layer 2 640x256 screen's palette block selects NR 0x43 = 0x10 and lands "
+              "in the LAYER 2 palette — nexload2.asm:736-737's `or a : jr nz` takes every "
+              "non-zero non-tilemode LOADSCR2, not just 320x256",
+              f.apply_ok && nr43 == 0x10 && l2_ok && tm1 == 0x02,
+              fmt("apply=%d NR 0x43 = %#04x want 0x10; l2_pal[%zu]=%02x want %02x; "
+                  "tilemap_pal[1]=%02x want 02",
+                  f.apply_ok, nr43, bad, got, want, tm1));
+    }
 }
 
 // ── Copper block ─────────────────────────────────────────────────────
