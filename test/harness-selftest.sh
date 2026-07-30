@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=43
+EXPECTED_TOTAL=45
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -526,6 +526,46 @@ out=$(run_wtb); rc=$?
 check "HS-48" "worktree-bootstrap: a POPULATED submodule reports ok and reaches ready (GH #149)" 0 $rc "$out" \
     "1 git submodule(s) populated" \
     "worktree-bootstrap: ready."
+
+# ---------------- the trap lint must stay wired to the regression preflight (GH #153)
+# Third instance of the HS-45/HS-46 shape, one entry point over. lint-traps.sh
+# self-tests its own 29-case table on every invocation, so it can prove it still
+# DETECTS a stray trap; nothing but this row proves it is still REACHED, and that its
+# verdict still turns the preflight row red. Deleting the four-line `if bash
+# .../lint-traps.sh` block from scripts/00-preflight-lint.sh restores the un-gated state
+# with a leak that only shows up as ~/.jnext/runs/ filling a disk — the exact silence
+# GH #153 was filed about.
+#
+# The row-count witness in regression.sh (`2 lint + 1 sdcard-provision + ...`) is a
+# SECOND, independent check that catches the deletion too, but only via the total: it
+# says a row went missing, not which, and it cannot see the call surviving with its exit
+# status ignored. Both halves below close that.
+#
+# Driven through the REAL scripts/00-preflight-lint.sh (executed standalone — every row
+# script is standalone-runnable by design), so the property proven is the wiring and not
+# a restatement of the lint. JNEXT_LINT_TRAPS_DIR aims the lint at a fixture directory;
+# it exists for this row alone and regression.sh never sets it.
+LT_FIX="$T/lint-traps"
+rm -rf "$LT_FIX"; mkdir -p "$LT_FIX/clean" "$LT_FIX/dirty"
+: > "$LT_FIX/clean/row-func.sh"
+printf '#!/usr/bin/env bash\ntrap %s EXIT\n' "'rm -rf \"\$W\"'" > "$LT_FIX/dirty/row-func.sh"
+run_preflight_lint() {   # run_preflight_lint <clean|dirty>
+    JNEXT_LINT_TRAPS_DIR="$LT_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+        bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1
+}
+
+# A clean fixture must reach the lint (its own "[lint-traps] scanned:" line is printed
+# by lint-traps.sh, so seeing it proves the script actually ran) and pass, giving the
+# preflight its documented 2 rows.
+out=$(run_preflight_lint clean); rc=$?
+check "HS-49a" "the trap lint is reached from the regression preflight, as row 2 (GH #153)" 0 $rc \
+    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 2"
+
+# The other arm: an offending fixture must turn that row red and fail the preflight.
+# Without it HS-49a would also pass on a call whose exit status was discarded.
+out=$(run_preflight_lint dirty); rc=$?
+check "HS-49b" "an offending row script FAILS the preflight, not just the lint (GH #153)" 1 $rc \
+    "$out" "a row script installs its own trap" "Fail: 1"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).
