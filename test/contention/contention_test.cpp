@@ -2232,6 +2232,11 @@ static void test_fuse_inopcode_contention() {
             all_ok = all_ok && p[s].init_ok;
         }
 
+        // The VHDL CPU-clock divider (28 MHz ÷ NR 0x07, zxnext.vhd:5817).
+        // BOTH rows below index this literal rather than reading
+        // `Clock::cpu_divisor()` back — see the note in each.
+        static const int kExpectDivisor[4] = {8, 4, 2, 1};
+
         // ── CT-TURBO-09: T-states granted to the CPU per frame ────────
         // Identity: tstates_executed == master_cycles_per_frame / divisor,
         // to within one instruction of overshoot (run_frame()'s loop
@@ -2245,7 +2250,6 @@ static void test_fuse_inopcode_contention() {
         // one input that matters (proven by mutation — divisor 2 → 4
         // left this row green until the literal went in).
         {
-            static const int kExpectDivisor[4] = {8, 4, 2, 1};
             bool ok = all_ok;
             std::string detail;
             for (int s = 0; s < 4 && ok; ++s) {
@@ -2285,6 +2289,12 @@ static void test_fuse_inopcode_contention() {
         // extra SRAM wait T-state (zxnext.vhd:3171-3181, wired in
         // src/cpu/z80_cpu.cpp sram_wait28_read_tick), so an iteration
         // there costs more than 21 T by design.
+        //
+        // Like CT-TURBO-09, the divisor is the SAME hard-coded literal,
+        // never `p[s].divisor`: a readback would make the absolute
+        // identity self-consistent under a wrong divisor and leave the
+        // separately-literal 3.98..4.02 ratio bound as the only thing
+        // catching a divisor swap. Both legs stand on their own.
         {
             bool ok = all_ok;
             std::string detail;
@@ -2293,7 +2303,7 @@ static void test_fuse_inopcode_contention() {
                 // LD HL/DE/BC setup executed once at frame start.
                 const double expect =
                     (static_cast<double>(p[s].master_per_frame) /
-                     p[s].divisor - 30.0) / 21.0;
+                     kExpectDivisor[s] - 30.0) / 21.0;
                 const double err = (p[s].iterations - expect) / expect;
                 detail += " nr07=" + std::to_string(s)
                         + " iters=" + std::to_string(p[s].iterations)
