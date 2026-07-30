@@ -179,11 +179,16 @@ underruns; the fix reports none.
 
 ## Functional test: esp-loopback-func
 
-The only test that exercises the **emulated ESP-01 end to end** (GH #25): a Z80
-guest reaching port 0x133B, through `UartChannel`, `EspUartAdapter`, `AtEngine`
-and `EspGatedTransport`, out of a **real socket** to a real TCP peer, and every
-byte back again. The three ESP unit suites each replace one end of that path
-with a fake by design, so none of them can fail if the socket path is broken.
+One of the two tests that exercise the **emulated ESP-01 end to end** (GH #25;
+`nextsync-func` below is the other): a Z80 guest reaching port 0x133B, through
+`UartChannel`, `EspUartAdapter`, `AtEngine` and `EspGatedTransport`, out of a
+**real socket** to a real TCP peer, and every byte back again. The three ESP
+unit suites each replace one end of that path with a fake by design, so none of
+them can fail if the socket path is broken.
+
+This row owns the *protocol* half of that coverage — it pins the exact AT reply
+stream, which `nextsync-func` cannot, because a third-party program's traffic is
+not a fixed byte sequence.
 
 The assertion is a byte stream, not a picture: the guest echoes everything the
 ESP says to the magic port in LINE mode, and the row compares the result
@@ -210,6 +215,68 @@ expected byte so it cannot run ahead of the network. The one wall-clock
 dependency — that the frame budget outlasts a same-host TCP connect (~6 ms
 measured against a ~2 s budget) — fails safe under load: a busy box runs fewer
 frames per second, so the same frame budget buys *more* wall time, not less.
+
+## Functional test: nextsync-func
+
+The other end-to-end ESP-01 row (GH #167), and the only test in the suite that
+runs **third-party software** over the emulated module. `esp-loopback-func`
+proves the transport with a purpose-built 76-byte guest; this one proves the
+product claim — that **NextSync 1.2**, the tool most Next developers use to move
+a build onto the machine, completes a real transfer and the files arrive intact.
+A transport that is correct for a hand-written 5-byte payload can still be wrong
+for sustained bulk binary traffic at 1.152 Mbaud.
+
+The verdict is a pair of **sha256 hashes**, computed in the row: two files are
+served by the real vendored server, land on the SD-card image via the guest, are
+read back out, and must be byte-identical. One is 4 KB of adversarial binary
+(every byte value, embedded NULs, and the literal `OK` / `ERROR` / `SEND OK` /
+`> ` / `+IPD,` response frames — anything mishandled as a control character or a
+reply corrupts it); the other is 16 KB, i.e. 16 payload packets, so one dropped
+or duplicated packet fails it. The row also asserts the emulator logged
+`connection OPENED`, and that the server reported `retries: 0, restarts: 0` — a
+transfer that only succeeds after retransmission is a passing sync but a failing
+pacing model.
+
+**No mtools and no new host dependency.** `sdfile_tool` (`test/sdfile/`, a
+test-support binary with no ctest registration) injects the dot command and its
+config into the run's private SD clone through the project's own FAT32 writer,
+`src/core/fat32_image.h` — the same `read_tree` / `tree_upsert` /
+`format_and_populate` sequence `sdcard_provisioner.cpp` uses for
+`MACHINES/NEXT/config.ini` — and reads the synced files back out afterwards.
+
+`test/00regression/nextsync-peer.py` follows `esp-loopback-peer.py`: it discovers
+the host's RFC1918 address the same way and for the same policy reason, and SKIPs
+(exit 3) when there is none. It SKIPs too when TCP **port 2048** is busy — unlike
+the loopback row it cannot take an ephemeral port, because that number is
+compiled into the dot command.
+
+The **dot command** — the software under test — is vendored unmodified and is
+public domain (the Unlicense); provenance, hashes and the owner's
+no-new-dependency approval are in `test/00regression/nextsync/README.md`. The
+peer speaks the protocol itself instead of running the vendored
+`server/nextsync.py`, because that server binds the **wildcard** address with no
+way to narrow it (a listener on every interface of the developer's machine,
+including a public one) and because running it as a subprocess would give the
+row a child process to orphan. The vendored server remains the protocol
+reference and is what the manual recipe in
+[NEXTSYNC-VERIFICATION.md](NEXTSYNC-VERIFICATION.md) runs.
+
+That is safe because the dot **validates** every packet's checksum and sequence
+number, so a mis-framed peer cannot be silently accepted — mutating the peer's
+checksum makes the real dot retry five times and write a zero-length file, which
+the row catches.
+
+**The peer is reaped on every path**, which is what having no child process buys:
+the row's `kill`/`wait` block runs after pass and after fail alike; the early
+SKIP/FAIL paths only clear `peer_pid` once the peer is already dead; and if the
+shell dies without cleaning up at all, the peer notices `getppid()` change,
+logs `parent went away` and exits within about a second, with a 180 s watchdog
+behind that. It installs no EXIT trap — the suite library owns the single
+handler (GH #153).
+
+It cannot flake: no screenshot, no pixel compare, no wall-clock threshold. The
+4000-frame budget is emulated time against a transfer measured at ~1.5 s
+emulated, and contention fails safe in the same direction as the row above.
 
 ## Design notes
 

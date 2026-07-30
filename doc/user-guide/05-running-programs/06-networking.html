@@ -1530,6 +1530,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#worked-example-nextsync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked example: NextSync
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#nothing-about-your-host-leaks-into-the-program" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3153,6 +3164,29 @@ IPv6 unique-local <code>fc00::/7</code>) are <em>not</em> refused — reaching a
 your own network is the main thing people use this for, and nextsync in
 particular connects to a PC on the LAN. The two cloud-metadata addresses above
 sit inside those ranges and are carved back out.</p>
+<h2 id="worked-example-nextsync">Worked example: NextSync<a class="headerlink" href="#worked-example-nextsync" title="Permanent link">&para;</a></h2>
+<p>NextSync is the file-transfer tool most Next developers use to get a build onto
+the machine, and it is the one case where the loopback rule above changes what
+you have to type. Its server runs on your PC; the <code>.sync</code> dot command on the Next
+connects out to it.</p>
+<p><strong>Run the server bound to your machine's LAN address, not <code>127.0.0.1</code>.</strong> The
+server script binds every interface already, so this is only about which address
+you give the Next:</p>
+<pre><code>python3 nextsync.py -a
+</code></pre>
+<p>Then, once, on the Next — with your host's real LAN address, which the server
+prints when it starts:</p>
+<pre><code>.sync 192.168.100.238
+</code></pre>
+<p>and from then on just <code>.sync</code> (or <code>.syncfast</code> / <code>.syncslow</code>). Nothing else is
+needed: <code>--esp</code> alone is enough, because private addresses are allowed by default
+and an empty allowlist means "no restriction".</p>
+<pre><code>jnext --esp --machine next
+</code></pre>
+<p>Pointing it at <code>127.0.0.1</code> is the one thing that will not work — the connection
+is refused before it is attempted, and the log says
+<code>address refused by policy</code>. All three speed variants are verified working, and
+the files arrive byte-identical.</p>
 <h2 id="nothing-about-your-host-leaks-into-the-program">Nothing about your host leaks into the program<a class="headerlink" href="#nothing-about-your-host-leaks-into-the-program" title="Permanent link">&para;</a></h2>
 <p>The module reports a fixed, invented identity: SSID <code>JNextWifiHost</code>, a
 <code>02:00:00:…</code> MAC and BSSID, and a <code>192.168.1.50</code> station address. None of it is

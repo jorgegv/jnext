@@ -967,6 +967,15 @@ target_link_libraries(lores_integration_test PRIVATE
 target_include_directories(lores_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME lores_integration_tests COMMAND lores_integration_test)
 
+# sdfile_tool (GH #167) — test-support BINARY, deliberately NOT an add_test():
+# it reports no rows and must stay invisible to test/unit-tests.conf. The
+# `nextsync-func` regression row uses it to inject NextSync's dot command into
+# the run's private SD clone and to read the synced files back out. Thin shell
+# over src/core/fat32_image.h, which is why that row needs no mtools.
+add_executable(sdfile_tool sdfile/sdfile_tool.cpp)
+target_link_libraries(sdfile_tool PRIVATE jnext_core)
+target_include_directories(sdfile_tool PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
 # code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on
