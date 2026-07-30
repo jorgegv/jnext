@@ -698,7 +698,7 @@ filed it as one, and measurement says otherwise. Its Copper does
 `hc_ula` (`zxnext.vhd:3949`, fed from `o_hc_ula`, `zxula_timing.vhd:438`), a
 **7 MHz** counter whose origin is `c_min_hactive - 12`
 (`zxula_timing.vhd:423-424`), so the WAIT threshold `(52<<3)+12 = 428`
-(`copper.vhd:89`) is satisfied at raw pixel 96 of the *following* raw line —
+(`copper.vhd:94`) is satisfied at raw pixel 96 of the *following* raw line —
 in the blanking between the display of line 95 and line 96 — and the change is
 correctly visible from row 128. jnext instead passes the raw
 **master-cycles-into-line** counter (`Emulator::tick_copper_for_master_cycles`,
