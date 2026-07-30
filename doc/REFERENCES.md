@@ -38,6 +38,14 @@ is easy to get wrong and jnext did:
 | `1`               | keep it open, pass the handle in `BC` (the recommended value) |
 | `0x4000`–`0xFFFF` | keep it open, write the handle to that memory address         |
 
+## ESP-01 consumer software (used to verify the emulated module)
+
+| Reference                                                                    | URL                                                      |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| NextSync — Jari Komppa's dot command + Python server (the download page)      | <https://solhsa.com/specnext.html#NEXTSYNC>              |
+| NextSync 1.2 release — `nextsync12.zip`, the canonical binaries verified in [NEXTSYNC-VERIFICATION.md](testing/NEXTSYNC-VERIFICATION.md) | <https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2> |
+| NextSync sources (Unlicense) — `nextsync.c`, `uart.s`, the AT sequence read rather than reverse-engineered | <https://github.com/jclauzel/ZX-Next-Unite/tree/main/nextsync> |
+
 ## Emulators used as oracles / comparison
 
 | Reference                                                         | URL                                      |

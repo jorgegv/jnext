@@ -156,6 +156,41 @@ your own network is the main thing people use this for, and nextsync in
 particular connects to a PC on the LAN. The two cloud-metadata addresses above
 sit inside those ranges and are carved back out.
 
+## Worked example: NextSync
+
+NextSync is the file-transfer tool most Next developers use to get a build onto
+the machine, and it is the one case where the loopback rule above changes what
+you have to type. Its server runs on your PC; the `.sync` dot command on the Next
+connects out to it.
+
+**Run the server bound to your machine's LAN address, not `127.0.0.1`.** The
+server script binds every interface already, so this is only about which address
+you give the Next:
+
+```
+python3 nextsync.py -a
+```
+
+Then, once, on the Next — with your host's real LAN address, which the server
+prints when it starts:
+
+```
+.sync 192.168.100.238
+```
+
+and from then on just `.sync` (or `.syncfast` / `.syncslow`). Nothing else is
+needed: `--esp` alone is enough, because private addresses are allowed by default
+and an empty allowlist means "no restriction".
+
+```
+jnext --esp --machine next
+```
+
+Pointing it at `127.0.0.1` is the one thing that will not work — the connection
+is refused before it is attempted, and the log says
+`address refused by policy`. All three speed variants are verified working, and
+the files arrive byte-identical.
+
 ## Nothing about your host leaks into the program
 
 The module reports a fixed, invented identity: SSID `JNextWifiHost`, a
