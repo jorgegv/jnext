@@ -202,6 +202,45 @@ void test_cold_boot_resets_the_cell() {
           cell ? cell->text().toStdString() : "no cell");
 }
 
+void test_address_policy_refusal_from_the_guest() {
+    // THE OTHER HALF OF THE SAME SECURITY CONTROL (GH #161). The allowlist is
+    // enforced in jnext (`EspGatedTransport::begin_connect`); the ADDRESS policy
+    // is enforced inside the reusable transport, which has no vocabulary richer
+    // than `Failed` to report with. So a guest reaching for 127.0.0.1 — or a
+    // cloud-metadata endpoint — used to produce a cell indistinguishable from a
+    // DNS miss or a timeout: the block happened, but it did not look deliberate.
+    //
+    // No allowlist here on purpose: the NAME passes, and the refusal can only
+    // come from the address policy the transport applies after resolving it.
+    // 127.0.0.1 is a literal, so no DNS is contacted and no socket is opened —
+    // the row is hermetic.
+    Fixture f{true};
+    f.guest_sends("AT+CIPSTART=\"TCP\",\"127.0.0.1\",8080\r\n");
+    const bool reported = f.wait_for_event();
+    f.refresh();
+    QLabel* cell = esp_cell(f.win);
+    const std::string why =
+        !reported ? "the guest AT+CIPSTART never reached the ESP"
+                  : (cell ? cell->text().toStdString() : "no cell");
+
+    check("ESPUI-13", "a policy-blocked address reaches the cell as a REFUSAL, not a failure",
+          reported && cell && cell->text().contains(QStringLiteral("REFUSED")) &&
+              cell->text().contains(QStringLiteral("127.0.0.1:8080")),
+          why);
+    check("ESPUI-14", "...in red, exactly like an allowlist refusal",
+          cell && cell->styleSheet().contains(QStringLiteral("red")),
+          cell ? cell->styleSheet().toStdString() : "no cell");
+    // The tooltip carries the HISTORY, and it has to classify each entry too —
+    // the reason text alone was always there, printed under a "failed" heading,
+    // which is precisely the thing that made a deliberate block unreadable.
+    check("ESPUI-15", "...and the history entry is filed as refused, not as failed",
+          cell &&
+              cell->toolTip().contains(QStringLiteral("refused 127.0.0.1:8080")) &&
+              !cell->toolTip().contains(QStringLiteral("failed 127.0.0.1:8080")) &&
+              cell->toolTip().contains(QStringLiteral("address refused by policy")),
+          cell ? cell->toolTip().toStdString() : "no cell");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -213,6 +252,7 @@ int main(int argc, char** argv) {
     test_disabled();
     test_enabled_idle();
     test_refusal_from_the_guest();
+    test_address_policy_refusal_from_the_guest();
     test_cold_boot_resets_the_cell();
 
     std::printf("\n============================================\n");

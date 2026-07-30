@@ -3080,7 +3080,7 @@ ESP: on (2 allowed)       two named hosts, listed in the tooltip
 </tr>
 <tr>
 <td><code>ESP: REFUSED host:port</code></td>
-<td><strong>red.</strong> Your <code>--esp-allow</code> list does not name that host</td>
+<td><strong>red.</strong> JNEXT blocked it: either your <code>--esp-allow</code> list does not name that host, or the address is on the always-refused list below</td>
 </tr>
 <tr>
 <td><code>ESP: FAULT</code></td>
@@ -3088,12 +3088,12 @@ ESP: on (2 allowed)       two named hosts, listed in the tooltip
 </tr>
 </tbody>
 </table>
-<p><code>failed</code> covers several different things: the name did not resolve, the remote
-end refused or timed out, <strong>or the address was blocked by the always-refused
-list below</strong>. Only an allowlist rejection gets the red <code>REFUSED</code> treatment.
-So when you see <code>failed</code>, hover the cell: the tooltip carries the reason, and a
-policy block says so in as many words (<code>address refused by policy: …</code>). The log
-also carries it, as a warning, at the default log level.</p>
+<p>Red <code>REFUSED</code> means <strong>JNEXT</strong> said no, and it covers both halves of that
+decision. <code>failed</code> means the <em>network</em> said no: the name did not resolve, the
+remote end refused the connection, or the attempt timed out. Hover the cell
+either way — the tooltip carries the reason, and a block by the always-refused
+list says so in as many words (<code>address refused by policy: …</code>). The log also
+carries it, as a warning, at the default log level.</p>
 <p>Hover the cell for the full history of the session — the cell can only show the
 most recent event, and "it flashed something a minute ago" needs to stay
 answerable.</p>
@@ -3224,13 +3224,13 @@ stays regardless, so the run is still not silent there. Headless, with the log
 off, nothing reports the connections at all.</p>
 <p>Common cases:</p>
 <ul>
-<li><strong>The cell shows red <code>REFUSED</code>.</strong> Your allowlist does not name that host.
-  Check your <code>--esp-allow</code> spelling against the name the log shows the program
-  asking for, or drop the restriction to confirm that is what it is.</li>
-<li><strong>The cell shows <code>failed</code>.</strong> Hover it. If the reason is
-  <code>address refused by policy</code>, the program asked for something on the
-  always-refused list and no <code>--esp-allow</code> will let it through. Anything else
-  is an ordinary network failure — wrong name, nothing listening, timeout.</li>
+<li><strong>The cell shows red <code>REFUSED</code>.</strong> JNEXT blocked it. Hover it: if the reason
+  is <code>not in the allowlist</code>, check your <code>--esp-allow</code> spelling against the name
+  the log shows the program asking for, or drop the restriction to confirm that
+  is what it is. If it is <code>address refused by policy</code>, the program asked for
+  something on the always-refused list and no <code>--esp-allow</code> will let it through.</li>
+<li><strong>The cell shows <code>failed</code>.</strong> That is an ordinary network failure — wrong name,
+  nothing listening, timeout. Hover it for the reason.</li>
 <li><strong>The program behaves as if nothing is there.</strong> In a window, check the cell
   exists at all; headless, check the startup log for the <code>ESP-01 enabled</code> line.
   If it is absent the ESP is off — <code>--no-esp</code> beats a saved preference, and a

@@ -82,7 +82,10 @@ public:
         port_       = port;
         peer_       = IpAddress{};
         last_error_.clear();
-        state_ = TransportState::Resolving;
+        // Cleared with `last_error_` and for the same reason: both describe the
+        // PREVIOUS attempt, and a fresh request must not inherit its verdict.
+        denial_ = DenyReason::None;
+        state_  = TransportState::Resolving;
         log_debug("connect requested: {}:{} (resolution deferred to poll)",
                             host_, port_);
         return true;
@@ -102,6 +105,7 @@ public:
     TransportState     state() const override        { return state_; }
     const std::string& last_error() const override   { return last_error_; }
     const IpAddress&   peer_address() const override { return peer_; }
+    DenyReason         denial_reason() const override { return denial_; }
 
     std::size_t send(const std::uint8_t* data, std::size_t len) override {
         if (state_ != TransportState::Connected || data == nullptr || len == 0)
@@ -318,8 +322,14 @@ private:
                                found.empty() ? std::string("no candidates")
                                              : to_string(found.front()));
             last_error_ = std::string("address refused by policy: ") + deny_reason_text(reason);
+            // The verdict is recorded as a VALUE, not only inside that string:
+            // this is the half of the security gate a host has to be able to
+            // render as a deliberate block rather than as "the network didn't
+            // work" (GH #161), and no host should have to grep a message to
+            // find that out.
+            denial_ = reason;
             release();
-            state_ = TransportState::Failed;
+            state_  = TransportState::Failed;
             return;
         }
         peer_ = normalize(chosen);
@@ -365,6 +375,9 @@ private:
     std::uint16_t     port_ = 0;
     IpAddress         peer_;
     std::string       last_error_;
+    /// Non-`None` only while `state_ == Failed` because the address policy
+    /// refused the target. See `EspTransport::denial_reason()`.
+    DenyReason        denial_ = DenyReason::None;
     /// Non-null only between starting a lookup and consuming its result. The
     /// resolver thread holds the other reference.
     std::shared_ptr<ResolveJob> job_;

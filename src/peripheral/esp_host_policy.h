@@ -95,9 +95,15 @@ struct EspHostPolicy {
 /// invisible to the user who most needs it is not a satisfied requirement.
 struct EspEvent {
     enum class Kind : std::uint8_t {
-        Refused,         ///< the allowlist rejected the host; no socket was opened
+        /// A SECURITY CONTROL said no. Either half of it: the `--esp-allow`
+        /// hostname list rejected the name before anything was opened, or
+        /// `esp::AddressPolicy` rejected the address it resolved to. Both are
+        /// deliberate blocks by jnext, so both must look deliberate — a
+        /// loopback or cloud-metadata target used to arrive as a plain
+        /// `Failed`, indistinguishable from a DNS miss (GH #161).
+        Refused,
         Opened,          ///< TCP connection established
-        Failed,          ///< the attempt failed (DNS, address policy, refused, timeout)
+        Failed,          ///< the attempt failed for a NON-policy reason (DNS, refused, timeout)
         Closed,          ///< connection closed (by either end)
         TransportFault,  ///< the transport threw; the ESP has stopped making progress
     };
@@ -189,6 +195,7 @@ public:
     void                  poll() override;
     esp::TransportState   state() const override;
     const std::string&    last_error() const override;
+    esp::DenyReason       denial_reason() const override;
     const esp::IpAddress& peer_address() const override;
     std::size_t           send(const std::uint8_t* data, std::size_t len) override;
     std::size_t           recv(std::uint8_t* buf, std::size_t cap) override;

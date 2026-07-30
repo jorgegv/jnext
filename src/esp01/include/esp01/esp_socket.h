@@ -275,6 +275,30 @@ public:
     virtual TransportState     state() const      = 0;
     /// Empty unless the last transition was a failure.
     virtual const std::string& last_error() const = 0;
+
+    /// Why the current `Failed` state is a POLICY REFUSAL rather than a
+    /// network fault — `DenyReason::None` when it is an ordinary failure
+    /// (no route, timeout, connection refused, a lookup that found nothing).
+    ///
+    /// WHY THE DISTINCTION NEEDS ITS OWN ACCESSOR. Both outcomes land in
+    /// `Failed` with a `last_error()` string, and a consumer that has to tell
+    /// them apart otherwise has to match on that string — which makes a
+    /// SECURITY signal depend on log wording nobody promised to keep stable.
+    /// jnext renders a deliberate block differently from a network error (a
+    /// red REFUSED cell, not a grey "failed" one), and that rendering is only
+    /// as trustworthy as the thing it switches on. GH #161.
+    ///
+    /// Meaningful only while `state() == Failed`; a fresh `begin_connect()`
+    /// clears it, exactly as it clears `last_error()`.
+    ///
+    /// DEFAULTED, NOT PURE, and deliberately so: a transport that enforces no
+    /// address policy — every fake in a consumer's test suite, and any
+    /// alternative implementation — can never produce a policy refusal, so
+    /// `None` is not a placeholder for it but the correct answer. Making it
+    /// pure would break every existing implementor of a published interface to
+    /// tell them something they already know.
+    virtual DenyReason denial_reason() const { return DenyReason::None; }
+
     /// The address actually connected to. Meaningful from `Connected` onward.
     virtual const IpAddress&   peer_address() const = 0;
 

@@ -55,15 +55,15 @@ Once the program starts connecting, the cell follows it:
 | `ESP: host:port` | connected |
 | `ESP: closed host:port` | that connection has ended |
 | `ESP: failed host:port` | the attempt did not succeed — see below |
-| `ESP: REFUSED host:port` | **red.** Your `--esp-allow` list does not name that host |
+| `ESP: REFUSED host:port` | **red.** JNEXT blocked it: either your `--esp-allow` list does not name that host, or the address is on the always-refused list below |
 | `ESP: FAULT` | **red.** The host side broke; the ESP has stopped making progress |
 
-`failed` covers several different things: the name did not resolve, the remote
-end refused or timed out, **or the address was blocked by the always-refused
-list below**. Only an allowlist rejection gets the red `REFUSED` treatment.
-So when you see `failed`, hover the cell: the tooltip carries the reason, and a
-policy block says so in as many words (`address refused by policy: …`). The log
-also carries it, as a warning, at the default log level.
+Red `REFUSED` means **JNEXT** said no, and it covers both halves of that
+decision. `failed` means the *network* said no: the name did not resolve, the
+remote end refused the connection, or the attempt timed out. Hover the cell
+either way — the tooltip carries the reason, and a block by the always-refused
+list says so in as many words (`address refused by policy: …`). The log also
+carries it, as a warning, at the default log level.
 
 Hover the cell for the full history of the session — the cell can only show the
 most recent event, and "it flashed something a minute ago" needs to stay
@@ -219,13 +219,13 @@ off, nothing reports the connections at all.
 
 Common cases:
 
-- **The cell shows red `REFUSED`.** Your allowlist does not name that host.
-  Check your `--esp-allow` spelling against the name the log shows the program
-  asking for, or drop the restriction to confirm that is what it is.
-- **The cell shows `failed`.** Hover it. If the reason is
-  `address refused by policy`, the program asked for something on the
-  always-refused list and no `--esp-allow` will let it through. Anything else
-  is an ordinary network failure — wrong name, nothing listening, timeout.
+- **The cell shows red `REFUSED`.** JNEXT blocked it. Hover it: if the reason
+  is `not in the allowlist`, check your `--esp-allow` spelling against the name
+  the log shows the program asking for, or drop the restriction to confirm that
+  is what it is. If it is `address refused by policy`, the program asked for
+  something on the always-refused list and no `--esp-allow` will let it through.
+- **The cell shows `failed`.** That is an ordinary network failure — wrong name,
+  nothing listening, timeout. Hover it for the reason.
 - **The program behaves as if nothing is there.** In a window, check the cell
   exists at all; headless, check the startup log for the `ESP-01 enabled` line.
   If it is absent the ESP is off — `--no-esp` beats a saved preference, and a

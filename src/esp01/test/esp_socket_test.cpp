@@ -832,6 +832,61 @@ int main() {
         }
     }
 
+    // ═══ SEC-DENY — a policy refusal is a VALUE, not a message (GH #161) ═══
+    // Both outcomes below are `Failed` with a non-empty `last_error()`, so a
+    // host that has to render a deliberate block differently from a network
+    // fault can only do it by asking the transport. These rows pin that the
+    // answer is right in BOTH directions: a refusal names its rule, and an
+    // ordinary failure does not claim to be a refusal.
+    //
+    // No listener is needed: a denied address never reaches a socket, which is
+    // exactly what SEC-03 above proves.
+    {
+        auto t = make_socket_transport(kDefault);  // DEFAULT policy: loopback denied
+        t->begin_connect("127.0.0.1", 9);
+        t->poll();
+        check("SEC-04",
+              "an address-policy refusal reports the rule that refused it, "
+              "without anyone parsing last_error()",
+              t->state() == TransportState::Failed &&
+                  t->denial_reason() == DenyReason::Loopback);
+
+        // Same transport, allowed target this time: the previous verdict must
+        // not survive into the new attempt, or the next failure would render as
+        // a security block that never happened. RFC 5737 TEST-NET-3, and never
+        // polled, so nothing is resolved and no packet leaves the host.
+        t->begin_connect("203.0.113.1", 9);
+        check("SEC-05", "a fresh request clears the previous refusal verdict",
+              t->denial_reason() == DenyReason::None);
+    }
+    {
+        // An ordinary connect failure — nothing listening on a port the kernel
+        // just handed back — must report NO deny reason.
+        Listener l;
+        std::uint16_t dead_port = 0;
+        if (l.start()) {
+            dead_port = l.port();
+            l.stop();
+        }
+        if (dead_port == 0) {
+            ++g_total; ++g_skip;
+            std::printf("  SKIP SEC-06: could not obtain a closed loopback port\n");
+        } else {
+            auto t = make_socket_transport(loopback_ok());
+            t->begin_connect("127.0.0.1", dead_port);
+            for (int waited = 0; waited < 2000; waited += 2) {
+                t->poll();
+                if (t->state() == TransportState::Failed) break;
+                sleep_ms(2);
+            }
+            check("SEC-06",
+                  "a network failure reports no deny reason, so it cannot be "
+                  "mistaken for a deliberate block",
+                  t->state() == TransportState::Failed &&
+                      t->denial_reason() == DenyReason::None);
+        }
+    }
+
     // ═══ NET — real loopback I/O against an in-process listener ════════════
     {
         Listener l;
