@@ -129,6 +129,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     frame_in_progress_ = false;   // no frame is in flight after a reset
     replay_mode_ = false;
     boot_hold_frames_remaining_ = 0;  // G156
+    cpu_parked_ = false;              // GH #164
 
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
     // soft reset so tbblue-loaded content in SRAM (including the ROM-in-SRAM
@@ -7651,6 +7652,14 @@ uint64_t Emulator::step_one_instruction()
 
     if (dma_stalled_cpu_this_step) {
         // master_cycles already computed above.
+    } else if (cpu_parked_) {
+        // GH #164 — CPU parked indefinitely by a load-only NEX (header
+        // PC = 0). Same treatment as the G156 hold below — no instruction
+        // fetch/execute, clock advanced in NOP-sized steps so rendering,
+        // audio and the scheduler keep running and the loaded screen is
+        // composited every frame — but with no countdown: nothing the NEX
+        // did not ask for may ever run. See Emulator::set_cpu_parked().
+        master_cycles = 4ULL * clock_.cpu_divisor();
     } else if (boot_hold_frames_remaining_ > 0) {
         // G156 — NEX loading_delay/start_delay hold: no CPU instruction
         // is fetched or executed. Advance the clock in small NOP-sized
@@ -9172,6 +9181,7 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u64(monotonic_tstates());
     w.write_u32(frame_num_);
     w.write_u32(boot_hold_frames_remaining_);  // G156
+    w.write_bool(cpu_parked_);                 // GH #164
     w.write_u64(psg_accum_);
     // Note: this is the Bresenham phase only. The Mixer's in-progress
     // integration accumulator is deliberately NOT snapshotted — after a restore
@@ -9586,6 +9596,7 @@ bool Emulator::load_state(StateReader& r)
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156
+    cpu_parked_                 = r.read_bool(); // GH #164
     psg_accum_        = r.read_u64();
     sample_accum_     = r.read_u64();
     dac_enabled_      = r.read_bool();

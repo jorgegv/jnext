@@ -189,6 +189,27 @@ public:
     void set_boot_hold_frames(uint32_t frames) { boot_hold_frames_remaining_ = frames; }
     uint32_t boot_hold_frames_remaining() const { return boot_hold_frames_remaining_; }
 
+    /// GH #164 — park the CPU: run_frame() keeps rendering, audio and the
+    /// scheduler ticking but fetches and executes no instruction, so the
+    /// machine holds whatever state it was left in, indefinitely.
+    ///
+    /// Set by NexLoader::apply() for a NEX whose header PC is 0 — the
+    /// format's "load only, do not execute" encoding (nexload.asm:581
+    /// `ld a,h:or l:jr z,.returnToBasic`, nexload2.asm:410-412). On real
+    /// hardware that path RETURNS to the OS that invoked the loader, with
+    /// the load's banks/paging/NextREGs/palette/border intact. jnext's
+    /// `--load` has no OS to return to — it resets and applies the NEX
+    /// before a single instruction runs — so the faithful equivalent of
+    /// "run nothing the NEX did not ask for, keep the state the load
+    /// produced" is to run nothing at all. Parking is jnext's stand-in for
+    /// the oracle's `ret`, NOT a claim that real hardware halts: there the
+    /// OS keeps running its idle loop (interrupts, FLASH, keyboard scan),
+    /// which a parked jnext does not.
+    ///
+    /// Cleared by init(), hence by both reset() and soft_reset().
+    void set_cpu_parked(bool parked) { cpu_parked_ = parked; }
+    bool cpu_parked() const { return cpu_parked_; }
+
     /// Load a TAP file and attach it as the virtual tape.
     /// When fast_load is true (default), uses ROM trap interception.
     /// When false, uses real-time EAR bit simulation.
@@ -1044,6 +1065,11 @@ private:
     /// G156 — remaining frames the CPU is held idle after a NEX load with
     /// non-zero loading_delay/start_delay. See set_boot_hold_frames().
     uint32_t boot_hold_frames_remaining_ = 0;
+
+    /// GH #164 — CPU parked indefinitely (no instruction fetch/execute).
+    /// See set_cpu_parked(). Serialised with the rest of the machine state
+    /// so a rewind cannot silently un-park a load-only NEX.
+    bool cpu_parked_ = false;
 
     /// Everything that must happen exactly once per frame, at its start (Copper vsync,
     /// per-scanline change-log baselines, interrupt scheduling, rewind snapshot). Called
