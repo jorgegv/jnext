@@ -763,7 +763,10 @@ bool NexLoader::apply(Emulator& emu) const
         nr.write(0x17, 0x00);
     }
 
-    // Palette control: select ULA first palette, no auto-increment.
+    // Palette control: select the ULA first palette (bits 6:4 = 000). Bit 7
+    // is DISABLE auto-increment-on-write (src/video/palette.h:69), so a zero
+    // here leaves auto-increment ENABLED — which is what both loaders want,
+    // since each then walks a palette with repeated NR 0x41/0x44 writes.
     // nexload.asm:267-268 — ABOVE the gate (repeated inside it at :394);
     // on the V1.3 path the only oracle is nexload2.asm:847, which leaves
     // NR 0x43 at 0 at the END of the palette resets, INSIDE its gate.
