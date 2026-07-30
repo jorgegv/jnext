@@ -606,7 +606,7 @@ hc_ula == 0   <=>   raw hc == c_min_hactive - 11
 ```
 
 (the "EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME COUNTER" note at
-`zxula_timing.vhd:343`; the same origin `AttributeMux` already derives,
+`zxula_timing.vhd:344`; the same origin `AttributeMux` already derives,
 `attribute_mux.h:281`). `cvc` steps on the same `ula_max_hc` pulse
 (`:457-470`), so its line boundary is that shifted one too.
 
@@ -638,11 +638,11 @@ TIMING mode plus the machine-axis entry point:
 
 | ID | Description | VHDL |
 |----|-------------|------|
-| VT-GH181-01 | 48K timing: `hc_ula_zero_raw_hc()` = `c_min_hactive - 11` = **117** | zxula_timing.vhd:159,423-436,343 |
-| VT-GH181-02 | 128K timing: = **125** | zxula_timing.vhd:195,423-436,343 |
-| VT-GH181-03 | +3 timing: = **125** | zxula_timing.vhd:229,423-436,343 |
-| VT-GH181-04 | Pentagon timing: = **117** | zxula_timing.vhd:261,423-436,343 |
-| VT-GH181-05 | Next (`init(ZXN_ISSUE2)`, 128K-class slot): = **125** | zxula_timing.vhd:195,423-436,343 |
+| VT-GH181-01 | 48K timing: `hc_ula_zero_raw_hc()` = `c_min_hactive - 11` = **117** | zxula_timing.vhd:261,423-436,344 |
+| VT-GH181-02 | 128K timing: = **125** | zxula_timing.vhd:195,423-436,344 |
+| VT-GH181-03 | +3 timing: = **125** | zxula_timing.vhd:195,423-436,344 |
+| VT-GH181-04 | Pentagon timing: = **117** | zxula_timing.vhd:159,423-436,344 |
+| VT-GH181-05 | Next (`init(ZXN_ISSUE2)`, 128K-class slot): = **125** | zxula_timing.vhd:195,423-436,344 |
 | VT-GH181-06 | the registered reset lands exactly ONE pixel after the armed origin, stated independently of the absolute values | zxula_timing.vhd:424 vs :427-436 |
 
 Mutation evidence:

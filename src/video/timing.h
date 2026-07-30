@@ -151,7 +151,7 @@ public:
     /// The reset takes effect on the edge AFTER `hc = ula_min_hactive`,
     /// by which time `hc` has itself advanced to `ula_min_hactive + 1`
     /// — the "EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME COUNTER"
-    /// note at zxula_timing.vhd:343. So
+    /// note at zxula_timing.vhd:344. So
     ///
     ///     hc_ula == 0  <=>  hc == c_min_hactive - 11
     ///
