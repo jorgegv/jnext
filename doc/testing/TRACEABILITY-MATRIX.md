@@ -16,7 +16,7 @@
 | Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
 | Copper                                     |    82 |   79 |    0 |    0 |       3 |          0 |
-| Compositor                                 |   144 |  141 |    0 |    0 |       3 |         72 |
+| Compositor                                 |   144 |  141 |    0 |    0 |       3 |         76 |
 | Audio                                      |   213 |  185 |    0 |    0 |      28 |          9 |
 | DMA                                        |   158 |  150 |    0 |    0 |       8 |          7 |
 | DivMMC+SPI                                 |   127 |   99 |    0 |    0 |      28 |         47 |
@@ -49,9 +49,9 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        843 |
+| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        847 |
 
-Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6342**.
+Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 89 suites declared in `test/unit-tests.conf` run live: **6349**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -61,7 +61,7 @@ Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in t
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 48 suites (2695 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 48 suites (2698 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -107,7 +107,7 @@ These 48 suites (2695 live rows) have no VHDL-derived plan row to map, so they h
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
 | `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
 | `preferences_apply_test` | 40 | Preferences dialog wiring (host GUI) |
-| `debugger_video_panel_test` | 87 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_video_panel_test` | 90 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 5 | debugger quit gating (host GUI lifecycle) |
 | `debugger_window_size_test` | 21 | debugger window geometry (host GUI) |
@@ -803,128 +803,128 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 
 | Test ID | Plan row title                                               | VHDL file:line       | Status  | Test file:line                   |
 |---------|--------------------------------------------------------------|----------------------|---------|----------------------------------|
-| G1-01   | NR 0x12 default                                              | zxnext.vhd:4943      | pass    | test/layer2/layer2_test.cpp:243  |
-| G1-02   | NR 0x13 default                                              | zxnext.vhd:4944      | pass    | test/layer2/layer2_test.cpp:248  |
-| G1-03   | NR 0x14 default                                              | zxnext.vhd:4946      | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-04   | NR 0x16 default                                              | zxnext.vhd:4955      | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-05   | NR 0x17 default                                              | zxnext.vhd:4957      | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-06   | NR 0x18 defaults                                             | zxnext.vhd:4959-4962 | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-07   | NR 0x43[2] default                                           | zxnext.vhd:5007      | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-08   | NR 0x4A default                                              | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-09   | NR 0x70 default                                              | zxnext.vhd:5047-5048 | pass    | test/layer2/layer2_test.cpp:254  |
-| G1-10   | NR 0x71[0] default                                           | zxnext.vhd:5050      | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-11   | port 0x123B default                                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1391 |
-| G1-12   | Layer 2 off after reset                                      | zxnext.vhd:3908      | pass    | test/layer2/layer2_test.cpp:261  |
-| G2-01   | 256x192 row-major address                                    | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:309  |
-| G2-02   | 256x192 row pitch = 256                                      | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:339  |
-| G2-03   | 256x192 y≥192 invisible                                      | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:355  |
-| G2-04   | 256x192 x wraparound at 256 is impossible (no stimulus rout… | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1393 |
-| G2-05   | 320x256 column-major address                                 | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:373  |
-| G2-06   | 320x256 column pitch = 256                                   | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:396  |
-| G2-07   | 320x256 x in [320,383] invisible                             | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1393 |
-| G2-08   | 320x256 y=255 visible                                        | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:406  |
-| G2-09   | 640x256 high nibble = left pixel                             | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:420  |
-| G2-10   | 640x256 only 4-bit index pre-offset                          | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:449  |
-| G2-11   | 640x256 shares 320 column layout                             | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1393 |
-| G2-12   | Lookahead one pixel                                          | layer2.vhd:148       | pass    | test/layer2/layer2_test.cpp:1393 |
-| G3-01   | 256x192 scroll X=128                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:489  |
-| G3-02   | 256x192 scroll X=255                                         | layer2.vhd:152       | pass    | test/layer2/layer2_test.cpp:504  |
-| G3-03   | 256x192 scroll Y wrap from 192                               | layer2.vhd:156-158   | pass    | test/layer2/layer2_test.cpp:519  |
-| G3-04   | 256x192 scroll Y wrap from 193                               | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:529  |
-| G3-05   | 256x192 scroll Y=96                                          | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:539  |
-| G3-06   | Scroll X MSB (nr_71[0]) in 256 mode                          | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:555  |
-| G3-07   | 320x256 scroll X=160                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:574  |
-| G3-08   | 320x256 scroll X=319                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:589  |
-| G3-09   | 320x256 scroll X wrap arithmetic                             | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:1395 |
-| G3-10   | 320x256 scroll Y=128                                         | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:603  |
-| G3-11   | 640x256 scroll X=160 byte-level                              | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1395 |
-| G3-12   | Negative path: 320x256 scroll X wrap branch skipped when x_… | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:615  |
-| G4-01a  | Auto-index advances — slot 0 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-01b  | Auto-index advances — slot 1 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-01c  | Auto-index advances — slot 2 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-01d  | Auto-index advances — slot 3 observable and wraps            | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-02   | Auto-index wraps at 4                                        | zxnext.vhd:5249      | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-03   | NR 0x1C[0] resets L2 clip index                              | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-04   | NR 0x1C[0]=0 leaves L2 index alone                           | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1397 |
-| G4-05   | 256x192 default clip covers full area                        | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:663  |
-| G4-06   | 256x192 clip to centre 64x64                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:676  |
-| G4-07   | 256x192 clip x1==x2 single column                            | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:695  |
-| G4-08   | 256x192 clip x1 > x2 → empty                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:709  |
-| G4-09   | 320x256 clip X is doubled                                    | layer2.vhd:133-134   | pass    | test/layer2/layer2_test.cpp:723  |
-| G4-10   | 320x256 clip Y is not doubled                                | layer2.vhd:137-138   | pass    | test/layer2/layer2_test.cpp:737  |
-| G4-11   | 320x256 clip `x1=0,x2=0` gives 2-pixel-wide strip            | layer2.vhd:133-134   | pass    | test/layer2/layer2_test.cpp:757  |
-| G4-12   | 640x256 clip uses same doubling as 320                       | layer2.vhd:133-134   | pass    | test/layer2/layer2_test.cpp:779  |
-| G4-13   | Clip is inclusive on both edges                              | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:799  |
-| G5-01   | Offset 0 identity                                            | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:835  |
-| G5-02   | Offset 1 shifts high nibble                                  | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:845  |
-| G5-03   | Offset 15, high nibble 0                                     | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:854  |
-| G5-04   | Offset 15, high nibble 1 → wraps to 0                        | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:862  |
-| G5-05   | 4-bit mode high nibble is pre-offset zero                    | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:876  |
-| G5-06   | 4-bit mode offset shifts into upper nibble                   | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:885  |
-| G5-07   | 4-bit mode low nibble is right pixel                         | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:895  |
-| G5-08   | Palette 0 vs Palette 1                                       | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:916  |
-| G5-09   | Palette select does not affect sprite/ula palette            | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:1399 |
-| G6-01   | Index ≠ 0xE3, RGB = 0xE3 → transparent (would catch "index…  | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:962  |
-| G6-02   | Index = 0xE3, RGB ≠ 0xE3 → opaque (would catch "index check… | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:970  |
-| G6-03   | Identity palette, default NR 0x14                            | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:982  |
-| G6-04   | Change NR 0x14 to 0x00                                       | zxnext.vhd:5226      | pass    | test/layer2/layer2_test.cpp:992  |
-| G6-05   | Clip outside ⇒ transparent regardless of colour              | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1007 |
-| G6-06   | L2 disabled ⇒ all transparent                                | layer2.vhd:175       | pass    | test/layer2/layer2_test.cpp:1018 |
-| G6-07   | Fallback 0xE3 visible when every layer transparent           | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G6-08   | Fallback colour follows NR 0x4A write                        | zxnext.vhd:5407      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G6-09   | Priority bit gated by transparency                           | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1401 |
-| G6-10   | NR 0x44 second-write captures palette priority into bit 9    | zxnext.vhd:4920      | pass    | test/layer2/layer2_test.cpp:1037 |
-| G6-11   | Renderer populates `layer2_priority_[]` from palette priority slot | zxnext.vhd:7039-7050 | pass    | test/layer2/layer2_test.cpp:1059 |
+| G1-01   | NR 0x12 default                                              | zxnext.vhd:4943      | pass    | test/layer2/layer2_test.cpp:250  |
+| G1-02   | NR 0x13 default                                              | zxnext.vhd:4944      | pass    | test/layer2/layer2_test.cpp:255  |
+| G1-03   | NR 0x14 default                                              | zxnext.vhd:4946      | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-04   | NR 0x16 default                                              | zxnext.vhd:4955      | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-05   | NR 0x17 default                                              | zxnext.vhd:4957      | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-06   | NR 0x18 defaults                                             | zxnext.vhd:4959-4962 | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-07   | NR 0x43[2] default                                           | zxnext.vhd:5007      | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-08   | NR 0x4A default                                              | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-09   | NR 0x70 default                                              | zxnext.vhd:5047-5048 | pass    | test/layer2/layer2_test.cpp:261  |
+| G1-10   | NR 0x71[0] default                                           | zxnext.vhd:5050      | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-11   | port 0x123B default                                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1398 |
+| G1-12   | Layer 2 off after reset                                      | zxnext.vhd:3908      | pass    | test/layer2/layer2_test.cpp:268  |
+| G2-01   | 256x192 row-major address                                    | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:316  |
+| G2-02   | 256x192 row pitch = 256                                      | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:346  |
+| G2-03   | 256x192 y≥192 invisible                                      | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:362  |
+| G2-04   | 256x192 x wraparound at 256 is impossible (no stimulus rout… | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1400 |
+| G2-05   | 320x256 column-major address                                 | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:380  |
+| G2-06   | 320x256 column pitch = 256                                   | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:403  |
+| G2-07   | 320x256 x in [320,383] invisible                             | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1400 |
+| G2-08   | 320x256 y=255 visible                                        | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:413  |
+| G2-09   | 640x256 high nibble = left pixel                             | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:427  |
+| G2-10   | 640x256 only 4-bit index pre-offset                          | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:456  |
+| G2-11   | 640x256 shares 320 column layout                             | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1400 |
+| G2-12   | Lookahead one pixel                                          | layer2.vhd:148       | pass    | test/layer2/layer2_test.cpp:1400 |
+| G3-01   | 256x192 scroll X=128                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:496  |
+| G3-02   | 256x192 scroll X=255                                         | layer2.vhd:152       | pass    | test/layer2/layer2_test.cpp:511  |
+| G3-03   | 256x192 scroll Y wrap from 192                               | layer2.vhd:156-158   | pass    | test/layer2/layer2_test.cpp:526  |
+| G3-04   | 256x192 scroll Y wrap from 193                               | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:536  |
+| G3-05   | 256x192 scroll Y=96                                          | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:546  |
+| G3-06   | Scroll X MSB (nr_71[0]) in 256 mode                          | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:562  |
+| G3-07   | 320x256 scroll X=160                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:581  |
+| G3-08   | 320x256 scroll X=319                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:596  |
+| G3-09   | 320x256 scroll X wrap arithmetic                             | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:1402 |
+| G3-10   | 320x256 scroll Y=128                                         | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:610  |
+| G3-11   | 640x256 scroll X=160 byte-level                              | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1402 |
+| G3-12   | Negative path: 320x256 scroll X wrap branch skipped when x_… | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:622  |
+| G4-01a  | Auto-index advances — slot 0 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-01b  | Auto-index advances — slot 1 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-01c  | Auto-index advances — slot 2 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-01d  | Auto-index advances — slot 3 observable and wraps            | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-02   | Auto-index wraps at 4                                        | zxnext.vhd:5249      | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-03   | NR 0x1C[0] resets L2 clip index                              | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-04   | NR 0x1C[0]=0 leaves L2 index alone                           | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1404 |
+| G4-05   | 256x192 default clip covers full area                        | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:670  |
+| G4-06   | 256x192 clip to centre 64x64                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:683  |
+| G4-07   | 256x192 clip x1==x2 single column                            | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:702  |
+| G4-08   | 256x192 clip x1 > x2 → empty                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:716  |
+| G4-09   | 320x256 clip X is doubled                                    | layer2.vhd:133-134   | pass    | test/layer2/layer2_test.cpp:730  |
+| G4-10   | 320x256 clip Y is not doubled                                | layer2.vhd:137-138   | pass    | test/layer2/layer2_test.cpp:744  |
+| G4-11   | 320x256 clip `x1=0,x2=0` gives 2-pixel-wide strip            | layer2.vhd:133-134   | pass    | test/layer2/layer2_test.cpp:764  |
+| G4-12   | 640x256 clip uses same doubling as 320                       | layer2.vhd:133-134   | pass    | test/layer2/layer2_test.cpp:786  |
+| G4-13   | Clip is inclusive on both edges                              | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:806  |
+| G5-01   | Offset 0 identity                                            | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:842  |
+| G5-02   | Offset 1 shifts high nibble                                  | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:852  |
+| G5-03   | Offset 15, high nibble 0                                     | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:861  |
+| G5-04   | Offset 15, high nibble 1 → wraps to 0                        | layer2.vhd:203       | pass    | test/layer2/layer2_test.cpp:869  |
+| G5-05   | 4-bit mode high nibble is pre-offset zero                    | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:883  |
+| G5-06   | 4-bit mode offset shifts into upper nibble                   | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:892  |
+| G5-07   | 4-bit mode low nibble is right pixel                         | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:902  |
+| G5-08   | Palette 0 vs Palette 1                                       | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:923  |
+| G5-09   | Palette select does not affect sprite/ula palette            | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:1406 |
+| G6-01   | Index ≠ 0xE3, RGB = 0xE3 → transparent (would catch "index…  | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:969  |
+| G6-02   | Index = 0xE3, RGB ≠ 0xE3 → opaque (would catch "index check… | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:977  |
+| G6-03   | Identity palette, default NR 0x14                            | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:989  |
+| G6-04   | Change NR 0x14 to 0x00                                       | zxnext.vhd:5226      | pass    | test/layer2/layer2_test.cpp:999  |
+| G6-05   | Clip outside ⇒ transparent regardless of colour              | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1014 |
+| G6-06   | L2 disabled ⇒ all transparent                                | layer2.vhd:175       | pass    | test/layer2/layer2_test.cpp:1025 |
+| G6-07   | Fallback 0xE3 visible when every layer transparent           | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1408 |
+| G6-08   | Fallback colour follows NR 0x4A write                        | zxnext.vhd:5407      | pass    | test/layer2/layer2_test.cpp:1408 |
+| G6-09   | Priority bit gated by transparency                           | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1408 |
+| G6-10   | NR 0x44 second-write captures palette priority into bit 9    | zxnext.vhd:4920      | pass    | test/layer2/layer2_test.cpp:1044 |
+| G6-11   | Renderer populates `layer2_priority_[]` from palette priority slot | zxnext.vhd:7039-7050 | pass    | test/layer2/layer2_test.cpp:1066 |
 | G7-01   | Bank `+1` transform on default bank                          | layer2.vhd:172       | missing | missing                          |
 | G7-02   | Bank `+1` transform, nonzero high 3 bits                     | layer2.vhd:172       | missing | missing                          |
 | G7-03   | Bank `+1` transform, max legal                               | layer2.vhd:172-175   | missing | missing                          |
-| G7-04   | Out-of-range bank → no pixel                                 | layer2.vhd:173-175   | pass    | test/layer2/layer2_test.cpp:1403 |
+| G7-04   | Out-of-range bank → no pixel                                 | layer2.vhd:173-175   | pass    | test/layer2/layer2_test.cpp:1410 |
 | G7-05   | Address bits 16:14 select 16K page within 48K                | layer2.vhd:173       | missing | missing                          |
-| G7-06   | 320x256 uses 5 pages                                         | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1403 |
-| G7-07   | Port 0x123B bit 0 enables CPU writes                         | zxnext.vhd:3917      | pass    | test/layer2/layer2_test.cpp:1403 |
-| G7-08   | Port 0x123B bit 2 enables CPU reads                          | zxnext.vhd:3918      | pass    | test/layer2/layer2_test.cpp:1403 |
-| G7-09   | Port 0x123B bit 1 enables display                            | zxnext.vhd:3916      | pass    | test/layer2/layer2_test.cpp:1403 |
-| G7-10   | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop         | zxnext.vhd:3924-3925 | pass    | test/layer2/layer2_test.cpp:1403 |
-| G7-11   | Port 0x123B bit 3 selects shadow bank for mapping only       | zxnext.vhd:2968      | pass    | test/layer2/layer2_test.cpp:1403 |
-| G7-12   | Shadow bank data becomes visible after NR 0x12 rewrite       | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1404 |
-| G7-13   | Port 0x123B bits 7:6 select segment                          | zxnext.vhd:2966-2967 | pass    | test/layer2/layer2_test.cpp:1404 |
-| G7-14   | Port 0x123B segment=11 ⇒ A15:A14 selects page                | zxnext.vhd:2966      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G7-15   | Port 0x123B bit 4 (offset latch)                             | zxnext.vhd:3922      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G7-16   | Port 0x123B read-back formatting                             | zxnext.vhd:3933      | pass    | test/layer2/layer2_test.cpp:1404 |
-| G7-17   | port 0x123B bit-4 latches offset, leaves enable/wr_en/rd_en/segment unchanged | zxnext.vhd:3914-3923 | pass    | test/layer2/layer2_test.cpp:1168 |
-| G7-18   | port 0x123B bit 3 routes CPU writes/reads to NR 0x13 shadow bank | zxnext.vhd:2968   | pass    | test/layer2/layer2_test.cpp:1193 |
-| G7-19   | port 0x123B read returns formatted control word, not 0xFF default | zxnext.vhd:3933, emulator.cpp:1178 | pass | test/layer2/layer2_test.cpp:1206 |
-| G8-01   | NR 0x15 priority SLU with L2 opaque over ULA                 | zxnext.vhd:7216      | pass    | test/layer2/layer2_test.cpp:1406 |
-| G8-02   | L2 transparent ⇒ ULA shows through in SLU                    | zxnext.vhd:7121-7122 | pass    | test/layer2/layer2_test.cpp:1406 |
-| G8-03   | L2 priority bit promotes over sprite                         | zxnext.vhd:7050      | pass    | test/layer2/layer2_test.cpp:1406 |
-| G8-04   | Priority bit suppressed when L2 pixel transparent            | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1406 |
-| G8-05   | `layer2_rgb` zeroed when transparent                         | zxnext.vhd:7122      | pass    | test/layer2/layer2_test.cpp:1406 |
-| G9-01   | Disable then re-enable via NR 0x69                           | zxnext.vhd:3924      | pass    | test/layer2/layer2_test.cpp:1408 |
-| G9-02   | Cold-reset port 0x123B read is 0x00                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1408 |
-| G9-03   | Clip y1 > y2 empties display                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1311 |
+| G7-06   | 320x256 uses 5 pages                                         | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1410 |
+| G7-07   | Port 0x123B bit 0 enables CPU writes                         | zxnext.vhd:3917      | pass    | test/layer2/layer2_test.cpp:1410 |
+| G7-08   | Port 0x123B bit 2 enables CPU reads                          | zxnext.vhd:3918      | pass    | test/layer2/layer2_test.cpp:1410 |
+| G7-09   | Port 0x123B bit 1 enables display                            | zxnext.vhd:3916      | pass    | test/layer2/layer2_test.cpp:1410 |
+| G7-10   | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop         | zxnext.vhd:3924-3925 | pass    | test/layer2/layer2_test.cpp:1410 |
+| G7-11   | Port 0x123B bit 3 selects shadow bank for mapping only       | zxnext.vhd:2968      | pass    | test/layer2/layer2_test.cpp:1410 |
+| G7-12   | Shadow bank data becomes visible after NR 0x12 rewrite       | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1411 |
+| G7-13   | Port 0x123B bits 7:6 select segment                          | zxnext.vhd:2966-2967 | pass    | test/layer2/layer2_test.cpp:1411 |
+| G7-14   | Port 0x123B segment=11 ⇒ A15:A14 selects page                | zxnext.vhd:2966      | pass    | test/layer2/layer2_test.cpp:1411 |
+| G7-15   | Port 0x123B bit 4 (offset latch)                             | zxnext.vhd:3922      | pass    | test/layer2/layer2_test.cpp:1411 |
+| G7-16   | Port 0x123B read-back formatting                             | zxnext.vhd:3933      | pass    | test/layer2/layer2_test.cpp:1411 |
+| G7-17   | port 0x123B bit-4 latches offset, leaves enable/wr_en/rd_en/segment unchanged | zxnext.vhd:3914-3923 | pass    | test/layer2/layer2_test.cpp:1175 |
+| G7-18   | port 0x123B bit 3 routes CPU writes/reads to NR 0x13 shadow bank | zxnext.vhd:2968   | pass    | test/layer2/layer2_test.cpp:1200 |
+| G7-19   | port 0x123B read returns formatted control word, not 0xFF default | zxnext.vhd:3933, emulator.cpp:1178 | pass | test/layer2/layer2_test.cpp:1213 |
+| G8-01   | NR 0x15 priority SLU with L2 opaque over ULA                 | zxnext.vhd:7216      | pass    | test/layer2/layer2_test.cpp:1413 |
+| G8-02   | L2 transparent ⇒ ULA shows through in SLU                    | zxnext.vhd:7121-7122 | pass    | test/layer2/layer2_test.cpp:1413 |
+| G8-03   | L2 priority bit promotes over sprite                         | zxnext.vhd:7050      | pass    | test/layer2/layer2_test.cpp:1413 |
+| G8-04   | Priority bit suppressed when L2 pixel transparent            | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1413 |
+| G8-05   | `layer2_rgb` zeroed when transparent                         | zxnext.vhd:7122      | pass    | test/layer2/layer2_test.cpp:1413 |
+| G9-01   | Disable then re-enable via NR 0x69                           | zxnext.vhd:3924      | pass    | test/layer2/layer2_test.cpp:1415 |
+| G9-02   | Cold-reset port 0x123B read is 0x00                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1415 |
+| G9-03   | Clip y1 > y2 empties display                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1318 |
 | G9-04   | Scroll X with wide branch NOT fired                          | —                    | missing | missing                          |
-| G9-05   | Wide mode clip `x2=0xFF` ⇒ effective 511                     | layer2.vhd:134       | pass    | test/layer2/layer2_test.cpp:1333 |
+| G9-05   | Wide mode clip `x2=0xFF` ⇒ effective 511                     | layer2.vhd:134       | pass    | test/layer2/layer2_test.cpp:1340 |
 | G9-06   | `hc_eff = hc + 1` cannot be detected as a pure scroll (non-… | layer2.vhd:148       | missing | missing                          |
 | L2-G17-01  | Parallax.nex side-by-side duplication root cause (post-LoRes) | PARALLAX-NEX-INVESTIGATION.md | missing | missing                          |
 | G9-G28-01  | `hc_eff = hc + 1` per-column observable (cycle-accurate gate) | layer2.vhd:148      | missing | missing                          |
-| G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1436 |
-| G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1446 |
-| G10-03  | rewind_to_baseline restores live scroll_x to baseline        | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1451 |
-| G10-04a | apply_changes_for_line(0): no change applied → scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1457 |
-| G10-04b | apply_changes_for_line(49) before first change: scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1460 |
-| G10-04c | apply_changes_for_line(50) first change: scroll_x updated    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1463 |
-| G10-04d | apply_changes_for_line(99) between changes: scroll_x held    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1466 |
-| G10-04e | apply_changes_for_line(100): scroll_x advances to next       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1469 |
-| G10-04f | apply_changes_for_line(150): scroll_x advances to last       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1472 |
-| G10-05  | Change log capped at MAX_CHANGES_PER_FRAME (overflow drop)   | —                    | pass    | test/layer2/layer2_test.cpp:1481 |
-| L2P-G02-01 | NR 0x15 write logged with current scanline (sprite_en + priority) | zxnext.vhd:5232, 6799 | pass | test/layer2/layer2_test.cpp:1509 |
-| L2P-G02-02 | apply_changes_for_line replays NR 0x15 entries per scanline  | zxnext.vhd:6799      | pass    | test/layer2/layer2_test.cpp:1552 |
-| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243, 5278 | pass | test/layer2/layer2_test.cpp:1588 |
-| G10-G05-02 | Renderer replays clip-window snapshot per scanline           | layer2.vhd:134, 167  | pass    | test/layer2/layer2_test.cpp:1667 |
-| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220, 1135 | pass   | test/layer2/layer2_test.cpp:1696 |
-| G10-G09-02 | Renderer fetches L2 from old bank above flip-line, new below | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1756 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline        | zxnext.vhd:3916, 3924-3925 | pass | test/layer2/layer2_test.cpp:1783 |
-| G10-G14-02 | Renderer applies enable per scanline (above hidden, mid visible, post hidden) | layer2.vhd:175, 197-198 | pass | test/layer2/layer2_test.cpp:1853 |
+| G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1443 |
+| G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1453 |
+| G10-03  | rewind_to_baseline restores live scroll_x to baseline        | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1458 |
+| G10-04a | apply_changes_for_line(0): no change applied → scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1464 |
+| G10-04b | apply_changes_for_line(49) before first change: scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1467 |
+| G10-04c | apply_changes_for_line(50) first change: scroll_x updated    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1470 |
+| G10-04d | apply_changes_for_line(99) between changes: scroll_x held    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1473 |
+| G10-04e | apply_changes_for_line(100): scroll_x advances to next       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1476 |
+| G10-04f | apply_changes_for_line(150): scroll_x advances to last       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1479 |
+| G10-05  | Change log capped at MAX_CHANGES_PER_FRAME (overflow drop)   | —                    | pass    | test/layer2/layer2_test.cpp:1488 |
+| L2P-G02-01 | NR 0x15 write logged with current scanline (sprite_en + priority) | zxnext.vhd:5232, 6799 | pass | test/layer2/layer2_test.cpp:1516 |
+| L2P-G02-02 | apply_changes_for_line replays NR 0x15 entries per scanline  | zxnext.vhd:6799      | pass    | test/layer2/layer2_test.cpp:1559 |
+| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243, 5278 | pass | test/layer2/layer2_test.cpp:1595 |
+| G10-G05-02 | Renderer replays clip-window snapshot per scanline           | layer2.vhd:134, 167  | pass    | test/layer2/layer2_test.cpp:1674 |
+| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220, 1135 | pass   | test/layer2/layer2_test.cpp:1703 |
+| G10-G09-02 | Renderer fetches L2 from old bank above flip-line, new below | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1763 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline        | zxnext.vhd:3916, 3924-3925 | pass | test/layer2/layer2_test.cpp:1790 |
+| G10-G14-02 | Renderer applies enable per scanline (above hidden, mid visible, post hidden) | layer2.vhd:175, 197-198 | pass | test/layer2/layer2_test.cpp:1860 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 
