@@ -683,6 +683,132 @@ static void test_per_line_palette_replay(Emulator& emu) {
           fmt("row %d: got=0x%08X want=0x%08X", SPLIT_ROW + 20, below, argb_b));
 }
 
+// ── DVP-PALSEL: per-scanline NR 0x43 b2/b3 selector replay ────────────
+//
+// GH #163.  Sibling of DVP-05 (palette CONTENT replay) for the palette
+// SELECTOR.  The panel's replay loop already walked
+// Ula::palsel_apply_changes_for_line(row) per row, but the LAYER2_ACTIVE /
+// LAYER2_SHADOW / SPRITES views passed nothing to the rasterizers, which
+// resolved colour through the LIVE PaletteManager selectors — so a
+// mid-frame NR 0x43 flip flattened every row of those views onto the
+// frame's end-of-pause bank.  VHDL zxnext.vhd:5391-5392 latch b3/b2 and
+// :6827-6828 read them in the active-palette mux per pixel cycle.
+//
+// Both banks are programmed with DIFFERENT colours at the SAME index and
+// the LIVE selectors are left at bank 0 throughout (set_l2_palette /
+// paint_palette clear NR 0x43 b2/b3), so any read of the live state
+// renders bank 0 on every row — which neither row below expects.
+
+static void test_per_line_palette_select_replay(Emulator& emu) {
+    set_group("DVP-PALSEL");
+
+    constexpr uint8_t BANK      = 9;
+    constexpr uint8_t IDX       = 0x55;
+    constexpr uint8_t SPR_PAT   = 0;
+    constexpr uint8_t SPR_IDX   = 0x07;
+    constexpr int     SPLIT_ROW = 100;
+    constexpr int     SRC_X     = 3;
+    constexpr int     SPR_X     = 100;   // fb cells 200..231
+    constexpr int     SPR_Y     = 92;    // rows 92..107, straddles SPLIT_ROW
+
+    PaletteManager& pal = emu.palette();
+    pal.set_global_transparency(0xE3);
+
+    Layer2& l2 = emu.layer2();
+    l2.set_enabled(true);
+    l2.set_control(0x00);
+    l2.set_active_bank(BANK);
+    l2.set_clip_x1(0); l2.set_clip_x2(255);
+    l2.set_clip_y1(0); l2.set_clip_y2(191);
+
+    Ram& ram = emu.ram();
+    for (int y = 0; y < 192; ++y)
+        ram.write(l2_phys_addr(BANK, l2_addr_256x192(SRC_X, y), true), IDX);
+
+    // Expected colours are LITERALS derived by hand from the RRRGGGBB byte
+    // each write programmes, never read back through the accessor under
+    // test — otherwise an accessor that ignored its bank argument would
+    // collapse the expectation exactly as it collapses the render, and the
+    // rows below would pass on a broken build.
+    //   0xFF via NR 0x44 (blue LSB 0) -> rgb333 (7,7,6) -> 0xFFFFFFDB
+    //   0x3F via NR 0x41              -> rgb333 (1,7,7) -> 0xFF24FFFF
+    //   0xA5 via NR 0x41              -> rgb333 (5,1,3) -> 0xFFB6246D
+    //   0xE0 via NR 0x41              -> rgb333 (7,0,0) -> 0xFFFF0000
+    constexpr uint32_t l2_a  = 0xFFFFFFDBu;
+    constexpr uint32_t l2_b  = 0xFF24FFFFu;
+    constexpr uint32_t spr_a = 0xFFB6246Du;
+    constexpr uint32_t spr_b = 0xFFFF0000u;
+
+    // Layer 2: bank 0 white-ish, bank 1 cyan-ish, same index.
+    set_l2_palette(pal, IDX, 0xFF);                  // LAYER2_FIRST
+    paint_palette(pal, 0x50, IDX, 0x3F);             // LAYER2_SECOND
+
+    // Sprites: bank 0 purple, bank 1 red.
+    SpriteEngine& spr = emu.sprites();
+    put_solid_sprite(spr, SPR_PAT, SPR_IDX, SPR_X, SPR_Y);
+    paint_palette(pal, 0x20, SPR_IDX, 0xA5);         // SPRITE_FIRST
+    paint_palette(pal, 0x60, SPR_IDX, 0xE0);         // SPRITE_SECOND
+
+    Ula& ula = emu.ula();
+    ula.set_active_layer2_palette(false);
+    ula.set_active_sprite_palette(false);
+
+    begin_frame(emu);   // includes palsel_start_frame() -> baseline = bank 0
+
+    // Mid-frame NR 0x43 write, as Emulator::on_scanline + the NR 0x43
+    // handler drive it.
+    ula.set_palsel_current_line(SPLIT_ROW);
+    ula.set_active_layer2_palette(true);
+    ula.set_active_sprite_palette(true);
+
+    check("DVP-PALSEL-a",
+          "test premise: the bank-taking palette accessors return the two "
+          "programmed colours per lane, and the LIVE NR 0x43 selectors are "
+          "still bank 0 (so any live-state read renders bank 0 everywhere)",
+          pal.layer2_colour(false, IDX) == l2_a
+              && pal.layer2_colour(true, IDX) == l2_b
+              && pal.sprite_colour(false, SPR_IDX) == spr_a
+              && pal.sprite_colour(true, SPR_IDX) == spr_b
+              && !pal.active_layer2_palette() && !pal.active_sprite_palette(),
+          fmt("l2 0/1=0x%08X/0x%08X (want 0x%08X/0x%08X) spr 0/1="
+              "0x%08X/0x%08X (want 0x%08X/0x%08X) live l2=%d spr=%d",
+              pal.layer2_colour(false, IDX), pal.layer2_colour(true, IDX),
+              l2_a, l2_b,
+              pal.sprite_colour(false, SPR_IDX), pal.sprite_colour(true, SPR_IDX),
+              spr_a, spr_b,
+              int(pal.active_layer2_palette()), int(pal.active_sprite_palette())));
+
+    {
+        QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+                                 Renderer::FB_HEIGHT - 1);
+        const int cell = l2_cell_256(SRC_X);
+        const uint32_t above = px(img, cell, SPLIT_ROW - 1);
+        const uint32_t at    = px(img, cell, SPLIT_ROW);
+        const uint32_t below = px(img, cell, SPLIT_ROW + 20);
+        check("DVP-PALSEL-L2",
+              "LAYER2_ACTIVE view: rows above a mid-frame NR 0x43 b2 flip "
+              "keep bank 0, the row it landed on and below show bank 1",
+              above == l2_a && at == l2_b && below == l2_b,
+              fmt("row%d=0x%08X (want 0x%08X) row%d=0x%08X row%d=0x%08X "
+                  "(want 0x%08X)",
+                  SPLIT_ROW - 1, above, l2_a, SPLIT_ROW, at,
+                  SPLIT_ROW + 20, below, l2_b));
+    }
+    {
+        QImage img = render_view(emu, VideoLayerView::Layer::SPRITES,
+                                 Renderer::FB_HEIGHT - 1);
+        const int cell = 2 * SPR_X + 10;
+        const uint32_t above = px(img, cell, SPLIT_ROW - 2);
+        const uint32_t at    = px(img, cell, SPLIT_ROW);
+        check("DVP-PALSEL-SPR",
+              "SPRITES view: the same split applies to NR 0x43 b3 — the "
+              "sprite band renders bank 0 above the flip and bank 1 at/below",
+              above == spr_a && at == spr_b,
+              fmt("row%d=0x%08X (want 0x%08X) row%d=0x%08X (want 0x%08X)",
+                  SPLIT_ROW - 2, above, spr_a, SPLIT_ROW, at, spr_b));
+    }
+}
+
 // ── DVP-06: the panel must not perturb live emulator state ────────────
 //
 // KNOWN BLIND SPOT — read before trusting this group in isolation.  Every write
@@ -2135,6 +2261,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_per_line_palette_replay(emu);
         std::printf("  Group: DVP-REPLAY     — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_per_line_palette_select_replay(emu);
+        std::printf("  Group: DVP-PALSEL     — done\n");
     }
     {
         Emulator emu;
