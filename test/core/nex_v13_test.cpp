@@ -116,6 +116,13 @@ struct V13Opts {
     // palette for a header expected_palette_bytes() cannot express. Default
     // false, so every other row is unaffected.
     bool        omit_palette_block = false;
+    // Bytes appended AFTER the last bank. Used by the control rows whose
+    // failure mode is an OVER-size: without slack the last bank would run
+    // past EOF and load() would fail on the truncation guard instead of on
+    // the bank offset, so the row could no longer distinguish "the offset is
+    // wrong" from "the file is short" (the trap disclosed in GH #169).
+    // Must stay <= 16384 or load() rejects the file as an extended NEX.
+    uint32_t    trailing_bytes = 0;
 };
 
 // Screen block sizes computed INDEPENDENTLY of the loader — this is the
@@ -124,10 +131,17 @@ struct V13Opts {
 // HASPAL = LAYER2|LORES|EXT2 (nexload2.asm:72), NOPAL = 128 (:71). LORES is
 // part of it in BOTH loaders — nexload.asm:427's exclusion list is
 // ULA|HIRES|HICOL (%11010), which does not contain bit 2.
+//
+// The exclusion itself is nexload.asm's alone, so it is gated on the header
+// VERSION: a V1.3 header can only be parsed by nexload2.asm, whose test
+// (nexload2.asm:296-300) has no exclusion at all (GH #178).
 size_t expected_palette_bytes(const V13Opts& o) {
     if (o.omit_palette_block) return 0;
-    const bool has_pal_screen = (o.screen_flags & (0x01 | 0x04 | 0x40)) != 0;
-    return (has_pal_screen && !(o.screen_flags & 0x80)) ? 512 : 0;
+    const uint8_t sf = o.screen_flags;
+    if (sf & 0x80) return 0;                                   // NOPAL, both loaders
+    const bool v13 = std::strncmp(o.version, "V1.3", 4) == 0;
+    if (!v13 && (sf & 0x1A)) return 0;                         // nexload.asm:427
+    return (sf & (0x01 | 0x04 | 0x40)) ? 512 : 0;              // nexload2.asm:72
 }
 
 size_t expected_screen_data_bytes(const V13Opts& o) {
@@ -173,7 +187,7 @@ bool write_v13_nex(const std::string& path, const V13Opts& o, std::vector<uint8_
     const size_t scr_len  = expected_screen_data_bytes(o);
     const size_t cop_len  = expected_copper_bytes(o);
     const size_t bank_off = expected_bank_offset(o);
-    const size_t total    = bank_off + o.banks.size() * 16384;
+    const size_t total    = bank_off + o.banks.size() * 16384 + o.trailing_bytes;
 
     std::vector<uint8_t> f(total, 0x00);
 
@@ -223,6 +237,7 @@ bool write_v13_nex(const std::string& path, const V13Opts& o, std::vector<uint8_
         for (size_t i = 0; i < 16384; ++i) f[p + i] = bank_byte(b, i);
         p += 16384;
     }
+    for (size_t i = 0; i < o.trailing_bytes; ++i) f[p + i] = gap_byte(i);
 
     // Checksum last: it covers [512,EOF) then header [0,508).
     if (o.checksum_flag) {
@@ -474,6 +489,46 @@ void test_mixed_screen_flags() {
              "a V1.2 header mixing the old ULA bit with LAYER2 carries NO palette block — "
              "nexload.asm:427's `and %11010` exclusion still owns every header without "
              "bit 6 (GH #169 control row)", b, "mix2");
+
+    // GH #178 — the narrower case #169 left open. Same LAYER2|ULA mix, but
+    // the header is V1.3, so nexload2.asm owns it and there is no exclusion
+    // to apply: `and HASPAL|NOPAL` leaves $01, non-zero and sign clear, so
+    // LoadFilePalette runs. Gating the exclusion on bit 6 (as #169 did) gets
+    // this wrong, because bit 6 is clear here; gating it on the VERSION gets
+    // it right. This row and MIX-02 differ ONLY in the version string.
+    V13Opts c;
+    c.screen_flags = 0x01 | 0x02;      // LAYER2 | ULA at V1.3
+    size_row("NEXV13-MIX-03",
+             "a V1.3 header mixing the old ULA bit with LAYER2 DOES carry its 512-byte "
+             "palette block — nexload.asm:427's exclusion belongs to a loader that cannot "
+             "parse V1.3 at all (nexload.asm:749 `LoaderVersion db $12`), so the gate is "
+             "the VERSION, not bit 6 (GH #178)", c, "mix3");
+
+    // The LoRes half of the same case: LORES is the other HASPAL bit
+    // (nexload2.asm:72), and it too is excluded by nexload.asm:427 only when
+    // mixed with ULA/HiRes/HiColour.
+    V13Opts d;
+    d.screen_flags = 0x04 | 0x10;      // LORES | HICOLOUR at V1.3
+    size_row("NEXV13-MIX-04",
+             "a V1.3 header mixing the old HiColour bit with LORES also carries its "
+             "palette block — HASPAL is LAYER2|LORES|EXT2 (nexload2.asm:72) and the "
+             "V1.3 loader excludes nothing (GH #178)", d, "mix4");
+
+    // Control for MIX-04: the same flags at V1.2 are nexload.asm's, and
+    // %11010 contains HiColour, so the palette is excluded. Fails if the
+    // exclusion is dropped outright rather than version-gated.
+    V13Opts e;
+    e.version = "V1.2";
+    e.screen_flags = 0x04 | 0x10;      // LORES | HICOLOUR at V1.2
+    e.omit_palette_block = true;       // nexload.asm:427 excludes it
+    // 512 bytes of slack so an over-size (the exclusion dropped rather than
+    // version-gated) still fits in the file: the row then fails on the bank
+    // OFFSET, not on load()'s truncation guard.
+    e.trailing_bytes = 512;
+    size_row("NEXV13-MIX-05",
+             "a V1.2 header mixing the old HiColour bit with LORES carries NO palette "
+             "block — nexload.asm:427's `and %11010` still owns every V1.0-V1.2 header "
+             "(GH #178 control row)", e, "mix5");
 }
 
 // ── Loud refusal of screens this loader cannot size ──────────────────

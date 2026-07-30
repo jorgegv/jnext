@@ -56,33 +56,32 @@ static constexpr size_t COPPER_BLOCK_SIZE = 2048;
 /// +128 rule (nexload2.asm:130-132).
 ///
 /// The ULA / HiRes / HiColour exclusion belongs to nexload.asm, so it applies
-/// only to headers nexload.asm can parse. Bit 6 (EXT2) says the screen is
-/// described by screen_flags2 — a V1.3 field the distro loader knows nothing
-/// about — so such a file is nexload2's, and nexload2's test has no exclusion
-/// at all (nexload2.asm:296-:300):
+/// only to headers nexload.asm can parse — i.e. V1.0-V1.2. A V1.3 header can
+/// ONLY be parsed by nexload2.asm (the distro loader refuses the version
+/// outright, `LoaderVersion db $12` at nexload.asm:749), and nexload2's test
+/// has no exclusion at all (nexload2.asm:296-:300):
 ///
 ///   ld a,(nexHeader.LOADSCR)
 ///   and NEXLOAD_LOADSCR_HASPAL|NEXLOAD_LOADSCR_NOPAL
 ///   jr z,.NoPalLoad                ; neither layer2 or lores screen
 ///   call p,LoadFilePalette         ; do this only when "no pal" bit is zero
 ///
-/// With HASPAL = LAYER2|LORES|EXT2 (:72), a header of ULA|EXT2 and NO_PAL
-/// clear leaves 0x40 in A — non-zero, sign clear — so nexload2 DOES read the
-/// 512-byte block. jnext used to apply the exclusion regardless of bit 6 and
-/// sized such a file 512 bytes short, which shifts the start of every
-/// following block: the "wrong sizing loads garbage" failure mode again
-/// (issue #169). The exclusion is therefore gated on bit 6 being clear.
+/// With HASPAL = LAYER2|LORES|EXT2 (:72), that routine looks at bit 6 only as
+/// one of three "has a palette" bits — never as the thing that decides whether
+/// the exclusion applies, because it has no exclusion to apply. So the gate is
+/// the header's VERSION, not bit 6 (issue #178). Keying it on bit 6 — as this
+/// predicate did after issue #169 — got the reported ULA|EXT2 case right but
+/// left the narrower one wrong: a V1.3 file mixing an old screen bit with
+/// LAYER2 or LORES and NO bit 6 (say LAYER2|ULA) carries its palette on real
+/// hardware, while jnext followed nexload.asm:426-:427 and omitted it, sizing
+/// the file 512 bytes short and shifting the start of every following block —
+/// the "wrong sizing loads garbage" failure mode of issue #156.
 ///
-/// Still divergent, and deliberately left so: a V1.3 file mixing an old bit
-/// with LAYER2/LORES but WITHOUT bit 6 (say LAYER2|ULA). nexload2 would read
-/// its palette; jnext, seeing no bit 6, follows nexload.asm and does not.
-/// Closing that would mean keying this predicate on the header's VERSION
-/// rather than on bit 6 — but every other V1.3 decision in nex_screen_bytes()
-/// below keys on bit 6, and no such file is known. Left as a documented
-/// divergence rather than resolved unilaterally.
-static bool nex_has_palette_block(uint8_t sf) {
+/// `v13` is the caller's `is_v13()` / "version is V1.3" answer. Note this is
+/// the one V1.3 decision in this file NOT keyed on bit 6; that is the point.
+static bool nex_has_palette_block(uint8_t sf, bool v13) {
     if (sf & NexHeader::SCREEN_NO_PAL) return false;
-    if (!(sf & NexHeader::SCREEN_EXT2) &&
+    if (!v13 &&
         (sf & (NexHeader::SCREEN_ULA | NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR)))
         return false;
     return (sf & (NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_LORES |
@@ -103,6 +102,9 @@ static bool nex_has_palette_block(uint8_t sf) {
 /// (issue #156 Scope, issue #162).
 static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) {
     const uint8_t sf = h.screen_flags;
+    // Same test as NexLoader::is_v13(); this helper is a free function and
+    // sees only the header. load() calls it after parsing the version string.
+    const bool v13 = std::memcmp(h.version, "V1.3", 4) == 0;
     out = 0;
 
     if (sf & ~NexHeader::SCREEN_KNOWN_MASK) {
@@ -113,7 +115,7 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
     }
 
     // Palette block — shared rule, see nex_has_palette_block() above.
-    if (nex_has_palette_block(sf)) out += 512;
+    if (nex_has_palette_block(sf, v13)) out += 512;
 
     // Screen data blocks, in file order (nexload2.asm:614-625 — "order of
     // block definitions must be same as block order in file").
@@ -952,7 +954,7 @@ bool NexLoader::apply(Emulator& emu) const
     //     enable ULANext (:741, the reported bug);
     //   - LAYER2 WINS over LORES (:738-:740, "L2+LoRes=fail"), where
     //     nexload.asm's `and 4` lets LORES win.
-    if (nex_has_palette_block(sf)) {
+    if (nex_has_palette_block(sf, v13)) {
         if (offset + 512 > file_data_.size()) {
             Log::emulator()->error("NEX: truncated loading-screen palette data");
             return false;
