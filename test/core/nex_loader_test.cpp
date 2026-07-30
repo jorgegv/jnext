@@ -1448,6 +1448,40 @@ int main() {
         std::filesystem::remove(path, ec);
     }
 
+    // NEXPC0-11 — a park must not be permanent from the user's side. The
+    // machine is deliberately left with nothing running, so the ONLY way
+    // out is a reset; if that did not clear the flag, loading a PC=0 NEX
+    // would wedge jnext until the user quit it.
+    {
+        constexpr int FRAMES = 10;
+        const std::string path = fixture_path("reset_pc0");
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        const bool built = write_nex_bank_fixture(path, 0x0000, kHdrSP, 0, 0, 2, {});
+        const bool ok    = built && emu.init(cfg) && emu.load_nex(path);
+        const bool parked_after_load = emu.cpu_parked();
+
+        emu.reset();
+        const Z80Registers before = emu.cpu().get_registers();
+        for (int i = 0; i < FRAMES; ++i) emu.run_frame();
+        const Z80Registers after = emu.cpu().get_registers();
+
+        check("NEXPC0-11",
+              "a reset un-parks the machine — the CPU runs again afterwards, so a "
+              "load-only NEX cannot wedge jnext (reset() re-runs init(), which "
+              "clears the flag; the frontends' Reset takes the same path)",
+              ok && parked_after_load && !emu.cpu_parked() && after.R != before.R,
+              fmt("load=%d parked_after_load=%d parked_after_reset=%d R %02X->%02X",
+                  ok ? 1 : 0, parked_after_load ? 1 : 0, emu.cpu_parked() ? 1 : 0,
+                  before.R, after.R));
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
