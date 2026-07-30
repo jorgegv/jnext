@@ -55,16 +55,35 @@ static constexpr size_t COPPER_BLOCK_SIZE = 2048;
 /// 640x256, tilemode) carry the same optional 512-byte block under the same
 /// +128 rule (nexload2.asm:130-132).
 ///
-/// One deliberate divergence: nexload2's own test is simply
-/// `(sf & HASPAL) != 0 && !(sf & NOPAL)` (:296-300) with NO ULA/HiRes/HiCol
-/// exclusion, so for a file mixing bit 6 with those older bits the two loaders
-/// would disagree. jnext keeps nexload.asm's exclusion above. The case is
-/// unreachable for conforming files: the spec says the old screen bits
-/// "should be NOT mixed with new modes" (wiki Alternative_NEX_file_formats,
-/// offset 152).
+/// The ULA / HiRes / HiColour exclusion belongs to nexload.asm, so it applies
+/// only to headers nexload.asm can parse. Bit 6 (EXT2) says the screen is
+/// described by screen_flags2 — a V1.3 field the distro loader knows nothing
+/// about — so such a file is nexload2's, and nexload2's test has no exclusion
+/// at all (nexload2.asm:296-:300):
+///
+///   ld a,(nexHeader.LOADSCR)
+///   and NEXLOAD_LOADSCR_HASPAL|NEXLOAD_LOADSCR_NOPAL
+///   jr z,.NoPalLoad                ; neither layer2 or lores screen
+///   call p,LoadFilePalette         ; do this only when "no pal" bit is zero
+///
+/// With HASPAL = LAYER2|LORES|EXT2 (:72), a header of ULA|EXT2 and NO_PAL
+/// clear leaves 0x40 in A — non-zero, sign clear — so nexload2 DOES read the
+/// 512-byte block. jnext used to apply the exclusion regardless of bit 6 and
+/// sized such a file 512 bytes short, which shifts the start of every
+/// following block: the "wrong sizing loads garbage" failure mode again
+/// (issue #169). The exclusion is therefore gated on bit 6 being clear.
+///
+/// Still divergent, and deliberately left so: a V1.3 file mixing an old bit
+/// with LAYER2/LORES but WITHOUT bit 6 (say LAYER2|ULA). nexload2 would read
+/// its palette; jnext, seeing no bit 6, follows nexload.asm and does not.
+/// Closing that would mean keying this predicate on the header's VERSION
+/// rather than on bit 6 — but every other V1.3 decision in nex_screen_bytes()
+/// below keys on bit 6, and no such file is known. Left as a documented
+/// divergence rather than resolved unilaterally.
 static bool nex_has_palette_block(uint8_t sf) {
     if (sf & NexHeader::SCREEN_NO_PAL) return false;
-    if (sf & (NexHeader::SCREEN_ULA | NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR))
+    if (!(sf & NexHeader::SCREEN_EXT2) &&
+        (sf & (NexHeader::SCREEN_ULA | NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR)))
         return false;
     return (sf & (NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_LORES |
                   NexHeader::SCREEN_EXT2)) != 0;
@@ -871,8 +890,26 @@ bool NexLoader::apply(Emulator& emu) const
         for (int rep = 0; rep < 16; ++rep) {
             for (uint8_t v : kUlaClassicPalette) nr.write(0x41, v);
         }
+        // Put NR 0x43 back where setupBeforeBlockLoading leaves it. The $30
+        // above is a WORKING value, not the end state: the routine goes on to
+        // repaint the Layer 2 and Sprite palettes (:839-:842) and closes with
+        //
+        //   .resetSequentialPalLoop:
+        //           nextreg PALETTE_VALUE_NR41,a
+        //           inc     a
+        //           jr      nz,.resetSequentialPalLoop
+        //           nextreg PALETTE_CONTROL_NR43,a   ; NR43=ULA first palette
+        //
+        // (:843-:847) — the loop exits with A wrapped back to 0, so the final
+        // write settles NR 0x43 at 0. nextRegResetData says the same thing a
+        // second time at :907-:908 ($42/$43 <- $0F, 0). Those two sequential
+        // 256-entry repaints are not modelled here (jnext's own reset already
+        // seeds the Layer 2 and Sprite palettes), but their side effect on
+        // NR 0x43 is observable and was being left at $30 (issue #173).
+        nr.write(0x43, 0x00);
         Log::emulator()->debug("NEX: V1.3 — seeded tilemap palette with the ULA classic "
-                               "palette (nexload2.asm:830-836)");
+                               "palette (nexload2.asm:830-836), NR 0x43 back to 0 "
+                               "(nexload2.asm:847)");
     }
 
     // Loading-screen palette (512 bytes) — carried by Layer 2 AND LoRes

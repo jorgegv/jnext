@@ -628,6 +628,11 @@ constexpr uint8_t kSentinelPal18 = 0x99, kAlwaysPal18 = 0xE3;  // nexload.asm:26
 // NR 0x40 = 0 is un-gated.
 constexpr uint8_t kSentinel40 = 0x7E;
 constexpr uint8_t kReset40 = 0x00, kKeep40 = 0x19;
+// NR 0x43's end state on the V1.3 reset branch (nexload2.asm:847). Same
+// value as kAlways43, different oracle: that one is nexload.asm's
+// unconditional prologue, this one is where nexload2's palette resets
+// settle the register after the tilemap seed has borrowed it (GH #173).
+constexpr uint8_t kV13Reset43 = 0x00;
 
 // A minimal, screen-less, bank-less NEX carrying `preserve_regs` at
 // header offset 134. No screen block means nothing downstream of the
@@ -893,15 +898,16 @@ void test_preserve_nextregs() {
     //    from nexload2's own reset data — so the V1.3 gate above must be
     //    a preserve gate, not a blanket "never on V1.3" (GH #171).
     //
-    //    NR 0x43 is deliberately NOT probed here: on this path jnext's
+    //    NR 0x43 IS probed here as of GH #173. It could not be before: the
     //    tilemap-palette seed (nex_loader.cpp, nexload2.asm:830-836) runs
-    //    afterwards and leaves NR 0x43 at 0x30, whereas nexload2:847 ends
-    //    at 0. That divergence is pre-existing and independent of this
-    //    gate, and pinning either value here would be dishonest.
+    //    after the gate and used to leave the register at the $30 it
+    //    borrowed, whereas the oracle settles it at 0. With that fixed,
+    //    NEXPR-V13R-04 pins the oracle's value.
     {
         PreserveFixture f(0, "reset_v13", "V1.3");
         if (!f.ok) {
-            fail_all({"NEXPR-V13R-01", "NEXPR-V13R-02", "NEXPR-V13R-03"});
+            fail_all({"NEXPR-V13R-01", "NEXPR-V13R-02", "NEXPR-V13R-03",
+                      "NEXPR-V13R-04"});
         } else {
             check_nr("NEXPR-V13R-01", f, 0x42, kAlways42,
                      "PRESERVENEXTREG=0 on a V1.3 file DOES set NR 0x42 = 0x0F — nexload2's "
@@ -912,6 +918,26 @@ void test_preserve_nextregs() {
                      "visible — nexload2's nextRegResetData runs when the flag is clear "
                      "(GH #171)",
                      "nexload2.asm:886-888");
+            // GH #173. The seed at nexload2.asm:830-836 points NR 0x43 at the
+            // tilemap palette ($30) to repaint it, but that is a WORKING
+            // value: setupBeforeBlockLoading goes on to repaint the Layer 2
+            // and Sprite palettes and closes at :843-:847 with
+            //
+            //   .resetSequentialPalLoop:
+            //           nextreg PALETTE_VALUE_NR41,a
+            //           inc     a
+            //           jr      nz,.resetSequentialPalLoop
+            //           nextreg PALETTE_CONTROL_NR43,a
+            //
+            // whose loop exits with A wrapped to 0 — so the register settles
+            // at 0, and nextRegResetData (:907-908, `$42, 2` then `$0F, 0`)
+            // says the same. This fixture declares no screen, so no palette
+            // block follows to re-point it; NEXV13-PAL-06 covers the file
+            // that does carry one, where the end state IS $30.
+            check_nr("NEXPR-V13R-04", f, 0x43, kV13Reset43,
+                     "PRESERVENEXTREG=0 on a V1.3 file settles NR 0x43 at 0 — the tilemap "
+                     "palette seed borrows $30 and must hand it back (GH #173)",
+                     "nexload2.asm:847");
             // The pal[0x18] pair is the ONE write that is loader-gated with no
             // flag term, so this branch needs its own row: nexload2's reset
             // path repaints all 256 ULA entries with ulaClassicPalette, whose
