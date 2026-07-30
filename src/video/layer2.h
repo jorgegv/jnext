@@ -173,11 +173,28 @@ public:
     ///                     above sprites (VHDL zxnext.vhd:7220). Pass
     ///                     nullptr from contexts (debugger view) that do
     ///                     not need per-pixel priority info.
+    /// @param palette_bank_second  NR 0x43 bit 2 (active Layer 2 palette) for
+    ///                     THIS row — the caller's per-scanline-replayed
+    ///                     value, NOT the live `PaletteManager` member. VHDL
+    ///                     zxnext.vhd:5392 latches the bit and :6827 reads it
+    ///                     in the active-palette mux per pixel cycle, so a
+    ///                     Copper MOVE that flips it mid-frame applies from
+    ///                     the next scanline on. Reading the live member here
+    ///                     collapsed every row onto the frame's LAST value
+    ///                     (Renderer::render_frame runs after the CPU and
+    ///                     Copper have finished the frame) — GH #163,
+    ///                     show512.nex showed 256 colours instead of 512.
+    ///                     `Renderer::render_row` passes
+    ///                     `Ula::get_active_layer2_palette()`, the same
+    ///                     source the ULA lane already uses. Same
+    ///                     caller-owns-the-history contract as
+    ///                     `transparent_rgb` above.
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette,
                          uint8_t transparent_rgb,
                          bool rom_in_sram = false,
-                         bool* priority_dst = nullptr) const;
+                         bool* priority_dst = nullptr,
+                         bool palette_bank_second = false) const;
 
     /// Render one scanline using a specific bank, regardless of enabled_ state.
     /// Used by the debugger video panel to show active and shadow Layer 2 content.
@@ -214,10 +231,14 @@ public:
     /// pure read, exactly as safe as the `active_bank()` read the same
     /// replay loop performs — it does not write anything, so it does not
     /// conflict with "the debugger must never change what it observes".)
+    /// `palette_bank_second` has the same contract as on `render_scanline`;
+    /// the video panel's replay loop walks `Ula::palsel_apply_changes_for_line`
+    /// per row, so it passes `Ula::get_active_layer2_palette()` (GH #163).
     void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                const PaletteManager& palette, uint8_t bank,
                                uint8_t transparent_rgb,
-                               bool rom_in_sram = false);
+                               bool rom_in_sram = false,
+                               bool palette_bank_second = false);
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

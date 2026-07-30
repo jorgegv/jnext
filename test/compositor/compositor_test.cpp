@@ -3798,6 +3798,368 @@ static void test_PSCAN() {
                      "rearmed=%d", warned_before, warned_after, size_capped,
                      live_tracks, warned_persists, rearmed));
     }
+
+    // ── G10 — NR 0x43 b2/b3 selector CONSUMPTION by the rasterizers ───────
+    //
+    // GH #163.  The NR 0x43 selector change-log (b1 ULA / b2 Layer 2 /
+    // b3 sprite) was built and fed, and the ULA lane was consumed, but
+    // NOTHING read the Layer 2 or sprite lane back out: Layer2 and
+    // SpriteEngine resolved colour through PaletteManager accessors that
+    // took NO bank and read the LIVE `active_l2_second_` /
+    // `active_spr_second_`.  Renderer::render_frame runs after the CPU and
+    // Copper have finished the frame, so "live" meant END-of-frame and
+    // every row collapsed onto last-write-wins — ShowAll512Colors/
+    // show512.nex, whose Copper flips b2 halfway down a 32x16 colour
+    // field, showed 256 colours instead of 512.
+    //
+    // VHDL oracle: zxnext.vhd:5391-5393 latch b1/b2/b3 as three
+    // independent storage cells and :6825-6828 read them in the
+    // active-palette mux per pixel cycle, so a MOVE landing at line N
+    // applies from line N — never retroactively to the rows above it.
+    //
+    // Like the G02 rows above (and unlike the bookkeeping-only PSCAN-G04/
+    // G11 rows), these drive the real Renderer::render_frame end to end,
+    // so an unwired bank is an observable pixel change.  Every expected
+    // value below is a LITERAL ARGB, computed by hand from the RRRGGGBB
+    // byte the fixture programmes, so a palette accessor that ignored its
+    // bank argument cannot also collapse the expectation.
+    //
+    //   RRRGGGBB 0xE0 -> rgb333 (7,0,0) -> ARGB 0xFFFF0000  (red)
+    //   RRRGGGBB 0x1C -> rgb333 (0,7,0) -> ARGB 0xFF00FF00  (green)
+    //   RRRGGGBB 0xE1 -> rgb333 (7,0,3) -> ARGB 0xFFFF006D  (red, blue=3)
+    //
+    // 0xE1 is the transparency probe in G10-02: its palette-format blue
+    // (3 -> 109) differs from the register-format expansion
+    // Renderer::rrrgggbb_to_argb gives the same byte (1 -> 85), so the
+    // compositor's own `l2_px == nr14_rgb` clause CANNOT heal a wrongly
+    // opaque pixel there (see the Task 46 comment in composite_scanline).
+
+    static constexpr uint32_t G10_RED   = 0xFFFF0000u;   // RRRGGGBB 0xE0
+    static constexpr uint32_t G10_GREEN = 0xFF00FF00u;   // RRRGGGBB 0x1C
+    static constexpr uint32_t G10_TRANS = 0xFFFF006Du;   // RRRGGGBB 0xE1
+
+    // Fill Layer 2 bank 9 (256x192 8bpp) with a single palette index and
+    // return the configured layer. `idx` is deliberately never 0: a zero
+    // index reads a palette entry that is 0 in both banks after reset, so
+    // the row would pass whether or not the code under test ran.
+    auto g10_make_layer2 = [](Ram& ram, Mmu& mmu, Layer2& l2, uint8_t idx) {
+        l2.reset();
+        l2.set_enabled(true);
+        l2.set_active_bank(9);
+        const uint32_t base = (9u + (mmu.rom_in_sram() ? 16u : 0u)) * 16384u;
+        for (uint32_t off = 0; off < 49152u; ++off)
+            ram.write(base + off, idx);
+        l2.start_frame();
+    };
+
+    // Programme one 8-bit palette entry into an explicit NR 0x43 target.
+    // Bit 2 / bit 3 of the control byte stay CLEAR throughout, so the LIVE
+    // PaletteManager selectors remain `false` for the whole fixture: any
+    // accessor that fell back to them renders bank 0 on every row, which
+    // no row below expects.
+    auto g10_pal8 = [](PaletteManager& pal, uint8_t target_ctrl,
+                       uint8_t idx, uint8_t rgb8) {
+        pal.write_control(target_ctrl);
+        pal.set_index(idx);
+        pal.write_8bit(rgb8);
+    };
+
+    // PSCAN-G10-01 — Layer 2 COLOUR lane.  Layer 2 covers the display with
+    //   one index whose two palette banks hold different colours; the
+    //   NR 0x43 b2 selector flips at line 100.  Rows above 100 must resolve
+    //   through bank 0, rows at/after 100 through bank 1.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        const uint8_t K = 0x5A;
+        g10_pal8(pal, 0x10, K, 0xE0);   // LAYER2_FIRST[K]  = red
+        g10_pal8(pal, 0x50, K, 0x1C);   // LAYER2_SECOND[K] = green
+        pal.start_frame();
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+        r.init_transparent_rgb_per_line();
+
+        Layer2 l2;
+        g10_make_layer2(ram, mmu, l2, K);
+
+        Tilemap tm;
+        SpriteEngine sp;
+        tm.reset(); sp.reset();
+
+        r.write_nr15(0x00);            // SLU, sprites off -> L2 above ULA
+        r.start_frame_nr15();
+
+        // NR 0x43 exactly as Emulator's write handler drives it: the live
+        // PaletteManager control AND the Ula selector change-log. Baseline
+        // b2=0, then a Copper-style MOVE tagged at line 100 sets b2=1.
+        r.ula().set_active_layer2_palette(false);
+        r.ula().palsel_start_frame();
+        r.ula().set_palsel_current_line(100);
+        r.ula().set_active_layer2_palette(true);
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const int x = Renderer::DISP_X + 20;
+        const uint32_t before = fb[ 50u * Renderer::FB_WIDTH + x];
+        const uint32_t at     = fb[100u * Renderer::FB_WIDTH + x];
+        const uint32_t after  = fb[200u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G10-01",
+              "mid-frame NR 0x43 b2 flip (line 100) switches the Layer 2 "
+              "palette bank from that row on; rows above keep bank 0 "
+              "(VHDL 5392, 6827)",
+              before == G10_RED && at == G10_GREEN && after == G10_GREEN,
+              DETAIL("row50=0x%08X (exp 0x%08X) row100=0x%08X row200=0x%08X "
+                     "(exp 0x%08X)", before, G10_RED, at, after, G10_GREEN));
+    }
+
+    // PSCAN-G10-02 — Layer 2 TRANSPARENCY gate follows the same per-line
+    //   bank.  Bank 0's entry for the index matches NR 0x14, so Layer 2
+    //   skip-writes it and the ULA below shows through; bank 1's entry does
+    //   not, so from the flip line the Layer 2 pixel appears.  This row
+    //   discriminates `layer2_rgb8`'s bank INDEPENDENTLY of `layer2_colour`'s:
+    //   a wrong bank on either accessor alone changes a different row.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        const uint8_t K = 0x5A;
+        g10_pal8(pal, 0x10, K, 0xE1);   // LAYER2_FIRST[K]  = NR 0x14 match
+        g10_pal8(pal, 0x50, K, 0x1C);   // LAYER2_SECOND[K] = green, opaque
+        pal.set_global_transparency(0xE1);
+        pal.start_frame();
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+        // Both halves of the NR 0x14 handler, as emulator.cpp writes them.
+        r.set_transparent_rgb(0xE1);
+        r.init_transparent_rgb_per_line();
+
+        // ULA below Layer 2: every pixel ink, attribute ink = 3 (magenta in
+        // the reset-default ULA palette) so "Layer 2 was transparent here"
+        // is a distinctive colour, not black.
+        for (uint16_t off = 0x0000; off < 0x1800; ++off)
+            ram.write(10u * 8192u + off, 0xFF);
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off)
+            ram.write(10u * 8192u + off, 0x03);
+
+        Layer2 l2;
+        g10_make_layer2(ram, mmu, l2, K);
+
+        Tilemap tm;
+        SpriteEngine sp;
+        tm.reset(); sp.reset();
+
+        r.write_nr15(0x00);            // SLU, sprites off
+        r.start_frame_nr15();
+
+        r.ula().set_active_layer2_palette(false);
+        r.ula().palsel_start_frame();
+        r.ula().set_palsel_current_line(100);
+        r.ula().set_active_layer2_palette(true);
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const uint32_t exp_ula = pal.ula_colour(false, 0x03);
+        const int x = Renderer::DISP_X + 20;
+        const uint32_t before = fb[ 50u * Renderer::FB_WIDTH + x];
+        const uint32_t at     = fb[100u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G10-02",
+              "mid-frame NR 0x43 b2 flip also moves the Layer 2 NR 0x14 "
+              "transparency comparison to the new bank: bank-0 rows stay "
+              "transparent (ULA shows), bank-1 rows are opaque "
+              "(VHDL 5392, 6827, 7121)",
+              before == exp_ula && at == G10_GREEN
+                  && exp_ula != G10_GREEN && exp_ula != G10_TRANS,
+              DETAIL("row50=0x%08X (exp ULA 0x%08X) row100=0x%08X (exp "
+                     "0x%08X); wrong-bank opaque would be 0x%08X",
+                     before, exp_ula, at, G10_GREEN, G10_TRANS));
+    }
+
+    // PSCAN-G10-03 — Layer 2 per-pixel PRIORITY bit (NR 0x44 b7) follows the
+    //   same per-line bank.  Both banks hold the SAME colour at the index, so
+    //   the only variable is the priority bit: bank 0 clear, bank 1 set.  In
+    //   SLU an opaque sprite beats Layer 2 unless layer2_priority promotes it
+    //   (VHDL 7220), so the sprite band splits at the flip line.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        const uint8_t K = 0x5A;
+        // Identical green in both banks; priority differs via NR 0x44's
+        // second byte (bits 7:6 -> nr_palette_priority, zxnext.vhd:4920).
+        pal.write_control(0x10);  pal.set_index(K);
+        pal.write_9bit(0x1C);     pal.write_9bit(0x00);   // bank 0: prio 0
+        pal.write_control(0x50);  pal.set_index(K);
+        pal.write_9bit(0x1C);     pal.write_9bit(0x80);   // bank 1: prio 1
+        // Sprite colour: index 0x07 red, so "sprite won" and "Layer 2 won"
+        // are different colours.
+        g10_pal8(pal, 0x20, 0x07, 0xE0);
+        pal.start_frame();
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+        r.init_transparent_rgb_per_line();
+
+        Layer2 l2;
+        g10_make_layer2(ram, mmu, l2, K);
+
+        Tilemap tm;
+        tm.reset();
+
+        // Sprite 0: solid 16x16 of index 0x07 at (100, 90) -> fb cells
+        // x 200..231, rows 90..105 — spanning the flip line 98.
+        SpriteEngine sp;
+        sp.reset();
+        sp.write_slot_select(0);
+        for (int i = 0; i < 256; ++i) sp.write_pattern(0x07);
+        sp.write_slot_select(0);
+        sp.write_attribute(100);
+        sp.write_attribute(90);
+        sp.write_attribute(0x00);
+        sp.write_attribute(0x80 | 0x00);
+        sp.set_clip_x1(0);   sp.set_clip_x2(0xFF);
+        sp.set_clip_y1(0);   sp.set_clip_y2(0xFF);
+        sp.set_over_border(true);
+        sp.set_sprites_visible(true);
+        sp.start_frame();
+
+        r.write_nr15(0x01);            // SLU + sprites on
+        r.start_frame_nr15();
+
+        r.ula().set_active_layer2_palette(false);
+        r.ula().palsel_start_frame();
+        r.ula().set_palsel_current_line(98);
+        r.ula().set_active_layer2_palette(true);
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const int x = 210;             // inside the sprite band
+        const uint32_t upper = fb[94u  * Renderer::FB_WIDTH + x];
+        const uint32_t lower = fb[102u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G10-03",
+              "mid-frame NR 0x43 b2 flip also moves the Layer 2 palette "
+              "PRIORITY bit lookup to the new bank: sprite wins above the "
+              "flip line, promoted Layer 2 wins below it (VHDL 5392, 6827, "
+              "7050, 7220)",
+              upper == G10_RED && lower == G10_GREEN,
+              DETAIL("row94=0x%08X (exp sprite 0x%08X) row102=0x%08X (exp "
+                     "L2 0x%08X)", upper, G10_RED, lower, G10_GREEN));
+    }
+
+    // PSCAN-G10-04 — sprite lane (NR 0x43 b3).  Same shape as G10-01 on the
+    //   other selector bit: one sprite band straddling the flip line, its
+    //   pattern index resolving through two differently-coloured sprite
+    //   palettes.  VHDL 5391, 6828.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        g10_pal8(pal, 0x20, 0x07, 0xE0);   // SPRITE_FIRST[0x07]  = red
+        g10_pal8(pal, 0x60, 0x07, 0x1C);   // SPRITE_SECOND[0x07] = green
+        pal.start_frame();
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+        r.init_transparent_rgb_per_line();
+
+        Layer2 l2;
+        Tilemap tm;
+        l2.reset(); tm.reset();
+
+        SpriteEngine sp;
+        sp.reset();
+        sp.write_slot_select(0);
+        for (int i = 0; i < 256; ++i) sp.write_pattern(0x07);
+        sp.write_slot_select(0);
+        sp.write_attribute(100);
+        sp.write_attribute(90);
+        sp.write_attribute(0x00);
+        sp.write_attribute(0x80 | 0x00);
+        sp.set_clip_x1(0);   sp.set_clip_x2(0xFF);
+        sp.set_clip_y1(0);   sp.set_clip_y2(0xFF);
+        sp.set_over_border(true);
+        sp.set_sprites_visible(true);
+        sp.start_frame();
+
+        r.write_nr15(0x01);            // SLU + sprites on
+        r.start_frame_nr15();
+
+        r.ula().set_active_sprite_palette(false);
+        r.ula().palsel_start_frame();
+        r.ula().set_palsel_current_line(98);
+        r.ula().set_active_sprite_palette(true);
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const int x = 210;
+        const uint32_t upper = fb[94u  * Renderer::FB_WIDTH + x];
+        const uint32_t lower = fb[102u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G10-04",
+              "mid-frame NR 0x43 b3 flip (line 98) switches the SPRITE "
+              "palette bank from that row on; rows above keep bank 0 "
+              "(VHDL 5391, 6828)",
+              upper == G10_RED && lower == G10_GREEN,
+              DETAIL("row94=0x%08X (exp 0x%08X) row102=0x%08X (exp 0x%08X)",
+                     upper, G10_RED, lower, G10_GREEN));
+    }
 }
 
 // ── Group UCLIP — NR 0x1A ULA clip window per-line deferral ───────────────

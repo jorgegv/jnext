@@ -300,6 +300,13 @@ void Renderer::run_sprite_side_effects(SpriteEngine* sprites,
         sprites->apply_changes_for_line(row);
         apply_changes_for_line_nr15(row);
         if (sprite_en_) {
+            // Palette bank left at the default: this pass exists only for
+            // the collision / overtime side effects, and every pixel it
+            // paints into sprite_line_ is discarded (render_row refills the
+            // buffer before any real use).  Neither side effect reads the
+            // palette, so the bank cannot affect the outcome.  This loop
+            // also does not replay the NR 0x43 selector log, so there is no
+            // per-line bank to pass here (GH #163).
             sprites->render_scanline_debug(sprite_line_.data(), row, palette);
         }
     }
@@ -364,10 +371,21 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
             // pixels, so before Task 46 a wrongly-transparent pixel here was
             // destroyed before composite_scanline's own NR 0x14 check ever
             // saw it — unrecoverable.
+            // GH #163: the L2 palette bank (NR 0x43 b2) is read from the
+            // per-scanline-replayed Ula selector, NOT the live
+            // PaletteManager member — same reason and same source as the
+            // ULA lane's get_active_ula_palette() a few lines below.
+            // zxnext.vhd:5392 latches the bit, :6827 reads it in the
+            // active-palette mux per pixel cycle, so a Copper MOVE that
+            // flips it mid-frame must apply from the next scanline on.
+            // The live member holds the frame's LAST value here (this loop
+            // runs after the CPU and Copper have finished the frame), which
+            // collapsed show512.nex's two 256-colour halves onto one.
             layer2.render_scanline(layer2_line_.data(), row, ram, palette,
                                    transparent_rgb_for_line(row),
                                    mmu.rom_in_sram(),
-                                   layer2_priority_.data());
+                                   layer2_priority_.data(),
+                                   ula_.get_active_layer2_palette());
         }
     }
 
@@ -396,7 +414,11 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
     // early-return; the engine-skip-when-disabled remains a jnext
     // modelling optimisation, now applied at per-line granularity.
     if (sprites && sprite_en_) {
-        sprites->render_scanline_debug(sprite_line_.data(), row, palette);
+        // GH #163: sprite palette bank (NR 0x43 b3) from the per-scanline
+        // replayed selector — see the Layer 2 call above (zxnext.vhd:5391,
+        // :6828).
+        sprites->render_scanline_debug(sprite_line_.data(), row, palette,
+                                       ula_.get_active_sprite_palette());
     }
 
     // Render ULA scanline (G104 Phase 2: native 640 emit). Pass

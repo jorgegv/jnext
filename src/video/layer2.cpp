@@ -348,17 +348,19 @@ static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr,
 void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                    const PaletteManager& palette, uint8_t bank,
                                    uint8_t transparent_rgb,
-                                   bool rom_in_sram)
+                                   bool rom_in_sram,
+                                   bool palette_bank_second)
 {
     const bool saved_enabled = enabled_;
     const uint8_t saved_bank = active_bank_;
     enabled_      = true;
     active_bank_  = bank;
     // Debugger view doesn't need per-pixel priority info — pass nullptr.
-    // transparent_rgb comes from the CALLER's per-line replay — see the
-    // doc comment on this function in layer2.h (Task 46).
+    // transparent_rgb and palette_bank_second come from the CALLER's
+    // per-line replay — see the doc comments in layer2.h (Task 46, GH #163).
     render_scanline(dst, row, ram, palette, transparent_rgb,
-                    rom_in_sram, /*priority_dst=*/nullptr);
+                    rom_in_sram, /*priority_dst=*/nullptr,
+                    palette_bank_second);
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
 }
@@ -367,7 +369,8 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                              const PaletteManager& palette,
                              uint8_t transparent_rgb,
                              bool rom_in_sram,
-                             bool* priority_dst) const
+                             bool* priority_dst,
+                             bool palette_bank_second) const
 {
     if (!enabled_)
         return;
@@ -432,20 +435,20 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                 ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
 
             // Transparency: compare palette RRRGGGBB against global transparent colour.
-            if (palette.layer2_rgb8(colour_idx) == transp_rgb)
+            if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
                 continue;
 
             // Pixel-double: each 256-mode source pixel writes two
             // 640-grid cells (matches VHDL's narrow-res 7 MHz output
             // re-sampled at the compositor's 14 MHz pixel clock).
-            uint32_t argb = palette.layer2_colour(colour_idx);
+            uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
             dst[DISP_X + 2 * x]     = argb;
             dst[DISP_X + 2 * x + 1] = argb;
             // VHDL zxnext.vhd:7050 — palette bit 15 (NR 0x44 b7) drives
             // layer2_priority_2 per-pixel for opaque L2 pixels. Compositor
             // uses this to promote L2 above sprites (zxnext.vhd:7220).
             if (priority_dst) {
-                const bool prio = palette.layer2_priority_high(colour_idx);
+                const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
                 priority_dst[DISP_X + 2 * x]     = prio;
                 priority_dst[DISP_X + 2 * x + 1] = prio;
             }
@@ -498,16 +501,16 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             uint8_t colour_idx = static_cast<uint8_t>(
                 ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
 
-            if (palette.layer2_rgb8(colour_idx) == transp_rgb)
+            if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
                 continue;
 
             // Pixel-double: 320 source → 640 framebuffer cells.
-            uint32_t argb = palette.layer2_colour(colour_idx);
+            uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
             dst[2 * x]     = argb;
             dst[2 * x + 1] = argb;
             // VHDL zxnext.vhd:7050 — see narrow-mode comment above.
             if (priority_dst) {
-                const bool prio = palette.layer2_priority_high(colour_idx);
+                const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
                 priority_dst[2 * x]     = prio;
                 priority_dst[2 * x + 1] = prio;
             }
@@ -554,20 +557,20 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             // High nibble = left pixel.
             uint8_t left_nib = (byte >> 4) & 0x0F;
             uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
-            if (palette.layer2_rgb8(left_idx) != transp_rgb) {
-                dst[col * 2] = palette.layer2_colour(left_idx);
+            if (palette.layer2_rgb8(palette_bank_second, left_idx) != transp_rgb) {
+                dst[col * 2] = palette.layer2_colour(palette_bank_second, left_idx);
                 // VHDL zxnext.vhd:7050 — per-pixel L2 priority bit.
                 if (priority_dst)
-                    priority_dst[col * 2] = palette.layer2_priority_high(left_idx);
+                    priority_dst[col * 2] = palette.layer2_priority_high(palette_bank_second, left_idx);
             }
 
             // Low nibble = right pixel.
             uint8_t right_nib = byte & 0x0F;
             uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
-            if (palette.layer2_rgb8(right_idx) != transp_rgb) {
-                dst[col * 2 + 1] = palette.layer2_colour(right_idx);
+            if (palette.layer2_rgb8(palette_bank_second, right_idx) != transp_rgb) {
+                dst[col * 2 + 1] = palette.layer2_colour(palette_bank_second, right_idx);
                 if (priority_dst)
-                    priority_dst[col * 2 + 1] = palette.layer2_priority_high(right_idx);
+                    priority_dst[col * 2 + 1] = palette.layer2_priority_high(palette_bank_second, right_idx);
             }
         }
     }

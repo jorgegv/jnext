@@ -181,10 +181,17 @@ static void fill_640x256(Ram& ram, uint8_t bank, F pat) {
 // argument is gone). Tests that previously distinguished 320 vs 640 calls
 // now share a single path; res-2/3 (640×256 4bpp) is native, res-0/1 are
 // pixel-doubled into the same 640-wide buffer.
+// GH #163: the active L2 palette bank (NR 0x43 b2) is a render-time
+// PARAMETER now, not something render_scanline reads back off the palette —
+// the renderer feeds it the per-scanline-replayed selector. This helper
+// stands in for the renderer, so it passes the live NR 0x43 b2 value, which
+// is what these single-row tests set up with select_l2_palette().
 static void render_row(const Layer2& l2, Ram& ram, PaletteManager& pal,
                        uint32_t* buf, int fb_row) {
     memset(buf, 0, sizeof(uint32_t) * BUF_WIDTH);
-    l2.render_scanline(buf, fb_row, ram, pal, pal.global_transparency());
+    l2.render_scanline(buf, fb_row, ram, pal, pal.global_transparency(),
+                       /*rom_in_sram=*/false, /*priority_dst=*/nullptr,
+                       pal.active_layer2_palette());
 }
 
 // Program a single palette entry (8-bit RRRGGGBB) into the currently-active

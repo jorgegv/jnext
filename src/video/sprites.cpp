@@ -742,16 +742,18 @@ SpriteEngine::SpriteAttr SpriteEngine::resolve_relative(const SpriteAttr& rel,
 // ---------------------------------------------------------------------------
 
 void SpriteEngine::render_scanline_debug(uint32_t* dst, int y,
-                                         const PaletteManager& palette)
+                                         const PaletteManager& palette,
+                                         bool palette_bank_second)
 {
     const bool saved = sprites_visible_;
     sprites_visible_ = true;
-    render_scanline(dst, y, palette);
+    render_scanline(dst, y, palette, palette_bank_second);
     sprites_visible_ = saved;
 }
 
 void SpriteEngine::render_scanline(uint32_t* dst, int y,
-                                   const PaletteManager& palette) const
+                                   const PaletteManager& palette,
+                                   bool palette_bank_second) const
 {
     if (!sprites_visible_)
         return;
@@ -825,11 +827,13 @@ void SpriteEngine::render_scanline(uint32_t* dst, int y,
 
     if (zero_on_top_) {
         for (int i = NUM_SPRITES - 1; i >= 0; --i) {
-            render_sprite_scanline(dst, effective[i], y, palette, line_occupied);
+            render_sprite_scanline(dst, effective[i], y, palette, line_occupied,
+                                   palette_bank_second);
         }
     } else {
         for (int i = 0; i < NUM_SPRITES; ++i) {
-            render_sprite_scanline(dst, effective[i], y, palette, line_occupied);
+            render_sprite_scanline(dst, effective[i], y, palette, line_occupied,
+                                   palette_bank_second);
         }
     }
 }
@@ -840,7 +844,8 @@ void SpriteEngine::render_scanline(uint32_t* dst, int y,
 
 void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
                                           int y, const PaletteManager& palette,
-                                          bool* line_occupied) const
+                                          bool* line_occupied,
+                                          bool palette_bank_second) const
 {
     if (!spr.visible())
         return;
@@ -1036,7 +1041,7 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
         // Write the pixel to the output buffer.  G104 Phase 5: VHDL-faithful
         // 7-MHz -> 14-MHz pixel-doubling — emit each 320-grid sprite pixel
         // into the two adjacent 640-grid cells (dst[2x] and dst[2x+1]).
-        const uint32_t argb = palette.sprite_colour(pixel_val);
+        const uint32_t argb = palette.sprite_colour(palette_bank_second, pixel_val);
         dst[dst_x]     = argb;
         dst[dst_x + 1] = argb;
     }

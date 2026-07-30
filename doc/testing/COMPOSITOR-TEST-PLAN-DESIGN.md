@@ -830,6 +830,45 @@ reverting the `render_row` gate to the engine's live
 `sprites_visible()` → exactly G02-04 red; gating the live update
 behind the cap check → exactly G02-05 red.
 
+#### PSCAN sub-group G10 — NR 0x43 b2/b3 selector CONSUMPTION (GH #163, wired 2026-07-30)
+
+Same shape as G02, on the palette-select lane. The NR 0x43 selector
+change-log (`Ula::palsel_*`, b1 ULA / b2 Layer 2 / b3 sprite) had been
+built and fed since G10, and the ULA lane was consumed — but **nothing
+read the Layer 2 or sprite lane back out**: `PaletteManager`'s Layer 2
+and sprite lookups took no bank and read the live `active_l2_second_` /
+`active_spr_second_`, which at render time is the frame's LAST value.
+`ShowAll512Colors/show512.nex` — whose Copper flips b2 halfway down a
+32x16 field of palette indices 255..0 drawn twice — rendered 256 colours
+instead of 512 (measured: 64 of 65536 pixels differed between the two
+halves; after the fix 64576 differ and the field holds exactly 512
+colours). VHDL: `zxnext.vhd:5391-5393` latch b1/b2/b3 as three
+independent storage cells, `:6825-6828` read them in the active-palette
+mux per pixel cycle.
+
+These drive the real `render_frame` end to end (the G02 recipe). Every
+expected value is a LITERAL ARGB derived by hand from the RRRGGGBB byte
+the fixture programmes, never read back through the accessor under test
+— otherwise an accessor that ignored its bank argument would collapse
+the expectation exactly as it collapses the render.
+
+| ID           | Title                                                        | Stimulus                                                                                                      | Expected                                                                                                     | VHDL                        |
+|--------------|--------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|-----------------------------|
+| PSCAN-G10-01 | Layer 2 colour lane: mid-frame NR 0x43 b2 flip               | L2 fills the display with index 0x5A; bank 0 entry red (0xE0), bank 1 green (0x1C); b2 set at line 100         | Rows <100 red (0xFFFF0000); the row it landed on and below green (0xFF00FF00)                                 | 5392, 6827                  |
+| PSCAN-G10-02 | Layer 2 NR 0x14 transparency gate follows the same bank      | Same, but bank 0's entry RGB8 == NR 0x14 (0xE1, blue chosen so the compositor's own clause cannot heal it)     | Rows <100 transparent (ULA below shows); rows >=100 opaque green — isolates `layer2_rgb8`'s bank              | 5392, 6827, 7121            |
+| PSCAN-G10-03 | Layer 2 palette PRIORITY bit follows the same bank           | Both banks hold the SAME colour; only the NR 0x44 priority bit differs (bank 1 set); sprite band spans line 98 | Rows <98 sprite wins (SLU); rows >=98 promoted L2 wins — colour held constant so only the priority bit varies | 5392, 6827, 7050, 7220      |
+| PSCAN-G10-04 | Sprite colour lane: mid-frame NR 0x43 b3 flip                | Sprite band rows 90..105 of pattern index 0x07; bank 0 red, bank 1 green; b3 set at line 98                    | Row 94 red, row 102 green                                                                                    | 5391, 6828                  |
+
+Mutation evidence (2026-07-30, each restored to green): `render_row`
+passing a constant instead of `Ula::get_active_layer2_palette()` →
+G10-01/02/03 red; the same for the sprite call → G10-04 red;
+`layer2_colour(bank,…)` reverted to the live member → G10-01/02 red;
+`layer2_rgb8` → exactly G10-02 red; `layer2_priority_high` → exactly
+G10-03 red; `sprite_colour` → exactly G10-04 red;
+`Layer2::render_scanline` dropping its bank parameter →
+G10-01/02/03 red. The debugger video panel's own wiring is covered by
+`debugger_video_panel_test`'s DVP-PALSEL rows.
+
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 
 The last instance of the Task 43/45/46 per-line-deferral bug class.
