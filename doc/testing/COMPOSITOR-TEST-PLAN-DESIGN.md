@@ -858,6 +858,7 @@ the expectation exactly as it collapses the render.
 | PSCAN-G10-02 | Layer 2 NR 0x14 transparency gate follows the same bank      | Same, but bank 0's entry RGB8 == NR 0x14 (0xE1, blue chosen so the compositor's own clause cannot heal it)     | Rows <100 transparent (ULA below shows); rows >=100 opaque green — isolates `layer2_rgb8`'s bank              | 5392, 6827, 7121            |
 | PSCAN-G10-03 | Layer 2 palette PRIORITY bit follows the same bank           | Both banks hold the SAME colour; only the NR 0x44 priority bit differs (bank 1 set); sprite band spans line 98 | Rows <98 sprite wins (SLU); rows >=98 promoted L2 wins — colour held constant so only the priority bit varies | 5392, 6827, 7050, 7220      |
 | PSCAN-G10-04 | Sprite colour lane: mid-frame NR 0x43 b3 flip                | Sprite band rows 90..105 of pattern index 0x07; bank 0 red, bank 1 green; b3 set at line 98                    | Row 94 red, row 102 green                                                                                    | 5391, 6828                  |
+| PSCAN-G10-05 | Tilemap colour lane: mid-frame NR **0x6B b4** flip           | 40x32 tilemap of one tile, palette index 0x5A; bank 0 red (0xE0), bank 1 green (0x1C); b4 set at line 100      | Rows <100 red; the row it landed on and below green — and the LIVE selector is still bank 0                  | 5462, 6826, 6981            |
 
 Mutation evidence (2026-07-30, each restored to green): `render_row`
 passing a constant instead of `Ula::get_active_layer2_palette()` →
@@ -868,6 +869,20 @@ G10-03 red; `sprite_colour` → exactly G10-04 red;
 `Layer2::render_scanline` dropping its bank parameter →
 G10-01/02/03 red. The debugger video panel's own wiring is covered by
 `debugger_video_panel_test`'s DVP-PALSEL rows.
+
+G10-05 (GH #168, the third lane, wired 2026-07-30) closes the same gap
+on the tilemap. Its selector is a DIFFERENT latch — `nr_6b_tm_control(4)`
+(`zxnext.vhd:5462`), sampled into `tm_palette_select_0` at `:6826`,
+pipelined at `:6921-6922` and used as the palette-RAM address MSB at
+`:6981` — so it has its own 1-bit change-log (`Ula::palsel6b_*`) beside
+the NR 0x43 3-bit one. `Ula::get_active_tilemap_palette()` had eight test
+references and zero production callers; `PaletteManager::tilemap_colour`
+gained the bank parameter and `Tilemap::render_scanline` now takes it
+from the caller. Mutation evidence (2026-07-30, restored to green):
+`tilemap_colour(bank,…)` at `tilemap.cpp` reverted to the live 1-arg form
+→ G10-05 red (and DVP-PALSEL-TM red); `render_row` dropping the bank
+argument → exactly G10-05 red; the debugger panel dropping it → exactly
+DVP-PALSEL-TM red, G10-05 green.
 
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 

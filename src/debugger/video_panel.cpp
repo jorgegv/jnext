@@ -442,8 +442,11 @@ void VideoLayerView::render_to_image(int vc)
                 std::fill_n(ula_over, layer_w, false);
                 // G104 phase 4: tilemap render_scanline_debug always
                 // emits 640 (no width parameter).
+                // GH #168: NR 0x6B b4, replayed per row — see LAYER2_ACTIVE.
                 emu.tilemap().render_scanline_debug(
-                    dst, ula_over, row, emu.ram(), emu.palette());
+                    dst, ula_over, row, emu.ram(), emu.palette(),
+                    /*textmode_flags=*/nullptr,
+                    emu.ula().get_active_tilemap_palette());
                 break;
             }
 

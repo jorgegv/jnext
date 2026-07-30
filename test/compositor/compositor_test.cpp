@@ -4160,6 +4160,123 @@ static void test_PSCAN() {
               DETAIL("row94=0x%08X (exp 0x%08X) row102=0x%08X (exp 0x%08X)",
                      upper, G10_RED, lower, G10_GREEN));
     }
+
+    // PSCAN-G10-05 — TILEMAP lane (NR 0x6B b4).  GH #168, the third lane of
+    //   the same defect.  The selector is logged and replayed by the SAME
+    //   Ula palsel machinery (a separate 1-bit log, because NR 0x6B b4 is a
+    //   different latch from NR 0x43's 3-bit field), and
+    //   Ula::get_active_tilemap_palette() had EIGHT test references and ZERO
+    //   production callers: Tilemap::render_scanline resolved colour through
+    //   PaletteManager::tilemap_colour(idx), which read the live
+    //   `active_tm_second_` — the END-of-frame value at render time.
+    //
+    //   VHDL oracle:
+    //     zxnext.vhd:5462   nr_6b_tm_control <= nr_wr_dat(6 downto 0)
+    //     zxnext.vhd:6826   tm_palette_select_0 <= nr_6b_tm_control(4)
+    //     zxnext.vhd:6921-6922  pipelined _0 -> _1a -> _1
+    //     zxnext.vhd:6981   ulatm_pixel_1 <= ... else ('1' & tm_palette_select_1
+    //                       & tm_pixel_1)   -- palette RAM address bit
+    //   i.e. a per-pixel-cycle read of an independent latch, exactly like the
+    //   NR 0x43 lanes above, so a MOVE landing at line N applies from line N
+    //   and never retroactively to the rows above it.
+    //
+    //   Shape mirrors G10-01: one index, two differently-coloured tilemap
+    //   palette banks, a flip at line 100, sampled above/at/below.  The LIVE
+    //   PaletteManager tilemap selector is never touched (NR 0x43 does not
+    //   drive it — palette.cpp:251), so it stays `false` for the whole
+    //   fixture: any accessor that fell back to it renders bank 0 on every
+    //   row, which the at/below samples do not expect.  Expected values are
+    //   the same hand-computed literals used above, never read back through
+    //   the accessor under test.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+        // Palette index = (attr palette-offset << 4) | pixel nibble.
+        // Offset 5, nibble 0x0A -> 0x5A: non-zero (a zero index reads an
+        // entry that is 0 in BOTH banks after reset, so the row would pass
+        // whether or not the code under test ran), and the nibble differs
+        // from the NR 0x4C tilemap transparency index (reset 0x0F) so the
+        // pixel is emitted at all.
+        const uint8_t PAL_OFF = 0x5;
+        const uint8_t PIXEL   = 0x0A;
+        const uint8_t K       = static_cast<uint8_t>((PAL_OFF << 4) | PIXEL);
+        g10_pal8(pal, 0x30, K, 0xE0);   // TILEMAP_FIRST[K]  = red
+        g10_pal8(pal, 0x70, K, 0x1C);   // TILEMAP_SECOND[K] = green
+        pal.start_frame();
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+        r.init_transparent_rgb_per_line();
+
+        Layer2 l2;
+        SpriteEngine sp;
+        l2.reset(); sp.reset();
+
+        // Tilemap: 40x32 of one tile, attribute palette-offset PAL_OFF and
+        // bit 0 (ULA-over-tilemap) clear, so the tilemap wins the ULA/TM
+        // merge (zxnext.vhd:7116) and every sampled cell is a tilemap pixel.
+        // Reset-default bases: map 0x2C*256, definitions 0x0C*256, both in
+        // bank 5 (5*16384 in this standalone Ram fixture).
+        constexpr uint32_t BANK5    = 5u * 16384u;
+        constexpr uint32_t MAP_BASE = BANK5 + 0x2Cu * 256u;
+        constexpr uint32_t DEF_BASE = BANK5 + 0x0Cu * 256u;
+        constexpr uint16_t TILE     = 1;
+        Tilemap tm;
+        tm.reset();
+        const uint8_t pat_byte = static_cast<uint8_t>((PIXEL << 4) | PIXEL);
+        for (int i = 0; i < 32; ++i)
+            ram.write(DEF_BASE + TILE * 32u + static_cast<uint32_t>(i), pat_byte);
+        for (int cell = 0; cell < 40 * 32; ++cell) {
+            ram.write(MAP_BASE + static_cast<uint32_t>(cell) * 2u, TILE);
+            ram.write(MAP_BASE + static_cast<uint32_t>(cell) * 2u + 1u,
+                      static_cast<uint8_t>(PAL_OFF << 4));
+        }
+        tm.set_control(0x80);           // b7 enable, 40-col, 4bpp, 2-byte map
+        tm.init_scroll_per_line();
+        tm.start_frame_nr6b();
+
+        r.write_nr15(0x00);             // SLU, sprites off
+        r.start_frame_nr15();
+
+        // NR 0x6B exactly as Emulator's write handler drives it: the live
+        // PaletteManager selector AND the Ula palsel6b change-log. Here only
+        // the log side is exercised — the live side stays at bank 0.
+        r.ula().set_active_tilemap_palette(false);
+        r.ula().palsel_start_frame();
+        r.ula().set_palsel_current_line(100);
+        r.ula().set_active_tilemap_palette(true);
+
+        std::vector<uint32_t> fb(
+            static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        const int x = Renderer::DISP_X + 20;
+        const uint32_t before = fb[ 50u * Renderer::FB_WIDTH + x];
+        const uint32_t at     = fb[100u * Renderer::FB_WIDTH + x];
+        const uint32_t after  = fb[200u * Renderer::FB_WIDTH + x];
+
+        check("PSCAN-G10-05",
+              "mid-frame NR 0x6B b4 flip (line 100) switches the TILEMAP "
+              "palette bank from that row on; rows above keep bank 0 "
+              "(VHDL 5462, 6826, 6981)",
+              before == G10_RED && at == G10_GREEN && after == G10_GREEN
+                  && !pal.active_tilemap_palette(),
+              DETAIL("row50=0x%08X (exp 0x%08X) row100=0x%08X row200=0x%08X "
+                     "(exp 0x%08X) live_sel=%d", before, G10_RED, at, after,
+                     G10_GREEN, int(pal.active_tilemap_palette())));
+    }
 }
 
 // ── Group UCLIP — NR 0x1A ULA clip window per-line deferral ───────────────

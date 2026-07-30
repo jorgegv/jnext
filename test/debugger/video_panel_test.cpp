@@ -809,6 +809,96 @@ static void test_per_line_palette_select_replay(Emulator& emu) {
     }
 }
 
+// ── DVP-PALSEL-TM: per-scanline NR 0x6B b4 selector replay ────────────
+//
+// GH #168 — the third lane of GH #163, on the TILEMAP view.  The panel's
+// replay loop already walked Ula::palsel_apply_changes_for_line(row) per row
+// (both palsel logs), but the TILEMAP case passed nothing to
+// Tilemap::render_scanline_debug, which resolved colour through the LIVE
+// PaletteManager selector — so a mid-frame NR 0x6B b4 flip flattened the whole
+// view onto the frame's end-of-pause bank.  VHDL zxnext.vhd:5462 latches the
+// bit inside nr_6b_tm_control, :6826 samples bit 4 into tm_palette_select_0
+// every pixel cycle, :6921-6922 pipeline it and :6981 use it as the palette
+// RAM address MSB.
+//
+// Own Emulator (not folded into the NR 0x43 group above) so the tilemap
+// content cannot perturb those rows.  Both banks hold DIFFERENT colours at the
+// SAME index and the LIVE selector is left at bank 0 throughout — paint_palette
+// writes NR 0x43, which by VHDL does not drive the tilemap select
+// (palette.cpp:251) — so any read of the live state renders bank 0 on every
+// row, which the at/below sample does not expect.
+
+static void test_per_line_tilemap_palette_select_replay(Emulator& emu) {
+    set_group("DVP-PALSEL-TM");
+
+    constexpr uint8_t PAL_OFF   = 0x5;
+    constexpr uint8_t PIXEL     = 0x0A;   // != NR 0x4C transparency (0x0F)
+    constexpr uint8_t IDX       = (PAL_OFF << 4) | PIXEL;   // 0x5A, non-zero
+    constexpr int     TM_COL    = 6;
+    constexpr int     SPLIT_ROW = 100;
+
+    // Literal ARGB, derived by hand from the RRRGGGBB byte each write
+    // programmes — never read back through the accessor under test.
+    //   0x3F via NR 0x41 -> rgb333 (1,7,7) -> 0xFF24FFFF
+    //   0xE0 via NR 0x41 -> rgb333 (7,0,0) -> 0xFFFF0000
+    constexpr uint32_t tm_a = 0xFF24FFFFu;
+    constexpr uint32_t tm_b = 0xFFFF0000u;
+
+    PaletteManager& pal = emu.palette();
+    paint_palette(pal, 0x30, IDX, 0x3F);   // TILEMAP_FIRST  = cyan-ish
+    paint_palette(pal, 0x70, IDX, 0xE0);   // TILEMAP_SECOND = red
+
+    uint8_t* b5 = emu.mmu().bank5_vram();
+    Tilemap& tm = emu.tilemap();
+    tm.set_map_base(TM_MAP_BASE);
+    tm.set_def_base(TM_DEF_BASE);
+    tm.set_control(0x80);                  // enable, 40-col, 2-byte map entries
+    fill_tile(b5, 0, 0x0F);                // every other cell transparent
+    fill_tile(b5, 1, PIXEL);
+    for (int row = 0; row < 32; ++row)
+        write_tile_map(b5, TM_COL, row, 1, static_cast<uint8_t>(PAL_OFF << 4));
+
+    Ula& ula = emu.ula();
+    ula.set_active_tilemap_palette(false);
+
+    begin_frame(emu);   // includes palsel_start_frame() -> baseline = bank 0
+
+    // Mid-frame NR 0x6B write, as Emulator::on_scanline + the NR 0x6B handler
+    // drive it (emulator.cpp:2391).
+    ula.set_palsel_current_line(SPLIT_ROW);
+    ula.set_active_tilemap_palette(true);
+
+    check("DVP-PALSEL-TMa",
+          "test premise: the bank-taking tilemap accessor returns the two "
+          "programmed colours, and the LIVE NR 0x6B b4 selector is still "
+          "bank 0 (so any live-state read renders bank 0 everywhere)",
+          pal.tilemap_colour(false, IDX) == tm_a
+              && pal.tilemap_colour(true, IDX) == tm_b
+              && !pal.active_tilemap_palette(),
+          fmt("tm 0/1=0x%08X/0x%08X (want 0x%08X/0x%08X) live=%d",
+              pal.tilemap_colour(false, IDX), pal.tilemap_colour(true, IDX),
+              tm_a, tm_b, int(pal.active_tilemap_palette())));
+
+    {
+        QImage img = render_view(emu, VideoLayerView::Layer::TILEMAP,
+                                 Renderer::FB_HEIGHT - 1);
+        // 40-col: tile column C covers source x 8C..8C+7, pixel-doubled into
+        // framebuffer cells 16C..16C+15.
+        const int cell = 16 * TM_COL + 4;
+        const uint32_t above = px(img, cell, SPLIT_ROW - 1);
+        const uint32_t at    = px(img, cell, SPLIT_ROW);
+        const uint32_t below = px(img, cell, SPLIT_ROW + 20);
+        check("DVP-PALSEL-TM",
+              "TILEMAP view: rows above a mid-frame NR 0x6B b4 flip keep "
+              "bank 0, the row it landed on and below show bank 1",
+              above == tm_a && at == tm_b && below == tm_b,
+              fmt("row%d=0x%08X (want 0x%08X) row%d=0x%08X row%d=0x%08X "
+                  "(want 0x%08X)",
+                  SPLIT_ROW - 1, above, tm_a, SPLIT_ROW, at,
+                  SPLIT_ROW + 20, below, tm_b));
+    }
+}
+
 // ── DVP-06: the panel must not perturb live emulator state ────────────
 //
 // KNOWN BLIND SPOT — read before trusting this group in isolation.  Every write
@@ -2267,6 +2357,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_per_line_palette_select_replay(emu);
         std::printf("  Group: DVP-PALSEL     — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_per_line_tilemap_palette_select_replay(emu);
+        std::printf("  Group: DVP-PALSEL-TM  — done\n");
     }
     {
         Emulator emu;

@@ -286,7 +286,8 @@ void Tilemap::set_def_base(uint8_t val)
 void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                     const Ram& ram,
                                     const PaletteManager& palette,
-                                    bool* textmode_flags)
+                                    bool* textmode_flags,
+                                    bool palette_bank_second)
 {
     // Only the enable gate is overridden — the debug view exists precisely to
     // show the layer's content even when NR 0x6B b7 has it switched off.
@@ -302,16 +303,21 @@ void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
     // snapshots for rows 0..y, so the frame the compositor then rendered on
     // resume used the wrong scroll for its top half.  A debug view must never
     // mutate the state it observes.
+    //
+    // `palette_bank_second` is likewise READ from the caller's per-line
+    // replay, never taken from the live PaletteManager selector (GH #168).
     const bool saved = enabled_;
     enabled_ = true;
-    render_scanline(dst, ula_over_flags, y, ram, palette, textmode_flags);
+    render_scanline(dst, ula_over_flags, y, ram, palette, textmode_flags,
+                    palette_bank_second);
     enabled_ = saved;
 }
 
 void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                               const Ram& ram,
                               const PaletteManager& palette,
-                              bool* textmode_flags) const
+                              bool* textmode_flags,
+                              bool palette_bank_second) const
 {
     if (!enabled_ || y < 0 || y >= 256)
         return;
@@ -632,7 +638,12 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             colour_idx = static_cast<uint8_t>((pal_offset << 4) | (pixel_4bit & 0x0F));
         }
 
-        dst[screen_x] = palette.tilemap_colour(colour_idx);
+        // GH #168 — the palette bank comes from the CALLER's per-scanline
+        // replay of NR 0x6B b4, not from the live PaletteManager selector.
+        // zxnext.vhd:6826 samples nr_6b_tm_control(4) every pixel cycle into
+        // tm_palette_select_0, which reaches the palette RAM address at
+        // :6981, so a mid-frame flip must split the frame at that row.
+        dst[screen_x] = palette.tilemap_colour(palette_bank_second, colour_idx);
 
         if (ula_over_flags)
             ula_over_flags[screen_x] = pixel_below;
