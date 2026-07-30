@@ -137,6 +137,7 @@ BEGIN {
     M["cli_options_test"]              = "CLI options / docs"
     M["video_recorder_cmd_test"]       = "Video recorder (ffmpeg cmd)"
     M["nex_loader_test"]               = "NEX loader (screen ingest)"
+    M["nex_v13_test"]                  = "NEX loader (V1.3)"
     M["extended_nex_test"]             = "Extended NEX streaming"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
