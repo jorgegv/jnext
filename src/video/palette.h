@@ -74,6 +74,14 @@ public:
     void write_control(uint8_t val);
     uint8_t read_control() const { return control_; }
 
+    /// Live NR 0x43 b2 / b3 active-palette selects. These are the
+    /// END-of-frame values at render time — a rasterizer must use the
+    /// per-scanline-replayed `Ula::get_active_{layer2,sprite}_palette()`
+    /// instead (GH #163). Exposed for tests and debug readouts, mirroring
+    /// `active_tilemap_palette()`.
+    bool active_layer2_palette() const { return active_l2_second_; }
+    bool active_sprite_palette() const { return active_spr_second_; }
+
     // -----------------------------------------------------------------
     // NextREG 0x40 — Palette Index
     // -----------------------------------------------------------------
@@ -241,19 +249,42 @@ public:
         return ula_rgb333_[bank_second ? 1 : 0][ula_pixel];
     }
 
-    /// Look up Layer 2 colour by 8-bit pixel value. Uses the active L2 palette.
-    uint32_t layer2_colour(uint8_t idx) const {
-        return layer2_argb_[active_l2_second_][idx];
+    /// Look up Layer 2 colour as ARGB8888 by (bank, 8-bit pixel value).
+    ///
+    /// GH #163 — the bank MUST come from the caller when the caller is a
+    /// rasterizer: NR 0x43 bit 2 is an independent storage cell
+    /// (zxnext.vhd:5392) read by the active-palette mux per pixel cycle
+    /// (zxnext.vhd:6827), so a Copper MOVE that flips it mid-frame applies
+    /// from the next scanline on. `active_l2_second_` holds the END-of-frame
+    /// value at render time (Renderer::render_frame runs after the CPU and
+    /// Copper have finished the frame), which collapses every row onto
+    /// last-write-wins — show512.nex rendered 256 colours instead of 512.
+    /// Renderer::render_row therefore passes the per-scanline-replayed
+    /// `Ula::get_active_layer2_palette()`. Mirrors `ula_colour(bank, px)`.
+    uint32_t layer2_colour(bool bank_second, uint8_t idx) const {
+        return layer2_argb_[bank_second ? 1 : 0][idx];
     }
 
-    /// Return the 8-bit RRRGGGBB value for a Layer 2 palette entry.
-    /// Used for VHDL-accurate transparency comparison (zxnext.vhd:7121).
-    uint8_t layer2_rgb8(uint8_t idx) const {
-        uint16_t c = layer2_rgb333_[active_l2_second_][idx];
+    /// Same lookup on the LIVE NR 0x43 b2 bank. For non-render callers
+    /// (tests, save-state diagnostics) only — see the bank-taking overload.
+    uint32_t layer2_colour(uint8_t idx) const {
+        return layer2_colour(active_l2_second_, idx);
+    }
+
+    /// Return the 8-bit RRRGGGBB value for a Layer 2 palette entry in the
+    /// given bank. Used for VHDL-accurate transparency comparison
+    /// (zxnext.vhd:7121); same bank contract as `layer2_colour`.
+    uint8_t layer2_rgb8(bool bank_second, uint8_t idx) const {
+        uint16_t c = layer2_rgb333_[bank_second ? 1 : 0][idx];
         uint8_t r3 = (c >> 6) & 0x07;
         uint8_t g3 = (c >> 3) & 0x07;
         uint8_t b3 = c & 0x07;
         return static_cast<uint8_t>((r3 << 5) | (g3 << 2) | (b3 >> 1));
+    }
+
+    /// Same lookup on the LIVE NR 0x43 b2 bank (non-render callers only).
+    uint8_t layer2_rgb8(uint8_t idx) const {
+        return layer2_rgb8(active_l2_second_, idx);
     }
 
     /// Return the 2-bit Layer 2 palette priority field for a palette
@@ -270,13 +301,26 @@ public:
     /// = nr_palette_priority(1)) is set for the entry.  This is the
     /// bit the compositor uses to promote Layer 2 over sprites
     /// (VHDL zxnext.vhd:7050, 7220).
-    bool layer2_priority_high(uint8_t idx) const {
-        return (layer2_priority_[active_l2_second_][idx] & 0x02) != 0;
+    bool layer2_priority_high(bool bank_second, uint8_t idx) const {
+        return (layer2_priority_[bank_second ? 1 : 0][idx] & 0x02) != 0;
     }
 
-    /// Look up sprite colour by 8-bit pixel value. Uses the active sprite palette.
+    /// Same lookup on the LIVE NR 0x43 b2 bank (non-render callers only).
+    bool layer2_priority_high(uint8_t idx) const {
+        return layer2_priority_high(active_l2_second_, idx);
+    }
+
+    /// Look up sprite colour as ARGB8888 by (bank, 8-bit pixel value).
+    /// NR 0x43 bit 3 (zxnext.vhd:5391, read at :6828) — same per-scanline
+    /// bank contract as `layer2_colour`; SpriteEngine::render_scanline takes
+    /// the bank from the caller's per-line replay (GH #163).
+    uint32_t sprite_colour(bool bank_second, uint8_t idx) const {
+        return sprite_argb_[bank_second ? 1 : 0][idx];
+    }
+
+    /// Same lookup on the LIVE NR 0x43 b3 bank (non-render callers only).
     uint32_t sprite_colour(uint8_t idx) const {
-        return sprite_argb_[active_spr_second_][idx];
+        return sprite_colour(active_spr_second_, idx);
     }
 
     /// Look up tilemap colour by 4-bit pixel value. Uses the active tilemap palette.
