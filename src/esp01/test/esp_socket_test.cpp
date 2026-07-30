@@ -13,6 +13,18 @@
 //      only exist because the policy is an injectable parameter rather than an
 //      `if` hard-coded into connect. That is the point of the split.
 //
+// EVERY `if (l.start()) { ...assertions... } else { ...bail-out... }` BELOW IS
+// WRITTEN THAT WAY ROUND ON PURPOSE (GH #158). The bail-out branch names each
+// row ID as a string literal so a listener that will not bind reports one SKIP
+// per row instead of shrinking the suite silently — but that made the guard the
+// FIRST textual occurrence of every one of those IDs, and
+// `test/refresh-traceability-matrix.pl` resolves a row's `Test file:line` to
+// its first occurrence. Seventeen rows therefore published a line inside a
+// bail-out that never executes, instead of the assertion. Testing the POSITIVE
+// condition puts the assertions first and the guard second; the behaviour is
+// identical and the published line is the one a reader wants. Do not invert
+// these back for style.
+//
 // PORTABILITY OF THE SUITE ITSELF, stated rather than glossed over. The policy
 // half is pure C++17 and runs anywhere the module builds. The transport half's
 // SCAFFOLDING — the in-process `Listener` below — is POSIX-only: it uses
@@ -720,12 +732,7 @@ int main() {
         };
 
         Listener l;
-        if (!l.start()) {
-            for (const char* id : {"TRACE-01", "TRACE-02", "TRACE-03"}) {
-                ++g_total; ++g_skip;
-                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
-            }
-        } else {
+        if (l.start()) {
             // (a) At debug, an IP-literal target must take the AI_NUMERICHOST
             //     path and say so — the evidence that no DNS lookup happened.
             const auto dbg = capture(LogLevel::Debug, [&] {
@@ -793,6 +800,11 @@ int main() {
                       "a host NAME takes the resolve path, not the numeric fast path",
                       joined(named).find("resolved 'localhost'") != std::string::npos &&
                           joined(named).find("numeric address") == std::string::npos);
+            }
+        } else {
+            for (const char* id : {"TRACE-01", "TRACE-02", "TRACE-03"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }
         }
     }
@@ -904,14 +916,7 @@ int main() {
     // ═══ NET — real loopback I/O against an in-process listener ════════════
     {
         Listener l;
-        if (!l.start()) {
-            for (const char* id : {"NET-01", "NET-02", "NET-03", "NET-04", "NET-05",
-                                   "NET-06", "NET-07", "NET-08", "NET-09", "NET-10",
-                                   "NET-11", "NET-12"}) {
-                ++g_total; ++g_skip;
-                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
-            }
-        } else {
+        if (l.start()) {
             auto t = make_socket_transport(loopback_ok());
             check("NET-01", "connect request accepted",
                   t->begin_connect("127.0.0.1", l.port()));
@@ -969,6 +974,13 @@ int main() {
                   t->state() == TransportState::Closed && server2 >= 0 &&
                       read_some(server2, 1, 500).empty());
             if (server2 >= 0) ::close(server2);
+        } else {
+            for (const char* id : {"NET-01", "NET-02", "NET-03", "NET-04", "NET-05",
+                                   "NET-06", "NET-07", "NET-08", "NET-09", "NET-10",
+                                   "NET-11", "NET-12"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
+            }
         }
     }
 
@@ -980,12 +992,7 @@ int main() {
             dead_port = l.port();
             l.stop();  // nothing is listening on dead_port any more
         }
-        if (dead_port == 0) {
-            for (const char* id : {"NET-ERR-01", "NET-ERR-02"}) {
-                ++g_total; ++g_skip;
-                std::printf("  SKIP %s: could not obtain a closed loopback port\n", id);
-            }
-        } else {
+        if (dead_port != 0) {
             auto t = make_socket_transport(loopback_ok());
             t->begin_connect("127.0.0.1", dead_port);
             bool settled = false;
@@ -998,6 +1005,11 @@ int main() {
             check("NET-ERR-02", "the failure carries an explanatory error string",
                   !t->last_error().empty() &&
                       t->last_error().find("connect") != std::string::npos);
+        } else {
+            for (const char* id : {"NET-ERR-01", "NET-ERR-02"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not obtain a closed loopback port\n", id);
+            }
         }
     }
 
@@ -1016,12 +1028,7 @@ int main() {
     // because a peer that resets WITHOUT having served anything is still one.
     {
         Listener l;
-        if (!l.start()) {
-            for (const char* id : {"RST-01", "RST-02"}) {
-                ++g_total; ++g_skip;
-                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
-            }
-        } else {
+        if (l.start()) {
             auto has_level = [](const std::vector<LogLine>& lines, LogLevel want) {
                 for (const auto& e : lines)
                     if (e.first == want) return true;
@@ -1086,6 +1093,11 @@ int main() {
             check("RST-02",
                   "a peer that RSTs having served nothing is still an error",
                   aborted && has_level(unserved, LogLevel::Error));
+        } else {
+            for (const char* id : {"RST-01", "RST-02"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback listener\n", id);
+            }
         }
     }
 
@@ -1163,13 +1175,7 @@ int main() {
     // resolver — and the AT+CIPSTART deadline finally covers resolution.
     {
         Listener l;
-        if (!l.start()) {
-            for (const char* id : {"ASYNC-01", "ASYNC-02", "ASYNC-03", "ASYNC-04",
-                                   "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08", "ASYNC-10",
-                                   "ASYNC-11", "ASYNC-12",
-                                   "ASYNC-09"})
-                skip(id, "could not bind a loopback listener");
-        } else {
+        if (l.start()) {
             // (01) An IP LITERAL STAYS SYNCHRONOUS. The resolver installed here
             //      fails loudly if it is called at all, and one poll() has to be
             //      enough to leave Resolving — both halves of "no thread was
@@ -1461,6 +1467,12 @@ int main() {
             // Leave no resolver thread parked at exit.
             fake_dns::gate.store(true);
             sleep_ms(20);
+        } else {
+            for (const char* id : {"ASYNC-01", "ASYNC-02", "ASYNC-03", "ASYNC-04",
+                                   "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08", "ASYNC-10",
+                                   "ASYNC-11", "ASYNC-12",
+                                   "ASYNC-09"})
+                skip(id, "could not bind a loopback listener");
         }
     }
 
