@@ -291,6 +291,314 @@ void test_split_screen(const char* tag, uint8_t screen_flag,
           fmt("bank5[0x%04zX]=0x%02X want 0x00 (screen data leaked into the hole)", bad, got));
 }
 
+// ── GH #166: HEADER_DONTRESETNEXTREGS gating ─────────────────────────
+//
+// Oracle A, <= V1.2 — nexload.asm:323
+//
+//     ld a,($c000+HEADER_DONTRESETNEXTREGS):or a:jp nz,.dontresetregs
+//
+// jumps to the `.dontresetregs` label at :422, so the block the flag
+// skips is EXACTLY :324-:408 — ";Reset All registers" through
+// `NEXTREG_nn MMU_REGISTER_1,255` (:409 is the `jr .dontresetregs`
+// that closes it).
+//
+// The boundary is the whole point of these rows. Four NR writes that
+// `NexLoader::apply()` makes have their oracle in nexload's
+// UNCONDITIONAL prologue at :266-:274, ABOVE the gate, and so must
+// still happen when the flag is set:
+//
+//     :266  NEXTREG_nn 66,15                   → NR 0x42 = 0x0F
+//     :267  NEXTREG_nn PALETTE_CONTROL,0       → NR 0x43 = 0x00
+//     :269  NEXTREG_nn PALETTE_INDEX,$18       → NR 0x40 = 0x18
+//     :270  NEXTREG_nn PALETTE_VALUE,$e3       → NR 0x41 = 0xE3
+//     :274  NEXTREG_nn SPRITE_CONTROL,SLU+VIS  → NR 0x15 = 0x01
+//
+// (NR 0x42 / 0x43 / 0x15 are ALSO written inside the gated block at
+// :395 / :394 / :370, but the prologue copy is unconditional, so the
+// net effect of the pair is unconditional. The ULA palette entry 0x18
+// pair at :269-:270 is written NOWHERE else — which is why it is the
+// wrong register to probe the gate with, despite being the obvious
+// candidate, and why NEXORD-06 above depends on it running.)
+//
+// Oracle B, V1.3 — nexload2.asm:781-783, inside
+// `setupBeforeBlockLoading`:
+//
+//     ld a,(nexHeader.PRESERVENEXTREG)
+//     or a
+//     ret nz    ; "next regs should be preserved, only 28MHz is set, keep others"
+//
+// The two loaders disagree on exactly one register jnext writes:
+// NR 0x07 (28 MHz turbo) is INSIDE nexload.asm's gate (:365) but ABOVE
+// nexload2's (:777). A V1.3 file can only be loaded by nexload2 — the
+// distro loader cannot parse it — so jnext follows whichever loader
+// would really handle the file. NEXPR-V13-01/02 pin that.
+//
+// Each register is set to a SENTINEL that differs both from jnext's
+// power-on value and from the value the reset block writes, so the two
+// branches are distinguishable in every row.
+
+// Registers probed, with their sentinel and the value the gated reset
+// block installs. EVERY sentinel differs from BOTH the emulator's
+// power-on value and the value the reset block writes, so no row can
+// pass because a sentinel write silently did nothing.
+//
+// NR 0x07 reads back as (actual << 4) | requested (emulator.cpp:1449),
+// so the sentinel 0x02 (14 MHz) reads 0x22 and the reset 0x03 reads
+// 0x33 — and neither is the power-on 0x00.
+constexpr uint8_t kSentinel07 = 0x02, kKeep07 = 0x22, kReset07 = 0x33;
+constexpr uint8_t kSentinel12 = 0x0A, kReset12 = 0x09;  // nexload.asm:367
+constexpr uint8_t kSentinel13 = 0x0E, kReset13 = 0x0C;  // nexload.asm:368
+constexpr uint8_t kSentinel14 = 0x5A, kReset14 = 0xE3;  // nexload.asm:369
+constexpr uint8_t kSentinel16 = 0x77, kReset16 = 0x00;  // nexload.asm:371
+constexpr uint8_t kSentinel4B = 0x2C, kReset4B = 0xE3;  // nexload.asm:405
+// Always-run prologue registers (:266-:274).
+constexpr uint8_t kSentinel42 = 0x3F, kAlways42 = 0x0F;  // nexload.asm:266
+constexpr uint8_t kSentinel43 = 0x10, kAlways43 = 0x00;  // nexload.asm:267-268
+constexpr uint8_t kSentinel15 = 0x84, kAlways15 = 0x01;  // nexload.asm:274
+constexpr uint8_t kSentinelPal18 = 0x99, kAlwaysPal18 = 0xE3;  // nexload.asm:269-270
+// NR 0x40 (palette index) after the load.
+//
+// The sentinel is deliberately NOT 0x19. Writing the pal[0x18] sentinel
+// through NR 0x41 auto-increments the index to 0x19 all by itself, so a
+// fixture that stopped there would leave the index at exactly the value
+// the flag-set branch is supposed to prove the PRODUCTION :269-:270
+// pair put it at — and NEXPR-KEEP-07 would pass with that pair deleted.
+// It did, and a reviewer caught it. Stamping a third, unrelated value
+// over the index breaks that shared side effect, so KEEP-07 now fails
+// both when the :269-:270 pair is removed and when the trailing
+// NR 0x40 = 0 is un-gated.
+constexpr uint8_t kSentinel40 = 0x7E;
+constexpr uint8_t kReset40 = 0x00, kKeep40 = 0x19;
+
+// A minimal, screen-less, bank-less NEX carrying `preserve_regs` at
+// header offset 134. No screen block means nothing downstream of the
+// NextREG init can write a NextREG and mask the probe — in particular
+// none of the set_loading_screen_display() paths run.
+bool write_preserve_nex(const std::string& path, uint8_t preserve_regs, const char* version) {
+    std::vector<uint8_t> file(512, 0x00);
+
+    std::memcpy(file.data() + 0, "Next", 4);
+    std::memcpy(file.data() + 4, version, 4);
+    file[8]  = 0;     // ram_required: 768 KB
+    file[9]  = 0;     // num_banks
+    file[10] = 0;     // screen_flags: none (so no SCREEN_EXT2 / screen_flags2)
+    file[11] = 0;     // border colour
+    file[12] = 0x00; file[13] = 0xFF;  // SP = 0xFF00
+    file[14] = 0x00; file[15] = 0x80;  // PC = 0x8000
+    file[130] = 0;    // loading_bar off
+    file[132] = 0;    // loading_delay
+    file[133] = 0;    // start_delay
+    file[134] = preserve_regs;
+    // V1.3 fields (142-158, 508) stay zero: no copper block, no checksum,
+    // banks_offset 0 (derived), screen_flags2 unused because bit 6 is clear.
+
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
+    return static_cast<bool>(f);
+}
+
+// Boot an emulator, stamp every probe register with its sentinel (this
+// stands in for the machine state a launcher left behind), then run the
+// real load() + apply().
+struct PreserveFixture {
+    Emulator emu;
+    bool     ok = false;
+
+    PreserveFixture(uint8_t preserve_regs, const char* tag, const char* version = "V1.2") {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        NextReg& nr = emu.nextreg();
+        // ULA palette entry 0x18 first: it needs NR 0x43 pointing at the
+        // ULA first palette, and NR 0x43's own sentinel is set last.
+        nr.write(0x43, 0x00);
+        nr.write(0x40, 0x18);
+        nr.write(0x41, kSentinelPal18);
+        // Then stamp the index with a value the pal[0x18] write cannot
+        // have produced — see kSentinel40.
+        nr.write(0x40, kSentinel40);
+
+        nr.write(0x07, kSentinel07);
+        nr.write(0x12, kSentinel12);
+        nr.write(0x13, kSentinel13);
+        nr.write(0x14, kSentinel14);
+        nr.write(0x15, kSentinel15);
+        nr.write(0x16, kSentinel16);
+        nr.write(0x42, kSentinel42);
+        nr.write(0x4B, kSentinel4B);
+        nr.write(0x43, kSentinel43);
+
+        const std::string path = fixture_path((std::string("preserve_") + tag).c_str());
+
+        if (!write_preserve_nex(path, preserve_regs, version)) return;
+
+        NexLoader loader;
+        if (loader.load(path)) {
+            ok = loader.apply(emu);
+        }
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // ULA first-palette entry 0x18, as the 8-bit RRRGGGBB the loader
+    // wrote. Reading it through NR 0x41 needs NR 0x43 / NR 0x40 pointed
+    // at it, so this MUTATES both — every caller reads those two
+    // registers' own rows first.
+    uint8_t ula_palette_18() {
+        NextReg& nr = emu.nextreg();
+        nr.write(0x43, 0x00);
+        nr.write(0x40, 0x18);
+        return nr.read(0x41);   // pure read: does not advance the index
+    }
+};
+
+void check_nr(const char* id, PreserveFixture& f, uint8_t reg, uint8_t want,
+              const char* desc, const char* asm_cite) {
+    const uint8_t got = f.emu.nextreg().read(reg);
+    check(id, desc, got == want,
+          fmt("%s: NR 0x%02X = 0x%02X, want 0x%02X", asm_cite, reg, got, want));
+}
+
+void fail_all(std::initializer_list<const char*> ids) {
+    for (const char* id : ids) {
+        check(id, "NEX fixture failed to load/apply", false, "load+apply returned false");
+    }
+}
+
+void test_preserve_nextregs() {
+    // ── preserve_regs = 0 → nexload.asm:324-408 RUNS ─────────────────
+    {
+        PreserveFixture f(0, "reset");
+        if (!f.ok) {
+            fail_all({"NEXPR-RESET-01", "NEXPR-RESET-02", "NEXPR-RESET-03", "NEXPR-RESET-04",
+                      "NEXPR-RESET-05", "NEXPR-RESET-06", "NEXPR-RESET-07", "NEXPR-ALWAYS-05",
+                      "NEXPR-ALWAYS-06", "NEXPR-ALWAYS-07", "NEXPR-ALWAYS-08"});
+        } else {
+            check_nr("NEXPR-RESET-01", f, 0x07, kReset07,
+                     "DONTRESETNEXTREGS=0: NR 0x07 is reset to turbo 28 MHz",
+                     "nexload.asm:365");
+            check_nr("NEXPR-RESET-02", f, 0x12, kReset12,
+                     "DONTRESETNEXTREGS=0: NR 0x12 is reset to Layer 2 bank 9",
+                     "nexload.asm:367");
+            check_nr("NEXPR-RESET-03", f, 0x13, kReset13,
+                     "DONTRESETNEXTREGS=0: NR 0x13 is reset to Layer 2 shadow bank 12",
+                     "nexload.asm:368");
+            check_nr("NEXPR-RESET-04", f, 0x14, kReset14,
+                     "DONTRESETNEXTREGS=0: NR 0x14 is reset to transparent index 0xE3",
+                     "nexload.asm:369");
+            check_nr("NEXPR-RESET-05", f, 0x16, kReset16,
+                     "DONTRESETNEXTREGS=0: NR 0x16 Layer 2 X-scroll is reset to 0",
+                     "nexload.asm:371");
+            check_nr("NEXPR-RESET-06", f, 0x4B, kReset4B,
+                     "DONTRESETNEXTREGS=0: NR 0x4B sprite transparency index is reset to 0xE3",
+                     "nexload.asm:405");
+            check_nr("NEXPR-RESET-07", f, 0x40, kReset40,
+                     "DONTRESETNEXTREGS=0: the palette index ends at 0 (the :396 / :411 "
+                     "`.pa` sweeps inside the gated block leave it there)",
+                     "nexload.asm:396");
+
+            // The :266-:274 prologue runs in this branch too — control
+            // rows for the ALWAYS group below, so a future over-eager
+            // gate cannot pass by breaking only one branch.
+            check_nr("NEXPR-ALWAYS-05", f, 0x42, kAlways42,
+                     "DONTRESETNEXTREGS=0: NR 0x42 ULANext format = 0x0F",
+                     "nexload.asm:266");
+            check_nr("NEXPR-ALWAYS-06", f, 0x43, kAlways43,
+                     "DONTRESETNEXTREGS=0: NR 0x43 selects the ULA first palette",
+                     "nexload.asm:267");
+            check_nr("NEXPR-ALWAYS-07", f, 0x15, kAlways15,
+                     "DONTRESETNEXTREGS=0: NR 0x15 = SLU priority + sprites visible",
+                     "nexload.asm:274");
+            const uint8_t pal = f.ula_palette_18();   // last: mutates NR 0x43 / 0x40
+            check("NEXPR-ALWAYS-08",
+                  "DONTRESETNEXTREGS=0: ULA palette entry 0x18 = 0xE3",
+                  pal == kAlwaysPal18,
+                  fmt("nexload.asm:269-270: ULA pal[0x18] = 0x%02X, want 0x%02X",
+                      pal, kAlwaysPal18));
+        }
+    }
+
+    // ── preserve_regs = 1 → nexload.asm:324-408 is SKIPPED ───────────
+    {
+        PreserveFixture f(1, "keep");
+        if (!f.ok) {
+            fail_all({"NEXPR-KEEP-01", "NEXPR-KEEP-02", "NEXPR-KEEP-03", "NEXPR-KEEP-04",
+                      "NEXPR-KEEP-05", "NEXPR-KEEP-06", "NEXPR-KEEP-07", "NEXPR-ALWAYS-01",
+                      "NEXPR-ALWAYS-02", "NEXPR-ALWAYS-03", "NEXPR-ALWAYS-04"});
+        } else {
+            check_nr("NEXPR-KEEP-01", f, 0x07, kKeep07,
+                     "DONTRESETNEXTREGS=1 on a <= V1.2 file: NR 0x07 CPU speed survives the "
+                     "load — nexload.asm writes it INSIDE the gated block (GH #166)",
+                     "nexload.asm:365");
+            check_nr("NEXPR-KEEP-02", f, 0x12, kSentinel12,
+                     "DONTRESETNEXTREGS=1: NR 0x12 Layer 2 bank survives the load (GH #166)",
+                     "nexload.asm:323");
+            check_nr("NEXPR-KEEP-03", f, 0x13, kSentinel13,
+                     "DONTRESETNEXTREGS=1: NR 0x13 Layer 2 shadow bank survives (GH #166)",
+                     "nexload.asm:323");
+            check_nr("NEXPR-KEEP-04", f, 0x14, kSentinel14,
+                     "DONTRESETNEXTREGS=1: NR 0x14 transparency colour survives (GH #166)",
+                     "nexload.asm:323");
+            check_nr("NEXPR-KEEP-05", f, 0x16, kSentinel16,
+                     "DONTRESETNEXTREGS=1: NR 0x16 Layer 2 X-scroll survives (GH #166)",
+                     "nexload.asm:323");
+            check_nr("NEXPR-KEEP-06", f, 0x4B, kSentinel4B,
+                     "DONTRESETNEXTREGS=1: NR 0x4B sprite transparency survives (GH #166)",
+                     "nexload.asm:323");
+            check_nr("NEXPR-KEEP-07", f, 0x40, kKeep40,
+                     "DONTRESETNEXTREGS=1: the palette index is 0x18+1 — the auto-increment "
+                     "of the UNCONDITIONAL :270 NR 0x41 write, over the fixture's own 0x7E "
+                     "index sentinel, with nothing past `.dontresetregs` resetting it",
+                     "nexload.asm:422");
+
+            // The gate must NOT swallow nexload's unconditional
+            // :266-:274 prologue. These four fail if the whole init
+            // block is gated — the naive reading of the fix.
+            check_nr("NEXPR-ALWAYS-01", f, 0x42, kAlways42,
+                     "DONTRESETNEXTREGS=1: NR 0x42 is STILL written — its oracle is above "
+                     "the gate",
+                     "nexload.asm:266");
+            check_nr("NEXPR-ALWAYS-02", f, 0x43, kAlways43,
+                     "DONTRESETNEXTREGS=1: NR 0x43 is STILL written — its oracle is above "
+                     "the gate",
+                     "nexload.asm:267");
+            check_nr("NEXPR-ALWAYS-03", f, 0x15, kAlways15,
+                     "DONTRESETNEXTREGS=1: NR 0x15 is STILL written — its oracle is above "
+                     "the gate",
+                     "nexload.asm:274");
+            const uint8_t pal = f.ula_palette_18();   // last: mutates NR 0x43 / 0x40
+            check("NEXPR-ALWAYS-04",
+                  "DONTRESETNEXTREGS=1: ULA palette entry 0x18 is STILL set to 0xE3 — "
+                  "its oracle is above the gate and appears nowhere else",
+                  pal == kAlwaysPal18,
+                  fmt("nexload.asm:269-270: ULA pal[0x18] = 0x%02X, want 0x%02X",
+                      pal, kAlwaysPal18));
+        }
+    }
+
+    // ── V1.3 + PRESERVENEXTREG=1: the one register the two loaders
+    //    disagree about (nexload2.asm:777 vs nexload.asm:365) ─────────
+    {
+        PreserveFixture f(1, "keep_v13", "V1.3");
+        if (!f.ok) {
+            fail_all({"NEXPR-V13-01", "NEXPR-V13-02"});
+        } else {
+            check_nr("NEXPR-V13-01", f, 0x07, kReset07,
+                     "PRESERVENEXTREG=1 on a V1.3 file STILL gets 28 MHz — nexload2 sets "
+                     "NR 0x07 before its early return, and only a V1.3-capable loader can "
+                     "load the file (GH #166)",
+                     "nexload2.asm:777");
+            check_nr("NEXPR-V13-02", f, 0x14, kSentinel14,
+                     "PRESERVENEXTREG=1 on a V1.3 file still preserves everything else — "
+                     "only NR 0x07 is exempt, not the whole block",
+                     "nexload2.asm:781-783");
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -796,6 +1104,18 @@ int main() {
               fmt("NR$01=0x%02X (want 0x%02X) NR$0E=0x%02X (want 0x%02X)",
                   nr01, want01, nr0e, kJnextCoreSubminor));
     }
+
+    // =================================================================
+    // NEXPR — HEADER_DONTRESETNEXTREGS gating (GH #166).
+    //
+    // nexload.asm:323 -> :422 for <= V1.2; nexload2.asm:781-783 for
+    // V1.3. See the block comment above test_preserve_nextregs() for
+    // the boundary derivation and why the two loaders disagree about
+    // NR 0x07.
+    // =================================================================
+
+    set_group("NEXPR");
+    test_preserve_nextregs();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
