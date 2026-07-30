@@ -67,7 +67,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NEX loader (screen ingest) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NEX loader (screen ingest) |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NEX loader (V1.3)     |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -95,6 +96,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6349** | **6349** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6439** | **6439** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
