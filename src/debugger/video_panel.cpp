@@ -408,11 +408,17 @@ void VideoLayerView::render_to_image(int vc)
                 // not from the live PaletteManager::global_transparency() —
                 // exactly like the BACKGROUND view's fallback_for_line(row)
                 // read below (Task 46).
+                // GH #163: the NR 0x43 b2 palette-bank select is replayed
+                // per row by replay_line() above (palsel_apply_changes_for_
+                // line), exactly like the Layer2 bank change-log, so read it
+                // per row too instead of leaving the colours on the live
+                // end-of-frame bank.
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
                     emu.layer2().active_bank(),
                     emu.renderer().transparent_rgb_for_line(row),
-                    rom_in_sram);
+                    rom_in_sram,
+                    emu.ula().get_active_layer2_palette());
                 break;
 
             case Layer::LAYER2_SHADOW:
@@ -420,11 +426,15 @@ void VideoLayerView::render_to_image(int vc)
                     dst, row, emu.ram(), emu.palette(),
                     emu.layer2().shadow_bank(),
                     emu.renderer().transparent_rgb_for_line(row),
-                    rom_in_sram);
+                    rom_in_sram,
+                    emu.ula().get_active_layer2_palette());
                 break;
 
             case Layer::SPRITES:
-                emu.sprites().render_scanline_debug(dst, row, emu.palette());
+                // GH #163: NR 0x43 b3, replayed per row — see LAYER2_ACTIVE.
+                emu.sprites().render_scanline_debug(
+                    dst, row, emu.palette(),
+                    emu.ula().get_active_sprite_palette());
                 break;
 
             case Layer::TILEMAP: {

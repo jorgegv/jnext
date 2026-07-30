@@ -213,13 +213,26 @@ public:
     ///                  border).
     /// @param y         Scanline number in display coordinates (0-255 visible).
     /// @param palette   Palette manager for sprite colour lookups.
+    /// @param palette_bank_second  NR 0x43 bit 3 (active sprite palette) for
+    ///                  THIS row — the caller's per-scanline-replayed value,
+    ///                  NOT the live `PaletteManager` member. VHDL
+    ///                  zxnext.vhd:5391 latches the bit and :6828 reads it in
+    ///                  the active-palette mux per pixel cycle, so a Copper
+    ///                  MOVE that flips it mid-frame applies from the next
+    ///                  scanline on; the live member holds the frame's LAST
+    ///                  value at render time (GH #163).
+    ///                  `Renderer::render_row` passes
+    ///                  `Ula::get_active_sprite_palette()`.
     void render_scanline(uint32_t* dst, int y,
-                         const PaletteManager& palette) const;
+                         const PaletteManager& palette,
+                         bool palette_bank_second = false) const;
 
     /// Render one scanline regardless of global sprites_visible_ flag.
-    /// Used by the debugger video panel.
+    /// Used by the debugger video panel. `palette_bank_second` has the same
+    /// contract as on `render_scanline`.
     void render_scanline_debug(uint32_t* dst, int y,
-                               const PaletteManager& palette);
+                               const PaletteManager& palette,
+                               bool palette_bank_second = false);
 
     /// Set whether sprite 0 is drawn on top (true) or behind (false, default).
     void set_zero_on_top(bool val) { zero_on_top_ = val; }
@@ -511,7 +524,8 @@ private:
     // Helpers
     void render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr, int y,
                                 const PaletteManager& palette,
-                                bool* line_occupied) const;
+                                bool* line_occupied,
+                                bool palette_bank_second) const;
 
     uint8_t read_pattern(uint16_t addr) const {
         return pattern_ram_[addr & (PATTERN_RAM_SZ - 1)];
