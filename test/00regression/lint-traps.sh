@@ -49,12 +49,17 @@
 # ------------------------------------------------------------------------
 # WHAT IT CATCHES, AND — READ THIS — WHAT IT DOES NOT
 #
-# It catches the naive and accidental case, plus the four evasions that were
-# demonstrated against the first version of this lint. It is NOT a security
-# boundary and does NOT prevent the whole class: a determined author can still
-# reach `trap` through indirection this script cannot decide.
+# It catches the naive and accidental case, plus the five evasions demonstrated
+# against earlier versions of this lint in review. It is NOT a security boundary
+# and does NOT prevent the whole class: a determined author can still reach
+# `trap` through indirection this script cannot decide.
 #
-# CAUGHT (each is a pinned self-test case; see CASES below):
+# Every claim below is a pinned self-test case, both directions — the CAUGHT
+# list is asserted to flag and the NOT CAUGHT list has been verified to be
+# accurate rather than merely modest (a `trap` inside a function body IS caught,
+# for instance, so it is deliberately absent from the second list).
+#
+# CAUGHT (see CASES below for the case IDs):
 #   * `trap`, `builtin trap`, `command trap` in command position — line start,
 #     after `; & | ( ) { }`, or after then/do/else, including the `( ... )` and
 #     `$( ... )` subshell forms, which are actually harmless but are flagged in
@@ -64,13 +69,19 @@
 #     runs the body IN THIS SHELL, so the heredoc exemption below would
 #     otherwise be a hole big enough to drive the whole bug through. Flagged
 #     unconditionally: a row script has no reason to source a heredoc at all.
+#   * a live `trap` hidden behind bash quoting the comment stripper has to get
+#     exactly right — `echo "\" #" ; trap ... EXIT`, the `'it'\''s'` idiom, a
+#     `\\` before a closing quote, an escaped `\#`, or a string opened on the
+#     previous line. See decomment() and cases P21-P25.
 #
-# NOT CAUGHT (known, accepted, undecidable without executing the script):
+# NOT CAUGHT (known, accepted, each verified to be genuinely uncaught; all are
+# undecidable without executing the script):
 #   * the command name held in a variable — `t=trap; $t 'c' EXIT`.
 #   * an `eval` whose argument is built across several lines, or assembled from
 #     variables so the word `trap` never appears literally.
-#   * a script written to a temp file by some other means and then `source`d.
-#   * `trap` inside a function defined here but invoked by the harness later.
+#   * a script written to a file by other means and then `source`d by path.
+#     (`source` of a path cannot simply be banned: every row script legitimately
+#     sources test-functions.inc. Only the heredoc form is decidable here.)
 # Closing those needs a bash parser or an interpreter, and this guard exists to
 # stop a tired author at 2 a.m., not an adversary. If you are reaching for one
 # of them, you already know you are defeating a guard — don't.
@@ -88,8 +99,8 @@
 # Usage:
 #   bash test/00regression/lint-traps.sh          # scan the real row scripts
 #
-# Env (TEST ONLY — set by harness-selftest HS-47 to prove this lint is still
-# wired into scripts/00-preflight-lint.sh; never set in a real run):
+# Env (TEST ONLY — set by harness-selftest HS-49a/HS-49b to prove this lint is
+# still wired into scripts/00-preflight-lint.sh; never set in a real run):
 #   JNEXT_LINT_TRAPS_DIR   scan this directory instead of ./scripts
 #
 # Exit 0 clean, 1 offenders found, 2 the lint itself is broken.
@@ -103,27 +114,58 @@ SCRIPTS_DIR="${JNEXT_LINT_TRAPS_DIR:-$SCRIPT_DIR/scripts}"
 # <dir>/*.sh. Prints nothing (and succeeds) when the directory is clean.
 #
 # The awk, in order: skip heredoc bodies with a safe consumer; strip comments
-# (whole-line and trailing, only where the text before `#` has balanced
-# quotes); then apply the three rules documented above.
+# (whole-line and trailing) with a bash-exact quote scanner; then apply the
+# three rules documented above.
 scan_dir() {
     local dir="$1" f
     for f in "$dir"/*.sh; do
         [[ -e "$f" ]] || continue
         awk -v FNAME="$f" '
-            # count occurrences of a quote character without touching the input
-            function nq(s, ch,   t) { t = s; return gsub(ch, "", t) }
-
-            # drop a trailing (or whole-line) comment: the first "#" that
-            # starts a word and has balanced quotes before it. Leaves "$#",
-            # "${#v}" and a "#" inside a quoted string alone.
-            function decomment(l,   i, n, before) {
+            # decomment(l) — drop a trailing (or whole-line) comment, using
+            # bash quoting rules exactly rather than a parity heuristic.
+            #
+            # A quote COUNTER cannot express those rules, and the difference is
+            # a live bypass, not a nicety: in `echo "\" #" ; trap ... EXIT` the
+            # \" is a literal quote INSIDE the string, so bash keeps the string
+            # open and the `;` is a real command separator — but a counter sees
+            # an even number of `"` one character early, treats ` #` as a
+            # comment, truncates, and never sees the trap. Found in review.
+            #
+            # Left-to-right, three states (this comment cannot contain an
+            # apostrophe: the whole awk program is a single-quoted shell word):
+            #   OUTSIDE  backslash escapes anything; either quote opens a
+            #            string; a # that starts a word begins the comment.
+            #   SINGLE   nothing escapes; only the apostrophe closes. The
+            #            standard escaped-apostrophe idiom is really close +
+            #            escaped-quote-OUTSIDE + reopen, which a state machine
+            #            gets right for free and a backslash-stripping pre-pass
+            #            does not. Case P22.
+            #   DOUBLE   backslash escapes only " \ $ and the backtick; the
+            #            double quote closes. Cases P21, P23.
+            #
+            # qst carries across lines, so a string opened on one line and
+            # closed on the next cannot hide a # (case P25). A desync — an
+            # apostrophe in code that is not a string — errs toward NOT
+            # stripping, i.e. toward flagging: the safe direction.
+            function decomment(l,   i, n, c) {
                 n = length(l)
                 for (i = 1; i <= n; i++) {
-                    if (substr(l, i, 1) != "#") continue
-                    if (i > 1 && substr(l, i-1, 1) !~ /[ \t]/) continue
-                    before = substr(l, 1, i-1)
-                    if (nq(before, "\047") % 2 == 0 && nq(before, "\"") % 2 == 0)
-                        return before
+                    c = substr(l, i, 1)
+                    if (qst == 0) {
+                        if (c == "\\") { i++; continue }
+                        if (c == "\047") { qst = 1; continue }
+                        if (c == "\"")   { qst = 2; continue }
+                        if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/))
+                            return substr(l, 1, i-1)
+                    } else if (qst == 1) {
+                        if (c == "\047") qst = 0
+                    } else {
+                        if (c == "\\") {
+                            if (substr(l, i+1, 1) ~ /["\\$`]/) i++
+                            continue
+                        }
+                        if (c == "\"") qst = 0
+                    }
                 }
                 return l
             }
@@ -186,94 +228,115 @@ scan_dir() {
 # Runs on EVERY invocation, both directions. A guard that has silently become a
 # no-op reports success, which is worse than no guard; a guard that flags
 # everything gets disabled, which ends the same way. The case table below is
-# the lint's specification: every construct the GH #153 review demonstrated
-# (including the four that defeated the first version) is pinned here, so the
-# next author extends the table rather than re-deriving it by hand.
+# the lint's specification: every construct the two GH #153 reviews
+# demonstrated — including the five that defeated an earlier version — is
+# pinned here, so the next author extends the table rather than re-deriving it.
 #
-# CASES — 20 must flag, 9 must not.
+# ONE FILE PER CASE, deliberately. The first version of this self-test put all
+# the offenders in a single file and asserted the total row count, which is
+# exactly the silent-truncation shape this project bans elsewhere: a mutation
+# that LOSES one case and GAINS another keeps the total and reports green. That
+# is not hypothetical — reverting the DOUBLE-state backslash rule did precisely
+# that and the combined-fixture self-test passed. Per case, a lost case is named.
 #
-#   P01 bare `trap`                      P11 `( ... )`      (safe; flagged anyway)
-#   P02 indented                         P12 `$( ... )`     (safe; flagged anyway)
-#   P03 INT, not EXIT                    P13 `builtin trap`
-#   P04 `trap - EXIT` (removal)          P14 `command trap`
-#   P05 after `&&`                       P15 `eval "trap ..."`
-#   P06 after `;`                        P16 `eval 'trap - EXIT'`
-#   P07 after `||`                       P17 `source /dev/stdin <<P`
-#   P08 after `then`                     P18 `. /dev/stdin <<P`
-#   P09 after `do`                       P19 heredoc into `eval "$(cat <<P)"`
-#   P10 `{ ...; }` brace group           P20 line-continuation `trap \`
+# CASES — 28 must flag, 13 must not.
 #
-#   N01 whole-line comment               N06 `trapped=` / `entrapment=`
-#   N02 trailing comment (eval + trap)   N07 `mytrap 'c' EXIT`
-#   N03 word inside a string             N08 `echo "trap"`
-#   N04 `cat > file <<X` body            N09 `grep -n trap "$f"`
-#   N05 `bash /dev/stdin <<X` body
+#   P01 bare `trap`                      P15 `eval "trap ..."`
+#   P02 indented                         P16 `eval 'trap - EXIT'`
+#   P03 INT, not EXIT                    P17 `source /dev/stdin <<P`
+#   P04 `trap - EXIT` (removal)          P18 `. /dev/stdin <<P`
+#   P05 after `&&`                       P19 heredoc into `eval "$(cat <<P)"`
+#   P06 after `;`                        P20 line-continuation `trap \`
+#   P07 after `||`                       P21 `\"` inside "..." then a live trap
+#   P08 after `then`                     P22 the escaped-apostrophe idiom
+#   P09 after `do`                       P23 `\\` before a closing quote
+#   P10 `{ ...; }` brace group           P24 escaped `\#` is not a comment
+#   P11 `( ... )`  (safe; flagged)       P25 string opened on the PREVIOUS line
+#   P12 `$( ... )` (safe; flagged)       P26 `command source /dev/stdin <<X`
+#   P13 `builtin trap`                   P27 `builtin eval "trap ..."`
+#   P14 `command trap`                   P28 indented `source ... <<-'X'`
+#
+#   N01 whole-line comment               N08 `echo "trap"`
+#   N02 trailing comment (eval + trap)   N09 `grep -n trap "$f"`
+#   N03 word inside a string             N10 escaped-apostrophe + REAL comment
+#   N04 `cat > file <<X` body            N11 `#` inside a quoted string
+#   N05 `bash /dev/stdin <<X` body       N12 `$#` and `${#v}` then a comment
+#   N06 `trapped=` / `entrapment=`       N13 `bash -c "$(cat <<X)"` body
+#   N07 `mytrap 'c' EXIT`                    (a real child process)
+#
+# P21-P25 are the quoting cases. They exist because an earlier decomment() here
+# counted quote characters, and a counter cannot express bash escaping.
 self_test() {
-    local dir bad good out n failed=0
+    local dir bad good out id failed=0
+    local -a missing=() spurious=()
     dir=$(mktemp -d)
     bad="$dir/bad"; good="$dir/good"
     mkdir -p "$bad" "$good"
 
-    # 20 offending lines. Kept one per line so the count IS the assertion.
-    cat >"$bad/offenders.sh" <<'FIXTURE'
-#!/usr/bin/env bash
-trap 'rm -rf "$W"' EXIT
-    trap 'rm -rf "$W"' EXIT
-trap 'rm -rf "$W"' INT
-trap - EXIT
-W=$(mktemp -d) && trap 'rm -rf "$W"' EXIT
-mkdir "$W"; trap 'rm -rf "$W"' EXIT
-mkdir "$W" || trap 'rm -rf "$W"' EXIT
-if true; then trap 'rm -rf "$W"' EXIT; fi
-for f in a b; do trap 'rm -rf "$W"' EXIT; done
-{ trap 'rm -rf "$W"' EXIT; }
-( trap 'rm -rf "$W"' EXIT )
-x=$( trap 'rm -rf "$W"' EXIT )
-builtin trap 'rm -rf "$W"' EXIT
-command trap 'rm -rf "$W"' EXIT
-eval "trap 'rm -rf \"$W\"' EXIT"
-eval 'trap - EXIT'
-source /dev/stdin <<'P1'
-P1
-. /dev/stdin <<P2
-P2
-eval "$(cat <<'P3'
-P3
-)"
-trap \
-    'rm -rf "$W"' EXIT
-FIXTURE
+    # --- 28 cases that MUST be flagged, one file each -----------------------
+    printf '%s\n' "trap 'rm -rf \"\$W\"' EXIT"                        >"$bad/P01.sh"
+    printf '%s\n' "    trap 'rm -rf \"\$W\"' EXIT"                    >"$bad/P02.sh"
+    printf '%s\n' "trap 'rm -rf \"\$W\"' INT"                         >"$bad/P03.sh"
+    printf '%s\n' "trap - EXIT"                                        >"$bad/P04.sh"
+    printf '%s\n' "W=\$(mktemp -d) && trap 'rm -rf \"\$W\"' EXIT"      >"$bad/P05.sh"
+    printf '%s\n' "mkdir \"\$W\"; trap 'rm -rf \"\$W\"' EXIT"         >"$bad/P06.sh"
+    printf '%s\n' "mkdir \"\$W\" || trap 'rm -rf \"\$W\"' EXIT"       >"$bad/P07.sh"
+    printf '%s\n' "if true; then trap 'rm -rf \"\$W\"' EXIT; fi"      >"$bad/P08.sh"
+    printf '%s\n' "for f in a b; do trap 'rm -rf \"\$W\"' EXIT; done"  >"$bad/P09.sh"
+    printf '%s\n' "{ trap 'rm -rf \"\$W\"' EXIT; }"                   >"$bad/P10.sh"
+    printf '%s\n' "( trap 'rm -rf \"\$W\"' EXIT )"                    >"$bad/P11.sh"
+    printf '%s\n' "x=\$( trap 'rm -rf \"\$W\"' EXIT )"                 >"$bad/P12.sh"
+    printf '%s\n' "builtin trap 'rm -rf \"\$W\"' EXIT"                >"$bad/P13.sh"
+    printf '%s\n' "command trap 'rm -rf \"\$W\"' EXIT"                >"$bad/P14.sh"
+    printf '%s\n' "eval \"trap 'rm -rf' EXIT\""                        >"$bad/P15.sh"
+    printf '%s\n' "eval 'trap - EXIT'"                                 >"$bad/P16.sh"
+    printf '%s\n' "source /dev/stdin <<'PAY'" "trap 'x' EXIT" "PAY"    >"$bad/P17.sh"
+    printf '%s\n' ". /dev/stdin <<PAY" "trap 'x' EXIT" "PAY"           >"$bad/P18.sh"
+    printf '%s\n' "eval \"\$(cat <<'PAY'" "trap 'x' EXIT" "PAY" ")\""   >"$bad/P19.sh"
+    printf '%s\n' "trap \\" "    'rm -rf' EXIT"                        >"$bad/P20.sh"
+    printf '%s\n' "echo \"\\\" #\" ; trap 'rm -rf \"\$W\"' EXIT"       >"$bad/P21.sh"
+    printf '%s\n' "x='it'\\''s'; trap 'rm -rf \"\$W\"' EXIT"          >"$bad/P22.sh"
+    printf '%s\n' "echo \"a\\\\\" ; trap 'rm -rf \"\$W\"' EXIT"       >"$bad/P23.sh"
+    printf '%s\n' "echo a\\#b; trap 'rm -rf \"\$W\"' EXIT"            >"$bad/P24.sh"
+    printf '%s\n' "msg=\"opened here" " # \" ; trap 'rm -rf' EXIT"     >"$bad/P25.sh"
+    printf '%s\n' "command source /dev/stdin <<'PAY'" "trap 'x' EXIT" "PAY" >"$bad/P26.sh"
+    printf '%s\n' "builtin eval \"trap 'rm -rf' EXIT\""                >"$bad/P27.sh"
+    printf '%s\n' "    source /dev/stdin <<-'PAY'" "	PAY"             >"$bad/P28.sh"
 
-    # 9 legitimate shapes. Any hit here is a false positive that would block a
-    # row an author is entitled to write.
-    cat >"$good/innocent.sh" <<'FIXTURE'
-#!/usr/bin/env bash
-# Installing a trap here would clobber the harness one; we do not.
-seen=1   # do not eval a trap here, see lint-traps.sh
-fail_row " (SAVE trap fired during NextZXOS boot?)"
-cat > "$W/child.sh" <<'CHILD'
-trap 'rm -rf "$D"' EXIT
-CHILD
-bash /dev/stdin <<'CHILD2'
-trap 'rm -rf "$D"' EXIT
-CHILD2
-trapped=0
-entrapment=1
-mytrap 'rm -rf "$W"' EXIT
-echo "trap"
-grep -n trap "$f"
-FIXTURE
+    # --- 13 legitimate shapes that MUST NOT be flagged ----------------------
+    # A hit here is a false positive that would block a row an author may write.
+    printf '%s\n' "# Installing a trap here would clobber the harness one."  >"$good/N01.sh"
+    printf '%s\n' "seen=1   # do not eval a trap here, see lint-traps.sh"   >"$good/N02.sh"
+    printf '%s\n' "fail_row \" (SAVE trap fired during NextZXOS boot?)\""   >"$good/N03.sh"
+    printf '%s\n' "cat > \"\$W/child.sh\" <<'CHILD'" "trap 'x' EXIT" "CHILD" >"$good/N04.sh"
+    printf '%s\n' "bash /dev/stdin <<'CHILD'" "trap 'x' EXIT" "CHILD"      >"$good/N05.sh"
+    printf '%s\n' "trapped=0" "entrapment=1"                              >"$good/N06.sh"
+    printf '%s\n' "mytrap 'rm -rf' EXIT"                                  >"$good/N07.sh"
+    printf '%s\n' "echo \"trap\""                                         >"$good/N08.sh"
+    printf '%s\n' "grep -n trap \"\$f\""                                   >"$good/N09.sh"
+    printf '%s\n' "x='it'\\''s'   # do not eval a trap here either"        >"$good/N10.sh"
+    printf '%s\n' "echo \"value # trap\""                                 >"$good/N11.sh"
+    printf '%s\n' "echo \"\${#v} \$#\"   # a note mentioning eval and trap" >"$good/N12.sh"
+    printf '%s\n' "bash -c \"\$(cat <<'CHILD'" "trap 'x' EXIT" "CHILD" ")\"" >"$good/N13.sh"
 
+    # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_dir "$bad")
-    n=$(printf '%s' "$out" | grep -c . || true)
-    if [[ "$n" -ne 20 ]]; then
-        echo "ERROR: self-test: expected 20 offenders in the bad fixture, got $n:" >&2
-        printf '%s\n' "$out" >&2
+    for id in P01 P02 P03 P04 P05 P06 P07 P08 P09 P10 P11 P12 P13 P14 \
+              P15 P16 P17 P18 P19 P20 P21 P22 P23 P24 P25 P26 P27 P28; do
+        grep -q "/$id\.sh:" <<<"$out" || missing+=("$id")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ERROR: self-test: these must-flag cases were NOT caught: ${missing[*]}" >&2
         failed=1
     fi
+
+    # ... and every must-not case must produce none.
     out=$(scan_dir "$good")
     if [[ -n "$out" ]]; then
-        echo "ERROR: self-test: legitimate code was flagged (false positive):" >&2
+        for id in $(grep -o '/N[0-9]*\.sh:' <<<"$out" | tr -d '/:' | sed 's/\.sh//' | sort -u); do
+            spurious+=("$id")
+        done
+        echo "ERROR: self-test: legitimate code was flagged (false positive) in: ${spurious[*]}" >&2
         printf '%s\n' "$out" >&2
         failed=1
     fi

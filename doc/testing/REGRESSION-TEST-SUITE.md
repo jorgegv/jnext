@@ -336,20 +336,30 @@ Load-bearing rationale that used to live as long comments inside
   subshell one needs a bash parser and no row script contains a `trap` at any
   depth. Heredoc bodies are exempt, which is the escape hatch: a shell that
   genuinely needs its own trap gets written to a file and run with `bash`, the
-  shape `sdcard-isolation-func.sh:116` already uses. **The exemption has one
-  carve-out, added after the GH #153 review demonstrated four working
-  bypasses**: a heredoc consumed by `source`, `.` or `eval` executes in *this*
+  shape `sdcard-isolation-func.sh:116` already uses. **Two rounds of review
+  demonstrated five working bypasses, all now closed.** The exemption gained a
+  carve-out: a heredoc consumed by `source`, `.` or `eval` executes in *this*
   shell, so `source /dev/stdin <<P` is reported unconditionally — as are
   `builtin trap`, `command trap`, and any `eval` whose argument text contains
-  the word `trap`. **What it still cannot catch is stated honestly in the
-  script header** and is not pretended away here: a command name held in a
-  variable (`t=trap; $t …`), an `eval` argument assembled so `trap` never
-  appears literally, or a script written to a temp file and sourced. Those need
-  an interpreter, and this guard exists to stop a tired author, not an
-  adversary. Like `lint-assertions.sh` the lint self-tests on every invocation,
-  here with a pinned 29-case table (20 must flag, 9 must not) so the next author
+  the word `trap`. The fifth was subtler and is worth naming, because it was
+  introduced *by the fix for the other four*: the comment stripper counted
+  quote characters, and a counter cannot express bash escaping, so
+  `echo "\" #" ; trap … EXIT` — where `\"` keeps the string open and the `;` is
+  a real separator — looked like a comment and was truncated away. It is now a
+  three-state scanner (OUTSIDE/SINGLE/DOUBLE, carrying across lines), which is
+  exact rather than heuristic and kills that class rather than the instance.
+  **What it still cannot catch is stated honestly in the script header** and is
+  not pretended away here: a command name held in a variable (`t=trap; $t …`),
+  an `eval` argument assembled so `trap` never appears literally, or a script
+  written to a file and sourced by path — the last of which cannot be banned
+  outright because every row script legitimately sources `test-functions.inc`.
+  Those need an interpreter, and this guard exists to stop a tired author, not
+  an adversary. The NOT-CAUGHT list is verified to be *accurate* rather than
+  merely modest: a `trap` inside a function body, for instance, IS caught, so it
+  is deliberately not listed there. Like `lint-assertions.sh` the lint self-tests on every invocation,
+  here with a pinned 41-case table (28 must flag, 13 must not) so the next author
   extends the specification rather than re-deriving it. `harness-selftest`
-  HS-47 proves the call is still reached from `00-preflight-lint.sh` and that
+  HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
   its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
 - **Why membership/count checks are pure-bash hashes.**
