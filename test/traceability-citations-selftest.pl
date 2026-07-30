@@ -424,6 +424,94 @@ check('SELF-123', 'a prose hyphenation is not counted as a second row, so a sing
       ($nm->{'PROSE-CHK-01'} // '') eq 'fixture_a.vhd:60, fixture_b.vhd:70',
       'got ' . ($nm->{'PROSE-CHK-01'} // '(none)'));
 
+# ── Hand-written cells are validated too (GH #150) ────────────────────
+#
+# Computed citations were validated against the FPGA tree from the start;
+# hand-written ones never were. Because a hand-written cell is never
+# overwritten — correctly — a wrong one was permanent AND invisible: it agrees
+# with itself on every run, and drift needs a computed side to disagree with.
+# Measured on the live matrix: 3 cells name a `.vhd` that does not exist and
+# ~25 name jnext's own C++ in a column headed VHDL.
+#
+# SELF-127..129 are the refusals. Without them "complain about every cell"
+# passes SELF-124..126 just as well, and a report that fires on all 3066 rows
+# is the saturated warning this tool has already been bitten by twice.
+
+check('SELF-124', 'a hand-written cell naming a .vhd the core does not have is reported',
+      scalar(grep { /not in the FPGA core/ }
+             bad_hand_citation('kempston_mouse.vhd')) == 1,
+      'got [' . join(' | ', bad_hand_citation('kempston_mouse.vhd')) . ']');
+
+check('SELF-125', 'a hand-written cell citing jnext\'s own source is reported — the VHDL is the oracle',
+      scalar(grep { /jnext's own source/ }
+             bad_hand_citation('fixture_a.vhd:10; emulator.cpp:1163')) == 1,
+      'got [' . join(' | ', bad_hand_citation('fixture_a.vhd:10; emulator.cpp:1163')) . ']');
+
+check('SELF-126', 'a hand-written cell carrying no citation at all is reported',
+      scalar(grep { /no VHDL citation at all/ }
+             bad_hand_citation('n/a (rendering)')) == 1,
+      'got [' . join(' | ', bad_hand_citation('n/a (rendering)')) . ']');
+
+# `scalar(bad_hand_citation(...))` would evaluate the sub in SCALAR context,
+# where a `return ()` yields undef and a returned list yields its LAST element
+# — so `== 0` is true for both an empty complaint list and a non-empty one
+# (a string numifies to 0). Every refusal row below would have passed no
+# matter what the sub did. Count through an array, once.
+sub nbad { my @c = bad_hand_citation(@_); return scalar @c; }
+
+check('SELF-127', 'THE REFUSAL: a valid citation, qualified or bare, is not reported',
+      nbad('fixture_a.vhd:10, device/fixture_e.vhd:20') == 0,
+      'got [' . join(' | ', bad_hand_citation('fixture_a.vhd:10, device/fixture_e.vhd:20')) . ']');
+
+check('SELF-128', 'THE REFUSAL: a declared `(...)` tombstone is a claim, not an omission',
+      scalar(nbad('(jnext-internal)') == 0 && nbad('(ESP-AT firmware)') == 0),
+      'got [' . join(' | ', bad_hand_citation('(jnext-internal)'),
+                            bad_hand_citation('(ESP-AT firmware)')) . ']');
+
+check('SELF-129', 'THE REFUSAL: an empty or em-dash cell is the honest missing-citation state, not a defect',
+      scalar(nbad('') == 0 && nbad('—') == 0 && nbad(undef) == 0),
+      'got [' . join(' | ', bad_hand_citation(''), bad_hand_citation('—')) . ']');
+
+# End to end: the complaint reaches the caller AND the cell survives untouched.
+# Reporting without rewriting is the whole contract — a checker that "fixed"
+# the cell would satisfy SELF-124 and destroy the record.
+write_fixture('test/fixture/handcite_test.cpp', <<'CPP');
+void h() {
+    check("HC-BAD-01", "cell cites a nonexistent file — VHDL fixture_b.vhd:99",
+          cond, detail);
+    check("HC-OK-01", "cell is fine — VHDL fixture_a.vhd:10", cond, detail);
+}
+CPP
+{
+    my $p = "$FIXTURE_ROOT/bin/handcite_suite";
+    mkdir "$FIXTURE_ROOT/bin" unless -d "$FIXTURE_ROOT/bin";
+    open(my $h, '>', $p) or die "write $p: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $p;
+}
+my $hc_bad_cell = ' kempston_mouse.vhd ';
+my @hclines = (
+    '## Hand — `test/fixture/handcite_test.cpp`',
+    '',
+    '| Test ID   | Description | VHDL file:line     | Status  | Test file:line                        |',
+    '|-----------|-------------|--------------------|---------|---------------------------------------|',
+    "| HC-BAD-01 | bad cell    |$hc_bad_cell| missing | missing                               |",
+    '| HC-OK-01  | good cell   | fixture_a.vhd:10   | missing | missing                               |',
+);
+my (@hcd, @hck, @hcinv);
+refresh_section(\@hclines, 0, 'bin/handcite_suite',
+                'test/fixture/handcite_test.cpp', \@hcd, \@hck, undef, undef,
+                \@hcinv);
+
+check('SELF-130', 'refresh_section collects the complaint for the bad cell and none for the good one',
+      scalar(@hcinv) == 1 && $hcinv[0] =~ /^HC-BAD-01: names 'kempston_mouse\.vhd'/,
+      'got [' . join(' | ', @hcinv) . ']');
+
+check('SELF-131', 'and the reported cell is KEPT byte-identical — this reports, it never rewrites',
+      (split_row_cells($hclines[4]))[3] eq $hc_bad_cell,
+      'got [' . (split_row_cells($hclines[4]))[3] . "] want [$hc_bad_cell]");
+
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');
 void group() {

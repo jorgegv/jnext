@@ -1727,6 +1727,53 @@ sub cite_upgrades {
     return (defined $new_from && $new_from eq $owner) ? 1 : 0;
 }
 
+# ── Hand-written cells are validated too (GH #150) ────────────────────
+#
+# The extractor validated every citation it COMPUTED against the real FPGA
+# tree and refused a filename it did not recognise, and never once looked at
+# the hand-written cells it preserves. Since a hand-written cell is never
+# overwritten — correctly — a wrong one was permanent AND invisible: it agreed
+# with itself on every later run, and the drift report only fires when the
+# computed side disagrees, which needs a computed side to exist.
+#
+# Measured over the live matrix: 3 cells name `kempston_mouse.vhd`, which does
+# not exist (the Kempston mouse is inline in `zxnext.vhd`), and ~25 name
+# jnext's own C++ in a column headed VHDL. Our implementation is not evidence;
+# the VHDL is the oracle.
+#
+# Returns a list of complaints, one per problem, or the empty list when the
+# cell is fine. It REPORTS — nothing here rewrites a cell, ever.
+#
+# A `(...)` cell is a declared tombstone (`(jnext-internal)`, `(SD SPI spec)`,
+# `(host sockets)`, `(ESP-AT firmware)`) and says "there is nothing to cite",
+# which is a claim, not an omission. 314 cells carry one. It is accepted as
+# written: whether a suite deserves a tombstone is decided in %TOMBSTONE, and
+# re-litigating it per row would just duplicate that judgement badly.
+sub bad_hand_citation {
+    my ($cell) = @_;
+    return () if !defined $cell || $cell eq '' || $cell eq '—';
+    return () if $cell =~ /^\(.*\)$/;          # a declared tombstone
+    my @out;
+    my $saw_vhd = 0;
+    while ($cell =~ /$VHDL_CITE_RE/g) {
+        $saw_vhd = 1;
+        my ($verdict, $resolved) = resolve_vhd($1);
+        if ($verdict eq 'unknown') {
+            push @out, "names '$1', which is not in the FPGA core";
+        } elsif ($verdict eq 'rehomed') {
+            push @out, "names '$1'; the core carries it as '$resolved'";
+        }
+    }
+    # A cell naming a jnext source file is the second measured class, and it
+    # is worth its own wording: it is not a typo, it is the wrong ORACLE.
+    push @out, "cites jnext's own source, not the VHDL: "
+             . join(' ', $cell =~ /(\b[\w\/.\-]+\.(?:cpp|hpp|hh|cc|[ch])\b)/g)
+        if $cell =~ /\.(?:cpp|hpp|hh|cc|[ch])\b/;
+    push @out, "carries no VHDL citation at all"
+        if !$saw_vhd && $cell !~ /\.(?:cpp|hpp|hh|cc|[ch])\b/;
+    return @out;
+}
+
 # A citation string reduced to the form the drift comparison judges it by.
 #
 # ONLY the comparison is normalised. The stored cell is not touched — a
@@ -1805,9 +1852,13 @@ sub canon_citation {
 # $companions, when given, is an arrayref of [binary, source_rel] pairs for
 # the OTHER @SUBSYS entries that share this section's `##` subsystem — see
 # the fallback block below (GH #121).
+#
+# $invalid, when given, collects hand-written cells that do not validate
+# against the FPGA core (GH #150). Optional and last, so every existing caller
+# keeps working unchanged.
 sub refresh_section {
     my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx,
-        $companions) = @_;
+        $companions, $invalid) = @_;
     $kept //= [];
 
     # A section may be backed by several suites (see the Audio entry). The
@@ -2020,6 +2071,12 @@ sub refresh_section {
                     # normalised and written back untouched. (GH #142)
                     my $cur_cite = $cells[3];
                     $cur_cite =~ s/^\s+|\s+$//g;
+                    # A hand-written cell is preserved, and now also CHECKED —
+                    # it is the one citation nothing validated (GH #150).
+                    if ($invalid) {
+                        push @$invalid, "$tid_raw: $_ — [$cur_cite]"
+                            for bad_hand_citation($cur_cite);
+                    }
                     my $new_cite = cite_for($tid_raw, $cites, $checks, $skips)
                                    // $tombstone;
                     if ($cur_cite eq '' || $cur_cite eq '—') {
@@ -2420,6 +2477,7 @@ sub main_body {
     my @kept;
     my @unrec;
     my @aliased;
+    my @invalid;
     for my $f (@found) {
         my ($idx, $entry) = @$f;
         my ($header, $binary, $source_rel) = @$entry;
@@ -2428,11 +2486,16 @@ sub main_body {
 
         my @section_drift;
         my @section_kept;
+        my @section_invalid;
         my ($touched, $p, $f_ct, $s, $m, $c, $u, $d) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
                             \@section_drift, \@section_kept, $stop,
-                            $companion->{$idx});
+                            $companion->{$idx}, \@section_invalid);
         my @sources = as_list($source_rel);
+        # Labelled by SECTION, not by source file: a hand-written cell has no
+        # source file behind it — that is what makes it hand-written.
+        push @invalid, map { section_label($header, $sources[0]) . "  $_" }
+                       @section_invalid;
         # Drift lines arrive already charged to the file that supplied the
         # citation (GH #126) — which may be a companion suite or a plan doc,
         # neither of which is $sources[0]. Protected rows have no such file
@@ -2501,6 +2564,18 @@ sub main_body {
         print "\nProtected rows kept byte-identical ",
               "(<!-- protected --> marker):\n";
         print "  $_\n" for @kept;
+    }
+
+    # ── The GH #150 report ────────────────────────────────────────────
+    #
+    # Hand-written cells validated the same way computed ones are. Reported,
+    # never rewritten — a hand-written citation is somebody's judgement and the
+    # tool has no standing to overrule it, only to say it does not check out.
+    if (@invalid) {
+        printf("\nHAND-WRITTEN CITATIONS THAT DO NOT VALIDATE (%d). The cell is "
+             . "KEPT; fix it by\nhand. A citation to jnext's own source is not "
+             . "evidence — the VHDL is the oracle:\n", scalar @invalid);
+        print "  $_\n" for @invalid;
     }
 
     # ── The GH #117 report ────────────────────────────────────────────
