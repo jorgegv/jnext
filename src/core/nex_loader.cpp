@@ -599,82 +599,148 @@ bool NexLoader::apply(Emulator& emu) const
     // the ULA palette. jnext used to run them the other way round, which
     // silently clobbered a LoRes screen's NR 0x15 bit 7 (LoRes enable)
     // and one entry of its ULA palette (issue #156).
+    //
+    // HEADER_DONTRESETNEXTREGS (offset 134) gates only PART of this
+    // (GH #166). nexload.asm:323 tests the flag and, when it is
+    // non-zero, jumps straight to the `.dontresetregs` label at :422 —
+    // so the RESET BLOCK it skips is exactly :324-:408 ("Reset All
+    // registers" … NEXTREG_nn MMU_REGISTER_1,255).
+    //
+    // Four NR writes below have their oracle ABOVE that gate, in
+    // nexload.asm's unconditional prologue at :266-:274, and therefore
+    // happen for EVERY NEX regardless of the flag:
+    //
+    //   :266  NEXTREG_nn 66,15                   → NR 0x42 = 0x0F
+    //   :267  NEXTREG_nn PALETTE_CONTROL,0       → NR 0x43 = 0x00
+    //   :269  NEXTREG_nn PALETTE_INDEX,$18       → NR 0x40 = 0x18
+    //   :270  NEXTREG_nn PALETTE_VALUE,$e3       → NR 0x41 = 0xE3
+    //   :274  NEXTREG_nn SPRITE_CONTROL,SLU+VIS  → NR 0x15 = 0x01
+    //
+    // (NR 0x42, 0x43 and 0x15 are written a second time INSIDE the
+    // gated block, at :395, :394 and :370 — but the prologue copy is
+    // unconditional, so the net effect of both is unconditional. The
+    // ULA palette 0x18 pair at :269-:270 appears NOWHERE else, so
+    // gating it would be a straight behaviour loss.)
+    //
+    // The gate is applied WITHOUT reordering any write: the always-run
+    // ones keep their position and the rest are wrapped in place, so
+    // the block still runs BEFORE the screen ingest, as the NEXORD
+    // rows require.
+    //
+    // NOT modelled either way (pre-existing, unrelated to the gate):
+    // nexload.asm's :397-:403 DefaultPalette / 256-entry palette sweeps
+    // and its :406-:407 NR 0x50/0x51 writes.
     // ---------------------------------------------------------------
 
     auto& nr = emu.nextreg();
 
-    // tbblue nexload.asm bundle (Task 3) — six NR writes the official
-    // nexload.asm performs that we previously omitted. Source:
-    // /tbblue/src/asm/nexload/nexload.asm:326-365.
-    //
-    // Stop copper before reset:
-    nr.write(0x62, 0x00);   // copper-control HI byte: stop
-    nr.write(0x61, 0x00);   // copper-control LO byte: stop
-    // Peripheral 2 — read-modify-write in tbblue (preserves bits 7+5
-    // F8/F3-enable, clears bit 4 DivMMC autopage, sets bit 3 Multiface).
-    // Reset baseline of NR 0x06 is 0xA0 (zxnext.vhd:1107-1108), so the
-    // post-modify constant is 0xA0 & ~0x10 | 0x08 = 0xA8.
-    nr.write(0x06, 0xA8);
-    // Peripheral 3 — read-modify-write in tbblue (sets bit 7 disable
-    // locked paging, bit 6 disable contention, clears bit 5 stereo→ABC,
-    // sets bits 3/2/1 specdrum/timex/turbosound, clears bit 0).
-    // Reset baseline of NR 0x08 is 0x00, so the post-modify constant is
-    // 0xCE.
-    nr.write(0x08, 0xCE);
+    // nexload.asm:323 — `or a : jp nz,.dontresetregs`.
+    const bool reset_nextregs = (header_.preserve_regs == 0);
+
+    if (reset_nextregs) {
+        // tbblue nexload.asm bundle (Task 3) — six NR writes the official
+        // nexload.asm performs that we previously omitted. Source:
+        // /tbblue/src/asm/nexload/nexload.asm:326-365.
+        //
+        // Stop copper before reset:
+        nr.write(0x62, 0x00);   // copper-control HI byte: stop
+        nr.write(0x61, 0x00);   // copper-control LO byte: stop
+        // Peripheral 2 — read-modify-write in tbblue (preserves bits 7+5
+        // F8/F3-enable, clears bit 4 DivMMC autopage, sets bit 3 Multiface).
+        // Reset baseline of NR 0x06 is 0xA0 (zxnext.vhd:1107-1108), so the
+        // post-modify constant is 0xA0 & ~0x10 | 0x08 = 0xA8.
+        nr.write(0x06, 0xA8);
+        // Peripheral 3 — read-modify-write in tbblue (sets bit 7 disable
+        // locked paging, bit 6 disable contention, clears bit 5 stereo→ABC,
+        // sets bits 3/2/1 specdrum/timex/turbosound, clears bit 0).
+        // Reset baseline of NR 0x08 is 0x00, so the post-modify constant is
+        // 0xCE.
+        nr.write(0x08, 0xCE);
+    }
+
     // Turbo 28 MHz (matches tbblue nexload — assumes loader-issued
     // turbo is honoured by the CPU model; vblank-flush fix in commit
     // 346b53b is the prerequisite that prevents tilemap_demo from
     // black-screening at this speed).
-    nr.write(0x07, 0x03);
+    //
+    // THE TWO LOADERS DISAGREE ON THIS ONE REGISTER, so it follows the
+    // loader that would really handle the file (GH #166):
+    //   - <= V1.2 is loaded by nexload.asm, whose NR 0x07 write is at
+    //     :365, INSIDE the gated block → gated.
+    //   - V1.3 can only be loaded by nexload2.asm (the distro loader
+    //     cannot parse it), and there the write is at :777, ABOVE the
+    //     PRESERVENEXTREG early-return at :781-783, whose own comment
+    //     says it: "next regs should be preserved, only 28MHz is set,
+    //     keep others" → unconditional.
+    if (reset_nextregs || is_v13()) {
+        nr.write(0x07, 0x03);
+    }
+
     // ULANext format: 0x0F (allow flashing). Overrides Emulator init's
-    // 0x07 — tbblue nexload.asm:395 writes this every NEX load.
+    // 0x07 — nexload.asm:266 writes this every NEX load, ABOVE the
+    // DONTRESETNEXTREGS gate (it is repeated inside it at :395).
     nr.write(0x42, 0x0F);
 
-    // Sprite/layer system: sprites visible, SLU priority
+    // Sprite/layer system: sprites visible, SLU priority.
+    // nexload.asm:274 — ABOVE the gate (repeated inside it at :370).
     nr.write(0x15, 0x01);
 
-    // Transparency: global colour = 0xE3, fallback = 0x00
-    nr.write(0x14, 0xE3);
-    nr.write(0x4A, 0x00);
+    if (reset_nextregs) {
+        // Transparency: global colour = 0xE3, fallback = 0x00
+        nr.write(0x14, 0xE3);
+        nr.write(0x4A, 0x00);
 
-    // Sprite transparency index = 0xE3
-    nr.write(0x4B, 0xE3);
+        // Sprite transparency index = 0xE3
+        nr.write(0x4B, 0xE3);
 
-    // Layer 2 active bank = 9, shadow bank = 12
-    nr.write(0x12, 0x09);
-    nr.write(0x13, 0x0C);
+        // Layer 2 active bank = 9, shadow bank = 12
+        nr.write(0x12, 0x09);
+        nr.write(0x13, 0x0C);
 
-    // Reset all clip window indices
-    nr.write(0x1C, 0x0F);
+        // Reset all clip window indices
+        nr.write(0x1C, 0x0F);
 
-    // Layer 2 clip: 0, 255, 0, 255 (full)
-    nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
-    nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
-    // Sprite clip: 0, 255, 0, 255
-    nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
-    nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
-    // ULA clip: 0, 255, 0, 191
-    nr.write(0x1A, 0x00); nr.write(0x1A, 0xFF);
-    nr.write(0x1A, 0x00); nr.write(0x1A, 0xBF);
-    // Tilemap clip: 0, 159, 0, 255
-    nr.write(0x1B, 0x00); nr.write(0x1B, 0x9F);
-    nr.write(0x1B, 0x00); nr.write(0x1B, 0xFF);
+        // Layer 2 clip: 0, 255, 0, 255 (full)
+        nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
+        nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
+        // Sprite clip: 0, 255, 0, 255
+        nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
+        nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
+        // ULA clip: 0, 255, 0, 191
+        nr.write(0x1A, 0x00); nr.write(0x1A, 0xFF);
+        nr.write(0x1A, 0x00); nr.write(0x1A, 0xBF);
+        // Tilemap clip: 0, 159, 0, 255
+        nr.write(0x1B, 0x00); nr.write(0x1B, 0x9F);
+        nr.write(0x1B, 0x00); nr.write(0x1B, 0xFF);
 
-    // Layer 2 scroll = 0,0
-    nr.write(0x16, 0x00);
-    nr.write(0x17, 0x00);
+        // Layer 2 scroll = 0,0
+        nr.write(0x16, 0x00);
+        nr.write(0x17, 0x00);
+    }
 
-    // Palette control: select ULA first palette, no auto-increment
+    // Palette control: select ULA first palette, no auto-increment.
+    // nexload.asm:267-268 — ABOVE the gate (repeated inside it at :394).
     nr.write(0x43, 0x00);
 
-    // ULA palette entry 24 (border ink 0) = 0xE3 (standard transparent)
+    // ULA palette entry 24 (border ink 0) = 0xE3 (standard transparent).
+    // nexload.asm:269-270 — ABOVE the gate, and written NOWHERE else, so
+    // this pair is unconditional. (With the flag clear the gated block's
+    // :397 DefaultPalette sweep would overwrite this entry on real
+    // hardware; jnext does not model that sweep — see the note above.)
     nr.write(0x40, 0x18);
     nr.write(0x41, 0xE3);
 
-    // Reset palette index to 0 (programs assume this after NEX load)
-    nr.write(0x40, 0x00);
+    if (reset_nextregs) {
+        // Reset palette index to 0 (programs assume this after NEX load).
+        // Its oracle is inside the gated block: the index is left at 0 by
+        // :396 + the :411 `.pa` sweeps. Skipping the block leaves the
+        // index where :269-:270 put it, exactly as on hardware.
+        nr.write(0x40, 0x00);
+    }
 
-    Log::emulator()->debug("NEX: machine state initialized (nexload.asm compatible)");
+    Log::emulator()->debug("NEX: machine state initialized (nexload.asm compatible, "
+                           "NextREG reset {})",
+                           reset_nextregs ? "applied" : "skipped (DONTRESETNEXTREGS)");
 
     // ---------------------------------------------------------------
     // 2. Screen data
