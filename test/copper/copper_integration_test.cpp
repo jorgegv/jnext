@@ -505,6 +505,96 @@ static void test_gh181_wait_hpos_domain()
     }
 }
 
+// ── GH #181 — the cvc line that SPANS two frames ───────────────
+
+static void test_gh181_frame_boundary_carry()
+{
+    set_group("GH181-FrameCarry");
+
+    // GH181-HCULA-04 — the rebase shifts the whole frame torus, so one
+    // hc_ula/cvc line necessarily STRADDLES the jnext frame boundary, and
+    // reaching its tail depends on the wrap being handled.
+    //
+    // With c_max_hc=455 (456 px/line), c_min_vactive=64, c_max_vc=310 (311
+    // lines) and hc_ula==0 at raw hc 125 (zxula_timing.vhd:423-436):
+    //   * hc_ula line `uline` covers raw (vc=uline, hc 125..455) — hc_ula
+    //     0..330 — then raw (vc=uline+1, hc 0..124) — hc_ula 331..455.
+    //   * uline = 310 is the LAST line of the frame, so its hc_ula 331..455
+    //     tail is raw line **0**, reached only after `frame_cycle_` has
+    //     advanced and `elapsed0` has gone back to ~0. That is the branch
+    //     where `(elapsed0 + mcpf - shift_mc) % mcpf` wraps to the top of
+    //     the frame instead of going negative.
+    //   * cvc there = (310 - 64) mod 311 = 246.
+    //
+    // WAIT(vpos=246, hpos=40) — threshold (40<<3)+12 = 332, i.e. hc_ula 332,
+    // raw hc (125+332) mod 456 = 1 — is therefore reachable ONLY in that
+    // wrapped tail, at raw line 0.
+    //
+    // Discriminative twice over:
+    //   * pre-fix (28 MHz master-cycle hc, origin 0): cvc 246 meant raw line
+    //     310 and threshold 332 meant master cycle 332, so the MOVE landed
+    //     at raw pixel 141443 — the far END of the frame, not its start;
+    //   * mishandling the wrap (uline not reduced mod the frame, or cvc
+    //     taken from the raw vc) puts cvc at 247 across raw line 0 and the
+    //     WAIT never fires at all.
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH181-HCULA-04", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+
+    const int ppl = emu.video_timing().hc_max() + 1;
+    const bool geom_ok = (ppl == 456 &&
+                          emu.video_timing().display_origin().vc == 64 &&
+                          emu.video_timing().vc_max() == 310);
+
+    // Land on a frame boundary so `frame_cycle_` has just advanced — that is
+    // the state in which the wrapped tail is the CURRENT raster position.
+    emu.run_frame();
+
+    const uint16_t code_addr = 0xC000;
+    for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    emu.copper().reset();
+    for (int i = 0; i < 16; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(40, 246));
+    program_word(emu, 1, enc_move(0x14, 0x7E));
+    program_word(emu, 2, enc_wait(0, 511));   // HALT
+    nr_write(emu, 0x64, 0);
+    nr_write(emu, 0x14, 0x00);
+    set_copper_mode(emu, 1);
+
+    const uint8_t want[1] = {0x7E};
+    long got[1] = {-1};
+    // One frame's worth of NOPs is ~17700; 40000 covers two with slack.
+    const bool fired = run_until_nr14_sequence(emu, want, 1, got, 40000);
+    const long line = (got[0] >= 0) ? got[0] / 456 : -1;
+
+    // The tail is raw hc 0..124 of raw line 0. Detection lags by up to one
+    // NOP (8 px) and the run_frame() overshoot can already have consumed a
+    // few dozen pixels before we start stepping, so bound it at 200 — still
+    // inside raw line 0, and three orders of magnitude from the pre-fix
+    // position at raw pixel 141443 (raw line 310).
+    check("GH181-HCULA-04",
+          "the cvc line that straddles the frame boundary: "
+          "WAIT(vpos=246,hpos=40) is reachable only in the hc_ula 331..455 "
+          "tail, which is raw line 0 AFTER the frame wraps — the MOVE lands "
+          "at the START of the frame, not at raw line 310 "
+          "[zxula_timing.vhd:423-436,457-470; copper.vhd:94]",
+          geom_ok && fired && line == 0 && got[0] >= 1 && got[0] <= 200,
+          "geom_ok=" + std::to_string(geom_ok) + " fired=" +
+          std::to_string(fired) + " got=" + std::to_string(got[0]) +
+          " (raw line " + std::to_string(line) + ")" +
+          " want raw line 0, hc in [1,200]; pre-fix 141443 (raw line 310)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -529,6 +619,9 @@ int main() {
 
     test_gh181_wait_hpos_domain();
     std::printf("  Group: GH181-HcUla — done\n");
+
+    test_gh181_frame_boundary_carry();
+    std::printf("  Group: GH181-FrameCarry — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

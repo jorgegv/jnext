@@ -175,6 +175,86 @@ static void section3_ula_prefetch_origin() {
               hc == 124, "got " + std::to_string(hc));
     }
     // VT-09 RETIRED 2026-05-04: standalone Pentagon machine type dropped.
+
+    // ── GH #181 — hc_ula_zero_raw_hc(): the REGISTERED reset origin ──
+    //
+    // `ula_prefetch_origin_hc()` above is where the hc_ula reset is ARMED:
+    //   ula_min_hactive <= c_min_hactive - 12;              (:423)
+    //   ula_max_hc      <= '1' when hc = ula_min_hactive;   (:424, combinational)
+    // but the reset itself lives inside `process (i_CLK_7)` (:427-436), so it
+    // is REGISTERED and lands one 7 MHz tick later — by which time the raw
+    // frame counter `hc` (itself registered, :316-324) has advanced to
+    // `c_min_hactive - 11`. Hence
+    //     hc_ula == 0   <=>   raw hc == c_min_hactive - 11
+    // which is the "EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME COUNTER"
+    // note at :343, and the origin AttributeMux independently derives
+    // (attribute_mux.h:281, FUSE-verified in Task 54).
+    //
+    // These rows assert the value EXACTLY. The GH181-HCULA-* integration
+    // rows in copper_integration_test measure through a NOP sled and so
+    // cannot resolve a single pixel; that +1 is the whole point of the fix,
+    // so it gets a direct, slack-free row per timing mode here.
+    // c_min_hactive: 128 for 48K (:159) and Pentagon (:261); 136 for
+    // 128K (:195), +3 (:229) and Next (128K-class slot).
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::Timing48);
+        int hc = vt.hc_ula_zero_raw_hc();
+        check("VT-GH181-01",
+              "48K timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 117 "
+              "(VHDL zxula_timing.vhd:159,423-436,343)",
+              hc == 117, "got " + std::to_string(hc));
+    }
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::Timing128);
+        int hc = vt.hc_ula_zero_raw_hc();
+        check("VT-GH181-02",
+              "128K timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 125 "
+              "(VHDL zxula_timing.vhd:195,423-436,343)",
+              hc == 125, "got " + std::to_string(hc));
+    }
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::TimingPlus3);
+        int hc = vt.hc_ula_zero_raw_hc();
+        check("VT-GH181-03",
+              "+3 timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 125 "
+              "(VHDL zxula_timing.vhd:229,423-436,343)",
+              hc == 125, "got " + std::to_string(hc));
+    }
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::TimingPentagon);
+        int hc = vt.hc_ula_zero_raw_hc();
+        check("VT-GH181-04",
+              "Pentagon timing: hc_ula==0 at raw hc = c_min_hactive - 11 = "
+              "117 (VHDL zxula_timing.vhd:261,423-436,343)",
+              hc == 117, "got " + std::to_string(hc));
+    }
+    {
+        // The machine axis the Copper harness actually runs on.
+        VideoTiming vt;
+        vt.init(MachineType::ZXN_ISSUE2);
+        int hc = vt.hc_ula_zero_raw_hc();
+        check("VT-GH181-05",
+              "Next (ZXN_ISSUE2, 128K-class slot): hc_ula==0 at raw hc = 125 "
+              "(VHDL zxula_timing.vhd:195,423-436,343)",
+              hc == 125, "got " + std::to_string(hc));
+    }
+    {
+        // Exactly one pixel apart, by construction — the relationship the
+        // fix depends on, stated independently of the absolute values.
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::Timing128);
+        int armed = vt.ula_prefetch_origin_hc();
+        int zero  = vt.hc_ula_zero_raw_hc();
+        check("VT-GH181-06",
+              "the registered reset puts hc_ula==0 exactly ONE pixel after "
+              "the armed origin (VHDL zxula_timing.vhd:424 vs :427-436)",
+              zero - armed == 1,
+              "armed=" + std::to_string(armed) + " zero=" + std::to_string(zero));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

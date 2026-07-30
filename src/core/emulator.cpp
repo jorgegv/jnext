@@ -9015,10 +9015,26 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     const uint64_t shift_mc =
         static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
 
-    // Rebase onto the hc_ula/cvc counter frame. `elapsed0 % mcpf` guards the
-    // end-of-frame overshoot run_frame() leaves behind (the last instruction
-    // may cross frame_end); the +mcpf keeps the subtraction non-negative.
-    const uint64_t elapsed0 = (pre_clock - frame_cycle_) % mcpf;
+    // Rebase onto the hc_ula/cvc counter frame. The `+ mcpf` keeps the
+    // subtraction non-negative in unsigned arithmetic (shift_mc << mcpf); the
+    // `% mcpf` normalises `shifted` to one frame so `uline` lands in
+    // [0, lpf) — the range the incremental loop below reads it as.
+    //
+    // That normalisation is NORMALISATION, not behaviour, and no test can
+    // pin it: `mcpf == lpf * mcpl` exactly, so the downstream `% mcpl` and
+    // `% lpf` already reduce both `line_mc` and `cvc` to the same values
+    // with or without it — dropping it (either here, or as a separate
+    // `elapsed0 % mcpf`, which is dead for the same reason) leaves every
+    // observable identical. Verified by mutation, not assumed. It stays
+    // because an out-of-range `uline` would be a trap for the next reader,
+    // and it costs one division per call, outside the loop.
+    //
+    // What IS behaviour is the frame-boundary carry it exists to express:
+    // the hc_ula/cvc line `uline == lpf-1` STRADDLES two jnext frames, and
+    // its hc_ula 331..455 tail is raw line 0 of the next one. That is
+    // covered — GH181-HCULA-04 in copper_integration_test places a WAIT
+    // reachable only in that tail.
+    const uint64_t elapsed0 = pre_clock - frame_cycle_;
     const uint64_t shifted  = (elapsed0 + mcpf - shift_mc) % mcpf;
 
     // `line_mc` counts master cycles since hc_ula==0; hc_ula = line_mc / 4.
