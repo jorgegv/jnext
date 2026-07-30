@@ -19,8 +19,10 @@ layers, sprites, audio and NextREG state live.
 \f[B]\-\-load\f[R] \f[I]FILE\f[R], so \f[CR]jnext game.tap\f[R] just
 works.
 Anything starting with \f[CR]\-\f[R] is treated as an option, never as a
-filename; giving both a bare filename and \f[B]\-\-load\f[R] is an
-error.
+filename.
+Name the program one way or the other, not both at once:
+\f[CR]jnext \-\-load game.tap game.tap\f[R] is rejected, and so is
+naming two files.
 .PP
 The examples below use the Qt6 GUI build
 (\f[CR]build/gui\-release/jnext\f[R]).
@@ -356,7 +358,9 @@ runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
 .SH LOADING PROGRAMS
 Use \f[B]\-\-load\f[R] \f[I]FILE\f[R], or simply a bare filename
 (\f[CR]jnext game.tap\f[R]).
-The two are equivalent, and giving both is an error.
+The two are equivalent, so use one or the other: combining them
+(\f[CR]jnext \-\-load game.tap game.tap\f[R]) is rejected, as is naming
+two files.
 The format is detected from the extension:
 .TP
 \f[CR].nex\f[R]

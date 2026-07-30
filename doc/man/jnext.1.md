@@ -34,8 +34,9 @@ sprites, audio and NextREG state live.
 
 *file* is a program to load, exactly equivalent to **\--load** *FILE*, so
 `jnext game.tap` just works. Anything starting with `-` is treated as an
-option, never as a filename; giving both a bare filename and **\--load** is an
-error.
+option, never as a filename. Name the program one way or the other, not both
+at once: `jnext --load game.tap game.tap` is rejected, and so is naming two
+files.
 
 The examples below use the Qt6 GUI build (`build/gui-release/jnext`). The
 SDL-only build (`build/sdl-release/jnext`) takes the same options minus the GUI and
@@ -336,8 +337,9 @@ through the SPI/DivMMC path: NextZXOS reads its files from it.
 # LOADING PROGRAMS
 
 Use **\--load** *FILE*, or simply a bare filename (`jnext game.tap`). The two
-are equivalent, and giving both is an error. The format is detected from the
-extension:
+are equivalent, so use one or the other: combining them
+(`jnext --load game.tap game.tap`) is rejected, as is naming two files. The
+format is detected from the extension:
 
 `.nex`
 :   v1.0/1.1/1.2; pages, Layer 2 screen and palette from the header.
