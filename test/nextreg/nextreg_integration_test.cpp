@@ -1028,9 +1028,16 @@ static void test_reset_domain_e3_and_8c() {
     // program, not about a mechanism.)
 
     // CMG-01 — the `mmu_.boot_rom_enabled()` clause. A Next start with NO boot
-    // ROM is the `--load` case: no firmware drives NR 0x03, so the NextReg
+    // ROM is what a `--load` run gets: no firmware drives NR 0x03, so the NextReg
     // latch keeps its zxnext.vhd:1102 power-on '1' while the Mmu mirror must
     // stay at its own power-on false. The mirrors DISAGREEING is correct here.
+    //
+    // Precision about the fixture: the boot ROM is loaded only when
+    // `cfg.type == ZXN_ISSUE2 && !cfg.sd_card_image.empty() && cfg.load_file.empty()`
+    // all hold (emulator.cpp:6080-6082). A real `--load` run fails the THIRD
+    // arm; this fixture has no SD card, so it fails the SECOND. Same flag state
+    // (`boot_rom_enabled() == false`), reached by a different arm — the row
+    // pins the clause's consequence, not which arm produced it.
     {
         Emulator emu;
         build_next_emulator(emu);       // ZXN_ISSUE2, no boot ROM
