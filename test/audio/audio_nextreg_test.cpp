@@ -717,7 +717,7 @@ static void test_nr_beep(Emulator& emu) {
             if (got != expect) all_ok = false;
         }
         check("BP-10",
-              "beep_mic_final XOR expression matches VHDL:6503 over all 8 corners",
+              "beep_mic_final XOR expression matches zxnext.vhd:6503 over all 8 corners",
               all_ok,
               "all tape_ear/mic/issue2 combinations checked");
     }
