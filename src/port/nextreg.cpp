@@ -355,8 +355,21 @@ void NextReg::reset() {
     // (nr_03_machine_type) — see CFG-07 unit row and CFG-08-INT integration row.
     // nr_03_config_mode_ NOT reset here — VHDL latch survives reset.
 
-    // VHDL zxnext.vhd:1104 — nr_04_romram_bank defaults 0x00 at power-on.
-    nr_04_romram_bank_ = 0;
+    // GH #194: nr_04_romram_bank is NOT reset here — same reasoning as G62/G63
+    // immediately above, applied to the register this code used to clear.
+    // VHDL zxnext.vhd:1104 declares
+    //   signal nr_04_romram_bank : std_logic_vector(7 downto 0) := (others => '0');
+    // and the ONLY other sites are the use at :3045 and the two NR 0x04 write
+    // handlers at :5717 (gen_romram_234) / :5732 (gen_romram_5), each inside a
+    // generate process whose sole clause is `if nr_04_we = '1'`. The signal is
+    // ABSENT from the `if reset = '1'` block at :4930-5111, so the latch
+    // survives both hard and soft reset; :1104 is an FPGA-configuration-time
+    // initialiser, NOT a reset clause. The C++ member initialiser in nextreg.h
+    // handles power-on, and a hardware hard reset (which reconfigures the FPGA)
+    // is modelled by reconstructing the Emulator in emulator_cold_boot().
+    // Rows: nextreg_integration RSTD-04-01 (soft preserves) / RSTD-04-02 (cold
+    // boot clears); mmu_test CFG-06 / CFG-12 for the Mmu mirror.
+    // nr_04_romram_bank_ NOT reset here — VHDL latch survives reset.
 
     // VHDL zxnext.vhd:1099-1103 — power-on defaults for the NR 0x03 state:
     //   nr_03_machine_timing = "011" (+3 timing)

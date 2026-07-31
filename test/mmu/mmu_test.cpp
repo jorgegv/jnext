@@ -2733,29 +2733,74 @@ void test_cat13_config_mode() {
                   p8 ? p8[0] : 0xEE, p9 ? p9[0] : 0xEE));
     }
 
-    // CFG-06: Mmu::reset() leaves config_mode unchanged (Emulator::init() is
-    // the owner, since config_mode is a Next-only signal — a 48K MMU reset
-    // must not arm Next routing). nr_04_romram_bank is reset to 0x00 per
-    // VHDL zxnext.vhd:1104. We verify by: pre-set config_mode=true and
-    // nr_04=0xFF; call reset; observe nr_04 went back to 0 while
-    // config_mode stayed at 1 (the owner's choice).
+    // CFG-06: Mmu::reset() PRESERVES nr_04_romram_bank, and leaves
+    // config_mode unchanged too (Emulator::init() is the owner of the
+    // latter, since config_mode is a Next-only signal — a 48K MMU reset
+    // must not arm Next routing).
+    //
+    // GH #194 — this row previously asserted the OPPOSITE (that reset
+    // clears the bank to 0x00, citing zxnext.vhd:1104). That citation was
+    // a signal DECLARATION with a power-on initialiser, not a reset
+    // clause. `grep -n nr_04_romram_bank zxnext.vhd` returns exactly four
+    // sites — :1104 (declaration), :3045 (use), :5717/:5732 (the two NR
+    // 0x04 write handlers, each in a generate process whose only clause is
+    // `if nr_04_we = '1'`). The signal is ABSENT from the NR state
+    // process's reset block at zxnext.vhd:4930-5111, so the latch survives
+    // both hard and soft reset. Identical shape to G62 (nr_03_config_mode)
+    // and G63 (nr_03_machine_type), which are already preserved.
+    //
+    // Proof is POSITIVE, not an out-of-range drop: bank 0x30 → SRAM pages
+    // 96/97, both in range for the 2 MB fixture. After reset a slot-0
+    // write must still route to page 96 (the preserved bank) and must NOT
+    // land at page 0 (where a cleared bank would put it).
     {
         Fixture f;
         f.fresh();
         f.mmu.set_config_mode(true);
-        f.mmu.set_nr_04_romram_bank(0xFF);
+        f.mmu.set_nr_04_romram_bank(0x30);   // bank 0x30 → pages 96, 97
         f.mmu.reset();
-        // After reset: config_mode is still true (pushed by us above),
-        // nr_04 is 0 (VHDL default) → a slot-0 write must land at page 0.
         f.mmu.write(0x0000, 0x77);
-        uint8_t* p0   = f.ram.page_ptr(0);
-        uint8_t* p510 = f.ram.page_ptr(510);   // where nr_04=0xFF<<1 | 0 would land
+        uint8_t* p96 = f.ram.page_ptr(96);
+        uint8_t* p0  = f.ram.page_ptr(0);    // where a cleared bank would land
         check("CFG-06",
-              "Mmu::reset() clears nr_04_romram_bank to 0 (VHDL zxnext.vhd:1104); config_mode is Emulator-owned",
-              p0 && p0[0] == 0x77 && (!p510 || p510[0] != 0x77),
-              fmt("p0[0]=0x%02X p510[0]=%s",
-                  p0 ? p0[0] : 0xEE,
-                  p510 ? fmt("0x%02X", p510[0]).c_str() : "<oob>"));
+              "Mmu::reset() PRESERVES nr_04_romram_bank — no reset clause in "
+              "VHDL zxnext.vhd:4930-5111 (the only sites are :1104 declaration, "
+              ":3045 use, :5717/:5732 writes; a declaration default is FPGA "
+              "power-on, not a reset clause); config_mode is Emulator-owned",
+              p96 && p96[0] == 0x77 && p0 && p0[0] != 0x77,
+              fmt("p96[0]=0x%02X (expected 0x77) p0[0]=%s (must not be 0x77)",
+                  p96 ? p96[0] : 0xEE,
+                  p0 ? fmt("0x%02X", p0[0]).c_str() : "<oob>"));
+    }
+
+    // CFG-12 (GH #194): the SOFT-reset arm of CFG-06. Mmu::reset() takes a
+    // `hard` flag, and CFG-06 exercises only the default (hard=true) — a
+    // model that cleared the bank on soft reset alone would slip past it,
+    // and past the Emulator-tier RSTD-04-01/02 rows too, because the Mmu
+    // mirror has no accessor at that tier. (Verified: the mutation
+    // `if (!hard) nr_04_romram_bank_ = 0;` passed every other row.)
+    // VHDL draws no such distinction: `reset` inside zxnext.vhd is
+    // `reset_hard or reset_soft` (zxnext_top_issue2.vhd:840, :1730
+    // reset <= i_RESET), and nr_04_romram_bank is absent from the one
+    // reset block at :4930-5111 either way — so BOTH arms preserve.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x30);   // bank 0x30 → pages 96, 97
+        f.mmu.reset(/*hard=*/false);         // RESET_SOFT arm
+        f.mmu.write(0x0000, 0x55);
+        uint8_t* p96 = f.ram.page_ptr(96);
+        uint8_t* p0  = f.ram.page_ptr(0);
+        check("CFG-12",
+              "Mmu::reset(hard=false) ALSO preserves nr_04_romram_bank — "
+              "zxnext.vhd's `reset` is reset_hard OR reset_soft "
+              "(zxnext_top_issue2.vhd:840, zxnext.vhd:1730) and the signal "
+              "is in no reset block at all (:4930-5111)",
+              p96 && p96[0] == 0x55 && p0 && p0[0] != 0x55,
+              fmt("p96[0]=0x%02X (expected 0x55) p0[0]=%s (must not be 0x55)",
+                  p96 ? p96[0] : 0xEE,
+                  p0 ? fmt("0x%02X", p0[0]).c_str() : "<oob>"));
     }
 
     // CFG-07: out-of-range nr_04 banks (page >= ram size) → read returns 0xFF

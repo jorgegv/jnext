@@ -859,6 +859,78 @@ static void test_reset_domain_e3_and_8c() {
                   pre_lk1 ? 1 : 0, pre_lk0 ? 1 : 0,
                   post_lk1 ? 1 : 0, post_lk0 ? 1 : 0, post_8c));
     }
+
+    // ── GH #194 — NR 0x04 romram_bank reset domain ──────────────────────
+    //
+    // `grep -n nr_04_romram_bank zxnext.vhd` returns exactly four sites:
+    //   :1104  signal declaration + power-on initialiser (others => '0')
+    //   :3045  the use (sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13))
+    //   :5717  write handler, gen_romram_234 (board issue <= 2)
+    //   :5732  write handler, gen_romram_5   (board issue >= 3)
+    // Both write handlers sit in their own generate processes whose ONLY
+    // clause is `if nr_04_we = '1'`, and the signal is ABSENT from the NR
+    // state process's `if reset = '1'` block at :4930-5111. So there is no
+    // reset clause for it anywhere: the latch SURVIVES reset, and :1104 is
+    // an FPGA-configuration-time default, not a reset value.
+    //
+    // A hardware HARD reset does reconfigure the FPGA
+    // (zxnext_top_issue2.vhd:1195 starts flashboot on zxn_reset_hard), so
+    // the :1104 default genuinely applies there — jnext reproduces that by
+    // RECONSTRUCTING the emulator in emulator_cold_boot(). The pair below
+    // proves the two paths differ: -01 pins soft-reset preservation, -02
+    // pins the cold-boot clear. A single-path row would pass under a model
+    // that got either half wrong.
+    //
+    // Note NR 0x04 is write-only in the VHDL read mux (see NR04-RO row), so
+    // the latch is observed through the NextReg accessor + the Mmu mirror,
+    // not through a NextREG read.
+
+    // RSTD-04-01 — RESET_SOFT PRESERVES nr_04_romram_bank.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x04, 0x30);              // romram_bank <- 0x30
+        const uint8_t pre = emu.nextreg().nr_04_romram_bank();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const uint8_t post = emu.nextreg().nr_04_romram_bank();
+        check("RSTD-04-01",
+              "RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent "
+              "from the reset block [zxnext.vhd:4930-5111]; its only sites are "
+              "zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the "
+              "write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely "
+              "on nr_04_we",
+              pre == 0x30 && post == 0x30,
+              fmt("pre=0x%02X post=0x%02X (both expected 0x30)", pre, post));
+    }
+
+    // RSTD-04-02 — RESET_HARD (host cold boot) CLEARS it back to the
+    // :1104 power-on default. NR 0x02 bit 1 only raises the deferred
+    // request (Task 70), so the mid-state is asserted too: the bank must
+    // still be 0x30 until emulator_cold_boot() actually runs.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+
+        nr_write(emu, 0x04, 0x30);              // romram_bank <- 0x30
+        const uint8_t pre = emu.nextreg().nr_04_romram_bank();
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD (deferred)
+        const bool    requested = emu.take_hard_reset_request();
+        const uint8_t mid       = emu.nextreg().nr_04_romram_bank();
+        emulator_cold_boot(emu, cfg);           // the host cold-boot path
+        const uint8_t post = emu.nextreg().nr_04_romram_bank();
+        check("RSTD-04-02",
+              "RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 "
+              "power-on default via the host cold boot (FPGA reconfiguration, "
+              "zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only "
+              "raises the deferred request [Task 70]",
+              pre == 0x30 && requested && mid == 0x30 && post == 0x00,
+              fmt("pre=0x%02X requested=%d mid=0x%02X post=0x%02X "
+                  "(expected 0x30,1,0x30,0x00)",
+                  pre, requested ? 1 : 0, mid, post));
+    }
 }
 
 // ── Cold boot preserves debugger breakpoints (Task 70 review) ─────────

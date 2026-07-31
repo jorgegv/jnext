@@ -131,13 +131,33 @@ void Mmu::reset(bool hard) {
     // NextReg dispatch will re-push 11 via set_l2_shadow_bank() on
     // reset; default member init also matches.
     l2_shadow_bank_  = 11;
-    // nr_04_romram_bank resets to 0 (VHDL zxnext.vhd:1104). config_mode stays
-    // at its current value — it's pushed in by Emulator per machine type so
-    // a reset on a 48K/128K/+3 machine doesn't spuriously activate Next-only
-    // SRAM routing. Next machines will re-push config_mode=true via the NR
-    // 0x03 handler on first write (matches tbblue.fw's boot flow), and via
-    // Emulator::init() directly after nextreg_.reset() for power-on parity.
-    nr_04_romram_bank_ = 0;
+    // GH #194: nr_04_romram_bank is NOT reset here — the VHDL preserves it.
+    // `grep -n nr_04_romram_bank zxnext.vhd` yields exactly four sites:
+    //   :1104 — the signal DECLARATION with its power-on default
+    //           `std_logic_vector(7 downto 0) := (others => '0')`
+    //   :3045 — the use, in the ROM-slot branch chain
+    //   :5717 — write handler, gen_romram_234 (board issue <= 2)
+    //   :5732 — write handler, gen_romram_5   (board issue >= 3)
+    // It is ABSENT from the NR state process's `if reset = '1'` block
+    // (:4930-5111), and both write handlers live in their own generate
+    // processes whose only clause is `if nr_04_we = '1'` — there is no
+    // reset clause for this signal anywhere in zxnext.vhd. A declaration
+    // initialiser applies at FPGA configuration, not at every reset, so
+    // the latch survives BOTH hard and soft reset. The C++ member
+    // initialiser in mmu.h handles power-on; on real hardware a hard reset
+    // reconfigures the FPGA, which jnext reproduces by RECONSTRUCTING the
+    // Emulator (platform/emulator_boot.h::emulator_cold_boot) — that is
+    // the only path that must (and does) restore the 0x00 default.
+    // Same shape as G62 (nr_03_config_mode) and G63 (nr_03_machine_type),
+    // both already preserved. Rows: mmu_test CFG-06 / CFG-12 (both arms
+    // of Mmu::reset), nextreg_integration RSTD-04-01/02 (soft vs cold boot).
+    //
+    // config_mode is likewise left at its current value — it's pushed in by
+    // Emulator per machine type so a reset on a 48K/128K/+3 machine doesn't
+    // spuriously activate Next-only SRAM routing. Next machines re-push
+    // config_mode=true via the NR 0x03 handler on first write (matches
+    // tbblue.fw's boot flow), and via Emulator::init() directly after
+    // nextreg_.reset() for power-on parity.
     // Re-enable boot ROM on reset only when nr_03_config_mode='1' at reset
     // time — VHDL zxnext.vhd:5109-5111 gates the bootrom_en re-assertion on
     // `if nr_03_config_mode = '1' then bootrom_en <= '1'` inside the
