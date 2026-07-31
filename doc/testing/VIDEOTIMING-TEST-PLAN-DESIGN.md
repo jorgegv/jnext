@@ -350,7 +350,6 @@ no new accessor is needed there.
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-07  | S13.07 | 48K `ula_prefetch_origin_hc()` = 128 - 12 = 116 | 116 | skip (F-VT-ACCESSOR) |
 | 2 | VT-08  | new    | 128K `ula_prefetch_origin_hc()` = 136 - 12 = 124 | 124 | skip (F-VT-ACCESSOR) |
-| 3 | VT-09  | new    | Pentagon `ula_prefetch_origin_hc()` = 128 - 12 = 116 | 116 | skip (F-VT-ACCESSOR) |
 
 VT-08 and VT-09 are neighbour-expansion of the re-homed S13.07 row:
 the VHDL applies the `-12` offset to every machine (constant
@@ -508,8 +507,7 @@ Section 1 table or an all-off-by-one Section 6 table.
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-18  | new    | 48K: target=0 → `int_line_num() == c_max_vc == 311` | 311 | skip (F-VT-MAX-REBASE) |
 | 2 | VT-19  | new    | 128K: target=0 → `int_line_num() == 310` | 310 | skip (F-VT-MAX-REBASE) |
-| 3 | VT-20  | new    | Pentagon: target=0 → `int_line_num() == 319` | 319 | skip (F-VT-MAX-REBASE) |
-| 4 | VT-21  | new    | Any machine: target=10 → `int_line_num() == 9` | 9 | skip (F-VT-ACCESSOR) |
+| 3 | VT-21  | new    | Any machine: target=10 → `int_line_num() == 9` | 9 | skip (F-VT-ACCESSOR) |
 
 Rows VT-18..VT-21 are justified from VHDL: the plan needs at least
 one row pinning the target=0 special case per machine (the mapping

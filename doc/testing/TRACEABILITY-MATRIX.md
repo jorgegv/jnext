@@ -3489,7 +3489,6 @@ Plan: `doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md`. The VideoTiming expansion p
 | VT-06   | 48K `display_origin()` = {128, 64} — symmetry baseline                                         | zxula_timing.vhd:261,269        | pass   | test/videotiming/videotiming_test.cpp:148            |
 | VT-07   | 48K `ula_prefetch_origin_hc()` = 128 - 12 = 116                                                | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:167            |
 | VT-08   | 128K `ula_prefetch_origin_hc()` = 136 - 12 = 124                                               | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:174            |
-| VT-09   | Pentagon `ula_prefetch_origin_hc()` = 128 - 12 = 116                                           | zxula_timing.vhd:423            | missing | missing                                              |
 | VT-10   | 48K `int_position()` = {116, 0}                                                                | zxula_timing.vhd:257,265        | pass   | test/videotiming/videotiming_test.cpp:283            |
 | VT-11   | 128K `int_position()` = {128, 1}                                                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:290            |
 | VT-12   | Pentagon `int_position()` = {439, 319}                                                         | zxula_timing.vhd:155,163        | missing | missing                                              |
@@ -3501,7 +3500,6 @@ Plan: `doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md`. The VideoTiming expansion p
 | VT-17b  | +3 60 Hz `int_position().hc` = 126 vs 128K 60 Hz = 128 — `i_timing(0)='1'` split               | zxula_timing.vhd:221,223        | pass   | test/videotiming/videotiming_test.cpp:361            |
 | VT-18   | 48K target=0 → `int_line_num() == c_max_vc == 311`                                             | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:385            |
 | VT-19   | 128K target=0 → `int_line_num() == 310`                                                        | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:394            |
-| VT-20   | Pentagon target=0 → `int_line_num() == 319`                                                    | zxula_timing.vhd:566-570        | missing | missing                                              |
 | VT-21   | Any machine: target=10 → `int_line_num() == 9`                                                 | zxula_timing.vhd:568            | pass   | test/videotiming/videotiming_test.cpp:404            |
 | VT-22   | 48K target=10: line-int fires at `cvc=9, hc_ula=255`                                           | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:453            |
 | VT-23   | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (target=0 wrap)                 | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:473            |
