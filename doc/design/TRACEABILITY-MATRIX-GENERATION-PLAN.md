@@ -99,7 +99,9 @@ cease to exist as a concept.
 - 1.3 Fold the 85 extra-coverage rows into plan docs or the exceptions file.
 - 1.4 Migrate the 149 frozen citations: VHDL-verified ones into their row's
       `check()` string; the rest to tombstones or dropped. No citation is
-      migrated unread (#187 rule).
+      migrated unread (#187 rule). **Owner decision (2026-07-31): FULL triage —
+      every candidate row gets the read-the-VHDL treatment. A cheaper
+      migrate-only-the-already-verified shortcut was considered and rejected.**
 - 1.5 Decide the 13 NMI summary-table rows (hand-asserted vs a quoted runtime):
       keep as prose outside the matrix proper.
 
