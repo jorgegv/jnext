@@ -1688,16 +1688,25 @@ sub grep_citations {
         #     what has to be refused. The spans, for the record: cited 4..23,
         #     the layer2 leak 37..54, the esp_socket leak (all 62 rows across
         #     its three groups) 3..90.
-        #   - A FAN-IN CAP punishes the tier's own signature: 12 rows sharing
-        #     one loop check() is `ula_test`'s S1 table, correct and cited.
-        #     The only fan-in threshold costing nothing today is >20, and it
-        #     is set by nothing but the current corpus — it would refuse a
-        #     legitimate 21-entry table tomorrow and still keep compositor's
-        #     17-row leak.
-        #   - REFUSING TO CROSS AN INTERVENING ID LITERAL destroys the tier:
-        #     the ID literals of a table sit between its first entry and the
-        #     loop by construction, so `S1.01` is separated from its own call
-        #     by `S1.02..S1.12`. All 63 cited rows die.
+        #   - A FAN-IN CAP is refuted by the corpus outright, not merely made
+        #     fragile by it. The largest CITED group is `ula_test`'s S1 table
+        #     at 12 rows; the `input_test.cpp:4684` LEAK is ALSO 12. They are
+        #     TIED, so no threshold on fan-in can ever separate them — every
+        #     cap that closes that leak takes a correct, cited 12-row table
+        #     with it. Fan-in is the tier's own signature, not a symptom of
+        #     the defect. (The free thresholds start at >12, not >20 as an
+        #     earlier draft claimed: >12..>16 cost no cited row and close 113
+        #     of the 135, >17 and above close only 96 by missing compositor's
+        #     17. And a cap that closes compositor's 17-row leak refuses a
+        #     legitimate 17-entry table for exactly the same reason.)
+        #   - REFUSING TO CROSS AN INTERVENING ID LITERAL guts the tier, and
+        #     does it arbitrarily: a table's entries sit between its first
+        #     entry and the loop by construction, so `S1.01` is separated from
+        #     its own call by `S1.02..S1.12`. 54 of the 63 cited rows die. The
+        #     9 survivors are exactly the LAST entry of each of the 9 cited
+        #     groups — the only entry with nothing after it — so the rule
+        #     would keep a row for its position in an initialiser rather than
+        #     for any evidence about it.
         #   - REFUSING TO CROSS A COLUMN-0 `}` (a function boundary) was
         #     measured and is a strict SUBSET of the chosen rule: it closes
         #     the 44 layer2 rows and nothing else, because every other leak
@@ -1726,13 +1735,15 @@ sub grep_citations {
         # ID literal cannot see it: `EVADE-TAB-01` sits in an initialiser too,
         # so it takes this same tier and reaches the same call, and no
         # "crosses a row that resolves elsewhere" test fires. Refusing to
-        # cross ANY intervening `}` does catch it — and also refuses
-        # `input_test.cpp`'s `EXTC-08a..d`, whose shared loop body contains a
-        # nested `for` whose closing brace lies in the span. Breaking a
-        # legitimate shape to catch one constructed one is the wrong trade
-        # (the same call GH #184 made), so the shape is declined and written
-        # down. Telling the two apart needs the loop's iterand, i.e. real C++
-        # parsing, which this extractor deliberately does not do.
+        # cross ANY intervening `}` (at any indentation) does catch it — and
+        # takes the entire tier with it: measured, it refuses ALL 63 cited
+        # rows and ALL 50 the rule accepts, because a table's initialiser ends
+        # in `};` and that brace is in every span. (The COLUMN-0 form is the
+        # harmless one, and it is the strict subset described above.)
+        # Destroying the tier to catch one constructed shape is the wrong
+        # trade (the same call GH #184 made), so the shape is declined and
+        # written down. Telling the two apart needs the loop's iterand, i.e.
+        # real C++ parsing, which this extractor deliberately does not do.
         if (!defined $cite && !$owns_call) {
             for my $c (@calls) {
                 next unless $c->{s} > $L;
