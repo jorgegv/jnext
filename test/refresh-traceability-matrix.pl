@@ -703,6 +703,13 @@ my $FAIL_RE = qr/^\s*(?:FAIL\s+([A-Za-z0-9._\-]+)\s*[:\[]
 # is an HTML comment anyway, so it renders invisibly.
 my $PROTECTED_RE = qr/<!--\s*protected\b[^>]*-->/;
 
+# Hand-maintained TABLE marker (GH #192): the prose above a table that has no
+# `Test file:line` and no `VHDL file:line` column must say so, because nothing
+# in such a table is computed and a reader has no other way to tell. Checked
+# per table and reported when absent — a location that LOOKS computed and is
+# not is the defect class GH #187/#188 spent two days on.
+my $UNREFRESHED_MARK = 'NOT REFRESHED';
+
 # skip("ID", ...) or stub("ID", ...) first-arg string literal. Both helpers
 # flag "not reachable via current C++ API" and are aggregated under the
 # Skip/Stub column in the Summary table.
@@ -1846,6 +1853,43 @@ sub split_row_cells {
     return split(/(?<!\\)\|/, $line, -1);
 }
 
+# Is this table row the HEADER row? Both spellings the document uses, and
+# nothing else — a data row whose ID happened to start with "Test ID" would
+# have to BE that string exactly.
+sub is_header_row {
+    my ($cells) = @_;
+    my $t = $cells->[1] // '';
+    $t =~ s/^\s+|\s+$//g;
+    return ($t eq 'Test ID' || $t eq 'Test IDs') ? 1 : 0;
+}
+
+# Which column is which, read from the table's OWN header row instead of
+# assumed by position. (GH #192)
+#
+# Position was assumed for two years, as `>= 7` cells and hard indices 3/4/5,
+# and the assumption is false: the document carries FIVE table shapes, and the
+# 4-column "Extra coverage (not in plan)" one splits into SIX cells, so every
+# row of all eight such tables fell through the gate and was never refreshed —
+# 85 rows whose `Test file:line` had rotted where no re-run could correct it.
+#
+# Returns (cite, status, loc) column indices, each undef when the table has no
+# such column. Two spellings of the location header are in use (`Test file:line`
+# and, in two sections, `Test file`), so it is matched by prefix; the other two
+# are matched exactly, because `Contract/source reference` and `RTL/source
+# reference` are deliberately NOT VHDL citations and must not be read as one.
+sub table_columns {
+    my ($hdr) = @_;
+    my ($cite, $status, $loc);
+    for my $c (1 .. $#$hdr - 1) {
+        my $h = $hdr->[$c];
+        $h =~ s/^\s+|\s+$//g;
+        $cite   = $c if !defined $cite   && $h eq 'VHDL file:line';
+        $status = $c if !defined $status && $h eq 'Status';
+        $loc    = $c if !defined $loc    && $h =~ /^Test file/;
+    }
+    return ($cite, $status, $loc);
+}
+
 sub matrix_row_ids {
     my ($lines, $from, $to) = @_;
     $from //= 0;
@@ -2400,9 +2444,13 @@ sub canon_citation {
 # $frozen, when given, collects [id, class, cell] for every hand-written cell
 # the extractor computes nothing for (GH #188). Optional and last, so every
 # existing caller keeps working unchanged.
+#
+# $unref, when given, collects one hashref per table this section leaves
+# ENTIRELY alone because it has neither a `Test file:line` nor a `VHDL
+# file:line` column (GH #192). Optional and last, same reason.
 sub refresh_section {
     my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx,
-        $companions, $invalid, $frozen) = @_;
+        $companions, $invalid, $frozen, $unref) = @_;
     $kept //= [];
 
     # A section may be backed by several suites (see the Audio entry). The
@@ -2540,7 +2588,14 @@ sub refresh_section {
     my ($pass_ct, $fail_ct, $skip_ct, $missing_ct) = (0, 0, 0, 0);
     my ($cited_ct, $uncited_ct, $drift_ct, $frozen_ct, $tomb_ct) = (0) x 5;
     my $touched = 0;
+    my $xtra_ct = 0;
     my $i = $start_idx + 1;
+
+    # Column layout of the table currently being walked, re-read at every
+    # header row so two tables of different shapes inside one section are each
+    # refreshed on their own terms (GH #192). $cur_unref is the entry in
+    # $unref for a table that has no computable column at all.
+    my (@hdr, $col_cite, $col_status, $col_loc, $cur_unref);
 
     while ($i < scalar @$lines) {
         my $line = $lines->[$i];
@@ -2552,27 +2607,89 @@ sub refresh_section {
             # split preserving trailing empty fields; `\|` is an escaped
             # literal, not a column break (GH #157)
             my @cells = split_row_cells($line);
-            # cells: ('', ' ID ', ' title ', ' vhdl ', ' status ', ' file:line ', '')
-            if (scalar @cells >= 7) {
-                my $tid_raw = $cells[1];
-                $tid_raw =~ s/^\s+|\s+$//g;
+            my $tid_raw = $cells[1] // '';
+            $tid_raw =~ s/^\s+|\s+$//g;
 
-                # Skip header row and separator row (only dashes/colons/spaces).
-                if ($tid_raw ne '' && $tid_raw ne 'Test ID' && $tid_raw !~ /^[-:\s]+$/) {
-                    # Belt and braces for the residual GH #157 case the escape
-                    # cannot cover: a RAW pipe in a Description is a genuine
-                    # column break and nothing can tell it from an intended
-                    # one. Say so instead of rewriting the wrong three cells.
+            if (is_header_row(\@cells)) {
+                @hdr = @cells;
+                ($col_cite, $col_status, $col_loc) = table_columns(\@hdr);
+                $cur_unref = undef;
+                # A table with no location AND no citation column has nothing
+                # this tool can compute. It is left ENTIRELY alone and
+                # reported, so it is never read as generated output. (GH #192)
+                if (!defined $col_loc && !defined $col_cite) {
+                    $cur_unref = { header => $line, rows => 0, marked => 0,
+                                   title => '(no heading)' };
+                    # Walk back to the heading that introduces this table,
+                    # checking the prose in between for the marker.
+                    for (my $j = $i - 1; $j > $start_idx; $j--) {
+                        if ($lines->[$j] =~ /^#/) {
+                            $cur_unref->{title} = $lines->[$j];
+                            last;
+                        }
+                        $cur_unref->{marked} = 1
+                            if index($lines->[$j], $UNREFRESHED_MARK) != -1;
+                    }
+                    push @$unref, $cur_unref if $unref;
+                }
+                $i++;
+                next;
+            }
+
+            # Separator row (only dashes/colons/spaces), or an empty ID.
+            if ($tid_raw ne '' && $tid_raw !~ /^[-:\s]+$/) {
+                if (!@hdr) {
+                    warn "WARN: row $tid_raw precedes any table header — not "
+                       . "refreshed, its column layout is unknown\n";
+                    $i++;
+                    next;
+                }
+                if (defined $cur_unref) {
+                    $cur_unref->{rows}++;
+                    $i++;
+                    next;
+                }
+                # The cell count must match this table's own header. MORE
+                # cells is the residual GH #157 case the `\|` escape cannot
+                # cover: a raw pipe in a Description is a genuine column break
+                # and nothing can tell it from an intended one — warn, but
+                # carry on, because the columns to its LEFT still line up.
+                # FEWER cells is unrecoverable: every column after the missing
+                # break shifts LEFT, so `Status` would be rewritten into the
+                # location cell. Refuse that one.
+                if (scalar @cells > scalar @hdr) {
                     warn "WARN: row $tid_raw has " . scalar(@cells)
-                       . " cells, expected 7 — an unescaped `|` in a cell "
-                       . "shifts VHDL/Status/Test-file right; write it `\\|`\n"
-                        if scalar @cells > 7;
-
+                       . " cells, its table header has " . scalar(@hdr)
+                       . " — an unescaped `|` in a cell shifts the columns "
+                       . "right; write it `\\|`\n";
+                } elsif (scalar @cells < scalar @hdr) {
+                    warn "WARN: row $tid_raw has " . scalar(@cells)
+                       . " cells, its table header has " . scalar(@hdr)
+                       . " — not refreshed, the columns cannot be mapped\n";
+                    $i++;
+                    next;
+                }
+                if (1) {
+                    # `if (1)`, NOT a bare block: a bare block is a loop that
+                    # runs once, so every `next` below would leave the BLOCK and
+                    # fall through to the `$i++` at the bottom of the while —
+                    # advancing twice and silently skipping the row after each
+                    # protected one. NR-C0-03 vanished from the counts exactly
+                    # that way while this was being written.
+                    #
                     # Protected row (strategy point 6): leave it byte-identical.
                     # The existing Status cell is trusted for the counts, so
                     # the section tally stays truthful.
                     if ($line =~ $PROTECTED_RE) {
-                        my $cur = $cells[4];
+                        if (!defined $col_status) {
+                            # No Status cell to trust, so nothing to tally —
+                            # the row is still kept byte-identical.
+                            push @$kept, $tid_raw;
+                            $xtra_ct++;
+                            $i++;
+                            next;
+                        }
+                        my $cur = $cells[$col_status];
                         $cur =~ s/^\s+|\s+$//g;
                         if    ($cur eq 'pass')    { $pass_ct++;    }
                         elsif ($cur eq 'fail')    { $fail_ct++;    }
@@ -2595,20 +2712,26 @@ sub refresh_section {
                         next;
                     }
 
+                    # Always COMPUTED, even when the table has no Status column
+                    # to publish it in: frozen_class() below classifies on it,
+                    # and a wrong class is as misleading as a wrong cell.
                     my $new_status = status_for($tid_raw, $fails, $checks, $skips);
-                    if    ($new_status eq 'pass')    { $pass_ct++;    }
-                    elsif ($new_status eq 'fail')    { $fail_ct++;    }
-                    elsif ($new_status eq 'skip')    { $skip_ct++;    }
-                    else                             { $missing_ct++; }
+                    if (defined $col_status) {
+                        if    ($new_status eq 'pass')    { $pass_ct++;    }
+                        elsif ($new_status eq 'fail')    { $fail_ct++;    }
+                        elsif ($new_status eq 'skip')    { $skip_ct++;    }
+                        else                             { $missing_ct++; }
 
-                    # Preserve column widths exactly. Guard against negative
-                    # widths (narrow/empty cells): Perl sprintf with a
-                    # negative field width flips alignment, Python ljust(-n)
-                    # is a no-op — clamp to 0 to match.
-                    my $orig_status = $cells[4];
-                    my $width = length($orig_status) - 2;
-                    $width = 0 if $width < 0;
-                    $cells[4] = ' ' . sprintf("%-${width}s", $new_status) . ' ';
+                        # Preserve column widths exactly. Guard against negative
+                        # widths (narrow/empty cells): Perl sprintf with a
+                        # negative field width flips alignment, Python ljust(-n)
+                        # is a no-op — clamp to 0 to match.
+                        my $orig_status = $cells[$col_status];
+                        my $width = length($orig_status) - 2;
+                        $width = 0 if $width < 0;
+                        $cells[$col_status] =
+                            ' ' . sprintf("%-${width}s", $new_status) . ' ';
+                    }
 
                     # VHDL citation: fill only when the cell is empty. A cell
                     # that already carries a citation was written by hand and
@@ -2618,85 +2741,104 @@ sub refresh_section {
                     # sides, so a cell spelled `5633, 6260` is not reported
                     # against the canonical `5633,6260`. The cell is compared
                     # normalised and written back untouched. (GH #142)
-                    my $cur_cite = $cells[3];
-                    $cur_cite =~ s/^\s+|\s+$//g;
-                    # A hand-written cell is preserved, and now also CHECKED —
-                    # it is the one citation nothing validated (GH #150).
-                    if ($invalid) {
-                        push @$invalid, "$tid_raw: $_ — [$cur_cite]"
-                            for bad_hand_citation($cur_cite);
-                    }
-                    my $computed = cite_for($tid_raw, $cites, $checks, $skips);
-                    my $new_cite = $computed // $tombstone;
-                    # A hand-written cell whose only computed side is the
-                    # suite's declared tombstone. NOT frozen — the tombstone
-                    # is a real answer, so the cell IS compared and can drift
-                    # (BOOT-SD-01/02 do). Counted so the frozen total below
-                    # can be audited against the raw one. (GH #188)
-                    $tomb_ct++ if !defined $computed && defined $tombstone
-                                  && $cur_cite ne '' && $cur_cite ne '—';
-                    if ($cur_cite eq '' || $cur_cite eq '—') {
-                        if (defined $new_cite) {
-                            my $cw = length($cells[3]) - 2;
-                            $cw = 0 if $cw < 0;
-                            $cells[3] = length($new_cite) > $cw
-                                ? ' ' . $new_cite . ' '
-                                : ' ' . sprintf("%-${cw}s", $new_cite) . ' ';
-                            $cited_ct++;
-                        } else {
-                            $uncited_ct++;
+                    #
+                    # Guarded on the column EXISTING, exactly as the status and
+                    # location blocks are. No table in the document is shaped
+                    # this way today; one written tomorrow (a location column,
+                    # no `VHDL file:line`) used to index $cells[undef] — cell 0,
+                    # the empty string before the leading `|` — and publish the
+                    # citation THERE, breaking the row's first column. Probed
+                    # for deliberately while GH #192 was being written.
+                    if (defined $col_cite) {
+                        my $cur_cite = $cells[$col_cite];
+                        $cur_cite =~ s/^\s+|\s+$//g;
+                        # A hand-written cell is preserved, and now also CHECKED —
+                        # it is the one citation nothing validated (GH #150).
+                        if ($invalid) {
+                            push @$invalid, "$tid_raw: $_ — [$cur_cite]"
+                                for bad_hand_citation($cur_cite);
                         }
-                    } elsif (!defined $new_cite) {
-                        # FROZEN (GH #188): a hand-written cell with no
-                        # computed side. Drift needs something to disagree
-                        # with, so this value is checked by nobody and stays
-                        # frozen for ever — GH #187 lived here. Reported,
-                        # never rewritten.
-                        $frozen_ct++;
-                        push @$frozen,
-                             [$tid_raw,
-                              frozen_class($new_status,
-                                           noref_for($tid_raw, \%noref,
-                                                     $checks, $skips)),
-                              $cur_cite]
-                            if $frozen;
-                    } elsif (canon_citation($new_cite)
-                             ne canon_citation($cur_cite)) {
-                        $drift_ct++;
-                        # Charge the line to the file `source=[...]` was read
-                        # from, not to the section's first source (GH #126).
-                        # The fallback covers the one citation with no file
-                        # behind it — a %TOMBSTONE, which is per suite and
-                        # only ever set on a single-source section.
-                        my $from = cite_src_for($tid_raw, \%cite_from,
-                                                $checks, $skips)
-                                   // $sources[0];
-                        push @$drift,
-                             "$from  $tid_raw: doc=[$cur_cite] source=[$new_cite]";
+                        my $computed = cite_for($tid_raw, $cites, $checks, $skips);
+                        my $new_cite = $computed // $tombstone;
+                        # A hand-written cell whose only computed side is the
+                        # suite's declared tombstone. NOT frozen — the tombstone
+                        # is a real answer, so the cell IS compared and can drift
+                        # (BOOT-SD-01/02 do). Counted so the frozen total below
+                        # can be audited against the raw one. (GH #188)
+                        $tomb_ct++ if !defined $computed && defined $tombstone
+                                      && $cur_cite ne '' && $cur_cite ne '—';
+                        if ($cur_cite eq '' || $cur_cite eq '—') {
+                            if (defined $new_cite) {
+                                my $cw = length($cells[$col_cite]) - 2;
+                                $cw = 0 if $cw < 0;
+                                $cells[$col_cite] = length($new_cite) > $cw
+                                    ? ' ' . $new_cite . ' '
+                                    : ' ' . sprintf("%-${cw}s", $new_cite) . ' ';
+                                $cited_ct++;
+                            } else {
+                                $uncited_ct++;
+                            }
+                        } elsif (!defined $new_cite) {
+                            # FROZEN (GH #188): a hand-written cell with no
+                            # computed side. Drift needs something to disagree
+                            # with, so this value is checked by nobody and stays
+                            # frozen for ever — GH #187 lived here. Reported,
+                            # never rewritten.
+                            $frozen_ct++;
+                            push @$frozen,
+                                 [$tid_raw,
+                                  frozen_class($new_status,
+                                               noref_for($tid_raw, \%noref,
+                                                         $checks, $skips)),
+                                  $cur_cite]
+                                if $frozen;
+                        } elsif (canon_citation($new_cite)
+                                 ne canon_citation($cur_cite)) {
+                            $drift_ct++;
+                            # Charge the line to the file `source=[...]` was read
+                            # from, not to the section's first source (GH #126).
+                            # The fallback covers the one citation with no file
+                            # behind it — a %TOMBSTONE, which is per suite and
+                            # only ever set on a single-source section.
+                            my $from = cite_src_for($tid_raw, \%cite_from,
+                                                    $checks, $skips)
+                                       // $sources[0];
+                            push @$drift,
+                                 "$from  $tid_raw: doc=[$cur_cite] source=[$new_cite]";
+                        }
                     }
 
-                    my ($lsrc, $ln) = line_for($tid_raw, $checks, $skips,
-                                               \%where, \%cite_line);
-                    my $location = defined($ln) ? "$lsrc:$ln" : 'missing';
-                    my $orig_loc = $cells[5];
-                    my $loc_width = length($orig_loc) - 2;
-                    $loc_width = 0 if $loc_width < 0;
-                    # Don't silently truncate — if the citation no longer fits
-                    # the existing column width (typical when test functions
-                    # grow past line 999), preserve the full text and warn.
-                    # The row's column alignment is locally lost but the data
-                    # is correct; markdown renderers tolerate per-row width
-                    # variance. (Bug fixed 2026-04-27 after Task 7 r1+r2 broke
-                    # ~213 citations via silent truncation.)
-                    if (length($location) > $loc_width) {
-                        warn "WARN: citation '$location' (id=$tid_raw) exceeds column width $loc_width; keeping full text\n";
-                        $cells[5] = ' ' . $location . ' ';
-                    } else {
-                        $cells[5] = ' ' . sprintf("%-${loc_width}s", $location) . ' ';
+                    if (defined $col_loc) {
+                        my ($lsrc, $ln) = line_for($tid_raw, $checks, $skips,
+                                                   \%where, \%cite_line);
+                        my $location = defined($ln) ? "$lsrc:$ln" : 'missing';
+                        my $orig_loc = $cells[$col_loc];
+                        my $loc_width = length($orig_loc) - 2;
+                        $loc_width = 0 if $loc_width < 0;
+                        # Don't silently truncate — if the citation no longer
+                        # fits the existing column width (typical when test
+                        # functions grow past line 999), preserve the full text
+                        # and warn. The row's column alignment is locally lost
+                        # but the data is correct; markdown renderers tolerate
+                        # per-row width variance. (Bug fixed 2026-04-27 after
+                        # Task 7 r1+r2 broke ~213 citations via silent
+                        # truncation.)
+                        if (length($location) > $loc_width) {
+                            warn "WARN: citation '$location' (id=$tid_raw) exceeds column width $loc_width; keeping full text\n";
+                            $cells[$col_loc] = ' ' . $location . ' ';
+                        } else {
+                            $cells[$col_loc] =
+                                ' ' . sprintf("%-${loc_width}s", $location) . ' ';
+                        }
                     }
 
                     $lines->[$i] = join('|', @cells);
-                    $touched++;
+                    # `rows` in the Summary means "rows carrying a published
+                    # Status", and it must keep equalling pass+fail+skip+
+                    # missing. A 4-column "Extra coverage" row has no Status
+                    # cell, so it is counted separately: refreshed, but never
+                    # tallied into a total no cell in the document displays.
+                    if (defined $col_status) { $touched++; } else { $xtra_ct++; }
                 }
             }
         }
@@ -2704,7 +2846,8 @@ sub refresh_section {
     }
 
     return ($touched, $pass_ct, $fail_ct, $skip_ct, $missing_ct,
-            $cited_ct, $uncited_ct, $drift_ct, $frozen_ct, $tomb_ct);
+            $cited_ct, $uncited_ct, $drift_ct, $frozen_ct, $tomb_ct,
+            $xtra_ct);
 }
 
 # Short, unique label for a section. The companion suites all share the header
@@ -2727,7 +2870,8 @@ sub section_label {
 # regenerated date churns the diff on every run even when nothing moved,
 # and git already records when the file changed.
 sub render_summary {
-    my ($report, $tombstoned, $recorded_total, $declared_suites, $declared_rows) = @_;
+    my ($report, $tombstoned, $recorded_total, $declared_suites, $declared_rows,
+        $xtra_total, $unref) = @_;
     my @out;
     push @out, '| Section                                    |  Rows | pass | fail | skip | missing | unrecorded |';
     push @out, '|--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|';
@@ -2747,6 +2891,23 @@ sub render_summary {
       . 'this document (every table, including "Extra coverage"): **%d**. Rows the '
       . '%d suites declared in `test/unit-tests.conf` run live: **%d**.',
         $t[0], $recorded_total, $declared_suites, $declared_rows);
+    push @out, '';
+    # GH #192. The `Rows` column above must keep equalling pass+fail+skip+
+    # missing, so rows that publish no Status cannot join it — but they ARE
+    # refreshed now, and saying nothing would leave 85 recomputed rows invisible
+    # in the one table that is supposed to say how much this document computes.
+    my $unref_rows = 0;
+    $unref_rows += $_->{rows} for @{ $unref || [] };
+    push @out, sprintf(
+        'The `Rows` column counts rows that publish a **`Status`**, so it equals '
+      . 'pass+fail+skip+missing by construction. A further **%d** rows live in the '
+      . '4-column "Extra coverage (not in plan)" tables, which have no `Status` '
+      . 'column: their `VHDL file:line` and `Test file:line` ARE recomputed on '
+      . 'every run (they were not, for two years — GH #192), and a row asserted '
+      . 'nowhere reads `missing` in the location column exactly as it would in a '
+      . 'main table. A further **%d** rows sit in **%d** tables that carry neither '
+      . 'column and are therefore not refreshed at all; each says so above itself.',
+        $xtra_total, $unref_rows, scalar @{ $unref || [] });
     push @out, '';
     push @out, '**`missing`** = a row this document lists that its suite\'s test source '
              . 'no longer asserts. **`unrecorded`** = the reverse: a row the test source '
@@ -2933,6 +3094,50 @@ sub companion_map {
     return \%comp;
 }
 
+# Test IDs asserted in more than one `##` SUBSYSTEM's sources. (GH #192)
+#
+# $found is main()'s [[header_idx, [header, binaries, sources]], ...]; $lines
+# is the matrix. Entries are grouped by subsystem_span() — the SAME unit
+# recording (GH #118) and the companion status fallback (GH #121) use, so a
+# `###` companion never counts as a second subsystem against its own parent.
+# That restriction is the whole point: a parent and its companion sharing an ID
+# is ordinary (they share a plan doc); two unrelated subsystems sharing one is
+# the collision that made `CFG-05..07` and `KEMP-17` misreport.
+#
+# Returns [[id, [[subsystem_label, "src:line"], ...]], ...], sorted by ID, one
+# entry per ID that spans two or more subsystems. Deterministic: sources are
+# walked in @found order and labels sorted, so the report does not churn.
+sub duplicate_ids {
+    my ($found, $lines) = @_;
+    my (%seen, %label);
+    for my $f (@$found) {
+        my ($idx, $entry) = @$f;
+        my ($header, undef, $source_rel) = @$entry;
+        my ($from) = subsystem_span($lines, $idx);
+        # subsystem_span returns the line AFTER the `##` header, so the header
+        # itself is one line back. It names the subsystem; a `###` companion
+        # resolves to its parent's, which is what folds it in.
+        my $lab = $lines->[$from - 1];
+        $lab =~ s/^#+\s*//;
+        $lab =~ s/ — .*//;
+        $label{$from} = $lab;
+        for my $src (as_list($source_rel)) {
+            my ($c, $k) = grep_source($src);
+            for my $id (keys %$c) { $seen{$id}{$from} //= "$src:$c->{$id}"; }
+            for my $id (keys %$k) { $seen{$id}{$from} //= "$src:$k->{$id}"; }
+        }
+    }
+    my @out;
+    for my $id (sort keys %seen) {
+        my @spans = keys %{ $seen{$id} };
+        next unless @spans > 1;
+        push @out, [$id,
+                    [ map  { [$label{$_}, $seen{$id}{$_}] }
+                      sort { $label{$a} cmp $label{$b} } @spans ]];
+    }
+    return \@out;
+}
+
 # Thin wrapper so every fatal() becomes exit 3 rather than an errno-derived
 # status. The tail of this file stays the literal `exit(main());` the selftest
 # strips to load the subs without running them.
@@ -3048,6 +3253,7 @@ sub main_body {
     my @aliased;
     my @invalid;
     my @frozen;
+    my @unref;
     my $tomb_excluded = 0;
     for my $f (@found) {
         my ($idx, $entry) = @$f;
@@ -3059,12 +3265,17 @@ sub main_body {
         my @section_kept;
         my @section_invalid;
         my @section_frozen;
-        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d, $fz, $tz) =
+        my @section_unref;
+        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d, $fz, $tz, $xt) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
                             \@section_drift, \@section_kept, $stop,
                             $companion->{$idx}, \@section_invalid,
-                            \@section_frozen);
+                            \@section_frozen, \@section_unref);
         my @sources = as_list($source_rel);
+        # Tables this section left entirely alone (GH #192), labelled by
+        # section for the same reason @invalid is: no source file computes them.
+        push @unref, map { [section_label($header, $sources[0]), $_] }
+                     @section_unref;
         # Labelled by SECTION, not by source file: a hand-written cell has no
         # source file behind it — that is what makes it hand-written.
         push @invalid, map { section_label($header, $sources[0]) . "  $_" }
@@ -3104,13 +3315,16 @@ sub main_body {
         }
 
         push @report, [section_label($header, $sources[0]), $touched,
-                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct, $fz];
+                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct, $fz, $xt];
     }
 
+    my $xtra_total = 0;
+    $xtra_total += $_->[11] for @report;
     replace_summary(\@lines,
         render_summary([map { [@{$_}[0 .. 5], $_->[9]] } @report],
                        $tombstoned, scalar(keys %$recorded),
-                       declared_totals()));
+                       declared_totals(), $xtra_total,
+                       [map { $_->[1] } @unref]));
 
     open(my $out, '>', $MATRIX) or fatal("write $MATRIX: $!");
     print $out join("\n", @lines), "\n";
@@ -3119,18 +3333,23 @@ sub main_body {
     # cited/uncit count only the rows this run filled or could not fill —
     # rows that already carried a hand-written citation are in neither.
     # `unrec` is the GH #117 direction: source rows the document omits.
-    printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s %6s\n",
+    #
+    # `xtra` is the GH #192 column: rows refreshed in a table that has no
+    # `Status` column ("Extra coverage (not in plan)"). They are deliberately
+    # NOT in `rows`, which must keep equalling pass+fail+skip+miss — a row with
+    # no Status cell cannot contribute a number the document displays.
+    printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s %6s %6s\n",
            'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
-           'cited', 'uncit', 'drift', 'unrec', 'froz');
-    print('-' x 106, "\n");
-    my @totals = (0) x 10;
+           'cited', 'uncit', 'drift', 'unrec', 'froz', 'xtra');
+    print('-' x 113, "\n");
+    my @totals = (0) x 11;
     for my $row (@report) {
         my ($label, @v) = @$row;
-        printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d\n", $label, @v);
-        $totals[$_] += $v[$_] for 0 .. 9;
+        printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d %6d\n", $label, @v);
+        $totals[$_] += $v[$_] for 0 .. 10;
     }
-    print('-' x 106, "\n");
-    printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d\n", 'TOTAL', @totals);
+    print('-' x 113, "\n");
+    printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d %6d\n", 'TOTAL', @totals);
 
     if (@drift) {
         print "\nVHDL citations where the doc and the test source disagree ",
@@ -3188,6 +3407,60 @@ sub main_body {
             for my $r (@{ $by{$cls} }) {
                 printf("      %s  %s: [%s]\n", $r->[0], $r->[1], $r->[3]);
             }
+        }
+    }
+
+    # ── The GH #192 report: tables nothing computes ───────────────────
+    #
+    # A table with neither a `Test file:line` nor a `VHDL file:line` column is
+    # left byte-identical, because there is nothing in it this tool can
+    # compute. That is fine — what is NOT fine is a reader taking its cells for
+    # generated output. So the prose above each such table must carry the
+    # literal `NOT REFRESHED`, and one that does not is called out here.
+    if (@unref) {
+        my $rows = 0;
+        $rows += $_->[1]{rows} for @unref;
+        printf("\nTABLES NOT REFRESHED — no `Test file:line` and no `VHDL "
+             . "file:line` column, so\nnothing in them is computed (%d tables, "
+             . "%d rows). Left byte-identical on purpose:\n", scalar @unref,
+               $rows);
+        for my $t (@unref) {
+            printf("  %s (%d rows)%s\n", $t->[1]{title}, $t->[1]{rows},
+                   $t->[1]{marked} ? '' : "  <-- NOT MARKED in the document");
+        }
+        my @unmarked = grep { !$_->[1]{marked} } @unref;
+        printf("  %d of them do not say so above the table. Add the words "
+             . "'%s'\n  to the prose that introduces them — a table that looks "
+             . "computed and is not is\n  exactly the defect GH #187/#188 "
+             . "closed.\n", scalar @unmarked, $UNREFRESHED_MARK) if @unmarked;
+    }
+
+    # ── The GH #192 duplicate-ID report ───────────────────────────────
+    #
+    # Recording (GH #118) and the status fallback (GH #121) are both scoped to
+    # the owning `##` subsystem, which is what stops one subsystem's `TM-01`
+    # answering for another's. Neither can SEE the reuse, though, so nothing
+    # said it was happening: `CFG-05..07` and `KEMP-17` were each found by hand,
+    # months apart.
+    #
+    # Unlike a description heuristic (rejected in GH #190) this is mechanically
+    # certain — an ID literal either appears in two subsystems' sources or it
+    # does not — which is what makes it worth printing. It is a REPORT, never a
+    # gate: some reuse is deliberate and documented (the three ESP-01 sections
+    # reuse `TRACE-*`/`HOOK-*` on purpose, see @SUBSYS), and renaming a test ID
+    # is the test author's call, not this tool's.
+    my $dups = duplicate_ids(\@found, \@lines);
+    if (@$dups) {
+        printf("\nDUPLICATE TEST IDs — one ID asserted in more than one "
+             . "SUBSYSTEM's sources (%d).\nNot a gap and not auto-repaired: "
+             . "recording and the status fallback are both scoped\nper "
+             . "subsystem (GH #118/#121), so neither can see this. Check that "
+             . "each reuse is\ndeliberate — a matrix row named for two "
+             . "different behaviours is how GH #190 and\n`KEMP-17` happened:\n",
+               scalar @$dups);
+        for my $d (@$dups) {
+            printf("  %-18s %s\n", $d->[0],
+                   join(' | ', map { "$_->[0] $_->[1]" } @{ $d->[1] }));
         }
     }
 

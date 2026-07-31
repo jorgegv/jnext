@@ -702,8 +702,246 @@ check('SELF-145', 'the frozen cell is KEPT byte-identical — this reports, it n
       'got [' . (split_row_cells($fzlines[4]))[3] . "] want [$fz_cell]");
 
 check('SELF-146', 'refresh_section returns the frozen count alongside cited/uncited/drift',
-      scalar(@fzret) == 10 && $fzret[8] == 2,
+      scalar(@fzret) == 11 && $fzret[8] == 2,
       'got frozen_ct=' . ($fzret[8] // '(undef)') . ' arity=' . scalar(@fzret));
+
+# ── TABLE SHAPE read from the header, not assumed by position (GH #192) ──
+#
+# For two years refresh_section gated its rewrite loop on `scalar @cells >= 7`
+# and then indexed cells 3/4/5 by hand. A 5-column row splits into 7 cells; the
+# 4-column "Extra coverage (not in plan)" row splits into SIX, so every row of
+# all eight such tables fell straight through the gate — 85 rows never
+# refreshed for Test file:line, VHDL file:line OR Status, in a document whose
+# entire promise is that those cells are computed. 76 of them named an ID that
+# had been deleted from the cited source; the other 9 pointed at the wrong line.
+#
+# table_columns() is the fix and SELF-167..154 pin it. The two refusals matter
+# most: without SELF-169 "call anything with a Status column refreshable" passes
+# just as well, and without SELF-170 a prose reference column would be read as a
+# VHDL citation and rewritten.
+
+{
+    my @five = split_row_cells(
+        '| Test ID | Plan row title | VHDL file:line | Status | Test file:line |');
+    my @four = split_row_cells(
+        '| Test ID | Assertion description | VHDL file:line | Test file:line |');
+    my @nostat = split_row_cells(
+        '| Test ID | Plan row title | VHDL file:line | Status | Test file |');
+    my @prose = split_row_cells(
+        '| Test IDs | Behavior | Contract/source reference | Status |');
+
+    check('SELF-167', 'table_columns reads the 5-column shape as cite=3 status=4 loc=5',
+          scalar(join(',', map { $_ // 'u' } table_columns(\@five)) eq '3,4,5'),
+          'got ' . join(',', map { $_ // 'u' } table_columns(\@five)));
+
+    check('SELF-168', 'and the 4-column "Extra coverage" shape as cite=3 NO status loc=4 — the 85 rows GH #192 lost',
+          scalar(join(',', map { $_ // 'u' } table_columns(\@four)) eq '3,u,4'),
+          'got ' . join(',', map { $_ // 'u' } table_columns(\@four)));
+
+    check('SELF-169', 'the `Test file` spelling (no `:line`) is still the location column — two sections use it',
+          scalar(join(',', map { $_ // 'u' } table_columns(\@nostat)) eq '3,4,5'),
+          'got ' . join(',', map { $_ // 'u' } table_columns(\@nostat)));
+
+    check('SELF-170', 'THE REFUSAL: `Contract/source reference` is NOT a VHDL citation column, and a table with no location column yields neither',
+          scalar(join(',', map { $_ // 'u' } table_columns(\@prose)) eq 'u,4,u'),
+          'got ' . join(',', map { $_ // 'u' } table_columns(\@prose)));
+
+    check('SELF-171', 'is_header_row takes both spellings and nothing else',
+          scalar(is_header_row(\@five) && is_header_row(\@prose)
+                 && !is_header_row([split_row_cells('| RST-13 | x | y | z | w |')])),
+          'got ' . join('/', is_header_row(\@five), is_header_row(\@prose),
+                        is_header_row([split_row_cells('| RST-13 | x | y | z | w |')])));
+}
+
+# End-to-end on a section carrying all three shapes at once: a normal 5-column
+# table, a 4-column Extra-coverage table, and a table with neither computable
+# column. One pass must refresh the first two and leave the third byte-identical.
+write_fixture('test/fixture/shape_test.cpp', <<'CPP');
+void s() {
+    check("SH-MAIN-01", "a main-table row — VHDL fixture_a.vhd:10", cond, detail);
+    check("SH-XTRA-01", "an extra-coverage row — VHDL fixture_b.vhd:20", cond, detail);
+}
+CPP
+{
+    my $p = "$FIXTURE_ROOT/bin/shape_suite";
+    mkdir "$FIXTURE_ROOT/bin" unless -d "$FIXTURE_ROOT/bin";
+    open(my $h, '>', $p) or die "write $p: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $p;
+}
+my $sh_frozen_row =
+    '| SH-PROT-01 | protected  | fixture_a.vhd:1 | pass    | elsewhere.cpp:1 | <!-- protected -->';
+my @shlines = (
+    '## Shape — `test/fixture/shape_test.cpp`',
+    '',
+    '| Test ID    | Plan row title | VHDL file:line  | Status  | Test file:line  |',
+    '|------------|----------------|-----------------|---------|-----------------|',
+    $sh_frozen_row,
+    '| SH-MAIN-01 | a main row     |                 | missing | missing         |',
+    '',
+    '### Extra coverage (not in plan)',
+    '',
+    '| Test ID    | Assertion description | VHDL file:line  | Test file:line  |',
+    '|------------|-----------------------|-----------------|-----------------|',
+    '| SH-XTRA-01 | an extra row          | —               | stale.cpp:999   |',
+    '| SH-GONE-01 | asserted nowhere      | —               | stale.cpp:998   |',
+    '',
+    '### Hand-written summary',
+    '',
+    'This table is NOT REFRESHED and says so.',
+    '',
+    '| Test IDs      | Behavior | Contract/source reference | Status |',
+    '|---------------|----------|---------------------------|--------|',
+    '| SH-SUM-01..04 | prose    | GH #29                    | pass   |',
+);
+my @shbefore = @shlines;
+my (@shd, @shk, @shinv, @shfz, @shunref);
+my @shret = refresh_section(\@shlines, 0, 'bin/shape_suite',
+                            'test/fixture/shape_test.cpp', \@shd, \@shk,
+                            undef, undef, \@shinv, \@shfz, \@shunref);
+
+check('SELF-172', 'END TO END: a 4-column Extra-coverage row IS refreshed now — location and citation both recomputed',
+      scalar($shlines[11] =~ m{\| test/fixture/shape_test\.cpp:3\s*\|}
+             && $shlines[11] =~ /\| fixture_b\.vhd:20\s*\|/),
+      "got [$shlines[11]]");
+
+check('SELF-173', 'END TO END: an Extra-coverage row asserted nowhere reads `missing`, never its stale location and never an invented one',
+      scalar($shlines[12] =~ m{\|\s*missing\s*\|$} && $shlines[12] !~ /stale\.cpp/),
+      "got [$shlines[12]]");
+
+check('SELF-174', 'THE REFUSAL: the Extra-coverage rows are NOT tallied into rows/pass/miss — they publish no Status cell',
+      scalar($shret[0] == 2 && $shret[10] == 2
+             && $shret[0] == $shret[1] + $shret[2] + $shret[3] + $shret[4]),
+      "rows=$shret[0] pass=$shret[1] fail=$shret[2] skip=$shret[3] "
+      . "miss=$shret[4] xtra=$shret[10]");
+
+check('SELF-175', 'THE REFUSAL: the table with neither computable column is left BYTE-IDENTICAL, and reported with its row count',
+      scalar($shlines[20] eq $shbefore[20] && scalar(@shunref) == 1
+             && $shunref[0]{rows} == 1),
+      "row=[$shlines[20]] unref=" . scalar(@shunref)
+      . " rows=" . ($shunref[0]{rows} // '(undef)'));
+
+check('SELF-176', 'and its `NOT REFRESHED` marker in the prose above it is seen, so a marked table is not nagged about',
+      scalar($shunref[0]{marked} == 1
+             && $shunref[0]{title} eq '### Hand-written summary'),
+      "marked=$shunref[0]{marked} title=[$shunref[0]{title}]");
+
+# THE REGRESSION that this change introduced and measurement caught: the
+# protected-row branch was wrapped in a BARE block, where `next` exits the
+# BLOCK — Perl treats a bare block as a loop that runs once — and execution
+# then fell through to the `$i++` at the bottom of the while. Every row
+# FOLLOWING a protected one was skipped. NR-C0-03 silently left the counts.
+check('SELF-177', 'THE REGRESSION: the row after a protected row is still refreshed — `next` must leave the WHILE, not a bare block',
+      scalar($shlines[5] =~ m{\| test/fixture/shape_test\.cpp:2\s*\|}
+             && $shlines[4] eq $sh_frozen_row),
+      "after=[$shlines[5]] protected=[$shlines[4]]");
+
+# A row whose cell count disagrees with its own table header cannot have its
+# columns mapped. FEWER cells shifts every later column LEFT, so `Status` would
+# be written into the location cell — refuse, do not guess.
+{
+    my @bad = (
+        '## Bad — `test/fixture/shape_test.cpp`',
+        '',
+        '| Test ID    | Plan row title | VHDL file:line  | Status  | Test file:line  |',
+        '|------------|----------------|-----------------|---------|-----------------|',
+        '| SH-MAIN-01 | short row      | missing         | missing',
+    );
+    my @keep = @bad;
+    my $warned = '';
+    local $SIG{__WARN__} = sub { $warned .= $_[0] };
+    refresh_section(\@bad, 0, 'bin/shape_suite', 'test/fixture/shape_test.cpp',
+                    [], [], undef, undef, [], [], []);
+    check('SELF-178', 'THE REFUSAL: a row with FEWER cells than its table header is left alone and warned about, never remapped',
+          scalar($bad[4] eq $keep[4] && $warned =~ /columns cannot be mapped/),
+          "row=[$bad[4]] warned=[$warned]");
+}
+
+# The shape the fix still got wrong, probed for on purpose after the fact: a
+# table with a `Test file:line` column but NO `VHDL file:line`. It is not the
+# all-hand-written shape, so it IS refreshed — and the citation block indexed
+# $cells[undef], which is cell 0, the empty string before the leading `|`. The
+# citation was published THERE and the row's first column was destroyed. No
+# table in the document is shaped this way today; the next one written would
+# have been.
+{
+    my @nc = (
+        '## NoCite — `test/fixture/shape_test.cpp`',
+        '',
+        '| Test ID    | Assertion description | Test file:line |',
+        '|------------|-----------------------|----------------|',
+        '| SH-MAIN-01 | no VHDL column        | missing        |',
+    );
+    refresh_section(\@nc, 0, 'bin/shape_suite', 'test/fixture/shape_test.cpp',
+                    [], [], undef, undef, [], [], []);
+    my @cells = split_row_cells($nc[4]);
+    check('SELF-182', 'a table with a location column but NO `VHDL file:line` refreshes the location and leaves cell 0 alone',
+          scalar($cells[0] eq ''
+                 && $nc[4] =~ m{\| test/fixture/shape_test\.cpp:2\s*\|}),
+          "cell0=[$cells[0]] row=[$nc[4]]");
+}
+
+# ── DUPLICATE TEST IDs across subsystems (GH #192) ────────────────────
+#
+# Recording (GH #118) and the status fallback (GH #121) are both scoped to the
+# owning `##` subsystem, which is what stops one subsystem's row answering for
+# another's — but nothing SAID the reuse was happening, so `CFG-05..07` and
+# `KEMP-17` were each found by hand, months apart. Unlike the description
+# heuristic rejected in GH #190 this is mechanically certain: an ID literal is
+# in two subsystems' sources or it is not.
+#
+# SELF-180 is the refusal that stops it degenerating into "report every ID that
+# appears twice": a `##` parent and its `###` companion are ONE subsystem and
+# share a plan doc, so an ID in both is ordinary and must not be reported.
+write_fixture('test/fixture/dupa_test.cpp', <<'CPP');
+void a() {
+    check("DUP-SHARED", "asserted here too", cond, detail);
+    check("DUP-UNIQUE-A", "only here", cond, detail);
+    check("DUP-COMPANION", "parent half", cond, detail);
+}
+CPP
+write_fixture('test/fixture/dupb_test.cpp', <<'CPP');
+void b() {
+    check("DUP-SHARED", "and here, in another subsystem", cond, detail);
+    check("DUP-UNIQUE-B", "only here", cond, detail);
+}
+CPP
+write_fixture('test/fixture/dupc_test.cpp', <<'CPP');
+void c() {
+    check("DUP-COMPANION", "companion half of the SAME subsystem", cond, detail);
+}
+CPP
+{
+    my @dlines = (
+        '## Alpha — `test/fixture/dupa_test.cpp`',
+        '',
+        '### Companion integration suite — `test/fixture/dupc_test.cpp`',
+        '',
+        '## Beta — `test/fixture/dupb_test.cpp`',
+        '',
+    );
+    my $dups = duplicate_ids(
+        [[0, [$dlines[0], ['bin/x'], 'test/fixture/dupa_test.cpp']],
+         [2, [$dlines[2], ['bin/x'], 'test/fixture/dupc_test.cpp']],
+         [4, [$dlines[4], ['bin/x'], 'test/fixture/dupb_test.cpp']]],
+        \@dlines);
+
+    check('SELF-179', 'duplicate_ids reports the ID asserted in TWO subsystems, naming both and where',
+          scalar(@$dups == 1 && $dups->[0][0] eq 'DUP-SHARED'
+                 && $dups->[0][1][0][0] eq 'Alpha'
+                 && $dups->[0][1][1][0] eq 'Beta'
+                 && $dups->[0][1][0][1] eq 'test/fixture/dupa_test.cpp:2'),
+          'got [' . join(' | ', map { "$_->[0]=" . join(',', map { "$_->[0] $_->[1]" } @{$_->[1]}) } @$dups) . ']');
+
+    check('SELF-180', 'THE REFUSAL: an ID shared by a `##` parent and its own `###` companion is ONE subsystem and is NOT reported',
+          scalar(!grep { $_->[0] eq 'DUP-COMPANION' } @$dups),
+          'got [' . join(' ', map { $_->[0] } @$dups) . ']');
+
+    check('SELF-181', 'THE REFUSAL: an ID asserted in exactly one place is never reported',
+          scalar(!grep { $_->[0] =~ /^DUP-UNIQUE-/ } @$dups),
+          'got [' . join(' ', map { $_->[0] } @$dups) . ']');
+}
 
 # ── canon_citation folds `;` between citations (GH #188) ──────────────
 #
@@ -2666,7 +2904,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 167;
+my $EXPECTED_ROWS = 183;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
