@@ -1194,6 +1194,42 @@ sub cite_list {
     return \@kept;
 }
 
+# Is the apostrophe at $i a C++14 DIGIT SEPARATOR (`500'000`, `0x1234'5678`)
+# rather than a char-literal quote? Shared by the two quote scanners below.
+#
+# Found in review of GH #189: a lone separator opens a char literal that never
+# closes, so the scanner runs to end of line and code_prefix() hands back the
+# line UNMODIFIED — silently reverting to the raw-line matching this commit
+# exists to remove, for that line only. 14 lines in the corpus carry one;
+# `frame_sequencer_test.cpp:358` (`fx.advance(500'000);  // 500 ms stall`) was
+# reproduced live. Harmless today only because no such comment happens to say
+# `check(` — one word added to any of the 14 reintroduces the phantom call.
+#
+# The test is structural: a separator is flanked by hex digits on BOTH sides,
+# and a char literal cannot be. It is consulted only where a literal would be
+# OPENED — a closing quote is recognised by the in-literal branch and never
+# reaches here.
+#
+# DECLARED, on the strength of the fixtures rather than assumed: only the
+# PRECEDING-character half is discriminated by anything. Dropping the
+# following-character half was mutation-tested and no row moves, because the
+# half only ever fires on an opening quote and an opening char-literal quote
+# cannot be directly preceded by a hex digit in valid C++ (`5'a'` does not
+# parse). It is kept because losing it widens the predicate, and a wider
+# predicate mistakes a real quote for a separator — the direction that leaves
+# the phantom call alive. Dropping the preceding half IS pinned (SELF-165).
+#
+# DECLARED RESIDUAL: a genuine one-character literal that is itself a hex
+# digit AND butts directly against a hex digit on its other side (`0xa'b'`)
+# would be read as a separator. No such spelling is valid C++ and none occurs;
+# it is written down rather than guarded against.
+sub is_digit_separator {
+    my ($s, $i) = @_;
+    return 0 if $i == 0;
+    return substr($s, $i - 1, 1) =~ /[0-9A-Fa-f]/
+        && substr($s, $i + 1, 1) =~ /[0-9A-Fa-f]/;
+}
+
 # The CODE part of one line: everything before the first `//` that starts a
 # comment. (GH #189 defect 2 — see the call scan in grep_citations().)
 #
@@ -1219,7 +1255,8 @@ sub code_prefix {
         if ($in_dq)                            { $in_dq = 0 if $ch eq '"';  next; }
         if ($in_sq)                            { $in_sq = 0 if $ch eq "'";  next; }
         if ($ch eq '"')                        { $in_dq = 1;          next; }
-        if ($ch eq "'")                        { $in_sq = 1;          next; }
+        if ($ch eq "'")                        { $in_sq = 1 unless is_digit_separator($line, $i);
+                                                 next; }
         return substr($line, 0, $i)
             if $ch eq '/' && substr($line, $i + 1, 1) eq '/';
     }
@@ -1245,7 +1282,8 @@ sub first_arg {
         if ($in_dq)                         { $in_dq = 0 if $ch eq '"';  next; }
         if ($in_sq)                         { $in_sq = 0 if $ch eq "'";  next; }
         if    ($ch eq '"')                  { $in_dq = 1; }
-        elsif ($ch eq "'")                  { $in_sq = 1; }
+        elsif ($ch eq "'")                  { $in_sq = 1
+                                                  unless is_digit_separator($text, $i); }
         elsif ($ch eq '(')                  { $depth++;   }
         elsif ($ch eq ')')                  { last if $depth == 0; $depth--; }
         elsif ($ch eq ',' && $depth == 0)   { last;       }
@@ -1634,11 +1672,13 @@ sub grep_citations {
         #
         # WHY THE ALTERNATIVES LOSE:
         #   - A LINE-DISTANCE CAP cannot separate the two populations. Cited
-        #     reaches run 4..23 lines; the layer2 leak runs 3..47 and the
-        #     esp_socket one 3..90, so every cap that closes a leak in full
-        #     costs cited rows, and every cap that costs none (>=30) leaves
-        #     both leaks substantially open. Distance is not the defect —
-        #     ula_test's legitimate 12-row table reaches 18 lines.
+        #     reaches run 4..23 lines; the layer2 leak runs 37..54 and the
+        #     esp_socket one 4..90, so no cap both keeps every cited row and
+        #     closes esp_socket, whose range straddles the cited one from
+        #     below. (A cap of 30 would close layer2 outright — but only
+        #     layer2, and only by accident of where that table sits.)
+        #     Distance is not the defect: ula_test's legitimate 12-row table
+        #     reaches 18 lines, further than half the esp_socket leak.
         #   - A FAN-IN CAP punishes the tier's own signature: 12 rows sharing
         #     one loop check() is `ula_test`'s S1 table, correct and cited.
         #     The only fan-in threshold costing nothing today is >20, and it

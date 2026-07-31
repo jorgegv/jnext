@@ -2253,6 +2253,18 @@ void group_escaped_quote() {
           cond, detail);
 }
 
+void group_digit_separator() {
+    struct Row { const char* id; };
+    const Row rows[] = {
+        {"CMT-06"},
+    };
+    fx.advance(500'000);  // one check() named here is prose — VHDL fixture_a.vhd:904
+    char zero = '0';      // and a skip() named here too — VHDL fixture_a.vhd:905
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion — VHDL fixture_c.vhd:16", cond, detail);
+    }
+}
+
 void group_char_literal() {
     struct Row { const char* id; };
     const Row rows[] = {
@@ -2287,6 +2299,15 @@ check('SELF-152', 'the discriminator: `//` inside a string literal does NOT trun
 check('SELF-162', 'an escaped `\\"` does not close the string, so a `//` after it is still content and the call survives',
       ($cc->{'CMT-05'} // '') eq 'fixture_c.vhd:15',
       "got " . ($cc->{'CMT-05'} // '(none)'));
+
+# A C++14 digit separator is not a quote. One of them (an ODD count) used to
+# open a char literal that never closed, so the scanner ran to end of line and
+# handed the line back UNMODIFIED — raw-line matching again, for that line.
+# 14 lines in the real corpus carry one; the phantom below is what any of them
+# becomes the moment its comment mentions an assertion helper.
+check('SELF-165', 'a C++14 digit separator (`500\'000`) does not open a char literal, so the comment after it is still stripped',
+      ($cc->{'CMT-06'} // '') eq 'fixture_c.vhd:16',
+      "got " . ($cc->{'CMT-06'} // '(none)'));
 
 check('SELF-153', 'a `\'"\'` char literal does not open a string, so the comment after it is still stripped',
       ($cc->{'CMT-04'} // '') eq 'fixture_d.vhd:14',
@@ -2382,6 +2403,17 @@ void group_reach_nested() {
           cond, detail);
 }
 
+void group_reach_digit_separator() {
+    struct Row { const char* id; };
+    const Row rows[] = {
+        {"SEPT-01"},
+    };
+    for (const Row& r : rows) {
+        check(r.id_at(500'000), describe("ZXN-ISSUE2"),
+              "shared assertion — VHDL fixture_a.vhd:770", cond, detail);
+    }
+}
+
 void group_reach_paren_in_string() {
     const char* deferred4[] = {
         "NEST-02",
@@ -2449,6 +2481,14 @@ check('SELF-158', 'a composed ID slot still counts as naming a row, so the table
 check('SELF-159', 'the control: that call still answers for the row it composes',
       ($rc->{'NEST-OWN-01'} // '') eq 'fixture_b.vhd:740',
       "got " . ($rc->{'NEST-OWN-01'} // '(none)'));
+
+# The ID slot gets the same digit-separator treatment. An unterminated char
+# literal there makes first_arg() run past the argument and absorb the
+# DESCRIPTION, whose ID-shaped token then reads as "this call names a row" —
+# over-refusal, the SELF-157 failure arriving through a different door.
+check('SELF-166', 'a digit separator in the ID slot does not make first_arg absorb the description',
+      ($rc->{'SEPT-01'} // '') eq 'fixture_a.vhd:770',
+      "got " . ($rc->{'SEPT-01'} // '(none)'));
 
 # ...and the ID slot is scanned quote-aware, so a `)` written inside a string
 # does not end the argument early and hide the ID that follows it.
@@ -2626,7 +2666,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 165;
+my $EXPECTED_ROWS = 167;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
