@@ -414,12 +414,13 @@ that signal is wired to port 0xFF at all.
 | Row ID | Machine | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|-----------|
 | FB-4A  | 128K | Active display, capture phase, VRAM byte `0x5A` | 0x5A (ULA floating bus reaches port 0xFF on 128K timing) | `zxnext.vhd:4513` |
-| FB-4B  | Pentagon | Active display, any phase | 0xFF (machine-timing gate forces 0xFF regardless of ULA) | `zxnext.vhd:4513` |
+| FB-4B  | ~~Pentagon~~ | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-4C (Next) still covers the same gate path (non-48K/128K timing → port 0xFF hard-forced 0xFF). No `check()` row exists. | — | — |
 | FB-4C  | Next (default) | Active display, any phase | 0xFF (not 48K/128K, so ULA bus not wired to port 0xFF) | `zxnext.vhd:4513` |
 
-All three are VHDL-justified neighbours of the 5 re-homed rows. They
-protect against a regression where a future refactor might apply the
-48K floating-bus logic uniformly across machine types.
+FB-4A and FB-4C are VHDL-justified neighbours of the 5 re-homed rows.
+They protect against a regression where a future refactor might apply
+the 48K floating-bus logic uniformly across machine types. FB-4B is
+retired (no Pentagon machine type since 2026-05-04).
 
 ## Section 5: Port 0xFF read path wiring
 
@@ -599,8 +600,8 @@ capture after reset).
 | 8 | GH #109 LSB-0xFF scope                | 2  |
 | | **Total** | **29** |
 
-Nominal, i.e. as enumerated by this plan. One of them (FB-3E) is
-retired with no `check()` row, so 28 plan rows are live. The suite
+Nominal, i.e. as enumerated by this plan. Two of them (FB-3E, FB-4B)
+are retired with no `check()` row, so 27 plan rows are live. The suite
 also carries the FB-3X port-conflict neighbour, 3 Section-7
 D3F-followup rows and 5 FB-HARNESS-NN smoke rows — see
 `test/unit-tests.conf` for the pinned total the harness enforces.
