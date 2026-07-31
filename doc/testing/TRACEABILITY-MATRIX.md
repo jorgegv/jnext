@@ -3717,8 +3717,8 @@ Dashboard (Task 7 r2): 21 total / 8 pass / 0 fail / 13 skip.
 | CMD18-05   | End-of-image (sectors 14..15) terminates cleanly; follow-up CMD17 works     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:305 |
 | SD-01      | CMD0 CRC validation + CMD59 toggle absent (see G159)                        | (SD SPI spec)                         | missing | missing                         |
 | SD-02      | CMD13 returns R1 fall-through, not R2 (see G160)                            | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:512 |
-| SD-10      | CMD9 SEND_CSD response not synthesised (see G40)                            | (SD SPI spec)                         | missing | missing                         |
-| SD-11      | CMD10 SEND_CID response not synthesised (see G40)                           | (SD SPI spec)                         | missing | missing                         |
+| SD-10      | CMD9 SEND_CSD (**RE-HOMED** — CMD9 IS implemented, `cmd9_send_csd()`; covered by SD-NAC-04; see G40) | (SD SPI spec)                         | missing | missing                         |
+| SD-11      | CMD10 SEND_CID (**RE-HOMED** — CMD10 IS implemented, `cmd10_send_cid()`; covered by SD-NAC-05 + V24-DIVMMC-01 (CID MDT); see G40) | (SD SPI spec)                         | missing | missing                         |
 | SD-12      | CMD16 SET_BLOCKLEN ack absent (see G40)                                     | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:535 |
 | SD-13      | CMD23 SET_BLOCK_COUNT not handled (see G40)                                 | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:558 |
 | SD-14      | CMD24 WRITE_BLOCK absent — read-only fixture (see G40)                      | (SD SPI spec)                         | pass   | test/sdcard/sdcard_test.cpp:891 |
