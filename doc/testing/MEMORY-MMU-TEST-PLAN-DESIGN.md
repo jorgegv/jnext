@@ -711,6 +711,9 @@ therefore differ, and are proven apart:
 | RSTD-04-03 | NR 0x04 write reaches the **Mmu mirror**, bit 7 masked | NR 0x04 ← 0x30, then ← 0xB7            | `mmu().nr_04_romram_bank()` 0x30 then 0x37; latch agrees |
 | RSTD-04-04 | RESET_SOFT preserves the **Mmu mirror** too   | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `mmu().nr_04_romram_bank()` still 0x30, equal to the latch |
 | RSTD-04-05 | the **boot-ROM-gated resync block** in `Emulator::init()` | boot ROM loaded, NR 0x04 ← 0x30, NR 0x03 ← 0x03 (clears the latch's config_mode), `Mmu` config_mode forced true, then NR 0x02 ← 0x01 | gate entered; `mmu().config_mode()` followed the latch to false; `mmu().nr_04_romram_bank()` undisturbed at 0x30 |
+| CMG-01     | the gate condition's **`boot_rom_enabled()` clause** | Next start with NO boot ROM (what a `--load` run gets; the fixture reaches it via the no-SD-card arm) | gate NOT entered: latch reads its power-on true, `mmu().config_mode()` stays false, and a write into the still-ROM slot 0 is DROPPED |
+| CMG-02     | the gate condition's **`cfg.type == ZXN_ISSUE2` clause**, for EVERY non-Next value | latch cleared while still Next, `Mmu` mirror left true, boot ROM loaded + enabled, then re-`init()` as each of `ZX48K` / `ZX128K` / `ZX_PLUS3` | gate NOT entered though the boot-ROM clause is satisfied: mirror keeps true for all three |
+| CMG-03     | the gate's **POSITION** — it must run after the subsystem resets that establish its inputs | boot ROM loaded, `config_mode` true but `boot_rom_en_` left FALSE so only `Mmu::reset()` can arm it; latch cleared; `init()` as Next | gate entered (armed by the reset) and the mirror follows the latch down; a mirror left true means the block ran before its own input existed |
 
 CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
 `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`), the only
@@ -746,6 +749,85 @@ purpose before the reset — a row that left them already equal would pass
 against a deleted resync. Deleting the line fails -05 (`mmu_cfg=1`); so does
 hardcoding it. That mirror also had no getter until #195 added one, which is
 why nothing had ever asserted it.
+
+**CMG-01/02/03 (GH #197) pin the CONDITION and the POSITION, which RSTD-04-05
+structurally cannot.** It took four review rounds and four escapes on this one
+`if` — the boot-ROM clause, the machine-type clause, a machine-type comparison
+excluding only the one value that was tested, and finally the block's position
+relative to the resets that establish its inputs. Each escape passed the entire
+suite; two also passed real NextZXOS boot screenshots at 0 px. The pattern worth
+carrying forward: a gate needs a row per clause AND a row for its placement, and
+"the suite is green" says nothing about a condition no fixture drives false.
+
+**CMG-03 pins an emulator-internal ordering contract**, not a VHDL behaviour —
+the VHDL has one signal and no `init()` to order. It is here because the ordering
+is load-bearing for a real path. It hides unusually well: a SECOND, ungated push
+in the live NR 0x03 write handler re-syncs the mirror on every NR 0x03 write, and
+real firmware writes NR 0x03 **within frame 0** of a genuine SD-card boot
+(measured directly with a first-call probe, `value=0xB0`), so every firmware path
+masks the init-time value almost immediately.
+
+The window that does depend on this block is a genuine **SD-card Next boot (no
+`--load`)** whose overlay must be re-armed across a reset — NOT the `--load`
+case. `Emulator::init()` calls `mmu_.set_boot_rom()` only when
+`cfg.load_file.empty()` (emulator.cpp:6082), so a `--load` session keeps
+`boot_rom_ == nullptr` for its whole run, the re-arm condition is unconditionally
+false, and the block's position cannot matter there — `--load` is covered by
+CMG-01's clause alone. An earlier revision of this paragraph said "`--load`",
+borrowing CMG-01's phrase for a scenario it does not describe.
+
+A row that enters the gate proves nothing about a machine that must not enter
+it. The gate has TWO clauses — `cfg.type == ZXN_ISSUE2 && mmu_.boot_rom_enabled()`
+— and dropping **either** escaped the whole suite: the boot-ROM clause found by
+#195's reviewer, the machine-type clause by #197's, after CMG-01 had already
+landed. One negative row per clause; a single row over a two-clause condition
+was itself the second escape.
+
+**A widened gate IS observably wrong**, and getting this right took a
+correction. CMG-01's first revision claimed the opposite — that a NEX start maps
+RAM into the low slots, so `mmu.h`'s `read_only_[slot]` guard defeats the
+config_mode branch and the gap is harmless-but-worth-pinning. **That was false.**
+A `--load` start leaves slots 0/1 exactly as `Mmu::reset()`'s
+`map_rom_physical()` left them — ROM, `read_only_` TRUE — because
+`NexLoader::write_to_page()` (`nex_loader.cpp:154-169`) and its sna/szx siblings
+write every bank through a temporarily-remapped **slot 7** and never touch slots
+0/1. So the guard is SATISFIED and an armed mirror really does reroute ROM-window
+accesses into SRAM: measured, a write to `0x0000` is dropped under the shipped
+gate and **succeeds** under a widened one. Both rows therefore assert that
+consequence, not merely the flag.
+
+**Why `palette-demo` renders pixel-identical anyway** — measured, after a first
+*and second* wrong guess at this same question. The demo does NOT avoid the ROM
+window: instrumenting `Mmu::read`/`write` over the real regression invocation
+counts tens of thousands of reads and **zero writes** into `0x0000-0x3FFF`,
+because the IM1 handler runs the ROM ISR every frame. The read COUNT is
+window-dependent — 45 k / 45.3 k / 220 k across the reviewer's three independent
+measurement windows, ~51 k in mine — so no single number is quoted as the fact;
+the fact is that the count is large and the writes are zero. It renders identically
+because on **every one of those reads** the config-mode-routed page
+`(nr_04_romram_bank_ << 1) | slot` and the normal ROM page
+`(current_sram_rom() << 1) | slot` are the **same physical page** — both
+`nr_04_romram_bank_` and `current_sram_rom()` are still `0` — so a widened gate
+reroutes the *path* but not the *content* — **0 mismatches in every window
+measured, by two people independently**. With
+zero writes, CMG-01's write-drop divergence never fires organically here.
+
+That coincidence is fragile, and this is measured rather than predicted — the
+independent reviewer executed it after this paragraph first shipped the claim as
+an untested prediction. Running `palette_demo.nex` to frame 3 (past interrupts
+coming live), issuing the literal 128K idiom `out (0x7FFD), 0x10` to page ROM1,
+then five more frames: `current_sram_rom()` moves to 1 while `nr_04_romram_bank_`
+stays 0, and **1520 of the next 1824 low reads (83%) mismatch**. So under a
+widened gate the divergence reaches **reads**, not only writes, and easily.
+
+**A green screenshot is evidence about one program, not about a mechanism.**
+Two successive revisions of this rationale inferred a mechanism from that 0-px
+number and both were false — first "the low slots are RAM" (they are ROM), then
+"the demo never touches the window" (it reads it tens of thousands of times).
+Only the third
+attempt instrumented the thing it was claiming. Note the contrast with #195's
+finding: there the deleted line was a pure identity with no state difference at
+all; here the clause changes state AND that state is observable.
 
 That investigation also found the mutated line was **dead**: the two mirrors
 share a power-on default, both preserve across reset, and their only mutators
