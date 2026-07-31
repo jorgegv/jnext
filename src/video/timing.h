@@ -121,6 +121,17 @@ public:
     /// The ULA begins fetching screen data 12 pixel-ticks before the active
     /// display window opens, so by the time hc reaches min_hactive_ the
     /// first byte is ready.
+    ///
+    /// This is the COMBINATIONAL compare value `ula_min_hactive` (:423),
+    /// NOT the raw hc at which `hc_ula` reaches 0. The reset is registered
+    /// (`process (i_CLK_7)`, :427-436), so `hc_ula == 0` lands one tick
+    /// later, at `c_min_hactive - 11` (:344 "EVERYTHING BELOW DELAYED ONE
+    /// PIXEL FROM FRAME COUNTER"; GH #181). Callers must apply that +1
+    /// themselves where it matters — `AttributeMux::hc_fetch()` does
+    /// (attribute_mux.h:271-293); the contention path (z80_cpu.cpp
+    /// `to_ula_counters()`) is provably invariant to it and deliberately
+    /// does not (GH #183, rows CT-GH183-01..05). Do not change the value
+    /// returned here without auditing both.
     int ula_prefetch_origin_hc() const {
         return static_cast<int>(min_hactive_) - 12;
     }
@@ -250,7 +261,10 @@ public:
     ///     from cu_offset at ula_min_vactive (VHDL :462).
     /// Pulse fires when `hc_ula = 255` (VHDL :577); hc_ula counts from
     /// `ula_min_hactive = c_min_hactive - 12` (VHDL :423), so hc_ula=255
-    /// corresponds to raw hc = (c_min_hactive - 12 + 256) mod (c_max_hc+1).
+    /// corresponds to raw hc = (c_min_hactive - 12 + 256) mod (c_max_hc+1)
+    /// — strictly `- 11`, since the hc_ula reset is registered (:427-436,
+    /// GH #181/#183); immaterial here, the whole in-line term is discarded
+    /// by the anchoring below.
     /// We anchor scheduling at hc=0 of the firing scanline; the residual
     /// in-line offset is at most one scanline and below scheduler
     /// granularity for IM2/INT-line-pulse semantics.

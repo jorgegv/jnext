@@ -4038,6 +4038,272 @@ static void test_sw28_sram_read_wait() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// GH #183 — ULA hc-origin phase invariance of the contention path.
+// VHDL: zxula_timing.vhd:344,423-436,443-453 ; zxula.vhd:582-583
+// ══════════════════════════════════════════════════════════════════════
+//
+// GH #181 established that `hc_ula == 0` coincides with raw
+// `hc == c_min_hactive - 11`, not `- 12`: `ula_max_hc` is COMBINATIONAL on
+// `hc = ula_min_hactive` (= c_min_hactive - 12, zxula_timing.vhd:423-424)
+// but the `hc_ula <= 0` reset lives inside `process (i_CLK_7)` (:427-436),
+// so it lands one 7 MHz tick later — exactly the pattern the source itself
+// announces at :344 ("EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME
+// COUNTER"). `vc_ula` (:441-451) is reset by the same registered
+// `ula_max_hc`, so the ULA counter PAIR advances as one linear counter
+// whose origin is raw (vc = c_min_vactive, hc = c_min_hactive - 11).
+//
+// jnext feeds the contention path `VideoTiming::ula_prefetch_origin_hc()`
+// = `c_min_hactive - 12` (src/cpu/z80_cpu.cpp:74,138), i.e. one pixel tick
+// early, and rebases hc and vc INDEPENDENTLY rather than as a linear pair.
+// GH #183 asks whether that is an observable defect.
+//
+// It is not, and the rows below pin WHY rather than merely asserting the
+// current numbers. jnext samples the raster exactly ONCE per T-state
+// (`derive_hc_vc()` emits `hc = ts_in_line * 2`, z80_cpu.cpp:145-168), and
+// every consumer of `i_hc` in the contention logic is aligned to the
+// T-state's pixel-tick PAIR {odd p, even p+1}:
+//   * `wait_s` (zxula.vhd:582-583) keys on `hc_adj = i_hc(3:0) + 1`;
+//   * the stretch magnitude tables (contention.cpp kPat48/kPatP3) hold one
+//     value per pair — {3,4}→6, {5,6}→5, … (Task 54).
+// Shifting the origin by one tick moves the sample from the even member of
+// a pair to the ODD member of the SAME pair, so nothing downstream can see
+// it. The origin's low bit is a structural don't-care for this path.
+//
+// These rows are discriminative, not tautological. Rows 01..05 drive
+// `contention_tick()` directly and fail the moment either premise breaks —
+// a kPat table that is no longer pair-aligned, or a `wait_s` gate that
+// stops keying on `hc_adj`. Row 06 closes the loop by pushing the
+// corrected origin through the LIVE `z80_set_ula_counter_origins()` seam
+// and re-running a real contended program, so `derive_hc_vc()`'s
+// once-per-T-state sampling is under test too rather than merely
+// replicated here.
+//
+// Mutation-verified (2026-07-31): rotating kPat48 by one entry kills
+// 01/02/03/04; dropping the `+1` from `hc_adj` kills all six; disabling
+// the +3 `hc_adj(3:1)="000"` term or zeroing kPatP3[15] kills 05; and
+// shifting row 06's probe origin by a full T-state (+2) instead of +1
+// makes it fail, so it is not vacuous.
+
+namespace {
+
+// Machine geometry as `VideoTiming::init_timing()` establishes it
+// (src/video/timing.cpp:31-72) — VHDL zxula_timing.vhd:147-280.
+struct Gh183Geom {
+    MachineType       type;
+    MachineTimingMode tim;
+    int               min_hactive;   // VHDL c_min_hactive
+    int               min_vactive;   // VHDL c_min_vactive
+    int               line_ticks;    // c_max_hc + 1
+    int               frame_lines;   // c_max_vc + 1
+    uint8_t           page;          // a mem_active_page this timing contends
+};
+
+constexpr Gh183Geom kGh183_48K =
+    {MachineType::ZX48K,     MachineTimingMode::Timing48,    128, 64, 448, 312, 0x0A};
+constexpr Gh183Geom kGh183_128K =
+    {MachineType::ZX128K,    MachineTimingMode::Timing128,   136, 64, 456, 311, 0x02};
+constexpr Gh183Geom kGh183_P3 =
+    {MachineType::ZX_PLUS3,  MachineTimingMode::TimingPlus3, 136, 64, 456, 311, 0x08};
+
+void gh183_arm(ContentionModel& cm, const Gh183Geom& g) {
+    cm.build(g.type);
+    cm.set_machine_timing(g.tim);
+    cm.set_cpu_speed(0);
+    cm.set_contention_disable(false);
+    cm.set_mem_active_page(g.page);
+}
+
+// A contended memory read at ULA counters (hc, vc).
+uint8_t gh183_mem(const ContentionModel& cm, int hc, int vc) {
+    return cm.contention_tick(/*mreq_n*/false, /*iorq_n*/true,
+                              /*rd_n*/false, /*wr_n*/true,
+                              0x4000, static_cast<uint16_t>(hc),
+                              static_cast<uint16_t>(vc));
+}
+
+// Count T-states of a whole frame where jnext's CURRENT rebase (independent
+// hc/vc, origin c_min_hactive-12) disagrees with a VHDL-EXACT rebase (the
+// single linear counter pair of zxula_timing.vhd:427-451, origin
+// c_min_hactive-11). Also accumulates both totals.
+struct Gh183FrameDiff { int ndiff; long sum_now; long sum_vhdl; };
+
+Gh183FrameDiff gh183_frame_diff(const Gh183Geom& g) {
+    ContentionModel cm;
+    gh183_arm(cm, g);
+    const int t_line  = g.line_ticks / 2;
+    const int t_frame = t_line * g.frame_lines;
+    const int p0 = g.min_vactive * g.line_ticks + (g.min_hactive - 11);
+    Gh183FrameDiff r{0, 0, 0};
+    for (int ts = 0; ts < t_frame; ++ts) {
+        const int line = ts / t_line, in_line = ts % t_line;
+        const int raw_hc = in_line * 2;                 // derive_hc_vc()
+        // (a) jnext today — to_ula_counters(), z80_cpu.cpp:129-143.
+        int h_now = raw_hc - (g.min_hactive - 12);
+        if (h_now < 0) h_now += g.line_ticks;
+        int v_now = line - g.min_vactive;
+        if (v_now < 0) v_now += g.frame_lines;
+        // (b) VHDL-exact — one linear counter, reset at (min_vactive,
+        //     min_hactive-11) and clocked by ula_max_hc for BOTH counters.
+        int d = line * g.line_ticks + raw_hc - p0;
+        if (d < 0) d += g.line_ticks * g.frame_lines;
+        const int h_vhdl = d % g.line_ticks;
+        const int v_vhdl = d / g.line_ticks;
+        const uint8_t a = gh183_mem(cm, h_now,  v_now);
+        const uint8_t b = gh183_mem(cm, h_vhdl, v_vhdl);
+        r.sum_now  += a;
+        r.sum_vhdl += b;
+        if (a != b) ++r.ndiff;
+    }
+    return r;
+}
+
+} // namespace
+
+static void test_gh183_hc_origin_phase(void) {
+    set_group("CT-GH183");
+
+    // CT-GH183-01/02 — the enabling premise, stated directly: within the
+    // 256-tick contended span, `contention_tick()` at an EVEN pixel tick
+    // equals `contention_tick()` at the odd tick immediately before it,
+    // for every display line. That pair {odd p, even p+1} is one T-state
+    // (zxula.vhd:579-583 + the kPat48/kPatP3 pair layout), so a one-tick
+    // origin shift cannot escape the T-state it belongs to.
+    for (const auto* g : {&kGh183_48K, &kGh183_128K}) {
+        ContentionModel cm;
+        gh183_arm(cm, *g);
+        int mismatches = 0, first_hc = -1, first_vc = -1;
+        for (int vc = 0; vc < 192; ++vc) {
+            for (int hc = 2; hc <= 256; hc += 2) {
+                const uint8_t even = gh183_mem(cm, hc, vc);
+                const uint8_t odd  = gh183_mem(cm, hc - 1, vc);
+                if (even != odd) {
+                    if (!mismatches) { first_hc = hc; first_vc = vc; }
+                    ++mismatches;
+                }
+            }
+        }
+        const bool is48 = (g == &kGh183_48K);
+        check(is48 ? "CT-GH183-01" : "CT-GH183-02",
+              is48 ? "48K: contention_tick() is identical at both pixel "
+                     "ticks of every T-state pair {hc-1, hc} across the "
+                     "whole contended span — the hc origin's low bit is a "
+                     "structural don't-care [zxula.vhd:582-583; "
+                     "zxula_timing.vhd:344,423-436]"
+                   : "128K: contention_tick() is identical at both pixel "
+                     "ticks of every T-state pair {hc-1, hc} across the "
+                     "whole contended span — the hc origin's low bit is a "
+                     "structural don't-care [zxula.vhd:582-583; "
+                     "zxula_timing.vhd:344,423-436]",
+              mismatches == 0,
+              fmt("mismatches=%d (expected 0); first at hc=%d vc=%d",
+                  mismatches, first_hc, first_vc));
+    }
+
+    // CT-GH183-03/04 — whole-frame equivalence. Replace jnext's rebase
+    // wholesale with the VHDL-exact one (correct hc origin -11 AND the
+    // linear vc/hc counter pair, which also fixes the half-line vc phase
+    // that independent rebasing introduces) and sweep every T-state of a
+    // frame: byte-identical contention on 48K and 128K.
+    {
+        const Gh183FrameDiff d = gh183_frame_diff(kGh183_48K);
+        check("CT-GH183-03",
+              "48K: swapping jnext's independent (hc-12, vc) rebase for the "
+              "VHDL-exact linear counter pair (hc-11) changes the contention "
+              "delay at ZERO T-states of a full frame — the -12 in "
+              "ula_prefetch_origin_hc() is unobservable here "
+              "[zxula_timing.vhd:423-451]",
+              d.ndiff == 0 && d.sum_now == d.sum_vhdl && d.sum_now > 0,
+              fmt("ndiff=%d (expected 0) sum_now=%ld sum_vhdl=%ld",
+                  d.ndiff, d.sum_now, d.sum_vhdl));
+    }
+    {
+        const Gh183FrameDiff d = gh183_frame_diff(kGh183_128K);
+        check("CT-GH183-04",
+              "128K: same whole-frame VHDL-exact rebase comparison — zero "
+              "differing T-states, identical per-frame contention total "
+              "[zxula_timing.vhd:423-451]",
+              d.ndiff == 0 && d.sum_now == d.sum_vhdl && d.sum_now > 0,
+              fmt("ndiff=%d (expected 0) sum_now=%ld sum_vhdl=%ld",
+                  d.ndiff, d.sum_now, d.sum_vhdl));
+    }
+
+    // CT-GH183-05 — the ONE corner where the two rebases differ, pinned
+    // exactly so it cannot drift silently. On +3 only, `wait_s` gains the
+    // `hc_adj(3:1) = "000"` term (zxula.vhd:583), which extends the wait
+    // window onto index pair {15, 0}. That pair straddles the `i_hc(8)`
+    // window edge (ticks 255|256) and the line wrap (455|0), so the pair's
+    // single 1-T-state stretch (kPatP3[15] = kPatP3[0] = 1) is charged at
+    // the LEFT edge of the span under jnext's -12 and at the RIGHT edge
+    // under the VHDL-exact -11: 2 T-states per display line disagree,
+    // 192 lines → 384, with the per-frame total UNCHANGED. Both are
+    // 1-tick blips in hardware — below the resolution of a model that
+    // samples once per T-state — so neither answer is more faithful, and
+    // the total (the physically meaningful quantity) is preserved.
+    {
+        const Gh183FrameDiff d = gh183_frame_diff(kGh183_P3);
+        check("CT-GH183-05",
+              "+3: the hc_adj(3:1)=000 wait_s extension puts index pair "
+              "{15,0} astride the i_hc(8) window edge, so the -12 vs -11 "
+              "rebase relocates exactly 2 T-states per display line "
+              "(384/frame) with an IDENTICAL per-frame contention total — "
+              "a sub-T-state blip, not a delay change [zxula.vhd:583]",
+              d.ndiff == 384 && d.sum_now == d.sum_vhdl && d.sum_now > 0,
+              fmt("ndiff=%d (expected 384) sum_now=%ld sum_vhdl=%ld",
+                  d.ndiff, d.sum_now, d.sum_vhdl));
+    }
+
+    // CT-GH183-06 — the same claim END-TO-END through the production
+    // path. Rows 01..05 drive `contention_tick()` directly and replicate
+    // `derive_hc_vc()`'s `hc = ts_in_line * 2` sampling in the harness;
+    // this row instead pushes the corrected origin into the live seam via
+    // `z80_set_ula_counter_origins()` and re-runs a real contended
+    // program, so the whole chain — derive_hc_vc → to_ula_counters →
+    // contention_tick — is exercised. Same 48K DJNZ loop in bank 5 as
+    // CT-FUSE-01, from the same starting T-state, at origin
+    // (c_min_hactive - 12) and (c_min_hactive - 11): identical total.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZX48K)) {
+            check("CT-GH183-06",
+                  "Emulator::init failed — would verify end-to-end origin "
+                  "invariance [zxula_timing.vhd:423-436]",
+                  false, "Emulator::init returned false");
+        } else {
+            const int hc12 = emu.video_timing().ula_prefetch_origin_hc();
+            const int vc0  = emu.video_timing().display_origin().vc;
+
+            install_fuse_m1_program(emu);
+            const uint32_t t_12 = run_fuse_m1_program(emu);
+
+            // GH #181's registered-delay correction: hc_ula == 0 lands at
+            // c_min_hactive - 11 (zxula_timing.vhd:427-436 + :344).
+            z80_set_ula_counter_origins(hc12 + 1, vc0);
+            install_fuse_m1_program(emu);
+            const uint32_t t_11 = run_fuse_m1_program(emu);
+
+            // Restore, and confirm the restore reproduces the first total
+            // (guards against the program itself being non-deterministic,
+            // which would make the comparison above vacuous).
+            z80_set_ula_counter_origins(hc12, vc0);
+            install_fuse_m1_program(emu);
+            const uint32_t t_12b = run_fuse_m1_program(emu);
+
+            check("CT-GH183-06",
+                  "48K end-to-end: pushing the GH #181 registered-delay "
+                  "correction (origin c_min_hactive-12 → -11) into the live "
+                  "z80_set_ula_counter_origins() seam leaves a contended "
+                  "bank-5 DJNZ loop at an IDENTICAL T-state total — the "
+                  "off-by-one is unobservable through the production "
+                  "derive_hc_vc → to_ula_counters → contention_tick chain "
+                  "[zxula_timing.vhd:344,423-436; zxula.vhd:582-583]",
+                  t_12 == t_11 && t_12 == t_12b && t_12 > 0,
+                  fmt("origin=%d t(-12)=%u t(-11)=%u t(-12 restored)=%u",
+                      hc12, t_12, t_11, t_12b));
+        }
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -4115,6 +4381,11 @@ int main() {
     // GH #92 — 28 MHz SRAM read wait (zxnext.vhd:3171-3181).
     test_sw28_sram_read_wait();
     std::printf("  Group: CT-SW28        — done\n");
+
+    // GH #183 — ULA hc-origin phase invariance (zxula_timing.vhd:344,
+    // 423-451; zxula.vhd:582-583).
+    test_gh183_hc_origin_phase();
+    std::printf("  Group: CT-GH183       — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

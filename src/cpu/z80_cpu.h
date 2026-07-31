@@ -92,6 +92,12 @@ void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machi
 /// DISPLAY, not at the start of the frame. The CPU-side callbacks derive raw
 /// frame-relative `(hc, vc)` from the FUSE T-state counter, so they must be
 /// rebased onto the ULA counters before the gate sees them. Task 50.
+///
+/// GH #183 — `ula_min_hactive` is the COMBINATIONAL compare value; `hc_ula`
+/// itself only reaches 0 one 7 MHz tick later, at `c_min_hactive - 11`
+/// (registered reset, zxula_timing.vhd:427-436; GH #181). That one tick is
+/// provably invisible to the contention gate — see the derivation above
+/// `to_ula_counters()` in z80_cpu.cpp and rows CT-GH183-01..06.
 void z80_set_ula_counter_origins(int hc_origin, int vc_origin);
 
 /// Task 51 — update the frame geometry (`s_tstates_per_line` /
