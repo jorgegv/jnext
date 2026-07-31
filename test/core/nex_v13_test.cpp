@@ -1350,16 +1350,28 @@ void test_palette() {
     // CLEAR but LAYER2 or LORES set. checkHeader (:544-570) never zeroes the
     // byte, so it is the raw file byte that steers NR 0x43.
     //
-    // jnext fed this selector the EXT2-GATED value, so these four headers
-    // went to the wrong palette. Each row below differs from an existing row
-    // ONLY in field 152: PAL-11/12/13 vs PAL-07 (V1.3 LoRes, 152 = 0 -> 0x00)
-    // and PAL-14 vs PAL-09/the plain LAYER2 case (152 = 0 -> 0x10).
+    // jnext fed this selector the EXT2-GATED value, so these headers went to
+    // the wrong palette. PAL-11..14 each differ from an existing row ONLY in
+    // field 152: PAL-11/12/13 vs PAL-07 (V1.3 LoRes, 152 = 0 -> 0x00) and
+    // PAL-14 vs PAL-09/the plain LAYER2 case (152 = 0 -> 0x10).
+    //
+    // PAL-15 covers the value class the other four do not: a byte OUTSIDE
+    // 1..3. That is not an exotic case here — it is the normal one. Field 152
+    // is undefined without bit 6, so a real file may hold anything there, and
+    // load() only range-checks it when bit 6 IS set (nex_screen_bytes()'s
+    // switch is inside `if (sf & SCREEN_EXT2)`). Nothing else in the tree
+    // exercises that path, so `cp 3`'s STRICT equality was unpinned: relaxing
+    // it to `>=` passed all 203 NEX rows.
     struct PalDestCase {
         const char* id;
         uint8_t     sf;          // screen_flags, EXT2 (0x40) deliberately CLEAR
         uint8_t     sf2;         // raw field 152
         uint8_t     want_nr43;   // destination per nexload2.asm:732-741
-        uint8_t     old_nr43;    // what the EXT2-gated selector produced
+        // The destination a plausible mis-selector would pick instead, asserted
+        // NOT to hold the block. For PAL-11..14 that is what the EXT2-gated
+        // selector produced; for PAL-15 it is the tilemap palette a relaxed
+        // `cp 3` comparison would choose.
+        uint8_t     wrong_nr43;
         const char* tag;
         const char* desc;
     };
@@ -1379,6 +1391,19 @@ void test_palette() {
          "a V1.3 LAYER2 header with bit 6 clear and field 152 = 3 also goes to the TILEMAP "
          "palette: :733-734 is reached before the LAYER2 test at :739, so field 152 wins "
          "over screen_flags (GH #185)"},
+        // The out-of-range class. 200 is not a screen kind at all — with bit 6
+        // clear nothing validates the byte, so this is what junk in an
+        // undefined field actually looks like. :733's `cp NEXLOAD_LOADSCR2_
+        // TILEMODE` is a strict equality against 3, so 200 does NOT take the
+        // `jr z` at :734; it falls through to :735-737, where `or a : jr nz`
+        // catches every non-zero value and lands it in the Layer 2 palette.
+        // A relaxed comparison (`>=` instead of `==`) would silently send it
+        // to the tilemap palette instead, which is what wrong_nr43 pins here.
+        {"NEXV13-PAL-15", 0x04, 200, 0x10, 0x30, "pd5",
+         "a V1.3 LoRes header with bit 6 clear and field 152 = 200 — a value outside the "
+         "defined 1..3, which nothing range-checks while bit 6 is clear — goes to the "
+         "LAYER 2 palette, NOT the tilemap one: nexload2.asm:733's `cp 3` is strict "
+         "equality, so :736-737's `or a : jr nz` is what claims it (GH #185)"},
     };
     for (const PalDestCase& c : kPalDest) {
         V13Opts o;
@@ -1400,24 +1425,24 @@ void test_palette() {
                 if (got != want) { dest_ok = false; bad = static_cast<size_t>(i); }
             }
         }
-        // And it must NOT have landed in the destination the gated selector
-        // chose. Asserted as "that palette does not hold the BLOCK", over a
+        // And it must NOT have landed in the destination a mis-selector would
+        // pick. Asserted as "that palette does not hold the BLOCK", over a
         // run of entries rather than one: single entries collide by accident
         // — the ULA palette's default entry 1 is 0x03 (blue in RRRGGGBB),
         // which is exactly pal_byte(2). Entries start at 1 because entry 0
         // reads 0x00 whether seeded or unwritten.
-        bool old_holds_block = f.apply_ok;
-        for (int i = 1; i <= 8 && old_holds_block; ++i) {
-            if (read_pal_8(f.emu, c.old_nr43, static_cast<uint8_t>(i)) !=
+        bool wrong_holds_block = f.apply_ok;
+        for (int i = 1; i <= 8 && wrong_holds_block; ++i) {
+            if (read_pal_8(f.emu, c.wrong_nr43, static_cast<uint8_t>(i)) !=
                 pal_byte(static_cast<size_t>(i) * 2))
-                old_holds_block = false;
+                wrong_holds_block = false;
         }
         check(c.id, c.desc,
-              f.apply_ok && nr43 == c.want_nr43 && dest_ok && !old_holds_block,
+              f.apply_ok && nr43 == c.want_nr43 && dest_ok && !wrong_holds_block,
               fmt("apply=%d NR 0x43 = %#04x want %#04x; dest_pal[%zu]=%02x want %02x; "
-                  "old_dest(%#04x) holds the block=%d (must be 0)",
+                  "wrong_dest(%#04x) holds the block=%d (must be 0)",
                   f.apply_ok, nr43, c.want_nr43, bad, got, want,
-                  c.old_nr43, old_holds_block));
+                  c.wrong_nr43, wrong_holds_block));
     }
 }
 
