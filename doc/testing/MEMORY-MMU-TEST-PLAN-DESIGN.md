@@ -639,12 +639,43 @@ deliberately mirror-imaged so it discriminates bit 5 from bit 4.
 
 ### Category 13: Config Mode (NR 0x03/0x04)
 
+The VHDL branch chain at `zxnext.vhd:3030-3057` decides what a CPU access to a
+ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
+
+1. `mf_mem_en='1'` (Multiface) — :3030
+2. `mmu_A21_A13(8)='0'` (an MMU-RAM page is mapped there) — :3037
+3. `nr_03_config_mode='1'` → SRAM at `nr_04_romram_bank & cpu_a(13)`, `sram_pre_rdonly<='0'` (writeable) — :3044-3050
+4. otherwise → `"000000" & sram_rom & cpu_a(13)`, `sram_pre_rdonly <= not (altrom_en and altrom_rw)` (normally read-only) — :3051-3057
+
 | ID      | Test                              | Setup                       | Expected                                      |
 |---------|-----------------------------------|-----------------------------|-----------------------------------------------|
-| CFG-01  | Config mode maps ROMRAM           | config_mode=1, NR 0x04=0x10 | 0x0000-0x3FFF mapped to ROMRAM bank 0x10      |
-| CFG-02  | Config mode off → normal ROM      | config_mode=0               | 0x0000-0x3FFF follows normal ROM selection     |
-| CFG-03  | ROMRAM bank writeable             | config_mode=1               | Writes to 0x0000-0x3FFF succeed               |
-| CFG-04  | Config mode at reset              | After reset                 | nr_03_config_mode = 1                          |
+| CFG-01  | Config mode maps ROMRAM, writeably | config_mode=1, NR 0x04=n    | Writes to 0x0000-0x3FFF land in SRAM at `(n<<1) \| slot` and are NOT dropped — branch 3, `zxnext.vhd:3044-3045` (address) + `:3049` (`sram_pre_rdonly<='0'`) |
+| CFG-02  | Config mode read path             | config_mode=1, NR 0x04=n    | Reads from 0x0000-0x3FFF return the SRAM bank contents, not the ROM image — same branch, `zxnext.vhd:3044-3045` |
+| CFG-03  | MMU-RAM mapping wins over config mode | config_mode=1 **and** an MMU-RAM page mapped on slot 0 | Access lands in the mapped RAM page, not the NR 0x04 bank — branch 2 is tested first (`zxnext.vhd:3037`) |
+| CFG-04  | Config mode off → normal ROM      | config_mode=0               | 0x0000-0x3FFF follows normal ROM selection and writes drop (`sram_pre_rdonly` set) — branch 4, `zxnext.vhd:3051-3057` |
+
+> **GH #193 — this table was corrected against the VHDL, not against the tests.**
+> Three of the four rows previously named behaviour the suite asserts under a
+> different ID (old CFG-02 ↔ test CFG-04, old CFG-03 ↔ test CFG-01), and old
+> CFG-03's "MMU-RAM wins" case was absent from the plan entirely. Each row above
+> was re-derived from the branch chain and matches what `mmu_test.cpp` asserts.
+>
+> **The old CFG-04 ("after reset, `nr_03_config_mode = 1`") was WRONG and is
+> deleted, not renumbered.** `nr_03_config_mode` is declared `:= '1'` at
+> `zxnext.vhd:1102` — an FPGA **power-on** signal initialiser — and is assigned
+> nowhere else except the NR 0x03 write handler at `:5148` / `:5150`. It does
+> **not** appear in the `if reset = '1'` block of the NR state process
+> (`zxnext.vhd:4930-5108`), which in fact *reads* it at `:5109`
+> (`if nr_03_config_mode = '1' then bootrom_en <= '1'`). The latch therefore
+> **survives reset**. That is a NextREG-tier behaviour, not an MMU one: it is
+> owned by `NextReg` (see G62) and pinned by `nextreg_test.cpp` **CFG-07**
+> ("reset() preserves config_mode"), plus **CFG-08** for the soft-reset case.
+> `mmu_test` CFG-06 documents the mirror side of the same fact.
+
+Rows CFG-05..CFG-11 in `mmu_test.cpp` extend this category (bit-13 half-bank
+select, reset behaviour, out-of-range banks, setter round-trip, and the
+`rom_in_sram` branch-4 variants) and are recorded in the traceability matrix's
+"Extra coverage (not in plan)" table for this suite.
 
 ### Category 14: Address Translation
 

@@ -243,7 +243,15 @@ static void test_scroll_integration(Emulator& emu) {
                   line[Ula::DISP_X + 2*248], line[Ula::DISP_X + 2*247]));
     }
 
-    // ── INT-SCROLL-02 — NR 0x68 bit 2 (fine X-scroll) via nextreg().write ──
+    // ── INT-SCROLL-03 — NR 0x68 bit 2 (fine X-scroll) via nextreg().write ──
+    //
+    // GH #193: this row and the NR 0x27 row below carried each other's IDs
+    // until now. The plan (ULA-VIDEO-TEST-PLAN-DESIGN.md:583) and the audit
+    // that defined the rows (doc/testing/audits/task3-ula-phase4.md:184-185)
+    // both assign -02 to NR 0x27 (Y) and -03 to NR 0x68 b2 (fine X); the
+    // tests are relabelled to agree. Behaviour is unchanged — only the ID
+    // moves — so the blocks stay in their original execution order and the
+    // printed rows now read 01, 03, 02.
     //
     // Path exercised:
     //   zxnext.vhd:5449  nr_68_ula_fine_scroll_x <= nr_wr_dat(2)
@@ -283,7 +291,7 @@ static void test_scroll_integration(Emulator& emu) {
             const uint32_t exp = should_white ? WHITE : BLACK;
             if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
-        check("INT-SCROLL-02",
+        check("INT-SCROLL-03",
               "nextreg().write(0x68, 0x04) → fine X-scroll = 1 → 1-pixel shift  "
               "(zxula.vhd:199,216; zxnext.vhd:5449; emulator.cpp:762-768)",
               fine == true && ok,
@@ -291,7 +299,9 @@ static void test_scroll_integration(Emulator& emu) {
                   fine, line[Ula::DISP_X], line[Ula::DISP_X + 2*255], line[Ula::DISP_X + 2*7]));
     }
 
-    // ── INT-SCROLL-03 — NR 0x27 = 32 via nextreg().write → 32-row Y shift ──
+    // ── INT-SCROLL-02 — NR 0x27 = 32 via nextreg().write → 32-row Y shift ──
+    // (GH #193 relabel — see the note on the fine-X row above. This block
+    //  still runs LAST of the three; only its ID changed.)
     //
     // Path exercised:
     //   zxnext.vhd:5307  nr_27_ula_scrolly <= nr_wr_dat
@@ -309,8 +319,9 @@ static void test_scroll_integration(Emulator& emu) {
     // branch at line 206 exclusively — cross-third behaviour is pinned
     // separately by S9.10 in ula_test.cpp).
     //
-    // We DO NOT clear NR 0x26/0x68 again here — INT-SCROLL-02 left
-    // NR 0x26=0, fine=1. Reset both to 0 for a clean Y-only observation.
+    // We DO NOT clear NR 0x26/0x68 again here — INT-SCROLL-03 (the fine-X
+    // row above) left NR 0x26=0, fine=1. Reset both to 0 for a clean
+    // Y-only observation.
     {
         fill_pixels(emu, 0x00);
         fill_attrs(emu, 0x07);
@@ -331,7 +342,7 @@ static void test_scroll_integration(Emulator& emu) {
         for (int x = 0; x < 256; ++x) {
             if (line[Ula::DISP_X + 2*x] != WHITE) { all_white = false; break; }
         }
-        check("INT-SCROLL-03",
+        check("INT-SCROLL-02",
               "nextreg().write(0x27,32) → Y-scroll 32 rows end-to-end  "
               "(zxula.vhd:193-207; zxnext.vhd:5307; emulator.cpp:532-534)",
               stored == 32 && all_white,
@@ -536,8 +547,8 @@ static void test_ulaplus_integration(Emulator& emu) {
         // ── Setup: enable ULA+ via the canonical port path. ────────────
         // Reset state to a known baseline (prior INT-ULAPLUS-02 left
         // ulap_en=0 via NR 0x68=0x00; ulap_mode=0 from BF3B=0x00).
-        // INT-SCROLL-03 left NR 0x27 = 32 (Y-scroll); INT-SCROLL-02
-        // left NR 0x26 / NR 0x68 cleared.  Reset Y-scroll explicitly so
+        // INT-SCROLL-02 (the last scroll row to run) left NR 0x27 = 32
+        // (Y-scroll) and NR 0x26 / NR 0x68 cleared.  Reset Y-scroll so
         // src row 0 maps to display row 0 (otherwise our pixel byte at
         // src row 0 would be invisible).
         emu.nextreg().write(0x27, 0x00);   // ula_scroll_y = 0
@@ -1304,7 +1315,7 @@ static void test_shadow_integration(Emulator& emu) {
     // port_7ffd_shadow='1'.
     {
         // Defensive cleanup of state left by earlier rows in this suite:
-        //   INT-SCROLL-03 leaves NR 0x27 = 32 (Y-scroll), which would
+        //   INT-SCROLL-02 leaves NR 0x27 = 32 (Y-scroll), which would
         //   make render row 0 fold to source row 32 and miss our writes
         //   at offset 0 entirely (whence the off=white observed during
         //   bring-up). NR 0x26 + NR 0x68 also touched by scroll rows.

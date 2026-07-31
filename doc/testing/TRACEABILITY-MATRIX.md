@@ -388,10 +388,10 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | ALT-07  | Reset preserves bits 3:0                                     | zxnext.vhd:2254 | pass    | test/mmu/mmu_test.cpp:2576 |
 | ALT-08  | Altrom address 128K                                          | zxnext.vhd:2981-3001,3021,3078,3117 | pass    | test/mmu/mmu_test.cpp:2601 |
 | ALT-09  | Read-back                                                    | zxnext.vhd:6156 | pass    | test/mmu/mmu_test.cpp:2616 |
-| CFG-01  | Config mode maps ROMRAM                                      | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2649 |
-| CFG-02  | Config mode off → normal ROM                                 | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2669 |
-| CFG-03  | ROMRAM bank writeable                                        | zxnext.vhd:3037   | pass    | test/mmu/mmu_test.cpp:2690 |
-| CFG-04  | Config mode at reset                                         | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2710 |
+| CFG-01  | Config mode maps ROMRAM, writeably                           | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2649 |
+| CFG-02  | Config mode read path returns SRAM bank contents             | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2669 |
+| CFG-03  | MMU-RAM mapping wins over config mode                        | zxnext.vhd:3037   | pass    | test/mmu/mmu_test.cpp:2690 |
+| CFG-04  | Config mode off → normal ROM; ROM-slot writes drop           | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2710 |
 | ADR-01  | 0x00                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2877 |
 | ADR-02  | 0x01                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2878 |
 | ADR-03  | 0x0A                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2879 |
@@ -790,13 +790,13 @@ Created 2026-04-23 (commit `08a4296`, renamed and merged at `94ccaf3`) to host e
 | Test ID               | Plan row title                                                 | VHDL file:line | Status | Test file                                    |
 |-----------------------|----------------------------------------------------------------|----------------|--------|----------------------------------------------|
 | INT-SCROLL-01         | NR 0x26 coarse scroll: pixels shift by whole chars             | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:236        |
-| INT-SCROLL-02         | NR 0x27 vertical scroll: wraps modulo 192 per :193-207         | zxula.vhd:193-207 | pass    | test/ula/ula_integration_test.cpp:286        |
-| INT-SCROLL-03         | NR 0x68 bit 2 fine scroll X: sub-char offset                   | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:334        |
-| INT-ULAPLUS-01        | Port 0xFF3B enable: palette group 3 picks correct indices      | zxula.vhd:531  | pass    | test/ula/ula_integration_test.cpp:424        |
-| INT-ULANEXT-01        | NR 0x43 bit 0 + NR 0x42=0x0F: paper index uses format lookup   | zxula.vhd:503-515 | pass    | test/ula/ula_integration_test.cpp:898        |
-| INT-STANDARD-ALT-01   | Alt-file bit: standard-screen mode 001 selects alt display     | zxula.vhd:218  | pass    | test/ula/ula_integration_test.cpp:1438       |
-| INT-ULAPLUS-03  | Port 0xBF3B ULA+ index write commits palette entry at `port_bf3b_ulap_index` slot    | zxnext.vhd:4525-4538                 | pass    | test/ula/ula_integration_test.cpp:685         |
-| INT-ULANEXT-02  | Runtime renderer integration: NR 0x43 ULAnext encoder routed to scanline output       | zxula.vhd:485-528; zxnext.vhd:6981   | pass    | test/ula/ula_integration_test.cpp:1029        |
+| INT-SCROLL-02         | NR 0x27 vertical scroll: wraps modulo 192 per :193-207         | zxula.vhd:193-207 | pass    | test/ula/ula_integration_test.cpp:345        |
+| INT-SCROLL-03         | NR 0x68 bit 2 fine scroll X: sub-char offset                   | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:294        |
+| INT-ULAPLUS-01        | Port 0xFF3B enable: palette group 3 picks correct indices      | zxula.vhd:531  | pass    | test/ula/ula_integration_test.cpp:435        |
+| INT-ULANEXT-01        | NR 0x43 bit 0 + NR 0x42=0x0F: paper index uses format lookup   | zxula.vhd:503-515 | pass    | test/ula/ula_integration_test.cpp:909        |
+| INT-STANDARD-ALT-01   | Alt-file bit: standard-screen mode 001 selects alt display     | zxula.vhd:218  | pass    | test/ula/ula_integration_test.cpp:1449       |
+| INT-ULAPLUS-03  | Port 0xBF3B ULA+ index write commits palette entry at `port_bf3b_ulap_index` slot    | zxnext.vhd:4525-4538                 | pass    | test/ula/ula_integration_test.cpp:696         |
+| INT-ULANEXT-02  | Runtime renderer integration: NR 0x43 ULAnext encoder routed to scanline output       | zxula.vhd:485-528; zxnext.vhd:6981   | pass    | test/ula/ula_integration_test.cpp:1040        |
 
 ## Layer2 — `test/layer2/layer2_test.cpp`
 
@@ -1978,21 +1978,21 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | SM-06            | DivMMC has priority over ROMCS                               | —              | missing | missing                          |
 | SM-07            | ROMCS maps to DivMMC banks 14 and 15                         | —              | missing | missing                          |
 | SS-01            | Reset: port_e7_reg = 0xFF (all deselected)                   | zxnext.vhd:3302  | pass    | test/divmmc/divmmc_test.cpp:2471 |
-| SS-02            | Write 0x01 (sd_swap=0): selects SD1                          | zxnext.vhd:3311  | pass    | test/divmmc/divmmc_test.cpp:2490 |
-| SS-03            | Write 0x02 (sd_swap=0): selects SD0                          | zxnext.vhd:3313  | pass    | test/divmmc/divmmc_test.cpp:2502 |
-| SS-04            | Write 0x01 with sd_swap=1: selects SD0 (swapped)             | zxnext.vhd:3311  | pass    | test/divmmc/divmmc_test.cpp:2514 |
-| SS-05            | Write 0x02 with sd_swap=1: selects SD1 (swapped)             | zxnext.vhd:3313  | pass    | test/divmmc/divmmc_test.cpp:2526 |
-| SS-06            | Write 0xFB: selects RPI0 (bit 2 = 0)                         | zxnext.vhd:3318  | pass    | test/divmmc/divmmc_test.cpp:2540 |
-| SS-07            | Write 0xF7: selects RPI1 (bit 3 = 0)                         | zxnext.vhd:3320  | pass    | test/divmmc/divmmc_test.cpp:2551 |
+| SS-02            | Write 0x01 (sd_swap=0): selects SD1                          | zxnext.vhd:3311  | pass    | test/divmmc/divmmc_test.cpp:2502 |
+| SS-03            | Write 0x02 (sd_swap=0): selects SD0                          | zxnext.vhd:3313  | pass    | test/divmmc/divmmc_test.cpp:2516 |
+| SS-04            | Write 0x01 with sd_swap=1: selects SD0 (swapped)             | zxnext.vhd:3311  | pass    | test/divmmc/divmmc_test.cpp:2529 |
+| SS-05            | Write 0x02 with sd_swap=1: selects SD1 (swapped)             | zxnext.vhd:3313  | pass    | test/divmmc/divmmc_test.cpp:2542 |
+| SS-06            | Write 0xFB: selects RPI0 (bit 2 = 0)                         | zxnext.vhd:3318  | pass    | test/divmmc/divmmc_test.cpp:2556 |
+| SS-07            | Write 0xF7: selects RPI1 (bit 3 = 0)                         | zxnext.vhd:3320  | pass    | test/divmmc/divmmc_test.cpp:2567 |
 | SS-08            | Write 0x7F in config mode: selects Flash                     | —              | missing | missing                          |
-| SS-09            | Write 0x7F outside config mode: all deselected (0xFF)        | zxnext.vhd:3326  | pass    | test/divmmc/divmmc_test.cpp:2581 |
-| SS-10            | Write any other value: all deselected (0xFF)                 | zxnext.vhd:3322  | pass    | test/divmmc/divmmc_test.cpp:2597 |
-| SS-11            | Only one device selected at a time                           | zxnext.vhd:3328  | pass    | test/divmmc/divmmc_test.cpp:2611 |
-| SX-01            | Write to port 0xEB: sends byte via MOSI                      | spi_master.vhd:111-112 | pass    | test/divmmc/divmmc_test.cpp:2930 |
-| SX-02            | Read from port 0xEB: sends 0xFF via MOSI, receives MISO      | spi_master.vhd:109-110 | pass    | test/divmmc/divmmc_test.cpp:2958 |
-| SX-03            | Read returns PREVIOUS exchange result                        | spi_master.vhd:162-166 | pass    | test/divmmc/divmmc_test.cpp:2988 |
-| SX-04            | First read after reset returns 0xFF                          | spi_master.vhd:74 | pass    | test/divmmc/divmmc_test.cpp:3014 |
-| SX-05            | Write 0xAA then read: read returns MISO from write cycle     | spi_master.vhd:164-165 | pass    | test/divmmc/divmmc_test.cpp:3036 |
+| SS-09            | Write 0x7F outside config mode: all deselected (0xFF)        | zxnext.vhd:3326  | pass    | test/divmmc/divmmc_test.cpp:2597 |
+| SS-10            | Write any other value: all deselected (0xFF)                 | zxnext.vhd:3322  | pass    | test/divmmc/divmmc_test.cpp:2613 |
+| SS-11            | Only one device selected at a time                           | zxnext.vhd:3328  | pass    | test/divmmc/divmmc_test.cpp:2627 |
+| SX-01            | Write to port 0xEB: sends byte via MOSI                      | spi_master.vhd:111-112 | pass    | test/divmmc/divmmc_test.cpp:2946 |
+| SX-02            | Read from port 0xEB: sends 0xFF via MOSI, receives MISO      | spi_master.vhd:109-110 | pass    | test/divmmc/divmmc_test.cpp:2974 |
+| SX-03            | Read returns PREVIOUS exchange result                        | spi_master.vhd:162-166 | pass    | test/divmmc/divmmc_test.cpp:3004 |
+| SX-04            | First read after reset returns 0xFF                          | spi_master.vhd:74 | pass    | test/divmmc/divmmc_test.cpp:3030 |
+| SX-05            | Write 0xAA then read: read returns MISO from write cycle     | spi_master.vhd:164-165 | pass    | test/divmmc/divmmc_test.cpp:3052 |
 | SX-06            | SPI transfer is 16 clock cycles (8 bits x 2 edges)           | —              | missing | missing                          |
 | SX-07            | SCK output matches state_r[0]                                | —              | missing | missing                          |
 | SX-08            | MOSI outputs MSB first                                       | —              | missing | missing                          |
@@ -2008,22 +2008,22 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | ST-08            | Read/write during mid-transfer: ignored                      | —              | missing | missing                          |
 | ML-01            | MISO bits shifted in on delayed rising SCK                   | —              | missing | missing                          |
 | ML-02            | Full byte latched into `miso_dat` on `state_last_d`          | —              | missing | missing                          |
-| ML-03            | `miso_dat` holds value until next transfer completes         | spi_master.vhd:164-165 | pass    | test/divmmc/divmmc_test.cpp:3224 |
+| ML-03            | `miso_dat` holds value until next transfer completes         | spi_master.vhd:164-165 | pass    | test/divmmc/divmmc_test.cpp:3240 |
 | ML-04            | Input and output shift registers are independent             | —              | missing | missing                          |
-| ML-05            | Reset sets `ishift_r` to all 1s                              | spi_master.vhd:74 | pass    | test/divmmc/divmmc_test.cpp:3261 |
+| ML-05            | Reset sets `ishift_r` to all 1s                              | spi_master.vhd:74 | pass    | test/divmmc/divmmc_test.cpp:3277 |
 | ML-06            | 16 cycles minimum between read/write operations              | —              | missing | missing                          |
 | MX-01            | Flash selected: MISO from flash                              | —              | missing | missing                          |
 | MX-02            | RPI selected: MISO from RPI                                  | —              | missing | missing                          |
-| MX-03            | SD selected: MISO from SD                                    | zxnext.vhd:3280  | pass    | test/divmmc/divmmc_test.cpp:3308 |
-| MX-04            | No device selected: MISO reads as 1                          | zxnext.vhd:3280  | pass    | test/divmmc/divmmc_test.cpp:3336 |
+| MX-03            | SD selected: MISO from SD                                    | zxnext.vhd:3280  | pass    | test/divmmc/divmmc_test.cpp:3324 |
+| MX-04            | No device selected: MISO reads as 1                          | zxnext.vhd:3280  | pass    | test/divmmc/divmmc_test.cpp:3352 |
 | MX-05            | Priority: Flash > RPI > SD > default                         | —              | missing | missing                          |
-| IN-01            | Boot sequence: automap at 0x0000, DivMMC ROM mapped          | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:3363 |
-| IN-02            | SD card init: select SD0, exchange bytes, deselect           | zxnext.vhd:3302  | pass    | test/divmmc/divmmc_test.cpp:3383 |
-| IN-03            | RETN after NMI handler: automap deactivated, normal ROM      | divmmc.vhd:126,139 | pass    | test/divmmc/divmmc_test.cpp:3401 |
-| IN-04            | Automap at 0x0008 (RST 8): ROM3 conditional                  | zxnext.vhd:2856,3138 | pass    | test/divmmc/divmmc_test.cpp:3425 |
-| IN-05            | Rapid SPI exchanges: back-to-back without idle gap           | spi_master.vhd:82 | pass    | test/divmmc/divmmc_test.cpp:3443 |
-| IN-06            | conmem override during automap: conmem takes priority        | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:3457 |
-| IN-07            | DivMMC disabled via NR 0x0A[4]=0: no automap, SPI still wor… | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:3481 |
+| IN-01            | Boot sequence: automap at 0x0000, DivMMC ROM mapped          | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:3379 |
+| IN-02            | SD card init: select SD0, exchange bytes, deselect           | zxnext.vhd:3302  | pass    | test/divmmc/divmmc_test.cpp:3399 |
+| IN-03            | RETN after NMI handler: automap deactivated, normal ROM      | divmmc.vhd:126,139 | pass    | test/divmmc/divmmc_test.cpp:3417 |
+| IN-04            | Automap at 0x0008 (RST 8): ROM3 conditional                  | zxnext.vhd:2856,3138 | pass    | test/divmmc/divmmc_test.cpp:3441 |
+| IN-05            | Rapid SPI exchanges: back-to-back without idle gap           | spi_master.vhd:82 | pass    | test/divmmc/divmmc_test.cpp:3459 |
+| IN-06            | conmem override during automap: conmem takes priority        | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:3473 |
+| IN-07            | DivMMC disabled via NR 0x0A[4]=0: no automap, SPI still wor… | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:3497 |
 
 ### Extra coverage (not in plan)
 
