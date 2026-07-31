@@ -1637,10 +1637,10 @@ sub grep_citations {
         # The hazard, measured 2026-07-31 under GH #188: the reach was
         # UNBOUNDED, and the table-driven signature this tier serves does not
         # actually require a loop with a check() in it. `layer2_test.cpp`'s
-        # log_deferred() holds a 45-entry `deferred[]` table whose loop pushes
-        # a TestResult directly and calls nothing — so all 44 of its rows the
-        # matrix lists resolved to the first check() ANYWHERE below the table,
-        # 47 lines away and in a different function. That call was uncited, so
+        # log_deferred() holds a 44-entry `deferred[]` table whose loop pushes
+        # a TestResult directly and calls nothing — so all 44 rows resolved to
+        # the first check() ANYWHERE below the table, 37 to 54 lines away and
+        # in a different function. That call was uncited, so
         # they fell through to the plan doc and nobody noticed; putting a
         # citation in it handed ONE row's VHDL lines to all 44 at once.
         #
@@ -1655,6 +1655,14 @@ sub grep_citations {
         # Refusal is a STOP, not a skip: the first following call is the only
         # candidate the table-driven shape can offer. Scanning past it to a
         # later call would be a widening, not a bound.
+        #
+        # HOW TO RE-DERIVE EVERY NUMBER BELOW. Instrument THIS arm: push
+        # { id => $tid, dist => $c->{s} - $L, cite => $c->{cite},
+        #   refused => $c->{owns_row} } for every row it fires on (before the
+        # `last`, so refusals are recorded too), then call grep_citations()
+        # over the sources resolve_subsys(\@SUBSYS) returns. Every figure in
+        # this comment came out of that instrumentation and none was derived
+        # by hand — three that were, in review, were all wrong.
         #
         # BLAST RADIUS, measured over all 41 traced sources before choosing:
         # 248 rows reach this tier; 63 of them reach a CITED call and publish
@@ -1671,14 +1679,15 @@ sub grep_citations {
         # loop's call IS every listed row's assertion.
         #
         # WHY THE ALTERNATIVES LOSE:
-        #   - A LINE-DISTANCE CAP cannot separate the two populations. Cited
-        #     reaches run 4..23 lines; the layer2 leak runs 37..54 and the
-        #     esp_socket one 4..90, so no cap both keeps every cited row and
-        #     closes esp_socket, whose range straddles the cited one from
-        #     below. (A cap of 30 would close layer2 outright — but only
-        #     layer2, and only by accident of where that table sits.)
-        #     Distance is not the defect: ula_test's legitimate 12-row table
-        #     reaches 18 lines, further than half the esp_socket leak.
+        #   - A LINE-DISTANCE CAP cannot separate the two populations, because
+        #     the populations OVERLAP. Of the 135 rows the chosen rule
+        #     refuses, 28 reach no further than the furthest CITED row does —
+        #     27 land inside the cited span and one below it — so no threshold
+        #     keeps all 63 cited rows and also closes those 28. Distance is
+        #     only a proxy for the defect, and the proxy fails on a fifth of
+        #     what has to be refused. The spans, for the record: cited 4..23,
+        #     the layer2 leak 37..54, the esp_socket leak (all 62 rows across
+        #     its three groups) 3..90.
         #   - A FAN-IN CAP punishes the tier's own signature: 12 rows sharing
         #     one loop check() is `ula_test`'s S1 table, correct and cited.
         #     The only fan-in threshold costing nothing today is >20, and it
