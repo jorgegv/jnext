@@ -350,14 +350,13 @@ no new accessor is needed there.
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-07  | S13.07 | 48K `ula_prefetch_origin_hc()` = 128 - 12 = 116 | 116 | skip (F-VT-ACCESSOR) |
 | 2 | VT-08  | new    | 128K `ula_prefetch_origin_hc()` = 136 - 12 = 124 | 124 | skip (F-VT-ACCESSOR) |
-| 3 | VT-09  | new    | Pentagon `ula_prefetch_origin_hc()` = 128 - 12 = 116 | 116 | skip (F-VT-ACCESSOR) |
 
-VT-08 and VT-09 are neighbour-expansion of the re-homed S13.07 row:
-the VHDL applies the `-12` offset to every machine (constant
-appears literally at `zxula_timing.vhd:423`), so a per-machine
-sweep is the honest VHDL reading. All three check a single
-arithmetic relation (`display_origin().hc - 12`) against the
-accessor, catching future drift should someone hard-code `116`.
+VT-08 is a neighbour-expansion of the re-homed S13.07 row: the
+VHDL applies the `-12` offset to every machine (constant appears
+literally at `zxula_timing.vhd:423`), so a per-machine sweep is
+the honest VHDL reading. Both rows check a single arithmetic
+relation (`display_origin().hc - 12`) against the accessor,
+catching future drift should someone hard-code `116`.
 
 ## Section 4: Per-machine interrupt position
 
@@ -508,20 +507,19 @@ Section 1 table or an all-off-by-one Section 6 table.
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-18  | new    | 48K: target=0 → `int_line_num() == c_max_vc == 311` | 311 | skip (F-VT-MAX-REBASE) |
 | 2 | VT-19  | new    | 128K: target=0 → `int_line_num() == 310` | 310 | skip (F-VT-MAX-REBASE) |
-| 3 | VT-20  | new    | Pentagon: target=0 → `int_line_num() == 319` | 319 | skip (F-VT-MAX-REBASE) |
-| 4 | VT-21  | new    | Any machine: target=10 → `int_line_num() == 9` | 9 | skip (F-VT-ACCESSOR) |
+| 3 | VT-21  | new    | Any machine: target=10 → `int_line_num() == 9` | 9 | skip (F-VT-ACCESSOR) |
 
-Rows VT-18..VT-21 are justified from VHDL: the plan needs at least
-one row pinning the target=0 special case per machine (the mapping
-depends on `c_max_vc`, which is per-machine). VT-21 pins the
-non-zero branch of the VHDL `if`.
+Rows VT-18, VT-19, and VT-21 are justified from VHDL: the plan
+needs at least one row pinning the target=0 special case per
+machine (the mapping depends on `c_max_vc`, which is
+per-machine). VT-21 pins the non-zero branch of the VHDL `if`.
 
 **Coupling reminder:** these rows share an implementation commit with
 Section 1 (V1 rebase). The current C++ at `src/video/timing.h:157`
 (`return static_cast<uint16_t>(vc_max_ - 1)`) is correct today because
 `vc_max_` holds the count value 312/311/320. V1 rebases `vc_max_` to
 hold `c_max_vc` (311/310/319) and drops the `-1` in the same commit.
-Expected values here (311/310/319/9) are the VHDL-faithful answers and
+Expected values here (311/310/9) are the VHDL-faithful answers and
 hold under both pre- and post-rebase code — they are the invariant.
 The only wrong thing to do is to land V1 in Section 1 without dropping
 the `-1` (rows here flip to FAIL) or drop the `-1` without the rebase
@@ -607,7 +605,7 @@ together. Retained here as historical record.
 ## Implementation coupling — Section 1 ↔ Section 6 (V1 rebase)
 
 > **BLOCKING CALLOUT for future implementers.** Section 1 rows
-> (VT-01..VT-03) and Section 6 rows (VT-18..VT-20) **MUST flip to
+> (VT-01..VT-03) and Section 6 rows (VT-18..VT-19) **MUST flip to
 > `check()` in a single implementation commit**. They cannot be
 > un-skipped independently. Row VT-21 (target=10 → 9) is the only
 > Section 6 row that is decoupled from the rebase.
@@ -635,7 +633,7 @@ The mechanism:
 6. Audit all other callers of `vc_max()` / `vc_max_` per the list in
    §Current status §V1 `vc_max_` semantic rebase — caller audit.
 
-If step 3 lands without step 4, Section 6 rows (VT-18..VT-20) will FAIL
+If step 3 lands without step 4, Section 6 rows (VT-18..VT-19) will FAIL
 (they'll see `c_max_vc - 1`). If step 4 lands without step 3, Section 1
 AND Section 6 rows will FAIL (they'll see the count values, because
 `int_line_num()` now returns raw `vc_max_` and the storage still holds
@@ -658,7 +656,7 @@ vc_max rebase, hc_max column with the hc_max rebase).
 | Reason code            | Semantics                                                                                  | Rows                                |
 |------------------------|--------------------------------------------------------------------------------------------|-------------------------------------|
 | `F-VT-ACCESSOR`        | New accessor must be added; row flips when accessor lands. No existing-caller audit.       | VT-04..VT-17, VT-17b, VT-21         |
-| `F-VT-MAX-REBASE`    | Semantic rebase of an **existing** accessor (and possibly its storage). Requires caller audit in `src/` + `test/` and the coupled-commit constraint described in §Implementation coupling. | VT-01..VT-03, VT-18..VT-20          |
+| `F-VT-MAX-REBASE`    | Semantic rebase of an **existing** accessor (and possibly its storage). Requires caller audit in `src/` + `test/` and the coupled-commit constraint described in §Implementation coupling. | VT-01..VT-03, VT-18..VT-19          |
 
 Both codes are class-`F` per UNIT-TEST-PLAN-EXECUTION §Skip taxonomy:
 "real TODO blocked on emulator change". The suffix distinguishes
@@ -711,24 +709,24 @@ them is the production-wiring refactor's job.
 |---------|-------------------------------------|-----:|
 | 1       | Per-machine frame envelope          | 3    |
 | 2       | Per-machine active-display origin   | 3    |
-| 3       | ULA prefetch origin                 | 3    |
+| 3       | ULA prefetch origin                 | 2    |
 | 4       | Per-machine interrupt position      | 4    |
 | 5       | 60 Hz variant                       | 5    |
-| 6       | Line-interrupt target mapping       | 4    |
+| 6       | Line-interrupt target mapping       | 3    |
 | 7       | Production scheduler wiring (G106/G107/G109) | 4 |
-|         | **Total**                           | **26** |
+|         | **Total**                           | **24** |
 
-Of these 22 rows, **7 are the direct re-homes** from ULA §13+§14
+Of these 20 rows, **7 are the direct re-homes** from ULA §13+§14
 (VT-04, VT-05, VT-07, VT-10, VT-11, VT-12, VT-14 — mapped from
-S13.05/06/07/08 + S14.01/02/03). The remaining **15 rows** are
+S13.05/06/07/08 + S14.01/02/03). The remaining **13 rows** are
 VHDL-justified neighbour expansions, all citing lines the author read
 during plan authoring:
 
 - 3 (VT-01..03): per-machine `hc_max`/`vc_max` readback, the
   precondition for every other row. `F-VT-MAX-REBASE` reason.
 - 1 (VT-06): 48K `display_origin()` symmetry partner of VT-04/05.
-- 2 (VT-08..09): 128K / Pentagon ULA prefetch origin,
-  neighbour-expansion of the re-homed VT-07.
+- 1 (VT-08): 128K ULA prefetch origin, neighbour-expansion of
+  the re-homed VT-07.
 - 1 (VT-13): +3 50 Hz `int_position()` — VHDL-distinct from 128K
   50 Hz, must be tested separately.
 - 4 (VT-15..17, VT-17b): 128K 60 Hz frame length, 60 Hz
@@ -736,9 +734,9 @@ during plan authoring:
   `int_position().hc` (VHDL 128K/+3 split is present at 60 Hz too) —
   VHDL provides the 60 Hz branch, so the re-homed VT-14 row implicitly
   requires its sweep.
-- 4 (VT-18..21): line-interrupt target mapping — VT-18..VT-20 share
-  the `F-VT-MAX-REBASE` coupled-commit constraint per §Implementation
-  coupling.
+- 3 (VT-18, VT-19, VT-21): line-interrupt target mapping — VT-18
+  and VT-19 share the `F-VT-MAX-REBASE` coupled-commit constraint
+  per §Implementation coupling.
 
 ## Open questions
 
