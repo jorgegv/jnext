@@ -710,6 +710,7 @@ therefore differ, and are proven apart:
 | RSTD-04-02 | RESET_HARD clears it via the host cold boot   | NR 0x04 ← 0x30, NR 0x02 ← 0x02, `emulator_cold_boot()` | request raised, bank still 0x30 mid-way, 0x00 after |
 | RSTD-04-03 | NR 0x04 write reaches the **Mmu mirror**, bit 7 masked | NR 0x04 ← 0x30, then ← 0xB7            | `mmu().nr_04_romram_bank()` 0x30 then 0x37; latch agrees |
 | RSTD-04-04 | RESET_SOFT preserves the **Mmu mirror** too   | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `mmu().nr_04_romram_bank()` still 0x30, equal to the latch |
+| RSTD-04-05 | the **boot-ROM-gated resync block** in `Emulator::init()` | boot ROM loaded, NR 0x04 ← 0x30, NR 0x03 ← 0x03 (clears the latch's config_mode), `Mmu` config_mode forced true, then NR 0x02 ← 0x01 | gate entered; `mmu().config_mode()` followed the latch to false; `mmu().nr_04_romram_bank()` undisturbed at 0x30 |
 
 CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
 `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`), the only
@@ -727,6 +728,24 @@ a reviewer mutation of the resync in `Emulator::init()` escaped all 6560 unit
 rows and both NextZXOS boot/reset functional rows. -03/-04 close that by
 asserting `Emulator::mmu().nr_04_romram_bank()` — an accessor added for exactly
 this (the earlier absence of which is what forced CFG-12 down to the bare tier).
+
+**RSTD-04-05 exists because -03/-04 were not enough**, and the #195 review is
+what proved it. Neither of those rows leaves `boot_rom_enabled()` true, so
+`init()`'s `if (cfg.type == ZXN_ISSUE2 && mmu_.boot_rom_enabled())` block is
+never entered by any unit fixture — the reviewer planted a *fresh*
+`set_nr_04_romram_bank(0)` inside it and it escaped all 6562 unit rows and both
+NextZXOS reset functional rows, the identical signature that got #195 filed.
+-05 enters the block (a loaded boot ROM plus config_mode re-arms the overlay in
+`Mmu::reset()`, `mmu.cpp:179`) and asserts `gate_taken` so it cannot go vacuous.
+
+It also pins the resync that **survived**. `mmu_.set_config_mode(nextreg_...)`
+is load-bearing precisely where its nr_04 sibling was not: those two mirrors
+have DIFFERENT power-on defaults (`NextReg` true per `zxnext.vhd:1102`, `Mmu`
+false per `mmu.h`), so they really can disagree. -05 drives them apart on
+purpose before the reset — a row that left them already equal would pass
+against a deleted resync. Deleting the line fails -05 (`mmu_cfg=1`); so does
+hardcoding it. That mirror also had no getter until #195 added one, which is
+why nothing had ever asserted it.
 
 That investigation also found the mutated line was **dead**: the two mirrors
 share a power-on default, both preserve across reset, and their only mutators

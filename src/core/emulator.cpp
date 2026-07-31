@@ -6188,7 +6188,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // full firmware boot + F4 soft reset (tbblue.fw's load_roms() drives NR
     // 0x04 hard, then soft_reset() re-enters init() with a non-zero bank).
     // Rows RSTD-04-03/04 pin the invariant the deleted line pretended to
-    // enforce; the reviewer mutation that motivated #195 can no longer hide.
+    // enforce, and RSTD-04-05 covers THIS gated block specifically: the #195
+    // review showed a fresh `set_nr_04_romram_bank(0)` planted right here
+    // still escaped every row, because no unit fixture had boot_rom_enabled()
+    // true, so nothing entered the branch at all. RSTD-04-05 enters it and
+    // asserts both mirrors it establishes.
     if (cfg.type == MachineType::ZXN_ISSUE2 && mmu_.boot_rom_enabled()) {
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
     }
