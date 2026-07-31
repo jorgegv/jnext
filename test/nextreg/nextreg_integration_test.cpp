@@ -931,6 +931,66 @@ static void test_reset_domain_e3_and_8c() {
                   "(expected 0x30,1,0x30,0x00)",
                   pre, requested ? 1 : 0, mid, post));
     }
+
+    // ── GH #195 — the Mmu mirror of nr_04_romram_bank ────────────────────
+    //
+    // jnext keeps the single VHDL signal in TWO places: the NextReg latch and
+    // an Mmu mirror, because the SRAM address compose at zxnext.vhd:3045
+    // (sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13)) lives on the Mmu hot
+    // path. RSTD-04-01/02 above assert only the NextReg latch, and mmu_test
+    // CFG-05..12 drive a BARE Mmu with no Emulator — so nothing proved the NR
+    // 0x04 write handler reaches the mirror that the address compose actually
+    // reads. The pair below closes that: both assert through Emulator::mmu(),
+    // never the register accessor.
+
+    // RSTD-04-03 — the NR 0x04 write handler pushes the bank into the Mmu
+    // mirror, with the SAME Issue-2 bit-7 mask the latch gets. VHDL
+    // zxnext.vhd:5709-5722 (gen_romram_234, board issue <= 2):
+    //   nr_04_romram_bank <= '0' & nr_wr_dat(6 downto 0);
+    // A mirror that took the raw byte would compose page (0xB7<<1)|slot =
+    // 0x16E/0x16F, outside the emulated SRAM page range.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x04, 0x30);              // in-range bank
+        const uint8_t mmu_plain = emu.mmu().nr_04_romram_bank();
+        nr_write(emu, 0x04, 0xB7);              // bit 7 set — masked on Issue 2
+        const uint8_t mmu_masked = emu.mmu().nr_04_romram_bank();
+        const uint8_t reg_masked = emu.nextreg().nr_04_romram_bank();
+        check("RSTD-04-03",
+              "NR 0x04 write reaches the Mmu mirror consumed by the SRAM "
+              "address compose [zxnext.vhd:3045], bit 7 masked off per "
+              "gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree",
+              mmu_plain == 0x30 && mmu_masked == 0x37 && reg_masked == 0x37,
+              fmt("mmu_plain=0x%02X mmu_masked=0x%02X reg_masked=0x%02X "
+                  "(expected 0x30,0x37,0x37)",
+                  mmu_plain, mmu_masked, reg_masked));
+    }
+
+    // RSTD-04-04 — RESET_SOFT preserves the Mmu mirror too, and leaves the two
+    // mirrors in agreement. This is the end-to-end half of #194: CFG-06 proves
+    // Mmu::reset() preserves the field on a bare fixture, RSTD-04-01 proves the
+    // NextReg latch survives — only this row proves the mirror survives the
+    // REAL soft-reset path, which re-enters Emulator::init() (where a resync
+    // line used to sit, GH #195) with a non-zero bank already latched.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x04, 0x30);              // romram_bank <- 0x30
+        const uint8_t pre_mmu = emu.mmu().nr_04_romram_bank();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT → re-runs init()
+        const uint8_t post_mmu = emu.mmu().nr_04_romram_bank();
+        const uint8_t post_reg = emu.nextreg().nr_04_romram_bank();
+        check("RSTD-04-04",
+              "RESET_SOFT PRESERVES the Mmu mirror of nr_04_romram_bank — the "
+              "signal has no reset clause anywhere in zxnext.vhd (absent from "
+              "the reset block at :4930-5111; write handlers :5717/:5732 are "
+              "gated solely on nr_04_we) — and both mirrors still agree",
+              pre_mmu == 0x30 && post_mmu == 0x30 && post_mmu == post_reg,
+              fmt("pre_mmu=0x%02X post_mmu=0x%02X post_reg=0x%02X "
+                  "(expected 0x30,0x30,0x30)",
+                  pre_mmu, post_mmu, post_reg));
+    }
 }
 
 // ── Cold boot preserves debugger breakpoints (Task 70 review) ─────────

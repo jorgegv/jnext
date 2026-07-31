@@ -6172,9 +6172,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // firmware to drive NR 0x03, so keeping config_mode=0 here lets ROM reads
     // fall through to the normal slot path. NR 0x03 writes keep mirroring
     // config_mode_ into the Mmu live thereafter.
+    // config_mode_ genuinely needs this push: the two mirrors have DIFFERENT
+    // power-on defaults (NextReg true per VHDL :1102, Mmu false per mmu.h) and
+    // Mmu::reset() does not touch it, so without this they start disagreeing.
+    //
+    // GH #195: the sibling `mmu_.set_nr_04_romram_bank(nextreg_...)` that used
+    // to sit here was DELETED — it was an identity assignment on every
+    // reachable path, i.e. dead state dressed as live (same shape as the NR
+    // 0x8C fold in #191). Unlike config_mode the two nr_04 mirrors share the
+    // same power-on default (0x00), both PRESERVE across reset (#194), and
+    // their only mutators are the paired writes in the NR 0x04 handler above
+    // and the paired save/load slots — so they cannot diverge by the time
+    // init() runs. That is measured, not argued: a temporary probe here
+    // reported zero divergences across the whole 6560-row unit suite and a
+    // full firmware boot + F4 soft reset (tbblue.fw's load_roms() drives NR
+    // 0x04 hard, then soft_reset() re-enters init() with a non-zero bank).
+    // Rows RSTD-04-03/04 pin the invariant the deleted line pretended to
+    // enforce; the reviewer mutation that motivated #195 can no longer hide.
     if (cfg.type == MachineType::ZXN_ISSUE2 && mmu_.boot_rom_enabled()) {
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
-        mmu_.set_nr_04_romram_bank(nextreg_.nr_04_romram_bank());
     }
 
     // Sync ROM3-selected into DivMmc (Task 7 Branch B). On hard reset the

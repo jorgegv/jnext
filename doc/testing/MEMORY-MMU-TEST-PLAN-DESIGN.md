@@ -708,13 +708,32 @@ therefore differ, and are proven apart:
 | CFG-12     | `Mmu::reset(hard=false)` preserves it too     | config_mode=1, NR 0x04=0x30, `reset(false)`       | same — VHDL `reset` covers both arms              |
 | RSTD-04-01 | RESET_SOFT preserves `nr_04_romram_bank`      | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `nextreg().nr_04_romram_bank()` still 0x30        |
 | RSTD-04-02 | RESET_HARD clears it via the host cold boot   | NR 0x04 ← 0x30, NR 0x02 ← 0x02, `emulator_cold_boot()` | request raised, bank still 0x30 mid-way, 0x00 after |
+| RSTD-04-03 | NR 0x04 write reaches the **Mmu mirror**, bit 7 masked | NR 0x04 ← 0x30, then ← 0xB7            | `mmu().nr_04_romram_bank()` 0x30 then 0x37; latch agrees |
+| RSTD-04-04 | RESET_SOFT preserves the **Mmu mirror** too   | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `mmu().nr_04_romram_bank()` still 0x30, equal to the latch |
 
-CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01/02 are hosted in
+CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
 `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`), the only
 tier where hard and soft reset are distinguishable. CFG-12 exists because the
 `hard` flag makes a one-armed model possible: the mutation
-`if (!hard) nr_04_romram_bank_ = 0;` passed CFG-06 and both RSTD-04 rows (the
-`Mmu` mirror has no Emulator-tier accessor), and CFG-12 is what catches it.
+`if (!hard) nr_04_romram_bank_ = 0;` passed CFG-06 and RSTD-04-01/02, and
+CFG-12 is what catches it.
+
+**GH #195 — why -03/-04 exist.** The four rows above split by *which mirror*
+they observe, because jnext holds the one VHDL signal twice: the `NextReg`
+latch and an `Mmu` mirror (the SRAM address compose at `zxnext.vhd:3045` is on
+the `Mmu` hot path). -01/-02 read the latch; CFG-05..12 drive a **bare `Mmu`
+with no `Emulator`**. So no row observed the mirror *through* the emulator, and
+a reviewer mutation of the resync in `Emulator::init()` escaped all 6560 unit
+rows and both NextZXOS boot/reset functional rows. -03/-04 close that by
+asserting `Emulator::mmu().nr_04_romram_bank()` — an accessor added for exactly
+this (the earlier absence of which is what forced CFG-12 down to the bare tier).
+
+That investigation also found the mutated line was **dead**: the two mirrors
+share a power-on default, both preserve across reset, and their only mutators
+are paired, so the `init()` resync was an identity assignment. Measured, not
+argued — a temporary divergence probe at the site reported zero divergences
+across the whole unit suite and a full firmware boot + F4 soft reset. The line
+is deleted; -03/-04 pin the invariant it pretended to enforce.
 
 ### Category 14: Address Translation
 
