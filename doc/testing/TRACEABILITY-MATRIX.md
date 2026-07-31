@@ -3417,13 +3417,6 @@ anchor (it is a host-side save-state framing concern); all rows show `—`.
 | RT-05       | save→load→save byte-identical (determinism)          | (jnext-internal) | missing | missing                         |
 | SBD-01      | Rewind buffer null when disabled                     | (jnext-internal) | missing | missing                         |
 | SBD-02      | step_back returns false when disabled                | (jnext-internal) | missing | missing                         |
-| SS-VER-01   | Schema magic + version head absent (G66)             | (jnext-internal) | missing | missing                         |
-| SS-VER-02   | Per-subsystem TLV framing absent (G66)               | (jnext-internal) | missing | missing                         |
-| SS-VER-03   | load_state magic-mismatch reject path (G66)          | (jnext-internal) | missing | missing                         |
-| SS-VER-04   | Schema migrator registry absent (G66)                | (jnext-internal) | missing | missing                         |
-| SS-VER-05   | Field-order round-trip lock absent (G66)             | (jnext-internal) | missing | missing                         |
-| SS-VER-06   | DivMmc pre-NA-03 silent-deserialise (G66)            | (jnext-internal) | missing | missing                         |
-| SS-VER-07   | RZX SNA path lacks schema head (G66)                 | (jnext-internal) | missing | missing                         |
 | RB-FRAME-01 | take_snapshot bound assertion absent (G67)           | (jnext-internal) | missing | missing                         |
 | RB-FRAME-02 | Post-widening clean error path absent (G67)          | (jnext-internal) | missing | missing                         |
 | RB-FRAME-03 | Construction-vs-measured size match check (G67)      | (jnext-internal) | missing | missing                         |
