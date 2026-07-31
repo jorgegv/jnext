@@ -1627,7 +1627,7 @@ static void test_BL() {
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-30",
-              "mode \"01\" prio6: mix_bot=ULA wins (VHDL 7163-7176)",
+              "mode \"01\" prio6: mix_bot=ULA wins (zxnext.vhd:7163-7176)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1650,7 +1650,7 @@ static void test_BL() {
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(tmc);
         check("BL-31",
-              "mode \"01\" prio6: mix_top=TM (ULA masked) (VHDL 7163-7176)",
+              "mode \"01\" prio6: mix_top=TM (ULA masked) (zxnext.vhd:7163-7176)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1673,7 +1673,7 @@ static void test_BL() {
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-32",
-              "mode \"01\" prio6: tm_below=1 swap, mix_top=ULA wins (VHDL 7163-7176)",
+              "mode \"01\" prio6: tm_below=1 swap, mix_top=ULA wins (zxnext.vhd:7163-7176)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1694,7 +1694,7 @@ static void test_BL() {
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
         check("BL-40",
-              "mode \"10\" prio6: mix_rgb=ula_final, add(L2,ULA) (VHDL 7149-7155,7286-7298)",
+              "mode \"10\" prio6: mix_rgb=ula_final, add(L2,ULA) (zxnext.vhd:7149-7155,7286-7298)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1716,7 +1716,7 @@ static void test_BL() {
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,2)));
         check("BL-41",
-              "mode \"10\" prio6: ulatm merge → TM, add(L2,TM) (VHDL 7115-7116,7149-7155)",
+              "mode \"10\" prio6: ulatm merge → TM, add(L2,TM) (zxnext.vhd:7115-7116,7149-7155)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1741,7 +1741,7 @@ static void test_BL() {
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_add(0,3), bl_add(0,2), bl_add(0,1)));
         check("BL-42",
-              "mode \"10\" prio6: stencil ULA&TM routes via ula_final_rgb (VHDL 7130-7132,7149-7155)",
+              "mode \"10\" prio6: stencil ULA&TM routes via ula_final_rgb (zxnext.vhd:7130-7132,7149-7155)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.stencil_mode_ = false;
@@ -1767,7 +1767,7 @@ static void test_BL() {
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-50",
-              "mode \"11\" prio6: mix_bot=ULA wins (VHDL 7156-7162)",
+              "mode \"11\" prio6: mix_bot=ULA wins (zxnext.vhd:7156-7162)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1790,7 +1790,7 @@ static void test_BL() {
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-51",
-              "mode \"11\" prio6: tm_below=1, mix_top=ULA wins (VHDL 7156-7162)",
+              "mode \"11\" prio6: tm_below=1, mix_top=ULA wins (zxnext.vhd:7156-7162)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1814,7 +1814,7 @@ static void test_BL() {
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_add(0,4), bl_add(0,2), bl_add(0,1)));
         check("BL-52",
-              "mode \"11\" prio6: TM as mix_rgb, ULA overlays transp (VHDL 7156-7162)",
+              "mode \"11\" prio6: TM as mix_rgb, ULA overlays transp (zxnext.vhd:7156-7162)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1837,7 +1837,7 @@ static void test_BL() {
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1)));
         check("BL-60",
-              "mode \"11\" prio7: sub(L2,TM)=(4,2,0) (VHDL 7156-7162,7312-7352)",
+              "mode \"11\" prio7: sub(L2,TM)=(4,2,0) (zxnext.vhd:7156-7162,7312-7352)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
@@ -1941,7 +1941,7 @@ static void test_UTB() {
         r.tilemap_line_[0]    = PIX_TM;
         r.tm_pixel_below_[0]  = false;          // below=0 -> top=tm, bot=ula
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("UTB-40", "NR0x68 mode 01 below=0: mix_top=TM (VHDL 7163-7176 else)",
+        check("UTB-40", "NR0x68 mode 01 below=0: mix_top=TM (zxnext.vhd:7163-7176 else)",
               got == PIX_TM,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
@@ -1954,7 +1954,7 @@ static void test_UTB() {
         r.tilemap_line_[0]    = PIX_TM;
         r.tm_pixel_below_[0]  = true;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("UTB-41", "NR0x68 mode 01 below=1: mix_top=ULA (VHDL 7163-7176 if)",
+        check("UTB-41", "NR0x68 mode 01 below=1: mix_top=ULA (zxnext.vhd:7163-7176 if)",
               got == PIX_ULA,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }

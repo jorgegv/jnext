@@ -1440,7 +1440,17 @@ static void test_group10_per_scanline_scroll() {
     // reference and actual fixtures sample the same source row.
     l2.set_scroll_x_lsb(0x10);
     l2.start_frame();
-    check("G10-01", "start_frame baseline captures scroll_x_/y_",
+    // G10-01 — the frame-start baseline snapshots exactly the two registers a
+    // mid-frame Copper write moves. The citation is in THIS comment and not in
+    // the check() below deliberately: log_deferred()'s `deferred[]` table above
+    // lists 45 IDs that have no call of their own, so the extractor's `next`
+    // tier hands each of them the first check() call that follows the table —
+    // which is this one. Citing it in the call gave all 45 rows
+    // `zxnext.vhd:5237,5240`, measured. The `named` tier answers for the row
+    // that HEADS the block and nothing else, so it cannot leak. (GH #188)
+    // VHDL zxnext.vhd:5237,5240
+    check("G10-01",
+          "start_frame baseline captures scroll_x_/y_",
           l2.change_log_size() == 0);
 
     // Mid-frame writes append to log tagged with current line.
@@ -1450,33 +1460,39 @@ static void test_group10_per_scanline_scroll() {
     l2.set_scroll_x_lsb(0x80);
     l2.set_current_line(150);
     l2.set_scroll_x_lsb(0xC0);
-    check("G10-02", "three scroll writes recorded in change log",
+    check("G10-02",
+          "three scroll writes recorded in change log (zxnext.vhd:5237)",
           l2.change_log_size() == 3);
 
     // After rewind, live scroll_x snaps back to baseline (0x10).
     l2.rewind_to_baseline();
-    check("G10-03", "rewind_to_baseline restores live scroll_x to baseline",
+    check("G10-03",
+          "rewind_to_baseline restores live scroll_x to baseline "
+          "(layer2.vhd:152-154)",
           l2.scroll_x() == 0x10);
 
     // Per-line replay walks the change-log forward; live scroll_x must
     // reflect the most recent change <= line.
     l2.apply_changes_for_line(0);
-    check("G10-04a", "line 0: no change applied -> scroll_x == baseline (0x10)",
+    check("G10-04a", "line 0: no change applied -> scroll_x == baseline (0x10) "
+          "(layer2.vhd:152-154)",
           l2.scroll_x() == 0x10);
     l2.apply_changes_for_line(49);
-    check("G10-04b", "line 49 (before first change at 50): scroll_x == 0x10",
+    check("G10-04b", "line 49 (before first change at 50): scroll_x == 0x10 "
+          "(layer2.vhd:152-154)",
           l2.scroll_x() == 0x10);
     l2.apply_changes_for_line(50);
-    check("G10-04c", "line 50 (first change): scroll_x == 0x40",
+    check("G10-04c", "line 50 (first change): scroll_x == 0x40 (layer2.vhd:152-154)",
           l2.scroll_x() == 0x40);
     l2.apply_changes_for_line(99);
-    check("G10-04d", "line 99 (between 50 and 100): scroll_x == 0x40 (held)",
+    check("G10-04d", "line 99 (between 50 and 100): scroll_x == 0x40 (held) "
+          "(layer2.vhd:152-154)",
           l2.scroll_x() == 0x40);
     l2.apply_changes_for_line(100);
-    check("G10-04e", "line 100: scroll_x == 0x80",
+    check("G10-04e", "line 100: scroll_x == 0x80 (layer2.vhd:152-154)",
           l2.scroll_x() == 0x80);
     l2.apply_changes_for_line(150);
-    check("G10-04f", "line 150: scroll_x == 0xC0",
+    check("G10-04f", "line 150: scroll_x == 0xC0 (layer2.vhd:152-154)",
           l2.scroll_x() == 0xC0);
 
     // Cap honoured: changes beyond MAX_CHANGES_PER_FRAME silently dropped.

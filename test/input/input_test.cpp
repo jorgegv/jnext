@@ -4866,24 +4866,41 @@ static void test_gh115_keymap() {
     };
 
     // ── The inversion itself ──────────────────────────────────────────
-    // keymaps.vhd:83 "Left / Right Shift = CAPS SHIFT"; scancode 0x12/0x59
-    // = "001000111" (keymaps.vhd:113,131) → bit 6 CAPS → ps2_keyb.vhd:198
-    // forces row 0 col 0.
+    //
+    // The citation goes in a heading comment per row, not in the call: these
+    // rows dispatch through the `single`/`compound` lambdas above, so the
+    // extractor's `call` tier — which scans check()/skip() spans — never sees
+    // the row's own ID beside its evidence. One block per row, headed by that
+    // row's ID, is the `named` tier and is equally row-local. (GH #188)
+    //
+    // GH115-01: "Left / Right Shift = CAPS SHIFT"; PS/2 scancode 0x12 maps to
+    // "001000111", whose bit 6 is CAPS, and that bit forces membrane row 0
+    // col 0.
+    // VHDL keymaps.vhd:83,113; ps2_keyb.vhd:198
     single("GH115-01", "LShift → CAPS SHIFT (row 0 col 0)",
            SDL_SCANCODE_LSHIFT, 0, 0);
+    // GH115-02: the same path for the RIGHT shift — scancode 0x59 maps to the
+    // same "001000111" word.
+    // VHDL keymaps.vhd:83,131; ps2_keyb.vhd:198
     single("GH115-02", "RShift → CAPS SHIFT (row 0 col 0)",
            SDL_SCANCODE_RSHIFT, 0, 0);
-    // keymaps.vhd:84 "Left / Right Ctl = SYM SHIFT"; scancode 0x14 and
-    // extended 0x14 = "010000111" (keymaps.vhd:113,165) → bit 7 SYMBOL →
-    // ps2_keyb.vhd:197 forces row 7 col 1.
+    // GH115-03: "Left / Right Ctl = SYM SHIFT"; scancode 0x14 maps to
+    // "010000111", whose bit 7 is SYMBOL, forcing membrane row 7 col 1.
+    // VHDL keymaps.vhd:84,113; ps2_keyb.vhd:197
     single("GH115-03", "LCtrl → SYMBOL SHIFT (row 7 col 1)",
            SDL_SCANCODE_LCTRL, 7, 1);
+    // GH115-04: the same path for the RIGHT control, via the EXTENDED-scancode
+    // table entry for 0x14.
+    // VHDL keymaps.vhd:84,165; ps2_keyb.vhd:197
     single("GH115-04", "RCtrl → SYMBOL SHIFT (row 7 col 1)",
            SDL_SCANCODE_RCTRL, 7, 1);
 
     // GH115-05: the inversion must be gone in BOTH directions — Shift must
     // not touch row 7 col 1, and Ctrl must not touch row 0 col 0. A one-way
-    // assertion would still pass if both keys drove both cells.
+    // assertion would still pass if both keys drove both cells. The two roles
+    // are assigned on adjacent lines and forced by two INDEPENDENT terms, one
+    // per membrane cell.
+    // VHDL keymaps.vhd:83-84; ps2_keyb.vhd:197-198
     {
         Keyboard kb; kb.reset();
         kb.set_key(SDL_SCANCODE_LSHIFT, true);
@@ -4899,21 +4916,32 @@ static void test_gh115_keymap() {
     }
 
     // ── Keys the real machine binds that jnext dropped entirely ───────
-    // keymaps.vhd:89 + scancode 0x58 = "000001101" → row 1 col 5 = CAPS LOCK
-    // (keymaps.vhd:43), which membrane.vhd:237 folds to CS + '2' (row 3 col 1).
+    //
+    // GH115-06: "Caps lock = CAPS LOCK"; scancode 0x58 maps to "000001101" =
+    // membrane row 1 col 5, which the row/col table names CAPS LOCK. The
+    // membrane folds that extended key onto CS (row 0 col 0) + '2' (row 3
+    // col 1) — the two halves this compound asserts.
+    // VHDL keymaps.vhd:43,89,131; membrane.vhd:236-237
     compound("GH115-06", "CapsLock → CAPS LOCK = CS + 2",
              SDL_SCANCODE_CAPSLOCK, 0, 0, 3, 1);
-    // keymaps.vhd:94 + scancode 0x5D = "000010110" → row 2 col 6 = INV VIDEO
-    // (keymaps.vhd:44), which membrane.vhd:237 folds to CS + '4' (row 3 col 3).
+    // GH115-07: "\\ = INV VIDEO"; scancode 0x5D maps to "000010110" = membrane
+    // row 2 col 6 = INV VID, folded onto CS (row 0 col 0) + '4' (row 3 col 3).
+    // VHDL keymaps.vhd:44,94,131; membrane.vhd:236-237
     compound("GH115-07", "backslash → INV VIDEO = CS + 4",
              SDL_SCANCODE_BACKSLASH, 0, 0, 3, 3);
-    // keymaps.vhd:127 scancode 0x4A = "010000100" → SYMBOL + row 0 col 4 (V).
+    // GH115-08: scancode 0x4A maps to "010000100" → bit 7 SYMBOL plus membrane
+    // row 0 col 4, which the row/col table names V.
+    // VHDL keymaps.vhd:42,127; ps2_keyb.vhd:197
     compound("GH115-08", "slash → '/' = SS + V",
              SDL_SCANCODE_SLASH, 7, 1, 0, 4);
-    // keymaps.vhd:127 scancode 0x4E = "010110011" → SYMBOL + row 6 col 3 (J).
+    // GH115-09: scancode 0x4E maps to "010110011" → bit 7 SYMBOL plus membrane
+    // row 6 col 3, which the row/col table names J.
+    // VHDL keymaps.vhd:48,127; ps2_keyb.vhd:197
     compound("GH115-09", "minus → '-' = SS + J",
              SDL_SCANCODE_MINUS, 7, 1, 6, 3);
-    // keymaps.vhd:129 scancode 0x55 = "010110001" → SYMBOL + row 6 col 1 (L).
+    // GH115-10: scancode 0x55 maps to "010110001" → bit 7 SYMBOL plus membrane
+    // row 6 col 1, which the row/col table names L.
+    // VHDL keymaps.vhd:48,129; ps2_keyb.vhd:197
     compound("GH115-10", "equals → '=' = SS + L",
              SDL_SCANCODE_EQUALS, 7, 1, 6, 1);
 

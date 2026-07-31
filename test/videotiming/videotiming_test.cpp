@@ -136,7 +136,7 @@ static void section2_display_origin() {
         VideoTiming vt;
         vt.init(MachineType::ZX128K);
         auto p = vt.display_origin();
-        check("VT-04", "128K display_origin() = {136, 64} (VHDL :195,:203)",
+        check("VT-04", "128K display_origin() = {136, 64} (zxula_timing.vhd:195,203)",
               p.hc == 136 && p.vc == 64,
               "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
     }
@@ -145,7 +145,7 @@ static void section2_display_origin() {
         VideoTiming vt;
         vt.init(MachineType::ZX48K);
         auto p = vt.display_origin();
-        check("VT-06", "48K display_origin() = {128, 64} (VHDL :261,:269)",
+        check("VT-06", "48K display_origin() = {128, 64} (zxula_timing.vhd:261,269)",
               p.hc == 128 && p.vc == 64,
               "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
     }
@@ -164,14 +164,14 @@ static void section3_ula_prefetch_origin() {
         VideoTiming vt;
         vt.init(MachineType::ZX48K);
         int hc = vt.ula_prefetch_origin_hc();
-        check("VT-07", "48K ula_prefetch_origin_hc() = 128 - 12 = 116 (VHDL :423)",
+        check("VT-07", "48K ula_prefetch_origin_hc() = 128 - 12 = 116 (zxula_timing.vhd:423)",
               hc == 116, "got " + std::to_string(hc));
     }
     {
         VideoTiming vt;
         vt.init(MachineType::ZX128K);
         int hc = vt.ula_prefetch_origin_hc();
-        check("VT-08", "128K ula_prefetch_origin_hc() = 136 - 12 = 124 (VHDL :423)",
+        check("VT-08", "128K ula_prefetch_origin_hc() = 136 - 12 = 124 (zxula_timing.vhd:423)",
               hc == 124, "got " + std::to_string(hc));
     }
     // VT-09 RETIRED 2026-05-04: standalone Pentagon machine type dropped.

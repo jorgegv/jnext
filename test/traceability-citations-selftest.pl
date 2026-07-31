@@ -573,6 +573,161 @@ check('SELF-131', 'and the reported cell is KEPT byte-identical — this reports
       (split_row_cells($hclines[4]))[3] eq $hc_bad_cell,
       'got [' . (split_row_cells($hclines[4]))[3] . "] want [$hc_bad_cell]");
 
+# ── FROZEN cells: hand-written with NO computed side (GH #188) ────────
+#
+# GH #150 (above) made a hand-written cell complain when it does not
+# VALIDATE. This is the other half: a cell the extractor computes NOTHING
+# for. Drift needs a computed side to disagree with, so nothing can ever
+# contradict such a cell — GH #187 was one, three sprite rows publishing a
+# citation belonging to two rows that are not even check() rows.
+#
+# 187 cells were in this state when the report was written. The report is the
+# fix: it makes them a visible, shrinkable list WITHOUT anyone inventing a
+# citation.
+#
+# The classifier first, then the row-local detector it depends on, then the
+# end-to-end. SELF-140..142 are the refusals — without them "report every
+# hand-written cell" and "call everything sub-class (b)" both pass.
+
+check('SELF-136', 'frozen_class: a row this section does not assert is (c) — nothing can ever be computed for it here',
+      frozen_class('missing', 0) eq 'c' && frozen_class('missing', 1) eq 'c',
+      'got ' . frozen_class('missing', 0) . '/' . frozen_class('missing', 1));
+
+check('SELF-137', 'frozen_class: a live row whose own call names lines with no filename is (b)',
+      frozen_class('pass', 1) eq 'b' && frozen_class('skip', 1) eq 'b',
+      'got ' . frozen_class('pass', 1) . '/' . frozen_class('skip', 1));
+
+check('SELF-138', 'frozen_class: a live row with no citation attempt at all is (a)',
+      frozen_class('pass', 0) eq 'a' && frozen_class('skip', 0) eq 'a',
+      'got ' . frozen_class('pass', 0) . '/' . frozen_class('skip', 0));
+
+# The (b) detector. It must fire on a filename-less line reference and must
+# NOT fire on a row whose call also names a real `.vhd` — that row HAS a
+# computed citation and never reaches the frozen report at all.
+#
+# BOTH-01 is the row that discriminates the `!defined $c->{cite}` guard, and
+# HASFILE-01 alone does not: HASFILE-01 carries no filename-less reference
+# either, so it is refused by the regex before the guard is ever consulted.
+# Mutation-testing found exactly that — removing the guard killed no row until
+# BOTH-01 existed.
+my $nofile_src = write_fixture('test/fixture/nofile_test.cpp', <<'CPP');
+void g() {
+    check("NOFILE-01", "mode 01: mix_bot wins (VHDL 7163-7176)", cond, detail);
+    check("NOFILE-02", "48K origin (VHDL :195,:203)", cond, detail);
+    check("HASFILE-01", "cited properly — fixture_a.vhd:10", cond, detail);
+    check("BOTH-01", "VHDL 7163-7176, spelled out as fixture_a.vhd:10", cond, detail);
+    check("NOCITE-01", "no evidence of any kind here", cond, detail);
+    check("NOTALINE-01", "the VHDL behaviour is asserted elsewhere", cond, detail);
+    check("NOTALINE-02", "matches the VHDL 9-bit RGB333 path", cond, detail);
+    check("NOTALINE-03", "VHDL: 0x9F is enable_io for this variant only", cond, detail);
+}
+CPP
+my %nofile;
+grep_citations($nofile_src, undef, undef, \%nofile);
+
+check('SELF-139', 'the (b) detector fires on a filename-less line reference, in both spellings',
+      scalar($nofile{'NOFILE-01'} && $nofile{'NOFILE-02'}),
+      'got ' . join(',', sort keys %nofile));
+
+check('SELF-140', 'THE REFUSAL: a call that ALSO names a real .vhd is not (b) — it has a computed citation',
+      scalar(!$nofile{'BOTH-01'} && !$nofile{'HASFILE-01'}),
+      'got ' . join(',', sort keys %nofile));
+
+check('SELF-141', 'THE REFUSAL: a call with no evidence at all is (a), not (b)',
+      !$nofile{'NOCITE-01'},
+      'got ' . join(',', sort keys %nofile));
+
+check('SELF-142', 'THE REFUSAL: the bare word VHDL with no line number is prose, not a citation attempt',
+      !$nofile{'NOTALINE-01'},
+      'got ' . join(',', sort keys %nofile));
+
+# The shapes found by trying to break the first draft against the real corpus:
+# a bit width and a hex port value both put a digit after the word.
+check('SELF-149', 'THE REFUSAL: a number that runs on into a word or an 0x value is prose, not a line',
+      scalar(!$nofile{'NOTALINE-02'} && !$nofile{'NOTALINE-03'}),
+      'got ' . join(',', sort keys %nofile));
+
+# End to end. Four cells in one section: one frozen (hand-written, the source
+# computes nothing), one NOT frozen (hand-written and the source computes the
+# same citation), one NOT frozen (empty cell — that is the honest uncited
+# state, counted by `uncit`), and one whose computed side merely DIFFERS
+# (drift, which is the state this whole report exists to make reachable).
+write_fixture('test/fixture/frozen_test.cpp', <<'CPP');
+void f() {
+    check("FZ-A-01", "runs here, no citation of any kind", cond, detail);
+    check("FZ-OK-01", "agrees with the cell — fixture_a.vhd:10", cond, detail);
+    check("FZ-EMPTY-01", "empty cell, computes nothing", cond, detail);
+    check("FZ-DRIFT-01", "disagrees with the cell — fixture_a.vhd:99", cond, detail);
+}
+CPP
+{
+    my $p = "$FIXTURE_ROOT/bin/frozen_suite";
+    mkdir "$FIXTURE_ROOT/bin" unless -d "$FIXTURE_ROOT/bin";
+    open(my $h, '>', $p) or die "write $p: $!";
+    print $h "#!/bin/sh\n";
+    close $h;
+    chmod 0755, $p;
+}
+my $fz_cell = ' fixture_b.vhd:7 ';
+my @fzlines = (
+    '## Frozen — `test/fixture/frozen_test.cpp`',
+    '',
+    '| Test ID     | Description | VHDL file:line   | Status  | Test file:line   |',
+    '|-------------|-------------|------------------|---------|------------------|',
+    "| FZ-A-01     | frozen      |$fz_cell| missing | missing          |",
+    '| FZ-OK-01    | agrees      | fixture_a.vhd:10 | missing | missing          |',
+    '| FZ-EMPTY-01 | uncited     |                  | missing | missing          |',
+    '| FZ-DRIFT-01 | drifts      | fixture_a.vhd:11 | missing | missing          |',
+    '| FZ-MISS-01  | not asserted| fixture_b.vhd:8  | missing | missing          |',
+);
+my (@fzd, @fzk, @fzinv, @fzfrozen);
+my @fzret = refresh_section(\@fzlines, 0, 'bin/frozen_suite',
+                            'test/fixture/frozen_test.cpp', \@fzd, \@fzk,
+                            undef, undef, \@fzinv, \@fzfrozen);
+
+check('SELF-143', 'refresh_section collects exactly the two cells with no computed side, and classifies them',
+      scalar(@fzfrozen) == 2
+      && $fzfrozen[0][0] eq 'FZ-A-01'    && $fzfrozen[0][1] eq 'a'
+      && $fzfrozen[1][0] eq 'FZ-MISS-01' && $fzfrozen[1][1] eq 'c',
+      'got [' . join(' | ', map { "$_->[0]/$_->[1]" } @fzfrozen) . ']');
+
+check('SELF-144', 'THE REFUSAL: an agreeing cell, an empty cell and a DRIFTING cell are not frozen — each has a computed side',
+      scalar(!grep { $_->[0] =~ /^FZ-(OK|EMPTY|DRIFT)-01$/ } @fzfrozen)
+      && scalar(@fzd) == 1 && $fzd[0] =~ /FZ-DRIFT-01/,
+      'frozen=[' . join(' | ', map { $_->[0] } @fzfrozen)
+      . '] drift=[' . join(' | ', @fzd) . ']');
+
+check('SELF-145', 'the frozen cell is KEPT byte-identical — this reports, it never rewrites',
+      (split_row_cells($fzlines[4]))[3] eq $fz_cell,
+      'got [' . (split_row_cells($fzlines[4]))[3] . "] want [$fz_cell]");
+
+check('SELF-146', 'refresh_section returns the frozen count alongside cited/uncited/drift',
+      scalar(@fzret) == 10 && $fzret[8] == 2,
+      'got frozen_ct=' . ($fzret[8] // '(undef)') . ' arity=' . scalar(@fzret));
+
+# ── canon_citation folds `;` between citations (GH #188) ──────────────
+#
+# The matrix and the design docs separate citations of different FILES with
+# `; `; cite_in() joins them with `, `. Same meaning, so a two-file cell could
+# never equal its computed twin and drifted for ever. Folding it closes 5 of
+# the 320 live drift entries and lets a row put a two-file citation in its own
+# check() without manufacturing a permanent false report.
+#
+# SELF-148 is the refusal: the fold must equate SPELLINGS, never substance.
+
+check('SELF-147', 'canon_citation: `;` and `, ` between two files are the same citation',
+      canon_citation('keymaps.vhd:43-44; membrane.vhd:253')
+      eq canon_citation('keymaps.vhd:43-44, membrane.vhd:253'),
+      'got [' . canon_citation('keymaps.vhd:43-44; membrane.vhd:253') . '] vs ['
+              . canon_citation('keymaps.vhd:43-44, membrane.vhd:253') . ']');
+
+check('SELF-148', 'THE REFUSAL: the fold does not equate citations naming DIFFERENT lines or files',
+      scalar(canon_citation('fixture_a.vhd:10; fixture_b.vhd:20')
+             ne canon_citation('fixture_a.vhd:10, fixture_b.vhd:21')
+             && canon_citation('fixture_a.vhd:10; fixture_b.vhd:20')
+                ne canon_citation('fixture_a.vhd:10, fixture_c.vhd:20')),
+      'got [' . canon_citation('fixture_a.vhd:10; fixture_b.vhd:20') . ']');
+
 # `row.vhdl_line` in a printf argument list must not read as "row.vhd".
 my $src2 = write_fixture('test/fixture/fixture2_test.cpp', <<'CPP');
 void group() {
@@ -2190,7 +2345,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 136;
+my $EXPECTED_ROWS = 150;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

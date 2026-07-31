@@ -550,6 +550,50 @@ my $VHDL_CITE_RE = qr{
               \d+ (?: \s* [-–] \s* \d+ )? )* ) )?
 }x;
 
+# ── A line reference with the FILENAME LEFT OUT (GH #188) ─────────────
+#
+# `(VHDL 7163-7176)`, `(VHDL :195,:203)`, `VHDL:5080` — the author wrote the
+# evidence and omitted the one token that makes it resolvable. 253 quoted
+# strings in the tree carry this shape.
+#
+# THIS IS A REPORT LABEL AND NOTHING ELSE. It never yields a citation, and
+# widening $VHDL_CITE_RE to accept it is refused: the missing filename can
+# only come from somewhere OUTSIDE the row — the nearest `.vhd` in the file,
+# the enclosing banner — which is exactly the banner/nearest-comment tier this
+# extractor rejected twice and re-litigated in GH #147 and GH #184. A rule
+# that has to guess the filename publishes a plausible-but-wrong citation, and
+# this project ranks that strictly below an honest `—`. The remedy is to spell
+# the filename in the row's own check(), which the frozen report now asks for
+# by name.
+#
+# `\bVHDL\b` is required, so a bare `(7163-7176)` — which could be anything —
+# does not qualify. A text that ALSO names a real `.vhd` is not this shape;
+# callers test that separately (the citation is computed and the row never
+# reaches the frozen report at all).
+#
+# The trailing `(?![-\w])` is what tells a LINE REFERENCE from prose that
+# happens to put a number after the word. Built by trying to break the first
+# draft against the real corpus, which turned up three shapes it mislabelled:
+# `VHDL 9-bit` and `VHDL 13-bit` (a width, not a line) and `VHDL: 0x9F` (a port
+# value). Requiring the number to END — not to run on into `-bit` or `x9F` —
+# refuses all three while still accepting every real spelling in the tree:
+# `VHDL 7214)`, `VHDL 7163-7176 else`, `VHDL :195,:203)`, `VHDL:4636-4644).`,
+# `VHDL :882/3716/3729).`, `VHDL: :3814`.
+#
+# DECLARED RESIDUAL: `VHDL 2 cycles` — a small number followed by a SPACE and
+# a word — is still read as a line reference. Zero instances exist in the tree
+# today (the three found were all hyphen- or `x`-joined), and the cost of one
+# is a mislabelled bucket in a report, never a published citation: sub-class
+# (b) says "the filename is missing", and a human who looks finds prose and
+# reclassifies it as (a). Tightening further would mean guessing how many
+# digits a line number has, which is a rule about VHDL file lengths, not about
+# citations.
+my $VHDL_NOFILE_RE = qr{
+    \b VHDL \b \s* :? \s* :?
+    \d+ (?: \s* [-–] \s* \d+ )?
+    (?! [-\w] )
+}x;
+
 # Plan row IDs as they appear unquoted inside a comment ("TM-01:", "TM-01/02").
 my $ID_BARE_RE = qr{
     \b ( [A-Z][A-Z0-9]* (?: \.[A-Z][A-Z0-9]* )* - [A-Za-z0-9._\-+]*[A-Za-z0-9] )
@@ -1189,8 +1233,14 @@ sub plan_cites {
 # (GH #126), and the plan-doc case is the whole reason it cannot be inferred
 # from the caller's source list — `test/uart/uart_test.cpp` supplies INT-07's
 # citation without ever mentioning INT-07, because the UART-I2C plan doc does.
+#
+# $noref, when given, is filled with the IDs whose OWN CALL carries a
+# filename-less VHDL line reference and no resolvable citation — sub-class (b)
+# of the GH #188 frozen report. Row-local by construction: only calls whose
+# span contains this row's own ID literal are consulted, the same standard the
+# `call` tier applies. It labels a report bucket; it never produces a citation.
 sub grep_citations {
-    my ($source_rel, $from, $at) = @_;
+    my ($source_rel, $from, $at, $noref) = @_;
     my $abs = "$ROOT/$source_rel";
     open(my $fh, '<', $abs) or fatal("open $abs: $!");
     my @src = <$fh>;
@@ -1219,7 +1269,8 @@ sub grep_citations {
         warn "WARN: $source_rel:@{[$i+1]} — call did not close within 40 lines;"
            . " citation span may be wrong\n"
             if $started && $depth > 0;
-        push @calls, { s => $i, e => $j, cite => cite_in($text) };
+        push @calls, { s => $i, e => $j, cite => cite_in($text),
+                       nofile => ($text =~ /$VHDL_NOFILE_RE/ ? 1 : 0) };
     }
 
     # The first line each ID appears on, OUTSIDE a comment. Collected in a pass
@@ -1418,6 +1469,12 @@ sub grep_citations {
             for my $c (@calls) {
                 if ($c->{s} <= $occ && $occ <= $c->{e}) {
                     $owns_call = 1;
+                    # GH #188 sub-class (b): this row's own call names line
+                    # numbers with no filename. Recorded even when a later
+                    # occurrence turns out to be cited — the caller only asks
+                    # once nothing was computed for the row at all.
+                    $noref->{$tid} = 1 if $noref && $c->{nofile}
+                                          && !defined $c->{cite};
                     if (defined $c->{cite}) {
                         $cite    = $c->{cite};
                         $cite_at = $c->{s} + 1;
@@ -1437,6 +1494,18 @@ sub grep_citations {
         # (Caught in review, 2026-07-20: CT-INT-03 — a harness-plumbing check
         # with no VHDL basis at all — had been given zxula.vhd:582-595,
         # lifted from an unrelated check ~100 lines further down.)
+        #
+        # KNOWN HAZARD, measured 2026-07-31 (GH #188): the reach is UNBOUNDED,
+        # and the table-driven signature this tier serves does not actually
+        # require a loop with a check() in it. `layer2_test.cpp`'s
+        # log_deferred() holds a 45-entry `deferred[]` table whose loop pushes
+        # a TestResult directly and calls nothing — so all 45 rows resolve to
+        # the first check() ANYWHERE below the table. That call happened to be
+        # uncited, so the rows fell through to the plan doc and nobody noticed;
+        # putting a citation in it handed one row's VHDL lines to all 45 at
+        # once. Anyone citing a call must check what the tier then attributes
+        # to whom. Not fixed here: bounding the reach is a tier rule change and
+        # needs its own blast-radius measurement, in the manner of GH #147/#184.
         if (!defined $cite && !$owns_call) {
             for my $c (@calls) { if ($c->{s} > $L) { $cite = $c->{cite}; last; } }
         }
@@ -1835,6 +1904,49 @@ sub cite_for {
     return undef;
 }
 
+# Did this row's own call carry a filename-less VHDL line reference? Same
+# sub-row resolution as cite_for(), so a parent row asked about `X-01` sees
+# what `X-01b`'s call wrote, exactly as it does for the citation. (GH #188)
+sub noref_for {
+    my ($tid, $noref, $checks, $skips) = @_;
+    return 1 if $noref->{$tid};
+    my $resolved = resolve_ids($tid, $checks, $skips);
+    for my $r (@$resolved) { return 1 if $noref->{$r}; }
+    return 0;
+}
+
+# ── The frozen class (GH #188) ────────────────────────────────────────
+#
+# A hand-written cell the extractor computes NOTHING for. Nothing can
+# contradict it: drift needs a computed side to disagree with, so no gate can
+# ever check the value and it stays frozen for ever. 187 cells are in this
+# state, and GH #187 was one of them — three sprite rows publishing a citation
+# that belongs to two rows which are not even check() rows.
+#
+# The three sub-classes need DIFFERENT remedies, so they are reported apart:
+#
+#   c  the section's own sources do not assert the row at all (status
+#      `missing`), so no tier can fire and none ever will while the row is
+#      recorded here. Either it is a planned row with no test yet, or its
+#      assertion lives in another subsystem's suite and the ROW is mis-homed.
+#      Both need a human decision about the row, not about the citation.
+#   b  the row runs here and its own call names line numbers with the
+#      FILENAME LEFT OUT — `(VHDL 7163-7176)`. The intent is present and only
+#      the spelling is unresolvable. Remedy: write the `.vhd` in the call.
+#   a  the row runs here and offers no citation at all. Remedy: cite the VHDL
+#      in its own check(), which makes the cell COMPUTED and therefore
+#      drift-checked from then on — the GH #187 route.
+#
+# Deliberately NOT done here: guessing. Nothing in this classification
+# produces or alters a citation, and a `(...)` tombstone cell never reaches it
+# (the tombstone IS the computed side for those suites).
+sub frozen_class {
+    my ($status, $has_noref) = @_;
+    return 'c' if $status eq 'missing';
+    return 'b' if $has_noref;
+    return 'a';
+}
+
 # The file cite_for()'s answer was literally read from. Same sub-row
 # resolution, so the citation and the file it is charged to can never come
 # from different rows. (GH #126)
@@ -1998,8 +2110,26 @@ sub bad_hand_citation {
 #
 # The prefix is folded for the COMPARISON only. The stored cell keeps whatever
 # was written, here as everywhere else in this sub.
+#
+# A FOURTH rule, and the same argument again (GH #188): the matrix and the
+# design docs separate citations of DIFFERENT files with `; `, and cite_in()
+# joins them with `, `. At that position the two punctuation marks mean the
+# identical thing — "another citation follows" — so a cell spelled
+# `keymaps.vhd:43-44; membrane.vhd:253` could never equal the computed
+# `keymaps.vhd:43-44, membrane.vhd:253` and drifted on every run for ever.
+#
+# MEASURED over the 320 drift entries the pre-GH #188 matrix produces: 14
+# carry a `;`, and folding it closes 5 of them — RAM-BK-02, TIM-CYC-01,
+# RST-04, SD-19, GH115-11, every one a pure separator-spelling difference. The
+# other 9 stay, and they are real disagreements (S5-PSL.01/02/03, RAM-BK-03,
+# NR-32, INT-07, CT-FUSE-01/02, INT-ULANEXT-02 name different lines, not the
+# same lines punctuated differently), so the rule folds spelling and not
+# substance. Yield 5 is the same order as rules 1+2 (20) and the prefix rule,
+# and it is the reason a row may now put a two-file citation in its own
+# check() without manufacturing a permanent false drift entry.
 sub canon_citation {
     my ($c) = @_;
+    $c =~ s{\s*;\s*}{,}g;         # "a.vhd:1; b.vhd:2" -> "a.vhd:1,b.vhd:2"
     $c =~ s{\s*([,/])\s*}{$1}g;   # "5633, 6260" -> "5633,6260"
     $c =~ s{([,/]):}{$1}g;        # "5179,:6436" -> "5179,6436"
     # "device/copper.vhd:54" -> "copper.vhd:54", when unambiguous.
@@ -2023,9 +2153,13 @@ sub canon_citation {
 # $invalid, when given, collects hand-written cells that do not validate
 # against the FPGA core (GH #150). Optional and last, so every existing caller
 # keeps working unchanged.
+#
+# $frozen, when given, collects [id, class, cell] for every hand-written cell
+# the extractor computes nothing for (GH #188). Optional and last, so every
+# existing caller keeps working unchanged.
 sub refresh_section {
     my ($lines, $start_idx, $binary, $source_rel, $drift, $kept, $stop_idx,
-        $companions, $invalid) = @_;
+        $companions, $invalid, $frozen) = @_;
     $kept //= [];
 
     # A section may be backed by several suites (see the Audio entry). The
@@ -2042,7 +2176,7 @@ sub refresh_section {
     }
     my $fails = \%fails;
 
-    my (%checks, %skips, %where, %cites, %cite_from, %cite_line);
+    my (%checks, %skips, %where, %cites, %cite_from, %cite_line, %noref);
     my $tombstone;
     for my $src (@sources) {
         my ($c, $k) = grep_source($src);
@@ -2059,8 +2193,9 @@ sub refresh_section {
         # %where is already updated for this source above, so cite_upgrades()
         # can tell "this source owns the row" from "this source merely read
         # the row out of the shared plan doc". (GH #133)
-        my (%cf, %cl);
-        my $cs = grep_citations($src, \%cf, \%cl);
+        my (%cf, %cl, %nr);
+        my $cs = grep_citations($src, \%cf, \%cl, \%nr);
+        $noref{$_} = 1 for keys %nr;
         for my $id (keys %$cs) {
             next unless cite_upgrades($cites{$id}, $cf{$id}, $where{$id});
             $cites{$id}     = $cs->{$id};
@@ -2120,8 +2255,12 @@ sub refresh_section {
         # defect the `next` tier is fenced against.
         my (%ccites, %cfrom, %cline);
         for my $src (as_list($csrc)) {
-            my (%cf, %cl);
-            my $cs = grep_citations($src, \%cf, \%cl);
+            my (%cf, %cl, %nr);
+            my $cs = grep_citations($src, \%cf, \%cl, \%nr);
+            # Restricted to the rows this companion OWNS, exactly as the
+            # citation merge below is: a companion's no-filename note must not
+            # label a row the primary source asserts.
+            for my $id (keys %nr) { $noref{$id} = 1 if $owned{$id}; }
             for my $id (keys %$cs) {
                 next unless cite_upgrades($ccites{$id}, $cf{$id}, $where{$id});
                 $ccites{$id} = $cs->{$id};
@@ -2156,7 +2295,7 @@ sub refresh_section {
     my ($checks, $skips, $cites) = (\%checks, \%skips, \%cites);
 
     my ($pass_ct, $fail_ct, $skip_ct, $missing_ct) = (0, 0, 0, 0);
-    my ($cited_ct, $uncited_ct, $drift_ct) = (0, 0, 0);
+    my ($cited_ct, $uncited_ct, $drift_ct, $frozen_ct, $tomb_ct) = (0) x 5;
     my $touched = 0;
     my $i = $start_idx + 1;
 
@@ -2244,8 +2383,15 @@ sub refresh_section {
                         push @$invalid, "$tid_raw: $_ — [$cur_cite]"
                             for bad_hand_citation($cur_cite);
                     }
-                    my $new_cite = cite_for($tid_raw, $cites, $checks, $skips)
-                                   // $tombstone;
+                    my $computed = cite_for($tid_raw, $cites, $checks, $skips);
+                    my $new_cite = $computed // $tombstone;
+                    # A hand-written cell whose only computed side is the
+                    # suite's declared tombstone. NOT frozen — the tombstone
+                    # is a real answer, so the cell IS compared and can drift
+                    # (BOOT-SD-01/02 do). Counted so the frozen total below
+                    # can be audited against the raw one. (GH #188)
+                    $tomb_ct++ if !defined $computed && defined $tombstone
+                                  && $cur_cite ne '' && $cur_cite ne '—';
                     if ($cur_cite eq '' || $cur_cite eq '—') {
                         if (defined $new_cite) {
                             my $cw = length($cells[3]) - 2;
@@ -2257,9 +2403,22 @@ sub refresh_section {
                         } else {
                             $uncited_ct++;
                         }
-                    } elsif (defined $new_cite
-                             && canon_citation($new_cite)
-                                ne canon_citation($cur_cite)) {
+                    } elsif (!defined $new_cite) {
+                        # FROZEN (GH #188): a hand-written cell with no
+                        # computed side. Drift needs something to disagree
+                        # with, so this value is checked by nobody and stays
+                        # frozen for ever — GH #187 lived here. Reported,
+                        # never rewritten.
+                        $frozen_ct++;
+                        push @$frozen,
+                             [$tid_raw,
+                              frozen_class($new_status,
+                                           noref_for($tid_raw, \%noref,
+                                                     $checks, $skips)),
+                              $cur_cite]
+                            if $frozen;
+                    } elsif (canon_citation($new_cite)
+                             ne canon_citation($cur_cite)) {
                         $drift_ct++;
                         # Charge the line to the file `source=[...]` was read
                         # from, not to the section's first source (GH #126).
@@ -2302,7 +2461,7 @@ sub refresh_section {
     }
 
     return ($touched, $pass_ct, $fail_ct, $skip_ct, $missing_ct,
-            $cited_ct, $uncited_ct, $drift_ct);
+            $cited_ct, $uncited_ct, $drift_ct, $frozen_ct, $tomb_ct);
 }
 
 # Short, unique label for a section. The companion suites all share the header
@@ -2645,6 +2804,8 @@ sub main_body {
     my @unrec;
     my @aliased;
     my @invalid;
+    my @frozen;
+    my $tomb_excluded = 0;
     for my $f (@found) {
         my ($idx, $entry) = @$f;
         my ($header, $binary, $source_rel) = @$entry;
@@ -2654,15 +2815,22 @@ sub main_body {
         my @section_drift;
         my @section_kept;
         my @section_invalid;
-        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d) =
+        my @section_frozen;
+        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d, $fz, $tz) =
             refresh_section(\@lines, $idx, $binary, $source_rel,
                             \@section_drift, \@section_kept, $stop,
-                            $companion->{$idx}, \@section_invalid);
+                            $companion->{$idx}, \@section_invalid,
+                            \@section_frozen);
         my @sources = as_list($source_rel);
         # Labelled by SECTION, not by source file: a hand-written cell has no
         # source file behind it — that is what makes it hand-written.
         push @invalid, map { section_label($header, $sources[0]) . "  $_" }
                        @section_invalid;
+        # Same labelling as @invalid, and for the same reason: a frozen cell
+        # is hand-written, so it has no source file behind it.
+        push @frozen, map { [section_label($header, $sources[0]), @$_] }
+                      @section_frozen;
+        $tomb_excluded += $tz;
         # Drift lines arrive already charged to the file that supplied the
         # citation (GH #126) — which may be a companion suite or a plan doc,
         # neither of which is $sources[0]. Protected rows have no such file
@@ -2693,7 +2861,7 @@ sub main_body {
         }
 
         push @report, [section_label($header, $sources[0]), $touched,
-                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct];
+                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct, $fz];
     }
 
     replace_summary(\@lines,
@@ -2708,18 +2876,18 @@ sub main_body {
     # cited/uncit count only the rows this run filled or could not fill —
     # rows that already carried a hand-written citation are in neither.
     # `unrec` is the GH #117 direction: source rows the document omits.
-    printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s\n",
+    printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s %6s\n",
            'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
-           'cited', 'uncit', 'drift', 'unrec');
-    print('-' x 99, "\n");
-    my @totals = (0, 0, 0, 0, 0, 0, 0, 0, 0);
+           'cited', 'uncit', 'drift', 'unrec', 'froz');
+    print('-' x 106, "\n");
+    my @totals = (0) x 10;
     for my $row (@report) {
         my ($label, @v) = @$row;
-        printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d\n", $label, @v);
-        $totals[$_] += $v[$_] for 0 .. 8;
+        printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d\n", $label, @v);
+        $totals[$_] += $v[$_] for 0 .. 9;
     }
-    print('-' x 99, "\n");
-    printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d\n", 'TOTAL', @totals);
+    print('-' x 106, "\n");
+    printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d\n", 'TOTAL', @totals);
 
     if (@drift) {
         print "\nVHDL citations where the doc and the test source disagree ",
@@ -2743,6 +2911,41 @@ sub main_body {
              . "KEPT; fix it by\nhand. A citation to jnext's own source is not "
              . "evidence — the VHDL is the oracle:\n", scalar @invalid);
         print "  $_\n" for @invalid;
+    }
+
+    # ── The GH #188 report ────────────────────────────────────────────
+    #
+    # Hand-written cells with NO computed side. GH #150 made a hand-written
+    # cell complain when it does not validate; this is the other half — the
+    # cells nothing can even disagree with. Listed so the number is
+    # shrinkable, split by sub-class because the remedies differ, and NEVER
+    # rewritten: closing one of these means a human reading the VHDL.
+    if (@frozen) {
+        my %by;
+        push @{ $by{ $_->[2] } }, $_ for @frozen;
+        my %what = (
+            a => 'no citation attempt — cite the VHDL in the row\'s own '
+               . 'check(), which makes the cell computed and drift-checked',
+            b => 'line numbers with the FILENAME left out ("VHDL 7163-7176") '
+               . '— write the .vhd in the row\'s own check()',
+            c => 'this section\'s sources do not assert the row (status '
+               . 'missing) — record it where it runs, or mark it planned',
+        );
+        printf("\nFROZEN CITATIONS — hand-written cells the extractor computes "
+             . "NOTHING for (%d).\nDrift needs a computed side to disagree "
+             . "with, so nothing can ever contradict\nthese and they stay "
+             . "frozen: GH #187 was one of them. The cell is KEPT.\n"
+             . "Excluded: %d cells whose suite carries a declared %%TOMBSTONE "
+             . "— the tombstone IS\ntheir computed side, so those ARE compared "
+             . "and can appear in the drift list above.\n",
+               scalar @frozen, $tomb_excluded);
+        for my $cls (sort keys %by) {
+            printf("  (%s) %s — %d\n", $cls, $what{$cls},
+                   scalar @{ $by{$cls} });
+            for my $r (@{ $by{$cls} }) {
+                printf("      %s  %s: [%s]\n", $r->[0], $r->[1], $r->[3]);
+            }
+        }
     }
 
     # ── The GH #117 report ────────────────────────────────────────────

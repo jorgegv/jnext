@@ -2794,7 +2794,8 @@ void test_cat13_config_mode() {
         uint8_t* p96 = f.ram.page_ptr(96);
         const uint8_t routed = p96 ? p96[1] : 0xEE;
         check("CFG-08",
-              "set_config_mode / set_nr_04_romram_bank toggle between drop and route",
+              "set_config_mode / set_nr_04_romram_bank toggle between drop and "
+              "route — VHDL zxnext.vhd:3044-3045,3049,3056",
               dropped != 0xAA && routed == 0xBB,
               fmt("dropped=0x%02X routed=0x%02X", dropped, routed));
     }
@@ -2855,7 +2856,8 @@ void test_cat13_config_mode() {
         f.mmu.set_rom_in_sram(false);
         const uint8_t off = f.mmu.read(0x0000);   // → rom_[0][0] = 0x00 (fixture tag)
         check("CFG-11",
-              "set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer",
+              "set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ "
+              "buffer — VHDL zxnext.vhd:3052",
               on == 0x7C && off == 0x00,
               fmt("on=0x%02X off=0x%02X (expected 0x7C, 0x00)", on, off));
     }

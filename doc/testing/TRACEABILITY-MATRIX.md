@@ -392,22 +392,22 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CFG-02  | Config mode off → normal ROM                                 | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2669 |
 | CFG-03  | ROMRAM bank writeable                                        | zxnext.vhd:3037   | pass    | test/mmu/mmu_test.cpp:2690 |
 | CFG-04  | Config mode at reset                                         | zxnext.vhd:3044-3050 | pass    | test/mmu/mmu_test.cpp:2710 |
-| ADR-01  | 0x00                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2875 |
-| ADR-02  | 0x01                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2876 |
-| ADR-03  | 0x0A                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2877 |
-| ADR-04  | 0x0B                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2878 |
-| ADR-05  | 0x0E                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2881 |
-| ADR-06  | 0x10                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2882 |
-| ADR-07  | 0x20                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2883 |
-| ADR-08  | 0xDF                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2884 |
-| ADR-09  | 0xE0                                                         | zxnext.vhd:3060-3061 | pass    | test/mmu/mmu_test.cpp:2912 |
-| ADR-10  | 0xFF                                                         | zxnext.vhd:3060-3061 | pass    | test/mmu/mmu_test.cpp:2922 |
-| BNK-01  | Page 0x0A → bank5 path                                       | zxnext.vhd:2961   | pass    | test/mmu/mmu_test.cpp:2960 |
-| BNK-02  | Page 0x0B → bank5 path                                       | zxnext.vhd:2961   | pass    | test/mmu/mmu_test.cpp:2979 |
-| BNK-03  | Page 0x0E → bank7 path                                       | zxnext.vhd:2962   | pass    | test/mmu/mmu_test.cpp:3003 |
-| BNK-04  | Page 0x0F → normal SRAM                                      | zxnext.vhd:2961-2962 | pass    | test/mmu/mmu_test.cpp:3023 |
-| BNK-05  | Bank5 read/write functional                                  | zxnext.vhd:2933-3133 | pass    | test/mmu/mmu_test.cpp:3040 |
-| BNK-06  | Bank7 read/write functional                                  | zxnext.vhd:2933-3133 | pass    | test/mmu/mmu_test.cpp:3053 |
+| ADR-01  | 0x00                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2877 |
+| ADR-02  | 0x01                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2878 |
+| ADR-03  | 0x0A                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2879 |
+| ADR-04  | 0x0B                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2880 |
+| ADR-05  | 0x0E                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2883 |
+| ADR-06  | 0x10                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2884 |
+| ADR-07  | 0x20                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2885 |
+| ADR-08  | 0xDF                                                         | zxnext.vhd:2964   | pass    | test/mmu/mmu_test.cpp:2886 |
+| ADR-09  | 0xE0                                                         | zxnext.vhd:3060-3061 | pass    | test/mmu/mmu_test.cpp:2914 |
+| ADR-10  | 0xFF                                                         | zxnext.vhd:3060-3061 | pass    | test/mmu/mmu_test.cpp:2924 |
+| BNK-01  | Page 0x0A → bank5 path                                       | zxnext.vhd:2961   | pass    | test/mmu/mmu_test.cpp:2962 |
+| BNK-02  | Page 0x0B → bank5 path                                       | zxnext.vhd:2961   | pass    | test/mmu/mmu_test.cpp:2981 |
+| BNK-03  | Page 0x0E → bank7 path                                       | zxnext.vhd:2962   | pass    | test/mmu/mmu_test.cpp:3005 |
+| BNK-04  | Page 0x0F → normal SRAM                                      | zxnext.vhd:2961-2962 | pass    | test/mmu/mmu_test.cpp:3025 |
+| BNK-05  | Bank5 read/write functional                                  | zxnext.vhd:2933-3133 | pass    | test/mmu/mmu_test.cpp:3042 |
+| BNK-06  | Bank7 read/write functional                                  | zxnext.vhd:2933-3133 | pass    | test/mmu/mmu_test.cpp:3055 |
 | CON-01  | 48K: bank 5 contended                                        | —               | missing | missing                   |
 | CON-02  | 48K: bank 5 hi contended                                     | —               | missing | missing                   |
 | CON-03  | 48K: bank 0 not contended                                    | —               | missing | missing                   |
@@ -420,40 +420,40 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CON-10  | NR 0x08 bit 6 disables contention                            | —               | missing | missing                   |
 | CON-11  | Speed > 3.5 MHz no contention                                | —               | missing | missing                   |
 | CON-12  | Pentagon timing no contention                                | —               | missing | missing                   |
-| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3091 |
-| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:3110 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | zxnext.vhd:2969,3077,3100 | pass    | test/mmu/mmu_test.cpp:3129 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | zxnext.vhd:3100-3107 | pass    | test/mmu/mmu_test.cpp:3172 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | zxnext.vhd:3077   | pass    | test/mmu/mmu_test.cpp:3190 |
+| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3093 |
+| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:3112 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | zxnext.vhd:2969,3077,3100 | pass    | test/mmu/mmu_test.cpp:3131 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | zxnext.vhd:3100-3107 | pass    | test/mmu/mmu_test.cpp:3174 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | zxnext.vhd:3077   | pass    | test/mmu/mmu_test.cpp:3192 |
 | L2M-05  | L2 bank from NR 0x12                                         | —               | missing | missing                   |
 | L2M-06  | L2 shadow bank from NR 0x13                                  | —               | missing | missing                   |
 | PRI-01  | DivMMC ROM overrides MMU                                     | —               | missing | missing                   |
 | PRI-02  | DivMMC RAM overrides MMU                                     | —               | missing | missing                   |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | zxnext.vhd:3077   | pass    | test/mmu/mmu_test.cpp:3249 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | zxnext.vhd:3077   | pass    | test/mmu/mmu_test.cpp:3251 |
 | PRI-04  | L2 does not override DivMMC                                  | —               | missing | missing                   |
-| PRI-05  | MMU page in upper 48K                                        | zxnext.vhd:2933-3133 | pass    | test/mmu/mmu_test.cpp:3270 |
-| PRI-06  | Altrom overrides normal ROM                                  | zxnext.vhd:3078   | pass    | test/mmu/mmu_test.cpp:3295 |
-| PRI-07  | Config mode overrides ROM                                    | zxnext.vhd:3044-3052 | pass    | test/mmu/mmu_test.cpp:3319 |
+| PRI-05  | MMU page in upper 48K                                        | zxnext.vhd:2933-3133 | pass    | test/mmu/mmu_test.cpp:3272 |
+| PRI-06  | Altrom overrides normal ROM                                  | zxnext.vhd:3078   | pass    | test/mmu/mmu_test.cpp:3297 |
+| PRI-07  | Config mode overrides ROM                                    | zxnext.vhd:3044-3052 | pass    | test/mmu/mmu_test.cpp:3321 |
 | P7F-16      | Shadow disables Timex `screen_mode`                                   | zxnext.vhd:3652,3768 | pass    | test/mmu/mmu_test.cpp:554  |
 | P7F-17      | Bit 3 -> `Ula::set_shadow_screen_en` routing                          | zxnext.vhd:4453      | pass    | test/mmu/mmu_test.cpp:583  |
 | DFF-09      | DFFD bit 6 round-trip via Multiface readback                          | zxnext.vhd:877,3694  | pass    | test/mmu/mmu_test.cpp:793  |
 | EF7-06      | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes (G143 closed; RE-HOMED to mmu_integration_test; mapping corrected NR 0x84→0x85 2026-05-04) | zxnext.vhd:2604,2441,2392 | missing | missing                           |
 | CON-12a     | Pentagon timing: machine type falls through switch                    | —                    | missing | missing                    |
 | CON-12b     | Pentagon timing: gate zeros 48K bank 5 contention                     | —                    | missing | missing                    |
-| L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3129 |
-| L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:3148 |
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3356 |
-| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:3377 |
-| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3404 |
+| L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3131 |
+| L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:3150 |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3358 |
+| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:3379 |
+| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3406 |
 | SD2-01      | SD2-on suppresses 0xF1FD paging                                       | zxnext.vhd:2708      | missing | missing                    |
 | SD2-02      | SD2-off lets 0xF1FD paging through                                    | —                    | missing | missing                    |
-| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:3452 |
-| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:3473 |
-| BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | pass    | test/mmu/mmu_test.cpp:3520 |
-| BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | pass    | test/mmu/mmu_test.cpp:3566 |
-| BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | pass    | test/mmu/mmu_test.cpp:3582 |
-| BOOT-NEX-06 | Loading-bar colour honoured                                           | —                    | pass    | test/mmu/mmu_test.cpp:3550 |
-| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes       | —                    | pass    | test/mmu/mmu_test.cpp:3662 |
+| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:3454 |
+| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:3475 |
+| BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | pass    | test/mmu/mmu_test.cpp:3522 |
+| BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | pass    | test/mmu/mmu_test.cpp:3568 |
+| BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | pass    | test/mmu/mmu_test.cpp:3584 |
+| BOOT-NEX-06 | Loading-bar colour honoured                                           | —                    | pass    | test/mmu/mmu_test.cpp:3552 |
+| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes       | —                    | pass    | test/mmu/mmu_test.cpp:3664 |
 | BOOT-SD-01  | mount -> unmount -> re-mount round-trip                               | —                    | missing | missing                    |
 | BOOT-SD-02  | unmount mid-transfer is safe                                          | —                    | missing | missing                    |
 | ROM-10           | 48K-mode sram_rom3 hardwire path untested                        | zxnext.vhd:2985      | pass    | test/mmu/mmu_test.cpp:1721 |
@@ -465,22 +465,22 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | SHA-01           | NR 0x69 b6 alias to shadow-screen unwired                        | zxnext.vhd:3622      | pass    | test/mmu/mmu_test.cpp:2389 |
 | SHA-02           | Shadow read-side bank 7 routing untested                         | zxnext.vhd:3653,3658   | pass    | test/mmu/mmu_test.cpp:2415 |
 | SHA-03           | Shadow + Timex cross-state discriminative                        | zxnext.vhd:3763-3766,4453 | pass    | test/mmu/mmu_test.cpp:2457 |
-| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                             | —                    | pass    | test/mmu/mmu_test.cpp:3723 |
-| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                             | —                    | pass    | test/mmu/mmu_test.cpp:3792 |
-| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)                       | —                    | pass    | test/mmu/mmu_test.cpp:3840 |
-| BOOT-Z80-01      | v1 (uncompressed) .z80 round-trip                                | —                    | pass    | test/mmu/mmu_test.cpp:3907 |
-| BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | pass    | test/mmu/mmu_test.cpp:3980 |
-| BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | pass    | test/mmu/mmu_test.cpp:4051 |
-| BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | pass    | test/mmu/mmu_test.cpp:4088 |
-| BOOT-Z80-05      | Structurally-valid .z80 with only foreign page numbers rejected  | —                    | pass    | test/mmu/mmu_test.cpp:4137 |
+| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                             | —                    | pass    | test/mmu/mmu_test.cpp:3725 |
+| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                             | —                    | pass    | test/mmu/mmu_test.cpp:3794 |
+| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)                       | —                    | pass    | test/mmu/mmu_test.cpp:3842 |
+| BOOT-Z80-01      | v1 (uncompressed) .z80 round-trip                                | —                    | pass    | test/mmu/mmu_test.cpp:3909 |
+| BOOT-Z80-02      | v2 (RLE-compressed) .z80 round-trip                              | —                    | pass    | test/mmu/mmu_test.cpp:3982 |
+| BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | pass    | test/mmu/mmu_test.cpp:4053 |
+| BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | pass    | test/mmu/mmu_test.cpp:4090 |
+| BOOT-Z80-05      | Structurally-valid .z80 with only foreign page numbers rejected  | —                    | pass    | test/mmu/mmu_test.cpp:4139 |
 | BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI                               | —                    | missing | missing                    |
-| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4282 |
-| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4505 |
+| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4284 |
+| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4507 |
 | BOOT-SNAPSAVE-04 | Save-As dialog exposes all three formats                         | —                    | missing | missing                    |
-| BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | pass    | test/mmu/mmu_test.cpp:4620 |
-| BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | pass    | test/mmu/mmu_test.cpp:4713 |
-| BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | pass    | test/mmu/mmu_test.cpp:4768 |
-| BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | pass    | test/mmu/mmu_test.cpp:4824 |
+| BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | pass    | test/mmu/mmu_test.cpp:4622 |
+| BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | pass    | test/mmu/mmu_test.cpp:4715 |
+| BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | pass    | test/mmu/mmu_test.cpp:4770 |
+| BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | pass    | test/mmu/mmu_test.cpp:4826 |
 | BOOT-FDC-01      | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive                   | —                    | missing | missing                    |
 | BOOT-FDC-02      | uPD765 motor-on / read-id behaviour                              | —                    | missing | missing                    |
 | BOOT-FDC-03      | NR 0x81 b3 (`fdc` clken) gates motor-on                          | NR 0x81 b3           | missing | missing                    |
@@ -488,9 +488,9 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CFG-06           | NR 0x89 reset-default                                            | zxnext.vhd:5061      | pass    | test/mmu/mmu_test.cpp:2753 |
 | CFG-07           | port_e3 conmem on RESET_HARD                                     | zxnext.vhd:1126      | pass    | test/mmu/mmu_test.cpp:2773 |
 | CFG-08           | port_e3 conmem on RESET_SOFT                                     | zxnext.vhd:1127      | pass    | test/mmu/mmu_test.cpp:2796 |
-| CFG-09           | nr_8c_altrom_lock_rom1 reset clears                              | zxnext.vhd:5099      | pass    | test/mmu/mmu_test.cpp:2818 |
-| CFG-10           | nr_8c_altrom_lock_rom0 reset clears                              | zxnext.vhd:5100      | pass    | test/mmu/mmu_test.cpp:2837 |
-| CFG-11           | NR 0x82-0x85 power-on default (all enables=1)                    | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2857 |
+| CFG-09           | nr_8c_altrom_lock_rom1 reset clears                              | zxnext.vhd:5099      | pass    | test/mmu/mmu_test.cpp:2819 |
+| CFG-10           | nr_8c_altrom_lock_rom0 reset clears                              | zxnext.vhd:5100      | pass    | test/mmu/mmu_test.cpp:2838 |
+| CFG-11           | NR 0x82-0x85 power-on default (all enables=1)                    | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2858 |
 
 ### Extra coverage (not in plan)
 
@@ -908,24 +908,24 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | G9-06   | `hc_eff = hc + 1` cannot be detected as a pure scroll (non-… | layer2.vhd:148       | missing | missing                          |
 | L2-G17-01  | Parallax.nex side-by-side duplication root cause (post-LoRes) | PARALLAX-NEX-INVESTIGATION.md | missing | missing                          |
 | G9-G28-01  | `hc_eff = hc + 1` per-column observable (cycle-accurate gate) | layer2.vhd:148      | missing | missing                          |
-| G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1443 |
-| G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1453 |
-| G10-03  | rewind_to_baseline restores live scroll_x to baseline        | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1458 |
-| G10-04a | apply_changes_for_line(0): no change applied → scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1464 |
-| G10-04b | apply_changes_for_line(49) before first change: scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1467 |
-| G10-04c | apply_changes_for_line(50) first change: scroll_x updated    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1470 |
-| G10-04d | apply_changes_for_line(99) between changes: scroll_x held    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1473 |
-| G10-04e | apply_changes_for_line(100): scroll_x advances to next       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1476 |
-| G10-04f | apply_changes_for_line(150): scroll_x advances to last       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1479 |
-| G10-05  | Change log capped at MAX_CHANGES_PER_FRAME (overflow drop)   | —                    | pass    | test/layer2/layer2_test.cpp:1488 |
-| L2P-G02-01 | NR 0x15 write logged with current scanline (sprite_en + priority) | zxnext.vhd:5232, 6799 | pass | test/layer2/layer2_test.cpp:1516 |
-| L2P-G02-02 | apply_changes_for_line replays NR 0x15 entries per scanline  | zxnext.vhd:6799      | pass    | test/layer2/layer2_test.cpp:1559 |
-| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243, 5278 | pass | test/layer2/layer2_test.cpp:1595 |
-| G10-G05-02 | Renderer replays clip-window snapshot per scanline           | layer2.vhd:134, 167  | pass    | test/layer2/layer2_test.cpp:1674 |
-| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220, 1135 | pass   | test/layer2/layer2_test.cpp:1703 |
-| G10-G09-02 | Renderer fetches L2 from old bank above flip-line, new below | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1763 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline        | zxnext.vhd:3916, 3924-3925 | pass | test/layer2/layer2_test.cpp:1790 |
-| G10-G14-02 | Renderer applies enable per scanline (above hidden, mid visible, post hidden) | layer2.vhd:175, 197-198 | pass | test/layer2/layer2_test.cpp:1860 |
+| G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1452 |
+| G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1463 |
+| G10-03  | rewind_to_baseline restores live scroll_x to baseline        | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1469 |
+| G10-04a | apply_changes_for_line(0): no change applied → scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1477 |
+| G10-04b | apply_changes_for_line(49) before first change: scroll_x baseline | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1481 |
+| G10-04c | apply_changes_for_line(50) first change: scroll_x updated    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1485 |
+| G10-04d | apply_changes_for_line(99) between changes: scroll_x held    | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1488 |
+| G10-04e | apply_changes_for_line(100): scroll_x advances to next       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1492 |
+| G10-04f | apply_changes_for_line(150): scroll_x advances to last       | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1495 |
+| G10-05  | Change log capped at MAX_CHANGES_PER_FRAME (overflow drop)   | —                    | pass    | test/layer2/layer2_test.cpp:1504 |
+| L2P-G02-01 | NR 0x15 write logged with current scanline (sprite_en + priority) | zxnext.vhd:5232, 6799 | pass | test/layer2/layer2_test.cpp:1532 |
+| L2P-G02-02 | apply_changes_for_line replays NR 0x15 entries per scanline  | zxnext.vhd:6799      | pass    | test/layer2/layer2_test.cpp:1575 |
+| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243, 5278 | pass | test/layer2/layer2_test.cpp:1611 |
+| G10-G05-02 | Renderer replays clip-window snapshot per scanline           | layer2.vhd:134, 167  | pass    | test/layer2/layer2_test.cpp:1690 |
+| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220, 1135 | pass   | test/layer2/layer2_test.cpp:1719 |
+| G10-G09-02 | Renderer fetches L2 from old bank above flip-line, new below | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1779 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline        | zxnext.vhd:3916, 3924-3925 | pass | test/layer2/layer2_test.cpp:1806 |
+| G10-G14-02 | Renderer applies enable per scanline (above hidden, mid visible, post hidden) | layer2.vhd:175, 197-198 | pass | test/layer2/layer2_test.cpp:1876 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 
@@ -3385,17 +3385,17 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | FE-04A        | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44)                          | keyboard.cpp                            | missing | missing                       |
 | IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | pass   | test/input/input_test.cpp:2243 |
 | IOMODE-11B    | Emulator per-tick feed: Joystick line-5 (button C) -> IoMode joy_uart_rx via run_frame() (GH #90)    | zxnext.vhd:90-91,3441-3442,3538         | pass   | test/input/input_test.cpp:2311 |
-| GH115-01      | LShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,113; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4872     |
-| GH115-02      | RShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,131; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4874     |
-| GH115-03      | LCtrl pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; release restores row 7 to 0x1F (GH #115)            | keymaps.vhd:84,113; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4879     |
-| GH115-04      | RCtrl (PS/2 extended 0x14) pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; clean release (GH #115)        | keymaps.vhd:84,165; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4881     |
-| GH115-05      | Converse of the inversion: LShift leaves row 7 at 0x1F and LCtrl leaves row 0 at 0x1F                | keymaps.vhd:83-84; ps2_keyb.vhd:197-198     | pass    | test/input/input_test.cpp:4895     |
-| GH115-06      | CapsLock pulls row 0 col 0 AND row 3 col 1 (CS + 2 = CAPS LOCK); both clear on release               | keymaps.vhd:43,89,131; membrane.vhd:236-237 | pass    | test/input/input_test.cpp:4904     |
-| GH115-07      | backslash pulls row 0 col 0 AND row 3 col 3 (CS + 4 = INV VIDEO); both clear on release              | keymaps.vhd:44,94,131; membrane.vhd:236-237 | pass    | test/input/input_test.cpp:4908     |
-| GH115-08      | slash pulls row 7 col 1 AND row 0 col 4 (SS + V = '/'); both clear on release                        | keymaps.vhd:42,127; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4911     |
-| GH115-09      | minus pulls row 7 col 1 AND row 6 col 3 (SS + J = '-'); both clear on release                        | keymaps.vhd:48,127; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4914     |
-| GH115-10      | equals pulls row 7 col 1 AND row 6 col 1 (SS + L = '='); both clear on release                       | keymaps.vhd:48,129; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4917     |
-| GH115-11      | CapsLock / backslash also read back on NR 0xB1 as 0x02 / 0x10; 0x00 with no key down                 | keymaps.vhd:43-44; membrane.vhd:253         | pass    | test/input/input_test.cpp:4934     |
+| GH115-01      | LShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,113; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4880     |
+| GH115-02      | RShift pulls ONLY row 0 col 0 (CAPS SHIFT) low; release restores row 0 to 0x1F (GH #115)             | keymaps.vhd:83,131; ps2_keyb.vhd:198        | pass    | test/input/input_test.cpp:4885     |
+| GH115-03      | LCtrl pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; release restores row 7 to 0x1F (GH #115)            | keymaps.vhd:84,113; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4890     |
+| GH115-04      | RCtrl (PS/2 extended 0x14) pulls ONLY row 7 col 1 (SYMBOL SHIFT) low; clean release (GH #115)        | keymaps.vhd:84,165; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4895     |
+| GH115-05      | Converse of the inversion: LShift leaves row 7 at 0x1F and LCtrl leaves row 0 at 0x1F                | keymaps.vhd:83-84; ps2_keyb.vhd:197-198     | pass    | test/input/input_test.cpp:4912     |
+| GH115-06      | CapsLock pulls row 0 col 0 AND row 3 col 1 (CS + 2 = CAPS LOCK); both clear on release               | keymaps.vhd:43,89,131; membrane.vhd:236-237 | pass    | test/input/input_test.cpp:4925     |
+| GH115-07      | backslash pulls row 0 col 0 AND row 3 col 3 (CS + 4 = INV VIDEO); both clear on release              | keymaps.vhd:44,94,131; membrane.vhd:236-237 | pass    | test/input/input_test.cpp:4930     |
+| GH115-08      | slash pulls row 7 col 1 AND row 0 col 4 (SS + V = '/'); both clear on release                        | keymaps.vhd:42,127; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4935     |
+| GH115-09      | minus pulls row 7 col 1 AND row 6 col 3 (SS + J = '-'); both clear on release                        | keymaps.vhd:48,127; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4940     |
+| GH115-10      | equals pulls row 7 col 1 AND row 6 col 1 (SS + L = '='); both clear on release                       | keymaps.vhd:48,129; ps2_keyb.vhd:197        | pass    | test/input/input_test.cpp:4945     |
+| GH115-11      | CapsLock / backslash also read back on NR 0xB1 as 0x02 / 0x10; 0x00 with no key down                 | keymaps.vhd:43-44; membrane.vhd:253         | pass    | test/input/input_test.cpp:4962     |
 
 ### Companion integration suite — `test/input/input_integration_test.cpp`
 
