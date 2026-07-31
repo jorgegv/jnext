@@ -672,10 +672,49 @@ ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
 > ("reset() preserves config_mode"), plus **CFG-08** for the soft-reset case.
 > `mmu_test` CFG-06 documents the mirror side of the same fact.
 
-Rows CFG-05..CFG-11 in `mmu_test.cpp` extend this category (bit-13 half-bank
+Rows CFG-05..CFG-12 in `mmu_test.cpp` extend this category (bit-13 half-bank
 select, reset behaviour, out-of-range banks, setter round-trip, and the
 `rom_in_sram` branch-4 variants) and are recorded in the traceability matrix's
 "Extra coverage (not in plan)" table for this suite.
+
+#### NR 0x04 `nr_04_romram_bank` reset domain (GH #194)
+
+**The VHDL PRESERVES `nr_04_romram_bank` across reset.**
+`grep -n nr_04_romram_bank zxnext.vhd` returns exactly four sites — `:1104`
+(signal declaration with its power-on initialiser `(others => '0')`), `:3045`
+(the use in the branch chain above), and `:5717` / `:5732` (the NR 0x04 write
+handlers of `gen_romram_234` / `gen_romram_5`, each in a generate process whose
+only clause is `if nr_04_we = '1'`). The signal is **absent from the NR state
+process's `if reset = '1'` block at `:4930-5111`**, and `reset` there is
+`reset_hard or reset_soft` (`zxnext_top_issue2.vhd:840`, `zxnext.vhd:1730`), so
+neither reset arm touches it. A declaration initialiser applies at FPGA
+configuration, not at every reset.
+
+jnext previously cleared it in **both** `Mmu::reset()` and `NextReg::reset()`,
+citing `:1104` — the same declaration-default-mistaken-for-a-reset-clause error
+already fixed for `nr_03_config_mode` (G62) and `nr_03_machine_type` (G63).
+`mmu_test` **CFG-06** asserted the clearing as correct and was corrected to
+assert preservation.
+
+A hardware HARD reset *does* reconfigure the FPGA
+(`zxnext_top_issue2.vhd:1195` starts flashboot on `zxn_reset_hard`), so the
+`:1104` default genuinely applies there. jnext reproduces that by
+**reconstructing** the emulator in `emulator_cold_boot()`. The two paths must
+therefore differ, and are proven apart:
+
+| ID         | Test                                          | Setup                                             | Expected                                          |
+|------------|-----------------------------------------------|---------------------------------------------------|---------------------------------------------------|
+| CFG-06     | `Mmu::reset()` (hard arm) preserves the bank  | config_mode=1, NR 0x04=0x30, `reset()`            | slot-0 write still routes to SRAM page 96, not 0  |
+| CFG-12     | `Mmu::reset(hard=false)` preserves it too     | config_mode=1, NR 0x04=0x30, `reset(false)`       | same — VHDL `reset` covers both arms              |
+| RSTD-04-01 | RESET_SOFT preserves `nr_04_romram_bank`      | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `nextreg().nr_04_romram_bank()` still 0x30        |
+| RSTD-04-02 | RESET_HARD clears it via the host cold boot   | NR 0x04 ← 0x30, NR 0x02 ← 0x02, `emulator_cold_boot()` | request raised, bank still 0x30 mid-way, 0x00 after |
+
+CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01/02 are hosted in
+`test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`), the only
+tier where hard and soft reset are distinguishable. CFG-12 exists because the
+`hard` flag makes a one-armed model possible: the mutation
+`if (!hard) nr_04_romram_bank_ = 0;` passed CFG-06 and both RSTD-04 rows (the
+`Mmu` mirror has no Emulator-tier accessor), and CFG-12 is what catches it.
 
 ### Category 14: Address Translation
 
