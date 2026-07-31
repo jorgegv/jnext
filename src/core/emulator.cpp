@@ -8984,20 +8984,69 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     // is vc=min_vactive (64 for NEXT 50Hz) — display_origin().vc. Using
     // DISP_Y (32) instead would fire WAITs 32 lines too early (parallax.nex
     // bottom-third banding); see G164v2 history.
+    //
+    // GH #181 — the counters the Copper compares against are the ULA PIXEL
+    // counters `hc_ula` / `cvc`, NOT the raw master-cycle position:
+    //
+    //   zxnext.vhd:3949-3950   hcount_i => hc, vcount_i => cvc
+    //   zxnext.vhd:6737-6739   o_hc_ula => hc, o_vc_cu => cvc
+    //   copper.vhd:35-36       hcount_i/vcount_i : unsigned(8 downto 0)
+    //   copper.vhd:94          hcount_i >= (hpos & "000") + 12
+    //
+    // `hc_ula` is a 7 MHz per-PIXEL counter (zxula_timing.vhd:427-436,
+    // clocked on i_CLK_7) — a quarter of the 28 MHz master rate — and its
+    // zero is at raw hc == c_min_hactive - 11, not at the raw line start
+    // (VideoTiming::hc_ula_zero_raw_hc()). `cvc` counts lines in THAT
+    // counter's frame: it steps on the same `ula_max_hc` pulse that wraps
+    // hc_ula (zxula_timing.vhd:457-470), so its line boundary is the same
+    // shifted one, not the raw hc==0 boundary.
+    //
+    // Both are therefore obtained by shifting the raw frame-relative
+    // master-cycle position back by `hc_ula_zero_raw_hc()` PIXELS, then
+    // splitting the result into (line, pixel-in-line) exactly as before.
+    // Pre-fix jnext passed the raw 0..(mcpl-1) master-cycle offset as `hc`
+    // — wrong by 4x in scale AND by the origin — so every WAIT with a
+    // non-trivial hpos fired ~a quarter of the way into the line it should
+    // have, up to a full row early.
     const uint64_t mcpl = timing_.master_cycles_per_line;
+    const uint64_t mcpf = timing_.master_cycles_per_frame;
     const int lpf       = timing_.lines_per_frame;
     const int origin_vc = static_cast<int>(video_timing_.display_origin().vc);
+    const uint64_t shift_mc =
+        static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
 
+    // Rebase onto the hc_ula/cvc counter frame. The `+ mcpf` keeps the
+    // subtraction non-negative in unsigned arithmetic (shift_mc << mcpf); the
+    // `% mcpf` normalises `shifted` to one frame so `uline` lands in
+    // [0, lpf) — the range the incremental loop below reads it as.
+    //
+    // That normalisation is NORMALISATION, not behaviour, and no test can
+    // pin it: `mcpf == lpf * mcpl` exactly, so the downstream `% mcpl` and
+    // `% lpf` already reduce both `line_mc` and `cvc` to the same values
+    // with or without it — dropping it (either here, or as a separate
+    // `elapsed0 % mcpf`, which is dead for the same reason) leaves every
+    // observable identical. Verified by mutation, not assumed. It stays
+    // because an out-of-range `uline` would be a trap for the next reader,
+    // and it costs one division per call, outside the loop.
+    //
+    // What IS behaviour is the frame-boundary carry it exists to express:
+    // the hc_ula/cvc line `uline == lpf-1` STRADDLES two jnext frames, and
+    // its hc_ula 331..455 tail is raw line 0 of the next one. That is
+    // covered — GH181-HCULA-04 in copper_integration_test places a WAIT
+    // reachable only in that tail.
     const uint64_t elapsed0 = pre_clock - frame_cycle_;
-    int hc  = static_cast<int>(elapsed0 % mcpl);
-    int vc0 = static_cast<int>(elapsed0 / mcpl);
-    int cvc = (vc0 - origin_vc + lpf) % lpf;
+    const uint64_t shifted  = (elapsed0 + mcpf - shift_mc) % mcpf;
+
+    // `line_mc` counts master cycles since hc_ula==0; hc_ula = line_mc / 4.
+    int line_mc = static_cast<int>(shifted % mcpl);
+    int uline   = static_cast<int>(shifted / mcpl);
+    int cvc     = (uline - origin_vc + lpf) % lpf;
     const int mcpl_i = static_cast<int>(mcpl);
 
     for (uint64_t c = 0; c < master_cycles; ++c) {
-        copper_.execute(hc, cvc, nextreg_);
-        if (++hc == mcpl_i) {
-            hc = 0;
+        copper_.execute(line_mc >> 2, cvc, nextreg_);
+        if (++line_mc == mcpl_i) {
+            line_mc = 0;
             if (++cvc == lpf) cvc = 0;
         }
     }

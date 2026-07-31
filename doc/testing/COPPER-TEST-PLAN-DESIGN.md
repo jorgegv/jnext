@@ -584,3 +584,95 @@ Row (in `copper_integration_test`):
 Mutation evidence: reverting the `copper_.set_c_max_vc(...)` re-push in
 `repush_video_timing_from_machine_timing()` turns T58-CVC-01 RED
 (NR 0x14 stays 0x00); restoring it turns the row green.
+
+## GH #181 append (2026-07-30) — WAIT `hpos` is compared against `hc_ula`, not master cycles
+
+`copper.vhd:94` compares the WAIT threshold against `hcount_i`, and
+`hcount_i` **is** `hc_ula`, with `vcount_i` **is** `cvc` — no conversion:
+
+```
+zxnext.vhd:3949-3950   hcount_i => hc,     vcount_i => cvc
+zxnext.vhd:6737-6739   o_hc_ula => hc,     o_vc_cu  => cvc
+copper.vhd:35-36       hcount_i / vcount_i : unsigned(8 downto 0)
+```
+
+`hc_ula` is a **7 MHz per-PIXEL** counter (`zxula_timing.vhd:427-438`,
+clocked on `i_CLK_7`), reset when the raw frame counter `hc` equals
+`ula_min_hactive = c_min_hactive - 12` (`:423-424`). The reset is
+REGISTERED, so it lands one tick later and
+
+```
+hc_ula == 0   <=>   raw hc == c_min_hactive - 11
+```
+
+(the "EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME COUNTER" note at
+`zxula_timing.vhd:344`; the same origin `AttributeMux` already derives,
+`attribute_mux.h:281`). `cvc` steps on the same `ula_max_hc` pulse
+(`:457-470`), so its line boundary is that shifted one too.
+
+Pre-fix `Emulator::tick_copper_for_master_cycles` passed the raw
+**28 MHz master-cycle offset into the raw scanline, origin 0** — wrong
+by 4x in scale AND by the 125-pixel origin. Every WAIT with a
+non-trivial `hpos` fired about a quarter of the way into the line it
+should have, up to a full row early. Fix: rebase the frame-relative
+master-cycle position by `VideoTiming::hc_ula_zero_raw_hc()` pixels and
+pass `line_mc >> 2`.
+
+Rows (in `copper_integration_test`), all measured against a NOP sled
+(8 raw pixels per instruction) on the 128K/Next 50 Hz slot
+(`c_max_hc=455`, `c_min_hactive=136`, `c_min_vactive=64`):
+
+| ID | Description | VHDL |
+|----|-------------|------|
+| GH181-HCULA-01 | ORIGIN: `WAIT(hpos=0, vpos=100)` (threshold 12) fires at `hc_ula==12`, i.e. raw hc `125+12 = 137` of raw line 164 — not at raw hc 3 (pre-fix: 12 master cycles from the raw line start) | copper.vhd:94; zxula_timing.vhd:423-436; zxnext.vhd:3949,6737 |
+| GH181-HCULA-02 | SCALE: two WAITs on one `cvc` line differing by `hpos` 0→50 are exactly `50*8 = 400` raw PIXELS apart, not 400 master cycles (= 100 pixels) | copper.vhd:94; zxula_timing.vhd:427-438 |
+| GH181-HCULA-03 | show512 worked example: `WAIT(vpos=95, hpos=52)` (threshold 428) → `hc_ula=428` = raw hc `(125+428) mod 456 = 97`, which precedes the `cvc` line boundary at raw hc 125, so it is raw line **160** (fb row 128) — not raw line 159 (fb row 127) | copper.vhd:94; zxula_timing.vhd:423-436,457-470 |
+
+| GH181-HCULA-04 | FRAME-BOUNDARY CARRY: the hc_ula line `uline == c_max_vc` straddles two jnext frames — its `hc_ula` 331..455 tail is raw line **0** of the next frame, where `cvc = (310-64) mod 311 = 246`. `WAIT(vpos=246, hpos=40)` (threshold 332, raw hc `(125+332) mod 456 = 1`) is reachable ONLY there, so the MOVE lands at the START of a frame — pre-fix it landed at raw pixel 141443, raw line 310 | copper.vhd:94; zxula_timing.vhd:423-436,457-470 |
+
+The three integration rows above measure through a NOP sled and cannot
+resolve a single pixel, so the **`+1`** — the whole substance of the
+origin correction — is additionally pinned by exact-value rows in
+`videotiming_test` (section 3, beside VT-07/VT-08), one per machine
+TIMING mode plus the machine-axis entry point:
+
+| ID | Description | VHDL |
+|----|-------------|------|
+| VT-GH181-01 | 48K timing: `hc_ula_zero_raw_hc()` = `c_min_hactive - 11` = **117** | zxula_timing.vhd:261,423-436,344 |
+| VT-GH181-02 | 128K timing: = **125** | zxula_timing.vhd:195,423-436,344 |
+| VT-GH181-03 | +3 timing: = **125** | zxula_timing.vhd:195,423-436,344 |
+| VT-GH181-04 | Pentagon timing: = **117** | zxula_timing.vhd:159,423-436,344 |
+| VT-GH181-05 | Next (`init(ZXN_ISSUE2)`, 128K-class slot): = **125** | zxula_timing.vhd:195,423-436,344 |
+| VT-GH181-06 | the registered reset lands exactly ONE pixel after the armed origin, stated independently of the absolute values | zxula_timing.vhd:424 vs :427-436 |
+
+Mutation evidence:
+
+* full pre-fix domain (`shift_mc = 0` **and** `line_mc` unshifted) — all
+  FOUR integration rows RED, at exactly the predicted pre-fix positions
+  (74794 / delta 96 / 72618 = raw line 159 / 141452 = raw line 310);
+* origin only (`shift_mc = 0`, keep `>> 2`) — 01 and 03 RED, 02 GREEN
+  (02 is a delta, so it is origin-independent by construction);
+* scale only (keep shift, drop `>> 2`) — 01, 02 and 03 RED;
+* **`+1` dropped from `hc_ula_zero_raw_hc()`** — all SIX VT-GH181 rows
+  RED (117→116, 125→124, delta 1→0). The four integration rows stay
+  GREEN, which is exactly why the VT rows exist: an 8-pixel NOP sled
+  with 16 px of slack cannot see a one-pixel origin error.
+
+Not independently testable, deliberately: the `% mcpf` normalisation in
+`tick_copper_for_master_cycles`. `mcpf == lpf * mcpl` exactly, so the
+downstream `% mcpl` / `% lpf` reduce `line_mc` and `cvc` identically with
+or without it — every observable is unchanged. It is normalisation (keep
+`uline` in `[0, lpf)` for the next reader), not behaviour. The behaviour
+it exists to express — the frame-straddling `cvc` line — is what
+GH181-HCULA-04 covers.
+
+Machine-type coverage: `copper_integration_test` runs on ZXN_ISSUE2 only.
+`hc_ula_zero_raw_hc()` and the rebase derive generically from
+`min_hactive_` / `min_vactive_` / `hc_max_` with no machine-specific
+branching, and VT-GH181-01..05 pin the one machine-varying input across
+all four timing modes, so a per-machine Copper harness would re-test
+`VideoTiming`'s table through a coarser instrument. Not added.
+
+End-to-end witness: `show512.nex` at frame 300 differs between the
+pre-fix and fixed builds on exactly **one framebuffer row (127)**, full
+width — the anomaly filed in GH #181, healed.

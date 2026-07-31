@@ -12,7 +12,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CPU/Z80N IM2 regr.    |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper (integration)  |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper (integration)  |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      250 |      250 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -42,7 +42,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video             |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
-| VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
+| VideoTiming           |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -96,6 +96,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6540** | **6540** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6550** | **6550** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

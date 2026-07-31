@@ -28,7 +28,7 @@
 | Input                                      |   185 |  175 |    0 |    0 |      10 |        169 |
 | Rewind                                     |    28 |    0 |    0 |    0 |      28 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
-| VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         15 |
+| VideoTiming                                |    27 |   22 |    0 |    0 |       5 |         21 |
 | Contention                                 |    76 |   70 |    0 |    0 |       6 |         57 |
 | LoRes                                      |    48 |   48 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    21 |   16 |    0 |    0 |       5 |         34 |
@@ -41,7 +41,7 @@
 | Companion: mmu_integration_test            |    59 |   59 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |     8 |    8 |    0 |    0 |       0 |          6 |
 | Companion: compositor_integration_test     |     2 |    2 |    0 |    0 |       0 |          2 |
-| Companion: copper_integration_test         |     3 |    3 |    0 |    0 |       0 |          0 |
+| Companion: copper_integration_test         |     3 |    3 |    0 |    0 |       0 |          4 |
 | Companion: tilemap_fetch_split_test        |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    10 |   10 |    0 |    0 |       0 |         28 |
@@ -49,9 +49,9 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        867 |
+| **Total**                                  |  3036 | 2708 |    0 |    2 |     326 |        877 |
 
-Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6540**.
+Rows the sections above carry: **3036**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2946**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6550**.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -3529,24 +3529,24 @@ Plan: `doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md`. The VideoTiming expansion p
 | VT-07   | 48K `ula_prefetch_origin_hc()` = 128 - 12 = 116                                                | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:167            |
 | VT-08   | 128K `ula_prefetch_origin_hc()` = 136 - 12 = 124                                               | zxula_timing.vhd:423            | pass   | test/videotiming/videotiming_test.cpp:174            |
 | VT-09   | Pentagon `ula_prefetch_origin_hc()` = 128 - 12 = 116                                           | zxula_timing.vhd:423            | missing | missing                                              |
-| VT-10   | 48K `int_position()` = {116, 0}                                                                | zxula_timing.vhd:257,265        | pass   | test/videotiming/videotiming_test.cpp:193            |
-| VT-11   | 128K `int_position()` = {128, 1}                                                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:200            |
+| VT-10   | 48K `int_position()` = {116, 0}                                                                | zxula_timing.vhd:257,265        | pass   | test/videotiming/videotiming_test.cpp:283            |
+| VT-11   | 128K `int_position()` = {128, 1}                                                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:290            |
 | VT-12   | Pentagon `int_position()` = {439, 319}                                                         | zxula_timing.vhd:155,163        | missing | missing                                              |
-| VT-13   | +3 `int_position()` = {126, 1} — VHDL `i_timing(0)='1'` selects 126                            | zxula_timing.vhd:189,199        | pass   | test/videotiming/videotiming_test.cpp:208            |
-| VT-14   | 48K 60 Hz frame length = 448 * 264 / 2 = 59 136 T-states                                       | zxula_timing.vhd:290,298        | pass   | test/videotiming/videotiming_test.cpp:233            |
-| VT-15   | 128K 60 Hz frame length = 456 * 264 / 2 = 60 192 T-states                                      | zxula_timing.vhd:230,238        | pass   | test/videotiming/videotiming_test.cpp:243            |
-| VT-16   | 60 Hz `display_origin().vc` = 40 for both 48K and 128K                                         | zxula_timing.vhd:297,237        | pass   | test/videotiming/videotiming_test.cpp:254            |
-| VT-17   | 60 Hz `int_position().vc` = 0 for both 48K and 128K                                            | zxula_timing.vhd:293,233        | pass   | test/videotiming/videotiming_test.cpp:264            |
-| VT-17b  | +3 60 Hz `int_position().hc` = 126 vs 128K 60 Hz = 128 — `i_timing(0)='1'` split               | zxula_timing.vhd:221,223        | pass   | test/videotiming/videotiming_test.cpp:271            |
-| VT-18   | 48K target=0 → `int_line_num() == c_max_vc == 311`                                             | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:295            |
-| VT-19   | 128K target=0 → `int_line_num() == 310`                                                        | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:304            |
+| VT-13   | +3 `int_position()` = {126, 1} — VHDL `i_timing(0)='1'` selects 126                            | zxula_timing.vhd:189,199        | pass   | test/videotiming/videotiming_test.cpp:298            |
+| VT-14   | 48K 60 Hz frame length = 448 * 264 / 2 = 59 136 T-states                                       | zxula_timing.vhd:290,298        | pass   | test/videotiming/videotiming_test.cpp:323            |
+| VT-15   | 128K 60 Hz frame length = 456 * 264 / 2 = 60 192 T-states                                      | zxula_timing.vhd:230,238        | pass   | test/videotiming/videotiming_test.cpp:333            |
+| VT-16   | 60 Hz `display_origin().vc` = 40 for both 48K and 128K                                         | zxula_timing.vhd:297,237        | pass   | test/videotiming/videotiming_test.cpp:344            |
+| VT-17   | 60 Hz `int_position().vc` = 0 for both 48K and 128K                                            | zxula_timing.vhd:293,233        | pass   | test/videotiming/videotiming_test.cpp:354            |
+| VT-17b  | +3 60 Hz `int_position().hc` = 126 vs 128K 60 Hz = 128 — `i_timing(0)='1'` split               | zxula_timing.vhd:221,223        | pass   | test/videotiming/videotiming_test.cpp:361            |
+| VT-18   | 48K target=0 → `int_line_num() == c_max_vc == 311`                                             | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:385            |
+| VT-19   | 128K target=0 → `int_line_num() == 310`                                                        | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:394            |
 | VT-20   | Pentagon target=0 → `int_line_num() == 319`                                                    | zxula_timing.vhd:566-570        | missing | missing                                              |
-| VT-21   | Any machine: target=10 → `int_line_num() == 9`                                                 | zxula_timing.vhd:568            | pass   | test/videotiming/videotiming_test.cpp:314            |
-| VT-22   | 48K target=10: line-int fires at `cvc=9, hc_ula=255`                                           | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:363            |
-| VT-23   | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (target=0 wrap)                 | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:383            |
-| VT-24   | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v`                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:398            |
-| VT-25   | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc`                        | zxula_timing.vhd:577            | pass   | test/videotiming/videotiming_test.cpp:426            |
-| VT-26   | Walkback: pulse-counter accessors must be sole source — `Emulator::line_int_*` removed         | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:449            |
+| VT-21   | Any machine: target=10 → `int_line_num() == 9`                                                 | zxula_timing.vhd:568            | pass   | test/videotiming/videotiming_test.cpp:404            |
+| VT-22   | 48K target=10: line-int fires at `cvc=9, hc_ula=255`                                           | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:453            |
+| VT-23   | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (target=0 wrap)                 | zxula_timing.vhd:566-570        | pass   | test/videotiming/videotiming_test.cpp:473            |
+| VT-24   | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v`                               | zxula_timing.vhd:187,199        | pass   | test/videotiming/videotiming_test.cpp:488            |
+| VT-25   | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc`                        | zxula_timing.vhd:577            | pass   | test/videotiming/videotiming_test.cpp:516            |
+| VT-26   | Walkback: pulse-counter accessors must be sole source — `Emulator::line_int_*` removed         | zxula_timing.vhd:563-583        | pass   | test/videotiming/videotiming_test.cpp:539            |
 
 
 ## Contention — `test/contention/contention_test.cpp`
