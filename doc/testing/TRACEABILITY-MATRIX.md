@@ -3603,8 +3603,8 @@ into this suite as part of the 2026-04-26 closure.
 | CT-INT-03    | Regression screenshot — 48K contention-sensitive demo               | —                                   | pass   | test/contention/contention_test.cpp:1494    |
 | CT-FUSE-01   | 48K, `LD A,(0x4000)` from page 0x0A — M1 fetch contention (G141)    | zxula.vhd:583,595; z80_macros.h:109 | pass   | test/contention/contention_test.cpp:1874    |
 | CT-FUSE-02   | 48K, `LDIR` over page 0x0A — no-MREQ tail contention (G141)         | zxula.vhd:583,595; z80_macros.h:118 | pass   | test/contention/contention_test.cpp:1952    |
-| CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (**RETIRED 2026-04-26** — port-write cycles never flowed through the FUSE in-opcode macros; CT-IO-01..04/07..09 + CT-INT-01 cover them exhaustively) | —                                    | missing | missing                                     |
-| CT-FUSE-04   | 48K, `IN A,(0xFE)` in display window — port-read contention (**RETIRED 2026-04-26** — same reasoning as CT-FUSE-03 for port-read cycles; CT-IO-01..04/07..09 + CT-INT-01 cover them exhaustively) | —                                    | missing | missing                                     |
+| CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (real, implementable gap — CT-IO-\*/CT-INT-01 do NOT cover it, see plan doc §16; on=2995/off=2806/delta=189 T-states confirmed constructible) | zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
+| CT-FUSE-04   | 48K, `IN A,(0xFE)` in display window — port-read contention (same reasoning as CT-FUSE-03 for the read side, see plan doc §16) | zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
 | CT-FUSE-05   | FUSE-table retirement bypass-toggle (G53)                           | zxnext.vhd:4481                       | pass   | test/contention/contention_test.cpp:2057    |
 | CT-DELAY-01  | Full-frame integration drift bound — 48K/128K/+3 ∈ (0, 6·N]; Pent=0 | zxula.vhd:582-595, zxnext.vhd:4481-4492 | pass   | test/contention/contention_test.cpp:1599    |
 

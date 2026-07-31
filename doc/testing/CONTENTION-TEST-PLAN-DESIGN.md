@@ -668,23 +668,41 @@ M-cycle boundary, not M1 fetch or no-MREQ tail.
 
 **G141 landed 2026-04-26.** CT-FUSE-01/02 (M1 fetch, no-MREQ tail)
 flipped to `check()` — both cycle classes are now wired into
-`ContentionModel::contention_tick()`. CT-FUSE-03/04 (port IN/OUT
-contention) were RETIRED instead of flipped: port cycles never ran
-through the FUSE in-opcode `contend_*` macros in the first place —
-they are owned entirely by FUSE's own port callbacks
-(`fuse_z80_readport`/`writeport`, `src/cpu/z80_cpu.cpp`), which were
-wired into `ContentionModel::contention_tick()` in Phase 2 (commit
-2026-04-26), ahead of G141. Retiring these two rows avoids duplicating
-coverage already exhaustive at CT-IO-01..04/07..09 (bare-class port
-decode) + CT-INT-01 (full integration) — see
-`contention_test.cpp:1994-2018`.
+`ContentionModel::contention_tick()`.
+
+CT-FUSE-03/04 (port IN/OUT contention) stay **`missing`** — a prior
+pass on this branch (GH #196 phase 1.1) mis-classified them as
+RETIRED, claiming they were "exhaustively covered" by CT-IO-01..09 +
+CT-INT-01. That claim was reviewed and rejected as factually wrong:
+`CT-IO-01..09` call `ContentionModel::port_contend()` directly on a
+bare, unbuilt-CPU model — decode-only, they never execute an actual
+`IN`/`OUT` opcode or invoke the stretch/LUT path — and `CT-INT-01` is
+a memory-only HALT-loop integration smoke with zero port I/O. Neither
+proves the port-write/port-read *stretch* CT-FUSE-03/04 were written
+to measure. FUSE's own port callbacks
+(`fuse_z80_readport`/`writeport`, `src/cpu/z80_cpu.cpp`) were wired
+into `ContentionModel::contention_tick()` in Phase 2 (commit
+2026-04-26), ahead of G141, so the underlying mechanism likely already
+works — but nothing today tests it through a real opcode.
+
+This is a real, currently uncovered, and genuinely **implementable**
+gap — not a duplicate, and not a WONT. The test is constructible today
+with the same ON/OFF T-state-delta idiom CT-FUSE-01/02 already use for
+memory contention, just executing a real `OUT`/`IN` opcode instead of
+`LD`/`LDIR`. Independently re-verified during the phase-1.1 review with
+a throwaway probe — `LD B,100 / OUT (0xFE),A / NOP / DJNZ / HALT`
+inside the 48K contended display window — measuring on=2995, off=2806,
+delta=189 T-states: exactly the port-write stretch CT-FUSE-03
+specifies. See `contention_test.cpp:1994-2018` for the (still-RETIRED,
+unchanged in this pass) test-source comment; the rows below reflect
+the corrected disposition.
 
 | ID         | Phase | Stimulus                                                                              | Expected                                                                                                          | VHDL                                |
 |------------|-------|---------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|-------------------------------------|
-| CT-FUSE-01 | C     | 48K, run a `LD A,(0x4000)` from page 0x0A inside the contended display window         | M1 fetch contended (added T-states match VHDL `wait_s` LUT for the M1 cycle); discriminate vs. uncontended page 0. skip — FUSE `memory_map_read[].contended` zero-filled (see G141) | `zxula.vhd:583, 595`; `z80_macros.h:109` |
-| CT-FUSE-02 | C     | 48K, run a `LDIR` block-copy across page 0x0A inside the contended display window     | The `no-MREQ` tail T-states are stretched once per iteration; total opcode T-state count exceeds uncontended baseline by VHDL-derived sum. skip — FUSE no-MREQ macros inert (see G141) | `zxula.vhd:583, 595`; `z80_macros.h:118-122` |
-| CT-FUSE-03 | —     | ~~48K, `OUT (0xFE),A` inside the contended display window with `port_contend=1` path~~    | **RETIRED 2026-04-26** — port-write cycles never flowed through the FUSE in-opcode `contend_*` macros; they are owned by FUSE's own port callbacks (`fuse_z80_writeport`, `src/cpu/z80_cpu.cpp`), wired into `ContentionModel::contention_tick()` in Phase 2, ahead of G141. Exhaustively covered by CT-IO-01..04/07..09 (bare-class port decode) + CT-INT-01 (full integration), per the ARB-G65-01 precedent (`test/copper/copper_test.cpp:1451-1473`). No `check()` row exists — see `contention_test.cpp:1994-2018`. | — |
-| CT-FUSE-04 | —     | ~~48K, `IN A,(0xFE)` inside the contended display window with `port_contend=1` path~~     | **RETIRED 2026-04-26** — same reasoning as CT-FUSE-03 for port-read cycles (`fuse_z80_readport`). Exhaustively covered by CT-IO-01..04/07..09 + CT-INT-01. No `check()` row exists — see `contention_test.cpp:1994-2018`. | — |
+| CT-FUSE-01 | C     | 48K, run a `LD A,(0x4000)` from page 0x0A inside the contended display window         | M1 fetch contended (added T-states match VHDL `wait_s` LUT for the M1 cycle); discriminate vs. uncontended page 0. Live `check()` row since G141 (2026-04-26) | `zxula.vhd:583, 595`; `z80_macros.h:109` |
+| CT-FUSE-02 | C     | 48K, run a `LDIR` block-copy across page 0x0A inside the contended display window     | The `no-MREQ` tail T-states are stretched once per iteration; total opcode T-state count exceeds uncontended baseline by VHDL-derived sum. Live `check()` row since G141 (2026-04-26) | `zxula.vhd:583, 595`; `z80_macros.h:118-122` |
+| CT-FUSE-03 | C     | 48K, `OUT (0xFE),A` inside the contended display window, ON/OFF T-state-delta idiom mirroring CT-FUSE-01/02 — real `OUT` opcode executed through the CPU core, contention enabled vs. disabled | Port-write cycle stretches per `wait_s`; ON-total exceeds OFF-total by the VHDL-derived delta. **Status: `missing`** — no `check()` row exists, but the gap is real and constructible: independently re-verified during GH #196 phase-1.1 review with a throwaway probe (`LD B,100 / OUT (0xFE),A / NOP / DJNZ / HALT` in the 48K contended window) measuring on=2995, off=2806, delta=189 T-states — exactly the stretch this row specifies. NOT covered by CT-IO-01..09 (decode-only `port_contend()` on a bare, unbuilt model — no opcode executed) or CT-INT-01 (memory-only smoke, zero port I/O) | `zxula.vhd:595`; `zxnext.vhd:4496` |
+| CT-FUSE-04 | C     | 48K, `IN A,(0xFE)` inside the contended display window, same ON/OFF idiom, real `IN` opcode executed | Port-read cycle stretches per `wait_s`; ON-total exceeds OFF-total by the VHDL-derived delta. **Status: `missing`** — same reasoning as CT-FUSE-03 for the port-read side; NOT covered by CT-IO-01..09 or CT-INT-01 | `zxula.vhd:595`; `zxnext.vhd:4496` |
 
 ## Integration test suggestions
 
