@@ -376,7 +376,7 @@ Load-bearing rationale that used to live as long comments inside
   measured and listed in the header (`MAY WRONGLY FLAG`): a subshell
   `( trap … )`, and a live `eval` or heredoc head that merely mentions the word.
   Like `lint-assertions.sh` the lint self-tests on every invocation, here with a
-  pinned 79-case table (52 must flag, 27 must not), **one fixture file per case**
+  pinned 86-case table (57 must flag, 29 must not), **one fixture file per case**
   — a single combined fixture asserting only a total let a mutation lose one case,
   gain another, and report green. The table's own IDs are cross-checked against the
   fixture files on every run, in both directions: a documented case with no fixture
@@ -395,7 +395,13 @@ Load-bearing rationale that used to live as long comments inside
   that cannot introduce a command (`case`/`for`/`select`/`function` take a name,
   `in` is syntax, `done`/`esac`/`fi`/`}`/`]]` terminate, `[[` opens an
   expression) are excluded deliberately, and `exec` is excluded because it
-  cannot run a builtin at all. `harness-selftest`
+  cannot run a builtin at all. A seventh round added the one word in that set
+  which takes options: bash's `time [-p] [--] pipeline`, where `-p` is the
+  standard POSIX timing flag ordinary scripts and CI use, so `time -p trap …`
+  is an accident and not an evasion. Matched from the documented synopsis
+  rather than as a general flag run — `time -p -p` and `time --posix` are both
+  invalid bash, so a looser match would only claim reach the shell has not.
+  Every other word in the set was checked and takes none. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
   its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.

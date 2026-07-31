@@ -255,7 +255,7 @@ a subshell `( trap … )`, or a live `eval`/heredoc head that merely mentions th
 is done on a SYNTAX SKELETON in which every quoted string collapses to one inert token, so a
 live string whose contents look like syntax (`fail_row "… eval … trap …"`) stays clean; an
 earlier whole-line dequote flagged exactly those, which blocks correct rows. Its self-test
-pins 79 cases both ways, and cross-checks its own documented case table against the fixture
+pins 86 cases both ways, and cross-checks its own documented case table against the fixture
 files so the two cannot drift. Command position is derived from bash's CLOSED set of reserved
 words (`! coproc do elif else if then time until while`), so `if trap …; then` is caught by
 construction rather than by having thought of it.

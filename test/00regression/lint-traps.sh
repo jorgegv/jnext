@@ -155,7 +155,12 @@ scan_dir() {
     for f in "$dir"/*.sh; do
         [[ -e "$f" ]] || continue
         awk -v FNAME="$f" '
-            BEGIN { RW = "(!|coproc|do|elif|else|if|then|time|until|while)" }
+            BEGIN {
+                RW  = "(!|coproc|do|elif|else|if|then|time|until|while)"
+                # bash: time [-p] [--] pipeline. `time` is the ONLY word in RW
+                # that takes options -- see the note in invoked().
+                TMO = "time([[:space:]]+-p)?([[:space:]]+--)?"
+            }
             # analyse(l) — one bash-faithful pass producing THREE views.
             #
             # Sets:
@@ -296,6 +301,19 @@ scan_dir() {
             # "exec: trap: not found" — exec replaces the shell with a PROGRAM
             # and cannot run a builtin, so neither is reachable.
             #
+            # OPTIONS. Every word in RW was checked for them; exactly ONE takes
+            # any. bash documents `time [-p] pipeline`, and `--` ends option
+            # processing, so TMO matches `time [-p] [--]` and nothing looser:
+            # `time -p -p trap` and `time --posix trap` are both invalid bash
+            # (measured: "-p: command not found"), so matching a general flag
+            # run would only add reach the shell does not have. The others take
+            # none — `! -p trap`, `if -p trap` and `while -p trap` all die with
+            # "-p: command not found"; `!`, if/elif/while/until take a pipeline
+            # directly; do/then/else are pure separators; and `coproc [NAME]`
+            # runs a subshell either way, so its optional NAME cannot reach this
+            # shell. `time -p trap ...` is the accident case: -p is the standard
+            # POSIX output-format flag, used constantly for CI timing (P53-P57).
+            #
             # This gap existed on the bare-trap rule from the day it was written
             # and survived six review rounds and 57 pinned cases, because no
             # case tested either rule as an if/while condition, after ! or after
@@ -308,7 +326,8 @@ scan_dir() {
                 v = "((builtin|command)[[:space:]]+)*" w "([[:space:]]|$)"
                 return (s ~ ("^[[:space:]]*" v) \
                      || s ~ ("[;&|(){}][[:space:]]*" v) \
-                     || s ~ ("(^|[[:space:];&|(){}])" RW "[[:space:]]+" v))
+                     || s ~ ("(^|[[:space:];&|(){}])" RW "[[:space:]]+" v) \
+                     || s ~ ("(^|[[:space:];&|(){}])" TMO "[[:space:]]+" v))
             }
 
             function reason() {
@@ -387,7 +406,7 @@ scan_dir() {
 # is not hypothetical — reverting the DOUBLE-state backslash rule did precisely
 # that and the combined-fixture self-test passed. Per case, a lost case is named.
 #
-# CASES — 52 must flag, 27 must not (79 total).
+# CASES — 57 must flag, 29 must not (86 total).
 # CASES-TABLE-BEGIN — every ID below is cross-checked against the fixture
 # files at the end of self_test(); the two cannot drift apart.
 #
@@ -448,6 +467,15 @@ scan_dir() {
 #   and the words must stay inert as ordinary data:
 #   N24 `msg="if trap then"`     N26 `time=5`   (assignment, no space)
 #   N25 `# while trap ...`       N27 `erstwhile trap ...` (word boundary)
+#
+#   `time` is the only reserved word here that takes options — bash
+#   `time [-p] [--] pipeline`, and -p is the standard POSIX timing flag an
+#   ordinary script uses (round-7 review). Every other word was checked and
+#   takes none; see the OPTIONS note in invoked():
+#   P53 `time -p trap`     P55 `time -p -- trap`   P57 `time -- eval "trap"`
+#   P54 `time -- trap`     P56 `time -p eval "trap"`
+#   N28 `time -p echo "trap docs"`   (the flag alone proves nothing)
+#   N29 `time -p trap_helper ...`    (word boundary after the flag)
 #
 # CASES-TABLE-END
 #
@@ -519,6 +547,12 @@ self_test() {
     printf '%s\n' "! eval \"trap 'rm -rf' EXIT\""                                          >"$bad/P50.sh"
     printf '%s\n' "time eval \"trap 'rm -rf' EXIT\""                                       >"$bad/P51.sh"
     printf '%s\n' "coproc eval \"trap 'rm -rf' EXIT\""                                     >"$bad/P52.sh"
+    # `time` is the one reserved word with options: bash `time [-p] [--] pipeline`
+    printf '%s\n' "time -p trap 'rm -rf' EXIT"                          >"$bad/P53.sh"
+    printf '%s\n' "time -- trap 'rm -rf' EXIT"                          >"$bad/P54.sh"
+    printf '%s\n' "time -p -- trap 'rm -rf' EXIT"                       >"$bad/P55.sh"
+    printf '%s\n' "time -p eval \"trap 'rm -rf' EXIT\""                  >"$bad/P56.sh"
+    printf '%s\n' "time -- eval \"trap 'rm -rf' EXIT\""                  >"$bad/P57.sh"
 
     # --- 13 legitimate shapes that MUST NOT be flagged ----------------------
     # A hit here is a false positive that would block a row an author may write.
@@ -554,6 +588,9 @@ self_test() {
     printf '%s\n' "# while trap 'rm -rf' EXIT -- describing the round-6 gap"               >"$good/N25.sh"
     printf '%s\n' "time=5"                                                                 >"$good/N26.sh"
     printf '%s\n' "erstwhile trap 'rm -rf' EXIT"                                           >"$good/N27.sh"
+    # a time flag on its own must not make the next word a trap
+    printf '%s\n' "time -p echo \"trap docs\""                            >"$good/N28.sh"
+    printf '%s\n' "time -p trap_helper 'rm -rf'"                        >"$good/N29.sh"
 
     # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_dir "$bad")
