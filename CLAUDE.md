@@ -230,9 +230,35 @@ crashes, or times out. `make unit-test` **exits non-zero** when a suite fails.
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`1 lint + screenshots + functional`. Screenshots additionally get an *independent*
-witness: every checked-in `img/<name>-reference.png` must have a conf entry, so truncating
-the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
+`2 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+*independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
+truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
+
+**No row script may install a `trap`** (GH #153). `regression.sh` SOURCES every row into the
+harness shell, which already holds the one `trap regression_cleanup EXIT/INT/TERM` that deletes
+the per-run 1-2 GB SD clone; a second trap silently replaces it, and only the *successful*
+run leaks (INT/TERM survive, so an interrupted run still cleans up). `test/00regression/lint-traps.sh`
+— row 2 of the suite, inside `scripts/00-preflight-lint.sh` — bans `trap` in `scripts/*.sh` for
+every signal and at any depth, including behind `builtin`/`command`, inside `eval`, and via a
+heredoc fed to `source`/`.`/`eval` (which runs in *this* shell). Put scratch files under
+`$TMP_DIR`, which the harness trap already removes; a shell that truly needs its own trap goes
+in a file run with `bash` — heredoc bodies with a non-sourcing consumer are exempt.
+Its comment stripper is a bash-exact three-state quote scanner, not a quote counter (a counter
+cannot express escaping), and it dequotes before matching, since bash concatenates word
+fragments and `tr''ap` runs the builtin without containing the word.
+**Scope: it catches the ACCIDENTAL trap — the failure that actually happened — and does not
+try to stop deliberate obfuscation, which no static grep can.** `t=trap; $t 'c' EXIT` defeats
+it in eight characters, and that is accepted, not a backlog item. The lint's header gives
+EXAMPLES of what it cannot catch, explicitly not an exhaustive list (two "exhaustive" lists
+have already been proved incomplete), and a MAY WRONGLY FLAG list for the other direction —
+a subshell `( trap … )`, or a live `eval`/heredoc head that merely mentions the word. Matching
+is done on a SYNTAX SKELETON in which every quoted string collapses to one inert token, so a
+live string whose contents look like syntax (`fail_row "… eval … trap …"`) stays clean; an
+earlier whole-line dequote flagged exactly those, which blocks correct rows. Its self-test
+pins 86 cases both ways, and cross-checks its own documented case table against the fixture
+files so the two cannot drift. Command position is derived from bash's CLOSED set of reserved
+words (`! coproc do elif else if then time until while`), so `if trap …; then` is caught by
+construction rather than by having thought of it.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It

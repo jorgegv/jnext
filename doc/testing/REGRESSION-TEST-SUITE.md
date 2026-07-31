@@ -320,6 +320,91 @@ Load-bearing rationale that used to live as long comments inside
   harness DID (which file jnext opened, which device the clone is on, whether
   the master's inode/mtime moved, whether the run directory survives a kill) —
   never what the image looks like afterwards, which is identical either way.
+- **Why no row script may install a trap** (GH #153, `test/00regression/lint-traps.sh`,
+  row 2 of the suite). `regression.sh` SOURCES every row into the harness shell,
+  which already holds the one `trap regression_cleanup EXIT` above. Bash keeps a
+  single handler per signal, so a second `trap ... EXIT` anywhere in a sourced
+  row silently REPLACES it — and because INT/TERM are untouched, an interrupted
+  run still cleans up while the SUCCESSFUL run leaks its whole 1-2 GB run
+  directory. A host reached 18 GB / 93% full at 112/112 passing before anyone
+  noticed. The GH #65 isolation rows cannot catch this: they drive a child
+  shell, and the failure is a later-sourced SIBLING clobbering the PARENT. The
+  guard is a static lint rather than a runtime fault-injection row because a
+  grep costs under a second. It bans `trap` outright — every signal, not just
+  `EXIT` (a row-installed `INT` handler would clobber the harness's Ctrl-C path
+  too), and at any depth, because telling a clobbering trap from a harmless
+  subshell one needs a bash parser and no row script contains a `trap` at any
+  depth. Heredoc bodies are exempt, which is the escape hatch: a shell that
+  genuinely needs its own trap gets written to a file and run with `bash`, the
+  shape `sdcard-isolation-func.sh:116` already uses. **Three rounds of review
+  demonstrated six working bypasses, all now closed.** The exemption gained a
+  carve-out: a heredoc consumed by `source`, `.` or `eval` executes in *this*
+  shell, so `source /dev/stdin <<P` is reported unconditionally — as are
+  `builtin trap`, `command trap`, and any `eval` whose argument text contains
+  the word `trap`. The fifth was subtler and is worth naming, because it was
+  introduced *by the fix for the other four*: the comment stripper counted
+  quote characters, and a counter cannot express bash escaping, so
+  `echo "\" #" ; trap … EXIT` — where `\"` keeps the string open and the `;` is
+  a real separator — looked like a comment and was truncated away. It is now a
+  three-state scanner (OUTSIDE/SINGLE/DOUBLE, carrying across lines), which is
+  exact rather than heuristic and kills that class rather than the instance.
+  The sixth is of a different kind: bash concatenates adjacent word fragments,
+  so `tr''ap` — also `tr""ap`, `tr\ap`, `t\r\a\p` — runs the builtin without the
+  literal word ever appearing. Closed generally, by dequoting before matching
+  rather than one pattern per spelling.
+  **Scope, stated plainly, because three review rounds are what settled it.**
+  This lint exists to catch the ACCIDENTAL or careless `trap` — the failure that
+  actually happened: a row written in one night, found only when a host filled to
+  18 GB with a green 112/112 on screen. It does **not** attempt to stop
+  deliberate obfuscation, and cannot — `t=trap; $t 'c' EXIT` defeats it in eight
+  characters. So a newly-found way to write `trap` *on purpose* is not a defect
+  in this lint; a newly-found way to write one *by accident* is. The header lists
+  EXAMPLES of what is uncatchable, deliberately **not** claimed exhaustive:
+  two such lists were already proved incomplete by review, and an enumeration
+  asserting a completeness it lacks is precisely the defect this whole exercise
+  kept finding.
+  **The scope statement runs in both directions.** A fourth review round found
+  the cost is not only missed traps: dequoting the whole line before matching
+  also stripped the delimiters *around* an argument, so a live string whose
+  contents look like syntax was flagged — `fail_row "please eval trap manually
+  if this ever happens"`, `msg="warning: don't;trap yourself here"`, a backtick
+  doc mention of both words. In a suite *about* catching eval/trap those are
+  foreseeable, and rejecting a correct row costs more than failing to help.
+  Matching now runs on a **syntax skeleton** in which every quoted string,
+  whatever it holds, collapses to one inert token; the word-spelling trick still
+  resolves because it lives *inside* the token. The residual false positives are
+  measured and listed in the header (`MAY WRONGLY FLAG`): a subshell
+  `( trap … )`, and a live `eval` or heredoc head that merely mentions the word.
+  Like `lint-assertions.sh` the lint self-tests on every invocation, here with a
+  pinned 86-case table (57 must flag, 29 must not), **one fixture file per case**
+  — a single combined fixture asserting only a total let a mutation lose one case,
+  gain another, and report green. The table's own IDs are cross-checked against the
+  fixture files on every run, in both directions: a documented case with no fixture
+  and a fixture missing from the table are each a hard failure. That check exists
+  because a review report claimed the table was generated from the fixtures when
+  nothing connected them — the same drift class as every pinned count here.
+  **Command position comes from bash's closed reserved-word set.** A sixth round
+  found that neither rule recognised `if trap …; then`, `while trap …; do`,
+  `! trap …` or `time trap …` — all live, all clobbering. The gap was on the
+  bare-`trap` rule from the day it was written and survived six rounds and 57
+  pinned cases, because nothing tested either rule as a loop or `if` condition;
+  `if trap …; then`, checking whether the trap installed, is something an author
+  might genuinely write. The fix enumerates the reserved words a command may
+  follow (`! coproc do elif else if then time until while`) rather than the four
+  review demonstrated, so the anchor is exhaustive by construction; the words
+  that cannot introduce a command (`case`/`for`/`select`/`function` take a name,
+  `in` is syntax, `done`/`esac`/`fi`/`}`/`]]` terminate, `[[` opens an
+  expression) are excluded deliberately, and `exec` is excluded because it
+  cannot run a builtin at all. A seventh round added the one word in that set
+  which takes options: bash's `time [-p] [--] pipeline`, where `-p` is the
+  standard POSIX timing flag ordinary scripts and CI use, so `time -p trap …`
+  is an accident and not an evasion. Matched from the documented synopsis
+  rather than as a general flag run — `time -p -p` and `time --posix` are both
+  invalid bash, so a looser match would only claim reach the shell has not.
+  Every other word in the set was checked and takes none. `harness-selftest`
+  HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
+  its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
+  row-count witness is the second, independent check that the row exists at all.
 - **Why membership/count checks are pure-bash hashes.**
   `printf ... | grep -q` over a list is unsound under `set -o pipefail`: grep
   exits on match, printf can die of SIGPIPE (141), and pipefail promotes 141 —
