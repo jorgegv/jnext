@@ -803,6 +803,9 @@ Status (Wave E 2026-04-23, with post-closure walkback same day): rows 4-6 were i
 
 | # | Row ID | Test | Machine | Expected | Status |
 |---|------|------|---------|----------|--------|
+| 4 | S14.04 | Interrupt disabled | inten_ula_n=1 | No interrupt pulse | G (walked back — test-only surface) |
+| 5 | S14.05 | Line interrupt fires | line=10 | Fires when cvc=9, hc_ula=255 | G (walked back — test-only surface) |
+| 6 | S14.06 | Line interrupt 0 = last line | line=0 | Fires at cvc=max_vc | G (walked back — test-only surface) |
 
 ## Section 15: Shadow Screen
 

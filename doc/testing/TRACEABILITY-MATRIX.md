@@ -682,7 +682,11 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S12.01  | ULA enabled (default)                           | zxnext.vhd:5445  | pass    | test/ula/ula_test.cpp:2951 |
 | S13.01  | 48K frame length                                | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2983 |
 | S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2993 |
+| S13.03  | Pentagon frame length                           | —              | missing | missing                    |
 | S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:3004 |
+| S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
+| S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
+| S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
 | S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3087 |
 | S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3106 |
 | S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389,419                 | pass   | test/ula/ula_test.cpp:866       |
