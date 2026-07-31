@@ -617,6 +617,26 @@ as `a1495ba`).
 | ALT-08  | Altrom address 128K               | NR 0x8C ← 0x80   | sram_A21_A13 = "0000011" & alt_128_n & a(13)  |
 | ALT-09  | Read-back                         | NR 0x8C ← 0xA5   | Reading NR 0x8C returns 0xA5                   |
 
+**Reset-domain rows for the two lock bits (GH #191).** ALT-07 asserts the
+nibble copy as a whole *byte* at the bare-`Mmu` tier. It does not assert the
+decoded `nr_8c_altrom_lock_rom1` / `nr_8c_altrom_lock_rom0` flags, and GH #190
+showed both of those were claimed only by traceability rows grafted onto other
+tests. The two rows below are the real coverage. They are **hosted in
+`test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`)** because
+they drive the reset through the real NR 0x02 path at the Emulator tier, which
+is the only tier where hard and soft reset are distinguishable at all.
+
+The VHDL says the lock bits are **reloaded, not cleared**: `zxnext.vhd:2254-2255`
+copies `nr_8c_altrom(3 downto 0)` into `(7 downto 4)` on `reset='1'`, and
+`:2264`/`:2265` decode bits 5/4 as `lock_rom1`/`lock_rom0`. `nextreg.txt:861-865`
+documents the same ("AFTER SOFT RESET (copied into bits 7-4)"). The pair is
+deliberately mirror-imaged so it discriminates bit 5 from bit 4.
+
+| ID         | Test                                | Setup                         | Expected                                            |
+|------------|-------------------------------------|-------------------------------|-----------------------------------------------------|
+| RSTD-8C-01 | `lock_rom1` reloaded from bit 1      | NR 0x8C ← 0x02, then RESET_SOFT | lock_rom1=1, lock_rom0=0, NR 0x8C reads 0x22       |
+| RSTD-8C-02 | `lock_rom0` reloaded from bit 0      | NR 0x8C ← 0x01, then RESET_SOFT | lock_rom0=1, lock_rom1=0, NR 0x8C reads 0x11       |
+
 ### Category 13: Config Mode (NR 0x03/0x04)
 
 | ID      | Test                              | Setup                       | Expected                                      |

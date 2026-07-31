@@ -703,6 +703,164 @@ static void test_soft_reset(Emulator& emu) {
     }
 }
 
+// ── Reset domain: port 0xE3 conmem + NR 0x8C altrom locks (GH #191) ───
+//
+// GH #190 found that four behaviours were "covered" only by traceability
+// rows grafted onto test IDs that already meant something else. Removing
+// the false claim left them genuinely untested; these four rows are the
+// real coverage, derived from the VHDL rather than from the (wrong)
+// descriptions that used to claim them.
+//
+// VHDL read for this group (FPGA core, cores/zxnext/src/):
+//
+//  * zxnext.vhd:4173-4188 — the port 0xE3 register process:
+//        if reset = '1' then port_e3_reg <= (others => '0');
+//    conmem is port_e3_reg(7) (:4181, and :4154 feeds bit 7 into the
+//    DivMMC entity as i_divmmc_reg(7)).
+//
+//  * zxnext.vhd:1730 — `reset <= i_RESET`, the ONLY reset inside the
+//    core. zxnext_top_issue2.vhd:2310 wires `i_RESET => reset`, and
+//    zxnext_top_issue2.vhd:840 defines `reset <= reset_hard or
+//    reset_soft` (the two coming off the S_RESET_HARD_*/S_RESET_SOFT_*
+//    states of the top-level FSM at :796-838).
+//    ⇒ There is NO hard/soft separation inside zxnext.vhd. `conmem`
+//    clears on BOTH. That is what the two E3 rows below assert, one per
+//    reset, because at the jnext tier the two run through DIFFERENT code
+//    (soft = Emulator::soft_reset -> init(preserve_memory=true); hard =
+//    NR 0x02 b1 raises a deferred request the host services with
+//    emulator_cold_boot()). A single "reset and check" row would leave
+//    one of those two paths unproven — exactly the shape of coverage
+//    #190 was filed about.
+//
+//  * zxnext.vhd:2251-2260 — the alternate-ROM register process:
+//        if reset = '1' then nr_8c_altrom(7 downto 4) <= nr_8c_altrom(3 downto 0);
+//    with :2264 `nr_8c_altrom_lock_rom1 <= nr_8c_altrom(5)` and :2265
+//    `nr_8c_altrom_lock_rom0 <= nr_8c_altrom(4)`.
+//    ⇒ The lock bits are NOT cleared by reset — they are RELOADED from
+//    bits 1 and 0 respectively. nextreg.txt:861-865 says the same
+//    ("AFTER SOFT RESET (copied into bits 7-4) ... bit 1 = lock ROM1,
+//    bit 0 = lock ROM0"). The two 8C rows below are deliberate mirror
+//    images (only bit 1 set / only bit 0 set) so they discriminate bit 5
+//    from bit 4 AND fail any model that clears the locks on reset.
+//    (A hard reset on real hardware reconfigures the FPGA — :1195 of
+//    zxnext_top_issue2.vhd starts flashboot on zxn_reset_hard — so the
+//    declaration default X"00" at zxnext.vhd:387 applies there; jnext
+//    reproduces that via emulator_cold_boot's reconstruct. Only the SOFT
+//    reset exercises the nibble copy, so that is the reset used here.)
+//
+// Hermetic: each row builds its OWN Emulator — RSTD-E3-02 reconstructs
+// the machine, which would disturb the shared one.
+
+static void test_reset_domain_e3_and_8c() {
+    set_group("Reset-Domain");
+
+    // RSTD-E3-01 — port 0xE3 conmem (bit 7) clears on RESET_SOFT.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.port().out(0x00E3, 0x8F);           // conmem=1, bank=0x0F
+        const bool    pre_conmem = emu.divmmc().conmem();
+        const uint8_t pre_port   = emu.port().in(0x00E3);
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const bool    post_conmem = emu.divmmc().conmem();
+        const uint8_t post_port   = emu.port().in(0x00E3);
+        check("RSTD-E3-01",
+              "RESET_SOFT clears port 0xE3 conmem (bit 7) and the whole "
+              "register [zxnext.vhd:4176-4177 port_e3_reg <= 0 on reset; "
+              ":1730 reset <= i_RESET; zxnext_top_issue2.vhd:840 "
+              "reset <= reset_hard or reset_soft]",
+              pre_conmem && pre_port == 0x8F &&
+              !post_conmem && post_port == 0x00,
+              fmt("pre: conmem=%d port=0x%02X (expected 1,0x8F) | "
+                  "post: conmem=%d port=0x%02X (expected 0,0x00)",
+                  pre_conmem ? 1 : 0, pre_port,
+                  post_conmem ? 1 : 0, post_port));
+    }
+
+    // RSTD-E3-02 — port 0xE3 conmem clears on RESET_HARD. In jnext the
+    // hard reset is DEFERRED (Task 70): NR 0x02 bit 1 only raises the
+    // request, and the host performs the cold boot. Both halves are
+    // asserted: nothing changes synchronously, and the cold boot clears
+    // conmem. Same VHDL clause as RSTD-E3-01 — `reset` covers both.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+
+        emu.port().out(0x00E3, 0x8F);           // conmem=1, bank=0x0F
+        const bool pre_conmem = emu.divmmc().conmem();
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD (deferred)
+        const bool requested   = emu.take_hard_reset_request();
+        const bool mid_conmem  = emu.divmmc().conmem();   // still set
+        emulator_cold_boot(emu, cfg);           // the host cold-boot path
+        const bool    post_conmem = emu.divmmc().conmem();
+        const uint8_t post_port   = emu.port().in(0x00E3);
+        check("RSTD-E3-02",
+              "RESET_HARD clears port 0xE3 conmem via the host cold boot; "
+              "the NR 0x02 b1 write itself only raises the deferred request "
+              "[zxnext.vhd:4176-4177 + :1730; zxnext_top_issue2.vhd:840; "
+              "Task 70 deferred hard reset]",
+              pre_conmem && requested && mid_conmem &&
+              !post_conmem && post_port == 0x00,
+              fmt("pre_conmem=%d requested=%d mid_conmem=%d | "
+                  "post: conmem=%d port=0x%02X (expected 1,1,1,0,0x00)",
+                  pre_conmem ? 1 : 0, requested ? 1 : 0, mid_conmem ? 1 : 0,
+                  post_conmem ? 1 : 0, post_port));
+    }
+
+    // RSTD-8C-01 — nr_8c_altrom_lock_rom1 (bit 5) is RELOADED FROM BIT 1
+    // by reset, not cleared. Seed 0x02: lock_rom1 currently 0, after-reset
+    // nibble asks for lock_rom1=1, lock_rom0=0. Post-reset byte = 0x22.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x8C, 0x02);              // active 0x0, after-reset 0x2
+        const bool pre_lk1 = emu.mmu().nr_8c_altrom_lock_rom1();
+        const bool pre_lk0 = emu.mmu().nr_8c_altrom_lock_rom0();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const bool    post_lk1 = emu.mmu().nr_8c_altrom_lock_rom1();
+        const bool    post_lk0 = emu.mmu().nr_8c_altrom_lock_rom0();
+        const uint8_t post_8c  = nr_read(emu, 0x8C);
+        check("RSTD-8C-01",
+              "reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it "
+              "does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, "
+              "lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, "
+              ":2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864]",
+              !pre_lk1 && !pre_lk0 && post_lk1 && !post_lk0 && post_8c == 0x22,
+              fmt("pre: lk1=%d lk0=%d (expected 0,0) | post: lk1=%d lk0=%d "
+                  "NR 0x8C=0x%02X (expected 1,0,0x22)",
+                  pre_lk1 ? 1 : 0, pre_lk0 ? 1 : 0,
+                  post_lk1 ? 1 : 0, post_lk0 ? 1 : 0, post_8c));
+    }
+
+    // RSTD-8C-02 — mirror of RSTD-8C-01 for nr_8c_altrom_lock_rom0
+    // (bit 4), reloaded from bit 0. Seed 0x01 -> post-reset byte 0x11,
+    // lock_rom0=1, lock_rom1=0. The pair discriminates bit 5 from bit 4.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x8C, 0x01);              // active 0x0, after-reset 0x1
+        const bool pre_lk1 = emu.mmu().nr_8c_altrom_lock_rom1();
+        const bool pre_lk0 = emu.mmu().nr_8c_altrom_lock_rom0();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const bool    post_lk1 = emu.mmu().nr_8c_altrom_lock_rom1();
+        const bool    post_lk0 = emu.mmu().nr_8c_altrom_lock_rom0();
+        const uint8_t post_8c  = nr_read(emu, 0x8C);
+        check("RSTD-8C-02",
+              "reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it "
+              "does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, "
+              "lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, "
+              ":2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865]",
+              !pre_lk1 && !pre_lk0 && post_lk0 && !post_lk1 && post_8c == 0x11,
+              fmt("pre: lk1=%d lk0=%d (expected 0,0) | post: lk1=%d lk0=%d "
+                  "NR 0x8C=0x%02X (expected 0,1,0x11)",
+                  pre_lk1 ? 1 : 0, pre_lk0 ? 1 : 0,
+                  post_lk1 ? 1 : 0, post_lk0 ? 1 : 0, post_8c));
+    }
+}
+
 // ── Cold boot preserves debugger breakpoints (Task 70 review) ─────────
 //
 // A hard reset is a host COLD BOOT (emulator_cold_boot: reconstruct the
@@ -6395,6 +6553,9 @@ int main() {
 
     test_soft_reset(emu);
     std::printf("  Group: Soft-Reset — done\n");
+
+    test_reset_domain_e3_and_8c();
+    std::printf("  Group: Reset-Domain — done\n");
 
     test_cold_boot_preserves_breakpoints();
     std::printf("  Group: Cold-Boot — done\n");

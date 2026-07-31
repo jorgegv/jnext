@@ -80,6 +80,28 @@ Port 0xE3 controls conmem, mapram, and bank selection. VHDL reference:
 | E3-07 | Read port 0xE3 returns `{conmem, mapram, 00, bank[3:0]}` | Bits 5:4 always read as 0 |
 | E3-08 | Bits 5:4 of write are ignored | Only bits 7, 6, 3:0 are stored |
 
+**Reset-domain rows for conmem (GH #191).** E3-01 covers a *generic* reset of
+the bare `DivMmc` object. It does not distinguish hard from soft reset, and
+GH #190 showed both of those were claimed only by traceability rows grafted
+onto other tests. The two rows below are the real coverage. They are **hosted
+in `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`)** — the
+bare-`DivMmc` tier has a single `reset()` and cannot express the distinction,
+which only exists at the Emulator tier (soft = `Emulator::soft_reset()`; hard =
+NR 0x02 b1 raises a deferred request the host services with
+`emulator_cold_boot()`, Task 70).
+
+VHDL: `zxnext.vhd:4176-4177` clears the whole `port_e3_reg` on `reset='1'`
+(conmem is bit 7, `:4181`/`:4154`). `zxnext.vhd:1730` makes `reset` the core's
+only reset, and `zxnext_top_issue2.vhd:840` defines it as
+`reset_hard or reset_soft` (`:2310` wires it to `i_RESET`) — so the VHDL clears
+conmem on **both**, and each jnext path needs its own row because they are
+different code.
+
+| ID         | Test | Notes |
+|------------|------|-------|
+| RSTD-E3-01 | RESET_SOFT clears conmem and the whole port 0xE3 register | Port 0xE3 ← 0x8F, then NR 0x02 ← 0x01: `conmem()` false, port reads 0x00 |
+| RSTD-E3-02 | RESET_HARD clears conmem via the host cold boot | NR 0x02 ← 0x02 only raises the deferred request (conmem still set); `emulator_cold_boot()` then clears it |
+
 ### 2. DivMMC Memory Paging -- conmem Mode
 
 When conmem=1 (bit 7 of port 0xE3), DivMMC memory is forcibly mapped
