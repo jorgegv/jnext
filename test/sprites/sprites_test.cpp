@@ -1721,7 +1721,8 @@ static void group9() {
         set4(spr, 0, 0, 0, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G9.MI-01", "Plain render: col i has pattern byte (i+1) (811-820)",
+        check("G9.MI-01",
+              "Plain render: col i has pattern byte (i+1) (sprites.vhd:811-820)",
               pixel_index(line, 0) == 1 && pixel_index(line, 15) == 16);
     }
 
@@ -1734,7 +1735,9 @@ static void group9() {
         set4(spr, 0, 0, 0, 0x08, 0x80); // xmirror=1
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G9.MI-02", "X-mirror: col 0 has byte 16, col 15 has byte 1 (813,817-820)",
+        check("G9.MI-02",
+              "X-mirror: col 0 has byte 16, col 15 has byte 1 "
+              "(sprites.vhd:813,817-820)",
               pixel_index(line, 0) == 16 && pixel_index(line, 15) == 1);
     }
 
@@ -1752,7 +1755,7 @@ static void group9() {
         set4(spr, 0, 0, 0, 0x04, 0x80); // ymirror=1
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G9.MI-03", "Y-mirror row 0 reads pattern row 15 (811)",
+        check("G9.MI-03", "Y-mirror row 0 reads pattern row 15 (sprites.vhd:811)",
               pixel_index(line, 0) == 16);
     }
 
@@ -1769,7 +1772,7 @@ static void group9() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Row 0 col 0 in the flipped view reads row 15 col 15 -> index 255|1 = 255.
-        check("G9.MI-04", "X+Y mirror = 180 degrees (811,813)",
+        check("G9.MI-04", "X+Y mirror = 180 degrees (sprites.vhd:811,813)",
               pixel_index(line, 0) == 0xFF);
     }
 
@@ -1793,7 +1796,7 @@ static void group9() {
         // byte 0|1 = 1. This matches G9.RO-02 which correctly expected 241
         // at col 0.
         check("G9.RO-01",
-              "Rotate swaps pattern row/col indices (816)",
+              "Rotate swaps pattern row/col indices (sprites.vhd:816)",
               pixel_index(line, 0) == 241 && pixel_index(line, 15) == 1);
     }
 
@@ -1813,7 +1816,7 @@ static void group9() {
         // pattern_col -> px = (15-pattern_col) if mirror. For col 0 this
         // yields px=15, then rotate swap -> px=y=0, py=15. Byte 15*16|1=241.
         check("G9.RO-02",
-              "rotate=1 alone activates effective x-mirror (813)",
+              "rotate=1 alone activates effective x-mirror (sprites.vhd:813)",
               pixel_index(line, 0) == 241);
     }
 
