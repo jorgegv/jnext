@@ -673,6 +673,34 @@ void group3_wait() {
               fmt("first_advancing_hpos=%d", first_bad));
     }
 
+    // WAI-03d: canonical HALT = 0xFFFF (hpos=63, vpos=511) stays dead.
+    //
+    // This is the encoding real programs ship — show512.nex, the one demo in
+    // the regression corpus that uses hpos=63, uses it ONLY as this HALT
+    // (measured: its WAITs are E81F/E83F/E85F/E877 (hpos=52) plus FFFF).
+    //
+    // The GH #182 truncation makes the hpos half of that word satisfiable
+    // (threshold 504+12 = 516 -> 4), so HALT's deadness now rests entirely on
+    // vpos=511 > c_max_vc (311/319, zxula_timing.vhd:196). Sweep a whole
+    // frame's worth of cvc against hc values on both sides of 4 and assert it
+    // never advances. copper.vhd:94, :35.
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        int fires = 0;
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
+        program_word(cu, 0, 0xFFFF);            // HALT
+        program_word(cu, 1, enc_move(0x40, 0x5A));
+        set_mode(cu, 1);
+        cu.execute(0, 0, nr);                   // mode change
+        const int hcs[] = {0, 3, 4, 5, 12, 100, 452, 455};
+        for (int vc = 0; vc < 320; ++vc)
+            for (int hc : hcs) cu.execute(hc, vc, nr);
+        check("WAI-03d", "HALT 0xFFFF never fires despite hpos=63 threshold wrapping to 4",
+              cu.pc() == 0 && fires == 0,
+              fmt("pc=%u fires=%d", cu.pc(), fires));
+    }
+
     // WAI-04: vpos mismatch stalls indefinitely (cvc=99, wanted 100).
     {
         reset_both(cu, nr);
