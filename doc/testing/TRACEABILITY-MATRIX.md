@@ -1290,10 +1290,10 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | RST-03     | `last_state_s` reset                                  | copper.vhd:50            | pass   | test/copper/copper_test.cpp:1889 |
 | RAM-BK-02       | Read-back NR 0x61 returns nr_copper_addr(7..0) post-autoincrement (G116)  | zxnext.vhd:6083-6084; copper.vhd:42         | pass   | test/copper/copper_test.cpp:386 |
 | RAM-BK-03       | Read-back NR 0x62 returns mode & "000" & nr_copper_addr(10..8) (G116)     | zxnext.vhd:6086-6087; copper.vhd:42         | pass   | test/copper/copper_test.cpp:403 |
-| TIM-CYC-01      | Copper MOVE burst rate is per 28 MHz cycle, not per Z80 instr (G117)      | device/copper.vhd:54-119; zxnext.vhd:3950   | missing | missing                          |
-| TIM-CYC-02      | Copper WAIT advances per 28 MHz cycle (boundary detection) (G117)         | device/copper.vhd:87-89,92-97               | missing | missing                          |
+| TIM-CYC-01      | Copper MOVE burst rate is per 28 MHz cycle, not per Z80 instr (G117 closed 2026-04-30; RE-HOMED to `test/copper/copper_integration_test.cpp` `G117-MPC-01`, which exercises the burst behaviour at the real `Emulator::execute_single_instruction` cadence this bare-class harness cannot reach; see `copper_test.cpp:1210-1219`) | device/copper.vhd:54-119; zxnext.vhd:3950   | missing | missing                          |
+| TIM-CYC-02      | Copper WAIT advances per 28 MHz cycle (boundary detection) (G117 closed 2026-04-30; RE-HOMED — same `G117-MPC-01` covers the per-cycle scheduler cadence, and the bare-class WAIT semantics it depended on are already proven live by WAI-01..12 above; `copper_integration_test.cpp:174-177` notes a separate integration row would be redundant) | device/copper.vhd:87-89,92-97               | missing | missing                          |
 | RST-04          | Soft reset preserves Copper instruction RAM (dpram2 has no reset) (G118)  | zxnext.vhd:3959-3996; copper.vhd:60-65      | pass   | test/copper/copper_test.cpp:1918 |
-| ARB-G65-01      | True tied-edge CPU+Copper write: cpu_req held into next cycle (G65)       | zxnext.vhd:4769,4775-4777                   | missing | missing                          |
+| ARB-G65-01      | True tied-edge CPU+Copper write: cpu_req held into next cycle (G65 closed 2026-04-30; RE-HOMED to `test/copper/copper_integration_test.cpp` `G65-PRI-01`, a genuinely equivalent live check at the full-`Emulator` tier — confirmed independently in the Contention GH #196 review, `test/contention/contention_test.cpp:1994-2018`) | zxnext.vhd:4769,4775-4777                   | missing | missing                          |
 
 ### Companion integration suite — `test/copper/copper_integration_test.cpp`
 
