@@ -3392,9 +3392,14 @@ Last-touch commit: HEAD
 Suite covers the rewind / backwards-execution pipeline: `RewindBuffer` ring-wrap
 semantics, `step_back()` PC restoration via the trace log, `rewind_to_frame()`
 register-state restoration, save-state round-trip determinism, and the
-disabled-rewind escape path. The 10 skip rows (`SS-VER-*`, `RB-FRAME-*`) are
-G66/G67 placeholders — pinned in source until the save-state schema-versioning
-plan and the per-subsystem TLV framing plan land. Rewind has no direct VHDL
+disabled-rewind escape path. `RB-FRAME-01..03` are live, passing rows (G67
+closed 2026-07-15, Task 60b); the matrix scanner reports them `missing` only
+because `rewind_test.cpp` uses its own uppercase `CHECK()` macro, not the
+lowercase `check()`/`skip()` pattern `refresh-traceability-matrix.pl`
+recognizes — a scanner blind spot, not a coverage gap. The former
+`SS-VER-01..07` placeholder rows (G66) were removed 2026-07-15 as
+misclassified coverage debt (see `KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` G66)
+and dropped from this table by this GH #196 pass. Rewind has no direct VHDL
 anchor (it is a host-side save-state framing concern); all rows show `—`.
 
 | Test ID     | Plan row title                                       | VHDL file:line | Status | Test file:line                  |
@@ -3417,13 +3422,6 @@ anchor (it is a host-side save-state framing concern); all rows show `—`.
 | RT-05       | save→load→save byte-identical (determinism)          | (jnext-internal) | missing | missing                         |
 | SBD-01      | Rewind buffer null when disabled                     | (jnext-internal) | missing | missing                         |
 | SBD-02      | step_back returns false when disabled                | (jnext-internal) | missing | missing                         |
-| SS-VER-01   | Schema magic + version head absent (G66)             | (jnext-internal) | missing | missing                         |
-| SS-VER-02   | Per-subsystem TLV framing absent (G66)               | (jnext-internal) | missing | missing                         |
-| SS-VER-03   | load_state magic-mismatch reject path (G66)          | (jnext-internal) | missing | missing                         |
-| SS-VER-04   | Schema migrator registry absent (G66)                | (jnext-internal) | missing | missing                         |
-| SS-VER-05   | Field-order round-trip lock absent (G66)             | (jnext-internal) | missing | missing                         |
-| SS-VER-06   | DivMmc pre-NA-03 silent-deserialise (G66)            | (jnext-internal) | missing | missing                         |
-| SS-VER-07   | RZX SNA path lacks schema head (G66)                 | (jnext-internal) | missing | missing                         |
 | RB-FRAME-01 | take_snapshot bound assertion absent (G67)           | (jnext-internal) | missing | missing                         |
 | RB-FRAME-02 | Post-widening clean error path absent (G67)          | (jnext-internal) | missing | missing                         |
 | RB-FRAME-03 | Construction-vs-measured size match check (G67)      | (jnext-internal) | missing | missing                         |
