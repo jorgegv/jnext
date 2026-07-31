@@ -2193,6 +2193,287 @@ check('SELF-110', 'the control: the identical pipeline on a pipe-free row, so SE
       scalar($pplines[5] =~ m{\|\s*fixture_b\.vhd:910\s*\|\s*pass\s*\|\s*test/fixture/pipe_test\.cpp:\d+\s*\|$}),
       "got [$pplines[5]]");
 
+# ── A COMMENT IS NOT A CALL (GH #189 defect 2) ────────────────────────
+#
+# The call detector matched `\b(?:check|skip|...)\s*\(` against the RAW line,
+# so English prose mentioning `check()` or `skip()` was taken for an
+# assertion. It fired on 68 lines across the 41 traced sources, and #188's own
+# explanatory comment in `layer2_test.cpp` — which sits one line above the
+# `check("G10-01", ...)` it describes — was one of them, shadowing that call
+# for every row reaching forward to it.
+#
+# SELF-150/151 pin the two comment shapes and give each phantom a `.vhd:`
+# reference of its own, so a row that takes the phantom publishes a citation
+# SOURCED FROM PROSE and the row fails loudly rather than merely reading `—`.
+# SELF-152/153 are the discriminators in the other direction: the truncation is
+# quote-aware, and a rule that simply cut at the first `//` (or that let a
+# `'"'` char literal open a string) would DELETE a real call — the dangerous
+# direction, since a row whose call vanishes stops owning one and becomes
+# eligible for the `next` tier it was fenced off from.
+
+write_fixture('test/fixture/comment_test.cpp', <<'CPP');
+void group_full_line_comment() {
+    struct Row { const char* id; };
+    const Row rows[] = {
+        {"CMT-01"},
+    };
+    // The first check() call below is the one this table resolves to.
+    // VHDL fixture_a.vhd:900 is named in THIS COMMENT and nowhere else.
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion — VHDL fixture_b.vhd:11", cond, detail);
+    }
+}
+
+void group_trailing_comment() {
+    struct Row { const char* id; };
+    const Row rows[] = {
+        {"CMT-02"},
+    };
+    int n = 0;  // counted by skip() below — VHDL fixture_a.vhd:901
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion — VHDL fixture_b.vhd:12", cond, detail);
+    }
+}
+
+void group_slashes_in_a_string() {
+    // The helper token sits AFTER a `//` that is inside a string literal, so
+    // a truncation that is not quote-aware deletes this call outright.
+    if (url == "http://example.invalid/spec") check("CMT-03", "guarded assertion — VHDL fixture_c.vhd:13", cond, detail);
+    check("CMT-03-NEXT",
+          "the row after it — VHDL fixture_d.vhd:113",
+          cond, detail);
+}
+
+void group_escaped_quote() {
+    // A `\"` does NOT close the string, so the `//` after it is still string
+    // content and the guarded call on this line is real.
+    if (msg == "say \" then http://x") check("CMT-05", "guarded assertion — VHDL fixture_c.vhd:15", cond, detail);
+    check("CMT-05-NEXT",
+          "the row after it — VHDL fixture_d.vhd:115",
+          cond, detail);
+}
+
+void group_char_literal() {
+    struct Row { const char* id; };
+    const Row rows[] = {
+        {"CMT-04"},
+    };
+    char q = '"';  // a check() named here is prose — VHDL fixture_a.vhd:902
+    char e = '\\'; // and a skip() here too — VHDL fixture_a.vhd:903
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion — VHDL fixture_d.vhd:14", cond, detail);
+    }
+}
+CPP
+my $cc = grep_citations('test/fixture/comment_test.cpp');
+
+check('SELF-150', 'a whole-line comment naming check() is not a call, and its citation is not published',
+      ($cc->{'CMT-01'} // '') eq 'fixture_b.vhd:11',
+      "got " . ($cc->{'CMT-01'} // '(none)'));
+
+check('SELF-151', 'a TRAILING comment naming skip() is not a call either',
+      ($cc->{'CMT-02'} // '') eq 'fixture_b.vhd:12',
+      "got " . ($cc->{'CMT-02'} // '(none)'));
+
+# Without this, "truncate at the first //" satisfies SELF-151 just as well and
+# silently deletes every call whose description carries a URL.
+check('SELF-152', 'the discriminator: `//` inside a string literal does NOT truncate the line, so the call survives',
+      ($cc->{'CMT-03'} // '') eq 'fixture_c.vhd:13',
+      "got " . ($cc->{'CMT-03'} // '(none)'));
+
+# And this one keeps the quote tracking honest: mishandling `'"'` leaves the
+# scanner believing a string is still open, so the trailing comment is never
+# truncated and its prose becomes a phantom call again.
+check('SELF-162', 'an escaped `\\"` does not close the string, so a `//` after it is still content and the call survives',
+      ($cc->{'CMT-05'} // '') eq 'fixture_c.vhd:15',
+      "got " . ($cc->{'CMT-05'} // '(none)'));
+
+check('SELF-153', 'a `\'"\'` char literal does not open a string, so the comment after it is still stripped',
+      ($cc->{'CMT-04'} // '') eq 'fixture_d.vhd:14',
+      "got " . ($cc->{'CMT-04'} // '(none)'));
+
+# ── BOUNDING THE `next` TIER's REACH (GH #189 defect 1) ───────────────
+#
+# The tier serves the table-driven signature: IDs in an initialiser, ONE
+# shared assertion in the loop below, which passes the ID through a variable
+# and so names no ID literal of its own. The reach was unbounded, and the
+# signature does not actually require the loop to call anything — so
+# `layer2_test.cpp`'s 44-entry `deferred[]` table, whose loop pushes a result
+# directly, reached the first check() ANYWHERE below it, 47 lines away and in
+# another function. Citing that call handed ONE row's VHDL lines to all 44.
+#
+# THE RULE: refuse when the following call names a row ID of its own. REACH-01
+# /02 pin the accept side deliberately far away, because distance is NOT the
+# bound; LEAK-* and STOP-01 pin the refusals; TOKEN-01 pins that an ID-SHAPED
+# literal which is not a row (a machine name, a mode string) must not refuse.
+
+write_fixture('test/fixture/reach_test.cpp', <<'CPP');
+void group_reach_accept() {
+    struct Row { const char* id; int v; };
+    const Row rows[] = {
+        {"REACH-01", 0},
+        {"REACH-02", 1},
+    };
+    Fixture f;
+    f.reset();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    f.arm();
+    f.settle();
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion — VHDL fixture_a.vhd:700", cond, detail);
+    }
+}
+
+void group_reach_leak() {
+    const char* deferred[] = {
+        "LEAK-01", "LEAK-02", "LEAK-03",
+    };
+    for (const char* id : deferred) {
+        record(id);
+    }
+}
+
+void group_reach_owner() {
+    check("OWNER-01",
+          "the next row's own assertion — VHDL fixture_b.vhd:710",
+          cond, detail);
+}
+
+void group_reach_token() {
+    struct Row { const char* id; };
+    const Row rows[] = {
+        {"TOKEN-01"},
+    };
+    for (const Row& r : rows) {
+        check(r.id, describe("ZXN-ISSUE2"),
+              "shared assertion — VHDL fixture_c.vhd:720", cond, detail);
+    }
+}
+
+void group_reach_nested() {
+    const char* deferred3[] = {
+        "NEST-01",
+    };
+    for (const char* id : deferred3) {
+        record(id);
+    }
+    check(pick(cond, "NEST-OWN-01"), "a composed ID slot — VHDL fixture_b.vhd:740",
+          cond, detail);
+}
+
+void group_reach_paren_in_string() {
+    const char* deferred4[] = {
+        "NEST-02",
+    };
+    for (const char* id : deferred4) {
+        record(id);
+    }
+    check(pick("x)", "NEST-OWN-02"), "ID slot past a `)` inside a string — VHDL fixture_b.vhd:745",
+          cond, detail);
+}
+
+void group_reach_stop() {
+    const char* deferred2[] = {
+        "STOP-01",
+    };
+    for (const char* id : deferred2) {
+        record(id);
+    }
+    check("STOPOWN-01", "another row's own assertion, uncited", cond, detail);
+    struct Row { const char* id; };
+    const Row later[] = {
+        {"STOPTAB-01"},
+    };
+    for (const Row& r : later) {
+        check(r.id, "a LATER shared assertion — VHDL fixture_d.vhd:730",
+              cond, detail);
+    }
+}
+CPP
+my $rc = grep_citations('test/fixture/reach_test.cpp');
+
+check('SELF-154', 'the accept side: a table-driven row still reaches its loop check(), 30 lines away',
+      ($rc->{'REACH-01'} // '') eq 'fixture_a.vhd:700'
+        && ($rc->{'REACH-02'} // '') eq 'fixture_a.vhd:700',
+      "got REACH-01=" . ($rc->{'REACH-01'} // '(none)')
+        . " REACH-02=" . ($rc->{'REACH-02'} // '(none)'));
+
+# The GH #189 leak in miniature. Before the bound all three published
+# OWNER-01's fixture_b.vhd:710.
+check('SELF-155', 'a table whose loop calls nothing does NOT inherit the next row\'s citation',
+      !defined $rc->{'LEAK-01'} && !defined $rc->{'LEAK-02'}
+        && !defined $rc->{'LEAK-03'},
+      "got " . join(' ', map { "$_=" . ($rc->{$_} // '(none)') }
+                        qw(LEAK-01 LEAK-02 LEAK-03)));
+
+check('SELF-156', 'and the row that owns that citation keeps it',
+      ($rc->{'OWNER-01'} // '') eq 'fixture_b.vhd:710',
+      "got " . ($rc->{'OWNER-01'} // '(none)'));
+
+# Without this, "refuse whenever the call quotes an ID-SHAPED literal"
+# satisfies SELF-155 just as well and refuses every table whose shared
+# assertion mentions a machine name or a mode string.
+check('SELF-157', 'the discriminator: an ID-SHAPED literal that is not a row does NOT trigger the refusal',
+      ($rc->{'TOKEN-01'} // '') eq 'fixture_c.vhd:720',
+      "got " . ($rc->{'TOKEN-01'} // '(none)'));
+
+# The ID slot is read as a whole ARGUMENT, not up to the first comma: a call
+# can compose its ID (`check(pick(cond, "NEST-OWN-01"), ...)`) and it still
+# owns that row. Reading only to the first comma sees `pick(cond`, finds no
+# literal, and lets the table above borrow the citation.
+check('SELF-158', 'a composed ID slot still counts as naming a row, so the table above does NOT borrow it',
+      !defined $rc->{'NEST-01'},
+      "got " . ($rc->{'NEST-01'} // '(none)'));
+
+check('SELF-159', 'the control: that call still answers for the row it composes',
+      ($rc->{'NEST-OWN-01'} // '') eq 'fixture_b.vhd:740',
+      "got " . ($rc->{'NEST-OWN-01'} // '(none)'));
+
+# ...and the ID slot is scanned quote-aware, so a `)` written inside a string
+# does not end the argument early and hide the ID that follows it.
+check('SELF-163', 'a `)` inside a string does not truncate the ID slot, so the table above still does NOT borrow',
+      !defined $rc->{'NEST-02'},
+      "got " . ($rc->{'NEST-02'} // '(none)'));
+
+check('SELF-164', 'the control: that call is still detected and still carries its own citation',
+      ($rc->{'NEST-OWN-02'} // '') eq 'fixture_b.vhd:745',
+      "got " . ($rc->{'NEST-OWN-02'} // '(none)'));
+
+# Refusal is a STOP, not a skip. A version that kept scanning for a "better"
+# call would hand STOP-01 the citation two calls further down, which is the
+# unbounded reach again with an extra hop.
+check('SELF-160', 'the refusal STOPS the scan — it does not fall through to a later cited call',
+      !defined $rc->{'STOP-01'},
+      "got " . ($rc->{'STOP-01'} // '(none)'));
+
+# ...and the control that keeps SELF-160 from being satisfied by "the tier
+# never fires at all": the later shared assertion it must NOT reach across to
+# does answer for its own table.
+check('SELF-161', 'the control: that later shared assertion still answers for its OWN table',
+      ($rc->{'STOPTAB-01'} // '') eq 'fixture_d.vhd:730',
+      "got " . ($rc->{'STOPTAB-01'} // '(none)'));
+
 # ── END TO END: main()'s own glue, in a subprocess (GH #144) ─────────
 #
 # Every row above loads this file's target WITHOUT main() and asserts a sub in
@@ -2345,7 +2626,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 150;
+my $EXPECTED_ROWS = 165;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
