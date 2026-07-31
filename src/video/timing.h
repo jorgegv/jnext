@@ -128,10 +128,11 @@ public:
     /// later, at `c_min_hactive - 11` (:344 "EVERYTHING BELOW DELAYED ONE
     /// PIXEL FROM FRAME COUNTER"; GH #181). Callers must apply that +1
     /// themselves where it matters — `AttributeMux::hc_fetch()` does
-    /// (attribute_mux.h:271-293); the contention path (z80_cpu.cpp
-    /// `to_ula_counters()`) is provably invariant to it and deliberately
-    /// does not (GH #183, rows CT-GH183-01..05). Do not change the value
-    /// returned here without auditing both.
+    /// (attribute_mux.h:271-293), and the Copper takes it via
+    /// `hc_ula_zero_raw_hc()` below (GH #181); the contention path
+    /// (z80_cpu.cpp `to_ula_counters()`) is provably invariant to it and
+    /// deliberately does not (GH #183, rows CT-GH183-01..05). Do not
+    /// change the value returned here without auditing all three.
     int ula_prefetch_origin_hc() const {
         return static_cast<int>(min_hactive_) - 12;
     }

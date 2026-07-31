@@ -72,6 +72,16 @@ Copper per-scanline colour-modulation demo (timing-sensitive).
 
 <img src="../test/00regression/img/copper-demo-reference.png" width="384" alt="copper-demo reference"/>
 
+### `show512`
+All 512 ZX Next colours at once, as 8×8 squares in a Layer 2 field between a
+magenta text header and a magenta footer ("Ordered by sum of channel values").
+The Copper flips the Layer 2 palette select halfway down the field, so the top
+and bottom halves draw from different 256-colour banks. Guards GH #181: the
+`WAIT(line=95, h=52)` boundary must land on framebuffer row 128 — pre-fix it
+landed on row 127, painting that one row from the wrong bank.
+
+<img src="../test/00regression/img/show512-reference.png" width="384" alt="show512 reference"/>
+
 ### `floating-bus`
 48K floating-bus pattern test (port reads while ULA is fetching).
 
