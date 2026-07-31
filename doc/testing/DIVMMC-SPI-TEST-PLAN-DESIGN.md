@@ -307,10 +307,10 @@ Active-low: a 0 bit means the device is selected.
 | ID   | Test | Notes |
 |------|------|-------|
 | SS-01 | Reset: port_e7_reg = 0xFF (all deselected) | All SS lines high |
-| SS-02 | Write 0x01 (sd_swap=0): selects SD1 | `port_e7 = "111111" & NOT swap & swap` = 0xFE when swap=0 -> sd0 selected... |
-| SS-03 | Write 0x02 (sd_swap=0): selects SD0 | `port_e7 = "111111" & swap=0 & NOT swap=1` -> bit pattern depends on swap |
-| SS-04 | Write 0x01 with sd_swap=1: selects SD0 (swapped) | SD0/SD1 swap via NR 0x0A[5] |
-| SS-05 | Write 0x02 with sd_swap=1: selects SD1 (swapped) | Reverse of default |
+| SS-02 | Write 0x01 (sd_swap=0): selects SD1 | `cpu_do(1:0)="01"` → `port_e7 = "111111" & swap & NOT swap` = **0xFD** when swap=0; bit 1 low ⇒ `spi_ss_sd1_n=0` (`zxnext.vhd:3313-3314,3331`) |
+| SS-03 | Write 0x02 (sd_swap=0): selects SD0 | `cpu_do(1:0)="10"` → `port_e7 = "111111" & NOT swap & swap` = **0xFE** when swap=0; bit 0 low ⇒ `spi_ss_sd0_n=0` (`zxnext.vhd:3311-3312,3332`) |
+| SS-04 | Write 0x01 with sd_swap=1: selects SD0 (swapped) | Same `"01"` branch with swap=1 → **0xFE**; SD0/SD1 swap via NR 0x0A[5] (`zxnext.vhd:3313-3314`) |
+| SS-05 | Write 0x02 with sd_swap=1: selects SD1 (swapped) | Same `"10"` branch with swap=1 → **0xFD**; reverse of default (`zxnext.vhd:3311-3312`) |
 | SS-06 | Write 0xFB: selects RPI0 (bit 2 = 0) | Exact match required |
 | SS-07 | Write 0xF7: selects RPI1 (bit 3 = 0) | Exact match required |
 | SS-08 | Write 0x7F in config mode: selects Flash | Only allowed in config mode or reset type bit 2; jnext stub returns 0xFF (Flash device + config_mode signal not modelled) — see G136 (Cat-B promote 2026-04-27) |
@@ -318,15 +318,32 @@ Active-low: a 0 bit means the device is selected.
 | SS-10 | Write any other value: all deselected (0xFF) | Default case |
 | SS-11 | Only one device selected at a time | Hardware enforces single selection |
 
-Detailed SD swap logic:
-- Write value `cpu_do[1:0] = "10"`: `port_e7 = "111111" & NOT(sd_swap) & sd_swap`
-- Write value `cpu_do[1:0] = "01"`: `port_e7 = "111111" & sd_swap & NOT(sd_swap)`
-- When sd_swap=0: write 0x02 -> bit1=1,bit0=0 (SD1 selected); write 0x01 -> bit1=0,bit0=1 (wait, inverted)
+**Stimulus is 0x01 / 0x02, not 0xFD / 0xFE (GH #193).** The VHDL matches on
+`cpu_do(1 downto 0)` alone — bits 7:2 are don't-care, as the source comment at
+`zxnext.vhd:3301` spells out ("esxdos may write garbage into bits other than
+1:0"). Writing the *output* pattern (0xFE / 0xFD) enters the same branch but is
+not discriminative: a verbatim-store implementation would pass. The rows above
+pin the decode.
 
-Actually the VHDL is clearer: `cpu_do(1:0)="10"` means the software wrote with
-bit1=1 (meaning "select SD1 logically"), and the hardware produces
-`NOT(swap) & swap`. With swap=0: bits = 1,0 -> SD1_n=0 (SD1 selected).
-With swap=1: bits = 0,1 -> SD0_n=0 (SD0 selected instead).
+Detailed SD swap logic (`zxnext.vhd:3311-3314`; the CS outputs are wired at
+`:3331-3332`, `spi_ss_sd1_n <= port_e7_reg(1)`, `spi_ss_sd0_n <= port_e7_reg(0)`,
+active-low):
+
+- `cpu_do(1:0) = "10"` → `port_e7 = "111111" & NOT(sd_swap) & sd_swap`
+  - swap=0 → `0xFE`: bit1=1 (SD1 **de**selected), bit0=0 ⇒ **SD0 selected**
+  - swap=1 → `0xFD`: bit1=0 ⇒ **SD1 selected**
+- `cpu_do(1:0) = "01"` → `port_e7 = "111111" & sd_swap & NOT(sd_swap)`
+  - swap=0 → `0xFD`: bit0=1 (SD0 **de**selected), bit1=0 ⇒ **SD1 selected**
+  - swap=1 → `0xFE`: bit0=0 ⇒ **SD0 selected**
+
+> **GH #193 — the two paragraphs this replaces were self-contradictory and
+> backwards.** One ended mid-thought with a literal "(wait, inverted)"; the
+> other asserted that `"10"` with swap=0 selects SD1, which inverts the
+> active-low wiring — `port_e7_reg(1)='1'` de-selects SD1, and it is
+> `port_e7_reg(0)='0'` that selects SD0. The SS-02..SS-05 `Notes` cells above
+> carried the same inversion (their formulas were swapped relative to their own
+> titles) and were corrected at the same time. The row *titles* were right
+> throughout, and the tests agree with them.
 
 ### 13. Port 0xEB -- SPI Data Exchange
 

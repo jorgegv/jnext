@@ -2476,58 +2476,74 @@ void group_ss() {
     }
 
     // SS-02..SS-05: sd_swap decode logic. VHDL zxnext.vhd:3311-3314.
-    //   sd_swap=0: cpu_do(1:0)=10 → port_e7_reg=0xFE (SD0)
-    //              cpu_do(1:0)=01 → port_e7_reg=0xFD (SD1)
-    //   sd_swap=1: cpu_do(1:0)=10 → port_e7_reg=0xFD (SD1, swapped)
-    //              cpu_do(1:0)=01 → port_e7_reg=0xFE (SD0, swapped)
+    //   sd_swap=0: cpu_do(1:0)=01 → port_e7_reg=0xFD (SD1)
+    //              cpu_do(1:0)=10 → port_e7_reg=0xFE (SD0)
+    //   sd_swap=1: cpu_do(1:0)=01 → port_e7_reg=0xFE (SD0, swapped)
+    //              cpu_do(1:0)=10 → port_e7_reg=0xFD (SD1, swapped)
     // RPI0/RPI1 branches are unaffected (swap is SD-only).
+    //
+    // GH #193: the stimulus is the plan's 0x01 / 0x02, NOT 0xFD / 0xFE.
+    // VHDL zxnext.vhd:3311,3313 match on `cpu_do(1 downto 0)` ALONE — the
+    // upper six bits are don't-care, as the source comment at :3301 spells
+    // out ("esxdos may write garbage into bits other than 1:0"). So 0x02
+    // and 0xFE enter the same branch, but only 0x02 is DISCRIMINATIVE: a
+    // hypothetical verbatim-store implementation returns 0xFE for a 0xFE
+    // write and would pass, while 0x02 → 0xFE can only come from the
+    // decode. The pre-#193 rows used the output pattern as the input and
+    // were therefore blind to that bug class on the sd_swap=0 legs.
 
-    // SS-02: sd_swap=0, write 0xFE → SD0 pattern 0xFE.
+    // SS-02: sd_swap=0, write 0x01 → SD1 pattern 0xFD. VHDL :3313-3314
+    // ("01" → "111111" & sd_swap & not sd_swap = 0xFD when sd_swap=0;
+    // bit 1 low, and spi_ss_sd1_n <= port_e7_reg(1) at :3331).
     {
         SpiMaster m; m.reset();
         m.set_sd_swap(false);
-        m.write_cs(0xFE);
+        m.write_cs(0x01);
         check("SS-02",
-              "sd_swap=0: write 0xFE selects SD0 (0xFE) "
-              "(VHDL zxnext.vhd:3311)",
-              m.read_cs() == 0xFE,
-              fmt("got=%02x exp=FE", m.read_cs()));
+              "sd_swap=0: write 0x01 selects SD1 (0xFD) "
+              "(VHDL zxnext.vhd:3313-3314,3331)",
+              m.read_cs() == 0xFD,
+              fmt("got=%02x exp=FD", m.read_cs()));
     }
 
-    // SS-03: sd_swap=0, write 0xFD → SD1 pattern 0xFD.
+    // SS-03: sd_swap=0, write 0x02 → SD0 pattern 0xFE. VHDL :3311-3312
+    // ("10" → "111111" & not sd_swap & sd_swap = 0xFE when sd_swap=0;
+    // bit 0 low, and spi_ss_sd0_n <= port_e7_reg(0) at :3332).
     {
         SpiMaster m; m.reset();
         m.set_sd_swap(false);
-        m.write_cs(0xFD);
+        m.write_cs(0x02);
         check("SS-03",
-              "sd_swap=0: write 0xFD selects SD1 (0xFD) "
-              "(VHDL zxnext.vhd:3313)",
-              m.read_cs() == 0xFD,
-              fmt("got=%02x exp=FD", m.read_cs()));
-    }
-
-    // SS-04: sd_swap=1, write 0xFE → swapped to SD1 (0xFD).
-    {
-        SpiMaster m; m.reset();
-        m.set_sd_swap(true);
-        m.write_cs(0xFE);
-        check("SS-04",
-              "sd_swap=1: write 0xFE maps to SD1 pattern 0xFD "
-              "(VHDL zxnext.vhd:3311)",
-              m.read_cs() == 0xFD,
-              fmt("got=%02x exp=FD", m.read_cs()));
-    }
-
-    // SS-05: sd_swap=1, write 0xFD → swapped to SD0 (0xFE).
-    {
-        SpiMaster m; m.reset();
-        m.set_sd_swap(true);
-        m.write_cs(0xFD);
-        check("SS-05",
-              "sd_swap=1: write 0xFD maps to SD0 pattern 0xFE "
-              "(VHDL zxnext.vhd:3313)",
+              "sd_swap=0: write 0x02 selects SD0 (0xFE) "
+              "(VHDL zxnext.vhd:3311-3312,3332)",
               m.read_cs() == 0xFE,
               fmt("got=%02x exp=FE", m.read_cs()));
+    }
+
+    // SS-04: sd_swap=1, write 0x01 → swapped to SD0 (0xFE). VHDL :3314
+    // with nr_0a_sd_swap='1' → "111111" & '1' & '0' = 0xFE.
+    {
+        SpiMaster m; m.reset();
+        m.set_sd_swap(true);
+        m.write_cs(0x01);
+        check("SS-04",
+              "sd_swap=1: write 0x01 maps to SD0 pattern 0xFE "
+              "(VHDL zxnext.vhd:3313-3314,3332)",
+              m.read_cs() == 0xFE,
+              fmt("got=%02x exp=FE", m.read_cs()));
+    }
+
+    // SS-05: sd_swap=1, write 0x02 → swapped to SD1 (0xFD). VHDL :3312
+    // with nr_0a_sd_swap='1' → "111111" & '0' & '1' = 0xFD.
+    {
+        SpiMaster m; m.reset();
+        m.set_sd_swap(true);
+        m.write_cs(0x02);
+        check("SS-05",
+              "sd_swap=1: write 0x02 maps to SD1 pattern 0xFD "
+              "(VHDL zxnext.vhd:3311-3312,3331)",
+              m.read_cs() == 0xFD,
+              fmt("got=%02x exp=FD", m.read_cs()));
     }
 
     // SS-06: Write 0xFB selects RPI0. VHDL: zxnext.vhd:3318.
