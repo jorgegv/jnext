@@ -1832,12 +1832,28 @@ static void test_group_iorq() {
     }
 
     // IORQ-01 — COVERED ELSEWHERE (not a skip).
-    // VHDL zxnext.vhd:2705 requires that M1+IORQ (IM1 vector-fetch
-    // cycle) does NOT trigger the standard port decode. The libz80 core
-    // handles IM1 internally and never reaches PortDispatch::in during
-    // vector fetch — there is no spy at that boundary for a direct
-    // assertion. Any IM1-related port-dispatch regression would surface
-    // as a failure in the FUSE Z80 opcode suite (1356/1356 currently).
+    // VHDL zxnext.vhd:2705 requires that M1+IORQ (IM1/IM2 vector-fetch
+    // cycle) does NOT trigger the standard port decode. There is no spy
+    // at PortDispatch's own boundary for a direct assertion. A prior
+    // version of this comment additionally claimed "any IM1-related
+    // port-dispatch regression would surface as a failure in the FUSE
+    // Z80 opcode suite" — that citation is not credible (GH #196 phase
+    // 1.1 review): test/fuse/fuse_z80_test.cpp's TestIO::in() is a
+    // hardcoded floating-bus stub (returns port>>8) that never touches
+    // PortDispatch, and the FUSE opcode-test format has no
+    // interrupt-acknowledge scenario at all.
+    //
+    // The underlying guarantee IS real, though, and IS exercised:
+    // vector resolution bypasses PortDispatch::in() by construction —
+    // Z80Cpu's IntAck cycle resolves the vector via the dedicated
+    // on_int_ack() callback (src/cpu/z80_cpu.cpp:716), a code path
+    // structurally separate from IoInterface::in(). That callback is
+    // wired to Im2Controller::ack_vector() and exercised end-to-end by
+    // test/cpu/cpu_z80n_im2_regressions_test.cpp
+    // (IM2-ACK-VECTOR-EI-GRACE and friends) and
+    // test/ctc_interrupts/ctc_interrupts_test.cpp (ULA-INT-V19-IM2-04),
+    // both of which assert the IM2 daisy-chain FSM actually advances off
+    // the on_int_ack() call rather than off any port-dispatch path.
 
     // RMW-01: OUT 0xFE sets border then beeper latch. VHDL 2582.
     {
@@ -1851,12 +1867,26 @@ static void test_group_iorq() {
               DETAIL("border=%u expected 7", b));
     }
 
-    // CTN-01 / CTN-02 — COVERED ELSEWHERE (not skips).
-    // Contended-port T-state accounting lives inside libz80 and is not
-    // observable at PortDispatch's public in()/out() boundary — the
-    // boundary only sees port_value, not the cycle-level stretch. Both
-    // the contended-port and uncontended IN A,(nn) timing patterns are
-    // exercised end-to-end by the FUSE Z80 opcode suite.
+    // CTN-01 / CTN-02 — REAL GAP, currently untested (not skips).
+    // Contended-port T-state accounting is a CPU-execution-time concern,
+    // not observable at PortDispatch's public in()/out() boundary — the
+    // boundary only sees port_value, never the cycle-level stretch. A
+    // prior version of this comment claimed both patterns were
+    // "exercised end-to-end by the FUSE Z80 opcode suite" — that is
+    // FALSE (GH #196 phase 1.1 review): the FUSE Z80 test harness path
+    // nulls the contention runtime entirely (src/cpu/z80_cpu.cpp:62-64
+    // — "when null, no contention is applied ... preserves the
+    // 1356/1356 compliance score"), and test/fuse/fuse_z80_test.cpp
+    // never installs a ContentionModel, so every FUSE opcode test —
+    // including any IN/OUT case — runs with contention completely
+    // inert.
+    //
+    // This is the identical gap independently found in the Contention
+    // suite as CT-FUSE-03/CT-FUSE-04 (doc/testing/CONTENTION-TEST-PLAN-
+    // DESIGN.md §16): real, currently untested, and constructible with
+    // the same ON/OFF T-state-delta idiom used there (re-verified there
+    // with a throwaway probe: on=2995, off=2806, delta=189 T-states for
+    // a contended OUT (0xFE),A loop). Status stays `missing`.
 }
 
 // ── Group G. DivMMC automap ────────────────────────────────────────────
