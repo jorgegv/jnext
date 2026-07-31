@@ -531,6 +531,143 @@ void test_mixed_screen_flags() {
              "(GH #178 control row)", e, "mix5");
 }
 
+// ── The EXT2 gate: field 152 without screen_flags bit 6 (GH #185) ────
+//
+// Field 152 is DEFINED only when bit 6 is set — "LOADSCR2 db 0 ; when
+// LOADSCR |= 64" (nexload2.asm:129). A file that leaves bit 6 clear may carry
+// anything at all in that byte, so the SCREEN it declares must be sized and
+// ingested exactly as if the byte were zero.
+//
+// That is what the reference loader does, and it does it with the block
+// dispatch loop rather than with a test on the byte (nexload2.asm:304-:311):
+//
+//   .screenBlocksLoop:
+//           add     hl,SCREEN_BLOCK_DEF
+//           ld      a,(nexHeader.LOADSCR)
+//           push    hl
+//           and     (hl)                    ; (hl) = TRIGGER_BIT
+//           call    nz,LoadScreenBlock
+//
+// All three V1.3 block definitions carry TRIGGER_BIT = NEXLOAD_LOADSCR_EXT2
+// (nexload2.asm:623-:625), so with bit 6 clear `and (hl)` is zero, the call
+// never happens, and LoadScreenBlock — the only place LOADSCR2 selects a
+// block — is never reached (:628-:631). No screen data block is read, and
+// none of the mode's NextREG writes (:679-:697) happen.
+//
+// jnext implements that as one gate, `nex_loader.cpp:843`:
+//
+//   const uint8_t sf2 = (sf & SCREEN_EXT2) ? header_.screen_flags2
+//                                          : SCREEN2_NONE;
+//
+// with the sizing half in nex_screen_bytes() (:128). Deleting EITHER passed
+// all 196 NEX rows before these three existed (GH #185): no fixture anywhere
+// put a non-zero byte at 152 while bit 6 was clear.
+//
+// WHAT THESE ROWS DELIBERATELY DO NOT ASSERT: the palette destination.
+// nexload2's OTHER consumer of field 152 is LoadFilePalette, and that one
+// reads the byte with NO bit-6 test at all (nexload2.asm:732 `ld
+// a,(nexHeader.LOADSCR2)`, reached from :296-:300), while checkHeader
+// (:544-:570) never sanitises it. So on the palette selector the reference
+// loader and jnext's gate genuinely disagree for these headers. Asserting
+// jnext's answer here would cement that disagreement, and asserting the
+// oracle's would be a failing row; both are wrong for a coverage-gap fix.
+// Reported separately — see GH #185. Every assertion below is one the two
+// agree on, so these rows survive whichever way that is settled.
+//
+// Each row is a differential against a CONTROL fixture identical but for
+// field 152 = 0 — the literal statement of "behaves as if screen_flags2 were
+// 0" — and asserts the derived bank offset, not a truncation guard. The
+// fixture carries six banks precisely so the guard CANNOT be what fails: an
+// ungated loader ingests 81920 bytes for values 1 and 2, and the file is long
+// enough for that read to succeed, so the row fails on the OFFSET and on the
+// registers/pages the ingest touched (the trap disclosed in GH #169).
+void ext2_gate_row(const char* id, const char* desc, uint8_t sf2, const char* tag) {
+    V13Opts o;
+    o.screen_flags  = 0x01;      // LAYER2 — a real screen, and bit 6 CLEAR
+    o.screen_flags2 = sf2;       // junk as far as this header is concerned
+    // Distinctive tilemode config: value 3 would push these to NR 0x6B/0x6C/
+    // 0x6E/0x6F (nexload2.asm:688-:697) if the gate were gone.
+    o.tile_cfg[0] = 0x83; o.tile_cfg[1] = 0x11; o.tile_cfg[2] = 0xC0; o.tile_cfg[3] = 0xCA;
+    // 6 banks = 98304 bytes after the 50176-byte header+palette+screen region.
+    // An ungated ingest of 81920 bytes at 49664 (file 50176) therefore fits,
+    // and none of these banks map to pages 18-27 where it would land.
+    o.banks = {5, 2, 0, 1, 3, 4};
+    // Field 144 omitted so the DERIVED offset — nex_screen_bytes() itself —
+    // is what is under test, for the same reason size_row() omits it.
+    o.omit_banks_offset = true;
+
+    V13Opts ctl = o;
+    ctl.screen_flags2 = 0;
+
+    Fixture f(o, tag);
+    Fixture c(ctl, (std::string(tag) + "c").c_str());
+
+    const size_t want = expected_bank_offset(o);   // ignores 152; bit 6 is clear
+    auto& nr  = f.emu.nextreg();
+    auto& cnr = c.emu.nextreg();
+
+    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    const bool offset_ok = loaded && f.loader.bank_data_offset() == want &&
+                           c.loader.bank_data_offset() == want;
+    // Banks landed where the derived offset says they do.
+    const bool content_ok = loaded &&
+                            read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0) &&
+                            read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
+                            read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
+    // Pages 18/19 = the first two of the big-Layer-2 target banks 9-13
+    // (nexload2.asm:623-624 loads 10 pages from LAYER2_BANK*2 = 18).
+    const bool pages_ok = loaded &&
+                          read_page(f.emu.mmu(), 18, 0) == read_page(c.emu.mmu(), 18, 0) &&
+                          read_page(f.emu.mmu(), 19, 0) == read_page(c.emu.mmu(), 19, 0);
+    // Every NextREG either of the three V1.3 screen kinds would write.
+    const bool regs_ok = loaded &&
+                         nr.read(0x70) == cnr.read(0x70) && nr.read(0x12) == cnr.read(0x12) &&
+                         nr.read(0x69) == cnr.read(0x69) && nr.read(0x6B) == cnr.read(0x6B) &&
+                         nr.read(0x6C) == cnr.read(0x6C) && nr.read(0x6E) == cnr.read(0x6E) &&
+                         nr.read(0x6F) == cnr.read(0x6F);
+
+    check(id, desc, offset_ok && content_ok && pages_ok && regs_ok,
+          fmt("load=%d apply=%d bank_data_offset=%llu want %zu (control %llu); "
+              "bank5[0]=%02x want %02x bank2[0]=%02x want %02x; "
+              "page18[0]=%02x/%02x page19[0]=%02x/%02x (test/control); "
+              "NR 70=%02x/%02x 12=%02x/%02x 69=%02x/%02x 6B=%02x/%02x 6C=%02x/%02x "
+              "6E=%02x/%02x 6F=%02x/%02x",
+              f.load_ok, f.apply_ok,
+              static_cast<unsigned long long>(f.loader.bank_data_offset()), want,
+              static_cast<unsigned long long>(c.loader.bank_data_offset()),
+              loaded ? read_page(f.emu.mmu(), 10, 0) : 0, bank_byte(5, 0),
+              loaded ? read_page(f.emu.mmu(), 4, 0) : 0, bank_byte(2, 0),
+              loaded ? read_page(f.emu.mmu(), 18, 0) : 0,
+              loaded ? read_page(c.emu.mmu(), 18, 0) : 0,
+              loaded ? read_page(f.emu.mmu(), 19, 0) : 0,
+              loaded ? read_page(c.emu.mmu(), 19, 0) : 0,
+              nr.read(0x70), cnr.read(0x70), nr.read(0x12), cnr.read(0x12),
+              nr.read(0x69), cnr.read(0x69), nr.read(0x6B), cnr.read(0x6B),
+              nr.read(0x6C), cnr.read(0x6C), nr.read(0x6E), cnr.read(0x6E),
+              nr.read(0x6F), cnr.read(0x6F)));
+}
+
+void test_ext2_gate() {
+    ext2_gate_row("NEXV13-EXT2-01",
+                  "screen_flags2 = 1 (L2 320x256) with screen_flags bit 6 CLEAR declares "
+                  "nothing: no 81920-byte block is sized or ingested, banks 9-13 stay "
+                  "untouched and no screen NextREG is written — the block's trigger bit is "
+                  "EXT2 (nexload2.asm:623,:307-311), so LoadScreenBlock never runs (GH #185)",
+                  1, "e2g1");
+
+    ext2_gate_row("NEXV13-EXT2-02",
+                  "screen_flags2 = 2 (L2 640x256) with bit 6 clear is likewise inert — the "
+                  "second of the two values that would otherwise add 81920 bytes and shift "
+                  "the start of every bank (nexload2.asm:624) (GH #185)",
+                  2, "e2g2");
+
+    ext2_gate_row("NEXV13-EXT2-03",
+                  "screen_flags2 = 3 (tilemode) with bit 6 clear is inert too: it adds no "
+                  "data block, so only its four config writes to NR 0x6B/0x6C/0x6E/0x6F "
+                  "would betray it (nexload2.asm:625,:688-697) (GH #185)",
+                  3, "e2g3");
+}
+
 // ── Loud refusal of screens this loader cannot size ──────────────────
 
 void refuse_row(const char* id, const char* desc, V13Opts o, const char* tag) {
@@ -1153,8 +1290,9 @@ void test_palette() {
     // bug that survives without this row is the classic one — writing
     // `sf2 == SCREEN2_L2_320x256` for `sf2 != SCREEN2_NONE`.
     //
-    // EXT2 must be set: without it apply() pins sf2 to SCREEN2_NONE (bit 6 is
-    // what makes field 152 meaningful) and no palette block is read at all.
+    // EXT2 must be set here: it is the only screen bit this fixture has, so
+    // clearing it leaves screen_flags at 0 and no palette block is read at
+    // all. (Bit 6 does NOT gate the destination selector — see PAL-11..14.)
     // NR 0x43 is read first, before read_pal_8() writes it.
     {
         V13Opts o;
@@ -1184,6 +1322,127 @@ void test_palette() {
               fmt("apply=%d NR 0x43 = %#04x want 0x10; l2_pal[%zu]=%02x want %02x; "
                   "tilemap_pal[1]=%02x want 02",
                   f.apply_ok, nr43, bad, got, want, tm1));
+    }
+
+    // ── The destination selector is NOT gated on EXT2 (GH #185) ──────
+    //
+    // Field 152 has two consumers and they are gated differently. The screen
+    // BLOCK selector is gated — the dispatch loop tests TRIGGER_BIT = EXT2
+    // (nexload2.asm:304-311, :623-625), so LoadScreenBlock never runs with
+    // bit 6 clear; NEXV13-EXT2-01/02/03 pin that half.
+    //
+    // The PALETTE selector is not. nexload2.asm:732-741:
+    //
+    //   :731  nextreg PALETTE_CONTROL_NR43,%0'011'000'0   ; tilemap palette
+    //   :732  ld      a,(nexHeader.LOADSCR2)   <- NO bit-6 test
+    //   :733  cp      NEXLOAD_LOADSCR2_TILEMODE
+    //   :734  jr      z,.setPalette
+    //   :735  nextreg PALETTE_CONTROL_NR43,%0'001'000'0   ; Layer2 palette
+    //   :736  or      a
+    //   :737  jr      nz,.setPalette
+    //   :738  ld      a,(nexHeader.LOADSCR)
+    //   :739  test    NEXLOAD_LOADSCR_LAYER2
+    //   :740  jr      nz,.setPalette
+    //   :741  nextreg PALETTE_CONTROL_NR43,0              ; ULA palette
+    //
+    // reached from :296-300 whenever LOADSCR & (LAYER2|LORES|EXT2) is
+    // non-zero with NOPAL clear — which includes every header with bit 6
+    // CLEAR but LAYER2 or LORES set. checkHeader (:544-570) never zeroes the
+    // byte, so it is the raw file byte that steers NR 0x43.
+    //
+    // jnext fed this selector the EXT2-GATED value, so these headers went to
+    // the wrong palette. PAL-11..14 each differ from an existing row ONLY in
+    // field 152: PAL-11/12/13 vs PAL-07 (V1.3 LoRes, 152 = 0 -> 0x00) and
+    // PAL-14 vs PAL-09/the plain LAYER2 case (152 = 0 -> 0x10).
+    //
+    // PAL-15 covers the value class the other four do not: a byte OUTSIDE
+    // 1..3. That is not an exotic case here — it is the normal one. Field 152
+    // is undefined without bit 6, so a real file may hold anything there, and
+    // load() only range-checks it when bit 6 IS set (nex_screen_bytes()'s
+    // switch is inside `if (sf & SCREEN_EXT2)`). Nothing else in the tree
+    // exercises that path, so `cp 3`'s STRICT equality was unpinned: relaxing
+    // it to `>=` passed all 203 NEX rows.
+    struct PalDestCase {
+        const char* id;
+        uint8_t     sf;          // screen_flags, EXT2 (0x40) deliberately CLEAR
+        uint8_t     sf2;         // raw field 152
+        uint8_t     want_nr43;   // destination per nexload2.asm:732-741
+        // The destination a plausible mis-selector would pick instead, asserted
+        // NOT to hold the block. For PAL-11..14 that is what the EXT2-gated
+        // selector produced; for PAL-15 it is the tilemap palette a relaxed
+        // `cp 3` comparison would choose.
+        uint8_t     wrong_nr43;
+        const char* tag;
+        const char* desc;
+    };
+    static const PalDestCase kPalDest[] = {
+        {"NEXV13-PAL-11", 0x04, 1, 0x10, 0x00, "pd1",
+         "a V1.3 LoRes header with bit 6 CLEAR and field 152 = 1 still sends its palette "
+         "to the LAYER 2 palette (NR 0x43 = 0x10): nexload2.asm:732 reads field 152 with "
+         "no EXT2 test and :736-737's `or a : jr nz` takes it (GH #185)"},
+        {"NEXV13-PAL-12", 0x04, 2, 0x10, 0x00, "pd2",
+         "the same with field 152 = 2 — :736's `or a` is a test for non-zero, so both "
+         "big-Layer-2 values reach the Layer 2 palette with bit 6 clear (GH #185)"},
+        {"NEXV13-PAL-13", 0x04, 3, 0x30, 0x00, "pd3",
+         "a V1.3 LoRes header with bit 6 clear and field 152 = 3 sends its palette to the "
+         "TILEMAP palette (NR 0x43 = 0x30) — :733-734's `cp TILEMODE : jr z` fires before "
+         "screen_flags is consulted at all (GH #185)"},
+        {"NEXV13-PAL-14", 0x01, 3, 0x30, 0x10, "pd4",
+         "a V1.3 LAYER2 header with bit 6 clear and field 152 = 3 also goes to the TILEMAP "
+         "palette: :733-734 is reached before the LAYER2 test at :739, so field 152 wins "
+         "over screen_flags (GH #185)"},
+        // The out-of-range class. 200 is not a screen kind at all — with bit 6
+        // clear nothing validates the byte, so this is what junk in an
+        // undefined field actually looks like. :733's `cp NEXLOAD_LOADSCR2_
+        // TILEMODE` is a strict equality against 3, so 200 does NOT take the
+        // `jr z` at :734; it falls through to :735-737, where `or a : jr nz`
+        // catches every non-zero value and lands it in the Layer 2 palette.
+        // A relaxed comparison (`>=` instead of `==`) would silently send it
+        // to the tilemap palette instead, which is what wrong_nr43 pins here.
+        {"NEXV13-PAL-15", 0x04, 200, 0x10, 0x30, "pd5",
+         "a V1.3 LoRes header with bit 6 clear and field 152 = 200 — a value outside the "
+         "defined 1..3, which nothing range-checks while bit 6 is clear — goes to the "
+         "LAYER 2 palette, NOT the tilemap one: nexload2.asm:733's `cp 3` is strict "
+         "equality, so :736-737's `or a : jr nz` is what claims it (GH #185)"},
+    };
+    for (const PalDestCase& c : kPalDest) {
+        V13Opts o;
+        o.screen_flags  = c.sf;    // EXT2 clear throughout
+        o.screen_flags2 = c.sf2;
+        o.banks = {5};
+        Fixture f(o, c.tag);
+        // NR 0x43 first — read_pal_8() writes it.
+        const uint8_t nr43 = f.apply_ok ? f.emu.nextreg().read(0x43) : 0xFF;
+        // The whole 512-byte block must land in that destination, not just
+        // the register be right: a selector that picks the register from one
+        // input and the destination from another would pass on nr43 alone.
+        bool dest_ok = f.apply_ok;
+        size_t bad = 0; uint8_t got = 0, want = 0;
+        if (dest_ok) {
+            for (int i = 0; i < 256 && dest_ok; ++i) {
+                got  = read_pal_8(f.emu, c.want_nr43, static_cast<uint8_t>(i));
+                want = pal_byte(static_cast<size_t>(i) * 2);
+                if (got != want) { dest_ok = false; bad = static_cast<size_t>(i); }
+            }
+        }
+        // And it must NOT have landed in the destination a mis-selector would
+        // pick. Asserted as "that palette does not hold the BLOCK", over a
+        // run of entries rather than one: single entries collide by accident
+        // — the ULA palette's default entry 1 is 0x03 (blue in RRRGGGBB),
+        // which is exactly pal_byte(2). Entries start at 1 because entry 0
+        // reads 0x00 whether seeded or unwritten.
+        bool wrong_holds_block = f.apply_ok;
+        for (int i = 1; i <= 8 && wrong_holds_block; ++i) {
+            if (read_pal_8(f.emu, c.wrong_nr43, static_cast<uint8_t>(i)) !=
+                pal_byte(static_cast<size_t>(i) * 2))
+                wrong_holds_block = false;
+        }
+        check(c.id, c.desc,
+              f.apply_ok && nr43 == c.want_nr43 && dest_ok && !wrong_holds_block,
+              fmt("apply=%d NR 0x43 = %#04x want %#04x; dest_pal[%zu]=%02x want %02x; "
+                  "wrong_dest(%#04x) holds the block=%d (must be 0)",
+                  f.apply_ok, nr43, c.want_nr43, bad, got, want,
+                  c.wrong_nr43, wrong_holds_block));
     }
 }
 
@@ -1536,6 +1795,7 @@ int main() {
     test_header_fields();
     test_sizing();
     test_mixed_screen_flags();
+    test_ext2_gate();
     test_refusal();
     test_banks_offset();
     test_crc();
