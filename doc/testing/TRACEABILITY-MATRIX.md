@@ -3392,9 +3392,14 @@ Last-touch commit: HEAD
 Suite covers the rewind / backwards-execution pipeline: `RewindBuffer` ring-wrap
 semantics, `step_back()` PC restoration via the trace log, `rewind_to_frame()`
 register-state restoration, save-state round-trip determinism, and the
-disabled-rewind escape path. The 10 skip rows (`SS-VER-*`, `RB-FRAME-*`) are
-G66/G67 placeholders — pinned in source until the save-state schema-versioning
-plan and the per-subsystem TLV framing plan land. Rewind has no direct VHDL
+disabled-rewind escape path. `RB-FRAME-01..03` are live, passing rows (G67
+closed 2026-07-15, Task 60b); the matrix scanner reports them `missing` only
+because `rewind_test.cpp` uses its own uppercase `CHECK()` macro, not the
+lowercase `check()`/`skip()` pattern `refresh-traceability-matrix.pl`
+recognizes — a scanner blind spot, not a coverage gap. The former
+`SS-VER-01..07` placeholder rows (G66) were removed 2026-07-15 as
+misclassified coverage debt (see `KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` G66)
+and dropped from this table by this GH #196 pass. Rewind has no direct VHDL
 anchor (it is a host-side save-state framing concern); all rows show `—`.
 
 | Test ID     | Plan row title                                       | VHDL file:line | Status | Test file:line                  |
