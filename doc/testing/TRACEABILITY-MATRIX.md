@@ -484,13 +484,13 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | BOOT-FDC-01      | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive                   | —                    | missing | missing                    |
 | BOOT-FDC-02      | uPD765 motor-on / read-id behaviour                              | —                    | missing | missing                    |
 | BOOT-FDC-03      | NR 0x81 b3 (`fdc` clken) gates motor-on                          | NR 0x81 b3           | missing | missing                    |
-| CFG-05           | NR 0x88 reset-default (port_8x_disable_io_en)                    | zxnext.vhd:5060      | pass    | test/mmu/mmu_test.cpp:2729 |
-| CFG-06           | NR 0x89 reset-default                                            | zxnext.vhd:5061      | pass    | test/mmu/mmu_test.cpp:2753 |
-| CFG-07           | port_e3 conmem on RESET_HARD                                     | zxnext.vhd:1126      | pass    | test/mmu/mmu_test.cpp:2773 |
-| CFG-08           | port_e3 conmem on RESET_SOFT                                     | zxnext.vhd:1127      | pass    | test/mmu/mmu_test.cpp:2796 |
-| CFG-09           | nr_8c_altrom_lock_rom1 reset clears                              | zxnext.vhd:5099      | pass    | test/mmu/mmu_test.cpp:2819 |
-| CFG-10           | nr_8c_altrom_lock_rom0 reset clears                              | zxnext.vhd:5100      | pass    | test/mmu/mmu_test.cpp:2838 |
-| CFG-11           | NR 0x82-0x85 power-on default (all enables=1)                    | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2858 |
+| CFG-05           | Addr bit 13 picks upper/lower 8 KB of the NR 0x04 bank           | zxnext.vhd:5060      | pass    | test/mmu/mmu_test.cpp:2729 |
+| CFG-06           | Mmu::reset() clears the NR 0x04 bank; config_mode untouched      | zxnext.vhd:5061      | pass    | test/mmu/mmu_test.cpp:2753 |
+| CFG-07           | Out-of-range NR 0x04 bank: read 0xFF, write dropped              | zxnext.vhd:1126      | pass    | test/mmu/mmu_test.cpp:2773 |
+| CFG-08           | config_mode / NR 0x04 setters toggle drop vs route               | zxnext.vhd:1127      | pass    | test/mmu/mmu_test.cpp:2796 |
+| CFG-09           | rom_in_sram=1 routes ROM-slot reads to SRAM pages 0-7            | zxnext.vhd:5099      | pass    | test/mmu/mmu_test.cpp:2819 |
+| CFG-10           | rom_in_sram + config_mode=0: ROM-slot writes still drop          | zxnext.vhd:5100      | pass    | test/mmu/mmu_test.cpp:2838 |
+| CFG-11           | set_rom_in_sram 1->0 restores ROM-slot reads to rom_             | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2858 |
 
 ### Extra coverage (not in plan)
 
@@ -3488,11 +3488,11 @@ Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K
 | FB-04a        | +3 port 0x0FFD border fallback via p3_floating_bus_dat → 0xA5                   | zxula.vhd:573 + zxnext.vhd:4498-4509,4517   | pass   | test/floating_bus/floating_bus_test.cpp:519     |
 | FB-04b        | +3 port 0x0FFD bit-0 force scoped to active display, not border                 | zxula.vhd:573                                 | pass    | test/floating_bus/floating_bus_test.cpp:568     |
 | FB-3A         | +3 port 0x0FFD + port_7ffd_locked=1 → 0xFF                                      | zxnext.vhd:4517                             | pass   | test/floating_bus/floating_bus_test.cpp:590     |
-| FB-3B         | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00                           | zxnext.vhd:2403,2589,2814                   | pass   | test/floating_bus/floating_bus_test.cpp:617     |
-| FB-3C         | 48K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                   | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:631     |
-| FB-3D         | 128K port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:643     |
+| FB-3B         | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0xFF                           | zxnext.vhd:2403,2589,2814                   | pass   | test/floating_bus/floating_bus_test.cpp:617     |
+| FB-3C         | 48K port 0x0FFD → 0xFF (p3_timing_hw_en gate)                                   | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:631     |
+| FB-3D         | 128K port 0x0FFD → 0xFF (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,2814                        | pass   | test/floating_bus/floating_bus_test.cpp:643     |
 | FB-3E         | Pentagon port 0x0FFD → 0x00 (p3_timing_hw_en gate)                              | zxnext.vhd:2589,2814                        | missing | missing                                         |
-| FB-3F         | Next port 0x0FFD → 0x00 (p3_timing_hw_en gate)                                  | zxnext.vhd:2589,1099                          | pass   | test/floating_bus/floating_bus_test.cpp:680     |
+| FB-3F         | Next port 0x0FFD decoded → latch 0x42, not blocked 0xFF                         | zxnext.vhd:2589,1099                          | pass   | test/floating_bus/floating_bus_test.cpp:680     |
 | FB-4A         | 128K active capture → ULA floating bus reaches port 0xFF (0x5A)                 | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:814     |
 | FB-4B         | Pentagon active capture → port 0xFF hard-forced 0xFF                            | zxnext.vhd:4513                             | missing | missing                                         |
 | FB-4C         | Next-base active capture → port 0xFF hard-forced 0xFF                           | zxnext.vhd:4513                             | pass   | test/floating_bus/floating_bus_test.cpp:834     |
