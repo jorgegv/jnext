@@ -37,15 +37,28 @@ retries AND byte-identical files. `nextsync/server/nextsync.py` is vendored
 alongside as the protocol reference this was written from, and is what the
 manual recipe in doc/testing/NEXTSYNC-VERIFICATION.md runs.
 
-THE PORT IS NOT OURS TO CHOOSE. `.sync` has 2048 compiled into it, so unlike
-esp-loopback-peer this cannot take an ephemeral port. Functional rows are
-sourced sequentially by the driver (JNEXT_TEST_JOBS parallelises only the
-screenshot rows), so the row cannot collide with itself inside one run; two
-whole suites running at once on one box would collide, and then this exits 3 and
-the row SKIPs rather than flaking.
+THE PORT IS NOT OURS TO CHOOSE, and that is a property of the SOFTWARE UNDER
+TEST, not a shortcut here: `.sync` has the string ",2048" compiled into it, so
+unlike esp-loopback-peer this cannot take an ephemeral port, and patching the
+vendored dot command to move it would mean the row no longer runs the program
+developers actually use. Functional rows are sourced sequentially by the driver
+(JNEXT_TEST_JOBS parallelises only the screenshot rows), so the row cannot
+collide with itself inside one run; two whole SUITES running at once on one box
+can, and that is exactly what happened during the 2026-07-30 overnight run
+(GH #186).
+
+So the collision is handled where it can be — by WAITING (`BIND_RETRY_S`). It is
+transient by construction: the colliding row holds the port for its own ~30 s
+and then releases it, so retrying across that window converts the common case
+into a pass instead of a lost row. Only if the port is STILL busy after the
+whole window does this exit 3, and then the message says plainly that another
+run is holding it, so the SKIP cannot be misread as a jnext defect. Keep
+`BIND_RETRY_S` comfortably under the shell's readiness wait in
+nextsync-func.sh, or the shell gives up first and reports a FAILURE instead of
+the SKIP this is choosing.
 
 Usage: nextsync-peer.py <syncroot> <ready.txt> <manifest.txt>
-Exit 3 = no usable address, or port 2048 unavailable (the shell SKIPs).
+Exit 3 = no usable address, or port 2048 still unavailable (the shell SKIPs).
 """
 
 import hashlib
@@ -57,6 +70,13 @@ import time
 
 # NextSync's hard-coded port (the string ",2048" is inside the dot command).
 PORT = 2048
+
+# How long to keep trying the bind when the port is busy. Sized against the
+# thing that holds it: a concurrent regression run's own nextsync-func row,
+# measured at ~30 s end to end. MUST stay under nextsync-func.sh's readiness
+# wait (see the module docstring) — that loop is what turns "still not ready"
+# into a verdict, and it has to be the peer's exit 3 that decides it.
+BIND_RETRY_S = 45
 
 # The vendored server's default payload size, and what the dot is tuned for.
 MAX_PAYLOAD = 1024
@@ -230,15 +250,33 @@ def main(argv):
             "denies loopback, so there is nowhere to listen" % (ip,))
         return 3
 
+    # THE DISCOVERED ADDRESS, never the wildcard — see the module docstring.
+    # SO_REUSEADDR clears a lingering TIME_WAIT but NOT a live listener, which
+    # is what a concurrent run leaves here, so the retry below is the part that
+    # does the work.
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        # THE DISCOVERED ADDRESS, never the wildcard — see the module docstring.
-        srv.bind((ip, PORT))
-    except OSError as e:
-        log("cannot bind %s:%d (%s); NextSync's dot command has that port "
-            "compiled in, so the row cannot pick another" % (ip, PORT, e))
-        return 3
+    bind_deadline = time.monotonic() + BIND_RETRY_S
+    waited = False
+    while True:
+        try:
+            srv.bind((ip, PORT))
+            break
+        except OSError as e:
+            if time.monotonic() >= bind_deadline:
+                log("cannot bind %s:%d after waiting %ds (%s) — another jnext "
+                    "regression run on this host is holding the port. NextSync's "
+                    "dot command has 2048 compiled in, so the row cannot pick "
+                    "another; SKIPPING rather than reporting a jnext defect"
+                    % (ip, PORT, BIND_RETRY_S, e))
+                return 3
+            if not waited:
+                waited = True
+                log("peer: %s:%d busy (%s) — a concurrent run is holding it; "
+                    "retrying for up to %ds" % (ip, PORT, e, BIND_RETRY_S))
+            time.sleep(0.5)
+    if waited:
+        log("peer: port %d came free" % PORT)
     srv.listen(1)
 
     corpus = build_corpus(syncroot)

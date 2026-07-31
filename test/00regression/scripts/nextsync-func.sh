@@ -82,7 +82,13 @@ if want nextsync-func; then
     if [[ -z "$verdict" ]]; then
         python3 "$peer_py" "$syncroot" "$ready" "$manifest" >"$peer_log" 2>&1 &
         peer_pid=$!
-        for _ in $(seq 1 600); do
+        # 90 s, and the number is not arbitrary: the peer retries a busy bind
+        # for BIND_RETRY_S = 45 s (nextsync-peer.py, GH #186) before deciding
+        # to exit 3, and THIS loop must outlast that decision. If it gave up
+        # first the peer would still be alive, the `wait` below would block on
+        # its 180 s watchdog, and a port collision would be reported as a
+        # FAILURE instead of the SKIP the peer chose.
+        for _ in $(seq 1 900); do
             [[ -s "$ready" ]] && break
             kill -0 "$peer_pid" 2>/dev/null || break
             sleep 0.1

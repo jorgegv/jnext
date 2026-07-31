@@ -24,8 +24,12 @@ test/**/*-diff.png
 .claude/last-test-triplet.txt
 zesarux_*.idx
 
-# Python cache for tools/
-tools/cspect_dzrp/__pycache__/
+# Python bytecode cache, ANYWHERE. Deliberately not path-specific: this rule
+# used to name tools/cspect_dzrp/ alone, and the first script run outside it
+# (test/00regression/nextsync-peer.py) committed a .pyc. Any directory holding
+# a .py is a __pycache__ waiting to happen, so the rule matches the closed set
+# rather than the places it has bitten so far.
+__pycache__/
 
 # Task 27 T1 benchmark harness lock (runtime artifact)
 test/bench/.lock

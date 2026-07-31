@@ -21,6 +21,7 @@
 #include "core/emulator_config.h"
 #include "peripheral/uart_device.h"
 
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
@@ -973,19 +974,91 @@ void uart0_send(Emulator& emu, const std::string& line) {
     for (char c : line) emu.port().out(0x133B, static_cast<uint8_t>(c));
 }
 
-/// Run `frames` frames, harvesting everything that reaches the RX FIFO.
-/// Guest-bound bytes are paced at the channel's baud (2430 master cycles per
-/// byte at the 115200 reset default), so a reply cannot all be there at once
-/// — draining across frames is what a real program does too.
-std::string uart0_drain(Emulator& emu, int frames) {
-    std::string out;
-    for (int i = 0; i < frames; ++i) {
+/// What a drain saw, and how long it had to look. The frame/millisecond
+/// figures exist so a FAILING row can say whether it gave up after the full
+/// wait — a genuinely broken egress path — rather than leaving a reader to
+/// guess (GH #186).
+struct Drained {
+    std::string bytes;
+    int         frames = 0;
+    double      ms     = 0.0;
+};
+
+/// Settle window, in EMULATED frames, kept after the wanted bytes appear.
+///
+/// This is the ORIGINAL fixed budget, and it stays fixed, because the job it
+/// does is an emulated-time one: the reply is paced onto the wire at baud
+/// (2430 master cycles per byte at the 115200 reset default) and the adapter's
+/// hot-path tick gate is only re-evaluated in the once-per-frame `poll()`, so
+/// bytes keep dribbling in for a frame or two after the first one lands.
+/// Holding the window open for this many frames PAST the match is what keeps
+/// the rows able to catch a reply with unwanted bytes trailing it — the
+/// property the old fixed budget got for free, and the one a naive
+/// stop-on-match retry would have silently dropped.
+constexpr int ESP_SETTLE_FRAMES = 4;
+
+/// Upper bound on the wait, in HOST milliseconds — the unit that matters,
+/// because the thing being waited for is a HOST THREAD (GH #186).
+///
+/// The ESP runs on `esp::ThreadedEsp`'s worker: the guest's TX bytes go into
+/// an inbound queue and only that thread parses them and queues the answer.
+/// The row's old budget was `ESP_SETTLE_FRAMES` of emulated time, which
+/// headless at max speed is ~5 ms of WALL CLOCK — measured 1.3 ms/frame — so
+/// the row silently required the host to schedule a freshly-woken thread
+/// inside 5 ms. Measured cliff: injecting a worker wake latency of 6 ms
+/// reproduces "RX drained 0 bytes" exactly; 4 ms does not. Six milliseconds is
+/// an ordinary CFS wake latency on a loaded box, which is why this failed
+/// three times overnight on branches that touch neither the ESP nor the UART.
+///
+/// The wait is bounded and generous — 1000x the measured cliff — and it is NOT
+/// a way to let a broken path pass: the stop condition is that the drained
+/// bytes EQUAL what the row wants, so a loopback (`AT\r\n` where `\r\nOK\r\n`
+/// is wanted) or an absent backend never satisfies it and the row still FAILS,
+/// after burning the full wait. Mutation-verified.
+constexpr int ESP_WAIT_MS = 5000;
+
+/// Backstop so a pathologically cheap frame cannot spin here forever; at the
+/// measured 1.3 ms/frame the millisecond deadline is what actually bites.
+constexpr int ESP_MAX_FRAMES = 20000;
+
+/// Harvest everything that reaches the RX FIFO, until `want` has arrived (plus
+/// the settle window above), or the bounds give up.
+///
+/// `want` empty means "nothing is expected": the drain then runs exactly
+/// `ESP_SETTLE_FRAMES` frames, which is the original behaviour, because there
+/// is nothing to wait FOR and a row that expects silence must not sit for the
+/// full timeout to learn it.
+///
+/// Draining across frames is what a real program does too.
+Drained uart0_drain(Emulator& emu, const std::string& want) {
+    Drained  d;
+    const auto start    = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::milliseconds(ESP_WAIT_MS);
+    int matched_at = -1;
+
+    for (int i = 0; i < ESP_MAX_FRAMES; ++i) {
         emu.run_frame();
         emu.port().out(0x153B, 0x00);
         while (emu.port().in(0x133B) & 0x01)          // status b0 = RX available
-            out += static_cast<char>(emu.port().in(0x143B));
+            d.bytes += static_cast<char>(emu.port().in(0x143B));
+        d.frames = i + 1;
+
+        if (matched_at < 0 && !want.empty() && d.bytes == want) matched_at = i;
+
+        const bool settled = (matched_at >= 0)
+                                 ? (i - matched_at >= ESP_SETTLE_FRAMES)
+                                 : (want.empty() && d.frames >= ESP_SETTLE_FRAMES);
+        if (settled) break;
+        if (std::chrono::steady_clock::now() >= deadline) break;   // gave up
     }
-    return out;
+    d.ms = std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - start).count();
+    return d;
+}
+
+/// The wait as a row's failure text renders it.
+std::string waited(const Drained& d) {
+    return fmt("after %d frames / %.0f ms", d.frames, d.ms);
 }
 
 } // namespace
@@ -1003,16 +1076,16 @@ static void test_esp_backend() {
         Emulator emu;
         emu.init(esp_config(true));
         uart0_send(emu, "AT\r\n");
-        const std::string reply = uart0_drain(emu, 4);
+        const Drained reply = uart0_drain(emu, "\r\nOK\r\n");
 
         check("ESP-01",
               "guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses "
               "the AT line and answers — not to the channel's loopback "
               "[zxnext.vhd:1611-1612, :3381 UART 0 = ESP]",
-              reply == "\r\nOK\r\n",
-              fmt("RX drained %zu bytes: '%s' (want '\\r\\nOK\\r\\n'; 'AT\\r\\n' would "
+              reply.bytes == "\r\nOK\r\n",
+              fmt("RX drained %zu bytes %s: '%s' (want '\\r\\nOK\\r\\n'; 'AT\\r\\n' would "
                   "mean loopback, empty would mean nothing is attached)",
-                  reply.size(), visible(reply).c_str()));
+                  reply.bytes.size(), waited(reply).c_str(), visible(reply.bytes).c_str()));
     }
 
     // ESP-02 — the same reply reaches the guest through the real RX FIFO AND
@@ -1027,26 +1100,26 @@ static void test_esp_backend() {
         emu.init(esp_config(true));
         nr_write(emu, 0xC6, 0x01);              // per-byte avail contributes
         uart0_send(emu, "AT\r\n");
-        const std::string got_avail = uart0_drain(emu, 4);
-        const uint8_t     ca_avail  = nr_read(emu, 0xCA);
+        const Drained got_avail = uart0_drain(emu, "\r\nOK\r\n");
+        const uint8_t ca_avail  = nr_read(emu, 0xCA);
 
         Emulator emu2;
         emu2.init(esp_config(true));
         nr_write(emu2, 0xC6, 0x02);             // near-full only; avail suppressed
         uart0_send(emu2, "AT\r\n");
-        const std::string got_masked = uart0_drain(emu2, 4);
-        const uint8_t     ca_masked  = nr_read(emu2, 0xCA);
+        const Drained got_masked = uart0_drain(emu2, "\r\nOK\r\n");
+        const uint8_t ca_masked  = nr_read(emu2, 0xCA);
 
         check("ESP-02",
               "the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX "
               "IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT "
               "bit1) [zxnext.vhd:1941-1944, :1949-1950]",
-              got_avail == "\r\nOK\r\n" && (ca_avail & 0x03) != 0 &&
-                  got_masked == "\r\nOK\r\n" && (ca_masked & 0x03) == 0,
-              fmt("C6=0x01: rx='%s' NR_CA=0x%02X (want reply + bits1:0 set); "
-                  "C6=0x02: rx='%s' NR_CA=0x%02X (want reply + bits1:0 clear)",
-                  visible(got_avail).c_str(), ca_avail,
-                  visible(got_masked).c_str(), ca_masked));
+              got_avail.bytes == "\r\nOK\r\n" && (ca_avail & 0x03) != 0 &&
+                  got_masked.bytes == "\r\nOK\r\n" && (ca_masked & 0x03) == 0,
+              fmt("C6=0x01: rx='%s' %s NR_CA=0x%02X (want reply + bits1:0 set); "
+                  "C6=0x02: rx='%s' %s NR_CA=0x%02X (want reply + bits1:0 clear)",
+                  visible(got_avail.bytes).c_str(), waited(got_avail).c_str(), ca_avail,
+                  visible(got_masked.bytes).c_str(), waited(got_masked).c_str(), ca_masked));
     }
 
     // ESP-03 — RESTATED to what v1.0 actually built, deliberately.
@@ -1072,26 +1145,34 @@ static void test_esp_backend() {
         Emulator emu;
         emu.init(esp_config(true));
 
+        // WAIT for the ATE1 acknowledgement, do not merely allow time for it:
+        // everything below asserts that the engine kept the state this command
+        // set, so a run in which the command had not been PARSED yet would be
+        // asserting nothing (GH #186).
         uart0_send(emu, "ATE1\r\n");             // echo ON: engine state to lose
-        uart0_drain(emu, 4);
+        const Drained ack = uart0_drain(emu, "\r\nOK\r\n");
 
         nr_write(emu, 0x02, 0x80);               // assert the ESP / expbus reset
         const uint8_t nr02 = nr_read(emu, 0x02);
-        uart0_drain(emu, 2);
+        uart0_drain(emu, "");                    // expect silence: settle only
 
+        // With echo on, the reply to `AT` is the echoed command AND the OK.
         uart0_send(emu, "AT\r\n");
-        const std::string after = uart0_drain(emu, 4);
+        const Drained after = uart0_drain(emu, "AT\r\n\r\nOK\r\n");
 
         check("ESP-03",
               "NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 "
               "drives NO device reset — the attached ESP keeps its state across it; "
               "nextsync's recovery path is a v1.1 extension point (design doc §4.2) "
               "[zxnext.vhd:5119, :1579; nextreg.txt:48]",
-              (nr02 & 0x80) != 0 && after.find("AT") != std::string::npos,
-              fmt("NR 0x02 readback=0x%02X (want b7 set); reply after the reset='%s' "
-                  "(want the ATE1 echo still on — a bare '\\r\\nOK\\r\\n' would mean "
-                  "the engine had been reset)",
-                  nr02, visible(after).c_str()));
+              (nr02 & 0x80) != 0 && ack.bytes == "\r\nOK\r\n" &&
+                  after.bytes.find("AT") != std::string::npos,
+              fmt("NR 0x02 readback=0x%02X (want b7 set); ATE1 ack='%s' %s (want "
+                  "'\\r\\nOK\\r\\n', else the echo was never turned on); reply after "
+                  "the reset='%s' %s (want the ATE1 echo still on — a bare "
+                  "'\\r\\nOK\\r\\n' would mean the engine had been reset)",
+                  nr02, visible(ack.bytes).c_str(), waited(ack).c_str(),
+                  visible(after.bytes).c_str(), waited(after).c_str()));
     }
 
     // ESP-04 — the converse, and the reason ESP-01's second half is worth
@@ -1102,15 +1183,15 @@ static void test_esp_backend() {
         Emulator emu;
         emu.init(esp_config(false));
         uart0_send(emu, "AT\r\n");
-        const std::string reply = uart0_drain(emu, 4);
+        const Drained reply = uart0_drain(emu, "AT\r\n");
 
         check("ESP-04",
               "with no ESP backend attached, UART 0 keeps its loopback: the guest's "
               "own bytes come back and nothing answers them",
-              emu.uart().device(0) == nullptr && reply == "AT\r\n",
-              fmt("device=%p rx='%s' (want null + 'AT\\r\\n')",
+              emu.uart().device(0) == nullptr && reply.bytes == "AT\r\n",
+              fmt("device=%p rx='%s' %s (want null + 'AT\\r\\n')",
                   static_cast<const void*>(emu.uart().device(0)),
-                  visible(reply).c_str()));
+                  visible(reply.bytes).c_str(), waited(reply).c_str()));
     }
 }
 
