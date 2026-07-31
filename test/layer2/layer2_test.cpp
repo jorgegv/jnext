@@ -1441,13 +1441,13 @@ static void test_group10_per_scanline_scroll() {
     l2.set_scroll_x_lsb(0x10);
     l2.start_frame();
     // G10-01 — the frame-start baseline snapshots exactly the two registers a
-    // mid-frame Copper write moves. The citation is in THIS comment and not in
-    // the check() below deliberately: log_deferred()'s `deferred[]` table above
-    // lists 45 IDs that have no call of their own, so the extractor's `next`
-    // tier hands each of them the first check() call that follows the table —
-    // which is this one. Citing it in the call gave all 45 rows
-    // `zxnext.vhd:5237,5240`, measured. The `named` tier answers for the row
-    // that HEADS the block and nothing else, so it cannot leak. (GH #188)
+    // mid-frame Copper write moves. The citation sits in THIS comment and not
+    // in the check() below for a historical reason: log_deferred()'s
+    // `deferred[]` table above lists 44 IDs with no call of their own, and the
+    // then-unbounded `next` tier handed all 44 the citation of the first
+    // check() below the table — this one — measured. GH #189 bounded the tier
+    // (it now refuses a call that spells a row out), so that leak is closed at
+    // source; the citation stays here because moving it changes nothing.
     // VHDL zxnext.vhd:5237,5240
     check("G10-01",
           "start_frame baseline captures scroll_x_/y_",

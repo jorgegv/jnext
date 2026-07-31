@@ -1194,6 +1194,103 @@ sub cite_list {
     return \@kept;
 }
 
+# Is the apostrophe at $i a C++14 DIGIT SEPARATOR (`500'000`, `0x1234'5678`)
+# rather than a char-literal quote? Shared by the two quote scanners below.
+#
+# Found in review of GH #189: a lone separator opens a char literal that never
+# closes, so the scanner runs to end of line and code_prefix() hands back the
+# line UNMODIFIED — silently reverting to the raw-line matching this commit
+# exists to remove, for that line only. 14 lines in the corpus carry one;
+# `frame_sequencer_test.cpp:358` (`fx.advance(500'000);  // 500 ms stall`) was
+# reproduced live. Harmless today only because no such comment happens to say
+# `check(` — one word added to any of the 14 reintroduces the phantom call.
+#
+# The test is structural: a separator is flanked by hex digits on BOTH sides,
+# and a char literal cannot be. It is consulted only where a literal would be
+# OPENED — a closing quote is recognised by the in-literal branch and never
+# reaches here.
+#
+# DECLARED, on the strength of the fixtures rather than assumed: only the
+# PRECEDING-character half is discriminated by anything. Dropping the
+# following-character half was mutation-tested and no row moves, because the
+# half only ever fires on an opening quote and an opening char-literal quote
+# cannot be directly preceded by a hex digit in valid C++ (`5'a'` does not
+# parse). It is kept because losing it widens the predicate, and a wider
+# predicate mistakes a real quote for a separator — the direction that leaves
+# the phantom call alive. Dropping the preceding half IS pinned (SELF-165).
+#
+# DECLARED RESIDUAL: a genuine one-character literal that is itself a hex
+# digit AND butts directly against a hex digit on its other side (`0xa'b'`)
+# would be read as a separator. No such spelling is valid C++ and none occurs;
+# it is written down rather than guarded against.
+sub is_digit_separator {
+    my ($s, $i) = @_;
+    return 0 if $i == 0;
+    return substr($s, $i - 1, 1) =~ /[0-9A-Fa-f]/
+        && substr($s, $i + 1, 1) =~ /[0-9A-Fa-f]/;
+}
+
+# The CODE part of one line: everything before the first `//` that starts a
+# comment. (GH #189 defect 2 — see the call scan in grep_citations().)
+#
+# Quote-aware, because `//` is ordinary content inside a string literal and
+# truncating there would DELETE a real assertion call — the dangerous
+# direction, since a row whose call vanishes stops owning one and becomes
+# eligible for the `next` tier it was fenced off from. The scanner tracks
+# double quotes, single quotes and backslash escapes, which is enough for
+# every shape in the corpus: a `'"'` char literal (5 lines), a `"http://"`-
+# style literal (2 lines) and `R"(...)"` raw strings all parse correctly,
+# the last because the raw string's own `"` opens and closes it.
+#
+# Verified over all 41 traced sources: of the lines whose helper-regex match
+# disappears under this truncation, exactly ONE is a real trailing-comment
+# phantom and ZERO are real calls.
+sub code_prefix {
+    my ($line) = @_;
+    my ($in_dq, $in_sq) = (0, 0);
+    my $n = length($line);
+    for (my $i = 0; $i < $n - 1; $i++) {
+        my $ch = substr($line, $i, 1);
+        if ($ch eq '\\')                       { $i++;                next; }
+        if ($in_dq)                            { $in_dq = 0 if $ch eq '"';  next; }
+        if ($in_sq)                            { $in_sq = 0 if $ch eq "'";  next; }
+        if ($ch eq '"')                        { $in_dq = 1;          next; }
+        if ($ch eq "'")                        { $in_sq = 1 unless is_digit_separator($line, $i);
+                                                 next; }
+        return substr($line, 0, $i)
+            if $ch eq '/' && substr($line, $i + 1, 1) eq '/';
+    }
+    return $line;
+}
+
+# The FIRST argument of an assertion call — the slot the row ID goes in.
+# (GH #189 defect 1 — see the `next` tier's refusal in grep_citations().)
+#
+# Quote-aware and nesting-aware, so a `,` inside a string or inside a nested
+# call does not end the argument early. Returns '' when the text holds no
+# helper call at all, which reads as "names no row" — the permissive answer,
+# and safe here because this is only ever consulted for a call the scan
+# already found.
+sub first_arg {
+    my ($text) = @_;
+    return '' unless $text =~ /\b(?:check|check_pred|check_eq|skip|stub)\s*\(/g;
+    my ($depth, $in_dq, $in_sq, $out) = (0, 0, 0, '');
+    for (my $i = pos($text); $i < length($text); $i++) {
+        my $ch = substr($text, $i, 1);
+        $out .= $ch;
+        if ($ch eq '\\')                    { $out .= substr($text, ++$i, 1); next; }
+        if ($in_dq)                         { $in_dq = 0 if $ch eq '"';  next; }
+        if ($in_sq)                         { $in_sq = 0 if $ch eq "'";  next; }
+        if    ($ch eq '"')                  { $in_dq = 1; }
+        elsif ($ch eq "'")                  { $in_sq = 1
+                                                  unless is_digit_separator($text, $i); }
+        elsif ($ch eq '(')                  { $depth++;   }
+        elsif ($ch eq ')')                  { last if $depth == 0; $depth--; }
+        elsif ($ch eq ',' && $depth == 0)   { last;       }
+    }
+    return $out;
+}
+
 # Repo-relative path of the plan doc backing a suite, or undef when it has
 # none. Shared by the reader below and by the provenance label grep_citations
 # hands out, so the two can never name different files for the same tier.
@@ -1247,9 +1344,38 @@ sub grep_citations {
     close $fh;
 
     # Span + citation of every check()/skip() helper call, in file order.
+    #
+    # ── A COMMENT IS NOT A CALL (GH #189 defect 2) ────────────────────
+    #
+    # The match runs on code_prefix(), not on the raw line: prose mentioning
+    # `check()` or `skip()` is not an assertion, and taking it for one invents
+    # a call out of English. It fired on 68 lines across the 41 traced sources
+    # — 67 whole-line comments and one trailing comment
+    # (`std::vector<SkipNote> g_skipped;  // populated by skip() for SKIP rows`,
+    # `ula_integration_test.cpp:65`) — and a phantom call does real damage in
+    # three directions:
+    #
+    #   - it SHADOWS the real call for the `next` tier, which reaches only to
+    #     the FIRST following call. That is not hypothetical: #188's own
+    #     explanatory comment in `layer2_test.cpp` sat one line above the
+    #     `check("G10-01", ...)` it describes, so all 44 rows of the
+    #     `deferred[]` table above it reached the COMMENT and not the call;
+    #   - its citation, if the prose carries one, is published as the call's —
+    #     a citation sourced from prose, which is the exact failure this
+    #     extractor exists to refuse;
+    #   - its paren scan is not balanced by real code, so an unmatched `(` in
+    #     prose runs the span up to 40 lines forward and swallows whatever
+    #     real ID literals lie in it.
+    #
+    # DECLARED RESIDUAL: `/* ... */` block comments are NOT stripped. Measured
+    # across every traced source: zero helper-regex matches on a block-comment
+    # line, so there is nothing to fix and a second comment grammar would be
+    # untestable against this corpus. If one ever appears it behaves as the
+    # pre-#189 code did.
     my @calls;
     for my $i (0 .. $#src) {
-        next unless $src[$i] =~ /\b(?:check|check_pred|check_eq|skip|stub)\s*\(/;
+        next unless code_prefix($src[$i])
+                    =~ /\b(?:check|check_pred|check_eq|skip|stub)\s*\(/;
         my ($depth, $started, $text, $j) = (0, 0, '', $i);
         # 40 lines is well past the longest real call and bounds the scan if
         # the paren balance is ever thrown off by a string literal.
@@ -1269,7 +1395,18 @@ sub grep_citations {
         warn "WARN: $source_rel:@{[$i+1]} — call did not close within 40 lines;"
            . " citation span may be wrong\n"
             if $started && $depth > 0;
+        # Does this call name a row ID in its FIRST argument — the slot the ID
+        # goes in? That, and not "quotes an ID-shaped literal anywhere", is
+        # what "the call is some row's own assertion" means, and it is what
+        # the `next` tier's refusal below tests. A shared loop assertion
+        # passes the ID through a variable (`check(r.id, ...)`), so its first
+        # argument holds no literal; a call that spells one out owns that row.
+        # Reading the whole argument list instead would refuse a shared
+        # assertion whose DESCRIPTION happens to quote an ID-shaped token —
+        # a machine name like "ZXN-ISSUE2", a mode string — which is the
+        # over-refusal SELF-157 exists to catch.
         push @calls, { s => $i, e => $j, cite => cite_in($text),
+                       owns_row => (first_arg($text) =~ /$ID_LITERAL_RE/ ? 1 : 0),
                        nofile => ($text =~ /$VHDL_NOFILE_RE/ ? 1 : 0) };
     }
 
@@ -1495,19 +1632,125 @@ sub grep_citations {
         # with no VHDL basis at all — had been given zxula.vhd:582-595,
         # lifted from an unrelated check ~100 lines further down.)
         #
-        # KNOWN HAZARD, measured 2026-07-31 (GH #188): the reach is UNBOUNDED,
-        # and the table-driven signature this tier serves does not actually
-        # require a loop with a check() in it. `layer2_test.cpp`'s
-        # log_deferred() holds a 45-entry `deferred[]` table whose loop pushes
-        # a TestResult directly and calls nothing — so all 45 rows resolve to
-        # the first check() ANYWHERE below the table. That call happened to be
-        # uncited, so the rows fell through to the plan doc and nobody noticed;
-        # putting a citation in it handed one row's VHDL lines to all 45 at
-        # once. Anyone citing a call must check what the tier then attributes
-        # to whom. Not fixed here: bounding the reach is a tier rule change and
-        # needs its own blast-radius measurement, in the manner of GH #147/#184.
+        # ── BOUNDING THE REACH (GH #189 defect 1) ─────────────────────
+        #
+        # The hazard, measured 2026-07-31 under GH #188: the reach was
+        # UNBOUNDED, and the table-driven signature this tier serves does not
+        # actually require a loop with a check() in it. `layer2_test.cpp`'s
+        # log_deferred() holds a 44-entry `deferred[]` table whose loop pushes
+        # a TestResult directly and calls nothing — so all 44 rows resolved to
+        # the first check() ANYWHERE below the table, 37 to 54 lines away and
+        # in a different function. That call was uncited, so
+        # they fell through to the plan doc and nobody noticed; putting a
+        # citation in it handed ONE row's VHDL lines to all 44 at once.
+        #
+        # THE RULE: the tier refuses when the following call SPELLS A ROW ID
+        # OUT IN ITS FIRST ARGUMENT. The signature this tier exists for passes
+        # the ID through a variable — `check(r.id, ...)` under a
+        # `struct Row rows[] = {...}` — so the shared assertion's ID slot
+        # holds no literal. A call that DOES spell one out is that row's own
+        # assertion, and borrowing from it is precisely the SELF-04 defect
+        # (`BARE-01` taking `OTHER-01`'s citation) at a distance.
+        #
+        # Refusal is a STOP, not a skip: the first following call is the only
+        # candidate the table-driven shape can offer. Scanning past it to a
+        # later call would be a widening, not a bound.
+        #
+        # HOW TO RE-DERIVE EVERY NUMBER BELOW. Instrument THIS arm: push
+        # { id => $tid, dist => $c->{s} - $L, cite => $c->{cite},
+        #   refused => $c->{owns_row} } for every row it fires on (before the
+        # `last`, so refusals are recorded too), then call grep_citations()
+        # over the sources resolve_subsys(\@SUBSYS) returns. Every figure in
+        # this comment came out of that instrumentation and none was derived
+        # by hand — three that were, in review, were all wrong.
+        #
+        # BLAST RADIUS, measured over all 41 traced sources before choosing:
+        # 248 rows reach this tier; 63 of them reach a CITED call and publish
+        # today, 185 reach an uncited one and fall through. The rule refuses
+        # 135 of the 185 and **0 of the 63**. Nothing that reads a citation
+        # today loses one; 135 latent leaks — every one of which would have
+        # published the moment somebody cited that call — are closed. The four
+        # big fan-in groups are all in the 135: esp_socket 52 + 9 + 1,
+        # layer2 44, compositor 17, input 12.
+        #
+        # The 50 left are the tier's designed shape and are correct to keep:
+        # `struct Row rows[] = {...}; for (...) check(row.id, ...)` in
+        # port/contention/input/compositor. Many-to-one is right there — the
+        # loop's call IS every listed row's assertion.
+        #
+        # WHY THE ALTERNATIVES LOSE:
+        #   - A LINE-DISTANCE CAP cannot separate the two populations, because
+        #     the populations OVERLAP. Of the 135 rows the chosen rule
+        #     refuses, 28 reach no further than the furthest CITED row does —
+        #     27 land inside the cited span and one below it — so no threshold
+        #     keeps all 63 cited rows and also closes those 28. Distance is
+        #     only a proxy for the defect, and the proxy fails on a fifth of
+        #     what has to be refused. The spans, for the record: cited 4..23,
+        #     the layer2 leak 37..54, the esp_socket leak (all 62 rows across
+        #     its three groups) 3..90.
+        #   - A FAN-IN CAP is refuted by the corpus outright, not merely made
+        #     fragile by it. The largest CITED group is `ula_test`'s S1 table
+        #     at 12 rows; the `input_test.cpp:4684` LEAK is ALSO 12. They are
+        #     TIED, so no threshold on fan-in can ever separate them — every
+        #     cap that closes that leak takes a correct, cited 12-row table
+        #     with it. Fan-in is the tier's own signature, not a symptom of
+        #     the defect. (The free thresholds start at >12, not >20 as an
+        #     earlier draft claimed: >12..>16 cost no cited row and close 113
+        #     of the 135, >17 and above close only 96 by missing compositor's
+        #     17. And a cap that closes compositor's 17-row leak refuses a
+        #     legitimate 17-entry table for exactly the same reason.)
+        #   - REFUSING TO CROSS AN INTERVENING ID LITERAL guts the tier, and
+        #     does it arbitrarily: a table's entries sit between its first
+        #     entry and the loop by construction, so `S1.01` is separated from
+        #     its own call by `S1.02..S1.12`. 54 of the 63 cited rows die. The
+        #     9 survivors are exactly the LAST entry of each of the 9 cited
+        #     groups — the only entry with nothing after it — so the rule
+        #     would keep a row for its position in an initialiser rather than
+        #     for any evidence about it.
+        #   - REFUSING TO CROSS A COLUMN-0 `}` (a function boundary) was
+        #     measured and is a strict SUBSET of the chosen rule: it closes
+        #     the 44 layer2 rows and nothing else, because every other leak
+        #     lives in the same function as the call it reaches.
+        #
+        # DECLARED RESIDUAL — the shape this rule still gets wrong: a table
+        # with no call of its own, followed by a DIFFERENT table's shared loop
+        # assertion. The reached call passes ITS id through a variable, so it
+        # spells no row out, the refusal does not fire, and the first table
+        # borrows the second table's citation:
+        #
+        #     const char* deferred[] = { "EVADE-01", "EVADE-02" };
+        #     for (const char* id : deferred) { record(id); }
+        #
+        #     const Row other[] = { {"EVADE-TAB-01"} };
+        #     for (const Row& r : other) {
+        #         check(r.id, "... VHDL zxnext.vhd:800", cond, detail);
+        #     }
+        #
+        # Built and confirmed live against this code, not assumed: all three
+        # rows publish `zxnext.vhd:800`. It does NOT occur in the corpus — all
+        # 50 rows the rule still accepts were read individually and every one
+        # is an ID initialiser followed by ITS OWN loop.
+        #
+        # TIGHTENING WAS TRIED AND REJECTED. Refusing to cross an intervening
+        # ID literal cannot see it: `EVADE-TAB-01` sits in an initialiser too,
+        # so it takes this same tier and reaches the same call, and no
+        # "crosses a row that resolves elsewhere" test fires. Refusing to
+        # cross ANY intervening `}` (at any indentation) does catch it — and
+        # takes the entire tier with it: measured, it refuses ALL 63 cited
+        # rows and ALL 50 the rule accepts, because a table's initialiser ends
+        # in `};` and that brace is in every span. (The COLUMN-0 form is the
+        # harmless one, and it is the strict subset described above.)
+        # Destroying the tier to catch one constructed shape is the wrong
+        # trade (the same call GH #184 made), so the shape is declined and
+        # written down. Telling the two apart needs the loop's iterand, i.e.
+        # real C++ parsing, which this extractor deliberately does not do.
         if (!defined $cite && !$owns_call) {
-            for my $c (@calls) { if ($c->{s} > $L) { $cite = $c->{cite}; last; } }
+            for my $c (@calls) {
+                next unless $c->{s} > $L;
+                last if $c->{owns_row};
+                $cite = $c->{cite};
+                last;
+            }
         }
         # Everything above is row-local evidence read out of this file; only
         # the plan tier comes from somewhere else, and only it is charged
