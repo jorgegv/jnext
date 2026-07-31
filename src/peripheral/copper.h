@@ -19,8 +19,10 @@ class NextReg;
 ///   bit 15 = 0  =>  MOVE:  [15]=0, [14:8]=nextreg(7 bits), [7:0]=value
 ///                   NOP is encoded as MOVE with nextreg=0 (no write pulse)
 ///
-/// WAIT comparison (from VHDL):
-///   triggered when  vc == vpos  AND  hc >= (hpos << 3) + 12
+/// WAIT comparison (from VHDL copper.vhd:94):
+///   triggered when  vc == vpos  AND  hc >= (((hpos << 3) + 12) mod 512)
+/// The threshold add is done in 9-bit UNSIGNED arithmetic (the width of
+/// `hcount_i`, copper.vhd:35), so it wraps — hpos=63 gives 4, not 516.
 ///
 /// Modes (NextREG 0x62 bits 7:6):
 ///   00 = stop (copper disabled)

@@ -604,17 +604,73 @@ void group3_wait() {
               fmt("stalled=%d advanced=%d", stalled ? 1 : 0, advanced ? 1 : 0));
     }
 
-    // WAI-03: hpos=63 -> threshold 516, outside 9-bit hcount range (0..511).
-    // copper.vhd:35 — hcount is 9 bits. WAIT never fires within a frame.
+    // WAI-03: hpos=63 -> the threshold add WRAPS to 4 (GH #182).
+    //
+    // copper.vhd:94 computes
+    //     unsigned(copper_list_data_i(14 downto 9)&"000") + 12
+    // whose left operand is `6 bits & "000"` = a 9-bit UNSIGNED. numeric_std's
+    // "+"(UNSIGNED, NATURAL) returns a result of the LEFT operand's width, so
+    // the add is modulo 2^9 — the same 9-bit domain as `hcount_i`
+    // (copper.vhd:35, `hcount_i : in unsigned(8 downto 0)`).
+    // hpos=63 therefore gives 504 + 12 = 516 -> 4, and the WAIT fires almost
+    // immediately rather than never.
+    //
+    // This row previously asserted the UNTRUNCATED reading ("unreachable");
+    // that contradicted the VHDL and was masked until GH #181 made the Copper
+    // read hc_ula (max 455) instead of raw 28 MHz master cycles.
     {
         reset_both(cu, nr);
         program_word(cu, 0, enc_wait(63, 0));
         set_mode(cu, 1);
-        cu.execute(0, 0, nr);
-        for (int hc = 0; hc <= 511; ++hc) cu.execute(hc, 0, nr);
-        check("WAI-03", "WAIT hpos=63 unreachable in a 9-bit hcount sweep",
-              cu.pc() == 0,
-              fmt("pc=%u", cu.pc()));
+        cu.execute(0, 0, nr);            // mode change
+        for (int hc = 0; hc < 4; ++hc) cu.execute(hc, 0, nr);
+        bool stalled = (cu.pc() == 0);
+        cu.execute(4, 0, nr);
+        bool advanced = (cu.pc() == 1);
+        check("WAI-03", "WAIT hpos=63 threshold wraps mod 512 to 4",
+              stalled && advanced,
+              fmt("stalled=%d adv=%d pc=%u", stalled, advanced, cu.pc()));
+    }
+
+    // WAI-03b: hpos=55 — the LAST hpos whose threshold a real hcount can
+    // reach. 55*8+12 = 452 <= c_max_hc = 455 in the 456-tick Next/128K
+    // timings (timing.cpp:34/43, VHDL zxula_timing.vhd:196); the 448-tick
+    // 48K line (c_max_hc=447) already cannot reach it. No wrap here:
+    // 452 < 512, so this row pins the UNtruncated half of the domain.
+    // copper.vhd:94.
+    {
+        reset_both(cu, nr);
+        program_word(cu, 0, enc_wait(55, 7));
+        set_mode(cu, 1);
+        cu.execute(0, 7, nr);            // mode change
+        cu.execute(451, 7, nr);
+        bool stalled = (cu.pc() == 0);
+        cu.execute(452, 7, nr);
+        bool advanced = (cu.pc() == 1);
+        check("WAI-03b", "WAIT hpos=55 threshold is exactly 452 (last reachable)",
+              stalled && advanced,
+              fmt("stalled=%d adv=%d pc=%u", stalled, advanced, cu.pc()));
+    }
+
+    // WAI-03c: hpos 56..62 — thresholds 460..508. These fit in the 9-bit
+    // hcount domain (no wrap), but exceed c_max_hc = 455, the largest value
+    // hc_ula ever takes (zxula_timing.vhd:196, :427-436). So they are
+    // genuinely unreachable on hardware too — a full 0..455 sweep must not
+    // advance any of them. copper.vhd:94, :35.
+    {
+        bool all_stalled = true;
+        int  first_bad   = -1;
+        for (int hpos = 56; hpos <= 62; ++hpos) {
+            reset_both(cu, nr);
+            program_word(cu, 0, enc_wait(hpos, 3));
+            set_mode(cu, 1);
+            cu.execute(0, 3, nr);        // mode change
+            for (int hc = 0; hc <= 455; ++hc) cu.execute(hc, 3, nr);
+            if (cu.pc() != 0) { all_stalled = false; if (first_bad < 0) first_bad = hpos; }
+        }
+        check("WAI-03c", "WAIT hpos 56..62 unreachable within hc 0..c_max_hc(455)",
+              all_stalled,
+              fmt("first_advancing_hpos=%d", first_bad));
     }
 
     // WAI-04: vpos mismatch stalls indefinitely (cvc=99, wanted 100).

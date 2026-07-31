@@ -15,11 +15,27 @@ static inline bool is_move(uint16_t instr) {
     return (instr & 0x8000) == 0;
 }
 
+/// Width of the VHDL `hcount_i` port, and therefore of the WAIT threshold
+/// arithmetic below (copper.vhd:35 — `hcount_i : in unsigned(8 downto 0)`).
+static constexpr int kHcountBits = 9;
+
 /// WAIT instruction: hpos is bits [14:9] (6 bits).
-/// The VHDL compares hcount >= (hpos << 3) + 12.
+///
+/// VHDL copper.vhd:94:
+///     hcount_i >= unsigned(copper_list_data_i(14 downto 9)&"000") + 12
+///
+/// The left operand of that add is `6 bits & "000"` = a **9-bit** UNSIGNED,
+/// and `numeric_std`'s `"+"(UNSIGNED, NATURAL) return UNSIGNED` yields a
+/// result of the LEFT operand's width — so the add is evaluated modulo 2^9,
+/// in the same 9-bit domain as the `hcount_i` it is compared against.
+///
+/// That truncation is observable at the top of the hpos range: hpos=63 gives
+/// 504 + 12 = 516, which WRAPS to 4, so the WAIT fires almost immediately
+/// rather than never (GH #182).
 static inline int wait_hpos_threshold(uint16_t instr) {
     int hpos_6bit = (instr >> 9) & 0x3F;
-    return (hpos_6bit << 3) + 12;
+    // (hpos & "000") already occupies the full 9 bits; the +12 wraps in it.
+    return ((hpos_6bit << 3) + 12) & ((1 << kHcountBits) - 1);
 }
 
 /// WAIT instruction: vpos is bits [8:0] (9 bits).
