@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <memory>
@@ -990,6 +991,199 @@ static void test_reset_domain_e3_and_8c() {
               fmt("pre_mmu=0x%02X post_mmu=0x%02X post_reg=0x%02X "
                   "(expected 0x30,0x30,0x30)",
                   pre_mmu, post_mmu, post_reg));
+    }
+
+    // CMG-01/02 (GH #197) — the two CLAUSES of the init() config-mode gate.
+    //
+    // RSTD-04-05 below covers the POSITIVE case: enter the gate, check what it
+    // pushes. That pins the pushed VALUE and cannot pin the CONDITION — a row
+    // that enters the gate says nothing about a machine that must NOT enter it.
+    // The gate is `cfg.type == ZXN_ISSUE2 && mmu_.boot_rom_enabled()`, and
+    // dropping EITHER clause escaped the whole suite (both found by review:
+    // the boot-ROM clause during #195, the machine-type clause during #197).
+    // One negative row per clause.
+    //
+    // Why arming the mirror is WRONG here, measured rather than assumed: a
+    // `--load` NEX/TAP/TZX start leaves slots 0/1 exactly as Mmu::reset()'s
+    // map_rom_physical() left them — ROM, read_only_[slot] TRUE. The loaders
+    // never remap them: NexLoader::write_to_page() (nex_loader.cpp:154-169) and
+    // its sna/szx siblings write every bank through a temporarily-remapped slot
+    // 7. So the config_mode branch's read_only_[slot] guard is SATISFIED, and
+    // an armed mirror really does reroute ROM-slot accesses into SRAM
+    // (zxnext.vhd:3044-3050). Both rows therefore assert the CONSEQUENCE, not
+    // just the flag: a write into the ROM window must be DROPPED.
+    //
+    // (Two earlier revisions of this comment guessed at why palette-demo renders
+    // pixel-identical with the gate widened, and both were WRONG: first "a NEX
+    // start maps RAM into the low slots" — they are ROM — then "the demo never
+    // touches 0x0000-0x3FFF" — instrumenting Mmu::read/write over the real
+    // invocation counts tens of thousands of reads and ZERO writes there, the
+    // IM1 handler running the ROM ISR every frame (the exact count is
+    // window-dependent, 45k-220k across four measurements; the zero is not). The measured reason: on every one of those reads
+    // the config-mode page (nr_04_romram_bank_<<1)|slot and the normal ROM page
+    // (current_sram_rom()<<1)|slot are the SAME physical page, both indices
+    // still 0, so the widened gate reroutes the path but not the content — 0
+    // mismatches in every window measured, by two people. A green screenshot
+    // is evidence about one
+    // program, not about a mechanism.)
+
+    // CMG-01 — the `mmu_.boot_rom_enabled()` clause. A Next start with NO boot
+    // ROM is the `--load` case: no firmware drives NR 0x03, so the NextReg
+    // latch keeps its zxnext.vhd:1102 power-on '1' while the Mmu mirror must
+    // stay at its own power-on false. The mirrors DISAGREEING is correct here.
+    {
+        Emulator emu;
+        build_next_emulator(emu);       // ZXN_ISSUE2, no boot ROM
+        const bool boot_rom = emu.mmu().boot_rom_enabled();
+        const bool latch    = emu.nextreg().nr_03_config_mode();
+        const bool mirror   = emu.mmu().config_mode();
+        const bool rom_slot = emu.mmu().is_slot_rom(0);
+        emu.mmu().write(0x0000, 0x42);  // into the ROM window
+        const uint8_t readback = emu.mmu().read(0x0000);
+        check("CMG-01",
+              "a Next start with NO boot ROM leaves the Mmu config_mode mirror "
+              "at its power-on false though the NextReg latch still reads its "
+              "power-on '1' [zxnext.vhd:1102], so a write into the still-ROM "
+              "low slot is DROPPED instead of being rerouted into SRAM "
+              "[zxnext.vhd:3044-3050]",
+              !boot_rom && latch && !mirror && rom_slot && readback != 0x42,
+              fmt("boot_rom_enabled=%d latch=%d mirror=%d is_slot_rom(0)=%d "
+                  "read(0x0000)=0x%02X (expected 0,1,0,1,not 0x42)",
+                  boot_rom ? 1 : 0, latch ? 1 : 0, mirror ? 1 : 0,
+                  rom_slot ? 1 : 0, readback));
+    }
+
+    // CMG-02 — the `cfg.type == MachineType::ZXN_ISSUE2` clause. Re-init a
+    // machine as NON-Next while a boot ROM is loaded and enabled, so the OTHER
+    // clause is satisfied and only the machine-type check can hold the gate
+    // shut. The mirrors are driven apart first (latch cleared by an NR 0x03
+    // write while still Next, per zxnext.vhd:5122; mirror left true) so a gate
+    // that wrongly fires would pull the mirror DOWN to the latch — visible.
+    //
+    // EVERY non-Next value is exercised, not just one. A single negative value
+    // is not enough: `!= MachineType::ZX128K` reproduces the exact truth table
+    // of a one-value row (true for ZXN_ISSUE2, false for ZX128K) while silently
+    // admitting ZX48K and ZX_PLUS3, and escaped the whole suite when review
+    // tried it. The loop is over the enum's full non-Next set
+    // (contention.h:5) so adding a machine type without extending it is the
+    // only way back to that hole.
+    //
+    // Caveat, so the row is not read as more than it is: re-init()ing the SAME
+    // Emulator to a different cfg.type is a WHITE-BOX exercise of
+    // Emulator::init()'s own contract, not a reproduction of an organically
+    // reachable state — every real machine-type change goes through
+    // emulator_cold_boot() (platform/emulator_boot.h), which destroys and
+    // reconstructs the Emulator, so boot_rom_/config_mode_ are back at class
+    // defaults before init() sees the new type. RSTD-04-05 sets internal state
+    // through setters for the same reason.
+    {
+        struct NonNext { MachineType type; const char* name; };
+        const NonNext non_next[] = {
+            { MachineType::ZX48K,    "ZX48K"    },
+            { MachineType::ZX128K,   "ZX128K"   },
+            { MachineType::ZX_PLUS3, "ZX_PLUS3" },
+        };
+        bool all_ok = true;
+        char detail[256];
+        detail[0] = '\0';
+        for (const auto& nn : non_next) {
+            Emulator emu;
+            build_next_emulator(emu);       // start as Next so NR 0x03 is wired
+            nr_write(emu, 0x03, 0x03);      // clears the NextReg config_mode latch
+            static uint8_t fake_boot_rom[8192] = {};
+            emu.mmu().set_boot_rom(fake_boot_rom, sizeof(fake_boot_rom));
+            emu.mmu().set_config_mode(true);
+            emu.mmu().set_boot_rom_enabled(true);
+
+            EmulatorConfig cfg;
+            cfg.type = nn.type;
+            cfg.rewind_buffer_frames = 0;
+            emu.init(cfg);
+
+            // boot_rom_armed proves the boot-ROM clause was TRUE across the
+            // re-init, so each iteration really isolates the machine-type clause.
+            const bool boot_rom_armed = emu.mmu().boot_rom_enabled();
+            const bool latch          = emu.nextreg().nr_03_config_mode();
+            const bool mirror         = emu.mmu().config_mode();
+            emu.mmu().set_boot_rom(nullptr, 0);
+
+            const bool ok = boot_rom_armed && !latch && mirror;
+            if (!ok) all_ok = false;
+            char one[80];
+            snprintf(one, sizeof(one), "%s:armed=%d,latch=%d,mirror=%d%s ",
+                     nn.name, boot_rom_armed ? 1 : 0, latch ? 1 : 0,
+                     mirror ? 1 : 0, ok ? "" : "<<FAIL");
+            strncat(detail, one, sizeof(detail) - strlen(detail) - 1);
+        }
+        check("CMG-02",
+              "NO non-Next machine type runs the config-mode resync, even with a "
+              "boot ROM enabled: the gate's machine-type clause holds it shut for "
+              "every value in the enum's non-Next set [contention.h:5], so the Mmu "
+              "mirror keeps its own value instead of following the NextReg latch "
+              "[zxnext.vhd:1102,5122]",
+              all_ok,
+              fmt("%s(each expected armed=1,latch=0,mirror=1)", detail));
+    }
+
+    // CMG-03 — the gate must run AFTER the subsystem resets that establish its
+    // own inputs. CMG-01/02 pin the two CLAUSES; neither pins the block's
+    // POSITION. Relocating it above `mmu_.reset()` / `nextreg_.reset()` escaped
+    // all 6565 unit rows AND two real NextZXOS boot screenshots at 0 px (found
+    // by review, third escape in three rounds on this one `if`).
+    //
+    // It hides so well because a SECOND, ungated push exists: the live NR 0x03
+    // write handler (emulator.cpp, `mmu_.set_config_mode(nextreg_...)` with no
+    // cfg.type / boot_rom_enabled() test) re-syncs the mirror on every NR 0x03
+    // write, and real firmware writes NR 0x03 within frame 0 of a genuine
+    // SD-card boot (measured with a first-call probe, value=0xB0). So any
+    // firmware path masks the init-time value almost immediately.
+    //
+    // The window that DOES depend on this block is an SD-card Next boot (no
+    // `--load`) whose overlay must be re-armed across a reset — NOT `--load`:
+    // init() calls set_boot_rom() only when cfg.load_file.empty()
+    // (emulator.cpp:6082), so a --load run keeps boot_rom_ == nullptr, the
+    // re-arm can never fire, and CMG-01's clause covers that case alone. Once
+    // CMG-01/02 exist, only this block's ORDERING is left unpinned.
+    //
+    // This is an emulator-internal ordering contract, not a VHDL behaviour: the
+    // VHDL has one signal and no init() to order. The row is here because the
+    // ordering is load-bearing for a real path, not because a mutation existed.
+    //
+    // Construction: leave boot_rom_en_ FALSE going in, so it is `Mmu::reset()`'s
+    // re-arm (mmu.cpp:179, `if (boot_rom_ && config_mode_) boot_rom_en_ = true`)
+    // that makes the gate's own clause true. A block running before that reset
+    // reads the stale false, skips, and leaves the mirror at its pre-init value
+    // — which is driven to disagree with the latch on purpose.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x03, 0x03);          // latch -> false
+        static uint8_t fake_boot_rom[8192] = {};
+        emu.mmu().set_boot_rom(fake_boot_rom, sizeof(fake_boot_rom));
+        emu.mmu().set_config_mode(true);    // mirror true, disagreeing with the latch
+        emu.mmu().set_boot_rom_enabled(false);  // ONLY Mmu::reset() can arm it
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        const bool armed_after = emu.mmu().boot_rom_enabled();
+        const bool latch       = emu.nextreg().nr_03_config_mode();
+        const bool mirror      = emu.mmu().config_mode();
+        emu.mmu().set_boot_rom(nullptr, 0);
+
+        check("CMG-03",
+              "the init() config-mode resync observes the POST-reset boot-ROM "
+              "state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM "
+              "+ config_mode [mmu.cpp:179], and the gate must run after that, so "
+              "the mirror follows the NextReg latch down instead of keeping its "
+              "stale pre-init value",
+              armed_after && !latch && !mirror,
+              fmt("boot_rom_enabled_after_init=%d latch=%d mirror=%d "
+                  "(expected 1,0,0; mirror=1 means the gate ran before "
+                  "Mmu::reset() armed its own input)",
+                  armed_after ? 1 : 0, latch ? 1 : 0, mirror ? 1 : 0));
     }
 
     // RSTD-04-05 — the boot-ROM-gated resync block in Emulator::init().
