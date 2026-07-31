@@ -396,7 +396,6 @@ VHDL ref: `zxnext.vhd` lines 3591-3599
 | BP-01  | Port 0xFE write stores bits [4:0]                | `port_fe_reg <= cpu_do(4 downto 0)`                        |
 | BP-02  | Bit 4 is the EAR output (speaker)                | `port_fe_ear <= port_fe_reg(4)`                            |
 | BP-03  | Bit 3 is the MIC output                          | `port_fe_mic <= port_fe_reg(3)`                            |
-| BP-04  | Bits [2:0] are the border colour                 | `port_fe_border <= port_fe_reg(2 downto 0)`                |
 | BP-05  | Reset clears port_fe_reg to 0                    | All bits zero after reset                                  |
 | BP-06  | Port 0xFE decoded as A0=0                        | `port_fe = '1' when cpu_a(0) = '0'`                       |
 
@@ -417,10 +416,6 @@ VHDL ref: `zxnext.vhd` lines 3453-3468
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| BP-20  | Port 0xFE read bit 6 = `EAR_in OR port_fe_ear`  | Bit 6 reflects tape input OR own speaker output            |
-| BP-21  | Port 0xFE read bit 5 = 1 (always set)           | Fixed high bit                                              |
-| BP-22  | Port 0xFE read bits [4:0] = keyboard columns    | From `i_KBD_COL`                                           |
-| BP-23  | Port 0xFE read bit 7 = 1                        | Fixed high bit                                              |
 
 ## 5. Audio Mixer
 

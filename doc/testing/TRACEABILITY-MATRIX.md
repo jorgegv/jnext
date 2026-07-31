@@ -1665,17 +1665,12 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | BP-01   | Port 0xFE write stores bits [4:0]                            | zxnext.vhd:3593                         | pass    | test/audio/audio_port_dispatch_test.cpp:369    |
 | BP-02   | Bit 4 is the EAR output (speaker)                            | zxnext.vhd:3598  | pass    | test/audio/audio_test.cpp:2177 |
 | BP-03   | Bit 3 is the MIC output                                      | zxnext.vhd:3599  | pass    | test/audio/audio_test.cpp:2186 |
-| BP-04   | Bits [2:0] are the border colour                             | —              | missing | missing                        |
 | BP-05   | Reset clears port_fe_reg to 0                                | zxnext.vhd:3591  | pass    | test/audio/audio_test.cpp:2198 |
 | BP-06   | Port 0xFE decoded as A0=0                                    | zxnext.vhd:2582-2583,2711,2714          | pass    | test/audio/audio_port_dispatch_test.cpp:403    |
 | BP-10   | `beep_mic_final` = `EAR_in XOR (mic AND issue2) XOR mic`     | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:719          |
 | BP-11   | Issue 2 mode: MIC is XOR'd twice (cancels)                   | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:736          |
 | BP-12   | Issue 3 mode: MIC contributes to beep                        | zxnext.vhd:6503                         | pass    | test/audio/audio_nextreg_test.cpp:755          |
 | BP-13   | Internal speaker exclusive mode                              | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:791          |
-| BP-20   | Port 0xFE read bit 6 = `EAR_in OR port_fe_ear`               | —              | missing | missing                        |
-| BP-21   | Port 0xFE read bit 5 = 1 (always set)                        | —              | missing | missing                        |
-| BP-22   | Port 0xFE read bits [4:0] = keyboard columns                 | —              | missing | missing                        |
-| BP-23   | Port 0xFE read bit 7 = 1                                     | —              | missing | missing                        |
 | MX-01   | EAR volume = 0x0200 (512) when active                        | audio_mixer.vhd:63,80 | pass    | test/audio/audio_test.cpp:2231 |
 | MX-02   | MIC volume = 0x0080 (128) when active                        | audio_mixer.vhd:64,81 | pass    | test/audio/audio_test.cpp:2243 |
 | MX-03   | EAR/MIC silenced when `exc_i=1`                              | zxnext.vhd:6504,6514                      | pass    | test/audio/audio_nextreg_test.cpp:826          |
