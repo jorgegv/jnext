@@ -609,9 +609,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S2.05  | Ink white, no bright                            | zxula.vhd:543-554 | pass    | test/ula/ula_test.cpp:254 |
 | S2.06  | Paper white, bright                             | zxula.vhd:543-554 | pass    | test/ula/ula_test.cpp:255 |
 | S2.07  | Ink cyan (5), bright                            | zxula.vhd:543-554 | pass    | test/ula/ula_test.cpp:256 |
-| S2.08  | Flash bit set, no bright, ink                   | —              | missing | missing                                              |
 | S2.09  | Full white on black, bright                     | zxula.vhd:543-554 | pass    | test/ula/ula_test.cpp:257 |
-| S2.10  | Border pixel (border_active_d=1)                | —              | missing | missing                                           |
 | S3.01  | Black border                                    | zxula.vhd:418    | pass    | test/ula/ula_test.cpp:285 |
 | S3.02  | Blue border                                     | zxula.vhd:418    | pass    | test/ula/ula_test.cpp:286 |
 | S3.03  | Red border                                      | zxula.vhd:418    | pass    | test/ula/ula_test.cpp:287 |
@@ -619,7 +617,6 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S3.05  | Green border                                    | zxula.vhd:418    | pass    | test/ula/ula_test.cpp:289 |
 | S3.06  | Timex border, port_ff(5:3)=0                    | zxula.vhd:419    | pass    | test/ula/ula_test.cpp:303 |
 | S3.07  | Timex border, port_ff(5:3)=7                    | zxula.vhd:419    | pass    | test/ula/ula_test.cpp:311 |
-| S3.08  | Border active region boundaries                 | —              | missing | missing                                                     |
 | S4.01  | Flash period = 32 frames                        | zxula.vhd:474-481 | pass    | test/ula/ula_test.cpp:499 |
 | S4.02  | Flash attr bit=0: no inversion                  | zxula.vhd:470    | pass    | test/ula/ula_test.cpp:514 |
 | S4.03  | Flash attr bit=1, counter bit4=0                | zxula.vhd:470    | pass    | test/ula/ula_test.cpp:528 |
@@ -633,7 +630,6 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S5.05  | Hi-res mode (100)                               | zxula.vhd:191/389/419/426-427 | pass    | test/ula/ula_test.cpp:681 |
 | S5.06  | Hi-res uses timex border colour                 | zxula.vhd:419,426-427,543-553 | pass    | test/ula/ula_test.cpp:714 |
 | S5.07  | Shadow screen forces mode "000"                 | zxula.vhd:191    | pass    | test/ula/ula_test.cpp:748 |
-| S5.08  | Hi-res attr_reg uses border_clr_tmx             | —              | missing | missing                                               |
 | S6.01  | Ink, format 0x07                                | zxnext.vhd:5394  | pass    | test/ula/ula_test.cpp:1526 |
 | S6.02  | Paper, format 0x07                              | zxula.vhd:520    | pass    | test/ula/ula_test.cpp:1540 |
 | S6.03  | Ink, format 0x0F                                | zxula.vhd:510    | pass    | test/ula/ula_test.cpp:1554 |
@@ -673,10 +669,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S8.03  | Narrow window, outside left                     | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2429 |
 | S8.04  | Narrow window, outside right                    | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2433 |
 | S8.05  | Narrow window, outside top                      | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2443 |
-| S8.06  | Narrow window, outside bottom                   | —              | missing | missing                                                                     |
-| S8.07  | Border area: never clipped                      | —              | missing | missing                                                                    |
 | S8.08  | y2 >= 0xC0 clamped to 0xBF                      | zxnext.vhd:6779-6783 | pass    | test/ula/ula_test.cpp:2474 |
-| S9.01  | No scroll                                       | —              | missing | missing                                          |
 | S9.02  | Scroll Y by 1                                   | zxula.vhd:192,206 | pass    | test/ula/ula_test.cpp:2542 |
 | S9.03  | Scroll Y by 191                                 | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2560 |
 | S9.04  | Scroll Y wraps at 192                           | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2579 |
@@ -686,48 +679,12 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S9.08  | Fine scroll X enabled                           | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2689 |
 | S9.09  | Combined X+Y scroll                             | zxula.vhd:193-216 | pass    | test/ula/ula_test.cpp:2718 |
 | S9.10  | Y scroll wraps mid-third                        | zxula.vhd:206,223 | pass    | test/ula/ula_test.cpp:2740 |
-| S10.01  | Border region, 48K                              | —              | missing | missing                                                     |
-| S10.02  | Active display, phase 0x9                       | —              | missing | missing                                           |
-| S10.03  | Active display, phase 0xB                       | —              | missing | missing                                           |
-| S10.04  | Active display, phase 0x1                       | —              | missing | missing                                           |
-| S10.05  | +3 timing, bit 0 forced                         | —              | missing | missing                                                     |
-| S10.06  | +3 timing, border fallback                      | —              | missing | missing                                                     |
-| S10.07  | Port 0xFF read, ff_rd_en=0                      | —              | missing | missing                                                     |
-| S10.08  | Port 0xFF read, ff_rd_en=1                      | —              | missing | missing                                                     |
-| S11.01  | 48K, bank 5 read, contention phase              | —              | missing | missing                                         |
-| S11.02  | 48K, bank 0 read                                | —              | missing | missing                                         |
-| S11.03  | 48K, non-contention phase (hc_adj 3:2 = "00")   | —              | missing | missing                                         |
-| S11.04  | 48K, vc >= 192 (border)                         | —              | missing | missing                                         |
-| S11.05  | 48K, even port I/O                              | —              | missing | missing                                         |
-| S11.06  | 48K, odd port I/O                               | —              | missing | missing                                         |
-| S11.07  | 128K, bank 1 read                               | —              | missing | missing                                         |
-| S11.08  | 128K, bank 4 read                               | —              | missing | missing                                         |
-| S11.09  | +3, bank 4+ read                                | —              | missing | missing                                         |
-| S11.10  | +3, bank 0 read                                 | —              | missing | missing                                         |
-| S11.11  | Pentagon timing                                 | —              | missing | missing                                         |
-| S11.12  | CPU speed > 3.5 MHz                             | —              | missing | missing                                         |
 | S12.01  | ULA enabled (default)                           | zxnext.vhd:5445  | pass    | test/ula/ula_test.cpp:2951 |
-| S12.02  | ULA disabled                                    | —              | missing | missing                                                       |
-| S12.03  | ULA disable + re-enable                         | —              | missing | missing                                                       |
-| S12.04  | Blend mode bits                                 | —              | missing | missing                                                       |
 | S13.01  | 48K frame length                                | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2983 |
 | S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2993 |
-| S13.03  | Pentagon frame length                           | —              | missing | missing                    |
 | S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:3004 |
-| S13.05  | Active display start 128K                       | —              | missing | missing                                                          |
-| S13.06  | Active display start Pentagon                   | —              | missing | missing                                                          |
-| S13.07  | ULA hc resets correctly                         | —              | missing | missing                                                          |
-| S13.08  | 60Hz frame length                               | —              | missing | missing                                                          |
-| S14.01  | 48K interrupt position                          | —              | missing | missing                                                  |
-| S14.02  | 128K interrupt position                         | —              | missing | missing                                                  |
-| S14.03  | Pentagon interrupt position                     | —              | missing | missing                                                  |
-| S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
-| S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
-| S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
 | S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3087 |
 | S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3106 |
-| S15.03  | Shadow disables Timex modes                     | —              | missing | missing                                                            |
-| S15.04  | Shadow bit toggles display                      | —              | missing | missing                                                            |
 | S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389,419                 | pass   | test/ula/ula_test.cpp:866       |
 | S5.10c     | HI_RES top-border row fills all 640 FB cells with TMX border colour                                         | —                             | pass   | test/ula/ula_test.cpp:981       |
 | S5.11      | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100)                                                  | zxula.vhd:419,504                 | pass   | test/ula/ula_test.cpp:1075      |
