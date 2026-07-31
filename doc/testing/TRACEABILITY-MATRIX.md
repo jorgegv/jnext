@@ -2419,8 +2419,8 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | DUAL-02 | Independent prescalers                                       | uart.vhd:282-286,355,371 | pass    | test/uart/uart_test.cpp:1309 |
 | DUAL-03 | Independent frame registers                                  | uart.vhd:300-305 | pass    | test/uart/uart_test.cpp:1324 |
 | DUAL-04 | Independent status registers                                 | uart.vhd:346-378 | pass    | test/uart/uart_test.cpp:1337 |
-| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | zxnext.vhd       | pass    | test/uart/uart_integration_test.cpp:628 |
-| DUAL-06 | Joystick UART mode multiplexing                              | zxnext.vhd:3340-3341 | pass    | test/uart/uart_integration_test.cpp:677 |
+| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | zxnext.vhd       | pass    | test/uart/uart_integration_test.cpp:629 |
+| DUAL-06 | Joystick UART mode multiplexing                              | zxnext.vhd:3340-3341 | pass    | test/uart/uart_integration_test.cpp:678 |
 | I2C-01  | Reset state: SCL = 1, SDA = 1 (both released)                | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1372 |
 | I2C-02  | Write 0x00 to port 0x103B                                    | zxnext.vhd:3237-3238 | pass    | test/uart/uart_test.cpp:1384 |
 | I2C-03  | Write 0x01 to port 0x103B                                    | zxnext.vhd:3237-3238 | pass    | test/uart/uart_test.cpp:1396 |
@@ -2430,7 +2430,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | I2C-07  | Read port 0x113B                                             | zxnext.vhd:3266  | pass    | test/uart/uart_test.cpp:1441 |
 | I2C-08  | Only bit 0 is significant for write                          | zxnext.vhd:3238  | pass    | test/uart/uart_test.cpp:1453 |
 | I2C-09  | Bits 7:1 always read as 1                                    | zxnext.vhd:3259,3266 | pass    | test/uart/uart_test.cpp:1467 |
-| I2C-10  | I2C port enable gated by internal_port_enable(10)            | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:569 |
+| I2C-10  | I2C port enable gated by internal_port_enable(10)            | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:570 |
 | I2C-11  | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0          | zxnext.vhd:3259  | pass    | test/uart/uart_test.cpp:1496 |
 | I2C-12  | Reset releases both lines                                    | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1511 |
 | I2C-13  | NR 0xA0 bit 3 (pi_i2c1_en) gates GPIO 2/3 -> I2C1 wired-AND mux (G138)                                  | zxnext.vhd:2280,2309-2318               | pass    | test/uart/uart_test.cpp:1542 |
@@ -2459,19 +2459,19 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | RTC-16  | Clock halt bit (seconds register bit 7)                      | —              | pass    | test/uart/uart_test.cpp:1976 |
 | RTC-17  | NVRAM registers 0x08-0x3F (56 bytes)                         | —              | pass    | test/uart/uart_test.cpp:2008 |
 | RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | i2c.cpp:111                             | pass    | test/uart/uart_test.cpp:2059 |
-| INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:174 |
-| INT-02  | UART 0 RX near-full always triggers                          | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass    | test/uart/uart_integration_test.cpp:203 |
-| INT-03  | UART 1 RX interrupt: same logic as UART 0                    | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:221 |
-| INT-04  | UART 0 TX empty interrupt                                    | zxnext.vhd:1942,1950 | pass    | test/uart/uart_integration_test.cpp:237 |
-| INT-05  | UART 1 TX empty interrupt                                    | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:263 |
-| INT-06  | Interrupt enable controlled by NextREG 0xC6                  | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:279 |
-| INT-07  | Asymmetric vector-1 enable: NR 0xC6 b1=1, b0=0 -> UART0 RX vector fires on near-full only (G134)        | zxnext.vhd:1941-1944; uart.cpp:626-630  | pass    | test/uart/uart_integration_test.cpp:320 |
-| GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420,2392 | pass    | test/uart/uart_integration_test.cpp:398 |
-| GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:447 |
-| GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:540 |
-| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:5080,6188-6189                 | pass    | test/uart/uart_integration_test.cpp:1143 |
-| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:1172 |
-| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:1203 |
+| INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:175 |
+| INT-02  | UART 0 RX near-full always triggers                          | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass    | test/uart/uart_integration_test.cpp:204 |
+| INT-03  | UART 1 RX interrupt: same logic as UART 0                    | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:222 |
+| INT-04  | UART 0 TX empty interrupt                                    | zxnext.vhd:1942,1950 | pass    | test/uart/uart_integration_test.cpp:238 |
+| INT-05  | UART 1 TX empty interrupt                                    | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:264 |
+| INT-06  | Interrupt enable controlled by NextREG 0xC6                  | zxnext.vhd:1941,1949 | pass    | test/uart/uart_integration_test.cpp:280 |
+| INT-07  | Asymmetric vector-1 enable: NR 0xC6 b1=1, b0=0 -> UART0 RX vector fires on near-full only (G134)        | zxnext.vhd:1941-1944; uart.cpp:626-630  | pass    | test/uart/uart_integration_test.cpp:321 |
+| GATE-01 | UART port enable (internal_port_enable bit 12)               | zxnext.vhd:2420,2392 | pass    | test/uart/uart_integration_test.cpp:399 |
+| GATE-02 | I2C port enable (internal_port_enable bit 10)                | zxnext.vhd:2418,2392 | pass    | test/uart/uart_integration_test.cpp:448 |
+| GATE-03 | Enable controlled by NextREG 0x82-0x85                       | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:541 |
+| NR_A0-01 | Reset default NR 0xA0 reads 0x00 (all routes off) (G135)                                                | zxnext.vhd:5080,6188-6189                 | pass    | test/uart/uart_integration_test.cpp:1224 |
+| NR_A0-02 | Write NR 0xA0=0x10 (b4): pi_uart_en asserted; UART1 RX/TX exposed to Pi GPIO (G135)                     | zxnext.vhd                              | pass    | test/uart/uart_integration_test.cpp:1253 |
+| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)                                            | zxnext.vhd:2278-2281                    | pass    | test/uart/uart_integration_test.cpp:1284 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -2479,28 +2479,28 @@ Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, du
 
 | Test ID    | Plan row title                                                          | VHDL file:line             | Status | Test file:line                              |
 |------------|-------------------------------------------------------------------------|----------------------------|--------|---------------------------------------------|
-| INT-01     | Bare UART RX → IM2 vector chain                                         | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:174     |
-| INT-02     | Bare UART TX → IM2 vector chain                                         | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass    | test/uart/uart_integration_test.cpp:203     |
-| INT-03     | UART0 + UART1 share IM2 vector multiplex                                | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:221     |
-| INT-04     | UART RX overflow does not crash IM2 chain                               | zxnext.vhd:1942,1950         | pass    | test/uart/uart_integration_test.cpp:237     |
-| INT-05     | UART RX FIFO half-full triggers IM2                                     | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:263     |
-| INT-06     | UART TX FIFO empty triggers IM2                                         | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:279     |
-| GATE-01    | NR 0x82 b1 (port_7ffd_io_en) gates port-7FFD writes                     | zxnext.vhd:2420,2392         | pass    | test/uart/uart_integration_test.cpp:398     |
-| GATE-02    | NR 0x82 b0 gates port-FE attribute writes                               | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:447     |
-| GATE-03    | NR 0x84 DAC-port-pair enables                                           | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:540     |
-| I2C-10     | DS1307 RTC read at 0x68 returns BCD-encoded snapshot                    | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:569     |
-| DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:628     |
-| DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:677     |
-| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:1203    |
-| DEV-01     | UartDevice attach diverts channel TX to the device and suppresses loopback | zxnext.vhd:1611,3381       | pass    | test/uart/uart_integration_test.cpp:750     |
-| DEV-02     | UartDevice guest-bound sink injects via inject_rx; IM2 follows the NR 0xC6 mask | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:802     |
-| DEV-03     | detach_device restores loopback and clears the device's RxSink          | —                        | pass    | test/uart/uart_integration_test.cpp:839     |
-| DEV-04     | Device attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) stay separate | zxnext.vhd:3343-3344       | pass    | test/uart/uart_integration_test.cpp:910     |
-| DEV-05     | An attached UartDevice takes precedence over the on_tx_byte observer hook | —                        | pass    | test/uart/uart_integration_test.cpp:875     |
-| ESP-01     | UART 0 TX egresses to the REAL emulated ESP-01, which answers, not to the channel loopback (G39) | zxnext.vhd:1611-1612,3381 | pass    | test/uart/uart_integration_test.cpp:1008 |
-| ESP-02     | The real ESP's reply lands in the UART 0 RX FIFO and raises UART0_RX under the NR 0xC6 mask (G39) | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:1040 |
-| ESP-03     | NR 0x02 b7 (o_RESET_PERIPHERAL) latches and reads back; v1.0 drives NO device reset (design doc §4.2) | zxnext.vhd:5119,1579 | pass    | test/uart/uart_integration_test.cpp:1085 |
-| ESP-04     | With no ESP backend attached, UART 0 keeps its loopback unchanged (G39)  | —                        | pass    | test/uart/uart_integration_test.cpp:1107 |
+| INT-01     | Bare UART RX → IM2 vector chain                                         | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:175     |
+| INT-02     | Bare UART TX → IM2 vector chain                                         | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass    | test/uart/uart_integration_test.cpp:204     |
+| INT-03     | UART0 + UART1 share IM2 vector multiplex                                | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:222     |
+| INT-04     | UART RX overflow does not crash IM2 chain                               | zxnext.vhd:1942,1950         | pass    | test/uart/uart_integration_test.cpp:238     |
+| INT-05     | UART RX FIFO half-full triggers IM2                                     | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:264     |
+| INT-06     | UART TX FIFO empty triggers IM2                                         | zxnext.vhd:1941,1949         | pass    | test/uart/uart_integration_test.cpp:280     |
+| GATE-01    | NR 0x82 b1 (port_7ffd_io_en) gates port-7FFD writes                     | zxnext.vhd:2420,2392         | pass    | test/uart/uart_integration_test.cpp:399     |
+| GATE-02    | NR 0x82 b0 gates port-FE attribute writes                               | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:448     |
+| GATE-03    | NR 0x84 DAC-port-pair enables                                           | zxnext.vhd:2412,2418,2420,2392 | pass    | test/uart/uart_integration_test.cpp:541     |
+| I2C-10     | DS1307 RTC read at 0x68 returns BCD-encoded snapshot                    | zxnext.vhd:2418,2392         | pass    | test/uart/uart_integration_test.cpp:570     |
+| DUAL-05    | Dual-UART pin-routing assertion (tautological — pins not visible)       | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:629     |
+| DUAL-06    | Pin-7 multiplexed across UART/Joystick/CTC                              | zxnext.vhd                 | pass    | test/uart/uart_integration_test.cpp:678     |
+| NR_A0-03   | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 (G135)            | zxnext.vhd:2278-2281       | pass    | test/uart/uart_integration_test.cpp:1284    |
+| DEV-01     | UartDevice attach diverts channel TX to the device and suppresses loopback | zxnext.vhd:1611,3381       | pass    | test/uart/uart_integration_test.cpp:751     |
+| DEV-02     | UartDevice guest-bound sink injects via inject_rx; IM2 follows the NR 0xC6 mask | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:803     |
+| DEV-03     | detach_device restores loopback and clears the device's RxSink          | —                        | pass    | test/uart/uart_integration_test.cpp:840     |
+| DEV-04     | Device attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) stay separate | zxnext.vhd:3343-3344       | pass    | test/uart/uart_integration_test.cpp:911     |
+| DEV-05     | An attached UartDevice takes precedence over the on_tx_byte observer hook | —                        | pass    | test/uart/uart_integration_test.cpp:876     |
+| ESP-01     | UART 0 TX egresses to the REAL emulated ESP-01, which answers, not to the channel loopback (G39) | zxnext.vhd:1611-1612,3381 | pass    | test/uart/uart_integration_test.cpp:1081 |
+| ESP-02     | The real ESP's reply lands in the UART 0 RX FIFO and raises UART0_RX under the NR 0xC6 mask (G39) | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:1113 |
+| ESP-03     | NR 0x02 b7 (o_RESET_PERIPHERAL) latches and reads back; v1.0 drives NO device reset (design doc §4.2) | zxnext.vhd:5119,1579 | pass    | test/uart/uart_integration_test.cpp:1163 |
+| ESP-04     | With no ESP backend attached, UART 0 keeps its loopback unchanged (G39)  | —                        | pass    | test/uart/uart_integration_test.cpp:1188 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 
